@@ -40,6 +40,7 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.polview.models.cl_polrec.policy_translations import RATE_CLASS_CODES
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     MARKET_INDEX_BY_FUND,
@@ -72,15 +73,16 @@ _NICOTINE_CLASSES = {"S", "Q"}
 # TODO: verify the '#4/#5/#6' -> ABR terminal/critical/chronic mapping against
 # live data — the engine treats '#' benefits as administrative.
 _BENEFIT_NAMES = {
-    "39": "PREMIUM WAIVER",
-    "3#": "STIPULATED PREMIUM WAIVER",
-    "76": "GUARANTEED INCREASE OPTION",
     "#4": "ACCELERATED RIDER TERMINAL ILLNESS",
     "#5": "ACCELERATED RIDER CRITICAL ILLNESS",
     "#6": "ACCELERATED RIDER CHRONIC ILLNESS",
 }
 _BENEFIT_TYPE_NAMES = {
+    "U": "COST OF LIVING ADJUSTMENT BENEFIT",
     "A": "CONTINUOUS COVERAGE RIDER",
+    "1": "ACCIDENTAL DEATH BENEFIT",
+    "3": "PREMIUM WAIVER",
+    "4": "STIPULATED PREMIUM WAIVER",
     "7": "GUARANTEED INCREASE OPTION",
 }
 
@@ -789,8 +791,11 @@ def _rider_lines(policy: IllustrationPolicyData) -> List[str]:
         if name and name not in names:
             names.append(name)
     for rider in policy.riders:
-        if rider.is_active and "TERM RIDER" not in names:
-            names.append("TERM RIDER")
+        if not rider.is_active:
+            continue
+        name = rider.description or "TERM RIDER"
+        if name not in names:
+            names.append(name)
     return names or ["NONE"]
 
 
@@ -1078,11 +1083,14 @@ def build_ul_report(
         ])
     report.insured_lines = [line for line in [policy.insured_name] if line]
     rated = "RATED " if (policy.base_segment and policy.base_segment.table_rating > 0) else ""
-    nicotine = (
-        "NICOTINE USER"
-        if (policy.rate_class or "").upper() in _NICOTINE_CLASSES
-        else "NON-NICOTINE USER"
-    )
+    class_code = (policy.rate_class or "").upper()
+    class_desc = RATE_CLASS_CODES.get(class_code, "")
+    if not class_desc:
+        class_desc = (
+            "NICOTINE USER"
+            if class_code in _NICOTINE_CLASSES
+            else "NON-NICOTINE USER"
+        )
     sex = {"M": "MALE", "F": "FEMALE"}.get((policy.rate_sex or "").upper(), "UNISEX")
     mode_label = _MODE_LABELS.get(policy.billing_frequency, "MONTHLY")
     issue_date_long = (
@@ -1110,7 +1118,7 @@ def build_ul_report(
         ("", ""),
         (f"ATTAINED AGE: {policy.attained_age}", ""),
         (f"SEX: {sex}", ""),
-        (f"{'PREMIUM CLASS:':<17}{rated}{nicotine}", ""),
+        (f"{'PREMIUM CLASS:':<17}{rated}{class_desc}", ""),
     ]
     if valuation and report.is_iul:
         report.av_basis_line = (

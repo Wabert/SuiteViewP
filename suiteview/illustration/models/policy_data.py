@@ -88,6 +88,7 @@ class RiderInfo:
     cov_type: str = ""
     cease_age_dur: Optional[int] = None
     cease_use_code: str = ""
+    description: str = ""
 
     @property
     def export_key(self) -> str:

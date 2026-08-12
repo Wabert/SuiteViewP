@@ -17,7 +17,7 @@ Structure:
 
 from __future__ import annotations
 
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import date
 from decimal import Decimal
 
@@ -660,6 +660,39 @@ class PolicyInformation:
         if total:
             return total
         return self.base_face_amount or Decimal("0")
+
+    @property
+    def primary_insured_db_layers(self) -> List[Tuple[Decimal, Optional[date]]]:
+        """Active death-benefit layers covering the primary insured, with expiry.
+
+        Returns a list of ``(face_amount, expiry_date)`` tuples — one per active
+        coverage that covers the primary insured (the base coverage plus any
+        level-term riders written on the primary insured). ``expiry_date`` is the
+        coverage's maturity/expiry date (``COV_MT_EXP_DT``); the base coverage
+        expires at policy maturity while a level-term rider expires at the end of
+        its level period, at which point its face drops out of the death benefit.
+
+        Mirrors :pyattr:`primary_insured_face_amount` (same coverage selection),
+        but preserves per-layer detail so consumers can project a declining death
+        benefit. Falls back to the base coverage when no per-insured coverage is
+        found.
+        """
+        layers: List[Tuple[Decimal, Optional[date]]] = []
+        for cov in self.get_coverages():
+            if not self._covers_primary_insured(cov):
+                continue
+            if not self._coverage_is_active(cov):
+                continue
+            if cov.face_amount:
+                layers.append((cov.face_amount, cov.maturity_date))
+
+        if layers:
+            return layers
+
+        covs = self.get_base_coverages()
+        if covs and covs[0].face_amount:
+            return [(covs[0].face_amount, covs[0].maturity_date)]
+        return []
 
     @property
     def total_death_benefit(self) -> Decimal:
@@ -2919,7 +2952,10 @@ class PolicyInformation:
         Returns:
             Sex code from renewal rates table
         """
-        idx = self.cov_renewal_index(cov_index, "C", str(joint_ind))
+        cov_pha_nbr = self._cov_phase_for_index(cov_index)
+        if cov_pha_nbr is None:
+            return ""
+        idx = self.cov_renewal_index(cov_pha_nbr, "C", str(joint_ind))
         if idx >= 0:
             return str(self.data_item("LH_COV_INS_RNL_RT", "RT_SEX_CD", idx) or "")
         return ""
@@ -2935,10 +2971,29 @@ class PolicyInformation:
         Returns:
             Rate class code from renewal rates table
         """
-        idx = self.cov_renewal_index(cov_index, "C", str(joint_ind))
+        cov_pha_nbr = self._cov_phase_for_index(cov_index)
+        if cov_pha_nbr is None:
+            return ""
+        idx = self.cov_renewal_index(cov_pha_nbr, "C", str(joint_ind))
         if idx >= 0:
             return str(self.data_item("LH_COV_INS_RNL_RT", "RT_CLS_CD", idx) or "")
         return ""
+    
+    def _cov_phase_for_index(self, cov_index: int) -> Optional[int]:
+        """Map a 1-based coverage index to its real COV_PHA_NBR.
+
+        Coverage phases are NOT guaranteed to be 1..N contiguous — terminated
+        coverages and interleaved riders leave gaps (e.g. 1, 5, 6, 7, 10, ...).
+        The renewal-rate lookup (cov_renewal_index) matches on the real
+        COV_PHA_NBR, so callers that pass a 1-based index must be translated
+        here first. (Passing the index straight through silently matched the
+        wrong renewal row — or none — yielding blank/wrong sex & rate class,
+        and in turn empty/wrong COI/EPU/SCR schedules for increase coverages.)
+        """
+        covs = self.get_coverages()
+        if not (0 < cov_index <= len(covs)):
+            return None
+        return covs[cov_index - 1].cov_pha_nbr
     
     def cov_band(self, cov_index: int) -> Optional[int]:
         """

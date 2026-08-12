@@ -55,6 +55,20 @@ def _charge_active(cease_date: date | None, projection_date: date | None) -> boo
     return projection_date < cease_date
 
 
+def _segment_matured(segment, projection_date: date | None) -> bool:
+    """Whether a base coverage segment has reached its own maturity date.
+
+    An increase segment issued off-anniversary (with a bumped issue age) can
+    mature before the policy. On/after its maturity date it stops accruing COI
+    and EPU charges instead of riding the last rate to the policy's maturity —
+    mirroring RERUN, whose per-coverage rate tables end at the coverage maturity.
+    """
+    if segment is None or projection_date is None:
+        return False
+    maturity_date = getattr(segment, "maturity_date", None)
+    return maturity_date is not None and projection_date >= maturity_date
+
+
 def _at_or_after_policy_maturity(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -212,6 +226,9 @@ def _ratchet_coi(
         # zero base rate.
         b1_rate = _adjusted_coi_rate(b1_raw, segment, config, projection_date, round_5=(index == 1)) if b1_raw else 0.0
         b2_rate = _adjusted_coi_rate(b2_raw, segment, config, projection_date, round_5=(index == 1)) if b2_raw else 0.0
+        if _segment_matured(segment, projection_date):
+            b1_rate = 0.0
+            b2_rate = 0.0
         b1_nar = band1_slots[index - 1]
         b2_nar = band2_slots[index - 1]
         charge = (b1_nar / 1000.0) * b1_rate + (b2_nar / 1000.0) * b2_rate
@@ -465,6 +482,8 @@ def calculate_deduction(
         segment_raw_coi = _rate_from_schedule(segment_schedule, segment_rate_year)
         segment_adjusted_coi = _adjusted_coi_rate(
             segment_raw_coi, segment, config, projection_date, round_5=(index == 1))
+        if _segment_matured(segment, projection_date):
+            segment_adjusted_coi = 0.0
         segment_coi_charge = (segment_nar / 1000.0) * segment_adjusted_coi
         if bln_round_charge:
             segment_coi_charge = _round_near(segment_coi_charge, 2)
@@ -517,6 +536,8 @@ def calculate_deduction(
             segment_schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
             segment_rate_year = _coverage_year(segment, projection_date, rate_year)
             segment_epu_rate = _rate_from_schedule(segment_schedule, segment_rate_year)
+            if _segment_matured(segment, projection_date):
+                segment_epu_rate = 0.0
             # Expense_Basis drives the EPU specified-amount basis: OriginalSA
             # plans (SkippedCovRein family) charge on the coverage's ORIGINAL
             # specified amount; everything else uses the current specified amount.
@@ -541,6 +562,8 @@ def calculate_deduction(
             key = f"cov{index}"
             epu_rates_by_coverage[key] = epu_flat
             segment_epu_charge = epu_flat * segment_units
+            if _segment_matured(segment, projection_date):
+                segment_epu_charge = 0.0
             if bln_round_charge:
                 segment_epu_charge = _round_near(segment_epu_charge, 2)
             epu_charges_by_coverage[key] = segment_epu_charge
@@ -685,7 +708,11 @@ def calculate_deduction(
         benefit_rates[detail_key] = adjusted_rate
         benefit_charge_detail[detail_key] = charge
         benefit_charges += charge
-        if ben_type != "3":
+        # The type-3 PWoC waiver (Benefit Amount 3F) waives the monthly deduction
+        # basis, but a type-4 stipulated premium waiver (PWoT) is itself a
+        # premium-waiver benefit and its charge is NOT part of what type-3 waives.
+        # Exclude type-4 from the basis while keeping its own charge in the totals.
+        if ben_type not in ("3", "4"):
             non_pw_benefit_charges += charge
 
     # ── 3.2.11 Total deduction (cols 515-516) ────────────────

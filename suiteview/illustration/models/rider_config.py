@@ -17,6 +17,7 @@ class RiderConfig:
     cov_type: str = ""
     cease_age_dur: Optional[int] = None
     cease_use_code: str = ""
+    description: str = ""
 
 
 def load_rider_config(plancode: str) -> Optional[RiderConfig]:
@@ -48,6 +49,7 @@ def _load_rider_table() -> Dict[str, RiderConfig]:
             cov_type=str(row.get("CovType", "")).strip(),
             cease_age_dur=_int_or_none(row.get("CeaseAgeDur")),
             cease_use_code=str(row.get("CeaseUseCode", "")).strip(),
+            description=str(row.get("Description", "")).strip(),
         )
     return _RIDER_CACHE
 

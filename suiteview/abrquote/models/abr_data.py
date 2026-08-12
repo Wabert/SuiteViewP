@@ -52,6 +52,27 @@ class RiderInfo:
 
 
 @dataclass
+class DBLayer:
+    """A single death-benefit layer covering the primary insured.
+
+    A policy's total death benefit for the primary insured is the sum of one or
+    more coverage layers (the base coverage plus any level-term riders written on
+    the primary insured). Each layer can expire independently — a level-term rider
+    stops providing a benefit at its coverage expiry/maturity date, at which point
+    its face must drop out of the projected death benefit.
+
+    Attributes:
+        face_amount: The layer's face amount.
+        expiry_month: Absolute policy month (since issue) after which the layer no
+            longer pays a death benefit. ``None`` means the layer runs to policy
+            maturity (never drops within the projection). The layer is included
+            while ``abs_month <= expiry_month``.
+    """
+    face_amount: float = 0.0
+    expiry_month: Optional[int] = None
+
+
+@dataclass
 class ABRPolicyData:
     """Policy data extracted from PolView PolicyInformation or manual entry."""
 
@@ -100,6 +121,9 @@ class ABRPolicyData:
     annual_premium: float = 0.0
     rider_annual_premium: float = 0.0    # sum of non-base coverage annual premiums (legacy, CyberLife)
     riders: List[RiderInfo] = field(default_factory=list)  # per-rider data for TERM table lookups
+    # Primary-insured death-benefit layers (base + level-term riders), each with
+    # its own expiry so the PVFB projection can drop a rider when it expires.
+    db_layers: List[DBLayer] = field(default_factory=list)
     monthly_deduction: float = 0.0       # UL/IUL/ISWL: last monthly deduction from MV record
 
     # Insured name (for output)
@@ -117,13 +141,47 @@ class ABRPolicyData:
         return self.face_amount / 1000.0
 
     @property
-    def default_death_benefit(self) -> float:
+    def _db_option_addition(self) -> float:
+        """Non-face addition to the death benefit from the DB option.
+
+        Option B (Increasing) adds the account value; Option C (ROP) adds
+        premiums paid to date. Neither of these components expires, so they are
+        added on top of the (possibly declining) face component.
+        """
         db_option = str(self.db_option or "").strip().upper()
         if db_option in ("2", "B"):
-            return self.face_amount + self.account_value
+            return self.account_value
         if db_option in ("3", "C"):
-            return self.face_amount + self.premiums_paid_to_date
-        return self.face_amount
+            return self.premiums_paid_to_date
+        return 0.0
+
+    @property
+    def default_death_benefit(self) -> float:
+        return self.face_amount + self._db_option_addition
+
+    def face_amount_at(self, abs_month: int) -> float:
+        """Total primary-insured face in force at the given absolute policy month.
+
+        Sums the death-benefit layers whose expiry has not yet passed. When no
+        layer detail is available (manual entry, UL, or a lookup that couldn't
+        resolve per-coverage expiries), falls back to the level ``face_amount``.
+        """
+        if not self.db_layers:
+            return self.face_amount
+        total = 0.0
+        for layer in self.db_layers:
+            if layer.expiry_month is None or abs_month <= layer.expiry_month:
+                total += layer.face_amount
+        return total
+
+    def death_benefit_at(self, abs_month: int) -> float:
+        """Projected death benefit at the given absolute policy month.
+
+        This is the face in force at that month (with expired rider layers
+        dropped) plus the DB-option addition. Used by the APV engine to project a
+        declining PVFB when a level-term rider expires mid-projection.
+        """
+        return self.face_amount_at(abs_month) + self._db_option_addition
 
 
 @dataclass

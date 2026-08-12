@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QStackedWidget,
     QSplitter,
     QTabWidget,
@@ -1286,6 +1287,7 @@ class IllustrationValuesTab(QWidget):
         self.content_stack = QStackedWidget(self)
         self.overview = ValuesOverview(self.content_stack)
         self.overview.cellActivated.connect(self._drill_down)
+        self.overview.exportSummaryRequested.connect(self._on_export_summary)
         self._add_content_page("Overview", self.overview)
         self.chart = PolicyValueChart(self.content_stack)
         self.chart.yearClicked.connect(self._on_chart_year_clicked)
@@ -1560,6 +1562,36 @@ class IllustrationValuesTab(QWidget):
     def _clear_guaranteed_failure(self):
         self._guaranteed_error = None
         self.guaranteed_warning.setVisible(False)
+
+    def _on_export_summary(self, folder: str):
+        """Testing Mode: write the Summary rows for the current and guaranteed
+        runs to a two-sheet workbook in *folder*, named company-policy-date."""
+        if self._current_view is None:
+            QMessageBox.information(
+                self, "Export Summary",
+                "Run Values first — there is nothing to export yet.")
+            return
+        policy, current_results, _months, _injected = self._current_view
+        guaranteed_results = (
+            self._guaranteed_view[1] if self._guaranteed_view is not None else None)
+        from suiteview.illustration.debug.summary_export import export_summary_workbook
+        try:
+            path = export_summary_workbook(
+                policy, current_results, guaranteed_results, folder)
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Export Summary", f"Could not write the workbook:\n{exc}")
+            return
+        # Open the saved workbook so the user can review/edit it right away.
+        try:
+            import os
+            os.startfile(path)
+        except Exception:
+            pass
+        note = ""
+        if guaranteed_results is None:
+            note = "  (guaranteed values unavailable — Guar sheet is empty)"
+        self.status_label.setText(f"Exported Summary to {path}{note}")
 
     def _reset_view_toggle(self, *, offer_guaranteed: bool):
         """Select Current Values without re-rendering; show or hide the pair."""

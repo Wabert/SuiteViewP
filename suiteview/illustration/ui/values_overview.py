@@ -21,7 +21,10 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
+    QFileDialog,
     QPushButton,
+    QStyle,
     QTreeView,
     QTreeWidget,
     QTreeWidgetItem,
@@ -30,6 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..models.rider_config import load_rider_config
+from ..models.app_settings import get_illustration_settings
 from .styles import PURPLE_BG, PURPLE_DARK
 
 CHART_BG = QColor("#FFFFFF")
@@ -408,6 +412,7 @@ class ValuesOverview(QWidget):
     """KPI strip + annual/monthly drill-down ledger."""
 
     cellActivated = pyqtSignal(int, str)   # double-click: (result-row index, ledger column)
+    exportSummaryRequested = pyqtSignal(str)   # Testing Mode: (destination folder)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -415,6 +420,7 @@ class ValuesOverview(QWidget):
         self._updating_frozen_width = False
         self._has_shadow = False
         self._simple_mode = False
+        self._export_folder = ""
         self._setup_ui()
 
     def _setup_ui(self):
@@ -434,6 +440,36 @@ class ValuesOverview(QWidget):
                      self.kpi_lapse, self.kpi_premium):
             kpi_row.addWidget(chip)
         kpi_row.addStretch(1)
+        # Testing Mode (Options menu) reveals an Export Summary button and a
+        # folder picker just left of Simple; both stay hidden otherwise.
+        self.export_folder_edit = QLineEdit()
+        self.export_folder_edit.setPlaceholderText("Type or pick an export folder…")
+        self.export_folder_edit.setMinimumWidth(420)
+        self.export_folder_edit.setStyleSheet(
+            "QLineEdit { color: #E8DDF8; background-color: #2A1458;"
+            " border: 1px solid #5E35A5; border-radius: 4px;"
+            " padding: 4px 8px; font-size: 11px; }"
+        )
+        # Embedded folder icon at the right edge opens the picker; the text is
+        # freely editable and kept in sync on edit.
+        self._browse_folder_action = self.export_folder_edit.addAction(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon),
+            QLineEdit.ActionPosition.TrailingPosition,
+        )
+        self._browse_folder_action.setToolTip("Browse for an export folder")
+        self._browse_folder_action.triggered.connect(self._on_pick_export_folder)
+        self.export_folder_edit.textChanged.connect(self._on_export_folder_edited)
+        self.export_summary_btn = QPushButton("Export Summary")
+        self.export_summary_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_summary_btn.setStyleSheet(
+            "QPushButton { color: #E8DDF8; background-color: #2A1458;"
+            " border: 1px solid #5E35A5; border-radius: 4px;"
+            " padding: 4px 14px; font-size: 11px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #3A1E6E; }"
+        )
+        self.export_summary_btn.clicked.connect(self._on_export_summary_clicked)
+        kpi_row.addWidget(self.export_folder_edit)
+        kpi_row.addWidget(self.export_summary_btn)
         # "Simple" collapses the ledger to just Distributions, Contributions,
         # SV and Death Benefit.
         self.simple_toggle = QPushButton("Simple")
@@ -450,6 +486,10 @@ class ValuesOverview(QWidget):
         self.simple_toggle.toggled.connect(self._on_simple_toggled)
         kpi_row.addWidget(self.simple_toggle)
         layout.addLayout(kpi_row)
+
+        settings = get_illustration_settings()
+        settings.testing_mode_changed.connect(self._apply_testing_mode)
+        self._apply_testing_mode(settings.testing_mode)
 
         # QTreeView selector so the SAME sheet styles both the QTreeWidget
         # ledger and its frozen QTreeView twin.
@@ -557,6 +597,28 @@ class ValuesOverview(QWidget):
     def _on_simple_toggled(self, checked: bool):
         self._simple_mode = bool(checked)
         self._update_ledger_columns()
+
+    def _apply_testing_mode(self, enabled: bool):
+        """Show the Export Summary button + folder picker only in Testing Mode."""
+        enabled = bool(enabled)
+        self.export_folder_edit.setVisible(enabled)
+        self.export_summary_btn.setVisible(enabled)
+
+    def _on_pick_export_folder(self, _event=None):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select export folder", self._export_folder or "")
+        if folder:
+            self._export_folder = folder
+            self.export_folder_edit.setText(folder)
+
+    def _on_export_folder_edited(self, text: str):
+        self._export_folder = text.strip()
+
+    def _on_export_summary_clicked(self):
+        if not self._export_folder:
+            self._on_pick_export_folder()
+        if self._export_folder:
+            self.exportSummaryRequested.emit(self._export_folder)
 
     def _update_ledger_columns(self):
         """Apply column visibility in the scrolling pane for the current mode.

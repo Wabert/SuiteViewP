@@ -9,13 +9,29 @@ from datetime import date
 from typing import List, Optional, Tuple
 
 from ...core.policy_service import get_policy_info
-from ..models.abr_data import ABRPolicyData, RiderInfo
+from ..models.abr_data import ABRPolicyData, DBLayer, RiderInfo
 from ..models.abr_constants import NON_STANDARD_MODE_MAP
 
 logger = logging.getLogger(__name__)
 
 # Billing frequency (months) → ABR billing mode code
 _FREQ_TO_MODE = {12: 1, 6: 2, 3: 3, 1: 4}
+
+
+def _months_since_issue(issue_date: Optional[date], target: Optional[date]) -> Optional[int]:
+    """Whole policy months from issue to ``target`` (absolute policy month scale).
+
+    Matches the APV engine's absolute-month convention where policy month 1 is the
+    first month in force. A coverage maturing at ``target`` provides a benefit
+    through this returned month; it drops the month after. Returns ``None`` when
+    either date is missing so the layer is treated as never expiring.
+    """
+    if not issue_date or not target:
+        return None
+    months = (target.year - issue_date.year) * 12 + (target.month - issue_date.month)
+    if target.day < issue_date.day:
+        months -= 1
+    return months
 
 
 def find_policy_companies(policy_num: str, region: str = "CKPR") -> List[str]:
@@ -225,6 +241,28 @@ def build_abr_policy(
 
         primary_face_amount = float(pi.primary_insured_face_amount or 0)
 
+        # Resolve the issue date once — needed both for the ABRPolicyData and to
+        # convert per-layer expiry dates into absolute policy months.
+        issue_date = pi.issue_date or (
+            pi.get_coverages()[0].issue_date if pi.get_coverages() else None
+        )
+
+        # Death-benefit layers: base coverage + level-term riders on the primary
+        # insured, each with the absolute policy month after which it drops. This
+        # lets the APV engine project a declining death benefit when a rider
+        # expires mid-term instead of holding the full face level.
+        db_layers: List[DBLayer] = []
+        try:
+            for face, expiry in pi.primary_insured_db_layers:
+                db_layers.append(
+                    DBLayer(
+                        face_amount=float(face or 0),
+                        expiry_month=_months_since_issue(issue_date, expiry),
+                    )
+                )
+        except Exception as e:
+            logger.debug(f"Error building death-benefit layers: {e}")
+
         account_value = 0.0
         surrender_value = 0.0
         valuation_date = None
@@ -270,10 +308,7 @@ def build_abr_policy(
             surrender_value=surrender_value,
             premiums_paid_to_date=float(pi.total_premiums_paid or 0),
             valuation_date=valuation_date,
-            issue_date=(
-                pi.issue_date
-                or (pi.get_coverages()[0].issue_date if pi.get_coverages() else None)
-            ),
+            issue_date=issue_date,
             maturity_age=maturity,
             maturity_date=maturity_date,
             issue_state=pi.issue_state or pi.issue_state_code or "",
@@ -293,6 +328,7 @@ def build_abr_policy(
             annual_premium=float(pi.annual_premium or 0),
             rider_annual_premium=rider_annual,
             riders=riders,
+            db_layers=db_layers,
             monthly_deduction=float(pi.mv_monthly_deduction() or 0),
         )
         return policy, pi

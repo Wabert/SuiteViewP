@@ -168,12 +168,27 @@ class IllustrationWindow(FramelessWindowBase):
             self._on_additional_premium_types_toggled)
         menu.addAction(self._additional_premium_types_action)
 
+        self._testing_mode_action = QAction(
+            "Testing Mode", menu, checkable=True)
+        self._testing_mode_action.setChecked(settings.testing_mode)
+        self._testing_mode_action.setToolTip(
+            "Reveal testing-only controls — the Values Overview's Export "
+            "Summary button and its folder picker")
+        self._testing_mode_action.toggled.connect(
+            self._on_testing_mode_toggled)
+        menu.addAction(self._testing_mode_action)
+
         self.options_btn.setMenu(menu)
 
     def _on_additional_premium_types_toggled(self, checked: bool):
         """Flip the app-wide Additional Premium Types option. Every open
         policy/case's Premium Type dropdown re-syncs via the settings signal."""
         get_illustration_settings().set_additional_premium_types(checked)
+
+    def _on_testing_mode_toggled(self, checked: bool):
+        """Flip the app-wide Testing Mode option. The Values Overview's Export
+        Summary controls show/hide via the settings signal."""
+        get_illustration_settings().set_testing_mode(checked)
 
     def load_policy(self, policy_number: str, region: str = "CKPR",
                     company_code: str = ""):

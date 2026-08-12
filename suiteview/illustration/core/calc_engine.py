@@ -2241,6 +2241,16 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         issue_date=policy.issue_date)
     new_band = int(new_band) if new_band is not None else base.band
     new_phase = max((s.coverage_phase for s in policy.segments), default=1) + 1
+    # The increase matures at the policy maturity age measured from THIS segment's
+    # issue age. An off-anniversary increase (with a bumped issue age) therefore
+    # matures on its own date — earlier than the base — and stops charges there
+    # rather than riding the last COI rate to the base's maturity.
+    maturity_age = int(getattr(policy, "maturity_age", 0) or 0)
+    seg_maturity_date = (
+        change_date + relativedelta(years=maturity_age - increase_age)
+        if maturity_age > increase_age
+        else None
+    )
     new_seg = CoverageSegment(
         coverage_phase=new_phase,
         is_base=True,
@@ -2257,6 +2267,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         table_rating=base.table_rating,
         flat_extra=base.flat_extra,
         status="A",
+        maturity_date=seg_maturity_date,
     )
     policy.segments.append(new_seg)
     _load_segment_rates(rates, new_seg, policy.plancode, config)
@@ -2517,15 +2528,22 @@ def _apply_policy_change(
         detail["Total SA"] = policy.total_face                   # DO
         outcome.face_detail = detail
     elif change.kind == PolicyChangeKind.RATE_CLASS:
-        # Cov 1 rate-class change: reload every class-keyed schedule for the
-        # base segment; targets/guideline recompute via coverage_changed.
+        # Rate-class change applies to the entire base coverage: the issue
+        # segment AND every increase segment (including an increase added the
+        # same day, since FACE_AMOUNT is ordered ahead of RATE_CLASS). Reload
+        # each segment's class-keyed schedules; targets/guideline recompute via
+        # coverage_changed.
         # TODO: validate vs RERUN (sINPUT_Rateclass_Change) on the laptop.
         new_class = str(change.value or "").strip().upper()
         base = policy.base_segment
-        if base is not None and new_class and new_class != (base.rate_class or "").upper():
-            base.rate_class = new_class
+        if new_class and base is not None and any(
+            new_class != (seg.rate_class or "").upper() for seg in policy.segments
+        ):
+            for seg in policy.segments:
+                if new_class != (seg.rate_class or "").upper():
+                    seg.rate_class = new_class
+                    _load_segment_rates(rates, seg, policy.plancode, config)
             policy.rate_class = new_class
-            _load_segment_rates(rates, base, policy.plancode, config)
             _reband_benefits(rates, policy)
             outcome.coverage_changed = True
     elif change.kind == PolicyChangeKind.SUBSTANDARD:

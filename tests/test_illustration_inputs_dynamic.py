@@ -289,18 +289,18 @@ def test_loan_row_span_stays_empty():
 
 
 def test_loan_and_withdrawal_modes_default_to_annual():
-    # Loans and Withdrawals default their Mode to Annual; Premiums follow the
-    # policy billing mode and Loan Repayments keep the Monthly default.
+    # Loans, Withdrawals and Loan Repayments default their Mode to Annual;
+    # Premiums follow the policy billing mode.
     panel = _panel()
     assert panel.loan_section.rows()[0].mode() == "A"
     assert panel.withdrawal_section.rows()[0].mode() == "A"
     assert panel.premium_section.rows()[0].mode() == "M"
-    assert panel.repayment_section.rows()[0].mode() == "M"
+    assert panel.repayment_section.rows()[0].mode() == "A"
 
     # Rows added with ＋ inherit the section default too.
     assert panel.loan_section.add_row().mode() == "A"
     assert panel.withdrawal_section.add_row().mode() == "A"
-    assert panel.repayment_section.add_row().mode() == "M"
+    assert panel.repayment_section.add_row().mode() == "A"
 
     # A fresh policy load resets a user-changed mode back to the default.
     panel.loan_section.rows()[0].mode_combo.setCurrentText("Q")

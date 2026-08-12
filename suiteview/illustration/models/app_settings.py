@@ -20,9 +20,15 @@ class IllustrationSettings(QObject):
     # connect to this and re-sync.
     additional_premium_types_changed = pyqtSignal(bool)
 
+    # Emitted whenever "Testing Mode" flips. Widgets that expose testing-only
+    # controls (the Values Overview's Export Summary button + folder picker)
+    # connect to this and show/hide accordingly.
+    testing_mode_changed = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
         self._additional_premium_types = False
+        self._testing_mode = False
 
     @property
     def additional_premium_types(self) -> bool:
@@ -38,6 +44,19 @@ class IllustrationSettings(QObject):
             return
         self._additional_premium_types = enabled
         self.additional_premium_types_changed.emit(enabled)
+
+    @property
+    def testing_mode(self) -> bool:
+        """When True, testing-only controls appear — the Values Overview's
+        Export Summary button and its folder picker. Off by default."""
+        return self._testing_mode
+
+    def set_testing_mode(self, enabled: bool):
+        enabled = bool(enabled)
+        if enabled == self._testing_mode:
+            return
+        self._testing_mode = enabled
+        self.testing_mode_changed.emit(enabled)
 
 
 _settings: IllustrationSettings | None = None

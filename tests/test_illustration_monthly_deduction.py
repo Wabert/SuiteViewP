@@ -188,6 +188,67 @@ def test_rider_charge_stops_on_rider_maturity_date():
     assert after_maturity.rider_charges == pytest.approx(0.0)
 
 
+def test_increase_segment_coi_stops_on_segment_maturity_date():
+    base = CoverageSegment(
+        coverage_phase=1,
+        is_base=True,
+        issue_date=date(2006, 8, 13),
+        face_amount=100_000.0,
+        units=100.0,
+    )
+    increase = CoverageSegment(
+        coverage_phase=2,
+        is_base=True,
+        issue_date=date(2026, 8, 13),
+        face_amount=50_000.0,
+        units=50.0,
+        maturity_date=date(2046, 8, 13),
+    )
+    policy = IllustrationPolicyData(
+        plancode="1U135D00",
+        db_option="A",
+        face_amount=150_000.0,
+        account_value=0.0,
+        issue_date=date(2006, 8, 13),
+        segments=[base, increase],
+    )
+    config = PlancodeConfig(
+        plancode="1U135D00",
+        dbd=0.04,
+        gint=0.03,
+        corridor_code=None,
+        epu_code="0",
+        mfee="0",
+        table_rating_factor=0.0,
+    )
+    rates = IllustrationRates()
+    flat_coi = [None] + [1.0] * 60
+    rates.segment_coi = {1: list(flat_coi), 2: list(flat_coi)}
+
+    def run(projection_date):
+        return calculate_deduction(
+            0.0,
+            policy,
+            config,
+            rates,
+            rate_year=41,
+            attained_age=75,
+            premiums_to_date=0.0,
+            projection_date=projection_date,
+        )
+
+    before = run(date(2046, 7, 13))
+    at = run(date(2046, 8, 13))
+    after = run(date(2046, 9, 13))
+
+    # Base coverage keeps charging COI; only the increase segment stops.
+    assert before.coi_charges_by_coverage["cov2"] > 0.0
+    assert at.coi_charges_by_coverage["cov2"] == pytest.approx(0.0)
+    assert after.coi_charges_by_coverage["cov2"] == pytest.approx(0.0)
+    assert before.coi_charges_by_coverage["cov1"] > 0.0
+    assert at.coi_charges_by_coverage["cov1"] > 0.0
+
+
 def test_benefit_charge_stops_on_benefit_cease_date():
     benefit = BenefitInfo(
         benefit_type="2",

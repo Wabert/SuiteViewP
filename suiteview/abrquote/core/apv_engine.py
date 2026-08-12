@@ -95,11 +95,15 @@ class APVEngine:
             monthly_qx: Monthly mortality rates from MortalityEngine.
             premium_schedule: Annual premium rates per $1,000 per policy year.
             is_terminal: If True and state is FL, set PVFP=0.
-            death_benefit: The level death benefit to project. For Option B
+            death_benefit: The death benefit to project. For Option B
                 UL the benefit is locked at Face + Account Value (and for
                 Option C at Face + Premiums Paid), so the PVDB projection must
                 use that amount, not the bare face. Defaults to the policy's
                 ``default_death_benefit`` which already encodes this logic.
+                When the policy carries ``db_layers`` (per-coverage detail), this
+                value is used only as the initial/current benefit; each month's
+                projected benefit comes from ``policy.death_benefit_at(abs_month)``
+                so level-term riders drop out of the PVFB at their expiry.
 
         Returns a list of dicts (one per month) with keys:
             month           – absolute policy month
@@ -109,7 +113,8 @@ class APVEngine:
             tp_x            – cumulative survival at START of month
             v_benefit       – discount factor for benefit v^(t+1)
             v_premium       – discount factor for premium v^t
-            death_benefit   – level death benefit projected this month
+            death_benefit   – death benefit projected this month (rider layers
+                              drop at expiry when db_layers is present)
             pvdb_t          – PV of death benefit this month (before adj)
             pvdb_cum        – running PVFB subtotal (before cont_adj × 1000)
             prem_rate       – premium rate applied (0 if not year boundary)
@@ -120,6 +125,11 @@ class APVEngine:
         p = self.policy
         if death_benefit is None:
             death_benefit = p.default_death_benefit
+        # When the policy carries per-layer death-benefit detail (base coverage +
+        # level-term riders on the primary insured), project a declining death
+        # benefit that drops each rider at its expiry month. Otherwise hold the
+        # supplied benefit level for the whole projection.
+        use_db_schedule = bool(getattr(p, "db_layers", None))
         face_units = death_benefit / 1000.0
         # Convert month-within-year to absolute policy month since issue
         current_month = (p.policy_year - 1) * 12 + p.policy_month
@@ -141,6 +151,13 @@ class APVEngine:
             # Discount factors
             v_benefit = 1.0 / (1.0 + self.monthly_rate) ** (t + 1)
             v_premium = 1.0 / (1.0 + self.monthly_rate) ** t if t > 0 else 1.0
+
+            # Death benefit in force this month (rider layers drop at expiry)
+            if use_db_schedule:
+                month_db = p.death_benefit_at(abs_month)
+                face_units = month_db / 1000.0
+            else:
+                month_db = death_benefit
 
             # PVDB component
             pvdb_t = face_units * qx * tp_x * v_benefit
@@ -170,7 +187,7 @@ class APVEngine:
                 "tp_x": tp_x,
                 "v_benefit": v_benefit,
                 "v_premium": v_premium,
-                "death_benefit": death_benefit,
+                "death_benefit": month_db,
                 "pvdb_t": pvdb_t,
                 "pvdb_cum": pvfb_cum,
                 "prem_rate": prem_rate,

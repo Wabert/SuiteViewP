@@ -256,11 +256,14 @@ def build_illustration_data(
         seg_face = float(cov.face_amount) if cov.face_amount else 0.0
         seg_orig_face = float(cov.orig_amount) if cov.orig_amount else seg_face
         seg_units = float(cov.units) if cov.units else seg_face / 1000.0
-        try:
-            raw_seg_band = pi.cov_band(cov.cov_pha_nbr)
-        except Exception:
-            raw_seg_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
-        seg_band = raw_seg_band if raw_seg_band is not None else 1
+        # Every base coverage (original + increases) bands on the COMBINED base
+        # specified amount, so they all share the policy base band computed above.
+        # (Do NOT call pi.cov_band(cov.cov_pha_nbr): cov_band expects a 1-based
+        # index into get_coverages(), not a coverage-phase number. When phases
+        # have gaps from terminated coverages/riders, a phase number indexes the
+        # wrong coverage and can yield band 0 -> an empty COI schedule -> a COI
+        # rate/charge of 0 for that increase segment.)
+        seg_band = band
 
         # Get rate sex from coverage record
         try:
@@ -381,6 +384,7 @@ def build_illustration_data(
             cov_type=rider_config.cov_type if rider_config is not None else "",
             cease_age_dur=rider_config.cease_age_dur if rider_config is not None else None,
             cease_use_code=rider_config.cease_use_code if rider_config is not None else "",
+            description=rider_config.description if rider_config is not None else "",
         ))
 
     # ── CCV / Shadow Account detection ───────────────────────

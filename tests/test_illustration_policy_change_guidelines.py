@@ -259,6 +259,88 @@ def test_specified_face_decrease_follows_expense_basis_without_withdrawal_fee(
     assert outcome.face_detail["Total PSC Spec Dec"] == pytest.approx(expected_psc)
 
 
+def test_increase_segment_gets_true_segment_maturity_date(monkeypatch):
+    class FakeRates:
+        def get_band(self, *_args, **_kwargs):
+            return 2
+
+        def get_rates(
+            self, kind, plancode, issue_age, sex, rateclass, *, scale, band
+        ):
+            return [None, float(scale)]
+
+    monkeypatch.setattr("suiteview.core.rates.Rates", FakeRates)
+    policy = IllustrationPolicyData(
+        issue_date=date(2006, 8, 13),
+        issue_age=55,
+        maturity_age=95,
+        insured_birth_date=date(1951, 6, 1),
+        segments=[
+            CoverageSegment(
+                coverage_phase=1,
+                is_base=True,
+                issue_date=date(2006, 8, 13),
+                issue_age=55,
+                rate_sex="M",
+                rate_class="N",
+                face_amount=100_000.0,
+                units=100.0,
+                band=2,
+                vpu=1000.0,
+            )
+        ],
+    )
+
+    calc_engine._append_face_increase_segment(
+        policy,
+        IllustrationRates(),
+        50_000.0,
+        attained_age=75,
+        change_date=date(2026, 8, 13),
+        config=PlancodeConfig(),
+    )
+
+    increase = policy.segments[-1]
+    # Issue age is the insured's true age on the increase date (bumped off the
+    # policy anniversary); maturity is measured from THAT age.
+    assert increase.issue_age == 75
+    assert increase.maturity_date == date(2046, 8, 13)
+
+
+def test_rate_class_change_applies_to_all_base_segments(monkeypatch):
+    monkeypatch.setattr(calc_engine, "_reload_policy_band_rates", lambda *_a, **_k: None)
+    monkeypatch.setattr(calc_engine, "_load_segment_rates", lambda *_a, **_k: None)
+    monkeypatch.setattr(calc_engine, "_reband_benefits", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        calc_engine,
+        "compute_target_premiums",
+        lambda *_a, **_k: SimpleNamespace(mtp_annual=120.0, ctp_annual=240.0),
+    )
+    policy = IllustrationPolicyData(
+        rate_class="N",
+        segments=[
+            CoverageSegment(coverage_phase=1, is_base=True, rate_class="N"),
+            CoverageSegment(coverage_phase=2, is_base=True, rate_class="N"),
+        ],
+    )
+
+    outcome = calc_engine._apply_policy_change(
+        policy,
+        PlancodeConfig(),
+        PolicyChangeEvent(PolicyChangeKind.RATE_CLASS, date(2028, 1, 1), "S"),
+        attained_age=60,
+        change_date=date(2028, 1, 1),
+        rates=IllustrationRates(),
+        rate_year=3,
+        av=0.0,
+        defer_guideline_recalc=True,
+    )
+
+    assert outcome.coverage_changed
+    assert policy.rate_class == "S"
+    assert [seg.rate_class for seg in policy.segments] == ["S", "S"]
+
+
 def test_same_month_changes_are_compiled_in_policy_pipeline_order():
     policy = IllustrationPolicyData(issue_date=date(2026, 1, 1))
     when = date(2026, 2, 1)

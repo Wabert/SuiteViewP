@@ -2070,7 +2070,7 @@ class DynamicInputsPanel(QWidget):
         self.withdrawal_section.add_header_widget(forecast_withdrawal_header)
 
         self.repayment_section = DynamicSection(SectionSpec(
-            "Loan Repayments", allow_payoff=True))
+            "Loan Repayments", allow_payoff=True, default_mode="A"))
         # Excess-repayment behavior (apply_excess_repayment_as_premium): what a
         # repayment larger than the loan payoff does with its excess. Two
         # exclusive radio buttons at the top of the group, mirroring the
