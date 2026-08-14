@@ -7281,6 +7281,7 @@
     },
     {
       "Plancode": "NU1F1N00",
+      "PWoT_COI_Basis": 3,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 95,
       "MaturityAge": 95,
@@ -7327,6 +7328,7 @@
     },
     {
       "Plancode": "NU1F2M00",
+      "PWoT_COI_Basis": 3,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 95,
       "MaturityAge": 95,
@@ -7373,6 +7375,7 @@
     },
     {
       "Plancode": "NU1F2N00",
+      "PWoT_COI_Basis": 3,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 95,
       "MaturityAge": 95,
@@ -7419,6 +7422,7 @@
     },
     {
       "Plancode": "NU1F3A00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7465,6 +7469,7 @@
     },
     {
       "Plancode": "NU1F3B00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7511,6 +7516,7 @@
     },
     {
       "Plancode": "NU1F3C00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7557,6 +7563,7 @@
     },
     {
       "Plancode": "NU1F3D00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7603,6 +7610,7 @@
     },
     {
       "Plancode": "NU1F3F00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7649,6 +7657,7 @@
     },
     {
       "Plancode": "NU1F3G00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7695,6 +7704,7 @@
     },
     {
       "Plancode": "NU1F3H00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7741,6 +7751,7 @@
     },
     {
       "Plancode": "NU1F3L00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7787,6 +7798,7 @@
     },
     {
       "Plancode": "NU1F3M00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7833,6 +7845,7 @@
     },
     {
       "Plancode": "NU1F3N00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7879,6 +7892,7 @@
     },
     {
       "Plancode": "NU1F3O00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7925,6 +7939,7 @@
     },
     {
       "Plancode": "NU1F3P00",
+      "PWoT_COI_Basis": 2,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 100,
       "MaturityAge": 100,
@@ -7971,6 +7986,7 @@
     },
     {
       "Plancode": "NU1FU100",
+      "PWoT_COI_Basis": 3,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 95,
       "MaturityAge": 95,
@@ -8017,6 +8033,7 @@
     },
     {
       "Plancode": "NU1FU200",
+      "PWoT_COI_Basis": 3,
       "ProductName": "FLEXIBLE PREMIUM UNIVERSAL LIFE",
       "PremiumCeaseAge": 95,
       "MaturityAge": 95,

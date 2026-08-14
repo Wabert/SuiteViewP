@@ -696,6 +696,28 @@ def calculate_deduction(
             else:
                 benefit_amount = monthly_deduction_basis
             charge = adjusted_rate * benefit_amount * charge_factor
+        elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
+            # Stipulated Premium Waiver (PWoT) charge on an MTP/CTP basis
+            # (RERUN CalcEngine RB, sPWoT_COI_Basis 2/3 — FFL products):
+            #   ROUND(CHOOSE(basis, vMTP*RA/100, vCTP*RA/100)
+            #         * (1 + tableRatingFactor * baseTableRating), 2)
+            # RA is the raw per-100 PWST COI rate; the gross-up uses the BASE
+            # coverage's table rating (vTableCov1), not the benefit's own
+            # substandard. Annual vMTP = policy.mtp*12; annual vCTP = policy.ctp.
+            base_seg = policy.base_segment
+            base_table = (
+                base_seg.table_rating
+                if base_seg
+                and base_seg.table_rating
+                and base_seg.table_rating > 0
+                and _charge_active(base_seg.table_cease_date, projection_date)
+                else 0
+            )
+            gross = 1.0 + config.table_rating_factor * base_table
+            benefit_amount = (
+                policy.mtp * 12.0 if config.pwot_coi_basis == 2 else policy.ctp
+            )
+            charge = benefit_amount * ben_coi_rate / 100.0 * gross
         else:
             benefit_amount = ben.benefit_amount
             charge = ben.units * adjusted_rate * charge_factor

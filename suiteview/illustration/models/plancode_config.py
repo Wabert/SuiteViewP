@@ -57,6 +57,15 @@ class PlancodeConfig:
     # waiver targets to the FFL basis (CalcEngine IW..JD via sblnFFL).
     company_sub: str = "ANICO"
 
+    # PWoT (Stipulated Premium Waiver, benefit type 4) COI charge basis
+    # (RERUN sPWoT_COI_Basis, CalcEngine RB CHOOSE):
+    #   1 = Units  -> units x RA
+    #   2 = MTP    -> vMTP x RA/100    (annual MTP)
+    #   3 = CTP    -> vCTP x RA/100    (annual CTP)
+    # then grossed up by (1 + tableRatingFactor x base-coverage table rating).
+    # Non-FFL ULs are all basis 1; some FFL ULs use 2 or 3.
+    pwot_coi_basis: int = 1
+
     # Target premiums (MTP/CTP) — RERUN sTarget_BandLock. The specified-amount
     # basis for MTP/CTP is driven by ``expense_basis`` (see below). RERUN's
     # sTarget_SA_Basis also gates the withdrawal fee (CalcEngine BP); that is
@@ -214,6 +223,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         gint=float(data.get("GINT", data.get("DBD", 0))),
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
         company_sub=str(data.get("CompanySub", "ANICO")).strip(),
+        pwot_coi_basis=_int_or_default(data.get("PWoT_COI_Basis", 1), 1),
         target_sa_basis=data.get("Target_SA_Basis", "CurrentSA"),
         target_band_lock=bool(data.get("Target_BandLock", False)),
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),
