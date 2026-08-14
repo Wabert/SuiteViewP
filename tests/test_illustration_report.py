@@ -594,6 +594,38 @@ def test_report_dates_all_use_slash_mm_dd_yyyy():
     assert not re.search(r"\d{2}-\d{2}-\d{4}", flat)
 
 
+def test_cvat_policy_shows_seven_pay_but_no_guideline_limits():
+    """CVAT policies have no GLP/GSP guideline limits, but while inside the
+    7-pay period the regulatory section still shows the 7-PAY PREMIUM and its
+    start date."""
+    policy = _policy()
+    policy.def_of_life_ins = "CVAT"
+
+    # Inforce snapshot (results[0]) sits inside the 7-pay window (tamra_year 1-7).
+    inforce = MonthlyState(
+        policy_year=7, policy_month=6, duration=78,
+        tamra_year=3,
+        tamra_7pay_level=12602.03,
+        tamra_7pay_start_date=date(2024, 7, 9),
+    )
+    rows = [inforce]
+    for year in (8, 9):
+        for month in range(1, 13):
+            rows.append(_month(year, month,
+                               tamra_7pay_level=12602.03,
+                               tamra_7pay_start_date=date(2024, 7, 9)))
+    policy.tamra_7pay_level = 12602.03
+    policy.tamra_7pay_start_date = date(2024, 7, 9)
+
+    report = build_ul_report(policy, rows, run_date=date(2026, 8, 14))
+
+    assert any("7-PAY PREMIUM = $12,602.03" in line for line in report.regulatory_lines)
+    assert any("7-PAY START DATE = 07/09/2024" in line for line in report.regulatory_lines)
+    # No guideline lines for a CVAT policy.
+    assert not any("GUIDELINE SINGLE" in line for line in report.regulatory_lines)
+    assert not any("LEVEL PREMIUM" in line for line in report.regulatory_lines)
+
+
 def test_no_seven_pay_restart_without_material_change():
     """An unchanged 7-pay start date produces no '+' marker or legend."""
     report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
@@ -823,7 +855,9 @@ def test_iul_report_builds_fund_allocation_rate_and_historical_sections():
     assert {
         row.fund_id: row.allocation for row in report.iul_allocations
     }["IF"] == pytest.approx(0.5)
-    assert [row.fund_id for row in report.iul_strategy_rates] == ["IX", "IF"]
+    assert [row.fund_id for row in report.iul_strategy_rates] == [
+        "IX", "IF", "IS", "IC",
+    ]
     assert report.iul_fixed_rate is None
     assert report.iul_benchmark_minimum == pytest.approx(0.0388)
     assert report.iul_benchmark_maximum == pytest.approx(0.0756)
@@ -831,9 +865,11 @@ def test_iul_report_builds_fund_allocation_rate_and_historical_sections():
     assert report.iul_historical_rows[0].credited_rates == pytest.approx({
         "IX": 0.0975,
         "IF": 0.0562,
+        "IS": 0.075,
+        "IC": 0.085,
     })
     assert report.iul_historical_rows[2].credited_rates == pytest.approx({
-        "IX": 0.0, "IF": 0.0,
+        "IX": 0.0, "IF": 0.0, "IS": 0.0, "IC": 0.0,
     })
     twenty_year = report.iul_compound_yields[-1]
     assert twenty_year.years == 20
@@ -865,6 +901,10 @@ def test_iul_report_renders_new_sections_and_benchmark_rates():
     assert "WITH INDEXED INTEREST CREDITING OPTION" in flat_pages[0]
     assert "THE ACCUMULATION VALUE OF $5,395.01 CONSISTS" in flat_pages[0]
     assert "THE ALLOCATION PERCENTAGES USED IN THIS ILLUSTRATION ARE" in flat_pages[0]
+    assert (
+        "[IX] - S&P 500 INDEX ONE YEAR POINT TO POINT WITH A CAP AND 0% FLOOR"
+        in flat_pages[0]
+    )
     assumptions = next(
         page for page in flat_pages
         if "ILLUSTRATED RATES BY INDEX STRATEGY" in page
@@ -906,10 +946,17 @@ def test_iul_historical_table_right_aligns_headers_rows_and_yields():
     assert "YEAR ENDING" in header[2]
     assert "RETURNS" in header[2]
 
-    annual_rate_ends = [
-        annual.index(value) + len(value)
-        for value in ("13.62%", "9.75%", "5.62%")
-    ]
+    def percent_ends(line: str) -> list:
+        ends = []
+        search_from = 0
+        for token in line.split():
+            if token.endswith("%"):
+                pos = line.index(token, search_from)
+                ends.append(pos + len(token))
+                search_from = pos + len(token)
+        return ends
+
+    annual_rate_ends = percent_ends(annual)
     assert header[0].index("MARKET INDEX") + len("MARKET INDEX") == annual_rate_ends[0]
     assert header[1].index("S&P 500") + len("S&P 500") == annual_rate_ends[0]
     assert header[2].index("RETURNS") + len("RETURNS") == annual_rate_ends[0]
@@ -918,11 +965,7 @@ def test_iul_historical_table_right_aligns_headers_rows_and_yields():
     ) + len("12/31/2006")
 
     for line in yields:
-        values = line.split()[-3:]
-        assert [
-            line.index(value) + len(value)
-            for value in values
-        ] == annual_rate_ends
+        assert percent_ends(line) == annual_rate_ends
 
 
 def test_terminal_policy_year_death_benefit_is_zero():

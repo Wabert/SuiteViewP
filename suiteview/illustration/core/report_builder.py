@@ -898,7 +898,7 @@ def _build_iul_sections(
             parameters=dict(parameters.get(fund_id, {})),
         )
         for fund_id in _IUL_FUND_ORDER
-        if fund_id in offered and allocations.get(fund_id, 0.0) > 0.00005
+        if fund_id in offered
     ]
     fixed_strategy = offered.get(FIXED_FUND_ID)
     report.iul_fixed_rate = (
@@ -1280,6 +1280,15 @@ def build_ul_report(
             if policy.tamra_7pay_start_date:
                 report.regulatory_lines.append(
                     f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m/%d/%Y')}")
+    elif policy.is_cvat and 1 <= inforce.tamra_year <= 7 and policy.tamra_7pay_level > 0:
+        # CVAT policies have no GLP/GSP guideline limits, but a 7-pay premium
+        # still applies while the policy is inside its 7-pay period.
+        report.regulatory_lines = [
+            f"7-PAY PREMIUM = {_money(policy.tamra_7pay_level)}",
+        ]
+        if policy.tamra_7pay_start_date:
+            report.regulatory_lines.append(
+                f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m/%d/%Y')}")
     if report.is_iul:
         _build_iul_sections(report, policy)
     return report

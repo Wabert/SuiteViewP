@@ -528,7 +528,8 @@ def format_report_pages(
     if report.iul_allocations:
         cover.add("THE ALLOCATION PERCENTAGES USED IN THIS ILLUSTRATION ARE:")
         for row in report.iul_allocations:
-            cover.add(f"    {row.label[:88]:<88}{_rate(row.allocation):>20}")
+            label = f"[{row.fund_id}] - {row.label}"
+            cover.add(f"    {label[:88]:<88}{_rate(row.allocation):>20}")
         cover.blank()
     for line in report.request_intro:
         cover.add_wrapped(line)

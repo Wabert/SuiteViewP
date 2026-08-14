@@ -357,6 +357,7 @@ class IllustrationEngine:
             amount_in_7pay=sum(policy.tamra_7year_contributions or []),
             tamra_7pay_level=policy.tamra_7pay_level,
             tamra_7pay_start_date=policy.tamra_7pay_start_date,
+            tamra_year=_tamra_year(policy, month_date_inforce),
             tamra_month_of_year=_tamra_month_of_year(policy, month_date_inforce),
             lowest_7yr_face=(
                 float(getattr(policy, "tamra_7year_lowest_db", 0.0) or 0.0)
