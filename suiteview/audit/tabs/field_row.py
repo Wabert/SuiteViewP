@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QDrag, QMouseEvent, QPainter, QColor, QPen, QPolygon
 
 from ._styles import TightItemDelegate, style_combo
+from ...core.build_env import is_data_read_only
 
 logger = logging.getLogger(__name__)
 
@@ -1129,12 +1130,15 @@ class FieldRow(QWidget):
 
         menu.addSeparator()
 
-        # Registry actions (only if registry_info is set)
+        # Registry actions (only if registry_info is set). "Find & Register"
+        # writes to the shared registry, so it's hidden in the read-only edition;
+        # "Open Unique Value Registry" (view-only) stays available.
         act_find = act_open = None
         if self._registry_info:
             table, column, _ = self._registry_info[:3]
-            act_find = menu.addAction(
-                f"Find && Register Unique Values  ({table}.{column})")
+            if not is_data_read_only():
+                act_find = menu.addAction(
+                    f"Find && Register Unique Values  ({table}.{column})")
             act_open = menu.addAction("Open Unique Value Registry")
 
         # DataForge local unique values (when dataset is loaded in memory)
@@ -1845,10 +1849,12 @@ class FieldGrid(QWidget):
 
         menu.addSeparator()
 
-        # Find & Register Unique Values (only if any selected field has registry_info)
+        # Find & Register Unique Values (only if any selected field has
+        # registry_info) — hidden in the read-only edition since it writes to
+        # the shared registry.
         act_find = None
         has_registry = any(r._registry_info for r in self._selection)
-        if has_registry:
+        if has_registry and not is_data_read_only():
             act_find = menu.addAction(
                 f"Find && Register Unique Values ({n} fields)")
             menu.addSeparator()

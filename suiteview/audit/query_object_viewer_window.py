@@ -94,6 +94,7 @@ from suiteview.core.odbc_utils import (
     get_dsn_details,
 )
 from suiteview.polview.ui.widgets import StyledInfoTableGroup
+from suiteview.core.build_env import is_light_build
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ui.widgets.bookmark_widgets import (
@@ -1704,8 +1705,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         new_query_menu = QMenu(self._source_dashboard.btn_new_query)
         new_query_menu.addAction("Visual Query").triggered.connect(
             lambda: self._on_source_new_query("visual"))
-        new_query_menu.addAction("Manual SQL").triggered.connect(
-            lambda: self._on_source_new_query("manual"))
+        # No hand-written SQL surface in the read-only SuiteView Light edition.
+        if not is_light_build():
+            new_query_menu.addAction("Manual SQL").triggered.connect(
+                lambda: self._on_source_new_query("manual"))
         self._source_dashboard.btn_new_query.setMenu(new_query_menu)
         self._source_dashboard.preview_requested.connect(self._on_dashboard_preview)
         self._source_dashboard.remove_table_requested.connect(self._on_dashboard_remove_table)

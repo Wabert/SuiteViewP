@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QFileDialog, QMenu, QToolButton,
 )
 from suiteview.core.db2_constants import DEFAULT_REGION
+from suiteview.core.build_env import is_light_build
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from .constants import REGION_ITEMS, SYSTEM_CODE_ITEMS
 from .tabs.policy_tab import PolicyTab
@@ -102,12 +103,15 @@ class QueryObjectModeDialog(QDialog):
                 "Visual Query Object",
                 "Table-driven builder for sources, inputs, outputs, joins, and preview",
             ),
-            (
+        ]
+        # Manual SQL lets a user run arbitrary hand-written SQL — omitted from
+        # the read-only SuiteView Light edition.
+        if not is_light_build():
+            modes.append((
                 "manual_sql",
                 "Manual SQL Object",
                 "Paste or edit SQL, run it, capture output schema, then save object",
-            ),
-        ]
+            ))
         for mode, heading, detail in modes:
             button = QPushButton(f"{heading}\n{detail}")
             button.setFont(QFont("Segoe UI", 9))
@@ -196,12 +200,16 @@ class AuditWindow(FramelessWindowBase):
         # same chip/color the browser shows on queries built by that mode.
         from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
         mode_menu = QMenu(self.btn_build_mode)
-        for mode, label in (
+        _build_modes = [
             ("cyberlife", "Cyberlife"),
             ("visual", "Visual Query"),
             ("manual_sql", "Manual SQL"),
             ("dataforge", "DataForge"),
-        ):
+        ]
+        # No arbitrary hand-written SQL in the read-only SuiteView Light edition.
+        if is_light_build():
+            _build_modes = [m for m in _build_modes if m[0] != "manual_sql"]
+        for mode, label in _build_modes:
             action = mode_menu.addAction(label)
             action.setIcon(mode_icon(build_mode_style(mode).color))
             action.triggered.connect(lambda checked=False, value=mode: self._on_build_mode_selected(value))
@@ -1254,6 +1262,15 @@ class AuditWindow(FramelessWindowBase):
             if self._open_dataforge_source_design(obj):
                 return
         if obj.kind == OBJECT_KIND_MANUAL_SQL:
+            if is_light_build():
+                QMessageBox.information(
+                    self,
+                    "Not Available in SuiteView Light",
+                    "Manual SQL objects can't be opened in the editor in "
+                    "SuiteView Light — this edition is read-only and doesn't "
+                    "run hand-written SQL.",
+                )
+                return
             self.open_manual_sql_object(obj)
             return
         if obj.kind == OBJECT_KIND_ADHOC_SOURCE:

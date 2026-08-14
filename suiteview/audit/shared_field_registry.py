@@ -14,6 +14,7 @@ from datetime import datetime
 import pyodbc
 
 from suiteview.core.odbc_utils import DB2, detect_dialect
+from suiteview.core.build_env import guard_data_writable, is_data_read_only
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +92,12 @@ def _ensure_column_note_table() -> None:
         conn.close()
 
 
-# Run once on import
-_ensure_source_dsn_column()
-_ensure_column_note_table()
+# Run once on import. Skipped in the read-only edition — these are schema
+# migrations (ALTER/CREATE) and the shared UL_Rates already carries them; Light
+# must not attempt any DDL.
+if not is_data_read_only():
+    _ensure_source_dsn_column()
+    _ensure_column_note_table()
 
 
 def fetch_and_register(table_name: str, column_name: str,
@@ -115,6 +119,7 @@ def fetch_and_register(table_name: str, column_name: str,
 
     Returns a list of (value, count) tuples sorted by count descending.
     """
+    guard_data_writable("register unique values")
     # 1. Query live unique values
     live_dsn = source_dsn or _DSN
     dialect = detect_dialect(live_dsn)
@@ -313,6 +318,7 @@ def get_values_full(field_id: int, include_inactive: bool = False) -> list[dict]
 def update_value(value_id: int, *, value_description: str | None = ...,
                  notes: str | None = ..., is_active: int | bool | None = ...) -> None:
     """Update description, notes, and/or the active flag for a value row."""
+    guard_data_writable("update registered values")
     parts = []
     params = []
     sentinel = ...
@@ -349,6 +355,7 @@ def update_value(value_id: int, *, value_description: str | None = ...,
 def add_value(field_id: int, field_value: str,
               value_description: str = "", notes: str = "") -> int:
     """Manually add a value entry. Returns the new value_id."""
+    guard_data_writable("add registered values")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = _user()
     conn = _connect()
@@ -376,6 +383,7 @@ def add_value(field_id: int, field_value: str,
 
 def deactivate_value(value_id: int) -> None:
     """Set a value to inactive (is_active = 0)."""
+    guard_data_writable("deactivate registered values")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = _user()
     conn = _connect()
@@ -413,6 +421,7 @@ def get_field_id(table_name: str, column_name: str) -> int | None:
 
 def delete_registration(field_id: int):
     """Soft-delete a registration (set is_active = 0)."""
+    guard_data_writable("delete a registration")
     conn = _connect()
     try:
         cursor = conn.cursor()
@@ -434,6 +443,7 @@ def delete_registration(field_id: int):
 
 def permanently_delete_field(field_id: int) -> None:
     """Permanently delete a field registration and all its values."""
+    guard_data_writable("delete a field registration")
     conn = _connect()
     try:
         cursor = conn.cursor()
@@ -455,6 +465,7 @@ def permanently_delete_field(field_id: int) -> None:
 
 def permanently_delete_table(table_name: str) -> None:
     """Permanently delete all field registrations and values for a table."""
+    guard_data_writable("delete a table's registrations")
     conn = _connect()
     try:
         cursor = conn.cursor()
@@ -504,6 +515,7 @@ def get_column_notes(dsn: str, table_name: str) -> dict[str, str]:
 def set_column_note(dsn: str, table_name: str, column_name: str,
                     note: str) -> None:
     """Insert, update, or clear the note for a single table column."""
+    guard_data_writable("edit column notes")
     live_dsn = dsn or _DSN
     note = (note or "").strip()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

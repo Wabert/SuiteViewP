@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.core.build_env import is_data_read_only
 from . import shared_field_registry as registry
 from .tabs._styles import make_checkbox as _make_checkbox
 
@@ -428,6 +429,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self._current_field_id = None
         self._expanded = False  # More/Less state
         self._show_inactive = False
+        self._read_only = is_data_read_only()
         self._value_rows: list[dict] = []  # raw data backing the model
         # (dsn, table_name) while the column list is shown; None otherwise
         self._table_columns_context: tuple[str, str] | None = None
@@ -572,6 +574,10 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             " (Value is read-only; paste/edit Description, Active and Notes)")
         self.btn_edit_window.clicked.connect(self._open_value_editor_window)
         self.btn_edit_window.setEnabled(False)
+        # The pop-out editor writes to the shared registry — hidden in the
+        # read-only (Light) edition, which is view-only.
+        if self._read_only:
+            self.btn_edit_window.setVisible(False)
         action_bar.addWidget(self.btn_edit_window)
 
         action_bar.addStretch()
@@ -617,6 +623,12 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.value_table.customContextMenuRequested.connect(
             self._on_value_table_context_menu)
+        # In the read-only edition, block in-place cell editing entirely (the
+        # description/notes/active columns are otherwise editable and would write
+        # to the shared registry).
+        if self._read_only:
+            self.value_table.setEditTriggers(
+                QAbstractItemView.EditTrigger.NoEditTriggers)
         right_lay.addWidget(self.value_table)
 
         self._canvas_panel = QWidget()
@@ -1076,6 +1088,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
     def _on_tree_context_menu(self, pos):
         """Right-click menu on tree: permanently delete a table or field."""
+        # Read-only edition: registry deletion is disabled entirely.
+        if self._read_only:
+            return
         item = self.tree.itemAt(pos)
         if item is None:
             return
@@ -1299,6 +1314,8 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
     def _sync_edit_window_button(self, current, _previous=None) -> None:
         """Enable the Edit-in-Window button only when a field leaf is selected."""
+        if self._read_only:
+            return  # button is hidden — never enable it in read-only
         is_field = (
             current is not None
             and current.data(0, _ROLE_NODE_TYPE) == "field"

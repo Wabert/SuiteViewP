@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont, QSyntaxHighlighter, QTextCharFormat, QColor
 
+from suiteview.core.build_env import is_light_build
+
 
 _FONT_MONO = QFont("Consolas", 10)
 _FONT = QFont("Segoe UI", 9)
@@ -175,6 +177,11 @@ class SqlTab(QWidget):
             "QPushButton:hover { background-color: #2970C4; }"
         )
         self.btn_move_to_build.clicked.connect(self._on_move_to_build)
+        # "Move to Build" hands the SQL to an editable Build-SQL surface where it
+        # can be modified and run — omitted from the read-only SuiteView Light
+        # edition.
+        if is_light_build():
+            self.btn_move_to_build.setVisible(False)
         footer_row.addWidget(self.btn_move_to_build)
 
         root.addLayout(footer_row)

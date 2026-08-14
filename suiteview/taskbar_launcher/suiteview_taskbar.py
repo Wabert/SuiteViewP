@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect, QTimer
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
 from suiteview import __version__ as APP_VERSION
+from suiteview.core.build_env import is_distribution_build, is_light_build
 
 # Import the base FileExplorerCore
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
@@ -32,12 +33,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 # DEV_MODE is True when running from source, False when running as a PyInstaller exe.
-# Experimental features (PolView, Audit, Task Tracker, etc.) are only shown in DEV_MODE.
-DEV_MODE = not getattr(sys, 'frozen', False)
+# Experimental features (Mainframe Nav, ScratchPad, Email Attachments, etc.) are
+# only shown in DEV_MODE.
+DEV_MODE = not is_distribution_build()
 
-# LIGHT_MODE is True when the exe is named SuiteViewLight.
-# Light builds only include PolView, FileNav, ABR Quote, View Screenshots, and App Data Location.
-LIGHT_MODE = getattr(sys, 'frozen', False) and 'SuiteViewLight' in os.path.basename(sys.executable)
+# LIGHT_MODE is True in the SuiteViewLight edition (read-only, trimmed feature
+# set). Light includes PolView, FileNav, ABR Quote, and the Audit / Query Tool
+# (read-only), plus View Screenshots and App Data Location. It excludes the LLM
+# Agent and Rate Manager. Sourced from build_env so every module shares one
+# definition.
+LIGHT_MODE = is_light_build()
 
 
 class NavigableTreeView(DropTreeView):
@@ -2254,10 +2259,9 @@ class SuiteViewTaskbar(QWidget):
         self._abrquote_action.triggered.connect(self._open_abrquote)
         tray_menu.addAction(self._abrquote_action)
         
-        if not LIGHT_MODE:
-            self._audit_action = QAction("🔍 Audit Tool", self)
-            self._audit_action.triggered.connect(self._open_audit)
-            tray_menu.addAction(self._audit_action)
+        self._audit_action = QAction("🔍 Audit Tool", self)
+        self._audit_action.triggered.connect(self._open_audit)
+        tray_menu.addAction(self._audit_action)
         
         tray_menu.addSeparator()
         
@@ -3446,8 +3450,7 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         self.audit_btn.clicked.connect(self._open_audit)
-        if not LIGHT_MODE:
-            header_layout.addWidget(self.audit_btn)
+        header_layout.addWidget(self.audit_btn)
         
         # ====== WINDOW CAPTURE BUTTON (blue dot) - HIDDEN FOR NOW ======
         # Functionality preserved in _capture_active_window() for future use
@@ -3580,12 +3583,15 @@ class SuiteViewTaskbar(QWidget):
             self.tools_menu.addAction("LLM Agent", self._open_agent_chat)
         self.tools_menu.addAction("View Screenshots", self._open_screenshot)
         if not LIGHT_MODE:
-            # PolView, ABR Quote, and Mainframe Nav are always available in full build
+            # Full build: the complete tool set. PolView / ABR Quote / Audit are
+            # also reachable from the header buttons and tray.
             self.tools_menu.addAction("PolView", self._open_polview)
             self.tools_menu.addAction("ABR Quote", self._open_abrquote)
             self.tools_menu.addAction("RERUN", self._open_illustration)
             self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
-            self.tools_menu.addAction("Audit Tool", self._open_audit)
+        # Audit / Query Tool is available in Light too (read-only).
+        self.tools_menu.addAction("Audit Tool", self._open_audit)
+        if not LIGHT_MODE:
             self.tools_menu.addAction("Rate Manager", self._open_rate_manager)
             self.tools_menu.addAction(
                 "DB2 Table Check", self._open_db2_table_check)

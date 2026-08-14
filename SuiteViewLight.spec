@@ -2,12 +2,20 @@
 """
 SuiteViewLight Distribution Build Spec
 ========================================
-Builds SuiteViewLight as a one-folder distribution with only core tools:
+Builds SuiteViewLight as a one-folder distribution — a trimmed, READ-ONLY
+edition for the business area.
+
+Included tools:
   - PolView, FileNav, ABR Quote
+  - Audit / Query Tool (READ-ONLY: no Find & Register Unique Values, no registry
+    or rate-table writes)
   - View Screenshots, App Data Location (Tools menu)
 
-Excludes: Audit Tool, ScratchPad, Mainframe Navigator, Email Attachments,
-          Task Tracker, Rate File Converter, duckdb, markdown
+Read-only behaviour is enforced at runtime by suiteview/core/build_env.py
+(is_light_build / is_data_read_only), which keys off the SuiteViewLight EXE name.
+
+Excludes: LLM Agent (copilot, markdown), Rate Manager, Mainframe Navigator,
+          ScratchPad, Email Attachments, RERUN illustration.
 
 Usage:
   python -m PyInstaller SuiteViewLight.spec
@@ -40,6 +48,8 @@ a = Analysis(
         ('suiteview/polview/data/policy_record_db2_tables.json', 'suiteview/polview/data'),
         # PolView config
         ('suiteview/polview/config/field_tooltips.json', 'suiteview/polview/config'),
+        # Audit Tool assets (checkmark glyph used by styled checkboxes)
+        ('suiteview/audit/tabs/_checkmark.png', 'suiteview/audit/tabs'),
         # Illustration / GLP Exception plancode and rate data
         ('suiteview/illustration/plancodes/plancode_table.json', 'suiteview/illustration/plancodes'),
         ('suiteview/illustration/plancodes/tRates_CORR.json', 'suiteview/illustration/plancodes'),
@@ -54,6 +64,7 @@ a = Analysis(
         'sqlalchemy.dialects.oracle',
         'sqlalchemy.dialects.postgresql',
         'pyodbc',
+        'duckdb',
         'openpyxl',
         'win32com',
         'win32com.client',
@@ -61,6 +72,12 @@ a = Analysis(
         'win32api',
         'win32gui',
         'win32con',
+        # Audit / Query Tool (read-only) — imported lazily via
+        # `from suiteview.audit import launch_audit`, so PyInstaller needs these
+        # spelled out or the tool is missing from the Light build.
+        'suiteview.audit',
+        'suiteview.audit.audit_window',
+        'suiteview.audit.main',
     ],
     hookspath=[],
     hooksconfig={},
@@ -69,8 +86,8 @@ a = Analysis(
         'PyQt5', 'PySide6', 'PySide2',
         # Exclude dev-only modules from the distribution
         'pytest', 'black', 'flake8',
-        # Exclude modules not needed in Light build
-        'duckdb', 'markdown',
+        # Exclude the LLM Agent stack (not in Light)
+        'copilot', 'markdown',
     ],
     noarchive=False,
     optimize=0,

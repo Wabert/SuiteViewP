@@ -1198,6 +1198,43 @@ venv\Scripts\python.exe scripts/build_distribution.py
   builds. Rate Manager is included in the full SuiteView distribution but not
   SuiteView Light.
 
+### SuiteViewLight — the read-only edition
+
+`SuiteViewLight` (`python scripts/build_distribution.py --light`, spec
+`SuiteViewLight.spec`) is a trimmed, **read-only** edition for the business area.
+
+- **Included:** PolView, FileNav, ABR Quote, and the **Audit / Query Tool**
+  (read-only), plus View Screenshots and App Data Location.
+- **Excluded:** LLM Agent (`copilot`, `markdown`), Rate Manager, Mainframe
+  Navigator, ScratchPad, Email Attachments, RERUN illustration.
+- **Read-only against the shared UL_Rates SQL Server database.** Light must
+  never modify shared data — the ABR Rate Viewer's Add/Edit/Delete bar is
+  hidden, the Audit "Find & Register Unique Values" actions are hidden, and the
+  Unique Value Registry window is view-only (no edit-in-window, non-editable
+  cells, no delete).
+- **No arbitrary hand-written SQL.** The Audit **Manual SQL build mode** and the
+  SQL tab's **"Move to Build"** button are removed in Light (both open an
+  editable, runnable SQL surface). This covers the build-mode menu, the New
+  Query Object dialog, the source dashboard's New Query menu, and reopening a
+  saved Manual SQL object. Gated on `is_light_build()`.
+
+**How the switch works — single source of truth in
+[`suiteview/core/build_env.py`](suiteview/core/build_env.py):**
+
+| Function | Meaning |
+|----------|---------|
+| `is_light_build()` | True in the `SuiteViewLight.exe`, or when `SUITEVIEW_LIGHT=1` (run/test Light from source) |
+| `is_data_read_only()` | Gate every shared-DB write on this (currently == `is_light_build()`) |
+| `guard_data_writable(action)` | Raises `ReadOnlyDataError` — the last-line safety net beneath the UI gating |
+
+**Enforcement is defense-in-depth:** the UI hides/disables write controls
+(taskbar `LIGHT_MODE`, ABR rate viewer, audit field menus, registry window)
+**and** the write layers guard themselves — `audit/shared_field_registry.py`
+(ABATBL_* registry) and `abrquote/ui/rate_viewer_dialog.py` (SV_ABR_* rate
+tables) both refuse writes when `is_data_read_only()`. When you add a new
+write path against the shared database, call `guard_data_writable()` at the top
+and gate its UI on `not is_data_read_only()`.
+
 ### Troubleshooting
 
 | Error | Cause | Fix |

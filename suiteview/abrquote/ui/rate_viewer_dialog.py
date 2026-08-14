@@ -30,6 +30,7 @@ from .abr_styles import (
 from ...ui.widgets.frameless_window import FramelessWindowBase
 from ...polview.ui.widgets import FixedHeaderTableWidget
 from ..models.abr_database import get_abr_database
+from ...core.build_env import is_data_read_only
 
 logger = logging.getLogger(__name__)
 
@@ -365,9 +366,11 @@ class RateViewerDialog(FramelessWindowBase):
         # Show action bar only for tables we can edit directly (SV_ tables).
         # TERM-managed tables (modal_factors, band_amounts, policy_fees, min_face)
         # are read-only in the viewer — they're managed by the term rate loader.
+        # In the read-only edition (SuiteView Light) the action bar is hidden for
+        # every table: the shared UL_Rates database is view-only.
         editable = table_key in (
             "interest_rates", "per_diem", "state_variations",
-        )
+        ) and not is_data_read_only()
         self._action_bar.setVisible(editable)
 
         try:
@@ -472,8 +475,21 @@ class RateViewerDialog(FramelessWindowBase):
             values.append(item.text() if item else "")
         return values
 
+    def _reject_write(self, action: str) -> bool:
+        """Block a write in the read-only (Light) edition. Returns True when the
+        caller should abort. The action bar is already hidden in read-only, so
+        this is the belt-and-braces guard behind the UI."""
+        if is_data_read_only():
+            QMessageBox.information(
+                self, "Read-only",
+                f"SuiteView Light is read-only — you cannot {action}.")
+            return True
+        return False
+
     def _on_add_row(self):
         """Add a new row to the current editable table."""
+        if self._reject_write("add rate data"):
+            return
         if self._current_table_key == "interest_rates":
             self._edit_interest_rate_dialog(existing=None)
         elif self._current_table_key == "per_diem":
@@ -491,6 +507,8 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _on_edit_row(self):
         """Edit the selected row."""
+        if self._reject_write("edit rate data"):
+            return
         row_data = self._get_selected_row_data()
         if row_data is None:
             QMessageBox.information(self, "Edit", "Please select a row to edit.")
@@ -512,6 +530,8 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _on_delete_row(self):
         """Delete the selected row from the current table."""
+        if self._reject_write("delete rate data"):
+            return
         row_data = self._get_selected_row_data()
         if row_data is None:
             QMessageBox.information(self, "Delete", "Please select a row to delete.")
