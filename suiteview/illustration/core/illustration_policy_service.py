@@ -315,10 +315,11 @@ def build_illustration_data(
         raw_benefits = []
 
     for b in raw_benefits:
-        if b.cease_date and b.cease_date < as_of_date:
+        if b.pay_up_date and b.pay_up_date < as_of_date:
             continue
         benefits.append(IllBenefitInfo(
             coverage_phase=b.cov_pha_nbr,
+            form_number=b.form_number or "",
             benefit_type=b.benefit_type_cd or "",
             benefit_subtype=b.benefit_subtype_cd or "",
             benefit_amount=float(b.benefit_amount) if b.benefit_amount else 0.0,
@@ -326,6 +327,7 @@ def build_illustration_data(
             vpu=float(b.vpu) if b.vpu else 0.0,
             issue_date=b.issue_date,
             issue_age=b.issue_age if b.issue_age is not None else 0,
+            pay_up_date=b.pay_up_date,
             cease_date=b.cease_date,
             rating_factor=float(b.rating_factor) if b.rating_factor else 0.0,
             coi_rate=float(b.coi_rate) if b.coi_rate else None,

@@ -49,6 +49,7 @@ class BenefitInfo:
     """A single benefit/rider on a coverage (not used in M1)."""
 
     coverage_phase: int = 1
+    form_number: str = ""
     benefit_type: str = ""          # SPM_BNF_TYP_CD
     benefit_subtype: str = ""       # SPM_BNF_SBY_CD
     benefit_amount: float = 0.0
@@ -56,6 +57,7 @@ class BenefitInfo:
     vpu: float = 0.0
     issue_date: Optional[date] = None
     issue_age: int = 0
+    pay_up_date: Optional[date] = None
     cease_date: Optional[date] = None
     rating_factor: float = 0.0     # BNF_RT_FCT
     coi_rate: Optional[float] = None

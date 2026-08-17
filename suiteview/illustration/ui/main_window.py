@@ -1009,13 +1009,33 @@ class IllustrationWindow(FramelessWindowBase):
                     solve_lumpsum_to_next_premium,
                 )
                 from suiteview.illustration.models.input_set import (
-                    DatedTransaction, IllustrationInputSet, TransactionKind,
+                    DatedTransaction, IllustrationInputSet, ScheduledTransaction,
+                    TransactionKind,
                 )
+                # A level premium type (Prem to Maturity / Max Level / Prem to
+                # Shadow Maturity) selected alongside the bridge REPLACES the
+                # policy's regular billing from its start year on — so during the
+                # bridge window the policy collects the level cadence ($0 until the
+                # level premium's own next mode date), not the modal premium. Tell
+                # the bridge which level premium follows so it sizes against that
+                # suppressed billing and targets the level premium's next payment;
+                # otherwise it measures the regular billing, finds no gap, and the
+                # later level solve lapses before its first premium lands.
+                follow_on_premium = None
+                level_req = (self.inputs_tab.min_level_request()
+                             or self.inputs_tab.max_level_request()
+                             or self.inputs_tab.shadow_level_request())
+                if level_req is not None:
+                    follow_on_premium = ScheduledTransaction(
+                        kind=TransactionKind.PREMIUM,
+                        policy_year=int(level_req["start_year"]),
+                        amount=0.0, mode=level_req.get("mode") or "")
                 lumpsum_result = solve_lumpsum_to_next_premium(
                     scenario.projectable_policy,
                     base_future_inputs=future_inputs,
                     base_options=run_options,
                     engine=engine,
+                    follow_on_premium=follow_on_premium,
                 )
                 if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
                     dated = list(future_inputs.dated_transactions)

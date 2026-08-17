@@ -19,9 +19,9 @@ targets with the "FFL Premium Waivers" basis calc (CalcEngine IW..JD):
     IW  vMin_Base       = Σcov currentCOIRate·SA/1000     (at the change month)
     IX  vMin_Base_Table = Σcov currentCOIRate·table·SA·factor/1000
     IY  vMin_Base_Flat  = TotalSA·flat1                   (RERUN as-is; no /1000, /12)
-    IZ  PWoC MinBasis   = Σbenefit MTPs/12 + IW + IX + IY + monthly fee
+    IZ  PWoC MinBasis   = (Σbenefit + Σrider MTPs)/12 + IW + IX + IY + monthly fee
     JB  PWoC_MTP (IV)   = TRUNC(pwRate·IZ·(1 + factor·table), 2)
-    JA  PWoT MinBasis   = Σcov MTPs + Σbenefit MTPs + JB  (no CCV, no PWoT)
+    JA  PWoT MinBasis   = Σcov MTPs + Σbenefit MTPs + Σrider MTPs + JB  (no CCV, no PWoT)
     JC  PWoT_wTable     = TRUNC(x/(1−x), 5),  x = pwstRate/100·(1 + table·factor)
     JD  PWoT_MTP (IK)   = TRUNC(JA·JC, 2)
     KE  PWoT CTP        = JC·vMTP                          (vs units·rate non-FFL)
@@ -120,7 +120,7 @@ def target_actives_signature(
         for ben in policy.benefits
         if ben.is_active
         and not (ben.benefit_type or "").startswith("#")
-        and not (ben.cease_date is not None and as_of is not None and as_of >= ben.cease_date)
+        and not (ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date)
     ))
     rider_keys = tuple(sorted(
         rider.export_key
@@ -175,6 +175,8 @@ class TargetPremiumResult:
 
     # FFL premium waiver bases (CalcEngine IW..JD) — zero for non-FFL products.
     ffl_min_base: float = 0.0       # IW
+    ffl_min_base_table: float = 0.0  # IX
+    ffl_min_base_flat: float = 0.0  # IY
     ffl_pwoc_basis: float = 0.0     # IZ
     ffl_pwot_basis: float = 0.0     # JA
     ffl_pwot_factor: float = 0.0    # JC
@@ -368,7 +370,7 @@ def compute_target_premiums(
         # Benefits contribute no target from their payup/cease anniversary on —
         # STRICT, matching the deduction loop's vPW_Active gate (attained age <
         # payup age). Segment table/flat cease stays inclusive (_active).
-        if ben.cease_date is not None and as_of is not None and as_of >= ben.cease_date:
+        if ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date:
             continue
         ben_key = ben_type + (ben.benefit_subtype or "")
         ben_args = (
@@ -473,15 +475,17 @@ def compute_target_premiums(
         # workbook bug; keep in lockstep for comparison runs).
         iy = total_face * base_flat
         mfee_monthly = _ffl_monthly_fee(policy, config, rates_db, current_band, as_of)
-        # IZ — PWoC min basis: monthly benefit targets + current base COI on
-        # SA + its table extra + flat term + monthly expense fee.
-        pwoc_basis = mtp_ben_generic / 12.0 + iw + ix + iy + mfee_monthly
+        # IZ — PWoC min basis: monthly benefit AND rider targets + current base
+        # COI on SA + its table extra + flat term + monthly expense fee. Rider
+        # targets (e.g. a spouse/child term rider MTP) are part of the monthly
+        # target sum, same as the generic benefit targets.
+        pwoc_basis = (mtp_ben_generic + mtp_rider_sum) / 12.0 + iw + ix + iy + mfee_monthly
         if pw_rate > 0.0:
             # JB — PWoC_MTP.
             pw_component = _trunc2(pw_rate * pwoc_basis * (1.0 + factor * base_table))
-        # JA — PWoT min basis: coverage + benefit targets + the PWoC target
-        # (excludes CCV and the PWoT target itself).
-        pwot_basis = mtp_cov_sum + mtp_ben_generic + pw_component
+        # JA — PWoT min basis: coverage + benefit + rider targets + the PWoC
+        # target (excludes CCV and the PWoT target itself).
+        pwot_basis = mtp_cov_sum + mtp_ben_generic + mtp_rider_sum + pw_component
         pwot_factor = 0.0
         if pwst_active:
             x = pwst_rate / 100.0 * (1.0 + base_table * factor)
@@ -489,6 +493,8 @@ def compute_target_premiums(
                 pwot_factor = _trunc5(x / (1.0 - x))   # JC
             pwst_component = _trunc2(pwot_basis * pwot_factor)  # IK = JD
         result.ffl_min_base = iw
+        result.ffl_min_base_table = ix
+        result.ffl_min_base_flat = iy
         result.ffl_pwoc_basis = pwoc_basis
         result.ffl_pwot_basis = pwot_basis
         result.ffl_pwot_factor = pwot_factor
@@ -535,12 +541,13 @@ def build_target_detail_snapshots(
 ) -> tuple[Dict[str, object], Dict[str, object]]:
     """MTP / CTP per-component snapshots keyed by the RERUN display names.
 
-    Mirrors CalcEngine HO..JG (MTP) and JI..KQ (CTP). The engine's base
-    segments map onto RERUN's Cov 1..3 slots (same convention as the Cov After
-    Change snapshot); APB is not modeled, so its slots stay 0. Benefit slots:
-    PW = type 3 (PWoC), PWSTP = type 4 (PWoT), GIR/GIO = type+subtype 76,
-    CCV = type A; other unmapped benefit targets land in "Other Benefits" so
-    nothing silently disappears.
+    Mirrors CalcEngine HO..JG (MTP) and JI..KQ (CTP). Every base coverage
+    segment gets its own Cov n slot (same convention as the Monthly Deduction
+    group, which lists all segments); APB is not modeled, so its slots stay 0.
+    Each active rider gets its own MTP/CTP column keyed by its export key.
+    Benefit slots: PW = type 3 (PWoC), PWSTP = type 4 (PWoT), GIR/GIO =
+    type+subtype 76, CCV = type A; other unmapped benefit targets land in
+    "Other Benefits" so nothing silently disappears.
     """
     segments = sorted(
         (s for s in policy.segments if getattr(s, "is_base", True)),
@@ -548,7 +555,10 @@ def build_target_detail_snapshots(
     )
     mtp: Dict[str, object] = {}
     ctp: Dict[str, object] = {}
-    for index in (1, 2, 3):
+    # One slot per base coverage segment (mirrors the Monthly Deduction group,
+    # which lists every segment); always at least Cov 1 even when the policy
+    # carries no explicit segments.
+    for index in range(1, max(len(segments), 1) + 1):
         seg = segments[index - 1] if index - 1 < len(segments) else None
         phase = seg.coverage_phase if seg else None
         mtp[f"MTP Rate Cov {index}"] = result.mtp_rates_by_coverage.get(phase, 0.0)
@@ -575,18 +585,25 @@ def build_target_detail_snapshots(
     ]
     mtp["Other Benefits MTP"] = sum(result.mtp_benefits[k] for k in other_keys)
     ctp["Other Benefits CTP"] = sum(result.ctp_benefits.get(k, 0.0) for k in other_keys)
-    mtp["Riders MTP"] = sum(result.mtp_riders.values())   # IG..II analog (CTR/STR)
-    ctp["Riders CTP"] = sum(result.ctp_riders.values())
+    # Per-rider targets (IG..II analog — CTR/STR, spouse term riders). One
+    # column per rider so each is visible, not rolled into a single sum.
+    for key, value in result.mtp_riders.items():
+        mtp[f"MTP Rider {key.upper()}"] = value
+    for key, value in result.ctp_riders.items():
+        ctp[f"CTP Rider {key.upper()}"] = value
 
     mtp["PWSTP MTPR"] = result.pwst_rate          # IJ
     mtp["PWSTP MTP"] = result.pwst_component      # IK
     ctp["PWSTP CTP"] = result.pwst_ctp_component  # KE
     if result.ffl_pwoc_basis or result.ffl_pwot_basis:
         # FFL Premium Waivers section (IW..JD) — shown only for FFL products.
-        mtp["FFL Min Base"] = result.ffl_min_base           # IW
-        mtp["FFL PWoC MinBasis"] = result.ffl_pwoc_basis    # IZ
-        mtp["FFL PWoT MinBasis"] = result.ffl_pwot_basis    # JA
-        mtp["FFL PWoT Factor"] = result.ffl_pwot_factor     # JC
+        # These MTP intermediates feed the PWoC/PWoT waiver targets.
+        mtp["Min_Base"] = result.ffl_min_base              # IW
+        mtp["Min_Base_Table"] = result.ffl_min_base_table  # IX
+        mtp["Min_Base_Flat"] = result.ffl_min_base_flat    # IY
+        mtp["PWoC_MinBasis"] = result.ffl_pwoc_basis       # IZ
+        mtp["PWoT_MinBasis"] = result.ffl_pwot_basis       # JA
+        mtp["FFL PWoT Factor"] = result.ffl_pwot_factor    # JC
 
     mtp["MTP w/o PW"] = result.mtp_wo_pw          # IT
     mtp["PW MTPR"] = result.pw_rate               # IU

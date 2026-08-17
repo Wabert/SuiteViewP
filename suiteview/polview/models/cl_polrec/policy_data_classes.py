@@ -173,6 +173,7 @@ class BenefitInfo:
     benefit_desc: str
     form_number: str                    # BNF_FRM_NBR
     issue_date: Optional[date]          # BNF_ISS_DT
+    pay_up_date: Optional[date]         # BNF_PAY_UP_DT
     cease_date: Optional[date]          # BNF_CEA_DT
     orig_cease_date: Optional[date]     # BNF_OGN_CEA_DT
     units: Optional[Decimal]            # BNF_UNT_QTY

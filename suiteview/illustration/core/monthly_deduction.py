@@ -45,10 +45,11 @@ def _rate_from_schedule(schedule, index: int) -> float:
 def _charge_active(cease_date: date | None, projection_date: date | None) -> bool:
     """Whether a substandard charge (table rating / flat extra) is still active.
 
-    STRICT: the charge ceases AT the cease-date anniversary, so it is NOT applied
-    on (or after) ``cease_date``.  Mirrors RERUN and the benefit-cease logic below
-    (``projection_date >= ben.cease_date`` stops the charge).  An inclusive ``<=``
-    here charged the flat extra/table rating for one extra anniversary month.
+    STRICT: the charge ceases AT the supplied cease-date anniversary, so it is
+    NOT applied on (or after) ``cease_date``. This helper remains for
+    substandard coverage charges; benefit premiums use ``pay_up_date`` directly.
+    An inclusive ``<=`` here would charge the flat extra/table rating for one
+    extra anniversary month.
     """
     if cease_date is None or projection_date is None:
         return True
@@ -655,9 +656,9 @@ def calculate_deduction(
             continue
         if (ben.benefit_type or "").startswith("#"):
             continue
-        # Benefits stop charging at their payup/cease anniversary (RERUN
-        # vPW_Active: attained age < payup age — strict on the cease date).
-        if ben.cease_date is not None and projection_date is not None and projection_date >= ben.cease_date:
+        # Benefit premiums stop at the pay-up anniversary. The contractual
+        # cease date is displayed separately and does not control charges.
+        if ben.pay_up_date is not None and projection_date is not None and projection_date >= ben.pay_up_date:
             continue
         ben_type = ben.benefit_type or ""
         ben_rates = rates.benefit_coi.get(detail_key, [])

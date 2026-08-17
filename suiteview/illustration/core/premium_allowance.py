@@ -88,6 +88,9 @@ class PremiumAllowances:
     scheduled_cap_by_tamra: bool = False
     capped_by_guideline: bool = False
     capped_by_tamra: bool = False
+    # True in the transition year when levelizing is suppressed dollar-for-dollar
+    # (see ``dollar_for_dollar_in_transition_year``); carried across the year.
+    in_transition_year: bool = False
     # ── carried for display only ──
     prem_less_wd: float = 0.0                # KW = PremTD − WithdrawalTD
 
@@ -121,6 +124,7 @@ class PremiumAllowances:
             "Scheduled Prem Cap": self.scheduled_prem_cap,
             "Levelized Max Premium": self.levelized_max_premium,
             "Apply Levelized Premium": self.apply_levelized,
+            "In Transition Year": self.in_transition_year,
             "Scheduled Premium less Loan Repay": self.scheduled_less_loan_repay,
             "AppliedScheduledPremium": self.applied_scheduled_premium,
         }
@@ -176,6 +180,9 @@ def compute_premium_allowances(
     prior_scheduled_prem_cap: float,   # NV (prior month) — for the carry-forward
     prior_scheduled_cap_by_guideline: bool = False,
     prior_scheduled_cap_by_tamra: bool = False,
+    dollar_for_dollar_in_transition_year: bool = False,
+    prior_guideline_limit_reached: bool = False,
+    prior_transition_year_active: bool = False,
 ) -> PremiumAllowances:
     """Compute the NC..NZ "Apply Premium" chain for one month.
 
@@ -297,9 +304,31 @@ def compute_premium_allowances(
         a.scheduled_cap_by_guideline = prior_scheduled_cap_by_guideline
         a.scheduled_cap_by_tamra = prior_scheduled_cap_by_tamra
 
+    # ── Transition-year dollar-for-dollar (Prem-to-Maturity) ──
+    # The FIRST policy year the GP guideline binds the level premium is the year
+    # the policy tips into GP exception mode. That year's premium can never be
+    # level (it ends on exception premiums), so — when the caller opts in — accept
+    # the scheduled premium dollar-for-dollar instead of spreading the freshly
+    # opened annual room across the modal payments: the billable premium fills the
+    # guideline room and the MD / GP exception premium takes over once it is
+    # exhausted, rather than oscillating against the room for the rest of the year.
+    # Latched at the anniversary (the SX-flag anchor) and carried through the year;
+    # the NEXT year sees ``prior_guideline_limit_reached`` and does not re-enter.
+    if beginning_of_year:
+        gp_binds_this_year = (is_gpt and tefra_force) and a.scheduled_cap_by_guideline
+        a.in_transition_year = (
+            dollar_for_dollar_in_transition_year
+            and gp_binds_this_year
+            and not prior_guideline_limit_reached
+        )
+    else:
+        a.in_transition_year = prior_transition_year_active
+
     # ── NW / NX / NY / NZ ──
     a.levelized_max_premium = min(a.scheduled_prem_cap, requested_scheduled)
-    a.apply_levelized = levelizing_premium and not has_loan_balance
+    a.apply_levelized = (
+        levelizing_premium and not has_loan_balance and not a.in_transition_year
+    )
     a.scheduled_less_loan_repay = requested_scheduled - loan_repay_from_scheduled
     levelized_or_full = (
         min(a.levelized_max_premium, a.scheduled_less_loan_repay)

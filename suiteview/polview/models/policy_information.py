@@ -1068,6 +1068,7 @@ class PolicyInformation:
                     benefit_desc=type_cd,  # Type code is the primary descriptor
                     form_number=str(row.get("BNF_FRM_NBR", "")).strip(),
                     issue_date=self._parse_date(row.get("BNF_ISS_DT")),
+                    pay_up_date=self._parse_date(row.get("BNF_PAY_UP_DT")),
                     cease_date=self._parse_date(row.get("BNF_CEA_DT")),
                     orig_cease_date=self._parse_date(row.get("BNF_OGN_CEA_DT")),
                     units=units,

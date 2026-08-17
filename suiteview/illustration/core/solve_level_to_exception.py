@@ -106,6 +106,7 @@ def level_to_exception_options(
         allow_exception_prems=allow_exceptions,
         exact_days_interest=exact,
         levelizing_premium=levelizing,
+        dollar_for_dollar_in_transition_year=True,
         apply_prem_to_loan=apply_prem_to_loan,
     )
 
@@ -120,6 +121,7 @@ def solve_level_to_exception(
     apply_prem_to_loan: Optional[bool] = None,
     conform_to_tamra: bool = True,
     resolution: float = 0.01,
+    fund_transition_cleanly: bool = True,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
 ) -> LevelToExceptionResult:
@@ -138,6 +140,12 @@ def solve_level_to_exception(
             these inputs specify.
         resolution: rounding granularity; the result is rounded UP to this so it
             lands on the in-force side of the lapse boundary.
+        fund_transition_cleanly: prefer the (slightly higher) premium that keeps
+            the policy fully self-funded until the guideline room is exhausted, so
+            no GP exception premium fires while room remains — the "perfectly level
+            right up to the exception period" contract. Never returns less than the
+            plain survive-minimum; falls back to it when a clean solution is not
+            reachable. Turn off to solve only for bare survival.
         apply_prem_to_loan: make the level premium repay the policy loan before
             funding the account value (sInput_ApplyPremToLoan) — needed to solve a
             policy that carries a loan. ``None`` inherits it from ``base_options``;
@@ -179,45 +187,87 @@ def solve_level_to_exception(
         # (endow or exception) reaches the maturity age.
         return bool(states) and states[-1].attained_age >= policy.maturity_age
 
+    def cleanly_funded(states: List[MonthlyState]) -> bool:
+        # The stricter target the module contract promises: a premium that stays
+        # "perfectly level right up to the exception period." A premium that only
+        # just survives limps into the exception period under-funded — the level
+        # premium can no longer keep the account value positive between modal
+        # payments, so a GP exception premium fires WHILE guideline room still
+        # remains (the ragged transition year). Require instead that the FIRST GP
+        # exception premium cannot fire until the guideline room is genuinely
+        # exhausted; a run that simply endows (no exception at all) is clean too.
+        if not survives(states):
+            return False
+        for s in states:
+            if float(getattr(s, "gp_exception_prem_gross", 0.0) or 0.0) > 1e-9:
+                # Guideline room left AFTER this month's billable premium: the
+                # limit less premiums-paid-net-of-withdrawals (prem_less_wd is the
+                # pre-premium figure, so add what was accepted this month). Room
+                # essentially gone (≤ $1) means the exception is legitimate.
+                room = s.guideline_limit - (
+                    s.prem_less_wd
+                    + s.applied_scheduled_premium
+                    + s.applied_lumpsum)
+                return room <= 1.0
+        return True
+
     iterations = 0
 
-    # Zero premium already endows? Nothing to solve.
-    if survives(project(0.0)):
-        return _build_result(0.0, mode, project(0.0), iterations)
-    lo = 0.0
-
-    # Exponentially grow an upper bracket that survives. With exception premiums
-    # on, a high-enough premium is always rescued at the guideline limit, so this
-    # terminates quickly.
-    hi = max(policy.modal_premium, 1.0)
-    doublings = 0
-    while not survives(project(hi)):
+    def solve_for(predicate) -> Optional[float]:
+        """Minimum modal premium (rounded up to ``resolution``) satisfying
+        ``predicate``, or None when no premium in the bracket does."""
+        nonlocal iterations
+        if predicate(project(0.0)):
+            return 0.0
+        lo = 0.0
+        # Exponentially grow an upper bracket that satisfies the predicate. With
+        # exception premiums on, a high-enough premium is always rescued at the
+        # guideline limit (and fully funds the run-up to it), so this terminates.
+        hi = max(policy.modal_premium, 1.0)
+        doublings = 0
+        while not predicate(project(hi)):
+            iterations += 1
+            hi *= 2.0
+            doublings += 1
+            if doublings > _MAX_BRACKET_DOUBLINGS:
+                return None
         iterations += 1
-        hi *= 2.0
-        doublings += 1
-        if doublings > _MAX_BRACKET_DOUBLINGS:
-            raise LevelToExceptionError(
-                "No level premium keeps this policy in force to maturity.")
-    iterations += 1
-
-    # Bisect the lapse↔survive boundary to HALF the resolution, then test the
-    # rounded candidate directly — ceiling the raw ``hi`` can overshoot a full
-    # step when the boundary sits just under a grid point.
-    while hi - lo > resolution / 2.0:
-        mid = (lo + hi) / 2.0
-        if survives(project(mid)):
-            hi = mid
-        else:
-            lo = mid
+        # Bisect the boundary to HALF the resolution, then test the rounded
+        # candidate directly — ceiling the raw ``hi`` can overshoot a full step
+        # when the boundary sits just under a grid point.
+        while hi - lo > resolution / 2.0:
+            mid = (lo + hi) / 2.0
+            if predicate(project(mid)):
+                hi = mid
+            else:
+                lo = mid
+            iterations += 1
+        premium = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
         iterations += 1
+        if not predicate(project(premium)):
+            premium = round(premium + resolution, 2)
+            iterations += 1
+        return premium
 
-    premium = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
+    # Baseline: the lowest premium that stays in force to maturity.
+    survive_premium = solve_for(survives)
+    if survive_premium is None:
+        raise LevelToExceptionError(
+            "No level premium keeps this policy in force to maturity.")
+
+    premium = survive_premium
+    if fund_transition_cleanly:
+        # Prefer the higher premium that funds the transition year cleanly (no GP
+        # exception premium while guideline room remains). Falls back to the
+        # survive-minimum if that is unreachable within the bracket; never returns
+        # LESS than the survive-minimum, so it can only ADD funding, never cause a
+        # lapse that the baseline avoided.
+        clean_premium = solve_for(cleanly_funded)
+        if clean_premium is not None:
+            premium = max(survive_premium, clean_premium)
+
     states = project(premium)
     iterations += 1
-    if not survives(states):
-        premium = round(premium + resolution, 2)
-        states = project(premium)
-        iterations += 1
     return _build_result(premium, mode, states, iterations)
 
 

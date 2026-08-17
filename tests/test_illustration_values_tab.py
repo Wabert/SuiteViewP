@@ -569,9 +569,11 @@ def test_cov_slot_groups_show_only_active_coverages():
     assert "Current SA Cov 1" in cov_columns
     assert "Current SA Cov 2" not in cov_columns
     assert "Original SA APB" not in cov_columns
+    # MTP/CTP list every base coverage segment (like Monthly Deduction), so
+    # both segments of the 2-segment policy show regardless of the active flags.
     mtp_columns = list(tab._tab_grids["MTP"].df.columns)
     assert "MTP Cov 1" in mtp_columns
-    assert "MTP Cov 2" not in mtp_columns
+    assert "MTP Cov 2" in mtp_columns
     assert "WD SA Change Cov 2" not in list(tab._tab_grids["Withdrawals"].df.columns)
 
     # A coverage activated mid-run (face increase) brings its slot in.
@@ -587,6 +589,86 @@ def test_cov_slot_groups_show_only_active_coverages():
     assert "Current SA Cov 2" in list(tab._tab_grids["Cov After Change"].df.columns)
     assert "MTP Cov 2" in list(tab._tab_grids["MTP"].df.columns)
     assert "Cov 3 Active" not in list(tab._tab_grids["Cov After Change"].df.columns)
+
+
+def test_mtp_ctp_show_all_segments_and_rider_columns():
+    _app()
+    tab = IllustrationValuesTab()
+
+    state = _state()
+    state.mtp_detail = {
+        "MTP Cov 1": 100.0,
+        "MTP Cov 2": 50.0,
+        "MTP Rider R1_1": 7.8,
+        "vMTP": 1200.0,
+    }
+    state.ctp_detail = {
+        "CTP Cov 1": 120.0,
+        "CTP Cov 2": 60.0,
+        "CTP Rider R1_1": 9.0,
+        "vCTP": 1440.0,
+    }
+    tab.display_projection(_policy(), [state])
+
+    mtp_columns = list(tab._tab_grids["MTP"].df.columns)
+    assert "MTP Cov 1" in mtp_columns
+    assert "MTP Cov 2" in mtp_columns
+    assert "MTP Rider R1_1" in mtp_columns
+
+    ctp_columns = list(tab._tab_grids["CTP"].df.columns)
+    assert "CTP Cov 1" in ctp_columns
+    assert "CTP Cov 2" in ctp_columns
+    assert "CTP Rider R1_1" in ctp_columns
+
+
+def test_mtp_shows_ffl_waiver_intermediates_before_mtp_wo_pw():
+    _app()
+    tab = IllustrationValuesTab()
+
+    state = _state()
+    state.mtp_detail = {
+        "MTP Cov 1": 100.0,
+        "Min_Base": 120.0,
+        "Min_Base_Table": 60.0,
+        "Min_Base_Flat": 5.0,
+        "PWoC_MinBasis": 185.42,
+        "PWoT_MinBasis": 2012.40,
+        "MTP w/o PW": 2000.0,
+        "vMTP": 1200.0,
+    }
+    tab.display_projection(_policy(), [state])
+
+    mtp_columns = list(tab._tab_grids["MTP"].df.columns)
+    for column in ("Min_Base", "Min_Base_Table", "Min_Base_Flat",
+                   "PWoC_MinBasis", "PWoT_MinBasis"):
+        assert column in mtp_columns
+        assert mtp_columns.index(column) < mtp_columns.index("MTP w/o PW")
+
+
+def test_mtp_omits_ffl_intermediates_for_non_ffl():
+    _app()
+    tab = IllustrationValuesTab()
+
+    state = _state()
+    state.mtp_detail = {"MTP Cov 1": 100.0, "MTP w/o PW": 2000.0, "vMTP": 1200.0}
+    tab.display_projection(_policy(), [state])
+
+    mtp_columns = list(tab._tab_grids["MTP"].df.columns)
+    assert "Min_Base" not in mtp_columns
+    assert "PWoC_MinBasis" not in mtp_columns
+
+
+def test_mtp_headers_drop_the_v_prefix():
+    _app()
+    tab = IllustrationValuesTab()
+
+    # The DataFrame keys stay vMTP/vMonthlyMTP/vAccumMTP (so they never collide
+    # with the Summary/Overview MTP columns), but the MTP tab displays them
+    # without the "v" prefix.
+    labels = tab._header_labels_for_tab(tab.MTP_GROUP)
+    assert labels["vMTP"] == "MTP"
+    assert labels["vMonthlyMTP"] == "MonthlyMTP"
+    assert labels["vAccumMTP"] == "AccumMTP"
 
 
 def test_change_groups_carry_total_sa_on_every_month():

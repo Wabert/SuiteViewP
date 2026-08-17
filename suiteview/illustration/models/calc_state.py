@@ -120,6 +120,9 @@ class MonthlyState:
     scheduled_prem_cap: float = 0.0        # NV — per-payment level cap (carried all year)
     scheduled_cap_by_guideline: bool = False
     scheduled_cap_by_tamra: bool = False
+    # Latched in the transition year (levelizing suppressed dollar-for-dollar);
+    # carried through that policy year. See premium_allowance.in_transition_year.
+    transition_year_active: bool = False
     levelized_max_premium: float = 0.0     # NW — MIN(Sched Prem Cap, scheduled)
     apply_levelized: bool = False          # NX — levelizing active this month
     # Full "Apply Premium" allowance chain (CalcEngine NC..NZ) keyed by the

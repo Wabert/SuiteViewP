@@ -22,6 +22,7 @@ from suiteview.illustration.models.policy_data import (
     BenefitInfo,
     CoverageSegment,
     IllustrationPolicyData,
+    RiderInfo,
 )
 
 
@@ -169,12 +170,50 @@ def test_ffl_table_rating_flows_through_waiver_bases(fake_rates):
     result = compute_target_premiums(policy, _config("FFL"), as_of=date(2020, 6, 9))
 
     # IX = 1.2·2·100000·0.25/1000 = 60; IZ = 5/12 + 120 + 60 + 3.
+    assert result.ffl_min_base_table == pytest.approx(60.0)
+    assert result.ffl_min_base_flat == pytest.approx(0.0)
     iz = 5.0 / 12.0 + 120.0 + 60.0 + 3.0
     assert result.ffl_pwoc_basis == pytest.approx(iz)
     # JB = TRUNC(0.06·IZ·(1 + 0.25·2), 2) = TRUNC(16.5075, 2) = 16.50.
     assert result.pw_component == pytest.approx(16.50)
     # JC: x = 0.08·1.5 = 0.12 → TRUNC(0.12/0.88, 5) = 0.13636.
     assert result.ffl_pwot_factor == pytest.approx(0.13636)
+
+
+def test_ffl_waiver_bases_include_rider_targets(fake_rates):
+    """A rider's MTP feeds both FFL waiver bases (RERUN 000189726 / NU1FU200).
+
+    The PWoC min basis carries the rider target in its monthly (÷12) sum, and
+    the PWoT min basis carries the full rider target — previously both dropped
+    the rider MTP, understating the waiver premiums.
+    """
+    policy = _make_policy()
+    # STR rider: units × get_mtp (20/unit) = 21.0 rider MTP.
+    policy.riders = [
+        RiderInfo(
+            coverage_phase=2,
+            occurrence=1,
+            plancode="1U8FS100",
+            issue_date=date(2020, 6, 9),
+            issue_age=45,
+            rate_sex="F",
+            rate_class="N",
+            face_amount=100_000.0,
+            units=1.05,
+            cov_type="STR",
+        )
+    ]
+    result = compute_target_premiums(policy, _config("FFL"), as_of=date(2020, 6, 9))
+
+    assert result.mtp_riders["1U8FS100_1"] == pytest.approx(21.0)
+    # IZ = (benefit 5 + rider 21)/12 + IW 120 + IX 0 + IY 0 + fee 3.
+    iz = (5.0 + 21.0) / 12.0 + 120.0 + 3.0
+    assert result.ffl_pwoc_basis == pytest.approx(iz)
+    # JB = TRUNC(0.06·IZ, 2).
+    jb = float(int(0.06 * iz * 100)) / 100.0
+    assert result.pw_component == pytest.approx(jb)
+    # JA = cov 2000 + benefit 5 + rider 21 + JB.
+    assert result.ffl_pwot_basis == pytest.approx(2000.0 + 5.0 + 21.0 + jb)
 
 
 def test_plancode_table_carries_company_sub():

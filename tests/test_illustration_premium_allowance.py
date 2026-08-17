@@ -123,6 +123,83 @@ def test_levelizing_spreads_cap_over_year_vs_dollar_for_dollar():
     assert on.applied_scheduled_premium == pytest.approx(50.0)
 
 
+def test_transition_year_dollar_for_dollar_suppresses_levelizing():
+    # The first policy year the GP guideline binds the level premium (the year the
+    # policy tips into GP exception): with the opt-in on, levelizing is suppressed
+    # so the scheduled premium bills dollar-for-dollar (up to the annual room)
+    # instead of being spread across the year's modal payments.
+    base = dict(
+        tefra_force=True, guideline_limit=10_000.0, prem_less_wd=9_400.0,
+        requested_scheduled=500.0, payment_count_policy_year=12,
+        levelizing_premium=True,
+    )
+    # Levelized (opt-in off): 600 of annual room spread over 12 modes -> 50.
+    off = _alw(**base)
+    assert off.apply_levelized is True
+    assert off.in_transition_year is False
+    assert off.applied_scheduled_premium == pytest.approx(50.0)
+
+    # Opt-in on, first capped year (prior year had not reached the limit): the
+    # transition-year latch fires, levelizing is off, full 500 bills this month.
+    on = _alw(
+        **base,
+        dollar_for_dollar_in_transition_year=True,
+        prior_guideline_limit_reached=False,
+    )
+    assert on.in_transition_year is True
+    assert on.apply_levelized is False
+    assert on.applied_scheduled_premium == pytest.approx(500.0)
+
+
+def test_transition_year_only_the_first_capped_year():
+    # A later year in the same exception period (the prior month already reached
+    # the guideline limit) is NOT the transition year — levelizing stays on so the
+    # settled exception period does not re-oscillate.
+    a = _alw(
+        tefra_force=True, guideline_limit=10_000.0, prem_less_wd=9_400.0,
+        requested_scheduled=500.0, payment_count_policy_year=12,
+        levelizing_premium=True,
+        dollar_for_dollar_in_transition_year=True,
+        prior_guideline_limit_reached=True,
+    )
+    assert a.in_transition_year is False
+    assert a.apply_levelized is True
+    assert a.applied_scheduled_premium == pytest.approx(50.0)
+
+
+def test_transition_year_carries_through_the_year():
+    # Mid-year months (not the anniversary) inherit the latch from the carried
+    # ``prior_transition_year_active`` flag, so the whole transition year bills
+    # dollar-for-dollar, not just its first month.
+    a = _alw(
+        tefra_force=True, guideline_limit=10_000.0, prem_less_wd=9_400.0,
+        requested_scheduled=500.0, payment_count_policy_year=12,
+        levelizing_premium=True,
+        dollar_for_dollar_in_transition_year=True,
+        beginning_of_year=False, policy_anniversary=False,
+        prior_scheduled_prem_cap=50.0,
+        prior_scheduled_cap_by_guideline=True,
+        prior_transition_year_active=True,
+    )
+    assert a.in_transition_year is True
+    assert a.apply_levelized is False
+    assert a.applied_scheduled_premium == pytest.approx(500.0)
+
+
+def test_transition_year_dollar_for_dollar_off_by_default():
+    # Without the opt-in, the transition year keeps RERUN levelizing (parity for
+    # normal INPUT runs).
+    a = _alw(
+        tefra_force=True, guideline_limit=10_000.0, prem_less_wd=9_400.0,
+        requested_scheduled=500.0, payment_count_policy_year=12,
+        levelizing_premium=True,
+        prior_guideline_limit_reached=False,
+    )
+    assert a.in_transition_year is False
+    assert a.apply_levelized is True
+    assert a.applied_scheduled_premium == pytest.approx(50.0)
+
+
 def test_guideline_levelizing_remains_disabled_by_a_loan():
     a = _alw(
         tefra_force=True, guideline_limit=10_000.0, prem_less_wd=9_400.0,

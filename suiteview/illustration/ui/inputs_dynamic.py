@@ -1099,6 +1099,7 @@ class SectionSpec:
     value_width: int = 110
     value_options: Optional[list] = None       # [(code, label)] -> combo instead of amount
     default_first_row: bool = False            # premium defaults from the policy
+    default_first_type: Optional[str] = None   # default Type for the first row (else Input)
     default_span_to_maturity: bool = False     # empty For Years/To Age -> maturity
     auto_adjust_prior_span: bool = False
     allow_max_level_premium: bool = False
@@ -1252,7 +1253,13 @@ class DynamicSection(QGroupBox):
         if first.mode_combo is not None:
             first.mode_combo.setCurrentText(self.spec.default_mode)
         if self.spec.default_first_row:
-            first.type_combo.setCurrentIndex(0)
+            # Default the Type to the section's preferred first type when it is
+            # available in the (context-populated) dropdown; else leave at Input.
+            if (self.spec.default_first_type is not None
+                    and first.type_combo.findText(self.spec.default_first_type) >= 0):
+                first.type_combo.setCurrentText(self.spec.default_first_type)
+            else:
+                first.type_combo.setCurrentIndex(0)
             first.year_edit.set_value(ctx.forecast_year)
             first.age_edit.set_value(ctx.forecast_age)
             if first.mode_combo is not None:
@@ -1496,6 +1503,7 @@ class RiderButtonsPanel(QGroupBox):
             rows = [
                 ("Code:", ben.benefit_code), ("Type:", ben.benefit_type_cd),
                 ("Description:", ben.benefit_desc), ("Issue Date:", format_date(ben.issue_date)),
+                ("Pay Up Date:", format_date(ben.pay_up_date)),
                 ("Cease Date:", format_date(ben.cease_date)), ("Units:", format_amount(ben.units)),
                 ("Amount:", format_amount(ben.benefit_amount)), ("Issue Age:", ben.issue_age),
             ]
@@ -1536,6 +1544,7 @@ class RiderButtonsPanel(QGroupBox):
             rows = [
                 ("Type:", benefit_type), ("Subtype:", subtype),
                 ("Issue Date:", format_date(ben.issue_date)),
+                ("Pay Up Date:", format_date(ben.pay_up_date)),
                 ("Cease Date:", format_date(ben.cease_date)),
                 ("Units:", format_amount(ben.units)),
                 ("Amount:", format_amount(ben.benefit_amount)),
@@ -1561,7 +1570,9 @@ class RiderButtonsPanel(QGroupBox):
             btn = QPushButton(label)
             # Matured riders stay clickable (view their details) but wear the
             # de-emphasized look; non-premium-paying active ones are disabled.
-            btn.setEnabled(matured or premium_paying)
+            # Every card remains open for inspection; non-premium-paying cards
+            # are view-only rather than being disabled at the button level.
+            btn.setEnabled(True)
             if matured:
                 btn.setToolTip("Already matured — view details (no illustration adjustment)")
             elif premium_paying:
@@ -1570,7 +1581,8 @@ class RiderButtonsPanel(QGroupBox):
                 btn.setToolTip("Not premium-paying — no illustration adjustment")
             self._style_button(btn, RiderAdjustment.KEEP, matured=matured)
             btn.clicked.connect(
-                lambda checked=False, k=key, l=label, r=rows, a=amount: self._open_dialog(k, l, r, a))
+                lambda checked=False, k=key, l=label, r=rows, a=amount, p=premium_paying:
+                self._open_dialog(k, l, r, a, p))
             self._buttons[key] = btn
             self._layout.addWidget(btn)
         self._layout.addStretch(1)
@@ -1586,7 +1598,10 @@ class RiderButtonsPanel(QGroupBox):
         else:
             btn.setStyleSheet(self._BTN.format(bg="#F3ECFC", fg="#4B2383", border="#7E57C2"))
 
-    def _open_dialog(self, key: str, label: str, rows: list, current_amount: float):
+    def _open_dialog(
+        self, key: str, label: str, rows: list, current_amount: float,
+        premium_paying: bool = True,
+    ):
         ctx = self._ctx or PolicyContext()
         adj = self._adjustments[key]
         dlg = FramelessDialog(
@@ -1728,6 +1743,11 @@ class RiderButtonsPanel(QGroupBox):
 
         for button in (keep_btn, change_btn, drop_btn, by_year_btn, by_date_btn):
             button.toggled.connect(lambda _on: refresh_detail())
+        if not premium_paying:
+            for button in (keep_btn, change_btn, drop_btn, by_year_btn, by_date_btn):
+                button.setEnabled(False)
+            amount_caption.setEnabled(False)
+            amount_edit.setEnabled(False)
 
         {RiderAdjustment.KEEP: keep_btn,
          RiderAdjustment.CHANGE: change_btn,
@@ -1981,7 +2001,8 @@ class DynamicInputsPanel(QWidget):
         # Loans, Withdrawals next to Loan Repayments below — so each gets room
         # for its entry fields.
         self.premium_section = DynamicSection(SectionSpec(
-            "Premiums", default_first_row=True, default_span_to_maturity=True,
+            "Premiums", default_first_row=True, default_first_type=_TYPE_MIN_LEVEL,
+            default_span_to_maturity=True,
             auto_adjust_prior_span=True, allow_max_level_premium=True, type_width=150))
         # Lump sum controls live at the top of the Premiums group.
         lumpsum_header = QWidget()

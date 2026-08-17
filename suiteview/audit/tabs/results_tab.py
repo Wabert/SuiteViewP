@@ -27,10 +27,18 @@ class ResultsTab(QWidget):
     # Emitted on double-click: (policy_number, company_code)
     policy_double_clicked = pyqtSignal(str, str)
 
+    # Emitted from the right-click menu "Open in Rerun": (policy_number, company_code)
+    open_in_rerun = pyqtSignal(str, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._df: pd.DataFrame | None = None
         self._query_context: dict | None = None  # SQL, DSN, columns, types, source_design
+        # Optional callback (policy_number, company_code) -> bool that reports
+        # whether a policy is an Advanced/UL product. Supplied by the owner
+        # (AuditWindow) which knows the active region. When it returns True the
+        # right-click menu enables "Open in Rerun".
+        self._ul_checker = None
         self._build_ui()
 
     def _build_ui(self):
@@ -118,30 +126,82 @@ class ResultsTab(QWidget):
             self.table.table_view.EditTrigger.NoEditTriggers)
         self.table.table_view.doubleClicked.connect(self._on_double_click)
 
-    def _on_double_click(self, index):
-        """Extract PolicyNumber and CompanyCode from the clicked row."""
+        # Right-click on row → append "Open in Rerun" (UL policies) to the
+        # table's built-in context menu via its hook.
+        self.table.context_menu_hook = self._append_context_menu
+
+    def set_ul_checker(self, checker):
+        """Register a callback ``(policy_number, company_code) -> bool`` that
+        reports whether a policy is an Advanced/UL product. Used to enable the
+        right-click "Open in Rerun" action."""
+        self._ul_checker = checker
+
+    def _row_policy_company(self, row: int) -> tuple[str, str]:
+        """Extract (PolicyNumber, CompanyCode) from the given result row.
+
+        Returns ``("", "")`` when the results lack the identifying columns.
+        """
         model = self.table.table_view.model()
         if model is None:
-            return
-        row = index.row()
-        # Find column indices by header name
-        col_count = model.columnCount()
+            return "", ""
         headers = {}
-        for c in range(col_count):
+        for c in range(model.columnCount()):
             name = model.headerData(c, Qt.Orientation.Horizontal,
                                     Qt.ItemDataRole.DisplayRole)
             if name:
                 headers[str(name).upper()] = c
 
-        pol_col = headers.get("POLICYNUMBER") or headers.get("POL")
-        co_col = headers.get("COMPANYCODE") or headers.get("CO")
-        if pol_col is None or co_col is None:
-            return
+        pol_col = headers.get("POLICYNUMBER")
+        if pol_col is None:
+            pol_col = headers.get("POL")
+        co_col = headers.get("COMPANYCODE")
+        if co_col is None:
+            co_col = headers.get("CO")
+        if pol_col is None:
+            return "", ""
 
         policy = str(model.data(
-            model.index(row, pol_col), Qt.ItemDataRole.DisplayRole) or "")
-        company = str(model.data(
-            model.index(row, co_col), Qt.ItemDataRole.DisplayRole) or "")
+            model.index(row, pol_col), Qt.ItemDataRole.DisplayRole) or "").strip()
+        company = ""
+        if co_col is not None:
+            company = str(model.data(
+                model.index(row, co_col), Qt.ItemDataRole.DisplayRole) or "").strip()
+        return policy, company
+
+    def _append_context_menu(self, menu, index):
+        """Hook: append "Open in Rerun" to the results table's context menu.
+
+        Enabled only when the row's policy is an Advanced/UL product (Rerun is
+        the UL illustration tool). For a Traditional policy the action is shown
+        greyed with a hint, so the menu stays visible and teaches why it's
+        unavailable.
+        """
+        if index is None or not index.isValid():
+            return
+        policy, company = self._row_policy_company(index.row())
+        if not policy:
+            return
+
+        is_ul = False
+        if self._ul_checker is not None:
+            try:
+                is_ul = bool(self._ul_checker(policy, company))
+            except Exception:
+                logger.exception("UL check failed for %s", policy)
+                is_ul = False
+
+        menu.addSeparator()
+        if is_ul:
+            act = menu.addAction("📈 Open in Rerun")
+            act.triggered.connect(
+                lambda: self.open_in_rerun.emit(policy, company))
+        else:
+            act = menu.addAction("📈 Open in Rerun  (UL policies only)")
+            act.setEnabled(False)
+
+    def _on_double_click(self, index):
+        """Extract PolicyNumber and CompanyCode from the clicked row."""
+        policy, company = self._row_policy_company(index.row())
         if policy:
             self.policy_double_clicked.emit(policy, company)
 

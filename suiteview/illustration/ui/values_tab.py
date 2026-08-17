@@ -219,6 +219,11 @@ COMPACT_HEADER_LABELS = {
     "IllustrationGCO": "Illus GCO",
     # Testing
     "ScheduledPremLimitedByGP": "Sched Prem Ltd by GP",
+    # MTP — drop the internal "v" prefix for display (keys stay vMTP/vMonthlyMTP/
+    # vAccumMTP so they don't collide with the Summary/Overview MTP columns).
+    "vMTP": "MTP",
+    "vMonthlyMTP": "MonthlyMTP",
+    "vAccumMTP": "AccumMTP",
     # Shadow Account (the Shadow prefix is redundant on its own tab)
     "Shadow_BAV": "BAV",
     "WD, Charges and ForceOuts": "WD Chg & FO",
@@ -1068,6 +1073,15 @@ class IllustrationValuesTab(QWidget):
     FACE_CHANGE_GROUP = "Increase/Decrease"
     MTP_GROUP = "MTP"
     CTP_GROUP = "CTP"
+    # FFL premium-waiver intermediates (CalcEngine IW..JA) inserted into the MTP
+    # group before "MTP w/o PW", only for FFL products (see _mtp_column_names).
+    FFL_MTP_COLUMNS = [
+        "Min_Base",
+        "Min_Base_Table",
+        "Min_Base_Flat",
+        "PWoC_MinBasis",
+        "PWoT_MinBasis",
+    ]
     COV_AFTER_CHANGE_GROUP = "Cov After Change"
     TEFRA_TAMRA_GROUP = "TEFRA and TAMRA"
     TEFRA_TAMRA_COLUMNS = [
@@ -1162,8 +1176,8 @@ class IllustrationValuesTab(QWidget):
         self._withdrawals_columns = self._withdrawals_column_names([1])
         self._dbo_change_columns = self._dbo_change_column_names([1])
         self._face_change_columns = self._face_change_column_names([1])
-        self._mtp_columns = self._mtp_column_names([1], False)
-        self._ctp_columns = self._ctp_column_names([1], False)
+        self._mtp_columns = self._mtp_column_names([1], [], False)
+        self._ctp_columns = self._ctp_column_names([1], [], False)
         self._cov_after_change_columns = self._cov_after_change_column_names([1], False)
         self._tab_grids: dict[str, FilterTableView] = {}
         self._content_widgets_by_title: dict[str, QWidget] = {}
@@ -1640,8 +1654,16 @@ class IllustrationValuesTab(QWidget):
         self._withdrawals_columns = self._withdrawals_column_names(cov_slots)
         self._dbo_change_columns = self._dbo_change_column_names(cov_slots)
         self._face_change_columns = self._face_change_column_names(cov_slots)
-        self._mtp_columns = self._mtp_column_names(cov_slots, show_apb)
-        self._ctp_columns = self._ctp_column_names(cov_slots, show_apb)
+        # MTP / CTP list every base coverage segment (like the Monthly Deduction
+        # group) plus a column per rider — not just the first three cov_slots.
+        target_slots = list(range(1, len(coverage_keys) + 1))
+        # FFL products carry the premium-waiver intermediates (Min_Base etc.) in
+        # their MTP detail; surface those columns only when present.
+        show_ffl = any(
+            "PWoC_MinBasis" in (state.mtp_detail or {}) for state in result_list
+        )
+        self._mtp_columns = self._mtp_column_names(target_slots, rider_keys, show_apb, show_ffl)
+        self._ctp_columns = self._ctp_column_names(target_slots, rider_keys, show_apb)
         self._cov_after_change_columns = self._cov_after_change_column_names(cov_slots, show_apb)
         rows = [self._state_to_row(policy, state, coverage_keys, benefit_keys, rider_keys) for state in result_list]
         frame = pd.DataFrame(rows)
@@ -1966,8 +1988,14 @@ class IllustrationValuesTab(QWidget):
             "Total SA",
         ]
 
-    @staticmethod
-    def _mtp_column_names(slots: list[int], show_apb: bool) -> list[str]:
+    @classmethod
+    def _mtp_column_names(
+        cls,
+        slots: list[int],
+        rider_keys: list[str],
+        show_apb: bool,
+        show_ffl: bool = False,
+    ) -> list[str]:
         return [
             *[f"MTP Rate Cov {i}" for i in slots],
             *[f"MTP Rate Cov {i} Tbl" for i in slots],
@@ -1976,6 +2004,10 @@ class IllustrationValuesTab(QWidget):
             "CCV MTP",
             "GIR MTP",
             "Other Benefits MTP",
+            *[f"MTP Rider {cls._detail_label(key)}" for key in rider_keys],
+            # FFL premium-waiver intermediates (CalcEngine IW..JA) feed the
+            # PWoC/PWoT waiver targets; shown only for FFL products.
+            *(cls.FFL_MTP_COLUMNS if show_ffl else []),
             "MTP w/o PW",
             "PW MTPR",
             "PW MTP",
@@ -1984,8 +2016,8 @@ class IllustrationValuesTab(QWidget):
             "vAccumMTP",
         ]
 
-    @staticmethod
-    def _ctp_column_names(slots: list[int], show_apb: bool) -> list[str]:
+    @classmethod
+    def _ctp_column_names(cls, slots: list[int], rider_keys: list[str], show_apb: bool) -> list[str]:
         return [
             *[f"CTP Rate Cov {i}" for i in slots],
             *[f"CTP Rate Cov {i} Tbl" for i in slots],
@@ -1994,6 +2026,7 @@ class IllustrationValuesTab(QWidget):
             "CCV CTP",
             "GIR CTP",
             "Other Benefits CTP",
+            *[f"CTP Rider {cls._detail_label(key)}" for key in rider_keys],
             "CTP w/o PW",
             "CTP PW",
             "Target Band",

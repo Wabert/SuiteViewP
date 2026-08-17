@@ -649,7 +649,8 @@ class IllustrationPolicyTab(QWidget):
         """Adapt frozen benefits into the attribute surface the benefit buttons
         and detail dialog read from live BenefitInfo. Benefit description /
         form / renewal / orig-cease were not captured, so they stay blank; the
-        benefit type code stands in for the button label."""
+        benefit type code stands in for the button label when no form number
+        was captured."""
         views = []
         for b in snapshot.benefits:
             views.append(SimpleNamespace(
@@ -657,8 +658,9 @@ class IllustrationPolicyTab(QWidget):
                 cov_pha_nbr=b.coverage_phase,
                 benefit_type_cd=b.benefit_type,
                 benefit_desc="",
-                form_number="",
+                form_number=b.form_number or "",
                 issue_date=b.issue_date,
+                pay_up_date=b.pay_up_date,
                 cease_date=b.cease_date,
                 orig_cease_date=None,
                 units=b.units,
@@ -995,6 +997,7 @@ class IllustrationPolicyTab(QWidget):
             ("Description:", benefit.benefit_desc),
             ("Form:", benefit.form_number),
             ("Issue Date:", format_date(benefit.issue_date)),
+            ("Pay Up Date:", format_date(benefit.pay_up_date)),
             ("Cease Date:", format_date(benefit.cease_date)),
             ("Orig Cease:", format_date(benefit.orig_cease_date)),
             ("Units:", format_amount(benefit.units)),

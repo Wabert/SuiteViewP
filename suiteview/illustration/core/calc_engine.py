@@ -860,6 +860,8 @@ class IllustrationEngine:
             loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
             loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
             ln_repay_left_over=cash_flows.ln_repay_left_over,
+            prior_guideline_limit_reached=state.guideline_limit_reached,
+            prior_transition_year_active=state.transition_year_active,
         )
         prem = apply_premium(
             av, policy, config, rates, rate_year,
@@ -1542,6 +1544,8 @@ class IllustrationEngine:
             loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
             loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
             ln_repay_left_over=cash_flows.ln_repay_left_over,
+            prior_guideline_limit_reached=state.guideline_limit_reached,
+            prior_transition_year_active=state.transition_year_active,
         )
         prem = apply_premium(
             cash_flows.av,
@@ -3261,6 +3265,8 @@ def _premium_allowances(
     loan_repay_from_lumpsum: float = 0.0,
     loan_repay_from_scheduled: float = 0.0,
     ln_repay_left_over: float = 0.0,
+    prior_guideline_limit_reached: bool = False,
+    prior_transition_year_active: bool = False,
 ) -> PremiumAllowances:
     """Build the NC..NZ "Apply Premium" allowance chain for one month.
 
@@ -3313,6 +3319,10 @@ def _premium_allowances(
         prior_scheduled_prem_cap=prior_scheduled_prem_cap,
         prior_scheduled_cap_by_guideline=prior_scheduled_cap_by_guideline,
         prior_scheduled_cap_by_tamra=prior_scheduled_cap_by_tamra,
+        dollar_for_dollar_in_transition_year=(
+            options.dollar_for_dollar_in_transition_year),
+        prior_guideline_limit_reached=prior_guideline_limit_reached,
+        prior_transition_year_active=prior_transition_year_active,
     )
 
 
@@ -3331,6 +3341,7 @@ def _premium_state_fields(allowances: PremiumAllowances, requested_total: float)
         "scheduled_prem_cap": allowances.scheduled_prem_cap,
         "scheduled_cap_by_guideline": allowances.scheduled_cap_by_guideline,
         "scheduled_cap_by_tamra": allowances.scheduled_cap_by_tamra,
+        "transition_year_active": allowances.in_transition_year,
         "levelized_max_premium": allowances.levelized_max_premium,
         "apply_levelized": allowances.apply_levelized,
         "premium_allowance_detail": allowances.to_detail(),

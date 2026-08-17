@@ -509,7 +509,10 @@ class ValuesOverview(QWidget):
         self.ledger.setAlternatingRowColors(False)
         self.ledger.setStyleSheet(ledger_style)
         header = self.ledger.header()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # Interactive so the value columns are user-draggable (matching the other
+        # value groups' FilterTableView). Columns are auto-fitted to content once
+        # per data load via _autosize_value_columns; the SPACER stays fixed.
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(False)
         header.setSectionResizeMode(SPACER_COLUMN, QHeaderView.ResizeMode.Fixed)
         self.ledger.setColumnWidth(SPACER_COLUMN, 14)
@@ -914,8 +917,23 @@ class ValuesOverview(QWidget):
                         child.setForeground(column, QColor("#B71C1C"))
                 child.setData(0, Qt.ItemDataRole.UserRole, result_index)
                 item.addChild(child)
+        self._autosize_value_columns()
         self._update_frozen_ledger_width()
         self._sync_frozen_bottom_inset()
+
+    def _autosize_value_columns(self):
+        """Fit the scrolling pane's value columns to content once per data load.
+
+        Interactive resize mode leaves columns at their default width, so seed
+        sensible widths here. Users can still drag any border afterwards. Runs
+        over every value column (even hidden ones) so a column has a good width
+        the moment it becomes visible (e.g. leaving Simple mode). The SPACER
+        column stays at its fixed width.
+        """
+        for column in range(FROZEN_LEDGER_COLUMN_COUNT, len(LEDGER_COLUMNS)):
+            if column == SPACER_COLUMN:
+                continue
+            self.ledger.resizeColumnToContents(column)
 
     def jump_to_year(self, year: int):
         """Expand and scroll the ledger to a policy year (chart click-through)."""

@@ -321,7 +321,7 @@ class CoveragesTab(QWidget):
             self.bnf_table.setRowCount(0)
             return
 
-        columns = ["Code", "Phs", "Type", "Form", "IssueDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate", "RenewRate"]
+        columns = ["Code", "Phs", "Type", "Form", "IssueDate", "PayUpDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate", "RenewRate"]
 
         self.bnf_table.setColumnCount(len(columns))
         self.bnf_table.setHorizontalHeaderLabels(columns)
@@ -338,24 +338,25 @@ class CoveragesTab(QWidget):
             self._set_bnf_item(row_idx, 2, bnf.benefit_type_cd)
             self._set_bnf_item(row_idx, 3, getattr(bnf, 'form_number', ""))
             self._set_bnf_item(row_idx, 4, format_date(getattr(bnf, 'issue_date', None)))
-            self._set_bnf_item(row_idx, 5, format_date(bnf.cease_date))
-            self._set_bnf_item(row_idx, 6, format_date(getattr(bnf, 'orig_cease_date', None)))
-            self._set_bnf_item(row_idx, 7, format_amount(getattr(bnf, 'units', None)))
-            self._set_bnf_item(row_idx, 8, self._format_vpu(getattr(bnf, 'vpu', None)))
-            self._set_bnf_item(row_idx, 9, getattr(bnf, 'issue_age', "") or "")
+            self._set_bnf_item(row_idx, 5, format_date(getattr(bnf, 'pay_up_date', None)))
+            self._set_bnf_item(row_idx, 6, format_date(bnf.cease_date))
+            self._set_bnf_item(row_idx, 7, format_date(getattr(bnf, 'orig_cease_date', None)))
+            self._set_bnf_item(row_idx, 8, format_amount(getattr(bnf, 'units', None)))
+            self._set_bnf_item(row_idx, 9, self._format_vpu(getattr(bnf, 'vpu', None)))
+            self._set_bnf_item(row_idx, 10, getattr(bnf, 'issue_age', "") or "")
             rating = getattr(bnf, 'rating_factor', None)
             try:
                 rating_str = f"{float(rating):.0%}" if rating else ""
             except Exception:
                 rating_str = ""
-            self._set_bnf_item(row_idx, 10, rating_str)
+            self._set_bnf_item(row_idx, 11, rating_str)
             renew_ind = str(getattr(bnf, 'renewal_indicator', "") or "").strip()
-            self._set_bnf_item(row_idx, 11, renew_ind)
-            self._set_bnf_item(row_idx, 12, getattr(bnf, 'coi_rate', "") or "")
+            self._set_bnf_item(row_idx, 12, renew_ind)
+            self._set_bnf_item(row_idx, 13, getattr(bnf, 'coi_rate', "") or "")
             # Renewal rate (67 segment) — only shown when the benefit renews
             # (Renew indicator = 1) and a renewal rate exists; otherwise blank.
             renewal_rate = getattr(bnf, 'renewal_rate', None)
             renew_rate_str = str(renewal_rate) if (renew_ind == "1" and renewal_rate is not None) else ""
-            self._set_bnf_item(row_idx, 13, renew_rate_str)
+            self._set_bnf_item(row_idx, 14, renew_rate_str)
 
         self.bnf_table.autoFitAllColumns()

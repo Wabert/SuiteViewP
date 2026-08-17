@@ -134,6 +134,18 @@ class IllustrationOptions:
     # loan. See ``core/premium_allowance.py`` (CalcEngine NV..NZ).
     levelizing_premium: bool = False
 
+    # Accept the scheduled premium dollar-for-dollar in the TRANSITION year — the
+    # first policy year the GP guideline binds the level premium and the policy
+    # tips into GP exception mode. That year's premium can never be level anyway
+    # (it ends on exception premiums), so levelizing the freshly-opened annual
+    # room across the modal payments only makes the billable premium oscillate
+    # against the room for the rest of the year. When this is on, that one year
+    # bills the scheduled premium in full (up to the annual guideline room) and
+    # lets the MD / GP exception premium take over once the room is exhausted.
+    # Off by default (normal runs keep RERUN levelizing); the Prem-to-Maturity
+    # solve and its displayed run turn it on. See ``core/premium_allowance.py``.
+    dollar_for_dollar_in_transition_year: bool = False
+
     # None keeps the plancode interest method. True/False force exact-days or
     # monthly compounding for what-if illustration runs.
     exact_days_interest: Optional[bool] = None

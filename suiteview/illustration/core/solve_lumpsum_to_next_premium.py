@@ -44,6 +44,7 @@ from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
+    ScheduledTransaction,
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -58,6 +59,10 @@ _MAX_BRACKET_DOUBLINGS = 24
 # Modal cadence → months between payments. Anything else is treated as monthly
 # (non-standard modes are collected monthly out of the premium-depositor fund).
 _VALID_INTERVALS = (1, 3, 6, 12)
+
+# Premium-mode letter → months between collections, matching the input compiler's
+# per-policy-month cadence (``input_compiler._scheduled_amount_for_month``).
+_MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
 
 
 @dataclass
@@ -92,24 +97,68 @@ def _forecast_date(policy: IllustrationPolicyData) -> Optional[date]:
     return policy.issue_date + relativedelta(months=policy.duration)
 
 
-def _next_modal_due(policy: IllustrationPolicyData, forecast: date) -> tuple[date, int]:
-    """The next modal premium due date strictly after the forecast date, and the
-    number of whole months from the forecast date to it.
+def _next_modal_due(
+    policy: IllustrationPolicyData,
+    forecast: date,
+    follow_on: Optional[ScheduledTransaction] = None,
+) -> tuple[date, int]:
+    """The next premium due date strictly after the forecast date, and the number
+    of whole months from the forecast date to it.
 
-    Modal due dates fall on the anniversary cadence (anniversary + k·interval),
-    i.e. at whole-month counts since issue that are multiples of the interval.
-    When the forecast date itself lands on a modal date (e.g. every month under
-    monthly billing), the bridge target is the *following* modal date — a full
-    interval later — not the forecast date. The premium collected on the forecast
-    date is left in place and the lumpsum tops it up; the bridge carries the
-    policy until the next premium after that resumes billing.
+    Without a follow-on premium the target is the policy's own next modal due date:
+    modal dates fall on the anniversary cadence (anniversary + k·interval), i.e. at
+    whole-month counts since issue that are multiples of the billing interval.
+
+    With a ``follow_on`` level premium (e.g. Prem to Maturity), that level premium
+    REPLACES the regular billing from its start year on, so the "next premium" is
+    the next month the level schedule actually collects — driven by its mode's
+    per-policy-year cadence (``input_compiler._scheduled_amount_for_month``), which
+    can be further out than the policy's own billing cadence (e.g. an annual level
+    premium on a quarterly-billed policy only pays at the anniversary).
+
+    When the forecast date itself lands on a due date (e.g. every month under
+    monthly billing), the bridge target is the *following* due date — the premium
+    collected on the forecast date is left in place and the lumpsum tops it up.
     """
+    forecast_duration = policy.duration + 1
+    if _follow_on_active(policy, follow_on):
+        interval = _MODE_INTERVALS.get(
+            (follow_on.mode or "M").strip().upper(), 1)
+        start_year = int(follow_on.policy_year)
+        d = forecast_duration + 1
+        while True:
+            policy_year = ((d - 1) // 12) + 1
+            policy_month = ((d - 1) % 12) + 1
+            if policy_year >= start_year and (policy_month - 1) % interval == 0:
+                break
+            d += 1
+        gap = d - forecast_duration
+        next_due = policy.issue_date + relativedelta(months=policy.duration + gap)
+        return next_due, gap
+
     interval = _billing_interval(policy)
     months_at_forecast = policy.duration          # whole months issue → forecast
     remainder = months_at_forecast % interval
     gap = (interval - remainder) if remainder else interval
     next_due = policy.issue_date + relativedelta(months=months_at_forecast + gap)
     return next_due, gap
+
+
+def _follow_on_active(
+    policy: IllustrationPolicyData,
+    follow_on: Optional[ScheduledTransaction],
+) -> bool:
+    """Whether a follow-on level premium already governs billing at the forecast
+    month — i.e. its start year is at or before the forecast month's policy year,
+    so from the forecast date on the level schedule (not the regular billing) is
+    what carries the policy. A level premium that starts in a later year leaves the
+    regular billing in force through the bridge window, so it is ignored here.
+    """
+    if follow_on is None:
+        return False
+    forecast_year = (policy.duration // 12) + 1
+    return int(follow_on.policy_year) <= forecast_year
+
 
 
 def _within_snet(state: MonthlyState, policy: IllustrationPolicyData,
@@ -158,6 +207,7 @@ def solve_lumpsum_to_next_premium(
     config: Optional[PlancodeConfig] = None,
     engine: Optional[IllustrationEngine] = None,
     resolution: float = 0.01,
+    follow_on_premium: Optional[ScheduledTransaction] = None,
 ) -> Optional[LumpsumToNextPremiumResult]:
     """Bridging lumpsum that keeps ``policy`` in force to its next modal premium.
 
@@ -174,6 +224,16 @@ def solve_lumpsum_to_next_premium(
             policy's. Only used to size and label the seed estimate.
         resolution: rounding granularity; the lumpsum is rounded UP to this so it
             lands on the in-force side of the lapse boundary.
+        follow_on_premium: the level premium (e.g. Prem to Maturity / Max Level)
+            that the run will apply AFTER the bridge. A level premium REPLACES the
+            policy's regular billing from its start year on, so during the bridge
+            window the policy collects the level schedule's amount ($0 until the
+            level premium's own next mode date), NOT the regular modal premium.
+            Passing it here lets the bridge (a) size itself against that suppressed
+            billing and (b) target the level premium's next collection date, so the
+            bridge and the level premium hand off correctly. Its amount is ignored
+            (the window predates the level premium's first collection); only its
+            mode and start year matter.
     """
     engine = engine or IllustrationEngine()
     options = base_options if base_options is not None else IllustrationOptions()
@@ -184,7 +244,20 @@ def solve_lumpsum_to_next_premium(
     forecast = _forecast_date(policy)
     if forecast is None:
         return None
-    next_due, gap = _next_modal_due(policy, forecast)
+    next_due, gap = _next_modal_due(policy, forecast, follow_on_premium)
+
+    # When a level premium follows the bridge, mirror how the run suppresses the
+    # regular billing: inject the same schedule at $0 so ``project`` bills the
+    # level cadence (nothing until the level premium's own next mode date) instead
+    # of the modal premium. The real (nonzero) level premium lands ON next_due,
+    # which the window excludes, so its amount never affects the bridge sizing.
+    suppress = _follow_on_active(policy, follow_on_premium)
+    follow_on_zero = None
+    if suppress:
+        follow_on_zero = ScheduledTransaction(
+            kind=TransactionKind.PREMIUM,
+            policy_year=int(follow_on_premium.policy_year),
+            amount=0.0, mode=follow_on_premium.mode)
 
     # A "Billable to MD" run hands off to Monthly Deduction premiums the first
     # month the policy can't carry itself — which would trivially rescue any
@@ -214,8 +287,11 @@ def solve_lumpsum_to_next_premium(
         # a no-op there. On monthly mode the modal premium is collected every
         # month, including the forecast month — the bridge must be sized on top
         # of it, exactly as the main run applies both together.
+        scheds = list(base.scheduled_transactions) if base is not None else []
+        if follow_on_zero is not None:
+            scheds.append(follow_on_zero)
         future = IllustrationInputSet(
-            scheduled_transactions=list(base.scheduled_transactions) if base is not None else [],
+            scheduled_transactions=scheds,
             dated_transactions=dated,
             policy_changes=list(base.policy_changes) if base is not None else [])
         # stop_on_lapse off so the whole window is populated even past a lapse.

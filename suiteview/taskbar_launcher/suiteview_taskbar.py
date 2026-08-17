@@ -2767,6 +2767,10 @@ class SuiteViewTaskbar(QWidget):
         # Share PolView so policies opened from Audit use the same window
         if hasattr(self.audit_window, 'set_polview_provider'):
             self.audit_window.set_polview_provider(self._get_polview_window)
+        # Share RERUN so "Open in Rerun" from Audit reuses the same window
+        if hasattr(self.audit_window, 'set_illustration_launcher'):
+            self.audit_window.set_illustration_launcher(
+                self._launch_illustration_with_policy)
         self._bring_to_front(self.audit_window)
 
     def _open_abrquote(self):

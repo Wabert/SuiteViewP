@@ -161,6 +161,12 @@ class DisplayTab(QWidget):
                   self.chk_mec_status, self.chk_insured1_info,
                   self.chk_replacement_pol):
             c3.addWidget(w)
+        c3.addWidget(_spacer())
+
+        self.chk_active_benefits = _cb("Display active benefits list")
+        self.chk_active_riders = _cb("Display active rider list")
+        for w in (self.chk_active_benefits, self.chk_active_riders):
+            c3.addWidget(w)
 
         c3.addStretch()
         cols.addLayout(c3)

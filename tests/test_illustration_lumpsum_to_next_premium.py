@@ -74,6 +74,34 @@ def test_next_modal_due_monthly_bridges_to_next_month():
     assert next_due == date(2020, 10, 15)
 
 
+def test_next_modal_due_follow_on_annual_overrides_quarterly_cadence():
+    # A level premium (Prem to Maturity, annual mode) selected alongside the
+    # bridge REPLACES the quarterly billing, so the bridge must carry the policy
+    # to the level premium's next collection — the anniversary — not the next
+    # quarter. Without this the bridge stops a quarter short and the policy lapses
+    # before the annual level premium's first payment lands.
+    from suiteview.illustration.models.input_set import ScheduledTransaction
+    policy = _policy(billing_frequency=3, duration=8)  # forecast at policy month 10
+    follow = ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=1, amount=0.0, mode="A")
+    next_due, gap = _next_modal_due(policy, _forecast_date(policy), follow)
+    assert next_due == date(2021, 1, 15)   # the anniversary (annual cadence)
+    assert gap == 4                        # vs a single month under quarterly
+
+
+def test_next_modal_due_follow_on_starting_later_keeps_regular_cadence():
+    # A level premium that starts in a FUTURE year does not govern the bridge
+    # window — regular billing still carries the policy there, so the bridge
+    # targets the policy's own next modal date.
+    from suiteview.illustration.models.input_set import ScheduledTransaction
+    policy = _policy(billing_frequency=3, duration=8)  # forecast year 1
+    follow = ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=5, amount=0.0, mode="A")
+    next_due, gap = _next_modal_due(policy, _forecast_date(policy), follow)
+    assert gap == 1
+    assert next_due == date(2020, 10, 15)
+
+
 def test_within_snet_uses_snet_period_then_map_cease_date():
     config = PlancodeConfig(snet_period=10)
     inside = MonthlyState(date=date(2025, 1, 1), policy_year=5)
@@ -190,6 +218,36 @@ def test_solver_flags_guideline_limited_when_the_cap_blocks_the_bridge():
     assert result.guideline_limited is True
     assert result.applied == 20.0
     assert result.lumpsum == 20.0
+
+
+def test_solver_injects_follow_on_schedule_into_the_projection():
+    # When a level premium follows the bridge, the solver must project with that
+    # schedule ($0) present so the regular billing is suppressed exactly as the
+    # real level premium will suppress it — otherwise the bridge measures a
+    # billing stream the run won't have.
+    from suiteview.illustration.models.input_set import ScheduledTransaction
+
+    class _CaptureEngine(_StubEngine):
+        def __init__(self, base_sv):
+            super().__init__(base_sv=base_sv)
+            self.seen_prem_modes = []
+
+        def project(self, policy, months, future_inputs, options, stop_on_lapse):
+            self.seen_prem_modes.append([
+                t.mode for t in future_inputs.scheduled_transactions
+                if t.kind == TransactionKind.PREMIUM])
+            return super().project(policy, months, future_inputs, options, stop_on_lapse)
+
+    engine = _CaptureEngine(base_sv=-100.0)
+    follow = ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=1, amount=0.0, mode="A")
+    result = solve_lumpsum_to_next_premium(
+        _policy(billing_frequency=3), config=_SV_CONFIG, engine=engine,
+        follow_on_premium=follow)
+    assert result is not None
+    # Every projection carried the $0 annual follow-on schedule.
+    assert engine.seen_prem_modes
+    assert all("A" in modes for modes in engine.seen_prem_modes)
 
 
 def _inject(forecast, amount):

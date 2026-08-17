@@ -352,6 +352,8 @@ def build_cyberlife_sql(
     disp_account_value = dt.chk_account_value.isChecked()
     disp_insured1_info = dt.chk_insured1_info.isChecked()
     disp_monthly_deduction = dt.chk_monthly_deduction.isChecked()
+    disp_active_benefits = dt.chk_active_benefits.isChecked()
+    disp_active_riders = dt.chk_active_riders.isChecked()
 
     needs_grace_table = has_gpe_date or grace_indicator or disp_gpe_date
 
@@ -878,6 +880,43 @@ def build_cyberlife_sql(
         sql_parts.append(f"      AND T1.CK_CMP_CD = T2.CK_CMP_CD")
         sql_parts.append(f"  WHERE T1.PRS_CD = '00')")
 
+    # Display: Active benefits list — comma-separated Type&Subtype of every
+    # active (not yet ceased) benefit on the policy, one row per policy.
+    if disp_active_benefits:
+        sql_parts.append(f", ACTIVE_BENEFITS AS (")
+        sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
+        sql_parts.append(f"    LISTAGG(TRIM(SPM_BNF_TYP_CD) || TRIM(SPM_BNF_SBY_CD), ', ')")
+        sql_parts.append(f"      WITHIN GROUP (ORDER BY SPM_BNF_TYP_CD, SPM_BNF_SBY_CD) ACTIVE_BENEFITS")
+        sql_parts.append(f"  FROM {schema}.LH_SPM_BNF")
+        sql_parts.append(f"  WHERE (BNF_CEA_DT IS NULL OR BNF_CEA_DT > CURRENT DATE)")
+        sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
+
+    # Display: Active rider list — comma-separated distinct plancodes of active
+    # rider coverages (COV_PHA_NBR > 1), excluding any coverage that shares the
+    # base plancode (base-coverage increases). "Active" mirrors the NXT_CHG
+    # logic used elsewhere for PolicyInformation active coverages.
+    if disp_active_riders:
+        sql_parts.append(f", ACTIVE_RIDERS AS (")
+        sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
+        sql_parts.append(f"    LISTAGG(PLN_DES_SER_CD, ', ')")
+        sql_parts.append(f"      WITHIN GROUP (ORDER BY PLN_DES_SER_CD) ACTIVE_RIDERS")
+        sql_parts.append(f"  FROM (")
+        sql_parts.append(f"    SELECT RIDER.CK_SYS_CD, RIDER.CK_CMP_CD, RIDER.TCH_POL_ID,")
+        sql_parts.append(f"      TRIM(RIDER.PLN_DES_SER_CD) PLN_DES_SER_CD")
+        sql_parts.append(f"    FROM {schema}.LH_COV_PHA RIDER")
+        sql_parts.append(f"      INNER JOIN COVERAGE1")
+        sql_parts.append(f"        ON RIDER.CK_SYS_CD = COVERAGE1.CK_SYS_CD")
+        sql_parts.append(f"        AND RIDER.CK_CMP_CD = COVERAGE1.CK_CMP_CD")
+        sql_parts.append(f"        AND RIDER.TCH_POL_ID = COVERAGE1.TCH_POL_ID")
+        sql_parts.append(f"    WHERE RIDER.COV_PHA_NBR > 1")
+        sql_parts.append(f"      AND TRIM(RIDER.PLN_DES_SER_CD) <> TRIM(COVERAGE1.PLN_DES_SER_CD)")
+        sql_parts.append(f"      AND (RIDER.NXT_CHG_TYP_CD <> '0'")
+        sql_parts.append(f"           OR (RIDER.NXT_CHG_DT IS NOT NULL")
+        sql_parts.append(f"               AND RIDER.NXT_CHG_DT > CURRENT DATE))")
+        sql_parts.append(f"    GROUP BY RIDER.CK_SYS_CD, RIDER.CK_CMP_CD, RIDER.TCH_POL_ID,")
+        sql_parts.append(f"      TRIM(RIDER.PLN_DES_SER_CD)) DISTINCT_RIDERS")
+        sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
+
     # ADV: FUND_VALUES CTE (current fund value)
     if has_fund_values:
         sql_parts.append(f", FUND_VALUES AS (")
@@ -1237,6 +1276,12 @@ def build_cyberlife_sql(
         sql_parts.append("  , INSURED1_INFO.LNAME")
         sql_parts.append("  , VARCHAR_FORMAT(INSURED1_INFO.BIRTHDT, 'MM/DD/YYYY') BIRTHDT")
 
+    # Display: Active benefits / rider lists
+    if disp_active_benefits:
+        sql_parts.append("  , ACTIVE_BENEFITS.ACTIVE_BENEFITS ActiveBenefits")
+    if disp_active_riders:
+        sql_parts.append("  , ACTIVE_RIDERS.ACTIVE_RIDERS ActiveRiders")
+
     # ── Display tab: Trad rates - cov 1 ─────────────────────────
     disp_trad_rates = dt.Checkbox_DisplayTradRates.isChecked()
     if disp_trad_rates:
@@ -1445,6 +1490,20 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = INSURED1_INFO.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = INSURED1_INFO.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = INSURED1_INFO.TCH_POL_ID")
+
+    # Display tab: Active benefits list JOIN (CTE)
+    if disp_active_benefits:
+        sql_parts.append("  LEFT OUTER JOIN ACTIVE_BENEFITS")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = ACTIVE_BENEFITS.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = ACTIVE_BENEFITS.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = ACTIVE_BENEFITS.TCH_POL_ID")
+
+    # Display tab: Active rider list JOIN (CTE)
+    if disp_active_riders:
+        sql_parts.append("  LEFT OUTER JOIN ACTIVE_RIDERS")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = ACTIVE_RIDERS.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = ACTIVE_RIDERS.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = ACTIVE_RIDERS.TCH_POL_ID")
 
     # GPE Date / Grace Indicator requires joining GRACE_TABLE
     if needs_grace_table:

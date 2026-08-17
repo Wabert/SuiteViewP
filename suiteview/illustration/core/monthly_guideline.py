@@ -264,9 +264,9 @@ def build_guideline_basis(
             # A benefit already ceased at the calculation date contributes
             # nothing anywhere in the solve (strict, matching vPW_Active).
             if (
-                ben.cease_date is not None
+                ben.pay_up_date is not None
                 and active_as_of is not None
-                and active_as_of >= ben.cease_date
+                and active_as_of >= ben.pay_up_date
             ):
                 continue
             cease_year = _benefit_cease_year(policy, ben)
@@ -391,7 +391,7 @@ def _benefit_label(ben_type: str, ben_subtype: Optional[str]) -> str:
 
 def _benefit_cease_year(policy: IllustrationPolicyData, ben) -> Optional[int]:
     """Last policy year the benefit charges (anniversary-aligned cease date)."""
-    cease = getattr(ben, "cease_date", None)
+    cease = getattr(ben, "pay_up_date", None)
     if cease is None or policy.issue_date is None:
         return None
     return max(0, cease.year - policy.issue_date.year)

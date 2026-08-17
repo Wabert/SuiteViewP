@@ -1,0 +1,11 @@
+{
+  "dsn": "UL_Rates",
+  "benefit_type_prefix": "4",
+  "age_min": 60,
+  "age_max": 999,
+  "plancodes": [
+    "1U1F4M00", "1U1F4A00", "1U1F4B00", "1U1F4C00",
+    "1U14I200", "1U14I100", "1U14L100", "1U14L400",
+    "1U14L200", "1U14I300", "1U14L300", "1U14I400"
+  ]
+}

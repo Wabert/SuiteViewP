@@ -369,9 +369,14 @@ class AuditWindow(FramelessWindowBase):
         self.tabs.addTab(self.results_tab, "Results")
         self.results_tab.policy_double_clicked.connect(
             self._open_polview_with_policy)
+        self.results_tab.open_in_rerun.connect(self._open_rerun_with_policy)
+        self.results_tab.set_ul_checker(self._is_policy_ul)
         self._polview_window = None
         self._polview_owner = False  # True if we created the window ourselves
         self._polview_provider = None  # callback → shared PolView window
+        self._illustration_window = None
+        self._illustration_owner = False  # True if we created the window ourselves
+        self._illustration_launcher = None  # callback → shared RERUN window
         # Plancode tab
         self.plancode_tab = PlancodeTab()
         self.tabs.addTab(self.plancode_tab, "Plancode")
@@ -2380,3 +2385,54 @@ class AuditWindow(FramelessWindowBase):
         # Keep policy list panel at same Z-level as PolView
         if hasattr(pw, 'policy_list_window') and pw.policy_list_window.isVisible():
             pw.policy_list_window.raise_()
+
+    # ── RERUN (Illustration) integration ─────────────────────────
+    def set_illustration_launcher(self, launcher):
+        """Register the shared RERUN launcher supplied by the taskbar.
+
+        ``launcher(policy_number, region, company_code)`` opens (or reuses) the
+        shared RERUN window and loads the policy.
+        """
+        self._illustration_launcher = launcher
+
+    def _is_policy_ul(self, policy_number: str, company_code: str) -> bool:
+        """Return True when *policy_number* is an Advanced/UL product.
+
+        Drives the Results tab's "Open in Rerun" menu item — RERUN only
+        illustrates Universal Life products.
+        """
+        policy_number = (policy_number or "").strip()
+        if not policy_number:
+            return False
+        region = self.cmb_region.currentText()
+        try:
+            from suiteview.core.policy_service import get_policy_info
+            pi = get_policy_info(
+                policy_number, region=region,
+                company_code=(company_code or "").strip() or None)
+            return bool(pi and pi.is_advanced_product)
+        except Exception:
+            logger.exception("Failed to determine product type for %s",
+                             policy_number)
+            return False
+
+    def _open_rerun_with_policy(self, policy_number: str, company_code: str):
+        """Open RERUN and load the given policy."""
+        region = self.cmb_region.currentText()
+        # Prefer the shared launcher (from the taskbar) so all tools reuse one
+        # RERUN window.
+        if self._illustration_launcher is not None:
+            self._illustration_launcher(policy_number, region, company_code)
+            return
+        # Fallback: create our own RERUN window if no shared instance available.
+        if self._illustration_window is None:
+            from suiteview.illustration import launch_illustration
+            self._illustration_window = launch_illustration()
+            self._illustration_owner = True
+        iw = self._illustration_window
+        if hasattr(iw, 'load_policy'):
+            iw.load_policy(policy_number, region=region,
+                           company_code=company_code)
+        iw.show()
+        iw.raise_()
+        iw.activateWindow()
