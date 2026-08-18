@@ -922,7 +922,38 @@ class ABRQuoteWindow(FramelessWindowBase):
     def _on_resources(self):
         """Open the Resources reference dialog."""
         from .resources_dialog import ResourcesDialog
-        dlg = ResourcesDialog(parent=self)
+
+        # Read the user-entered UL annual level premium (used to fund the
+        # policy to maturity) so the explanation can reference it.
+        level_prem = None
+        try:
+            txt = self.policy_panel.ul_level_prem_input.text().strip()
+            txt = txt.replace(",", "").replace("$", "")
+            if txt:
+                level_prem = float(txt)
+        except (AttributeError, ValueError):
+            level_prem = None
+
+        # Read the user-entered Eligible Death Benefit from the Assessment
+        # panel's Full Acceleration input (may differ from the quoted value,
+        # e.g. Option B policies).
+        eligible_override = None
+        try:
+            raw = self.assessment_panel._face_input.text()
+            raw = raw.replace(",", "").replace("$", "").strip()
+            if raw:
+                eligible_override = float(raw)
+        except (AttributeError, ValueError):
+            eligible_override = None
+
+        dlg = ResourcesDialog(
+            parent=self,
+            policy=self._policy,
+            result=getattr(self.results_panel, '_result', None),
+            assessment=getattr(self.assessment_panel, '_assessment', None),
+            level_annual_premium=level_prem,
+            eligible_db_override=eligible_override,
+        )
         dlg.exec()
 
     def _on_email_print(self):
