@@ -10,7 +10,8 @@ from pandas.api.types import is_numeric_dtype
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QLabel, QWidgetAction, QFileDialog, QMessageBox)
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel, QSize
+from PyQt6.QtCore import (Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect,
+                          QPoint, QTimer, QThread, QStringListModel, QSize, QRegularExpression)
 from PyQt6.QtGui import QFont, QFontMetrics, QAction, QPainter, QColor
 
 logger = logging.getLogger(__name__)
@@ -604,7 +605,12 @@ class FilterPopup(QMenu):
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
-        # Search box
+        # Search box + RegEx toggle
+        self.regex_enabled = False
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(4)
+
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍 Search values...")
         self.search_box.setFixedHeight(24)
@@ -621,7 +627,39 @@ class FilterPopup(QMenu):
         """)
         self.search_box.textChanged.connect(self.filter_list)
         self.search_box.returnPressed.connect(self.apply_filter)
-        layout.addWidget(self.search_box)
+        search_row.addWidget(self.search_box)
+
+        # RegEx toggle — when on, the search box is treated as a regular expression
+        self.regex_btn = QPushButton(".*")
+        self.regex_btn.setCheckable(True)
+        self.regex_btn.setFixedSize(28, 24)
+        self.regex_btn.setToolTip(
+            "Toggle regular-expression search.\n"
+            "When on, type a regex to filter the values below\n"
+            "(case-insensitive, matches anywhere in the value)."
+        )
+        self.regex_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ecf0f1;
+                color: #555;
+                border: 1px solid #bbb;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #dfe6e9;
+            }
+            QPushButton:checked {
+                background-color: #3498db;
+                color: white;
+                border: 1px solid #2980b9;
+            }
+        """)
+        self.regex_btn.toggled.connect(self._on_regex_toggled)
+        search_row.addWidget(self.regex_btn)
+
+        layout.addLayout(search_row)
 
         # Control buttons row
         button_row = QHBoxLayout()
@@ -776,17 +814,56 @@ class FilterPopup(QMenu):
             selected_values = set(self.all_unique_values)
         self.filter_changed.emit(self.column_name, selected_values)
 
+    def _on_regex_toggled(self, enabled: bool):
+        """Switch between plain-substring and regex filtering, then re-run."""
+        self.regex_enabled = enabled
+        self.search_box.setPlaceholderText(
+            "🔍 Regex (e.g. 39|#4)..." if enabled else "🔍 Search values..."
+        )
+        self.filter_list(self.search_box.text())
+
     def filter_list(self, search_text: str):
-        """Filter the list based on search text using proxy model"""
-        self.proxy_model.setFilterFixedString(search_text)
-        
+        """Filter the list based on search text (substring or regex)."""
+        if self.regex_enabled:
+            regex = QRegularExpression(
+                search_text,
+                QRegularExpression.PatternOption.CaseInsensitiveOption,
+            )
+            if search_text and not regex.isValid():
+                # Invalid pattern → flag the box red and show nothing until fixed
+                self.search_box.setStyleSheet(self.search_box.styleSheet().replace(
+                    "border: 1px solid #ccc;", "border: 1px solid #e74c3c;"))
+                self.proxy_model.setFilterRegularExpression(
+                    QRegularExpression("$a^"))  # matches nothing
+                self.info_label.setText("Invalid regular expression")
+                return
+            self._reset_search_box_border()
+            self.proxy_model.setFilterRegularExpression(regex)
+        else:
+            self._reset_search_box_border()
+            self.proxy_model.setFilterFixedString(search_text)
+
         visible_count = self.proxy_model.rowCount()
-        
+
         # Update info label
         if search_text:
             self.info_label.setText(f"Showing {visible_count:,} of {len(self.all_unique_values):,} values")
         else:
             self.info_label.setText(f"Showing all {len(self.all_unique_values):,} values")
+
+    def _reset_search_box_border(self):
+        """Restore the normal (non-error) search-box border."""
+        self.search_box.setStyleSheet("""
+            QLineEdit {
+                padding: 2px 6px;
+                font-size: 10px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3498db;
+            }
+        """)
     
     def clear_filter(self):
         """Clear the filter (emit all values without selecting UI items)"""

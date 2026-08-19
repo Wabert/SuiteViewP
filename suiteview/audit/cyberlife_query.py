@@ -486,6 +486,7 @@ def build_cyberlife_sql(
     cov_base_gio_fio = _bw["gio_fio"].currentText().strip()
     cov_base_table03 = _bw["table_03"].isChecked()
     cov_base_flat03 = _bw["flat_03"].isChecked()
+    cov_base_active_flat03 = _bw["active_flat_03"].isChecked()
     cov_base_issue_lo = normalize_date(_bw["issue_date_lo"].text()) or ""
     cov_base_issue_hi = normalize_date(_bw["issue_date_hi"].text()) or ""
     cov_base_change_lo = normalize_date(_bw["change_date_lo"].text()) or ""
@@ -517,6 +518,7 @@ def build_cyberlife_sql(
             info["addl_plancode"] = ""
         info["table_03"] = widgets["table_03"].isChecked()
         info["flat_03"] = widgets["flat_03"].isChecked()
+        info["active_flat_03"] = widgets["active_flat_03"].isChecked()
         info["post_issue"] = widgets.get("post_issue", None)
         if info["post_issue"] is not None:
             info["post_issue"] = info["post_issue"].isChecked()
@@ -536,7 +538,8 @@ def build_cyberlife_sql(
             info["person"], info["lives_cov"], info["change_type"],
             info["cease_code"],
             info["cola_ind"], info["gio_fio"], info["addl_plancode"],
-            info["table_03"], info["flat_03"], info["post_issue"],
+            info["table_03"], info["flat_03"], info["active_flat_03"],
+            info["post_issue"],
             info["issue_date_lo"], info["issue_date_hi"],
             info["change_date_lo"], info["change_date_hi"],
             info["vpu_lo"], info["vpu_hi"],
@@ -882,42 +885,13 @@ def build_cyberlife_sql(
         sql_parts.append(f"      AND T1.CK_CMP_CD = T2.CK_CMP_CD")
         sql_parts.append(f"  WHERE T1.PRS_CD = '00')")
 
-    # Display: Active benefits list — comma-separated Type&Subtype of every
-    # active (not yet ceased) benefit on the policy, one row per policy.
-    if disp_active_benefits:
-        sql_parts.append(f", ACTIVE_BENEFITS AS (")
-        sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
-        sql_parts.append(f"    LISTAGG(TRIM(SPM_BNF_TYP_CD) || TRIM(SPM_BNF_SBY_CD), ', ')")
-        sql_parts.append(f"      WITHIN GROUP (ORDER BY SPM_BNF_TYP_CD, SPM_BNF_SBY_CD) ACTIVE_BENEFITS")
-        sql_parts.append(f"  FROM {schema}.LH_SPM_BNF")
-        sql_parts.append(f"  WHERE (BNF_CEA_DT IS NULL OR BNF_CEA_DT > CURRENT DATE)")
-        sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
-
-    # Display: Active rider list — comma-separated distinct plancodes of active
-    # rider coverages (COV_PHA_NBR > 1), excluding any coverage that shares the
-    # base plancode (base-coverage increases). "Active" mirrors the NXT_CHG
-    # logic used elsewhere for PolicyInformation active coverages.
-    if disp_active_riders:
-        sql_parts.append(f", ACTIVE_RIDERS AS (")
-        sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
-        sql_parts.append(f"    LISTAGG(PLN_DES_SER_CD, ', ')")
-        sql_parts.append(f"      WITHIN GROUP (ORDER BY PLN_DES_SER_CD) ACTIVE_RIDERS")
-        sql_parts.append(f"  FROM (")
-        sql_parts.append(f"    SELECT RIDER.CK_SYS_CD, RIDER.CK_CMP_CD, RIDER.TCH_POL_ID,")
-        sql_parts.append(f"      TRIM(RIDER.PLN_DES_SER_CD) PLN_DES_SER_CD")
-        sql_parts.append(f"    FROM {schema}.LH_COV_PHA RIDER")
-        sql_parts.append(f"      INNER JOIN COVERAGE1")
-        sql_parts.append(f"        ON RIDER.CK_SYS_CD = COVERAGE1.CK_SYS_CD")
-        sql_parts.append(f"        AND RIDER.CK_CMP_CD = COVERAGE1.CK_CMP_CD")
-        sql_parts.append(f"        AND RIDER.TCH_POL_ID = COVERAGE1.TCH_POL_ID")
-        sql_parts.append(f"    WHERE RIDER.COV_PHA_NBR > 1")
-        sql_parts.append(f"      AND TRIM(RIDER.PLN_DES_SER_CD) <> TRIM(COVERAGE1.PLN_DES_SER_CD)")
-        sql_parts.append(f"      AND (RIDER.NXT_CHG_TYP_CD <> '0'")
-        sql_parts.append(f"           OR (RIDER.NXT_CHG_DT IS NOT NULL")
-        sql_parts.append(f"               AND RIDER.NXT_CHG_DT > CURRENT DATE))")
-        sql_parts.append(f"    GROUP BY RIDER.CK_SYS_CD, RIDER.CK_CMP_CD, RIDER.TCH_POL_ID,")
-        sql_parts.append(f"      TRIM(RIDER.PLN_DES_SER_CD)) DISTINCT_RIDERS")
-        sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
+    # Display: Active benefits / rider lists are emitted as per-policy correlated
+    # scalar subqueries in the SELECT list (see below), NOT as whole-table
+    # LISTAGG CTEs. A standalone CTE aggregates every benefit/rider for every
+    # policy company-wide before the plancode filter is applied, which for a
+    # high-volume plancode exceeds the DB2 ASUTIME/CPU governor (SQLCODE -905).
+    # The correlated form only computes the list for policies that pass all
+    # filters, using the primary-key index on each source table.
 
     # ADV: FUND_VALUES CTE (current fund value)
     if has_fund_values:
@@ -1278,11 +1252,35 @@ def build_cyberlife_sql(
         sql_parts.append("  , INSURED1_INFO.LNAME")
         sql_parts.append("  , VARCHAR_FORMAT(INSURED1_INFO.BIRTHDT, 'MM/DD/YYYY') BIRTHDT")
 
-    # Display: Active benefits / rider lists
+    # Display: Active benefits / rider lists — emitted as per-policy correlated
+    # scalar subqueries (index probe per result row) instead of whole-table
+    # LISTAGG CTEs, so a high-volume plancode does not exceed the DB2 CPU
+    # governor (SQLCODE -905).
     if disp_active_benefits:
-        sql_parts.append("  , ACTIVE_BENEFITS.ACTIVE_BENEFITS ActiveBenefits")
+        sql_parts.append("  , (SELECT LISTAGG(TRIM(BNF.SPM_BNF_TYP_CD) || TRIM(BNF.SPM_BNF_SBY_CD), ', ')")
+        sql_parts.append("            WITHIN GROUP (ORDER BY BNF.SPM_BNF_TYP_CD, BNF.SPM_BNF_SBY_CD)")
+        sql_parts.append(f"       FROM {schema}.LH_SPM_BNF BNF")
+        sql_parts.append("       WHERE BNF.CK_SYS_CD = POLICY1.CK_SYS_CD")
+        sql_parts.append("         AND BNF.CK_CMP_CD = POLICY1.CK_CMP_CD")
+        sql_parts.append("         AND BNF.TCH_POL_ID = POLICY1.TCH_POL_ID")
+        sql_parts.append("         AND (BNF.BNF_CEA_DT IS NULL OR BNF.BNF_CEA_DT > CURRENT DATE)")
+        sql_parts.append("      ) ActiveBenefits")
     if disp_active_riders:
-        sql_parts.append("  , ACTIVE_RIDERS.ACTIVE_RIDERS ActiveRiders")
+        sql_parts.append("  , (SELECT LISTAGG(DISTINCT_RIDERS.PLN_DES_SER_CD, ', ')")
+        sql_parts.append("            WITHIN GROUP (ORDER BY DISTINCT_RIDERS.PLN_DES_SER_CD)")
+        sql_parts.append("       FROM (")
+        sql_parts.append("         SELECT DISTINCT TRIM(RIDER.PLN_DES_SER_CD) PLN_DES_SER_CD")
+        sql_parts.append(f"         FROM {schema}.LH_COV_PHA RIDER")
+        sql_parts.append("         WHERE RIDER.CK_SYS_CD = POLICY1.CK_SYS_CD")
+        sql_parts.append("           AND RIDER.CK_CMP_CD = POLICY1.CK_CMP_CD")
+        sql_parts.append("           AND RIDER.TCH_POL_ID = POLICY1.TCH_POL_ID")
+        sql_parts.append("           AND RIDER.COV_PHA_NBR > 1")
+        sql_parts.append("           AND TRIM(RIDER.PLN_DES_SER_CD) <> TRIM(COVERAGE1.PLN_DES_SER_CD)")
+        sql_parts.append("           AND (RIDER.NXT_CHG_TYP_CD <> '0'")
+        sql_parts.append("                OR (RIDER.NXT_CHG_DT IS NOT NULL")
+        sql_parts.append("                    AND RIDER.NXT_CHG_DT > CURRENT DATE))")
+        sql_parts.append("       ) DISTINCT_RIDERS")
+        sql_parts.append("      ) ActiveRiders")
 
     # ── Display tab: Trad rates - cov 1 ─────────────────────────
     disp_trad_rates = dt.Checkbox_DisplayTradRates.isChecked()
@@ -1371,7 +1369,7 @@ def build_cyberlife_sql(
         sql_parts.append("  , ROUND(REAL(COVERAGE1.COV_UNT_QTY) * REAL(COVERAGE1.COV_VPU_AMT), 2) SpecifiedAmount")
     if cov_base_table03 and not disp_substandard:
         sql_parts.append("  , TABLE_RATING1.SST_XTR_RT_TBL_CD TableRating")
-    if cov_base_flat03 and not disp_substandard:
+    if (cov_base_flat03 or cov_base_active_flat03) and not disp_substandard:
         sql_parts.append("  , FLAT_EXTRA1.SST_XTR_UNT_AMT FlatExtra")
 
     # Rider coverage columns — surfaced only when Coverage level is checked,
@@ -1419,7 +1417,7 @@ def build_cyberlife_sql(
                 f" {label}SpecifiedAmount")
         if info["table_03"]:
             lines.append(f"  , {tr_alias}.SST_XTR_RT_TBL_CD {label}TableRating")
-        if info["flat_03"]:
+        if info["flat_03"] or info["active_flat_03"]:
             lines.append(f"  , {fe_alias}.SST_XTR_UNT_AMT {label}FlatExtra")
         return lines
 
@@ -1493,19 +1491,8 @@ def build_cyberlife_sql(
         sql_parts.append("    AND POLICY1.CK_CMP_CD = INSURED1_INFO.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = INSURED1_INFO.TCH_POL_ID")
 
-    # Display tab: Active benefits list JOIN (CTE)
-    if disp_active_benefits:
-        sql_parts.append("  LEFT OUTER JOIN ACTIVE_BENEFITS")
-        sql_parts.append("    ON POLICY1.CK_SYS_CD = ACTIVE_BENEFITS.CK_SYS_CD")
-        sql_parts.append("    AND POLICY1.CK_CMP_CD = ACTIVE_BENEFITS.CK_CMP_CD")
-        sql_parts.append("    AND POLICY1.TCH_POL_ID = ACTIVE_BENEFITS.TCH_POL_ID")
-
-    # Display tab: Active rider list JOIN (CTE)
-    if disp_active_riders:
-        sql_parts.append("  LEFT OUTER JOIN ACTIVE_RIDERS")
-        sql_parts.append("    ON POLICY1.CK_SYS_CD = ACTIVE_RIDERS.CK_SYS_CD")
-        sql_parts.append("    AND POLICY1.CK_CMP_CD = ACTIVE_RIDERS.CK_CMP_CD")
-        sql_parts.append("    AND POLICY1.TCH_POL_ID = ACTIVE_RIDERS.TCH_POL_ID")
+    # Display tab: Active benefits / rider lists are correlated scalar
+    # subqueries in the SELECT list, so no JOIN is required here.
 
     # GPE Date / Grace Indicator requires joining GRACE_TABLE
     if needs_grace_table:
@@ -1844,8 +1831,8 @@ def build_cyberlife_sql(
                          " OR TABLE_RATING1.SST_XTR_TYP_CD = '1'"
                          " OR TABLE_RATING1.SST_XTR_TYP_CD = '3')")
 
-    # Base cov: FLAT_EXTRA1 (LH_SST_XTR_CRG) for Flat (03)
-    if cov_base_flat03:
+    # Base cov: FLAT_EXTRA1 (LH_SST_XTR_CRG) for Flat (03) / Active Flat (03)
+    if cov_base_flat03 or cov_base_active_flat03:
         sql_parts.append(f"  INNER JOIN {schema}.LH_SST_XTR_CRG FLAT_EXTRA1")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = FLAT_EXTRA1.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = FLAT_EXTRA1.CK_CMP_CD")
@@ -1853,6 +1840,9 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COVERAGE1.COV_PHA_NBR = FLAT_EXTRA1.COV_PHA_NBR")
         sql_parts.append("    AND (FLAT_EXTRA1.SST_XTR_TYP_CD = '2'"
                          " OR FLAT_EXTRA1.SST_XTR_TYP_CD = '4')")
+        if cov_base_active_flat03:
+            sql_parts.append("    AND (FLAT_EXTRA1.SST_XTR_CEA_DT IS NULL"
+                             " OR FLAT_EXTRA1.SST_XTR_CEA_DT > CURRENT DATE)")
     if disp_substandard and coverage_level:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_SST_XTR_CRG RESULTCOV_FLAT_EXTRA")
         sql_parts.append("    ON RESULTCOV.CK_SYS_CD = RESULTCOV_FLAT_EXTRA.CK_SYS_CD")
@@ -2008,7 +1998,7 @@ def build_cyberlife_sql(
             sql_parts.append(f"    AND ({tr_alias}.SST_XTR_TYP_CD = '0'"
                              f" OR {tr_alias}.SST_XTR_TYP_CD = '1'"
                              f" OR {tr_alias}.SST_XTR_TYP_CD = '3')")
-        if info["flat_03"]:
+        if info["flat_03"] or info["active_flat_03"]:
             fe_alias = f"{alias}_FLAT_EXTRA"
             sql_parts.append(f"  INNER JOIN {schema}.LH_SST_XTR_CRG {fe_alias}")
             sql_parts.append(f"    ON {alias}.CK_SYS_CD = {fe_alias}.CK_SYS_CD")
@@ -2017,6 +2007,9 @@ def build_cyberlife_sql(
             sql_parts.append(f"    AND {alias}.COV_PHA_NBR = {fe_alias}.COV_PHA_NBR")
             sql_parts.append(f"    AND ({fe_alias}.SST_XTR_TYP_CD = '2'"
                              f" OR {fe_alias}.SST_XTR_TYP_CD = '4')")
+            if info["active_flat_03"]:
+                sql_parts.append(f"    AND ({fe_alias}.SST_XTR_CEA_DT IS NULL"
+                                 f" OR {fe_alias}.SST_XTR_CEA_DT > CURRENT DATE)")
 
     _emit_rider_joins(rider1_info, "RIDER1", 1)
     _emit_rider_joins(rider2_info, "RIDER2", 2)
