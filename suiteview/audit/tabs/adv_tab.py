@@ -16,7 +16,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-    QLabel, QLineEdit, QCheckBox, QFrame,
+    QLabel, QLineEdit, QCheckBox, QComboBox, QFrame,
 )
 from PyQt6.QtGui import QFont
 
@@ -26,7 +26,10 @@ from ..constants import (
     ORIG_ENTRY_CODE_ITEMS,
     PREMIUM_ALLOCATION_FUND_ITEMS,
 )
-from ._styles import make_checkbox as _make_checkbox, make_listbox as _make_listbox, connect_checkbox_listbox as _connect_checkbox_listbox
+from ._styles import (
+    make_checkbox as _make_checkbox, make_listbox as _make_listbox,
+    make_combo as _make_combo, connect_checkbox_listbox as _connect_checkbox_listbox,
+)
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
 _FONT = QFont("Segoe UI", 9)
@@ -171,6 +174,23 @@ class AdvTab(QWidget):
         _connect_checkbox_listbox(self.chk_orig_entry, self.list_orig_entry)
         col3.addWidget(self.list_orig_entry)
 
+        # ── CIRF Key (55) search ──────────────────────────────────
+        col3.addSpacing(8)
+        grp_cirf = QGroupBox("CIRF Key (55)")
+        grp_cirf.setStyleSheet(_GRP_STYLE)
+        cirf_row = QHBoxLayout(grp_cirf)
+        cirf_row.setContentsMargins(6, 6, 6, 4)
+        cirf_row.setSpacing(_H_SPACING)
+
+        self.cbo_cirf_match = _make_combo(["Contains", "Exact"], width=80)
+        self.txt_cirf = QLineEdit()
+        self.txt_cirf.setFont(_FONT)
+        self.txt_cirf.setFixedHeight(_CTRL_H)
+
+        cirf_row.addWidget(self.cbo_cirf_match)
+        cirf_row.addWidget(self.txt_cirf)
+        col3.addWidget(grp_cirf)
+
         col3.addStretch()
         top_row.addLayout(col3)
 
@@ -297,7 +317,7 @@ class AdvTab(QWidget):
     def get_state(self) -> dict:
         from ..profile_manager import (
             get_lineedit_text as _t, get_checkbox_checked as _c,
-            get_listbox_selected as _sel,
+            get_listbox_selected as _sel, get_combo_text as _cbo,
         )
         return {
             "chk_cv_corr": _c(self.chk_cv_corr),
@@ -338,12 +358,14 @@ class AdvTab(QWidget):
             "rng_type_p_hi": _t(self.rng_type_p[1]),
             "rng_type_v_lo": _t(self.rng_type_v[0]),
             "rng_type_v_hi": _t(self.rng_type_v[1]),
+            "cbo_cirf_match": _cbo(self.cbo_cirf_match),
+            "txt_cirf": _t(self.txt_cirf),
         }
 
     def set_state(self, state: dict):
         from ..profile_manager import (
             set_lineedit_text as _t, set_checkbox_checked as _c,
-            set_listbox_selected as _sel,
+            set_listbox_selected as _sel, set_combo_text as _cbo,
         )
         _c(self.chk_cv_corr, state.get("chk_cv_corr", False))
         _c(self.chk_accum_gt_prem, state.get("chk_accum_gt_prem", False))
@@ -383,3 +405,5 @@ class AdvTab(QWidget):
         _t(self.rng_type_p[1], state.get("rng_type_p_hi", ""))
         _t(self.rng_type_v[0], state.get("rng_type_v_lo", ""))
         _t(self.rng_type_v[1], state.get("rng_type_v_hi", ""))
+        _cbo(self.cbo_cirf_match, state.get("cbo_cirf_match", "Contains"))
+        _t(self.txt_cirf, state.get("txt_cirf", ""))

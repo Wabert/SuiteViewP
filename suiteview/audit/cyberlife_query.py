@@ -430,6 +430,8 @@ def build_cyberlife_sql(
     adv_fund_lo = at.txt_fund_lo.text().strip()
     adv_fund_hi = at.txt_fund_hi.text().strip()
     has_fund_values = bool(adv_fund_id or adv_fund_lo or adv_fund_hi)
+    adv_cirf_match = at.cbo_cirf_match.currentText().strip()
+    adv_cirf_val = at.txt_cirf.text().strip()
     has_accum_val = bool(at.rng_accum_val[0].text().strip() or at.rng_accum_val[1].text().strip())
     has_shadow_av = bool(at.rng_shadow_acct[0].text().strip() or at.rng_shadow_acct[1].text().strip())
     has_curr_spec_amt = bool(at.rng_curr_spec_amt[0].text().strip() or at.rng_curr_spec_amt[1].text().strip())
@@ -2468,6 +2470,21 @@ def build_cyberlife_sql(
     # -- Type V Sequence (57) --
     add_int_range(wheres, "ALLOCATION_V_COUNT.FND_ALC_SEQ_NBR",
                   at.rng_type_v[0], at.rng_type_v[1])
+    # -- CIRF Key (55) — CUR_ITS_RT_SER_NBR on LH_COV_FXD_FND_CTL.
+    #    A policy may have multiple rows; a match on any is a hit (EXISTS). --
+    if adv_cirf_val:
+        _cirf = esc(adv_cirf_val.upper())
+        _cirf_col = "UPPER(TRIM(FFC_SRCH.CUR_ITS_RT_SER_NBR))"
+        if adv_cirf_match == "Exact":
+            _cirf_pred = f"{_cirf_col} = '{_cirf}'"
+        else:
+            _cirf_pred = f"{_cirf_col} LIKE '%{_cirf}%'"
+        wheres.append(
+            f"EXISTS (SELECT 1 FROM {schema}.LH_COV_FXD_FND_CTL FFC_SRCH"
+            f" WHERE FFC_SRCH.CK_SYS_CD = POLICY1.CK_SYS_CD"
+            f" AND FFC_SRCH.CK_CMP_CD = POLICY1.CK_CMP_CD"
+            f" AND FFC_SRCH.TCH_POL_ID = POLICY1.TCH_POL_ID"
+            f" AND {_cirf_pred})")
 
     # ── Policy tab: bottom checkboxes WHERE conditions ───────────
     # -- Multiple Base Covs (02) --
