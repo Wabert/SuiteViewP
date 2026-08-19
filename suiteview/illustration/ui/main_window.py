@@ -44,7 +44,6 @@ from .inputs_tab import IllustrationInputsTab
 from .policy_list import IllustrationPolicyListWindow
 from .policy_tab import IllustrationPolicyTab
 from .compare_tab import IllustrationCompareTab
-from .regression_tab import IllustrationRegressionTab
 from .report_tab import IllustrationReportTab
 from .saved_cases_panel import format_saved_stamp
 from .values_tab import IllustrationValuesTab
@@ -178,6 +177,17 @@ class IllustrationWindow(FramelessWindowBase):
             self._on_testing_mode_toggled)
         menu.addAction(self._testing_mode_action)
 
+        self._abr_quote_action = QAction(
+            "ABR Quote", menu, checkable=True)
+        self._abr_quote_action.setChecked(settings.abr_quote_mode)
+        self._abr_quote_action.setToolTip(
+            "Solve the theoretical annual level premium that carries the policy "
+            "to maturity with a $1,000 surrender value at the entered Illustrated "
+            "Rate. Locks every Input-tab control except the Illustrated Rate; the "
+            "Report tab explains the solve instead of showing an illustration.")
+        self._abr_quote_action.toggled.connect(self._on_abr_quote_mode_toggled)
+        menu.addAction(self._abr_quote_action)
+
         self.options_btn.setMenu(menu)
 
     def _on_additional_premium_types_toggled(self, checked: bool):
@@ -189,6 +199,11 @@ class IllustrationWindow(FramelessWindowBase):
         """Flip the app-wide Testing Mode option. The Values Overview's Export
         Summary controls show/hide via the settings signal."""
         get_illustration_settings().set_testing_mode(checked)
+
+    def _on_abr_quote_mode_toggled(self, checked: bool):
+        """Flip the app-wide ABR Quote option. Every open policy's Inputs tab
+        locks/unlocks its controls via the settings signal."""
+        get_illustration_settings().set_abr_quote_mode(checked)
 
     def load_policy(self, policy_number: str, region: str = "CKPR",
                     company_code: str = ""):
@@ -294,13 +309,11 @@ class IllustrationWindow(FramelessWindowBase):
         self.values_tab = IllustrationValuesTab()
         self.report_tab = IllustrationReportTab()
         self.compare_tab = IllustrationCompareTab(window=self)
-        self.regression_tab = IllustrationRegressionTab(window=self)
         self.tabs.addTab(self.policy_tab, "Policy")
         self.tabs.addTab(self._inputs_stack, "Illustration Inputs")
         self.tabs.addTab(self.values_tab, "Values")
         self.tabs.addTab(self.report_tab, "Report")
         self.tabs.addTab(self.compare_tab, "Compare")
-        self.tabs.addTab(self.regression_tab, "Regression")
         tabs_layout.addWidget(self.tabs)
         main_layout.addWidget(tabs_container, 1)
 
@@ -430,7 +443,7 @@ class IllustrationWindow(FramelessWindowBase):
         if entry is None:
             return
         entry["values"] = self.values_tab.capture_session_state()
-        entry["report"] = self.report_tab.current_report()
+        entry["report"] = self.report_tab.capture_session_state()
         entry["status"] = self._status_label.text()
         entry["scenario"] = self._last_scenario
 
@@ -627,10 +640,7 @@ class IllustrationWindow(FramelessWindowBase):
             self._set_active_inputs_tab(session["inputs"])
             if not self.values_tab.restore_session_state(session.get("values")):
                 self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
-            report = session.get("report")
-            if report is not None:
-                self.report_tab.display_report(report)
-            else:
+            if not self.report_tab.restore_session_state(session.get("report")):
                 self.report_tab.clear()
             self._last_scenario = session.get("scenario")
 
@@ -997,6 +1007,50 @@ class IllustrationWindow(FramelessWindowBase):
             future_inputs = scenario.future_inputs
             run_options = self.inputs_tab.export_options()
             engine = IllustrationEngine()
+
+            # "ABR Quote" (Illustration Control): its own run path — solve the
+            # theoretical annual level premium to maturity under the entered
+            # ABR rate (TEFRA/TAMRA off, lapse test disabled, annual mode,
+            # loan retired, Option B -> A) and explain the solve on the Report
+            # tab. Premium rows and the other solves do not apply.
+            if self.inputs_tab.abr_quote_enabled():
+                from suiteview.illustration.core.abr_quote import run_abr_quote
+                from suiteview.illustration.core.solve_premium_to_target import (
+                    PremiumTargetError,
+                )
+                from .report_tab import format_abr_quote_pages
+                try:
+                    abr = run_abr_quote(
+                        scenario.projectable_policy,
+                        base_options=run_options,
+                        engine=engine)
+                except PremiumTargetError as exc:
+                    QApplication.restoreOverrideCursor()
+                    self.run_values_btn.setEnabled(True)
+                    QMessageBox.information(self, "ABR Quote", str(exc))
+                    self._show_status(str(exc))
+                    return
+                self.values_tab.display_projection(
+                    abr.policy,
+                    abr.results,
+                    months=max(len(abr.results) - 1, 0),
+                    injected_first_row_columns=self._first_row_injected_columns(scenario),
+                )
+                self.report_tab.display_abr_quote(
+                    format_abr_quote_pages(abr, abr.policy))
+                self.tabs.setCurrentWidget(self.report_tab)
+                status = (
+                    f"ABR Quote for {policy_number}: solved annual premium "
+                    f"{abr.premium:,.2f} at {abr.illustrated_rate * 100.0:.3f}% "
+                    f"reaches a {abr.achieved_sv:,.2f} surrender value at "
+                    f"maturity — see the Report tab for how the solve was "
+                    f"performed.")
+                if snapshot_case is not None:
+                    status += (
+                        f"  ·  Saved case '{snapshot_case.name}' — policy data "
+                        f"as of {format_saved_stamp(snapshot_case.saved_at)}")
+                self._show_status(status)
+                return
 
             # "Lumpsum to Next Premium": solve FIRST so every later solve (e.g.
             # Prem to Maturity) sees the bridging lumpsum already funding the early

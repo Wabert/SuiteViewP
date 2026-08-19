@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.json_store import read_json, write_json
+from suiteview.illustration.core.abr_quote import ABR_TARGET_SV
 from suiteview.illustration.core.report_builder import (
     ExpenseRow,
     IllustrationReport,
@@ -655,6 +656,98 @@ def _has_rider_page(report: IllustrationReport) -> bool:
     return bool(report.rider_lines or report.regulatory_lines or report.change_sections)
 
 
+def format_abr_quote_pages(run, policy) -> List[List[str]]:
+    """Explanation page(s) for an ABR Quote run (``core/abr_quote.AbrQuoteRun``).
+
+    The Report tab shows THIS instead of illustration pages — the quote's
+    deliverable is the solved premium plus a plain statement of every
+    illustration parameter the run reshaped to get it."""
+    lines: List[str] = []
+    run_date = datetime.now().strftime("%m/%d/%Y")
+    lines.append((run_date + "ABR QUOTE".center(PAGE_WIDTH - 2 * len(run_date))).rstrip())
+    lines.append(_center("THEORETICAL ANNUAL LEVEL PREMIUM TO MATURITY"))
+    header_bits = [f"POLICY {policy.policy_number}" if policy.policy_number else "",
+                   f"PLAN {policy.plancode}" if policy.plancode else ""]
+    lines.append(_center("   ".join(bit for bit in header_bits if bit)))
+    lines.append("")
+    lines.append("-" * PAGE_WIDTH)
+    lines.append("")
+
+    def paragraph(text: str):
+        lines.extend(_justify_lines(_wrap_lines(text)))
+        lines.append("")
+
+    def bullet(text: str):
+        wrapped = _wrap_lines(text)
+        for index, wrapped_line in enumerate(wrapped):
+            prefix = "  * " if index == 0 else "    "
+            lines.append((prefix + wrapped_line)[:PAGE_WIDTH])
+        lines.append("")
+
+    first_payment = (run.first_payment_date.strftime("%m/%d/%Y")
+                     if run.first_payment_date else "the next policy anniversary")
+    rate_pct = f"{run.illustrated_rate * 100.0:.3f}%"
+
+    lines.append("WHAT THIS RUN SOLVED")
+    lines.append("")
+    paragraph(
+        f"This run solved for the theoretical annual level premium that carries the policy to "
+        f"maturity (age {int(policy.maturity_age)}) with a surrender value of "
+        f"${ABR_TARGET_SV:,.0f} at maturity, credited at the ABR interest rate of {rate_pct}. "
+        f"It is not an inforce illustration — several illustration safeguards were deliberately "
+        f"turned off so that nothing limits the annual premium.")
+
+    lines.append("RESULT")
+    lines.append("")
+    paragraph(
+        f"Solved annual level premium: ${run.premium:,.2f}, first payment on {first_payment}, "
+        f"then paid on each policy anniversary through maturity. Under that premium the "
+        f"surrender value at maturity is ${run.achieved_sv:,.2f}.")
+
+    lines.append("HOW THE ILLUSTRATION WAS CONFIGURED")
+    lines.append("")
+    bullet(
+        f"ILLUSTRATED RATE: {rate_pct}, the ABR interest rate as entered on the Input tab. "
+        f"For an ABR Quote the entry is not limited to the policy's current credited rate.")
+    bullet(
+        "CONFORM TO TEFRA/DEFRA: OFF. The 7702 guideline premium limits were not enforced — "
+        "no guideline force-out and no cap on accepted premiums. Guideline premiums are not "
+        "calculated or used for an ABR quote.")
+    bullet(
+        "CONFORM TO TAMRA: OFF. The 7-pay (MEC) premium limit did not cap the premium.")
+    bullet(
+        "MINIMUM PREMIUM / LAPSE TEST: DISABLED. The policy is never lapsed for failing the "
+        "minimum-premium (safety net) or surrender-value tests. The account value and "
+        "surrender value are allowed to run negative until the first annual premium is paid.")
+    bullet(
+        f"PREMIUM MODE: switched to ANNUAL. The solved premium pays once each policy year on "
+        f"the anniversary, starting {first_payment}. No premium is collected between the "
+        f"forecast date and that first annual payment.")
+    if run.loan_retired > 0:
+        bullet(
+            f"POLICY LOAN: the account value was immediately reduced by the current policy "
+            f"debt of ${run.loan_retired:,.2f} and the policy debt was set to $0 — the "
+            f"projection runs loan-free.")
+    else:
+        bullet("POLICY LOAN: the policy carries no loan — no adjustment was needed.")
+    if run.db_option_switched:
+        bullet(
+            "DEATH BENEFIT OPTION: the policy's Option B (increasing) death benefit was "
+            "switched to Option A (level) on the first forecast month. The death benefit is "
+            "kept level at the switch, so the solve ran on a level death benefit equal to the "
+            "specified amount plus the account value at the change.")
+    else:
+        bullet(
+            "DEATH BENEFIT OPTION: the policy already has a level death benefit (Option A) — "
+            "no change was needed.")
+
+    lines.append("-" * PAGE_WIDTH)
+    paragraph(
+        "The monthly projection behind this solve is available on the Values tab. The "
+        "illustration report pages are intentionally not produced for an ABR Quote.")
+    return [lines]
+
+
 class IllustrationReportTab(QWidget):
     """Scrollable print-preview of the UL illustration report."""
 
@@ -662,6 +755,9 @@ class IllustrationReportTab(QWidget):
         super().__init__(parent)
         self._report: Optional[IllustrationReport] = None
         self._guaranteed_error: Optional[str] = None
+        # ABR Quote explanation pages (display_abr_quote) — mutually exclusive
+        # with _report; the tab shows one or the other.
+        self._abr_pages: Optional[List[List[str]]] = None
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -755,6 +851,7 @@ class IllustrationReportTab(QWidget):
     def clear(self, message: str = "Run Values to build the illustration report."):
         self._report = None
         self._guaranteed_error = None
+        self._abr_pages = None
         self.print_pdf_btn.setEnabled(False)
         self.guaranteed_warning.setVisible(False)
         self.status_label.setText(message)
@@ -769,6 +866,58 @@ class IllustrationReportTab(QWidget):
         main window's per-policy session cache."""
         return self._report
 
+    def capture_session_state(self) -> Optional[dict]:
+        """Snapshot the displayed content (report pages OR an ABR Quote
+        explanation) for the main window's per-policy session cache."""
+        if self._abr_pages is not None:
+            return {"kind": "abr", "pages": self._abr_pages}
+        if self._report is not None:
+            return {"kind": "report", "report": self._report,
+                    "guaranteed_error": self._guaranteed_error}
+        return None
+
+    def restore_session_state(self, state: Optional[dict]) -> bool:
+        """Re-render a captured snapshot; False leaves the tab for the caller
+        to clear."""
+        if not state:
+            return False
+        if state.get("kind") == "abr" and state.get("pages"):
+            self.display_abr_quote(state["pages"])
+            return True
+        if state.get("kind") == "report" and state.get("report") is not None:
+            self.display_report(state["report"], state.get("guaranteed_error"))
+            return True
+        return False
+
+    def _add_sheet(self, lines: List[str]):
+        sheet = QLabel("\n".join(lines))
+        sheet.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        sheet.setStyleSheet(
+            "QLabel {"
+            " background-color: white;"
+            f" border: 1px solid {PURPLE_LIGHT};"
+            " border-radius: 2px;"
+            " padding: 28px 34px;"
+            " font-family: Consolas, 'Courier New', monospace;"
+            " font-size: 11px;"
+            " color: #1A1A2E;"
+            "}"
+        )
+        sheet.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._sheet_layout.addWidget(sheet)
+
+    def display_abr_quote(self, pages: List[List[str]]):
+        """Show the ABR Quote solve explanation instead of illustration pages
+        (``format_abr_quote_pages``). Print to PDF stays disabled — there is
+        no illustration report behind an ABR Quote."""
+        self.clear("")
+        self._abr_pages = pages
+        for lines in pages:
+            self._add_sheet(lines)
+        self.status_label.setText(
+            "ABR Quote — explanation of the premium solve (no illustration "
+            "report is produced).")
+
     def display_report(self, report: IllustrationReport, guaranteed_error: Optional[str] = None):
         self.clear("")
         self._report = report
@@ -782,21 +931,7 @@ class IllustrationReportTab(QWidget):
         pages = format_report_pages(
             report, include_expense_report=self.expense_report_check.isChecked())
         for lines in pages:
-            sheet = QLabel("\n".join(lines))
-            sheet.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            sheet.setStyleSheet(
-                "QLabel {"
-                " background-color: white;"
-                f" border: 1px solid {PURPLE_LIGHT};"
-                " border-radius: 2px;"
-                " padding: 28px 34px;"
-                " font-family: Consolas, 'Courier New', monospace;"
-                " font-size: 11px;"
-                " color: #1A1A2E;"
-                "}"
-            )
-            sheet.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            self._sheet_layout.addWidget(sheet)
+            self._add_sheet(lines)
         guaranteed_note = (
             "" if report.has_guaranteed_values
             else "  Guaranteed columns are not projected."

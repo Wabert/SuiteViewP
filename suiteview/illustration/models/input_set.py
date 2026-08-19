@@ -162,6 +162,14 @@ class IllustrationOptions:
     # The workbook default is ON: you cannot borrow past the surrender value.
     restrict_loans_to_sv: bool = True
 
+    # Disable the lapse test entirely — the policy is never lapsed for failing
+    # the safety-net (minimum premium), surrender-value, or AV-less-loans
+    # tests, so the account value and surrender value may run negative and the
+    # projection always reaches maturity. Set by the ABR Quote run, whose
+    # theoretical premium solve must let the policy coast (negative) to its
+    # first annual premium.
+    no_lapse: bool = False
+
     # sInput_ApplyPremToLoan — apply the requested premium to repay the policy
     # loan FIRST, only loading what remains onto the account value. The lumpsum
     # (unscheduled) deposit repays first, then the scheduled modal premium, each

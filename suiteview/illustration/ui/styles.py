@@ -73,6 +73,16 @@ GROUP_STYLE = f"""
     }}
 """
 
+# GROUP_STYLE for the Input-tab request sections: a disabled section drops its
+# white body to the window's light-purple background so a locked Input screen
+# (ABR Quote mode) reads as one flat purple surface instead of white cards.
+INPUT_SECTION_GROUP_STYLE = GROUP_STYLE + f"""
+    QGroupBox:disabled {{
+        background-color: {PURPLE_BG};
+    }}
+"""
+
+
 FUND_TABLE_STYLE = f"""
     QFrame#outerFrame {{
         background-color: {WHITE};

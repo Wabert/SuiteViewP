@@ -76,6 +76,7 @@ from .styles import (
     INPUT_COMBO_STYLE as _COMBO_STYLE,
     INPUT_EDIT_STYLE as _EDIT_STYLE,
     INPUT_RADIO_STYLE as _RADIO_STYLE,
+    INPUT_SECTION_GROUP_STYLE,
     INPUT_SMALL_BTN_STYLE as _SMALL_BTN_STYLE,
     PURPLE_BG,
     PURPLE_DARK,
@@ -412,6 +413,13 @@ class _RateField(QLineEdit):
         self.setFixedWidth(58)
         self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setValidator(QDoubleValidator(0.0, 99.999, 3, self))
+
+    def set_unbounded(self, unbounded: bool):
+        """Widen the validator so the field accepts any positive rate — used by
+        ABR Quote, where the illustrated (ABR) rate is not capped at the normal
+        crediting range."""
+        top = 1_000_000.0 if unbounded else 99.999
+        self.setValidator(QDoubleValidator(0.0, top, 3, self))
 
     def set_rate(self, annual_rate: float):
         self.setText(f"{annual_rate * 100.0:.3f}")
@@ -1117,7 +1125,7 @@ class DynamicSection(QGroupBox):
     def __init__(self, spec: SectionSpec, parent=None):
         super().__init__(spec.title, parent)
         self.spec = spec
-        self.setStyleSheet(GROUP_STYLE)
+        self.setStyleSheet(INPUT_SECTION_GROUP_STYLE)
         self._ctx: Optional[PolicyContext] = None
         self._rows: list[InputRow] = []
         self._has_overlap = False
@@ -1426,7 +1434,7 @@ class RiderButtonsPanel(QGroupBox):
 
     def __init__(self, parent=None):
         super().__init__("Riders && Benefits", parent)
-        self.setStyleSheet(GROUP_STYLE)
+        self.setStyleSheet(INPUT_SECTION_GROUP_STYLE)
         self._ctx: Optional[PolicyContext] = None
         self._items: list[tuple] = []          # (key, label, detail_rows, premium_paying, amount, matured)
         self._adjustments: dict[str, RiderAdjustment] = {}
@@ -1901,6 +1909,9 @@ class DynamicInputsPanel(QWidget):
         # under the regime at policy issue (RERUN CP79 = MAX(2, date tier));
         # unchecked under the current regime.
         self._use_policy_ag49 = False
+        # ABR Quote (Options menu) locks every control here except the
+        # Illustrated Rate; see set_abr_quote_mode.
+        self._abr_quote_mode = False
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(8)
@@ -2237,6 +2248,38 @@ class DynamicInputsPanel(QWidget):
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
 
+    def set_abr_quote_mode(self, enabled: bool):
+        """ABR Quote (Options menu): lock every input here except the
+        Illustrated Rate, which stays editable and accepts any positive value.
+        On an IUL the Illustrated Rate becomes a plain editable field (not the
+        read-only blended mirror) because the ABR run assumes 100% fixed-fund
+        allocation credited at exactly this rate."""
+        self._abr_quote_mode = enabled
+        for widget in (
+            self.premium_section, self.loan_section, self.withdrawal_section,
+            self.repayment_section, self.face_section, self.dbo_section,
+            self.rateclass_section, self.table_section, self.riders_panel,
+            self.apply_prem_to_loan_check, self.tamra_check,
+            self.index_alloc_btn, self.lumpsum_edit, self.lumpsum_caption,
+            self.lumpsum_to_next_check,
+        ):
+            widget.setEnabled(not enabled)
+        self.illustrated_rate_edit.set_unbounded(enabled)
+        if enabled:
+            self.illustrated_rate_edit.setReadOnly(False)
+        elif self._ctx is not None and self._ctx.is_iul:
+            # Restore the read-only blended mirror for IUL plans.
+            self.illustrated_rate_edit.setReadOnly(True)
+
+    def iul_allocations(self) -> Optional[dict[str, float]]:
+        """The allocation percentages used by the current IUL run. ABR Quote
+        assumes 100% fixed-fund allocation."""
+        if not self._ctx.is_iul:
+            return None
+        if self._abr_quote_mode:
+            return {FIXED_FUND_ID: 1.0}
+        return self.allocations_panel.allocations()
+
     def sweep_account_min(self) -> Optional[float]:
         """Sweep minimum from the allocations panel (None for non-IUL plans)."""
         return self.allocations_panel.sweep_account_min()
@@ -2256,12 +2299,6 @@ class DynamicInputsPanel(QWidget):
             return None
         blended = self.allocations_panel.blended()
         return blended.asset_charge_rate if blended is not None else None
-
-    def iul_allocations(self) -> Optional[dict[str, float]]:
-        """The allocation percentages used by the current IUL run."""
-        if not self._ctx.is_iul:
-            return None
-        return self.allocations_panel.allocations()
 
     def iul_illustration_rates(self) -> Optional[dict[str, float]]:
         """The per-strategy illustrated rates used by the current IUL run."""

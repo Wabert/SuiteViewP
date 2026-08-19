@@ -25,10 +25,16 @@ class IllustrationSettings(QObject):
     # connect to this and show/hide accordingly.
     testing_mode_changed = pyqtSignal(bool)
 
+    # Emitted whenever "ABR Quote" flips. The Inputs tab locks every Input-tab
+    # control except the Illustrated Rate and Run Values solves the ABR quote
+    # premium instead of running an illustration.
+    abr_quote_mode_changed = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
         self._additional_premium_types = False
         self._testing_mode = False
+        self._abr_quote_mode = False
 
     @property
     def additional_premium_types(self) -> bool:
@@ -57,6 +63,21 @@ class IllustrationSettings(QObject):
             return
         self._testing_mode = enabled
         self.testing_mode_changed.emit(enabled)
+
+    @property
+    def abr_quote_mode(self) -> bool:
+        """When True, the Inputs tab locks every Input-tab control except the
+        Illustrated Rate (which accepts any value), and Run Values solves the
+        theoretical ABR quote premium instead of running an illustration. Off
+        by default."""
+        return self._abr_quote_mode
+
+    def set_abr_quote_mode(self, enabled: bool):
+        enabled = bool(enabled)
+        if enabled == self._abr_quote_mode:
+            return
+        self._abr_quote_mode = enabled
+        self.abr_quote_mode_changed.emit(enabled)
 
 
 _settings: IllustrationSettings | None = None

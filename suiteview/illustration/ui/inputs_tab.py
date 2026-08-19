@@ -42,6 +42,7 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
+from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.polview.ui.formatting import format_date
 
 from .inputs_dynamic import DynamicInputsPanel
@@ -297,6 +298,12 @@ class IllustrationInputsTab(QWidget):
         self._issue_date: date | None = None
         self._maturity_date: date | None = None
         self._setup_ui()
+        # ABR Quote (Options menu) locks every Input-tab control except the
+        # Illustrated Rate. Re-apply live whenever the app-wide toggle flips,
+        # and seed the current state now.
+        get_illustration_settings().abr_quote_mode_changed.connect(
+            self._apply_abr_quote_mode)
+        self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
 
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
@@ -1133,6 +1140,10 @@ class IllustrationInputsTab(QWidget):
         self._update_ag49_regime_panel()
         self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow,
                                             shadow_ceased=shadow_ceased)
+        # Loading resets the Illustrated Rate field's read-only/validator state
+        # (read-only mirror on IUL) — re-apply ABR mode so the field stays
+        # editable and the rest of the panel stays locked.
+        self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
         self._refresh_level_solve_caveat()
 
     def _update_valuation_banner(self, policy):
@@ -1344,6 +1355,15 @@ class IllustrationInputsTab(QWidget):
         if not enabled:
             self.switch_to_option_a_check.setChecked(False)
         self._sync_duration_controls()
+
+    def abr_quote_enabled(self) -> bool:
+        return get_illustration_settings().abr_quote_mode
+
+    def _apply_abr_quote_mode(self, enabled: bool):
+        """ABR Quote (Options menu) locks every Input-tab control except the
+        Illustrated Rate, which accepts any value. The run itself forces
+        TEFRA/DEFRA + TAMRA off, so nothing here needs to touch those."""
+        self.dynamic_panel.set_abr_quote_mode(enabled)
 
     def projection_months(self, policy) -> int | None:
         if self.illustration_to_date_radio.isChecked():

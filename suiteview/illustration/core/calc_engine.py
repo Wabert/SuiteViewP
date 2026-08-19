@@ -1152,6 +1152,10 @@ class IllustrationEngine:
             or av_loans_test or exception_protection
         )
         lapsed = state.lapsed or not any_protection
+        if options is not None and options.no_lapse:
+            # Lapse test disabled (ABR Quote): values may run negative and
+            # the projection always reaches maturity.
+            lapsed = False
 
         # 7-pay contributions accumulate while inside the 7-pay window —
         # premiums in, GROSS withdrawals out (XZ..YF add
@@ -1688,6 +1692,10 @@ class IllustrationEngine:
         )
         exception_protection = exception.mode and av_less_loans > -0.0001
         lapsed = state.lapsed or (av_end <= 0.0 and not exception.mode)
+        if options is not None and options.no_lapse:
+            # Lapse test disabled (ABR Quote): values may run negative and
+            # the projection always reaches maturity.
+            lapsed = False
 
         tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
 
