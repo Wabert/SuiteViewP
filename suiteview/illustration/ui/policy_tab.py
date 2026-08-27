@@ -769,7 +769,10 @@ class IllustrationPolicyTab(QWidget):
     def _populate_value_groups(self, policy):
         definition = "GP" if policy.gpt_cvat == "GPT" else policy.gpt_cvat
         self.fund_values.set_value("fund_account_value", format_currency(policy.mv_av(0), "$"))
-        self.fund_values.set_value("shadow_account_value", format_currency(policy.gav, "$"))
+        self.fund_values.set_value(
+            "shadow_account_value",
+            format_currency(policy.shadow_account_value, "$"),
+        )
         # Sweep Account Min: DB2 source still unknown (work laptop item) — the
         # Input tab carries an editable override meanwhile. "—" = not loaded.
         self.fund_values.set_value("sweep_account_min", "—")

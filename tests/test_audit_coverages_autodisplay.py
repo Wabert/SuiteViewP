@@ -97,6 +97,36 @@ def test_table_checkbox_adds_display_column():
     assert "TABLE_RATING1.SST_XTR_RT_TBL_CD TableRating" in head
 
 
+def test_flat_checkbox_matches_any_flat():
+    _app()
+    cov = CoveragesTab()
+    cov.base_cov_widgets["flat_03"].setChecked(True)
+
+    sql = _build(cov)
+
+    assert "INNER JOIN DB2TAB.LH_SST_XTR_CRG FLAT_EXTRA1" in sql
+    assert "FLAT_EXTRA1.SST_XTR_UNT_AMT FlatExtra" in _select_head(sql)
+    # Plain Flat does not restrict by cease date.
+    assert "FLAT_EXTRA1.SST_XTR_CEA_DT" not in sql
+
+
+def test_active_flat_checkbox_adds_cease_date_predicate():
+    _app()
+    cov = CoveragesTab()
+    cov.base_cov_widgets["active_flat_03"].setChecked(True)
+
+    sql = _build(cov)
+
+    # Active Flat still joins the flat-extra table and surfaces the column,
+    assert "INNER JOIN DB2TAB.LH_SST_XTR_CRG FLAT_EXTRA1" in sql
+    assert "FLAT_EXTRA1.SST_XTR_UNT_AMT FlatExtra" in _select_head(sql)
+    # but restricts to non-expired flats (null / future cease date).
+    assert (
+        "(FLAT_EXTRA1.SST_XTR_CEA_DT IS NULL"
+        " OR FLAT_EXTRA1.SST_XTR_CEA_DT > CURRENT DATE)" in sql
+    )
+
+
 def test_pure_condition_flags_do_not_add_display_columns():
     _app()
     cov = CoveragesTab()

@@ -2915,6 +2915,14 @@ class PolicyInformation:
         """CCV (Coverage Continuation Value) target from LH_COV_TARGET (TAR_TYP_CD = 'CV')."""
         val = self.data_item_where("LH_COV_TARGET", "TAR_VAL_AMT", "TAR_TYP_CD", "CV")
         return Decimal(str(val)) if val else None
+
+    @property
+    def shadow_account_value(self) -> Optional[Decimal]:
+        """Current shadow account value from segment 58 (premium type XP)."""
+        val = self.data_item_where(
+            "LH_COV_TARGET", "TAR_PRM_AMT", "TAR_TYP_CD", "XP"
+        )
+        return Decimal(str(val)) if val is not None else None
     
     @property
     def surrender_target(self) -> Optional[Decimal]:

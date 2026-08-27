@@ -27,7 +27,7 @@ from suiteview.illustration.core.illustration_policy_service import (
     build_illustration_data,
     coverage_segment_data_warnings,
 )
-from suiteview.illustration.core.rate_loader import load_rates
+from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.models.plancode_config import load_plancode
@@ -55,6 +55,8 @@ from .styles import (
     ILLUSTRATION_BORDER_COLOR,
     ILLUSTRATION_HEADER_COLORS,
     ILLUSTRATION_SNAPSHOT_HEADER_COLORS,
+    ISSUE_BLUE_BG,
+    ISSUE_TAB_WIDGET_STYLE,
     PURPLE_BG,
     STATUS_BAR_STYLE,
     TAB_WIDGET_STYLE,
@@ -291,9 +293,9 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.layout().addWidget(self.save_case_btn)
         main_layout.addWidget(self.lookup_bar)
 
-        tabs_container = QWidget()
-        tabs_container.setStyleSheet(f"background-color: {PURPLE_BG};")
-        tabs_layout = QVBoxLayout(tabs_container)
+        self.tabs_container = QWidget()
+        self.tabs_container.setStyleSheet(f"background-color: {PURPLE_BG};")
+        tabs_layout = QVBoxLayout(self.tabs_container)
         tabs_layout.setContentsMargins(10, 10, 10, 10)
         tabs_layout.setSpacing(10)
 
@@ -315,7 +317,7 @@ class IllustrationWindow(FramelessWindowBase):
         self.tabs.addTab(self.report_tab, "Report")
         self.tabs.addTab(self.compare_tab, "Compare")
         tabs_layout.addWidget(self.tabs)
-        main_layout.addWidget(tabs_container, 1)
+        main_layout.addWidget(self.tabs_container, 1)
 
         bottom_bar = QWidget()
         bottom_bar.setStyleSheet(STATUS_BAR_STYLE)
@@ -425,7 +427,12 @@ class IllustrationWindow(FramelessWindowBase):
         """Front the given inputs widget; delete the outgoing one if no
         session entry owns it (the startup placeholder or a removed policy)."""
         previous = self.inputs_tab
+        if not inputs_tab.property("issueModeSignalConnected"):
+            inputs_tab.run_from_issue_changed.connect(
+                self._on_run_from_issue_changed)
+            inputs_tab.setProperty("issueModeSignalConnected", True)
         if inputs_tab is previous:
+            self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled())
             return
         if self._inputs_stack.indexOf(inputs_tab) == -1:
             self._inputs_stack.addWidget(inputs_tab)
@@ -434,6 +441,16 @@ class IllustrationWindow(FramelessWindowBase):
         if previous is not None and previous not in self._registered_inputs_tabs():
             self._inputs_stack.removeWidget(previous)
             previous.deleteLater()
+        self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled())
+
+    def _on_run_from_issue_changed(self, enabled: bool):
+        sender = self.sender()
+        if isinstance(sender, IllustrationInputsTab) and sender is not self.inputs_tab:
+            return
+        self.tabs_container.setStyleSheet(
+            f"background-color: {ISSUE_BLUE_BG if enabled else PURPLE_BG};")
+        self.tabs.setStyleSheet(
+            ISSUE_TAB_WIDGET_STYLE if enabled else TAB_WIDGET_STYLE)
 
     def _snapshot_active_session(self):
         """Capture the displayed values/report/status for the current policy
@@ -992,11 +1009,13 @@ class IllustrationWindow(FramelessWindowBase):
                 policy_data = copy.deepcopy(snapshot_case.policy_snapshot)
             else:
                 policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
-            scenario = build_illustration_scenario(
-                policy_data,
-                inforce_overrides=self.inputs_tab.export_inforce_overrides(),
-                future_inputs=self.inputs_tab.export_input_set(),
-            )
+            scenario_args = {
+                "inforce_overrides": self.inputs_tab.export_inforce_overrides(),
+                "future_inputs": self.inputs_tab.export_input_set(),
+            }
+            if self.inputs_tab.run_from_issue_enabled():
+                scenario_args["run_from_issue"] = True
+            scenario = build_illustration_scenario(policy_data, **scenario_args)
             projection_months = self.inputs_tab.projection_months(scenario.projectable_policy)
             duration_label = self.inputs_tab.projection_duration_label(scenario.projectable_policy)
             self._show_status(f"Running illustration values for {policy_number} {duration_label}...")
@@ -1020,11 +1039,18 @@ class IllustrationWindow(FramelessWindowBase):
                 )
                 from .report_tab import format_abr_quote_pages
                 try:
+                    minimum_face_amount = self.inputs_tab.abr_minimum_face_amount()
+                    if minimum_face_amount is None:
+                        raise ValueError(
+                            "Enter the Minimum Face Amount Allowed on the "
+                            "Illustration Control tab."
+                        )
                     abr = run_abr_quote(
                         scenario.projectable_policy,
+                        minimum_face_amount=minimum_face_amount,
                         base_options=run_options,
                         engine=engine)
-                except PremiumTargetError as exc:
+                except (PremiumTargetError, ValueError) as exc:
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
                     QMessageBox.information(self, "ABR Quote", str(exc))
@@ -1042,9 +1068,11 @@ class IllustrationWindow(FramelessWindowBase):
                 status = (
                     f"ABR Quote for {policy_number}: solved annual premium "
                     f"{abr.premium:,.2f} at {abr.illustrated_rate * 100.0:.3f}% "
-                    f"reaches a {abr.achieved_sv:,.2f} surrender value at "
-                    f"maturity — see the Report tab for how the solve was "
-                    f"performed.")
+                    f"using the lower {abr.premium_basis} account solve; next "
+                    f"monthly deduction at the minimum face is "
+                    f"${abr.max_partial.monthly_deduction:,.2f} on "
+                    f"{abr.max_partial.monthly_deduction_date:%m/%d/%Y} — see "
+                    f"the Report tab for details.")
                 if snapshot_case is not None:
                     status += (
                         f"  ·  Saved case '{snapshot_case.name}' — policy data "
@@ -1362,6 +1390,97 @@ class IllustrationWindow(FramelessWindowBase):
                     f"{target_label} {pts.achieved_value:,.2f} at age "
                     f"{pts.at_age}.")
 
+            # Keep the entered premium/mode fixed and solve the payment span in
+            # whole years. If maturity still misses, run the maturity duration.
+            duration_req = self.inputs_tab.solve_duration_request()
+            if duration_req is not None:
+                from suiteview.illustration.core.solve_premium_duration import (
+                    solve_premium_duration,
+                )
+                from suiteview.illustration.core.solve_premium_to_target import (
+                    PremiumTargetError, TARGET_FIELDS,
+                )
+                from suiteview.illustration.models.input_set import (
+                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
+                )
+
+                def _duration_stop(message: str):
+                    QApplication.restoreOverrideCursor()
+                    self.run_values_btn.setEnabled(True)
+                    QMessageBox.information(self, "Solve for Duration", message)
+                    self._show_status(message)
+
+                if (
+                    duration_req["premium"] is None
+                    or duration_req["amount"] is None
+                    or duration_req["at_age"] is None
+                ):
+                    _duration_stop(
+                        "Enter the Solve for Duration premium and criteria first - "
+                        "Premium, target Amount, and At Age are required.")
+                    return
+                try:
+                    duration = solve_premium_duration(
+                        scenario.projectable_policy,
+                        premium=duration_req["premium"],
+                        mode=duration_req["mode"],
+                        target=duration_req["target"],
+                        amount=duration_req["amount"],
+                        at_age=duration_req["at_age"],
+                        start_policy_year=duration_req["start_year"],
+                        base_future_inputs=future_inputs,
+                        base_options=run_options,
+                        engine=engine,
+                    )
+                except PremiumTargetError as exc:
+                    _duration_stop(str(exc))
+                    return
+
+                sched = list(future_inputs.scheduled_transactions)
+                sched.append(ScheduledTransaction(
+                    kind=TransactionKind.PREMIUM,
+                    policy_year=duration_req["start_year"],
+                    amount=duration.premium,
+                    mode=duration.mode,
+                ))
+                maturity_year = max(
+                    1,
+                    int(scenario.projectable_policy.maturity_age)
+                    - int(scenario.projectable_policy.issue_age),
+                )
+                if duration.end_policy_year < maturity_year:
+                    sched.append(ScheduledTransaction(
+                        kind=TransactionKind.PREMIUM,
+                        policy_year=duration.end_policy_year + 1,
+                        amount=0.0,
+                        mode="A",
+                    ))
+                future_inputs = IllustrationInputSet(
+                    scheduled_transactions=sched,
+                    dated_transactions=list(future_inputs.dated_transactions),
+                    policy_changes=list(future_inputs.policy_changes),
+                )
+                self.inputs_tab.set_solve_duration(duration.duration_years)
+                target_label = TARGET_FIELDS[duration.target][1]
+                achieved = (
+                    f"{duration.achieved_value:,.2f}"
+                    if duration.achieved_value is not None
+                    else "no target-age value"
+                )
+                if duration.reached_target:
+                    message = (
+                        f"Solve for Duration: {duration.premium:,.2f}/"
+                        f"{duration.mode} for {duration.duration_years} years "
+                        f"reaches {target_label} {achieved} at age "
+                        f"{duration.at_age}.")
+                else:
+                    message = (
+                        "Solve for Duration: target not reached; premium set "
+                        f"through maturity ({duration.duration_years} years), "
+                        f"producing {target_label} {achieved} at age "
+                        f"{duration.at_age}.")
+                self._show_status(message)
+
             # "Pay-off" loan repayment rows: solve the level modal repayment
             # that zeroes the loan by the end of each row's window. Repayments
             # apply before new loans in the month order, so the balance is zero
@@ -1465,10 +1584,16 @@ class IllustrationWindow(FramelessWindowBase):
                 guaranteed_results=guaranteed_results,
             ), guaranteed_error=guaranteed_error)
             self.tabs.setCurrentWidget(self.values_tab)
-            status = (
-                f"Values ready for {policy_number} - valuation snapshot plus "
-                f"{max(len(results) - 1, 0)} projected months"
-            )
+            if getattr(scenario, "run_from_issue", False):
+                status = (
+                    f"Values ready for {policy_number} - issue opening plus "
+                    f"{max(len(results) - 1, 0)} projected months from policy issue"
+                )
+            else:
+                status = (
+                    f"Values ready for {policy_number} - valuation snapshot plus "
+                    f"{max(len(results) - 1, 0)} projected months"
+                )
             if snapshot_case is not None:
                 status += (
                     f"  ·  Saved case '{snapshot_case.name}' — policy data "
@@ -1496,6 +1621,9 @@ class IllustrationWindow(FramelessWindowBase):
                         f"Enable Allow GP Exception Premium to bridge the remaining gap."
                     )
             self._show_status(status)
+        except RateLookupError as exc:
+            QMessageBox.warning(self, "Missing Illustration Rate", str(exc))
+            self._show_status(f"Run Values failed: {exc}")
         except Exception as exc:
             QMessageBox.critical(self, "Run Values", f"Failed to run illustration values: {exc}")
             self._show_status(f"Run Values failed: {exc}")

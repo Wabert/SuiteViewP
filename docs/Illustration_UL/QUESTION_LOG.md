@@ -17,16 +17,10 @@ without you, and (3) a running progress log. I'll append as I go.
 > None blocking yet — I'll add here as they come up and proceed under a stated
 > assumption so the work doesn't stall.
 
-1. **U0492070 shadow/CCV current value — where does it live in DB2?** RERUN injects
-   the current shadow AV (`sInput_CurrentShadowAV` = 4872.53) at the valuation date.
-   In the local fixture BOTH `pi.gav` (IX target) and `pi.ccv_target` (LH_COV_TARGET
-   'CV') are **null**, so the engine seeds the shadow at 0 and the CCV/shadow
-   projection can't be validated locally. (a) What DB2 table/field holds the *current
-   CCV account value* (the running value, not a target/required premium)? Is
-   `ccv_target` it, or is it in `LH_POL_MVRY_VAL` / a CCV accumulator? (b) **Work
-   laptop:** please re-export U0492070 (and U0656998 if it has a shadow) including
-   that value so the shadow path can be validated. Engine seeds shadow from `gav`
-   today (the GPT GAV) — conceptually wrong for a CCV policy.
+1. **Resolved — U0492070 shadow/CCV current value:** segment 58 stores the
+   current shadow account value in `LH_COV_TARGET.TAR_PRM_AMT` where
+   `TAR_TYP_CD = 'XP'`. `PolicyInformation.shadow_account_value` exposes this
+   value, and RERUN uses it to seed the shadow projection.
 
 2. **TAMRA 7-pay basis** (I built `calculate_7pay_premium` in `guideline_calc.py`):
    I used the GLP/GSP-style numerator (SA·A_{x:n} + PV of expense loads) over a

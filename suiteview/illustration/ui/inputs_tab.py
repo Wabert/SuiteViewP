@@ -4,8 +4,8 @@ from datetime import date, datetime
 from typing import Optional
 
 from dateutil.relativedelta import relativedelta
-from PyQt6.QtCore import QDate, QEvent, QTimer, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QDate, QEvent, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QDoubleValidator
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QAbstractItemDelegate,
@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMenu,
     QPushButton,
     QRadioButton,
@@ -45,14 +46,19 @@ from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_
 from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.polview.ui.formatting import format_date
 
-from .inputs_dynamic import DynamicInputsPanel
+from .inputs_dynamic import DynamicInputsPanel, context_from_policy
 from .styles import (
     GROUP_STYLE,
     INPUT_RADIO_STYLE,
     INPUT_TABLE_STYLE,
+    ISSUE_BLUE_BG,
+    ISSUE_BLUE_DARK,
+    ISSUE_BLUE_PRIMARY,
+    ISSUE_TAB_WIDGET_STYLE,
     PURPLE_BG,
     PURPLE_DARK,
     PURPLE_LIGHT,
+    TAB_WIDGET_STYLE,
     apply_input_checkbox_style,
 )
 
@@ -281,6 +287,8 @@ class ExcelTableWidget(QTableWidget):
 class IllustrationInputsTab(QWidget):
     """First-pass Illustration Inputs UI for premiums and loans."""
 
+    run_from_issue_changed = pyqtSignal(bool)
+
     WARNING_BG = QColor("#FFF0B3")
     NORMAL_BG = QColor("#FFFFFF")
     GRID_INPUTS_TAB_LABEL = "Grid Inputs"
@@ -297,6 +305,7 @@ class IllustrationInputsTab(QWidget):
         self._pending_warning_refresh: set[str] = set()
         self._issue_date: date | None = None
         self._maturity_date: date | None = None
+        self._loaded_policy = None
         self._setup_ui()
         # ABR Quote (Options menu) locks every Input-tab control except the
         # Illustrated Rate. Re-apply live whenever the app-wide toggle flips,
@@ -323,20 +332,32 @@ class IllustrationInputsTab(QWidget):
         self.snapshot_banner.setVisible(False)
         outer.addWidget(self.snapshot_banner)
 
-        outer.addWidget(self._build_valuation_banner())
+        self.run_from_issue_btn = QPushButton("Run from Policy Issue")
+        self.run_from_issue_btn.setCheckable(True)
+        self.run_from_issue_btn.setToolTip(
+            "Start a true new-business projection on the policy issue date. "
+            "Opening inforce balances are reset to zero; current illustration "
+            "rates and the current Policy-tab snapshot remain unchanged.")
+        self.run_from_issue_btn.toggled.connect(self._apply_run_from_issue)
+        outer.addWidget(self.run_from_issue_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        self._style_run_from_issue_button(False)
+
+        self.valuation_banner = self._build_valuation_banner()
+        outer.addWidget(self.valuation_banner)
 
         self.input_tabs = QTabWidget(self)
-        self.input_tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #B79CDE; background: #F8F3FE; }"
-            "QTabBar::tab { background: #E8DDF8; color: #2A1458; padding: 4px 12px;"
-            " border: 1px solid #B79CDE; border-bottom: none; font-size: 11px; font-weight: bold; }"
-            "QTabBar::tab:selected { background: white; color: #4B2383; }"
-        )
+        self.input_tabs.setStyleSheet(TAB_WIDGET_STYLE)
         self.dynamic_panel = DynamicInputsPanel(self)
+        self.abr_minimum_face_row = self._build_abr_minimum_face_row(
+            self.dynamic_panel
+        )
+        self.dynamic_panel.layout().insertWidget(2, self.abr_minimum_face_row)
         self.input_tabs.addTab(self.dynamic_panel, "Input")
+        self.transaction_tab = self._build_transaction_tab()
+        self.control_tab = self._build_control_tab()
         self._grid_inputs_tab_index = self.input_tabs.addTab(
-            self._build_transaction_tab(), self.GRID_INPUTS_TAB_LABEL)
-        self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
+            self.transaction_tab, self.GRID_INPUTS_TAB_LABEL)
+        self.input_tabs.addTab(self.control_tab, "Illustration Control")
         outer.addWidget(self.input_tabs, 1)
 
         # Grid Inputs is power-user territory (raw dated-transaction tables) —
@@ -500,6 +521,36 @@ class IllustrationInputsTab(QWidget):
         outer.addLayout(content_row)
         outer.addStretch(1)
         return tab
+
+    def _build_abr_minimum_face_row(self, parent: QWidget) -> QWidget:
+        row = QWidget(parent)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(6)
+
+        label = QLabel("Minimum Face Amount Allowed:")
+        label.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; "
+            "font-weight: bold;"
+        )
+        self.abr_minimum_face_edit = QLineEdit()
+        self.abr_minimum_face_edit.setValidator(
+            QDoubleValidator(0.01, 1_000_000_000.0, 2, self.abr_minimum_face_edit)
+        )
+        self.abr_minimum_face_edit.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.abr_minimum_face_edit.setFixedWidth(120)
+        self.abr_minimum_face_edit.setPlaceholderText("Required")
+        self.abr_minimum_face_edit.setStyleSheet(self._control_input_style())
+        self.abr_minimum_face_edit.setToolTip(
+            "Minimum face amount allowed after a maximum partial acceleration. "
+            "Run Values uses it to calculate the next monthly deduction."
+        )
+        row_layout.addWidget(label)
+        row_layout.addWidget(self.abr_minimum_face_edit)
+        row_layout.addStretch(1)
+        return row
 
     def _build_control_tab(self):
         tab = QWidget(self)
@@ -1122,6 +1173,7 @@ class IllustrationInputsTab(QWidget):
 
     def load_data_from_policy(self, policy, *, has_shadow: bool = False,
                               shadow_ceased: bool = False):
+        self._loaded_policy = policy
         self._issue_date = getattr(policy, "issue_date", None)
         self._maturity_date = self._maturity_date_from_policy(policy)
         if self._maturity_date is not None:
@@ -1146,9 +1198,71 @@ class IllustrationInputsTab(QWidget):
         self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
         self._refresh_level_solve_caveat()
 
+    def run_from_issue_enabled(self) -> bool:
+        return self.run_from_issue_btn.isChecked()
+
+    def _style_run_from_issue_button(self, enabled: bool):
+        if enabled:
+            self.run_from_issue_btn.setStyleSheet(
+                f"QPushButton {{ background: {ISSUE_BLUE_PRIMARY}; color: white;"
+                f" border: 2px solid {ISSUE_BLUE_DARK}; border-radius: 5px;"
+                " padding: 4px 12px; font-size: 11px; font-weight: bold; }"
+                f"QPushButton:hover {{ background: {ISSUE_BLUE_DARK}; }}")
+        else:
+            self.run_from_issue_btn.setStyleSheet(LOAN_TOGGLE_STYLE)
+
+    def _apply_run_from_issue(self, enabled: bool):
+        self._style_run_from_issue_button(enabled)
+        bg = ISSUE_BLUE_BG if enabled else PURPLE_BG
+        self.setStyleSheet(f"background-color: {bg};")
+        self.input_tabs.setStyleSheet(
+            ISSUE_TAB_WIDGET_STYLE if enabled else TAB_WIDGET_STYLE)
+        self.dynamic_panel.setStyleSheet(f"background-color: {bg};")
+        self.transaction_tab.setStyleSheet(f"background-color: {bg};")
+        self.control_tab.setStyleSheet(f"background-color: {bg};")
+        self.valuation_banner.setStyleSheet(
+            (
+                f"background-color: {ISSUE_BLUE_DARK};"
+                f" border: 1px solid {ISSUE_BLUE_PRIMARY}; border-radius: 4px;"
+            ) if enabled else
+            "background-color: #2A1458; border: 1px solid #5E35A5; border-radius: 4px;"
+        )
+        if self._loaded_policy is not None:
+            self._rebase_dynamic_context(enabled)
+            self._update_valuation_banner(self._loaded_policy)
+        self.run_from_issue_changed.emit(enabled)
+
+    def _rebase_dynamic_context(self, enabled: bool):
+        old_ctx = self.dynamic_panel._ctx
+        new_ctx = context_from_policy(self._loaded_policy)
+        if enabled:
+            new_ctx.forecast_date = new_ctx.issue_date
+            new_ctx.forecast_year = 1
+            new_ctx.forecast_age = new_ctx.issue_age
+        for section in (
+            self.dynamic_panel.premium_section,
+            self.dynamic_panel.loan_section,
+            self.dynamic_panel.withdrawal_section,
+            self.dynamic_panel.repayment_section,
+            self.dynamic_panel.face_section,
+            self.dynamic_panel.dbo_section,
+            self.dynamic_panel.rateclass_section,
+            self.dynamic_panel.table_section,
+        ):
+            for row in section.rows():
+                if row.year() == old_ctx.forecast_year:
+                    row.year_edit.set_value(new_ctx.forecast_year)
+                    row.age_edit.set_value(new_ctx.forecast_age)
+                row.set_context(new_ctx)
+        self.dynamic_panel._ctx = new_ctx
+
     def _update_valuation_banner(self, policy):
         valuation_date = getattr(policy, "valuation_date", None)
-        if valuation_date is not None:
+        if self.run_from_issue_enabled() and self._issue_date is not None:
+            self.banner_valuation_label.setText("Not applicable")
+            self.banner_first_forecast_label.setText(format_date(self._issue_date))
+            self.banner_policy_year_label.setText("1")
+        elif valuation_date is not None:
             self.banner_valuation_label.setText(format_date(valuation_date))
             self.banner_first_forecast_label.setText(
                 format_date(valuation_date + relativedelta(months=1))
@@ -1160,8 +1274,9 @@ class IllustrationInputsTab(QWidget):
             self.banner_monthliversary_label.setText(_ordinal(self._issue_date.day))
         else:
             self.banner_monthliversary_label.setText("—")
-        policy_year = getattr(policy, "policy_year", None)
-        self.banner_policy_year_label.setText(str(policy_year) if policy_year else "—")
+        if not self.run_from_issue_enabled():
+            policy_year = getattr(policy, "policy_year", None)
+            self.banner_policy_year_label.setText(str(policy_year) if policy_year else "—")
         face = (getattr(policy, "base_total_face_amount", None)
                 or getattr(policy, "base_face_amount", None)
                 or getattr(policy, "face_amount", None))
@@ -1315,6 +1430,12 @@ class IllustrationInputsTab(QWidget):
     def set_solve_amount(self, value: Optional[float]):
         self.dynamic_panel.set_solve_amount(value)
 
+    def solve_duration_request(self) -> Optional[dict]:
+        return self.dynamic_panel.solve_duration_request()
+
+    def set_solve_duration(self, duration_years: int):
+        self.dynamic_panel.set_solve_duration(duration_years)
+
     def lumpsum_to_next_enabled(self) -> bool:
         return self.dynamic_panel.lumpsum_to_next_enabled()
 
@@ -1361,9 +1482,16 @@ class IllustrationInputsTab(QWidget):
 
     def _apply_abr_quote_mode(self, enabled: bool):
         """ABR Quote (Options menu) locks every Input-tab control except the
-        Illustrated Rate, which accepts any value. The run itself forces
+        Illustrated Rate and Minimum Face Amount Allowed. The run itself forces
         TEFRA/DEFRA + TAMRA off, so nothing here needs to touch those."""
         self.dynamic_panel.set_abr_quote_mode(enabled)
+        self.abr_minimum_face_row.setVisible(enabled)
+
+    def abr_minimum_face_amount(self) -> Optional[float]:
+        text = self.abr_minimum_face_edit.text().replace(",", "").replace("$", "").strip()
+        if not text:
+            return None
+        return float(text)
 
     def projection_months(self, policy) -> int | None:
         if self.illustration_to_date_radio.isChecked():
@@ -1455,6 +1583,8 @@ class IllustrationInputsTab(QWidget):
                 "iul_rate_method": (
                     "wair" if self.wair_radio.isChecked() else "blended"),
                 "use_policy_ag49": self.policy_ag49_check.isChecked(),
+                "abr_minimum_face_amount": self.abr_minimum_face_edit.text(),
+                "run_from_issue": self.run_from_issue_enabled(),
             },
             "dynamic": self.dynamic_panel.capture_state(),
             "ui": {
@@ -1479,9 +1609,14 @@ class IllustrationInputsTab(QWidget):
         warnings.extend(self.dynamic_panel.apply_state(state.get("dynamic") or {}))
 
         controls = state.get("controls") or {}
+        self.run_from_issue_btn.setChecked(
+            bool(controls.get("run_from_issue", False)))
         self.exact_days_check.setChecked(bool(controls.get("exact_days")))
         self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
         self.gp_search_check.setChecked(bool(controls.get("gp_search")))
+        self.abr_minimum_face_edit.setText(
+            str(controls.get("abr_minimum_face_amount") or "")
+        )
         # Restore the illustration-options override. Enable first (which unlocks
         # the two controls), then apply their saved values; if the override is
         # off they stay locked on. Older cases without these keys default to the

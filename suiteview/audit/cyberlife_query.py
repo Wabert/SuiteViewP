@@ -398,6 +398,7 @@ def build_cyberlife_sql(
         p2t.chk_has_loan.isChecked() or
         p2t.txt_total_loan_prin_lo.text().strip() or p2t.txt_total_loan_prin_hi.text().strip() or
         p2t.txt_total_accured_lint_lo.text().strip() or p2t.txt_total_accured_lint_hi.text().strip())
+    has_preferred_loan = p2t.chk_has_preferred_loan.isChecked()
     has_change_seq = bool(p2t.chk_change_seq.isChecked() and p2t.list_change_seq.selectedItems())
 
     # Person Info (VH_POL_HAS_LOC_CLT names) — filter + result columns
@@ -678,7 +679,15 @@ def build_cyberlife_sql(
         sql_parts.append(f", POLICYDEBT AS (")
         sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
         sql_parts.append(f"    SUM(ALL_LOANS.LN_PRI_AMT) LOAN_PRINCIPLE,")
-        sql_parts.append(f"    SUM(ALL_LOANS.LN_INT) LOAN_ACCRUED")
+        sql_parts.append(f"    SUM(ALL_LOANS.LN_INT) LOAN_ACCRUED,")
+        sql_parts.append(f"    SUM(CASE WHEN COALESCE(ALL_LOANS.PRF_LN_IND, '0') <> '1'")
+        sql_parts.append(f"      THEN ALL_LOANS.LN_PRI_AMT ELSE 0 END) REG_LOAN_PRINCIPLE,")
+        sql_parts.append(f"    SUM(CASE WHEN COALESCE(ALL_LOANS.PRF_LN_IND, '0') <> '1'")
+        sql_parts.append(f"      THEN ALL_LOANS.LN_INT ELSE 0 END) REG_LOAN_ACCRUED,")
+        sql_parts.append(f"    SUM(CASE WHEN ALL_LOANS.PRF_LN_IND = '1'")
+        sql_parts.append(f"      THEN ALL_LOANS.LN_PRI_AMT ELSE 0 END) PREF_LOAN_PRINCIPLE,")
+        sql_parts.append(f"    SUM(CASE WHEN ALL_LOANS.PRF_LN_IND = '1'")
+        sql_parts.append(f"      THEN ALL_LOANS.LN_INT ELSE 0 END) PREF_LOAN_ACCRUED")
         sql_parts.append(f"  FROM ALL_LOANS")
         sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
 
@@ -1128,9 +1137,15 @@ def build_cyberlife_sql(
     if disp_monthly_deduction:
         sql_parts.append("  , MONTHLY_DED.MONTHLY_DED_AMT")
         sql_parts.append("  , VARCHAR_FORMAT(MONTHLY_DED.MONTHLY_DED_DT, 'MM/DD/YYYY') MONTHLY_DED_DT")
+    if has_preferred_loan:
+        sql_parts.append("  , POLICYDEBT.REG_LOAN_PRINCIPLE")
+        sql_parts.append("  , POLICYDEBT.REG_LOAN_ACCRUED")
+        sql_parts.append("  , POLICYDEBT.PREF_LOAN_PRINCIPLE")
+        sql_parts.append("  , POLICYDEBT.PREF_LOAN_ACCRUED")
     if disp_policy_debt:
-        sql_parts.append("  , POLICYDEBT.LOAN_PRINCIPLE")
-        sql_parts.append("  , POLICYDEBT.LOAN_ACCRUED")
+        if not has_preferred_loan:
+            sql_parts.append("  , POLICYDEBT.LOAN_PRINCIPLE")
+            sql_parts.append("  , POLICYDEBT.LOAN_ACCRUED")
         sql_parts.append("  , (CASE")
         sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '0' THEN 'FIX'")
         sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '1' THEN 'FIX'")
@@ -1573,7 +1588,7 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ALL_LOANS.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ALL_LOANS.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ALL_LOANS.TCH_POL_ID")
-        if has_77_segment and p2t.chk_has_preferred_loan.isChecked():
+        if has_77_segment and has_preferred_loan:
             sql_parts.append("    AND ALL_LOANS.PRF_LN_IND = '1'")
         _debt_join = "INNER JOIN" if has_77_segment else "LEFT OUTER JOIN"
         sql_parts.append(f"  {_debt_join} POLICYDEBT")

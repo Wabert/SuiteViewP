@@ -184,7 +184,11 @@ def run_guaranteed_projection(
         coi_scale=0,
         expense_scale=0,
     )
-    valuation_date = policy.valuation_date or policy.issue_date
+    valuation_date = (
+        policy.illustration_date
+        if policy.run_from_issue and policy.illustration_date
+        else policy.valuation_date or policy.issue_date
+    )
     guaranteed_bonus = load_bonus_config(
         policy.plancode, valuation_date).guaranteed()
 

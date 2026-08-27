@@ -163,12 +163,12 @@ def _justify_lines(lines: List[str]) -> List[str]:
 # make explicit that the age shown is the end-of-year attained age; the YEAR
 # column reads "END / OF / YEAR".
 _LEDGER_HEADER = [
-    f"{'AGE':>4}{'END':>5}{'':>9}{'':5}{'':>8}{'':>10}  "
+    f"{'AGE':>4}{'END':>5}{'':>12}{'':5}{'':>8}{'':>10}  "
     f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
-    f"{'AT':>4}{'OF':>5}{'PREMIUM':>9}{'':5}{'':>8}{'LOAN':>10}  "
+    f"{'AT':>4}{'OF':>5}{'PREMIUM':>12}{'':5}{'':>8}{'LOAN':>10}  "
     f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}  "
     f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}",
-    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>9}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
+    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>12}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
     f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}  "
     f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}",
     "-" * PAGE_WIDTH,
@@ -179,12 +179,12 @@ def _ledger_header(loan_repayments_illustrated: bool) -> List[str]:
     if not loan_repayments_illustrated:
         return _LEDGER_HEADER
     return [
-        f"{'AGE':>4}{'END':>5}{'PREMIUM +':>9}{'':5}{'':>8}{'':>10}  "
+        f"{'AGE':>4}{'END':>5}{'PREMIUM +':>12}{'':5}{'':>8}{'':>10}  "
         f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
-        f"{'AT':>4}{'OF':>5}{'LOAN REPAY':>14}{'':>8}{'LOAN':>10}  "
+        f"{'AT':>4}{'OF':>5}{'LOAN REPAY':>17}{'':>8}{'LOAN':>10}  "
         f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}  "
         f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}",
-        f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>9}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
+        f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>12}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
         f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}  "
         f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}",
         "-" * PAGE_WIDTH,
@@ -202,7 +202,7 @@ _LEDGER_ASSUMPTION_NOTE = (
 
 def _ledger_line(row: LedgerRow) -> str:
     return (
-        f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>9,.0f}"
+        f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>12,.2f}"
         f"{row.markers:>5}{row.cash_from_policy:>8,.0f}{row.loan_balance:>10,.0f}  "
         f"{_money(row.guar_accum):>10} {_money(row.guar_surr):>10} "
         f"{_money(row.guar_death):>10}  "
@@ -222,12 +222,12 @@ def _ledger_line(row: LedgerRow) -> str:
 _EXPENSE_COLUMNS = [
     (4, "AGE", "EOY", "eoy_age"),                           # K — age at EOY
     (5, "", "YEAR", "year"),                                # J — End of Year (width matches the ledger)
-    (8, "PREMIUM", "OUTLAY", "premium_outlay"),             # L — Assumed Premium Outlay
+    (12, "PREMIUM", "OUTLAY", "premium_outlay"),            # L — Assumed Premium Outlay
     (8, "CASH", "OUT", "distributions"),                    # M — Gross withdrawals + force-outs
     (8, "PREMIUM", "CHARGE", "premium_charge"),             # N — Premium Charge
     (8, "COI", "CHARGE", "coi_charge"),                     # O — Cost of Insurance
     (6, "RIDER", "CHG", "rider_charges"),                   # T — Other Rider Charges
-    (14, "", "EXPENSES/FEES", "expenses"),                  # P+Q+R+S
+    (10, "", "EXP/FEES", "expenses"),                       # P+Q+R+S
     (9, "INTEREST", "CREDITED", "interest_credited"),       # U — Interest Credited
     (9, "ACCUM", "VALUE", "accum_value"),                   # V — Accumulation Value
     (6, "SURR", "CHGS", "surrender_charges"),               # W — Surrender Charges
@@ -241,7 +241,7 @@ _EXPENSE_INTRO = [
     "CHARGES AND CREDITS. FOR EACH POLICY "
     "YEAR IT SHOWS THE PREMIUMS PAID, CASH OUT (GROSS WITHDRAWALS AND "
     "FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM THE ACCUMULATION VALUE, AND THE "
-    "INTEREST CREDITED. THE EXPENSES/FEES COLUMN COMBINES THE ADMINISTRATIVE CHARGES "
+    "INTEREST CREDITED. THE EXP/FEES COLUMN COMBINES THE ADMINISTRATIVE CHARGES "
     "(PER-1000, MONTHLY FEE, ASSET, AND ACCUMULATION VALUE CHARGES).",
     "CHARGES AND CREDITS ARE ANNUAL TOTALS ON THE ILLUSTRATED (CURRENT, NON-GUARANTEED) "
     "BASIS, CONSISTENT WITH THE ILLUSTRATION'S LEDGER PAGES. POLICY VALUES, INCLUDING ANY "
@@ -262,7 +262,7 @@ def _expense_header_lines() -> List[str]:
     deduction_width = sum(w for w, *_ in _EXPENSE_COLUMNS[5:8])
     values_width = sum(w for w, *_ in _EXPENSE_COLUMNS[9:14])
     groups = (
-        f"{'':4}{'':5}{'PREMIUMS':>8}{'':8}{'':8}"
+        f"{'':4}{'':5}{'PREMIUMS':>12}{'':8}{'':8}"
         f"{_span_banner('DEDUCTIONS', deduction_width)}"
         f"{'EARNINGS':>9}{_span_banner('POLICY VALUES', values_width)}"
     )
@@ -274,7 +274,8 @@ def _expense_header_lines() -> List[str]:
 def _expense_line(row: ExpenseRow) -> str:
     parts = [f"{row.eoy_age:>4}", f"{row.year:>5}"]
     for width, _top, _bottom, attr in _EXPENSE_COLUMNS[2:]:
-        parts.append(f"{getattr(row, attr):>{width},.0f}")
+        decimals = 2 if attr == "premium_outlay" else 0
+        parts.append(f"{getattr(row, attr):>{width},.{decimals}f}")
     return "".join(parts)
 
 
@@ -690,19 +691,56 @@ def format_abr_quote_pages(run, policy) -> List[List[str]]:
 
     lines.append("WHAT THIS RUN SOLVED")
     lines.append("")
-    paragraph(
-        f"This run solved for the theoretical annual level premium that carries the policy to "
-        f"maturity (age {int(policy.maturity_age)}) with a surrender value of "
-        f"${ABR_TARGET_SV:,.0f} at maturity, credited at the ABR interest rate of {rate_pct}. "
-        f"It is not an inforce illustration — several illustration safeguards were deliberately "
-        f"turned off so that nothing limits the annual premium.")
+    if run.shadow_premium is not None:
+        paragraph(
+            f"This run independently solved for the theoretical annual level premium that "
+            f"carries the regular account to a ${ABR_TARGET_SV:,.0f} surrender value at "
+            f"maturity and the annual level premium that carries the shadow account to "
+            f"${ABR_TARGET_SV:,.0f} at maturity. The lower result is the official ABR "
+            f"premium. Both solves use maturity age {int(policy.maturity_age)} and the ABR "
+            f"interest rate of {rate_pct}. It is not an inforce illustration — several "
+            f"illustration safeguards were deliberately turned off so that nothing limits "
+            f"the annual premium.")
+    else:
+        paragraph(
+            f"This run solved for the theoretical annual level premium that carries the policy to "
+            f"maturity (age {int(policy.maturity_age)}) with a surrender value of "
+            f"${ABR_TARGET_SV:,.0f} at maturity, credited at the ABR interest rate of {rate_pct}. "
+            f"It is not an inforce illustration — several illustration safeguards were deliberately "
+            f"turned off so that nothing limits the annual premium.")
 
     lines.append("RESULT")
     lines.append("")
-    paragraph(
-        f"Solved annual level premium: ${run.premium:,.2f}, first payment on {first_payment}, "
-        f"then paid on each policy anniversary through maturity. Under that premium the "
-        f"surrender value at maturity is ${run.achieved_sv:,.2f}.")
+    if run.shadow_premium is not None:
+        paragraph(
+            f"Regular-account annual premium: ${run.regular_premium:,.2f}. Shadow-account "
+            f"annual premium: ${run.shadow_premium:,.2f}. Official annual level premium: "
+            f"${run.premium:,.2f} (the lower {run.premium_basis}-account solve), first payment "
+            f"on {first_payment}, then paid on each policy anniversary through maturity. "
+            f"Under the official premium, surrender value at maturity is "
+            f"${run.achieved_sv:,.2f} and shadow account value at maturity is "
+            f"${run.achieved_shadow:,.2f}.")
+    else:
+        paragraph(
+            f"Solved annual level premium: ${run.premium:,.2f}, first payment on {first_payment}, "
+            f"then paid on each policy anniversary through maturity. Under that premium the "
+            f"surrender value at maturity is ${run.achieved_sv:,.2f}.")
+
+    if run.max_partial is not None:
+        partial = run.max_partial
+        lines.append("MAXIMUM PARTIAL ACCELERATION — NEXT MONTHLY DEDUCTION")
+        lines.append("")
+        paragraph(
+            f"Minimum Face Amount Allowed: ${partial.minimum_face_amount:,.2f}. The locked "
+            f"level death benefit used by the ABR forecast is "
+            f"${partial.locked_death_benefit:,.2f}, producing a reduction proportion of "
+            f"{partial.reduction_ratio:.6f}. The current account value was reduced by that "
+            f"same proportion to ${partial.proportional_account_value:,.2f}.")
+        paragraph(
+            f"At the next monthly anniversary, {partial.monthly_deduction_date:%m/%d/%Y}, "
+            f"the forecast used Face Amount ${partial.minimum_face_amount:,.2f}, Account "
+            f"Value ${partial.account_value_used:,.2f}, and rate Band {partial.band}. The "
+            f"resulting monthly deduction is ${partial.monthly_deduction:,.2f}.")
 
     lines.append("HOW THE ILLUSTRATION WAS CONFIGURED")
     lines.append("")

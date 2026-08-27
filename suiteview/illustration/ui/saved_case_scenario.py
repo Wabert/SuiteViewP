@@ -15,6 +15,7 @@ def build_spec_from_tab(label: str, inputs_tab, policy_data) -> ScenarioSpec:
         policy_data,
         inforce_overrides=inputs_tab.export_inforce_overrides(),
         future_inputs=inputs_tab.export_input_set(),
+        run_from_issue=inputs_tab.run_from_issue_enabled(),
     )
     return ScenarioSpec(
         label=label,

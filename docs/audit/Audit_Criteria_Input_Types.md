@@ -87,7 +87,8 @@ This document categorizes all the input types across the first 8 tabs (Policy th
 *   **Product Line Code (02):** Combobox (`ComboBox_Cov1ProductLineCode`)
 *   **Product Indicator (02):** Combobox (`ComboBox_Cov1ProductIndicator`)
 *   **Table:** Checkbox (`CheckBox_TableRating`)
-*   **Flat:** Checkbox (`CheckBox_FlatExtra`)
+*   **Flat:** Checkbox (`CheckBox_FlatExtra`) — matches any flat extra regardless of whether it has expired
+*   **Active Flat:** Checkbox (`active_flat_03`) — matches only flat extras that are still active (cease date null/in the future)
 *   **Sex Code (02):** Checkbox + Listbox (`CheckBox_SpecifyCov1SexcodeFrom02` and `ListBox_Cov1SexCodeFrom02`)
 *   **Class:** Text Input (`TextBox_ValuationClass`)
 *   **Base:** Text Input (`TextBox_ValuationBase`)

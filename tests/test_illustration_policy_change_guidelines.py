@@ -313,6 +313,11 @@ def test_rate_class_change_applies_to_all_base_segments(monkeypatch):
     monkeypatch.setattr(calc_engine, "_reband_benefits", lambda *_a, **_k: None)
     monkeypatch.setattr(
         calc_engine,
+        "_solve_guideline_state",
+        lambda *_a, **_k: GuidelineSolveResult(glp=0.0, gsp=0.0, seven_pay=0.0),
+    )
+    monkeypatch.setattr(
+        calc_engine,
         "compute_target_premiums",
         lambda *_a, **_k: SimpleNamespace(mtp_annual=120.0, ctp_annual=240.0),
     )

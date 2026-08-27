@@ -59,10 +59,18 @@ The pipeline is distributed across these modules:
 
 ## 2. High-Level Flow
 
-The engine runs in two phases:
+The engine normally runs in two phases:
 
 1. Build an inforce snapshot row from current policy values.
 2. Project forward one month at a time until the requested duration or lapse.
+
+The policy-scoped **Run from Policy Issue** mode keeps the Policy tab on the
+current valuation snapshot but rebases the projectable copy to a true
+new-business opening state. Its opening balances and accumulators are zero,
+GLP/GSP/7-pay and target premiums are solved at issue, and the full monthly
+pipeline first runs on the policy issue date (policy year 1, month 1). Rate and
+bonus lookups deliberately use the current illustration date rather than
+historical issue-date scales.
 
 At a high level, the normal illustration path is being structured to follow the RERUN inforce illustration workbook sequence:
 

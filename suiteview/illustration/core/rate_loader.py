@@ -14,6 +14,58 @@ from suiteview.illustration.models.policy_data import (
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 
 
+PREFERRED_RATECLASS_FALLBACKS = {
+    "R": "N",
+    "P": "N",
+    "T": "N",
+    "Q": "S",
+}
+
+
+class RateLookupError(RuntimeError):
+    """A required illustration rate schedule could not be found."""
+
+
+def load_coverage_coi_rates(
+    rates_db: Rates,
+    *,
+    plancode: str,
+    issue_age: int,
+    sex: str,
+    rateclass: str,
+    scale: int,
+    band: int,
+) -> List:
+    """Load COI rates, applying the approved preferred-class fallback."""
+    requested_class = (rateclass or "").strip().upper()
+    lookup_classes = [requested_class]
+    fallback_class = PREFERRED_RATECLASS_FALLBACKS.get(requested_class)
+    if fallback_class is not None:
+        lookup_classes.append(fallback_class)
+
+    for lookup_class in lookup_classes:
+        schedule = rates_db.get_rates(
+            "COI",
+            plancode,
+            issue_age,
+            sex,
+            lookup_class,
+            scale=scale,
+            band=band,
+        )
+        if schedule:
+            return schedule
+
+    attempted = " then ".join(
+        f"rate class {lookup_class or '<blank>'}" for lookup_class in lookup_classes
+    )
+    raise RateLookupError(
+        "Required COI rate schedule was not found. "
+        f"Lookup: plancode {plancode or '<blank>'}, issue age {issue_age}, "
+        f"sex {sex or '<blank>'}, {attempted}, band {band}, scale {scale}."
+    )
+
+
 @dataclass
 class IllustrationRates:
     """Pre-loaded rate arrays for a single policy segment.
@@ -106,14 +158,15 @@ def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
         if band is None:
             band = rider.band if rider.band is not None else 1
     rider.band = int(band)
-    return rates_db.get_coi(
-        rider.plancode,
-        rider.issue_age,
-        rider.rate_sex,
-        rider.rate_class,
+    return load_coverage_coi_rates(
+        rates_db,
+        plancode=rider.plancode,
+        issue_age=rider.issue_age,
+        sex=rider.rate_sex,
+        rateclass=rider.rate_class,
         scale=1,
         band=rider.band,
-    ) or []
+    )
 
 
 def _load_benefit_coi_rates(rates_db: Rates, policy, benefit, segment) -> List:
@@ -183,10 +236,15 @@ def load_rates(
     segment_epu = {}
     segment_scr = {}
     for base_seg in policy.segments:
-        segment_coi[base_seg.coverage_phase] = rates_db.get_rates(
-            "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-            base_seg.rate_class, scale=coi_scale, band=base_seg.band,
-        ) or []
+        segment_coi[base_seg.coverage_phase] = load_coverage_coi_rates(
+            rates_db,
+            plancode=policy.plancode,
+            issue_age=base_seg.issue_age,
+            sex=base_seg.rate_sex,
+            rateclass=base_seg.rate_class,
+            scale=coi_scale,
+            band=base_seg.band,
+        )
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
             base_seg.rate_class, scale=expense_scale, band=base_seg.band,
@@ -237,13 +295,23 @@ def load_rates(
     # band 2, so it needs both. The band break comes from BANDSPECS.
     if config.rachet_banding:
         for base_seg in policy.segments:
-            result.segment_coi_band1[base_seg.coverage_phase] = rates_db.get_rates(
-                "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-                base_seg.rate_class, scale=coi_scale, band=1,
+            result.segment_coi_band1[base_seg.coverage_phase] = load_coverage_coi_rates(
+                rates_db,
+                plancode=policy.plancode,
+                issue_age=base_seg.issue_age,
+                sex=base_seg.rate_sex,
+                rateclass=base_seg.rate_class,
+                scale=coi_scale,
+                band=1,
             ) or []
-            result.segment_coi_band2[base_seg.coverage_phase] = rates_db.get_rates(
-                "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-                base_seg.rate_class, scale=coi_scale, band=2,
+            result.segment_coi_band2[base_seg.coverage_phase] = load_coverage_coi_rates(
+                rates_db,
+                plancode=policy.plancode,
+                issue_age=base_seg.issue_age,
+                sex=base_seg.rate_sex,
+                rateclass=base_seg.rate_class,
+                scale=coi_scale,
+                band=2,
             ) or []
         result.band_break = rates_db.get_band_break(policy.plancode, band=2) or 0.0
 
@@ -267,10 +335,15 @@ def load_rates(
     # flat-code plancodes simply never read the unused arrays.
     if policy.has_shadow_account and config.shadow_plancode:
         shp = config.shadow_plancode
-        result.shadow_coi = rates_db.get_rates(
-            "COI", shp, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.original_band,
-        ) or []
+        result.shadow_coi = load_coverage_coi_rates(
+            rates_db,
+            plancode=shp,
+            issue_age=seg.issue_age,
+            sex=seg.rate_sex,
+            rateclass=seg.rate_class,
+            scale=1,
+            band=seg.original_band,
+        )
         result.shadow_epu = rates_db.get_rates(
             "EPU", shp, seg.issue_age, seg.rate_sex,
             seg.rate_class, scale=1, band=seg.original_band,

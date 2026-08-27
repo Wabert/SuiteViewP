@@ -28,6 +28,8 @@ from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
 )
+from suiteview.illustration.ui.report_tab import format_abr_quote_pages
+from suiteview.illustration.ui.styles import TAB_WIDGET_STYLE
 
 _QT_APP = None
 
@@ -77,6 +79,8 @@ def test_abr_quote_mode_locks_input_tab_except_the_illustrated_rate():
 
     # Off by default — the Input tab is fully editable.
     assert tab.abr_quote_enabled() is False
+    assert tab.abr_minimum_face_row.parent() is panel
+    assert tab.input_tabs.styleSheet() == TAB_WIDGET_STYLE
     assert panel.premium_section.isEnabled() is True
     assert panel.illustrated_rate_edit.isEnabled() is True
 
@@ -94,10 +98,14 @@ def test_abr_quote_mode_locks_input_tab_except_the_illustrated_rate():
         # The Illustrated Rate stays editable and accepts any value.
         assert panel.illustrated_rate_edit.isEnabled() is True
         assert panel.illustrated_rate_edit.isReadOnly() is False
+        assert tab.abr_minimum_face_row.isHidden() is False
+        tab.abr_minimum_face_edit.setText("25,000")
+        assert tab.abr_minimum_face_amount() == pytest.approx(25_000.0)
 
         # Toggling back off restores the panel.
         settings.set_abr_quote_mode(False)
         assert panel.premium_section.isEnabled() is True
+        assert tab.abr_minimum_face_row.isHidden() is True
     finally:
         settings.set_abr_quote_mode(False)
 
@@ -139,9 +147,18 @@ def _test_config(_plancode) -> PlancodeConfig:
 @pytest.fixture
 def _flat_plancode(monkeypatch):
     from suiteview.illustration.core import calc_engine
+    from suiteview.core.rates import Rates
     monkeypatch.setattr(calc_engine, "load_plancode", _test_config)
+    monkeypatch.setattr(calc_engine, "load_rates", lambda *_args, **_kwargs: IllustrationRates())
     monkeypatch.setattr(
         calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
+    monkeypatch.setattr(
+        Rates,
+        "get_rates",
+        lambda _self, rate_type, *_args, **_kwargs: (
+            [None] + [0.0] * 121 if rate_type == "COI" else []
+        ),
+    )
 
 
 def _loaned_option_b_policy() -> IllustrationPolicyData:
@@ -192,3 +209,97 @@ def test_run_abr_quote_solves_the_annual_premium_on_a_loaned_option_b_policy(_fl
 
     # The projection reaches maturity (age 121 anniversary row).
     assert run.results[-1].attained_age >= 120
+
+
+def test_shadow_policy_uses_lower_of_regular_and_shadow_solve(_flat_plancode):
+    policy = _loaned_option_b_policy()
+    policy.ccv_active = True
+    policy.shadow_account_value = 0.0
+
+    run = run_abr_quote(policy, engine=_FlatRatesEngine())
+
+    assert run.regular_premium == pytest.approx(25.0, abs=0.02)
+    assert run.shadow_premium < run.regular_premium
+    assert run.premium == run.shadow_premium
+    assert run.premium_basis == "shadow"
+    assert run.achieved_shadow >= ABR_TARGET_SV - 0.005
+    report = " ".join("\n".join(format_abr_quote_pages(run, run.policy)[0]).split())
+    assert "Regular-account annual premium" in report
+    assert "Shadow-account annual premium" in report
+    assert "lower shadow-account solve" in report
+
+
+def test_max_partial_projects_next_deduction_with_reduced_face_and_av(
+    _flat_plancode, monkeypatch
+):
+    from suiteview.core.rates import Rates
+
+    monkeypatch.setattr(
+        Rates,
+        "get_band",
+        lambda _self, _plan, face, issue_date=None: 2 if face < 50_000 else 1,
+    )
+    monkeypatch.setattr(
+        Rates,
+        "get_rates",
+        lambda _self, rate_type, *_args, **_kwargs: (
+            [None] + [0.0] * 121 if rate_type == "COI" else []
+        ),
+    )
+    policy = _loaned_option_b_policy()
+    policy.db_option = "A"
+    policy.account_value = 10_000.0
+    policy.regular_loan_principal = 0.0
+
+    run = run_abr_quote(
+        policy,
+        minimum_face_amount=25_000.0,
+        engine=_FlatRatesEngine(),
+    )
+
+    partial = run.max_partial
+    assert partial is not None
+    assert partial.locked_death_benefit == pytest.approx(100_000.0)
+    assert partial.reduction_ratio == pytest.approx(0.25)
+    assert partial.proportional_account_value == pytest.approx(2_500.0)
+    assert partial.account_value_used == pytest.approx(2_500.0)
+    assert partial.minimum_face_amount == pytest.approx(25_000.0)
+    assert partial.monthly_deduction == pytest.approx(0.0)
+    assert partial.monthly_deduction_date == date(2026, 2, 15)
+    assert partial.band == 2
+    report = " ".join("\n".join(format_abr_quote_pages(run, run.policy)[0]).split())
+    assert "Minimum Face Amount Allowed: $25,000.00" in report
+    assert "02/15/2026" in report
+    assert "Account Value $2,500.00" in report
+    assert "monthly deduction is $0.00" in report
+
+
+def test_max_partial_rejects_face_above_locked_death_benefit(_flat_plancode):
+    with pytest.raises(ValueError, match="cannot exceed"):
+        run_abr_quote(
+            _loaned_option_b_policy(),
+            minimum_face_amount=150_000.0,
+            engine=_FlatRatesEngine(),
+        )
+
+
+def test_option_b_max_partial_uses_forecast_locked_death_benefit(_flat_plancode):
+    policy = _loaned_option_b_policy()
+    policy.account_value = 50_000.0
+    policy.regular_loan_principal = 0.0
+    policy.current_interest_rate = 0.05
+
+    run = run_abr_quote(
+        policy,
+        minimum_face_amount=75_000.0,
+        engine=_FlatRatesEngine(),
+    )
+
+    partial = run.max_partial
+    assert partial is not None
+    forecast_locked_db = run.results[1].coverage_after_change["CurrentSA"]
+    assert partial.locked_death_benefit == pytest.approx(forecast_locked_db)
+    assert partial.locked_death_benefit > 150_000.0
+    assert partial.proportional_account_value == pytest.approx(
+        50_000.0 * 75_000.0 / forecast_locked_db
+    )

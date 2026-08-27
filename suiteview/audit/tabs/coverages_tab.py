@@ -173,6 +173,16 @@ class CoveragesTab(QWidget):
         chk_row.addStretch()
         grid.addLayout(chk_row, r, 0, 1, 2); r += 1
 
+        # Active Flat (03) checkbox — restricts Flat (03) to non-expired flat
+        # extras (cease date null/9999 or in the future). "Flat" matches any
+        # flat regardless of whether it has already expired.
+        active_flat_row = QHBoxLayout()
+        active_flat_row.setSpacing(8)
+        widgets["active_flat_03"] = _make_checkbox("Active Flat (03)")
+        active_flat_row.addWidget(widgets["active_flat_03"])
+        active_flat_row.addStretch()
+        grid.addLayout(active_flat_row, r, 0, 1, 2); r += 1
+
         # Post Issue checkbox (for Rider columns) / Issue Date header
         if title != "Base Coverage Criteria (02)":
             widgets["post_issue"] = _make_checkbox("Post Issue")

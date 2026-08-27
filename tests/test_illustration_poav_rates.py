@@ -28,7 +28,7 @@ class _FakeRates:
         **kwargs,
     ):
         self.calls.append((rate_type, scale, band))
-        return []
+        return [None, 0.0] if rate_type == "COI" else []
 
     def get_band(self, plancode, face, issue_date=None):
         return 2

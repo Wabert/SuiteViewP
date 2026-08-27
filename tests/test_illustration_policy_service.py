@@ -73,7 +73,7 @@ class _FakePolicyInfo:
     total_variable_loan_accrued = 0.0
     variable_loan_charge_rate = None
     total_withdrawals = 0.0
-    gav = 0.0
+    shadow_account_value = 4_872.53
     is_mec = False
     tamra_7pay_level = 0.0
     tamra_7pay_start_date = None
@@ -191,6 +191,7 @@ def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch)
     assert policy.units == pytest.approx(200.0)
     assert policy.total_face == pytest.approx(200_000.0)
     assert policy.band == 2
+    assert policy.shadow_account_value == pytest.approx(4_872.53)
 
 
 def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch):

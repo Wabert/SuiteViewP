@@ -184,6 +184,7 @@ class IllustrationPolicyData:
     duration: int = 1              # Total months since issue
     valuation_date: Optional[date] = None
     maturity_age: int = 121
+    run_from_issue: bool = False
 
     # ── 7702 / Guideline ──────────────────────────────────────
     def_of_life_ins: str = "GPT"   # "GPT", "CVAT", or blank when not defined

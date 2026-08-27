@@ -276,3 +276,4 @@ class IllustrationScenario:
     projectable_policy: IllustrationPolicyData
     inforce_overrides: InforceOverrideSet = field(default_factory=InforceOverrideSet)
     future_inputs: IllustrationInputSet = field(default_factory=IllustrationInputSet)
+    run_from_issue: bool = False

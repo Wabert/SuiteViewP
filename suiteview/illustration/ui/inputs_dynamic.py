@@ -486,6 +486,8 @@ _LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_SHADOW_LEVEL)
 # meets the criteria and fills this row's amount; an unreachable target pops a
 # message instead.
 _TYPE_SOLVE = "Solve"
+# Keep premium and mode fixed, then solve the payment span in whole years.
+_TYPE_SOLVE_DURATION = "Solve for Duration"
 # "Monthly Deduction" pays, each month, exactly the policy's monthly deduction
 # (grossed up by the COI rate and premium load) so the account value after the
 # deduction equals where it stood just before it. The engine reuses the GP
@@ -641,7 +643,8 @@ class InputRow(QWidget):
             # The advanced types (Billable to MD, Max Level, Monthly Deduction,
             # Prem to Shadow Maturity) are gated behind the app-wide
             # "Additional Premium Types" option (off by default) — when off the
-            # dropdown shows only INPUT, Billable Prem, Prem to Maturity, Solve.
+            # dropdown shows INPUT, Billable Prem, Prem to Maturity, and the
+            # two target-value solves.
             ctx = self._ctx
             show_additional = get_illustration_settings().additional_premium_types
             options = [_TYPE_INPUT, _TYPE_BILLABLE]
@@ -658,6 +661,7 @@ class InputRow(QWidget):
             # "Solve" (target-value premium solve) works on any product — it
             # bisects the real projection under the user's own run options.
             options.append(_TYPE_SOLVE)
+            options.append(_TYPE_SOLVE_DURATION)
             self.type_combo.addItems(options)
             self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in options:
@@ -688,10 +692,9 @@ class InputRow(QWidget):
             self.changed.emit()
 
     def _type_changed(self, _index: int):
-        # Selecting "Billable Prem" or "Billable to MD" fills the amount + mode
-        # from the policy's billable premium; Billable Prem then behaves like a
-        # plain INPUT premium, Billable to MD adds the engine-side MD hand-off.
-        if (self.premium_type() in (_TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD)
+        # Billable-based types fill the amount and mode from the policy.
+        if (self.premium_type() in (
+                _TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD, _TYPE_SOLVE_DURATION)
                 and self._ctx is not None):
             self._apply_billable_premium()
         self._refresh_max_level_amount()
@@ -742,6 +745,10 @@ class InputRow(QWidget):
         return (self._section.spec.allow_max_level_premium
                 and self.type_combo.currentText() == _TYPE_SOLVE)
 
+    def is_solve_duration(self) -> bool:
+        return (self._section.spec.allow_max_level_premium
+                and self.type_combo.currentText() == _TYPE_SOLVE_DURATION)
+
     def is_payoff(self) -> bool:
         """A Loan Repayments "Pay-off" row — amount is solved on Run Values."""
         return (self._section.spec.allow_payoff
@@ -761,6 +768,13 @@ class InputRow(QWidget):
         # Monthly Deduction forces the mode to M (it is recomputed and paid every
         # month) and locks the mode combo while selected.
         self._apply_monthly_deduction_mode(ptype == _TYPE_MONTHLY_DEDUCTION)
+        solve_duration = ptype == _TYPE_SOLVE_DURATION
+        if self.for_years_edit is not None:
+            self.for_years_edit.setEnabled(not solve_duration)
+            self.for_years_edit.setReadOnly(solve_duration)
+        if self.to_age_edit is not None:
+            self.to_age_edit.setEnabled(not solve_duration)
+            self.to_age_edit.setReadOnly(solve_duration)
         if self.amount_edit is None:
             return
         # Max Level is guideline-room math → GPT only; Prem to (Shadow) Maturity
@@ -835,6 +849,13 @@ class InputRow(QWidget):
                 "(value, amount, and age set in the group below). Solved when "
                 "you Run Values; a target the policy cannot reach reports "
                 "instead of filling this field.")
+        elif self.is_solve_duration():
+            self.amount_edit.setEnabled(True)
+            self.amount_edit.setReadOnly(False)
+            self.amount_edit.setToolTip(
+                "Premium paid at the selected mode. It defaults to the policy's "
+                "billable premium and remains editable. Run Values solves the "
+                "fewest whole premium-paying years that reach the criteria below.")
         elif ptype == _TYPE_BILLABLE_TO_MD:
             # Editable like Billable Prem — the amount/mode were auto-filled
             # from the billable premium; the hand-off is engine-side.
@@ -2542,8 +2563,7 @@ class DynamicInputsPanel(QWidget):
         # rate-class/table change OR a withdrawal after the forecast date under
         # Max Level / Prem to Maturity raises the caveat strip — the inputs tab
         # watches those sections too.) The exception availability is refreshed,
-        # and the Premium Solve criteria group shows only while a Solve row is
-        # selected.
+        # and the criteria group shows while either target-value solve is selected.
         self._apply_section_locks()
         self._refresh_exception_availability()
         self._refresh_solve_group()
@@ -2577,7 +2597,8 @@ class DynamicInputsPanel(QWidget):
 
     def _refresh_solve_group(self):
         self.solve_criteria.setVisible(
-            any(row.is_solve() for row in self.premium_section.rows()))
+            any(row.is_solve() or row.is_solve_duration()
+                for row in self.premium_section.rows()))
 
     def _populate_solve_targets(self):
         """(Re)build the Solve-for combo for the loaded policy — the shadow
@@ -2631,6 +2652,33 @@ class DynamicInputsPanel(QWidget):
         for row in self.premium_section.rows():
             if row.is_solve():
                 row.set_amount_display(value)
+                return
+
+    def solve_duration_request(self) -> Optional[dict]:
+        """The fixed-premium duration solve request for Run Values, or None."""
+        if self._ctx is None:
+            return None
+        for row in self.premium_section.rows():
+            if not row.is_solve_duration():
+                continue
+            year = row.year() or self._ctx.forecast_year
+            amount = self.solve_amount_edit.value()
+            age = self.solve_age_edit.value()
+            return {
+                "start_year": int(year),
+                "premium": row.amount(),
+                "mode": row.mode(),
+                "target": self.solve_target_combo.currentData() or "av",
+                "amount": float(amount) if amount is not None else None,
+                "at_age": int(age) if age is not None else None,
+            }
+        return None
+
+    def set_solve_duration(self, duration_years: int):
+        """Fill the duration row's solved whole-year span."""
+        for row in self.premium_section.rows():
+            if row.is_solve_duration() and row.year() is not None:
+                row._set_span_from_years(row.year(), duration_years)
                 return
 
     def _apply_section_locks(self):
@@ -2868,16 +2916,14 @@ class DynamicInputsPanel(QWidget):
         # Deduction rows are solved in-engine, so all four are excluded here.
         # main_window solves the level premiums separately and layers them in;
         # the engine pays Monthly Deduction from a run option.
-        # "Solve" rows are excluded like the level rows: their amount field
-        # holds the PREVIOUS run's solved display value, and main_window
-        # layers the freshly solved premium in — collecting it here would
-        # double-pay it.
+        # Target-value solve rows are excluded here; main_window layers their
+        # freshly solved premium schedule into the run.
         prem_entries = [
             e for e in self.premium_section.entries()
             if e["amount"] is not None
             and e.get("type") not in (
                 _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_SHADOW_LEVEL,
-                _TYPE_MONTHLY_DEDUCTION, _TYPE_SOLVE)
+                _TYPE_MONTHLY_DEDUCTION, _TYPE_SOLVE, _TYPE_SOLVE_DURATION)
         ]
         # A "Billable to MD" / "INPUT to MD" row pays real scheduled premiums
         # like any INPUT row; the tag lets the compiler mark its dated

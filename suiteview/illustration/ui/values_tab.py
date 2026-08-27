@@ -1624,7 +1624,9 @@ class IllustrationValuesTab(QWidget):
         if on:
             self.status_label.setText(
                 f"GUARANTEED assumptions — locked current-side cash flows, guaranteed "
-                f"COIs and interest. Showing valuation snapshot plus {months} projected months.")
+                f"COIs and interest. Showing "
+                f"{'issue opening' if getattr(policy, 'run_from_issue', False) else 'valuation snapshot'} "
+                f"plus {months} projected months.")
 
     def _render_projection(
         self,
@@ -1742,7 +1744,13 @@ class IllustrationValuesTab(QWidget):
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
         self.charges_chart.set_data(build_charge_bands(result_list[1:]), policy.issue_age)
         self.content_stack.setCurrentIndex(0)
-        self.status_label.setText(f"Showing valuation snapshot plus {months} projected months.")
+        opening = (
+            "issue opening"
+            if getattr(policy, "run_from_issue", False)
+            else "valuation snapshot"
+        )
+        self.status_label.setText(
+            f"Showing {opening} plus {months} projected months.")
 
     def _state_to_row(
         self,

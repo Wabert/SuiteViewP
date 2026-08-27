@@ -250,7 +250,7 @@ def test_min_level_available_for_loan_policy():
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
     assert options == [
         "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
-        "Prem to Maturity", "Monthly Deduction", "Solve"]
+        "Prem to Maturity", "Monthly Deduction", "Solve", "Solve for Duration"]
 
 
 def test_new_premium_row_defaults_span_to_maturity():
@@ -326,7 +326,7 @@ def test_max_level_premium_defaults_and_changes_with_mode():
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
         "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
-        "Prem to Maturity", "Monthly Deduction", "Solve"]
+        "Prem to Maturity", "Monthly Deduction", "Solve", "Solve for Duration"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
     # left (5 monthly / 1 quarterly), which the payment count now includes:
@@ -387,7 +387,7 @@ def test_max_level_premium_hidden_for_cvat():
     # hidden — but Prem to Maturity still solves (with exceptions off).
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
         "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Prem to Maturity",
-        "Monthly Deduction", "Solve"]
+        "Monthly Deduction", "Solve", "Solve for Duration"]
 
 
 def test_shadow_level_premium_offered_for_shadow_policies():
@@ -399,7 +399,7 @@ def test_shadow_level_premium_offered_for_shadow_policies():
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
         "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
         "Prem to Maturity", "Prem to Shadow Maturity", "Monthly Deduction",
-        "Solve"]
+        "Solve", "Solve for Duration"]
 
     # Selecting the shadow type surfaces it through shadow_level_request.
     row.type_combo.setCurrentText("Prem to Shadow Maturity")
@@ -427,7 +427,9 @@ def test_additional_premium_types_off_shows_only_base_set():
     panel = _panel()
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
-    assert options == ["INPUT", "Billable Prem", "Prem to Maturity", "Solve"]
+    assert options == [
+        "INPUT", "Billable Prem", "Prem to Maturity", "Solve",
+        "Solve for Duration"]
 
 
 def test_additional_premium_types_off_hides_shadow_type_for_shadow_policy():
@@ -438,7 +440,9 @@ def test_additional_premium_types_off_hides_shadow_type_for_shadow_policy():
     panel.load_from_policy(_FakePolicy(), has_shadow=True)
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
-    assert options == ["INPUT", "Billable Prem", "Prem to Maturity", "Solve"]
+    assert options == [
+        "INPUT", "Billable Prem", "Prem to Maturity", "Solve",
+        "Solve for Duration"]
 
 
 def test_toggling_additional_premium_types_updates_existing_rows_live():
@@ -454,7 +458,7 @@ def test_toggling_additional_premium_types_updates_existing_rows_live():
     settings.set_additional_premium_types(True)
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
         "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
-        "Prem to Maturity", "Monthly Deduction", "Solve"]
+        "Prem to Maturity", "Monthly Deduction", "Solve", "Solve for Duration"]
 
 
 def test_turning_off_additional_types_resets_advanced_selection():
@@ -1452,6 +1456,46 @@ def test_solve_type_shows_criteria_group_and_builds_request():
     targets = [shadow_panel.solve_target_combo.itemData(i)
                for i in range(shadow_panel.solve_target_combo.count())]
     assert targets == ["av", "sv", "shadow"]
+
+
+def test_solve_for_duration_defaults_billable_and_builds_request():
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+    row.amount_edit.set_value(999.0, decimals=2)
+    row.mode_combo.setCurrentText("A")
+
+    row.type_combo.setCurrentText("Solve for Duration")
+
+    assert panel.solve_criteria.isVisibleTo(panel)
+    assert row.amount() == pytest.approx(153.56)
+    assert row.mode() == "M"
+    assert row.amount_edit.isEnabled() and not row.amount_edit.isReadOnly()
+    assert not row.for_years_edit.isEnabled()
+    assert not row.to_age_edit.isEnabled()
+
+    panel.solve_target_combo.setCurrentIndex(
+        panel.solve_target_combo.findData("sv"))
+    panel.solve_amount_edit.set_value(50_000, decimals=2)
+    panel.solve_age_edit.set_value(100)
+    assert panel.solve_duration_request() == {
+        "start_year": 7,
+        "premium": 153.56,
+        "mode": "M",
+        "target": "sv",
+        "amount": 50_000.0,
+        "at_age": 100,
+    }
+
+    panel.set_solve_duration(12)
+    assert row.for_years_edit.value() == 12
+    assert row.to_age_edit.value() == 68
+
+    exported = IllustrationInputSet()
+    panel.collect_into(exported)
+    assert not [
+        entry for entry in exported.scheduled_transactions
+        if entry.kind == TransactionKind.PREMIUM
+    ]
 
 
 def test_caveat_banner_sits_under_riders_and_fires_on_rider_changes():

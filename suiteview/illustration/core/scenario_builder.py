@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date
+from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
@@ -14,18 +16,65 @@ def build_illustration_scenario(
     base_policy: IllustrationPolicyData,
     inforce_overrides: InforceOverrideSet | None = None,
     future_inputs: IllustrationInputSet | None = None,
+    run_from_issue: bool = False,
 ) -> IllustrationScenario:
-    """Clone the baseline policy, apply valuation-date overrides, and bundle future inputs."""
+    """Clone the baseline policy, apply overrides, and select the projection start."""
     overrides = inforce_overrides or InforceOverrideSet()
     input_set = future_inputs or IllustrationInputSet()
     projectable_policy = deepcopy(base_policy)
     apply_inforce_overrides(projectable_policy, overrides)
+    if run_from_issue:
+        prepare_policy_for_issue_projection(projectable_policy)
     return IllustrationScenario(
         base_policy=base_policy,
         projectable_policy=projectable_policy,
         inforce_overrides=overrides,
         future_inputs=input_set,
+        run_from_issue=run_from_issue,
     )
+
+
+def prepare_policy_for_issue_projection(
+    policy: IllustrationPolicyData,
+) -> IllustrationPolicyData:
+    """Rebase a current policy snapshot to a true pre-issue opening state."""
+    if policy.issue_date is None:
+        raise ValueError("Run from Policy Issue requires a policy issue date.")
+
+    policy.run_from_issue = True
+    policy.illustration_date = date.today()
+    policy.valuation_date = policy.issue_date - relativedelta(months=1)
+    policy.policy_year = 1
+    policy.policy_month = 1
+    policy.duration = 0
+    policy.attained_age = policy.issue_age
+
+    policy.account_value = 0.0
+    policy.cost_basis = 0.0
+    policy.system_coi_charge = 0.0
+    policy.system_expense_charge = 0.0
+    policy.system_other_charge = 0.0
+    policy.system_monthly_deduction = 0.0
+    policy.premiums_paid_to_date = 0.0
+    policy.premiums_ytd = 0.0
+    policy.withdrawals_to_date = 0.0
+    policy.accumulated_glp = 0.0
+    policy.accumulated_mtp = 0.0
+    policy.regular_loan_principal = 0.0
+    policy.regular_loan_accrued = 0.0
+    policy.preferred_loan_principal = 0.0
+    policy.preferred_loan_accrued = 0.0
+    policy.variable_loan_principal = 0.0
+    policy.variable_loan_accrued = 0.0
+    policy.shadow_account_value = 0.0
+    policy.deemed_cash_value = 0.0
+    policy.is_mec = False
+    policy.tamra_7pay_start_date = policy.issue_date
+    policy.tamra_7pay_start_av = 0.0
+    policy.tamra_7pay_cash_value = 0.0
+    policy.tamra_7year_lowest_db = 0.0
+    policy.tamra_7year_contributions = [0.0] * 7
+    return policy
 
 
 def apply_inforce_overrides(

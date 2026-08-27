@@ -1293,7 +1293,7 @@ def test_expense_page_appended_only_when_enabled():
                          if line.strip().startswith("EOY") and "BENEFIT" in line)
     labels = bottom_header.split()
     assert labels == ["EOY", "YEAR", "OUTLAY", "OUT", "CHARGE", "CHARGE",
-                      "CHG", "EXPENSES/FEES", "CREDITED", "VALUE", "CHGS",
+                      "CHG", "EXP/FEES", "CREDITED", "VALUE", "CHGS",
                       "DEBT", "VALUE", "BENEFIT"]
 
     # Data row: year 8 — EOY age 58, then premium charge (60), COI (120),
@@ -1302,7 +1302,7 @@ def test_expense_page_appended_only_when_enabled():
     year8_line = next(line for line in expense_page
                       if line.split()[:2] == ["58", "8"])
     assert year8_line.split() == [
-        "58", "8", "1,200", "575", "60", "120", "12", "78",
+        "58", "8", "1,200.00", "575", "60", "120", "12", "78",
         "240", "5,096", "400", "250", "4,096", "100,000"]
 
     assert "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM)" in " ".join(flat.split())

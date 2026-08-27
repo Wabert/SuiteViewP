@@ -55,6 +55,7 @@ from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
     _load_benefit_coi_rates,
     get_rate,
+    load_coverage_coi_rates,
     load_rates,
 )
 from suiteview.illustration.core.shadow_calc import calculate_shadow
@@ -132,11 +133,27 @@ class IllustrationEngine:
         # index, asset-charge rate, loan credit spread, WAIR inputs.
         iul_ctx = build_iul_context(policy, options)
 
+        if policy.run_from_issue:
+            targets = compute_target_premiums(
+                policy, config, as_of=policy.issue_date)
+            policy.mtp = targets.mtp_annual / 12.0
+            policy.ctp = targets.ctp_annual
+            guideline = _solve_guideline_state(
+                policy, config, policy.issue_age, policy.issue_date, options,
+                starting_av=0.0, active_as_of=policy.issue_date)
+            policy.glp = floor_monthly_cent(guideline.glp)
+            policy.gsp = floor_monthly_cent(guideline.gsp)
+            policy.tamra_7pay_level = floor_monthly_cent(guideline.seven_pay)
+
         # Load bonus config from tRates_IntBonus based on valuation date
         if bonus_override is not None:
             bonus = bonus_override
         else:
-            val_date = policy.valuation_date or policy.issue_date
+            val_date = (
+                policy.illustration_date
+                if policy.run_from_issue and policy.illustration_date
+                else policy.valuation_date or policy.issue_date
+            )
             bonus = load_bonus_config(policy.plancode, val_date)
 
         # Months to maturity always caps the projection — an explicit `months`
@@ -520,6 +537,20 @@ class IllustrationEngine:
             surrender_value=surrender_value_0,
             ending_sv=ending_sv_0,
         )
+
+        if policy.run_from_issue:
+            # Keep the established results contract ([0] is the opening row),
+            # but place that row immediately before issue so the normal monthly
+            # pipeline executes policy month 1 on the issue date.
+            inforce = replace(
+                inforce,
+                date=policy.issue_date - relativedelta(months=1),
+                policy_year=0,
+                policy_month=12,
+                duration=0,
+                attained_age=policy.issue_age,
+                is_anniversary=False,
+            )
 
         if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
             inforce = replace(
@@ -1949,15 +1980,19 @@ def _reband_segment(rates, segment, plancode: str, issue_date=None) -> None:
     if new_band is None or int(new_band) == segment.band:
         return
     segment.band = int(new_band)
-    for attr, kind, scale in (
-        ("segment_coi", "COI", rates.coi_scale),
-        ("segment_epu", "EPU", rates.expense_scale),
-    ):
-        schedule = rates_db.get_rates(
-            kind, plancode, segment.issue_age, segment.rate_sex,
-            segment.rate_class, scale=scale, band=segment.band,
-        ) or []
-        getattr(rates, attr)[segment.coverage_phase] = schedule
+    rates.segment_coi[segment.coverage_phase] = load_coverage_coi_rates(
+        rates_db,
+        plancode=plancode,
+        issue_age=segment.issue_age,
+        sex=segment.rate_sex,
+        rateclass=segment.rate_class,
+        scale=rates.coi_scale,
+        band=segment.band,
+    )
+    rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
+        "EPU", plancode, segment.issue_age, segment.rate_sex,
+        segment.rate_class, scale=rates.expense_scale, band=segment.band,
+    ) or []
 
 
 def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
@@ -1975,8 +2010,16 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     from suiteview.core.rates import Rates
 
     rates_db = Rates()
+    rates.segment_coi[segment.coverage_phase] = load_coverage_coi_rates(
+        rates_db,
+        plancode=plancode,
+        issue_age=segment.issue_age,
+        sex=segment.rate_sex,
+        rateclass=segment.rate_class,
+        scale=rates.coi_scale,
+        band=segment.band,
+    )
     for attr, kind, scale in (
-        ("segment_coi", "COI", rates.coi_scale),
         ("segment_epu", "EPU", rates.expense_scale),
         ("segment_scr", "SCR", 1),
     ):
@@ -1987,10 +2030,15 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
         getattr(rates, attr)[segment.coverage_phase] = schedule
     if config is not None and getattr(config, "rachet_banding", False):
         for band, attr in ((1, "segment_coi_band1"), (2, "segment_coi_band2")):
-            getattr(rates, attr)[segment.coverage_phase] = rates_db.get_rates(
-                "COI", plancode, segment.issue_age, segment.rate_sex,
-                segment.rate_class, scale=rates.coi_scale, band=band,
-            ) or []
+            getattr(rates, attr)[segment.coverage_phase] = load_coverage_coi_rates(
+                rates_db,
+                plancode=plancode,
+                issue_age=segment.issue_age,
+                sex=segment.rate_sex,
+                rateclass=segment.rate_class,
+                scale=rates.coi_scale,
+                band=band,
+            )
 
 
 def _reband_benefits(rates, policy) -> None:
@@ -2523,7 +2571,10 @@ def _apply_policy_change(
                 rates,
                 change_date,
                 rate_year,
-                charge_scr=config.partial_surrender_charge,
+                charge_scr=(
+                    config.partial_surrender_charge
+                    and bool(md.get("charge_surrender", True))
+                ),
             )
             outcome.av_adjustment += cuts.av_adjustment
             outcome.coverage_changed = True
