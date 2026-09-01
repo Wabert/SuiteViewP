@@ -129,6 +129,7 @@ SYSTEM_CODE_ITEMS = ["", "I", "P"]
 
 # ── Policynumber criteria Combobox ──────────────────────────────────────
 POLICYNUMBER_CRITERIA_ITEMS = ["Starts with", "Ends with", "Contains"]
+POLICYNUMBER_CRITERIA_DEFAULT = "Contains"
 
 # ── Loan Type (01) ──────────────────────────────────────────────────────
 LOAN_TYPE_ITEMS = [

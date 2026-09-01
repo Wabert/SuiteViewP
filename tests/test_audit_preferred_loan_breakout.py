@@ -67,3 +67,38 @@ def test_policy_debt_display_keeps_total_columns_without_preferred_filter():
     assert "\n  , POLICYDEBT.LOAN_ACCRUED" in sql
     assert "\n  , POLICYDEBT.REG_LOAN_PRINCIPLE" not in sql
     assert "\n  , POLICYDEBT.PREF_LOAN_PRINCIPLE" not in sql
+
+
+def test_has_loan_criteria_displays_policy_debt_columns():
+    _app()
+    policy2 = Policy2Tab()
+    policy2.chk_has_loan.setChecked(True)
+
+    sql = _build(policy2)
+
+    assert "\n  , POLICYDEBT.LOAN_PRINCIPLE" in sql
+    assert "\n  , POLICYDEBT.LOAN_ACCRUED" in sql
+    assert "END) LOAN_TYPE" in sql
+    assert "END) LOAN_TIMING" in sql
+
+
+def test_loan_amount_range_displays_policy_debt_columns():
+    _app()
+    policy2 = Policy2Tab()
+    policy2.chk_has_loan.setChecked(True)
+    policy2.txt_total_loan_prin_lo.setText("1000")
+    policy2.chk_has_loan.setChecked(False)
+
+    sql = _build(policy2)
+
+    assert "\n  , POLICYDEBT.LOAN_PRINCIPLE" in sql
+    assert "END) LOAN_TYPE" in sql
+
+
+def test_no_loan_criteria_leaves_policy_debt_columns_out():
+    _app()
+
+    sql = _build(Policy2Tab())
+
+    assert "POLICYDEBT.LOAN_PRINCIPLE" not in sql
+    assert "END) LOAN_TYPE" not in sql

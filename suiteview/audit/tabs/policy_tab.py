@@ -24,6 +24,7 @@ from ..constants import (
     STATE_ITEMS, BILL_MODE_ITEMS, LAST_ENTRY_CODE_ITEMS,
     BILLING_FORM_ITEMS, GRACE_INDICATOR_ITEMS, SUSPENSE_CODE_ITEMS,
     COMPANY_ITEMS, MARKET_ORG_ITEMS, POLICYNUMBER_CRITERIA_ITEMS,
+    POLICYNUMBER_CRITERIA_DEFAULT,
 )
 from ._styles import style_combo as _style_combo, make_checkbox as _make_checkbox
 
@@ -205,6 +206,7 @@ class PolicyTab(QWidget):
         row = QHBoxLayout(); row.setSpacing(_H_SPACING)
         self.cmb_polnum_criteria = QComboBox(); self.cmb_polnum_criteria.setFont(_FONT)
         self.cmb_polnum_criteria.addItems(POLICYNUMBER_CRITERIA_ITEMS)
+        self.cmb_polnum_criteria.setCurrentText(POLICYNUMBER_CRITERIA_DEFAULT)
         self.cmb_polnum_criteria.setFixedHeight(_CTRL_H); _style_combo(self.cmb_polnum_criteria)
         self.txt_polnum_value = QLineEdit(); self.txt_polnum_value.setFont(_FONT)
         self.txt_polnum_value.setFixedHeight(_CTRL_H); self.txt_polnum_value.setMinimumWidth(90)
@@ -464,7 +466,8 @@ class PolicyTab(QWidget):
         _cmb(self.cmb_market, state.get("cmb_market", ""))
         _t(self.txt_form_number, state.get("txt_form_number", ""))
         _t(self.txt_branch, state.get("txt_branch", ""))
-        _cmb(self.cmb_polnum_criteria, state.get("cmb_polnum_criteria", ""))
+        _cmb(self.cmb_polnum_criteria,
+             state.get("cmb_polnum_criteria", POLICYNUMBER_CRITERIA_DEFAULT))
         _t(self.txt_polnum_value, state.get("txt_polnum_value", ""))
         _t(self.txt_issue_age_lo, state.get("txt_issue_age_lo", ""))
         _t(self.txt_issue_age_hi, state.get("txt_issue_age_hi", ""))

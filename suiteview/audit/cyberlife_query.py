@@ -399,6 +399,10 @@ def build_cyberlife_sql(
         p2t.txt_total_loan_prin_lo.text().strip() or p2t.txt_total_loan_prin_hi.text().strip() or
         p2t.txt_total_accured_lint_lo.text().strip() or p2t.txt_total_accured_lint_hi.text().strip())
     has_preferred_loan = p2t.chk_has_preferred_loan.isChecked()
+    # Specifying any 77-segment loan criteria implies the Policy Debt (77)
+    # display columns, exactly as if the Display tab checkbox were selected.
+    if has_77_segment or has_preferred_loan:
+        disp_policy_debt = True
     has_change_seq = bool(p2t.chk_change_seq.isChecked() and p2t.list_change_seq.selectedItems())
 
     # Person Info (VH_POL_HAS_LOC_CLT names) — filter + result columns
@@ -1442,12 +1446,29 @@ def build_cyberlife_sql(
     # ── Custom Display tab: user-selected SELECT columns ────────
     sql_parts.extend(custom_select_lines)
 
+    # ── COVSALL ("any coverage") is only joined when something references it ──
+    # It is an unrestricted join to LH_COV_PHA, so every extra coverage on a
+    # policy multiplies the intermediate result set.  With Coverage Level on,
+    # RESULTCOV is a second unrestricted LH_COV_PHA join and the "any coverage"
+    # filters bind to RESULTCOV instead — leaving COVSALL in place would square
+    # the row count for no benefit and blow up (or drop) the DB2 connection.
+    cov1_plancode_match_only = plancode_tab.cov1_plancode_match_only()
+    _any_cov_plancode = bool(
+        (pt.txt_plancode.text().strip() or plancode_tab.get_plancodes())
+        and not cov1_plancode_match_only
+    )
+    _any_cov_product_line = bool(
+        pt.chk_product_line.isChecked() and selected_codes(pt.list_product_line))
+    needs_covsall = has_modcovsall or (
+        not coverage_level and (_any_cov_plancode or _any_cov_product_line))
+
     # ── FROM + JOINs ─────────────────────────────────────────────
     sql_parts.append(f"FROM {schema}.LH_BAS_POL POLICY1")
-    sql_parts.append(f"  INNER JOIN {schema}.LH_COV_PHA COVSALL")
-    sql_parts.append("    ON POLICY1.CK_SYS_CD = COVSALL.CK_SYS_CD")
-    sql_parts.append("    AND POLICY1.CK_CMP_CD = COVSALL.CK_CMP_CD")
-    sql_parts.append("    AND POLICY1.TCH_POL_ID = COVSALL.TCH_POL_ID")
+    if needs_covsall:
+        sql_parts.append(f"  INNER JOIN {schema}.LH_COV_PHA COVSALL")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = COVSALL.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = COVSALL.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = COVSALL.TCH_POL_ID")
     sql_parts.append("  INNER JOIN COVERAGE1")
     sql_parts.append("    ON POLICY1.CK_SYS_CD = COVERAGE1.CK_SYS_CD")
     sql_parts.append("    AND POLICY1.CK_CMP_CD = COVERAGE1.CK_CMP_CD")
@@ -2114,8 +2135,6 @@ def build_cyberlife_sql(
     # -- Bottom bar: System code --
     if sys_code:
         wheres.append(f"POLICY1.CK_SYS_CD = '{esc(sys_code)}'")
-
-    cov1_plancode_match_only = plancode_tab.cov1_plancode_match_only()
 
     # -- Policy tab: Plancode (searches all coverages unless cov1-only is enabled) --
     plancode = pt.txt_plancode.text().strip()
