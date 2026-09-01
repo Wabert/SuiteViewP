@@ -475,12 +475,37 @@ group box, nav buttons, path label, and list widget stylesheets.
 ## Compact Mini-Bar
 
 SuiteView can dock as a **compact mini-bar** at the bottom of the screen,
-overlapping the Windows taskbar region. This bar stays always-on-top by
-adjusting the desktop's "work area" via Win32 API (`SystemParametersInfoW`).
+overlapping the Windows taskbar region. Desktop space is reserved by
+registering the bar as a shell **AppBar** (`SHAppBarMessage`) — the same
+mechanism the Windows taskbar uses — not the fragile `SPI_SETWORKAREA`.
 
 - Contains a policy number input field and company combobox.
 - No timer-based solutions — uses OS-level window management.
 - Maximized windows respect the reserved space and don't cover the bar.
+
+### AppBar docking rules (MANDATORY)
+
+The Win32 dance lives in
+[`suiteview/taskbar_launcher/appbar.py`](suiteview/taskbar_launcher/appbar.py).
+Never re-declare `APPBARDATA` / `SHAppBarMessage` calls elsewhere.
+
+- **Always `ABM_REMOVE` before `ABM_NEW`.** `ABM_NEW` returns *false* for an
+  HWND the shell already knows, and the failure is silent — the work area is
+  simply never reserved. `register_bottom()` does the remove for you.
+- **Verify the reservation.** `SHAppBarMessage` can report success while
+  leaving the work area untouched, so `_register_appbar()` reads the monitor
+  work area back via `appbar.space_reserved()` and retries once with a clean
+  remove/add before giving up.
+- **Reserve space only while the bar is on screen.** `_hidden_to_tray` gates
+  registration: hiding to the tray releases the reservation
+  (`_unregister_appbar(force=True)`) and showing from the tray re-docks via
+  `_redock_appbar()`. A screen/work-area change arriving while hidden must not
+  re-register a bar nobody can see.
+- **Regression check:**
+  `venv\Scripts\python.exe tools/app/test_taskbar_tray_cycle.py` drives the real
+  taskbar through launch → hide → refresh-while-hidden → show → redundant
+  register and asserts the work area is reserved exactly when the bar is
+  visible. It must report `all_ok: true`.
 
 ## Not-Applicable Sections — UI Preference (MANDATORY)
 
@@ -927,13 +952,88 @@ across all apps. For app-specific details, see the relevant doc:
 |---------|----------|---------|
 | **PolView** | [`docs/POLVIEW_CLAUDE.md`](docs/POLVIEW_CLAUDE.md) | Policy viewer — VBA reference, Trad vs Advanced deep dive, coverage/rate logic, VBA property mappings, Cyber Audit |
 | **ABR Quote** | *(see section below)* | Accelerated Death Benefit quoting tool — 3-step wizard, dedicated SQLite DB, Crimson Slate theme |
-| **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens straight to the **Rate Workup** (`workup/`): single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Header buttons open Workup, Database, or the per-file Converters. The **Database** view validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports POINT_PVSRB/POINT_BENEFIT editing plus unreferenced whole-index deletion. Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required), so deleting the base files to load benefit rates only — or vice-versa — is fully supported. Verify workup output against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py` |
+| **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens on a **product-line chooser** (`product_chooser.py`): UL rates or Term rates. The header then shows Workup / Database (/ Converters, UL only) for the chosen line, plus a control to switch back.<br><br>**UL** — single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required). Verify against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py`.<br><br>**Term** (`workup/term_spec.py`, `term_builder.py`, `term_window.py`) — one IAF in, seven TERM_* CSVs out (TERM_POINT_PV, TERM_POINT_PVSRB, TERM_POINT_BENEFIT, TERM_RATE_MODEFACT, TERM_RATE_BANDSPECS, TERM_RATE_PREM, TERM_RATE_BEN). No MPF/CKULTB04/CKULTB01. See **§ Term Rates** below.<br><br>The **Database** view (shared by both lines, parameterized by `RateSchema`) validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports pointer editing plus unreferenced whole-index deletion. |
 | **Task Manager** | *(future)* | Task management |
 
 > **To add a new sub-app doc:** create `docs/<APPNAME>_CLAUDE.md`, add a row to
 > the table above, keep shared concerns (DB2, PolicyInformation) in this file,
 > and keep app-specific detail (UI, VBA mappings, business rules) in the sub-app
 > doc.
+
+## 📐 Term Rates — Rules That Are Not Obvious
+
+Term rates are stored **pre-compiled**: every (IssueAge, Duration) cell is
+materialized into `TERM_RATE_PREM` / `TERM_RATE_BEN` rather than resolved at
+quote time. That is why those two tables hold millions of rows (10.7M and 4.0M
+across ~47 plancodes), and why the compile step in
+[`term_builder.py`](suiteview/ratemanager/workup/term_builder.py) is the heart
+of the feature. ABR Quote reads these tables in production — treat them as live.
+
+### Index naming — string identifiers, not numbers
+
+Every `Index(...)` column in the TERM_* tables is **varchar(20)**.
+
+| Table | Index | Form |
+|---|---|---|
+| `TERM_POINT_PVSRB` → `TERM_RATE_PREM` | `Index(PREM)` | `f"{base + n}_PL"` |
+| `TERM_POINT_BENEFIT` → `TERM_RATE_BEN` | `Index(BEN)` | `f"{base + n}_{plan_option}"` |
+
+`n` counts unique (Sex, Rateclass, Band) combos from 1 **and restarts per
+suffix**, so `1001_PL` and `1001_30` are different tables, not a collision. The
+benefit suffix is the raw 2-character IAF plan_option verbatim and may contain
+letters (`3N`, `#0`). Base indexes are free multiples of 1000, so a plancode
+owns up to 999 combos.
+
+> ⚠️ `float("1001_30")` returns `100130.0` — Python accepts underscores inside
+> numeric literals. Never let an index value reach `float()`/`int()`.
+
+### Maturity comes from ME-AGE, and only caps AGE plans
+
+Read the IAF plan header's **ME-AGE** and its use code (`1` = attained age,
+`0` = duration) — *not* PAY-AGE, which is the premium-paying period.
+`B155O200` proves the difference: PAY-AGE 020/0 but ME-AGE 095/1.
+
+Apply an **AGE** maturity as a ceiling on attained age. **Never** apply a DUR
+maturity — `B155R200` is a 20-year level term (ME-AGE 020/DUR) whose ultimate
+rates correctly run to attained age 79. In practice the IAF's own ultimate
+table usually runs out first; the cap only truly matters for non-renewable
+plans (FIRSTLEVEL ≥ 999), which otherwise have no stopping point at all.
+
+### FIRSTLEVEL / RENLEVEL only bite on compressed data
+
+When the IAF already carries several select durations the level period is baked
+in (one duration per policy year) and the user's FIRSTLEVEL/RENLEVEL are
+ignored. They apply only to a single compressed select duration. FIRSTLEVEL is
+**not** derivable from the IAF — it tracks PAY-AGE for level-term riders but not
+for base plans — so it stays a user input.
+
+### Benefit caps are user inputs
+
+`cease_age` and `max_duration` combine as "whichever comes first" (e.g. "level
+for 20 years or to age 60"). They are not in the IAF; the retired scripts passed
+them ad hoc per run as `--ben-max-age` / `--ben-max-dur`.
+
+### Verifying a change
+
+`tools/rates/term_workup_reference_cases.json` pins seven plancodes covering
+every rate shape (single/multi select duration, ART, non-renewable, letter
+subtype, dual caps). Run it against the live database — it must report
+`all_match: true`, since those rows were loaded by the retired pipeline:
+
+```
+venv\Scripts\python.exe tools\rates\verify_term_workup.py @tools\rates\term_workup_reference_cases.json
+```
+
+Supporting tools: `inspect_term_iaf.py` (what is in an IAF),
+`probe_term_rates_schema.py` (live schema), `check_term_reference.py` (shared
+modal-factor/band rows and the next free base index).
+
+### The retired workbook
+
+`Term DB Manager.xlsx` (workspace `..\Term_Rates`) is **not** used by SuiteView.
+Its "Index list" allocation, per-plancode settings and reference tables are now
+read from, or entered against, the live database. Note its "Band Struct" column
+does **not** match `Index(BANDSPEC)` and must not be treated as a source.
 
 ## 🎨 ABR Quote — Architecture & Theme
 
