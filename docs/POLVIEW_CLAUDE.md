@@ -760,7 +760,7 @@ WHERE POLICY1.CK_SYS_CD = 'I'
 ### Completed ✅
 1. **Coverages Tab** — Policy info header, coverages table, benefits table, substandard ratings
 2. **Targets & Accumulators Tab** — TEFRA/DEFRA, accumulators, TAMRA, commission targets, MTP, minimum premium
-3. **Policy Tab** — Basic policy details, billing info, agents
+3. **Policy Tab** — Basic policy details, billing info, agents, and the traditional-product monthly policy fee from `LH_FXD_PRM_POL.POL_FEE_AMT`
 4. **Persons Tab** — Policy persons & addresses
 5. **AdvProdValues Tab** — Advanced product values, monthliversary history, fund allocations
 6. **Activity Tab** — Transaction history (FH_FIXED)

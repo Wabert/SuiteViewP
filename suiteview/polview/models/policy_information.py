@@ -467,6 +467,14 @@ class PolicyInformation:
         if self.modal_premium and self.billing_frequency:
             return self.modal_premium * (Decimal(12) / Decimal(self.billing_frequency))
         return self.modal_premium
+
+    @property
+    def monthly_policy_fee(self) -> Optional[Decimal]:
+        """Monthly policy fee for traditional products."""
+        if self.is_advanced_product:
+            return None
+        val = self.data_item("LH_FXD_PRM_POL", "POL_FEE_AMT")
+        return Decimal(str(val)) if val is not None else None
     
     @property
     def target_premium(self) -> Optional[Decimal]:

@@ -149,6 +149,7 @@ class PolicyTab(QWidget):
         c.add_field("Multiply Order Code", "md_prm_ord", 130, 100)
         c.add_field("Rating Order Code", "rt_fct_ord", 130, 100)
         c.add_field("Rounding Rule", "rou_rle_cd", 130, 100)
+        c.add_field("Monthly Fee", "monthly_fee", 130, 100)
 
     # ── PolicyInformation path ───────────────────────────────────────────
 
@@ -305,3 +306,4 @@ class PolicyTab(QWidget):
         rt_ord = str(policy.data_item("LH_FXD_PRM_POL", "RT_FCT_ORD_CD") or "").strip()
         c.set_value("rt_fct_ord", f"{rt_ord} - {translate_rating_order_code(rt_ord)}" if rt_ord else "")
         c.set_value("rou_rle_cd", str(policy.data_item("LH_FXD_PRM_POL", "ROU_RLE_CD") or ""))
+        c.set_value("monthly_fee", format_currency(policy.monthly_policy_fee, "$"))
