@@ -34,7 +34,8 @@ from PyQt6.QtWidgets import (
 from suiteview.ratemanager.database_loader import (
     LoadAction,
     PackageAnalysis,
-    TABLE_SPECS,
+    RateSchema,
+    UL_SCHEMA,
     TableAnalysis,
     TableData,
     ULRatesRepository,
@@ -86,9 +87,9 @@ class _FunctionWorker(QThread):
             self.failed.emit(str(exc))
 
 
-def _analyze_job(folder: str, dsn: str):
-    package = WorkupPackage.load(folder)
-    repository = ULRatesRepository(dsn)
+def _analyze_job(folder: str, dsn: str, schema: RateSchema = UL_SCHEMA):
+    package = WorkupPackage.load(folder, schema)
+    repository = ULRatesRepository(dsn, schema)
     try:
         database_name = repository.test_connection()
         analysis = analyze_package(package, repository)
@@ -123,9 +124,9 @@ def _configure_table(table: FilterTableView, *, multi_row: bool = False) -> None
 
 
 class _TableLoadControl:
-    def __init__(self, table_name: str):
+    def __init__(self, table_name: str, schema: RateSchema = UL_SCHEMA):
         self.table_name = table_name
-        spec = TABLE_SPECS[table_name]
+        spec = schema.specs[table_name]
 
         self.include = QCheckBox()
         self.include.setObjectName("BenefitCheck")
@@ -168,8 +169,9 @@ class _TableLoadControl:
 class WorkupDatabaseLoadTab(QWidget):
     """Analyze and atomically load one generated workup folder."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, schema: RateSchema = UL_SCHEMA):
         super().__init__(parent)
+        self.schema = schema
         self._package: Optional[WorkupPackage] = None
         self._analysis: Optional[PackageAnalysis] = None
         self._plan = None
@@ -238,8 +240,8 @@ class WorkupDatabaseLoadTab(QWidget):
             )
             grid.addWidget(label, 0, column)
 
-        for row_number, table_name in enumerate(TABLE_SPECS, start=1):
-            control = _TableLoadControl(table_name)
+        for row_number, table_name in enumerate(self.schema.specs, start=1):
+            control = _TableLoadControl(table_name, self.schema)
             self._controls[table_name] = control
             grid.addWidget(control.include, row_number, 0)
             grid.addWidget(control.name, row_number, 1)
@@ -254,7 +256,7 @@ class WorkupDatabaseLoadTab(QWidget):
         preview_row = QHBoxLayout()
         preview_row.addWidget(self._section_label("Workup Preview"))
         self.preview_combo = QComboBox()
-        self.preview_combo.addItems(TABLE_SPECS.keys())
+        self.preview_combo.addItems(self.schema.specs.keys())
         self.preview_combo.currentTextChanged.connect(self._refresh_preview)
         preview_row.addWidget(self.preview_combo)
         self.preview_source_combo = QComboBox()
@@ -368,7 +370,7 @@ class WorkupDatabaseLoadTab(QWidget):
         self.package_status.setText("Analysis in progress...")
         self._set_busy(True)
         self._run_worker(
-            _analyze_job, (folder, self._dsn()), self._on_analyzed
+            _analyze_job, (folder, self._dsn(), self.schema), self._on_analyzed
         )
 
     def _on_analyzed(self, result) -> None:
@@ -459,7 +461,7 @@ class WorkupDatabaseLoadTab(QWidget):
     ) -> str:
         if analysis.is_pointer:
             if action == LoadAction.REPLACE and analysis.existing_rows:
-                spec = TABLE_SPECS[analysis.table_name]
+                spec = self.schema.specs[analysis.table_name]
                 detail = spec.scope_detail(analysis.existing_rows)
                 return (
                     f"Ready: replace {len(analysis.existing_rows):,} existing "
@@ -613,8 +615,9 @@ class _PointerEditDialog(QDialog):
 class ManageExistingTab(QWidget):
     """Edit pointer rows and delete only unreferenced whole rate indexes."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, schema: RateSchema = UL_SCHEMA):
         super().__init__(parent)
+        self.schema = schema
         self._workers: set[_FunctionWorker] = set()
         self._pointer_data: Optional[TableData] = None
         self._rate_data: Optional[TableData] = None
@@ -659,7 +662,7 @@ class ManageExistingTab(QWidget):
         controls = QHBoxLayout()
         controls.addWidget(self._section_label("Table"))
         self.pointer_table_combo = QComboBox()
-        self.pointer_table_combo.addItems(("POINT_PVSRB", "POINT_BENEFIT"))
+        self.pointer_table_combo.addItems(self.schema.pointer_names)
         controls.addWidget(self.pointer_table_combo)
         controls.addWidget(self._section_label("Plancode"))
         self.pointer_plan_edit = QLineEdit()
@@ -693,15 +696,20 @@ class ManageExistingTab(QWidget):
         controls = QHBoxLayout()
         controls.addWidget(self._section_label("Rate Table"))
         self.rate_table_combo = QComboBox()
-        self.rate_table_combo.addItems(
-            name for name, spec in TABLE_SPECS.items() if not spec.is_pointer
-        )
+        rate_tables = [
+            name for name, spec in self.schema.specs.items()
+            if not spec.is_pointer
+        ]
+        self.rate_table_combo.addItems(rate_tables)
         controls.addWidget(self.rate_table_combo)
         controls.addWidget(self._section_label("Index"))
         self.rate_index_edit = QLineEdit()
-        self.rate_index_edit.setValidator(
-            QIntValidator(1, 2_147_483_647, self.rate_index_edit)
-        )
+        # Term rate indexes are varchar identifiers such as '1001_PL', so the
+        # whole-number validator only applies to the UL family.
+        if all(self.schema.specs[name].index_is_integer for name in rate_tables):
+            self.rate_index_edit.setValidator(
+                QIntValidator(1, 2_147_483_647, self.rate_index_edit)
+            )
         self.rate_index_edit.setFixedWidth(120)
         self.rate_index_edit.returnPressed.connect(self._load_rate_index)
         controls.addWidget(self.rate_index_edit)
@@ -745,7 +753,7 @@ class ManageExistingTab(QWidget):
         self.operation_status.setText(f"Loading {table_name}...")
         self._run_worker(
             load_pointer_rows,
-            (self._dsn(), table_name, plancode),
+            (self._dsn(), table_name, plancode, self.schema),
             self._on_pointers_loaded,
         )
 
@@ -800,6 +808,8 @@ class ManageExistingTab(QWidget):
                 self._pointer_data.spec.name,
                 selected[0],
                 dialog.values(),
+                None,
+                self.schema,
             ),
             self._on_pointer_changed,
         )
@@ -824,7 +834,8 @@ class ManageExistingTab(QWidget):
             return
         self._run_worker(
             delete_pointer_rows,
-            (self._dsn(), self._pointer_data.spec.name, selected),
+            (self._dsn(), self._pointer_data.spec.name, selected, None,
+             self.schema),
             self._on_pointer_changed,
         )
 
@@ -847,7 +858,7 @@ class ManageExistingTab(QWidget):
         )
         self._run_worker(
             load_rate_index,
-            (self._dsn(), table_name, int(text)),
+            (self._dsn(), table_name, text, self.schema),
             self._on_rate_loaded,
         )
 
@@ -880,8 +891,10 @@ class ManageExistingTab(QWidget):
             (
                 self._dsn(),
                 self._rate_data.spec.name,
-                int(index),
+                index,
                 self._rate_data.rows,
+                None,
+                self.schema,
             ),
             self._on_rate_deleted,
         )
@@ -912,17 +925,22 @@ class ManageExistingTab(QWidget):
 
 
 class RateDatabasePanel(QWidget):
-    """Database loading and maintenance screen hosted by Rate Manager."""
+    """Database loading and maintenance screen hosted by Rate Manager.
 
-    def __init__(self, parent=None):
+    The same screen serves both product lines; the ``schema`` decides which
+    family of tables it reads, writes and offers for maintenance.
+    """
+
+    def __init__(self, parent=None, schema: RateSchema = UL_SCHEMA):
         super().__init__(parent)
+        self.schema = schema
         self.setObjectName("RateManagerBody")
         self.setStyleSheet(body_stylesheet())
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
-        self.load_tab = WorkupDatabaseLoadTab()
-        self.manage_tab = ManageExistingTab()
+        self.load_tab = WorkupDatabaseLoadTab(schema=schema)
+        self.manage_tab = ManageExistingTab(schema=schema)
         self.load_tab.dsn_edit.textChanged.connect(self.manage_tab.dsn_edit.setText)
         self.manage_tab.dsn_edit.textChanged.connect(self.load_tab.dsn_edit.setText)
         self.tabs.addTab(self.load_tab, "Load Workup")

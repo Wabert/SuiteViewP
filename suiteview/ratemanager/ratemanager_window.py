@@ -20,6 +20,9 @@ from PyQt6.QtWidgets import (
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ratemanager.parser import IAFParser
+from suiteview.ratemanager.product_chooser import (
+    ProductLineChooser, TERM_LINE, UL_LINE,
+)
 from suiteview.ratemanager.exporter import (
     IAFExporter, generate_output_filename, extract_region_from_filename,
 )
@@ -1311,14 +1314,19 @@ class _ConverterPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 class RateManagerWindow(FramelessWindowBase):
-    """SuiteView Rate Manager — opens straight to the Rate Workup.
+    """SuiteView Rate Manager — opens on the UL / Term product-line chooser.
 
-    The universal single-plancode workup is the main view; the header toggle
-    switches to the per-file converter tabs (IAF, IAF-Benefits, MPF,
-    CKULTB04) and back.
+    Each line gets its own screens: UL has Workup, Database and the per-file
+    Converters; Term has Workup and Database (it builds from a single IAF, so
+    there is nothing to convert file-by-file). The header control returns to
+    the chooser.
     """
 
+    # Stack positions, assigned in build_content().
+    _PAGE_CHOOSER = 0
+
     def __init__(self, parent=None):
+        self._line_btn = QPushButton("Rate Line")
         self._workup_btn = QPushButton("Workup")
         self._database_btn = QPushButton("Database")
         self._view_btn = QPushButton("Converters")
@@ -1341,12 +1349,10 @@ class RateManagerWindow(FramelessWindowBase):
                 color: white;
             }}
         """
-        self._workup_btn.setStyleSheet(header_button_style)
-        self._database_btn.setStyleSheet(header_button_style)
-        self._view_btn.setStyleSheet(header_button_style)
-        for button in (
-            self._workup_btn, self._database_btn, self._view_btn
-        ):
+        for button in (self._line_btn, self._workup_btn,
+                       self._database_btn, self._view_btn):
+            button.setStyleSheet(header_button_style)
+        for button in (self._workup_btn, self._database_btn, self._view_btn):
             button.setCheckable(True)
             button.setAutoExclusive(True)
         self._workup_btn.setChecked(True)
@@ -1356,9 +1362,12 @@ class RateManagerWindow(FramelessWindowBase):
             "Load a completed workup into UL_Rates or manage existing rate data."
         )
         self._database_btn.clicked.connect(self._show_database)
-        self._view_btn.setToolTip(
-            "Open the individual file converters.")
+        self._view_btn.setToolTip("Open the individual file converters.")
         self._view_btn.clicked.connect(self._show_converters)
+        self._line_btn.setToolTip("Switch between UL and Term rates.")
+        self._line_btn.clicked.connect(self._show_chooser)
+
+        self._line = ""
 
         super().__init__(
             title="SuiteView:  Rate Manager",
@@ -1368,27 +1377,54 @@ class RateManagerWindow(FramelessWindowBase):
             header_colors=HEADER_COLORS,
             border_color=BORDER_COLOR,
             header_widgets=[
-                self._workup_btn, self._database_btn, self._view_btn,
+                self._line_btn, self._workup_btn, self._database_btn,
+                self._view_btn,
             ],
         )
+        self._show_chooser()
 
-    def _toggle_view(self):
-        to_converters = self._stack.currentIndex() != 2
-        if to_converters:
-            self._show_converters()
-        else:
-            self._show_workup()
+    # ------------------------------------------------------------------
+    # Product line switching
+    # ------------------------------------------------------------------
+
+    def _show_chooser(self):
+        self._line = ""
+        self._stack.setCurrentIndex(self._PAGE_CHOOSER)
+        self._line_btn.setText("Rate Line")
+        for button in (self._workup_btn, self._database_btn, self._view_btn):
+            button.setVisible(False)
+        self._line_btn.setVisible(False)
+
+    def _on_line_chosen(self, line: str):
+        self._line = line
+        is_ul = line == UL_LINE
+        self._line_btn.setText(f"◂  {'UL' if is_ul else 'Term'} Rates")
+        self._line_btn.setVisible(True)
+        self._workup_btn.setVisible(True)
+        self._database_btn.setVisible(True)
+        # Term builds from a single IAF, so it has no per-file converters.
+        self._view_btn.setVisible(is_ul)
+        self._show_workup()
+
+    def _pages(self) -> tuple:
+        """(workup, database, converters) stack indexes for the active line."""
+        if self._line == TERM_LINE:
+            return self._term_pages
+        return self._ul_pages
 
     def _show_workup(self):
-        self._stack.setCurrentIndex(0)
+        self._stack.setCurrentIndex(self._pages()[0])
         self._workup_btn.setChecked(True)
 
     def _show_database(self):
-        self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(self._pages()[1])
         self._database_btn.setChecked(True)
 
     def _show_converters(self):
-        self._stack.setCurrentIndex(2)
+        converters = self._pages()[2]
+        if converters is None:
+            return
+        self._stack.setCurrentIndex(converters)
         self._view_btn.setChecked(True)
 
     def _on_workup_built(self, output_path: str):
@@ -1397,8 +1433,16 @@ class RateManagerWindow(FramelessWindowBase):
         self.database_panel.set_workup_folder(output_path)
         self._show_database()
 
+    def _on_term_workup_built(self, output_path: str):
+        if not os.path.isdir(output_path):
+            return
+        self.term_database_panel.set_workup_folder(output_path)
+        self._show_database()
+
     def build_content(self) -> QWidget:
+        from suiteview.ratemanager.database_loader import TERM_SCHEMA
         from suiteview.ratemanager.database_panel import RateDatabasePanel
+        from suiteview.ratemanager.workup.term_window import TermWorkupPanel
         from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
         body = QWidget()
@@ -1410,12 +1454,17 @@ class RateManagerWindow(FramelessWindowBase):
         layout.setSpacing(0)
 
         self._stack = QStackedWidget()
+
+        self.chooser = ProductLineChooser()
+        self.chooser.line_chosen.connect(self._on_line_chosen)
+        self._stack.addWidget(self.chooser)          # _PAGE_CHOOSER
+
         self.workup_panel = RateWorkupPanel()
         self.workup_panel.workup_built.connect(self._on_workup_built)
-        self._stack.addWidget(self.workup_panel)
+        ul_workup = self._stack.addWidget(self.workup_panel)
 
         self.database_panel = RateDatabasePanel()
-        self._stack.addWidget(self.database_panel)
+        ul_database = self._stack.addWidget(self.database_panel)
 
         tabs = QTabWidget()
         tabs.setObjectName("ConverterTabs")
@@ -1476,6 +1525,17 @@ class RateManagerWindow(FramelessWindowBase):
         )
         tabs.addTab(self.ckultb04_panel, "CKULTB04")
 
-        self._stack.addWidget(tabs)
+        ul_converters = self._stack.addWidget(tabs)
+        self._ul_pages = (ul_workup, ul_database, ul_converters)
+
+        # ── Term line ───────────────────────────────────────────────────
+        self.term_workup_panel = TermWorkupPanel()
+        self.term_workup_panel.workup_built.connect(self._on_term_workup_built)
+        term_workup = self._stack.addWidget(self.term_workup_panel)
+
+        self.term_database_panel = RateDatabasePanel(schema=TERM_SCHEMA)
+        term_database = self._stack.addWidget(self.term_database_panel)
+        self._term_pages = (term_workup, term_database, None)
+
         layout.addWidget(self._stack)
         return body

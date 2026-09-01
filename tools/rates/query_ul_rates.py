@@ -1,9 +1,13 @@
-"""Run a read-only SELECT against the UL_Rates ODBC DSN and print JSON rows.
+r"""Run a read-only SELECT against the UL_Rates ODBC DSN and print JSON rows.
 
 Usage:
     query_ul_rates.py '<json>'
+    query_ul_rates.py @path\to\query.json
 
     {"sql": "SELECT ...", "params": [...], "dsn": "UL_Rates", "limit": 50}
+
+The ``@file`` form avoids shell quoting problems with SQL that contains
+brackets, parentheses, or quotes.
 
 Read-only inspection helper (companion to query_local_sqlite.py) for
 verifying live UL_Rates schemas/data before exporting to local SQLite.
@@ -17,7 +21,12 @@ import pyodbc
 
 
 def main() -> None:
-    cmd = json.loads(sys.argv[1])
+    arg = sys.argv[1]
+    if arg.startswith("@"):
+        with open(arg[1:], "r", encoding="utf-8-sig") as handle:
+            cmd = json.load(handle)
+    else:
+        cmd = json.loads(arg)
     dsn = cmd.get("dsn", "UL_Rates")
     params = cmd.get("params", [])
     limit = int(cmd.get("limit", 50))

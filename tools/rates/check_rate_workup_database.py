@@ -1,7 +1,10 @@
-"""Run the Rate Manager's read-only database analysis for a workup folder.
+r"""Run the Rate Manager's read-only database analysis for a workup folder.
 
 Usage:
-    venv\\Scripts\\python.exe tools\\check_rate_workup_database.py <folder> [DSN]
+    venv\Scripts\python.exe tools\rates\check_rate_workup_database.py <folder> [DSN] [--term]
+
+``--term`` analyzes the folder against the TERM_* table family instead of the
+UL tables.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from suiteview.ratemanager.database_loader import (  # noqa: E402
+    TERM_SCHEMA,
+    UL_SCHEMA,
     ULRatesRepository,
     WorkupPackage,
     analyze_package,
@@ -23,12 +28,14 @@ from suiteview.ratemanager.database_loader import (  # noqa: E402
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if a != "--term"]
+    schema = TERM_SCHEMA if "--term" in sys.argv else UL_SCHEMA
+    if not args:
         raise SystemExit("Workup folder argument is required.")
-    folder = sys.argv[1]
-    dsn = sys.argv[2] if len(sys.argv) > 2 else "UL_Rates"
-    package = WorkupPackage.load(folder)
-    repository = ULRatesRepository(dsn)
+    folder = args[0]
+    dsn = args[1] if len(args) > 1 else "UL_Rates"
+    package = WorkupPackage.load(folder, schema)
+    repository = ULRatesRepository(dsn, schema)
     try:
         analysis = analyze_package(package, repository)
     finally:
@@ -48,6 +55,7 @@ def main() -> None:
             },
         }
     print(json.dumps({
+        "schema": schema.name,
         "plancode": package.plancode,
         "issue_version": package.issue_version,
         "tables": tables,

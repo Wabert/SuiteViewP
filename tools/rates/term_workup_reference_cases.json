@@ -1,0 +1,35 @@
+{
+  "out": "C:\\Users\\ab7y02\\.suiteview\\term_verify",
+  "sample": 3,
+  "cases": [
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\B15TD100 - IAF.txt",
+     "base_index": 1000, "first_level": 10, "ren_level": 1,
+     "fee": 60, "modefact": "1", "bandspec": "1"},
+
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\B15TD500 - IAF.txt",
+     "base_index": 5000, "first_level": 1, "ren_level": 1,
+     "fee": 60, "modefact": "1", "bandspec": "1"},
+
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\B155R200 - IAF.txt",
+     "base_index": 61000, "first_level": 20, "ren_level": 0,
+     "fee": 0, "modefact": "0", "bandspec": "4"},
+
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\B155O200 - IAF.txt",
+     "base_index": 60000, "first_level": 20, "ren_level": 1,
+     "fee": 0, "modefact": "0", "bandspec": "4",
+     "benefits": {"34": {"renewable": false, "cease_age": 60, "max_duration": 20}}},
+
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\06582004 - IAF.txt",
+     "base_index": 59000, "first_level": 999, "ren_level": 0,
+     "fee": 0, "modefact": "0", "bandspec": "0"},
+
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\B15TF100 - IAF.txt",
+     "base_index": 10000, "first_level": 10, "ren_level": 1,
+     "fee": 60, "modefact": "1", "bandspec": "1",
+     "benefits": {"30": {"cease_age": 60}}},
+
+    {"iaf": "C:\\Users\\ab7y02\\Dev\\Term_Rates\\IAF\\B75TL100 - IAF.txt",
+     "base_index": 29000, "first_level": 10, "ren_level": 1,
+     "fee": 60, "modefact": "1", "bandspec": "1"}
+  ]
+}
