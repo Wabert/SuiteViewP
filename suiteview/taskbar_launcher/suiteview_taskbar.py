@@ -17,6 +17,7 @@ from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, 
 
 from suiteview import __version__ as APP_VERSION
 from suiteview.core.build_env import is_distribution_build, is_light_build
+from suiteview.taskbar_launcher import appbar
 
 # Import the base FileExplorerCore
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
@@ -2090,6 +2091,7 @@ class SuiteViewTaskbar(QWidget):
         self._stored_geometry = None
         self._compact_bar_pos = None   # Last known compact bar position
         self._appbar_registered = False  # True when registered as Windows AppBar
+        self._hidden_to_tray = False     # True while minimised to the system tray
         self._bar_refresh_pending = False
         self._ignore_screen_events_until = 0.0
         self._screen_signal_refs = []
@@ -2325,7 +2327,7 @@ class SuiteViewTaskbar(QWidget):
         if not self._is_compact_mode:
             return
 
-        self._unregister_appbar()
+        self._unregister_appbar(force=True)
         self._enter_compact_mode(initial=True)
 
     def _move_floating_bar_to_current_screen(self):
@@ -2341,40 +2343,59 @@ class SuiteViewTaskbar(QWidget):
     
     def _on_tray_activated(self, reason):
         """Handle tray icon clicks"""
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
             self._show_from_tray()
     
     def _show_from_tray(self):
-        """Show and activate the main window"""
+        """Show and activate the main window.
+
+        Restoring the docked mini-bar must also re-claim the desktop space we
+        gave back in :meth:`_hide_to_tray` — otherwise the bar reappears
+        floating on top of maximised windows instead of docked beside them.
+        """
+        self._hidden_to_tray = False
         self.show()
         self.activateWindow()
         self.raise_()
         if self._is_maximized:
             self.showMaximized()
 
-        # Re-register AppBar and re-hide taskbar icon if we're in compact mode
         if self._is_compact_mode:
-            bar_h = self.height() or 42
-            self._register_appbar(bar_h)
-            # Re-apply WS_EX_TOOLWINDOW to hide taskbar icon
-            try:
-                import ctypes
-                hwnd = int(self.winId())
-                GWL_EXSTYLE = -20
-                WS_EX_TOOLWINDOW = 0x00000080
-                WS_EX_APPWINDOW  = 0x00040000
-                user32 = ctypes.windll.user32
-                ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                ex_style = (ex_style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
-                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
-            except Exception:
-                pass
-    
+            # Re-apply WS_EX_TOOLWINDOW so the bar stays out of the taskbar
+            self._apply_toolwindow_style()
+            # Re-dock once Qt has finished mapping the window, so the AppBar
+            # rectangle is negotiated against a window that really is on screen.
+            QTimer.singleShot(0, self._redock_appbar)
+        elif self._is_floating_mode:
+            self._apply_toolwindow_style()
+
+    def _redock_appbar(self):
+        """Re-establish the AppBar reservation for the compact mini-bar."""
+        if not self._is_compact_mode or self._hidden_to_tray or not self.isVisible():
+            return
+        self._register_appbar(self.height() or 42)
+
+    def _apply_toolwindow_style(self):
+        """Keep the mini-bar out of the Windows taskbar (WS_EX_TOOLWINDOW)."""
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            GWL_EXSTYLE = -20
+            WS_EX_TOOLWINDOW = 0x00000080
+            WS_EX_APPWINDOW  = 0x00040000
+            user32 = ctypes.windll.user32
+            ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            ex_style = (ex_style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
+        except Exception:
+            pass
+
     def _hide_to_tray(self):
         """Hide to system tray"""
-        # If docked, unregister AppBar so desktop reclaims the full work area
-        if self._is_compact_mode:
-            self._unregister_appbar()
+        self._hidden_to_tray = True
+        # Give the desktop its full work area back while we're invisible
+        self._unregister_appbar(force=True)
         self.hide()
         self.tray_icon.showMessage(
             "SuiteView",
@@ -2391,7 +2412,7 @@ class SuiteViewTaskbar(QWidget):
         
         try:
             # Unregister AppBar to restore desktop work area (compact mode)
-            self._unregister_appbar()
+            self._unregister_appbar(force=True)
             
             # Close all child windows
             for window in [self.mainframe_window, self.email_attachments_window,
@@ -4223,27 +4244,25 @@ class SuiteViewTaskbar(QWidget):
             self.show()
 
         # Hide from taskbar using native Windows API (reliable, unlike Qt Tool flag)
-        try:
-            import ctypes
-            hwnd = int(self.winId())
-            GWL_EXSTYLE = -20
-            WS_EX_TOOLWINDOW = 0x00000080
-            WS_EX_APPWINDOW  = 0x00040000
-            user32 = ctypes.windll.user32
-            ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            ex_style = (ex_style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
-            # Force shell to notice the change
-            user32.ShowWindow(hwnd, 0)  # SW_HIDE
-            user32.ShowWindow(hwnd, 5)  # SW_SHOW
-        except Exception:
-            pass
+        self._apply_toolwindow_style()
+        if not self._hidden_to_tray:
+            try:
+                import ctypes
+                # Force shell to notice the style change
+                hwnd = int(self.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                ctypes.windll.user32.ShowWindow(hwnd, 5)  # SW_SHOW
+            except Exception:
+                pass
 
         self._is_compact_mode = True
 
         # Register as a Windows AppBar so the shell reserves screen space.
         # This must happen AFTER the window is shown (so winId() is valid).
-        self._register_appbar(bar_h)
+        # While we're minimised to the tray there is no bar on screen, so the
+        # desktop keeps its full work area until _show_from_tray re-docks us.
+        if not self._hidden_to_tray:
+            self._register_appbar(bar_h)
 
     # ------------------------------------------------------------------
     #  Windows AppBar API – proper desktop space reservation
@@ -4258,171 +4277,63 @@ class SuiteViewTaskbar(QWidget):
     #  Tear-down:  ABM_REMOVE
     # ------------------------------------------------------------------
 
-    def _register_appbar(self, bar_h: int):
+    def _register_appbar(self, bar_h: int, _retry: bool = True):
         """Register this window as a Windows AppBar docked to the bottom edge.
 
-        The shell will shrink the desktop work area by *bar_h* pixels at the
-        bottom so maximised / snapped windows never overlap our bar.
+        The shell shrinks the desktop work area by *bar_h* pixels at the bottom
+        so maximised / snapped windows never overlap our bar.
+
+        Registration is verified by reading the monitor work area back: the
+        shell can report success and still leave the work area untouched (for
+        example when it is holding a stale registration for our HWND), so a
+        single clean retry is attempted before giving up.
         """
-        try:
-            self._ignore_screen_events_until = time.monotonic() + 1.5
+        self._ignore_screen_events_until = time.monotonic() + 1.5
 
-            import ctypes
-            import ctypes.wintypes as wt
+        hwnd = int(self.winId())
+        # Convert bar_h from Qt logical pixels → physical pixels
+        dpr = QApplication.primaryScreen().devicePixelRatio()
+        bar_h_phys = round(bar_h * dpr)
 
-            # ---- struct definitions ------------------------------------
-            class RECT(ctypes.Structure):
-                _fields_ = [('left', wt.LONG), ('top', wt.LONG),
-                             ('right', wt.LONG), ('bottom', wt.LONG)]
-
-            class APPBARDATA(ctypes.Structure):
-                _fields_ = [
-                    ('cbSize',           wt.DWORD),
-                    ('hWnd',             wt.HWND),
-                    ('uCallbackMessage', wt.UINT),
-                    ('uEdge',            wt.UINT),
-                    ('rc',               RECT),
-                    ('lParam',           ctypes.c_void_p),
-                ]
-
-            # ---- constants ---------------------------------------------
-            ABM_NEW      = 0x00
-            ABM_REMOVE   = 0x01
-            ABM_QUERYPOS = 0x02
-            ABM_SETPOS   = 0x03
-            ABE_BOTTOM   = 3
-
-            SWP_NOZORDER    = 0x0004
-            SWP_NOACTIVATE  = 0x0010
-            SWP_SHOWWINDOW  = 0x0040
-
-            shell32 = ctypes.windll.shell32
-            user32  = ctypes.windll.user32
-
-            # Prototype so ctypes knows the return type
-            shell32.SHAppBarMessage.restype  = wt.ULONG
-            user32.RegisterWindowMessageW.restype = wt.UINT
-
-            # ---- native window handle ----------------------------------
-            hwnd = int(self.winId())
-
-            # ---- monitor geometry (physical pixels) --------------------
-            # We query the full monitor rect via the Win32 API so we are
-            # always in physical-pixel space, matching APPBARDATA.rc.
-            class MONITORINFO(ctypes.Structure):
-                _fields_ = [('cbSize', wt.DWORD),
-                             ('rcMonitor', RECT),
-                             ('rcWork', RECT),
-                             ('dwFlags', wt.DWORD)]
-
-            MONITOR_DEFAULTTONEAREST = 2
-            hMon = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
-            mi = MONITORINFO()
-            mi.cbSize = ctypes.sizeof(MONITORINFO)
-            user32.GetMonitorInfoW(hMon, ctypes.byref(mi))
-
-            mon_left   = mi.rcMonitor.left
-            mon_top    = mi.rcMonitor.top
-            mon_right  = mi.rcMonitor.right
-            mon_bottom = mi.rcMonitor.bottom
-
-            # Convert bar_h from Qt logical pixels → physical pixels
-            dpr = QApplication.primaryScreen().devicePixelRatio()
-            bar_h_phys = round(bar_h * dpr)
-
-            # ---- build APPBARDATA --------------------------------------
-            abd = APPBARDATA()
-            abd.cbSize = ctypes.sizeof(APPBARDATA)
-            abd.hWnd   = hwnd
-            abd.uCallbackMessage = user32.RegisterWindowMessageW("SuiteView_AppBar")
-            abd.uEdge  = ABE_BOTTOM
-            abd.rc.left   = mon_left
-            abd.rc.top    = mon_bottom - bar_h_phys
-            abd.rc.right  = mon_right
-            abd.rc.bottom = mon_bottom
-
-            # 1) Register
-            result = shell32.SHAppBarMessage(ABM_NEW, ctypes.byref(abd))
-            if not result:
-                import logging
-                logging.getLogger(__name__).warning("SHAppBarMessage ABM_NEW failed")
-                return
-
-            # 2) Let the shell negotiate the rectangle
-            shell32.SHAppBarMessage(ABM_QUERYPOS, ctypes.byref(abd))
-
-            # After QUERYPOS the shell may have adjusted rc.top (e.g. if
-            # another appbar is already on that edge).  Fix rc.bottom so
-            # the height stays what we asked for.
-            abd.rc.top = abd.rc.bottom - bar_h_phys
-
-            # 3) Lock the rectangle
-            shell32.SHAppBarMessage(ABM_SETPOS, ctypes.byref(abd))
-
-            # 4) Move our window into the approved rectangle
-            user32.SetWindowPos(
-                hwnd, 0,
-                abd.rc.left, abd.rc.top,
-                abd.rc.right - abd.rc.left,
-                abd.rc.bottom - abd.rc.top,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW)
-
-            # Remember that we registered so we can unregister later
-            self._appbar_registered = True
-
-            import logging
-            logging.getLogger(__name__).info(
-                f"AppBar registered: rect=({abd.rc.left},{abd.rc.top},"
-                f"{abd.rc.right},{abd.rc.bottom})")
-
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).error(f"AppBar registration failed: {exc}")
-
-    def _unregister_appbar(self):
-        """Unregister the AppBar so the shell restores the full work area."""
-        try:
-            if not getattr(self, '_appbar_registered', False):
-                return
-            self._ignore_screen_events_until = time.monotonic() + 1.5
-
-            import ctypes
-            import ctypes.wintypes as wt
-
-            class RECT(ctypes.Structure):
-                _fields_ = [('left', wt.LONG), ('top', wt.LONG),
-                             ('right', wt.LONG), ('bottom', wt.LONG)]
-
-            class APPBARDATA(ctypes.Structure):
-                _fields_ = [
-                    ('cbSize',           wt.DWORD),
-                    ('hWnd',             wt.HWND),
-                    ('uCallbackMessage', wt.UINT),
-                    ('uEdge',            wt.UINT),
-                    ('rc',               RECT),
-                    ('lParam',           ctypes.c_void_p),
-                ]
-
-            ABM_REMOVE = 0x01
-
-            abd = APPBARDATA()
-            abd.cbSize = ctypes.sizeof(APPBARDATA)
-            abd.hWnd   = int(self.winId())
-
-            ctypes.windll.shell32.SHAppBarMessage(ABM_REMOVE, ctypes.byref(abd))
+        rect = appbar.register_bottom(hwnd, bar_h_phys)
+        if rect is None:
             self._appbar_registered = False
+            if _retry:
+                appbar.unregister(hwnd)
+                self._register_appbar(bar_h, _retry=False)
+            return
 
-            import logging
-            logging.getLogger(__name__).info("AppBar unregistered — work area restored")
+        self._appbar_registered = True
 
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).error(f"AppBar unregister failed: {exc}")
+        if not appbar.space_reserved(hwnd, rect[1]):
+            if _retry:
+                logger.warning("AppBar reserved no space — retrying registration")
+                appbar.unregister(hwnd)
+                self._appbar_registered = False
+                self._register_appbar(bar_h, _retry=False)
+                return
+            logger.warning("AppBar registered but work area was not reduced")
+
+        logger.info(f"AppBar registered: rect={rect}")
+
+    def _unregister_appbar(self, force: bool = False):
+        """Unregister the AppBar so the shell restores the full work area.
+
+        Pass ``force=True`` to issue ABM_REMOVE even when we don't believe we
+        are registered — that clears any registration the shell still holds for
+        our HWND, which would otherwise make the next ABM_NEW fail.
+        """
+        if not force and not self._appbar_registered:
+            return
+        self._ignore_screen_events_until = time.monotonic() + 1.5
+        appbar.unregister(int(self.winId()))
+        self._appbar_registered = False
+        logger.info("AppBar unregistered — work area restored")
 
     def _exit_compact_mode(self):
         """Expand from compact mini-bar back to the full window."""
         # Unregister the AppBar FIRST, before repositioning our window
-        self._unregister_appbar()
+        self._unregister_appbar(force=True)
 
         # Remember where the bar was so we can return to it later
         self._compact_bar_pos = self.geometry().topLeft()
