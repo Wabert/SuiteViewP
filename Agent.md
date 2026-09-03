@@ -387,6 +387,37 @@ Pitfalls (do not reintroduce):
   PyQt6. Return `(False, 0)` for unhandled messages; `(True, result)` when handled.
 - Don't call `raise_()` on child widgets inside `resizeEvent` (z-order/repaint
   storm) — raise grips once at creation.
+- **Don't clamp the maximized client rect while the window is iconic.** The
+  `WM_NCCALCSIZE` handler must check `is_iconic()` before overwriting `rgrc[0]`
+  with the monitor work area.
+
+### Minimize / restore — go through the OS, not `showMinimized()` (MANDATORY)
+
+`QWidget.showMinimized()` opens with `if (isMinimized() && isVisible()) return;`
+and afterwards only talks to the OS when *Qt* believes the state changed. Our
+frameless windows make that cached state easy to desync — they carry a native
+sizing frame, swallow `WM_NCCALCSIZE`, get hidden/re-shown instead of closed,
+and are restored by raw Win32 calls from the taskbar. When Qt and Windows
+disagree, **clicking minimize silently does nothing and a maximized window just
+keeps filling the screen.**
+
+- The fix lives in
+  [`suiteview/ui/widgets/window_state.py`](suiteview/ui/widgets/window_state.py)
+  → `NativeMinimizeMixin`, which drives `ShowWindow(SW_MINIMIZE)` (falling back
+  to `WM_SYSCOMMAND`/`SC_MINIMIZE`, then to Qt) and verifies with `IsIconic`.
+- **Any new frameless top-level window must mix it in**:
+  `class MyWindow(NativeMinimizeMixin, QWidget)`. `FramelessWindowBase` already
+  does, as do Screen Shot Manager, Email Attachments and FileNav.
+- **Never restore with `showNormal()`** — it throws away a maximized/snapped
+  layout and desyncs the cached flags, so the maximize button then appears
+  dead. Call `restore_window()`, which returns the window to its pre-minimize
+  state. `SuiteViewTaskbar._bring_to_front()` uses it when available.
+- `FramelessWindowBase.changeEvent` re-syncs `_is_maximized`/`_is_snapped` and
+  the max-button glyph from the real window state, so OS-driven maximize
+  (Win+Up, Aero snap) can't leave the header button lying.
+- **Regression check:**
+  `venv\Scripts\python.exe tools/app/test_window_minimize.py` must report
+  `all_ok: true`.
 
 ### Theme
 Each module can override `header_colors` (3-stop gradient) and `border_color` to
@@ -506,6 +537,31 @@ Never re-declare `APPBARDATA` / `SHAppBarMessage` calls elsewhere.
   taskbar through launch → hide → refresh-while-hidden → show → redundant
   register and asserts the work area is reserved exactly when the bar is
   visible. It must report `all_ok: true`.
+
+## Identifier Inputs — Case-Insensitive Entry (MANDATORY)
+
+Policy numbers, region codes and company codes are stored **upper-case** in DB2,
+so a lower-case entry must never be the difference between a hit and a silent
+"policy not found". Every field a user types an identifier into upper-cases the
+text *in the field itself* — what the user sees is exactly what gets queried.
+
+```python
+from suiteview.ui.widgets.uppercase_input import force_uppercase
+
+force_uppercase(self.region_input, self.company_input, self.policy_input)
+```
+
+- `force_uppercase()` installs an `UpperCaseValidator`, so typing, pasting and
+  `setText()` (cross-app hand-offs) are all folded.
+- **Read sites still `.strip().upper()`** — belt and braces, because the failure
+  mode is silent.
+- **Applied to:** the PolView `PolicyLookupBar` (shared with RERUN and the Audit
+  hand-off), ABR Quote's `PolicyPanel`, the PolView/RERUN policy-list panels,
+  the compact taskbar bar, Mainframe Nav, and the Audit Policy tab's
+  policy-number criterion.
+- **Regression check:**
+  `venv\Scripts\python.exe tools/app/test_policy_input_uppercase.py` must report
+  `all_ok: true`.
 
 ## Not-Applicable Sections — UI Preference (MANDATORY)
 
