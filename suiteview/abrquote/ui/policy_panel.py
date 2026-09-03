@@ -30,6 +30,7 @@ from ..models.abr_constants import (
     MODAL_LABELS, PLAN_CODE_INFO,
 )
 from ..core.premium_calc import PremiumCalculator
+from suiteview.ui.widgets.uppercase_input import force_uppercase
 
 # Benefit name mapping for TERM_POINT_BENEFIT.Benefit column
 from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES, COMPANY_CODES
@@ -102,6 +103,7 @@ class PolicyPanel(QWidget):
         self.policy_input.setStyleSheet(INPUT_STYLE)
         self.policy_input.setFixedWidth(120)
         self.policy_input.returnPressed.connect(self._on_retrieve)
+        force_uppercase(self.policy_input)
         lookup_grid.addWidget(self.policy_input, 0, 1)
 
         # Row 0, Col 2-3: Quote Date
@@ -435,7 +437,7 @@ class PolicyPanel(QWidget):
         # QPushButton.clicked emits a bool; treat that as "no company"
         if isinstance(company_code, bool):
             company_code = None
-        policy_num = self.policy_input.text().strip()
+        policy_num = self.policy_input.text().strip().upper()
         if not policy_num:
             return
 

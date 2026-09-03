@@ -16,6 +16,7 @@ from PyQt6.QtGui import QAction
 
 from suiteview.core.db2_constants import REGIONS
 from suiteview.ui.widgets.dockable_tool_panel import DockableToolPanel
+from suiteview.ui.widgets.uppercase_input import force_uppercase
 from ..styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_GRADIENT_BOT,
     BLUE_PRIMARY, BLUE_DARK, BLUE_SUBTLE, BLUE_BG,
@@ -232,6 +233,7 @@ class PolicyListWindow(DockableToolPanel):
         self.policy_input.setPlaceholderText("Policy #")
         self.policy_input.returnPressed.connect(self._add_to_history)
         input_row.addWidget(self.policy_input)
+        force_uppercase(self.company_input, self.policy_input)
 
         form_layout.addLayout(input_row)
 
@@ -328,8 +330,8 @@ class PolicyListWindow(DockableToolPanel):
 
     def _add_to_history(self):
         region = self.region_combo.currentText()
-        company = self.company_input.text().strip() or "01"
-        policy = self.policy_input.text().strip()
+        company = self.company_input.text().strip().upper() or "01"
+        policy = self.policy_input.text().strip().upper()
 
         if policy:
             entry = (region, company, policy)

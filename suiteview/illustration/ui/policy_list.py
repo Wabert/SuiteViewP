@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.db2_constants import REGIONS
 from suiteview.polview.ui.tabs.policy_list_tab import PolicyListWindow
+from suiteview.ui.widgets.uppercase_input import force_uppercase
 
 from .imported_cases_panel import ImportedCasesView
 from .saved_cases_panel import SavedCasesView
@@ -226,6 +227,7 @@ class IllustrationPolicyListWindow(PolicyListWindow):
         self.policy_input.setPlaceholderText("Policy #")
         self.policy_input.returnPressed.connect(self._add_to_history)
         input_row.addWidget(self.policy_input)
+        force_uppercase(self.company_input, self.policy_input)
 
         form_layout.addLayout(input_row)
 

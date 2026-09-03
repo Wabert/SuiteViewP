@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import QColor, QFontMetrics
 
+from suiteview.ui.widgets.uppercase_input import force_uppercase
+
 from .formatting import is_numeric
 from .styles import (
     BLUE_PRIMARY, BLUE_LIGHT,
@@ -1331,6 +1333,7 @@ class PolicyLookupBar(QWidget):
         self.policy_input.setStyleSheet(input_style)
         self.policy_input.returnPressed.connect(self._on_get_policy)
         layout.addWidget(self.policy_input)
+        force_uppercase(self.region_input, self.company_input, self.policy_input)
         
         # Get button
         self.get_button = QPushButton("Get")
@@ -1385,9 +1388,9 @@ class PolicyLookupBar(QWidget):
     
     def _on_get_policy(self):
         self.hide_company_chooser()
-        policy = self.policy_input.text().strip()
-        region = self.region_input.text().strip() or "CKPR"
-        company = self.company_input.text().strip()  # Allow empty!
+        policy = self.policy_input.text().strip().upper()
+        region = self.region_input.text().strip().upper() or "CKPR"
+        company = self.company_input.text().strip().upper()  # Allow empty!
         if policy:
             self.policy_requested.emit(policy, region, company)
     

@@ -20,6 +20,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEventLoop, QUrl
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QDesktopServices
 
 from suiteview.mainframe_nav.tn3270 import TN3270Client, Screen, AID
+from suiteview.ui.widgets.uppercase_input import force_uppercase
 
 logger = logging.getLogger(__name__)
 
@@ -1250,6 +1251,7 @@ class MainframeTerminalScreen(QWidget):
                 border-color: #805ad5;
             }
         """)
+        force_uppercase(self.policy_input)
         nav_layout.addWidget(self.policy_input)
         
         # Company combobox
@@ -2227,7 +2229,7 @@ class MainframeTerminalScreen(QWidget):
         self._send_pf_and_wait(2)
         
         # Step 5: Policy Entry
-        policy_number = self.policy_input.text().strip()
+        policy_number = self.policy_input.text().strip().upper()
         if policy_number:
             company = self.company_combo.currentText()
             # "62D2,{policy}  ;newco={company};."
@@ -2399,7 +2401,7 @@ class MainframeTerminalScreen(QWidget):
         self._send_pf_and_wait(2)
         
         # If policy number is provided, send policy lookup command
-        policy_number = self.policy_input.text().strip()
+        policy_number = self.policy_input.text().strip().upper()
         if policy_number:
             company = self.company_combo.currentText()
             # Build the command: 62D2,AA000604  ;newco=01;.

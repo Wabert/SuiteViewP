@@ -27,6 +27,7 @@ from ..constants import (
     POLICYNUMBER_CRITERIA_DEFAULT,
 )
 from ._styles import style_combo as _style_combo, make_checkbox as _make_checkbox
+from suiteview.ui.widgets.uppercase_input import force_uppercase
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
 _FONT = QFont("Segoe UI", 9)
@@ -210,6 +211,7 @@ class PolicyTab(QWidget):
         self.cmb_polnum_criteria.setFixedHeight(_CTRL_H); _style_combo(self.cmb_polnum_criteria)
         self.txt_polnum_value = QLineEdit(); self.txt_polnum_value.setFont(_FONT)
         self.txt_polnum_value.setFixedHeight(_CTRL_H); self.txt_polnum_value.setMinimumWidth(90)
+        force_uppercase(self.txt_polnum_value)
         row.addWidget(self.cmb_polnum_criteria); row.addWidget(self.txt_polnum_value); row.addStretch()
         col1.addLayout(row)
 

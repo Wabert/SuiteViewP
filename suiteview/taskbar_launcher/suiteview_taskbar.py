@@ -22,6 +22,7 @@ from suiteview.taskbar_launcher import appbar
 # Import the base FileExplorerCore
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
 from suiteview.file_nav.sharepoint_client import is_sp_path
+from suiteview.ui.widgets.uppercase_input import force_uppercase
 
 # Import unified bookmark widgets for sidebar categories
 from suiteview.ui.widgets.bookmark_widgets import (
@@ -2688,7 +2689,7 @@ class SuiteViewTaskbar(QWidget):
         """Return the policy number typed in the compact bar, or '' if none."""
         if (self._is_compact_mode
                 and hasattr(self, 'compact_policy_input')):
-            return self.compact_policy_input.text().strip()
+            return self.compact_policy_input.text().strip().upper()
         return ""
 
     def _compact_region(self):
@@ -3334,6 +3335,7 @@ class SuiteViewTaskbar(QWidget):
         self.compact_policy_input.setToolTip("Policy Number")
         self.compact_policy_input.returnPressed.connect(self._open_polview_with_policy)
         self.compact_policy_input.hide()
+        force_uppercase(self.compact_policy_input)
         header_layout.addWidget(self.compact_policy_input)
 
         # ====== POLVIEW BUTTON (green "P" with gold trim) ======
