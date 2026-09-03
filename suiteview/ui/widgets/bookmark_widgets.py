@@ -33,8 +33,8 @@ from PyQt6.QtWidgets import (
     QScrollArea, QMenu, QMessageBox, QLineEdit,
     QFileIconProvider, QLabel, QDialog
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QFileInfo, QTimer, QByteArray, QBuffer, QIODevice, QRect
-from PyQt6.QtGui import QDrag, QCursor, QIcon, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QFileInfo, QTimer, QByteArray, QBuffer, QIODevice, QRect, QPoint
+from PyQt6.QtGui import QDrag, QCursor, QIcon, QPixmap, QGuiApplication
 
 logger = logging.getLogger(__name__)
 
@@ -1801,6 +1801,9 @@ class CategoryPopup(QFrame):
     
     item_clicked = pyqtSignal(str)
     popup_closed = pyqtSignal()
+
+    POPUP_ITEM_HEIGHT = 28
+    POPUP_SCREEN_MARGIN = 8
     
     def __init__(self, category_name, category_items, parent_widget=None,
                  data_manager=None, source_bar_id: int = 0, color=None,
@@ -2003,12 +2006,71 @@ class CategoryPopup(QFrame):
                 self.container_layout.addWidget(btn)
     
     def _update_popup_size(self):
-        """Calculate and set popup height based on item count"""
-        item_count = len(self._unified_items)
-        item_height = 28
-        total_height = item_count * item_height + 8
-        max_height = 400
-        self.setFixedHeight(min(total_height, max_height))
+        """Size the popup to its contents, using whatever screen space is available.
+
+        A vertical scrollbar should only appear when the item list genuinely
+        cannot fit on screen, so the height is capped by the space below the
+        popup rather than an arbitrary constant.
+        """
+        if not self.isVisible():
+            self.fit_to_position(None)
+            return
+        adjusted = self.fit_to_position(self.pos())
+        if adjusted is not None and adjusted != self.pos():
+            self.move(adjusted)
+
+    def _content_height(self):
+        """Full height needed to show every item without scrolling"""
+        estimated = len(self._unified_items) * self.POPUP_ITEM_HEIGHT
+        measured = 0
+        if getattr(self, 'container', None) is not None:
+            # sizeHint reflects the real rendered button heights; the trailing
+            # stretch contributes nothing to it
+            measured = self.container.sizeHint().height()
+        return max(estimated, measured) + 8
+
+    def _screen_geometry_for(self, point=None):
+        """Available geometry of the screen containing `point` (or this popup)"""
+        screen = None
+        if point is not None:
+            screen = QGuiApplication.screenAt(point)
+        if screen is None:
+            screen = self.screen() or QGuiApplication.primaryScreen()
+        return screen.availableGeometry() if screen else None
+
+    def fit_to_position(self, top_left=None):
+        """Grow the popup to fit its contents at `top_left`, shifting it up if
+        that lets the full list show without a scrollbar.
+
+        Returns the (possibly adjusted) top-left position, or None when no
+        position was supplied.
+        """
+        content_height = self._content_height()
+        geo = self._screen_geometry_for(top_left)
+        if geo is None:
+            self.setFixedHeight(content_height)
+            return top_left
+
+        screen_max = max(geo.height() - 2 * self.POPUP_SCREEN_MARGIN,
+                         self.POPUP_ITEM_HEIGHT)
+
+        if top_left is None:
+            self.setFixedHeight(min(content_height, screen_max))
+            return None
+
+        y = top_left.y()
+        available = geo.bottom() - y - self.POPUP_SCREEN_MARGIN
+        if content_height > available:
+            # Slide up (never down) so more of the list is visible
+            wanted = min(content_height, screen_max)
+            shifted_y = max(geo.bottom() - wanted - self.POPUP_SCREEN_MARGIN,
+                            geo.top() + self.POPUP_SCREEN_MARGIN)
+            y = min(y, shifted_y)
+            available = geo.bottom() - y - self.POPUP_SCREEN_MARGIN
+
+        self.setFixedHeight(max(min(content_height, available),
+                                self.POPUP_ITEM_HEIGHT))
+        return QPoint(top_left.x(), y)
     
     def _rebuild_contents(self):
         """Rebuild popup contents to reflect updated data (e.g., after reorder)"""
@@ -2680,6 +2742,7 @@ class CategoryButton(QPushButton):
         # Reuse existing popup if it exists
         if self.active_popup:
             global_pos = self._calculate_popup_position(self.active_popup)
+            global_pos = self.active_popup.fit_to_position(global_pos)
             self.active_popup.move(global_pos)
             self.active_popup.show()
             self.popup_opened.emit(self.active_popup)
@@ -2708,11 +2771,13 @@ class CategoryButton(QPushButton):
         
         # Position popup - first show to get actual size, then reposition if needed
         global_pos = self._calculate_popup_position(popup)
+        global_pos = popup.fit_to_position(global_pos)
         popup.move(global_pos)
         popup.show()
         
         # Reposition after show to use actual popup width for left-side positioning
         global_pos = self._calculate_popup_position(popup)
+        global_pos = popup.fit_to_position(global_pos)
         popup.move(global_pos)
         
         self.active_popup = popup
