@@ -4961,12 +4961,16 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     def _show_audit_window(self, window) -> bool:
         try:
-            if not window.isVisible():
-                window.show()
-            if window.isMinimized():
-                window.showNormal()
-            window.raise_()
-            window.activateWindow()
+            restore = getattr(window, "restore_window", None)
+            if callable(restore):
+                restore()
+            else:
+                if not window.isVisible():
+                    window.show()
+                if window.isMinimized():
+                    window.showNormal()
+                window.raise_()
+                window.activateWindow()
             return True
         except RuntimeError:
             if self._audit_parent is window:

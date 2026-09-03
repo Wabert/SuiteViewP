@@ -15,12 +15,14 @@ import logging
 import sys
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QPoint, QRect
+from PyQt6.QtCore import Qt, QPoint, QRect, QEvent
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QSizeGrip, QApplication, QDialog,
 )
+
+from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +148,7 @@ if _IS_WINDOWS:
         _IS_WINDOWS = False
 
 
-class FramelessWindowBase(QWidget):
+class FramelessWindowBase(NativeMinimizeMixin, QWidget):
     """Base class for frameless windows with a custom blue/gold title bar.
 
     Subclasses must override ``build_content()`` to return the main body widget.
@@ -319,6 +321,7 @@ class FramelessWindowBase(QWidget):
         min_btn.setToolTip("Minimize")
         min_btn.clicked.connect(self.showMinimized)
         layout.addWidget(min_btn)
+        self.min_btn = min_btn
 
         self.max_btn = QPushButton("\u25A1")
         self.max_btn.setStyleSheet(btn_style)
@@ -342,7 +345,10 @@ class FramelessWindowBase(QWidget):
     # â”€â”€ Maximize toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _toggle_maximize(self):
-        if self._is_maximized:
+        # Trust the real window state, not just our cached flag — the OS (or a
+        # restore driven from outside Qt) can maximize/restore the window
+        # without going through this method.
+        if self.isMaximized() or self._is_maximized:
             self.showNormal()
             self._is_maximized = False
             self._is_snapped = False
@@ -350,13 +356,38 @@ class FramelessWindowBase(QWidget):
             self.max_btn.setText("\u25A1")
             self.max_btn.setToolTip("Maximize")
         else:
-            if not self._is_maximized and not self._is_snapped:
+            if not self._is_snapped:
                 self._normal_geometry = self.geometry()
             self.showMaximized()
             self._is_maximized = True
             self._is_snapped = False
             self.max_btn.setText("\u274F")
             self.max_btn.setToolTip("Restore")
+
+    # ── Minimize / restore ──────────────────────────────────────────────────
+    # (showMinimized / restore_window come from NativeMinimizeMixin)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._sync_window_state()
+
+    def _sync_window_state(self):
+        """Keep the cached maximize flags and button glyph in step with the
+        real window state, which the OS can change behind our back (Win+Up,
+        Aero snap, a native restore, the taskbar)."""
+        if not hasattr(self, "max_btn"):
+            return  # still constructing
+        if self.isMinimized():
+            # Flags describe the pre-minimize layout; leave them alone.
+            return
+        maximized = self.isMaximized()
+        if maximized != self._is_maximized:
+            self._is_maximized = maximized
+            if maximized:
+                self._is_snapped = False
+        self.max_btn.setText("\u274F" if maximized else "\u25A1")
+        self.max_btn.setToolTip("Restore" if maximized else "Maximize")
 
     # â”€â”€ Resize grips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -721,11 +752,11 @@ class FramelessWindowBase(QWidget):
                 # Not shrinking the proposed rectangle makes the client area
                 # fill the whole window (no native title bar / borders).  When
                 # maximized, clamp to the monitor work area so the window
-                # doesn't cover the taskbar.
-                if msg.wParam:
-                    if self.isMaximized():
-                        self._clamp_maximized_client(msg.lParam)
-                    return True, 0
+                # doesn't cover the taskbar — but never while the window is
+                # iconic, or we'd pin a full-screen client rect onto a window
+                # that is supposed to be minimized.
+                if msg.wParam and self.isMaximized() and not self.is_iconic():
+                    self._clamp_maximized_client(msg.lParam)
                 return True, 0
 
             if msg.message == _WM_GETMINMAXINFO:

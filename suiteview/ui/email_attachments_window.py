@@ -25,6 +25,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo, QUrl, QMimeData
 from PyQt6.QtGui import QIcon
 
 from suiteview.ui.widgets.filter_table_view import FilterTableView
+from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 from suiteview.core.outlook_manager import get_outlook_manager, close_thread_outlook_manager
 from suiteview.data.repositories import get_email_repository
 
@@ -511,7 +512,7 @@ class AttachmentLoaderThread(QThread):
                 pass
 
 
-class EmailAttachmentsWindow(QWidget):
+class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
     """Simple email attachments viewer with FilterTableView"""
     
     def __init__(self, parent=None):

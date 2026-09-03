@@ -23,6 +23,7 @@ from suiteview.taskbar_launcher import appbar
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
 from suiteview.file_nav.sharepoint_client import is_sp_path
 from suiteview.ui.widgets.uppercase_input import force_uppercase
+from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 
 # Import unified bookmark widgets for sidebar categories
 from suiteview.ui.widgets.bookmark_widgets import (
@@ -2953,12 +2954,18 @@ class SuiteViewTaskbar(QWidget):
     
     def _bring_to_front(self, window):
         """Show a child window and reliably bring it to the foreground."""
-        if window.windowState() & Qt.WindowState.WindowMinimized:
-            window.setWindowState((window.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive)
-            window.showNormal()
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        restore = getattr(window, "restore_window", None)
+        if callable(restore):
+            # FramelessWindowBase restores to the pre-minimize state (keeping a
+            # maximized window maximized) and keeps its own flags in sync.
+            restore()
+        else:
+            if window.windowState() & Qt.WindowState.WindowMinimized:
+                window.setWindowState((window.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive)
+                window.showNormal()
+            window.show()
+            window.raise_()
+            window.activateWindow()
         # On Windows, raise_() often fails due to focus-stealing prevention.
         # Use the Win32 API to force the window to the foreground.
         try:
@@ -5040,7 +5047,7 @@ class BookmarkBarsPopup(QWidget):
 # FileNavWindow — Standalone File Navigator window (Blue & Gold theme)
 # =============================================================================
 
-class FileNavWindow(QWidget):
+class FileNavWindow(NativeMinimizeMixin, QWidget):
     """Standalone File Navigator window with classic Blue & Gold theme.
     
     This window provides the full file explorer experience (multi-tab,

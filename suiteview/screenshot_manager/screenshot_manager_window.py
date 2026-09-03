@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QBrush
 
+from suiteview.ui.widgets.window_state import NativeMinimizeMixin
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,7 +84,7 @@ class ScreenshotListWidget(QListWidget):
         """)
 
 
-class ScreenShotManagerWindow(QWidget):
+class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
     """Screen Shot Manager with capture, organize, and export functionality"""
     
     # Signal emitted when a new screenshot is added (for external listeners)
