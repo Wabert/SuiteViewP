@@ -226,6 +226,7 @@ def build_cyberlife_sql(
     coverage_level: bool = False,
     coverage_scope: str = "All Covs",
     custom_display_tab=None,
+    people_tab=None,
 ) -> str:
     """Build the CyberLife audit SQL from all wired-up tab controls.
 
@@ -246,12 +247,15 @@ def build_cyberlife_sql(
     policy_tab, display_tab, policy2_tab, adv_tab, coverages_tab,
     plancode_tab, benefits_tab, transaction_tab
         The tab widgets with filter controls.
+    people_tab
+        The People tab widget holding the person-name filters.
     """
     pt = policy_tab
     dt = display_tab
     p2t = policy2_tab
     at = adv_tab
     covt = coverages_tab
+    ppl = people_tab
     result_cov_alias = "RESULTCOV" if coverage_level else "COVERAGE1"
     result_rnw_alias = "RESULTCOV_RENEWALS" if coverage_level else "COV1_RENEWALS"
     result_table_alias = "RESULTCOV_TABLE_RATING" if coverage_level else "TABLE_RATING1"
@@ -407,14 +411,17 @@ def build_cyberlife_sql(
 
     # Person Info (VH_POL_HAS_LOC_CLT names) — filter + result columns
     person_name_conds = []
-    _person_first_name = p2t.txt_first_name.text().strip()
-    if _person_first_name:
-        person_name_conds.append(_name_match_predicate(
-            "PERSONINFO.CK_FST_NM", p2t.cmb_first_name_match.currentText(), _person_first_name))
-    _person_last_name = p2t.txt_last_name.text().strip()
-    if _person_last_name:
-        person_name_conds.append(_name_match_predicate(
-            "PERSONINFO.CK_LST_NM", p2t.cmb_last_name_match.currentText(), _person_last_name))
+    if ppl is not None:
+        _person_first_name = ppl.txt_first_name.text().strip()
+        if _person_first_name:
+            person_name_conds.append(_name_match_predicate(
+                "PERSONINFO.CK_FST_NM", ppl.cmb_first_name_match.currentText(),
+                _person_first_name))
+        _person_last_name = ppl.txt_last_name.text().strip()
+        if _person_last_name:
+            person_name_conds.append(_name_match_predicate(
+                "PERSONINFO.CK_LST_NM", ppl.cmb_last_name_match.currentText(),
+                _person_last_name))
     has_person_info = bool(person_name_conds)
 
     # ── ADV tab flags ────────────────────────────────────────

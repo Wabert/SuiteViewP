@@ -24,6 +24,7 @@ from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from .constants import REGION_ITEMS, SYSTEM_CODE_ITEMS
 from .tabs.policy_tab import PolicyTab
 from .tabs.policy2_tab import Policy2Tab
+from .tabs.people_tab import PeopleTab
 from .tabs.coverages_tab import CoveragesTab
 from .tabs.adv_tab import AdvTab
 from .tabs.wl_tab import WlTab
@@ -340,6 +341,9 @@ class AuditWindow(FramelessWindowBase):
         # Policy (2) tab
         self.policy2_tab = Policy2Tab()
         self.tabs.addTab(self.policy2_tab, "Policy (2)")
+        # People tab
+        self.people_tab = PeopleTab()
+        self.tabs.addTab(self.people_tab, "People")
         # Coverages tab
         self.coverages_tab = CoveragesTab()
         self.tabs.addTab(self.coverages_tab, "Coverages")
@@ -492,11 +496,17 @@ class AuditWindow(FramelessWindowBase):
         sys_row.addStretch()
         region_sys_stack.addLayout(sys_row)
         self.cyberlife_bottom_bar.left_layout.addLayout(region_sys_stack)
-        # Query name label — shown at bottom-left when a saved query is open.
+        # Query name — the single most-missed piece of context in the footer, so
+        # it reads as a badge rather than another small grey label.
+        self.cyberlife_bottom_bar.left_layout.addSpacing(10)
         self.lbl_cyberlife_query_name = QLabel("")
-        self.lbl_cyberlife_query_name.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.lbl_cyberlife_query_name.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         self.lbl_cyberlife_query_name.setStyleSheet(
-            "QLabel { color: #0A2A5C; background: transparent; padding-left: 10px; }")
+            "QLabel {"
+            " color: #FFFFFF; background-color: #0A2A5C;"
+            " border: 1px solid #D4A017; border-radius: 4px;"
+            " padding: 3px 12px;"
+            "}")
         self.lbl_cyberlife_query_name.setToolTip("Currently open Cyberlife query object")
         self.lbl_cyberlife_query_name.setVisible(False)
         self.cyberlife_bottom_bar.left_layout.addWidget(self.lbl_cyberlife_query_name)
@@ -694,7 +704,7 @@ class AuditWindow(FramelessWindowBase):
     def _update_cyberlife_query_name_label(self):
         """Show the open Cyberlife query object name in the bottom bar."""
         name = self._cyberlife_saved_object_name.strip()
-        self.lbl_cyberlife_query_name.setText(name)
+        self.lbl_cyberlife_query_name.setText(f"Query:  {name}" if name else "")
         self.lbl_cyberlife_query_name.setVisible(bool(name))
 
     def _enter_cyberlife_mode(self):
@@ -1572,6 +1582,7 @@ class AuditWindow(FramelessWindowBase):
             display_tab=self.display_tab,
             custom_display_tab=self.custom_display_tab,
             policy2_tab=self.policy2_tab,
+            people_tab=self.people_tab,
             adv_tab=self.adv_tab,
             coverages_tab=self.coverages_tab,
             plancode_tab=self.plancode_tab,
@@ -1608,6 +1619,7 @@ class AuditWindow(FramelessWindowBase):
         return [
             ("policy", self.policy_tab),
             ("policy2", self.policy2_tab),
+            ("people", self.people_tab),
             ("coverages", self.coverages_tab),
             ("adv", self.adv_tab),
             ("wl", self.wl_tab),
