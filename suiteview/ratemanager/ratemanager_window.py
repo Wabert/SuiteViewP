@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ratemanager.parser import IAFParser
 from suiteview.ratemanager.product_chooser import (
-    ProductLineChooser, TERM_LINE, UL_LINE,
+    ProductLineChooser, TERM_LINE, UL_LINE, WL_LINE,
 )
 from suiteview.ratemanager.exporter import (
     IAFExporter, generate_output_filename, extract_region_from_filename,
@@ -1314,12 +1314,12 @@ class _ConverterPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 class RateManagerWindow(FramelessWindowBase):
-    """SuiteView Rate Manager — opens on the UL / Term product-line chooser.
+    """SuiteView Rate Manager — UL / Term / Whole Life product-line chooser.
 
     Each line gets its own screens: UL has Workup, Database and the per-file
     Converters; Term has Workup and Database (it builds from a single IAF, so
-    there is nothing to convert file-by-file). The header control returns to
-    the chooser.
+    there is nothing to convert file-by-file). Whole Life has a source workup
+    and read-only database browser. The header control returns to the chooser.
     """
 
     # Stack positions, assigned in build_content().
@@ -1364,7 +1364,7 @@ class RateManagerWindow(FramelessWindowBase):
         self._database_btn.clicked.connect(self._show_database)
         self._view_btn.setToolTip("Open the individual file converters.")
         self._view_btn.clicked.connect(self._show_converters)
-        self._line_btn.setToolTip("Switch between UL and Term rates.")
+        self._line_btn.setToolTip("Switch between UL, Term and Whole Life rates.")
         self._line_btn.clicked.connect(self._show_chooser)
 
         self._line = ""
@@ -1388,6 +1388,8 @@ class RateManagerWindow(FramelessWindowBase):
     # ------------------------------------------------------------------
 
     def _show_chooser(self):
+        if self._whole_life_busy():
+            return
         self._line = ""
         self._stack.setCurrentIndex(self._PAGE_CHOOSER)
         self._line_btn.setText("Rate Line")
@@ -1396,13 +1398,16 @@ class RateManagerWindow(FramelessWindowBase):
         self._line_btn.setVisible(False)
 
     def _on_line_chosen(self, line: str):
+        if self._whole_life_busy():
+            return
+        if line not in (UL_LINE, TERM_LINE, WL_LINE):
+            raise ValueError(f"Unknown rate line: {line}")
         self._line = line
         is_ul = line == UL_LINE
-        self._line_btn.setText(f"◂  {'UL' if is_ul else 'Term'} Rates")
+        self._line_btn.setText(f"◂  {line} Rates")
         self._line_btn.setVisible(True)
         self._workup_btn.setVisible(True)
         self._database_btn.setVisible(True)
-        # Term builds from a single IAF, so it has no per-file converters.
         self._view_btn.setVisible(is_ul)
         self._show_workup()
 
@@ -1410,17 +1415,25 @@ class RateManagerWindow(FramelessWindowBase):
         """(workup, database, converters) stack indexes for the active line."""
         if self._line == TERM_LINE:
             return self._term_pages
+        if self._line == WL_LINE:
+            return self._wl_pages
         return self._ul_pages
 
     def _show_workup(self):
+        if self._whole_life_busy():
+            return
         self._stack.setCurrentIndex(self._pages()[0])
         self._workup_btn.setChecked(True)
 
     def _show_database(self):
+        if self._whole_life_busy():
+            return
         self._stack.setCurrentIndex(self._pages()[1])
         self._database_btn.setChecked(True)
 
     def _show_converters(self):
+        if self._whole_life_busy():
+            return
         converters = self._pages()[2]
         if converters is None:
             return
@@ -1439,11 +1452,38 @@ class RateManagerWindow(FramelessWindowBase):
         self.term_database_panel.set_workup_folder(output_path)
         self._show_database()
 
+    def _whole_life_busy(self):
+        return any(
+            panel is not None and panel.is_busy
+            for panel in (
+                getattr(self, "wl_workup_panel", None),
+                getattr(self, "wl_database_panel", None),
+            )
+        )
+
+    def _on_whole_life_busy_changed(self, _busy):
+        for button in (self._line_btn, self._workup_btn,
+                       self._database_btn, self._view_btn):
+            button.setEnabled(not self._whole_life_busy())
+
+    def closeEvent(self, event):
+        if self._whole_life_busy():
+            event.ignore()
+            for panel in (self.wl_workup_panel, self.wl_database_panel):
+                if panel.is_busy:
+                    panel.status.setText(
+                        "An operation is running. Wait before closing Rate Manager.")
+            return
+        super().closeEvent(event)
+
     def build_content(self) -> QWidget:
         from suiteview.ratemanager.database_loader import TERM_SCHEMA
         from suiteview.ratemanager.database_panel import RateDatabasePanel
         from suiteview.ratemanager.workup.term_window import TermWorkupPanel
         from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
+        from suiteview.ratemanager.whole_life.panel import (
+            WholeLifeDatabasePanel, WholeLifeWorkupPanel,
+        )
 
         body = QWidget()
         body.setObjectName("RateManagerBody")
@@ -1536,6 +1576,14 @@ class RateManagerWindow(FramelessWindowBase):
         self.term_database_panel = RateDatabasePanel(schema=TERM_SCHEMA)
         term_database = self._stack.addWidget(self.term_database_panel)
         self._term_pages = (term_workup, term_database, None)
+
+        self.wl_workup_panel = WholeLifeWorkupPanel()
+        wl_workup = self._stack.addWidget(self.wl_workup_panel)
+        self.wl_database_panel = WholeLifeDatabasePanel()
+        wl_database = self._stack.addWidget(self.wl_database_panel)
+        self._wl_pages = (wl_workup, wl_database, None)
+        for panel in (self.wl_workup_panel, self.wl_database_panel):
+            panel.busy_changed.connect(self._on_whole_life_busy_changed)
 
         layout.addWidget(self._stack)
         return body

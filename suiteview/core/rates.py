@@ -25,6 +25,7 @@ Rate Types:
 - BENMTP: Benefit Maximum Target Premium
 - BENCTP: Benefit Commission Target Premium
 - BANDSPECS: Band specifications for face amount banding
+- WL cash values: exact company/class-base-sub/issue-age schedules by source duration
 - And more...
 
 Usage:
@@ -40,6 +41,8 @@ from __future__ import annotations
 import logging
 import pyodbc
 from datetime import date, datetime
+from decimal import Decimal
+import re
 from typing import Optional, List, Dict, Any, Union, Tuple
 
 from .local_dev import connect_local_rates_database, local_data_enabled
@@ -284,6 +287,50 @@ class Rates:
             return None
 
         return rows
+
+    def get_wl_cash_values(
+        self, company: str, rate_key: str, issue_age: int, user_defined: str = "",
+    ) -> Dict[int, Decimal]:
+        """Return an exact CVF schedule, retaining duration zero and decimal rates.
+
+        Blank user-defined selects only the blank key, never another variant or
+        company. No match returns an empty schedule; database failures propagate.
+        """
+        company = company.strip().upper()
+        # Base/subseries are fixed-width source keys; retain their spaces.
+        rate_key = rate_key.upper()
+        user_defined = user_defined.strip().upper()
+        if not re.fullmatch(r"[0-9]{2}", company):
+            raise RatesError("Whole Life cash values require a two-digit company code.")
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9 ]{5}", rate_key):
+            raise RatesError("Whole Life cash values require a six-character class/base/sub key.")
+        if isinstance(issue_age, bool) or not isinstance(issue_age, int) or not 0 <= issue_age <= 999:
+            raise RatesError("Whole Life cash values require an issue age from 0 to 999.")
+        if len(user_defined) > 8:
+            raise RatesError("CVF user-defined keys cannot exceed eight characters.")
+
+        rows = self._fetch_rates(
+            "SELECT [DURATION], [RATE], [FIRST_DURATION], [LAST_DURATION] "
+            "FROM [WL_RATE_CV] WHERE [USER_CODE] = ? AND [RATE_KEY] = ? "
+            "AND [ISSUE_AGE] = ? AND [USER_DEFINED] = ? ORDER BY [DURATION]",
+            [company, rate_key, issue_age, user_defined],
+        )
+        if not rows:
+            return {}
+        first, last = rows[0][2], rows[0][3]
+        values = {}
+        for duration, rate, row_first, row_last in rows:
+            if (row_first, row_last) != (first, last) or duration in values:
+                raise RatesError("Inconsistent or duplicate Whole Life cash-value durations.")
+            if rate is None:
+                raise RatesError("Missing Whole Life cash-value rate.")
+            value = Decimal(str(rate))
+            if not value.is_finite() or value < 0:
+                raise RatesError("Invalid stored cash value; reload the CVF with zero flooring.")
+            values[duration] = value
+        if first > last or set(values) != set(range(first, last + 1)):
+            raise RatesError("Incomplete Whole Life cash-value schedule.")
+        return values
 
     def get_index_illustration_rates(
         self,

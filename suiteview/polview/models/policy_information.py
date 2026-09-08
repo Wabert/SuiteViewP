@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 # Import from cl_polrec package (single source of truth)
 from .cl_polrec.policy_translations import (
@@ -469,8 +469,8 @@ class PolicyInformation:
         return self.modal_premium
 
     @property
-    def monthly_policy_fee(self) -> Optional[Decimal]:
-        """Monthly policy fee for traditional products."""
+    def annual_policy_fee(self) -> Optional[Decimal]:
+        """Annual policy fee for traditional products."""
         if self.is_advanced_product:
             return None
         val = self.data_item("LH_FXD_PRM_POL", "POL_FEE_AMT")
@@ -703,15 +703,25 @@ class PolicyInformation:
         return []
 
     @property
-    def total_death_benefit(self) -> Decimal:
-        """Total death benefit for the primary insured, including DB option B/C amounts."""
+    def current_account_value(self) -> Optional[Decimal]:
+        """Account value at the most recent monthliversary, else the total record AV."""
+        account_value = self.mv_av(0)
+        if account_value is None:
+            account_value = self.accumulation_value
+        return account_value
+
+    @property
+    def standard_death_benefit(self) -> Decimal:
+        """Death benefit before the 7702 corridor test.
+
+        Face amount covering the primary insured plus the DB-option amount
+        (option B adds the account value, option C adds premiums paid).
+        """
         total = self.primary_insured_face_amount
         db_option = str(self.db_option_code or "").strip().upper()
 
         if db_option in ("2", "B"):
-            account_value = self.mv_av(0)
-            if account_value is None:
-                account_value = self.accumulation_value
+            account_value = self.current_account_value
             if account_value:
                 total += account_value
         elif db_option in ("3", "C"):
@@ -720,6 +730,58 @@ class PolicyInformation:
                 total += premiums_paid
 
         return total
+
+    @property
+    def corridor_death_benefit(self) -> Optional[Decimal]:
+        """Corridor (7702 minimum) death benefit — AV × corridor percent.
+
+        Mirrors the CyberLife/VBA audit rule
+        ``ROUND(LH_POL_MVRY_VAL.CSV_AMT * LH_NON_TRD_POL.CDR_PCT / 100, 2)``.
+        Returns ``None`` when the corridor does not apply (traditional product,
+        or no account value / corridor percent on file).
+        """
+        if not self.is_advanced_product:
+            return None
+
+        account_value = self.current_account_value
+        if not account_value or account_value <= 0:
+            return None
+
+        percent = self.corridor_percent
+        if percent is None or percent <= 0:
+            return None
+
+        return (Decimal(account_value) * Decimal(percent) / Decimal("100")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+    @property
+    def corridor_amount(self) -> Decimal:
+        """Amount the corridor adds on top of the standard death benefit (0 if none)."""
+        corridor_db = self.corridor_death_benefit
+        if corridor_db is None:
+            return Decimal("0")
+        excess = corridor_db - self.standard_death_benefit
+        return excess if excess > 0 else Decimal("0")
+
+    @property
+    def is_in_corridor(self) -> bool:
+        """Whether the corridor death benefit exceeds the standard death benefit."""
+        return self.corridor_amount > 0
+
+    @property
+    def total_death_benefit(self) -> Decimal:
+        """Total death benefit — the greater of the standard and corridor amounts.
+
+        The corridor (IRC 7702 minimum death benefit) applies when the account
+        value has grown large enough that ``AV × corridor %`` exceeds the face
+        amount plus the DB-option amount.
+        """
+        standard = self.standard_death_benefit
+        corridor_db = self.corridor_death_benefit
+        if corridor_db is not None and corridor_db > standard:
+            return corridor_db
+        return standard
     
     @property
     def base_issue_age(self) -> Optional[int]:
@@ -3507,9 +3569,72 @@ class PolicyInformation:
     # RATE MATRIX BUILDERS (for UI display - mirrors VBA LoadUL*RatesToRecordset)
     # =========================================================================
 
+    def cov_cash_value_key(self, cov_index: int) -> str:
+        """CVF class/base/sub key from the coverage's valuation codes (1-based)."""
+        if not 1 <= cov_index <= self.coverage_count:
+            raise ValueError(f"Coverage index {cov_index} is out of range.")
+        parts = []
+        for column, width in (
+            ("INS_CLS_CD", 1), ("PLN_BSE_SRE_CD", 3), ("LIF_PLN_SUB_SRE_CD", 2),
+        ):
+            value = self.data_item("LH_COV_PHA", column, cov_index - 1)
+            if value is None:
+                raise ValueError(f"Coverage {cov_index} is missing {column} for its CVF key.")
+            text = str(value).strip().upper()
+            if len(text) > width or (not text and column != "LIF_PLN_SUB_SRE_CD"):
+                raise ValueError(f"Coverage {cov_index} has an invalid {column} for its CVF key.")
+            parts.append(text.ljust(width))
+        return "".join(parts)
+
+    def rates_wl_cv(self, cov_index: int, user_defined: str = "") -> Dict[int, Decimal]:
+        """Whole Life cash values by actual source duration, not a one-based array."""
+        key = self.cov_cash_value_key(cov_index)
+        age = self.cov_issue_age(cov_index)
+        if age is None:
+            raise ValueError(f"Coverage {cov_index} is missing its cash-value issue age.")
+        rates = self._get_rates()
+        if rates is None:
+            raise RuntimeError("The shared rates service is not available.")
+        return rates.get_wl_cash_values(self.company_code, key, age, user_defined)
+
+    def build_whole_life_coverage_rate_matrix(self, cov_index: int) -> Optional[List[List]]:
+        """Source-keyed WL rates; other WL rate families can add independent schedules."""
+        from dateutil.relativedelta import relativedelta
+
+        cash_values = self.rates_wl_cv(cov_index)
+        if not cash_values:
+            return None
+        issue_date = self.cov_issue_date(cov_index)
+        issue_age = self.cov_issue_age(cov_index)
+        coverage = self.get_coverages()[cov_index - 1]
+        metadata = [
+            ("Policy", self.policy_number), ("Company", self.company_code),
+            ("Cov Index", cov_index), ("Plancode", coverage.plancode),
+            ("Rate Key", self.cov_cash_value_key(cov_index)),
+            ("User Defined", "(blank)"), ("Issue Age", issue_age),
+            ("CV Basis", "Per coverage unit"),
+            ("Value per Unit", coverage.vpu if coverage.vpu is not None else "Unknown"),
+            ("Source", "WL_RATE_CV"), ("NSP / PUI / Div", "Not yet available"),
+        ]
+        matrix = [["RateFields", "RateInfo", "Date", "Age", "Duration", "CV"]]
+        schedule = sorted(cash_values.items())
+        for row in range(max(len(metadata), len(schedule))):
+            fields = list(metadata[row]) if row < len(metadata) else ["", ""]
+            if row < len(schedule):
+                duration, value = schedule[row]
+                anniversary = issue_date + relativedelta(years=duration) if issue_date else None
+                fields.extend([
+                    anniversary.strftime("%m/%d/%Y") if anniversary else "",
+                    issue_age + duration, duration, value,
+                ])
+            else:
+                fields.extend(["", "", "", ""])
+            matrix.append(fields)
+        return matrix
+
     def build_coverage_rate_matrix(self, cov_index: int, scale: int = 1) -> Optional[List[List]]:
         """
-        Build rate matrix for a coverage, matching VBA LoadULCoverageRatesToRecordset.
+        Build Whole Life cash values or the existing UL coverage-rate matrix.
         
         Returns a 2D list where:
           - Row 0 = column headers (RateFields, RateInfo, Date, Age, Year, COI, EPU, SCR, GuarCOI, GuarEPU)
@@ -3523,6 +3648,9 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
+        if not self.is_advanced_product and self.product_type == "WL":
+            return self.build_whole_life_coverage_rate_matrix(cov_index)
+
         from dateutil.relativedelta import relativedelta
         
         issue_date = self.cov_issue_date(cov_index)

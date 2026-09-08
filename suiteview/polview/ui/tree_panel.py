@@ -188,7 +188,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
         cov_node = QTreeWidgetItem([f"▶  Coverages"])
         cov_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Coverages"})
         self.addTopLevelItem(cov_node)
-        
+        whole_life = not policy.is_advanced_product and policy.product_type == "WL"
         for i in range(1, policy.coverage_count + 1):
             plancode = policy.cov_plancode(i)
             label = f"Cov {i:02d} ({plancode})"
@@ -199,6 +199,11 @@ class PolicyRecordTreeWidget(QTreeWidget):
                 "label": label,
                 "index": i
             })
+            if whole_life:
+                cov_item.setToolTip(
+                    0, "Cash values from WL_RATE_CV by company, class/base/sub and issue age.\n"
+                    "NSP, PUI and dividend rate lookups are not yet available."
+                )
             cov_node.addChild(cov_item)
         
         # Benefits branch (top-level)

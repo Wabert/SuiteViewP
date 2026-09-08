@@ -191,8 +191,11 @@ class RawTableTab(QWidget):
             ]
         return pd.DataFrame(data)
 
-    def _show_message(self, message: str):
+    def show_message(self, message: str, table_name: str = None):
         """Show a single-cell placeholder (no data / error) in both grids."""
+        if table_name is not None:
+            self._current_table_name = table_name
+            self.table_label.setText(table_name)
         self._current_cols = []
         self._current_rows = []
         self._df_normal = None
@@ -221,7 +224,7 @@ class RawTableTab(QWidget):
         if self._current_cols and self._current_rows:
             self._display_data()
         else:
-            self._show_message("No data")
+            self.show_message("No data")
 
     # ── Excel export ─────────────────────────────────────────────────────
 
@@ -355,7 +358,7 @@ class RawTableTab(QWidget):
                 self._df_transposed = None
                 self._display_data()
             else:
-                self._show_message("No data found")
+                self.show_message("No data found")
 
         except Exception as e:
-            self._show_message(f"Error: {e}")
+            self.show_message(f"Error: {e}")

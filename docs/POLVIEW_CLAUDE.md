@@ -1,6 +1,6 @@
 # PolView — Sub-App Documentation for AI Assistants
 
-**Last Updated:** July 30, 2026
+**Last Updated:** September 7, 2026
 
 > **Shared architecture** (PolicyInformation, DB2 connectivity, translation
 > dictionaries, bookmarks) is documented in [`Agent.md`](../Agent.md).
@@ -38,6 +38,54 @@ application (`SuiteView v2.2`).
 ---
 
 ## Architecture
+
+### Whole Life Rates view
+
+In the left **Rates > Coverages** tree, selecting a coverage on a traditional
+`WL` policy now displays cash values from `UL_Rates.WL_RATE_CV`, not UL COI
+tables. `PolicyInformation.build_coverage_rate_matrix()` dispatches to the
+separate Whole Life matrix builder; the existing UL/ISWL/Term route is unchanged.
+The view reuses the normal filterable/sortable `RawTableTab` grid.
+
+The canonical lookup is `PolicyInformation.rates_wl_cv(coverage_index)` through
+`Rates.get_wl_cash_values()`. Coverage indices are 1-based, as in the other
+PolView rate methods. Build the six-character key from these **verified**
+`LH_COV_PHA` columns, not from the displayed plancode:
+
+| Part | Column | Width |
+|---|---|---:|
+| Class | `INS_CLS_CD` | 1 |
+| Base series | `PLN_BSE_SRE_CD` | 3 |
+| Subseries | `LIF_PLN_SUB_SRE_CD` | 2 |
+
+Preserve fixed-width spaces; additionally bind the policy's company code and
+the coverage's issue age. PolView selects the **blank `USER_DEFINED` variant
+only**. It never falls back to user `00`, another company, another age or a
+nonblank variant. A nonblank variant requires an independently established
+mapping (the shared API can accept an explicit key).
+
+The schedule maps actual source duration to `Decimal` rate. Duration zero is
+the issue date, duration one the first anniversary; do not apply the UL
+one-based-array convention or truncate to an inferred maturity. CV is shown
+**per unit**, alongside the coverage's value per unit, not as a policy surrender
+value. Missing schedules display the lookup keys; missing inputs, incomplete
+schedules and database failures display errors and clear previous results.
+Stored cash values can include Rate Manager's explicitly enabled early-negative
+CVF inference. Its signed-header/initial-minimum rule is an assumption, recorded
+in the load receipt; PolView displays the stored values without re-inferring
+signs. For `08 / 1WL511 / 59`, that rule zeros duration 1's `22.27` and retains
+duration 2's `0.94`.
+
+NSP, PUI and dividend rates remain explicitly **not yet available** in this
+Rates view. Add independent family accessors and schedule columns to the WL
+builder when their selection rules are verified; do not manufacture zero rates
+or reuse cash values as NSP.
+
+Live regression example: policy **05335420**, company **08**, coverage 1,
+plancode `201WL500`, key **1WL511**, issue age **59** has 42 durations, **0-41**.
+Duration 26 is **610.86** per unit; duration 41 is **1,000.00**. The auditable
+`tools/rates/verify_polview_wl_rates.py` helper compares the entire displayed
+schedule with the database and can capture the actual native Rates surface.
 
 ### VBA Architecture (for reference)
 ```

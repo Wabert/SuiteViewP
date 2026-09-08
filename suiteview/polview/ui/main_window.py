@@ -13,6 +13,7 @@ inheriting from FramelessWindowBase for SuiteView-consistent chrome.
 
 from typing import Optional
 
+import logging
 import subprocess
 
 from PyQt6.QtWidgets import (
@@ -42,6 +43,7 @@ from .tabs import (
     SapTab, ClaimsTab, TaiFdTab, OrionPcrTab, CyberlifePdfTab,
 )
 
+logger = logging.getLogger(__name__)
 
 # Header-bar button style (PolView green/gold), matching the other compact
 # header controls — used for the "Open in RERUN" button.
@@ -1074,6 +1076,8 @@ class GetPolicyWindow(FramelessWindowBase):
             return
 
         self._show_status(f"Loading rates for {label}...")
+        self.tabs.setCurrentWidget(self.raw_table_tab)
+        self.raw_table_tab.show_message(f"Loading rates for {label}...", table_name=label)
 
         try:
             matrix = None
@@ -1082,6 +1086,8 @@ class GetPolicyWindow(FramelessWindowBase):
             if category == "Coverages":
                 matrix = self._policy.build_coverage_rate_matrix(index)
                 display_title = f"Rates for Coverage {index}"
+                if matrix and "CV" in matrix[0]:
+                    display_title = f"Whole Life Cash Value Rates - Coverage {index}"
             elif category == "Benefits":
                 matrix = self._policy.build_benefit_rate_matrix(index)
                 display_title = f"Rates for Benefit {index}"
@@ -1126,15 +1132,22 @@ class GetPolicyWindow(FramelessWindowBase):
                     ok = 'OK'
                     miss = 'MISSING'
                     if category == "Coverages":
-                        iss_dt = self._policy.cov_issue_date(index)
-                        iss_age = self._policy.cov_issue_age(index)
-                        band = self._policy.cov_band(index)
-                        miss_rates = 'MISSING -- check UL_Rates connection'
-                        diag = (
-                            f" (issue_date={ok if iss_dt else miss}"
-                            f", issue_age={ok if iss_age is not None else miss}"
-                            f", band={ok if band is not None else miss_rates})"
-                        )
+                        if not self._policy.is_advanced_product and self._policy.product_type == "WL":
+                            diag = (
+                                f" (WL_RATE_CV: company={self._policy.company_code}, "
+                                f"key={self._policy.cov_cash_value_key(index)!r}, "
+                                f"issue_age={self._policy.cov_issue_age(index)}, user_defined=blank)"
+                            )
+                        else:
+                            iss_dt = self._policy.cov_issue_date(index)
+                            iss_age = self._policy.cov_issue_age(index)
+                            band = self._policy.cov_band(index)
+                            miss_rates = 'MISSING -- check UL_Rates connection'
+                            diag = (
+                                f" (issue_date={ok if iss_dt else miss}"
+                                f", issue_age={ok if iss_age is not None else miss}"
+                                f", band={ok if band is not None else miss_rates})"
+                            )
                     elif category == "Benefits":
                         iss_dt = self._policy.cov_issue_date(1)
                         benefits = self._policy.get_benefits()
@@ -1143,7 +1156,11 @@ class GetPolicyWindow(FramelessWindowBase):
                             f" (cov1_date={ok if iss_dt else miss}"
                             f", ben_age={ok if ben_age is not None else miss})"
                         )
-                self._show_status(f"No rate data available for {label}{diag}")
+                message = f"No rate data available for {label}{diag}"
+                self.raw_table_tab.show_message(message, table_name=display_title or label)
+                self._show_status(message)
 
         except Exception as e:
+            logger.exception("Rate display failed for %s", label)
+            self.raw_table_tab.show_message(f"Error loading rates: {e}", table_name=label)
             self._show_status(f"Error loading rates: {e}")

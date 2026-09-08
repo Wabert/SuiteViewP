@@ -13,6 +13,7 @@ from suiteview.ratemanager.ui_helpers import (
 )
 from suiteview.ratemanager.database_panel import RateDatabasePanel
 from suiteview.ratemanager.ratemanager_window import RateManagerWindow
+from suiteview.ratemanager.product_chooser import TERM_LINE, UL_LINE
 from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
 
@@ -117,11 +118,16 @@ def test_database_panel_exposes_all_workup_tables():
 def test_rate_manager_has_workup_database_and_converter_views():
     window = RateManagerWindow()
 
-    assert window._stack.count() == 3
-    assert window._stack.currentIndex() == 0
+    assert window._stack.currentWidget() is window.chooser
+    window._on_line_chosen(UL_LINE)
+    assert window._stack.currentWidget() is window.workup_panel
     window._show_database()
-    assert window._stack.currentIndex() == 1
-    window._toggle_view()
-    assert window._stack.currentIndex() == 2
-    window._toggle_view()
-    assert window._stack.currentIndex() == 0
+    assert window._stack.currentWidget() is window.database_panel
+    window._show_converters()
+    assert window._stack.currentIndex() == window._ul_pages[2]
+    window._show_workup()
+    assert window._stack.currentWidget() is window.workup_panel
+    window._on_line_chosen(TERM_LINE)
+    assert window._stack.currentWidget() is window.term_workup_panel
+    window._show_database()
+    assert window._stack.currentWidget() is window.term_database_panel

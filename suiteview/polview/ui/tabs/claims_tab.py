@@ -2,8 +2,8 @@
 Claims tab - queries the CLAIMSFILE flat file for the loaded policy.
 
 Opened from the "CLAIMSFILE" button on the Policy Support tab's left nav panel.
-Reads a semicolon-delimited flat file on the TAI reinsurance share and shows every
-claim record whose ``Policy_Number`` matches the loaded policy.
+Reads a semicolon-delimited flat file on the TAI actuarial support share and shows
+every claim record whose ``Policy_Number`` matches the loaded policy.
 
 If the user cannot read the file, the canvas states access is not available.  If
 the file is readable but holds no matching records, a single placeholder row is
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
 
 
-CLAIMS_FILE_PATH = r"\\sranico7\Actuarial\Reinsurance\TAI\PRDOUT\TAJR001P\CLAIMSDATA.TXT"
+CLAIMS_FILE_PATH = r"\\Svpw-ds1fs\LAB_ACT_SUPPORT\TAI\PRDOUT\TAJR001P\CLAIMSDATA.TXT"
 
 # Field names in positional order, as defined by the flat-file layout.
 FIELD_NAMES = [

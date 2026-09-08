@@ -4,7 +4,7 @@ from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.ui.tabs.policy_tab import PolicyTab
 
 
-def test_monthly_policy_fee_reads_traditional_fixed_premium_policy():
+def test_annual_policy_fee_reads_traditional_fixed_premium_policy():
     policy = object.__new__(PolicyInformation)
     calls = []
 
@@ -18,14 +18,14 @@ def test_monthly_policy_fee_reads_traditional_fixed_premium_policy():
 
     policy.data_item = data_item
 
-    assert policy.monthly_policy_fee == Decimal("7.50")
+    assert policy.annual_policy_fee == Decimal("7.50")
     assert calls == [
         ("LH_BAS_POL", "NON_TRD_POL_IND"),
         ("LH_FXD_PRM_POL", "POL_FEE_AMT"),
     ]
 
 
-def test_monthly_policy_fee_skips_traditional_table_for_advanced_product():
+def test_annual_policy_fee_skips_traditional_table_for_advanced_product():
     policy = object.__new__(PolicyInformation)
     calls = []
 
@@ -35,14 +35,14 @@ def test_monthly_policy_fee_skips_traditional_table_for_advanced_product():
 
     policy.data_item = data_item
 
-    assert policy.monthly_policy_fee is None
+    assert policy.annual_policy_fee is None
     assert calls == [("LH_BAS_POL", "NON_TRD_POL_IND")]
 
 
-def test_policy_tab_displays_formatted_traditional_monthly_fee(qtbot):
+def test_policy_tab_displays_formatted_traditional_annual_fee(qtbot):
     class FakePolicy:
         company_code = "01"
-        monthly_policy_fee = Decimal("7.5")
+        annual_policy_fee = Decimal("7.5")
 
         @staticmethod
         def data_item(*_args):
@@ -53,4 +53,4 @@ def test_policy_tab_displays_formatted_traditional_monthly_fee(qtbot):
 
     tab._populate_column3_from_policy(FakePolicy(), {})
 
-    assert tab.col3.get_value("monthly_fee") == "$7.50"
+    assert tab.col3.get_value("annual_fee") == "$7.50"

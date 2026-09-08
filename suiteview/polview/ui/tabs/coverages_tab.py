@@ -8,12 +8,23 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ..formatting import format_date, format_amount
-from ..styles import WHITE
+from ..styles import WHITE, GRAY_DARK, GRAY_TEXT, GOLD_DARK
 from ..widgets import StyledInfoTableGroup
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
+
+
+_VAL_STYLE = f"font-size: 11px; color: {GRAY_DARK}; background: transparent; border: none;"
+_VAL_STYLE_CORRIDOR = (
+    f"font-size: 11px; color: {GOLD_DARK}; font-weight: bold; "
+    "background: transparent; border: none;"
+)
+_VAL_STYLE_NA = (
+    f"font-size: 11px; color: {GRAY_TEXT}; font-style: italic; "
+    "background: transparent; border: none;"
+)
 
 
 class CoveragesTab(QWidget):
@@ -52,7 +63,7 @@ class CoveragesTab(QWidget):
         self.info_group.add_field("Market Org", "market_org_label", 80, 80)
         self.info_group.add_field("Single/Joint", "joint_label", 80, 80)
         self.info_group.add_field("Attained Age", "att_age_label", 80, 100)
-        self.info_group._current_col = 0; self.info_group._current_row += 1  # blank column 4
+        self.info_group.add_field("Corridor", "corridor_label", 80, 80)
 
         self.info_group.add_field("Status", "status_label", 80, 100)
         self.info_group.add_field("Issue State", "issue_state_label", 80, 80)
@@ -79,6 +90,7 @@ class CoveragesTab(QWidget):
         self.grace_label = self.info_group.grace_label
         self.eff_date_label = self.info_group.eff_date_label
         self.total_death_benefit_label = self.info_group.total_death_benefit_label
+        self.corridor_label = self.info_group.corridor_label
         self.policy_year_label = self.info_group.policy_year_label
         self.att_age_label = self.info_group.att_age_label
         self.status_label = self.info_group.status_label
@@ -130,6 +142,17 @@ class CoveragesTab(QWidget):
         except Exception:
             return str(value)
 
+    @staticmethod
+    def _format_percent(value) -> str:
+        """Format a corridor percentage — '250%' / '182.5%'."""
+        if value is None:
+            return ""
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return f"{v:,.0f}%" if v == int(v) else f"{v:,.3f}".rstrip("0").rstrip(".") + "%"
+
     def _on_coverage_double_clicked(self, item):
         row = item.row()
         if row < 0 or row >= len(self._cov_data):
@@ -145,6 +168,9 @@ class CoveragesTab(QWidget):
         # Clear old data first so stale values never remain when switching policies
         self._cov_data = []
         self.info_group.clear_info()
+        for lbl in (self.total_death_benefit_label, self.corridor_label):
+            lbl.setStyleSheet(_VAL_STYLE)
+            lbl.setToolTip("")
         self.cov_table.setRowCount(0)
         self.bnf_table.setRowCount(0)
 
@@ -197,7 +223,7 @@ class CoveragesTab(QWidget):
 
         self.policy_year_label.setText(str(policy.policy_year))
 
-        self.total_death_benefit_label.setText(format_amount(policy.total_death_benefit))
+        self._populate_death_benefit(policy)
 
         att_age = policy.attained_age
         if att_age is not None:
@@ -226,6 +252,55 @@ class CoveragesTab(QWidget):
             self.db_option_label.setText(_DB_OPT_DISPLAY.get(policy.db_option_code, ""))
         else:
             self.db_option_label.setText("")
+
+    def _populate_death_benefit(self, policy: 'PolicyInformation'):
+        """Show the total death benefit and whether the 7702 corridor drives it.
+
+        The corridor death benefit (account value × corridor %) replaces the
+        standard face + DB-option amount whenever it is larger; the Corridor
+        field says so and the tooltip shows the full comparison.
+        """
+        standard_db = policy.standard_death_benefit
+        corridor_db = policy.corridor_death_benefit
+        total_db = policy.total_death_benefit
+        in_corridor = corridor_db is not None and corridor_db > standard_db
+
+        self.total_death_benefit_label.setText(format_amount(total_db))
+        self.total_death_benefit_label.setStyleSheet(
+            _VAL_STYLE_CORRIDOR if in_corridor else _VAL_STYLE)
+
+        db_option_note = {
+            "2": " + account value", "3": " + premiums paid",
+        }.get(str(policy.db_option_code or "").strip(), "")
+        lines = [f"Standard DB (face{db_option_note}): {format_amount(standard_db)}"]
+
+        if corridor_db is None:
+            self.corridor_label.setText("N/A")
+            self.corridor_label.setStyleSheet(_VAL_STYLE_NA)
+            reason = ("traditional product" if not policy.is_advanced_product
+                      else "no account value on file")
+            lines.append(f"Corridor: not applicable ({reason})")
+        else:
+            account_value = policy.current_account_value
+            percent_text = self._format_percent(policy.corridor_percent)
+            lines.append(
+                f"Corridor DB ({format_amount(account_value)} AV × {percent_text}): "
+                f"{format_amount(corridor_db)}"
+            )
+            if in_corridor:
+                self.corridor_label.setText("In Corridor")
+                self.corridor_label.setStyleSheet(_VAL_STYLE_CORRIDOR)
+                lines.append(
+                    f"Corridor adds {format_amount(policy.corridor_amount)} "
+                    "over the standard DB")
+            else:
+                self.corridor_label.setText("Not in Corridor")
+                self.corridor_label.setStyleSheet(_VAL_STYLE)
+
+        lines.append(f"Total DB: {format_amount(total_db)}")
+        tooltip = "\n".join(lines)
+        self.total_death_benefit_label.setToolTip(tooltip)
+        self.corridor_label.setToolTip(tooltip)
 
     def _populate_coverages_from_policy(self, policy: 'PolicyInformation', coverages: list):
         if not coverages:

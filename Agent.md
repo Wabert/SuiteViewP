@@ -1008,13 +1008,67 @@ across all apps. For app-specific details, see the relevant doc:
 |---------|----------|---------|
 | **PolView** | [`docs/POLVIEW_CLAUDE.md`](docs/POLVIEW_CLAUDE.md) | Policy viewer — VBA reference, Trad vs Advanced deep dive, coverage/rate logic, VBA property mappings, Cyber Audit |
 | **ABR Quote** | *(see section below)* | Accelerated Death Benefit quoting tool — 3-step wizard, dedicated SQLite DB, Crimson Slate theme |
-| **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens on a **product-line chooser** (`product_chooser.py`): UL rates or Term rates. The header then shows Workup / Database (/ Converters, UL only) for the chosen line, plus a control to switch back.<br><br>**UL** — single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required). Verify against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py`.<br><br>**Term** (`workup/term_spec.py`, `term_builder.py`, `term_window.py`) — one IAF in, seven TERM_* CSVs out (TERM_POINT_PV, TERM_POINT_PVSRB, TERM_POINT_BENEFIT, TERM_RATE_MODEFACT, TERM_RATE_BANDSPECS, TERM_RATE_PREM, TERM_RATE_BEN). No MPF/CKULTB04/CKULTB01. See **§ Term Rates** below.<br><br>The **Database** view (shared by both lines, parameterized by `RateSchema`) validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports pointer editing plus unreferenced whole-index deletion. |
+| **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens on a **product-line chooser** (`product_chooser.py`): UL, Term or Whole Life rates. The header then shows Workup / Database (/ Converters, UL only) for the chosen line, plus a control to switch back.<br><br>**UL** — single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required). Verify against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py`.<br><br>**Term** (`workup/term_spec.py`, `term_builder.py`, `term_window.py`) — one IAF in, seven TERM_* CSVs out (TERM_POINT_PV, TERM_POINT_PVSRB, TERM_POINT_BENEFIT, TERM_RATE_MODEFACT, TERM_RATE_BANDSPECS, TERM_RATE_PREM, TERM_RATE_BEN). No MPF/CKULTB04/CKULTB01. See **§ Term Rates** below.<br><br>The UL/Term **Database** view (parameterized by `RateSchema`) validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports pointer editing plus unreferenced whole-index deletion.<br><br>**Whole Life** has source-keyed CVF/PUI/IAF imports, explicit-basis NSP CSV imports, integrated dividend loading and read-only PDF/rate browsing. See **§ Whole Life rate loading** below. |
 | **Task Manager** | *(future)* | Task management |
 
 > **To add a new sub-app doc:** create `docs/<APPNAME>_CLAUDE.md`, add a row to
 > the table above, keep shared concerns (DB2, PolicyInformation) in this file,
 > and keep app-specific detail (UI, VBA mappings, business rules) in the sub-app
 > doc.
+
+## Whole Life rate loading
+
+Whole Life has its own Rate Manager choice and source-keyed loader in
+`suiteview/ratemanager/whole_life/`. It is intentionally separate from the
+UL/Term pointer-index compiler: preserve the CyberLife keys, versions, date
+ranges, age-use codes and premium options rather than inventing illustration
+rates. See [`docs/RATEMANAGER_WL.md`](docs/RATEMANAGER_WL.md) for supported
+sources and query semantics.
+
+The Workup screen has separate CVF, IAF, DIV and PUI file rows, plus optional
+NSP CSV and DIV map rows. Any combination can be parsed/reviewed/loaded as one
+package via `parse_workup`; an invalid selected file blocks the whole workup.
+The explicit company/user code is required only when IAF files are selected.
+
+CVF `NO ZERO DUR` headers mean absent duration-zero metadata (SQL NULL).
+Their grid indexes begin at FIRST DUR, not duration zero; map each cell to
+FIRST plus its offset from the first printed decade, retaining only FIRST..LAST.
+The first decade contains FIRST-1: FIRST 121's `120-129` begins at duration 121.
+Do not invent a
+duration-zero row or infer negatives without a signed header. D11 printed
+page 110 defines the contiguous array; company `00 / 2EBF00 / age 1` has
+`1000.00` at duration 59 (printed offset 58).
+
+CVF imports floor every negative cash value to `0.00`, in both `RATE` and
+`DURATION_ZERO_VALUE`. Resolve the signed duration-zero header and validate
+raw source conflicts/padding before flooring; never let normalization hide
+malformed source data. Existing negative rows are corrected by a reviewed reload.
+The print grid loses signs. The user approved **optional** early-negative
+inference: with a negative duration-zero header and a strict initial decline
+followed by a rise, zero unsigned values before the first minimum and retain
+the minimum as positive. For `08 / 1WL511 / age 59`, this changes `22.27` to
+zero but retains `0.94`. It is an assumption, not recovered signs. The option
+`infer_cvf_negatives` defaults off; skip plateaus/unfinished declines, never
+override explicit `+` signs, and preserve raw validation. The rule version and
+per-row adjustments must remain in source metadata and load receipts.
+
+PolView's Rates > Coverages view routes traditional `WL` policies to cash values
+through `PolicyInformation.rates_wl_cv()` and `Rates.get_wl_cash_values()`.
+The key is coverage `INS_CLS_CD` + `PLN_BSE_SRE_CD` + `LIF_PLN_SUB_SRE_CD`
+(1/3/2 characters), plus policy company and coverage issue age. Select only the
+blank `USER_DEFINED` variant unless its mapping is explicitly known; never
+fall back to another company or variant. Keep duration zero and source duration
+labels intact. NSP/PUI/dividend lookups in this view remain future work.
+
+The four new tables are `WL_RATE_CV`, `WL_RATE_NSP`, `WL_RATE_PUI` and
+`WL_RATE_PREM`. Dividend imports reuse the existing `WL_DIV_HEADER`,
+`WL_RATE_DIV` and `WL_DIV_PLANKEY_MAP` schemas, not an external script at
+runtime. Loading previews differences, inserts new keys, skips unchanged
+values, and requires explicit per-table approval to update existing values.
+It never deletes rows absent from an input file. Updates are backed up before
+the transaction; source hashes and verified load receipts are retained under
+`~/.suiteview/rate_manager_backups/whole_life/`. Shared-database write guards
+apply to both table creation and loading.
 
 ## 📐 Term Rates — Rules That Are Not Obvious
 
