@@ -6,7 +6,9 @@ from __future__ import annotations
 from .sql_helpers import (
     esc, in_list, selected_codes, today_str, normalize_date,
     add_int_range, add_date_range, add_decimal_range,
+    strict_range_predicates,
 )
+from .segment52_fields import SEGMENT52_FIELDS
 
 
 def _cease_code_predicate(column: str, values: list[str]) -> str | None:
@@ -182,6 +184,49 @@ def _build_custom_display(custom_display_tab, result_cov_alias: str,
     return select_lines, join_lines, where_conditions
 
 
+def _build_segment52(segment52_tab, show_all: bool) -> tuple[list[str], list[str]]:
+    fields = segment52_tab.get_state()["fields"] if segment52_tab is not None else {}
+    select_lines, wheres = [], []
+    for field in SEGMENT52_FIELDS:
+        values = fields.get(field.name, {})
+        column = f"USERGEN.{field.name}"
+        predicates = []
+        if field.kind == "text":
+            value = values.get("value", "").strip().upper()
+            if value:
+                predicates.append(_name_match_predicate(
+                    column, values.get("match", "Exact match"), value))
+        else:
+            predicates = strict_range_predicates(
+                column, values.get("lo", ""), values.get("hi", ""),
+                field.kind, f"52 Segment / {field.name}")
+        wheres.extend(predicates)
+        if show_all or values.get("display", False) or predicates:
+            select_lines.append(f"  , {column} {field.name}")
+    return select_lines, wheres
+
+
+def _conversion_sc_cte(schema: str) -> str:
+    """Keep both dates from one eligible SC row, never independent MAX dates."""
+    # FH_FIXED has company/policy/sequence keys, not CK_SYS_CD. Carry the
+    # system from the policy master, as in the existing transaction joins.
+    return f"""CONVERSION_SC AS
+  (SELECT CONVERTED_POLICY.CK_SYS_CD, FH.CK_CMP_CD, FH.TCH_POL_ID,
+    FH.ENTRY_DT AS CONV_SC_ENTRY_DT, FH.ASOF_DT AS CONV_SC_EFFECTIVE_DT,
+    ROW_NUMBER() OVER (
+      PARTITION BY CONVERTED_POLICY.CK_SYS_CD, FH.CK_CMP_CD, FH.TCH_POL_ID
+      ORDER BY FH.ENTRY_DT DESC NULLS LAST, FH.ENTRY_TIME DESC NULLS LAST,
+               FH.SEQ_NO DESC) AS SC_ROW
+   FROM {schema}.FH_FIXED FH
+   INNER JOIN {schema}.LH_BAS_POL CONVERTED_POLICY
+     ON CONVERTED_POLICY.CK_CMP_CD = FH.CK_CMP_CD
+    AND CONVERTED_POLICY.TCH_POL_ID = FH.TCH_POL_ID
+    AND CONVERTED_POLICY.LST_ETR_CD = 'O'
+   WHERE FH.TRANS = 'SC'
+     AND FH.FCB0_REV_IND = '0'
+     AND FH.FCB2_REV_APPL_IND = '0')"""
+
+
 def _valuation_date_sql(schema: str) -> str:
     """SQL expression for the policy valuation date.
 
@@ -227,6 +272,7 @@ def build_cyberlife_sql(
     coverage_scope: str = "All Covs",
     custom_display_tab=None,
     people_tab=None,
+    segment52_tab=None,
 ) -> str:
     """Build the CyberLife audit SQL from all wired-up tab controls.
 
@@ -249,6 +295,8 @@ def build_cyberlife_sql(
         The tab widgets with filter controls.
     people_tab
         The People tab widget holding the person-name filters.
+    segment52_tab
+        Optional 52-G application/conversion criteria and display selections.
     """
     pt = policy_tab
     dt = display_tab
@@ -264,6 +312,8 @@ def build_cyberlife_sql(
     # ── Custom Display tab: extra SELECT columns + JOINs + criteria ──
     custom_select_lines, custom_join_lines, custom_where_lines = _build_custom_display(
         custom_display_tab, result_cov_alias, schema)
+    segment52_select_lines, segment52_where_lines = _build_segment52(
+        segment52_tab, dt.chk_segment52.isChecked())
 
 
     # ── Check which range filters are active (for conditional SELECT columns) ──
@@ -330,6 +380,7 @@ def build_cyberlife_sql(
     disp_short_pay = dt.chk_short_pay.isChecked()
     disp_gpe_date = dt.chk_gpe_date.isChecked()
     disp_term_date = dt.chk_termination_date.isChecked()
+    disp_conversion_dates = dt.chk_conversion_dates.isChecked()
     disp_accum_wd = dt.chk_accum_withdrawals.isChecked()
     disp_cost_basis = dt.chk_cost_basis.isChecked()
     disp_prem_ptd = dt.chk_premiums_ptd.isChecked()
@@ -611,6 +662,9 @@ def build_cyberlife_sql(
         sql_parts.append(f"   UNION")
         sql_parts.append(f"   SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, GRA_PER_EXP_DT, IN_GRA_PER_IND")
         sql_parts.append(f"   FROM {schema}.LH_TRD_POL)")
+
+    if disp_conversion_dates:
+        sql_parts.append(", " + _conversion_sc_cte(schema))
 
     # Policy(2): Termination Entry Date (69) CTEs
     if has_term_entry or disp_term_date:
@@ -1135,6 +1189,9 @@ def build_cyberlife_sql(
         sql_parts.append("  , VARCHAR_FORMAT(TD.TERM_ENTRY_DT, 'MM/DD/YYYY') TERM_ENTRY_DT")
         sql_parts.append("  , VARCHAR_FORMAT(TD.TERM_EFFECTIVE_DT, 'MM/DD/YYYY') TERM_EFFECTIVE_DT")
         sql_parts.append("  , TD.TERM_TRANS_TYPES")
+    if disp_conversion_dates:
+        sql_parts.append("  , VARCHAR_FORMAT(SC.CONV_SC_ENTRY_DT, 'MM/DD/YYYY') CONV_SC_ENTRY_DT")
+        sql_parts.append("  , VARCHAR_FORMAT(SC.CONV_SC_EFFECTIVE_DT, 'MM/DD/YYYY') CONV_SC_EFFECTIVE_DT")
     if disp_accum_wd:
         sql_parts.append("  , POLICY_TOTALS.TOT_WTD_AMT")
     if disp_cost_basis:
@@ -1452,6 +1509,7 @@ def build_cyberlife_sql(
 
     # ── Custom Display tab: user-selected SELECT columns ────────
     sql_parts.extend(custom_select_lines)
+    sql_parts.extend(segment52_select_lines)
 
     # ── COVSALL ("any coverage") is only joined when something references it ──
     # It is an unrestricted join to LH_COV_PHA, so every extra coverage on a
@@ -1610,6 +1668,12 @@ def build_cyberlife_sql(
         sql_parts.append(f"  {_td_join} TERMINATION_DATES AS TD")
         sql_parts.append("    ON POLICY1.CK_CMP_CD = TD.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = TD.TCH_POL_ID")
+    if disp_conversion_dates:
+        sql_parts.append("  LEFT OUTER JOIN CONVERSION_SC SC")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = SC.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = SC.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = SC.TCH_POL_ID")
+        sql_parts.append("    AND SC.SC_ROW = 1")
     if has_77_segment or disp_policy_debt:
         _loan_join = "INNER JOIN" if has_77_segment else "LEFT OUTER JOIN"
         sql_parts.append(f"  {_loan_join} ALL_LOANS")
@@ -2138,6 +2202,7 @@ def build_cyberlife_sql(
 
     # -- Custom Display tab: text criteria on user-selected fields --
     wheres.extend(custom_where_lines)
+    wheres.extend(segment52_where_lines)
 
     # -- Bottom bar: System code --
     if sys_code:

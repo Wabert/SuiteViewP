@@ -55,10 +55,19 @@ def find_policy_companies(policy_num: str, region: str = "CKPR") -> List[str]:
         logger.warning("Company detection failed for %s: %s", policy_num, e)
         return []
 
+def _read_surrender_value(pi):
+    # CKPR UL monthliversary rows are in LH_POL_MVRY_VAL. The generic
+    # cash_surrender_value accessor first probes an undefined TH table.
+    value = pi.data_item("LH_POL_MVRY_VAL", "CSV_AMT")
+    return value if value is not None else pi.cash_surrender_value
+
+
 def build_abr_policy(
     policy_num: str,
     region: str,
     company_code: Optional[str] = None,
+    *,
+    use_cache: bool = True,
 ) -> Tuple[Optional[ABRPolicyData], Optional[object]]:
     """Fetch policy data from DB2 via the shared PolicyService and assemble an ABRPolicyData object.
 
@@ -79,7 +88,8 @@ def build_abr_policy(
         return ABRPolicyData(policy_number=pn, region=r)
         
     try:
-        pi = get_policy_info(policy_num, region=region, company_code=company_code)
+        pi = get_policy_info(policy_num, region=region, company_code=company_code,
+                             use_cache=use_cache)
         if pi is None:
             logger.info(f"Policy {policy_num} not found, manual entry mode")
             return _create_manual_policy(policy_num, region), None
@@ -278,7 +288,7 @@ def build_abr_policy(
             except Exception:
                 account_value = 0.0
         try:
-            surrender_value = float(pi.cash_surrender_value or 0)
+            surrender_value = float(_read_surrender_value(pi) or 0)
         except Exception:
             surrender_value = 0.0
         try:

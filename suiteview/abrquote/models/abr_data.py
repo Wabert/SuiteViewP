@@ -17,6 +17,11 @@ from .abr_constants import (
 )
 
 
+def default_minimum_face(product_type: str) -> float:
+    """Minimum remaining face populated by the dedicated ABR assessment panel."""
+    return 50_000.0 if product_type == "TERM" else 25_000.0
+
+
 @dataclass
 class RiderInfo:
     """Per-rider/benefit data for computing annual premium from TERM tables.

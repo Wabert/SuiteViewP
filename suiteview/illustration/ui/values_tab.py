@@ -950,12 +950,6 @@ class IllustrationValuesTab(QWidget):
     POLICY_VALUES_GROUP = "Policy Values"
     POLICY_VALUES_COLUMNS = [
         "AV",
-        "SCR Cov 1",
-        "SCR Cov 2",
-        "SCR Cov 3",
-        "SC Cov 1",
-        "SC Cov 2",
-        "SC Cov 3",
         "FullSC",
         "LapseSV",
         "Requested Loan",
@@ -1178,6 +1172,7 @@ class IllustrationValuesTab(QWidget):
         self._face_change_columns = self._face_change_column_names([1])
         self._mtp_columns = self._mtp_column_names([1], [], False)
         self._ctp_columns = self._ctp_column_names([1], [], False)
+        self._policy_values_columns = self._policy_values_column_names([1])
         self._cov_after_change_columns = self._cov_after_change_column_names([1], False)
         self._tab_grids: dict[str, FilterTableView] = {}
         self._content_widgets_by_title: dict[str, QWidget] = {}
@@ -1466,7 +1461,7 @@ class IllustrationValuesTab(QWidget):
             self.APPLY_PREMIUM_GROUP: self.APPLY_PREMIUM_COLUMNS,
             self.MONTHLY_DEDUCTION_GROUP: self._monthly_deduction_columns,
             self.EXCEPTION_PREMIUM_GROUP: self.EXCEPTION_PREMIUM_COLUMNS,
-            self.POLICY_VALUES_GROUP: self.POLICY_VALUES_COLUMNS,
+            self.POLICY_VALUES_GROUP: self._policy_values_columns,
             self.ACCUMULATION_GROUP: self.ACCUMULATION_COLUMNS,
             self.ENDING_VALUES_GROUP: self.ENDING_VALUES_COLUMNS,
             self.SHADOW_ACCOUNT_GROUP: self.SHADOW_ACCOUNT_COLUMNS,
@@ -1659,6 +1654,7 @@ class IllustrationValuesTab(QWidget):
         # MTP / CTP list every base coverage segment (like the Monthly Deduction
         # group) plus a column per rider — not just the first three cov_slots.
         target_slots = list(range(1, len(coverage_keys) + 1))
+        self._policy_values_columns = self._policy_values_column_names(target_slots)
         # FFL products carry the premium-waiver intermediates (Min_Base etc.) in
         # their MTP detail; surface those columns only when present.
         show_ffl = any(
@@ -1675,7 +1671,7 @@ class IllustrationValuesTab(QWidget):
         column_decimals.update({column: 6 for column in self._rate_columns})
         column_decimals.update({column: 6 for column in self._benefit_columns if " Rate " in column})
         column_decimals.update({column: 6 for column in self._rider_columns if " Rate " in column})
-        column_decimals.update({f"SCR Cov {index}": 6 for index in (1, 2, 3)})
+        column_decimals.update({f"SCR Cov {index}": 6 for index in target_slots})
         column_decimals.update({column: 6 for column in ("Shadow COIR", "Shadow COIR + Sub", "Shadow DBD Rate", "Shadow EPUR")})
         # Ratchet band COI rates render at 6 decimals like the regular COI rates.
         column_decimals.update({column: 6 for column in self._monthly_deduction_columns if "COI Rate B" in column})
@@ -2444,23 +2440,26 @@ class IllustrationValuesTab(QWidget):
         return detail
 
     @classmethod
+    def _policy_values_column_names(cls, slots: list[int]) -> list[str]:
+        return [
+            cls.POLICY_VALUES_COLUMNS[0],
+            *[f"SCR Cov {index}" for index in slots],
+            *[f"SC Cov {index}" for index in slots],
+            *cls.POLICY_VALUES_COLUMNS[1:],
+        ]
+
+    @classmethod
     def _policy_values(cls, state: MonthlyState, coverage_keys: list[str]) -> dict:
-        ordered_keys = list(coverage_keys)
-
-        def coverage_value(mapping: dict, index: int) -> float:
-            position = index - 1
-            if position < len(ordered_keys):
-                return mapping.get(ordered_keys[position], 0.0)
-            return 0.0
-
         return {
             "AV": cls._account_value_before_interest(state),
-            "SCR Cov 1": coverage_value(state.scr_rates_by_coverage, 1),
-            "SCR Cov 2": coverage_value(state.scr_rates_by_coverage, 2),
-            "SCR Cov 3": coverage_value(state.scr_rates_by_coverage, 3),
-            "SC Cov 1": coverage_value(state.surrender_charges_by_coverage, 1),
-            "SC Cov 2": coverage_value(state.surrender_charges_by_coverage, 2),
-            "SC Cov 3": coverage_value(state.surrender_charges_by_coverage, 3),
+            **{
+                f"SCR Cov {index}": state.scr_rates_by_coverage.get(key, 0.0)
+                for index, key in enumerate(coverage_keys, 1)
+            },
+            **{
+                f"SC Cov {index}": state.surrender_charges_by_coverage.get(key, 0.0)
+                for index, key in enumerate(coverage_keys, 1)
+            },
             "FullSC": state.surrender_charge,
             "LapseSV": state.surrender_value,
             # Loan distribution columns are not yet computed by the engine (CalcEngine TM-TU).

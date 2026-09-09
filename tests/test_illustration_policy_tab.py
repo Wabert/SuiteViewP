@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication
 
 from suiteview.illustration.ui.main_window import IllustrationWindow
 from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
+from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 
 
 _QT_APP = None
@@ -16,6 +17,20 @@ def _app():
     global _QT_APP
     _QT_APP = QApplication.instance() or QApplication([])
     return _QT_APP
+
+
+def test_coverage_detail_cola_indicator_for_live_and_snapshot():
+    _app()
+    tab = IllustrationPolicyTab()
+    snapshot = IllustrationPolicyData(segments=[
+        CoverageSegment(coverage_phase=1),
+        CoverageSegment(coverage_phase=2, is_cola=True),
+    ])
+    views = tab._snapshot_coverage_views(snapshot)
+    assert dict(tab._coverage_detail_rows(views[0]))["Added by COLA:"] == "No"
+    assert dict(tab._coverage_detail_rows(views[1]))["Added by COLA:"] == "Yes"
+    views[0].cola_indicator = "1 "
+    assert dict(tab._coverage_detail_rows(views[0]))["Added by COLA:"] == "Yes"
 
 
 def test_policy_tab_rate_warning_is_distinct_and_above_policy_info():

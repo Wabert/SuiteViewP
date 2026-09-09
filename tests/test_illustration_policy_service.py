@@ -148,6 +148,7 @@ class _FakePolicyInfo:
             terminate_date=None,
             maturity_date=date(2121, 1, 1),
             coi_rate=None,
+            cola_indicator="1" if phase == 2 else "0",
         )
 
 
@@ -187,6 +188,7 @@ def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch)
     policy = illustration_policy_service.build_illustration_data("U0126221")
 
     assert [segment.coverage_phase for segment in policy.segments] == [1, 2]
+    assert [segment.is_cola for segment in policy.segments] == [False, True]
     assert policy.face_amount == pytest.approx(200_000.0)
     assert policy.units == pytest.approx(200.0)
     assert policy.total_face == pytest.approx(200_000.0)

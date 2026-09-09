@@ -31,6 +31,7 @@ from .tabs.wl_tab import WlTab
 from .tabs.di_tab import DiTab
 from .tabs.benefits_tab import BenefitsTab
 from .tabs.transaction_tab import TransactionTab
+from .tabs.segment52_tab import Segment52Tab
 from .tabs.display_tab import DisplayTab
 from .tabs.custom_display_tab import CustomDisplayTab
 from .tabs.results_tab import ResultsTab
@@ -359,6 +360,8 @@ class AuditWindow(FramelessWindowBase):
         # Benefits tab
         self.benefits_tab = BenefitsTab()
         self.tabs.addTab(self.benefits_tab, "Benefits")
+        self.segment52_tab = Segment52Tab()
+        self.tabs.addTab(self.segment52_tab, "52 Segment")
         # Transaction tab
         self.transaction_tab = TransactionTab()
         self.tabs.addTab(self.transaction_tab, "Transaction")
@@ -1588,6 +1591,7 @@ class AuditWindow(FramelessWindowBase):
             plancode_tab=self.plancode_tab,
             benefits_tab=self.benefits_tab,
             transaction_tab=self.transaction_tab,
+            segment52_tab=self.segment52_tab,
         )
 
         # Prepend Common Table CTEs if any are selected
@@ -1626,6 +1630,7 @@ class AuditWindow(FramelessWindowBase):
             ("di", self.di_tab),
             ("benefits", self.benefits_tab),
             ("transaction", self.transaction_tab),
+            ("segment52", self.segment52_tab),
             ("display", self.display_tab),
             ("custom_display", self.custom_display_tab),
             ("plancode", self.plancode_tab),

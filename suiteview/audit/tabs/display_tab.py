@@ -90,11 +90,20 @@ class DisplayTab(QWidget):
         c1.addWidget(_spacer())
 
         self.chk_converted_pol = _cb("Converted policy info (52)")
+        self.chk_segment52 = _cb("Application / conversion fields (52-G)")
+        self.chk_conversion_dates = _cb("Latest SC conversion dates (69)")
+        self.chk_conversion_dates.setToolTip(
+            "Entry and effective dates from the latest non-reversed SC transaction "
+            "for policies whose last entry code is O (Termination - Conversion). "
+            "Latest is by entry date, time, then sequence; both reversal flags must "
+            "be 0. Other policies remain in the results with blank dates."
+        )
         self.chk_conv_credit = _cb("Conversion Credit Info (52 - PDF)")
         self.chk_init_term_period = _cb("Initial Term Period (02)")
         self.chk_disp_conv_period = _cb("Display if within Conversion Period (Calc)")
         self.chk_disp_conv_period_calc = _cb("Display Conversion Period (Calc)")
-        for w in (self.chk_converted_pol, self.chk_conv_credit,
+        for w in (self.chk_converted_pol, self.chk_segment52,
+                  self.chk_conversion_dates, self.chk_conv_credit,
                   self.chk_init_term_period, self.chk_disp_conv_period,
                   self.chk_disp_conv_period_calc):
             c1.addWidget(w)

@@ -1,6 +1,6 @@
 # PolView — Sub-App Documentation for AI Assistants
 
-**Last Updated:** September 7, 2026
+**Last Updated:** September 8, 2026
 
 > **Shared architecture** (PolicyInformation, DB2 connectivity, translation
 > dictionaries, bookmarks) is documented in [`Agent.md`](../Agent.md).
@@ -63,6 +63,13 @@ the coverage's issue age. PolView selects the **blank `USER_DEFINED` variant
 only**. It never falls back to user `00`, another company, another age or a
 nonblank variant. A nonblank variant requires an independently established
 mapping (the shared API can accept an explicit key).
+
+For Whole Life policies on **ETI or RPU** (`premium_pay_status_code` 44 or 45),
+selecting a coverage shows **"Cash value file is not available for policies on
+ETI or RPU."** in the Rates grid and status bar. This check precedes the rate/key
+lookup and clears previous results; it does not substitute the original Whole
+Life basis for the converted policy. Other paid-up statuses still load normally.
+Policy `13046235` is the live ETI regression example.
 
 The schedule maps actual source duration to `Decimal` rate. Duration zero is
 the issue date, duration one the first anniversary; do not apply the UL

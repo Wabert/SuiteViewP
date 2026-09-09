@@ -7,12 +7,25 @@ the data access layer and table definitions.
 """
 
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
 
 # ── Singleton ───────────────────────────────────────────────────────────
 
 _abr_db = None
+_quote_database = ContextVar("abr_quote_database", default=None)
+
+
+@contextmanager
+def using_quote_database(database):
+    """Scope a read-only quote data source without replacing the UI singleton."""
+    token = _quote_database.set(database)
+    try:
+        yield
+    finally:
+        _quote_database.reset(token)
 
 
 def get_abr_database():
@@ -20,6 +33,9 @@ def get_abr_database():
 
     Uses the UL_Rates ODBC DSN (shared SQL Server database).
     """
+    scoped = _quote_database.get()
+    if scoped is not None:
+        return scoped
     global _abr_db
     if _abr_db is not None:
         return _abr_db

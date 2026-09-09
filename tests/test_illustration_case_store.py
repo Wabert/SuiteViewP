@@ -294,7 +294,7 @@ def _full_snapshot() -> IllustrationPolicyData:
                 table_rating=2, table_cease_date=date(2030, 11, 9),
                 flat_extra=2.5, flat_cease_date=None, status="A",
                 maturity_date=date(2090, 11, 9), months_since_terminated=0,
-                coi_renewal_rate=0.123),
+                coi_renewal_rate=0.123, is_cola=True),
         ],
         benefits=[
             BenefitInfo(

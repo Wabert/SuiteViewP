@@ -283,6 +283,7 @@ def build_illustration_data(
         segments.append(CoverageSegment(
             coverage_phase=cov.cov_pha_nbr,
             is_base=True,
+            is_cola=str(getattr(cov, "cola_indicator", "")).strip() == "1",
             issue_date=cov.issue_date,
             issue_age=cov.issue_age if cov.issue_age is not None else issue_age,
             rate_sex=seg_rate_sex,

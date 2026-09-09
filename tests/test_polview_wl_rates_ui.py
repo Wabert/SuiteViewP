@@ -21,6 +21,7 @@ def display(qtbot):
     qtbot.addWidget(tabs)
     policy = SimpleNamespace(
         is_advanced_product=False, product_type="WL", company_code="08",
+        premium_pay_status_code="22",
         cov_cash_value_key=lambda index: "1WL511", cov_issue_age=lambda index: 59,
         build_coverage_rate_matrix=Mock(),
     )
@@ -38,6 +39,75 @@ def test_wl_rates_show_in_existing_filter_grid(display):
     assert display.raw_table_tab.table_label.text() == "Whole Life Cash Value Rates - Coverage 1"
     assert not display.raw_table_tab._is_transposed
     assert "2 rows" in display._show_status.call_args.args[0]
+
+
+@pytest.mark.parametrize("status", ["44", "45", " 44 ", " 45 "])
+@pytest.mark.parametrize("transposed", [False, True])
+def test_eti_rpu_shows_unavailable_without_looking_up_cash_values(display, status, transposed):
+    display._policy.premium_pay_status_code = status
+    display._policy.cov_cash_value_key = Mock()
+    display._policy.cov_issue_age = Mock()
+    display.raw_table_tab._is_transposed = transposed
+
+    GetPolicyWindow._on_rate_selected(display, "Coverages", "Cov 01", 1)
+
+    message = "Cash value file is not available for policies on ETI or RPU."
+    raw = display.raw_table_tab
+    assert display.tabs.currentWidget() is raw
+    assert raw.table_label.text() == "Whole Life Cash Value Rates - Coverage 1"
+    assert raw._current_cols == []
+    assert raw._current_rows == []
+    assert raw._df_normal is None
+    assert raw._df_transposed is None
+    for grid in (raw._normal_grid, raw._transposed_grid):
+        assert grid.model.rowCount() == 1
+        assert grid.model.data(grid.model.index(0, 0), Qt.ItemDataRole.DisplayRole) == message
+        assert grid.table_view.columnWidth(0) >= grid.table_view.fontMetrics().horizontalAdvance(message)
+    display._show_status.assert_called_with(message)
+    display._policy.build_coverage_rate_matrix.assert_not_called()
+    display._policy.cov_cash_value_key.assert_not_called()
+    display._policy.cov_issue_age.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["21", "22", "41", "42", "43", "46", "47"])
+def test_other_wl_statuses_still_load_cash_values_after_unavailable_message(display, status):
+    display._policy.premium_pay_status_code = "45"
+    GetPolicyWindow._on_rate_selected(display, "Coverages", "Cov 01", 1)
+    display._policy.premium_pay_status_code = status
+    display._policy.build_coverage_rate_matrix.return_value = [["Duration", "CV"], [0, 18.25]]
+
+    GetPolicyWindow._on_rate_selected(display, "Coverages", "Cov 01", 1)
+
+    display._policy.build_coverage_rate_matrix.assert_called_once_with(1)
+    assert display.raw_table_tab._current_rows == [(0, 18.25)]
+
+
+@pytest.mark.parametrize("product,advanced", [("UL", True), ("ISWL", True), ("TERM", False)])
+@pytest.mark.parametrize("status", ["44", "45"])
+def test_eti_rpu_message_does_not_block_other_product_rates(display, product, advanced, status):
+    display._policy.product_type = product
+    display._policy.is_advanced_product = advanced
+    display._policy.premium_pay_status_code = status
+    display._policy.build_coverage_rate_matrix.return_value = [["Year", "COI"], [1, 1.25]]
+
+    GetPolicyWindow._on_rate_selected(display, "Coverages", "Cov 01", 1)
+
+    display._policy.build_coverage_rate_matrix.assert_called_once_with(1)
+    assert display.raw_table_tab._current_rows == [(1, 1.25)]
+
+
+@pytest.mark.parametrize("category,builder", [
+    ("Benefits", "build_benefit_rate_matrix"), ("Policy", "build_policy_rate_matrix"),
+])
+def test_eti_message_does_not_block_other_rate_categories(display, category, builder):
+    display._policy.premium_pay_status_code = "44"
+    build = Mock(return_value=[["Year", "Rate"], [1, 1.25]])
+    setattr(display._policy, builder, build)
+
+    GetPolicyWindow._on_rate_selected(display, category, category, 1)
+
+    build.assert_called_once()
+    assert display.raw_table_tab._current_rows == [(1, 1.25)]
 
 
 def test_wl_missing_schedule_clears_old_rates_and_explains_exact_key(display):

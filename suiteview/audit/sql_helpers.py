@@ -4,6 +4,8 @@ Shared SQL helper functions used by both CyberLife and TAI query builders.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from typing import Literal
 
 
 def fmt_time(secs: float) -> str:
@@ -64,6 +66,44 @@ def selected_codes(listbox) -> list[str]:
 def in_list(codes: list[str]) -> str:
     """Build a SQL IN value list: 'A', 'B', 'C'."""
     return ", ".join(f"'{esc(c)}'" for c in codes)
+
+
+def strict_range_predicates(
+    column: str, lo: str, hi: str,
+    kind: Literal["date", "decimal", "integer"], label: str,
+) -> list[str]:
+    """Build inclusive ranges, rejecting invalid input rather than dropping it."""
+    bounds: list[Decimal | None] = []
+    literals: list[str] = []
+    for text in (lo.strip(), hi.strip()):
+        if not text:
+            bounds.append(None)
+            literals.append("")
+        elif kind == "date":
+            parsed = normalize_date(text)
+            if parsed is None:
+                raise ValueError(f"{label}: use MM/DD/YYYY or YYYY-MM-DD.")
+            bounds.append(Decimal(date.fromisoformat(parsed).toordinal()))
+            literals.append(f"'{parsed}'")
+        else:
+            try:
+                number = Decimal(text)
+            except InvalidOperation as exc:
+                raise ValueError(f"{label}: enter a number without commas.") from exc
+            if not number.is_finite():
+                raise ValueError(f"{label}: enter a finite number.")
+            if kind == "integer" and number != number.to_integral_value():
+                raise ValueError(f"{label}: enter a whole number.")
+            bounds.append(number)
+            literals.append(format(number, "f"))
+    lower, upper = bounds
+    if lower is not None and upper is not None and lower > upper:
+        raise ValueError(f"{label}: From must not be greater than To.")
+    result = []
+    for value, literal, operator in zip(bounds, literals, (">=", "<=")):
+        if value is not None:
+            result.append(f"{column} {operator} {literal}")
+    return result
 
 
 def add_int_range(wheres: list, column: str, lo_widget, hi_widget):

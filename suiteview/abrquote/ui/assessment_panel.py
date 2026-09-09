@@ -2432,13 +2432,9 @@ class AssessmentPanel(QWidget):
         self._policy = policy
         self._reset_assessment_inputs()
 
-        # Populate min face amount: $50,000 for TERM, $25,000 for all others
-        if policy.product_type == "TERM":
-            self._min_face_input.setText("50,000")
-            self._default_min_face = "50,000"
-        else:
-            self._min_face_input.setText("25,000")
-            self._default_min_face = "25,000"
+        from ..models.abr_data import default_minimum_face
+        self._default_min_face = f"{default_minimum_face(policy.product_type):,.0f}"
+        self._min_face_input.setText(self._default_min_face)
         self._update_min_face_reset_visibility()
 
         # UL/IUL/ISWL: rename Premium Impact → Monthly Deduction Impact

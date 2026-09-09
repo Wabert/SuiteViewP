@@ -1,4 +1,7 @@
 from datetime import date
+from types import SimpleNamespace
+
+import pytest
 
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
@@ -7,6 +10,112 @@ from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+
+
+@pytest.mark.parametrize("company,subsidiary,cola,exempt", [
+    ("26", "FFL", True, True),
+    ("26", "FFL", False, False),
+    ("01", "FFL", True, False),
+    ("26", "ANICO", True, False),
+])
+@pytest.mark.parametrize("basis", ["CurrentSA", "OriginalSA"])
+def test_cola_surrender_exemption_is_company_and_plan_specific(
+    company, subsidiary, cola, exempt, basis,
+):
+    policy = IllustrationPolicyData(
+        company_code=company,
+        segments=[CoverageSegment(
+            coverage_phase=4, is_cola=cola, units=25.0,
+            original_face_amount=50_000.0, issue_date=date(2026, 1, 1),
+        )],
+    )
+    config = PlancodeConfig(company_sub=subsidiary, expense_basis=basis)
+    rates = IllustrationRates(scr=[0.0, 99.0], segment_scr={4: [0.0, 2.0]})
+    _, total, rate_detail, charge_detail = calc_engine._calculate_surrender_charge(
+        policy, rates, 1, date(2026, 1, 1), config)
+
+    units = 50.0 if basis == "OriginalSA" else 25.0
+    expected = 0.0 if exempt else units * 2.0
+    assert total == expected
+    assert charge_detail == {"cov1": expected}
+    assert rate_detail == {"cov1": 0.0 if exempt else 2.0}
+
+
+def test_seven_coverage_projection_keeps_exempt_cola_columns(monkeypatch):
+    config = PlancodeConfig(
+        company_sub="FFL", gint=0.0, dbd=0.0, premium_load="0",
+        prem_flat_load=0.0, epu_code="0", mfee="0", poav_code="0",
+        bonus="0", corridor_code=None, snet_period=0,
+    )
+    monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
+    policy = IllustrationPolicyData(
+        company_code="26", plancode="TEST", issue_date=date(2026, 1, 1),
+        valuation_date=date(2026, 1, 1), issue_age=45, attained_age=45,
+        maturity_age=46, face_amount=700_000.0, units=700.0,
+        account_value=10_000.0,
+        segments=[CoverageSegment(
+            coverage_phase=index * 2, is_cola=index > 1,
+            issue_date=date(2026, 1, 1), face_amount=100_000.0, units=100.0,
+        ) for index in range(1, 8)],
+    )
+    results = IllustrationEngine().project(
+        policy, months=1, stop_on_lapse=False,
+        rates_override=IllustrationRates(scr=[0.0, 2.0]),
+        bonus_override=BonusConfig(),
+    )
+    assert len(results) == 2
+    for state in results:
+        assert state.surrender_charges_by_coverage == {
+            f"cov{index}": 200.0 if index == 1 else 0.0
+            for index in range(1, 8)
+        }
+        assert state.surrender_charge == 200.0
+        assert state.ending_sv == state.av_end_of_month - 200.0 - state.policy_debt
+
+
+def test_cola_face_reduction_does_not_charge_partial_surrender(monkeypatch):
+    monkeypatch.setattr(calc_engine, "_reband_segment", lambda *a, **k: None)
+    monkeypatch.setattr(calc_engine, "_reband_benefits", lambda *a: None)
+    policy = IllustrationPolicyData(company_code="26", segments=[
+        CoverageSegment(coverage_phase=1, face_amount=100_000.0, units=100.0),
+        CoverageSegment(coverage_phase=4, face_amount=25_000.0, units=25.0, is_cola=True),
+    ])
+    result = calc_engine._reduce_base_face(
+        policy, 30_000.0, IllustrationRates(scr=[0.0, 2.0]),
+        date(2026, 1, 1), 1, charge_scr=True,
+        config=PlancodeConfig(company_sub="FFL"),
+    )
+    assert result.cuts_by_phase == {4: 25_000.0, 1: 5_000.0}
+    assert result.psc_by_phase == {4: 0.0, 1: 10.0}
+    assert result.av_adjustment == -10.0
+
+
+def test_withdrawal_receives_effective_cola_surrender_rates(monkeypatch):
+    from suiteview.illustration.core.withdrawal_handler import WithdrawalResult
+
+    seen = []
+
+    def compute(av, policy, config, scr_rates, request, **kwargs):
+        seen.append(scr_rates)
+        return WithdrawalResult()
+
+    monkeypatch.setattr(calc_engine, "compute_withdrawal", compute)
+    monkeypatch.setattr(calc_engine, "get_corridor_factor", lambda *a: 1.0)
+    policy = IllustrationPolicyData(company_code="26", segments=[
+        CoverageSegment(coverage_phase=1),
+        CoverageSegment(coverage_phase=4, is_cola=True),
+    ])
+    loan = SimpleNamespace(
+        rg_loan_princ=0.0, rg_loan_accrued=0.0, pf_loan_princ=0.0,
+        pf_loan_accrued=0.0, vbl_loan_princ=0.0, vbl_loan_accrued=0.0,
+    )
+    calc_engine._process_withdrawal(
+        MonthlyState(), policy, PlancodeConfig(company_sub="FFL"),
+        IllustrationRates(scr=[0.0, 2.0]), 1, 45, date(2026, 1, 1),
+        100_000.0, 0.0, None, loan, True, None,
+    )
+    assert seen == [{1: 2.0, 4: 0.0}]
 
 
 def test_engine_allows_negative_ending_surrender_value(monkeypatch):

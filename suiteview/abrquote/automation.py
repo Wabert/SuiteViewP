@@ -1,0 +1,565 @@
+"""Agent entry point for the dedicated ABR Quote application's calculation.
+
+No windows, clipboard operations, recipient database, approvals or email sends.
+The small in-memory ports below run the *existing* UI orchestration methods;
+they deliberately do not reimplement actuarial calculations or HTML formatting.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from copy import deepcopy
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from hashlib import sha256
+import json
+import math
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+from .models.abr_data import ABRPolicyData
+from .models.abr_database import using_quote_database
+
+
+class QuoteError(ValueError):
+    """A request cannot be quoted without inventing or silently ignoring inputs."""
+
+
+class BoundaryReviewRequired(QuoteError):
+    """A valid nonnegative mortality boundary, rather than an exact target fit."""
+    def __init__(self, details):
+        self.details = details
+        super().__init__(
+            f"Nonnegative mortality boundary: requested ten-year survival "
+            f"{details['requested_10yr']}, attained {details['attained_10yr']}. "
+            "Canonical UI permits continuation; automated boundary acceptance requires review."
+        )
+
+
+def _number(value, name, minimum=0):
+    if isinstance(value, bool) or not isinstance(value, (float, int)):
+        raise QuoteError(f"{name} must be a number")
+    if not math.isfinite(value) or value < minimum:
+        raise QuoteError(f"{name} must be finite and >= {minimum}")
+    return value
+
+
+def _date(value, name):
+    try:
+        parsed = date.fromisoformat(value)
+        if parsed.isoformat() != value:
+            raise ValueError()
+        return parsed
+    except (ValueError, TypeError):
+        raise QuoteError(f"{name} must be YYYY-MM-DD") from None
+
+
+@dataclass(frozen=True)
+class QuoteRequest:
+    policy_number: str
+    company_code: str
+    region: str
+    quote_date: date
+    assessment: dict
+    options: dict
+    effective_date: date | None = None
+    input_provenance: dict | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "QuoteRequest":
+        if not isinstance(data, dict):
+            raise QuoteError("Request must be a JSON object")
+        required = {"policy_number", "company_code", "region", "quote_date",
+                    "assessment", "options"}
+        allowed = required | {"effective_date", "input_provenance"}
+        if required - data.keys() or data.keys() - allowed:
+            raise QuoteError(f"Missing fields: {sorted(required - data.keys())}; "
+                             f"unknown fields: {sorted(data.keys() - allowed)}")
+        for key in ("policy_number", "company_code", "region"):
+            if not isinstance(data[key], str) or not data[key].strip():
+                raise QuoteError(f"{key} must be an explicit non-empty string")
+            if data[key] != data[key].strip():
+                raise QuoteError(f"{key} must not contain surrounding whitespace")
+        qd = _date(data["quote_date"], "quote_date")
+        ed = (_date(data["effective_date"], "effective_date")
+              if data.get("effective_date") is not None else None)
+        if ed and ed != qd:
+            raise QuoteError("Distinct effective_date and quote_date are unsupported; "
+                             "the ABR application has one quote date, not an as-of policy loader")
+        assessment = data["assessment"]
+        options = data["options"]
+        if not isinstance(assessment, dict) or not isinstance(options, dict):
+            raise QuoteError("assessment and options must be objects")
+        _validate_assessment(assessment)
+        allowed_options = {"min_face_amount", "level_annual_premium", "loan_payoff",
+                           "surrender_value", "after_partial_deduction", "interest_rate_override"}
+        if options.keys() - allowed_options:
+            raise QuoteError(f"Unsupported options: {sorted(options.keys() - allowed_options)}")
+        if "min_face_amount" not in options:
+            raise QuoteError("options.min_face_amount is required; no guessed minimum")
+        for key, value in options.items():
+            _number(value, f"options.{key}")
+        if data.get("input_provenance") is not None and not isinstance(data["input_provenance"], dict):
+            raise QuoteError("input_provenance must be an object")
+        return cls(data["policy_number"], data["company_code"], data["region"],
+                   qd, deepcopy(assessment), deepcopy(options), ed,
+                   deepcopy(data.get("input_provenance") or {}))
+
+
+_SURVIVAL = {"five_year_survival": "five_year", "ten_year_survival": "ten_year",
+             "life_expectancy_years": "le"}
+_DIRECT = {"table": "table", "flat": "flat", "table_2": "table_2",
+           "flat_2": "flat_2", "increased_decrement": "incr_decrement"}
+
+
+def _validate_assessment(a):
+    allowed = {"rider_type", "return_after_5yr", "return_after_10yr"} | _SURVIVAL.keys() | _DIRECT.keys()
+    if a.keys() - allowed or a.get("rider_type") not in {"Terminal", "Chronic", "Critical"}:
+        raise QuoteError("Invalid/unsupported assessment fields or rider_type")
+    if a["rider_type"] == "Terminal":
+        if set(a) != {"rider_type"}:
+            raise QuoteError("Terminal uses the application's fixed 50% annual mortality; "
+                             "additional medical inputs are unsupported")
+        return
+    if not (set(a) & (_SURVIVAL.keys() | {"table", "increased_decrement"})):
+        raise QuoteError("Non-terminal assessment requires survival, table or increased_decrement")
+    if "life_expectancy_years" in a and set(a) & {"five_year_survival", "ten_year_survival"}:
+        raise QuoteError("Do not combine life expectancy with survival targets (UI would ignore LE)")
+    for key in _SURVIVAL:
+        if key in a:
+            n = _number(a[key], key)
+            if key != "life_expectancy_years" and not 0 < n < 1:
+                raise QuoteError(f"{key} must be strictly between 0 and 1")
+            if key == "life_expectancy_years" and n <= 0:
+                raise QuoteError("life_expectancy_years must be positive")
+    if a.get("ten_year_survival", 0) > a.get("five_year_survival", 1):
+        raise QuoteError("10-year survival cannot exceed 5-year survival")
+    for key in ("return_after_5yr", "return_after_10yr"):
+        if key in a and not isinstance(a[key], bool):
+            raise QuoteError(f"{key} must be boolean")
+        source = "five_year_survival" if key == "return_after_5yr" else "ten_year_survival"
+        if a.get(key) and source not in a:
+            raise QuoteError(f"{key} requires {source}")
+    if a.get("return_after_5yr") and "ten_year_survival" in a:
+        raise QuoteError("Dual survival uses return_after_10yr, not return_after_5yr")
+    for key in _DIRECT:
+        if key not in a:
+            continue
+        item = a[key]
+        if not isinstance(item, dict) or set(item) != {"value", "start_year", "stop_year"}:
+            raise QuoteError(f"{key} requires value, start_year and exclusive stop_year")
+        _number(item["value"], key)
+        for bound in ("start_year", "stop_year"):
+            if type(item[bound]) is not int or item[bound] < 1:
+                raise QuoteError(f"{key}.{bound} must be a positive integer")
+        if item["stop_year"] <= item["start_year"]:
+            raise QuoteError(f"{key}.stop_year must exceed start_year")
+
+
+def policy_activity(pi):
+    """Resolve current activity without inventing a missing legacy status code."""
+    from suiteview.polview.models.cl_polrec.policy_translations import (
+        PREMIUM_PAY_STATUS_CODES, SUSPENSE_CODES,
+    )
+    if str(pi.status_code).strip():
+        return {"verified_active": bool(pi.is_active), "source": "PolicyInformation.status_code",
+                "status_code": pi.status_code}
+    paying = str(pi.data_item("LH_BAS_POL", "PRM_PAY_STA_REA_CD") or "").strip()
+    raw_suspense = pi.data_item("LH_BAS_POL", "SUS_CD")
+    suspense = "" if raw_suspense is None else str(raw_suspense).strip()
+    return {
+        "verified_active": paying in {"21", "22"} and suspense == "0",
+        "source": "LH_BAS_POL actual billing/suspense fields; maintained policy_translations",
+        "premium_pay_status_code": paying,
+        "premium_pay_status_description": PREMIUM_PAY_STATUS_CODES.get(paying),
+        "suspense_code": suspense, "suspense_description": SUSPENSE_CODES.get(suspense),
+        "limitation": "Conservative fallback supports explicit premium-paying/active only; not historical status.",
+    }
+
+
+def _json_value(value):
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {str(k): _json_value(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(v) for v in value]
+    return value
+
+
+class _Value:
+    """In-memory value/signal port; never a Qt widget."""
+    def __init__(self, value=""):
+        self.value = value
+
+    def text(self):
+        return str(self.value)
+
+    def currentText(self):
+        return str(self.value)
+
+    def isChecked(self):
+        return bool(self.value)
+
+    def setText(self, value):
+        self.value = value
+
+    def setEnabled(self, value):
+        pass
+
+    def setVisible(self, value):
+        pass
+
+    def emit(self, *args):
+        pass
+
+
+def _raise(message):
+    raise QuoteError(message)
+
+
+def _assessment_port(policy, request):
+    from .ui.assessment_panel import AssessmentPanel
+    from .automation_data import reject_lookup_warnings
+    a = request.assessment
+    port = SimpleNamespace(
+        _policy=policy, _assessment=None,
+        rider_combo=_Value(a["rider_type"]),
+        _derived_labels=defaultdict(_Value), derived_group=_Value(),
+        status_label=_Value(), calc_btn=_Value(), assessment_ready=_Value(),
+        _clear_warning=lambda: None, _show_warning=_raise,
+        chk_return_5yr=_Value(a.get("return_after_5yr", False)),
+        chk_return_10yr=_Value(a.get("return_after_10yr", False)),
+    )
+    for key, stem in _SURVIVAL.items():
+        setattr(port, f"chk_{stem}", _Value(key in a))
+        setattr(port, f"{stem}_input", _Value(a.get(key, "")))
+    for key, stem in _DIRECT.items():
+        item = a.get(key, {})
+        setattr(port, f"chk_{stem}", _Value(key in a))
+        setattr(port, f"{stem}_input", _Value(item.get("value", "")))
+        setattr(port, f"{stem}_start_input", _Value(item.get("start_year", "")))
+        setattr(port, f"{stem}_stop_input", _Value(item.get("stop_year", "")))
+    if a["rider_type"] == "Terminal":
+        AssessmentPanel._populate_terminal_derived(port)
+        AssessmentPanel.create_terminal_assessment(port)
+    else:
+        try:
+            with reject_lookup_warnings("suiteview.abrquote.core.goal_seek"):
+                AssessmentPanel._on_calculate(port)
+        except QuoteError as exc:
+            if "Period 2 table rating goal seek failed:" not in str(exc):
+                raise
+            _check_survival_boundary(a, port._assessment)
+            raise
+    if port._assessment is None:
+        raise QuoteError("The application's medical assessment produced no result")
+    _validate_assessment_result(a, port._assessment)
+    return port._assessment
+
+
+def _check_survival_boundary(inputs, assessment):
+    if (assessment is None or inputs.keys() & _DIRECT.keys()
+            or not assessment.use_five_year or not assessment.use_ten_year):
+        return
+    if not {"five_year_survival", "ten_year_survival"} <= inputs.keys():
+        return
+    if (abs(assessment.computed_survival_5yr - inputs["five_year_survival"]) <= .0001
+            and assessment.derived_table_rating_10yr == 0
+            and inputs["ten_year_survival"] > assessment.computed_survival_10yr + .0001):
+        raise BoundaryReviewRequired({
+            "kind": "nonnegative_mortality_boundary",
+            "requested_5yr": inputs["five_year_survival"],
+            "attained_5yr": assessment.computed_survival_5yr,
+            "requested_10yr": inputs["ten_year_survival"],
+            "attained_10yr": assessment.computed_survival_10yr,
+            "period_2_extra_table": 0,
+            "ui_permits_continuation": True,
+            "exact_fit": False,
+            "required_review": "Confirm company acceptance of the standard-mortality boundary "
+                               "for the supplied survival interpretation; do not replace source inputs.",
+        })
+
+
+def _validate_assessment_result(inputs, assessment):
+    """Never present a goal-seek fallback as a successful fit to supplied targets."""
+    if inputs["rider_type"] == "Terminal" or inputs.keys() & _DIRECT.keys():
+        return
+    _check_survival_boundary(inputs, assessment)
+    for source, computed, tolerance in (
+        ("five_year_survival", "computed_survival_5yr", 0.0001),
+        ("ten_year_survival", "computed_survival_10yr", 0.0001),
+        ("life_expectancy_years", "computed_le", 0.001),
+    ):
+        if source in inputs:
+            value = getattr(assessment, computed)
+            if not math.isfinite(value) or abs(value - inputs[source]) > tolerance:
+                raise QuoteError(f"Canonical assessment did not fit {source}: "
+                                 f"requested {inputs[source]}, calculated {value}; no quote issued")
+
+
+class _Results:
+    def __init__(self):
+        self.result = None
+
+    def display_results(self, result):
+        self.result = result
+
+    def set_calc_data(self, *args):
+        pass
+
+
+class _Output:
+    def set_result(self, *args): pass
+    def set_assessment(self, *args): pass
+    def set_calc_data(self, *args): pass
+    def set_derived_values(self, *args): pass
+    def set_accel_inputs_fn(self, *args): pass
+    def set_after_partial_deduction_fn(self, *args): pass
+
+
+class _RateTrace:
+    """Record every canonical rate lookup; disallow hidden missing-rate results."""
+    def __init__(self, source, product_type):
+        self.source = source
+        self.product_type = product_type
+        self.calls = {}
+
+    def __getattr__(self, name):
+        if not name.startswith("get_"):
+            raise AttributeError(name)
+        method = getattr(self.source, name)
+
+        def call(*args, **kwargs):
+            if (self.product_type == "TERM"
+                    and name in {"get_modal_factor", "get_modal_fee_factor"}
+                    and args[1] != 1
+                    and hasattr(self.source, "_get_modefact_row")):
+                from .models.abr_odbc_database import _MODEFACT_COLUMN_MAP
+                columns = _MODEFACT_COLUMN_MAP.get(args[1])
+                row = self.source._get_modefact_row(args[0])
+                index = 1 if name == "get_modal_fee_factor" else 0
+                if not columns or not row or row.get(columns[index]) is None:
+                    raise QuoteError("Required modal factor missing; no annual fallback permitted")
+            value = method(*args, **kwargs)
+            key = json.dumps(_json_value([name, args, kwargs]), sort_keys=True)
+            self.calls[key] = _json_value(value)
+            # UL orchestration calls the term premium display calculator even
+            # though its APV premiums come exclusively from the explicit level input.
+            ul_term_display = self.product_type in {"UL", "IUL", "ISWL"} and name == "get_term_rate"
+            if value is None and not ul_term_display:
+                raise QuoteError(f"Required rate data missing: {name}{args}")
+            if name.endswith("_schedule") and not value and self.product_type == "TERM":
+                raise QuoteError(f"Required rate schedule missing: {name}{args}")
+            return value
+        return call
+
+
+def calculate_quote(request: QuoteRequest | dict, policy: ABRPolicyData, *,
+                    database, policy_provenance: dict, eligible_riders: set[str]) -> dict:
+    """Offline/injected API. Caller supplies verified policy, rate source and eligibility.
+
+    The supplied policy is copied; the rate source must expose the canonical
+    ABR read-only get_* interface. No live access is selected by this function.
+    """
+    if isinstance(request, QuoteRequest):
+        request = QuoteRequest.from_dict(_json_value(asdict(request)))
+    else:
+        request = QuoteRequest.from_dict(request)
+    if not isinstance(policy_provenance, dict):
+        raise QuoteError("policy_provenance must be an object identifying the supplied data")
+    p = deepcopy(policy)
+    if p.policy_number != request.policy_number or p.region != request.region:
+        raise QuoteError("Loaded policy identity does not match request")
+    if p.company.split(" ")[0] != request.company_code:
+        raise QuoteError("Loaded company does not match request")
+    if request.assessment["rider_type"] not in eligible_riders:
+        raise QuoteError("Requested ABR rider is not verified active on this policy")
+    if p.product_type not in {"TERM", "UL", "IUL", "ISWL"}:
+        raise QuoteError(f"Unsupported ABR product: {p.product_type!r}")
+    if not p.issue_date or not p.plan_code or not p.issue_state or not p.rate_class:
+        raise QuoteError("Required policy issue date, plan, state or rate class is missing")
+    if (p.rate_sex or p.sex) not in {"M", "F"}:
+        raise QuoteError("Unsupported or missing mortality rate sex")
+    if p.face_amount <= 0 or p.maturity_age <= p.issue_age or p.policy_year < 1 or not 1 <= p.policy_month <= 12:
+        raise QuoteError("Invalid policy face, maturity or duration")
+    if p.billing_mode not in {1, 2, 3, 4, 5, 6}:
+        raise QuoteError("Unsupported billing mode")
+    if request.quote_date < p.issue_date or (p.maturity_date and request.quote_date >= p.maturity_date):
+        raise QuoteError("Quote date is outside policy coverage")
+    if not p.reinsurers:
+        raise QuoteError("Reinsurer lookup status is required; do not replace unknown with '(none)'")
+    opt = request.options
+    if opt["min_face_amount"] > p.face_amount:
+        raise QuoteError("Minimum remaining face exceeds policy face")
+    is_ul = p.product_type in {"UL", "IUL", "ISWL"}
+    ul_fields = {"level_annual_premium", "loan_payoff", "surrender_value"}
+    if is_ul and ul_fields - opt.keys():
+        raise QuoteError(f"UL requires explicit options: {sorted(ul_fields - opt.keys())}")
+    if not is_ul and opt.keys() & (ul_fields | {"after_partial_deduction"}):
+        raise QuoteError("UL-specific inputs supplied for a TERM product")
+
+    from .ui.abr_window import ABRQuoteWindow
+    from .ui.email_print_dialog import EmailPrintDialog
+    trace = _RateTrace(database, p.product_type)
+    with using_quote_database(trace):
+        assessment = _assessment_port(p, request)
+        results = _Results()
+        assessment_results = _Results()
+        assessment_results.get_min_face_amount = lambda: opt["min_face_amount"]
+        assessment_results.set_partial_premium_breakdown = lambda value: None
+        assessment_results.get_derived_display_values = lambda: {}
+        assessment_results.get_after_partial_deduction = lambda: str(opt.get("after_partial_deduction", ""))
+        state = SimpleNamespace(
+            _policy=p, _assessment=assessment, status_label=_Value(),
+            _email_print_btn=_Value(), results_panel=results,
+            assessment_panel=assessment_results, output_panel=_Output(),
+            policy_panel=SimpleNamespace(
+                get_quote_date=lambda: request.quote_date,
+                get_interest_rate_override=lambda: opt.get("interest_rate_override"),
+                ul_level_prem_input=_Value(opt.get("level_annual_premium", "")),
+                ul_loan_payoff_input=_Value(opt.get("loan_payoff", "")),
+                ul_surrender_value_input=_Value(opt.get("surrender_value", "")),
+            ),
+        )
+        state._generate_messages = lambda *args: ABRQuoteWindow._generate_messages(state, *args)
+        state._get_current_accel_inputs = lambda: (p.default_death_benefit, opt["min_face_amount"])
+        ABRQuoteWindow._run_calculation(state)
+        if results.result is None or state.status_label.text() != "ABR Quote calculated successfully.":
+            raise QuoteError(state.status_label.text())
+    render = SimpleNamespace(_policy=p, _assessment=assessment,
+                             _result=results.result, _fmt=EmailPrintDialog._fmt)
+    sections = EmailPrintDialog._build_summary_sections(render)
+    html = EmailPrintDialog._build_clipboard_html(render, sections)
+    text = EmailPrintDialog._build_clipboard_text(render, sections)
+    root = Path(__file__).parent
+    files = [Path(__file__), root / "automation_data.py", *sorted((root / "core").glob("*.py")),
+             root / "models" / "abr_constants.py", root / "models" / "abr_data.py",
+             root / "models" / "abr_odbc_database.py", root / "models" / "abr_database.py",
+             root / "ui" / "abr_window.py", root / "ui" / "assessment_panel.py",
+             root / "ui" / "email_print_dialog.py",
+             root.parent / "core" / "policy_service.py",
+             root.parent / "core" / "reinsurance.py",
+             root.parent / "polview" / "models" / "policy_information.py",
+             root.parents[1] / "tools" / "abrquote" / "quote.py"]
+    output = _json_value({
+        "schema_version": 1, "status": "calculated",
+        "html": html, "text": text, "numbers": asdict(results.result),
+        "assessment": asdict(assessment), "policy": asdict(p),
+        "warnings": getattr(assessment, "automation_warnings", []),
+        "needs_review": bool(getattr(assessment, "automation_warnings", [])),
+        "quote_issued": False,
+        "provenance": {
+            "request": asdict(request), "policy_source": policy_provenance,
+            "execution_mode": "strict",
+            "historical_equivalence_asserted": False,
+            "calculated_at": datetime.now(timezone.utc),
+            "engine": "SuiteView dedicated ABR Quote (not IllustrationEngine)",
+            "renderer": "EmailPrintDialog._build_clipboard_html",
+            "source_sha256": {str(f.relative_to(root.parents[1])): sha256(f.read_bytes()).hexdigest() for f in files},
+            "rate_lookups": trace.calls,
+            "date_semantics": "Quote date controls interest/per-diem and premium duration. "
+                              "Mortality/APV and HTML retain the loaded policy duration, exactly "
+                              "as the ABR application does. Live data is not a historical snapshot.",
+            "eligible_riders": sorted(eligible_riders),
+            "after_partial_deduction": opt.get("after_partial_deduction"),
+        },
+    })
+    json.dumps(output, allow_nan=False)
+    return output
+
+
+def quote_abr(request: QuoteRequest | dict) -> dict:
+    """Read-only live adapter. Callers own authorization; this function never prompts."""
+    if isinstance(request, QuoteRequest):
+        req = QuoteRequest.from_dict(_json_value(asdict(request)))
+    else:
+        req = QuoteRequest.from_dict(request)
+    if os.environ.get("SUITEVIEW_LOCAL_DATA") == "1":
+        raise QuoteError("Live ABR quoting requires local-data mode to be disabled; "
+                         "use calculate_quote for explicit offline fixtures")
+    from .core.abr_policy_service import build_abr_policy
+    from .automation_data import open_rate_database, reject_lookup_warnings
+    from .ui.assessment_panel import AssessmentPanel
+    from suiteview.core.reinsurance import fetch_reinsurer_list
+    # Never reuse a previous agent's policy snapshot.
+    with reject_lookup_warnings("suiteview.polview.models"):
+        with reject_lookup_warnings("suiteview.abrquote.core.abr_policy_service"):
+            p, pi = build_abr_policy(req.policy_number, req.region,
+                                     company_code=req.company_code, use_cache=False)
+    if pi is None or p is None:
+        raise QuoteError("Live policy retrieval failed; manual/default policy is forbidden")
+    activity = policy_activity(pi)
+    if not activity["verified_active"]:
+        raise QuoteError(f"Policy is not active (status {pi.status_code}); "
+                         "historical in-force reconstruction is unsupported")
+    actual_company = str(pi.data_item("LH_BAS_POL", "CK_CMP_CD") or "").strip()
+    if actual_company != req.company_code:
+        raise QuoteError("Live company identity mismatch")
+    for field in ("base_issue_age", "base_rate_class", "age_at_maturity",
+                  "billing_frequency", "policy_month", "policy_year",
+                  "primary_insured_face_amount", "issue_date"):
+        if getattr(pi, field) in (None, ""):
+            raise QuoteError(f"Required CyberLife input missing: {field}")
+    for field in ("age_at_maturity", "billing_frequency", "policy_month", "policy_year"):
+        if getattr(pi, field) <= 0:
+            raise QuoteError(f"Invalid CyberLife input: {field}")
+    # The builder has UI-friendly catch-and-default paths. Re-read these cached
+    # domain collections so retrieval failures cannot become empty rider lists.
+    pi.get_substandard_ratings(1)
+    coverages = pi.get_coverages()
+    benefits = pi.get_benefits()
+    pi.primary_insured_db_layers
+    if p.product_type in {"UL", "IUL", "ISWL"}:
+        if pi.mv_monthly_deduction() is None:
+            raise QuoteError("UL monthly deduction is missing")
+        if str(p.db_option).upper() in {"2", "B"} and pi.mv_av(0) is None and pi.accumulation_value is None:
+            raise QuoteError("Option B account value is missing")
+        if str(p.db_option).upper() in {"3", "C"} and pi.total_premiums_paid is None:
+            raise QuoteError("Option C premiums paid is missing")
+    p.company = actual_company
+    with reject_lookup_warnings("suiteview.core.reinsurance"):
+        p.reinsurers = fetch_reinsurer_list(req.policy_number, req.company_code, req.quote_date)
+    eligible = set()
+    primary_phases = {cov.cov_pha_nbr for cov in coverages if cov.person_code in {"00", ""}}
+    for benefit in benefits:
+        if str(benefit.benefit_type_cd).strip() == "#":
+            if benefit.cov_pha_nbr not in primary_phases:
+                continue
+            if benefit.issue_date is None:
+                raise QuoteError("ABR rider issue date is missing; eligibility cannot be verified")
+            if benefit.issue_date > req.quote_date:
+                continue
+            if benefit.cease_date and benefit.cease_date < req.quote_date:
+                continue
+            rider = AssessmentPanel._ABR_SUBTYPE_TO_RIDER.get(str(benefit.benefit_subtype_cd).strip())
+            if rider:
+                eligible.add(rider)
+    db, queries = open_rate_database(p.product_type)
+    try:
+        response = calculate_quote(req, p, database=db, eligible_riders=eligible,
+                               policy_provenance={
+                                   "source": "CyberLife DB2 via build_abr_policy/PolicyInformation",
+                                   "company_code": actual_company, "region": req.region,
+                                   "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                                   "valuation_date": _json_value(p.valuation_date),
+                                   "policy_status": pi.status_code,
+                                   "activity_resolution": activity,
+                                   "abr_benefits": [
+                                       {"type": b.benefit_type_cd, "subtype": b.benefit_subtype_cd,
+                                        "coverage_phase": b.cov_pha_nbr,
+                                        "issue_date": _json_value(b.issue_date),
+                                        "cease_date": _json_value(b.cease_date)}
+                                       for b in benefits if str(b.benefit_type_cd).strip() == "#"
+                                   ],
+                                   "reinsurance": "TAICession via fetch_reinsurer_list",
+                                   "rates": "UL_Rates ODBC; IssueVersion=1; current scale then guaranteed",
+                               })
+        response["provenance"]["rate_queries"] = queries
+        return response
+    finally:
+        db.close()

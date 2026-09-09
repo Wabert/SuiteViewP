@@ -217,6 +217,74 @@ def test_accumulation_values_group_shows_unimpaired_interest():
     assert tab._tab_grids["Accumulation"].df.iloc[0]["Unimpaired Int"] == 17.5
 
 
+@pytest.mark.parametrize("coverage_count", [1, 2, 3, 7, 12])
+def test_policy_values_shows_every_coverage_in_numeric_order(coverage_count):
+    _app()
+    tab = IllustrationValuesTab()
+    slots = list(range(1, coverage_count + 1))
+    state = MonthlyState(
+        scr_rates_by_coverage={f"cov{i}": i + 0.123456 for i in reversed(slots)},
+        surrender_charges_by_coverage={f"cov{i}": i * 100.0 for i in reversed(slots)},
+        surrender_charge=sum(i * 100.0 for i in slots),
+        surrender_value=12345.0,
+    )
+    policy = IllustrationPolicyData(
+        segments=[CoverageSegment(face_amount=100000) for _ in slots],
+    )
+
+    tab.display_projection(policy, [state])
+
+    grid = tab._tab_grids["Policy Values"]
+    columns = list(grid.df.columns)
+    scr_columns = [f"SCR Cov {i}" for i in slots]
+    sc_columns = [f"SC Cov {i}" for i in slots]
+    assert columns == [
+        "Date", "Year", "Month", "Attained Age", "AV",
+        *scr_columns, *sc_columns,
+        "FullSC", "LapseSV", "Requested Loan", "Loan Mode Effective",
+        "Scheduled Loan Amount", "Remaining Distribution", "vAppliedLoan", "Gain",
+        "New Reg LN", "New Pref LN", "AdvRegLNInt", "PrefRegLNInt",
+        "Total Rg Ln Princ", "Total Pref Ln Princ", "Total Vbl Ln Princ", "AV Display",
+    ]
+    assert grid.df.iloc[0][scr_columns].tolist() == [i + 0.123456 for i in slots]
+    assert grid.df.iloc[0][sc_columns].tolist() == [i * 100.0 for i in slots]
+    assert grid.df.iloc[0]["FullSC"] == state.surrender_charge
+    assert grid.df.iloc[0]["LapseSV"] == 12345.0
+    assert grid.model.data(grid.model.index(0, columns.index(scr_columns[-1]))) == (
+        f"{coverage_count}.123456"
+    )
+
+
+def test_policy_values_coverage_columns_stay_stable_across_months_and_reset_on_reload():
+    _app()
+    tab = IllustrationValuesTab()
+    first = MonthlyState(
+        scr_rates_by_coverage={"cov2": 2.0},
+        surrender_charges_by_coverage={"cov2": 200.0},
+    )
+    second = MonthlyState(
+        scr_rates_by_coverage={"cov1": 1.0},
+        surrender_charges_by_coverage={"cov7": 700.0},
+    )
+
+    tab.display_projection(_policy(), [first, second])
+
+    grid = tab._tab_grids["Policy Values"]
+    assert grid.df[["SCR Cov 1", "SCR Cov 2", "SCR Cov 3"]].values.tolist() == [
+        [0.0, 2.0, 0.0], [1.0, 0.0, 0.0],
+    ]
+    assert grid.df[["SC Cov 1", "SC Cov 2", "SC Cov 3"]].values.tolist() == [
+        [0.0, 200.0, 0.0], [0.0, 0.0, 700.0],
+    ]
+    assert "SCR Cov 4" not in grid.df.columns
+    assert "SC Cov 4" not in grid.df.columns
+
+    tab.display_projection(_policy(), [_state()])
+
+    assert "SCR Cov 3" not in grid.df.columns
+    assert "SC Cov 3" not in grid.df.columns
+
+
 def test_loan_capitalize_and_accumulation_show_inforce_loan_buckets():
     _app()
     tab = IllustrationValuesTab()

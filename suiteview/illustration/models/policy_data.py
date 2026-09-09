@@ -12,6 +12,7 @@ class CoverageSegment:
     # Identity
     coverage_phase: int = 1
     is_base: bool = True
+    is_cola: bool = False
 
     # Demographics (per-segment — may differ from policy-level)
     issue_date: Optional[date] = None

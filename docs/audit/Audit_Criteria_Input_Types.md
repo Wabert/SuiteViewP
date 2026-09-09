@@ -14,6 +14,60 @@ This document categorizes all the input types across the first 8 tabs (Policy th
 
 ---
 
+## Native Cyberlife additions: 52-G and conversion dates (2026-09-08)
+
+The **52 Segment** page supports criteria and individual display checkboxes for
+these `TH_USER_GENERIC` columns:
+
+| Input | Columns |
+|-------|---------|
+| Inclusive date range | `APP_RECEIVED_DATE`, `SRC_CONV_EXP_DT`, `SOURCE_PLAN_EFF_DATE`, `SOURCE_ISSUE_DATE` |
+| Text match (Exact, Contains, Begins with, Ends with) | `SOURCE_PLAN_CODE`, `SOURCE_CNV_CREDIT_IND` |
+| Decimal amount range | `SOURCE_FACE_AMT`, `CONV_CREDIT_AMT`, `CONV_FACE_AMT` |
+| Whole-number range | `CONV_CREDIT_PERIOD`, `CONV_TO_TRM_PERIOD` |
+
+Either range endpoint may be blank. Dates accept MM/DD/YYYY or YYYY-MM-DD.
+Invalid or inverted ranges block SQL generation with a field-specific message.
+Text inputs uppercase in the field; comparisons ignore case and surrounding spaces.
+Criteria automatically include the corresponding column in results.
+**Display all 52-G fields** on the page, or **Application / conversion fields
+(52-G)** on Display, selects all eleven without requiring criteria.
+
+These fields reuse the existing `USERGEN` left join on `CK_SYS_CD`, `CK_CMP_CD`,
+and `TCH_POL_ID`; display-only selections do not remove policies with no segment.
+No arbitrary `TYPE_SEQUENCE` is selected: if a policy has multiple distinct
+52-G records, their displayed values can produce multiple result rows.
+These are policy user fields, not the similarly named conversion rules in
+`TH_USER_PDF`; the existing conversion/PDF displays remain available separately.
+Page selections and criteria participate in Save, reopen, and New/clear.
+
+**Display > Latest SC conversion dates (69)** adds `CONV_SC_ENTRY_DT` and
+`CONV_SC_EFFECTIVE_DT`. It considers only policies with
+`LH_BAS_POL.LST_ETR_CD = 'O'` (Termination - Conversion), and only `FH_FIXED`
+rows with `TRANS = 'SC'`, `FCB0_REV_IND = '0'`, and `FCB2_REV_APPL_IND = '0'`.
+It takes one row per policy, ordered by `ENTRY_DT`, `ENTRY_TIME`, then `SEQ_NO`,
+descending (null dates/times last). Both dates come from that same row:
+entry = `ENTRY_DT`, effective = `ASOF_DT`. Missing or ineligible data stays
+blank; the display itself never filters policies out. This is independent of
+the Transaction tab criteria and the existing termination-date display.
+
+Live CKPR metadata and the complete generated SQL were verified with zero-row
+queries. **Important:** `FH_FIXED` has no `CK_SYS_CD`; join it by company/policy
+and carry the system from `LH_BAS_POL`. The physical time column is
+`ENTRY_TIME`, not `TIME` as the older translation workbook suggests.
+
+Regression checks:
+
+```powershell
+venv\Scripts\python.exe -m pytest tests\test_audit_segment52.py tests\test_audit_transaction_tab.py -q
+venv\Scripts\python.exe tools\audit\verify_conversion_segments.py --verify-live
+venv\Scripts\python.exe tools\audit\verify_conversion_schema.py
+```
+
+The UI verifier accepts `--screenshots DIR`; omit `--verify-live` for offline
+UI/state checks. The schema verifier only reads column metadata and compiles
+the conversion CTE; neither verifier exports policy rows.
+
 ## Fields by Tab (VBA ExcelTool)
 
 ### 1. Policy Tab
@@ -393,4 +447,3 @@ The original VBA tool did not have a dedicated Dividends criteria tab — divide
 
 **Display Outputs:**
 *   Dividend type, year, OYT/PUA face amounts, deposit amounts, and interest amounts are displayable columns in the results grid.
-

@@ -3,6 +3,8 @@
 Usage: venv\\Scripts\\python.exe tools\\rates\\verify_polview_wl_rates.py @config.json
 Config: policy, company, region, coverage (1-based), output, screenshot, expected.
 Expected may contain rate_key, issue_age, count, and rates keyed by duration.
+Alternatively, expected.message verifies an unavailable-file message in the
+actual Rates view without looking up a schedule (screenshot remains optional).
 Only reads live policy/rate data; the screenshot loads just the Rates surface.
 """
 
@@ -18,7 +20,8 @@ from suiteview.core.local_dev import local_data_enabled
 from suiteview.core.policy_service import get_policy_info
 
 
-def capture(policy, index, matrix, output):
+def capture(policy, index, expected_result, output):
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication
     from suiteview.polview.ui.main_window import GetPolicyWindow
 
@@ -39,16 +42,25 @@ def capture(policy, index, matrix, output):
         item = parent.child(index - 1)
         tree.setCurrentItem(item)
         tree._on_item_clicked(item, 0)
-        if (window.raw_table_tab._current_cols != matrix[0]
-                or window.raw_table_tab._current_rows != [tuple(row) for row in matrix[1:]]):
+        raw = window.raw_table_tab
+        if isinstance(expected_result, str):
+            if raw._current_cols or raw._current_rows:
+                raise RuntimeError("An unavailable-file message must clear previous rates.")
+            for grid in (raw._normal_grid, raw._transposed_grid):
+                actual = grid.model.data(grid.model.index(0, 0), Qt.ItemDataRole.DisplayRole)
+                if actual != expected_result:
+                    raise RuntimeError(f"Unexpected Rates message: {actual!r}")
+        elif (raw._current_cols != expected_result[0]
+                or raw._current_rows != [tuple(row) for row in expected_result[1:]]):
             raise RuntimeError("The actual PolView rate selection did not display the verified matrix.")
         app.processEvents()
         window.repaint()
         app.processEvents()
-        target = Path(output)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not window.grab().save(str(target), "PNG"):
-            raise RuntimeError(f"Could not save screenshot: {target}")
+        if output:
+            target = Path(output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not window.grab().save(str(target), "PNG"):
+                raise RuntimeError(f"Could not save screenshot: {target}")
     finally:
         window.close()
         app.processEvents()
@@ -68,6 +80,21 @@ def main():
     if policy.is_advanced_product or policy.product_type != "WL":
         raise RuntimeError("Select a traditional Whole Life policy.")
     index = config.get("coverage", 1)
+    expected = config.get("expected", {})
+    if "message" in expected:
+        message = expected["message"]
+        if not isinstance(message, str) or not message:
+            raise ValueError("expected.message must be a nonempty string.")
+        capture(policy, index, message, config.get("screenshot"))
+        report = {
+            "all_ok": True, "policy": policy.policy_number, "company": policy.company_code,
+            "coverage": index, "premium_pay_status": policy.premium_pay_status_description,
+            "message": message,
+        }
+        if config.get("output"):
+            write_json(config["output"], report)
+        print(json.dumps(report, indent=2))
+        return
     key, age = policy.cov_cash_value_key(index), policy.cov_issue_age(index)
     rates = policy._get_rates()
     try:
@@ -92,7 +119,6 @@ def main():
             cursor.close()
         if actual != dict(raw):
             raise RuntimeError("PolView displayed durations/rates differ from the database.")
-        expected = config.get("expected", {})
         observed = {"rate_key": key, "issue_age": age, "count": len(actual)}
         for field in ("rate_key", "issue_age", "count"):
             if field in expected and expected[field] != observed[field]:

@@ -201,8 +201,9 @@ class RawTableTab(QWidget):
         self._df_normal = None
         self._df_transposed = None
         df = pd.DataFrame({"Result": [message]})
-        self._normal_grid.set_dataframe(df, limit_rows=False)
-        self._transposed_grid.set_dataframe(df, limit_rows=False)
+        for grid in (self._normal_grid, self._transposed_grid):
+            grid.set_dataframe(df, limit_rows=False)
+            grid.autofit_columns_to_data(max_width=1000)
         self._update_active_grid()
 
     def set_data(self, cols, rows, table_name: str = None, transposed: bool = None):

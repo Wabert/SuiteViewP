@@ -2119,7 +2119,7 @@ class _FaceCutResult:
     psc_by_phase: Dict[int, float] = dataclass_field(default_factory=dict)
 
 
-def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr) -> _FaceCutResult:
+def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr, config) -> _FaceCutResult:
     """Reduce base coverage newest-first by ``amount``; re-band what remains.
 
     The AV adjustment is the decreased units' surrender charge when
@@ -2135,9 +2135,8 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr)
         cut = min(seg.face_amount, remaining)
         cut_units = cut / (seg.vpu or 1000.0)
         if charge_scr:
-            schedule = rates.segment_scr.get(seg.coverage_phase, rates.scr)
-            scr_rate = _rate_from_schedule(
-                schedule, _coverage_year(seg, change_date, rate_year))
+            scr_rate = _segment_surrender_rate(
+                policy, seg, rates, rate_year, change_date, config)
             result.psc_by_phase[seg.coverage_phase] = scr_rate * cut_units
             result.av_adjustment -= scr_rate * cut_units
         result.cuts_by_phase[seg.coverage_phase] = cut
@@ -2368,9 +2367,8 @@ def _process_withdrawal(
     request = month_inputs.withdrawal if month_inputs is not None else 0.0
     gross_request = month_inputs.withdrawal_gross if month_inputs is not None else 0.0
     scr_rates = {
-        seg.coverage_phase: _rate_from_schedule(
-            rates.segment_scr.get(seg.coverage_phase, rates.scr),
-            _coverage_year(seg, month_date, rate_year),
+        seg.coverage_phase: _segment_surrender_rate(
+            policy, seg, rates, rate_year, month_date, config,
         )
         for seg in policy.segments
     }
@@ -2409,7 +2407,7 @@ def _process_withdrawal(
         wd.guideline_before_pv_detail = before_pv_detail
         _reduce_base_face(
             policy, wd.face_decrease, rates, month_date, rate_year,
-            charge_scr=False)
+            charge_scr=False, config=config)
         _reload_policy_band_rates(rates, policy, config)
         targets = compute_target_premiums(policy, config, as_of=month_date)
         policy.mtp = targets.mtp_annual / 12.0
@@ -2525,6 +2523,7 @@ def _apply_policy_change(
                 cuts = _reduce_base_face(
                     policy, av_whole, rates, change_date, rate_year,
                     charge_scr=config.partial_surrender_charge,
+                    config=config,
                 )
                 outcome.av_adjustment += cuts.av_adjustment
                 outcome.coverage_changed = True
@@ -2575,6 +2574,7 @@ def _apply_policy_change(
                     config.partial_surrender_charge
                     and bool(md.get("charge_surrender", True))
                 ),
+                config=config,
             )
             outcome.av_adjustment += cuts.av_adjustment
             outcome.coverage_changed = True
@@ -3672,6 +3672,23 @@ def _compute_exception_premium(
     return result
 
 
+def _segment_surrender_rate(
+    policy: IllustrationPolicyData,
+    segment: CoverageSegment,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date,
+    config: Optional[PlancodeConfig],
+) -> float:
+    if segment.is_cola and policy.company_code.strip() == "26":
+        plan = config if config is not None else load_plancode(policy.plancode)
+        if plan.is_ffl:
+            return 0.0
+    schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
+    return _rate_from_schedule(
+        schedule, _coverage_year(segment, projection_date, rate_year))
+
+
 def _calculate_surrender_charge(
     policy: IllustrationPolicyData,
     rates: IllustrationRates,
@@ -3694,9 +3711,8 @@ def _calculate_surrender_charge(
     scr_rates_by_coverage = {}
     surrender_charges_by_coverage = {}
     for index, segment in enumerate(segments, start=1):
-        segment_schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
-        segment_rate_year = _coverage_year(segment, projection_date, rate_year)
-        segment_scr_rate = _rate_from_schedule(segment_schedule, segment_rate_year)
+        segment_scr_rate = _segment_surrender_rate(
+            policy, segment, rates, rate_year, projection_date, config)
         segment_units = (
             segment.original_face_amount / 1000.0 if original_basis else segment.units
         )

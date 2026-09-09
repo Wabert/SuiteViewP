@@ -1084,6 +1084,15 @@ class GetPolicyWindow(FramelessWindowBase):
             display_title = ""
 
             if category == "Coverages":
+                if (not self._policy.is_advanced_product
+                        and self._policy.product_type == "WL"
+                        and self._policy.premium_pay_status_code.strip() in ("44", "45")):
+                    message = "Cash value file is not available for policies on ETI or RPU."
+                    self.raw_table_tab.show_message(
+                        message, table_name=f"Whole Life Cash Value Rates - Coverage {index}"
+                    )
+                    self._show_status(message)
+                    return
                 matrix = self._policy.build_coverage_rate_matrix(index)
                 display_title = f"Rates for Coverage {index}"
                 if matrix and "CV" in matrix[0]:

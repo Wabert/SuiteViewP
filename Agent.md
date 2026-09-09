@@ -1010,11 +1010,28 @@ across all apps. For app-specific details, see the relevant doc:
 | **ABR Quote** | *(see section below)* | Accelerated Death Benefit quoting tool — 3-step wizard, dedicated SQLite DB, Crimson Slate theme |
 | **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens on a **product-line chooser** (`product_chooser.py`): UL, Term or Whole Life rates. The header then shows Workup / Database (/ Converters, UL only) for the chosen line, plus a control to switch back.<br><br>**UL** — single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required). Verify against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py`.<br><br>**Term** (`workup/term_spec.py`, `term_builder.py`, `term_window.py`) — one IAF in, seven TERM_* CSVs out (TERM_POINT_PV, TERM_POINT_PVSRB, TERM_POINT_BENEFIT, TERM_RATE_MODEFACT, TERM_RATE_BANDSPECS, TERM_RATE_PREM, TERM_RATE_BEN). No MPF/CKULTB04/CKULTB01. See **§ Term Rates** below.<br><br>The UL/Term **Database** view (parameterized by `RateSchema`) validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports pointer editing plus unreferenced whole-index deletion.<br><br>**Whole Life** has source-keyed CVF/PUI/IAF imports, explicit-basis NSP CSV imports, integrated dividend loading and read-only PDF/rate browsing. See **§ Whole Life rate loading** below. |
 | **Task Manager** | *(future)* | Task management |
+| **Cyberlife Query / Audit** | [`docs/audit/Audit_Criteria_Input_Types.md`](docs/audit/Audit_Criteria_Input_Types.md) | **52 Segment** page: eleven application/conversion fields from `TH_USER_GENERIC`, with ranges/text criteria and optional display. **Latest SC conversion dates (69)**: `LST_ETR_CD='O'`, both reversal flags zero, one `FH_FIXED` row ordered by `ENTRY_DT`, `ENTRY_TIME`, `SEQ_NO` descending. Live-verified: financial history has no `CK_SYS_CD`, and its time field is `ENTRY_TIME` (not the older workbook's `TIME`). |
 
 > **To add a new sub-app doc:** create `docs/<APPNAME>_CLAUDE.md`, add a row to
 > the table above, keep shared concerns (DB2, PolicyInformation) in this file,
 > and keep app-specific detail (UI, VBA mappings, business rules) in the sub-app
 > doc.
+
+## Illustration COLA coverages and surrender charges
+
+Illustration base segments retain `CoverageSegment.is_cola` from the canonical
+`CoverageInfo.cola_indicator` (`TH_COV_PHA.COLA_INCR_IND == "1"`). The Policy
+coverage detail shows **Added by COLA: Yes/No**, including newly saved snapshots.
+Reload live policy data before resaving older snapshots that lack this flag.
+
+For company **26** FFL UL plans (`PlancodeConfig.is_ffl`, not the company display
+name), COLA-added segments have zero effective surrender rates and charges.
+The shared engine helper applies this to full surrender, loan availability,
+withdrawals and elective coverage reductions; other coverages remain unchanged.
+Values > Policy Values builds SCR/SC columns for **every** base segment, retaining
+zero-charge columns. Live verification: `000289393 / 26 / NU1F3H00` has seven
+segments (phase 1 non-COLA; phases 5-10 COLA). Use
+`tools/engine/verify_cola_surrender.py` for a read-only live check and UI captures.
 
 ## Whole Life rate loading
 
@@ -1059,6 +1076,10 @@ The key is coverage `INS_CLS_CD` + `PLN_BSE_SRE_CD` + `LIF_PLN_SUB_SRE_CD`
 blank `USER_DEFINED` variant unless its mapping is explicitly known; never
 fall back to another company or variant. Keep duration zero and source duration
 labels intact. NSP/PUI/dividend lookups in this view remain future work.
+For ETI/RPU policies (premium-paying status 44/45), the Rates view shows
+"Cash value file is not available for policies on ETI or RPU." without querying
+rates or substituting an original Whole Life basis. Other paid-up statuses are
+not excluded.
 
 The four new tables are `WL_RATE_CV`, `WL_RATE_NSP`, `WL_RATE_PUI` and
 `WL_RATE_PREM`. Dividend imports reuse the existing `WL_DIV_HEADER`,

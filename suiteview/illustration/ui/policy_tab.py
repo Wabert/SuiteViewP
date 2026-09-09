@@ -590,6 +590,7 @@ class IllustrationPolicyTab(QWidget):
         for seg in snapshot.segments:
             views.append(SimpleNamespace(
                 is_base=seg.is_base,
+                cola_indicator="1" if seg.is_cola else "0",
                 cov_pha_nbr=seg.coverage_phase,
                 form_number=snapshot.form_number if seg.is_base else "",
                 plancode=snapshot.plancode,
@@ -968,6 +969,7 @@ class IllustrationPolicyTab(QWidget):
             ("Phase:", cov.cov_pha_nbr),
             ("Form:", cov.form_number),
             ("Plancode:", cov.plancode),
+            ("Added by COLA:", "Yes" if str(getattr(cov, "cola_indicator", "")).strip() == "1" else "No"),
             ("Issue Date:", format_date(cov.issue_date)),
             ("Maturity Date:", format_date(cov.maturity_date)),
             ("Amount:", format_amount(cov.face_amount)),
