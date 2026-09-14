@@ -3485,6 +3485,11 @@ class SuiteViewTaskbar(QWidget):
         """)
         self.audit_btn.clicked.connect(self._open_audit)
         header_layout.addWidget(self.audit_btn)
+
+        if DEV_MODE and not LIGHT_MODE:
+            from suiteview.taskbar_launcher.albert_launcher import AlbertButton
+            self.albert_btn = AlbertButton(self)
+            header_layout.addWidget(self.albert_btn)
         
         # ====== WINDOW CAPTURE BUTTON (blue dot) - HIDDEN FOR NOW ======
         # Functionality preserved in _capture_active_window() for future use
@@ -4081,7 +4086,7 @@ class SuiteViewTaskbar(QWidget):
     def _enter_floating_mode(self):
         """Undock the compact bar into a short, draggable floating bar.
         
-        Shows only:  SuiteView [ P ] [ F ] [ A ] [ I ] [ Q ] [✕]
+        Shows only:  SuiteView [ P ] [ F ] [ A ] [ R ] [ Q ] [ Al ] [✕]
         The bar becomes draggable and is not docked to the taskbar.
         """
         # First unregister appbar so the desktop work area is restored
@@ -4128,6 +4133,8 @@ class SuiteViewTaskbar(QWidget):
             self.illustration_btn.show()
         if hasattr(self, 'audit_btn'):
             self.audit_btn.show()
+        if hasattr(self, 'albert_btn'):
+            self.albert_btn.show()
         if hasattr(self, 'close_btn'):
             self.close_btn.show()
 
@@ -4136,8 +4143,7 @@ class SuiteViewTaskbar(QWidget):
         self.setMinimumSize(100, bar_h)
         self.setMaximumHeight(bar_h)
 
-        # Calculate a short width: roughly 320px to hold the buttons
-        bar_w = 320
+        bar_w = 320 + (36 if hasattr(self, 'albert_btn') else 0)
 
         # Position: center of screen, near bottom (above taskbar)
         avail = QApplication.primaryScreen().availableGeometry()

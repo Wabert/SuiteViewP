@@ -51,7 +51,7 @@ The pipeline is distributed across these modules:
 - `suiteview/illustration/core/loan_handler.py` - anniversary capitalization (arrears roll-in AND advance gross-up), in-arrears accrual, advance payoff/repayment gross-up
 - `suiteview/illustration/core/input_compiler.py` - converts future inputs into per-month buckets
 - `suiteview/illustration/core/input_applier.py` - applies early cash flows (variable loans, repayments, Apply-Prem-to-Loan diversion) before premium/deduction, excluding fixed new-loan allocation
-- `suiteview/illustration/core/solve_level_to_exception.py` - solves the minimum level premium that keeps a GPT policy in force to maturity (riding the GLP exception period); loan-capable via Apply-Prem-to-Loan
+- `suiteview/illustration/core/solve_level_to_exception.py` - solves the minimum level premium that keeps a GPT policy in force to maturity (riding the GLP exception period); loan-capable via Apply-Prem-to-Loan. Pass `horizon_months` to solve only to a nearer date instead (the Policy Support GLP Exception screen solves to the user's target date, where the answer may be $0)
 - `suiteview/illustration/core/shadow_calc.py` - parallel CCV / shadow account calculation
 - `suiteview/polview/services/glp_exception.py` - PolView GLP exception and policy-support premium forecast consumer
 - `suiteview/illustration/debug/excel_export.py` - exposes the pipeline field order used for debug export
@@ -71,6 +71,33 @@ GLP/GSP/7-pay and target premiums are solved at issue, and the full monthly
 pipeline first runs on the policy issue date (policy year 1, month 1). Rate and
 bonus lookups deliberately use the current illustration date rather than
 historical issue-date scales.
+
+The **At-Issue Conditions** editor supplies a separate issue override set:
+starting face, starting DB option, excluded original-issue rider phases and
+excluded benefit keys. Original issue-date base segments are retained; later
+increases/COLA and later riders are excluded rather than pulled back in time.
+The default face uses recorded original amounts where available. The loaded DB
+option is only a starting assumption, not verified historical issue data.
+Billing and allocation defaults come from the loaded policy. Issue mode retains
+RERUN's normal default premium type; the premium schedule and allocations can be
+changed in the Input tab. No historical transactions are replayed.
+
+Inforce and issue modes keep independent schedules and control state. Switching
+modes never mutates the source policy and clears stale computed output. The
+blue title bar and persistent **NEW BUSINESS - FROM ISSUE** notice distinguish
+the issue scenario even when viewing the unchanged Policy tab. Saved cases
+persist both mode input states plus issue conditions; saved-case materialization
+for Compare/Regression uses the same issue overrides as Run Values.
+
+**No Lapse Period** is an issue-only modeling convenience, not unconditional
+no-lapse protection. Within the selected years (nearest whole month, including
+the issue deduction), the final lapse test and Billable-to-MD trigger use AV less
+loans rather than surrender value; other protections are unchanged. The regular
+plan basis resumes in the following month. Both current and guaranteed runs use
+this setting, and report/export basis notices disclose it. The default follows
+the policy minimum-premium cease date when supplied, otherwise the plan safety-net
+period; zero adds no override. Surrender charges and actual safety-net/GP rules
+are not modified.
 
 At a high level, the normal illustration path is being structured to follow the RERUN inforce illustration workbook sequence:
 
@@ -777,7 +804,7 @@ exception_prem = (gross - discount + flat_prem_load) / (1 - target_load_rate)
 av = av_after_charge + (exception_prem * (1 - target_load_rate) - flat_prem_load + discount)   # -> ~0
 ```
 
-Exception mode latches on for the remainder of the projection, disables guideline force-out, and adds an exception-premium lapse protection (`YQ`) to the lapse test. The exception mechanic gates only on the safety-net, CCV/shadow, guideline-limit, and inforce conditions — **a policy loan does not block it** (the UI now allows Allow-GP-Exception for loan policies, since premium is applied to the loan first; only an active shadow account still blocks). The separate PolView GLP Exception workflow still solves a level premium in `suiteview/polview/services/glp_exception.py` and projects with the in-engine exception mechanic disabled (it computes its own).
+Exception mode latches on for the remainder of the projection, disables guideline force-out, and adds an exception-premium lapse protection (`YQ`) to the lapse test. The exception mechanic gates only on the safety-net, CCV/shadow, guideline-limit, and inforce conditions — **a policy loan does not block it** (the UI now allows Allow-GP-Exception for loan policies, since premium is applied to the loan first; only an active shadow account still blocks). Policy Support's GLP Exception target-date quotes use `guideline_exception_adjustment.py`: two independent minimum-level solves (current GLP and starting GLP=0), both with guideline enforcement and this engine exception mechanic enabled. Their full monthly states share the RERUN Values Overview ledger mapping. The separate Targets-tab solver in `glp_exception.py` retains its own level-premium adjustment calculation.
 
 ### 4.15 Step 15 - Policy Values / New Fixed Loan Allocation
 

@@ -246,7 +246,9 @@ def context_from_policy(policy) -> PolicyContext:
     issue_age = int(getattr(policy, "base_issue_age", None) or getattr(policy, "issue_age", 0) or 0)
     valuation = getattr(policy, "valuation_date", None) or getattr(policy, "last_valuation_date", None)
     duration = int(getattr(policy, "duration", 0) or 0)
-    if issue_date is not None and duration > 0:
+    if getattr(policy, "run_from_issue", False):
+        forecast = issue_date
+    elif issue_date is not None and duration > 0:
         forecast = issue_date + relativedelta(months=duration)
     else:
         forecast = valuation + relativedelta(months=1) if valuation else None
@@ -293,6 +295,8 @@ def context_from_policy(policy) -> PolicyContext:
         )
         if illustrated_rate > 1.0:
             illustrated_rate /= 100.0
+    if getattr(policy, "run_from_issue", False):
+        illustrated_rate = float(policy.current_interest_rate)
     def_of_life_ins = str(
         getattr(policy, "def_of_life_ins", "")
         or getattr(policy, "def_of_life_insurance", "")

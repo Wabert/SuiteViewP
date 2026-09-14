@@ -231,6 +231,8 @@ def load_rates(
         raise ValueError(f"COI scale must be 0 or 1, got {coi_scale}")
     if expense_scale not in (0, 1):
         raise ValueError(f"Expense scale must be 0 or 1, got {expense_scale}")
+    if policy.run_from_issue and not getattr(policy, "_issue_bands_initialized", False):
+        initialize_issue_bands(policy, rates_db)
 
     segment_coi = {}
     segment_epu = {}
@@ -398,3 +400,24 @@ def load_rates(
         result.rider_rates[rider.export_key] = _load_rider_coi_rates(rates_db, rider)
 
     return result
+
+
+def initialize_issue_bands(policy: IllustrationPolicyData, rates_db: Rates) -> None:
+    """Resolve edited issue bands at the existing database boundary, once per basis.
+
+    At issue, original and current amounts coincide for every dynamic-banding
+    configuration. Later engine changes must not rewrite this original band.
+    """
+    band = rates_db.get_band(
+        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date,
+    )
+    policy.band = int(band) if band is not None else 1
+    for segment in policy.segments:
+        segment.band = segment.original_band = policy.band
+    for rider in policy.riders:
+        if rider_bands_as_base(rider.plancode):
+            rider.band = policy.band
+        else:
+            rider_band = rates_db.get_band(rider.plancode, rider.face_amount)
+            rider.band = int(rider_band) if rider_band is not None else 1
+    policy._issue_bands_initialized = True

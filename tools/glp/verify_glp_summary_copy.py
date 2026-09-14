@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from dataclasses import replace
 from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -20,9 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from suiteview.polview.ui.tabs.policy_support_tab import PolicySupportTab
 from suiteview.polview.services.guideline_exception_adjustment import (
     GuidelineExceptionAdjustmentResult,
-    GuidelineExceptionForecastResult,
+    GuidelineExceptionZeroGlpForecastResult,
     GuidelineExceptionForecastRow,
-    GuidelineExceptionMaturityForecastResult,
+    GuidelineExceptionTargetForecastResult,
 )
 
 
@@ -46,36 +47,39 @@ def _row(d: date, premium: float) -> GuidelineExceptionForecastRow:
     )
 
 
-def _make_result(current_glp: float) -> GuidelineExceptionMaturityForecastResult:
+def _make_result(current_glp: float) -> GuidelineExceptionTargetForecastResult:
     target = date(2027, 3, 15)
     summary = GuidelineExceptionAdjustmentResult(
         current_valuation_date=date(2026, 3, 15),
         target_date=target,
         months_to_target=12,
-        premiums_since_valuation_date=0.0,
         total_premium_needed=1500.00,
         room_available=0.0,
         accumulated_glp=8000.00,          # current Accum GLP (FROM value)
         premiums_paid_to_date=48765.43,
         accumulated_withdrawals=1234.56,
-        adjustment_to_accum_glp=0.0,
-        new_accum_glp=0.0,
+        adjustment_to_accum_glp=41030.87,
+        new_accum_glp=49030.87,
         message="",
     )
-    # Rows: three months before target (counted) + the greyed target row (excluded).
+    # Three months before target are included in both table and summary.
     rows = [
         _row(date(2026, 12, 15), 500.00),
         _row(date(2027, 1, 15), 500.00),
         _row(date(2027, 2, 15), 500.00),
-        _row(target, 500.00),  # target-date row: NOT counted toward premium-to-target
     ]
-    zero_md = GuidelineExceptionForecastResult(summary=summary, rows=rows)
-    return GuidelineExceptionMaturityForecastResult(
+    zero_glp = GuidelineExceptionZeroGlpForecastResult(
+        summary=summary, rows=rows, premium=500.0, premium_mode="M",
+        exception_start=date(2026, 12, 15))
+    return GuidelineExceptionTargetForecastResult(
         premium=1200.0,
         premium_mode="Annual",
         exception_start=date(2026, 12, 15),
         rows=rows,
-        zero_md=zero_md,
+        zero_glp=zero_glp,
+        no_forceout=replace(
+            zero_glp, premium=0.0, rows=[],
+            summary=replace(summary, total_premium_needed=0.0)),
         current_glp=current_glp,
     )
 
@@ -108,10 +112,20 @@ def main() -> None:
 
     # No exception premium required.
     r3 = _make_result(current_glp=100.0)
-    r3.zero_md = None
+    r3.exception_start = None
     cases["no_exception"] = _copy_text(r3, "03/15/2027")
 
+    cases["all_ok"] = (
+        "New GLP = 0" in cases["glp_not_zero"]
+        and "AND GLP TO 0.00" in cases["glp_not_zero"]
+        and "New GLP = 0" not in cases["glp_zero"]
+        and "AND GLP TO 0.00" not in cases["glp_zero"]
+        and "Premium to get to 03/15/2027 = 1,500.00" in cases["glp_zero"]
+        and "DO NOT ADJUST" in cases["no_exception"]
+    )
     print(json.dumps(cases, indent=2))
+    if not cases["all_ok"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

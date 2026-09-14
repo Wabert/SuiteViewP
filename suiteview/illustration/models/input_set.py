@@ -84,6 +84,17 @@ class InforceOverrideSet:
 
 
 @dataclass
+class IssueOverrideSet:
+    """New-business conditions; never applied to the inforce policy basis."""
+
+    face_amount: float | None = None
+    db_option: str | None = None
+    no_lapse_years: float | None = None
+    excluded_rider_phases: list[int] = field(default_factory=list)
+    excluded_benefit_keys: list[tuple[int, str, str]] = field(default_factory=list)
+
+
+@dataclass
 class IllustrationInputSet:
     """Future-dated projection inputs normalized from the UI."""
 
@@ -253,9 +264,13 @@ class IllustrationOptions:
     # the WAIR cap (RERUN VK caps vWAIR at the declared rate + bonus).
     guaranteed_assumption: bool = False
 
+    # Internal comparison basis: suppress distributions without relaxing premium
+    # acceptance caps, TEFRA/TAMRA or the GP exception machinery.
+    guideline_forceouts: bool = True
+
     @property
     def force_out_enabled(self) -> bool:
-        return self.conform_to_tefra
+        return self.conform_to_tefra and self.guideline_forceouts
 
     @property
     def guideline_cap_enabled(self) -> bool:
@@ -277,3 +292,4 @@ class IllustrationScenario:
     inforce_overrides: InforceOverrideSet = field(default_factory=InforceOverrideSet)
     future_inputs: IllustrationInputSet = field(default_factory=IllustrationInputSet)
     run_from_issue: bool = False
+    issue_overrides: IssueOverrideSet = field(default_factory=IssueOverrideSet)

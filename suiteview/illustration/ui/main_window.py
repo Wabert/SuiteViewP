@@ -54,6 +54,7 @@ from .styles import (
     HEADER_PANEL_BUTTON_STYLE,
     ILLUSTRATION_BORDER_COLOR,
     ILLUSTRATION_HEADER_COLORS,
+    ILLUSTRATION_ISSUE_HEADER_COLORS,
     ILLUSTRATION_SNAPSHOT_HEADER_COLORS,
     ISSUE_BLUE_BG,
     ISSUE_TAB_WIDGET_STYLE,
@@ -293,6 +294,13 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.layout().addWidget(self.save_case_btn)
         main_layout.addWidget(self.lookup_bar)
 
+        self.projection_mode_notice = QLabel(
+            "INFORCE | Projection starts after the loaded valuation date.")
+        self.projection_mode_notice.setWordWrap(True)
+        self.projection_mode_notice.setStyleSheet(
+            "color: #2A1458; background: #EDE7F6; padding: 5px 12px; font-weight: bold;")
+        main_layout.addWidget(self.projection_mode_notice)
+
         self.tabs_container = QWidget()
         self.tabs_container.setStyleSheet(f"background-color: {PURPLE_BG};")
         tabs_layout = QVBoxLayout(self.tabs_container)
@@ -430,6 +438,7 @@ class IllustrationWindow(FramelessWindowBase):
         if not inputs_tab.property("issueModeSignalConnected"):
             inputs_tab.run_from_issue_changed.connect(
                 self._on_run_from_issue_changed)
+            inputs_tab.issue_conditions_changed.connect(self._invalidate_issue_results)
             inputs_tab.setProperty("issueModeSignalConnected", True)
         if inputs_tab is previous:
             self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled())
@@ -451,6 +460,42 @@ class IllustrationWindow(FramelessWindowBase):
             f"background-color: {ISSUE_BLUE_BG if enabled else PURPLE_BG};")
         self.tabs.setStyleSheet(
             ISSUE_TAB_WIDGET_STYLE if enabled else TAB_WIDGET_STYLE)
+        self._refresh_projection_header(enabled)
+        self.projection_mode_notice.setText(
+            "NEW BUSINESS - FROM ISSUE | Hypothetical issue conditions; current side uses scale 1. "
+            "Zero opening balances. Policy tab remains the loaded inforce snapshot."
+            if enabled else
+            "INFORCE | Projection starts after the loaded valuation date. "
+            "At-issue edits do not apply.")
+        self.projection_mode_notice.setStyleSheet(
+            ("color: white; background: #205B78;" if enabled else
+             "color: #2A1458; background: #EDE7F6;")
+            + " padding: 5px 12px; font-weight: bold;")
+        if isinstance(sender, IllustrationInputsTab):
+            self._invalidate_issue_results()
+
+    def _refresh_projection_header(self, enabled):
+        title = WINDOW_TITLE
+        if self._snapshot_case is not None:
+            title += f" — Case “{self._snapshot_case.name}”"
+        if enabled:
+            title += " - NEW BUSINESS FROM ISSUE"
+        self.set_title(title)
+        self.set_header_colors(
+            ILLUSTRATION_ISSUE_HEADER_COLORS if enabled else
+            ILLUSTRATION_SNAPSHOT_HEADER_COLORS if self._snapshot_case is not None else
+            ILLUSTRATION_HEADER_COLORS)
+
+    def _invalidate_issue_results(self):
+        sender = self.sender()
+        if isinstance(sender, IllustrationInputsTab) and sender is not self.inputs_tab:
+            return
+        self.values_tab.clear_results(
+            "Illustration basis changed. Click Run Values to calculate this scenario.")
+        self.report_tab.clear()
+        self.compare_tab.clear_results()
+        self._last_scenario = None
+        self._show_status("Illustration basis changed - review inputs, then Run Values.")
 
     def _snapshot_active_session(self):
         """Capture the displayed values/report/status for the current policy
@@ -706,10 +751,18 @@ class IllustrationWindow(FramelessWindowBase):
         load. Shared by the Saved Cases and Imported Cases panels."""
         if not self.isVisible():
             self.show()
-        if case.policy_snapshot is None:
-            self._load_v1_case_against_live(case)
-        else:
-            self._load_case_snapshot(case)
+        try:
+            if case.policy_snapshot is None:
+                self._load_v1_case_against_live(case)
+            else:
+                self._load_case_snapshot(case)
+        except ValueError as exc:
+            logger.warning("Invalid illustration case %s: %s", case.name, exc)
+            self._invalidate_issue_results()
+            self.run_values_btn.setEnabled(False)
+            self.save_case_btn.setEnabled(False)
+            self._show_status(f"Case could not be applied: {exc}. Reload the policy to continue.")
+            QMessageBox.warning(self, "Load Case", str(exc))
 
     def _load_case_snapshot(self, case):
         """Restore a case's frozen IllustrationPolicyData as the loaded policy."""
@@ -769,12 +822,12 @@ class IllustrationWindow(FramelessWindowBase):
                 "scenario": None,
             }
             self._set_active_inputs_tab(inputs_tab)
-            inputs_tab.load_data_from_policy(
-                snapshot,
-                has_shadow=bool(snapshot.has_shadow_account),
-                shadow_ceased=bool(snapshot.ccv_ceased))
         else:
             self._set_active_inputs_tab(session["inputs"])
+        self.inputs_tab.load_data_from_policy(
+            snapshot,
+            has_shadow=bool(snapshot.has_shadow_account),
+            shadow_ceased=bool(snapshot.ccv_ceased))
         # A different policy invalidates any rendered comparison — clear it so
         # the old policy's results can never sit under the new pickers.
         if self._current_key != key:
@@ -850,8 +903,7 @@ class IllustrationWindow(FramelessWindowBase):
         company = case.company_code or "—"
         self.lookup_bar.policy_label.setText(
             f"{region} - {company} - {case.policy_number}")
-        self.set_title(f"{WINDOW_TITLE} — Case “{case.name}”")
-        self.set_header_colors(ILLUSTRATION_SNAPSHOT_HEADER_COLORS)
+        self._refresh_projection_header(self.inputs_tab.run_from_issue_enabled())
 
     def _set_live_header_mode(self):
         """Back to live data: standard title and header gradient."""
@@ -1015,6 +1067,7 @@ class IllustrationWindow(FramelessWindowBase):
             }
             if self.inputs_tab.run_from_issue_enabled():
                 scenario_args["run_from_issue"] = True
+                scenario_args["issue_overrides"] = self.inputs_tab.export_issue_overrides()
             scenario = build_illustration_scenario(policy_data, **scenario_args)
             projection_months = self.inputs_tab.projection_months(scenario.projectable_policy)
             duration_label = self.inputs_tab.projection_duration_label(scenario.projectable_policy)

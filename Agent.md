@@ -1017,6 +1017,115 @@ across all apps. For app-specific details, see the relevant doc:
 > and keep app-specific detail (UI, VBA mappings, business rules) in the sub-app
 > doc.
 
+## PolView coverage zero values
+
+Coverage and benefit numeric zero values must remain distinct from missing data
+through `PolicyInformation` and the Coverages tab. Zero units/VPU, premiums,
+flat extras, benefit ratings and issue ages display as zero, not blank.
+See `docs/POLVIEW_CLAUDE.md` for regression tests and the read-only UL054808
+verification helper.
+
+## PolView UL Reinstatement
+
+Policy Support's **UL Reinstatement** button opens an optional **Reinstatement**
+tab, with a non-UL popup instead of a tab for other products. Only lapsed
+policies may be quoted, never surrendered policies. **Home Office
+Reinstatement** is continuous coverage; its pay-to date is the latest
+monthliversary and funding includes the next month's deduction. The shared
+`polview/services/reinstatement.py` service owns safety-net, shadow and
+surrender-value quote bases, dates and explanatory breakdowns. Do not perform
+financial calculations in the UI or substitute missing data with zero.
+**Skipped Coverage Reinstatement** remains visibly unavailable until its
+rules are specified. Reloading/switching policies clears prior quotes.
+See `docs/POLVIEW_CLAUDE.md` for UI and verification details.
+
+## GLP Exception target-date quotes
+
+PolView Policy Support > GLP Exception solves minimum premium only for monthly
+deductions **strictly before** the target date. A solved zero must remain an
+explicit zero-premium schedule: empty inputs restore the policy's billed premium.
+Finite-horizon solves check lapse flags (the engine includes the terminal lapse
+row) and positive ending surrender value, or zero-value GP exception protection.
+All three tabs are always available: **Min Prem To Target** retains current GLP;
+**Min Prem To Target (GLP=0)** independently solves a copy with starting GLP=0.
+They share one solve/project helper, preserve current accumulated GP/GSP and
+applicable TEFRA/TAMRA caps, forceouts and engine exception premiums. Neither
+uses the retired TEFRA-off INPUT-to-MD alternative.
+**Min Prem to Target (no forceout)** independently solves the GLP=0 policy with
+`IllustrationOptions.guideline_forceouts=False` in both solver and display.
+It suppresses only forceout distributions; premium acceptance caps,
+TEFRA/TAMRA, targets and exception behavior remain unchanged. This third tab
+is comparison-only: the regular GLP=0 scenario still sizes the adjustment.
+
+Only an exception requirement in the original scenario warrants adjustment.
+Size that adjustment from the GLP=0 scenario's total outlay before the target,
+against valuation-date AccumGLP, accumulated withdrawals and premiums paid.
+Never add later financial-history receipts to the valuation-date starting AV,
+premium accumulator or cost basis. Opening AV is already post-deduction.
+All three solves and displayed projections explicitly use monthly compounding
+(`exact_days_interest=False`), matching RERUN's unchecked Exact Days Interest
+control. Count **Prem + Exception Prem** once, excluding loan
+repayments. If the original needs no exceptions, show **DO NOT ADJUST** while
+keeping the GLP=0 comparison visible.
+
+All three tables, clipboard cells and workbook export use the RERUN Values Overview
+`LEDGER_COLUMNS` and `monthly_ledger_cells()` mapping, backed by full monthly
+states. AV/SV are pre-interest; EAV/ESV are ending values. Prem excludes exception
+premiums; withdrawals exclude forceouts, so rollups do not double-count.
+Regression coverage: `tests/test_glp_target_engine.py` uses the real engine;
+`tools/app/verify_glp_exception_tab.py --policy UL003587 --company 01
+--target 2027-01-15 --expect-zero` exercises all three tabs and export through the live
+Calculate action read-only (optional `--output` writes the verification JSON).
+`--expect-opening-av` checks the starting post-deduction AV; `--reference` can
+compare displayed ledger cells against a supplied JSON list keyed by Date.
+
+## RERUN new-business / from-issue scenarios
+
+The policy-scoped **Inforce | New Business - From Issue** toggle on Illustration
+Inputs selects a hypothetical issue illustration, not a historical replay.
+The issue mode has a blue window header, persistent mode notice and an
+**At-Issue Conditions** tab. The Policy tab always retains the loaded inforce
+snapshot. Changing mode or issue assumptions invalidates old Values/Report.
+
+Default to original issue-date base segments (exclude later increases/COLA),
+using their original face amounts where available. The user can edit the total
+issue face and death-benefit option and exclude original-issue riders/benefits;
+there is no add-new-rider workflow. Current DB option, underwriting and billing/
+allocation defaults are not evidence of original policy history: review them.
+Later additions remain visible as excluded in the issue editor.
+
+Issue scenarios reset balances/loans/accumulators and start the full monthly
+pipeline at the original issue date and age. Current-side rates use scale 1;
+current illustrated interest assumptions are applied from issue, while the
+guaranteed side remains guaranteed. Issue targets and regulatory premiums are
+recalculated on the edited coverage basis. Never mutate the source snapshot.
+Each mode retains separate input schedules; historical transactions are not
+copied into the new-business scenario. Saved/imported cases persist the issue
+conditions and mode input states; Compare uses the same scenario builder.
+ABR Quote is an inforce-only mode and cannot be combined with from-issue mode.
+Grid Inputs > Unscheduled Premiums can explicitly populate the policy's
+unreversed PR/PI/PA/PF/PT/PB/PW premium transactions from issue, including the
+transaction type; this is user-triggered and is never automatic replay.
+
+**No Lapse Period** on At-Issue Conditions selects an AV-less-loans lapse basis
+for that many years from issue, rounded to the nearest projection month. It does
+not permit unfunded AV to run negative: other existing protections still apply.
+Afterward, the normal plan lapse basis resumes. Zero disables this convenience
+override, not the contractual safety net. Default to the recorded minimum-premium
+cease date's covered period when present, otherwise the configured
+`PlancodeConfig.snet_period`, otherwise zero. Never change surrender charges,
+minimum-premium targets, regulatory limits or shared plancode configuration.
+The saved issue assumptions, solves, current/guaranteed projections and exported
+basis notices carry the same period; it is not a contractual guarantee.
+Regression: `tests/test_illustration_issue_no_lapse_period.py`.
+
+Regression coverage: `tests/test_illustration_run_from_issue.py`,
+`tests/test_illustration_issue_conditions.py` and
+`tests/test_illustration_issue_outputs.py`. Native UI verification without DB
+access: `tools/app/verify_issue_illustration.py --output-dir <directory>` uses
+a synthetic policy and captures both themes. Month-end issue dates stay anchored
+to the original issue day, including the Illustration-to-Date cutoff.
+
 ## Illustration COLA coverages and surrender charges
 
 Illustration base segments retain `CoverageSegment.is_cola` from the canonical

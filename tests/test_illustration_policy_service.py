@@ -5,6 +5,7 @@ import pytest
 
 from suiteview.illustration.core import illustration_policy_service
 from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.polview.models.cl_polrec.policy_data_classes import TransactionInfo
 
 
 class _FakeRates:
@@ -86,6 +87,22 @@ class _FakePolicyInfo:
     issue_state = "TX"
     company_name = "TEST"
     preferred_loans_available = False
+
+    def get_premium_transactions(self):
+        return [
+            TransactionInfo(
+                trans_date=date(2000, 1, 1),
+                trans_code="PR",
+                trans_type="P",
+                trans_subtype="R",
+                trans_desc="Premium",
+                gross_amount=100.0,
+                net_amount=95.0,
+                sequence_number=1,
+                fund_id="",
+                coverage_phase=0,
+            )
+        ]
 
     def mv_av(self, _index):
         return 10_000.0
@@ -194,6 +211,14 @@ def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch)
     assert policy.total_face == pytest.approx(200_000.0)
     assert policy.band == 2
     assert policy.shadow_account_value == pytest.approx(4_872.53)
+    assert [
+        (
+            transaction.effective_date,
+            transaction.amount,
+            transaction.transaction_type,
+        )
+        for transaction in policy.premium_transactions
+    ] == [(date(2000, 1, 1), 100.0, "PR")]
 
 
 def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch):

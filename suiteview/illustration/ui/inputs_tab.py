@@ -1,6 +1,8 @@
 """Illustration Inputs tab UI."""
 
+from copy import deepcopy
 from datetime import date, datetime
+import logging
 from typing import Optional
 
 from dateutil.relativedelta import relativedelta
@@ -21,6 +23,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QSizePolicy,
@@ -44,9 +47,11 @@ from suiteview.illustration.models.input_set import (
 )
 from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
 from suiteview.illustration.models.app_settings import get_illustration_settings
+from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.polview.ui.formatting import format_date
 
-from .inputs_dynamic import DynamicInputsPanel, context_from_policy
+from .inputs_dynamic import DynamicInputsPanel
+from .issue_conditions import IssueConditionsPanel
 from .styles import (
     GROUP_STYLE,
     INPUT_RADIO_STYLE,
@@ -62,6 +67,7 @@ from .styles import (
     apply_input_checkbox_style,
 )
 
+logger = logging.getLogger(__name__)
 
 # What each AG49 regime means for the illustration, keyed by regime index
 # (the regime names/dates themselves come from index_strategies.json).
@@ -167,7 +173,12 @@ class ComboBoxDelegate(NavigationDelegate):
 class ExcelTableWidget(QTableWidget):
     """QTableWidget with Excel-like arrow-key navigation and clipboard paste."""
 
+    populate_policy_transactions_requested = pyqtSignal()
     MAX_PASTE_ROWS = 2000
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.policy_transaction_population_enabled = False
 
     def init_rows(self, start: int, end: int):
         """Create 20px rows of empty right-aligned items for ``start..end-1``.
@@ -194,10 +205,17 @@ class ExcelTableWidget(QTableWidget):
         menu = QMenu(self)
         paste_action = menu.addAction("Paste from Clipboard")
         paste_action.setEnabled(bool((QApplication.clipboard().text() or "").strip()))
-        if menu.exec(event.globalPos()) is paste_action:
+        populate_action = None
+        if self.policy_transaction_population_enabled:
+            menu.addSeparator()
+            populate_action = menu.addAction("Populate from policy transactions")
+        selected_action = menu.exec(event.globalPos())
+        if selected_action is paste_action:
             row = index.row() if index.isValid() else max(self.currentRow(), 0)
             col = index.column() if index.isValid() else max(self.currentColumn(), 0)
             self.paste_from_clipboard(row, col)
+        elif populate_action is not None and selected_action is populate_action:
+            self.populate_policy_transactions_requested.emit()
 
     def paste_from_clipboard(self, start_row: int, start_col: int = 0):
         self.paste_text(QApplication.clipboard().text() or "", start_row, start_col)
@@ -288,6 +306,7 @@ class IllustrationInputsTab(QWidget):
     """First-pass Illustration Inputs UI for premiums and loans."""
 
     run_from_issue_changed = pyqtSignal(bool)
+    issue_conditions_changed = pyqtSignal()
 
     WARNING_BG = QColor("#FFF0B3")
     NORMAL_BG = QColor("#FFFFFF")
@@ -306,6 +325,10 @@ class IllustrationInputsTab(QWidget):
         self._issue_date: date | None = None
         self._maturity_date: date | None = None
         self._loaded_policy = None
+        self._active_issue_mode = False
+        self._mode_inputs = {}
+        self._default_input_state = None
+        self._issue_load_error = ""
         self._setup_ui()
         # ABR Quote (Options menu) locks every Input-tab control except the
         # Illustrated Rate. Re-apply live whenever the app-wide toggle flips,
@@ -332,7 +355,7 @@ class IllustrationInputsTab(QWidget):
         self.snapshot_banner.setVisible(False)
         outer.addWidget(self.snapshot_banner)
 
-        self.run_from_issue_btn = QPushButton("Run from Policy Issue")
+        self.run_from_issue_btn = QPushButton("Inforce | New Business - From Issue")
         self.run_from_issue_btn.setCheckable(True)
         self.run_from_issue_btn.setToolTip(
             "Start a true new-business projection on the policy issue date. "
@@ -358,7 +381,17 @@ class IllustrationInputsTab(QWidget):
         self._grid_inputs_tab_index = self.input_tabs.addTab(
             self.transaction_tab, self.GRID_INPUTS_TAB_LABEL)
         self.input_tabs.addTab(self.control_tab, "Illustration Control")
+        self.issue_conditions = IssueConditionsPanel(self)
+        self.issue_conditions.changed.connect(self._on_issue_conditions_changed)
+        self.input_tabs.addTab(self.issue_conditions, "At-Issue Conditions")
         outer.addWidget(self.input_tabs, 1)
+
+        self.mode_warning = QLabel("")
+        self.mode_warning.setWordWrap(True)
+        self.mode_warning.setStyleSheet(
+            "color: #8B1A2A; background: #FFF4D6; padding: 4px;")
+        self.mode_warning.setVisible(False)
+        outer.addWidget(self.mode_warning)
 
         # Grid Inputs is power-user territory (raw dated-transaction tables) —
         # hidden by default so the tab bar stays lean; a right-click on the
@@ -983,11 +1016,47 @@ class IllustrationInputsTab(QWidget):
         self._warning_labels["premium_dates"] = warning
         layout.addWidget(warning)
 
-        table = self._make_table(100, ["Date", "Amount"], min_height=520, stretch_columns=True)
+        table = self._make_table(
+            100,
+            ["Date", "Amount", "Transaction Type"],
+            min_height=520,
+            stretch_columns=True,
+        )
+        table.policy_transaction_population_enabled = True
+        table.populate_policy_transactions_requested.connect(
+            self._populate_policy_premium_transactions
+        )
         table.itemChanged.connect(lambda item: self._validate_date_cell(table, item, 0, "premium_dates"))
         self.unscheduled_premium_table = table
         layout.addWidget(table)
         return group
+
+    def _populate_policy_premium_transactions(self):
+        transactions = list(
+            getattr(self._loaded_policy, "premium_transactions", None) or []
+        )
+        if not transactions:
+            QMessageBox.information(
+                self,
+                "Policy Premium Transactions",
+                "This policy has no unreversed PR, PI, PA, PF, PT, PB, or PW "
+                "premium transactions to populate.",
+            )
+            return
+        self._apply_grid(
+            self.unscheduled_premium_table,
+            [
+                [
+                    row,
+                    [
+                        transaction.effective_date.strftime("%m/%d/%Y"),
+                        f"{transaction.amount:.2f}",
+                        transaction.transaction_type,
+                    ],
+                ]
+                for row, transaction in enumerate(transactions)
+            ],
+        )
 
     def _build_specific_loan_group(self):
         group = QGroupBox("Unscheduled Loans")
@@ -1063,7 +1132,10 @@ class IllustrationInputsTab(QWidget):
             widths = [64, 110, 72]
         elif headers == ["Date", "Amount"]:
             widths = [96, 110]
-        elif headers == ["Date", "Amount", "Type"]:
+        elif headers in (
+            ["Date", "Amount", "Type"],
+            ["Date", "Amount", "Transaction Type"],
+        ):
             widths = [96, 104, 72]
         elif headers == ["Date", "New Face"]:
             widths = [96, 110]
@@ -1174,6 +1246,20 @@ class IllustrationInputsTab(QWidget):
     def load_data_from_policy(self, policy, *, has_shadow: bool = False,
                               shadow_ceased: bool = False):
         self._loaded_policy = policy
+        self._inforce_shadow = (has_shadow, shadow_ceased)
+        self._mode_inputs = {}
+        self._active_issue_mode = False
+        self.run_from_issue_btn.blockSignals(True)
+        self.run_from_issue_btn.setChecked(False)
+        self.run_from_issue_btn.blockSignals(False)
+        self._issue_load_error = ""
+        try:
+            self.issue_conditions.load_policy(policy)
+        except ValueError as exc:
+            self._issue_load_error = str(exc)
+            self.issue_conditions.assumptions.setText(str(exc))
+            logger.warning("Issue conditions unavailable: %s", exc)
+        self.issue_conditions.set_issue_mode(False)
         self._issue_date = getattr(policy, "issue_date", None)
         self._maturity_date = self._maturity_date_from_policy(policy)
         if self._maturity_date is not None:
@@ -1197,6 +1283,7 @@ class IllustrationInputsTab(QWidget):
         # editable and the rest of the panel stays locked.
         self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
         self._refresh_level_solve_caveat()
+        self._default_input_state = self._capture_active_case_inputs()
 
     def run_from_issue_enabled(self) -> bool:
         return self.run_from_issue_btn.isChecked()
@@ -1211,8 +1298,31 @@ class IllustrationInputsTab(QWidget):
         else:
             self.run_from_issue_btn.setStyleSheet(LOAN_TOGGLE_STYLE)
 
-    def _apply_run_from_issue(self, enabled: bool):
+    def _apply_run_from_issue(self, enabled: bool, *, restore_inputs: bool = True):
+        if self._loaded_policy is not None:
+            try:
+                policy = self._policy_for_input_mode(enabled)
+            except ValueError as exc:
+                self.run_from_issue_btn.blockSignals(True)
+                self.run_from_issue_btn.setChecked(self._active_issue_mode)
+                self.run_from_issue_btn.blockSignals(False)
+                self._show_mode_warnings([str(exc)])
+                return
+            if restore_inputs:
+                self._mode_inputs[str(self._active_issue_mode)] = self._capture_active_case_inputs()
+            self._active_issue_mode = enabled
+            self._load_dynamic_context(policy, enabled)
+            if restore_inputs:
+                state = self._mode_inputs.get(str(enabled))
+                if state is None:
+                    state = deepcopy(self._default_input_state)
+                    state["dynamic"] = self.dynamic_panel.capture_state()
+                self._show_mode_warnings(self._apply_active_case_inputs(state))
         self._style_run_from_issue_button(enabled)
+        self.run_from_issue_btn.setText(
+            "NEW BUSINESS - FROM ISSUE" if enabled else
+            "Inforce | New Business - From Issue")
+        self.issue_conditions.set_issue_mode(enabled)
         bg = ISSUE_BLUE_BG if enabled else PURPLE_BG
         self.setStyleSheet(f"background-color: {bg};")
         self.input_tabs.setStyleSheet(
@@ -1228,33 +1338,48 @@ class IllustrationInputsTab(QWidget):
             "background-color: #2A1458; border: 1px solid #5E35A5; border-radius: 4px;"
         )
         if self._loaded_policy is not None:
-            self._rebase_dynamic_context(enabled)
-            self._update_valuation_banner(self._loaded_policy)
+            self._update_valuation_banner(policy)
         self.run_from_issue_changed.emit(enabled)
 
-    def _rebase_dynamic_context(self, enabled: bool):
-        old_ctx = self.dynamic_panel._ctx
-        new_ctx = context_from_policy(self._loaded_policy)
-        if enabled:
-            new_ctx.forecast_date = new_ctx.issue_date
-            new_ctx.forecast_year = 1
-            new_ctx.forecast_age = new_ctx.issue_age
-        for section in (
-            self.dynamic_panel.premium_section,
-            self.dynamic_panel.loan_section,
-            self.dynamic_panel.withdrawal_section,
-            self.dynamic_panel.repayment_section,
-            self.dynamic_panel.face_section,
-            self.dynamic_panel.dbo_section,
-            self.dynamic_panel.rateclass_section,
-            self.dynamic_panel.table_section,
-        ):
-            for row in section.rows():
-                if row.year() == old_ctx.forecast_year:
-                    row.year_edit.set_value(new_ctx.forecast_year)
-                    row.age_edit.set_value(new_ctx.forecast_age)
-                row.set_context(new_ctx)
-        self.dynamic_panel._ctx = new_ctx
+    def _policy_for_input_mode(self, enabled):
+        if not enabled:
+            return self._loaded_policy
+        if self.abr_quote_enabled():
+            raise ValueError("Turn off ABR Quote in Options before selecting New Business - From Issue.")
+        if self._issue_load_error:
+            raise ValueError(self._issue_load_error)
+        return build_illustration_scenario(
+            self._loaded_policy, run_from_issue=True,
+            issue_overrides=self.issue_conditions.export_overrides(),
+        ).projectable_policy
+
+    def _load_dynamic_context(self, policy, enabled):
+        has_shadow, shadow_ceased = (
+            (policy.has_shadow_account, policy.ccv_ceased) if enabled
+            else self._inforce_shadow)
+        self.dynamic_panel.load_from_policy(
+            policy, has_shadow=has_shadow, shadow_ceased=shadow_ceased)
+        self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
+
+    def _show_mode_warnings(self, warnings):
+        self.mode_warning.setText("\n".join(warnings))
+        self.mode_warning.setVisible(bool(warnings))
+        for warning in warnings:
+            logger.warning("Illustration inputs: %s", warning)
+
+    def _on_issue_conditions_changed(self):
+        if not self.run_from_issue_enabled() or self._loaded_policy is None:
+            return
+        state = self.dynamic_panel.capture_state()
+        try:
+            policy = self._policy_for_input_mode(True)
+        except ValueError as exc:
+            self._show_mode_warnings([str(exc)])
+        else:
+            self._load_dynamic_context(policy, True)
+            self._show_mode_warnings(self.dynamic_panel.apply_state(state))
+            self._update_valuation_banner(policy)
+        self.issue_conditions_changed.emit()
 
     def _update_valuation_banner(self, policy):
         valuation_date = getattr(policy, "valuation_date", None)
@@ -1339,7 +1464,11 @@ class IllustrationInputsTab(QWidget):
                 )
 
         input_set.dated_transactions.extend(
-            self._collect_dated_transactions(self.unscheduled_premium_table, TransactionKind.PREMIUM)
+            self._collect_dated_transactions(
+                self.unscheduled_premium_table,
+                TransactionKind.PREMIUM,
+                subtype_column=2,
+            )
         )
         input_set.dated_transactions.extend(
             self._collect_dated_transactions(self.specific_loan_table, TransactionKind.LOAN)
@@ -1486,6 +1615,12 @@ class IllustrationInputsTab(QWidget):
         TEFRA/DEFRA + TAMRA off, so nothing here needs to touch those."""
         self.dynamic_panel.set_abr_quote_mode(enabled)
         self.abr_minimum_face_row.setVisible(enabled)
+        self.run_from_issue_btn.setEnabled(not enabled)
+        if enabled and self.run_from_issue_enabled():
+            self.run_from_issue_btn.setChecked(False)
+            self._show_mode_warnings([
+                "ABR Quote uses Inforce mode. Your from-issue inputs are preserved; "
+                "turn off ABR Quote to return to New Business - From Issue."])
 
     def abr_minimum_face_amount(self) -> Optional[float]:
         text = self.abr_minimum_face_edit.text().replace(",", "").replace("$", "").strip()
@@ -1532,6 +1667,9 @@ class IllustrationInputsTab(QWidget):
             index_illustration_rates=self.dynamic_panel.iul_illustration_rates(),
         )
 
+    def export_issue_overrides(self):
+        return self.issue_conditions.export_overrides() if self.run_from_issue_enabled() else None
+
     # ── saved-case capture/apply ──────────────────────────────
     #
     # The saved-case payload is the WIDGET state — the same surface a Run
@@ -1553,6 +1691,15 @@ class IllustrationInputsTab(QWidget):
 
     def capture_case_inputs(self) -> dict:
         """Snapshot the full user input state of this tab (JSON-safe)."""
+        state = self._capture_active_case_inputs()
+        state["issue_conditions"] = (
+            self.issue_conditions.capture_state()
+            if self.issue_conditions.has_policy() and not self._issue_load_error
+            else None)
+        state["mode_inputs"] = deepcopy(self._mode_inputs)
+        return state
+
+    def _capture_active_case_inputs(self) -> dict:
         return {
             "grids": {
                 name: self._capture_grid(getattr(self, attr))
@@ -1584,7 +1731,7 @@ class IllustrationInputsTab(QWidget):
                     "wair" if self.wair_radio.isChecked() else "blended"),
                 "use_policy_ag49": self.policy_ag49_check.isChecked(),
                 "abr_minimum_face_amount": self.abr_minimum_face_edit.text(),
-                "run_from_issue": self.run_from_issue_enabled(),
+                "run_from_issue": self._active_issue_mode,
             },
             "dynamic": self.dynamic_panel.capture_state(),
             "ui": {
@@ -1597,6 +1744,19 @@ class IllustrationInputsTab(QWidget):
 
         Returns warnings for every input that did not apply on this policy —
         the caller must surface them; nothing is silently dropped."""
+        warnings = self.issue_conditions.apply_state(state.get("issue_conditions"))
+        self._mode_inputs = deepcopy(state.get("mode_inputs") or {})
+        enabled = bool((state.get("controls") or {}).get("run_from_issue", False))
+        self.run_from_issue_btn.blockSignals(True)
+        self.run_from_issue_btn.setChecked(enabled)
+        self.run_from_issue_btn.blockSignals(False)
+        self._apply_run_from_issue(enabled, restore_inputs=False)
+        if enabled != self.run_from_issue_enabled():
+            raise ValueError(self.mode_warning.text())
+        warnings.extend(self._apply_active_case_inputs(state))
+        return warnings
+
+    def _apply_active_case_inputs(self, state: dict) -> list[str]:
         warnings: list[str] = []
         grids = state.get("grids") or {}
         for name, attr in self._CASE_GRIDS:
@@ -1609,8 +1769,6 @@ class IllustrationInputsTab(QWidget):
         warnings.extend(self.dynamic_panel.apply_state(state.get("dynamic") or {}))
 
         controls = state.get("controls") or {}
-        self.run_from_issue_btn.setChecked(
-            bool(controls.get("run_from_issue", False)))
         self.exact_days_check.setChecked(bool(controls.get("exact_days")))
         self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
         self.gp_search_check.setChecked(bool(controls.get("gp_search")))
@@ -1731,6 +1889,16 @@ class IllustrationInputsTab(QWidget):
 
     @staticmethod
     def _months_to_date(policy, target_date: date) -> int:
+        if getattr(policy, "run_from_issue", False):
+            issue = policy.issue_date
+            if issue is None:
+                raise ValueError("Illustration from issue requires a policy issue date.")
+            if target_date < issue:
+                return 0
+            months = (target_date.year - issue.year) * 12 + target_date.month - issue.month
+            if target_date < issue + relativedelta(months=months):
+                months -= 1
+            return months + 1
         start_date = getattr(policy, "valuation_date", None) or getattr(policy, "issue_date", None)
         if start_date is None:
             raise ValueError("Illustration to Date requires a policy valuation date or issue date.")

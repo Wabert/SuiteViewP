@@ -58,7 +58,7 @@ def main() -> None:
         return
 
     print(f"  solved premium : {r.premium:.2f} / {r.mode}")
-    print(f"  maturity AV    : {r.maturity_av:.2f}  iterations={r.iterations}")
+    print(f"  maturity AV    : {r.ending_av:.2f}  iterations={r.iterations}")
 
     # Re-project at the solved premium on the same basis and confirm the run
     # reaches maturity with the shadow account (not the AV) carrying it.

@@ -9,9 +9,13 @@ from datetime import date
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMenu
 
 from suiteview.illustration.models.input_set import TransactionKind
+from suiteview.illustration.models.policy_data import (
+    IllustrationPolicyData,
+    PremiumTransaction,
+)
 from suiteview.illustration.ui.inputs_tab import ExcelTableWidget, IllustrationInputsTab
 
 _QT_APP = None
@@ -98,3 +102,66 @@ def test_pasted_rows_export_as_transactions():
         (date(2026, 6, 9), 100.0),
         (date(2026, 7, 9), 200.0),
     ]
+
+
+def test_policy_premiums_populate_unscheduled_grid_with_transaction_type():
+    tab = _tab()
+    tab.load_data_from_policy(
+        IllustrationPolicyData(
+            issue_date=date(2020, 1, 15),
+            premium_transactions=[
+                PremiumTransaction(date(2020, 1, 15), 100.0, "PI"),
+                PremiumTransaction(date(2020, 2, 15), 125.25, "PR"),
+            ],
+        )
+    )
+
+    tab.unscheduled_premium_table.populate_policy_transactions_requested.emit()
+
+    assert tab.unscheduled_premium_table.horizontalHeaderItem(2).text() == "Transaction Type"
+    assert [
+        [
+            tab.unscheduled_premium_table.item(row, col).text()
+            for col in range(3)
+        ]
+        for row in range(2)
+    ] == [
+        ["01/15/2020", "100.00", "PI"],
+        ["02/15/2020", "125.25", "PR"],
+    ]
+    exported = tab.export_input_set().dated_transactions
+    assert [(item.amount, item.subtype) for item in exported] == [
+        (100.0, "PI"),
+        (125.25, "PR"),
+    ]
+
+
+def test_only_unscheduled_premiums_context_menu_offers_policy_population():
+    tab = _tab()
+    captured_actions = []
+    original_exec = QMenu.exec
+
+    def fake_exec(menu, *_args, **_kwargs):
+        captured_actions.extend(action.text() for action in menu.actions())
+        return None
+
+    QMenu.exec = fake_exec
+    try:
+        table = tab.unscheduled_premium_table
+        event = type(
+            "ContextEvent",
+            (),
+            {
+                "pos": lambda self: table.rect().center(),
+                "globalPos": lambda self: table.mapToGlobal(table.rect().center()),
+            },
+        )()
+        table.contextMenuEvent(event)
+        assert "Populate from policy transactions" in captured_actions
+
+        captured_actions.clear()
+        table = tab.specific_loan_table
+        table.contextMenuEvent(event)
+        assert "Populate from policy transactions" not in captured_actions
+    finally:
+        QMenu.exec = original_exec

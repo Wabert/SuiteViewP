@@ -36,6 +36,7 @@ from suiteview.illustration.models.policy_data import (
     BenefitInfo,
     CoverageSegment,
     IllustrationPolicyData,
+    PremiumTransaction,
     RiderInfo,
 )
 
@@ -370,7 +371,13 @@ def _case_from_payload(data: dict, path: Path) -> SavedCase:
 
 _SNAPSHOT_TYPES = {
     cls.__name__: cls
-    for cls in (IllustrationPolicyData, CoverageSegment, BenefitInfo, RiderInfo)
+    for cls in (
+        IllustrationPolicyData,
+        CoverageSegment,
+        BenefitInfo,
+        PremiumTransaction,
+        RiderInfo,
+    )
 }
 
 

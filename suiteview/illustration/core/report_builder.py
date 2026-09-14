@@ -95,6 +95,64 @@ def _pct(value: float) -> str:
     return f"{value * 100:.2f}%"
 
 
+ISSUE_OUTPUT_LABEL = "NEW BUSINESS - FROM ISSUE"
+
+
+def issue_output_basis(policy: IllustrationPolicyData) -> List[str]:
+    """Output identity for a hypothetical issue run, never historical balances."""
+    if not policy.run_from_issue:
+        return []
+    issue = policy.issue_date.strftime("%m/%d/%Y") if policy.issue_date else "NOT PROVIDED"
+    basis = (
+        policy.illustration_date.strftime("%m/%d/%Y")
+        if policy.illustration_date else "NOT PROVIDED"
+    )
+    return [
+        ISSUE_OUTPUT_LABEL,
+        f"ORIGINAL ISSUE DATE: {issue} | RATES BASIS DATE: {basis}",
+        "CURRENT ILLUSTRATED INTEREST AND CURRENT SCALE 1; NOT A HISTORICAL RECONSTRUCTION.",
+        "GUARANTEED VALUES USE CONTRACTUAL GUARANTEED ASSUMPTIONS.",
+        f"NO LAPSE PERIOD: {_issue_lapse_period_text(policy)}; AV LESS LOANS, THEN NORMAL LAPSE RULES.",
+        "THE LAPSE OVERRIDE IS A MODELING CONVENIENCE ON BOTH SIDES, NOT A CONTRACTUAL GUARANTEE.",
+    ]
+
+
+def _issue_lapse_period_text(policy: IllustrationPolicyData) -> str:
+    years = policy.issue_no_lapse_years
+    return f"{years:g} YEARS" if years is not None else "PLAN SAFETY-NET PERIOD (DEFAULT)"
+
+
+def issue_output_conditions(policy: IllustrationPolicyData) -> List[tuple]:
+    """Edited issue conditions carried by the modeled policy, not the live record."""
+    if not policy.run_from_issue:
+        return []
+    rows = [
+        ("Modeled specified amount", policy.face_amount),
+        ("Modeled DB option", _DBO_DESCRIPTIONS.get(policy.db_option, policy.db_option)),
+        ("No Lapse Period", _issue_lapse_period_text(policy)),
+        ("Lapse basis", "AV less loans during period; normal rules afterward. Modeling convenience on both sides."),
+    ]
+    for rider in policy.riders:
+        if rider.is_active:
+            rows.append((
+                "Included rider",
+                f"Phase {rider.coverage_phase}: {rider.description or 'TERM RIDER'} "
+                f"({rider.plancode}); face {_money(rider.face_amount)}",
+            ))
+    for benefit in policy.benefits:
+        if benefit.is_active:
+            code = (benefit.benefit_type or "") + (benefit.benefit_subtype or "")
+            name = _BENEFIT_NAMES.get(code) or _BENEFIT_TYPE_NAMES.get(
+                benefit.benefit_type or "", "BENEFIT")
+            rows.append((
+                "Included benefit",
+                f"Phase {benefit.coverage_phase}: {name} ({code})",
+            ))
+    if not any(r.is_active for r in policy.riders) and not any(b.is_active for b in policy.benefits):
+        rows.append(("Included riders / benefits", "NONE"))
+    return rows
+
+
 # ── Report structure ────────────────────────────────────────────────────────
 
 @dataclass
@@ -214,6 +272,8 @@ class IllustrationReport:
     subtitle: str = ""
     prepared_for: str = ""
     run_date: Optional[date] = None
+    run_from_issue: bool = False
+    basis_lines: List[str] = field(default_factory=list)
 
     # Identity used for default output filenames (policy number - plancode).
     policy_number: str = ""
@@ -1019,7 +1079,13 @@ def build_ul_report(
     """
     if options is None:
         options = IllustrationOptions()
-    report = IllustrationReport(run_date=run_date)
+    report = IllustrationReport(
+        run_date=run_date,
+        run_from_issue=policy.run_from_issue,
+        basis_lines=issue_output_basis(policy),
+    )
+    if policy.run_from_issue:
+        report.title = "FLEXIBLE PREMIUM UNIVERSAL LIFE INSURANCE HYPOTHETICAL ILLUSTRATION"
     inforce = results[0] if results else MonthlyState()
     projected = results[1:]
 
@@ -1068,7 +1134,10 @@ def build_ul_report(
     # maturity-age EOY row. (No VALUES AT MATURITY strip — removed 2026-07-19.)
 
     # ── Cover ──
-    valuation = policy.valuation_date or policy.issue_date
+    valuation = (
+        policy.issue_date if policy.run_from_issue
+        else policy.valuation_date or policy.issue_date
+    )
     report.as_of_date = valuation
     report.disclaimer_lines = [
         "THIS IS AN ILLUSTRATION ONLY. AN ILLUSTRATION IS NOT INTENDED TO PREDICT ACTUAL PERFORMANCE.",
@@ -1120,7 +1189,27 @@ def build_ul_report(
         (f"SEX: {sex}", ""),
         (f"{'PREMIUM CLASS:':<17}{rated}{class_desc}", ""),
     ]
-    if valuation and report.is_iul:
+    if policy.run_from_issue:
+        replacements = {
+            "CURRENT SPECIFIED AMOUNT:": "MODELED SPECIFIED AMOUNT:",
+            "CURRENT PLAN OPTION:": "MODELED PLAN OPTION:",
+            "CURRENT BILLING MODE:": "MODELED PREMIUM MODE:",
+            "CURRENT BILLABLE PREMIUM:": "MODELED PREMIUM:",
+            "ACTUAL PREMIUMS PAID:": "OPENING PREMIUMS PAID:",
+        }
+        report.policy_block = [
+            (left, next(
+                (f"{new:<27}{right[27:]}" for old, new in replacements.items()
+                 if right.startswith(old)), right,
+            ))
+            for left, right in report.policy_block
+        ]
+        report.av_basis_line = (
+            f"MODELED ISSUE OPENING ACCUMULATION VALUE: {_money(policy.account_value)} "
+            f"BEFORE ISSUE-DATE ACTIVITY ({as_of_short}). "
+            "THE TECHNICAL PRE-ISSUE ROW IS NOT AN INFORCE OR HISTORICAL BALANCE."
+        )
+    elif valuation and report.is_iul:
         report.av_basis_line = (
             f"THE ACCUMULATION VALUE OF {_money(policy.account_value)} CONSISTS OF "
             "THE FOLLOWING ACCOUNTS:"
@@ -1136,7 +1225,11 @@ def build_ul_report(
         + policy.variable_loan_principal + policy.variable_loan_accrued
     )
     if inforce_debt > 0.005:
-        report.loan_basis_line = f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
+        report.loan_basis_line = (
+            f"MODELED OPENING LOAN BALANCE: {inforce_debt:,.2f}"
+            if policy.run_from_issue
+            else f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
+        )
 
     guideline_restricted = any("*" in r.markers for r in report.ledger)
     tamra_restricted = any("#" in r.markers for r in report.ledger)

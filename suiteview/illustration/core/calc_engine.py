@@ -22,6 +22,7 @@ from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.interest_calc import credit_interest
+from suiteview.illustration.core.lapse import issue_no_lapse_years, lapse_value_for_month
 from suiteview.illustration.core.iul_crediting import (
     IULCreditingContext,
     build_iul_context,
@@ -128,6 +129,8 @@ class IllustrationEngine:
         if options is None:
             options = IllustrationOptions()
         config = load_plancode(policy.plancode)
+        if policy.run_from_issue:
+            policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
         # IUL crediting context (None on declared-rate plans): resolved AG49
         # index, asset-charge rate, loan credit spread, WAIR inputs.
@@ -619,6 +622,7 @@ class IllustrationEngine:
             state.policy_year, state.policy_month
         )
         duration = state.duration + 1
+        lapse_value = lapse_value_for_month(policy, config, duration)
         attained_age = policy.issue_age + (duration - 1) // 12
         month_date = policy.issue_date + relativedelta(months=duration - 1)
         is_anniversary = next_month == 1
@@ -946,9 +950,9 @@ class IllustrationEngine:
             shadow_probe = (
                 policy.has_shadow_account and past_snet
                 and state.shadow_eav_less_debt > 0)
-            sv_probe = (config.lapse_value == "SV"
+            sv_probe = (lapse_value == "SV"
                         and av_after_charge - sc_probe - probe_debt > 0)
-            av_probe = (config.lapse_value == "AV"
+            av_probe = (lapse_value == "AV"
                         and av_after_charge - probe_debt > 0)
             if not (snet_probe or shadow_probe or sv_probe or av_probe):
                 b2md_switched = True
@@ -1171,9 +1175,9 @@ class IllustrationEngine:
         # which nets the PRE-interest lapse-check AV and pre-accrual debt.
         ending_sv = av - surrender_charge - accrual_loan.policy_debt
 
-        positive_sv = config.lapse_value == "SV" and surrender_value > 0
+        positive_sv = lapse_value == "SV" and surrender_value > 0
         av_less_loans = lapse_check_av - lapse_check_debt
-        av_loans_test = config.lapse_value == "AV" and av_less_loans > 0
+        av_loans_test = lapse_value == "AV" and av_less_loans > 0
         exception_protection = (
             exception.mode
             and surrender_value > -0.0001
@@ -1443,9 +1447,16 @@ class IllustrationEngine:
     ) -> MonthlyState:
         if options is None:
             options = IllustrationOptions()
-        prior_date = state.date or policy.valuation_date or policy.issue_date
-        month_date = prior_date + relativedelta(months=1)
-        next_year, next_month, duration = _policy_counters_for_date(policy, month_date)
+        if policy.run_from_issue:
+            # Anchor to issue, not the prior clipped month (Mar 31 -> Feb 28
+            # -> Mar 28). Keep counters aligned with compiled monthly inputs.
+            duration = state.duration + 1
+            month_date = policy.issue_date + relativedelta(months=duration - 1)
+            next_year, next_month = _advance_month(state.policy_year, state.policy_month)
+        else:
+            prior_date = state.date or policy.valuation_date or policy.issue_date
+            month_date = prior_date + relativedelta(months=1)
+            next_year, next_month, duration = _policy_counters_for_date(policy, month_date)
         attained_age = policy.issue_age + (duration - 1) // 12
         is_anniversary = next_month == 1
         rate_year = next_year
@@ -1938,7 +1949,11 @@ def _change_duration(policy: IllustrationPolicyData, effective_date) -> int:
     if issue is None or effective_date is None:
         return 0
     months = (effective_date.year - issue.year) * 12 + (effective_date.month - issue.month)
-    if effective_date.day < issue.day:
+    before_anniversary = (
+        effective_date < issue + relativedelta(months=months)
+        if policy.run_from_issue else effective_date.day < issue.day
+    )
+    if before_anniversary:
         months -= 1
     return max(1, months + 1)
 

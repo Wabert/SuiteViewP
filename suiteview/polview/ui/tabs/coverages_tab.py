@@ -358,12 +358,8 @@ class CoveragesTab(QWidget):
             self._set_item(row_idx, col, tbl if tbl and tbl != 0 else ""); col += 1
             self._set_item(row_idx, col, format_date(getattr(cov, 'table_cease_date', None)) if tbl and tbl != 0 else ""); col += 1
             flat = getattr(cov, 'flat_extra', None)
-            try:
-                flat_val = float(flat) if flat else 0
-            except Exception:
-                flat_val = 0
-            self._set_item(row_idx, col, format_amount(flat) if flat_val != 0 else ""); col += 1
-            self._set_item(row_idx, col, format_date(getattr(cov, 'flat_cease_date', None)) if flat_val != 0 else ""); col += 1
+            self._set_item(row_idx, col, format_amount(flat)); col += 1
+            self._set_item(row_idx, col, format_date(getattr(cov, 'flat_cease_date', None)) if flat else ""); col += 1
             # Status, CeaseDate, Rate
             status = getattr(cov, 'nxt_chg_typ_cd', '') or getattr(cov, 'cov_status', '')
             self._set_item(row_idx, col, status); col += 1
@@ -418,16 +414,13 @@ class CoveragesTab(QWidget):
             self._set_bnf_item(row_idx, 7, format_date(getattr(bnf, 'orig_cease_date', None)))
             self._set_bnf_item(row_idx, 8, format_amount(getattr(bnf, 'units', None)))
             self._set_bnf_item(row_idx, 9, self._format_vpu(getattr(bnf, 'vpu', None)))
-            self._set_bnf_item(row_idx, 10, getattr(bnf, 'issue_age', "") or "")
+            self._set_bnf_item(row_idx, 10, getattr(bnf, 'issue_age', None))
             rating = getattr(bnf, 'rating_factor', None)
-            try:
-                rating_str = f"{float(rating):.0%}" if rating else ""
-            except Exception:
-                rating_str = ""
+            rating_str = f"{rating:.0%}" if rating is not None else ""
             self._set_bnf_item(row_idx, 11, rating_str)
             renew_ind = str(getattr(bnf, 'renewal_indicator', "") or "").strip()
             self._set_bnf_item(row_idx, 12, renew_ind)
-            self._set_bnf_item(row_idx, 13, getattr(bnf, 'coi_rate', "") or "")
+            self._set_bnf_item(row_idx, 13, getattr(bnf, 'coi_rate', None))
             # Renewal rate (67 segment) — only shown when the benefit renews
             # (Renew indicator = 1) and a renewal rate exists; otherwise blank.
             renewal_rate = getattr(bnf, 'renewal_rate', None)

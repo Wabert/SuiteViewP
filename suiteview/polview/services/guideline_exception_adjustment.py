@@ -1,28 +1,33 @@
 """Guideline Exception Adjustment calculations.
 
-The Policy Support GLP Exception window first runs the established
-**Prem-to-Maturity** solve, then displays its illustrated monthly values through
-the requested target date. Its first GP exception-premium month determines
-whether the target is relevant: only when that date is strictly before the
-target does the window also run the $0 **INPUT to MD** calculation.
+The Policy Support GLP Exception window exists to decide one thing: must this
+policy's AccumGLP be raised to make room for GP exception premiums before a
+target date? It answers that by solving the **minimum level premium that keeps
+the policy in force through the target date** — $0 if the account value alone
+carries it, a positive premium if the policy needs funding — and then reading
+whether that cheapest path fires a GP exception premium. A second independent
+minimum-premium solve always runs with starting GLP=0, preserving guideline
+enforcement. Its outlay sizes the adjustment only if the original needs exceptions.
+A third independent GLP=0 solve suppresses only forceouts, for comparison;
+it never determines the recommended adjustment.
 
-The 0-input-to-MD calculation uses a Lumpsum-to-Next-Premium bridge on a
-monthly cadence with TEFRA enforcement off. Its projected premium outlay is the
-premium needed to stay in force, and its adjustment summary sizes the AccumGLP
-room needed to admit that exception-premium alternative.
+Solving to the target date (not to maturity) is the point: a maturity solve
+answers "what premium sustains this policy forever", which can demand guideline
+room the policy never actually needs by the target.
 
 Room and adjustment:
 
 * ``room = max(0, AccumGLP - PremiumsPaidToDate + AccumWDs)`` — the same
   "Prem Allowed by GPT" figure shown on the Targets & Accumulators tab, but with
-  ``PremiumsPaidToDate`` brought current by adding premiums paid *since* the
-  valuation date (mirroring the existing GLP-Exception solve).
+  the valuation-date ``PremiumsPaidToDate``. Later financial history is not
+  injected into an earlier snapshot.
 * ``total_premium_needed`` — the gross premium actually paid into the policy
-  (bridge lumpsum + monthly Monthly-Deduction / exception premiums), summed for
+  (ordinary + exception premiums, not loan repayments), summed for
   every projected month **strictly before** the target date (the target date
   itself is excluded).
-* ``adjustment_to_accum_glp = max(0, total_premium_needed - room)`` — the
-  increase the AccumGLP needs to admit all of that premium under the guideline.
+* ``adjustment_to_accum_glp = max(0, PremiumsPaidToDate + total_premium_needed
+  - AccumWDs - AccumGLP)`` — the increase needed to admit that premium,
+  including any existing excess above the current AccumGLP.
 
 This is a single-target-date solve: it uses the policy's current AccumGLP and
 does not chain intermediate anniversary adjustments.
@@ -33,6 +38,8 @@ import copy
 from dataclasses import dataclass
 from datetime import date
 
+from dateutil.relativedelta import relativedelta
+
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.solve_level_to_exception import (
     LevelToExceptionError,
@@ -40,19 +47,15 @@ from suiteview.illustration.core.solve_level_to_exception import (
     solve_level_to_exception,
 )
 from suiteview.illustration.models.input_set import (
-    DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
     ScheduledTransaction,
     TransactionKind,
 )
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.calc_state import MonthlyState
 
 from .glp_exception import (
-    PremiumAdjustmentSinceValuation,
-    _months_between_exclusive,
-    _policy_with_post_valuation_premiums,
-    _premium_adjustment_since_valuation,
     check_forecast_availability,
 )
 
@@ -64,7 +67,6 @@ class GuidelineExceptionAdjustmentResult:
     current_valuation_date: date | None
     target_date: date
     months_to_target: int
-    premiums_since_valuation_date: float
     total_premium_needed: float
     room_available: float
     accumulated_glp: float
@@ -88,7 +90,7 @@ class GuidelineExceptionAdjustmentResult:
 
 @dataclass
 class GuidelineExceptionForecastRow:
-    """One month of the INPUT-to-MD ($0) guideline exception forecast."""
+    """Forecast amounts plus the full engine state for the shared values ledger."""
 
     date: date | None
     policy_year: int
@@ -105,117 +107,121 @@ class GuidelineExceptionForecastRow:
     exception_premium: float
     in_exception_mode: bool
     policy_debt: float
+    surrender_value: float = 0.0
+    state: MonthlyState | None = None
 
 
 @dataclass
-class GuidelineExceptionForecastResult:
-    """Full result of the Policy Support GLP Exception forecast.
-
-    Bundles the month-by-month INPUT-to-MD projection (``rows``) with the
-    :class:`GuidelineExceptionAdjustmentResult` ``summary`` so the UI can show
-    both the guideline-annotated forecast table and the adjustment summary.
-
-    Used for the conditional 0-input-to-Monthly-Deduction forecast after the
-    Prem-to-Maturity projection establishes that exception premium status begins
-    before the requested target date.
-    """
+class GuidelineExceptionZeroGlpForecastResult:
+    """Independently solved GLP=0 scenario, retaining the original GP accumulators."""
 
     summary: GuidelineExceptionAdjustmentResult
     rows: list[GuidelineExceptionForecastRow]
+    premium: float
+    premium_mode: str
+    exception_start: date | None
 
 
 @dataclass
-class GuidelineExceptionMaturityForecastResult:
-    """Prem-to-Maturity projection and its conditional 0-MD calculation.
+class GuidelineExceptionTargetForecastResult:
+    """Min-premium-to-target projection and two always-available GLP=0 solves.
 
-    The Prem-to-Maturity solve identifies the first illustrated month in the GP
-    exception-premium state. The table always shows this solved projection up to
-    the target. ``zero_md`` is calculated only if that first status date is
-    strictly before the target date.
+    ``premium`` is the **minimum** level premium (on the policy's billing mode)
+    that keeps the policy in force through the target date — $0 when the account
+    value alone carries it that far. Solving the least the policy must take in is
+    what makes the exception test meaningful: if even the cheapest way to stay in
+    force needs a GP exception premium, the AccumGLP genuinely has to be opened
+    up; if it does not, no adjustment is warranted.
+
+    ``exception_start`` is the first illustrated month of that projection in the
+    GP exception-premium state strictly before the target. ``zero_glp`` is
+    independently calculated whether or not the original needs exceptions.
+    ``no_forceout`` independently solves GLP=0 with only forceouts disabled;
+    its summary is comparison-only, not the recommended adjustment.
     """
 
     premium: float
     premium_mode: str
     exception_start: date | None
     rows: list[GuidelineExceptionForecastRow]
-    zero_md: GuidelineExceptionForecastResult | None
+    zero_glp: GuidelineExceptionZeroGlpForecastResult
+    no_forceout: GuidelineExceptionZeroGlpForecastResult
     current_glp: float = 0.0
 
     @property
     def exception_before_target(self) -> bool:
-        return self.exception_start is not None and self.zero_md is not None
+        return self.exception_start is not None
 
 
-def project_guideline_exception_forecast(
+def project_guideline_exception_target_forecast(
     policy,
     target_date: date,
-) -> GuidelineExceptionForecastResult:
-    """Run the INPUT-to-MD ($0) guideline exception forecast to ``target_date``.
+) -> GuidelineExceptionTargetForecastResult:
+    """Solve the minimum premium that holds the policy to ``target_date``.
 
-    Projects the policy on the INPUT-to-MD premium type (0 input premium,
-    monthly Lumpsum-to-Next-Premium bridge, TEFRA enforcement OFF) so premiums
-    are *not* restricted by the guideline, and returns the month-by-month rows
-    (annotated with GLP / AccumGLP / PremTD / AccumWD / Policy Debt so the user
-    can see how much room the AccumGLP needs) together with the adjustment
-    summary.
+    The screen exists to answer one question: does this policy need GP exception
+    premiums before the target date, and therefore AccumGLP room to accept them?
+    So the solve horizon is the **target date**, not maturity. The minimum level
+    premium that keeps the policy in force that far lands in one of three places:
+
+    * **$0** — the account value alone carries the policy to the target.
+    * **a positive premium inside the guideline** — fundable out of the
+      remaining AccumGLP room, so no exception and no adjustment.
+    * **a premium that exhausts the room** — the engine then fires GP exception
+      premiums, and the AccumGLP must be opened up to admit them.
+
+    Only the third case warrants adjustment from the GLP=0 scenario.
+    Solving the *minimum* is what makes that test fair: a
+    larger premium could hit the guideline for reasons the policy never actually
+    has to incur.
     """
-    ill_policy, valuation_date, premium_adjustment, months_to_target = (
+    ill_policy, valuation_date, months_to_target = (
         _prepare_projection(policy, target_date))
-
-    return _project_input_to_md_forecast(
-        policy,
-        ill_policy,
-        valuation_date,
-        premium_adjustment,
-        months_to_target,
-        target_date,
-    )
-
-
-def _project_input_to_md_forecast(
-    policy,
-    ill_policy: IllustrationPolicyData,
-    valuation_date: date,
-    premium_adjustment: "PremiumAdjustmentSinceValuation",
-    months_to_target: int,
-    target_date: date,
-) -> GuidelineExceptionForecastResult:
-    """Build the 0-input-to-MD forecast from already-prepared policy data."""
-    states = _run_input_to_md_states(ill_policy, months_to_target)
-    total_premium_needed = sum(
-        state.premium_outlay
-        for state in states
-        if state.date is not None and state.date < target_date
-    )
-
+    solved, rows, exception_start = _solve_and_project_target(
+        ill_policy, months_to_target, target_date)
+    zero_glp_policy = copy.deepcopy(ill_policy)
+    zero_glp_policy.glp = 0.0
+    zero_solved, zero_rows, zero_exception_start = _solve_and_project_target(
+        zero_glp_policy, months_to_target, target_date)
     summary = _summarize(
         policy, valuation_date, target_date, months_to_target,
-        premium_adjustment, total_premium_needed)
+        sum(row.premium for row in zero_rows),
+    )
+    no_forceout_solved, no_forceout_rows, no_forceout_exception_start = (
+        _solve_and_project_target(
+            zero_glp_policy, months_to_target, target_date,
+            guideline_forceouts=False))
+    return GuidelineExceptionTargetForecastResult(
+        premium=solved.premium,
+        premium_mode=solved.mode,
+        exception_start=exception_start,
+        rows=rows,
+        zero_glp=GuidelineExceptionZeroGlpForecastResult(
+            summary=summary, rows=zero_rows, premium=zero_solved.premium,
+            premium_mode=zero_solved.mode, exception_start=zero_exception_start),
+        no_forceout=GuidelineExceptionZeroGlpForecastResult(
+            summary=_summarize(
+                policy, valuation_date, target_date, months_to_target,
+                sum(row.premium for row in no_forceout_rows)),
+            rows=no_forceout_rows, premium=no_forceout_solved.premium,
+            premium_mode=no_forceout_solved.mode,
+            exception_start=no_forceout_exception_start),
+        current_glp=_f(ill_policy.glp),
+    )
 
-    rows = [
-        _forecast_row(state)
-        for state in states
-        if state.date is not None and state.date <= target_date
-    ]
-    return GuidelineExceptionForecastResult(summary=summary, rows=rows)
 
-
-def project_guideline_exception_maturity_forecast(
-    policy,
-    target_date: date,
-) -> GuidelineExceptionMaturityForecastResult:
-    """Project the Prem-to-Maturity solve through ``target_date``.
-
-    The existing Prem-to-Maturity engine solve supplies the level premium and
-    its guideline-conforming / exception-enabled basis. Its first exception
-    month is the authoritative date for deciding whether the 0-MD calculation
-    is relevant to this target.
-    """
-    ill_policy, valuation_date, premium_adjustment, months_to_target = (
-        _prepare_projection(policy, target_date))
+def _solve_and_project_target(
+    policy: IllustrationPolicyData, months_to_target: int, target_date: date,
+    *, guideline_forceouts: bool = True,
+):
+    """Use the same scenario basis in each independent solve and displayed run."""
+    ill_policy = copy.deepcopy(policy)
     engine = IllustrationEngine()
 
     allow_exceptions = not ill_policy.is_cvat
+    # Match RERUN's unchecked Exact Days Interest control: monthly compounding.
+    base_options = IllustrationOptions(
+        exact_days_interest=False, guideline_forceouts=guideline_forceouts)
     try:
         solved = solve_level_to_exception(
             ill_policy,
@@ -223,11 +229,20 @@ def project_guideline_exception_maturity_forecast(
             start_policy_year=int(ill_policy.policy_year or 1),
             allow_exceptions=allow_exceptions,
             conform_to_tamra=not ill_policy.is_cvat,
+            horizon_months=months_to_target,
+            fund_transition_cleanly=False,
+            base_options=base_options,
             engine=engine,
         )
     except LevelToExceptionError as exc:
         raise ValueError(str(exc)) from exc
 
+    options = level_to_exception_options(
+        base_options,
+        allow_exceptions=allow_exceptions,
+        conform_to_tamra=not ill_policy.is_cvat,
+    )
+    # An explicit zero overrides billing; an empty input set bills modal_premium.
     future = IllustrationInputSet(scheduled_transactions=[
         ScheduledTransaction(
             kind=TransactionKind.PREMIUM,
@@ -236,64 +251,34 @@ def project_guideline_exception_maturity_forecast(
             mode=solved.mode,
         )
     ])
-    options = level_to_exception_options(
-        None,
-        allow_exceptions=allow_exceptions,
-        conform_to_tamra=not ill_policy.is_cvat,
-    )
     states = engine.project(
         copy.deepcopy(ill_policy),
         options=options,
         future_inputs=future,
-        months=months_to_target + 2,
-        stop_on_lapse=False,
+        months=months_to_target,
     )
     rows = [
         _forecast_row(state)
         for state in states
-        if state.date is not None and state.date <= target_date
+        if state.date is not None and state.date < target_date
     ]
     exception_start = next(
-        (row.date for row in rows if row.in_exception_mode),
+        (row.date for row in rows if row.exception_premium > 0.0),
         None,
     )
 
-    zero_md = None
-    if exception_start is not None and exception_start < target_date:
-        # Entering the exception-premium period means the GLP is set to 0 going
-        # forward, so the 0-MD forecast runs off a zero GLP (the AccumGLP no
-        # longer grows at anniversaries) and the room is measured from there.
-        zero_md_policy = copy.deepcopy(ill_policy)
-        zero_md_policy.glp = 0.0
-        zero_md = _project_input_to_md_forecast(
-            policy,
-            zero_md_policy,
-            valuation_date,
-            premium_adjustment,
-            months_to_target,
-            target_date,
-        )
-
-    return GuidelineExceptionMaturityForecastResult(
-        premium=solved.premium,
-        premium_mode=solved.mode,
-        exception_start=exception_start,
-        rows=rows,
-        zero_md=zero_md,
-        current_glp=_f(getattr(ill_policy, "glp", 0.0)),
-    )
+    return solved, rows, exception_start
 
 
 def _prepare_projection(
     policy,
     target_date: date,
-) -> tuple[IllustrationPolicyData, date, "PremiumAdjustmentSinceValuation", int]:
+) -> tuple[IllustrationPolicyData, date, int]:
     """Shared setup for the solve and the forecast.
 
-    Gates availability, rolls the projection's starting state forward with
-    premiums paid since the valuation date (mirrors the existing GLP-Exception
-    solve so the two agree on the policy's current position), and computes the
-    number of monthly deductions strictly before the target.
+    Preserve the same valuation-date snapshot RERUN loads: account value is
+    already after the valuation month's deduction. Later receipts must not be
+    backdated into that AV or its premium/cost-basis accumulators.
     """
     availability = check_forecast_availability(policy)
     if not availability.available or availability.policy is None:
@@ -306,14 +291,14 @@ def _prepare_projection(
     if target_date <= valuation_date:
         raise ValueError("Target inforce date must be after the current valuation date")
 
-    premium_adjustment = _premium_adjustment_since_valuation(policy, valuation_date)
-    ill_policy = _policy_with_post_valuation_premiums(ill_policy, premium_adjustment)
+    if ill_policy.issue_date is None:
+        raise ValueError("Issue date is required to determine the monthly deduction dates")
+    months_to_target = 0
+    while (ill_policy.issue_date + relativedelta(
+            months=ill_policy.duration + months_to_target)) < target_date:
+        months_to_target += 1
 
-    months_to_target = _months_between_exclusive(valuation_date, target_date)
-    if months_to_target <= 0:
-        raise ValueError("Target date must leave at least one monthly deduction before the target")
-
-    return ill_policy, valuation_date, premium_adjustment, months_to_target
+    return ill_policy, valuation_date, months_to_target
 
 
 def _summarize(
@@ -321,35 +306,23 @@ def _summarize(
     valuation_date: date,
     target_date: date,
     months_to_target: int,
-    premium_adjustment: "PremiumAdjustmentSinceValuation",
     total_premium_needed: float,
-    accum_glp: float | None = None,
-    accum_wds: float | None = None,
 ) -> GuidelineExceptionAdjustmentResult:
     """Build the adjustment summary from the projected premium needed.
 
-    ``room = max(0, AccumGLP - PremiumsPaidToDate + AccumWDs)`` — withdrawals
-    create room — and ``adjustment = max(0, total_premium_needed - room)``. This
-    is algebraically the single-formula form
-    ``max(0, PremTD_on_target - AccumWDs - AccumGLP)``.
+    Withdrawals create room. The adjustment is
+    ``max(0, PremTD_on_target - AccumWDs - AccumGLP)``; do not subtract the
+    clamped room from the new premium, which would lose any existing excess.
 
-    ``accum_glp`` / ``accum_wds`` default to the policy's current DB2
-    accumulators (the Targets-tab solve and the INPUT-to-MD forecast). The
-    two-solve dual forecast passes the **projected** AccumGLP / AccumWD off the
-    month before the target instead, so the guideline shown in the table (which
-    evolves over the projection and absorbs any force-out into AccumWD) is the
-    exact figure the adjustment is measured against.
+    The exception adjustment uses current AccumGLP and withdrawals, with
+    future GLP set to zero.
     """
-    if accum_glp is None:
-        accum_glp = _f(getattr(policy, "accumulated_glp_target", None))
-    if accum_wds is None:
-        accum_wds = _f(getattr(policy, "total_withdrawals", None))
-    # Premiums paid to date, brought current with post-valuation premiums — the
-    # DB2 accumulator is as-of the valuation snapshot, so add anything paid since.
-    premiums_paid = _f(getattr(policy, "premium_td", None)) + premium_adjustment.gross_premium
+    accum_glp = _f(getattr(policy, "accumulated_glp_target", None))
+    accum_wds = _f(getattr(policy, "total_withdrawals", None))
+    premiums_paid = _f(getattr(policy, "premium_td", None))
 
     room = max(0.0, accum_glp - premiums_paid + accum_wds)
-    adjustment = max(0.0, total_premium_needed - room)
+    adjustment = max(0.0, premiums_paid + total_premium_needed - accum_wds - accum_glp)
     message = (
         "No adjustment needed" if adjustment <= 0.0
         else f"Increase AccumGLP by {adjustment:,.2f}")
@@ -358,7 +331,6 @@ def _summarize(
         current_valuation_date=valuation_date,
         target_date=target_date,
         months_to_target=months_to_target,
-        premiums_since_valuation_date=premium_adjustment.gross_premium,
         total_premium_needed=total_premium_needed,
         room_available=room,
         accumulated_glp=accum_glp,
@@ -393,137 +365,9 @@ def _forecast_row(state) -> GuidelineExceptionForecastRow:
         exception_premium=_f(getattr(state, "gp_exception_prem", 0.0)),
         in_exception_mode=bool(getattr(state, "exception_prem_mode", False)),
         policy_debt=_f(getattr(state, "policy_debt", 0.0)),
+        surrender_value=_f(getattr(state, "ending_sv", 0.0)),
+        state=state,
     )
-
-
-def _run_input_to_md_states(
-    policy: IllustrationPolicyData,
-    months_to_target: int,
-    engine: IllustrationEngine | None = None,
-) -> list:
-    """Project the INPUT-to-MD ($0) run past the target and return every state.
-
-    Builds the INPUT-to-MD run (input premium 0, monthly, Lumpsum-to-Next-Premium
-    bridge, TEFRA off) and projects two months past the target so the target-date
-    row itself is available for display.
-    """
-    return _run_forecast_states(
-        policy, months_to_target, _input_to_md_run, engine=engine)
-
-
-def _run_forecast_states(
-    policy: IllustrationPolicyData,
-    months_to_target: int,
-    run_builder,
-    engine: IllustrationEngine | None = None,
-) -> list:
-    """Project a GLP-Exception run built by ``run_builder`` and return the states.
-
-    ``run_builder(policy) -> (future_inputs, options)`` supplies the premium
-    schedule and options (the INPUT-to-MD run). The Lumpsum-to-Next-Premium
-    bridge is layered on afterwards, forced to a monthly cadence. Projects two
-    months past the target so the target-date row is available for display.
-    """
-    engine = engine or IllustrationEngine()
-
-    run_policy = copy.deepcopy(policy)
-    future, options = run_builder(run_policy)
-    future, options = _apply_lumpsum_to_next(
-        run_policy, future, options, engine, force_monthly=True)
-
-    return engine.project(
-        copy.deepcopy(run_policy),
-        options=options,
-        future_inputs=future,
-        months=months_to_target + 2,
-        stop_on_lapse=False,
-    )
-
-
-def _input_to_md_run(
-    policy: IllustrationPolicyData,
-) -> tuple[IllustrationInputSet, IllustrationOptions]:
-    """Future inputs + options for an INPUT-to-MD run with a 0 input premium.
-
-    Silences the default modal billing (input premium is 0) and lets the engine
-    hand off from the (zero) premium to the Monthly Deduction premium — then GP
-    exceptions — across the whole remaining policy life. TEFRA enforcement is
-    OFF so the guideline never caps the Monthly Deduction premium: the outlay is
-    the raw premium the policy needs to stay in force.
-    """
-    issue_age = int(policy.issue_age or 0)
-    maturity_age = int(policy.maturity_age or 121)
-    forecast_year = int(policy.policy_year or 1)
-    maturity_year = max(1, maturity_age - issue_age)
-
-    scheduled = [ScheduledTransaction(
-        kind=TransactionKind.PREMIUM, policy_year=forecast_year,
-        amount=0.0, mode="A")]
-    future = IllustrationInputSet(scheduled_transactions=scheduled)
-    options = IllustrationOptions(
-        # TEFRA limit enforcement OFF — the whole point of the solve is to size
-        # the premium the policy needs regardless of the guideline cap.
-        conform_to_tefra=False,
-        conform_to_tamra=False,
-        # INPUT to MD always allows GP exceptions — the billable → MD → exception
-        # sequence is the mechanism.
-        allow_exception_prems=True,
-        billable_to_md_windows=[(forecast_year, maturity_year)],
-    )
-    return future, options
-
-
-def _apply_lumpsum_to_next(
-    policy: IllustrationPolicyData,
-    future: IllustrationInputSet,
-    options: IllustrationOptions,
-    engine: IllustrationEngine,
-    force_monthly: bool = True,
-) -> tuple[IllustrationInputSet, IllustrationOptions]:
-    """Solve the Lumpsum-to-Next-Premium bridge and layer it in.
-
-    Bridges the policy from the valuation date up to its next premium, funding
-    the policy until then and suppressing the MD hand-off until that premium —
-    mirroring the Billable-to-MD batch run. ``force_monthly`` forces a monthly
-    cadence for the bridge (the $0 → MD solve's "mode beginning monthly"); the
-    level-premium run passes ``False`` so the bridge targets the next premium on
-    the policy's own mode. A failed or unneeded bridge leaves the run unchanged.
-    """
-    from dataclasses import replace
-
-    from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
-        LUMPSUM_SUBTYPE,
-        solve_lumpsum_to_next_premium,
-    )
-
-    bridge_policy = copy.deepcopy(policy)
-    if force_monthly:
-        bridge_policy.billing_frequency = 1  # monthly cadence for the bridge
-
-    try:
-        lump = solve_lumpsum_to_next_premium(
-            bridge_policy,
-            base_future_inputs=future,
-            base_options=options,
-            engine=engine)
-    except Exception:  # bridge solve failed — run without it
-        lump = None
-
-    if lump is None or lump.lumpsum <= 0:
-        return future, options
-
-    dated = list(future.dated_transactions)
-    dated.append(DatedTransaction(
-        kind=TransactionKind.PREMIUM,
-        effective_date=lump.forecast_date,
-        amount=lump.lumpsum,
-        subtype=LUMPSUM_SUBTYPE))
-    future = IllustrationInputSet(
-        scheduled_transactions=list(future.scheduled_transactions),
-        dated_transactions=dated,
-        policy_changes=list(future.policy_changes))
-    options = replace(options, billable_to_md_no_latch_before=lump.next_premium_date)
-    return future, options
 
 
 def _f(value) -> float:

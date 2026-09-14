@@ -99,6 +99,15 @@ class RiderInfo:
 
 
 @dataclass
+class PremiumTransaction:
+    """An unreversed premium transaction recorded on the policy."""
+
+    effective_date: date
+    amount: float
+    transaction_type: str
+
+
+@dataclass
 class IllustrationPolicyData:
     """Complete policy data for UL illustration projection.
 
@@ -148,6 +157,7 @@ class IllustrationPolicyData:
     billing_frequency: int = 1     # Months between payments
     premiums_paid_to_date: float = 0.0
     premiums_ytd: float = 0.0
+    premium_transactions: List[PremiumTransaction] = field(default_factory=list)
 
     # ── Interest / Crediting ──────────────────────────────────
     guaranteed_interest_rate: float = 0.0
@@ -186,6 +196,7 @@ class IllustrationPolicyData:
     valuation_date: Optional[date] = None
     maturity_age: int = 121
     run_from_issue: bool = False
+    issue_no_lapse_years: Optional[float] = None  # None uses the plan safety-net period
 
     # ── 7702 / Guideline ──────────────────────────────────────
     def_of_life_ins: str = "GPT"   # "GPT", "CVAT", or blank when not defined

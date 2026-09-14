@@ -408,6 +408,31 @@ def _ledger_cells(
     ]
 
 
+def monthly_ledger_cells(state, previous_withdrawals: float) -> list[str]:
+    """Canonical monthly mapping, also used by Policy Support's target forecasts."""
+    av = state.av_after_exception
+    return _ledger_cells(
+        state.policy_year, state.policy_month, state.attained_age,
+        state.attained_age + 1, state.date,
+        withdrawals=(
+            state.withdrawals_to_date - previous_withdrawals - state.guideline_forceout),
+        forceouts=state.guideline_forceout,
+        loan_repay=state.applied_loan_repayment,
+        premium=state.premium_outlay - state.gp_exception_prem,
+        monthly_deduction=state.total_deduction,
+        exception_prem=state.gp_exception_prem,
+        av=av, sv=av - state.policy_debt - state.surrender_charge,
+        interest=state.interest_credited,
+        eav=state.av_end_of_month, sc=state.surrender_charge,
+        new_loan=state.applied_new_loan, loan_balance=state.policy_debt,
+        esv=state.ending_sv, shadow_eav=state.shadow_eav,
+        death_benefit=state.ending_db or state.gross_db,
+        status=_status_text(state),
+        glp=state.glp, gsp=state.gsp, total_gp=state.guideline_limit,
+        subject_payments=state.premiums_to_date_after_exception - state.withdrawals_to_date,
+    )
+
+
 class ValuesOverview(QWidget):
     """KPI strip + annual/monthly drill-down ledger."""
 
@@ -835,27 +860,7 @@ class ValuesOverview(QWidget):
                 by_year[year - 1][-1][1].withdrawals_to_date
                 if year - 1 in by_year else results[0].withdrawals_to_date
             )
-            anchor_wd = (
-                anchor.withdrawals_to_date - anchor_prev_wd - anchor.guideline_forceout)
-            anchor_av = anchor.av_after_exception
-            boy_cells = _ledger_cells(
-                year, boy_month, eoy.attained_age, eoy.attained_age + 1, boy_date,
-                withdrawals=anchor_wd, forceouts=anchor.guideline_forceout,
-                loan_repay=anchor.applied_loan_repayment,
-                premium=anchor.premium_outlay - anchor.gp_exception_prem,
-                monthly_deduction=anchor.total_deduction,
-                exception_prem=anchor.gp_exception_prem,
-                av=anchor_av,
-                sv=anchor_av - anchor.policy_debt - anchor.surrender_charge,
-                interest=anchor.interest_credited,
-                eav=anchor.av_end_of_month, sc=anchor.surrender_charge,
-                new_loan=anchor.applied_new_loan, loan_balance=anchor.policy_debt,
-                esv=anchor.ending_sv, shadow_eav=anchor.shadow_eav,
-                death_benefit=anchor.ending_db or anchor.gross_db,
-                status=_status_text(anchor),
-                glp=anchor.glp, gsp=anchor.gsp, total_gp=anchor.guideline_limit,
-                subject_payments=anchor.premiums_to_date_after_exception - anchor.withdrawals_to_date,
-            )
+            boy_cells = monthly_ledger_cells(anchor, anchor_prev_wd)
             item = QTreeWidgetItem(annual_cells)
             item.setBackground(SPACER_COLUMN, SPACER_BRUSH)
             for column in range(len(LEDGER_COLUMNS)):
@@ -881,33 +886,11 @@ class ValuesOverview(QWidget):
             # carries the valuation date, which no child duplicates.
             drop_boy_child = year != first_year
             for child_position, (result_index, state) in enumerate(month_entries):
-                # Net the force-out out of the withdrawal delta (see annual row).
-                month_wd = (
-                    state.withdrawals_to_date - previous_wd
-                    - state.guideline_forceout)
+                cells = monthly_ledger_cells(state, previous_wd)
                 previous_wd = state.withdrawals_to_date
                 if drop_boy_child and child_position == 0:
                     continue
-                av_pre_interest = state.av_after_exception
-                sv_pre_interest = av_pre_interest - state.policy_debt - state.surrender_charge
-                child = QTreeWidgetItem(_ledger_cells(
-                    state.policy_year, state.policy_month, state.attained_age,
-                    state.attained_age + 1, state.date,
-                    withdrawals=month_wd, forceouts=state.guideline_forceout,
-                    loan_repay=state.applied_loan_repayment,
-                    premium=state.premium_outlay - state.gp_exception_prem,
-                    monthly_deduction=state.total_deduction,
-                    exception_prem=state.gp_exception_prem,
-                    av=av_pre_interest, sv=sv_pre_interest,
-                    interest=state.interest_credited,
-                    eav=state.av_end_of_month, sc=state.surrender_charge,
-                    new_loan=state.applied_new_loan, loan_balance=state.policy_debt,
-                    esv=state.ending_sv, shadow_eav=state.shadow_eav,
-                    death_benefit=state.ending_db or state.gross_db,
-                    status=_status_text(state),
-                    glp=state.glp, gsp=state.gsp, total_gp=state.guideline_limit,
-                    subject_payments=state.premiums_to_date_after_exception - state.withdrawals_to_date,
-                ))
+                child = QTreeWidgetItem(cells)
                 child.setBackground(SPACER_COLUMN, SPACER_BRUSH)
                 for column in range(len(LEDGER_COLUMNS)):
                     if column in NUMERIC_LEDGER:

@@ -36,7 +36,8 @@ def test_grid_inputs_tab_is_hidden_by_default():
     assert tab.grid_inputs_tab_visible() is False
     assert tab.input_tabs.isTabVisible(index) is False
     # Hidden, not removed — the index stays stable/addressable.
-    assert tab.input_tabs.count() == 3
+    assert tab.input_tabs.count() == 4
+    assert tab.input_tabs.tabText(3) == "At-Issue Conditions"
 
 
 def test_context_menu_toggle_shows_and_hides_the_tab():

@@ -907,11 +907,10 @@ class PolicyInformation:
                 plancode = str(row.get("PLN_DES_SER_CD", "")).strip()
                 
                 # Get units and VPU for calculations
-                units = Decimal(str(row["COV_UNT_QTY"])) if row.get("COV_UNT_QTY") else None
-                orig_units = Decimal(str(row["OGN_SPC_UNT_QTY"])) if row.get("OGN_SPC_UNT_QTY") else None
-                vpu = Decimal(str(row.get("COV_VPU_AMT") or 0))
-                if vpu == 0:
-                    vpu = None
+                units = self._parse_optional_decimal(row.get("COV_UNT_QTY"))
+                orig_units = self._parse_optional_decimal(row.get("OGN_SPC_UNT_QTY"))
+                vpu = self._parse_optional_decimal(row.get("COV_VPU_AMT"))
+                premium_rate = self._parse_optional_decimal(row.get("ANN_PRM_UNT_AMT"))
                 
                 # Calculate amounts
                 face_amount = (units * vpu) if (units is not None and vpu is not None) else None
@@ -937,7 +936,7 @@ class PolicyInformation:
                         if r.flat_cease_date:
                             table_cease_date = r.flat_cease_date
                     if r.type_code == "F":
-                        if r.flat_amount:
+                        if r.flat_amount is not None:
                             flat_extra = r.flat_amount
                         if r.flat_cease_date:
                             flat_cease_date = r.flat_cease_date
@@ -987,19 +986,19 @@ class PolicyInformation:
                     cov_status_date=status_date,
                     cov_status_desc="",
                     # Premium rate (Trad) – from LH_COV_PHA.ANN_PRM_UNT_AMT
-                    premium_rate=Decimal(str(row["ANN_PRM_UNT_AMT"])) if row.get("ANN_PRM_UNT_AMT") else None,
+                    premium_rate=premium_rate,
                     nxt_chg_typ_cd=str(row.get("NXT_CHG_TYP_CD", "")),
                     nxt_chg_dt=self._parse_date(row.get("NXT_CHG_DT")),
                     terminate_date=self._parse_date(row.get("PLN_TMN_DT")),
                     is_base=is_base,
                     # Total annual premium = per-unit rate × units
                     cov_annual_premium=(
-                        Decimal(str(row["ANN_PRM_UNT_AMT"])) * units
-                        if row.get("ANN_PRM_UNT_AMT") and units is not None
-                        else (Decimal(str(row["ANN_PRM_UNT_AMT"])) if row.get("ANN_PRM_UNT_AMT") else None)
+                        premium_rate * units
+                        if premium_rate is not None and units is not None
+                        else premium_rate
                     ),
                     # Raw per-unit rate (ANN_PRM_UNT_AMT)
-                    annual_premium_per_unit=Decimal(str(row["ANN_PRM_UNT_AMT"])) if row.get("ANN_PRM_UNT_AMT") else None,
+                    annual_premium_per_unit=premium_rate,
                     cv_amount=cv_amount,
                     nsp_amount=nsp_amount,
                     elimination_period=translate_elimination_period_code(elim_code) if elim_code else "",
@@ -1119,8 +1118,8 @@ class PolicyInformation:
                 ben_cov_pha_nbr = int(row.get("COV_PHA_NBR", 0) or 0)
 
                 # Get units and VPU for amount calculation
-                units = Decimal(str(row["BNF_UNT_QTY"])) if row.get("BNF_UNT_QTY") else None
-                vpu = Decimal(str(row["BNF_VPU_AMT"])) if row.get("BNF_VPU_AMT") else None
+                units = self._parse_optional_decimal(row.get("BNF_UNT_QTY"))
+                vpu = self._parse_optional_decimal(row.get("BNF_VPU_AMT"))
                 benefit_amount = (units * vpu) if (units is not None and vpu is not None) else None
 
                 # Renewal rate from the 67 segment (LH_BNF_INS_RNL_RT, type "B").
@@ -1145,9 +1144,9 @@ class PolicyInformation:
                     vpu=vpu,
                     benefit_amount=benefit_amount,
                     issue_age=self._parse_optional_int(row.get("BNF_ISS_AGE")),
-                    rating_factor=Decimal(str(row["BNF_RT_FCT"])) if row.get("BNF_RT_FCT") else None,
+                    rating_factor=self._parse_optional_decimal(row.get("BNF_RT_FCT")),
                     renewal_indicator=str(row.get("RNL_RT_IND", "")).strip(),
-                    coi_rate=Decimal(str(row["BNF_ANN_PPU_AMT"])) if row.get("BNF_ANN_PPU_AMT") else None,
+                    coi_rate=self._parse_optional_decimal(row.get("BNF_ANN_PPU_AMT")),
                     renewal_rate=renewal_rate,
                     raw_data=row
                 )
@@ -2689,6 +2688,8 @@ class PolicyInformation:
     # =========================================================================
     # TRANSACTIONS (FH_FIXED)
     # =========================================================================
+
+    PREMIUM_TRANSACTION_CODES = frozenset({"PR", "PI", "PA", "PF", "PT", "PB", "PW"})
     
     def get_transactions(self, limit: int = None) -> List[TransactionInfo]:
         """Get transaction records from FH_FIXED, ordered by date descending."""
@@ -2698,9 +2699,18 @@ class PolicyInformation:
             if limit and count >= limit:
                 break
             
-            trans_type = str(row.get("TRN_TYP_CD", "") or "")
-            trans_subtype = str(row.get("TRN_SBY_CD", "") or "")
-            trans_code = trans_type + trans_subtype
+            trans_type = str(row.get("TRN_TYP_CD", "") or "").strip().upper()
+            trans_subtype = str(row.get("TRN_SBY_CD", "") or "").strip().upper()
+            trans_code = str(row.get("TRANS", "") or "").strip().upper()
+            if not trans_code:
+                trans_code = trans_type + trans_subtype
+
+            gross_value = row.get("GROSS_AMT")
+            if gross_value is None:
+                gross_value = row.get("TOT_TRS_AMT")
+            net_value = row.get("NET_AMT")
+            if net_value is None:
+                net_value = row.get("ACC_VAL_GRS_AMT")
             
             trans = TransactionInfo(
                 trans_date=self._parse_date(row.get("ASOF_DT")),
@@ -2708,8 +2718,8 @@ class PolicyInformation:
                 trans_type=trans_type,
                 trans_subtype=trans_subtype,
                 trans_desc=translate_transaction_code(trans_code),
-                gross_amount=Decimal(str(row["TOT_TRS_AMT"])) if row.get("TOT_TRS_AMT") else None,
-                net_amount=Decimal(str(row["ACC_VAL_GRS_AMT"])) if row.get("ACC_VAL_GRS_AMT") else None,
+                gross_amount=Decimal(str(gross_value)) if gross_value is not None else None,
+                net_amount=Decimal(str(net_value)) if net_value is not None else None,
                 sequence_number=int(row.get("SEQ_NO", 0) or 0),
                 fund_id=str(row.get("FND_ID_CD", "") or ""),
                 coverage_phase=int(row.get("COV_PHA_NBR", 0) or 0),
@@ -2718,6 +2728,30 @@ class PolicyInformation:
             transactions.append(trans)
             count += 1
         return transactions
+
+    def get_premium_transactions(self) -> List[TransactionInfo]:
+        """Return unreversed policy premium transactions in issue-date order."""
+        transactions = []
+        for transaction in self.get_transactions():
+            row = transaction.raw_data
+            reversed_or_reversal = (
+                str(row.get("FCB0_REV_IND", "") or "").strip() == "1"
+                or str(row.get("FCB2_REV_APPL_IND", "") or "").strip() == "1"
+            )
+            if (
+                transaction.trans_code in self.PREMIUM_TRANSACTION_CODES
+                and not reversed_or_reversal
+                and transaction.trans_date is not None
+                and transaction.gross_amount is not None
+            ):
+                transactions.append(transaction)
+        return sorted(
+            transactions,
+            key=lambda transaction: (
+                transaction.trans_date,
+                transaction.sequence_number,
+            ),
+        )
     
     @property
     def transaction_count(self) -> int:
@@ -2873,7 +2907,7 @@ class PolicyInformation:
                 type_desc="Table Rating" if translated_type == "T" else "Flat Extra",
                 table_rating=table_letter,
                 table_rating_numeric=translate_table_rating(table_letter),
-                flat_amount=Decimal(str(row["XTR_PER_1000_AMT"])) if row.get("XTR_PER_1000_AMT") else None,
+                flat_amount=self._parse_optional_decimal(row.get("XTR_PER_1000_AMT")),
                 flat_cease_date=self._parse_date(row.get("SST_XTR_CEA_DT")),
                 duration=int(row.get("SST_XTR_CEA_DUR", 0) or 0) or None,
                 raw_data=row
@@ -4028,6 +4062,13 @@ class PolicyInformation:
     def _parse_date(value) -> Optional[date]:
         """Parse a date value from DB2."""
         return _PolicyData.parse_date(value)
+
+    @staticmethod
+    def _parse_optional_decimal(value) -> Optional[Decimal]:
+        """Parse an optional DB number without treating zero as missing."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return Decimal(str(value))
 
     @staticmethod
     def _parse_optional_int(value) -> Optional[int]:

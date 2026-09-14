@@ -1,6 +1,11 @@
 """Solve the "Min Level to Maturity" premium — the minimum modal level premium
 that keeps a policy in force all the way to maturity.
 
+Pass ``horizon_months`` to stop short of maturity and solve the minimum level
+premium that keeps the policy in force only that far (the Policy Support GLP
+Exception screen solves to a user-supplied target date). The answer may be $0
+when the account value alone carries the policy that far.
+
 For GPT policies the solve rides the GLP exception period when the guideline
 caps further funding (when exceptions are allowed). CVAT policies have no
 guideline premium cap and no exception machinery, so their solve always runs
@@ -57,11 +62,12 @@ class LevelToExceptionError(ValueError):
 class LevelToExceptionResult:
     premium: float                   # solved modal level premium, rounded up
     mode: str                        # M / Q / S / A
-    enters_exception: bool           # rode a GLP Exception period to maturity
+    enters_exception: bool           # rode a GLP Exception period to the horizon
     exception_start: Optional[date]  # first month of that exception period
     exception_duration: Optional[int]  # policy year that exception period begins
-    maturity_av: float               # account value at maturity at the solved premium
-    total_premium_paid: float        # lifetime premiums to maturity at the solved
+    ending_av: float                 # account value at the last projected month
+                                     # (maturity, or ``horizon_months`` when set)
+    total_premium_paid: float        # premiums over the projection at the solved
                                      # premium — applied premium + GP exception
                                      # premium + loan repayments
     iterations: int                  # engine projections spent solving
@@ -83,7 +89,7 @@ def level_to_exception_options(
     survives; False requires the level premium to endow on its own, with no
     exception rescue (the solve then reports no solution for a guideline-bound
     policy). The
-    interest-day convention and the premium-levelizing choice are inherited so
+    interest-day convention, forceout choice and premium-levelizing choice are inherited so
     the applied premium is shown consistently with the rest of the app; both the
     solve and the displayed run must use this same basis, or the solved premium
     won't behave as solved.
@@ -108,6 +114,7 @@ def level_to_exception_options(
         levelizing_premium=levelizing,
         dollar_for_dollar_in_transition_year=True,
         apply_prem_to_loan=apply_prem_to_loan,
+        guideline_forceouts=base.guideline_forceouts if base is not None else True,
     )
 
 
@@ -122,6 +129,7 @@ def solve_level_to_exception(
     conform_to_tamra: bool = True,
     resolution: float = 0.01,
     fund_transition_cleanly: bool = True,
+    horizon_months: Optional[int] = None,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
 ) -> LevelToExceptionResult:
@@ -146,6 +154,13 @@ def solve_level_to_exception(
             right up to the exception period" contract. Never returns less than the
             plain survive-minimum; falls back to it when a clean solution is not
             reachable. Turn off to solve only for bare survival.
+        horizon_months: stop the projection this many months out and solve only
+            for staying in force that far, instead of to maturity. The minimum is
+            then often $0 — a policy whose account value alone carries it to the
+            horizon needs no premium at all. Use it to answer "what is the least
+            this policy must take in between now and <date>?"
+            A finite horizon requires positive ending surrender value and no
+            lapse, or the engine's zero-value GP exception protection.
         apply_prem_to_loan: make the level premium repay the policy loan before
             funding the account value (sInput_ApplyPremToLoan) — needed to solve a
             policy that carries a loan. ``None`` inherits it from ``base_options``;
@@ -154,6 +169,9 @@ def solve_level_to_exception(
             ``apply_prem_to_loan`` are read from it; the guideline and exception
             toggles are forced on.
     """
+    if horizon_months is not None and horizon_months < 0:
+        raise LevelToExceptionError("The projection horizon cannot be negative.")
+
     # CVAT policies have no guideline premium cap and no GLP exception machinery:
     # the solve runs with exceptions off and the level premium simply endows.
     # TAMRA conformance is also forced off — the CVAT TAMRA cap rides on the
@@ -180,12 +198,28 @@ def solve_level_to_exception(
             dated_transactions=list(base.dated_transactions) if base is not None else [],
             policy_changes=list(base.policy_changes) if base is not None else [],
         )
-        return engine.project(policy, options=options, future_inputs=future)
+        return engine.project(policy, options=options, future_inputs=future,
+                              months=horizon_months)
 
     def survives(states: List[MonthlyState]) -> bool:
-        # stop_on_lapse truncates a lapsing run before maturity; a surviving run
-        # (endow or exception) reaches the maturity age.
-        return bool(states) and states[-1].attained_age >= policy.maturity_age
+        # stop_on_lapse truncates a lapsing run before its horizon; a surviving
+        # run (endow or exception) reaches every month that was asked for.
+        if not states:
+            return False
+        if horizon_months is not None:
+            # The engine includes the lapse row, even when it is the last month.
+            last = states[-1]
+            reached = (len(states) > horizon_months
+                       or last.attained_age >= policy.maturity_age)
+            if not reached or any(s.lapsed for s in states):
+                return False
+            # Ordinary funding must leave positive surrender value, not merely
+            # positive AV or safety-net protection. GP exceptions instead fund
+            # the engine's zero-value boundary after guideline room is exhausted.
+            return last.ending_sv > 0.0 or (
+                allow_exceptions and last.gp_exception_mode
+                and last.ending_sv >= -0.0001)
+        return states[-1].attained_age >= policy.maturity_age
 
     def cleanly_funded(states: List[MonthlyState]) -> bool:
         # The stricter target the module contract promises: a premium that stays
@@ -249,10 +283,12 @@ def solve_level_to_exception(
             iterations += 1
         return premium
 
-    # Baseline: the lowest premium that stays in force to maturity.
+    # Baseline: the lowest premium that stays in force to the horizon.
     survive_premium = solve_for(survives)
     if survive_premium is None:
         raise LevelToExceptionError(
+            "No level premium keeps this policy in force to the target date."
+            if horizon_months is not None else
             "No level premium keeps this policy in force to maturity.")
 
     premium = survive_premium
@@ -268,6 +304,9 @@ def solve_level_to_exception(
 
     states = project(premium)
     iterations += 1
+    if horizon_months is not None and not survives(states):
+        raise LevelToExceptionError(
+            "The rounded premium did not meet the target-date surrender-value requirement.")
     return _build_result(premium, mode, states, iterations)
 
 
@@ -277,8 +316,8 @@ def _build_result(
     exc_state = next((s for s in states if s.exception_prem_mode), None)
     exc_start = exc_state.date if exc_state is not None else None
     exc_duration = exc_state.policy_year if exc_state is not None else None
-    maturity_av = states[-1].av_end_of_month if states else 0.0
-    # Lifetime premiums to reach maturity: the cumulative applied premium
+    ending_av = states[-1].av_end_of_month if states else 0.0
+    # Premiums over the projection: the cumulative applied premium
     # (premiums_to_date already includes the inforce history and projected
     # scheduled/unscheduled premium) plus the GP exception premium and any loan
     # repayments, neither of which flows through premiums_to_date.
@@ -291,7 +330,7 @@ def _build_result(
         enters_exception=exc_start is not None,
         exception_start=exc_start,
         exception_duration=exc_duration,
-        maturity_av=maturity_av,
+        ending_av=ending_av,
         total_premium_paid=round(applied_to_date + exception_paid + loan_repaid, 2),
         iterations=iterations,
     )

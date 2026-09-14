@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 import pandas as pd
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.illustration.core.loan_handler import empty_loan_cap_repay_detail
 from suiteview.illustration.core.mec import seven_pay_backtest
+from suiteview.illustration.core.report_builder import issue_output_basis, issue_output_conditions
 from suiteview.illustration.core.summary_results import (
     LEAD_COLUMNS,
     SUMMARY_COLUMNS,
@@ -34,10 +36,109 @@ from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_PRIMARY, PURPLE_SUBTLE
 from .values_overview import (
     AccumulatedChargesChart,
     PolicyValueChart,
+    LEDGER_COLUMNS,
     ValuesOverview,
     build_chart_series,
     build_charge_bands,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _issue_export_rows(policy, *, guaranteed: bool = False):
+    return [
+        ("Policy", policy.policy_number),
+        ("Plancode", policy.plancode),
+        *[("Illustration basis", line) for line in issue_output_basis(policy)],
+        *issue_output_conditions(policy),
+        ("Displayed values", "CONTRACTUAL GUARANTEED" if guaranteed else "CURRENT SCALE 1"),
+        ("Opening row", "Technical pre-issue zero row; not historical inforce balances."),
+    ]
+
+
+class _ExportLabeledOverview(ValuesOverview):
+    """Keep export context alongside the displayed run, without changing ledger cells."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._export_policy = None
+        self.export_guaranteed = False
+
+    def clear(self):
+        super().clear()
+        self._export_policy = None
+
+    def display(self, policy, results):
+        super().display(policy, results)
+        self._export_policy = policy
+
+    def _dump_ledger(self, include_months: bool):
+        policy = self._export_policy
+        if policy is None or not policy.run_from_issue:
+            return super()._dump_ledger(include_months)
+        from suiteview.core.excel_export import ExcelExportError, dump_to_new_workbook, write_table
+
+        rows = []
+        for index in range(self.ledger.topLevelItemCount()):
+            item = self.ledger.topLevelItem(index)
+            rows.append([item.text(c) for c in range(len(LEDGER_COLUMNS))])
+            if include_months:
+                for child_index in range(item.childCount()):
+                    child = item.child(child_index)
+                    rows.append([child.text(c) for c in range(len(LEDGER_COLUMNS))])
+        try:
+            from pywintypes import com_error
+
+            try:
+                excel, workbook, basis_sheet = dump_to_new_workbook(
+                    ["Field", "Value"],
+                    _issue_export_rows(policy, guaranteed=self.export_guaranteed),
+                    sheet_name="Illustration Basis",
+                )
+                try:
+                    excel.ScreenUpdating = False
+                    sheet = workbook.Worksheets.Add(After=basis_sheet)
+                    sheet.Name = "Illustration Ledger"
+                    write_table(sheet, LEDGER_COLUMNS, rows)
+                    basis_sheet.Activate()
+                finally:
+                    excel.ScreenUpdating = True
+            except com_error as exc:
+                raise ExcelExportError(f"Could not write the illustration ledger: {exc}") from exc
+        except (ExcelExportError, ImportError) as exc:
+            logger.exception("From-issue illustration ledger Excel export failed")
+            QMessageBox.warning(self, "Export Error", f"Could not export:\n{exc}")
+
+
+def _export_values_summary(policy, current_results, guaranteed_results, folder):
+    """Retain debug sheet schemas; add an explicit basis sheet only for issue runs."""
+    from suiteview.illustration.debug.summary_export import (
+        build_summary_workbook,
+        export_summary_workbook,
+        summary_filename_base,
+        unique_workbook_path,
+    )
+    if not policy.run_from_issue:
+        return export_summary_workbook(policy, current_results, guaranteed_results, folder)
+    from pathlib import Path
+
+    workbook = build_summary_workbook(policy, current_results, guaranteed_results)
+    basis = workbook.create_sheet("Illustration Basis", 0)
+    basis.append(["Field", "Value"])
+    for row in _issue_export_rows(policy):
+        basis.append(row)
+    basis.append(["Guaranteed sheet", "CONTRACTUAL GUARANTEED; locked current-side cash flows."])
+    basis.column_dimensions["A"].width = 24
+    basis.column_dimensions["B"].width = 100
+    basis.freeze_panes = "A2"
+    workbook.active = 0
+    path = unique_workbook_path(
+        Path(folder), f"{summary_filename_base(policy)}-NEW BUSINESS - FROM ISSUE")
+    try:
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return path
 
 
 # Double-clicking an Overview ledger cell drills into the detail tab where
@@ -1294,7 +1395,7 @@ class IllustrationValuesTab(QWidget):
         self.body.addWidget(self.navigator)
 
         self.content_stack = QStackedWidget(self)
-        self.overview = ValuesOverview(self.content_stack)
+        self.overview = _ExportLabeledOverview(self.content_stack)
         self.overview.cellActivated.connect(self._drill_down)
         self.overview.exportSummaryRequested.connect(self._on_export_summary)
         self._add_content_page("Overview", self.overview)
@@ -1583,9 +1684,8 @@ class IllustrationValuesTab(QWidget):
         policy, current_results, _months, _injected = self._current_view
         guaranteed_results = (
             self._guaranteed_view[1] if self._guaranteed_view is not None else None)
-        from suiteview.illustration.debug.summary_export import export_summary_workbook
         try:
-            path = export_summary_workbook(
+            path = _export_values_summary(
                 policy, current_results, guaranteed_results, folder)
         except Exception as exc:
             QMessageBox.critical(
@@ -1631,6 +1731,7 @@ class IllustrationValuesTab(QWidget):
         injected_first_row_columns: set[str] | None = None,
     ):
         result_list = list(results)
+        self.overview.export_guaranteed = self.guaranteed_toggle.isChecked()
         coverage_keys = self._coverage_keys(result_list)
         benefit_keys = self._detail_keys(result_list, "benefit_amounts", "benefit_rates", "benefit_charge_detail")
         rider_keys = self._detail_keys(result_list, "rider_amounts", "rider_rates", "rider_charge_detail")

@@ -39,6 +39,54 @@ application (`SuiteView v2.2`).
 
 ## Architecture
 
+### UL Reinstatement
+
+**Policy Support > UL Reinstatement** opens a single optional **Reinstatement**
+tab. A non-UL policy gets an informational popup and no tab. The first row
+shows the canonical last entry code/description, termination effective date,
+quote date and completed years/months terminated. Only a lapse is eligible;
+surrenders and other statuses must never produce a reinstatement premium.
+Changing/reloading the policy removes the tab and clears its previous quote.
+Reopening or **Recalculate** refreshes the quote date and result.
+
+The two side-by-side sections are **Home Office Reinstatement** (continuous
+coverage) and **Skipped Coverage Reinstatement**. Skipped Coverage remains
+visible and grey with a note: its calculation rules have not been specified,
+so no skipped-coverage premium is manufactured.
+
+The Home Office pay-to date is the latest issue-day monthliversary on or
+before the quote date. Funding includes the following monthliversary's
+deduction. The service in `suiteview/polview/services/reinstatement.py` owns
+eligibility, dates and calculations; the UI must not derive its own financial
+rules. The result includes the premium and a reconcilable breakdown:
+
+- Safety net: premiums paid less withdrawals and next-monthliversary debt
+  must cover accumulated minimum target premium through that monthliversary.
+- Outside safety net, active shadow: shadow value less next-monthliversary
+  debt must be positive after the deduction.
+- Otherwise: surrender value must be positive after that deduction.
+
+Missing data or an unsupported calculation basis must display **Unavailable**,
+not a zero or a previous successful quote. A solved zero remains visible.
+Native UI regression tests live in `tests/test_reinstatement_ui.py`.
+`tools/app/verify_reinstatement_tab.py --output-dir <directory>` captures an
+explicitly synthetic UI demonstration without database access; supplying
+`--policy <number> --company <code> --region CKPR` instead checks a live quote
+read-only. Synthetic captures are not evidence of a live policy quote.
+
+### Coverage and benefit zero values
+
+`PolicyInformation` preserves DB2 numeric zero separately from missing values
+when building coverages and benefits. Zero units, original units or VPU produce
+zero amounts when both operands are present; a missing operand still produces
+`None`. Premium rates, benefit ratings and flat extras also retain explicit zero.
+The Coverages tab displays these zeros, including benefit issue age and rates,
+while retaining blank not-applicable fields (such as nonrenewing renewal rates).
+Regression: `tests/test_polview_coverage_zero_values.py`.
+Read-only live check for UL054808:
+`tools/app/verify_coverage_zero_values.py` compares the coverage grid to DB2
+amounts and can save a screenshot and JSON report.
+
 ### Whole Life Rates view
 
 In the left **Rates > Coverages** tree, selecting a coverage on a traditional

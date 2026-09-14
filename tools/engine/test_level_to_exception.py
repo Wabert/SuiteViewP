@@ -50,7 +50,7 @@ def main() -> None:
 
     print(f"  solved premium : {r.premium:.2f} / {r.mode}")
     print(f"  enters exception: {r.enters_exception}  start={r.exception_start}")
-    print(f"  maturity AV    : {r.maturity_av:.2f}")
+    print(f"  maturity AV    : {r.ending_av:.2f}")
     print(f"  iterations     : {r.iterations}")
 
     if policy == "UL062614" and mode in (None, "M"):
@@ -92,7 +92,7 @@ def main() -> None:
               f"then Min Level from yr {start}:")
         print(f"    solved level   : {r2.premium:.2f} / {r2.mode}")
         print(f"    enters exc     : {r2.enters_exception}  start={r2.exception_start}")
-        print(f"    maturity AV    : {r2.maturity_av:.2f}  iters={r2.iterations}")
+        print(f"    maturity AV    : {r2.ending_av:.2f}  iters={r2.iterations}")
 
 
 if __name__ == "__main__":

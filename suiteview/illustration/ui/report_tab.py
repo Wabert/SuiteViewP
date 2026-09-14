@@ -80,6 +80,8 @@ class _PageBuilder:
         self.lines.append(_center(report.title))
         if report.subtitle:
             self.lines.append(_center(report.subtitle))
+        for line in report.basis_lines:
+            self.lines.append(_center(line))
         self.lines.append(_center(report.prepared_for))
         self.lines.append("")
 
@@ -591,12 +593,20 @@ def format_report_pages(
         riders.add("POLICY RIDERS AND BENEFITS AND REGULATORY PREMIUM (IF APPLICABLE)")
         riders.blank()
         as_of = report.as_of_date.strftime("%m/%d/%Y") if report.as_of_date else ""
-        riders.add(f"RIDERS AND BENEFITS ACTIVE ON THE POLICY AS OF {as_of}:")
+        riders.add(
+            f"RIDERS AND BENEFITS INCLUDED IN THE MODELED ISSUE CONDITIONS ({as_of}):"
+            if report.run_from_issue
+            else f"RIDERS AND BENEFITS ACTIVE ON THE POLICY AS OF {as_of}:"
+        )
         for line in report.rider_lines:
             riders.add(f"    {line}")
         if report.regulatory_lines:
             riders.blank()
-            riders.add(f"REGULATORY LIMITS FOR PREMIUMS AS OF {as_of} ARE AS FOLLOWS:")
+            riders.add(
+                f"MODELED ISSUE OPENING REGULATORY LIMITS ({as_of}):"
+                if report.run_from_issue
+                else f"REGULATORY LIMITS FOR PREMIUMS AS OF {as_of} ARE AS FOLLOWS:"
+            )
             for line in report.regulatory_lines:
                 riders.add(f"    {line}")
         for section in report.change_sections:
@@ -637,6 +647,8 @@ def format_report_pages(
             _center("EXPENSE REPORT"),
             "",
         ]
+        if report.basis_lines:
+            lines[3:3] = [_center(line) for line in report.basis_lines]
         if index == 0:
             for paragraph in _EXPENSE_INTRO:
                 lines.extend(_wrap_lines(paragraph))

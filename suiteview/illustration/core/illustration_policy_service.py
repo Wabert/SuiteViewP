@@ -7,12 +7,14 @@ from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.target_premium import floor_monthly_cent
+from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
     CoverageSegment,
     IllustrationPolicyData,
+    PremiumTransaction,
     RiderInfo,
 )
 from suiteview.illustration.models.rider_config import load_rider_config
@@ -24,11 +26,14 @@ def build_illustration_data(
     company_code: Optional[str] = None,
     *,
     illustration_date: Optional[date] = None,
+    reinstatement_date: Optional[date] = None,
 ) -> IllustrationPolicyData:
     """Load policy data from DB2 and return a ready-to-project IllustrationPolicyData.
 
     Uses the shared PolicyInformation class to fetch all tables from DB2,
     then maps fields into the illustration data model.
+    ``reinstatement_date`` opts into continuous coverage for a confirmed lapse;
+    only coverages explicitly terminated on that effective date are restored.
 
     Raises:
         ValueError: If policy not found in DB2.
@@ -36,6 +41,10 @@ def build_illustration_data(
     pi = get_policy_info(policy_number, region, company_code)
     if pi is None or not pi.exists:
         raise ValueError(f"Policy {policy_number} not found in region {region}")
+    if reinstatement_date is not None and (
+        pi.last_entry_code.strip().upper() != "Q" or pi.terminate_date != reinstatement_date
+    ):
+        raise ValueError("Coverage restoration requires the policy's confirmed lapse effective date.")
 
     rates_db = Rates()
     illustration_date = illustration_date or date.today()
@@ -77,6 +86,14 @@ def build_illustration_data(
     if billing_frequency <= 0:
         billing_frequency = 1
     annual_premium = modal_premium * (12.0 / billing_frequency)
+    premium_transactions = [
+        PremiumTransaction(
+            effective_date=transaction.trans_date,
+            amount=float(transaction.gross_amount),
+            transaction_type=transaction.trans_code,
+        )
+        for transaction in pi.get_premium_transactions()
+    ]
 
     # ── Duration / timing ─────────────────────────────────────
     policy_year = pi.policy_year or 1
@@ -220,6 +237,7 @@ def build_illustration_data(
         base_covs = pi.get_base_coverages()
     except Exception:
         base_covs = []
+    base_covs = [restore_lapse_coverage(cov, reinstatement_date) for cov in base_covs]
 
     active_base_covs = [
         cov for cov in base_covs
@@ -237,6 +255,17 @@ def build_illustration_data(
         # Band is looked up on the base specified amount PLUS any rider that
         # bands as base coverage (e.g. 1U144A00 on IUL08 — see core.band_rules).
         band_face = float(pi.base_band_specified_amount)
+        if reinstatement_date is not None:
+            restored_riders = [
+                restore_lapse_coverage(rider, reinstatement_date)
+                for rider in pi.get_riders()
+            ]
+            band_face = face_amount + sum(
+                float(rider.face_amount)
+                for rider in restored_riders
+                if not _coverage_is_terminated(rider, as_of_date)
+                and rider_bands_as_base(rider.plancode)
+            )
         raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
         band = raw_band if raw_band is not None else 1
 
@@ -339,6 +368,7 @@ def build_illustration_data(
         raw_riders = []
 
     for rider in raw_riders:
+        rider = restore_lapse_coverage(rider, reinstatement_date)
         rider_plancode = rider.plancode or ""
         if not rider_plancode or rider_plancode == plancode:
             continue
@@ -435,6 +465,7 @@ def build_illustration_data(
         billing_frequency=billing_frequency,
         premiums_paid_to_date=premiums_paid,
         premiums_ytd=premiums_ytd,
+        premium_transactions=premium_transactions,
         guaranteed_interest_rate=guaranteed_rate,
         current_interest_rate=current_rate,
         fund_values=fund_values,

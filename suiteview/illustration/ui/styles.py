@@ -16,6 +16,7 @@ WHITE = "#FFFFFF"
 GRAY_DARK = "#2D3748"
 
 ILLUSTRATION_HEADER_COLORS = (PURPLE_DARK, PURPLE_RICH, PURPLE_PRIMARY)
+ILLUSTRATION_ISSUE_HEADER_COLORS = ("#123C56", "#205B78", "#317897")
 # Visibly lighter gradient the title bar wears while a saved case (frozen
 # policy snapshot) is loaded — same hue family, instantly reads as
 # "different mode", white title text stays legible on every stop.
@@ -94,6 +95,12 @@ INPUT_SECTION_GROUP_STYLE = GROUP_STYLE + f"""
         background-color: {PURPLE_BG};
     }}
 """
+
+ISSUE_GROUP_STYLE = (
+    GROUP_STYLE.replace(PURPLE_DARK, ISSUE_BLUE_DARK)
+    .replace(PURPLE_PRIMARY, ISSUE_BLUE_DARK)
+    + "\nQGroupBox:disabled { background-color: #ECECEC; color: #666666; }"
+)
 
 
 FUND_TABLE_STYLE = f"""

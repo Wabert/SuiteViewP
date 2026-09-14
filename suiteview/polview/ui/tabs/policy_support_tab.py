@@ -38,6 +38,7 @@ from ..styles import (
 from ..widgets import CopyableLabel, FixedHeaderTableWidget
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
 from ....utils.excel_template import copy_as_workbook, workbook_filename
+from ....illustration.ui.values_overview import LEDGER_COLUMNS, monthly_ledger_cells
 from ...services.glp_exception import (
     calculate_policy_support_forecast,
     check_forecast_availability,
@@ -45,8 +46,8 @@ from ...services.glp_exception import (
 )
 from ...services.guideline_exception_adjustment import (
     GuidelineExceptionForecastRow,
-    GuidelineExceptionMaturityForecastResult,
-    project_guideline_exception_maturity_forecast,
+    GuidelineExceptionTargetForecastResult,
+    project_guideline_exception_target_forecast,
 )
 
 from typing import TYPE_CHECKING
@@ -193,11 +194,15 @@ This screen answers a practical question for a Universal Life / Guideline Premiu
 
 How the solve works
 
-1. Level premium to maturity. When you click Calculate, the tool solves for the level premium (paid on the policy's current mode) that would carry the policy all the way to maturity, with exception premiums allowed in the forecast. If the policy can reach maturity on a level premium, no exception premiums are ever required and no Accum GLP change is needed.
+1. Minimum premium to the target date. When you click Calculate, the tool solves for the smallest level premium (paid on the policy's current mode) that keeps the policy in force through the target date, with exception premiums allowed in the forecast. The solve stops at the target date - it is not a solve to maturity, because premium the policy would need years later has no bearing on whether the Accum GLP must be opened up now.
 
-2. Longest level-premium period. If the policy cannot be carried to maturity, the solve instead finds the longest level-premium period possible - the point at which the policy can no longer sustain itself on level premiums and must switch to paying exception premiums. The date of that switch is the beginning of the exception premium period.
+2. The answer lands in one of three places. The minimum may be $0, meaning the account value alone carries the policy to the target date. It may be a positive premium that fits inside the remaining guideline room, which the policy can simply pay. Or the room may run out before the policy can be funded, at which point the forecast starts paying guideline exception premiums.
 
-3. Compare to the target date. If the exception premium period begins before the target date, the policy will have to pay exception premiums before the target date is reached. If it begins on or after the target date, no exception premiums are needed for this target and the Accum GLP should be left alone.
+3. Only the third case needs an adjustment. If an exception premium fires before the target date, the policy will have to pay exception premiums to get there and the Accum GLP must be raised. If none fires, no exception premiums are needed for this target and the Accum GLP should be left alone.
+
+Ordinary funding must leave positive surrender value (account value less surrender charges and debt), not just a positive account value. An exception premium funds the engine's zero-value exception boundary. The forecast stops before the target date: no premium, monthly deduction, or anniversary change on that date is included.
+
+Solving for the minimum is what makes this test fair - a larger premium can collide with the guideline for reasons the policy never actually has to incur.
 
 Why the Accum GLP has to be adjusted
 
@@ -207,13 +212,20 @@ The adjustment is sized with:
 
     Accum GLP Adjustment = max(0, Premiums-to-Date - AccumWDs - AccumGLP)
 
-Premiums-to-Date is the premium paid to date (brought current with any premiums paid since the valuation date) plus the exception premium the forecast needs to reach the target date. AccumWDs are accumulated withdrawals, which create room. AccumGLP is the current Accum GLP. When the result is positive the policy needs exception premiums: set the GLP to 0 and raise the Accum GLP to the New Accum GLP shown.
+All three forecasts start from the same valuation-date snapshot as RERUN. Opening AV is already after that month's deduction; no later premium receipts are added to this earlier balance. Interest uses monthly compounding, matching RERUN with Exact Days Interest unchecked. The opening deduction is displayed for reference, not deducted again.
+
+Premiums-to-Date is the valuation-date premium accumulator plus all ordinary and exception premiums in the independently solved GLP=0 forecast before the target date. Loan repayments are not premiums. AccumWDs are valuation-date accumulated withdrawals, which create room. AccumGLP is the starting Accum GLP. Only if the original scenario requires exception premiums should the GLP be set to 0 and the Accum GLP raised to the New Accum GLP shown.
 
 Note that the New Accum GLP only covers the policy up to (but not including) the target date. Because the policy remains in the exception premium period, the Accum GLP will need to be recalculated and adjusted again each year going forward.
 
 The forecast tables
 
-The Prem to Maturity tab shows the solved level-premium projection month by month through the target date, including the guideline columns (GLP, AccumGLP, PremTD, AccumWD) and the Exception Prem / Exception Status columns so you can see exactly when the policy switches into the exception premium period. When exception premiums are required before the target date, a second 0 - MD Prem tab appears: it runs the policy at $0 premium down to its monthly deductions (guideline enforcement off) and is the projection the adjustment above is measured from."""
+The tables use the RERUN Values Overview columns in the same order. AV and SV are before interest; EAV and ESV are ending values. GLP, GSP, TotalGP and SubjectPayments show the guideline position. Prem excludes Exception Prem, and Withdrawals excludes ForceOuts. Contributions includes loan repayments plus ordinary and exception premiums; Distributions includes withdrawals, forceouts and new loans. Status retains RERUN's exception, MEC and lapse indicators. An explicit zero-premium schedule overrides normal billing, but engine exception premiums may still be required and are shown separately.
+
+All three forecast tabs are always available. Min Prem To Target keeps the current GLP. Min Prem To Target (GLP=0) independently solves the same policy with starting GLP set to zero, retaining current accumulated guideline premiums, guideline caps, forceouts and exception premiums. Min Prem to Target (no forceout) independently solves GLP=0 with only forceout distributions suppressed: premium acceptance caps, TEFRA/TAMRA, targets and exception premiums are unchanged. It is a comparison only, not the basis for the adjustment. All three exclude deductions on the target date. If the original scenario needs exceptions, the regular GLP=0 scenario's total premium outlay (Prem + Exception Prem, not loan repayments) sizes the AccumGLP adjustment; otherwise do not adjust. Columns and amounts match the RERUN Values Overview monthly ledger."""
+
+
+_GLP_PREMIUM_MODE_LABELS = {"M": "monthly", "Q": "quarterly", "S": "semi-annual", "A": "annual"}
 
 
 # ---------------------------------------------------------------------------
@@ -1117,6 +1129,7 @@ class PolicySupportTab(QWidget):
 
     folder_opened = pyqtSignal(str)
     policy_library_requested = pyqtSignal()
+    reinstatement_requested = pyqtSignal()
     sap_requested = pyqtSignal()
     claims_requested = pyqtSignal()
     tai_fd_requested = pyqtSignal()
@@ -1179,6 +1192,13 @@ class PolicySupportTab(QWidget):
             lambda: self._select_section(self.SECTION_GLP_EXCEPTION)
         )
         nav_col.addWidget(self._btn_mode_glp_exception)
+
+        self._btn_reinstatement = QPushButton("UL Reinstatement")
+        self._btn_reinstatement.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_reinstatement.setMinimumWidth(108)
+        self._btn_reinstatement.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
+        self._btn_reinstatement.clicked.connect(self.reinstatement_requested.emit)
+        nav_col.addWidget(self._btn_reinstatement)
 
         self._btn_mode_forecast = QPushButton("Forecast")
         self._btn_mode_forecast.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1498,9 +1518,14 @@ class PolicySupportTab(QWidget):
 
         self._glp_forecast_tabs = QTabWidget()
         self._glp_forecast_tabs.setStyleSheet(_GLP_FORECAST_TABS_STYLE)
-        self._glp_maturity_table = self._make_glp_forecast_table()
-        self._glp_zero_md_table = self._make_glp_forecast_table()
-        self._glp_forecast_tabs.addTab(self._glp_maturity_table, "Prem to Maturity")
+        self._glp_target_table = self._make_glp_forecast_table()
+        self._glp_zero_glp_table = self._make_glp_forecast_table()
+        self._glp_no_forceout_table = self._make_glp_forecast_table()
+        self._glp_forecast_tabs.addTab(self._glp_target_table, "Min Prem To Target")
+        self._glp_forecast_tabs.addTab(
+            self._glp_zero_glp_table, "Min Prem To Target (GLP=0)")
+        self._glp_forecast_tabs.addTab(
+            self._glp_no_forceout_table, "Min Prem to Target (no forceout)")
         forecast_layout.addWidget(self._glp_forecast_tabs, 1)
         self._glp_forecast_frame.setVisible(False)
 
@@ -1516,17 +1541,12 @@ class PolicySupportTab(QWidget):
         return page
 
     def _make_glp_forecast_table(self) -> FixedHeaderTableWidget:
-        """Build the Prem-to-Maturity / 0-MD forecast table."""
+        """Build a dense table with the canonical RERUN ledger schema."""
         table = FixedHeaderTableWidget()
         table.setAutoFillBackground(True)
         table._data_table.viewport().setAutoFillBackground(True)
-        table.setColumnCount(15)
-        table.setHorizontalHeaderLabels([
-            "Date", "Year", "Month", "Interest Credited", "Premium",
-            "Monthly Deduction", "Account Value", "GLP", "AccumGLP",
-            "PremTD", "AccumWD", "Force Out", "Exception Prem",
-            "Exception Status", "Policy Debt",
-        ])
+        table.setColumnCount(len(LEDGER_COLUMNS))
+        table.setHorizontalHeaderLabels(LEDGER_COLUMNS)
         table._data_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table._data_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table._data_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -1893,7 +1913,7 @@ class PolicySupportTab(QWidget):
             self._clear_glp_exception_results()
             return
         try:
-            result = project_guideline_exception_maturity_forecast(self._policy, target_date)
+            result = project_guideline_exception_target_forecast(self._policy, target_date)
         except Exception as exc:
             self._set_glp_status(str(exc), is_error=True)
             self._clear_glp_exception_results()
@@ -2024,11 +2044,11 @@ class PolicySupportTab(QWidget):
         self._glp_plugged_label.setText("-")
         self._glp_segment_note_label.setVisible(False)
         self._glp_segment_note_label.setText("")
-        self._glp_maturity_table.setRowCount(0)
-        self._glp_zero_md_table.setRowCount(0)
-        zero_md_index = self._glp_forecast_tabs.indexOf(self._glp_zero_md_table)
-        if zero_md_index >= 0:
-            self._glp_forecast_tabs.removeTab(zero_md_index)
+        self._glp_target_table.setRowCount(0)
+        self._glp_zero_glp_table.setRowCount(0)
+        self._glp_no_forceout_table.setRowCount(0)
+        for index in range(self._glp_forecast_tabs.count()):
+            self._glp_forecast_tabs.setTabToolTip(index, "")
         self._glp_forecast_tabs.setCurrentIndex(0)
         self._glp_forecast_frame.setVisible(False)
         self._glp_export_btn.setEnabled(False)
@@ -2040,19 +2060,19 @@ class PolicySupportTab(QWidget):
 
     def _apply_glp_summary(
         self,
-        result: GuidelineExceptionMaturityForecastResult,
+        result: GuidelineExceptionTargetForecastResult,
     ):
         """Render the single Calculation Summary for the whole quote.
 
         The summary is fixed for the quote and does not change when the user
         switches forecast tabs. When the policy enters the exception-premium
-        period before the target date (``zero_md`` is present) it shows the
+        period before the target date it shows the
         target date, the New Accum GLP, the (conditional) New GLP, the premium
         needed to reach the target date, and the copy-ready 72-segment note;
         otherwise it states no exception premium is required.
         """
         target_text = self._glp_target_date.text().strip()
-        if result.zero_md is None:
+        if not result.exception_before_target:
             self._glp_formula_label.setVisible(False)
             self._glp_plugged_label.setText(
                 f"<b style='color:{GREEN_DARK};'>NO EXCEPTION PREMIUM NEEDED "
@@ -2068,6 +2088,7 @@ class PolicySupportTab(QWidget):
         summary_html = (
             f"<b style='color:{red};'>EXCEPTION PREMIUM REQUIRED FOR "
             f"{v['target_text']}</b>"
+            f"<br>Accum GLP Increase = <b style='color:{red};'>{v['adjustment']:,.2f}</b>"
             f"<br>New Accum GLP = <b style='color:{red};'>{v['new_accum']:,.2f}</b>"
         )
         if v["glp_not_zero"]:
@@ -2085,25 +2106,25 @@ class PolicySupportTab(QWidget):
 
     def _glp_summary_values(
         self,
-        result: GuidelineExceptionMaturityForecastResult,
+        result: GuidelineExceptionTargetForecastResult,
     ) -> dict:
         """Values shared by the on-screen summary, the clipboard copy and the
         Excel export for an exception-premium-required quote.
 
-        ``premium_to_target`` is the sum of the Premium column in the 0 - MD
-        Prem forecast up to (but not including) the target date — the greyed
-        target-date row is not used.
+        ``premium_to_target`` counts Prem + Exception Prem exactly once in the
+        GLP=0 forecast, excluding loan repayments and target-date transactions.
         """
-        s = result.zero_md.summary
-        new_accum = s.premiums_to_date_on_target - s.accumulated_withdrawals
+        s = result.zero_glp.summary
+        new_accum = s.new_accum_glp
         premium_to_target = sum(
             row.premium
-            for row in result.zero_md.rows
+            for row in result.zero_glp.rows
             if row.date is not None and row.date < s.target_date
         )
         return {
             "target_text": s.target_date.strftime("%m/%d/%Y"),
             "new_accum": new_accum,
+            "adjustment": s.adjustment_to_accum_glp,
             "current_accum": s.accumulated_glp,
             "premium_to_target": premium_to_target,
             "glp_not_zero": round(result.current_glp, 2) != 0.0,
@@ -2111,12 +2132,13 @@ class PolicySupportTab(QWidget):
 
     def _glp_summary_lines(
         self,
-        result: GuidelineExceptionMaturityForecastResult,
+        result: GuidelineExceptionTargetForecastResult,
     ) -> list[str]:
         """The full Calculation Summary as ordered plain-text lines."""
         v = self._glp_summary_values(result)
         lines = [
             f"EXCEPTION PREMIUM REQUIRED FOR {v['target_text']}",
+            f"Accum GLP Increase = {v['adjustment']:,.2f}",
             f"New Accum GLP = {v['new_accum']:,.2f}",
         ]
         if v["glp_not_zero"]:
@@ -2135,7 +2157,7 @@ class PolicySupportTab(QWidget):
         result = getattr(self, "_glp_result", None)
         if result is None:
             return ""
-        if result.zero_md is None:
+        if not result.exception_before_target:
             target_text = self._glp_target_date.text().strip()
             return (
                 f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
@@ -2161,25 +2183,18 @@ class PolicySupportTab(QWidget):
             note += " AND GLP TO 0.00"
         return note
 
-    def _display_glp_exception_result(self, result: GuidelineExceptionMaturityForecastResult):
+    def _display_glp_exception_result(self, result: GuidelineExceptionTargetForecastResult):
         self._glp_result = result
 
-        # Prem to Maturity always shows. 0-MD is only relevant after the solved
-        # projection reaches exception-premium status before the target date.
-        self._display_glp_forecast_rows(self._glp_maturity_table, result.rows)
-        zero_md_index = self._glp_forecast_tabs.indexOf(self._glp_zero_md_table)
-        if result.zero_md is not None:
-            self._display_glp_forecast_rows(self._glp_zero_md_table, result.zero_md.rows)
-            if zero_md_index < 0:
-                self._glp_forecast_tabs.insertTab(
-                    1, self._glp_zero_md_table, "0 - MD Prem")
-        elif zero_md_index >= 0:
-            self._glp_forecast_tabs.removeTab(zero_md_index)
+        self._display_glp_forecast_rows(self._glp_target_table, result.rows)
+        self._display_glp_forecast_rows(self._glp_zero_glp_table, result.zero_glp.rows)
+        self._display_glp_forecast_rows(self._glp_no_forceout_table, result.no_forceout.rows)
 
         self._glp_forecast_tabs.blockSignals(True)
         self._glp_forecast_tabs.setCurrentIndex(
-            self._glp_forecast_tabs.indexOf(self._glp_maturity_table))
+            self._glp_forecast_tabs.indexOf(self._glp_target_table))
         self._glp_forecast_tabs.blockSignals(False)
+        self._set_glp_target_tab_tooltip(result)
         self._apply_glp_summary(result)
 
         self._glp_forecast_frame.setVisible(True)
@@ -2188,6 +2203,53 @@ class PolicySupportTab(QWidget):
 
     def _has_glp_quote_to_export(self) -> bool:
         return getattr(self, "_glp_result", None) is not None
+
+    def _set_glp_target_tab_tooltip(self, result: GuidelineExceptionTargetForecastResult):
+        """Spell out what the solved premium on this tab means.
+
+        The premium is the least the policy must take in to stay in force through
+        the target date — $0 when its account value alone carries it that far.
+        """
+        self._set_glp_scenario_tooltip(
+            self._glp_target_table, result, "Current GLP; forceouts remain enabled.")
+        self._set_glp_scenario_tooltip(
+            self._glp_zero_glp_table, result.zero_glp,
+            "GLP=0; forceouts remain enabled.")
+        self._set_glp_scenario_tooltip(
+            self._glp_no_forceout_table, result.no_forceout,
+            "GLP=0; no forceout distributions. Premium acceptance caps, "
+            "TEFRA/TAMRA, targets and exception premiums are unchanged. "
+            "Independently solved for comparison only; does not size the adjustment.")
+
+    def _set_glp_scenario_tooltip(self, table, result, basis):
+        index = self._glp_forecast_tabs.indexOf(table)
+        if index < 0:
+            return
+        mode = _GLP_PREMIUM_MODE_LABELS.get(
+            str(result.premium_mode or "").upper(), str(result.premium_mode or ""))
+        target_text = self._glp_target_date.text().strip()
+        if result.premium <= 0.0 and result.exception_start is None:
+            detail = (
+                "Minimum premium to hold the policy to "
+                f"{target_text}: $0.00.\n\n"
+                "The account value alone carries the policy to the target date — "
+                "no premium is required."
+            )
+        else:
+            detail = (
+                f"Minimum level premium to hold the policy to {target_text}: "
+                f"${result.premium:,.2f} {mode}.\n\n"
+                "This is the least the policy must take in to stay in force "
+                "through the target date."
+            )
+        self._glp_forecast_tabs.setTabToolTip(
+            index,
+            detail + "\n\n" + basis
+            + "\n\nIf funding that minimum exhausts the guideline room, the "
+              "Exception Prem column shows the extra premium. The original "
+              "scenario determines whether an AccumGLP adjustment is needed; "
+              "the regular GLP=0 solve (with forceouts) sizes it."
+        )
 
     def _build_glp_quote_workbook(self):
         import openpyxl
@@ -2231,7 +2293,10 @@ class PolicySupportTab(QWidget):
         ws.cell(row=row_num, column=2).fill = header_fill
         row_num += 1
         result = getattr(self, "_glp_result", None)
-        s = result.zero_md.summary if result is not None and result.zero_md else None
+        s = (
+            result.zero_glp.summary
+            if result is not None and result.exception_before_target else None
+        )
         target_text = self._glp_target_date.text().strip()
         summary_values = (
             self._glp_summary_values(result) if s is not None else None
@@ -2248,9 +2313,14 @@ class PolicySupportTab(QWidget):
         row_num += 1
         if result is not None:
             ws.cell(row=row_num, column=1,
-                    value="Prem to Maturity").font = bold_font
+                    value="Min Prem To Target").font = bold_font
             ws.cell(row=row_num, column=2,
                     value=f"${result.premium:,.2f} ({result.premium_mode})")
+            row_num += 1
+            ws.cell(row=row_num, column=1,
+                    value="Min Prem To Target (GLP=0)").font = bold_font
+            ws.cell(row=row_num, column=2,
+                    value=f"${result.zero_glp.premium:,.2f} ({result.zero_glp.premium_mode})")
             row_num += 1
             ws.cell(row=row_num, column=1, value="Exception Premium Status").font = bold_font
             ws.cell(
@@ -2259,12 +2329,13 @@ class PolicySupportTab(QWidget):
                 value=(
                     result.exception_start.strftime("%m/%d/%Y")
                     if result.exception_start is not None
-                    else "Not on or before target date"
+                    else "Not before target date"
                 ),
             )
             row_num += 1
         if summary_values is not None:
             summary_rows = [
+                ("Accum GLP Increase", f"{summary_values['adjustment']:,.2f}"),
                 ("New Accum GLP", f"{summary_values['new_accum']:,.2f}"),
             ]
             if summary_values["glp_not_zero"]:
@@ -2289,12 +2360,18 @@ class PolicySupportTab(QWidget):
 
         row_num += 2
         row_num = self._write_glp_forecast_sheet(
-            ws, self._glp_maturity_table, "Monthly Forecast \u2014 Prem to Maturity",
+            ws, self._glp_target_table, "Monthly Forecast \u2014 Min Prem To Target",
             row_num, header_fill, header_font)
-        if self._glp_zero_md_table.rowCount() > 0:
+        if self._glp_zero_glp_table.rowCount() > 0:
             row_num += 1
             row_num = self._write_glp_forecast_sheet(
-                ws, self._glp_zero_md_table, "Monthly Forecast \u2014 0 - MD Prem",
+                ws, self._glp_zero_glp_table, "Monthly Forecast \u2014 Min Prem To Target (GLP=0)",
+                row_num, header_fill, header_font)
+        if self._glp_no_forceout_table.rowCount() > 0:
+            row_num += 1
+            row_num = self._write_glp_forecast_sheet(
+                ws, self._glp_no_forceout_table,
+                "Monthly Forecast \u2014 Min Prem to Target (no forceout)",
                 row_num, header_fill, header_font)
 
         for col_index in range(1, ws.max_column + 1):
@@ -2431,37 +2508,19 @@ class PolicySupportTab(QWidget):
     ):
         table.setRowCount(len(rows))
         last_index = len(rows) - 1
-        # The AccumGLP, PremTD and AccumWD used by the summary are read off the
-        # month BEFORE the target date; bold those three cells on that row, and
-        # grey the whole target-date row to show its values are not used.
-        used_row = last_index - 1
-        used_cols = {8, 9, 10}  # AccumGLP, PremTD, AccumWD
+        # Every row is before the target; emphasize the final projected balances.
+        used_row = last_index
+        used_cols = {LEDGER_COLUMNS.index(name) for name in ("ESV", "TotalGP", "SubjectPayments")}
+        previous_withdrawals = rows[0].state.withdrawals_to_date if rows else 0.0
         for row_index, row in enumerate(rows):
-            values = [
-                row.date.strftime("%m/%d/%Y") if row.date else "-",
-                f"{row.policy_year:,}",
-                f"{row.policy_month:,}",
-                f"${row.interest_credited:,.2f}",
-                f"${row.premium:,.2f}",
-                f"${row.monthly_deduction:,.2f}",
-                f"${row.account_value:,.2f}",
-                f"${row.glp:,.2f}",
-                f"${row.accumulated_glp:,.2f}",
-                f"${row.premiums_to_date:,.2f}",
-                f"${row.accumulated_withdrawals:,.2f}",
-                f"${row.force_out:,.2f}",
-                f"${row.exception_premium:,.2f}",
-                "Exception" if row.in_exception_mode else "",
-                f"${row.policy_debt:,.2f}",
-            ]
+            values = monthly_ledger_cells(row.state, previous_withdrawals)
+            previous_withdrawals = row.state.withdrawals_to_date
             for col_index, text in enumerate(values):
                 alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                if col_index == 0:
+                if LEDGER_COLUMNS[col_index] in ("Date", "Status", ""):
                     alignment = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
                 item = QTableWidgetItem(text)
-                if row_index == last_index:
-                    item.setForeground(QColor("#AAAAAA"))
-                elif row_index == used_row and col_index in used_cols:
+                if row_index == used_row and col_index in used_cols:
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)

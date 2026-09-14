@@ -36,6 +36,8 @@ from .styles import (
 )
 from .widgets import PolicyLookupBar
 from .tree_panel import PolicyRecordTreePanel
+from .tabs.reinstatement_tab import ReinstatementTab
+from ..services.reinstatement import is_ul_policy
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
@@ -135,6 +137,7 @@ class GetPolicyWindow(FramelessWindowBase):
         # between already-viewed policies restores what was there, while a brand
         # new policy starts with a clean slate.
         self._aux_tab_state: dict = {}
+        self.reinstatement_tab: ReinstatementTab | None = None
 
         # Header-bar "Open in RERUN" button (built before super().__init__
         # so FramelessWindowBase can place it via header_widgets; wired after).
@@ -299,6 +302,7 @@ class GetPolicyWindow(FramelessWindowBase):
             optional_tab.hide()
 
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
+        self.policy_support_tab.reinstatement_requested.connect(self._show_reinstatement_tab)
         self.policy_support_tab.sap_requested.connect(self._show_sap_tab)
         self.policy_support_tab.claims_requested.connect(self._show_claims_tab)
         self.policy_support_tab.tai_fd_requested.connect(self._show_tai_fd_tab)
@@ -604,6 +608,31 @@ class GetPolicyWindow(FramelessWindowBase):
         self.policy_library_tab.refresh()
         self.tabs.setCurrentWidget(self.policy_library_tab)
         self._show_status("Policy Library tab opened")
+
+    def _show_reinstatement_tab(self):
+        if self._policy is None or not self._policy.exists:
+            QMessageBox.information(self, "UL Reinstatement", "Please load a policy first.")
+            return
+        if not is_ul_policy(self._policy):
+            QMessageBox.information(
+                self, "UL Reinstatement",
+                "Currently reinstatement quotes are only available for ULs",
+            )
+            return
+        if self.reinstatement_tab is None:
+            self.reinstatement_tab = ReinstatementTab(self.tabs)
+        self._insert_aux_tab(self.reinstatement_tab, "Reinstatement")
+        self.tabs.setCurrentWidget(self.reinstatement_tab)
+        self.reinstatement_tab.load_policy(self._policy)
+        self._show_status("Reinstatement tab opened")
+
+    def _clear_reinstatement_tab(self):
+        if self.reinstatement_tab is not None:
+            index = self.tabs.indexOf(self.reinstatement_tab)
+            if index >= 0:
+                self.tabs.removeTab(index)
+            self.reinstatement_tab.hide()
+            self.reinstatement_tab.clear()
 
     def _insert_aux_tab(self, tab: QWidget, title: str):
         """Insert an optional database-backed tab just before Raw Table."""
@@ -980,6 +1009,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
     def _load_all_tabs(self):
         """Load data into all tabs using PolicyInformation."""
+        self._clear_reinstatement_tab()
         if not self._policy or not self._policy.exists:
             return
 
