@@ -240,6 +240,37 @@ def test_levelized_cap_locks_and_carries_forward_after_year_start():
     assert a.applied_scheduled_premium == pytest.approx(50.0)
 
 
+def test_levelized_cap_is_a_payable_cent_amount():
+    # UE000032's second illustrated policy year has $165.98 of guideline room.
+    # Twelve equal payments must be $13.83; retaining fractional cents makes the
+    # annual total $165.98 even though every displayed monthly payment is $13.83.
+    first = _alw(
+        tefra_force=True,
+        guideline_limit=165.98,
+        requested_scheduled=19.21,
+        payment_count_policy_year=12,
+        levelizing_premium=True,
+    )
+    assert first.gp_level_allowance == pytest.approx(165.98 / 12)
+    assert first.scheduled_prem_cap == 13.83
+    assert first.applied_scheduled_premium == 13.83
+
+    carried = _alw(
+        tefra_force=True,
+        guideline_limit=152.15,
+        prem_less_wd=13.83,
+        requested_scheduled=19.21,
+        payment_count_policy_year=12,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=first.scheduled_prem_cap,
+        prior_scheduled_cap_by_guideline=True,
+    )
+    assert carried.scheduled_prem_cap == 13.83
+    assert carried.applied_scheduled_premium == 13.83
+
+
 def test_levelized_cap_carries_its_tamra_source_forward():
     a = _alw(
         tamra_force=True,

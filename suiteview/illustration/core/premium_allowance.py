@@ -44,10 +44,17 @@ Two ideas drive the level machinery (NR..NW):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_FLOOR
 
 # The workbook's "no limit" sentinel. Kept identical to RERUN so MIN/MAX chains
 # behave the same and the value surfaces verbatim in the Values tab.
 INF = 999_999_999.0
+
+
+def _floor_cent(value: float) -> float:
+    """Floor a nonnegative modal premium to a payable whole-cent amount."""
+    cents = (Decimal(f"{value:.10f}") * 100).to_integral_value(rounding=ROUND_FLOOR)
+    return float(cents) / 100.0
 
 
 @dataclass
@@ -292,7 +299,7 @@ def compute_premium_allowances(
                 a.npt_level_allowance,
             )
         gp_side = a.gp_level_allowance if (is_gpt and tefra_force) else INF
-        a.scheduled_prem_cap = min(tamra_side, gp_side)
+        a.scheduled_prem_cap = _floor_cent(min(tamra_side, gp_side))
         a.scheduled_cap_by_guideline = (
             gp_side < INF and gp_side <= tamra_side + 1e-9
         )
