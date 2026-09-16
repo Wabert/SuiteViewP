@@ -66,6 +66,9 @@ def test_termination_display_includes_effective_date_and_transaction_types():
     assert "VARCHAR_FORMAT(TD.TERM_EFFECTIVE_DT, 'MM/DD/YYYY') TERM_EFFECTIVE_DT" in sql
     assert "TD.TERM_TRANS_TYPES" in sql
     assert "LISTAGG" not in sql
+    assert "FH.TRANS IN ('SC', 'SI', 'SF', 'TD', 'TM', 'TN', 'TL', 'TO')" in sql
+    assert "MAX(CASE WHEN TRANS = 'SC' THEN 1 ELSE 0 END) AS HAS_SC" in sql
+    assert "CASE WHEN TTT.HAS_SC = 1 THEN ', SC' ELSE '' END" in sql
     assert "MAX(CASE WHEN TRANS = 'TD' THEN 1 ELSE 0 END) AS HAS_TD" in sql
     assert "SUBSTR(" in sql
 

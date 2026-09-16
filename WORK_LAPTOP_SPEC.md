@@ -25,6 +25,27 @@ How to use this doc (for the laptop LLM):
 These are committed behavior changes that compiled clean but were never run
 against live data. Test each before relying on them.
 
+### UL Reinstatement — validate live quote bases (2026-09-14)
+
+The Home Office reinstatement service and native UI have offline real-engine
+and UI regression coverage. A synthetic UI capture is not a live quote
+validation. Before using quotes operationally, select known lapsed UL policies
+covering safety net, active shadow and surrender-value funding, including one
+with loans, and reconcile the source snapshot and resulting amounts.
+
+- Run `venv\Scripts\python.exe tools\app\verify_reinstatement_tab.py
+  --policy <number> --company <code> --region CKPR --output-dir <directory>`.
+  This uses live sources read-only; never enable local data as a fallback.
+- Confirm the termination effective date and lapse code, source post-deduction
+  AV/shadow/accumulators, coverage restoration, actual receipt date, next
+  deduction debt, loads and all deductions through that date.
+- Confirm the minimum cent quoted satisfies the selected condition; no
+  next-period interest should fund the target deduction.
+- Missing or inconsistent snapshot data, transactions beyond that snapshot,
+  ambiguous benefit termination and indexed crediting are deliberately blocked,
+  not estimated. Reconcile those inputs or specify the missing rules before
+  extending support. Skipped Coverage rules remain unspecified.
+
 ### 1.15 Illustration — Max Level Allowed is now an engine solve (2026-07-17, minipc)
 "Max Level Allowed" no longer schedules the Input tab's closed-form estimate;
 Run Values solves the largest level premium the guideline acceptance chain

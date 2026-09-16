@@ -989,6 +989,26 @@ class StyledInfoTableGroup(QGroupBox):
             self._current_col = 0
             self._current_row += 1
     
+    def set_field_editor(self, attr_name: str, editor: QWidget):
+        """Place an editor in a field's value cell, retaining its display value API."""
+        if not hasattr(self, "_field_editors"):
+            self._field_editors = {}
+        self._field_editors[attr_name] = editor
+        value_label = self._fields[attr_name]
+        self._info_layout.replaceWidget(value_label, editor)
+        value_label.hide()
+
+    def set_field_editable(self, attr_name: str, editable: bool):
+        """Switch a registered field between its editor and normal value label."""
+        editor = self._field_editors[attr_name]
+        label = self._fields[attr_name]
+        shown = editor if self._info_layout.indexOf(editor) >= 0 else label
+        target = editor if editable else label
+        if shown is not target:
+            self._info_layout.replaceWidget(shown, target)
+            shown.hide()
+        target.show()
+
     def set_field_tooltip(self, attr_name: str, tooltip_text: str):
         """Set or update tooltip for a field label."""
         if hasattr(self, '_labels') and attr_name in self._labels:

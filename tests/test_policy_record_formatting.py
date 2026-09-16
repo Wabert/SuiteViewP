@@ -97,12 +97,17 @@ class TestShippedSegmentScreens:
     def _screens(self):
         from suiteview.polview.ui import policy_record_viewer as prv
 
-        return prv, {seg: prv.load_screen(seg) for seg in prv._SEGMENTS}
+        return prv, {
+            seg: screen for seg in prv._SEGMENTS
+            if (screen := prv.load_screen(seg)) is not None
+        }
 
-    def test_all_registered_segments_load(self):
+    def test_shipped_screens_are_registered_and_load(self):
         prv, screens = self._screens()
-        for seg in prv._SEGMENTS:
-            assert screens[seg] is not None, f"seg_{seg}.json failed to load"
+        from pathlib import Path
+
+        shipped = {path.stem.removeprefix("seg_") for path in Path(prv._DATA_DIR).glob("seg_??.json")}
+        assert set(screens) == shipped
 
     def test_screens_have_lines_fields_and_layout(self):
         _, screens = self._screens()
@@ -287,6 +292,9 @@ class _FakePI:
         if table == "LH_COV_PHA":
             return list(self._covpha)
         return []
+
+    def table_error(self, table):
+        return ""
 
 
 # One real advanced-product record (U0361148), as DB2 returns it: ISO dates,
@@ -1129,27 +1137,10 @@ class TestFooterNormalization:
         assert out["lines"][0][0]["field"] == "Maturity Date"
         assert out["lines"][0][0]["text"] == "08/15/2070"
 
-    def test_reference_screens_footer_date_is_today(self):
-        # End-to-end: a captured-reference screen (no policy) still shows today's
-        # date in its footer, not the date it was captured.
-        from datetime import datetime
-
+    def test_no_policy_never_returns_a_captured_screen(self):
         prv = self._prv()
         for seg in ("02", "67"):
-            screen = prv.build_screen(seg, None)
-            today = datetime.now().strftime("%m/%d/%y")
-            date_tokens = [
-                run for line in screen["lines"] for run in line
-                if run.get("field") == "Current Date"
-            ]
-            assert date_tokens, f"seg {seg}: no Current Date token"
-            assert all(t["text"] == today for t in date_tokens)
-            # The user-id / region tokens must not carry a hoverable field.
-            leftover = [
-                run.get("field") for line in screen["lines"] for run in line
-                if run.get("field") in ("Part of the user ID?", "Region and Company")
-            ]
-            assert not leftover, f"seg {seg}: footer chrome still hoverable: {leftover}"
+            assert prv.build_screen(seg, None) is None
 
     def test_live_screen_footer_is_normalized(self):
         # The live path (build_segment_lines + _append_screen_footer) is

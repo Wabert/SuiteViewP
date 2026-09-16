@@ -1,0 +1,670 @@
+{
+  "segment": "60",
+  "title": "Payment Accumulation (screen 6260)",
+  "source": "UL045809 CyberLife capture 2026-09-15; CyberDoc D202 pp.120-126, 606",
+  "lines": [
+    [
+      {
+        "text": "  6260, ",
+        "field": null
+      },
+      {
+        "text": "UL045809",
+        "field": "Policy Number"
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "60",
+        "field": "Segment Identification"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0139",
+        "field": "Segment Length"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "46726.00",
+        "field": "Regular Premium Payments Total"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1365.25",
+        "field": "Total Additional Payments"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Total Number of Additional Payments"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "4458.28",
+        "field": "Loads Total"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "2316.00",
+        "field": "High Premium"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Premium Tax Accumulation"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Taxable Premiums"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "First Year Premiums Accumulation"
+      }
+    ],
+    [
+      {
+        "text": "          ",
+        "field": null
+      },
+      {
+        "text": "13987.30",
+        "field": "Total Withdrawal Amount"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Withdrawal Charges"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Total Number of Withdrawals"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "34103.95",
+        "field": "Policy Cost Basis"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Policy Interest Income (POST TEFRA)"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Policy Net (POST TEFRA) Cost Basis"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "Last Charge Free Withdrawal Date"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "Last MVA Free Withdrawal Date"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "MVA Amount"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Charge Free Withdrawals from Issue"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Charge Free Withdrawal Percentage"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Redemption Fee"
+      }
+    ],
+    [
+      {
+        "text": "          ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "LTC Cost of Insurance Since Issue"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Used Accumulators"
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "                                                                    ",
+        "field": null
+      },
+      {
+        "text": "09/15/26",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      }
+    ],
+    [
+      {
+        "text": "  CK620 DISPLAY COMPLETE                                     ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [
+      "COBOL: FUMIDENT-SEGMENT-IDENT"
+    ],
+    "Segment Length": [
+      "COBOL: FUMLNGTH-SEGMENT-LENGTH"
+    ],
+    "Flag Byte A": [
+      "COBOL: FUMFLAGA-FLAG-BYTE-A",
+      "Reserved byte; no complete DB2 mapping. Displayed as an example."
+    ],
+    "User Flag Byte": [
+      "COBOL: FUMFLAGU-FLAG-BYTE-U",
+      "Reserved byte; no complete DB2 mapping. Displayed as an example."
+    ],
+    "Regular Premium Payments Total": [
+      "COBOL: FUMRGPRM-REG-PREMS",
+      "DB2: LH_POL_TOTALS.TOT_REG_PRM_AMT"
+    ],
+    "Total Additional Payments": [
+      "COBOL: FUMADPRM-ADDL-PREMS",
+      "DB2: LH_POL_TOTALS.TOT_ADD_PRM_AMT"
+    ],
+    "Total Number of Additional Payments": [
+      "COBOL: FUMADNUM-ADDL-NUMBER",
+      "DB2: LH_POL_TOTALS.TOT_ADD_PRM_QTY"
+    ],
+    "Loads Total": [
+      "COBOL: FUMLDTOT-LOAD-TOTAL",
+      "DB2: LH_POL_TOTALS.TOT_PRM_LD_AMT"
+    ],
+    "High Premium": [
+      "COBOL: FUMHIPRM-HIGH-PREM",
+      "DB2: LH_POL_TOTALS.HI_YR_TOT_PRM_AMT"
+    ],
+    "Premium Tax Accumulation": [
+      "COBOL: FUMPRMTX-PREM-TAX-ACCUM",
+      "DB2: LH_POL_TOTALS.TOT_PRM_TAX_AMT"
+    ],
+    "Taxable Premiums": [
+      "COBOL: FUMTXPRM-TAXABLE-PREMS",
+      "DB2: LH_POL_TOTALS.TOT_TAX_PRM_AMT"
+    ],
+    "First Year Premiums Accumulation": [
+      "COBOL: FUMFYPRM-FIRST-YR-PREMS",
+      "DB2: LH_POL_TOTALS.TOT_FRS_YR_PRM_AMT"
+    ],
+    "Total Withdrawal Amount": [
+      "COBOL: FUMWDTOT-WITHDRAWL",
+      "DB2: LH_POL_TOTALS.TOT_WTD_AMT"
+    ],
+    "Total Withdrawal Charges": [
+      "COBOL: FUMWDCHG-WITHDRAWL-CHARGES",
+      "DB2: LH_POL_TOTALS.TOT_WTD_CRG_AMT"
+    ],
+    "Total Number of Withdrawals": [
+      "COBOL: FUMWDNUM-WITHDRAWL-NUM",
+      "DB2: LH_POL_TOTALS.TOT_WTD_QTY"
+    ],
+    "Policy Cost Basis": [
+      "COBOL: FUMCOSTB-COST-BASIS",
+      "DB2: LH_POL_TOTALS.POL_CST_BSS_AMT"
+    ],
+    "Policy Interest Income (POST TEFRA)": [
+      "COBOL: FUMTXIIN-INTEREST-INCOME",
+      "DB2: LH_POL_TOTALS.ANU_ITS_ICM_AMT"
+    ],
+    "Policy Net (POST TEFRA) Cost Basis": [
+      "COBOL: FUMNETCB-NET-COST-BASIS",
+      "DB2: LH_POL_TOTALS.ANU_CST_BSS_AMT"
+    ],
+    "Last Charge Free Withdrawal Date": [
+      "COBOL: FUMFWDDT-LST-CHG-FREE-WDWL-DT",
+      "DB2: LH_POL_TOTALS.LST_CRG_FRE_WTD_DT"
+    ],
+    "Last MVA Free Withdrawal Date": [
+      "COBOL: FUMFMVDT-LST-MVA-FREE-WDWL-DT",
+      "DB2: LH_POL_TOTALS.LST_MVA_FRE_WTD_DT"
+    ],
+    "MVA Amount": [
+      "COBOL: FUMMVAMT-MVA-AMOUNT",
+      "DB2: LH_POL_TOTALS.MVA_CSV_AMT"
+    ],
+    "Total Charge Free Withdrawals from Issue": [
+      "COBOL: FUMTCFWD-TOTAL-CHG-FREE-WDWL",
+      "DB2: LH_POL_TOTALS.TOT_FRE_WTD_AMT"
+    ],
+    "Total Charge Free Withdrawal Percentage": [
+      "COBOL: FUMTCFWP-TOTAL-CHG-FREE-WD-PCT",
+      "DB2: LH_POL_TOTALS.TOT_FRE_WTD_PCT"
+    ],
+    "Total Redemption Fee": [
+      "COBOL: FUMTREDF-TOTAL-REDEMPTION-FEE",
+      "DB2: LH_POL_TOTALS.TOT_RED_FEE_AMT"
+    ],
+    "Used Accumulators": [
+      "COBOL: FUMACCUM-USED-ACCUMS",
+      "DB2: LH_POL_TOTALS.MO_ADD_PMT_QTY",
+      "Zero/no monthly rows verified on UL045809. Nonzero monthly-array layout requires verification."
+    ],
+    "Additional Payments by Month": [
+      "COBOL: FUMADPAY-PAYMENTS-BY-MONTH",
+      "DB2: LH_MO_ADD_PMT.MO_ADD_PRM_AMT"
+    ],
+    "LTC Cost of Insurance Since Issue": [
+      "COBOL: FUMLTCOI-TOTAL-LTC-COST-OF-INS",
+      "DB2: LH_POL_TOTALS.TOT_LTC_CST_OF_INS",
+      "CyberDoc D202 printed p.125; column verified live on UL045809."
+    ],
+    "CyberLife Reserved": [
+      "COBOL: FUMCLRSV-CL-RESERVED"
+    ],
+    "User Reserved": [
+      "COBOL: FUMRESRV-RESERVED"
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": "FUMIDENT-SEGMENT-IDENT",
+      "kind": "header"
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": "FUMLNGTH-SEGMENT-LENGTH",
+      "kind": "header"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": "FUMFLAGA-FLAG-BYTE-A",
+      "kind": "flag"
+    },
+    {
+      "name": "User Flag Byte",
+      "byte": "6",
+      "db2": null,
+      "cobol": "FUMFLAGU-FLAG-BYTE-U",
+      "kind": "flag"
+    },
+    {
+      "name": "Regular Premium Payments Total",
+      "byte": "7-12",
+      "db2": "LH_POL_TOTALS.TOT_REG_PRM_AMT",
+      "cobol": "FUMRGPRM-REG-PREMS",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Additional Payments",
+      "byte": "13-18",
+      "db2": "LH_POL_TOTALS.TOT_ADD_PRM_AMT",
+      "cobol": "FUMADPRM-ADDL-PREMS",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Number of Additional Payments",
+      "byte": "19-20",
+      "db2": "LH_POL_TOTALS.TOT_ADD_PRM_QTY",
+      "cobol": "FUMADNUM-ADDL-NUMBER",
+      "kind": "integer"
+    },
+    {
+      "name": "Loads Total",
+      "byte": "21-26",
+      "db2": "LH_POL_TOTALS.TOT_PRM_LD_AMT",
+      "cobol": "FUMLDTOT-LOAD-TOTAL",
+      "kind": "amount"
+    },
+    {
+      "name": "High Premium",
+      "byte": "27-32",
+      "db2": "LH_POL_TOTALS.HI_YR_TOT_PRM_AMT",
+      "cobol": "FUMHIPRM-HIGH-PREM",
+      "kind": "amount"
+    },
+    {
+      "name": "Premium Tax Accumulation",
+      "byte": "33-38",
+      "db2": "LH_POL_TOTALS.TOT_PRM_TAX_AMT",
+      "cobol": "FUMPRMTX-PREM-TAX-ACCUM",
+      "kind": "amount"
+    },
+    {
+      "name": "Taxable Premiums",
+      "byte": "39-44",
+      "db2": "LH_POL_TOTALS.TOT_TAX_PRM_AMT",
+      "cobol": "FUMTXPRM-TAXABLE-PREMS",
+      "kind": "amount"
+    },
+    {
+      "name": "First Year Premiums Accumulation",
+      "byte": "45-50",
+      "db2": "LH_POL_TOTALS.TOT_FRS_YR_PRM_AMT",
+      "cobol": "FUMFYPRM-FIRST-YR-PREMS",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Withdrawal Amount",
+      "byte": "51-56",
+      "db2": "LH_POL_TOTALS.TOT_WTD_AMT",
+      "cobol": "FUMWDTOT-WITHDRAWL",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Withdrawal Charges",
+      "byte": "57-62",
+      "db2": "LH_POL_TOTALS.TOT_WTD_CRG_AMT",
+      "cobol": "FUMWDCHG-WITHDRAWL-CHARGES",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Number of Withdrawals",
+      "byte": "63-64",
+      "db2": "LH_POL_TOTALS.TOT_WTD_QTY",
+      "cobol": "FUMWDNUM-WITHDRAWL-NUM",
+      "kind": "integer"
+    },
+    {
+      "name": "Policy Cost Basis",
+      "byte": "65-70",
+      "db2": "LH_POL_TOTALS.POL_CST_BSS_AMT",
+      "cobol": "FUMCOSTB-COST-BASIS",
+      "kind": "amount"
+    },
+    {
+      "name": "Policy Interest Income (POST TEFRA)",
+      "byte": "71-76",
+      "db2": "LH_POL_TOTALS.ANU_ITS_ICM_AMT",
+      "cobol": "FUMTXIIN-INTEREST-INCOME",
+      "kind": "amount"
+    },
+    {
+      "name": "Policy Net (POST TEFRA) Cost Basis",
+      "byte": "77-82",
+      "db2": "LH_POL_TOTALS.ANU_CST_BSS_AMT",
+      "cobol": "FUMNETCB-NET-COST-BASIS",
+      "kind": "amount"
+    },
+    {
+      "name": "Last Charge Free Withdrawal Date",
+      "byte": "83-86",
+      "db2": "LH_POL_TOTALS.LST_CRG_FRE_WTD_DT",
+      "cobol": "FUMFWDDT-LST-CHG-FREE-WDWL-DT",
+      "kind": "date"
+    },
+    {
+      "name": "Last MVA Free Withdrawal Date",
+      "byte": "87-90",
+      "db2": "LH_POL_TOTALS.LST_MVA_FRE_WTD_DT",
+      "cobol": "FUMFMVDT-LST-MVA-FREE-WDWL-DT",
+      "kind": "date"
+    },
+    {
+      "name": "MVA Amount",
+      "byte": "91-96",
+      "db2": "LH_POL_TOTALS.MVA_CSV_AMT",
+      "cobol": "FUMMVAMT-MVA-AMOUNT",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Charge Free Withdrawals from Issue",
+      "byte": "97-102",
+      "db2": "LH_POL_TOTALS.TOT_FRE_WTD_AMT",
+      "cobol": "FUMTCFWD-TOTAL-CHG-FREE-WDWL",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Charge Free Withdrawal Percentage",
+      "byte": "103-105",
+      "db2": "LH_POL_TOTALS.TOT_FRE_WTD_PCT",
+      "cobol": "FUMTCFWP-TOTAL-CHG-FREE-WD-PCT",
+      "kind": "amount"
+    },
+    {
+      "name": "Total Redemption Fee",
+      "byte": "106-111",
+      "db2": "LH_POL_TOTALS.TOT_RED_FEE_AMT",
+      "cobol": "FUMTREDF-TOTAL-REDEMPTION-FEE",
+      "kind": "amount"
+    },
+    {
+      "name": "LTC Cost of Insurance Since Issue",
+      "byte": "112-117",
+      "cobol": "FUMLTCOI-TOTAL-LTC-COST-OF-INS",
+      "db2": "LH_POL_TOTALS.TOT_LTC_CST_OF_INS",
+      "kind": "amount"
+    },
+    {
+      "name": "CyberLife Reserved",
+      "byte": "118-129",
+      "cobol": "FUMCLRSV-CL-RESERVED",
+      "db2": null,
+      "kind": "reserved"
+    },
+    {
+      "name": "User Reserved",
+      "byte": "130-138",
+      "cobol": "FUMRESRV-RESERVED",
+      "db2": null,
+      "kind": "reserved"
+    },
+    {
+      "name": "Used Accumulators",
+      "byte": "139",
+      "cobol": "FUMACCUM-USED-ACCUMS",
+      "db2": "LH_POL_TOTALS.MO_ADD_PMT_QTY",
+      "kind": "integer"
+    },
+    {
+      "name": "Additional Payments by Month",
+      "byte": "140-211",
+      "cobol": "FUMADPAY-PAYMENTS-BY-MONTH",
+      "db2": "LH_MO_ADD_PMT.MO_ADD_PRM_AMT",
+      "kind": "monthly"
+    }
+  ],
+  "layout_html": "<table border=\"1\" cellspacing=\"0\" cellpadding=\"3\"><tr bgcolor=\"#E6A0AA\"><th>Byte</th><th>Field / source</th></tr><tr><td>1-2</td><td><b>Segment Identification</b><br>COBOL: FUMIDENT-SEGMENT-IDENT</td></tr><tr><td>3-4</td><td><b>Segment Length</b><br>COBOL: FUMLNGTH-SEGMENT-LENGTH</td></tr><tr><td>5</td><td><b>Flag Byte A</b><br>COBOL: FUMFLAGA-FLAG-BYTE-A<br>Reserved byte; no complete DB2 mapping. Displayed as an example.</td></tr><tr><td>6</td><td><b>User Flag Byte</b><br>COBOL: FUMFLAGU-FLAG-BYTE-U<br>Reserved byte; no complete DB2 mapping. Displayed as an example.</td></tr><tr><td>7-12</td><td><b>Regular Premium Payments Total</b><br>COBOL: FUMRGPRM-REG-PREMS<br>DB2: LH_POL_TOTALS.TOT_REG_PRM_AMT</td></tr><tr><td>13-18</td><td><b>Total Additional Payments</b><br>COBOL: FUMADPRM-ADDL-PREMS<br>DB2: LH_POL_TOTALS.TOT_ADD_PRM_AMT</td></tr><tr><td>19-20</td><td><b>Total Number of Additional Payments</b><br>COBOL: FUMADNUM-ADDL-NUMBER<br>DB2: LH_POL_TOTALS.TOT_ADD_PRM_QTY</td></tr><tr><td>21-26</td><td><b>Loads Total</b><br>COBOL: FUMLDTOT-LOAD-TOTAL<br>DB2: LH_POL_TOTALS.TOT_PRM_LD_AMT</td></tr><tr><td>27-32</td><td><b>High Premium</b><br>COBOL: FUMHIPRM-HIGH-PREM<br>DB2: LH_POL_TOTALS.HI_YR_TOT_PRM_AMT</td></tr><tr><td>33-38</td><td><b>Premium Tax Accumulation</b><br>COBOL: FUMPRMTX-PREM-TAX-ACCUM<br>DB2: LH_POL_TOTALS.TOT_PRM_TAX_AMT</td></tr><tr><td>39-44</td><td><b>Taxable Premiums</b><br>COBOL: FUMTXPRM-TAXABLE-PREMS<br>DB2: LH_POL_TOTALS.TOT_TAX_PRM_AMT</td></tr><tr><td>45-50</td><td><b>First Year Premiums Accumulation</b><br>COBOL: FUMFYPRM-FIRST-YR-PREMS<br>DB2: LH_POL_TOTALS.TOT_FRS_YR_PRM_AMT</td></tr><tr><td>51-56</td><td><b>Total Withdrawal Amount</b><br>COBOL: FUMWDTOT-WITHDRAWL<br>DB2: LH_POL_TOTALS.TOT_WTD_AMT</td></tr><tr><td>57-62</td><td><b>Total Withdrawal Charges</b><br>COBOL: FUMWDCHG-WITHDRAWL-CHARGES<br>DB2: LH_POL_TOTALS.TOT_WTD_CRG_AMT</td></tr><tr><td>63-64</td><td><b>Total Number of Withdrawals</b><br>COBOL: FUMWDNUM-WITHDRAWL-NUM<br>DB2: LH_POL_TOTALS.TOT_WTD_QTY</td></tr><tr><td>65-70</td><td><b>Policy Cost Basis</b><br>COBOL: FUMCOSTB-COST-BASIS<br>DB2: LH_POL_TOTALS.POL_CST_BSS_AMT</td></tr><tr><td>71-76</td><td><b>Policy Interest Income (POST TEFRA)</b><br>COBOL: FUMTXIIN-INTEREST-INCOME<br>DB2: LH_POL_TOTALS.ANU_ITS_ICM_AMT</td></tr><tr><td>77-82</td><td><b>Policy Net (POST TEFRA) Cost Basis</b><br>COBOL: FUMNETCB-NET-COST-BASIS<br>DB2: LH_POL_TOTALS.ANU_CST_BSS_AMT</td></tr><tr><td>83-86</td><td><b>Last Charge Free Withdrawal Date</b><br>COBOL: FUMFWDDT-LST-CHG-FREE-WDWL-DT<br>DB2: LH_POL_TOTALS.LST_CRG_FRE_WTD_DT</td></tr><tr><td>87-90</td><td><b>Last MVA Free Withdrawal Date</b><br>COBOL: FUMFMVDT-LST-MVA-FREE-WDWL-DT<br>DB2: LH_POL_TOTALS.LST_MVA_FRE_WTD_DT</td></tr><tr><td>91-96</td><td><b>MVA Amount</b><br>COBOL: FUMMVAMT-MVA-AMOUNT<br>DB2: LH_POL_TOTALS.MVA_CSV_AMT</td></tr><tr><td>97-102</td><td><b>Total Charge Free Withdrawals from Issue</b><br>COBOL: FUMTCFWD-TOTAL-CHG-FREE-WDWL<br>DB2: LH_POL_TOTALS.TOT_FRE_WTD_AMT</td></tr><tr><td>103-105</td><td><b>Total Charge Free Withdrawal Percentage</b><br>COBOL: FUMTCFWP-TOTAL-CHG-FREE-WD-PCT<br>DB2: LH_POL_TOTALS.TOT_FRE_WTD_PCT</td></tr><tr><td>106-111</td><td><b>Total Redemption Fee</b><br>COBOL: FUMTREDF-TOTAL-REDEMPTION-FEE<br>DB2: LH_POL_TOTALS.TOT_RED_FEE_AMT</td></tr><tr><td>112-117</td><td><b>LTC Cost of Insurance Since Issue</b><br>COBOL: FUMLTCOI-TOTAL-LTC-COST-OF-INS<br>DB2: LH_POL_TOTALS.TOT_LTC_CST_OF_INS<br>CyberDoc D202 printed p.125; column verified live on UL045809.</td></tr><tr><td>118-129</td><td><b>CyberLife Reserved</b><br>COBOL: FUMCLRSV-CL-RESERVED</td></tr><tr><td>130-138</td><td><b>User Reserved</b><br>COBOL: FUMRESRV-RESERVED</td></tr><tr><td>139</td><td><b>Used Accumulators</b><br>COBOL: FUMACCUM-USED-ACCUMS<br>DB2: LH_POL_TOTALS.MO_ADD_PMT_QTY<br>Zero/no monthly rows verified on UL045809. Nonzero monthly-array layout requires verification.</td></tr><tr><td>140-211</td><td><b>Additional Payments by Month</b><br>COBOL: FUMADPAY-PAYMENTS-BY-MONTH<br>DB2: LH_MO_ADD_PMT.MO_ADD_PRM_AMT</td></tr></table>"
+}

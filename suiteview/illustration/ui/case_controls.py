@@ -200,6 +200,12 @@ class CasesController:
         (the user appends whatever else they want).
         """
         window = self._window
+        policy_tab = getattr(window, "policy_tab", None)
+        if policy_tab is not None and policy_tab.has_pending_record_changes():
+            QMessageBox.warning(
+                window, "Unapplied Record Values",
+                "Apply or Reset the pending fund/allocation values before saving a case.")
+            return
         key = self._current_key()
         if key is None:
             QMessageBox.information(

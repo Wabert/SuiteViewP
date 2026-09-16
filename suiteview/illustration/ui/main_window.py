@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QMessageBox,
@@ -31,6 +32,8 @@ from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.models.plancode_config import load_plancode
+from suiteview.illustration.models.input_set import RollbackOverrideSet
+from suiteview.illustration.core.value_rollback import available_rollback_dates
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.ui.widgets import PolicyLookupBar
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -47,6 +50,9 @@ from .compare_tab import IllustrationCompareTab
 from .report_tab import IllustrationReportTab
 from .saved_cases_panel import format_saved_stamp
 from .values_tab import IllustrationValuesTab
+from .value_rollback import (
+    ROLLBACK_COLORS, ROLLBACK_NOTICE_STYLE, ValueRollbackControls,
+)
 from .styles import (
     GOLD_TEXT,
     HEADER_MENU_BUTTON_STYLE,
@@ -84,6 +90,9 @@ class IllustrationWindow(FramelessWindowBase):
         self._policy_cache: dict = {}
         self._list_panel_visible = False
         self._last_scenario = None
+        self._illustration_data = None
+        self._rollback_projection_blocked = False
+        self._record_drafts_pending = False
         # Per-policy session state, keyed like _policy_cache by
         # (policy_number, region, company_code). Each entry keeps the policy's
         # live IllustrationInputsTab widget (the inputs ARE the widget state —
@@ -140,6 +149,16 @@ class IllustrationWindow(FramelessWindowBase):
         )
         self.open_polview_btn.clicked.connect(self._open_in_polview)
         self.list_toggle_btn.clicked.connect(self._toggle_list_panel)
+        get_illustration_settings().abr_quote_mode_changed.connect(
+            self._refresh_rollback_controls)
+        get_illustration_settings().rollback_enabled_changed.connect(
+            self._on_rollback_option_changed)
+        self._normal_header_button_styles = [
+            (button, button.styleSheet())
+            for button in self.header_bar.findChildren(QPushButton)
+            if button is self.options_btn or button.toolTip() in {"Minimize", "Maximize", "Close"}
+        ]
+        self._refresh_rollback_controls()
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar
         # policy bar or PolView's "Open in Illustrator" button).
@@ -191,7 +210,30 @@ class IllustrationWindow(FramelessWindowBase):
         self._abr_quote_action.toggled.connect(self._on_abr_quote_mode_toggled)
         menu.addAction(self._abr_quote_action)
 
+        self._rollback_action = QAction("Edit Record", menu, checkable=True)
+        self._rollback_action.setChecked(settings.rollback_enabled)
+        self._rollback_action.setToolTip(
+            "Enable valuation-date selection and editable policy-record assumptions. "
+            "Turning this off restores loaded values and removes valuation edits.")
+        self._rollback_action.toggled.connect(settings.set_rollback_enabled)
+        menu.addAction(self._rollback_action)
+
         self.options_btn.setMenu(menu)
+
+    def _on_rollback_option_changed(self, enabled: bool):
+        self._rollback_action.blockSignals(True)
+        self._rollback_action.setChecked(enabled)
+        self._rollback_action.blockSignals(False)
+        if not enabled:
+            tabs = {self.inputs_tab, *[
+                entry["inputs"] for entry in self._session_states.values()
+            ]}
+            for tab in tabs:
+                if tab.export_rollback_overrides() is not None:
+                    tab.set_value_rollback(None)
+        self._refresh_policy_basis()
+        self._on_run_from_issue_changed(self.inputs_tab.run_from_issue_enabled())
+        self._refresh_rollback_controls()
 
     def _on_additional_premium_types_toggled(self, checked: bool):
         """Flip the app-wide Additional Premium Types option. Every open
@@ -265,7 +307,9 @@ class IllustrationWindow(FramelessWindowBase):
             self._mark_next_get_for_default_inputs)
 
         self.run_values_btn = QPushButton("Run Values")
-        self.run_values_btn.setStyleSheet(VALUE_BUTTON_STYLE)
+        self.run_values_btn.setStyleSheet(
+            VALUE_BUTTON_STYLE
+            + "QPushButton:disabled { background: #DDD6D0; color: #777; border-color: #AAA; }")
         self.run_values_btn.setEnabled(False)
         self.run_values_btn.setFixedHeight(28)
         self.run_values_btn.clicked.connect(self._on_run_values)
@@ -299,7 +343,13 @@ class IllustrationWindow(FramelessWindowBase):
         self.projection_mode_notice.setWordWrap(True)
         self.projection_mode_notice.setStyleSheet(
             "color: #2A1458; background: #EDE7F6; padding: 5px 12px; font-weight: bold;")
-        main_layout.addWidget(self.projection_mode_notice)
+        basis_row = QHBoxLayout()
+        basis_row.setContentsMargins(0, 0, 0, 0)
+        basis_row.addWidget(self.projection_mode_notice, 1)
+        self.rollback_controls = ValueRollbackControls()
+        self.rollback_controls.update_requested.connect(self._on_rollback_update)
+        basis_row.addWidget(self.rollback_controls)
+        main_layout.addLayout(basis_row)
 
         self.tabs_container = QWidget()
         self.tabs_container.setStyleSheet(f"background-color: {PURPLE_BG};")
@@ -310,6 +360,13 @@ class IllustrationWindow(FramelessWindowBase):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
         self.policy_tab = IllustrationPolicyTab()
+        self.policy_tab.rollback_amount_requested.connect(self._on_rollback_amount)
+        self.policy_tab.rollback_dbo_requested.connect(self._on_rollback_dbo)
+        self.policy_tab.rollback_shadow_requested.connect(self._on_rollback_shadow)
+        self.policy_tab.rollback_account_requested.connect(self._on_rollback_account)
+        self.policy_tab.record_value_requested.connect(self._on_record_value)
+        self.policy_tab.record_funds_requested.connect(self._on_record_funds)
+        self.policy_tab.record_drafts_changed.connect(self._on_record_drafts_changed)
         # One IllustrationInputsTab per visited policy lives in this stack;
         # self.inputs_tab always points at the active one. Swapping the whole
         # widget preserves every input exactly across policy switches.
@@ -439,9 +496,11 @@ class IllustrationWindow(FramelessWindowBase):
             inputs_tab.run_from_issue_changed.connect(
                 self._on_run_from_issue_changed)
             inputs_tab.issue_conditions_changed.connect(self._invalidate_issue_results)
+            inputs_tab.rollback_changed.connect(self._on_rollback_changed)
             inputs_tab.setProperty("issueModeSignalConnected", True)
         if inputs_tab is previous:
             self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled())
+            self._refresh_rollback_controls()
             return
         if self._inputs_stack.indexOf(inputs_tab) == -1:
             self._inputs_stack.addWidget(inputs_tab)
@@ -460,7 +519,6 @@ class IllustrationWindow(FramelessWindowBase):
             f"background-color: {ISSUE_BLUE_BG if enabled else PURPLE_BG};")
         self.tabs.setStyleSheet(
             ISSUE_TAB_WIDGET_STYLE if enabled else TAB_WIDGET_STYLE)
-        self._refresh_projection_header(enabled)
         self.projection_mode_notice.setText(
             "NEW BUSINESS - FROM ISSUE | Hypothetical issue conditions; current side uses scale 1. "
             "Zero opening balances. Policy tab remains the loaded inforce snapshot."
@@ -473,6 +531,8 @@ class IllustrationWindow(FramelessWindowBase):
             + " padding: 5px 12px; font-weight: bold;")
         if isinstance(sender, IllustrationInputsTab):
             self._invalidate_issue_results()
+        self._refresh_rollback_controls()
+        self._refresh_rollback_notice()
 
     def _refresh_projection_header(self, enabled):
         title = WINDOW_TITLE
@@ -480,11 +540,230 @@ class IllustrationWindow(FramelessWindowBase):
             title += f" — Case “{self._snapshot_case.name}”"
         if enabled:
             title += " - NEW BUSINESS FROM ISSUE"
+        rollback = self.inputs_tab.export_rollback_overrides()
+        historical = self._is_historical_selection(rollback)
+        if historical:
+            title += f" - ROLLBACK {rollback.valuation_date:%m/%d/%Y}"
+        elif rollback is not None:
+            title += " - EDITED VALUES"
         self.set_title(title)
         self.set_header_colors(
+            ROLLBACK_COLORS if historical else
             ILLUSTRATION_ISSUE_HEADER_COLORS if enabled else
             ILLUSTRATION_SNAPSHOT_HEADER_COLORS if self._snapshot_case is not None else
             ILLUSTRATION_HEADER_COLORS)
+        for button, style in getattr(self, "_normal_header_button_styles", []):
+            button.setStyleSheet(style + (
+                "\nQPushButton { color: #4B2274; } QPushButton:hover { color: #351554; }"
+                if historical else ""))
+
+    def _refresh_rollback_controls(self, abr_mode=None):
+        policy = self._illustration_data
+        feature_enabled = get_illustration_settings().rollback_enabled
+        rollback = self.inputs_tab.export_rollback_overrides()
+        dates = available_rollback_dates(policy) if policy is not None else []
+        incompatible = (
+            self.inputs_tab.run_from_issue_enabled()
+            or (self.inputs_tab.abr_quote_enabled() if abr_mode is None else abr_mode))
+        reason = (
+            "Inforce mode only" if incompatible else
+            "Load a complete policy" if policy is None else "")
+        self.rollback_controls.set_basis(
+            dates, rollback.valuation_date if rollback else None,
+            current_date=policy.valuation_date if policy is not None else None,
+            enabled=feature_enabled and not incompatible and policy is not None, reason=reason)
+        self.rollback_controls.setVisible(feature_enabled)
+        self.policy_tab.set_value_editors_enabled(
+            feature_enabled and not incompatible and policy is not None)
+
+    def _is_historical_selection(self, overrides):
+        return (
+            overrides is not None and self._illustration_data is not None
+            and overrides.valuation_date != self._illustration_data.valuation_date)
+
+    def _refresh_rollback_notice(self):
+        rollback = self.inputs_tab.export_rollback_overrides()
+        if self._is_historical_selection(rollback):
+            self.projection_mode_notice.setText(
+                f"ROLLBACK | Values as of {rollback.valuation_date:%m/%d/%Y}. "
+                + ("Historical shadow required before projection. "
+                   if self._rollback_projection_blocked else "")
+                + "Review Account/Shadow values, DB Option and coverage Amounts.")
+            self.projection_mode_notice.setStyleSheet(ROLLBACK_NOTICE_STYLE)
+        elif rollback is not None:
+            self.projection_mode_notice.setText(
+                "INFORCE | Edited illustration values at the loaded valuation date. "
+                "The loaded policy record is unchanged.")
+        self._refresh_projection_header(self.inputs_tab.run_from_issue_enabled())
+
+    def _on_rollback_update(self, when):
+        if when is None:
+            QMessageBox.information(self, "Value Rollback", "Select a recorded monthliversary date.")
+            return
+        if self._illustration_data is not None and when == self._illustration_data.valuation_date:
+            self.policy_tab.reset_fund_edits()
+            self._apply_rollback_selection(None)
+            return
+        prior = self.inputs_tab.export_rollback_overrides()
+        overrides = (
+            copy.deepcopy(prior) if prior and prior.valuation_date == when
+            else RollbackOverrideSet(valuation_date=when))
+        self._apply_rollback_selection(overrides)
+
+    def _apply_rollback_selection(self, overrides):
+        try:
+            self.inputs_tab.set_value_rollback(overrides)
+        except ValueError as exc:
+            logger.warning("Record edit not applied: %s", exc)
+            self._refresh_rollback_controls()
+            self._show_status(f"Record edit not applied: {exc}")
+            QMessageBox.warning(self, "Record Edit Not Applied", str(exc))
+            self._refresh_policy_basis()
+            return False
+        return True
+
+    def _editable_value_overrides(self):
+        if not get_illustration_settings().rollback_enabled:
+            QMessageBox.warning(self, "Illustration Values", "Enable Options > Edit Record before editing values.")
+            return None
+        overrides = self.inputs_tab.export_rollback_overrides()
+        if overrides is None:
+            if self._illustration_data is None:
+                QMessageBox.warning(self, "Illustration Values", "Load a complete policy before editing values.")
+                return None
+            overrides = RollbackOverrideSet(valuation_date=self._illustration_data.valuation_date)
+        return overrides
+
+    def _on_rollback_amount(self, kind, key, amount):
+        overrides = self._editable_value_overrides()
+        if overrides is None:
+            return
+        if kind == "coverage":
+            overrides.coverage_amounts[key] = amount
+        else:
+            overrides.benefit_amounts[key] = amount
+        self._apply_rollback_selection(overrides)
+
+    def _on_rollback_dbo(self, db_option):
+        overrides = self._editable_value_overrides()
+        if overrides is None:
+            return
+        overrides.db_option = db_option
+        self._apply_rollback_selection(overrides)
+
+    def _on_rollback_shadow(self, amount):
+        overrides = self._editable_value_overrides()
+        if overrides is None:
+            return
+        overrides.shadow_account_value = amount
+        self._apply_rollback_selection(overrides)
+
+    def _on_rollback_account(self, amount):
+        overrides = self._editable_value_overrides()
+        if overrides is None:
+            return
+        overrides.account_value = amount
+        self._apply_rollback_selection(overrides)
+
+    def _on_record_value(self, name, value):
+        overrides = self._editable_value_overrides()
+        if overrides is None:
+            return
+        if name.startswith("tamra_7year_contributions."):
+            values = list(self.policy_tab._record_snapshot.tamra_7year_contributions)
+            values[int(name.rsplit(".", 1)[1])] = value
+            overrides.tamra_7year_contributions = values
+        else:
+            overrides.record_values[name] = value
+        self._apply_rollback_selection(overrides)
+
+    def _on_record_funds(self, values):
+        overrides = self._editable_value_overrides()
+        if overrides is None:
+            return
+        if "fund_values" in values:
+            overrides.fund_values = values["fund_values"]
+        if "impaired_fund_values" in values:
+            overrides.impaired_fund_values = values["impaired_fund_values"]
+        if "premium_allocations" in values:
+            overrides.premium_allocations = values["premium_allocations"]
+        if self._apply_rollback_selection(overrides):
+            self.policy_tab.reset_fund_edits()
+
+    def _on_record_drafts_changed(self, pending):
+        cleared = self._record_drafts_pending and not pending
+        self._record_drafts_pending = pending
+        loaded = self._illustration_data is not None
+        self.run_values_btn.setEnabled(loaded and not pending and not self._rollback_projection_blocked)
+        self.save_case_btn.setEnabled(loaded and not pending)
+        self.compare_tab.setEnabled(not pending)
+        if cleared:
+            self._show_status("Record values ready - review inputs, then Run Values.")
+        self._apply_illustration_gate()
+
+    def _on_rollback_changed(self):
+        if self.sender() is not self.inputs_tab:
+            for entry in self._session_states.values():
+                if entry["inputs"] is self.sender():
+                    for key in ("values", "report", "status", "scenario"):
+                        entry[key] = None
+            return
+        self._refresh_policy_basis()
+        self._on_run_from_issue_changed(self.inputs_tab.run_from_issue_enabled())
+        self._apply_illustration_gate()
+
+    def _refresh_policy_basis(self):
+        rollback = self.inputs_tab.export_rollback_overrides()
+        self._rollback_projection_blocked = False
+        if rollback is not None and self._illustration_data is not None:
+            policy = build_illustration_scenario(
+                self._illustration_data, rollback_overrides=rollback,
+                allow_missing_shadow=True).projectable_policy
+            self._rollback_projection_blocked = policy.rollback_requires_shadow_value
+            self.policy_tab.load_data_from_snapshot(policy)
+            self.policy_tab.set_rollback_editing(
+                True, policy.db_option,
+                account_value=policy.account_value,
+                historical=self._is_historical_selection(rollback),
+                shadow_value=None if policy.rollback_requires_shadow_value else policy.shadow_account_value)
+            if policy.rollback_requires_shadow_value:
+                self.policy_tab.fund_values.set_value(
+                    "shadow_account_value", "Unavailable - enter historical value")
+            self.policy_tab.set_snapshot_banner(
+                (f"VALUE ROLLBACK - {policy.valuation_date:%m/%d/%Y}. "
+                "Historical values; not the current inforce record.\n"
+                "Targets assume unchanged rates/coverage; amount/DB edits do not reconstruct tax limits. "
+                "Hover for source details."
+                + ("\nEnter the Shadow Account Value below before projecting."
+                   if policy.rollback_requires_shadow_value else ""))
+                if self._is_historical_selection(rollback) else
+                "EDITED ILLUSTRATION VALUES - current valuation date. "
+                "The loaded policy record is unchanged. Coverage/DB edits do not reconstruct tax limits.")
+            self.policy_tab.snapshot_banner.setToolTip("\n\n".join(
+                [*policy.rollback_limitations, *policy.starting_basis_assumptions]))
+        elif self._snapshot_case is not None:
+            self.policy_tab.load_data_from_snapshot(self._illustration_data)
+            self.policy_tab.set_snapshot_banner(
+                "Policy data was not retrieved live - effective as of "
+                f"{format_saved_stamp(self._snapshot_case.saved_at)}. "
+                "Get the policy to return to live data.")
+        elif self._policy is not None and self._policy.exists:
+            self.policy_tab.load_data_from_policy(self._policy, self._policy_info)
+        elif self._illustration_data is not None:
+            self.policy_tab.load_data_from_snapshot(self._illustration_data)
+            self.policy_tab.set_snapshot_banner(None)
+        if rollback is None and self._illustration_data is not None:
+            policy = self._illustration_data
+            self.policy_tab.set_rollback_editing(
+                not self.inputs_tab.run_from_issue_enabled() and not self.inputs_tab.abr_quote_enabled(),
+                policy.db_option, account_value=policy.account_value,
+                shadow_value=policy.shadow_account_value)
+        if self._illustration_data is not None:
+            self.policy_tab.set_record_values(
+                policy if rollback is not None else self._illustration_data)
+        self.run_values_btn.setEnabled(
+            self._illustration_data is not None and not self._rollback_projection_blocked)
+        self._on_record_drafts_changed(self.policy_tab.has_pending_record_changes())
 
     def _invalidate_issue_results(self):
         sender = self.sender()
@@ -525,6 +804,19 @@ class IllustrationWindow(FramelessWindowBase):
         the policy is blocked (button left disabled). Must run AFTER the load
         path has otherwise enabled the button, so the block wins.
         """
+        self.run_values_btn.setText(
+            "Shadow Required" if self._rollback_projection_blocked else "Run Values")
+        self.run_values_btn.setToolTip(
+            "Enter a verified historical Shadow Account Value before projecting."
+            if self._rollback_projection_blocked else "Project the selected illustration basis.")
+        if self.policy_tab.has_pending_record_changes():
+            self.run_values_btn.setEnabled(False)
+            self._show_status("Apply or Reset the pending fund/allocation values before Run/Save.")
+            return True
+        if self._rollback_projection_blocked:
+            self.run_values_btn.setEnabled(False)
+            self._show_status("Rollback values loaded. Enter a historical shadow amount before Run Values.")
+            return True
         if not is_distribution_build():
             return False
         plancode = str(getattr(self._illustration_data, "plancode", "") or "").strip()
@@ -543,14 +835,9 @@ class IllustrationWindow(FramelessWindowBase):
         return True
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
+        self.policy_tab.reset_fund_edits()
         default_inputs = self._default_inputs_on_next_get
         self.lookup_bar.hide_company_chooser()
-        # A fresh policy load always returns to LIVE data — clear any saved-
-        # case as-of state so the user can trust what the header shows.
-        self._snapshot_case = None
-        self._set_live_header_mode()
-        self.policy_tab.set_snapshot_notice(None)
-        self.policy_tab.set_snapshot_banner(None)
         # Preserve the displayed values/report/status for the policy being
         # switched away from — restored if the user comes back this session.
         self._snapshot_active_session()
@@ -597,6 +884,8 @@ class IllustrationWindow(FramelessWindowBase):
                 # The cleared display no longer belongs to the previous policy;
                 # detach so a later snapshot cannot overwrite its saved session.
                 self._current_key = None
+                self.rollback_controls.set_basis(
+                    [], None, enabled=False, reason="Policy not found - reload")
                 return
 
             company_code = self._policy.company_code
@@ -624,6 +913,8 @@ class IllustrationWindow(FramelessWindowBase):
 
         except Exception as exc:
             self._default_inputs_on_next_get = False
+            self.rollback_controls.set_basis(
+                [], None, enabled=False, reason="Policy load failed - reload")
             if is_password_error(str(exc)):
                 self._show_status(f"{region} connection failed - update your ODBC password and retry")
             else:
@@ -637,6 +928,11 @@ class IllustrationWindow(FramelessWindowBase):
             default_inputs: bool = False):
         if not self._policy or not self._policy.exists:
             return
+        self._snapshot_case = None
+        self._rollback_projection_blocked = False
+        self._set_live_header_mode()
+        self.policy_tab.set_snapshot_notice(None)
+        self.policy_tab.set_snapshot_banner(None)
         self.open_polview_btn.setEnabled(True)
         company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
         if not self._db or self._db.region != region:
@@ -686,6 +982,7 @@ class IllustrationWindow(FramelessWindowBase):
                 "report": None,
                 "status": None,
                 "scenario": None,
+                "policy_data": self._illustration_data,
             }
             self._set_active_inputs_tab(inputs_tab)
             inputs_policy = self._illustration_data or self._policy
@@ -700,6 +997,8 @@ class IllustrationWindow(FramelessWindowBase):
             # the last computed values/report re-render from the snapshot —
             # no engine run.
             self._set_active_inputs_tab(session["inputs"])
+            if self.inputs_tab.export_rollback_overrides() is not None:
+                self._illustration_data = session["policy_data"]
             if not self.values_tab.restore_session_state(session.get("values")):
                 self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
             if not self.report_tab.restore_session_state(session.get("report")):
@@ -714,6 +1013,12 @@ class IllustrationWindow(FramelessWindowBase):
         if self._current_key != key:
             self.compare_tab.clear_results()
         self._current_key = key
+        self._refresh_rollback_controls()
+        self._refresh_rollback_notice()
+        if self.inputs_tab.export_rollback_overrides() is not None:
+            self._refresh_policy_basis()
+        elif self._illustration_data is not None:
+            self._refresh_policy_basis()
         self.run_values_btn.setEnabled(True)
         self.save_case_btn.setEnabled(True)
         if session is not None and session.get("status"):
@@ -766,6 +1071,11 @@ class IllustrationWindow(FramelessWindowBase):
 
     def _load_case_snapshot(self, case):
         """Restore a case's frozen IllustrationPolicyData as the loaded policy."""
+        if case.inputs.get("value_rollback") is not None and not get_illustration_settings().rollback_enabled:
+            QMessageBox.warning(
+                self, "Edit Record Option Required",
+                "Enable Options > Edit Record to open this case's valuation assumptions.")
+            return
         snapshot = copy.deepcopy(case.policy_snapshot)
         stamp = format_saved_stamp(case.saved_at)
         self.lookup_bar.hide_company_chooser()
@@ -828,6 +1138,7 @@ class IllustrationWindow(FramelessWindowBase):
             snapshot,
             has_shadow=bool(snapshot.has_shadow_account),
             shadow_ceased=bool(snapshot.ccv_ceased))
+        self._session_states[key]["policy_data"] = snapshot
         # A different policy invalidates any rendered comparison — clear it so
         # the old policy's results can never sit under the new pickers.
         if self._current_key != key:
@@ -835,6 +1146,9 @@ class IllustrationWindow(FramelessWindowBase):
         self._current_key = key
 
         warnings = self.inputs_tab.apply_case_inputs(case.inputs)
+        self._refresh_rollback_controls()
+        self._refresh_policy_basis()
+        self._refresh_rollback_notice()
         self.inputs_tab.set_snapshot_notice(
             f"Viewing saved case “{case.name}” — policy data frozen as of "
             f"{stamp}. Run Values projects the snapshot, not the live policy. "
@@ -1035,6 +1349,11 @@ class IllustrationWindow(FramelessWindowBase):
         ]
 
     def _on_run_values(self):
+        if self.policy_tab.has_pending_record_changes():
+            QMessageBox.warning(
+                self, "Unapplied Record Values",
+                "Apply or Reset the pending fund/allocation values before running the illustration.")
+            return
         snapshot_case = self._snapshot_case
         if snapshot_case is not None:
             # Saved-case view: project the FROZEN snapshot — no DB2.
@@ -1059,6 +1378,8 @@ class IllustrationWindow(FramelessWindowBase):
                 # Each run projects a fresh copy — the engine/scenario must
                 # never mutate the case's stored snapshot.
                 policy_data = copy.deepcopy(snapshot_case.policy_snapshot)
+            elif self.inputs_tab.export_rollback_overrides() is not None:
+                policy_data = copy.deepcopy(self._illustration_data)
             else:
                 policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
             scenario_args = {
@@ -1068,6 +1389,9 @@ class IllustrationWindow(FramelessWindowBase):
             if self.inputs_tab.run_from_issue_enabled():
                 scenario_args["run_from_issue"] = True
                 scenario_args["issue_overrides"] = self.inputs_tab.export_issue_overrides()
+            rollback = self.inputs_tab.export_rollback_overrides()
+            if rollback is not None:
+                scenario_args["rollback_overrides"] = rollback
             scenario = build_illustration_scenario(policy_data, **scenario_args)
             projection_months = self.inputs_tab.projection_months(scenario.projectable_policy)
             duration_label = self.inputs_tab.projection_duration_label(scenario.projectable_policy)
@@ -1651,6 +1975,10 @@ class IllustrationWindow(FramelessWindowBase):
                 status += (
                     f"  ·  Saved case '{snapshot_case.name}' — policy data "
                     f"as of {format_saved_stamp(snapshot_case.saved_at)}")
+            if self._is_historical_selection(rollback):
+                status += f"  |  ROLLBACK as of {rollback.valuation_date:%m/%d/%Y}"
+            elif rollback is not None:
+                status += "  |  Edited current-valuation assumptions"
             if guaranteed_error:
                 status += f"  ·  Guaranteed values unavailable: {guaranteed_error}"
             if lumpsum_result is not None and lumpsum_result.lumpsum > 0:

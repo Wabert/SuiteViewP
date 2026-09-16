@@ -350,6 +350,48 @@ def _project(policy, options, monkeypatch, months=13, config=None):
         options=options)
 
 
+@pytest.mark.parametrize("wair", [False, True])
+@pytest.mark.parametrize("guaranteed", [False, True])
+def test_rollback_iul_projects_total_av_without_historical_buckets(monkeypatch, wair, guaranteed):
+    from copy import deepcopy
+    from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+    from suiteview.illustration.models.input_set import RollbackOverrideSet
+    from suiteview.illustration.models.policy_data import ValueRollbackSnapshot
+
+    policy = _iul_policy(
+        fund_values={"SW": 5_000, "M1": 15_000},
+        premium_allocations={"M1": 1.0}, sweep_account_min=1_000)
+    when = date(2026, 5, 1)
+    policy.rollback_snapshots = [ValueRollbackSnapshot(
+        valuation_date=when, source_valuation_date=policy.valuation_date,
+        account_value=18_000, premiums_paid_to_date=12_000, premiums_ytd=500,
+        cost_basis=12_000, withdrawals_to_date=0,
+        accumulated_mtp=5_000, accumulated_glp=30_000,
+        tamra_7year_contributions=[0.0] * 7,
+        regular_loan_principal=0, regular_loan_accrued=0,
+        preferred_loan_principal=0, preferred_loan_accrued=0,
+        variable_loan_principal=0, variable_loan_accrued=0,
+        system_coi_charge=10, system_expense_charge=5, system_other_charge=0,
+        system_monthly_deduction=15,
+    )]
+    original = deepcopy(policy)
+    scenario = build_illustration_scenario(
+        policy, rollback_overrides=RollbackOverrideSet(when))
+    projected = scenario.projectable_policy
+    assert projected.fund_values == {}
+    assert projected.premium_allocations == policy.premium_allocations
+    options = IllustrationOptions(
+        iul_wair_crediting=wair, guaranteed_assumption=guaranteed)
+    results = _project(projected, options, monkeypatch, months=2)
+    assert len(results) == 3
+    assert results[0].date == when
+    assert results[0].av_after_deduction == 18_000
+    assert results[1].date == date(2026, 6, 1)
+    assert results[0].accumulated_mtp == 5_000
+    assert results[0].accumulated_glp == 30_000
+    assert policy == original
+
+
 def test_engine_wair_valuation_row_uses_vi(monkeypatch):
     policy = _iul_policy(sweep_account_min=5_000.0)
     options = IllustrationOptions(

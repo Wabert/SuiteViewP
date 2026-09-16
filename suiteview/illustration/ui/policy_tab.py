@@ -4,8 +4,10 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
     QDialog,
     QGridLayout,
     QGroupBox,
@@ -21,6 +23,9 @@ from PyQt6.QtWidgets import (
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.polview.ui.formatting import format_amount, format_currency, format_date
 from suiteview.polview.ui.widgets import FixedHeaderTableWidget, StyledInfoTableGroup
+from suiteview.polview.models.cl_polrec.policy_translations import PREMIUM_PAY_STATUS_CODES
+
+from .record_editing import FundValueDelegate, RecordDateInput
 
 from .styles import (
     FUND_TABLE_STYLE,
@@ -65,6 +70,14 @@ SNAPSHOT_BANNER_STYLE = """
 class IllustrationPolicyTab(QWidget):
     """Initial Illustration Policy tab."""
 
+    rollback_amount_requested = pyqtSignal(str, object, float)
+    rollback_dbo_requested = pyqtSignal(str)
+    rollback_shadow_requested = pyqtSignal(float)
+    rollback_account_requested = pyqtSignal(float)
+    record_value_requested = pyqtSignal(str, object)
+    record_funds_requested = pyqtSignal(object)
+    record_drafts_changed = pyqtSignal(bool)
+
     # Fund mini-tables grow with their row count up to this many visible rows,
     # then scroll. Local IUL policies top out around 8 index strategies
     # (UE209026), so 10 covers real plans without reserving empty space.
@@ -75,6 +88,12 @@ class IllustrationPolicyTab(QWidget):
         self._policy = None
         self._coverages = []
         self._benefits = []
+        self._rollback_editing = False
+        self._rollback_editor = None
+        self._record_editors = {}
+        self._record_snapshot = None
+        self._record_key = None
+        self._fund_drafts = {}
         self.rate_warning_label = None
         self._setup_ui()
         self._build_snapshot_overlay()
@@ -120,6 +139,16 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info = StyledInfoTableGroup("Policy Info", columns=4, show_table=False)
         self.policy_info.setStyleSheet(GROUP_STYLE)
         self._setup_policy_info_fields()
+        self.rollback_dbo_combo = QComboBox()
+        for code, label in (("A", "A - Level"), ("B", "B - Increasing"), ("C", "C - Return of Premium")):
+            self.rollback_dbo_combo.addItem(label, code)
+        self.rollback_dbo_combo.setFixedHeight(20)
+        self.rollback_dbo_combo.setEnabled(False)
+        self.rollback_dbo_combo.setToolTip(
+            "Death-benefit option for this illustration only; does not change the policy record.")
+        self.rollback_dbo_combo.activated.connect(
+            lambda: self.rollback_dbo_requested.emit(self.rollback_dbo_combo.currentData()))
+        self.policy_info.set_field_editor("db_option_label", self.rollback_dbo_combo)
         layout.addWidget(self.policy_info)
 
         self.coverage_group = QGroupBox("Coverages and Benefits")
@@ -132,6 +161,9 @@ class IllustrationPolicyTab(QWidget):
         self.coverage_buttons.setContentsMargins(0, 0, 0, 0)
         self.coverage_buttons.setSpacing(6)
         cov_layout.addLayout(self.coverage_buttons)
+        self.rollback_edit_note = QLabel("Click a coverage or benefit to edit its Amount for this illustration.")
+        self.rollback_edit_note.setWordWrap(True)
+        cov_layout.addWidget(self.rollback_edit_note)
         layout.addWidget(self.coverage_group)
 
         values_row = QHBoxLayout()
@@ -146,6 +178,19 @@ class IllustrationPolicyTab(QWidget):
         self.fund_values.add_field("Shadow Account Value", "shadow_account_value", 120, 105)
         self.fund_values.add_field("Sweep Account Min", "sweep_account_min", 120, 105)
         self.fund_values.add_field("Guaranteed Int Rate", "guaranteed_int_rate", 120, 105)
+        from .value_rollback import ScenarioAmountInput
+        self.account_value_input = ScenarioAmountInput(signed=True)
+        self.shadow_value_input = ScenarioAmountInput(signed=True)
+        self.account_value_input.setToolTip(
+            "Defaults to the selected valuation's account value. Enter an illustration "
+            "assumption and press Enter or leave the field to apply it.")
+        self.shadow_value_input.setToolTip(
+            "Shadow account value for this illustration. If a historical value cannot "
+            "be recovered, enter it explicitly; zero is a valid entry.")
+        self.account_value_input.amount_committed.connect(self.rollback_account_requested.emit)
+        self.shadow_value_input.amount_committed.connect(self.rollback_shadow_requested.emit)
+        self.fund_values.set_field_editor("fund_account_value", self.account_value_input)
+        self.fund_values.set_field_editor("shadow_account_value", self.shadow_value_input)
 
         unimpaired_block, self.unimpaired_table = self._make_fund_subtable("Unimpaired Funds")
         impaired_block, self.impaired_table = self._make_fund_subtable("Impaired Funds")
@@ -163,6 +208,48 @@ class IllustrationPolicyTab(QWidget):
         # Nest the tables inside the Fund Values group, just below the info fields
         # (before the trailing stretch added when show_table=False).
         self.fund_values.layout().insertLayout(1, fund_tables_row)
+        self.historical_funds_notice = QLabel(
+            "Historical total AV only; fund/bucket balances are not reconstructed. "
+            "Allocations remain forward-projection assumptions.")
+        self.historical_funds_notice.setWordWrap(True)
+        self.historical_funds_notice.setStyleSheet(
+            "color: #777777; font-style: italic; font-size: 10px;")
+        self.historical_funds_notice.setVisible(False)
+        self.fund_values.layout().insertWidget(2, self.historical_funds_notice)
+        self.fund_edit_controls = QWidget()
+        fund_edit_row = QHBoxLayout(self.fund_edit_controls)
+        fund_edit_row.setContentsMargins(0, 0, 0, 0)
+        fund_edit_row.setSpacing(4)
+        self.fund_edit_note = QLabel("Double-click values to edit; fund IDs are locked.")
+        self.fund_edit_note.setWordWrap(True)
+        self.fund_edit_note.setStyleSheet("color: #60368B; font-size: 10px;")
+        self.fund_edit_note.setToolTip(
+            "Fund balances, Account Value and loan principal are independent assumptions. "
+            "Edit Account Value separately to change the projection's starting total; "
+            "impaired fund edits do not change loan principal.")
+        fund_edit_row.addWidget(self.fund_edit_note, 1)
+        self.apply_funds_button = QPushButton("Apply")
+        self.reset_funds_button = QPushButton("Reset")
+        for button in (self.apply_funds_button, self.reset_funds_button):
+            button.setStyleSheet(VALUE_BUTTON_STYLE + (
+                "QPushButton:disabled { background: #EEEEEE; color: #888888; "
+                "border: 1px solid #BBBBBB; }"))
+            button.setFixedHeight(22)
+            fund_edit_row.addWidget(button)
+        self.apply_funds_button.clicked.connect(self._apply_fund_edits)
+        self.reset_funds_button.clicked.connect(self.reset_fund_edits)
+        self.fund_values.layout().insertWidget(3, self.fund_edit_controls)
+        self._fund_tables = {
+            "fund_values": self.unimpaired_table,
+            "impaired_fund_values": self.impaired_table,
+            "premium_allocations": self.allocation_table,
+        }
+        for name, table in self._fund_tables.items():
+            inner = table._data_table
+            inner.setItemDelegateForColumn(
+                1, FundValueDelegate(percent=name == "premium_allocations", parent=inner))
+            inner.cellChanged.connect(
+                lambda row, col, key=name: self._fund_cell_changed(key, row, col))
 
         self.premium_values = self._make_value_group("Premiums and Targets", [
             ("Premium YTD", "premium_ytd"),
@@ -173,17 +260,23 @@ class IllustrationPolicyTab(QWidget):
             ("Monthly MTP", "monthly_mtp"),
             ("Commission Target Premium", "commission_target_premium"),
         ])
-        # Balances only (principal + accrued combined); the charge rate sits
-        # alongside each balance and only shows when the loan exists.
         self.loan_values = StyledInfoTableGroup("Loans", columns=2, show_table=False)
         self.loan_values.setStyleSheet(GROUP_STYLE)
-        for label, attr, rate_label, rate_attr in [
-            ("Fixed Loan Balance", "fixed_loan_balance", "Rate", "fixed_loan_rate"),
-            ("Pref Loan Balance", "pref_loan_balance", "Rate", "pref_loan_rate"),
-            ("Vbl Loan Balance", "vbl_loan_balance", "Rate", "vbl_loan_rate"),
+        for label, attr, rate_attr in [
+            ("Reg fixed loan Princ", "regular_loan_principal", "fixed_loan_rate"),
+            ("Reg fixed loan Int", "regular_loan_accrued", None),
+            ("Pref fixed loan Princ", "preferred_loan_principal", "pref_loan_rate"),
+            ("Pref fixed loan Int", "preferred_loan_accrued", None),
+            ("Var loan Princ", "variable_loan_principal", "vbl_loan_rate"),
+            ("Var loan Int", "variable_loan_accrued", None),
         ]:
-            self.loan_values.add_field(label, attr, 120, 95)
-            self.loan_values.add_field(rate_label, rate_attr, 40, 60)
+            self.loan_values.add_field(label, attr, 128, 95)
+            if rate_attr:
+                self.loan_values.add_field("Rate", rate_attr, 28, 55)
+            else:
+                spacer = attr + "_spacer"
+                self.loan_values.add_field("", spacer, 1, 1)
+                self._set_group_field_visible(self.loan_values, spacer, False)
         # Fund Values needs the widest slot — it hosts the three fund tables.
         values_row.addWidget(self.fund_values, 2)
         values_row.addWidget(self.premium_values, 1)
@@ -226,10 +319,188 @@ class IllustrationPolicyTab(QWidget):
         tax_row.addWidget(self.tax_values, 2)
         tax_row.addWidget(self.mec_values, 1)
         layout.addLayout(tax_row)
+        self._setup_record_editors()
+        self.set_value_editors_enabled(False)
 
         layout.addStretch(1)
         scroll.setWidget(content)
         outer.addWidget(scroll)
+
+    def _setup_record_editors(self):
+        from .value_rollback import ScenarioAmountInput
+
+        fields = [
+            (self.policy_info, "status_label", "premium_pay_status_code", "status"),
+            (self.premium_values, "premium_ytd", "premiums_ytd", "amount"),
+            (self.premium_values, "premium_td", "premiums_paid_to_date", "amount"),
+            (self.premium_values, "withdrawal_td", "withdrawals_to_date", "amount"),
+            (self.premium_values, "accum_minimum", "accumulated_mtp", "amount"),
+            (self.premium_values, "map_cease_date", "map_cease_date", "date"),
+            (self.premium_values, "monthly_mtp", "mtp", "amount"),
+            (self.premium_values, "commission_target_premium", "ctp", "amount"),
+            (self.tax_values, "is_mec", "is_mec", "bool"),
+            (self.tax_values, "cost_basis", "cost_basis", "amount"),
+            (self.tax_values, "seven_pay_start_date", "tamra_7pay_start_date", "date"),
+            (self.tax_values, "seven_pay_cash_value", "tamra_7pay_cash_value", "amount"),
+            (self.tax_values, "seven_pay_premium", "tamra_7pay_level", "amount"),
+            (self.tax_values, "seven_yr_lowest_db", "tamra_7year_lowest_db", "amount"),
+            (self.mec_values, "guideline_single", "gsp", "amount"),
+            (self.mec_values, "guideline_level", "glp", "amount"),
+            (self.mec_values, "accum_glp", "accumulated_glp", "amount"),
+            (self.loan_values, "fixed_loan_rate", "regular_loan_charge_rate", "rate"),
+            (self.loan_values, "pref_loan_rate", "preferred_loan_charge_rate", "rate"),
+            (self.loan_values, "vbl_loan_rate", "variable_loan_charge_rate", "rate"),
+        ]
+        for field in (
+            "regular_loan_principal", "regular_loan_accrued",
+            "preferred_loan_principal", "preferred_loan_accrued",
+            "variable_loan_principal", "variable_loan_accrued",
+        ):
+            fields.append((self.loan_values, field, field, "amount"))
+        for index in range(7):
+            fields.append((self.tax_values, f"tamra_y{index + 1}",
+                           f"tamra_7year_contributions.{index}", "amount"))
+        for group, attr, name, kind in fields:
+            if kind in ("bool", "status"):
+                editor = QComboBox()
+                editor.setFixedHeight(20)
+                editor.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+                editor.setMinimumContentsLength(8)
+                choices = (
+                    [(False, "No"), (True, "Yes")] if kind == "bool" else
+                    [(key, f"{key} - {value}") for key, value in PREMIUM_PAY_STATUS_CODES.items()])
+                for value, label in choices:
+                    editor.addItem(label, value)
+                editor.activated.connect(
+                    lambda _index, key=name, control=editor:
+                    self.record_value_requested.emit(key, control.currentData()))
+            elif kind == "date":
+                editor = RecordDateInput()
+                editor.value_committed.connect(
+                    lambda value, key=name: self.record_value_requested.emit(key, value))
+            else:
+                editor = ScenarioAmountInput(signed=True)
+                if kind == "rate":
+                    editor.setPrefix("")
+                    editor.setSuffix("%")
+                    editor.setDecimals(4)
+                    editor.setMinimumWidth(65)
+                    editor.setSpecialValueText("Not set")
+                editor.amount_committed.connect(
+                    lambda value, key=name, rate=kind == "rate":
+                    self.record_value_requested.emit(key, value / 100 if rate else value))
+            editor.setToolTip("Edit this starting-record value for the illustration only.")
+            group.set_field_editor(attr, editor)
+            self._record_editors[name] = (group, attr, kind, editor)
+
+    def set_record_values(self, policy):
+        key = (policy.policy_number, policy.company_code, policy.region, policy.valuation_date)
+        if key != self._record_key:
+            self._fund_drafts.clear()
+        self._record_key = key
+        self._record_snapshot = policy
+        for name, (group, attr, kind, editor) in self._record_editors.items():
+            value = (
+                policy.tamra_7year_contributions[int(name.rsplit(".", 1)[1])]
+                if name.startswith("tamra_7year_contributions.") else getattr(policy, name))
+            if kind == "date":
+                editor.set_value(value)
+                text = format_date(value)
+            elif kind in ("bool", "status"):
+                index = editor.findData(value)
+                if index < 0 and value is not None:
+                    editor.addItem(str(value), value)
+                    index = editor.count() - 1
+                editor.setCurrentIndex(index)
+                text = editor.currentText()
+            else:
+                editor.set_amount(value * 100 if kind == "rate" and value is not None else value)
+                text = self._format_rate(value) if kind == "rate" else format_currency(value, "$")
+            group.set_value(attr, text)
+        self._render_record_funds()
+        definition = "GP" if policy.def_of_life_ins == "GPT" else policy.def_of_life_ins
+        for attr in ("guideline_single", "guideline_level", "accum_glp"):
+            self._set_group_field_visible(self.mec_values, attr, definition == "GP")
+
+    def _render_record_funds(self):
+        if self._record_snapshot is None:
+            return
+        for name, table in self._fund_tables.items():
+            values = dict(getattr(self._record_snapshot, name))
+            values.update(self._fund_drafts.get(name, {}))
+            inner = table._data_table
+            inner.blockSignals(True)
+            try:
+                table.setRowCount(len(values))
+                for row, (fund, value) in enumerate(sorted(values.items())):
+                    self._set_table_item(table, row, 0, fund)
+                    number = value * 100 if name == "premium_allocations" else value
+                    self._set_table_item(table, row, 1, f"{number:,.2f}" + (
+                        "%" if name == "premium_allocations" else ""))
+                    table.item(row, 1).setData(Qt.ItemDataRole.UserRole, number)
+            finally:
+                inner.blockSignals(False)
+            self._fit_fund_table(table)
+        self._equalize_fund_tables()
+        self._set_fund_editability()
+        self._refresh_fund_drafts()
+
+    def _set_fund_editability(self):
+        for table in self._fund_tables.values():
+            inner = table._data_table
+            inner.blockSignals(True)
+            try:
+                inner.setEditTriggers(
+                    QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed
+                    if self._rollback_editing else QAbstractItemView.EditTrigger.NoEditTriggers)
+                for row in range(table.rowCount()):
+                    item = table.item(row, 1)
+                    if item is not None:
+                        flags = item.flags() & ~Qt.ItemFlag.ItemIsEditable
+                        item.setFlags(flags | Qt.ItemFlag.ItemIsEditable if self._rollback_editing else flags)
+            finally:
+                inner.blockSignals(False)
+
+    def _fund_cell_changed(self, name, row, column):
+        if not self._rollback_editing or column != 1 or self._record_snapshot is None:
+            return
+        table = self._fund_tables[name]
+        fund = table.item(row, 0).text()
+        value = table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+        if value is None:
+            return
+        value = value / 100 if name == "premium_allocations" else value
+        original = getattr(self._record_snapshot, name)[fund]
+        draft = self._fund_drafts.setdefault(name, {})
+        if value == original:
+            draft.pop(fund, None)
+        else:
+            draft[fund] = value
+        if not draft:
+            self._fund_drafts.pop(name, None)
+        self._refresh_fund_drafts()
+
+    def has_pending_record_changes(self):
+        return bool(self._fund_drafts)
+
+    def _refresh_fund_drafts(self):
+        dirty = self.has_pending_record_changes()
+        self.apply_funds_button.setEnabled(dirty and self._rollback_editing)
+        self.reset_funds_button.setEnabled(dirty and self._rollback_editing)
+        self.fund_edit_note.setText(
+            "Unapplied values - Apply or Reset before Run/Save. Allocations must total 100%."
+            if dirty else "Double-click values; IDs locked. AV and loans are edited separately.")
+        self.record_drafts_changed.emit(dirty)
+
+    def _apply_fund_edits(self):
+        values = {}
+        for name, draft in self._fund_drafts.items():
+            values[name] = {**getattr(self._record_snapshot, name), **draft}
+        self.record_funds_requested.emit(values)
+
+    def reset_fund_edits(self):
+        self._fund_drafts.clear()
+        self._render_record_funds()
 
     def _setup_policy_info_fields(self):
         fields = [
@@ -404,6 +675,7 @@ class IllustrationPolicyTab(QWidget):
         self.set_snapshot_banner(None)
         self.set_snapshot_notice(None)
         self._policy = policy
+        self.set_rollback_editing(False)
         self._clear_all()
         if not policy or not policy.exists:
             return
@@ -446,6 +718,7 @@ class IllustrationPolicyTab(QWidget):
         `set_snapshot_banner(...)` statement so frozen data is never mistaken
         for live."""
         self.set_snapshot_notice(None)
+        self.set_rollback_editing(False)
         self._policy = None
         self._clear_all()
         if snapshot is None:
@@ -461,6 +734,56 @@ class IllustrationPolicyTab(QWidget):
         self._populate_value_groups_from_snapshot(snapshot)
         self._populate_fund_values_from_snapshot(snapshot)
         self._populate_coverage_buttons()
+
+    def set_rollback_editing(
+        self, enabled: bool, db_option: str | None = None, *,
+        account_value: float | None = None, shadow_value: float | None = None,
+        historical: bool = False,
+    ):
+        self.set_value_editors_enabled(enabled)
+        self.account_value_input.set_amount(account_value)
+        self.shadow_value_input.set_amount(shadow_value)
+        self._close_rollback_editor()
+        if db_option is not None:
+            self.rollback_dbo_combo.setCurrentIndex(
+                self.rollback_dbo_combo.findData(db_option))
+        self.rollback_edit_note.setText(
+            "Click a coverage or benefit to edit its Amount for this illustration. "
+            + ("Historical amounts and DB option are not automatically recovered."
+               if historical else "The loaded policy record is not changed."))
+        self.rollback_edit_note.setStyleSheet(
+            "color: #60368B; font-weight: bold;" if historical else
+            "color: #777777; font-style: italic;")
+
+    def set_value_editors_enabled(self, enabled: bool):
+        from suiteview.illustration.models.app_settings import get_illustration_settings
+
+        visible = get_illustration_settings().rollback_enabled
+        enabled = enabled and visible
+        self._rollback_editing = enabled
+        self.rollback_dbo_combo.setEnabled(enabled)
+        self.account_value_input.setEnabled(enabled)
+        self.shadow_value_input.setEnabled(enabled)
+        self.policy_info.set_field_editable("db_option_label", visible)
+        self.fund_values.set_field_editable("fund_account_value", visible)
+        self.fund_values.set_field_editable("shadow_account_value", visible)
+        self.rollback_edit_note.setVisible(visible)
+        for _name, (group, attr, _kind, editor) in self._record_editors.items():
+            editor.setEnabled(enabled)
+            group.set_field_editable(attr, visible)
+        self.fund_edit_controls.setVisible(visible)
+        self._set_fund_editability()
+        if not visible:
+            self._fund_drafts.clear()
+        self._refresh_fund_drafts()
+        if not enabled:
+            self._close_rollback_editor()
+
+    def _close_rollback_editor(self):
+        editor = self._rollback_editor
+        self._rollback_editor = None
+        if editor is not None:
+            editor.close()
 
     def _populate_policy_info_from_snapshot(self, s, base_seg):
         info = self.policy_info
@@ -479,6 +802,7 @@ class IllustrationPolicyTab(QWidget):
         info.set_value("policy_debt_label", format_currency(s.total_loan_balance, "$"))
         info.set_value("total_face_label", format_amount(s.total_face))
         info.set_value("db_option_label", self._DB_OPTION_LABELS.get(str(s.db_option or ""), ""))
+        self.rollback_dbo_combo.setCurrentIndex(self.rollback_dbo_combo.findData(s.db_option))
         info.set_value("guar_int_rate_label", self._format_rate(s.guaranteed_interest_rate))
 
         if base_seg is not None:
@@ -506,6 +830,9 @@ class IllustrationPolicyTab(QWidget):
 
         self.fund_values.set_value("fund_account_value", format_currency(s.account_value, "$"))
         self.fund_values.set_value("shadow_account_value", format_currency(s.shadow_account_value, "$"))
+        self.account_value_input.set_amount(s.account_value)
+        self.shadow_value_input.set_amount(
+            None if s.rollback_requires_shadow_value else s.shadow_account_value)
         self.fund_values.set_value("sweep_account_min", "—")
         self.fund_values.set_value(
             "guaranteed_int_rate", self._format_rate(s.guaranteed_interest_rate))
@@ -525,12 +852,13 @@ class IllustrationPolicyTab(QWidget):
         self.premium_values.set_value("monthly_mtp", format_currency(s.mtp, "$"))
         self.premium_values.set_value("commission_target_premium", format_currency(s.ctp, "$"))
 
-        fixed = Decimal(str(s.regular_loan_principal or 0)) + Decimal(str(s.regular_loan_accrued or 0))
-        pref = Decimal(str(s.preferred_loan_principal or 0)) + Decimal(str(s.preferred_loan_accrued or 0))
         vbl = Decimal(str(s.variable_loan_principal or 0)) + Decimal(str(s.variable_loan_accrued or 0))
-        self.loan_values.set_value("fixed_loan_balance", format_currency(fixed, "$"))
-        self.loan_values.set_value("pref_loan_balance", format_currency(pref, "$"))
-        self.loan_values.set_value("vbl_loan_balance", format_currency(vbl, "$"))
+        for field in (
+            "regular_loan_principal", "regular_loan_accrued",
+            "preferred_loan_principal", "preferred_loan_accrued",
+            "variable_loan_principal", "variable_loan_accrued",
+        ):
+            self.loan_values.set_value(field, format_currency(getattr(s, field), "$"))
         # Regular/preferred loan charge rates were not captured — leave blank.
         # The variable-loan charge rate is captured, so show it when a variable
         # loan exists.
@@ -547,7 +875,7 @@ class IllustrationPolicyTab(QWidget):
         for year in range(1, 8):
             value = contributions[year - 1] if year - 1 < len(contributions) else 0.0
             self.tax_values.set_value(f"tamra_y{year}", format_currency(value, "$"))
-        self.tax_values.set_value("seven_pay_cash_value", format_currency(s.tamra_7pay_start_av, "$"))
+        self.tax_values.set_value("seven_pay_cash_value", format_currency(s.tamra_7pay_cash_value, "$"))
         self.tax_values.set_value("seven_pay_premium", format_currency(s.tamra_7pay_level, "$"))
         # 7-Pay Lowest DB is a snapshot field but the DB2 loader does not yet
         # populate it — it rides through as 0.
@@ -566,8 +894,17 @@ class IllustrationPolicyTab(QWidget):
         # combined fund_values dict (no separate loan-collateralized split), so
         # the Impaired table is empty.
         self._fill_fund_table(self.unimpaired_table, dict(s.fund_values or {}))
-        self._fill_fund_table(self.impaired_table, {})
+        self._fill_fund_table(self.impaired_table, s.impaired_fund_values)
         self._fill_allocation_from_dict(dict(s.premium_allocations or {}))
+        self.historical_funds_notice.setText(
+            "Manually entered total AV; fund balances are not reconstructed. "
+            "Allocations remain forward-projection assumptions."
+            if s.starting_account_value_is_manual else
+            "Historical total AV only; fund/bucket balances are not reconstructed. "
+            "Allocations remain forward-projection assumptions.")
+        self.historical_funds_notice.setVisible(
+            (s.rollback_date is not None or s.starting_account_value_is_manual)
+            and not s.fund_values)
         self._equalize_fund_tables()
 
     def _billing_mode_label(self, frequency) -> str:
@@ -658,6 +995,7 @@ class IllustrationPolicyTab(QWidget):
                 benefit_code=b.benefit_type or "",
                 cov_pha_nbr=b.coverage_phase,
                 benefit_type_cd=b.benefit_type,
+                benefit_subtype_cd=b.benefit_subtype,
                 benefit_desc="",
                 form_number=b.form_number or "",
                 issue_date=b.issue_date,
@@ -691,6 +1029,7 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("calculated_md", format_currency(calculated_md, "$"))
 
     def _clear_all(self):
+        self.historical_funds_notice.setVisible(False)
         for group in [
             self.policy_info,
             self.premium_values,
@@ -732,6 +1071,9 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("status_label", f"{status_code} - {policy.premium_pay_status_description}")
         db_option = {"1": "A-Level", "2": "B-Increasing", "3": "C-ROP"}.get(str(policy.db_option_code or ""), "")
         self.policy_info.set_value("db_option_label", db_option if policy.is_advanced_product else "")
+        self.rollback_dbo_combo.setCurrentIndex(
+            self.rollback_dbo_combo.findData(
+                {"1": "A", "2": "B", "3": "C"}.get(str(policy.db_option_code or ""))))
         self.policy_info.set_value(
             "guar_int_rate_label", self._format_rate(policy.guaranteed_interest_rate))
 
@@ -770,6 +1112,8 @@ class IllustrationPolicyTab(QWidget):
     def _populate_value_groups(self, policy):
         definition = "GP" if policy.gpt_cvat == "GPT" else policy.gpt_cvat
         self.fund_values.set_value("fund_account_value", format_currency(policy.mv_av(0), "$"))
+        self.account_value_input.set_amount(policy.mv_av(0))
+        self.shadow_value_input.set_amount(policy.shadow_account_value)
         self.fund_values.set_value(
             "shadow_account_value",
             format_currency(policy.shadow_account_value, "$"),
@@ -803,10 +1147,12 @@ class IllustrationPolicyTab(QWidget):
 
         fixed = _balance(policy.total_regular_loan_principal, policy.total_regular_loan_accrued)
         pref = _balance(policy.total_preferred_loan_principal, policy.total_preferred_loan_accrued)
-        vbl = _balance(policy.total_variable_loan_principal, policy.total_variable_loan_accrued)
-        self.loan_values.set_value("fixed_loan_balance", format_currency(fixed, "$"))
-        self.loan_values.set_value("pref_loan_balance", format_currency(pref, "$"))
-        self.loan_values.set_value("vbl_loan_balance", format_currency(vbl, "$"))
+        for field in (
+            "regular_loan_principal", "regular_loan_accrued",
+            "preferred_loan_principal", "preferred_loan_accrued",
+            "variable_loan_principal", "variable_loan_accrued",
+        ):
+            self.loan_values.set_value(field, format_currency(getattr(policy, "total_" + field), "$"))
         self.loan_values.set_value(
             "fixed_loan_rate", _rate_text(policy.fixed_loan_interest_rate, fixed > 0))
         self.loan_values.set_value(
@@ -901,7 +1247,14 @@ class IllustrationPolicyTab(QWidget):
         if hasattr(group, "_labels") and attr_name in group._labels:
             group._labels[attr_name].setVisible(visible)
         if hasattr(group, "_fields") and attr_name in group._fields:
-            group._fields[attr_name].setVisible(visible)
+            editors = getattr(group, "_field_editors", {})
+            if attr_name in editors:
+                editor = editors[attr_name]
+                editing = group._info_layout.indexOf(editor) >= 0
+                editor.setVisible(visible and editing)
+                group._fields[attr_name].setVisible(visible and not editing)
+            else:
+                group._fields[attr_name].setVisible(visible)
 
     def _populate_coverage_buttons(self):
         self._clear_buttons()
@@ -930,9 +1283,31 @@ class IllustrationPolicyTab(QWidget):
             item = self.coverage_buttons.takeAt(0)
             widget = item.widget()
             if widget:
+                widget.hide()
                 widget.deleteLater()
 
     def _show_detail_dialog(self, kind: str, item):
+        if self._rollback_editing:
+            from .value_rollback import RollbackAmountEditor
+
+            self._close_rollback_editor()
+            rows = self._coverage_detail_rows(item) if kind == "coverage" else self._benefit_detail_rows(item)
+            key = (
+                item.cov_pha_nbr if kind == "coverage" else
+                (item.cov_pha_nbr, item.benefit_type_cd, item.benefit_subtype_cd))
+            amount = item.face_amount if kind == "coverage" else item.benefit_amount
+            editor = RollbackAmountEditor(
+                "Coverage Detail" if kind == "coverage" else "Benefit Detail",
+                rows, amount, parent=self.window())
+            editor.amount_applied.connect(
+                lambda value: self.rollback_amount_requested.emit(kind, key, value))
+            editor.closed.connect(lambda: self._rollback_editor_closed(editor))
+            self._rollback_editor = editor
+            editor.move(self.window().frameGeometry().center() - editor.rect().center())
+            editor.show()
+            editor.raise_()
+            editor.activateWindow()
+            return
         dlg = QDialog(self)
         dlg.setWindowTitle("Coverage Detail" if kind == "coverage" else "Benefit Detail")
         dlg.setMinimumWidth(420)
@@ -963,6 +1338,10 @@ class IllustrationPolicyTab(QWidget):
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
         dlg.exec()
+
+    def _rollback_editor_closed(self, editor):
+        if editor is self._rollback_editor:
+            self._rollback_editor = None
 
     def _coverage_detail_rows(self, cov):
         return [

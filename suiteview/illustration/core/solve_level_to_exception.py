@@ -115,6 +115,8 @@ def level_to_exception_options(
         dollar_for_dollar_in_transition_year=True,
         apply_prem_to_loan=apply_prem_to_loan,
         guideline_forceouts=base.guideline_forceouts if base is not None else True,
+        recognize_inforce_exception_period=(
+            base.recognize_inforce_exception_period if base is not None else True),
     )
 
 
@@ -232,6 +234,9 @@ def solve_level_to_exception(
         # exhausted; a run that simply endows (no exception at all) is clean too.
         if not survives(states):
             return False
+        if (options.recognize_inforce_exception_period
+                and policy.in_exception_period):
+            return True
         for s in states:
             if float(getattr(s, "gp_exception_prem_gross", 0.0) or 0.0) > 1e-9:
                 # Guideline room left AFTER this month's billable premium: the

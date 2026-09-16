@@ -24,7 +24,7 @@ from decimal import Decimal, ROUND_HALF_UP
 # Import from cl_polrec package (single source of truth)
 from .cl_polrec.policy_translations import (
     STATUS_CODES, PREMIUM_PAY_STATUS_CODES, SUSPENSE_CODES, PRODUCT_LINE_CODES,
-    SEX_CODES, SEX_CODE_DISPLAY, RATE_CLASS_CODES, BILLING_MODE_CODES,
+    SEX_CODES, SEX_CODE_DISPLAY, BILLING_MODE_CODES,
     NON_STANDARD_BILL_MODE_CODES, DEF_OF_LIFE_INS_CODES, DB_OPTION_CODES,
     DIV_OPTION_CODES, NFO_CODES, PERSON_CODES, COMPANY_CODES,
     LOAN_TYPE_CODES,
@@ -33,6 +33,7 @@ from .cl_polrec.policy_translations import (
     translate_div_type_code, translate_renewal_rate_type_code,
     translate_elimination_period_code, translate_benefit_period_code,
     translate_substandard_type_code, translate_coverage_target_type,
+    rate_class_description,
 )
 from .cl_polrec.policy_data_classes import (
     CoverageInfo, BenefitInfo, AgentInfo, LoanInfo,
@@ -1016,7 +1017,7 @@ class PolicyInformation:
                         "LH_COV_INS_RNL_RT", "RT_CLS_CD", rnl_idx
                     ) or "")
                     cov.rate_class = rc
-                    cov.rate_class_desc = RATE_CLASS_CODES.get(rc, "")
+                    cov.rate_class_desc = rate_class_description(rc, plancode)
                     # Per-coverage sex code from 67 segment
                     rnl_sex = str(self.data_item(
                         "LH_COV_INS_RNL_RT", "RT_SEX_CD", rnl_idx
@@ -2424,19 +2425,26 @@ class PolicyInformation:
     def get_coverage_renewal_rates(self, cov_pha_nbr: int = None) -> List[RenewalCovRateInfo]:
         """Get coverage renewal rate records, optionally filtered by coverage."""
         rates = []
+        plancodes_by_phase = {
+            int(row.get("COV_PHA_NBR", 0) or 0): str(row.get("PLN_DES_SER_CD", "") or "")
+            for row in self.fetch_table("LH_COV_PHA")
+        }
         for row in self.fetch_table("LH_COV_INS_RNL_RT"):
             phase = int(row.get("COV_PHA_NBR", 0) or 0)
             if cov_pha_nbr is not None and phase != cov_pha_nbr:
                 continue
             
             rate_type = str(row.get("PRM_RT_TYP_CD", "") or "")
+            rate_class = str(row.get("RT_CLS_CD", "") or "")
             rate = RenewalCovRateInfo(
                 coverage_phase=phase,
                 rate_type=rate_type,
                 rate_type_desc=translate_renewal_rate_type_code(rate_type),
                 joint_indicator=str(row.get("JT_INS_IND", "") or ""),
-                rate_class=str(row.get("RT_CLS_CD", "") or ""),
-                rate_class_desc=RATE_CLASS_CODES.get(str(row.get("RT_CLS_CD", "") or ""), ""),
+                rate_class=rate_class,
+                rate_class_desc=rate_class_description(
+                    rate_class, plancodes_by_phase.get(phase, "")
+                ),
                 issue_age=self._parse_optional_int(row.get("ISS_AGE")),
                 raw_data=row
             )

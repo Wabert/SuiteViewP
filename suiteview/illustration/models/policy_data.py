@@ -108,6 +108,42 @@ class PremiumTransaction:
 
 
 @dataclass
+class ValueRollbackSnapshot:
+    """Recorded post-deduction values; ``None`` means not safely recoverable.
+
+    Field names match IllustrationPolicyData for ordinary dataclass persistence.
+    A partial snapshot remains selectable for inspection, but cannot be projected.
+    """
+
+    valuation_date: date
+    source_valuation_date: Optional[date] = None
+    account_value: Optional[float] = None
+    premiums_paid_to_date: Optional[float] = None
+    premiums_ytd: Optional[float] = None
+    accumulated_mtp: Optional[float] = None
+    accumulated_glp: Optional[float] = None
+    cost_basis: Optional[float] = None
+    withdrawals_to_date: Optional[float] = None
+    tamra_7year_contributions: Optional[List[float]] = None
+    regular_loan_principal: Optional[float] = None
+    regular_loan_accrued: Optional[float] = None
+    preferred_loan_principal: Optional[float] = None
+    preferred_loan_accrued: Optional[float] = None
+    variable_loan_principal: Optional[float] = None
+    variable_loan_accrued: Optional[float] = None
+    variable_loan_charge_rate: Optional[float] = None
+    system_coi_charge: Optional[float] = None
+    system_expense_charge: Optional[float] = None
+    system_other_charge: Optional[float] = None
+    system_monthly_deduction: Optional[float] = None
+    shadow_account_value: Optional[float] = None
+    deemed_cash_value: Optional[float] = None
+    fund_values: Optional[Dict[str, float]] = None
+    limitations: List[str] = field(default_factory=list)
+    blocking_errors: List[str] = field(default_factory=list)
+
+
+@dataclass
 class IllustrationPolicyData:
     """Complete policy data for UL illustration projection.
 
@@ -121,6 +157,7 @@ class IllustrationPolicyData:
     company_code: str = ""
     reins_partner: str = ""         # "R" selects the RGA index-rate basis
     insured_name: str = ""
+    premium_pay_status_code: str = ""
 
     # ── Plan / Product ────────────────────────────────────────
     plancode: str = ""
@@ -164,9 +201,11 @@ class IllustrationPolicyData:
     current_interest_rate: float = 0.0
 
     # ── IUL Funds / Strategies ────────────────────────────────
-    # Current fund value by fund ID (LH_POL_FND_VAL_TOT; includes SW sweep).
+    # Current unimpaired fund values (LH_POL_FND_VAL_TOT; includes SW sweep).
     fund_values: dict[str, float] = field(default_factory=dict)
-    # Inforce premium allocation % by fund ID (LH_FND_ALC, type "P").
+    # Current loan-collateralized principal by fund (PolicyInformation loan map).
+    impaired_fund_values: dict[str, float] = field(default_factory=dict)
+    # Inforce premium allocation fractions by fund ID (LH_FND_ALC, type "P").
     premium_allocations: dict[str, float] = field(default_factory=dict)
     # Current UL_Rates values selected by illustration date. None means no lookup
     # was performed; an empty dict means a lookup ran but found no applicable row.
@@ -194,6 +233,15 @@ class IllustrationPolicyData:
     policy_month: int = 1          # 1-12 within year
     duration: int = 1              # Total months since issue
     valuation_date: Optional[date] = None
+    rollback_snapshots: List[ValueRollbackSnapshot] = field(default_factory=list)
+    rollback_date: Optional[date] = None
+    rollback_source_date: Optional[date] = None
+    rollback_limitations: List[str] = field(default_factory=list)
+    rollback_requires_shadow_value: bool = False
+    starting_basis_assumptions: List[str] = field(default_factory=list)
+    starting_account_value_is_manual: bool = False
+    starting_coverage_amounts_are_manual: bool = False
+    starting_record_fields: List[str] = field(default_factory=list)
     maturity_age: int = 121
     run_from_issue: bool = False
     issue_no_lapse_years: Optional[float] = None  # None uses the plan safety-net period
@@ -201,6 +249,7 @@ class IllustrationPolicyData:
     # ── 7702 / Guideline ──────────────────────────────────────
     def_of_life_ins: str = "GPT"   # "GPT", "CVAT", or blank when not defined
     glp: float = 0.0
+    glp_is_known: bool = True
     gsp: float = 0.0
     accumulated_glp: float = 0.0
     corridor_percent: float = 100.0
@@ -226,6 +275,8 @@ class IllustrationPolicyData:
     preferred_loan_principal: float = 0.0
     preferred_loan_accrued: float = 0.0
     preferred_loans_available: bool = False
+    regular_loan_charge_rate: Optional[float] = None
+    preferred_loan_charge_rate: Optional[float] = None
     variable_loan_principal: float = 0.0
     variable_loan_accrued: float = 0.0
     variable_loan_charge_rate: Optional[float] = None
@@ -293,6 +344,11 @@ class IllustrationPolicyData:
     @property
     def is_gpt(self) -> bool:
         return self.def_of_life_ins == "GPT"
+
+    @property
+    def in_exception_period(self) -> bool:
+        return (not self.run_from_issue and self.is_gpt
+                and self.glp_is_known and self.glp == 0.0)
 
     @property
     def is_cvat(self) -> bool:

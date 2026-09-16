@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
+from math import isfinite
 from typing import Any, List, Optional, Tuple
 
 from .policy_data import IllustrationPolicyData
@@ -94,6 +95,113 @@ class IssueOverrideSet:
     excluded_benefit_keys: list[tuple[int, str, str]] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class RecordFieldSpec:
+    label: str
+    kind: str = "amount"
+    nullable: bool = False
+
+
+RECORD_FIELD_SPECS = {
+    "premium_pay_status_code": RecordFieldSpec("Premium-paying status", "status"),
+    "premiums_ytd": RecordFieldSpec("Premiums YTD"),
+    "premiums_paid_to_date": RecordFieldSpec("Premiums paid to date"),
+    "withdrawals_to_date": RecordFieldSpec("Withdrawals to date"),
+    "accumulated_mtp": RecordFieldSpec("Accumulated MTP"),
+    "map_cease_date": RecordFieldSpec("MAP cease date", "date", nullable=True),
+    "mtp": RecordFieldSpec("Monthly MTP"),
+    "ctp": RecordFieldSpec("Commission target premium"),
+    "cost_basis": RecordFieldSpec("Cost basis"),
+    "is_mec": RecordFieldSpec("MEC", "bool"),
+    "tamra_7pay_start_date": RecordFieldSpec("7-pay start date", "date", nullable=True),
+    "tamra_7pay_cash_value": RecordFieldSpec("7-pay cash value"),
+    "tamra_7pay_level": RecordFieldSpec("7-pay level premium"),
+    "tamra_7year_lowest_db": RecordFieldSpec("7-pay lowest death benefit"),
+    "glp": RecordFieldSpec("GLP"),
+    "gsp": RecordFieldSpec("GSP"),
+    "accumulated_glp": RecordFieldSpec("Accumulated GLP"),
+    "regular_loan_principal": RecordFieldSpec("Regular loan principal"),
+    "regular_loan_accrued": RecordFieldSpec("Regular loan accrued interest"),
+    "preferred_loan_principal": RecordFieldSpec("Preferred loan principal"),
+    "preferred_loan_accrued": RecordFieldSpec("Preferred loan accrued interest"),
+    "variable_loan_principal": RecordFieldSpec("Variable loan principal"),
+    "variable_loan_accrued": RecordFieldSpec("Variable loan accrued interest"),
+    "regular_loan_charge_rate": RecordFieldSpec("Regular loan charge rate", "rate"),
+    "preferred_loan_charge_rate": RecordFieldSpec("Preferred loan charge rate", "rate"),
+    "variable_loan_charge_rate": RecordFieldSpec("Variable loan charge rate", "rate"),
+}
+
+
+def record_number(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a finite numeric value.")
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{label} must be a finite numeric value.") from exc
+    if not isfinite(number):
+        raise ValueError(f"{label} must be a finite numeric value.")
+    return number
+
+
+def validate_tamra_contributions(value: Any) -> list[float]:
+    if not isinstance(value, list) or len(value) != 7:
+        raise ValueError("7-pay contributions must contain exactly seven numeric amounts.")
+    return [record_number(amount, f"7-pay contribution year {index + 1}")
+            for index, amount in enumerate(value)]
+
+
+def validate_record_values(values: dict[str, Any], *, from_json: bool = False) -> dict[str, Any]:
+    """Validate the closed editing surface; absent and explicitly cleared differ."""
+    from suiteview.polview.models.cl_polrec.policy_translations import PREMIUM_PAY_STATUS_CODES
+
+    if not isinstance(values, dict) or set(values) - RECORD_FIELD_SPECS.keys():
+        raise ValueError("Edit Record contains unknown fields or malformed record values.")
+    result = {}
+    for name, value in values.items():
+        spec = RECORD_FIELD_SPECS[name]
+        if value is None and spec.nullable:
+            result[name] = None
+            continue
+        if spec.kind == "date":
+            if from_json and isinstance(value, str):
+                try:
+                    value = date.fromisoformat(value)
+                except ValueError as exc:
+                    raise ValueError(f"{spec.label} must be an ISO date or null.") from exc
+            if type(value) is not date:
+                raise ValueError(f"{spec.label} must be a date or null.")
+        elif spec.kind == "bool":
+            if type(value) is not bool:
+                raise ValueError(f"{spec.label} must be true or false.")
+        elif spec.kind == "status":
+            if not isinstance(value, str) or value not in PREMIUM_PAY_STATUS_CODES:
+                raise ValueError("Premium-paying status must be a recognized two-digit status code.")
+        else:
+            value = record_number(value, spec.label)
+            if spec.kind == "rate" and not 0 <= value <= 1:
+                raise ValueError(f"{spec.label} must be a fraction between 0 and 1.")
+        result[name] = value
+    return result
+
+
+@dataclass
+class RollbackOverrideSet:
+    """Applied current or historical valuation and manual starting-basis edits."""
+
+    valuation_date: date
+    coverage_amounts: dict[int, float] = field(default_factory=dict)
+    benefit_amounts: dict[tuple[int, str, str], float] = field(default_factory=dict)
+    db_option: str | None = None
+    shadow_account_value: float | None = None
+    account_value: float | None = None
+    record_values: dict[str, Any] = field(default_factory=dict)
+    tamra_7year_contributions: list[float] | None = None
+    fund_values: dict[str, float] | None = None
+    impaired_fund_values: dict[str, float] | None = None
+    premium_allocations: dict[str, float] | None = None
+
+
 @dataclass
 class IllustrationInputSet:
     """Future-dated projection inputs normalized from the UI."""
@@ -116,8 +224,12 @@ class IllustrationOptions:
 
     These are set once before a forecast runs and control the 7702 guideline
     machinery. Defaults match a normal "as-is" inforce illustration: guideline
-    and TAMRA limits enforced, exception premium off.
+    and TAMRA limits enforced, entry into a future exception period off.
     """
+
+    # GLP-adjustment what-ifs set GLP to zero to solve funding, not to assert an
+    # existing exception period. Ordinary inforce illustrations recognize it.
+    recognize_inforce_exception_period: bool = True
 
     # sINPUT_TEFRA_Force — enforce the 7702 guideline premium limit. Drives both
     # guideline force-out and premium capping at acceptance.
@@ -293,3 +405,4 @@ class IllustrationScenario:
     future_inputs: IllustrationInputSet = field(default_factory=IllustrationInputSet)
     run_from_issue: bool = False
     issue_overrides: IssueOverrideSet = field(default_factory=IssueOverrideSet)
+    rollback_overrides: RollbackOverrideSet | None = None

@@ -38,6 +38,7 @@ from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
     PremiumTransaction,
     RiderInfo,
+    ValueRollbackSnapshot,
 )
 
 # Bump when the payload layout changes, and add an explicit migration in
@@ -377,6 +378,7 @@ _SNAPSHOT_TYPES = {
         BenefitInfo,
         PremiumTransaction,
         RiderInfo,
+        ValueRollbackSnapshot,
     )
 }
 

@@ -69,6 +69,19 @@ rules. The result includes the premium and a reconcilable breakdown:
 Missing data or an unsupported calculation basis must display **Unavailable**,
 not a zero or a previous successful quote. A solved zero remains visible.
 Native UI regression tests live in `tests/test_reinstatement_ui.py`.
+Real-engine calculation regressions live in `tests/test_reinstatement.py`,
+including exact-cent minima, all three funding bases, receipt-date interest,
+debt at the next deduction, lapse-only restoration and missing-data rejection.
+The breakdown lists premiums paid, withdrawals and accumulated MTP separately
+and includes the equation for the selected funding basis.
+
+Quotes preserve regulatory acceptance caps and forceouts, use one premium on
+the quote date (never backdated), and restore only coverages explicitly
+terminated on the policy's lapse date. Historical transactions after the
+opening snapshot, ambiguous benefit termination, missing rates/balances and
+indexed-crediting plans currently produce an explicit unavailable reason.
+Reinstatement-specific regulatory resets are not assumed.
+
 `tools/app/verify_reinstatement_tab.py --output-dir <directory>` captures an
 explicitly synthetic UI demonstration without database access; supplying
 `--policy <number> --company <code> --region CKPR` instead checks a live quote
@@ -309,18 +322,31 @@ hover-aware** — hovering a value shows its field name and, where known, the
 COBOL / DB2 source mapping. This turns an intimidating wall of codes into
 something self-explanatory.
 
-- **Live or sample data, labeled per tab.** When a policy is loaded, the
-  live-capable segments are populated with that policy's **real DB2 data**; with
-  no policy (or if DB2 fails) they fall back to the bundled sample screen. Some
-  segments ship as **captured-reference** screens (real mainframe screen data,
-  not this policy's — see below). Each tab therefore carries an **honesty badge**
-  at its top: green **"● LIVE — … U0361148 (CKPR-ANICO)"** for a live DB2 tab, or
-  amber **"○ CAPTURED REFERENCE — … sample screen data, not this policy"** for a
-  reference tab, so a window that mixes both is never misleading. The live path
+- **Policy-backed tabs only; never sample-screen fallbacks.** Tabs are discovered
+  from the canonical `POLICY_RECORD_TABLES` mapping through
+  `PolicyInformation.fetch_table()` and `table_error()`. Segments with no rows
+  are omitted, including segment 56 on UL045809. Populated segments whose screen
+  is not implemented (including segments with no JSON) retain a blank tab with
+  only **"This screen cannot be reproduced in PolView at this time."**
+  No terminal values or Record Layout are shown on these tabs. No policy means
+  no segment tabs. DB2/build failures show an explicit **LIVE DATA ERROR** and
+  the empty unavailable state, never captured values or an assumption of absence.
+  Supported screens retain their green **LIVE** badge. The live path
   is: `PolicyRecordViewerWindow` → `build_screen(segment, pi)` →
   `policy_record_builder.build_segment_lines(segment, pi, screen)`. The builder
   only rebuilds `lines`; the static `fields` map and `layout_html` still come
   from the bundled `seg_<n>.json`.
+  Segment 69 discovery uses the explicitly verified 24 financial-history tables:
+  all have policy/company keys and no `CK_SYS_CD`. `PolicyData` retains the system
+  filter for other tables and binds these character keys with `SQL_VARCHAR`
+  input sizes; DataDirect rejects inferred Unicode parameter types with HY004.
+  Schema verification: `tools\policyrecord\probe_history_schema.py`.
+  Regression: `tests/test_policy_record_history_keys.py`.
+- **Right-click Copy on every value.** `_MainframeToken` reuses `CopyableLabel`,
+  preserving exact displayed text, including zeros, signs, padding and dim/amber
+  values. Consecutive same-field runs (independently colored flag bits) copy as
+  one complete value. Hover/source tooltips remain unchanged.
+  Regression: `tests/test_policy_record_viewer.py`.
 - **Three value kinds (color-coded).** Every rendered value is one of:
   - **real** (green) — the field has a DB2 source; the value comes from
     `pi.data_item(table, column)`, formatted to match the mainframe (dates
@@ -390,14 +416,13 @@ something self-explanatory.
   cease and maintenance dates, activity dates/day, `SWEEP` origin, status,
   frequency, and fixed-width blank event/error fields. `LH_SWF_SCH` supplies
   minimum balance, sweep frequency/day/month when a matching type+sequence row
-  is available. The current DB2 user receives SQLCODE `-551` on that table, so
-  UE142109's captured `199.80 M 1 0` values remain visible in amber with a
-  precise not-live warning; they automatically become green when access is
-  available. The six packed flag bytes remain amber because DB2 exposes only
+  is available. A SQLCODE `-551` on that table now blocks the screen with an
+  explicit data-load error, rather than substituting captured sweep values.
+  The six packed flag bytes remain amber because DB2 exposes only
   selected bits, and charge override/amount remain amber because the supplied
   Translation sheet has no verified DB2 source. Only the screenshot-verified
   Sweep Fund redefine (type `B`) is live; policies containing another Segment
-  53 redefine fall back to the labeled captured reference rather than receiving
+  53 redefine show the blank unavailable message rather than receiving
   a speculative layout. The other Segment 53 tables are separate CyberDoc
   redefines and are never used as fallback sources for type-B sweep values.
   A consolidated UE142109 probe found one `LH_ATM_TRS_SCH` row, no rows in the
@@ -429,7 +454,7 @@ something self-explanatory.
   table reference). The historical screenshot values have since changed in live
   DB2, but both the frozen screenshot fixture and current U0633187 values are
   regression-tested in the same verified positions. CyberDoc's Type 2 search-key
-  redefine remains reference-only until a live Type 2 policy is available for
+  redefine remains unavailable until a live Type 2 policy is available for
   verification. Probe with `tools/policyrecord/probe_segment59.py`.
 - **Segment 66 live mapping (verified token-by-token).** Screen 6266 ("Advanced
   Product") is present only for **non-traditional products (UL/IUL/VUL)** and maps
@@ -445,7 +470,7 @@ something self-explanatory.
   consecutive runs with no separator. The six bit-packed **flag bytes** (Flag Byte
   A–E + User Flag Byte) and a handful of tail fields with no DB2 column render as
   amber `example` data. Returns `None` for traditional policies (no such row) →
-  the viewer falls back to the captured-reference screen. The mapping is verified
+  the viewer omits the segment if all its mapped tables are empty. The mapping is verified
   token-by-token against the real 6266 screen for U0361148 by
   `tools/policyrecord/probe_segment66.py` (diff the live token stream vs the screenshot); the
   `fields` map (COBOL + DB2 hovers) is regenerated by `tools/policyrecord/update_seg66_fields.py`
@@ -472,8 +497,9 @@ something self-explanatory.
   `DIV_PTP_TYP_CD`). The four bit-packed **flag bytes** (A–D) render amber
   `example`; fields whose value lives in a *different* table (e.g. ANICO Product
   Indicator in `TH_COV_PHA`) are skipped rather than fabricated. Returns `None`
-  when the policy has no coverage rows → the viewer falls back to the
-  captured-reference screen. The `fields` map (COBOL + DB2 hovers) is populated by
+  when the policy has no coverage rows; the viewer omits an absent segment or
+  shows the unavailable message if only extension rows exist.
+  The `fields` map (COBOL + DB2 hovers) is populated by
   `tools/policyrecord/update_seg02_fields.py`; a frozen two-coverage U0361148 fixture locks the
   whole mapping in
   `tests/test_policy_record_formatting.py::TestSegment02LiveBuild`.
@@ -491,9 +517,8 @@ something self-explanatory.
   "Valuation Code: Base" never wraps; only the amber not-real-data warning and
   its explanatory note are allowed to wrap.
 - **Footer chrome is normalized for display.** `build_screen` routes every
-  screen (live *and* captured-reference) through `_normalize_footer`, which
-  shows **today's date** in the completion-line `Current Date` token (so a
-  captured screen isn't stuck on the date it was grabbed) and clears the
+  live screen through `_normalize_footer`, which shows **today's date** in the
+  completion-line `Current Date` token and clears the
   `field` on the user-id / region-company tokens so those carry **no hover
   popup** — they're terminal chrome, not policy data.
 - **Data-driven.** Each segment is a JSON file under
@@ -504,29 +529,183 @@ something self-explanatory.
   table). A **`template` screen** (e.g. seg 01) additionally sets `template:
   true` and annotates each `lines` token with its `field`, `db2` source and (for
   chrome) a `role`, so the builder can fill live values into the authentic
-  layout. Tabs are one-per-segment; add a segment by producing its JSON,
-  appending to `_SEGMENTS`, and (for live data) either adding a branch to
-  `build_segment_lines` or shipping it as a `template` screen.
-- **Segment 67 — captured-reference screen (why not live yet).**
-  Screen **6267** (Renewal Rates) ships as a **captured-reference** tab: the
-  real mainframe screen, fully hover-annotated with field names (and COBOL/DB2
-  where a trustworthy mapping exists) plus the authoritative byte/COBOL/DB2
-  **Record Layout** table below — but labeled amber "CAPTURED REFERENCE," *not*
-  filled from the loaded policy. It's reference-only **on purpose**, because a
-  verified live render isn't yet safe for this segment (per the cardinal rule:
-  never silently-wrong actuarial data): **6267** uses variable-length **packed
-  sign-magnitude rate arrays** (e.g. `000005620C`, trailing `C` = COBOL positive
-  sign) with no verification data. Its JSON is assembled from the clean
-  `Sample 6267 screen.htm` extraction (with COBOL/DB2 hovers) by
-  `tools/policyrecord/assemble_ref_segments.py`. Live-fill is a clean follow-on once the
-  mapping is verified against real screens. (Segments **02** and **66** followed
-  exactly this path and are now **live** — see the seg-02/66 bullets above.)
-- **Status:** Segments **01**, **02**, **53 Sweep Fund**, **56**, **58**,
-  **59 Type 1**, and **66** are **live**; **67** ships as a
-  **captured-reference** tab (labeled per tab). Other Segment 53 redefines and
-  Segment 59 Type 2 also fall back to captured references until verified.
-  More segments become new tabs + builder branches (or `template`/reference
-  screens) as their DB2 mappings are worked out.
+  layout. `_SEGMENTS` is derived from the shared record/table mapping, not a
+  hand-maintained screen list. Implement a mapped segment by producing its JSON
+  and adding a branch to `build_segment_lines` or a `template` screen.
+- **Segment 55 live mapping (verified against UL045809 and U0633187).**
+  Screen **6255** joins the common `LH_COV_IVM_FND_CTL` header with
+  `LH_COV_FXD_FND_CTL` by the full policy/company/system/phase/fund key.
+  The common table is not an alternative variable-only table. All four lines
+  for UL045809's GP/U1 funds match the supplied capture, including 4.000,
+  `ANICO1983`, 6.000 and 12/14/2000. U0633187 additionally verifies IX/LN/SW/U1.
+
+  Non-tiered fixed records are **79 bytes**: 45 common plus 34 fixed.
+  The archived HTML's one-byte High Phase is stale; it occupies **60-61**,
+  followed by the rate search key 62-72, initial rate 73-75 and end date 76-79.
+  Three-decimal rates are displayed as stored (4.000 is not .040).
+  Numeric NULL slots retain CyberLife's zero-shaped display but are dim and
+  explicitly annotated; NULL flags/codes remain unknown. All eight Flag A bits
+  have verified DB2 sources; reserved B/U bytes remain amber examples.
+
+  Variable-fund and tiered amount/duration variants remain **explicitly
+  unavailable pending live verification**, not rendered as ordinary fixed
+  records. `LH_AMT_TIERED_ITS`/`LH_DUR_TIERED_ITS`, the subtype and tier counter
+  are checked so extensions cannot be silently dropped. Any DB error,
+  duplicate/orphan key or missing fixed extension produces a visible live-data
+  error with no captured values. A genuinely absent segment is omitted.
+  Sources: CyberDoc D202 printed pp.63-77/600, translation workbook, live DB2.
+  Metadata generator: `tools\policyrecord\build_seg55_screen.py`.
+  Regression: `tests/test_policy_record_segment55.py`.
+  Read-only check:
+  `tools\policyrecord\probe_segment55.py --expect-ul045809 --output <json-path>`.
+  Native capture:
+  `tools\policyrecord\preview_policy_record.py UL045809 CKPR 55 <directory>`.
+- **Segment 57 live mapping (verified against UL045809 and U0633187).**
+  Screen **6257** reads every `LH_FND_TRS_ALC_SET` and its `LH_FND_ALC`
+  entries through `PolicyInformation`, not just the most recent payment set.
+  Join on transaction/allocation type and **`FND_ALC_SEQ_NBR`**; sort entries
+  by **`SEG_IDX_NBR`**. Live multi-entry C/P/V sets confirm that the workbook
+  has these two entry-column descriptions swapped. Duplicate/orphan keys,
+  missing indexes, missing columns and DB errors block live rendering.
+
+  The fixed header is **30 bytes**, plus **16 per allocation** (maximum 99).
+  The archived HTML is one byte too long from the allocation count onward:
+  count is 29-30, first entry 31-46, and value 40-46. Dollar (40-45) and
+  percent (40-42) values redefine the units area; use `FND_ALC_AMT` (2 decimals),
+  `FND_ALC_PCT` (2) or `FND_ALC_UNT_QTY` (4) according to `ALC_VAL_TYP_CD`.
+  Never replace a missing amount with zero or round an invalid source value.
+  Charge-deduction (`C`) dates use `CRG_DED_ALC_EFF_DT`; other types use
+  `LST_ALC_CHG_DT`. NULLs and DB2 character low-values are explicitly annotated.
+
+  Flag A bits 0-2 are live (`ALC_SRC_CD`, `AUTOCLOS_PROC_IND`,
+  `MTHLVRSY_PROC_IND`). Bit 2 = 1 means monthliversary processing has **not**
+  occurred since addition. Reserved bits, unmapped group-control bit 7 and
+  the user byte remain amber examples, not reconstructed facts.
+  UL045809 matches the supplied line exactly; U0633187 verifies C/P/V sets,
+  fund-order entries, sweep-from, direction and exclusion fields.
+  Sources: CyberDoc D202 printed pp.90-96/602, translation workbook, live DB2.
+  Metadata generator: `tools\policyrecord\build_seg57_screen.py`.
+  Regression: `tests/test_policy_record_segment57.py`.
+  Read-only check:
+  `tools\policyrecord\probe_segment57.py --expect-ul045809 --output <json-path>`.
+  Native capture:
+  `tools\policyrecord\preview_policy_record.py UL045809 CKPR 57 <directory>`.
+- **Segment 60 live mapping (verified against UL045809).** Screen **6260**
+  ("Payment Accumulation") reads one `LH_POL_TOTALS` row and checks
+  `LH_MO_ADD_PMT` through `PolicyInformation`. All three body rows match the
+  supplied 2026-09-15 capture, including regular premiums 46726.00, additional
+  premiums 1365.25, withdrawals 13987.30 and cost basis 34103.95. The fixed
+  length is **139 bytes**. The old HTML mislabeled its last `.00` and `0`:
+  they are **LTC Cost of Insurance Since Issue** and **Used Accumulators**.
+  The current CyberDoc D202 pp.120-126/606 puts LTC at bytes112-117
+  (`TOT_LTC_CST_OF_INS`, verified live), reserved bytes118-138, the counter at
+  byte139 and optional monthly amounts at bytes140-211.
+
+  DB2 NULL numeric slots display `.00`, matching this CyberLife capture, but
+  remain dim with an explicit NULL tooltip; stored zero is not dim. Dates use
+  the `**/**/****` sentinel. Both reserved flag bytes remain amber examples,
+  since DB2 does not expose their complete contents. Missing columns/table
+  errors are explicit failures, never silently filled from the reference.
+  The zero-counter/no-monthly-row case is verified; nonzero or inconsistent
+  monthly extensions are blocked until the counter/array correspondence is
+  verified, rather than inventing twelve amounts.
+  Regression: `tests/test_policy_record_segment60.py`; read-only live check:
+  `tools\policyrecord\probe_segment60.py --expect-ul045809 --output <json-path>`.
+  Regenerate the corrected schema/reference with
+  `tools\policyrecord\build_seg60_screen.py`.
+
+- **Segment 61 is user-reserved, not a standard totals segment.** CyberDoc
+  D20 printed p.2/PDF p.20 lists 61 among the user-reserved segments. The
+  supplied translation workbook contains no segment61 mappings, and the
+  supplied first capture is explicitly **6260 / 60**, not 61. No speculative
+  61 tab or DB2 mapping is created; a company-specific layout/live capture
+  is required to implement an actual custom 61.
+
+- **Segments 63/64 live mapping (verified against UL045809).** Screen **6263**
+  reads every `LH_POL_YR_TOT` row in numeric `POL_YR_DUR` order, retaining the
+  prior-years bucket **0**. Screen **6264** reads every `LH_POL_CAL_YR_TOT` row
+  in `CAL_YR_END_DT` order. UL045809 has nine rows in each: policy years 0 and
+  35-42; calendar years 2018-2026. All **36 wrapped data lines** match the
+  supplied 2026-09-15 captures, including negative yearly values and the
+  2024 withdrawal of 2450.00. These are stored historical totals, not values
+  recalculated from current policy data.
+
+  Lengths are **108** and **74** bytes. CyberDoc D202 pp.129-138/608-609
+  corrects archive offsets: segment63's final percentage occupies bytes106-108,
+  and segment64's last two amounts occupy bytes63-68 and69-74.
+  The life-expectancy factor retains **one** decimal place (`.0`), while
+  monetary fields use two. NULL slots preserve the captured display format
+  but are dim and explicitly labeled NULL; stored zero remains distinct.
+  Both builders reuse the terminal wrapper with 81 total columns (79 after
+  the two-space inset), preserving the captured year0/year40 line breaks.
+
+  Verified Flag A bits come from `REVS_PRC_GEN_IND` for 63 and
+  `YR_END_ACT_BAL_IND`, `RMD_NOT_IND`, `RMD_REMINDER_IND`, `RMD_CLC_IND`,
+  `RMD_DEFERRED_IND` for 64. The actual-balance bit is read from DB2, never
+  inferred from today's date. Unknown/reserved/user bits remain amber
+  examples, not claimed as live data. Missing columns, invalid precision,
+  invalid/duplicate year keys and DB2 errors block partial live output.
+
+  Regression: `tests/test_policy_record_annual_totals.py`. Read-only live
+  comparison: `tools\policyrecord\probe_annual_totals.py --reference
+  tools\policyrecord\annual_totals_capture.json --output <json-path>`.
+  Native captures: `tools\policyrecord\preview_policy_record.py UL045809
+  CKPR 63 <output-dir>` (use 64 for the calendar-year view).
+  After extracting the source HTML, apply the verified metadata using
+  `tools\policyrecord\build_annual_totals_metadata.py`. This updates both hovers
+  and the Record Layout sources, including the archive's missing
+  `POL_YR_MVA_CSV_AMT` mapping.
+
+- **Segment 67 live mapping (verified against UL045809).** Screen **6267**
+  ("Renewal Rates") reads `LH_COV_INS_RNL_PER` headers and combines
+  `LH_COV_INS_RNL_RT`, `LH_BNF_INS_RNL_RT`, `LH_SST_XTR_RNL_RT`,
+  `LH_COV_INS_GDL_PRM` and `LH_BNF_INS_GDL_PRM` through `PolicyInformation`.
+  Group by phase/person/person-sequence, then sort the combined entries by
+  `SEG_IDX_NBR`, **not rate type**. `TH_COV_INS_RNL_RT` is extension metadata,
+  not another set of entries. Length is **22 + 11 x entry count**, including
+  guideline A/S entries. CyberDoc D202 printed pp.193-202 and 612 document the
+  fixed header and entry redefines; the translation workbook plus live DB2
+  confirm the physical columns.
+
+  Ordinary `RNL_RT` is already an integer containing the nine packed digits:
+  **do not multiply it by a rate divisor**. Guideline A/S uses
+  `GDL_PRM_AMT` in cents (eleven digits); guideline adjustment types 1/2 use
+  `GDL_PRM_UNT_QTY` with three decimals. Packed `C` means positive/zero and `D`
+  negative. Keep zero distinct from DB2 NULL: an unavailable amount is shown
+  as question marks with a NULL tooltip, never fabricated as zero.
+  System-calculated guideline keys are blank; coverage `*`/`J` markers are
+  reconstructed, not printed as raw numeric indicator flags.
+
+  UL045809's three body rows match the supplied 2026-09-15 CyberLife capture:
+  `67 0110`, eight entries, COI digits `000337971C` / `000282184C`, four
+  `000006430C` rates, A `00000000000C` and S **`00002194914D`**.
+  Single-space fields, padded plan keys and 80-column wrapping retain that
+  layout, including entries split between lines without splitting rate keys.
+  U0633187 also verifies two phases and interleaved extra/benefit entries;
+  its current NULL benefit rate is explicitly unavailable, not the older
+  captured zero. Table errors, missing columns, duplicate/orphan entries and
+  index gaps block a partial live screen and surface a **LIVE DATA ERROR**
+  badge above the empty unavailable screen.
+
+  Percentage extras use five decimals. Nonzero dollar extras remain explicitly
+  unsupported until their phase-specific fixed/flexible premium basis and DB2
+  storage interpretation are verified (CyberDoc requires two versus five
+  decimals). Zero extras are safe at either scale. Benefit guideline NULL or
+  low-value keys without a verified system-calculation indicator are also
+  blocked, not silently converted to blank keys.
+
+  Regression: `tests/test_policy_record_segment67.py`. Read-only live check:
+  `venv\Scripts\python.exe tools\policyrecord\probe_segment67.py
+  --expect-ul045809 --output <json-path>`. Native capture:
+  `tools\policyrecord\preview_policy_record.py UL045809 CKPR 67 <output-dir>`.
+  The shipped `seg_67.json` retains the historical reference/Record Layout and
+  enriched live field hovers; it is not used as a live-value template.
+- **Status:** Segments **01**, **02**, **53 Sweep Fund**, **55 fixed funds**,
+  **56**, **57**, **58**,
+  **59 Type 1**, **60**, **63**, **64**, **66**, and **67** are **live**.
+  Other Segment 53 redefines and
+  Segment 59 Type 2 remain blank/unavailable until verified. Mapped, populated
+  segments already get tabs even before their builders/screens are implemented.
 - **Extraction:** the sample HTML screens under `docs/Policy Record/` are
   converted to JSON with `tools/policyrecord/extract_policy_record_screen.py`. It classifies
   each `<table>` by **content** (terminal vs record-layout) — so it handles files
@@ -534,8 +713,12 @@ something self-explanatory.
   whitespace handling, pulls field→COBOL/DB2 mappings, emits the ordered
   `field_specs`, and keeps the raw Record Layout table. Verify rendering with
   `tools/policyrecord/preview_policy_record.py '{"policy": "U0633187"}'` (writes screen /
-  tooltip / layout PNGs; supports `tab` and `tooltip_field` selectors; empty
-  policy renders the sample fallback).
+  tooltip / layout PNGs and a `policy_record_state.json` manifest; supports `tab`
+  and `tooltip_field` selectors; empty policy renders the no-policy state).
+  The helper also accepts `@config.json` with `expect_absent` and
+  `expect_unavailable` segment lists and `copy_field` to exercise the real native
+  Copy menu on the selected tab. A missing requested tab is an error, not a
+  screenshot of a different tab. Clipboard contents are restored after verification.
 - **Packed `MMDDYY` "activity" dates (CyberDoc-driven).** Most policy dates show
   slashed `MM/DD/YYYY`, but a handful of activity dates are stored on the
   mainframe as a **packed integer** and shown *unslashed* — e.g. Accounting Date

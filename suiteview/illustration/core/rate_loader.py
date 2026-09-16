@@ -233,6 +233,8 @@ def load_rates(
         raise ValueError(f"Expense scale must be 0 or 1, got {expense_scale}")
     if policy.run_from_issue and not getattr(policy, "_issue_bands_initialized", False):
         initialize_issue_bands(policy, rates_db)
+    elif policy.rollback_date is not None or policy.starting_coverage_amounts_are_manual:
+        initialize_rollback_bands(policy, rates_db)
 
     segment_coi = {}
     segment_epu = {}
@@ -400,6 +402,25 @@ def load_rates(
         result.rider_rates[rider.export_key] = _load_rider_coi_rates(rates_db, rider)
 
     return result
+
+
+def initialize_rollback_bands(policy: IllustrationPolicyData, rates_db: Rates) -> None:
+    """Resolve edited current bands without rewriting the original surrender basis."""
+    band = rates_db.get_band(
+        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
+    if band is None:
+        raise RateLookupError("Cannot determine the rate band for the starting specified amount.")
+    policy.band = int(band)
+    for segment in policy.segments:
+        segment.band = policy.band
+    for rider in policy.riders:
+        if rider_bands_as_base(rider.plancode):
+            rider.band = policy.band
+        else:
+            band = rates_db.get_band(rider.plancode, rider.face_amount)
+            if band is None:
+                raise RateLookupError(f"Cannot determine the starting band for rider {rider.plancode}.")
+            rider.band = int(band)
 
 
 def initialize_issue_bands(policy: IllustrationPolicyData, rates_db: Rates) -> None:

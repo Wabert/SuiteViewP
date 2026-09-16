@@ -251,6 +251,7 @@ def test_forceout_switch_preserves_acceptance_caps_and_exception_rescue(forecast
     )
 
     policy, _, _, _ = forecast
+    policy.glp = 12.0  # A future exception, not a policy already in its exception period.
     policy.account_value = 100.0
     policy.accumulated_glp = policy.gsp = 1_000.0
     policy.premiums_paid_to_date = 1_100.0

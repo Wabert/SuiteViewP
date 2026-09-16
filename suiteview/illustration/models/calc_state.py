@@ -161,6 +161,7 @@ class MonthlyState:
     # premiums leave this False so they remain subject to normal guideline
     # force-out.
     gp_exception_mode: bool = False
+    inforce_exception_period: bool = False  # Starting GP/GLP=0 basis; no ordinary premiums.
     gp_exception_prem_gross: float = 0.0   # SZ — gross shortfall covered
     gp_exception_prem: float = 0.0         # TB — grossed-up exception premium
     gp_exception_prem_discount: float = 0.0  # TA — COI saving when the exception fires

@@ -1,0 +1,946 @@
+{
+  "segment": "57",
+  "title": "Fund Allocation (screen 6257)",
+  "source": "Sample 6257 screen.htm; mappings verified with CyberDoc D202 pp.90-96/602 and live DB2",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6257,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187 ;.",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "57",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0078",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "C",
+        "field": "Segment Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Type Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2012",
+        "field": "Last Allocation Change Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Method"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Sweep From Fund"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Number of Allocations"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "SW",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "100.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U1",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "100.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "IX",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "100.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "57",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0062",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Segment Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Type Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2012",
+        "field": "Last Allocation Change Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Method"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "SW",
+        "field": "Sweep From Fund"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Number of Allocations"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "IX",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "50.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U1",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "50.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "57",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0062",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "V",
+        "field": "Segment Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Type Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2012",
+        "field": "Last Allocation Change Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Method"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Sweep From Fund"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Number of Allocations"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "F",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "IX",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "100.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": "Allocation From/To Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Allocation Exclusion Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allocation Coverage Phase"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "IX",
+        "field": "Allocation Fund Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "P",
+        "field": "Allocation Value Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "100.00",
+        "field": "Fund Allocation Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": "10/15/16",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [
+      "COBOL: FALIDENT-SEGMENT-ID",
+      "Constant: 57"
+    ],
+    "Segment Length": [
+      "COBOL: FALLNGTH-SEGMENT-LENGTH",
+      "30 header bytes + 16 bytes per allocation (including the P/D/U redefines)."
+    ],
+    "Flag Byte A": [
+      "COBOL: FALFLAGA-FLAG-BYTE-A",
+      "Bit 0: LH_FND_TRS_ALC_SET.ALC_SRC_CD",
+      "Bit 1: LH_FND_TRS_ALC_SET.AUTOCLOS_PROC_IND",
+      "Bit 2: LH_FND_TRS_ALC_SET.MTHLVRSY_PROC_IND",
+      "Bits 3-6 reserved; bit 7 group-control generation has no verified DB2 source.",
+      "Bit 0: internally generated. Bit 1: automated closed-fund processing.",
+      "Bit 2 = 1 means monthliversary processing has NOT occurred since addition."
+    ],
+    "Flag Byte U": [
+      "COBOL: FALFLAGU-USER-FLAG-BYTE",
+      "User-reserved byte; displayed as an example."
+    ],
+    "Segment Type": [
+      "COBOL: FALTYPE-SEG-TYPE",
+      "DB2: LH_FND_TRS_ALC_SET.FND_TRS_TYP_CD"
+    ],
+    "Type Sequence": [
+      "COBOL: FALTYSEQ-TYPE-SEQ",
+      "DB2: LH_FND_TRS_ALC_SET.FND_ALC_SEQ_NBR",
+      "Join LH_FND_TRS_ALC_SET.FND_ALC_SEQ_NBR to LH_FND_ALC.FND_ALC_SEQ_NBR."
+    ],
+    "Last Allocation Change Date": [
+      "COBOL: FALLCGDT-LAST-CHANGE-DATE",
+      "DB2: LH_FND_TRS_ALC_SET.LST_ALC_CHG_DT (non-C sets)",
+      "DB2: LH_FND_TRS_ALC_SET.CRG_DED_ALC_EFF_DT (C charge-deduction sets)"
+    ],
+    "Sweep From Fund": [
+      "COBOL: FALSWPFF-SWEEP-FROM-FUND",
+      "DB2: LH_FND_TRS_ALC_SET.SWP_FROM_FUND"
+    ],
+    "Allocation Method": [
+      "COBOL: FALALLOM-ALLOCATION-METHOD",
+      "DB2: LH_FND_TRS_ALC_SET.ALC_MTH_CD"
+    ],
+    "Cyberlife Reserved": [
+      "COBOL: FALRSRVD-CYBERTEK-RESERVED"
+    ],
+    "Number of Allocations": [
+      "COBOL: FALALNUM-NUMBER-OF-ALLOCATIONS",
+      "Derived: count of LH_FND_ALC rows for this allocation type and set sequence.",
+      "SEG_IDX_NBR orders the entries; the workbook swaps its description with FND_ALC_SEQ_NBR."
+    ],
+    "Allocation Filler": [
+      "COBOL: FILLER"
+    ],
+    "Allocation From/To Indicator": [
+      "COBOL: FALFRMTO-FROM-TO-INDICATOR",
+      "DB2: LH_FND_ALC.FND_ALC_DIR_CD"
+    ],
+    "Allocation Exclusion Indicator": [
+      "COBOL: FALEXCLD-EXCLUDE-INDICATOR",
+      "DB2: LH_FND_ALC.FND_XCL_IND"
+    ],
+    "Allocation Coverage Phase": [
+      "COBOL: FALCOVPH-ASSOC-COV-PHASE",
+      "DB2: LH_FND_ALC.COV_PHA_NBR"
+    ],
+    "Allocation Fund Identification": [
+      "COBOL: FALFNDID-FUND-ID",
+      "DB2: LH_FND_ALC.FND_ID_CD"
+    ],
+    "Allocation Value Type": [
+      "COBOL: FALALVAL-ALLOC-VALUE",
+      "DB2: LH_FND_ALC.ALC_VAL_TYP_CD"
+    ],
+    "Fund Allocation Units": [
+      "COBOL: FALALUNI-FUND-ALLOC-UNITS",
+      "DB2: LH_FND_ALC.FND_ALC_UNT_QTY",
+      "Type U: 13 packed digits, 4 decimal places."
+    ],
+    "Fund Allocation Dollars": [
+      "COBOL: FALALDOL-FUND-ALLOC-DOL",
+      "DB2: LH_FND_ALC.FND_ALC_AMT",
+      "Type D: 11 packed digits, 2 decimal places."
+    ],
+    "Fund Allocation Percent": [
+      "COBOL: FALALPER-FUND-ALLOC-PCT",
+      "DB2: LH_FND_ALC.FND_ALC_PCT",
+      "Type P: 5 packed digits, 2 decimal places."
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte U",
+      "byte": "6",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Type",
+      "byte": "7",
+      "db2": "LH_FND_TRS_ALC_SET.FND_TRS_TYP_CD",
+      "cobol": "FALTYPE-SEG-TYPE"
+    },
+    {
+      "name": "Type Sequence",
+      "byte": "8-9",
+      "db2": "LH_FND_TRS_ALC_SET.FND_ALC_SEQ_NBR",
+      "cobol": "FALTYSEQ-TYPE-SEQ"
+    },
+    {
+      "name": "Last Allocation Change Date",
+      "byte": "10-13",
+      "db2": "LH_FND_TRS_ALC_SET.LST_ALC_CHG_DT / LH_FND_TRS_ALC_SET.CRG_DED_ALC_EFF_DT (C sets)",
+      "cobol": "FALLCGDT-LAST-CHANGE-DATE"
+    },
+    {
+      "name": "Sweep From Fund",
+      "byte": "14-15",
+      "db2": "LH_FND_TRS_ALC_SET.SWP_FROM_FUND",
+      "cobol": "FALSWPFF-SWEEP-FROM-FUND"
+    },
+    {
+      "name": "Allocation Method",
+      "byte": "16",
+      "db2": "LH_FND_TRS_ALC_SET.ALC_MTH_CD",
+      "cobol": "FALALLOM-ALLOCATION-METHOD"
+    },
+    {
+      "name": "Cyberlife Reserved",
+      "byte": "17-28",
+      "db2": null,
+      "cobol": "FALRSRVD-CYBERTEK-RESERVED"
+    },
+    {
+      "name": "Number of Allocations",
+      "byte": "29-30",
+      "db2": null,
+      "cobol": "FALALNUM-NUMBER-OF-ALLOCATIONS"
+    },
+    {
+      "name": "Allocation Filler",
+      "byte": "31-33",
+      "db2": null,
+      "cobol": "FILLER"
+    },
+    {
+      "name": "Allocation From/To Indicator",
+      "byte": "34",
+      "db2": "LH_FND_ALC.FND_ALC_DIR_CD",
+      "cobol": "FALFRMTO-FROM-TO-INDICATOR"
+    },
+    {
+      "name": "Allocation Exclusion Indicator",
+      "byte": "35",
+      "db2": "LH_FND_ALC.FND_XCL_IND",
+      "cobol": "FALEXCLD-EXCLUDE-INDICATOR"
+    },
+    {
+      "name": "Allocation Coverage Phase",
+      "byte": "36",
+      "db2": "LH_FND_ALC.COV_PHA_NBR",
+      "cobol": "FALCOVPH-ASSOC-COV-PHASE"
+    },
+    {
+      "name": "Allocation Fund Identification",
+      "byte": "37-38",
+      "db2": "LH_FND_ALC.FND_ID_CD",
+      "cobol": "FALFNDID-FUND-ID"
+    },
+    {
+      "name": "Allocation Value Type",
+      "byte": "39",
+      "db2": "LH_FND_ALC.ALC_VAL_TYP_CD",
+      "cobol": "FALALVAL-ALLOC-VALUE"
+    },
+    {
+      "name": "Fund Allocation Units",
+      "byte": "40-46",
+      "db2": "LH_FND_ALC.FND_ALC_UNT_QTY",
+      "cobol": "FALALUNI-FUND-ALLOC-UNITS"
+    },
+    {
+      "name": "Fund Allocation Dollars",
+      "byte": "40-45",
+      "db2": "LH_FND_ALC.FND_ALC_AMT",
+      "cobol": "FALALDOL-FUND-ALLOC-DOL"
+    },
+    {
+      "name": "Fund Allocation Percent",
+      "byte": "40-42",
+      "db2": "LH_FND_ALC.FND_ALC_PCT",
+      "cobol": "FALALPER-FUND-ALLOC-PCT"
+    }
+  ],
+  "layout_html": "<p>30-byte header; each allocation adds 16 bytes. Entry offsets below describe the first entry.</p><table border=\"1\" cellspacing=\"0\" cellpadding=\"3\"><tr bgcolor=\"#E6A0AA\"><th>Byte</th><th>Field / source</th></tr><tr><td>1-2</td><td><b>Segment Identification</b><br>COBOL: FALIDENT-SEGMENT-ID<br>Constant: 57</td></tr><tr><td>3-4</td><td><b>Segment Length</b><br>COBOL: FALLNGTH-SEGMENT-LENGTH<br>30 header bytes + 16 bytes per allocation (including the P/D/U redefines).</td></tr><tr><td>5</td><td><b>Flag Byte A</b><br>COBOL: FALFLAGA-FLAG-BYTE-A<br>Bit 0: LH_FND_TRS_ALC_SET.ALC_SRC_CD<br>Bit 1: LH_FND_TRS_ALC_SET.AUTOCLOS_PROC_IND<br>Bit 2: LH_FND_TRS_ALC_SET.MTHLVRSY_PROC_IND<br>Bits 3-6 reserved; bit 7 group-control generation has no verified DB2 source.<br>Bit 0: internally generated. Bit 1: automated closed-fund processing.<br>Bit 2 = 1 means monthliversary processing has NOT occurred since addition.</td></tr><tr><td>6</td><td><b>Flag Byte U</b><br>COBOL: FALFLAGU-USER-FLAG-BYTE<br>User-reserved byte; displayed as an example.</td></tr><tr><td>7</td><td><b>Segment Type</b><br>COBOL: FALTYPE-SEG-TYPE<br>DB2: LH_FND_TRS_ALC_SET.FND_TRS_TYP_CD</td></tr><tr><td>8-9</td><td><b>Type Sequence</b><br>COBOL: FALTYSEQ-TYPE-SEQ<br>DB2: LH_FND_TRS_ALC_SET.FND_ALC_SEQ_NBR<br>Join LH_FND_TRS_ALC_SET.FND_ALC_SEQ_NBR to LH_FND_ALC.FND_ALC_SEQ_NBR.</td></tr><tr><td>10-13</td><td><b>Last Allocation Change Date</b><br>COBOL: FALLCGDT-LAST-CHANGE-DATE<br>DB2: LH_FND_TRS_ALC_SET.LST_ALC_CHG_DT (non-C sets)<br>DB2: LH_FND_TRS_ALC_SET.CRG_DED_ALC_EFF_DT (C charge-deduction sets)</td></tr><tr><td>14-15</td><td><b>Sweep From Fund</b><br>COBOL: FALSWPFF-SWEEP-FROM-FUND<br>DB2: LH_FND_TRS_ALC_SET.SWP_FROM_FUND</td></tr><tr><td>16</td><td><b>Allocation Method</b><br>COBOL: FALALLOM-ALLOCATION-METHOD<br>DB2: LH_FND_TRS_ALC_SET.ALC_MTH_CD</td></tr><tr><td>17-28</td><td><b>Cyberlife Reserved</b><br>COBOL: FALRSRVD-CYBERTEK-RESERVED</td></tr><tr><td>29-30</td><td><b>Number of Allocations</b><br>COBOL: FALALNUM-NUMBER-OF-ALLOCATIONS<br>Derived: count of LH_FND_ALC rows for this allocation type and set sequence.<br>SEG_IDX_NBR orders the entries; the workbook swaps its description with FND_ALC_SEQ_NBR.</td></tr><tr><td>31-33</td><td><b>Allocation Filler</b><br>COBOL: FILLER</td></tr><tr><td>34</td><td><b>Allocation From/To Indicator</b><br>COBOL: FALFRMTO-FROM-TO-INDICATOR<br>DB2: LH_FND_ALC.FND_ALC_DIR_CD</td></tr><tr><td>35</td><td><b>Allocation Exclusion Indicator</b><br>COBOL: FALEXCLD-EXCLUDE-INDICATOR<br>DB2: LH_FND_ALC.FND_XCL_IND</td></tr><tr><td>36</td><td><b>Allocation Coverage Phase</b><br>COBOL: FALCOVPH-ASSOC-COV-PHASE<br>DB2: LH_FND_ALC.COV_PHA_NBR</td></tr><tr><td>37-38</td><td><b>Allocation Fund Identification</b><br>COBOL: FALFNDID-FUND-ID<br>DB2: LH_FND_ALC.FND_ID_CD</td></tr><tr><td>39</td><td><b>Allocation Value Type</b><br>COBOL: FALALVAL-ALLOC-VALUE<br>DB2: LH_FND_ALC.ALC_VAL_TYP_CD</td></tr><tr><td>40-46</td><td><b>Fund Allocation Units</b><br>COBOL: FALALUNI-FUND-ALLOC-UNITS<br>DB2: LH_FND_ALC.FND_ALC_UNT_QTY<br>Type U: 13 packed digits, 4 decimal places.</td></tr><tr><td>40-45</td><td><b>Fund Allocation Dollars</b><br>COBOL: FALALDOL-FUND-ALLOC-DOL<br>DB2: LH_FND_ALC.FND_ALC_AMT<br>Type D: 11 packed digits, 2 decimal places.</td></tr><tr><td>40-42</td><td><b>Fund Allocation Percent</b><br>COBOL: FALALPER-FUND-ALLOC-PCT<br>DB2: LH_FND_ALC.FND_ALC_PCT<br>Type P: 5 packed digits, 2 decimal places.</td></tr></table>"
+}

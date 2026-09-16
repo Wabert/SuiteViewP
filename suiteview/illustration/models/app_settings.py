@@ -29,12 +29,26 @@ class IllustrationSettings(QObject):
     # control except the Illustrated Rate and Run Values solves the ABR quote
     # premium instead of running an illustration.
     abr_quote_mode_changed = pyqtSignal(bool)
+    rollback_enabled_changed = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
         self._additional_premium_types = False
         self._testing_mode = False
         self._abr_quote_mode = False
+        self._rollback_enabled = False
+
+    @property
+    def rollback_enabled(self) -> bool:
+        """Expose Edit Record valuation scenarios only when explicitly opted in."""
+        return self._rollback_enabled
+
+    def set_rollback_enabled(self, enabled: bool):
+        enabled = bool(enabled)
+        if enabled == self._rollback_enabled:
+            return
+        self._rollback_enabled = enabled
+        self.rollback_enabled_changed.emit(enabled)
 
     @property
     def additional_premium_types(self) -> bool:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime
+from pyodbc import SQL_VARCHAR
 
 # Use the shared database connection module
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
@@ -495,8 +496,20 @@ class PolicyData:
         "LH_COV_TARGET", "LH_COV_SKIPPED_PER",
     }
 
+    # Live CKPR zero-row metadata, 2026-09-16: these tables have policy/company
+    # keys but no CK_SYS_CD. Verify additions with tools/policyrecord/probe_history_schema.py.
+    _NO_SYSTEM_KEY_TABLES = {
+        "FH_ACCTG", "FH_ACCTG_DISB", "FH_AGT", "FH_COI_REIN",
+        "FH_COM_CHGBK", "FH_CONF_ID", "FH_DTH_CLM", "FH_EXIT_CD",
+        "FH_FCAST", "FH_FIXED", "FH_FPA_TEFRA", "FH_FREE_WDWL",
+        "FH_GRP_RECON", "FH_LOAN", "FH_MISC", "FH_MNY_TYP",
+        "FH_MVA", "FH_PAYE", "FH_PRM_COMP", "FH_REF_REAS",
+        "FH_REV_ID", "FH_SPCL_IRA", "FH_TAMRA_PDF", "FH_WVR_REV",
+    }
+
     # Custom ORDER BY clauses matching VBA aryOrderClause in cls_PolicyData
     _TABLE_ORDER_CLAUSES: dict[str, str] = {
+        "FH_FIXED":            "ASOF_DT DESC, SEQ_NO DESC",
         "LH_COM_TARGET":        "AGT_COM_PHA_NBR",
         "LH_CTT_COM_PHA_WA":    "AGT_ITS_EFF_DT DESC",
         "LH_FND_VAL_LOAN":      "MVRY_DT DESC, FND_VAL_PHA_NBR DESC",
@@ -523,33 +536,30 @@ class PolicyData:
         try:
             conn = self._conn_mgr.get_connection(self._region)
 
-            # Build WHERE clause based on table requirements
-            # FH_FIXED table does NOT use CK_SYS_CD
-            if table_name == "FH_FIXED":
-                where_clause = (
-                    f"TCH_POL_ID = '{self._policy_id}' "
-                    f"AND CK_CMP_CD = '{self._company_code}'"
-                )
-                order_clause = " ORDER BY ASOF_DT DESC, SEQ_NO DESC"
+            if table_name in self._NO_SYSTEM_KEY_TABLES:
+                where_clause = "TCH_POL_ID = ? AND CK_CMP_CD = ?"
+                parameters = (self._policy_id, self._company_code)
             else:
                 where_clause = (
-                    f"CK_SYS_CD = '{self._system_code}' "
-                    f"AND TCH_POL_ID = '{self._policy_id}' "
-                    f"AND CK_CMP_CD = '{self._company_code}'"
+                    "CK_SYS_CD = ? AND TCH_POL_ID = ? AND CK_CMP_CD = ?"
                 )
-                if table_name in self._COV_PHA_ORDERED_TABLES:
-                    order_clause = " ORDER BY COV_PHA_NBR"
-                elif table_name in self._TABLE_ORDER_CLAUSES:
-                    order_clause = f" ORDER BY {self._TABLE_ORDER_CLAUSES[table_name]}"
-                else:
-                    order_clause = ""
+                parameters = (self._system_code, self._policy_id, self._company_code)
+
+            if table_name in self._COV_PHA_ORDERED_TABLES:
+                order_clause = " ORDER BY COV_PHA_NBR"
+            elif table_name in self._TABLE_ORDER_CLAUSES:
+                order_clause = f" ORDER BY {self._TABLE_ORDER_CLAUSES[table_name]}"
+            else:
+                order_clause = ""
 
             sql = self._add_with_clause(
                 f"SELECT * FROM DB2TAB.{table_name} WHERE {where_clause}{order_clause}"
             )
 
             cursor = conn.cursor()
-            cursor.execute(sql)
+            # DataDirect rejects inferred SQL_WVARCHAR key parameters (HY004).
+            cursor.setinputsizes([(SQL_VARCHAR, len(value), 0) for value in parameters])
+            cursor.execute(sql, parameters)
 
             columns = [desc[0].upper() for desc in cursor.description] if cursor.description else []
             rows = cursor.fetchall()

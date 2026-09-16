@@ -50,6 +50,29 @@ def _policy() -> IllustrationPolicyData:
     )
 
 
+@pytest.mark.parametrize(
+    ("plancode", "rate_class", "description"),
+    [
+        ("1U130929", "A", "PREFERRED"),
+        ("1U130929", "B", "STANDARD"),
+        ("1U143900", "A", "NONSMOKER"),
+        ("1U143900", "B", "SMOKER"),
+    ],
+)
+def test_report_uses_plan_specific_ab_rate_class_description(
+    plancode: str,
+    rate_class: str,
+    description: str,
+) -> None:
+    policy = _policy()
+    policy.plancode = plancode
+    policy.rate_class = rate_class
+
+    report = build_ul_report(policy, _results(), run_date=date(2026, 6, 10))
+
+    assert (f"PREMIUM CLASS:   {description}", "") in report.policy_block
+
+
 def _iul_policy() -> IllustrationPolicyData:
     policy = _policy()
     policy.plancode = "1U145500"

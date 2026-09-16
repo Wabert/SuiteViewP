@@ -1,0 +1,1171 @@
+{
+  "segment": "64",
+  "title": "Segment 64 - Calendar Year Policy Values",
+  "source": "Sample 6264 screen.htm",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6264,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187 ;.",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "64",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0074",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12/31/2012",
+        "field": "Calender Year-End Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1426.10",
+        "field": "Unloaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Loaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Required Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Regular Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "1819.00",
+        "field": "Regular Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Additional Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Net Withdrawal Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Withdrawal Charge Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".0",
+        "field": "Initial Expectation of Life Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Non-Regular Contributions"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Actuarial Value of Additional Benefits"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "64",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0074",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12/31/2013",
+        "field": "Calender Year-End Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3043.65",
+        "field": "Unloaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "606.28",
+        "field": "Loaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Required Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Regular Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "2782.00",
+        "field": "Regular Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Additional Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Net Withdrawal Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Withdrawal Charge Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".0",
+        "field": "Initial Expectation of Life Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Non-Regular Contributions"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Actuarial Value of Additional Benefits"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "64",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0074",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12/31/2014",
+        "field": "Calender Year-End Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "5482.20",
+        "field": "Unloaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "642.66",
+        "field": "Loaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Required Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Regular Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "2889.00",
+        "field": "Regular Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Additional Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Net Withdrawal Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Withdrawal Charge Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".0",
+        "field": "Initial Expectation of Life Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Non-Regular Contributions"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Actuarial Value of Additional Benefits"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "64",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0074",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12/31/2015",
+        "field": "Calender Year-End Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1748.87",
+        "field": "Unloaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6681.19",
+        "field": "Loaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Required Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Regular Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "2675.00",
+        "field": "Regular Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Additional Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Net Withdrawal Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Withdrawal Charge Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".0",
+        "field": "Initial Expectation of Life Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Non-Regular Contributions"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Actuarial Value of Additional Benefits"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "64",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0074",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12/31/2016",
+        "field": "Calender Year-End Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Unloaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Loaned Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Required Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Regular Minimum Distribution Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2247.00",
+        "field": "Regular Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Additional Premium Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Net Withdrawal Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Withdrawal Charge Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".0",
+        "field": "Initial Expectation of Life Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Non-Regular Contributions"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Actuarial Value of Additional Benefits"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": "12/02/16",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Flag Byte A": [
+      "COBOL: FCYFLAGA-FLAG-BYTE-A",
+      "Bit 0: LH_POL_CAL_YR_TOT.YR_END_ACT_BAL_IND",
+      "Bit 1: LH_POL_CAL_YR_TOT.RMD_NOT_IND",
+      "Bit 2: LH_POL_CAL_YR_TOT.RMD_REMINDER_IND",
+      "Bit 3: LH_POL_CAL_YR_TOT.RMD_CLC_IND",
+      "Bit 4: LH_POL_CAL_YR_TOT.RMD_DEFERRED_IND",
+      "Remaining bits are reserved: illustrative amber zeros, not verified live data."
+    ],
+    "Flag Byte B": [
+      "COBOL: FCYFLAGB-FLAG-BYTE-B",
+      "No DB2 source; all eight bits are illustrative amber zeros."
+    ],
+    "Flag Byte C": [
+      "COBOL: FCYFLAGC-FLAG-BYTE-C",
+      "No DB2 source; all eight bits are illustrative amber zeros."
+    ],
+    "Flag Byte U": [
+      "COBOL: FCYFLAGU-FLAG-BYTE-U",
+      "No DB2 source; all eight bits are illustrative amber zeros."
+    ],
+    "Calender Year-End Date": [
+      "COBOL: FCYYEDTE-CAL-YEAR-END-DATE",
+      "DB2: LH_POL_CAL_YR_TOT.CAL_YR_END_DT",
+      "Format: MM/DD/YYYY"
+    ],
+    "Unloaned Cash Value": [
+      "COBOL: FCYYEPCV-YE-UNLOANED-CASH-VAL",
+      "DB2: LH_POL_CAL_YR_TOT.UNLOANED_CSV_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Loaned Cash Value": [
+      "COBOL: FCYYELON-YE-LOANED-CASH-VAL",
+      "DB2: LH_POL_CAL_YR_TOT.LOANED_CSV_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Required Minimum Distribution Amount": [
+      "COBOL: FCYRMDAM-REQR-MIN-DIST-AMOUNT",
+      "DB2: LH_POL_CAL_YR_TOT.RQR_MIN_DTB_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Regular Minimum Distribution Amount": [
+      "COBOL: FCYREGMD-REG-MIN-DIST-AMOUNT",
+      "DB2: LH_POL_CAL_YR_TOT.REG_MIN_DTB_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Regular Premium Accumulation": [
+      "COBOL: FCYRGPRM-CAL-REG-PREMS",
+      "DB2: LH_POL_CAL_YR_TOT.CAL_YR_REG_PRM_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Additional Premium Accumulation": [
+      "COBOL: FCYADPRM-CAL-ADDL-PREMS",
+      "DB2: LH_POL_CAL_YR_TOT.CAL_YR_ADD_PRM_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Net Withdrawal Accumulation": [
+      "COBOL: FCYNWDWL-CAL-NET-WDWL-ACCUM",
+      "DB2: LH_POL_CAL_YR_TOT.CAL_YR_NET_WTD_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Withdrawal Charge Accumulation": [
+      "COBOL: FCYWDWLC-CAL-WITHDRAWAL-CHG",
+      "DB2: LH_POL_CAL_YR_TOT.CAL_YR_WTD_CRG_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Initial Expectation of Life Factor": [
+      "COBOL: FCYIFACT-INITIAL-EXP-FACTOR",
+      "DB2: LH_POL_CAL_YR_TOT.INT_LIFE_FCT",
+      "Format: 3 digits, 1 decimal places"
+    ],
+    "Non-Regular Contributions": [
+      "COBOL: FCYNONRC-NON-REG-CONTRIBS",
+      "DB2: LH_POL_CAL_YR_TOT.CAL_YR_NRG_PRM_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Actuarial Value of Additional Benefits": [
+      "COBOL: FCYPVADB-PV-ADDL-BENS",
+      "DB2: LH_POL_CAL_YR_TOT.PV_ADDL_BENS",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null,
+      "kind": "header"
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null,
+      "kind": "header"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": "FCYFLAGA-FLAG-BYTE-A",
+      "kind": "flag",
+      "bits": [
+        {
+          "bit": 0,
+          "db2": "LH_POL_CAL_YR_TOT.YR_END_ACT_BAL_IND"
+        },
+        {
+          "bit": 1,
+          "db2": "LH_POL_CAL_YR_TOT.RMD_NOT_IND"
+        },
+        {
+          "bit": 2,
+          "db2": "LH_POL_CAL_YR_TOT.RMD_REMINDER_IND"
+        },
+        {
+          "bit": 3,
+          "db2": "LH_POL_CAL_YR_TOT.RMD_CLC_IND"
+        },
+        {
+          "bit": 4,
+          "db2": "LH_POL_CAL_YR_TOT.RMD_DEFERRED_IND"
+        }
+      ]
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "6",
+      "db2": null,
+      "cobol": "FCYFLAGB-FLAG-BYTE-B",
+      "kind": "flag"
+    },
+    {
+      "name": "Flag Byte C",
+      "byte": "7",
+      "db2": null,
+      "cobol": "FCYFLAGC-FLAG-BYTE-C",
+      "kind": "flag"
+    },
+    {
+      "name": "Flag Byte U",
+      "byte": "8",
+      "db2": null,
+      "cobol": "FCYFLAGU-FLAG-BYTE-U",
+      "kind": "flag"
+    },
+    {
+      "name": "Calender Year-End Date",
+      "byte": "9-12",
+      "db2": "LH_POL_CAL_YR_TOT.CAL_YR_END_DT",
+      "cobol": "FCYYEDTE-CAL-YEAR-END-DATE",
+      "kind": "date",
+      "digits": 0,
+      "decimals": null
+    },
+    {
+      "name": "Unloaned Cash Value",
+      "byte": "13-18",
+      "db2": "LH_POL_CAL_YR_TOT.UNLOANED_CSV_AMT",
+      "cobol": "FCYYEPCV-YE-UNLOANED-CASH-VAL",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Loaned Cash Value",
+      "byte": "19-24",
+      "db2": "LH_POL_CAL_YR_TOT.LOANED_CSV_AMT",
+      "cobol": "FCYYELON-YE-LOANED-CASH-VAL",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Required Minimum Distribution Amount",
+      "byte": "25-30",
+      "db2": "LH_POL_CAL_YR_TOT.RQR_MIN_DTB_AMT",
+      "cobol": "FCYRMDAM-REQR-MIN-DIST-AMOUNT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Regular Minimum Distribution Amount",
+      "byte": "31-36",
+      "db2": "LH_POL_CAL_YR_TOT.REG_MIN_DTB_AMT",
+      "cobol": "FCYREGMD-REG-MIN-DIST-AMOUNT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Regular Premium Accumulation",
+      "byte": "37-42",
+      "db2": "LH_POL_CAL_YR_TOT.CAL_YR_REG_PRM_AMT",
+      "cobol": "FCYRGPRM-CAL-REG-PREMS",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Additional Premium Accumulation",
+      "byte": "43-48",
+      "db2": "LH_POL_CAL_YR_TOT.CAL_YR_ADD_PRM_AMT",
+      "cobol": "FCYADPRM-CAL-ADDL-PREMS",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Net Withdrawal Accumulation",
+      "byte": "49-54",
+      "db2": "LH_POL_CAL_YR_TOT.CAL_YR_NET_WTD_AMT",
+      "cobol": "FCYNWDWL-CAL-NET-WDWL-ACCUM",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Withdrawal Charge Accumulation",
+      "byte": "55-60",
+      "db2": "LH_POL_CAL_YR_TOT.CAL_YR_WTD_CRG_AMT",
+      "cobol": "FCYWDWLC-CAL-WITHDRAWAL-CHG",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Initial Expectation of Life Factor",
+      "byte": "61-62",
+      "db2": "LH_POL_CAL_YR_TOT.INT_LIFE_FCT",
+      "cobol": "FCYIFACT-INITIAL-EXP-FACTOR",
+      "kind": "decimal",
+      "digits": 3,
+      "decimals": 1
+    },
+    {
+      "name": "Non-Regular Contributions",
+      "byte": "63-68",
+      "db2": "LH_POL_CAL_YR_TOT.CAL_YR_NRG_PRM_AMT",
+      "cobol": "FCYNONRC-NON-REG-CONTRIBS",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Actuarial Value of Additional Benefits",
+      "byte": "69-74",
+      "db2": "LH_POL_CAL_YR_TOT.PV_ADDL_BENS",
+      "cobol": "FCYPVADB-PV-ADDL-BENS",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    }
+  ],
+  "layout_html": "<table><tr><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 450px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n\n\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">5</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">6</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_B\"></a><b>Flag Byte B</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">7</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_C\"></a><b>Flag Byte C</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">8</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_U\"></a><b>Flag Byte U</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">9-12</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Calender_Year-End_Date\"></a><b>Calender Year-End Date</b></br>&#160;&#160;&#160;&#160;COBOL: FCYYEDTE-CAL-YEAR-END-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.CAL_YR_END_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">13-18</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Unloaned_Cash_Value\"></a><b>Unloaned Cash Value</b></br>&#160;&#160;&#160;&#160;COBOL: FCYYEPCV-YE-UNLOANED-CASH-VAL</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.UNLOANED_CSV_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">19-24</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Loaned_Cash_Value\"></a><b>Loaned Cash Value</b></br>&#160;&#160;&#160;&#160;COBOL: FCYYELON-YE-LOANED-CASH-VAL</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.LOANED_CSV_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">25-30</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Required_Minimum_Distribution_Amount\"></a><b>Required Minimum Distribution Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FCYRMDAM-REQR-MIN-DIST-AMOUNT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.RQR_MIN_DTB_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">31-36</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Regular_Minimum_Distribution_Amount\"></a><b>Regular Minimum Distribution Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FCYREGMD-REG-MIN-DIST-AMOUNT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.REG_MIN_DTB_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">37-42</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Regular_Premium_Accumulation\"></a><b>Regular Premium Accumulation</b></br>&#160;&#160;&#160;&#160;COBOL: FCYRGPRM-CAL-REG-PREMS</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.CAL_YR_REG_PRM_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">43-48</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Additional_Premium_Accumulation\"></a><b>Additional Premium Accumulation</b></br>&#160;&#160;&#160;&#160;COBOL: FCYADPRM-CAL-ADDL-PREMS</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.CAL_YR_ADD_PRM_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">49-54</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Net_Withdrawal_Accumulation\"></a><b>Net Withdrawal Accumulation</b></br>&#160;&#160;&#160;&#160;COBOL: FCYNWDWL-CAL-NET-WDWL-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.CAL_YR_NET_WTD_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">55-60</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Withdrawal_Charge_Accumulation\"></a><b>Withdrawal Charge Accumulation</b></br>&#160;&#160;&#160;&#160;COBOL: FCYWDWLC-CAL-WITHDRAWAL-CHG</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.CAL_YR_WTD_CRG_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">61-62</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Initial_Expectation_of_Life_Factor\"></a><b>Initial Expectation of Life Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FCYIFACT-INITIAL-EXP-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.INT_LIFE_FCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">63-68</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Non-Regular_Contributions\"></a><b>Non-Regular Contributions</b></br>&#160;&#160;&#160;&#160;COBOL: FCYNONRC-NON-REG-CONTRIBS</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.CAL_YR_NRG_PRM_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">69-74</td><td style = \"width: 450px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Actuarial_Value_of_Additional_Benefits\"></a><b>Actuarial Value of Additional Benefits</b></br>&#160;&#160;&#160;&#160;COBOL: FCYPVADB-PV-ADDL-BENS</br>&#160;&#160;&#160;&#160;DB2: LH_POL_CAL_YR_TOT.PV_ADDL_BENS</td></tr>\n<tr></tr>\n<tr></tr></table>",
+  "verification": {
+    "references": [
+      "COBOLDB2translation.xls",
+      "D202.pdf printed pages 129-138, 608-609"
+    ],
+    "live_policy": "UL045809 / 01 / CKPR",
+    "verified_on": "2026-09-15",
+    "null_slots": "Source NULL uses the captured numeric slot format, dimmed and explicitly annotated; it is not a stored zero.",
+    "wrapping": "79 usable cells after the shared two-space inset; continuation inset 10.",
+    "archive_corrections": "The final two six-byte amounts occupy 63-68 and 69-74, not the sample HTML's five-byte ranges."
+  }
+}

@@ -38,6 +38,12 @@ class _FakeRates:
 
 
 class _FakePolicyInfo:
+    def fetch_table(self, _table):
+        return []
+
+    def table_error(self, _table):
+        return ""
+
     exists = True
     base_plancode = "TESTUL"
     issue_date = date(2000, 1, 1)
@@ -87,6 +93,15 @@ class _FakePolicyInfo:
     issue_state = "TX"
     company_name = "TEST"
     preferred_loans_available = False
+
+    def get_fund_buckets(self, *, current_only):
+        return []
+
+    def get_loan_values_dict(self):
+        return {}
+
+    def get_premium_allocation_dict(self):
+        return {}
 
     def get_premium_transactions(self):
         return [
@@ -191,6 +206,22 @@ def test_active_rider_benefit_codes_excludes_hash_and_ceased():
     )
 
     assert illustration_policy_service.active_rider_benefit_codes(pi) == "RIDER1, 12, 3#, 76"
+
+
+@pytest.mark.parametrize("glp,known,exception", [
+    (0.0, True, True), (None, False, False), (1200.0, True, False),
+])
+def test_build_illustration_data_recognizes_only_known_zero_glp(monkeypatch, glp, known, exception):
+    source = _FakePolicyInfo()
+    source.glp = glp
+    monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: source)
+    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(
+        illustration_policy_service, "load_plancode",
+        lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0))
+    policy = illustration_policy_service.build_illustration_data("U0126221")
+    assert policy.glp_is_known is known
+    assert policy.in_exception_period is exception
 
 
 def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch):

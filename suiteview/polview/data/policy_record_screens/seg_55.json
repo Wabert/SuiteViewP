@@ -1,0 +1,1443 @@
+{
+  "segment": "55",
+  "title": "Individual Fund Control (screen 6255)",
+  "source": "UL045809 / 01 / CKPR capture 2026-09-16; D202 pp.63-77/600; COBOLDB2translation.xls",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6255,",
+        "field": "Screen Name"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "UL045809",
+        "field": "Policy Number"
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "55",
+        "field": "Segment Identification"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0079",
+        "field": "Segment Length"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00100001",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Coverage Phase"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "GP",
+        "field": "Fund Identification"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "F",
+        "field": "Fund Type"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Qualified/Nonqualified"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Minimum Balance Table"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Initial Minimum Balance Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Remain Minimum Balance Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Purchase Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Transfers"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Withdrawals"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Loans"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Loan Interest"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Charges"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Minimum Duration"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Penalties Table"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Penalties Rule 1"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Penalties Rule 2"
+      }
+    ],
+    [
+      {
+        "text": "          ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "Last Transfer Date"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Last Transfer In/Out"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Assumed Interest Rate"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Investment Method"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Investment Method Subtype"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Interest Accrual Frequency"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Compound Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Guaranteed Interest Rate"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Guaranteed Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "999",
+        "field": "Guaranteed Interest Period"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "User Rule for guaranteed calculation"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "User months for guaranteed period"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "High Phase"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "           ",
+        "field": "Current Interest Rates File Search Key"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Initial Interest Rate"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "Initial Interest Rate End Date"
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "55",
+        "field": "Segment Identification"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0079",
+        "field": "Segment Length"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000001",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Coverage Phase"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "U1",
+        "field": "Fund Identification"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "F",
+        "field": "Fund Type"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Qualified/Nonqualified"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Minimum Balance Table"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Initial Minimum Balance Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Remain Minimum Balance Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Purchase Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Transfers"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Withdrawals"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Loans"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Loan Interest"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Charges"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Minimum Duration"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Penalties Table"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Penalties Rule 1"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Penalties Rule 2"
+      }
+    ],
+    [
+      {
+        "text": "          ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "Last Transfer Date"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Last Transfer In/Out"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Assumed Interest Rate"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Investment Method"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Investment Method Subtype"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Interest Accrual Frequency"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Compound Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "4.000",
+        "field": "Guaranteed Interest Rate"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Guaranteed Rule"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Guaranteed Interest Period"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "User Rule for guaranteed calculation"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "User months for guaranteed period"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "High Phase"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "ANICO1983  ",
+        "field": "Current Interest Rates File Search Key"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "6.000",
+        "field": "Initial Interest Rate"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "12/14/2000",
+        "field": "Initial Interest Rate End Date"
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "                                                                    ",
+        "field": null
+      },
+      {
+        "text": "09/16/26",
+        "field": "Current Date"
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      }
+    ],
+    [
+      {
+        "text": "  CK620 DISPLAY COMPLETE                                     ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [
+      "Byte: 1-2",
+      "COBOL: FIFIDENT-SEGMENT-ID"
+    ],
+    "Segment Length": [
+      "Byte: 3-4",
+      "COBOL: FIFLNGTH-SEGMENT-LENGTH",
+      "Verified fixed non-tiered length 79 = 45-byte common area + 34-byte fixed area."
+    ],
+    "Flag Byte A": [
+      "Byte: 5",
+      "COBOL: FIFFLAGA-FLAG-BYTE-A",
+      "Bit 0: LH_COV_IVM_FND_CTL.ICP_ACY_IND",
+      "Bit 1: LH_COV_IVM_FND_CTL.ACTING_VAL_SEG_IND",
+      "Bit 2: LH_COV_IVM_FND_CTL.IRL_GNR_IND",
+      "Bit 3: LH_COV_IVM_FND_CTL.DEL_IND",
+      "Bit 4: LH_COV_IVM_FND_CTL.RE_ADDED_IND",
+      "Bit 5: LH_COV_IVM_FND_CTL.IDX_ANU_IND",
+      "Bit 6: LH_COV_IVM_FND_CTL.MVA_APP_IND",
+      "Bit 7: LH_COV_IVM_FND_CTL.FND_VAL_STA_IND"
+    ],
+    "Flag Byte B": [
+      "Byte: 6",
+      "COBOL: FIFFLAGB-FLAG-BYTE-B",
+      "Reserved; no DB2 mapping. Captured zeros are amber examples."
+    ],
+    "Flag Byte U": [
+      "Byte: 7",
+      "COBOL: FIFFLAGU-USER-FLAG-BYTE",
+      "Reserved; no DB2 mapping. Captured zeros are amber examples."
+    ],
+    "Coverage Phase": [
+      "Byte: 8",
+      "COBOL: FIFCOVPH-ASSOC-COV-PHASE",
+      "DB2: LH_COV_IVM_FND_CTL.COV_PHA_NBR",
+      "Common area",
+      "Format: 1-byte unsigned binary; display as a decimal integer."
+    ],
+    "Fund Identification": [
+      "Byte: 9-10",
+      "COBOL: FIFFNDID-FUND-ID",
+      "DB2: LH_COV_IVM_FND_CTL.FND_ID_CD",
+      "Common area",
+      "Format: 2 character(s); stored blanks remain blank."
+    ],
+    "Fund Type": [
+      "Byte: 11",
+      "COBOL: FIFFNDTY-FUND-TYPE",
+      "DB2: LH_COV_IVM_FND_CTL.FND_TYP_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Qualified/Nonqualified": [
+      "Byte: 12",
+      "COBOL: FIFFNDQL-FUND-QUALIFICATION",
+      "DB2: LH_COV_IVM_FND_CTL.FND_TAX_STA_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Minimum Balance Table": [
+      "Byte: 13-14",
+      "COBOL: FIFMBTBL-MIN-BAL-TBL-CODE",
+      "DB2: LH_COV_IVM_FND_CTL.FND_MIN_BAL_TBL_CD",
+      "Common area",
+      "Format: 2 character(s); stored blanks remain blank."
+    ],
+    "Initial Minimum Balance Rule": [
+      "Byte: 15",
+      "COBOL: FIFMBINL-INITIAL",
+      "DB2: LH_COV_IVM_FND_CTL.INT_MIN_BAL_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Remain Minimum Balance Rule": [
+      "Byte: 16",
+      "COBOL: FIFMBRMN-REMAIN",
+      "DB2: LH_COV_IVM_FND_CTL.RMD_MIN_BAL_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Purchase Rule": [
+      "Byte: 17",
+      "COBOL: FIFPURCH-PURCHASE-RULE",
+      "DB2: LH_COV_IVM_FND_CTL.FND_PUR_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Transfers": [
+      "Byte: 18",
+      "COBOL: FIFDTRNF-TRANSFERS",
+      "DB2: LH_COV_IVM_FND_CTL.TRF_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Withdrawals": [
+      "Byte: 19",
+      "COBOL: FIFDWDRW-WITHDRAWALS",
+      "DB2: LH_COV_IVM_FND_CTL.WTD_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Loans": [
+      "Byte: 20",
+      "COBOL: FIFDLOAN-LOANS",
+      "DB2: LH_COV_IVM_FND_CTL.LN_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Loan Interest": [
+      "Byte: 21",
+      "COBOL: FIFDLINT-LOAN-INTEREST",
+      "DB2: LH_COV_IVM_FND_CTL.LN_ITS_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Charges": [
+      "Byte: 22",
+      "COBOL: FIFDCHRG-CHARGES",
+      "DB2: LH_COV_IVM_FND_CTL.CRG_RLE_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Minimum Duration": [
+      "Byte: 23-24",
+      "COBOL: FIFDMDUR-MIN-DUR-PRIOR",
+      "DB2: LH_COV_IVM_FND_CTL.MIN_DUR",
+      "Common area",
+      "Format: 3 packed digits, no decimals."
+    ],
+    "Penalties Table": [
+      "Byte: 25-26",
+      "COBOL: FIFPTBLE-PENALTY-TABLE",
+      "DB2: LH_COV_IVM_FND_CTL.PNY_TBL_CD",
+      "Common area",
+      "Format: 2 character(s); stored blanks remain blank."
+    ],
+    "Penalties Rule 1": [
+      "Byte: 27",
+      "COBOL: FIFPRUL1-PENALTY-RULE-1",
+      "DB2: LH_COV_IVM_FND_CTL.PNY_RLE_1_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Penalties Rule 2": [
+      "Byte: 28",
+      "COBOL: FIFPRUL2-PENALTY-RULE-2",
+      "DB2: LH_COV_IVM_FND_CTL.PNY_RLE_2_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Last Transfer Date": [
+      "Byte: 29-32",
+      "COBOL: FIFLTRDT-LAST-TRANSFER-DATE",
+      "DB2: LH_COV_IVM_FND_CTL.LST_TRF_DT",
+      "Common area",
+      "Format: 4-byte internal date; MM/DD/YYYY. High-date sentinel displays **/**/****."
+    ],
+    "Last Transfer In/Out": [
+      "Byte: 33",
+      "COBOL: FIFLTRTY-LAST-TRNSFR-TYPE",
+      "DB2: LH_COV_IVM_FND_CTL.LST_TRF_TYP_CD",
+      "Common area",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Assumed Interest Rate": [
+      "Byte: 34-36",
+      "COBOL: FIFVAIRT-ASSUM-INT-RATE",
+      "DB2: LH_COV_IVM_FND_CTL.ANU_ASM_ITS_RT",
+      "Common area",
+      "Format: 3-byte packed, 2 whole digits and 3 decimals; e.g. 4.000, not .040."
+    ],
+    "Reserved": [
+      "Byte: 37-45",
+      "COBOL: FIFRESV-RESERVED"
+    ],
+    "Investment Method": [
+      "Byte: 46",
+      "COBOL: FIFFIVMT-INVESTMENT-METHOD",
+      "DB2: LH_COV_FXD_FND_CTL.IVM_MTH_TYP_CD",
+      "Fixed funds only",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Investment Method Subtype": [
+      "Byte: 47",
+      "COBOL: FIFFISTP-INV-SUBTYPE",
+      "DB2: LH_COV_FXD_FND_CTL.IVM_MTH_SBY_CD",
+      "Fixed funds only",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Interest Accrual Frequency": [
+      "Byte: 48-49",
+      "COBOL: FIFFIFRQ-INTEREST-FREQUENCY",
+      "DB2: LH_COV_FXD_FND_CTL.ITS_ACCR_FQY_PER",
+      "Fixed funds only",
+      "Format: 3 packed digits, no decimals."
+    ],
+    "Compound Rule": [
+      "Byte: 50",
+      "COBOL: FIFFCMPD-INT-COMPOUND-RULE",
+      "DB2: LH_COV_FXD_FND_CTL.ITS_CMPD_RLE_CD",
+      "Fixed funds only",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Guaranteed Interest Rate": [
+      "Byte: 51-53",
+      "COBOL: FIFFGIRT-GUAR-INT-RATE",
+      "DB2: LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT",
+      "Fixed funds only",
+      "Format: 3-byte packed, 2 whole digits and 3 decimals; e.g. 4.000, not .040."
+    ],
+    "Guaranteed Rule": [
+      "Byte: 54",
+      "COBOL: FIFFGRUL-INT-GUAR-RULE",
+      "DB2: LH_COV_FXD_FND_CTL.GUA_ITS_PER_RLE_CD",
+      "Fixed funds only",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "Guaranteed Interest Period": [
+      "Byte: 55-56",
+      "COBOL: FIFFGPRD-INIT-GUAR-PERIOD",
+      "DB2: LH_COV_FXD_FND_CTL.GUA_ITS_PER",
+      "Fixed funds only",
+      "Format: 3 packed digits, no decimals."
+    ],
+    "User Rule for guaranteed calculation": [
+      "Byte: 57",
+      "COBOL: FIFFGURL-USER-GUAR-RULE",
+      "DB2: LH_COV_FXD_FND_CTL.ADD_GUA_PER_RLE_CD",
+      "Fixed funds only",
+      "Format: 1 character(s); stored blanks remain blank."
+    ],
+    "User months for guaranteed period": [
+      "Byte: 58-59",
+      "COBOL: FIFFGUPD-USER-GUAR-PERIOD",
+      "DB2: LH_COV_FXD_FND_CTL.ADD_GUA_PER",
+      "Fixed funds only",
+      "Format: 3 packed digits, no decimals."
+    ],
+    "High Phase": [
+      "Byte: 60-61",
+      "COBOL: FIFHIPHS-FUND-HIGH-PHASE-CODE",
+      "DB2: LH_COV_FXD_FND_CTL.HI_FND_VAL_PHA_NBR",
+      "Fixed funds only",
+      "Format: 2-byte unsigned binary; display as a decimal integer.",
+      "Two bytes (D202 pp.75/600), not the stale one-byte HTML layout."
+    ],
+    "Current Interest Rates File Search Key": [
+      "Byte: 62-72",
+      "COBOL: FIFFKEY-INT-RTE-FILE-SRCH-KY",
+      "DB2: LH_COV_FXD_FND_CTL.CUR_ITS_RT_SER_NBR",
+      "Fixed funds only",
+      "Format: 11 character(s); stored blanks remain blank."
+    ],
+    "Initial Interest Rate": [
+      "Byte: 73-75",
+      "COBOL: FIFIDIR-ISS-DATA-INT-RATE",
+      "DB2: LH_COV_FXD_FND_CTL.CUR_ITS_RT",
+      "Fixed funds only",
+      "Format: 3-byte packed, 2 whole digits and 3 decimals; e.g. 4.000, not .040."
+    ],
+    "Initial Interest Rate End Date": [
+      "Byte: 76-79",
+      "COBOL: FIFISEDT-ISS-DATA-END-DATE",
+      "DB2: LH_COV_FXD_FND_CTL.ITS_PER_END_DT",
+      "Fixed funds only",
+      "Format: 4-byte internal date; MM/DD/YYYY. High-date sentinel displays **/**/****."
+    ],
+    "Number of Interest Rate/Limit Pairs": [
+      "Byte: 80-81",
+      "COBOL: FIFTNENT-NUMBER-OF-TIERS",
+      "DB2: LH_COV_FXD_FND_CTL.TIER_ITS_RT_NBR",
+      "Tiered/duration portfolio only; rendering guarded pending live verification",
+      "D202 documents up to eight 8-byte rate/limit pairs, ascending by limit. SEG_IDX_NBR and live stored length/count semantics require verification."
+    ],
+    "Tier Interest Rate": [
+      "Byte: 82-84 (+8 per entry, up to 8)",
+      "COBOL: FIFTRATE-TIER-RATE",
+      "DB2: LH_AMT_TIERED_ITS.TIER_ITS_RT / LH_DUR_TIERED_ITS.TIER_ITS_RT",
+      "Method 1T / 1D respectively; rendering guarded"
+    ],
+    "Tier Interest Rate Limit": [
+      "Byte: 85-89 (+8 per entry, up to 8)",
+      "COBOL: FIFTLIMT-TIER-LIMIT",
+      "DB2: LH_AMT_TIERED_ITS.ITS_TIER_AMT / LH_DUR_TIERED_ITS.ITS_TIER_DUR",
+      "Amount / duration redefine; rendering guarded"
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "cobol": "FIFIDENT-SEGMENT-ID",
+      "kind": "header"
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "cobol": "FIFLNGTH-SEGMENT-LENGTH",
+      "kind": "header"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "cobol": "FIFFLAGA-FLAG-BYTE-A",
+      "kind": "flag",
+      "bits": [
+        {
+          "bit": 0,
+          "db2": "LH_COV_IVM_FND_CTL.ICP_ACY_IND"
+        },
+        {
+          "bit": 1,
+          "db2": "LH_COV_IVM_FND_CTL.ACTING_VAL_SEG_IND"
+        },
+        {
+          "bit": 2,
+          "db2": "LH_COV_IVM_FND_CTL.IRL_GNR_IND"
+        },
+        {
+          "bit": 3,
+          "db2": "LH_COV_IVM_FND_CTL.DEL_IND"
+        },
+        {
+          "bit": 4,
+          "db2": "LH_COV_IVM_FND_CTL.RE_ADDED_IND"
+        },
+        {
+          "bit": 5,
+          "db2": "LH_COV_IVM_FND_CTL.IDX_ANU_IND"
+        },
+        {
+          "bit": 6,
+          "db2": "LH_COV_IVM_FND_CTL.MVA_APP_IND"
+        },
+        {
+          "bit": 7,
+          "db2": "LH_COV_IVM_FND_CTL.FND_VAL_STA_IND"
+        }
+      ]
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "6",
+      "cobol": "FIFFLAGB-FLAG-BYTE-B",
+      "kind": "flag"
+    },
+    {
+      "name": "Flag Byte U",
+      "byte": "7",
+      "cobol": "FIFFLAGU-USER-FLAG-BYTE",
+      "kind": "flag"
+    },
+    {
+      "name": "Coverage Phase",
+      "db2": "LH_COV_IVM_FND_CTL.COV_PHA_NBR",
+      "cobol": "FIFCOVPH-ASSOC-COV-PHASE",
+      "byte": "8",
+      "kind": "binary",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Fund Identification",
+      "db2": "LH_COV_IVM_FND_CTL.FND_ID_CD",
+      "cobol": "FIFFNDID-FUND-ID",
+      "byte": "9-10",
+      "kind": "text",
+      "width": 2,
+      "applies": "Common area"
+    },
+    {
+      "name": "Fund Type",
+      "db2": "LH_COV_IVM_FND_CTL.FND_TYP_CD",
+      "cobol": "FIFFNDTY-FUND-TYPE",
+      "byte": "11",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Qualified/Nonqualified",
+      "db2": "LH_COV_IVM_FND_CTL.FND_TAX_STA_CD",
+      "cobol": "FIFFNDQL-FUND-QUALIFICATION",
+      "byte": "12",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Minimum Balance Table",
+      "db2": "LH_COV_IVM_FND_CTL.FND_MIN_BAL_TBL_CD",
+      "cobol": "FIFMBTBL-MIN-BAL-TBL-CODE",
+      "byte": "13-14",
+      "kind": "text",
+      "width": 2,
+      "applies": "Common area"
+    },
+    {
+      "name": "Initial Minimum Balance Rule",
+      "db2": "LH_COV_IVM_FND_CTL.INT_MIN_BAL_RLE_CD",
+      "cobol": "FIFMBINL-INITIAL",
+      "byte": "15",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Remain Minimum Balance Rule",
+      "db2": "LH_COV_IVM_FND_CTL.RMD_MIN_BAL_RLE_CD",
+      "cobol": "FIFMBRMN-REMAIN",
+      "byte": "16",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Purchase Rule",
+      "db2": "LH_COV_IVM_FND_CTL.FND_PUR_RLE_CD",
+      "cobol": "FIFPURCH-PURCHASE-RULE",
+      "byte": "17",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Transfers",
+      "db2": "LH_COV_IVM_FND_CTL.TRF_RLE_CD",
+      "cobol": "FIFDTRNF-TRANSFERS",
+      "byte": "18",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Withdrawals",
+      "db2": "LH_COV_IVM_FND_CTL.WTD_RLE_CD",
+      "cobol": "FIFDWDRW-WITHDRAWALS",
+      "byte": "19",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Loans",
+      "db2": "LH_COV_IVM_FND_CTL.LN_RLE_CD",
+      "cobol": "FIFDLOAN-LOANS",
+      "byte": "20",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Loan Interest",
+      "db2": "LH_COV_IVM_FND_CTL.LN_ITS_RLE_CD",
+      "cobol": "FIFDLINT-LOAN-INTEREST",
+      "byte": "21",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Charges",
+      "db2": "LH_COV_IVM_FND_CTL.CRG_RLE_CD",
+      "cobol": "FIFDCHRG-CHARGES",
+      "byte": "22",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Minimum Duration",
+      "db2": "LH_COV_IVM_FND_CTL.MIN_DUR",
+      "cobol": "FIFDMDUR-MIN-DUR-PRIOR",
+      "byte": "23-24",
+      "kind": "integer",
+      "width": 3,
+      "applies": "Common area"
+    },
+    {
+      "name": "Penalties Table",
+      "db2": "LH_COV_IVM_FND_CTL.PNY_TBL_CD",
+      "cobol": "FIFPTBLE-PENALTY-TABLE",
+      "byte": "25-26",
+      "kind": "text",
+      "width": 2,
+      "applies": "Common area"
+    },
+    {
+      "name": "Penalties Rule 1",
+      "db2": "LH_COV_IVM_FND_CTL.PNY_RLE_1_CD",
+      "cobol": "FIFPRUL1-PENALTY-RULE-1",
+      "byte": "27",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Penalties Rule 2",
+      "db2": "LH_COV_IVM_FND_CTL.PNY_RLE_2_CD",
+      "cobol": "FIFPRUL2-PENALTY-RULE-2",
+      "byte": "28",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Last Transfer Date",
+      "db2": "LH_COV_IVM_FND_CTL.LST_TRF_DT",
+      "cobol": "FIFLTRDT-LAST-TRANSFER-DATE",
+      "byte": "29-32",
+      "kind": "date",
+      "width": 4,
+      "applies": "Common area"
+    },
+    {
+      "name": "Last Transfer In/Out",
+      "db2": "LH_COV_IVM_FND_CTL.LST_TRF_TYP_CD",
+      "cobol": "FIFLTRTY-LAST-TRNSFR-TYPE",
+      "byte": "33",
+      "kind": "text",
+      "width": 1,
+      "applies": "Common area"
+    },
+    {
+      "name": "Assumed Interest Rate",
+      "db2": "LH_COV_IVM_FND_CTL.ANU_ASM_ITS_RT",
+      "cobol": "FIFVAIRT-ASSUM-INT-RATE",
+      "byte": "34-36",
+      "kind": "rate",
+      "width": 5,
+      "applies": "Common area"
+    },
+    {
+      "name": "Reserved",
+      "byte": "37-45",
+      "cobol": "FIFRESV-RESERVED",
+      "kind": "reserved"
+    },
+    {
+      "name": "Investment Method",
+      "db2": "LH_COV_FXD_FND_CTL.IVM_MTH_TYP_CD",
+      "cobol": "FIFFIVMT-INVESTMENT-METHOD",
+      "byte": "46",
+      "kind": "text",
+      "width": 1,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Investment Method Subtype",
+      "db2": "LH_COV_FXD_FND_CTL.IVM_MTH_SBY_CD",
+      "cobol": "FIFFISTP-INV-SUBTYPE",
+      "byte": "47",
+      "kind": "text",
+      "width": 1,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Interest Accrual Frequency",
+      "db2": "LH_COV_FXD_FND_CTL.ITS_ACCR_FQY_PER",
+      "cobol": "FIFFIFRQ-INTEREST-FREQUENCY",
+      "byte": "48-49",
+      "kind": "integer",
+      "width": 3,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Compound Rule",
+      "db2": "LH_COV_FXD_FND_CTL.ITS_CMPD_RLE_CD",
+      "cobol": "FIFFCMPD-INT-COMPOUND-RULE",
+      "byte": "50",
+      "kind": "text",
+      "width": 1,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Guaranteed Interest Rate",
+      "db2": "LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT",
+      "cobol": "FIFFGIRT-GUAR-INT-RATE",
+      "byte": "51-53",
+      "kind": "rate",
+      "width": 5,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Guaranteed Rule",
+      "db2": "LH_COV_FXD_FND_CTL.GUA_ITS_PER_RLE_CD",
+      "cobol": "FIFFGRUL-INT-GUAR-RULE",
+      "byte": "54",
+      "kind": "text",
+      "width": 1,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Guaranteed Interest Period",
+      "db2": "LH_COV_FXD_FND_CTL.GUA_ITS_PER",
+      "cobol": "FIFFGPRD-INIT-GUAR-PERIOD",
+      "byte": "55-56",
+      "kind": "integer",
+      "width": 3,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "User Rule for guaranteed calculation",
+      "db2": "LH_COV_FXD_FND_CTL.ADD_GUA_PER_RLE_CD",
+      "cobol": "FIFFGURL-USER-GUAR-RULE",
+      "byte": "57",
+      "kind": "text",
+      "width": 1,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "User months for guaranteed period",
+      "db2": "LH_COV_FXD_FND_CTL.ADD_GUA_PER",
+      "cobol": "FIFFGUPD-USER-GUAR-PERIOD",
+      "byte": "58-59",
+      "kind": "integer",
+      "width": 3,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "High Phase",
+      "db2": "LH_COV_FXD_FND_CTL.HI_FND_VAL_PHA_NBR",
+      "cobol": "FIFHIPHS-FUND-HIGH-PHASE-CODE",
+      "byte": "60-61",
+      "kind": "binary",
+      "width": 2,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Current Interest Rates File Search Key",
+      "db2": "LH_COV_FXD_FND_CTL.CUR_ITS_RT_SER_NBR",
+      "cobol": "FIFFKEY-INT-RTE-FILE-SRCH-KY",
+      "byte": "62-72",
+      "kind": "text",
+      "width": 11,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Initial Interest Rate",
+      "db2": "LH_COV_FXD_FND_CTL.CUR_ITS_RT",
+      "cobol": "FIFIDIR-ISS-DATA-INT-RATE",
+      "byte": "73-75",
+      "kind": "rate",
+      "width": 5,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Initial Interest Rate End Date",
+      "db2": "LH_COV_FXD_FND_CTL.ITS_PER_END_DT",
+      "cobol": "FIFISEDT-ISS-DATA-END-DATE",
+      "byte": "76-79",
+      "kind": "date",
+      "width": 4,
+      "applies": "Fixed funds only"
+    },
+    {
+      "name": "Number of Interest Rate/Limit Pairs",
+      "byte": "80-81",
+      "cobol": "FIFTNENT-NUMBER-OF-TIERS",
+      "db2": "LH_COV_FXD_FND_CTL.TIER_ITS_RT_NBR",
+      "kind": "tier",
+      "applies": "Tiered/duration portfolio only; rendering guarded pending live verification"
+    },
+    {
+      "name": "Tier Interest Rate",
+      "byte": "82-84 (+8 per entry, up to 8)",
+      "cobol": "FIFTRATE-TIER-RATE",
+      "db2": "LH_AMT_TIERED_ITS.TIER_ITS_RT / LH_DUR_TIERED_ITS.TIER_ITS_RT",
+      "kind": "tier",
+      "applies": "Method 1T / 1D respectively; rendering guarded"
+    },
+    {
+      "name": "Tier Interest Rate Limit",
+      "byte": "85-89 (+8 per entry, up to 8)",
+      "cobol": "FIFTLIMT-TIER-LIMIT",
+      "db2": "LH_AMT_TIERED_ITS.ITS_TIER_AMT / LH_DUR_TIERED_ITS.ITS_TIER_DUR",
+      "kind": "tier",
+      "applies": "Amount / duration redefine; rendering guarded"
+    }
+  ],
+  "verification": {
+    "live_policies": [
+      "UL045809 / 01 / CKPR",
+      "U0633187 / 01 / CKPR"
+    ],
+    "verified_on": "2026-09-16",
+    "limitations": "The common 45-byte area is LH_COV_IVM_FND_CTL for both fixed and variable funds; fixed funds append 34 bytes from LH_COV_FXD_FND_CTL. Join by policy, company, system, coverage phase and fund ID. Non-tiered fixed records end at byte 79. Variable funds omit the fixed area; live rendering is guarded until a capture verifies that variant. Tiered amount (1T) and duration (1D) methods append the documented count and rate/limit area, but are guarded until real rows establish count, length and ordering. NULL slots are dim and annotated, distinct from stored zero or blanks. Flag A is live; reserved B/U bits are illustrative amber zeros.",
+    "archive_corrections": "6255 (not 6275); 8 Flag A bits; High Phase 60-61; key 62-72; initial rate 73-75; end date 76-79; tier count 80-81."
+  },
+  "layout_html": "<p>The common 45-byte area is LH_COV_IVM_FND_CTL for both fixed and variable funds; fixed funds append 34 bytes from LH_COV_FXD_FND_CTL. Join by policy, company, system, coverage phase and fund ID. Non-tiered fixed records end at byte 79. Variable funds omit the fixed area; live rendering is guarded until a capture verifies that variant. Tiered amount (1T) and duration (1D) methods append the documented count and rate/limit area, but are guarded until real rows establish count, length and ordering. NULL slots are dim and annotated, distinct from stored zero or blanks. Flag A is live; reserved B/U bits are illustrative amber zeros.</p><table border=\"1\" cellspacing=\"0\" cellpadding=\"3\"><tr bgcolor=\"#E6A0AA\"><th>Byte</th><th>Field / source / applicability</th></tr><tr><td>1-2</td><td><b>Segment Identification</b><br>Byte: 1-2<br>COBOL: FIFIDENT-SEGMENT-ID</td></tr><tr><td>3-4</td><td><b>Segment Length</b><br>Byte: 3-4<br>COBOL: FIFLNGTH-SEGMENT-LENGTH<br>Verified fixed non-tiered length 79 = 45-byte common area + 34-byte fixed area.</td></tr><tr><td>5</td><td><b>Flag Byte A</b><br>Byte: 5<br>COBOL: FIFFLAGA-FLAG-BYTE-A<br>Bit 0: LH_COV_IVM_FND_CTL.ICP_ACY_IND<br>Bit 1: LH_COV_IVM_FND_CTL.ACTING_VAL_SEG_IND<br>Bit 2: LH_COV_IVM_FND_CTL.IRL_GNR_IND<br>Bit 3: LH_COV_IVM_FND_CTL.DEL_IND<br>Bit 4: LH_COV_IVM_FND_CTL.RE_ADDED_IND<br>Bit 5: LH_COV_IVM_FND_CTL.IDX_ANU_IND<br>Bit 6: LH_COV_IVM_FND_CTL.MVA_APP_IND<br>Bit 7: LH_COV_IVM_FND_CTL.FND_VAL_STA_IND</td></tr><tr><td>6</td><td><b>Flag Byte B</b><br>Byte: 6<br>COBOL: FIFFLAGB-FLAG-BYTE-B<br>Reserved; no DB2 mapping. Captured zeros are amber examples.</td></tr><tr><td>7</td><td><b>Flag Byte U</b><br>Byte: 7<br>COBOL: FIFFLAGU-USER-FLAG-BYTE<br>Reserved; no DB2 mapping. Captured zeros are amber examples.</td></tr><tr><td>8</td><td><b>Coverage Phase</b><br>Byte: 8<br>COBOL: FIFCOVPH-ASSOC-COV-PHASE<br>DB2: LH_COV_IVM_FND_CTL.COV_PHA_NBR<br>Common area<br>Format: 1-byte unsigned binary; display as a decimal integer.</td></tr><tr><td>9-10</td><td><b>Fund Identification</b><br>Byte: 9-10<br>COBOL: FIFFNDID-FUND-ID<br>DB2: LH_COV_IVM_FND_CTL.FND_ID_CD<br>Common area<br>Format: 2 character(s); stored blanks remain blank.</td></tr><tr><td>11</td><td><b>Fund Type</b><br>Byte: 11<br>COBOL: FIFFNDTY-FUND-TYPE<br>DB2: LH_COV_IVM_FND_CTL.FND_TYP_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>12</td><td><b>Qualified/Nonqualified</b><br>Byte: 12<br>COBOL: FIFFNDQL-FUND-QUALIFICATION<br>DB2: LH_COV_IVM_FND_CTL.FND_TAX_STA_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>13-14</td><td><b>Minimum Balance Table</b><br>Byte: 13-14<br>COBOL: FIFMBTBL-MIN-BAL-TBL-CODE<br>DB2: LH_COV_IVM_FND_CTL.FND_MIN_BAL_TBL_CD<br>Common area<br>Format: 2 character(s); stored blanks remain blank.</td></tr><tr><td>15</td><td><b>Initial Minimum Balance Rule</b><br>Byte: 15<br>COBOL: FIFMBINL-INITIAL<br>DB2: LH_COV_IVM_FND_CTL.INT_MIN_BAL_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>16</td><td><b>Remain Minimum Balance Rule</b><br>Byte: 16<br>COBOL: FIFMBRMN-REMAIN<br>DB2: LH_COV_IVM_FND_CTL.RMD_MIN_BAL_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>17</td><td><b>Purchase Rule</b><br>Byte: 17<br>COBOL: FIFPURCH-PURCHASE-RULE<br>DB2: LH_COV_IVM_FND_CTL.FND_PUR_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>18</td><td><b>Transfers</b><br>Byte: 18<br>COBOL: FIFDTRNF-TRANSFERS<br>DB2: LH_COV_IVM_FND_CTL.TRF_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>19</td><td><b>Withdrawals</b><br>Byte: 19<br>COBOL: FIFDWDRW-WITHDRAWALS<br>DB2: LH_COV_IVM_FND_CTL.WTD_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>20</td><td><b>Loans</b><br>Byte: 20<br>COBOL: FIFDLOAN-LOANS<br>DB2: LH_COV_IVM_FND_CTL.LN_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>21</td><td><b>Loan Interest</b><br>Byte: 21<br>COBOL: FIFDLINT-LOAN-INTEREST<br>DB2: LH_COV_IVM_FND_CTL.LN_ITS_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>22</td><td><b>Charges</b><br>Byte: 22<br>COBOL: FIFDCHRG-CHARGES<br>DB2: LH_COV_IVM_FND_CTL.CRG_RLE_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>23-24</td><td><b>Minimum Duration</b><br>Byte: 23-24<br>COBOL: FIFDMDUR-MIN-DUR-PRIOR<br>DB2: LH_COV_IVM_FND_CTL.MIN_DUR<br>Common area<br>Format: 3 packed digits, no decimals.</td></tr><tr><td>25-26</td><td><b>Penalties Table</b><br>Byte: 25-26<br>COBOL: FIFPTBLE-PENALTY-TABLE<br>DB2: LH_COV_IVM_FND_CTL.PNY_TBL_CD<br>Common area<br>Format: 2 character(s); stored blanks remain blank.</td></tr><tr><td>27</td><td><b>Penalties Rule 1</b><br>Byte: 27<br>COBOL: FIFPRUL1-PENALTY-RULE-1<br>DB2: LH_COV_IVM_FND_CTL.PNY_RLE_1_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>28</td><td><b>Penalties Rule 2</b><br>Byte: 28<br>COBOL: FIFPRUL2-PENALTY-RULE-2<br>DB2: LH_COV_IVM_FND_CTL.PNY_RLE_2_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>29-32</td><td><b>Last Transfer Date</b><br>Byte: 29-32<br>COBOL: FIFLTRDT-LAST-TRANSFER-DATE<br>DB2: LH_COV_IVM_FND_CTL.LST_TRF_DT<br>Common area<br>Format: 4-byte internal date; MM/DD/YYYY. High-date sentinel displays **/**/****.</td></tr><tr><td>33</td><td><b>Last Transfer In/Out</b><br>Byte: 33<br>COBOL: FIFLTRTY-LAST-TRNSFR-TYPE<br>DB2: LH_COV_IVM_FND_CTL.LST_TRF_TYP_CD<br>Common area<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>34-36</td><td><b>Assumed Interest Rate</b><br>Byte: 34-36<br>COBOL: FIFVAIRT-ASSUM-INT-RATE<br>DB2: LH_COV_IVM_FND_CTL.ANU_ASM_ITS_RT<br>Common area<br>Format: 3-byte packed, 2 whole digits and 3 decimals; e.g. 4.000, not .040.</td></tr><tr><td>37-45</td><td><b>Reserved</b><br>Byte: 37-45<br>COBOL: FIFRESV-RESERVED</td></tr><tr><td>46</td><td><b>Investment Method</b><br>Byte: 46<br>COBOL: FIFFIVMT-INVESTMENT-METHOD<br>DB2: LH_COV_FXD_FND_CTL.IVM_MTH_TYP_CD<br>Fixed funds only<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>47</td><td><b>Investment Method Subtype</b><br>Byte: 47<br>COBOL: FIFFISTP-INV-SUBTYPE<br>DB2: LH_COV_FXD_FND_CTL.IVM_MTH_SBY_CD<br>Fixed funds only<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>48-49</td><td><b>Interest Accrual Frequency</b><br>Byte: 48-49<br>COBOL: FIFFIFRQ-INTEREST-FREQUENCY<br>DB2: LH_COV_FXD_FND_CTL.ITS_ACCR_FQY_PER<br>Fixed funds only<br>Format: 3 packed digits, no decimals.</td></tr><tr><td>50</td><td><b>Compound Rule</b><br>Byte: 50<br>COBOL: FIFFCMPD-INT-COMPOUND-RULE<br>DB2: LH_COV_FXD_FND_CTL.ITS_CMPD_RLE_CD<br>Fixed funds only<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>51-53</td><td><b>Guaranteed Interest Rate</b><br>Byte: 51-53<br>COBOL: FIFFGIRT-GUAR-INT-RATE<br>DB2: LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT<br>Fixed funds only<br>Format: 3-byte packed, 2 whole digits and 3 decimals; e.g. 4.000, not .040.</td></tr><tr><td>54</td><td><b>Guaranteed Rule</b><br>Byte: 54<br>COBOL: FIFFGRUL-INT-GUAR-RULE<br>DB2: LH_COV_FXD_FND_CTL.GUA_ITS_PER_RLE_CD<br>Fixed funds only<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>55-56</td><td><b>Guaranteed Interest Period</b><br>Byte: 55-56<br>COBOL: FIFFGPRD-INIT-GUAR-PERIOD<br>DB2: LH_COV_FXD_FND_CTL.GUA_ITS_PER<br>Fixed funds only<br>Format: 3 packed digits, no decimals.</td></tr><tr><td>57</td><td><b>User Rule for guaranteed calculation</b><br>Byte: 57<br>COBOL: FIFFGURL-USER-GUAR-RULE<br>DB2: LH_COV_FXD_FND_CTL.ADD_GUA_PER_RLE_CD<br>Fixed funds only<br>Format: 1 character(s); stored blanks remain blank.</td></tr><tr><td>58-59</td><td><b>User months for guaranteed period</b><br>Byte: 58-59<br>COBOL: FIFFGUPD-USER-GUAR-PERIOD<br>DB2: LH_COV_FXD_FND_CTL.ADD_GUA_PER<br>Fixed funds only<br>Format: 3 packed digits, no decimals.</td></tr><tr><td>60-61</td><td><b>High Phase</b><br>Byte: 60-61<br>COBOL: FIFHIPHS-FUND-HIGH-PHASE-CODE<br>DB2: LH_COV_FXD_FND_CTL.HI_FND_VAL_PHA_NBR<br>Fixed funds only<br>Format: 2-byte unsigned binary; display as a decimal integer.<br>Two bytes (D202 pp.75/600), not the stale one-byte HTML layout.</td></tr><tr><td>62-72</td><td><b>Current Interest Rates File Search Key</b><br>Byte: 62-72<br>COBOL: FIFFKEY-INT-RTE-FILE-SRCH-KY<br>DB2: LH_COV_FXD_FND_CTL.CUR_ITS_RT_SER_NBR<br>Fixed funds only<br>Format: 11 character(s); stored blanks remain blank.</td></tr><tr><td>73-75</td><td><b>Initial Interest Rate</b><br>Byte: 73-75<br>COBOL: FIFIDIR-ISS-DATA-INT-RATE<br>DB2: LH_COV_FXD_FND_CTL.CUR_ITS_RT<br>Fixed funds only<br>Format: 3-byte packed, 2 whole digits and 3 decimals; e.g. 4.000, not .040.</td></tr><tr><td>76-79</td><td><b>Initial Interest Rate End Date</b><br>Byte: 76-79<br>COBOL: FIFISEDT-ISS-DATA-END-DATE<br>DB2: LH_COV_FXD_FND_CTL.ITS_PER_END_DT<br>Fixed funds only<br>Format: 4-byte internal date; MM/DD/YYYY. High-date sentinel displays **/**/****.</td></tr><tr><td>80-81</td><td><b>Number of Interest Rate/Limit Pairs</b><br>Byte: 80-81<br>COBOL: FIFTNENT-NUMBER-OF-TIERS<br>DB2: LH_COV_FXD_FND_CTL.TIER_ITS_RT_NBR<br>Tiered/duration portfolio only; rendering guarded pending live verification<br>D202 documents up to eight 8-byte rate/limit pairs, ascending by limit. SEG_IDX_NBR and live stored length/count semantics require verification.</td></tr><tr><td>82-84 (+8 per entry, up to 8)</td><td><b>Tier Interest Rate</b><br>Byte: 82-84 (+8 per entry, up to 8)<br>COBOL: FIFTRATE-TIER-RATE<br>DB2: LH_AMT_TIERED_ITS.TIER_ITS_RT / LH_DUR_TIERED_ITS.TIER_ITS_RT<br>Method 1T / 1D respectively; rendering guarded</td></tr><tr><td>85-89 (+8 per entry, up to 8)</td><td><b>Tier Interest Rate Limit</b><br>Byte: 85-89 (+8 per entry, up to 8)<br>COBOL: FIFTLIMT-TIER-LIMIT<br>DB2: LH_AMT_TIERED_ITS.ITS_TIER_AMT / LH_DUR_TIERED_ITS.ITS_TIER_DUR<br>Amount / duration redefine; rendering guarded</td></tr></table>"
+}

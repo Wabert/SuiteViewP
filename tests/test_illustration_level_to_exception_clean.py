@@ -97,7 +97,7 @@ class _StubEngine:
 def _policy() -> IllustrationPolicyData:
     return IllustrationPolicyData(
         def_of_life_ins="GPT", maturity_age=_MATURITY, issue_age=50,
-        billing_frequency=1, modal_premium=100.0)
+        billing_frequency=1, modal_premium=100.0, glp=1200.0)
 
 
 def test_clean_transition_prefers_the_higher_fully_funded_premium():

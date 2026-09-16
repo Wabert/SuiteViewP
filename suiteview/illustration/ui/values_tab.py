@@ -21,7 +21,10 @@ from PyQt6.QtWidgets import (
 
 from suiteview.illustration.core.loan_handler import empty_loan_cap_repay_detail
 from suiteview.illustration.core.mec import seven_pay_backtest
-from suiteview.illustration.core.report_builder import issue_output_basis, issue_output_conditions
+from suiteview.illustration.core.report_builder import (
+    issue_output_basis, issue_output_conditions,
+    rollback_output_basis, rollback_output_conditions,
+)
 from suiteview.illustration.core.summary_results import (
     LEAD_COLUMNS,
     SUMMARY_COLUMNS,
@@ -46,6 +49,16 @@ logger = logging.getLogger(__name__)
 
 
 def _issue_export_rows(policy, *, guaranteed: bool = False):
+    if policy.rollback_date is not None or policy.starting_basis_assumptions:
+        return [
+            ("Policy", policy.policy_number),
+            ("Plancode", policy.plancode),
+            *[("Illustration basis", line) for line in rollback_output_basis(policy)],
+            *rollback_output_conditions(policy),
+            ("Displayed values", "CONTRACTUAL GUARANTEED" if guaranteed else "CURRENT ASSUMPTIONS"),
+            ("Opening row",
+             "Post-deduction starting basis; projections start afterward. See source limitations."),
+        ]
     return [
         ("Policy", policy.policy_number),
         ("Plancode", policy.plancode),
@@ -74,7 +87,10 @@ class _ExportLabeledOverview(ValuesOverview):
 
     def _dump_ledger(self, include_months: bool):
         policy = self._export_policy
-        if policy is None or not policy.run_from_issue:
+        if policy is None or (
+            not policy.run_from_issue and policy.rollback_date is None
+            and not policy.starting_basis_assumptions
+        ):
             return super()._dump_ledger(include_months)
         from suiteview.core.excel_export import ExcelExportError, dump_to_new_workbook, write_table
 
@@ -106,19 +122,20 @@ class _ExportLabeledOverview(ValuesOverview):
             except com_error as exc:
                 raise ExcelExportError(f"Could not write the illustration ledger: {exc}") from exc
         except (ExcelExportError, ImportError) as exc:
-            logger.exception("From-issue illustration ledger Excel export failed")
+            logger.exception("Illustration ledger Excel export failed")
             QMessageBox.warning(self, "Export Error", f"Could not export:\n{exc}")
 
 
 def _export_values_summary(policy, current_results, guaranteed_results, folder):
-    """Retain debug sheet schemas; add an explicit basis sheet only for issue runs."""
+    """Retain debug sheet schemas and identify non-current starting bases."""
     from suiteview.illustration.debug.summary_export import (
         build_summary_workbook,
         export_summary_workbook,
         summary_filename_base,
         unique_workbook_path,
     )
-    if not policy.run_from_issue:
+    if (not policy.run_from_issue and policy.rollback_date is None
+            and not policy.starting_basis_assumptions):
         return export_summary_workbook(policy, current_results, guaranteed_results, folder)
     from pathlib import Path
 
@@ -132,8 +149,11 @@ def _export_values_summary(policy, current_results, guaranteed_results, folder):
     basis.column_dimensions["B"].width = 100
     basis.freeze_panes = "A2"
     workbook.active = 0
-    path = unique_workbook_path(
-        Path(folder), f"{summary_filename_base(policy)}-NEW BUSINESS - FROM ISSUE")
+    label = (
+        f"ROLLBACK-{policy.rollback_date:%Y-%m-%d}" if policy.rollback_date is not None
+        else "NEW BUSINESS - FROM ISSUE" if policy.run_from_issue
+        else "CURRENT-MANUAL")
+    path = unique_workbook_path(Path(folder), f"{summary_filename_base(policy)}-{label}")
     try:
         workbook.save(path)
     finally:
@@ -1846,6 +1866,10 @@ class IllustrationValuesTab(QWidget):
             if getattr(policy, "run_from_issue", False)
             else "valuation snapshot"
         )
+        if policy.rollback_date is not None:
+            opening = f"ROLLBACK snapshot as of {policy.rollback_date:%m/%d/%Y}"
+        elif policy.starting_basis_assumptions:
+            opening = f"current valuation with manual assumptions as of {policy.valuation_date:%m/%d/%Y}"
         self.status_label.setText(
             f"Showing {opening} plus {months} projected months.")
 

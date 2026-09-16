@@ -80,6 +80,25 @@ def _panel() -> DynamicInputsPanel:
     return panel
 
 
+def test_exception_period_red_notice_resets_and_coexists_with_suspension():
+    _app()
+    panel = DynamicInputsPanel()
+    policy = IllustrationPolicyData(
+        issue_date=date(2000, 6, 15), valuation_date=date(2025, 6, 15),
+        issue_age=45, attained_age=70, duration=300, policy_year=26,
+        glp=0.0, premium_pay_status_code="2")
+    panel.load_from_policy(policy)
+    assert "POLICY IS SUSPENDED" in panel.suspended_banner.text()
+    assert "EXCEPTION PREMIUM PERIOD" in panel.suspended_banner.text()
+    assert "#C62828" in panel.suspended_banner.styleSheet()
+    assert not panel.suspended_banner.isHidden()
+    policy.premium_pay_status_code = "0"
+    policy.glp = 12.0
+    panel.load_from_policy(policy)
+    assert panel.suspended_banner.isHidden()
+    assert panel.suspended_banner.text() == ""
+    panel.deleteLater()
+
 class _Spl87Policy(_FakePolicy):
     """An SPL87-form (single-premium) plan with a nonzero modal premium that
     must be treated as a zero billable premium."""

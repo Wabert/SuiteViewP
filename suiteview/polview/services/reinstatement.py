@@ -331,6 +331,9 @@ def project_home_office_reinstatement(
     rows = (
         ("Starting account value (post-deduction)", p.account_value),
         ("Starting shadow account value", p.shadow_account_value),
+        ("Starting premiums paid", p.premiums_paid_to_date),
+        ("Starting accumulated withdrawals", p.withdrawals_to_date),
+        ("Starting accumulated minimum target premium", p.accumulated_mtp),
         ("Required gross premium", premium),
         ("Premium loads", loads),
         ("Interest before next deduction", interest),
@@ -338,6 +341,8 @@ def project_home_office_reinstatement(
         ("Guideline forceouts", forceouts),
         ("Next monthliversary debt (at deduction)", _debt_at_deduction(end)),
         ("Next accumulated minimum target premium", end.accumulated_mtp),
+        ("Next premiums paid (including quote)", end.premiums_to_date_after_exception),
+        ("Next accumulated withdrawals", end.withdrawals_to_date),
         ("Next premiums paid less withdrawals and debt",
          end.premiums_to_date_after_exception - end.withdrawals_to_date - _debt_at_deduction(end)),
         ("Next surrender charge", end.surrender_charge),
@@ -350,8 +355,26 @@ def project_home_office_reinstatement(
         ("Next shadow value after deduction", end.shadow_av),
         ("Next shadow value less debt", end.shadow_av - _debt_at_deduction(end)),
     )
+    equation = {
+        "Safety net": (
+            "Safety net: premiums paid (including this premium) - accumulated withdrawals "
+            "- debt at the next deduction must cover accumulated MTP through that deduction. "
+            "A zero premium means that requirement is already satisfied."
+        ),
+        "Shadow account": (
+            "Shadow account: starting shadow value + accepted premium - shadow premium loads "
+            "+ shadow interest - all shadow deductions - debt at the next deduction "
+            "must be strictly positive."
+        ),
+        "Surrender value": (
+            "Surrender value: starting account value + accepted premium - premium loads "
+            "+ interest - all monthly deductions - forceouts - surrender charge "
+            "- debt at the next deduction must be strictly positive."
+        ),
+    }[basis]
     return ReinstatementResult(
         summary, premium, basis, tuple((label, f"{value:,.2f}") for label, value in rows),
+        f"{equation}\n"
         f"Continuous coverage from the verified post-deduction snapshot {p.valuation_date:%Y-%m-%d}. "
         f"One premium is posted on {summary.current_date:%Y-%m-%d}; no historical receipts are backdated. "
         f"Canonical illustration crediting basis: {p.current_interest_rate:.4%}, "

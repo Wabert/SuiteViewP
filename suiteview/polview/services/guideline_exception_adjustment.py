@@ -221,7 +221,8 @@ def _solve_and_project_target(
     allow_exceptions = not ill_policy.is_cvat
     # Match RERUN's unchecked Exact Days Interest control: monthly compounding.
     base_options = IllustrationOptions(
-        exact_days_interest=False, guideline_forceouts=guideline_forceouts)
+        exact_days_interest=False, guideline_forceouts=guideline_forceouts,
+        recognize_inforce_exception_period=False)
     try:
         solved = solve_level_to_exception(
             ill_policy,

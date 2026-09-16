@@ -3,14 +3,17 @@
 Auditable preview helper to verify the native green-screen policy-record
 viewer: the terminal screen, the readable hover tooltip, and the scrollable
 Record Layout below.  With a policy number it renders that policy's LIVE DB2
-data; with an empty policy it renders the bundled sample screen.
+data; with an empty policy it shows the no-policy state.
 
 Usage:
     venv\\Scripts\\python.exe tools/policyrecord/preview_policy_record.py
     venv\\Scripts\\python.exe tools/policyrecord/preview_policy_record.py '{"policy": "U0633187", "region": "CKPR"}'
     venv\\Scripts\\python.exe tools/policyrecord/preview_policy_record.py '{"policy": "", "out": "C:/tmp"}'
 
-Config keys (all optional): policy, region, company, out.
+Config may also be read from @path.json. Optional verification keys:
+expect_absent (segment list), expect_unavailable (segment list), copy_field
+(a tooltip field to copy through the real native menu on the selected tab).
+Set expect_no_errors to require every displayed segment to be error-free.
 Writes <out>/policy_record_top.png, _tooltip.png, _layout.png
 (default out: ~/.suiteview; default policy: U0633187).
 """
@@ -21,17 +24,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from PyQt6.QtWidgets import QApplication, QToolTip
-from PyQt6.QtCore import QTimer, QPoint
+from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QTextBrowser, QToolTip
+from PyQt6.QtCore import QMimeData, QTimer, QPoint, Qt
+from PyQt6.QtTest import QTest
 
 from suiteview.polview.ui.policy_record_viewer import (
-    PolicyRecordViewerWindow, _MainframeToken,
+    PolicyRecordViewerWindow, _MainframeToken, _TerminalScreen, _UNAVAILABLE_MESSAGE,
 )
 
 
 def _parse_cfg(argv):
     cfg = {"policy": "U0633187", "region": "CKPR", "company": "", "out": None}
-    if len(argv) > 1 and argv[1].strip().startswith("{"):
+    if len(argv) > 1 and argv[1].startswith("@"):
+        cfg.update(json.loads(Path(argv[1][1:]).read_text(encoding="utf-8")))
+    elif len(argv) > 1 and argv[1].strip().startswith("{"):
         cfg.update(json.loads(argv[1]))
     elif len(argv) > 1:
         keys = ("policy", "region", "tab", "out", "tooltip_field")
@@ -41,6 +47,57 @@ def _parse_cfg(argv):
             if value != "-"
         })
     return cfg
+
+
+def _verify(window, cfg, app):
+    tabs = {}
+    for index in range(window.tabs.count()):
+        tab = window.tabs.widget(index)
+        labels = [label.text() for label in tab.findChildren(QLabel)]
+        live = bool(tab.findChildren(_TerminalScreen))
+        if not live:
+            assert not tab.findChildren(_MainframeToken)
+            assert not tab.findChildren(QTextBrowser)
+            assert _UNAVAILABLE_MESSAGE in labels
+        assert not any("CAPTURED REFERENCE" in text for text in labels)
+        tabs[window.tabs.tabText(index)] = {
+            "live": live, "error": any(text.startswith("LIVE DATA ERROR") for text in labels),
+        }
+    assert set(cfg.get("expect_absent", [])).isdisjoint(tabs), "An absent segment is still visible."
+    for segment in cfg.get("expect_unavailable", []):
+        assert segment in tabs and not tabs[segment]["live"] and not tabs[segment]["error"]
+    if cfg.get("expect_no_errors"):
+        assert not any(tab["error"] for tab in tabs.values()), "A segment has a live data error."
+    result = {"tabs": tabs}
+    if cfg.get("copy_field"):
+        tab = window.tabs.currentWidget()
+        field = cfg["copy_field"].lower()
+        token = next(token for token in tab.findChildren(_MainframeToken)
+                     if field in token.toolTip().lower())
+        clipboard = app.clipboard()
+        saved = QMimeData()
+        current = clipboard.mimeData()
+        if current is not None:
+            for mime_type in current.formats():
+                saved.setData(mime_type, current.data(mime_type))
+        menu_seen = []
+
+        def choose_copy():
+            menu = app.activePopupWidget()
+            if isinstance(menu, QMenu):
+                menu_seen.append(True)
+                QTest.keyClick(menu, Qt.Key.Key_Down)
+                QTest.keyClick(menu, Qt.Key.Key_Return)
+
+        try:
+            QTimer.singleShot(100, choose_copy)
+            token.customContextMenuRequested.emit(QPoint(1, 1))
+            assert menu_seen, "Native Copy menu did not open."
+            assert clipboard.text() == token.text(), "Clipboard did not receive the displayed value."
+            result["copy_verified"] = True
+        finally:
+            clipboard.setMimeData(saved)
+    return result
 
 
 def main():
@@ -63,6 +120,14 @@ def main():
             if window.tabs.tabText(i) == want_tab:
                 window.tabs.setCurrentIndex(i)
                 break
+        else:
+            raise ValueError(f"Requested segment {want_tab} is not present for this policy.")
+    app.processEvents()
+    verification = _verify(window, cfg, app)
+    (out_dir / "policy_record_state.json").write_text(
+        json.dumps(verification, indent=2), encoding="utf-8",
+    )
+    print(json.dumps(verification))
 
     def capture_top():
         window.grab().save(str(out_dir / "policy_record_top.png"), "PNG")
@@ -72,7 +137,8 @@ def main():
         # An optional "tooltip_field" picks a specific token (e.g. an example
         # value) so its warning banner can be verified.
         want = str(cfg.get("tooltip_field") or "").strip().lower()
-        tokens = [t for t in window.findChildren(_MainframeToken) if t.toolTip()]
+        tab = window.tabs.currentWidget()
+        tokens = [t for t in tab.findChildren(_MainframeToken) if t.toolTip()] if tab else []
         token = None
         if want:
             token = next(
@@ -94,8 +160,9 @@ def main():
 
         # Scroll the current tab to the bottom to show the Record Layout.
         tab = window.tabs.currentWidget()
-        bar = tab.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        if tab is not None:
+            bar = tab.verticalScrollBar()
+            bar.setValue(bar.maximum())
         QTimer.singleShot(200, capture_layout)
 
     def capture_layout():

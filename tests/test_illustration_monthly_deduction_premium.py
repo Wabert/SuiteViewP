@@ -38,6 +38,7 @@ def _md_policy():
         face_amount=100_000.0,
         units=100.0,
         db_option="A",
+        glp=12.0,
         account_value=50_000.0,
         current_interest_rate=0.0,
         guaranteed_interest_rate=0.0,
@@ -60,6 +61,114 @@ def _patch(monkeypatch):
 def _rates():
     # 6 per 1,000 COI so the monthly deduction is non-trivial (~300/month).
     return IllustrationRates(coi=[0.0, 6.0], segment_coi={1: [0.0, 6.0]})
+
+
+@pytest.mark.parametrize("timing", list(calc_engine.ProjectionTiming))
+@pytest.mark.parametrize("md_premium", [False, True])
+def test_zero_glp_starts_exception_period_and_spends_av_first(monkeypatch, timing, md_premium):
+    from suiteview.illustration.models.input_set import (
+        DatedTransaction, IllustrationInputSet, ScheduledTransaction, TransactionKind,
+    )
+    _patch(monkeypatch)
+    policy = _md_policy()
+    policy.glp = 0.0
+    policy.gsp = policy.accumulated_glp = 100_000.0
+    policy.account_value = 1_000.0
+    policy.modal_premium = 5_000.0
+    inputs = IllustrationInputSet(
+        scheduled_transactions=[ScheduledTransaction(TransactionKind.PREMIUM, 1, 5_000.0, "M")],
+        dated_transactions=[
+            DatedTransaction(TransactionKind.PREMIUM, date(2025, 7, 15), 10_000.0),
+            DatedTransaction(TransactionKind.LOAN_REPAYMENT, date(2025, 7, 15), 100.0),
+        ],
+    )
+    states = IllustrationEngine().project(
+        policy, months=6, timing=timing, future_inputs=inputs,
+        options=IllustrationOptions(
+            allow_exception_prems=False, pay_monthly_deduction=md_premium,
+            apply_excess_repayment_as_premium=True),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+    assert len(states) == 7
+    assert all(s.gp_exception_mode for s in states)
+    first = states[1]
+    assert first.av_end_of_month > 0
+    assert first.gp_exception_prem == 0
+    assert first.av_end_of_month < policy.account_value
+    for s in states[1:]:
+        assert s.gross_premium == s.md_premium == 0
+        assert s.guideline_forceout == 0
+        assert not s.lapsed
+    assert states[-1].gp_exception_prem > 0
+    assert states[-1].av_end_of_month == pytest.approx(0.0, abs=0.01)
+    assert policy.account_value == 1_000.0
+
+
+@pytest.mark.parametrize("doli,glp,known,from_issue,expected", [
+    ("GPT", 0.0, True, False, True),
+    ("CVAT", 0.0, True, False, False),
+    ("", 0.0, True, False, False),
+    ("GPT", 12.0, True, False, False),
+    ("GPT", -12.0, True, False, False),
+    ("GPT", 0.0, False, False, False),
+    ("GPT", 0.0, True, True, False),
+])
+def test_starting_exception_classification(doli, glp, known, from_issue, expected):
+    policy = IllustrationPolicyData(
+        def_of_life_ins=doli, glp=glp, glp_is_known=known, run_from_issue=from_issue)
+    assert policy.in_exception_period is expected
+
+
+def test_guaranteed_projection_retains_locked_exception_premiums(monkeypatch):
+    from suiteview.illustration.core.guaranteed_projection import guaranteed_options, lock_values
+    _patch(monkeypatch)
+    policy = _md_policy()
+    policy.glp = 0.0
+    policy.gsp = 100_000.0
+    policy.account_value = 200.0
+    current = IllustrationEngine().project(
+        policy, months=3, rates_override=_rates(), bonus_override=BonusConfig())
+    guaranteed = IllustrationEngine().project(
+        policy, months=3, future_inputs=lock_values(policy, current),
+        options=guaranteed_options(), rates_override=_rates(), bonus_override=BonusConfig())
+    assert current[1].gp_exception_prem > 0
+    for current_row, guaranteed_row in zip(current[1:], guaranteed[1:]):
+        assert guaranteed_row.gross_premium == pytest.approx(current_row.gp_exception_prem)
+        assert guaranteed_row.gp_exception_prem == 0
+        assert not guaranteed_row.gp_exception_mode
+
+
+@pytest.mark.parametrize("account_value", [0.0, -605.2])
+def test_starting_exception_ignores_billing_and_immediately_funds_empty_av(
+    monkeypatch, account_value,
+):
+    _patch(monkeypatch)
+    policy = _md_policy()
+    policy.glp = 0.0
+    policy.gsp = 100_000.0
+    policy.modal_premium = 5_000.0
+    policy.account_value = account_value
+    states = IllustrationEngine().project(
+        policy, months=2, rates_override=_rates(), bonus_override=BonusConfig())
+    for state in states[1:]:
+        assert state.gross_premium == 0
+        assert state.gp_exception_prem > 0
+        assert state.av_end_of_month == pytest.approx(0.0, abs=0.01)
+        assert not state.lapsed
+
+
+@pytest.mark.parametrize("has_shadow,past_snet", [(True, True), (False, False)])
+def test_starting_exception_preserves_shadow_and_safety_net_gates(has_shadow, past_snet):
+    policy = _md_policy()
+    policy.glp = 0.0
+    policy.ccv_active = has_shadow
+    result = calc_engine._compute_exception_premium(
+        IllustrationOptions(), policy, PlancodeConfig(), _rates(), 1,
+        av_after_charge=-100.0, coi_rate=6.0,
+        guideline_limit_reached=False, past_snet=past_snet,
+        prior_exception_mode=True, prior_lapsed=False, attained_age=70)
+    assert result.prem == 0
+    assert result.av_after_exception == -100.0
 
 
 def test_monthly_deduction_premium_holds_account_value_flat(monkeypatch):

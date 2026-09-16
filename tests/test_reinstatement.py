@@ -142,6 +142,26 @@ def test_safety_net_requires_next_accumulation_not_current(projection):
     assert result.states[-1].accumulated_mtp == 1020.0
 
 
+def test_safety_net_breakdown_exposes_each_term_and_reconciles(projection):
+    p, config, _, _, run = projection
+    config.snet_period = 30
+    p.withdrawals_to_date = 200.0
+    p.regular_loan_principal = 100.0
+    config.loan_charge_rate_curr = config.loan_charge_rate_guar = 0.12
+    result = run()
+    end = result.states[-1]
+    rows = dict(result.breakdown)
+    assert rows["Starting premiums paid"] == "1,000.00"
+    assert rows["Starting accumulated withdrawals"] == "200.00"
+    assert rows["Starting accumulated minimum target premium"] == "1,000.00"
+    assert rows["Next accumulated withdrawals"] == "200.00"
+    assert rows["Next premiums paid (including quote)"] == f"{1000 + result.premium:,.2f}"
+    margin = (end.premiums_to_date_after_exception - end.withdrawals_to_date
+              - rein._debt_at_deduction(end) - end.accumulated_mtp)
+    assert 0 <= margin < 0.01
+    assert "must cover accumulated MTP" in result.explanation
+
+
 def test_safety_net_ceasing_before_target_switches_basis(projection):
     p, config, _, _, run = projection
     config.snet_period = 30

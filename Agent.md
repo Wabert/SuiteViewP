@@ -1025,6 +1025,74 @@ flat extras, benefit ratings and issue ages display as zero, not blank.
 See `docs/POLVIEW_CLAUDE.md` for regression tests and the read-only UL054808
 verification helper.
 
+## PolView Policy Record segments 55 and 57
+
+The Policy Record viewer shows **only segments with policy data**, using the
+canonical record/table mapping through `PolicyInformation`. A populated segment
+without a supported screen keeps its tab but shows only "This screen cannot be
+reproduced in PolView at this time." No policy, absent segments and loading
+failures must never display captured screens. Data-access errors remain explicit,
+not assumed empty. Every displayed value supports right-click Copy through
+`CopyableLabel`; independently colored bits copy their complete flag value.
+Regression: `tests/test_policy_record_viewer.py`.
+Segment 69's 24 mapped FH tables have verified policy/company keys but no
+`CK_SYS_CD`; `PolicyData` keeps an explicit verified set, not a blanket prefix
+exception. Bind string keys as `SQL_VARCHAR` with `setinputsizes`: DataDirect
+rejects inferred Unicode parameter types with HY004. Preserve `FH_FIXED` date/
+sequence ordering. See `tests/test_policy_record_history_keys.py`.
+
+Individual Fund Control (6255) joins the common `LH_COV_IVM_FND_CTL` header
+to `LH_COV_FXD_FND_CTL` by the complete policy/phase/fund key. Non-tiered
+fixed records are 79 bytes; High Phase occupies 60-61, not the archived
+HTML's single byte. All four UL045809 GP/U1 lines match the supplied capture.
+Variable-fund and tiered variants remain explicitly unavailable until live
+verification; never silently discard their extensions. NULL slots are
+annotated and only verified flag bits are live.
+
+Fund Allocation (6257) is live through `PolicyInformation`, retaining every
+allocation type/sequence. Both source tables join on `FND_ALC_SEQ_NBR`;
+`LH_FND_ALC.SEG_IDX_NBR` orders the entries, despite swapped workbook
+descriptions. Header length is 30 plus 16 bytes per allocation. P/D/U values
+use separate percent/dollar/unit columns; C dates use `CRG_DED_ALC_EFF_DT`.
+Never turn NULL amounts into zero. Only verified flag bits are live.
+UL045809 matches the supplied capture; U0633187 verifies multiple C/P/V sets.
+Regression: `tests/test_policy_record_segment55.py` and
+`tests/test_policy_record_segment57.py`. See `docs/POLVIEW_CLAUDE.md` for
+read-only/native checks.
+
+## PolView Policy Record segment 67
+
+Renewal Rates (6267) is live through `PolicyInformation`, grouped by
+phase/person/sequence and ordered across the five rate/guideline entry tables
+by `SEG_IDX_NBR`. The renewal-period header is 22 bytes plus 11 per entry.
+Ordinary `RNL_RT` already holds packed digits; A/S guideline amounts instead
+need cents and preserve negative `D` signs. Never replace NULL amounts with
+zero or count `TH_COV_INS_RNL_RT` extension rows as additional entries.
+UL045809 matches the supplied CyberLife screen; U0633187 exercises multiple
+phases, extras and benefits. See `docs/POLVIEW_CLAUDE.md` for the live probe,
+native screenshot helper and `tests/test_policy_record_segment67.py`.
+
+## PolView Payment Accumulation (60)
+
+The supplied 6260 capture is **segment 60**, not 61. It is live through
+`PolicyInformation` and matches UL045809's three rows. The current 139-byte
+layout includes `LH_POL_TOTALS.TOT_LTC_CST_OF_INS` before the used-accumulator
+counter; the old HTML mislabels these final values. NULL numeric slots retain
+CyberLife's `.00` display but are dim and explicitly labeled NULL; reserved
+flags remain amber examples. Nonzero monthly extensions require further
+verification. Segment **61 is user-reserved** in CyberDoc and has no supplied
+DB2 mapping; do not invent a standard 61. See `docs/POLVIEW_CLAUDE.md`.
+
+## PolView Annual Totals (63/64)
+
+Policy-year (6263) and calendar-year (6264) screens read stored totals through
+`PolicyInformation`; never recalculate their history from current values.
+Preserve policy-year bucket 0, numeric/date ordering, negative amounts and the
+one-decimal life factor. Known flag bits come from DB2; reserved bits stay
+amber examples. NULL slots remain dim and explicitly annotated. UL045809's
+nine rows per segment match all 36 supplied capture lines. Regression and
+read-only/native verification commands are in `docs/POLVIEW_CLAUDE.md`.
+
 ## PolView UL Reinstatement
 
 Policy Support's **UL Reinstatement** button opens an optional **Reinstatement**
@@ -1079,6 +1147,30 @@ Calculate action read-only (optional `--output` writes the verification JSON).
 `--expect-opening-av` checks the starting post-deduction AV; `--reference` can
 compare displayed ledger cells against a supplied JSON list keyed by Date.
 
+## RERUN existing GP exception periods
+
+An inforce GPT policy with a known GLP of zero starts in the exception premium
+period. RERUN suppresses scheduled, unscheduled and Monthly Deduction premiums,
+spends the existing account value, then uses calculated GP exception premiums.
+This starting status does not require the Allow GP Exception Premium checkbox;
+the existing safety-net, shadow-account and maturity restrictions still apply.
+The red Input notice identifies the period and explains the premium treatment.
+Unknown GLP is not evidence of zero; `glp_is_known` preserves that distinction
+when loading/saving the illustration basis. Current/historical manual GLP edits
+are explicit known assumptions. From-issue scenarios do not inherit the period.
+
+Guaranteed projections still use the current side's locked cash flows, not
+newly calculated guaranteed exception premiums. PolView's GLP-adjustment
+what-ifs explicitly disable starting-period recognition: their hypothetical
+GLP=0 funding comparison is not an assertion of existing exception status.
+Regression coverage is in `tests/test_illustration_monthly_deduction_premium.py`
+and the red-notice test in `tests/test_illustration_inputs_dynamic.py`.
+Read-only live/native verification:
+`tools/app/verify_inforce_exception_period.py --policy U0307077 --output-dir <directory>`.
+Verified 2026-09-15: GPT, GLP=0, starting AV=-605.20; no regular premiums,
+calculated exception premiums from the first projected month, zero regular
+premium solved to maturity, and the red notice visible.
+
 ## RERUN new-business / from-issue scenarios
 
 The policy-scoped **Inforce | New Business - From Issue** toggle on Illustration
@@ -1125,6 +1217,125 @@ Regression coverage: `tests/test_illustration_run_from_issue.py`,
 access: `tools/app/verify_issue_illustration.py --output-dir <directory>` uses
 a synthetic policy and captures both themes. Month-end issue dates stay anchored
 to the original issue day, including the Illustration-to-Date cutoff.
+
+## RERUN Value Rollback
+
+**Options > Edit Record** enables the entire valuation-editing feature. This
+app-wide, session-only option defaults off. Off means the original read-only
+Policy view: no valuation selector, inline value editors, or coverage-edit note.
+Disabling restores loaded values for every open policy and invalidates their
+valuation-specific results. Saved valuation cases require the option before
+loading or comparing; never silently run their historical assumptions while off.
+
+When enabled, the policy-level **Valuation Date / Update** strip defaults to the loaded
+valuation date and includes recorded monthliversary values within six calendar
+months before it; missing months are never invented. There is no Rollback toggle.
+Selecting a date alone does nothing: **Update** applies it. Updating the current
+date restores the loaded basis and clears manual value/coverage assumptions.
+Historical selection is a scenario basis, not a change to the live policy.
+Value editing is separate from New Business - From Issue and ABR Quote.
+
+Keep the loaded `IllustrationPolicyData` immutable. Historical data flows through
+`PolicyInformation` into captured rollback snapshots; scenario construction
+applies a snapshot to a copy before projection inputs. Saved/imported cases
+must retain both the source snapshot and the applied rollback selection and
+manual edits. Policy-list switching retains that policy's applied basis;
+explicit Get resets inputs. A failed rollback must leave the prior applied
+basis intact, with an actionable error.
+
+**Account Value** and **Shadow Account Value** are inline inputs beside their
+Fund Values labels. They default to the selected basis's values; Enter or leaving
+the field applies an edit. **DB Option** is an inline combo beside its Policy Info
+label. **Coverages and Benefits** open detail windows with an editable **Amount**
+row and an **Apply** button. These controls work for every applied current or historical
+inforce date while **Options > Edit Record** is selected. All edits are explicit scenario
+assumptions, never live policy edits.
+
+Edit Record also exposes premium-paying Status, the six regular/preferred/variable
+loan principal/accrued-interest amounts, loan charge rates, premium/withdrawal
+accumulators, MTP/GLP/GSP/commission targets, MAP cease date, cost basis, MEC
+status, 7-pay date/cash value/premium/lowest DB and all seven TAMRA contributions.
+These edits share the same saved-case/Compare scenario path as AV and shadow.
+Fund and allocation tables allow only numeric value edits for existing fund IDs;
+there are no add/remove/rename controls. Their edits are staged with Apply/Reset;
+allocation percentages must total 100%. Unapplied fund edits block Run/Save and
+Compare rather than silently projecting or saving the previous values.
+Account Value, fund balances and loan principal are independent manual assumptions.
+Editing fund balances does not recalculate AV or loans; edit those fields separately.
+Current-date AV edits retain existing fund IDs and balances. Historical total-only
+AV never invents a fund breakdown.
+
+Coverage/benefit editors are owned, non-modal top-level tool windows, not widgets
+confined inside RERUN. Clear their reference on the explicit `closed` signal
+before deferred deletion; `destroyed` sender identity is not a reliable reopening
+guard under PyQt. Header Close, Cancel and Apply must all allow reopening.
+The date label/combo/Update have aligned 26px heights. Only an applied date
+different from the loaded valuation date activates the two-tone purple-to-white
+header and notice gradient; current-date edits retain the normal header theme.
+
+Historical specified amounts and death-benefit option are not reconstructed.
+Changing to a different rollback date resets those date-specific edits; review
+them again. The title, persistent
+mode notice, Policy tab and output/export basis must identify rollback so
+historical values cannot be mistaken for current inforce values.
+
+`illustration/core/value_rollback.py` owns recovery and validation. U1MV AV is
+already post-deduction. Ordinary unreversed PR receipts are reversed from the
+current paid/cost-basis totals, including processed receipts after the loaded
+valuation date; same-day ordering uses the recorded CD sequence. Pending
+premiums are excluded only after exact reconciliation to the current paid total.
+TAMRA contributions are matched by year keys, not row order. Loans use exact-date
+fund/phase/preferred/interest-status buckets, never current/sentinel rows.
+
+AccumMTP/AccumGLP are **derived, not archived**: reverse monthly MTP and
+anniversary GLP on an explicitly unchanged target/coverage basis (GLP stops
+accruing at age 100). `LH_POL_TARGET.TAR_DT` is not a snapshot date. CVAT's
+AccumGLP is not applicable. Current support is single-base UL/IUL with
+no detected target-affecting changes or unverified transaction effects;
+unsupported or ambiguous essential data blocks Update rather than guessing.
+Manual face edits re-resolve current rate bands at the existing rate-loading
+boundary, preserving the original surrender-charge band.
+
+**IUL uses historical total AV only.** Do not require or reconstruct individual
+historical fund/bucket balances for rollback. Clear the historical fund detail;
+retain loaded premium allocations and illustrated crediting assumptions as
+forward assumptions, not historical holdings. The Policy tab explicitly labels
+this aggregate-only basis, and report/export limitations carry it. Current and
+guaranteed projections work without historical buckets, including WAIR crediting.
+Recovery failures identify the actual historical blocker rather than cascading
+"missing" accumulator errors when the current amounts are present.
+
+The current XP target does **not** recover historical shadow balances.
+Rollback can display the other recovered values while showing shadow as
+**Unavailable**. Enter an explicit historical amount (including zero) directly in
+**Shadow Account Value** to persist a manual assumption and unlock projection.
+There is no separate Historical Shadow button.
+Until then Run Values is disabled; scenario construction and the engine also
+refuse the incomplete basis. Never use the current shadow amount as historical.
+Historical NSP and tax-test recalculation are not reconstructed.
+
+Regression coverage: `tests/test_value_rollback_{data,scenario,ui,outputs}.py`
+and the rollback rate-band test in
+`tests/test_illustration_band_specified_amount.py`. Read-only live/native check:
+`tools/app/verify_value_rollback.py --policy UE055782 --company 01 --output-dir
+<directory>` captures the screenshot policy's six prior dates, recovered values
+and shadow gate. `--policy UE000576 --project` also exercises the real engine on
+a complete historical basis. Both preserve the loaded policy and write no DB
+changes. Full basis limitations accompany reports/exports and the Policy
+banner's tooltip.
+For IUL, `--policy UE215622 --company 01 --date 2026-08-10 --project
+--output-dir <directory>` verifies the selected historical basis and native
+AV/AccumMTP/AccumGLP display without requiring bucket data. `--date` validates
+only that recorded date; older dates can still have genuine target-change or
+unverified-transaction blockers. IUL current/guaranteed engine regression:
+`tests/test_illustration_iul_crediting.py`.
+Add `--exercise-edits` to verify inline current/historical AV, shadow, DB option
+and coverage edits through the native controls and Run Values without saving
+or modifying the loaded policy.
+Add `--exercise-record` to exercise every scalar/loan/TAMRA editor plus native
+fund-cell editing, Apply and pending-draft guards on current and historical bases.
+Expanded regression coverage: `tests/test_edit_record_scenario.py` and
+`tests/test_edit_record_ui.py`.
 
 ## Illustration COLA coverages and surrender charges
 

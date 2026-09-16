@@ -24,6 +24,11 @@ from ..formatting import format_currency, format_date, US_DATE_FMT
 from ..widgets import StyledInfoTableGroup, StyledTableGroup
 
 
+def _format_rate(value) -> str:
+    """Format a CyberLife percentage while preserving an explicit zero."""
+    return "" if value in (None, "") else f"{float(value):.2f}%"
+
+
 class LoansTab(QWidget):
     """Tab displaying policy loan details — shown only when a policy has loans."""
 
@@ -204,8 +209,9 @@ class LoansTab(QWidget):
         # For trad: charge rate from LH_BAS_POL
         is_variable = ln_typ in ("6", "7")
         if not is_variable:
-            chrg = policy.data_item("LH_BAS_POL", "LN_PLN_ITS_RT")
-            self._reg_group.set_value("reg_charge", f"{float(chrg):.2f}%" if chrg else "")
+            self._reg_group.set_value(
+                "reg_charge", _format_rate(policy.fixed_loan_interest_rate)
+            )
         else:
             self._reg_group.set_value("reg_charge", "")
 
@@ -280,10 +286,11 @@ class LoansTab(QWidget):
         self._reg_group.set_value("reg_principal", format_currency(reg_pri))
         self._reg_group.set_value("reg_accrued", format_currency(reg_acc))
 
-        # Impaired crediting rate & charge rate from LH_NON_TRD_POL
-        reg_charge = policy.data_item("LH_NON_TRD_POL", "LN_ITS_CRG_RT")
-        self._reg_group.set_value("reg_impaired", f"{float(reg_credit):.2f}%" if reg_credit else "")
-        self._reg_group.set_value("reg_charge", f"{float(reg_charge):.2f}%" if reg_charge else "")
+        # Credit rate is non-traditional data; the charge rate is base-policy data.
+        self._reg_group.set_value("reg_impaired", _format_rate(reg_credit))
+        self._reg_group.set_value(
+            "reg_charge", _format_rate(policy.fixed_loan_interest_rate)
+        )
 
         # Loan type
         ln_typ = str(policy.data_item("LH_BAS_POL", "LN_TYP_CD") or "")
@@ -297,9 +304,10 @@ class LoansTab(QWidget):
             self._pref_group.setVisible(True)
             self._pref_group.set_value("pref_principal", format_currency(pref_pri))
             self._pref_group.set_value("pref_accrued", format_currency(pref_acc))
-            pref_charge = policy.data_item("LH_NON_TRD_POL", "PRF_LN_ITS_CRG_RT")
-            self._pref_group.set_value("pref_impaired", f"{float(pref_credit):.2f}%" if pref_credit else "")
-            self._pref_group.set_value("pref_charge", f"{float(pref_charge):.2f}%" if pref_charge else "")
+            self._pref_group.set_value("pref_impaired", _format_rate(pref_credit))
+            self._pref_group.set_value(
+                "pref_charge", _format_rate(policy.preferred_loan_interest_rate)
+            )
         else:
             self._pref_group.setVisible(False)
 
@@ -345,13 +353,11 @@ class LoansTab(QWidget):
 
             # Charge Rate
             cr = d["charge_rt"]
-            cr_text = f"{float(cr):.2f}%" if cr else ""
-            table.setItem(idx, 6, QTableWidgetItem(cr_text))
+            table.setItem(idx, 6, QTableWidgetItem(_format_rate(cr)))
 
             # Credit Rate
             cred = d.get("credit_rt")
-            cred_text = f"{float(cred):.2f}%" if cred else ""
-            table.setItem(idx, 7, QTableWidgetItem(cred_text))
+            table.setItem(idx, 7, QTableWidgetItem(_format_rate(cred)))
 
             # Interest Status
             table.setItem(idx, 8, QTableWidgetItem(d.get("int_status", "")))

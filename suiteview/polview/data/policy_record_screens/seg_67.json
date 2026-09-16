@@ -468,7 +468,7 @@
       },
       {
         "text": "000150000C",
-        "field": "Rate"
+        "field": "Extra Percentage"
       },
       {
         "text": "  ",
@@ -943,11 +943,18 @@
   "fields": {
     "Screen Name": [],
     "Policy Number": [],
-    "Segment Identification": [],
-    "Segment Length": [],
+    "Segment Identification": [
+      "COBOL: FURIDENT-SEGMENT-IDENT",
+      "Constant: 67"
+    ],
+    "Segment Length": [
+      "COBOL: FURLNGTH-SEGMENT-LENGTH",
+      "Format: 2 bytes binary; 22 fixed bytes plus 11 bytes per entry",
+      "Source: CyberDoc D202, printed pp.194, 197, 612"
+    ],
     "Phase Code": [
       "COBOL: FURPHASE-PHASE-CODE",
-      "DB2: LH_BNF_INS_GDL_PRM.COV_PHA_NBR"
+      "DB2: LH_COV_INS_RNL_PER.COV_PHA_NBR"
     ],
     "Plan Description Search Key": [
       "COBOL: FURPDSKY-PLAN-DESC-SEARCH-KEY",
@@ -959,46 +966,122 @@
     ],
     "Person Code": [
       "COBOL: FURPERSN-PERSON-CODE",
-      "DB2: LH_BNF_INS_GDL_PRM.PRS_CD"
+      "DB2: LH_COV_INS_RNL_PER.PRS_CD"
     ],
     "Person Sequence": [
       "COBOL: FURPSEQ-SEQUENCE",
-      "DB2: LH_BNF_INS_GDL_PRM.PRS_SEQ_NBR"
+      "DB2: LH_COV_INS_RNL_PER.PRS_SEQ_NBR"
     ],
     "Number of Rate Segments": [
-      "COBOL: FURNOSEG-NUMBER-SEGMENTS"
+      "COBOL: FURNOSEG-NUMBER-SEGMENTS",
+      "Format: S9(3) COMP-3; counts all 11-byte entries, including guideline premiums",
+      "Source: CyberDoc D202, printed p.197"
     ],
     "Rate Type Code": [
       "COBOL: FURTYREC-TYPE-CODE",
-      "DB2: LH_BNF_INS_GDL_PRM.PRM_RT_TYP_CD"
+      "DB2: LH_COV_INS_RNL_RT.PRM_RT_TYP_CD",
+      "DB2: LH_BNF_INS_RNL_RT.PRM_RT_TYP_CD",
+      "DB2: LH_SST_XTR_RNL_RT.PRM_RT_TYP_CD",
+      "DB2: LH_COV_INS_GDL_PRM.PRM_RT_TYP_CD",
+      "DB2: LH_BNF_INS_GDL_PRM.PRM_RT_TYP_CD",
+      "A = guideline level premium; S = guideline single premium",
+      "Source: CyberDoc D202, printed pp.197-198"
     ],
     "Benefit Type": [
       "COBOL: FURBTYPE-BENEFIT-TYPE",
-      "DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_TYP_CD"
+      "DB2: LH_BNF_INS_RNL_RT.SPM_BNF_TYP_CD",
+      "DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_TYP_CD",
+      "Coverage entries use the documented marker, not a supplemental-benefit lookup",
+      "Source: CyberDoc D202, printed p.198"
     ],
     "Benefit Subtype": [
       "COBOL: FURBSBTP-BENEFIT-SUBTYPE",
-      "DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_SBY_CD"
+      "DB2: LH_BNF_INS_RNL_RT.SPM_BNF_SBY_CD",
+      "DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_SBY_CD",
+      "DB2: LH_COV_INS_RNL_RT.DTH_BNF_PLN_OPT_CD",
+      "DB2: LH_COV_INS_GDL_PRM.DTH_BNF_PLN_OPT_CD",
+      "Coverage C uses **; the joint-insured rate key uses *J",
+      "Source: CyberDoc D202, printed p.198"
     ],
     "Rate Sex": [
       "COBOL: FURRTSEX-RATE-SEX",
-      "DB2: LH_BNF_INS_GDL_PRM.RT_SEX_CD"
+      "DB2: LH_COV_INS_RNL_RT.RT_SEX_CD",
+      "DB2: LH_BNF_INS_RNL_RT.RT_SEX_CD",
+      "DB2: LH_SST_XTR_RNL_RT.RT_SEX_CD"
     ],
     "Rate Class": [
       "COBOL: FURRTCLS-RATE-CLASS",
-      "DB2: LH_BNF_INS_GDL_PRM.RT_CLS_CD"
+      "DB2: LH_COV_INS_RNL_RT.RT_CLS_CD",
+      "DB2: LH_BNF_INS_RNL_RT.RT_CLS_CD",
+      "DB2: LH_SST_XTR_RNL_RT.RT_CLS_CD"
     ],
     "Rate Band": [
       "COBOL: FURRTBND-RATE-BAND",
-      "DB2: LH_BNF_INS_RNL_RT.RT_BAN_CD"
+      "DB2: LH_COV_INS_RNL_RT.RT_BAN_CD",
+      "DB2: LH_BNF_INS_RNL_RT.RT_BAN_CD",
+      "DB2: LH_SST_XTR_RNL_RT.RT_BAN_CD"
     ],
     "Rate": [
       "COBOL: FURCRATE-CURRENT-RATE",
-      "DB2: LH_BNF_INS_RNL_RT.RNL_RT"
+      "COBOL: FURRDRTE-RIDER-RENEWAL-RATE",
+      "COBOL: FURFXPRM-FIXED-PREMIUM",
+      "COBOL: FURMAPTG-MAP-TARGET-RATE",
+      "DB2: LH_COV_INS_RNL_RT.RNL_RT",
+      "DB2: LH_BNF_INS_RNL_RT.RNL_RT",
+      "Format: 5 packed bytes; 9 digits and sign; interpretation depends on entry/product",
+      "Current rate: 5 decimals; traditional renewable: 4; fixed premium: 2; target: 3",
+      "Renewal RNL_RT values are stored as packed-digit integers; do not multiply them by the implied decimal scale",
+      "Source: CyberDoc D202, printed pp.200-201; live UL045809 verification"
     ],
-    "Table Rating Code": [],
-    "Rate Key": [],
-    "GLP/GSP Premium": [],
+    "Table Rating Code": [
+      "COBOL: FURBTPST-BEN-TYPE-SUBTYPE",
+      "DB2: LH_SST_XTR_RNL_RT.SST_XTR_RT_TBL_CD",
+      "Format: 2 characters",
+      "Source: CyberDoc D202, printed p.198"
+    ],
+    "Rate Key": [
+      "COBOL: FURRTKEY-RATE-KEY",
+      "DB2: LH_SST_XTR_RNL_RT.SST_XTR_PCT_IND",
+      "PCT identifies a percentage-based table extra; otherwise sex, class and band form the key",
+      "Source: CyberDoc D202, printed p.199"
+    ],
+    "GLP/GSP Premium": [
+      "COBOL: FURPREM-NAP-NSP-PREM",
+      "DB2: LH_COV_INS_GDL_PRM.GDL_PRM_AMT",
+      "DB2: LH_BNF_INS_GDL_PRM.GDL_PRM_AMT",
+      "Format: S9(9)V9(2) COMP-3; 6 packed bytes",
+      "Display: absolute dollar amount times 100, padded to 11 digits, followed by C positive or D negative",
+      "A = GLP dollars; S = GSP dollars; 3 = GSP adjustment dollars",
+      "Source: CyberDoc D202, printed p.201"
+    ],
+    "GLP/GSP Units": [
+      "COBOL: FURUNITS-NAP-NSP-UNITS",
+      "DB2: LH_COV_INS_GDL_PRM.GDL_PRM_UNT_QTY",
+      "DB2: LH_BNF_INS_GDL_PRM.GDL_PRM_UNT_QTY",
+      "Format: S9(8)V9(3) COMP-3; redefines the same 6 bytes as guideline dollars",
+      "Type 1 = GLP adjustment units; type 2 = GSP adjustment units; do not use for A/S",
+      "Source: CyberDoc D202, printed p.201"
+    ],
+    "Guideline Rate Key": [
+      "COBOL: FURGDKEY-GUIDELINE-RATE-KEY",
+      "Format: 2 characters; blank for system-calculated guideline premiums",
+      "Otherwise the associated rate key's sex/class; guideline rates do not vary by band",
+      "Source: CyberDoc D202, printed p.201"
+    ],
+    "Extra Percentage": [
+      "COBOL: FURCRATE-CURRENT-RATE",
+      "DB2: LH_SST_XTR_RNL_RT.SST_XTR_PCT",
+      "Format: S9(4)V9(5) COMP-3; 5 packed bytes",
+      "Scale the decimal percentage by 100000 for display; 1.50 becomes 000150000C",
+      "Source: CyberDoc D202, printed pp.199-200; live U0633187 verification"
+    ],
+    "Extra Unit Amount": [
+      "COBOL: FURCRATE-CURRENT-RATE",
+      "COBOL: FURFXPRM-FIXED-PREMIUM",
+      "DB2: LH_SST_XTR_RNL_RT.SST_XTR_UNT_AMT",
+      "Format: 5 packed bytes; flexible-premium extra uses 5 decimals; fixed-premium dollar extra uses 2",
+      "Source: CyberDoc D202, printed p.200"
+    ],
     "Current Date": [],
     "Part of the user ID?": [],
     "Region and Company": []

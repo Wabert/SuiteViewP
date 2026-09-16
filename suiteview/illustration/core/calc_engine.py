@@ -126,9 +126,27 @@ class IllustrationEngine:
         Returns:
             List of MonthlyState, one per projected month.
         """
+        if policy.rollback_requires_shadow_value:
+            raise ValueError(
+                "Historical shadow account value is unavailable. Enter a verified "
+                "historical shadow amount before projecting Value Rollback.")
         if options is None:
             options = IllustrationOptions()
+        starting_exception_period = (
+            options.recognize_inforce_exception_period
+            and policy.in_exception_period and not options.guaranteed_assumption)
         config = load_plancode(policy.plancode)
+        charge_overrides = {
+            config_field: getattr(policy, policy_field)
+            for policy_field, config_field in (
+                ("regular_loan_charge_rate", "loan_charge_rate_guar"),
+                ("preferred_loan_charge_rate", "pref_loan_charge_rate_guar"),
+            )
+            if policy_field in policy.starting_record_fields
+        }
+        if charge_overrides:
+            # The *_curr fields are collateral CREDIT rates, not loan charges.
+            config = replace(config, **charge_overrides)
         if policy.run_from_issue:
             policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
@@ -177,7 +195,7 @@ class IllustrationEngine:
         # Base cases with no possible mutation keep the original object.
         changes_by_duration: Dict[int, list] = {}
         requires_private_policy = (
-            options.allow_exception_prems
+            (options.allow_exception_prems or starting_exception_period)
             and str(policy.db_option or "").upper() == "B"
         )
         if future_inputs is not None and not future_inputs.is_empty():
@@ -372,17 +390,18 @@ class IllustrationEngine:
             accumulated_glp=policy.accumulated_glp,
             guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
             guideline_forceout=0.0,
+            gp_exception_mode=starting_exception_period,
+            inforce_exception_period=starting_exception_period,
+            exception_prem_mode=starting_exception_period,
             guideline_av_before_monthly_deduction=md_check_av_before_deduction,
             accumulated_7pay=sum(policy.tamra_7year_contributions or []),
             amount_in_7pay=sum(policy.tamra_7year_contributions or []),
             tamra_7pay_level=policy.tamra_7pay_level,
             tamra_7pay_start_date=policy.tamra_7pay_start_date,
+            is_mec=policy.is_mec,
             tamra_year=_tamra_year(policy, month_date_inforce),
             tamra_month_of_year=_tamra_month_of_year(policy, month_date_inforce),
-            lowest_7yr_face=(
-                float(getattr(policy, "tamra_7year_lowest_db", 0.0) or 0.0)
-                or float(policy.total_face)
-            ),
+            lowest_7yr_face=_tamra_starting_lowest_face(policy),
             planned_premium_mode=_billing_mode(policy),
             # Deduction check
             nar_av=ded0.nar_av,
@@ -824,7 +843,8 @@ class IllustrationEngine:
         # Requested premium (LS scheduled, vLumpsum unscheduled) is needed before
         # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
         requested_scheduled, requested_lumpsum = _split_requested_premium(
-            policy, config, month_inputs, attained_age
+            policy, config, month_inputs, attained_age,
+            exception_period=state.inforce_exception_period,
         )
         # Billable-to-MD: once the hand-off has latched, the row's billable
         # premium stops — the scheduled premium (the row owns the schedule
@@ -853,7 +873,8 @@ class IllustrationEngine:
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
             apply_prem_to_loan=options.apply_prem_to_loan,
-            excess_repayment_to_premium=options.apply_excess_repayment_as_premium,
+            excess_repayment_to_premium=(
+                options.apply_excess_repayment_as_premium and not state.inforce_exception_period),
             requested_lumpsum=requested_lumpsum,
             requested_scheduled=requested_scheduled,
         )
@@ -958,7 +979,7 @@ class IllustrationEngine:
                 b2md_switched = True
         md_premium_active = (
             _monthly_deduction_premium_active(options, next_year)
-            or (b2md_active and b2md_switched))
+            or (b2md_active and b2md_switched)) and not state.inforce_exception_period
         exception = _compute_exception_premium(
             options, policy, config, rates, rate_year,
             av_after_charge=av_after_charge,
@@ -1283,6 +1304,7 @@ class IllustrationEngine:
             md_premium_discount=exception.md_discount,
             exception_prem_mode=exception.mode,
             gp_exception_mode=exception.is_gp_exception,
+            inforce_exception_period=state.inforce_exception_period,
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
             gp_exception_prem_discount=exception.discount,
@@ -1531,7 +1553,8 @@ class IllustrationEngine:
         # Requested premium (LS scheduled, vLumpsum unscheduled) — needed before
         # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
         requested_scheduled, requested_lumpsum = _split_requested_premium(
-            policy, config, month_inputs, attained_age
+            policy, config, month_inputs, attained_age,
+            exception_period=state.inforce_exception_period,
         )
         # Billable-to-MD: once the hand-off has latched, the row's billable
         # premium stops (see process_month).
@@ -1552,7 +1575,8 @@ class IllustrationEngine:
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
             apply_prem_to_loan=options.apply_prem_to_loan,
-            excess_repayment_to_premium=options.apply_excess_repayment_as_premium,
+            excess_repayment_to_premium=(
+                options.apply_excess_repayment_as_premium and not state.inforce_exception_period),
             requested_lumpsum=requested_lumpsum,
             requested_scheduled=requested_scheduled,
         )
@@ -1653,7 +1677,7 @@ class IllustrationEngine:
             attained_age=attained_age,
             md_premium_active=(
                 _monthly_deduction_premium_active(options, next_year)
-                or (b2md_active and b2md_switched)),
+                or (b2md_active and b2md_switched)) and not state.inforce_exception_period,
             total_deduction=ded.total_deduction,
             guideline_limit=guideline_limit,
             premiums_to_date=prem.premiums_to_date,
@@ -1688,7 +1712,7 @@ class IllustrationEngine:
                 attained_age=attained_age,
                 md_premium_active=(
                     _monthly_deduction_premium_active(options, next_year)
-                    or (b2md_active and b2md_switched)),
+                    or (b2md_active and b2md_switched)) and not state.inforce_exception_period,
                 total_deduction=ded.total_deduction,
                 guideline_limit=guideline_limit,
                 premiums_to_date=prem.premiums_to_date,
@@ -1807,6 +1831,7 @@ class IllustrationEngine:
             md_premium_discount=exception.md_discount,
             exception_prem_mode=exception.mode,
             gp_exception_mode=exception.is_gp_exception,
+            inforce_exception_period=state.inforce_exception_period,
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
             gp_exception_prem_discount=exception.discount,
@@ -3166,6 +3191,13 @@ def _apply_guideline_forceout(
     return forceout, withdrawals_to_date + forceout, account_value_before_premium - forceout
 
 
+def _tamra_starting_lowest_face(policy: IllustrationPolicyData) -> float:
+    amount = float(policy.tamra_7year_lowest_db)
+    if "tamra_7year_lowest_db" in policy.starting_record_fields:
+        return amount
+    return amount or float(policy.total_face)
+
+
 def _tamra_year(policy: IllustrationPolicyData, month_date) -> int:
     """Policy year within the active 7-pay window (CalcEngine LD).
 
@@ -3264,11 +3296,14 @@ def _tamra_premium_display(prior_state, policy, month_date, next_month, month_in
 
     current_face = float(policy.total_face)
     if not in_period:
-        lowest = float(getattr(policy, "tamra_7year_lowest_db", 0.0) or 0.0) or current_face
+        lowest = _tamra_starting_lowest_face(policy)
     elif tamra_year == 1 and tamra_moy == 1:
         lowest = current_face
     else:
-        lowest = min(prior_state.lowest_7yr_face or current_face, current_face)
+        prior_lowest = prior_state.lowest_7yr_face
+        if not prior_lowest and "tamra_7year_lowest_db" not in policy.starting_record_fields:
+            prior_lowest = current_face
+        lowest = min(prior_lowest, current_face)
 
     return {
         "unscheduled_premium": unscheduled,
@@ -3281,7 +3316,9 @@ def _tamra_premium_display(prior_state, policy, month_date, next_month, month_in
     }
 
 
-def _split_requested_premium(policy, config, month_inputs, attained_age) -> tuple[float, float]:
+def _split_requested_premium(
+    policy, config, month_inputs, attained_age, *, exception_period=False,
+) -> tuple[float, float]:
     """Requested scheduled (LS) and unscheduled/lumpsum (vLumpsum) premium.
 
     With no premium schedule at all the modal premium bills every month (the
@@ -3289,7 +3326,7 @@ def _split_requested_premium(policy, config, month_inputs, attained_age) -> tupl
     scheduled amount and dated deposits the lumpsum. No premium is collected on
     or after the maturity date — the policy endows.
     """
-    if _at_or_after_policy_maturity(policy, config, attained_age):
+    if exception_period or _at_or_after_policy_maturity(policy, config, attained_age):
         return 0.0, 0.0
     total_override = month_inputs.total_premium if month_inputs is not None else None
     if total_override is None:

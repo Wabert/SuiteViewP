@@ -7,10 +7,9 @@ known, its COBOL / DB2 source mapping.  This turns an intimidating wall of codes
 into something self-explanatory.  Below the screen, a scrollable "Record Layout"
 reference table documents each field's byte position and source (COBOL / DB2).
 
-POC scope: a single Segment 58 (screen 6258) tab driven by sample data extracted
-from ``docs/Policy Record/Sample 6258 screen.htm`` into
-``data/policy_record_screens/seg_58.json``.  The screen is data-driven, so more
-segments become new tabs (and, later, live DB2 data) without UI changes.
+Tabs follow the loaded policy's mapped DB2 records. Absent segments are omitted;
+present segments without a supported screen show an unavailable message, never
+another policy's captured values. Each terminal value supports right-click Copy.
 
 Rendering approach (native, no browser engine):
   * Terminal screen -- per-token ``QLabel`` widgets, so tooltips + hover
@@ -25,6 +24,7 @@ import html
 import logging
 import os
 from datetime import datetime
+from itertools import groupby
 from typing import Optional
 
 from PyQt6.QtCore import Qt
@@ -35,6 +35,8 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from ..config.policy_records import POLICY_RECORD_TABLES
+from .widgets import CopyableLabel
 from .styles import (
     TAB_WIDGET_STYLE, POLVIEW_HEADER_COLORS, POLVIEW_BORDER_COLOR,
 )
@@ -48,9 +50,8 @@ _SCREEN_AMBER = "#FFC107"   # illustrative "example" values (not real DB2 data)
 _SCREEN_DIM = "#2E8B2E"     # dimmed structural bytes (reserved / null fields)
 _TERMINAL_FONT_PT = 13
 
-# Segments the viewer ships with, in tab order.  Add more entries as new
-# seg_<n>.json files are extracted.
-_SEGMENTS = ["01", "02", "53", "56", "58", "59", "66", "67"]
+_SEGMENTS = sorted(name.removeprefix("Policy Record ") for name in POLICY_RECORD_TABLES)
+_UNAVAILABLE_MESSAGE = "This screen cannot be reproduced in PolView at this time."
 
 # Tooltip palette -- dark green card, light text, gold border (readable).
 _TOOLTIP_QSS = (
@@ -79,29 +80,37 @@ def load_screen(segment: str) -> Optional[dict]:
 
 
 def build_screen(segment: str, pi) -> Optional[dict]:
-    """Return a screen dict for *segment*, populated with live policy data.
-
-    The static schema (title, ``fields`` map, ``layout_html``) always comes from
-    the bundled ``seg_<n>.json``; only the ``lines`` are rebuilt from the live
-    policy.  Returns the sample screen unchanged when live data can't be built
-    (no policy, unsupported segment, or a DB2 error), so the viewer degrades
-    gracefully instead of failing.
-    """
-    base = load_screen(segment)
-    if base is None:
-        return None
+    """Return a live/unsupported screen, or None for an absent policy segment."""
     if pi is None:
-        return _normalize_footer(base)
+        return None
+    unavailable = {
+        "segment": segment, "title": f"Policy Record {segment}",
+        "lines": [], "fields": {}, "layout_html": "",
+    }
     try:
         from suiteview.polview.models.policy_record_builder import build_segment_lines
 
+        tables = POLICY_RECORD_TABLES[f"Policy Record {segment}"]
+        has_data = False
+        for table in tables:
+            rows = pi.fetch_table(table)
+            error = pi.table_error(table)
+            if error:
+                raise ValueError(f"{table}: {error}")
+            has_data = has_data or bool(rows)
+        if not has_data:
+            return None
+        base = load_screen(segment)
+        if base is None:
+            return unavailable
+        unavailable["title"] = base["title"]
         lines = build_segment_lines(segment, pi, base)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to build live policy-record segment %s", segment)
-        lines = None
+        return {**unavailable, "live_error": str(exc)}
 
     if not lines:
-        return _normalize_footer(base)
+        return unavailable
 
     live = dict(base)
     live["lines"] = lines
@@ -118,8 +127,7 @@ _FOOTER_PLAIN_FIELDS = frozenset({"Part of the user ID?", "Region and Company"})
 def _normalize_footer(screen: dict) -> dict:
     """Normalize the terminal footer chrome for display.
 
-    * The ``Current Date`` token always shows *today* -- so a captured-reference
-      screen shows the current date, not the date it happened to be captured.
+    * The ``Current Date`` token always shows *today*.
     * The user-id and region/company tokens are rendered as plain green text
       (``field`` cleared) so they carry no hover popup -- they're terminal
       chrome, not policy data worth describing.
@@ -157,7 +165,7 @@ def _terminal_font() -> QFont:
     return font
 
 
-class _MainframeToken(QLabel):
+class _MainframeToken(CopyableLabel):
     """A single run of terminal text.  When it carries a field name it becomes
     hover-aware: a readable tooltip with the field + source mapping, a highlight,
     and a pointing cursor.
@@ -246,13 +254,20 @@ class _TerminalScreen(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         if not runs:
             layout.addWidget(_MainframeToken(" ", None, fields_map))
-        for run in runs:
-            layout.addWidget(_MainframeToken(
-                run["text"], run.get("field"), fields_map,
-                example=run.get("example", False),
-                dim=run.get("dim", False),
-                note=run.get("note"),
-            ))
+        for field, group in groupby(runs, key=lambda run: run.get("field")):
+            group = list(group)
+            value = "".join(run["text"] for run in group)
+            for run in group:
+                token = _MainframeToken(
+                    run["text"], field, fields_map,
+                    example=run.get("example", False),
+                    dim=run.get("dim", False),
+                    note=run.get("note"),
+                )
+                if field and len(group) > 1:
+                    # Independently colored flag bits still copy as one value.
+                    token.set_copy_text_provider(lambda value=value: value)
+                layout.addWidget(token)
         layout.addStretch()
         return row
 
@@ -281,9 +296,10 @@ class _AutoHeightBrowser(QTextBrowser):
 
 
 def _tab_badge(text: str, kind: str) -> QLabel:
-    """A per-tab honesty badge: green for LIVE DB2 data, amber for a captured
-    reference screen (so mixing live and reference tabs is never misleading)."""
+    """Green for live data; amber for an explicit data-load/rendering error."""
     label = QLabel(text)
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setWordWrap(True)
     if kind == "live":
         style = ("color: #0A3D0A; background: #DFF5DF; "
                  "border: 1px solid #2E8B2E;")
@@ -314,6 +330,15 @@ class _SegmentTab(QScrollArea):
 
         if badge is not None:
             layout.addWidget(_tab_badge(*badge))
+
+        if not screen.get("live"):
+            message = QLabel(_UNAVAILABLE_MESSAGE)
+            message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            message.setWordWrap(True)
+            message.setStyleSheet("color: #666666; font-style: italic; padding: 16px;")
+            layout.addWidget(message, 1)
+            self.setWidget(canvas)
+            return
 
         # Terminal screen
         layout.addWidget(_TerminalScreen(screen))
@@ -347,15 +372,15 @@ class _SegmentTab(QScrollArea):
 class PolicyRecordViewerWindow(FramelessWindowBase):
     """Frameless PolView-themed window hosting the policy-record segment tabs.
 
-    When a policy is loaded, the segments are populated with that policy's live
-    DB2 data; otherwise the bundled sample screen is shown (clearly labeled).
+    Only policy-backed segments are shown. Unsupported screens stay blank.
     """
 
     def __init__(self, parent=None, policy_number: str = "",
                  region: str = "CKPR", company_code: str = ""):
-        self._policy_number = (policy_number or "").strip()
-        self._region = (region or "CKPR").strip() or "CKPR"
-        self._company_code = (company_code or "").strip()
+        self._policy_number = (policy_number or "").strip().upper()
+        self._region = (region or "CKPR").strip().upper() or "CKPR"
+        self._company_code = (company_code or "").strip().upper()
+        self._policy_error = ""
         super().__init__(
             title="SuiteView:  PolView  \u2014  Policy Record",
             default_size=(1160, 720),
@@ -366,20 +391,28 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
         )
 
     def _load_policy(self):
-        """Resolve the loaded policy, or None (sample mode) if unavailable."""
+        """Resolve the policy without substituting captured-reference data."""
         if not self._policy_number:
             return None
         try:
             from suiteview.core.policy_service import get_policy_info
 
-            return get_policy_info(
+            pi = get_policy_info(
                 self._policy_number,
                 self._region,
                 self._company_code or None,
             )
-        except Exception:
+            if pi is None or not pi.exists:
+                self._policy_error = (
+                    pi.last_error if pi is not None and pi.last_error
+                    else f"Policy {self._policy_number} was not found."
+                )
+                return None
+            return pi
+        except Exception as exc:
             logger.exception("Policy Record viewer: failed to load %s",
                              self._policy_number)
+            self._policy_error = f"Unable to load policy {self._policy_number}: {exc}"
             return None
 
     def build_content(self) -> QWidget:
@@ -393,25 +426,26 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
-        any_live = False
-        for segment in _SEGMENTS:
+        for segment in _SEGMENTS if pi is not None else ():
             screen = build_screen(segment, pi)
             if not screen:
                 continue
             live = bool(screen.get("live"))
-            any_live = any_live or live
-            badge = self._badge_for(segment, screen, pi, live)
+            badge = (
+                self._badge_for(segment, screen, pi, live)
+                if live or screen.get("live_error") else None
+            )
             tab = _SegmentTab(screen, badge=badge)
             index = self.tabs.addTab(tab, segment)
             self.tabs.setTabToolTip(index, screen.get("title", f"Segment {segment}"))
 
-        layout.addWidget(self._build_legend(pi, any_live))
+        layout.addWidget(self._build_legend(pi))
         layout.addWidget(self.tabs, 1)
 
         return body
 
     def _badge_for(self, segment: str, screen: dict, pi, live: bool) -> tuple:
-        """Per-tab honesty badge text + kind (``live`` / ``sample``)."""
+        """Per-tab live status or explicit failure; never a sample-data badge."""
         title = screen.get("title", f"Segment {segment}")
         if live:
             region = str(getattr(pi, "region", self._region) or self._region)
@@ -421,31 +455,28 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
                 f"\u25CF  LIVE  \u2014  {title}  \u2014  {pi.policy_number} ({who})",
                 "live",
             )
-        return (
-            f"\u25CB  CAPTURED REFERENCE  \u2014  {title}  \u2014  sample screen "
-            "data, not this policy",
-            "sample",
-        )
+        if screen.get("live_error"):
+            return (
+                f"LIVE DATA ERROR — {title} — {screen['live_error']}",
+                "error",
+            )
+        return (_UNAVAILABLE_MESSAGE, "unavailable")
 
-    def _build_legend(self, pi, any_live: bool) -> QLabel:
-        if pi is not None and any_live:
+    def _build_legend(self, pi) -> QLabel:
+        if pi is not None:
             region = str(getattr(pi, "region", self._region) or self._region)
             company = str(getattr(pi, "company_name", "") or "")
             who = f"{region}-{company}" if company else region
             text = (
                 f"CyberLife policy record \u2014 {pi.policy_number}  ({who}).  "
-                "Each tab is labeled LIVE (this policy's DB2 data) or CAPTURED "
-                "REFERENCE (sample screen).  Hover any value for its field name "
-                "and source mapping; scroll down for the full record layout."
+                "Tabs show segments with policy data; data-load errors are identified. "
+                "Screens not yet supported remain blank. Hover a value for its source "
+                "mapping; right-click to copy. Scroll down for the record layout."
             )
+            if not self.tabs.count():
+                text += " No policy record segment data was found."
         else:
-            note = ("no policy loaded" if not self._policy_number
-                    else "live data unavailable")
-            text = (
-                f"CyberLife policy record \u2014 {note}.  Tabs show captured "
-                "reference screens.  Hover any value to see its field name and "
-                "source mapping.  Scroll down for the full record layout."
-            )
+            text = self._policy_error or "Load a policy to view its policy record."
         legend = QLabel(text)
         legend.setWordWrap(True)
         legend.setStyleSheet(

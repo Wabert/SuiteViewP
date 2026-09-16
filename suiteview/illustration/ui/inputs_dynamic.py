@@ -132,6 +132,7 @@ class PolicyContext:
     max_level_premium_room: float = 0.0
     max_level_years: int = 0
     is_cvat: bool = False
+    in_exception_period: bool = False
     has_loans: bool = False       # policy carries a loan (informational)
     has_shadow: bool = False      # active shadow account (benefit type A) — gates exceptions
     shadow_ceased: bool = False   # policy HAD a type-A benefit but it has ceased
@@ -268,7 +269,8 @@ def context_from_policy(policy) -> PolicyContext:
     except (TypeError, ValueError):
         frequency = 1
     mode = {3: "Q", 6: "S", 12: "A"}.get(frequency, "M")
-    status_code = str(getattr(policy, "status_code", "") or "")
+    status_code = str(getattr(policy, "status_code", "")
+                      or getattr(policy, "premium_pay_status_code", "") or "")
     table_rating = getattr(policy, "base_table_rating", None)
     if table_rating is None:
         getter = getattr(policy, "cov_table_rating", None)
@@ -335,6 +337,7 @@ def context_from_policy(policy) -> PolicyContext:
         max_level_premium_room=premium_room,
         max_level_years=max_level_years,
         is_cvat=is_cvat,
+        in_exception_period=bool(getattr(policy, "in_exception_period", False)),
         has_loans=bool(getattr(policy, "total_loan_balance", 0) or 0),
         rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
         table_rating=table_rating,
@@ -2257,18 +2260,25 @@ class DynamicInputsPanel(QWidget):
         # policy (the premium section reset to one INPUT row doesn't emit changed).
         self._on_premium_changed()
 
+        notices = []
         if self._ctx.suspended and self._ctx.valuation_date is not None:
             valuation = self._ctx.valuation_date
             forecast = valuation + relativedelta(months=1)
-            self.suspended_banner.setText(
+            notices.append(
                 f"POLICY IS SUSPENDED.  The illustration will still use current crediting "
                 f"rates to illustrate from the last valuation date of "
                 f"{valuation.strftime('%m/%d/%Y')}.  The forecast date remains one month "
                 f"after that valuation date — {forecast.strftime('%m/%d/%Y')} — which is "
                 f"in the past.")
-            self.suspended_banner.setVisible(True)
-        else:
-            self.suspended_banner.setVisible(False)
+        if self._ctx.in_exception_period:
+            notices.append(
+                "POLICY IS IN THE EXCEPTION PREMIUM PERIOD (GP, GLP = 0). "
+                "No regular premiums will be accepted. Account value funds deductions "
+                "until exhausted; calculated exception premiums then apply, subject "
+                "to safety-net and shadow-account eligibility."
+            )
+        self.suspended_banner.setText("\n".join(notices))
+        self.suspended_banner.setVisible(bool(notices))
 
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()

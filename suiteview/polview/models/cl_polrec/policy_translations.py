@@ -160,6 +160,27 @@ RATE_CLASS_CODES = {
     "0": "rates do not vary by class"
 }
 
+PREFERRED_STANDARD_AB_PLANCODES = frozenset({
+    "1S133I29",
+    "1U130729",
+    "1U130929",
+    "1U130K29",
+    "1U130L2X",
+    "1U130M29",
+    "1U130N2X",
+    "80110429",
+    "80110529",
+    "80333729",
+    "80333829",
+    "80334729",
+    "80334829",
+})
+
+_PREFERRED_STANDARD_RATE_CLASS_CODES = {
+    "A": "Preferred",
+    "B": "Standard",
+}
+
 PERSON_CODES = {
     "00": "Primary Insured",
     "01": "Joint Insured",
@@ -955,9 +976,20 @@ def translate_company_name_to_code(name: str) -> str:
     return name
 
 
-def translate_rate_class_code(code: str) -> str:
-    """Translate rate class code to description."""
-    return RATE_CLASS_CODES.get(code, code)
+def rate_class_description(code: str, plancode: str = "") -> str:
+    """Return the rate-class description, including plan-specific A/B meanings."""
+    normalized_code = str(code or "").strip().upper()
+    normalized_plancode = str(plancode or "").strip().upper()
+    if normalized_plancode in PREFERRED_STANDARD_AB_PLANCODES:
+        override = _PREFERRED_STANDARD_RATE_CLASS_CODES.get(normalized_code)
+        if override:
+            return override
+    return RATE_CLASS_CODES.get(normalized_code, "")
+
+
+def translate_rate_class_code(code: str, plancode: str = "") -> str:
+    """Translate a rate-class code, preserving unknown codes."""
+    return rate_class_description(code, plancode) or code
 
 
 def translate_grace_rule_code(code: str) -> str:

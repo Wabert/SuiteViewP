@@ -137,8 +137,9 @@ def _field_kind_map(screen: dict) -> dict:
 def build_segment_lines(segment: str, pi, screen: Optional[dict] = None) -> Optional[List[list]]:
     """Return the ``lines`` for *segment* built from live policy data.
 
-    Returns ``None`` when there is no live builder for the segment, so the
-    caller can fall back to the bundled sample screen.  *screen* is the bundled
+    Returns ``None`` when this segment/data variant has no live rendering.
+    The viewer omits absent records or shows an unavailable message, never a
+    captured screen. *screen* is the bundled
     ``seg_<n>.json`` dict.  A ``template`` screen (e.g. Segment 01) carries the
     authentic mainframe layout as annotated ``lines``; each value token is
     filled live from its ``db2`` source (or shown as clearly-labelled example
@@ -148,17 +149,278 @@ def build_segment_lines(segment: str, pi, screen: Optional[dict] = None) -> Opti
         return _build_segment_58(pi)
     if segment == "53":
         return _build_segment_53(pi)
+    if segment == "55":
+        from .policy_record_fund_control import build_segment_55
+
+        return build_segment_55(pi)
     if segment == "56" and screen:
         return _build_segment_56(pi, screen)
+    if segment == "57":
+        from .policy_record_allocations import build_segment_57
+
+        return build_segment_57(pi)
     if segment == "59":
         return _build_segment_59(pi)
+    if segment == "60" and screen:
+        from .policy_record_payment_totals import build_segment_60
+
+        return build_segment_60(pi, screen)
+    if segment in ("63", "64"):
+        from .policy_record_annual_totals import build_segment_63, build_segment_64
+
+        return build_segment_63(pi) if segment == "63" else build_segment_64(pi)
     if segment == "02":
         return _build_segment_02(pi)
     if segment == "66":
         return _build_segment_66(pi)
+    if segment == "67":
+        return _build_segment_67(pi)
     if screen and screen.get("template") and screen.get("lines"):
         return _build_templated_segment(pi, segment, screen)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Segment 67 -- Renewal Rates (D202, printed pages 193-202 and 612)
+# ---------------------------------------------------------------------------
+
+_SEG67_PERIOD_TABLE = "LH_COV_INS_RNL_PER"
+_SEG67_ENTRY_TABLES = (
+    "LH_COV_INS_RNL_RT", "LH_BNF_INS_RNL_RT", "LH_SST_XTR_RNL_RT",
+    "LH_COV_INS_GDL_PRM", "LH_BNF_INS_GDL_PRM",
+)
+
+
+def _seg67_value(row: dict, column: str):
+    if column not in row:
+        raise ValueError(f"Segment 67 source column is missing: {column}")
+    return row[column]
+
+
+def _seg67_text(row: dict, column: str, width: int) -> str:
+    value = _seg67_value(row, column)
+    if value is None:
+        raise ValueError(f"Segment 67 requires {column}; DB2 returned NULL")
+    text = str(value).strip()
+    if len(text) > width or any(ord(c) < 32 for c in text):
+        raise ValueError(f"Invalid Segment 67 {column}: {value!r}")
+    return text.ljust(width)
+
+
+def _seg67_integer(row: dict, column: str) -> int:
+    value = _seg67_value(row, column)
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise ValueError(f"Invalid Segment 67 {column}: {value!r}") from exc
+    if not number.is_finite() or number < 0 or number != number.to_integral_value():
+        raise ValueError(f"Invalid Segment 67 {column}: {value!r}")
+    return int(number)
+
+
+def _seg67_key(row: dict) -> tuple:
+    return (
+        _seg67_integer(row, "COV_PHA_NBR"),
+        _seg67_text(row, "PRS_CD", 2),
+        _seg67_integer(row, "PRS_SEQ_NBR"),
+    )
+
+
+def _seg67_token(text: str, field: str, table: str, column: str, note="") -> dict:
+    return {
+        **_tok(text, field),
+        "note": f"Live source: {table}.{column}. {note}".strip(),
+    }
+
+
+def _seg67_amount(row: dict, table: str, column: str, field: str,
+                  digits: int, decimals: int = 0) -> dict:
+    value = _seg67_value(row, column)
+    if value is None:
+        return {
+            **_seg67_token("?" * (digits + 1), field, table, column,
+                          "DB2 NULL: unavailable, not zero."),
+            "dim": True,
+        }
+    return _seg67_token(
+        _packed_decimal(value, digits, decimals), field, table, column,
+        "Packed decimal digits; C = positive/zero, D = negative.",
+    )
+
+
+def _seg67_entry_groups(table: str, row: dict) -> list:
+    """Keep rate-key bytes together while allowing entries to span lines."""
+    rate_type = _seg67_text(row, "PRM_RT_TYP_CD", 1)
+    groups = [[_seg67_token(rate_type, "Rate Type Code", table, "PRM_RT_TYP_CD")]]
+    guideline = table.endswith("_GDL_PRM")
+    benefit = table.startswith("LH_BNF_")
+
+    if table == "LH_SST_XTR_RNL_RT":
+        percent = _seg67_text(row, "SST_XTR_PCT_IND", 1)
+        if percent not in ("0", "1"):
+            raise ValueError(f"Unsupported Segment 67 extra percentage flag: {percent!r}")
+        groups.append([_seg67_token(
+            _seg67_text(row, "SST_XTR_RT_TBL_CD", 2),
+            "Table Rating Code", table, "SST_XTR_RT_TBL_CD",
+        )])
+    else:
+        if benefit:
+            btype = _seg67_text(row, "SPM_BNF_TYP_CD", 1)
+            subtype = _seg67_text(row, "SPM_BNF_SBY_CD", 1)
+            bcolumn, scolumn = "SPM_BNF_TYP_CD", "SPM_BNF_SBY_CD"
+        else:
+            option = _seg67_value(row, "DTH_BNF_PLN_OPT_CD")
+            option = "" if option is None else str(option).strip()
+            if len(option) > 1 or (option and ord(option) < 32):
+                raise ValueError(f"Invalid Segment 67 death benefit option: {option!r}")
+            scolumn = "DTH_BNF_PLN_OPT_CD"
+            if guideline:
+                system_calc = _seg67_text(row, "SYS_CLC_PRM_IND", 1)
+                if system_calc not in ("0", "1"):
+                    raise ValueError(f"Invalid Segment 67 guideline flag: {system_calc!r}")
+                if system_calc == "1":
+                    if rate_type not in ("A", "S"):
+                        raise ValueError(
+                            "Segment 67 system-calculated guidelines require type A or S"
+                        )
+                    btype, subtype = " ", option or " "
+                else:
+                    if not option:
+                        raise ValueError(
+                            "Segment 67 rate-file guideline plan option is unavailable"
+                        )
+                    btype, subtype = "*", option
+                bcolumn = "SYS_CLC_PRM_IND"
+            else:
+                if rate_type not in ("C", "T", "W", "L", "F", "M"):
+                    raise ValueError(f"Unsupported Segment 67 coverage rate type: {rate_type!r}")
+                joint = _seg67_text(row, "JT_INS_IND", 1)
+                if joint not in ("0", "1"):
+                    raise ValueError(f"Invalid Segment 67 joint-insured flag: {joint!r}")
+                if joint == "1" and rate_type != "C":
+                    raise ValueError(
+                        "Segment 67 joint-insured markers are verified only for C rates"
+                    )
+                btype = "*"
+                subtype = "J" if joint == "1" else (option or "*")
+                if rate_type == "C" and joint == "0":
+                    subtype = "*"
+                bcolumn = "PRM_RT_TYP_CD"
+                if joint == "1":
+                    scolumn = "JT_INS_IND"
+        groups.extend([
+            [_seg67_token(btype, "Benefit Type", table, bcolumn)],
+            [_seg67_token(subtype, "Benefit Subtype", table, scolumn)],
+        ])
+
+    if guideline:
+        if rate_type not in ("A", "S", "1", "2", "3"):
+            raise ValueError(f"Unsupported Segment 67 guideline type: {rate_type!r}")
+        if not benefit and system_calc == "1":
+            key = "  "
+        else:
+            key = "".join(
+                _seg67_text(row, column, 1)
+                for column in ("RT_SEX_CD", "RT_CLS_CD")
+            )
+            if not key.strip():
+                raise ValueError("Segment 67 rate-file guideline key is unavailable")
+        groups.append([_seg67_token(
+            key, "Guideline Rate Key", table, "RT_SEX_CD / RT_CLS_CD",
+            "System-calculated guideline premiums have a blank key.",
+        )])
+        units = rate_type in ("1", "2")
+        groups.append([_seg67_amount(
+            row, table, "GDL_PRM_UNT_QTY" if units else "GDL_PRM_AMT",
+            "GLP/GSP Units" if units else "GLP/GSP Premium", 11, 3 if units else 2,
+        )])
+    else:
+        groups.append([
+            _seg67_token(_seg67_text(row, column, 1), field, table, column)
+            for column, field in (
+                ("RT_SEX_CD", "Rate Sex"), ("RT_CLS_CD", "Rate Class"),
+                ("RT_BAN_CD", "Rate Band"),
+            )
+        ])
+        if table == "LH_SST_XTR_RNL_RT":
+            if percent == "0":
+                amount = _seg67_value(row, "SST_XTR_UNT_AMT")
+                if amount is not None and Decimal(str(amount)) != 0:
+                    # D202 p.200 uses 5 decimals for flexible premiums, 2 for
+                    # fixed premiums. No verified phase-specific selector yet.
+                    raise ValueError(
+                        "Segment 67 nonzero dollar extra: packed precision is not "
+                        "verified for this coverage (fixed versus flexible premium)"
+                    )
+            groups.append([_seg67_amount(
+                row, table, "SST_XTR_PCT" if percent == "1" else "SST_XTR_UNT_AMT",
+                "Extra Percentage" if percent == "1" else "Extra Unit Amount",
+                9, 5 if percent == "1" else 0,
+            )])
+        else:
+            # RNL_RT already contains the unscaled nine packed digits in DB2.
+            groups.append([_seg67_amount(row, table, "RNL_RT", "Rate", 9)])
+    return groups
+
+
+def _build_segment_67(pi) -> Optional[List[list]]:
+    """Union the five entry sources by period and original segment index."""
+    sources = {}
+    for table in (_SEG67_PERIOD_TABLE, *_SEG67_ENTRY_TABLES):
+        sources[table] = pi.fetch_table(table)
+        error = pi.table_error(table)
+        if error:
+            raise ValueError(f"Segment 67 {table}: {error}")
+
+    periods = {}
+    for row in sources[_SEG67_PERIOD_TABLE]:
+        key = _seg67_key(row)
+        if key in periods:
+            raise ValueError(f"Duplicate Segment 67 renewal period: {key}")
+        periods[key] = row
+    entries = {key: {} for key in periods}
+    for table in _SEG67_ENTRY_TABLES:
+        for row in sources[table]:
+            key = _seg67_key(row)
+            if key not in entries:
+                raise ValueError(f"Segment 67 {table} has no renewal period: {key}")
+            index = _seg67_integer(row, "SEG_IDX_NBR")
+            if index in entries[key]:
+                raise ValueError(f"Duplicate Segment 67 entry index {index} for {key}")
+            entries[key][index] = (table, row)
+    if not periods:
+        return None
+
+    lines = [[_sep(_SEP), _tok("6267,", _F_SCREEN), _sep(" "),
+              _tok(_policy_display(pi), _F_POLICY)]]
+    for key, period in sorted(periods.items()):
+        period_entries = entries[key]
+        count = len(period_entries)
+        if sorted(period_entries) != list(range(1, count + 1)):
+            raise ValueError(f"Non-contiguous Segment 67 entry indexes for {key}")
+        length = 22 + 11 * count
+        if length > 9999 or count > 999:
+            raise ValueError(f"Segment 67 exceeds its display capacity for {key}")
+        groups = [
+            [_tok("67", _F_SEG_ID)], [_tok(f"{length:04d}", _F_SEG_LEN)],
+            [_tok(str(key[0]), _F_PHASE)],
+            [_seg67_token(
+                _seg67_text(period, "PLN_DES_SER_CD", 11),
+                "Plan Description Search Key", _SEG67_PERIOD_TABLE, "PLN_DES_SER_CD",
+            )],
+            [_seg67_token(
+                _seg67_text(period, "RENEWABLE_PRM_CD", 1),
+                "Renewal Class", _SEG67_PERIOD_TABLE, "RENEWABLE_PRM_CD",
+            )],
+            [_tok(key[1], "Person Code")], [_tok(str(key[2]), "Person Sequence")],
+            [_tok(str(count), "Number of Rate Segments")],
+        ]
+        for index in sorted(period_entries):
+            groups.extend(_seg67_entry_groups(*period_entries[index]))
+
+        lines.extend(_wrap_record_groups(groups))
+    _append_screen_footer(lines, pi, min_lines=18)
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -1249,6 +1511,23 @@ def _example_text(sample: str) -> str:
 # Value formatting helpers
 # ---------------------------------------------------------------------------
 
+def _packed_decimal(value, digits: int, decimals: int = 0) -> str:
+    """Render COMP-3 digits and the C/D sign nibble without rounding data."""
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise ValueError(f"Invalid packed decimal: {value!r}") from exc
+    if not number.is_finite():
+        raise ValueError(f"Non-finite packed decimal: {value!r}")
+    scaled = abs(number) * (10 ** decimals)
+    if scaled != scaled.to_integral_value() or scaled >= 10 ** digits:
+        raise ValueError(
+            f"{value!r} does not fit {digits} packed digits with {decimals} decimals"
+        )
+    sign = "D" if number < 0 else "C"
+    return f"{int(scaled):0{digits}d}{sign}"
+
+
 _DATE_RE = re.compile(r"^(?:\d{2}/\d{2}/\d{4}|\*+/\*+/\*+)$")
 _DECIMAL_RE = re.compile(r"^\d*\.(\d+)$")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T].*)?$")
@@ -1333,6 +1612,27 @@ def _example(text: str, field: str, note: str = _EXAMPLE_NOTE) -> dict:
 
 def _sep(text: str) -> dict:
     return {"text": text, "field": None}
+
+
+def _wrap_record_groups(groups: List[list], columns: int = 80) -> List[list]:
+    """Wrap terminal fields, retaining concatenated keys as indivisible groups."""
+    lines = []
+    line, width = [_sep("  ")], 2
+    for group in groups:
+        size = sum(len(run["text"]) for run in group)
+        gap = 1 if len(line) > 1 else 0
+        if width + gap + size > columns:
+            lines.append(line)
+            line, width, gap = [_sep(" " * 10)], 10, 0
+        if width + gap + size > columns:
+            raise ValueError(f"Policy-record field exceeds {columns}-column terminal width")
+        if gap:
+            line.append(_sep(" "))
+        line.extend(group)
+        width += gap + size
+    if len(line) > 1:
+        lines.append(line)
+    return lines
 
 
 def _policy_display(pi) -> str:

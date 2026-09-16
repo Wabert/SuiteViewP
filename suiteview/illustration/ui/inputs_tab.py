@@ -42,6 +42,8 @@ from suiteview.illustration.models.input_set import (
     InforceOverrideSet,
     PolicyChangeEvent,
     PolicyChangeKind,
+    RollbackOverrideSet,
+    validate_record_values,
     ScheduledTransaction,
     TransactionKind,
 )
@@ -307,6 +309,7 @@ class IllustrationInputsTab(QWidget):
 
     run_from_issue_changed = pyqtSignal(bool)
     issue_conditions_changed = pyqtSignal()
+    rollback_changed = pyqtSignal()
 
     WARNING_BG = QColor("#FFF0B3")
     NORMAL_BG = QColor("#FFFFFF")
@@ -325,6 +328,10 @@ class IllustrationInputsTab(QWidget):
         self._issue_date: date | None = None
         self._maturity_date: date | None = None
         self._loaded_policy = None
+        self._valuation_date: date | None = None
+        self._rollback_overrides: RollbackOverrideSet | None = None
+        self._rollback_live_inputs = None
+        self._basis_default_dynamic = None
         self._active_issue_mode = False
         self._mode_inputs = {}
         self._default_input_state = None
@@ -336,6 +343,8 @@ class IllustrationInputsTab(QWidget):
         get_illustration_settings().abr_quote_mode_changed.connect(
             self._apply_abr_quote_mode)
         self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
+        get_illustration_settings().rollback_enabled_changed.connect(
+            self._on_rollback_option_changed)
 
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
@@ -1246,6 +1255,9 @@ class IllustrationInputsTab(QWidget):
     def load_data_from_policy(self, policy, *, has_shadow: bool = False,
                               shadow_ceased: bool = False):
         self._loaded_policy = policy
+        self._valuation_date = getattr(policy, "valuation_date", None)
+        self._rollback_overrides = None
+        self._rollback_live_inputs = None
         self._inforce_shadow = (has_shadow, shadow_ceased)
         self._mode_inputs = {}
         self._active_issue_mode = False
@@ -1278,6 +1290,7 @@ class IllustrationInputsTab(QWidget):
         self._update_ag49_regime_panel()
         self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow,
                                             shadow_ceased=shadow_ceased)
+        self._basis_default_dynamic = self.dynamic_panel.capture_state()
         # Loading resets the Illustrated Rate field's read-only/validator state
         # (read-only mirror on IUL) — re-apply ABR mode so the field stays
         # editable and the rest of the panel stays locked.
@@ -1343,7 +1356,14 @@ class IllustrationInputsTab(QWidget):
 
     def _policy_for_input_mode(self, enabled):
         if not enabled:
+            if self._rollback_overrides is not None:
+                return build_illustration_scenario(
+                    self._loaded_policy, rollback_overrides=self._rollback_overrides,
+                    allow_missing_shadow=True,
+                ).projectable_policy
             return self._loaded_policy
+        if self._rollback_overrides is not None:
+            raise ValueError("Turn off Edit Record before selecting New Business - From Issue.")
         if self.abr_quote_enabled():
             raise ValueError("Turn off ABR Quote in Options before selecting New Business - From Issue.")
         if self._issue_load_error:
@@ -1355,11 +1375,66 @@ class IllustrationInputsTab(QWidget):
 
     def _load_dynamic_context(self, policy, enabled):
         has_shadow, shadow_ceased = (
-            (policy.has_shadow_account, policy.ccv_ceased) if enabled
+            (policy.has_shadow_account, policy.ccv_ceased)
+            if enabled or self._rollback_overrides is not None
             else self._inforce_shadow)
+        self._valuation_date = getattr(policy, "valuation_date", None)
         self.dynamic_panel.load_from_policy(
             policy, has_shadow=has_shadow, shadow_ceased=shadow_ceased)
+        self._basis_default_dynamic = self.dynamic_panel.capture_state()
         self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
+
+    def set_value_rollback(self, overrides: RollbackOverrideSet | None):
+        """Apply a validated basis, keeping explicit schedules and the live inputs.
+
+        Pending toolbar date selections never call this method. Financial history
+        is not copied to the user's transaction schedule.
+        """
+        if self._loaded_policy is None:
+            raise ValueError("Load a policy before applying Edit Record.")
+        if overrides is not None and not get_illustration_settings().rollback_enabled:
+            raise ValueError("Enable Options > Edit Record before applying valuation edits.")
+        if overrides is None and self._rollback_overrides is None:
+            return self._policy_for_input_mode(self.run_from_issue_enabled())
+        if overrides is not None and (
+            self.run_from_issue_enabled() or self.abr_quote_enabled()
+        ):
+            raise ValueError(
+                "Edit Record requires Inforce mode with ABR Quote turned off.")
+        candidate = build_illustration_scenario(
+            self._loaded_policy, rollback_overrides=overrides,
+            allow_missing_shadow=True,
+        ).projectable_policy
+        state = self._capture_active_case_inputs()
+        old_defaults = self._basis_default_dynamic
+        if overrides is not None and self._rollback_overrides is None:
+            self._rollback_live_inputs = deepcopy(state)
+        elif overrides is None and self._rollback_live_inputs is not None:
+            state = deepcopy(self._rollback_live_inputs)
+            old_defaults = None
+        self._rollback_overrides = deepcopy(overrides)
+        self._load_dynamic_context(candidate, False)
+        if old_defaults is not None:
+            old_sections = old_defaults.get("sections") or {}
+            new_sections = self._basis_default_dynamic.get("sections") or {}
+            sections = state["dynamic"].get("sections") or {}
+            for name, rows in old_sections.items():
+                if sections.get(name) == rows:
+                    sections[name] = deepcopy(new_sections.get(name, []))
+        warnings = self._apply_active_case_inputs(state)
+        self._update_valuation_banner(candidate)
+        self._show_mode_warnings(warnings)
+        if overrides is None:
+            self._rollback_live_inputs = None
+        self.rollback_changed.emit()
+        return candidate
+
+    def export_rollback_overrides(self) -> RollbackOverrideSet | None:
+        return deepcopy(self._rollback_overrides)
+
+    def _on_rollback_option_changed(self, enabled: bool):
+        if not enabled and self._rollback_overrides is not None:
+            self.set_value_rollback(None)
 
     def _show_mode_warnings(self, warnings):
         self.mode_warning.setText("\n".join(warnings))
@@ -1621,6 +1696,10 @@ class IllustrationInputsTab(QWidget):
             self._show_mode_warnings([
                 "ABR Quote uses Inforce mode. Your from-issue inputs are preserved; "
                 "turn off ABR Quote to return to New Business - From Issue."])
+        if enabled and self._rollback_overrides is not None:
+            self.set_value_rollback(None)
+            self._show_mode_warnings([
+                "ABR Quote uses the loaded Inforce basis. Edit Record was turned off."])
 
     def abr_minimum_face_amount(self) -> Optional[float]:
         text = self.abr_minimum_face_edit.text().replace(",", "").replace("$", "").strip()
@@ -1697,6 +1776,30 @@ class IllustrationInputsTab(QWidget):
             if self.issue_conditions.has_policy() and not self._issue_load_error
             else None)
         state["mode_inputs"] = deepcopy(self._mode_inputs)
+        rollback = self._rollback_overrides
+        state["value_rollback"] = (
+            {
+                "valuation_date": rollback.valuation_date.isoformat(),
+                "coverage_amounts": {
+                    str(phase): amount for phase, amount in rollback.coverage_amounts.items()
+                },
+                "benefit_amounts": [
+                    [*key, amount] for key, amount in rollback.benefit_amounts.items()
+                ],
+                "db_option": rollback.db_option,
+                "shadow_account_value": rollback.shadow_account_value,
+                "account_value": rollback.account_value,
+                "record_values": {
+                    name: value.isoformat() if isinstance(value, date) else deepcopy(value)
+                    for name, value in rollback.record_values.items()
+                },
+                "tamra_7year_contributions": deepcopy(rollback.tamra_7year_contributions),
+                "fund_values": deepcopy(rollback.fund_values),
+                "impaired_fund_values": deepcopy(rollback.impaired_fund_values),
+                "premium_allocations": deepcopy(rollback.premium_allocations),
+            } if rollback is not None else None
+        )
+        state["rollback_live_inputs"] = deepcopy(self._rollback_live_inputs)
         return state
 
     def _capture_active_case_inputs(self) -> dict:
@@ -1744,15 +1847,66 @@ class IllustrationInputsTab(QWidget):
 
         Returns warnings for every input that did not apply on this policy —
         the caller must surface them; nothing is silently dropped."""
+        rollback_state = state.get("value_rollback")
+        if rollback_state is not None and not get_illustration_settings().rollback_enabled:
+            raise ValueError("Enable Options > Edit Record to load this case's valuation assumptions.")
+        enabled = bool((state.get("controls") or {}).get("run_from_issue", False))
+        if rollback_state and enabled:
+            raise ValueError("A saved case cannot combine Edit Record and New Business - From Issue.")
+        rollback = None
+        if rollback_state is not None:
+            if not isinstance(rollback_state, dict):
+                raise ValueError("Saved Edit Record settings must be an object.")
+            coverage_amounts = rollback_state.get("coverage_amounts", {})
+            benefit_amounts = rollback_state.get("benefit_amounts", [])
+            if not isinstance(coverage_amounts, dict) or not isinstance(benefit_amounts, list):
+                raise ValueError("Saved Edit Record amount settings are malformed.")
+            try:
+                rollback = RollbackOverrideSet(
+                    valuation_date=date.fromisoformat(rollback_state["valuation_date"]),
+                    coverage_amounts={
+                        int(phase): amount for phase, amount in coverage_amounts.items()
+                    },
+                    benefit_amounts={
+                        (int(phase), kind, subtype): amount
+                        for phase, kind, subtype, amount in benefit_amounts
+                    },
+                    db_option=rollback_state.get("db_option"),
+                    shadow_account_value=rollback_state.get("shadow_account_value"),
+                    account_value=rollback_state.get("account_value"),
+                    record_values=validate_record_values(
+                        rollback_state.get("record_values", {}), from_json=True),
+                    tamra_7year_contributions=deepcopy(rollback_state.get("tamra_7year_contributions")),
+                    fund_values=deepcopy(rollback_state.get("fund_values")),
+                    impaired_fund_values=deepcopy(rollback_state.get("impaired_fund_values")),
+                    premium_allocations=deepcopy(rollback_state.get("premium_allocations")),
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"Saved Edit Record settings are malformed: {exc}") from exc
+            if (len(rollback.coverage_amounts) != len(coverage_amounts)
+                    or len(rollback.benefit_amounts) != len(benefit_amounts)):
+                raise ValueError("Saved Edit Record settings contain duplicate coverage/benefit keys.")
+            # Reject invalid imported assumptions before replacing an applied basis.
+            if self._loaded_policy is None:
+                raise ValueError("Load a policy before applying Edit Record assumptions.")
+            build_illustration_scenario(
+                self._loaded_policy, rollback_overrides=rollback,
+                allow_missing_shadow=True)
+        if self._rollback_overrides is not None:
+            self.set_value_rollback(None)
         warnings = self.issue_conditions.apply_state(state.get("issue_conditions"))
         self._mode_inputs = deepcopy(state.get("mode_inputs") or {})
-        enabled = bool((state.get("controls") or {}).get("run_from_issue", False))
         self.run_from_issue_btn.blockSignals(True)
         self.run_from_issue_btn.setChecked(enabled)
         self.run_from_issue_btn.blockSignals(False)
         self._apply_run_from_issue(enabled, restore_inputs=False)
         if enabled != self.run_from_issue_enabled():
             raise ValueError(self.mode_warning.text())
+        if rollback is not None:
+            self.set_value_rollback(rollback)
+            if state.get("rollback_live_inputs") is not None:
+                self._rollback_live_inputs = deepcopy(state["rollback_live_inputs"])
+            warnings.extend(self.mode_warning.text().splitlines())
         warnings.extend(self._apply_active_case_inputs(state))
         return warnings
 

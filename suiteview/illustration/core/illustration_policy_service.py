@@ -8,6 +8,7 @@ from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
+from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.policy_data import (
@@ -143,20 +144,22 @@ def build_illustration_data(
     # ── IUL funds / allocations ───────────────────────────────
     # Loaded for every advanced policy (cheap, and the Policy tab shows them);
     # only IUL plans consume the allocations for the blended crediting rate.
-    try:
-        fund_values = {
-            str(fund): float(value)
-            for fund, value in pi.get_fund_values_dict().items()
-        }
-    except Exception:
-        fund_values = {}
-    try:
-        premium_allocations = {
-            str(fund): float(pct)
-            for fund, pct in pi.get_premium_allocation_dict().items()
-        }
-    except Exception:
-        premium_allocations = {}
+    fund_values = {}
+    for bucket in pi.get_fund_buckets(current_only=True):
+        fund = str(bucket.fund_id or "").strip()
+        if fund:
+            value = float(bucket.csv_amount) if bucket.csv_amount is not None else 0.0
+            fund_values[fund] = fund_values.get(fund, 0.0) + value
+    impaired_fund_values = {
+        str(fund): float(value)
+        for fund, value in pi.get_loan_values_dict().items()
+    }
+    premium_allocations = {
+        str(fund): float(pct)
+        for fund, pct in pi.get_premium_allocation_dict().items()
+    }
+    if sum(premium_allocations.values()) > 1.5:
+        premium_allocations = {fund: pct / 100 for fund, pct in premium_allocations.items()}
 
     # ── 7702 / Guideline ──────────────────────────────────────
     doli_code = str(pi.def_of_life_ins_code or "")
@@ -202,6 +205,13 @@ def build_illustration_data(
     var_loan_acc = float(pi.total_variable_loan_accrued or 0)
     var_loan_rate_raw = getattr(pi, "variable_loan_charge_rate", None)
     var_loan_charge_rate = float(var_loan_rate_raw) if var_loan_rate_raw is not None else None
+    regular_rate_raw = getattr(pi, "fixed_loan_interest_rate", None)
+    preferred_rate_raw = getattr(pi, "preferred_loan_interest_rate", None)
+    # These canonical properties expose DB2 percentage points, including 0.5%.
+    regular_loan_charge_rate = (
+        float(regular_rate_raw) / 100 if regular_rate_raw is not None else None)
+    preferred_loan_charge_rate = (
+        float(preferred_rate_raw) / 100 if preferred_rate_raw is not None else None)
     # CyberLife stores LN_CRG_ITS_RT percent-form (5.700 = 5.7%); the engine
     # contract is an annual fraction. Values <= 1 are already fractions.
     if var_loan_charge_rate is not None and var_loan_charge_rate > 1:
@@ -433,12 +443,13 @@ def build_illustration_data(
         for b in raw_benefits)
 
     # ── Assemble ──────────────────────────────────────────────
-    return IllustrationPolicyData(
+    policy = IllustrationPolicyData(
         policy_number=policy_number.strip(),
         region=region,
         company_code=pi.company_code or "",
         reins_partner=reins_partner,
         insured_name=pi.primary_insured_name or "",
+        premium_pay_status_code=str(getattr(pi, "premium_pay_status_code", "") or ""),
         plancode=plancode,
         product_type=pi.product_type or "",
         form_number=form_number,
@@ -469,6 +480,7 @@ def build_illustration_data(
         guaranteed_interest_rate=guaranteed_rate,
         current_interest_rate=current_rate,
         fund_values=fund_values,
+        impaired_fund_values=impaired_fund_values,
         premium_allocations=premium_allocations,
         index_illustration_rates=index_illustration_rates,
         index_strategy_parameters=index_strategy_parameters,
@@ -483,6 +495,7 @@ def build_illustration_data(
         maturity_age=maturity_age,
         def_of_life_ins=def_of_life_ins,
         glp=glp,
+        glp_is_known=glp_raw is not None,
         gsp=gsp,
         accumulated_glp=accumulated_glp,
         corridor_percent=corridor_pct,
@@ -494,12 +507,16 @@ def build_illustration_data(
         tamra_7pay_level=tamra_7pay_level,
         tamra_7pay_start_date=tamra_7pay_start,
         tamra_7pay_start_av=tamra_7pay_start_av,
+        tamra_7pay_cash_value=tamra_7pay_start_av,
+        tamra_7year_lowest_db=float(getattr(pi, "tamra_7pay_specified_amount", None) or 0.0),
         tamra_7year_contributions=tamra_contributions,
         regular_loan_principal=reg_loan_prin,
         regular_loan_accrued=reg_loan_acc,
         preferred_loan_principal=pref_loan_prin,
         preferred_loan_accrued=pref_loan_acc,
         preferred_loans_available=bool(pi.preferred_loans_available),
+        regular_loan_charge_rate=regular_loan_charge_rate,
+        preferred_loan_charge_rate=preferred_loan_charge_rate,
         variable_loan_principal=var_loan_prin,
         variable_loan_accrued=var_loan_acc,
         variable_loan_charge_rate=var_loan_charge_rate,
@@ -513,6 +530,8 @@ def build_illustration_data(
         benefits=benefits,
         riders=riders,
     )
+    policy.rollback_snapshots = build_value_rollback_snapshots(pi, policy)
+    return policy
 
 
 def active_rider_benefit_codes(pi) -> str:

@@ -113,7 +113,7 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Premium Year To Date (63):** Range (`TextBox_PremYTDLessThan` to `TextBox_PremYTDGreaterThan`)
 *   **Definition of Life Insurance (66):** Checkbox + Listbox (`CheckBox_SpecifyDefinitionOfLifeInsurance` and `ListBox_DefinitionOfLifeInsurance`)
 *   **Reinsurance Code:** Checkbox + Listbox (`CheckBox_ReinsuranceCode` and `ListBox_ReinsuranceCode`)
-*   **Termination Entry Date (69):** Range (`TextBox_TerminationLowDate` to `TextBox_TerminationHighDate`)
+*   **Termination Entry Date (69):** Range (`TextBox_TerminationLowDate` to `TextBox_TerminationHighDate`). Uses unreversed SC, SI, SF, TD, TM, TN, TL, and TO policy-termination transactions.
 *   **BIL_COMMENCE_DT(66):** Range (`TextBox_LowBillCommenceDate` to `TextBox_HighBillCommenceDate`)
 *   **Billing suspended (66):** Checkbox (`CheckBox_ShowBillingControlNumber` / varies)
 *   **Last Financial Date (01):** Range (`TextBox_LowLastFinancialDate` to `TextBox_HighLastFinancialDate`)

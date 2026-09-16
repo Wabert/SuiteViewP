@@ -1,0 +1,1589 @@
+{
+  "segment": "63",
+  "title": "Segment 63 - Yearly Values Accumulation",
+  "source": "Sample 6263 screen.htm",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6263,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187 ;.",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "63",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0108",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2399.29",
+        "field": "Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3103.00",
+        "field": "Total Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Premium Tax Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "46.71",
+        "field": "Interest Credited this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "24.43",
+        "field": "Interest Earned at Guaranteed Rate this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Withdrawals this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2399.29",
+        "field": "Yearly Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "8",
+        "field": "Number Transfers This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Allocation Changes This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal Percentage"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date MVA Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Adjusted Beginning of Year Accumulation Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Fixed Fund Beginning Year Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Transfer Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Transfers"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Beginning of Year Variable Account Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "63",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0108",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4683.71",
+        "field": "Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2782.00",
+        "field": "Total Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Premium Tax Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "204.22",
+        "field": "Interest Credited this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "58.52",
+        "field": "Interest Earned at Guaranteed Rate this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Withdrawals this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2284.42",
+        "field": "Yearly Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Transfers This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Allocation Changes This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal Percentage"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date MVA Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2399.29",
+        "field": "Adjusted Beginning of Year Accumulation Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Fixed Fund Beginning Year Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Transfer Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Transfers"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "599.00",
+        "field": "Beginning of Year Variable Account Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "63",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0108",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "7130.07",
+        "field": "Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2782.00",
+        "field": "Total Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Premium Tax Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "378.18",
+        "field": "Interest Credited this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "87.51",
+        "field": "Interest Earned at Guaranteed Rate this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Withdrawals this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2446.36",
+        "field": "Yearly Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Transfers This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Allocation Changes This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal Percentage"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date MVA Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4683.71",
+        "field": "Adjusted Beginning of Year Accumulation Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Fixed Fund Beginning Year Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Transfer Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Transfers"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "606.28",
+        "field": "Beginning of Year Variable Account Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "63",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0108",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4",
+        "field": "Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "9348.13",
+        "field": "Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2568.00",
+        "field": "Total Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Premium Tax Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "360.33",
+        "field": "Interest Credited this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "181.81",
+        "field": "Interest Earned at Guaranteed Rate this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Withdrawals this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2218.06",
+        "field": "Yearly Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Transfers This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Allocation Changes This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal Percentage"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date MVA Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "7130.07",
+        "field": "Adjusted Beginning of Year Accumulation Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Fixed Fund Beginning Year Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Transfer Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Transfers"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "642.66",
+        "field": "Beginning of Year Variable Account Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "63",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0108",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "5",
+        "field": "Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10428.23",
+        "field": "Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1177.00",
+        "field": "Total Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Additional Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Premium Tax Payments this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "208.80",
+        "field": "Interest Credited this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "119.14",
+        "field": "Interest Earned at Guaranteed Rate this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Withdrawals this Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1080.10",
+        "field": "Yearly Cash Value Accumulation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Transfers This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number Allocation Changes This Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date Charge Free Withdrawal Percentage"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Year-To-Date MVA Free Withdrawal"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "9348.13",
+        "field": "Adjusted Beginning of Year Accumulation Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Fixed Fund Beginning Year Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Total Transfer Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Number of Transfers"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "7381.19",
+        "field": "Beginning of Year Variable Account Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Carry Forward Charge Free Withdrawal Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": "10/15/16",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Flag Byte A": [
+      "COBOL: FUYFLAGA-FLAG-BYTE-A",
+      "Bit 0: LH_POL_YR_TOT.REVS_PRC_GEN_IND",
+      "Remaining bits are reserved: illustrative amber zeros, not verified live data."
+    ],
+    "User Flag Byte": [
+      "COBOL: FUYFLAGU-FLAG-BYTE-U",
+      "No DB2 source; all eight bits are illustrative amber zeros."
+    ],
+    "Year": [
+      "COBOL: FUYYEAR-YEAR",
+      "DB2: LH_POL_YR_TOT.POL_YR_DUR",
+      "Format: 3 digits, 0 decimal places"
+    ],
+    "Cash Value Accumulation": [
+      "COBOL: FUYCSHV-CASH-VALUE",
+      "DB2: LH_POL_YR_TOT.POL_TOT_CSV_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Total Payments this Year": [
+      "COBOL: FUYTOTPM-TOTAL-PMT",
+      "DB2: LH_POL_YR_TOT.YTD_TOT_PMT_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Total Additional Payments this Year": [
+      "COBOL: FUYADLPM-ADDL-PMT",
+      "DB2: LH_POL_YR_TOT.YTD_ADD_PRM_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Number Additional Payments this Year": [
+      "COBOL: FUYADNUM-ADDL-NUM",
+      "DB2: LH_POL_YR_TOT.YTD_ADD_PRM_QTY",
+      "Format: 3 digits, 0 decimal places"
+    ],
+    "Total Premium Tax Payments this Year": [
+      "COBOL: FUYPRMTX-PREM-TAX",
+      "DB2: LH_POL_YR_TOT.YTD_PRM_TAX_AMT",
+      "Format: 9 digits, 2 decimal places"
+    ],
+    "Interest Credited this Year": [
+      "COBOL: FUYINCRD-INT-CREDITED",
+      "DB2: LH_POL_YR_TOT.YTD_CRE_ITS_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Interest Earned at Guaranteed Rate this Year": [
+      "COBOL: FUYINGRT-INT-GUAR",
+      "DB2: LH_POL_YR_TOT.YTD_GUA_RT_ITS_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Number of Withdrawals this Year": [
+      "COBOL: FUYWDNUM-WITHDRAWAL-NUM",
+      "DB2: LH_POL_YR_TOT.YTD_WTD_NBR",
+      "Format: 3 digits, 0 decimal places"
+    ],
+    "Yearly Cash Value Accumulation": [
+      "COBOL: FUYCHSYR-YEARLY-CV",
+      "DB2: LH_POL_YR_TOT.YTD_CSV_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Number Transfers This Year": [
+      "COBOL: FUYTRNUM-TRANSFERS-NUM",
+      "DB2: LH_POL_YR_TOT.YTD_TRF_QTY",
+      "Format: 3 digits, 0 decimal places"
+    ],
+    "Number Allocation Changes This Year": [
+      "COBOL: FUYACNUM-ALLOC-CHANGES-NUM",
+      "DB2: LH_POL_YR_TOT.YTD_ALC_CHG_QTY",
+      "Format: 3 digits, 0 decimal places"
+    ],
+    "Year-To-Date Charge Free Withdrawal": [
+      "COBOL: FUYFWAMT-CHG-FREE-WDWL-AMT",
+      "DB2: LH_POL_YR_TOT.YTD_FRE_WTD_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Year-To-Date Charge Free Withdrawal Percentage": [
+      "COBOL: FUYFWPCT-CHG-FREE-WDWL-PCT",
+      "DB2: LH_POL_YR_TOT.CHG_FREE_WDWL_PCT",
+      "Format: 5 digits, 2 decimal places"
+    ],
+    "Year-To-Date MVA Free Withdrawal": [
+      "COBOL: FUYFMAMT-MVA-FREE-WDWL-AMT",
+      "DB2: LH_POL_YR_TOT.YTD_MVA_FRE_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Adjusted Beginning of Year Accumulation Value": [
+      "COBOL: FUYACSHV-ADJ-CASH-VALUE",
+      "DB2: LH_POL_YR_TOT.POL_YR_MVA_CSV_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Fixed Fund Beginning Year Balance": [
+      "COBOL: FUYFBYBA-FIX-ACT-BEG-YEAR-BAL",
+      "DB2: LH_POL_YR_TOT.FND_BEG_YR_BAL_AMT",
+      "Format: 13 digits, 2 decimal places"
+    ],
+    "Total Transfer Amount": [
+      "COBOL: FUYTDTRN-YTD-FIX-ACT-TRNSFR",
+      "DB2: LH_POL_YR_TOT.FND_TRS_AMT",
+      "Format: 13 digits, 2 decimal places"
+    ],
+    "Number of Transfers": [
+      "COBOL: FUYTDFNT-YTD-FIX-ACT-TRNSFERS",
+      "DB2: LH_POL_YR_TOT.FND_TRS_CNT_QTY",
+      "Format: 3 digits, 0 decimal places"
+    ],
+    "Beginning of Year Variable Account Balance": [
+      "COBOL: FUYBYVBL-BEG-YR-VAR-ACCT-BAL",
+      "DB2: LH_POL_YR_TOT.BEG_YR_VAR_ACT_BAL",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Carry Forward Charge Free Withdrawal Amount": [
+      "COBOL: FUYCFFWA-CARRY-FWD-FREE-WD-AMT",
+      "DB2: LH_POL_YR_TOT.CRY_FWD_FRE_WD_AMT",
+      "Format: 11 digits, 2 decimal places"
+    ],
+    "Carry Forward Charge Free Withdrawal Percent": [
+      "COBOL: FUYCFFWP-CARRY-FWD-FREE-WD-PCT",
+      "DB2: LH_POL_YR_TOT.CRY_FWD_FRE_WD_PCT",
+      "Format: 5 digits, 2 decimal places"
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null,
+      "kind": "header"
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null,
+      "kind": "header"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": "FUYFLAGA-FLAG-BYTE-A",
+      "kind": "flag",
+      "bits": [
+        {
+          "bit": 0,
+          "db2": "LH_POL_YR_TOT.REVS_PRC_GEN_IND"
+        }
+      ]
+    },
+    {
+      "name": "User Flag Byte",
+      "byte": "6",
+      "db2": null,
+      "cobol": "FUYFLAGU-FLAG-BYTE-U",
+      "kind": "flag"
+    },
+    {
+      "name": "Year",
+      "byte": "7",
+      "db2": "LH_POL_YR_TOT.POL_YR_DUR",
+      "cobol": "FUYYEAR-YEAR",
+      "kind": "integer",
+      "digits": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Cash Value Accumulation",
+      "byte": "8-13",
+      "db2": "LH_POL_YR_TOT.POL_TOT_CSV_AMT",
+      "cobol": "FUYCSHV-CASH-VALUE",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Total Payments this Year",
+      "byte": "14-19",
+      "db2": "LH_POL_YR_TOT.YTD_TOT_PMT_AMT",
+      "cobol": "FUYTOTPM-TOTAL-PMT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Total Additional Payments this Year",
+      "byte": "20-25",
+      "db2": "LH_POL_YR_TOT.YTD_ADD_PRM_AMT",
+      "cobol": "FUYADLPM-ADDL-PMT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Number Additional Payments this Year",
+      "byte": "26-27",
+      "db2": "LH_POL_YR_TOT.YTD_ADD_PRM_QTY",
+      "cobol": "FUYADNUM-ADDL-NUM",
+      "kind": "integer",
+      "digits": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Total Premium Tax Payments this Year",
+      "byte": "28-32",
+      "db2": "LH_POL_YR_TOT.YTD_PRM_TAX_AMT",
+      "cobol": "FUYPRMTX-PREM-TAX",
+      "kind": "decimal",
+      "digits": 9,
+      "decimals": 2
+    },
+    {
+      "name": "Interest Credited this Year",
+      "byte": "33-38",
+      "db2": "LH_POL_YR_TOT.YTD_CRE_ITS_AMT",
+      "cobol": "FUYINCRD-INT-CREDITED",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Interest Earned at Guaranteed Rate this Year",
+      "byte": "39-44",
+      "db2": "LH_POL_YR_TOT.YTD_GUA_RT_ITS_AMT",
+      "cobol": "FUYINGRT-INT-GUAR",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Number of Withdrawals this Year",
+      "byte": "45-46",
+      "db2": "LH_POL_YR_TOT.YTD_WTD_NBR",
+      "cobol": "FUYWDNUM-WITHDRAWAL-NUM",
+      "kind": "integer",
+      "digits": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Yearly Cash Value Accumulation",
+      "byte": "47-52",
+      "db2": "LH_POL_YR_TOT.YTD_CSV_AMT",
+      "cobol": "FUYCHSYR-YEARLY-CV",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Number Transfers This Year",
+      "byte": "53-54",
+      "db2": "LH_POL_YR_TOT.YTD_TRF_QTY",
+      "cobol": "FUYTRNUM-TRANSFERS-NUM",
+      "kind": "integer",
+      "digits": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Number Allocation Changes This Year",
+      "byte": "55-56",
+      "db2": "LH_POL_YR_TOT.YTD_ALC_CHG_QTY",
+      "cobol": "FUYACNUM-ALLOC-CHANGES-NUM",
+      "kind": "integer",
+      "digits": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Year-To-Date Charge Free Withdrawal",
+      "byte": "57-62",
+      "db2": "LH_POL_YR_TOT.YTD_FRE_WTD_AMT",
+      "cobol": "FUYFWAMT-CHG-FREE-WDWL-AMT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Year-To-Date Charge Free Withdrawal Percentage",
+      "byte": "63-65",
+      "db2": "LH_POL_YR_TOT.CHG_FREE_WDWL_PCT",
+      "cobol": "FUYFWPCT-CHG-FREE-WDWL-PCT",
+      "kind": "decimal",
+      "digits": 5,
+      "decimals": 2
+    },
+    {
+      "name": "Year-To-Date MVA Free Withdrawal",
+      "byte": "66-71",
+      "db2": "LH_POL_YR_TOT.YTD_MVA_FRE_AMT",
+      "cobol": "FUYFMAMT-MVA-FREE-WDWL-AMT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Adjusted Beginning of Year Accumulation Value",
+      "byte": "72-77",
+      "db2": "LH_POL_YR_TOT.POL_YR_MVA_CSV_AMT",
+      "cobol": "FUYACSHV-ADJ-CASH-VALUE",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Fixed Fund Beginning Year Balance",
+      "byte": "78-84",
+      "db2": "LH_POL_YR_TOT.FND_BEG_YR_BAL_AMT",
+      "cobol": "FUYFBYBA-FIX-ACT-BEG-YEAR-BAL",
+      "kind": "decimal",
+      "digits": 13,
+      "decimals": 2
+    },
+    {
+      "name": "Total Transfer Amount",
+      "byte": "85-91",
+      "db2": "LH_POL_YR_TOT.FND_TRS_AMT",
+      "cobol": "FUYTDTRN-YTD-FIX-ACT-TRNSFR",
+      "kind": "decimal",
+      "digits": 13,
+      "decimals": 2
+    },
+    {
+      "name": "Number of Transfers",
+      "byte": "92-93",
+      "db2": "LH_POL_YR_TOT.FND_TRS_CNT_QTY",
+      "cobol": "FUYTDFNT-YTD-FIX-ACT-TRNSFERS",
+      "kind": "integer",
+      "digits": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Beginning of Year Variable Account Balance",
+      "byte": "94-99",
+      "db2": "LH_POL_YR_TOT.BEG_YR_VAR_ACT_BAL",
+      "cobol": "FUYBYVBL-BEG-YR-VAR-ACCT-BAL",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Carry Forward Charge Free Withdrawal Amount",
+      "byte": "100-105",
+      "db2": "LH_POL_YR_TOT.CRY_FWD_FRE_WD_AMT",
+      "cobol": "FUYCFFWA-CARRY-FWD-FREE-WD-AMT",
+      "kind": "decimal",
+      "digits": 11,
+      "decimals": 2
+    },
+    {
+      "name": "Carry Forward Charge Free Withdrawal Percent",
+      "byte": "106-108",
+      "db2": "LH_POL_YR_TOT.CRY_FWD_FRE_WD_PCT",
+      "cobol": "FUYCFFWP-CARRY-FWD-FREE-WD-PCT",
+      "kind": "decimal",
+      "digits": 5,
+      "decimals": 2
+    }
+  ],
+  "layout_html": "<table><tr><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 400px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n\n\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">5</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">6</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"User_Flag_Byte\"></a><b>User Flag Byte</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">7</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Year\"></a><b>Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYYEAR-YEAR</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.POL_YR_DUR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">8-13</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Cash_Value_Accumulation\"></a><b>Cash Value Accumulation</b></br>&#160;&#160;&#160;&#160;COBOL: FUYCSHV-CASH-VALUE</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.POL_TOT_CSV_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">14-19</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Total_Payments_this_Year\"></a><b>Total Payments this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYTOTPM-TOTAL-PMT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_TOT_PMT_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">20-25</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Total_Additional_Payments_this_Year\"></a><b>Total Additional Payments this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYADLPM-ADDL-PMT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_ADD_PRM_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">26-27</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_Additional_Payments_this_Year\"></a><b>Number Additional Payments this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYADNUM-ADDL-NUM</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_ADD_PRM_QTY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">28-32</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Total_Premium_Tax_Payments_this_Year\"></a><b>Total Premium Tax Payments this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYPRMTX-PREM-TAX</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_PRM_TAX_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">33-38</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Interest_Credited_this_Year\"></a><b>Interest Credited this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYINCRD-INT-CREDITED</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_CRE_ITS_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">39-44</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Interest_Earned_at_Guaranteed_Rate_this_Year\"></a><b>Interest Earned at Guaranteed Rate this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYINGRT-INT-GUAR</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_GUA_RT_ITS_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">45-46</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_of_Withdrawals_this_Year\"></a><b>Number of Withdrawals this Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYWDNUM-WITHDRAWAL-NUM</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_WTD_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">47-52</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Yearly_Cash_Value_Accumulation\"></a><b>Yearly Cash Value Accumulation</b></br>&#160;&#160;&#160;&#160;COBOL: FUYCHSYR-YEARLY-CV</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_CSV_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">53-54</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_Transfers_This_Year\"></a><b>Number Transfers This Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYTRNUM-TRANSFERS-NUM</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_TRF_QTY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">55-56</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_Allocation_Changes_This_Year\"></a><b>Number Allocation Changes This Year</b></br>&#160;&#160;&#160;&#160;COBOL: FUYACNUM-ALLOC-CHANGES-NUM</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_ALC_CHG_QTY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">57-62</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Year-To-Date_Charge_Free_Withdrawal\"></a><b>Year-To-Date Charge Free Withdrawal</b></br>&#160;&#160;&#160;&#160;COBOL: FUYFWAMT-CHG-FREE-WDWL-AMT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_FRE_WTD_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">63-65</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Year-To-Date_Charge_Free_Withdrawal_Percentage\"></a><b>Year-To-Date Charge Free Withdrawal Percentage</b></br>&#160;&#160;&#160;&#160;COBOL: FUYFWPCT-CHG-FREE-WDWL-PCT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.CHG_FREE_WDWL_PCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">66-71</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Year-To-Date_MVA_Free_Withdrawal\"></a><b>Year-To-Date MVA Free Withdrawal</b></br>&#160;&#160;&#160;&#160;COBOL: FUYFMAMT-MVA-FREE-WDWL-AMT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.YTD_MVA_FRE_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">72-77</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Adjusted_Beginning_of_Year_Accumulation_Value\"></a><b>Adjusted Beginning of Year Accumulation Value</b></br>&#160;&#160;&#160;&#160;COBOL: FUYACSHV-ADJ-CASH-VALUE</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.POL_YR_MVA_CSV_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">78-84</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Fixed_Fund_Beginning_Year_Balance\"></a><b>Fixed Fund Beginning Year Balance</b></br>&#160;&#160;&#160;&#160;COBOL: FUYFBYBA-FIX-ACT-BEG-YEAR-BAL</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.FND_BEG_YR_BAL_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">85-91</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Total_Transfer_Amount\"></a><b>Total Transfer Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FUYTDTRN-YTD-FIX-ACT-TRNSFR</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.FND_TRS_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">92-93</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_of_Transfers\"></a><b>Number of Transfers</b></br>&#160;&#160;&#160;&#160;COBOL: FUYTDFNT-YTD-FIX-ACT-TRNSFERS</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.FND_TRS_CNT_QTY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">94-99</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Beginning_of_Year_Variable_Account_Balance\"></a><b>Beginning of Year Variable Account Balance</b></br>&#160;&#160;&#160;&#160;COBOL: FUYBYVBL-BEG-YR-VAR-ACCT-BAL</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.BEG_YR_VAR_ACT_BAL</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">100-105</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Carry_Forward_Charge_Free_Withdrawal_Amount\"></a><b>Carry Forward Charge Free Withdrawal Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FUYCFFWA-CARRY-FWD-FREE-WD-AMT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.CRY_FWD_FRE_WD_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">106-108</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Carry_Forward_Charge_Free_Withdrawal_Percent\"></a><b>Carry Forward Charge Free Withdrawal Percent</b></br>&#160;&#160;&#160;&#160;COBOL: FUYCFFWP-CARRY-FWD-FREE-WD-PCT</br>&#160;&#160;&#160;&#160;DB2: LH_POL_YR_TOT.CRY_FWD_FRE_WD_PCT</td></tr>\n<tr></tr>\n<tr></tr></table>",
+  "verification": {
+    "references": [
+      "COBOLDB2translation.xls",
+      "D202.pdf printed pages 129-138, 608-609"
+    ],
+    "live_policy": "UL045809 / 01 / CKPR",
+    "verified_on": "2026-09-15",
+    "null_slots": "Source NULL uses the captured numeric slot format, dimmed and explicitly annotated; it is not a stored zero.",
+    "wrapping": "79 usable cells after the shared two-space inset; continuation inset 10.",
+    "archive_corrections": "Carry-forward percent occupies bytes 106-108, not the sample HTML's 106-111."
+  }
+}

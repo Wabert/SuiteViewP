@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from textwrap import wrap
 from typing import Dict, List, Optional
 
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -40,7 +41,7 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
-from suiteview.polview.models.cl_polrec.policy_translations import RATE_CLASS_CODES
+from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     MARKET_INDEX_BY_FUND,
@@ -96,6 +97,80 @@ def _pct(value: float) -> str:
 
 
 ISSUE_OUTPUT_LABEL = "NEW BUSINESS - FROM ISSUE"
+ROLLBACK_OUTPUT_LABEL = "VALUE ROLLBACK - HISTORICAL INFORCE BASIS"
+
+
+def rollback_output_basis(policy: IllustrationPolicyData) -> List[str]:
+    """Identify recorded starting values separately from forward assumptions."""
+    when = getattr(policy, "rollback_date", None)
+    manual_lines = [
+        line
+        for assumption in policy.starting_basis_assumptions
+        for line in wrap(assumption, width=108)
+    ]
+    if when is None:
+        if not manual_lines:
+            return []
+        return [
+            "CURRENT INFORCE BASIS - MANUAL STARTING ASSUMPTIONS",
+            f"VALUES AS OF: {policy.valuation_date:%m/%d/%Y}",
+            "LOADED CURRENT VALUATION WITH EXPLICIT SCENARIO EDITS; SOURCE POLICY IS UNCHANGED.",
+            "OTHER BALANCES AND TAX LIMITS RETAIN THE LOADED BASIS.",
+            *manual_lines,
+        ]
+    if policy.rollback_requires_shadow_value:
+        raise ValueError("Enter a historical shadow amount before producing rollback projection outputs.")
+    source = policy.rollback_source_date
+    source_text = source.strftime("%m/%d/%Y") if source else "NOT PROVIDED"
+    return [
+        ROLLBACK_OUTPUT_LABEL,
+        f"VALUES AS OF: {when:%m/%d/%Y} | LOADED VALUATION DATE: {source_text}",
+        (
+            "MANUAL POST-DEDUCTION AV; FORWARD PROJECTION, NOT A HISTORICAL TRANSACTION REPLAY."
+            if policy.starting_account_value_is_manual else
+            "RECORDED POST-DEDUCTION AV; FORWARD PROJECTION, NOT A HISTORICAL TRANSACTION REPLAY."
+        ),
+        "SPECIFIED AMOUNTS AND DEATH-BENEFIT OPTION ARE REVIEWABLE STARTING-BASIS ASSUMPTIONS.",
+        "TAX LIMITS USE SELECTED STARTING ASSUMPTIONS; MANUAL EDITS DO NOT RECONSTRUCT HISTORICAL TAX ADJUSTMENTS.",
+        *[
+            line
+            for limitation in policy.rollback_limitations
+            for line in wrap(limitation, width=108)
+        ],
+        *manual_lines,
+    ]
+
+
+def rollback_output_conditions(policy: IllustrationPolicyData) -> List[tuple]:
+    historical = policy.rollback_date is not None
+    if not historical and not policy.starting_basis_assumptions:
+        return []
+    return [
+        ("Rollback valuation date" if historical else "Current valuation date",
+         policy.valuation_date.isoformat()),
+        ("Modeled specified amount", policy.face_amount),
+        ("Modeled death-benefit option", policy.db_option),
+        ("Opening account value", policy.account_value),
+        ("Premiums paid through rollback" if historical else "Loaded premiums paid",
+         policy.premiums_paid_to_date),
+        ("Opening cost basis", policy.cost_basis),
+        ("Historical shadow account value" if historical else "Opening shadow account value",
+         policy.shadow_account_value),
+        ("Rollback accumulated GLP" if historical else "Loaded accumulated GLP", policy.accumulated_glp),
+        ("Rollback accumulated MTP" if historical else "Loaded accumulated MTP", policy.accumulated_mtp),
+        *[
+            (f"Coverage {segment.coverage_phase} specified amount", segment.face_amount)
+            for segment in [*policy.segments, *policy.riders]
+        ],
+        *[
+            (
+                f"Benefit {benefit.coverage_phase}/{benefit.benefit_type}/"
+                f"{benefit.benefit_subtype} amount",
+                benefit.benefit_amount,
+            )
+            for benefit in policy.benefits
+        ],
+    ]
 
 
 def issue_output_basis(policy: IllustrationPolicyData) -> List[str]:
@@ -1082,7 +1157,7 @@ def build_ul_report(
     report = IllustrationReport(
         run_date=run_date,
         run_from_issue=policy.run_from_issue,
-        basis_lines=issue_output_basis(policy),
+        basis_lines=issue_output_basis(policy) + rollback_output_basis(policy),
     )
     if policy.run_from_issue:
         report.title = "FLEXIBLE PREMIUM UNIVERSAL LIFE INSURANCE HYPOTHETICAL ILLUSTRATION"
@@ -1153,7 +1228,7 @@ def build_ul_report(
     report.insured_lines = [line for line in [policy.insured_name] if line]
     rated = "RATED " if (policy.base_segment and policy.base_segment.table_rating > 0) else ""
     class_code = (policy.rate_class or "").upper()
-    class_desc = RATE_CLASS_CODES.get(class_code, "")
+    class_desc = rate_class_description(class_code, policy.plancode).upper()
     if not class_desc:
         class_desc = (
             "NICOTINE USER"
