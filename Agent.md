@@ -218,7 +218,7 @@ It is **NOT** a web/browser application. This means:
   ```
 
   This captures the entire desktop using PyQt6's `QScreen.grabWindow(0)` and
-  saves it to `~/.suiteview/screenshot.png`. Then use `view_file` to inspect
+  saves it to `~/.suiteview/diagnostics/screenshot.png`. Then use `view_file` to inspect
   the resulting image. No extra dependencies needed — PyQt6 is already
   installed.
 - **The app is launched** via `venv\Scripts\python.exe -c "from suiteview.main import main; main()"`
@@ -532,11 +532,24 @@ Never re-declare `APPBARDATA` / `SHAppBarMessage` calls elsewhere.
   (`_unregister_appbar(force=True)`) and showing from the tray re-docks via
   `_redock_appbar()`. A screen/work-area change arriving while hidden must not
   re-register a bar nobody can see.
+- **Shortcut activation must use the Qt restore path.** Both launchers share
+  `taskbar_launcher/single_instance.py`: a second process posts the registered
+  restore message to the existing launcher, rather than calling `ShowWindow`
+  alone. `SuiteViewTaskbar.nativeEvent` queues `_show_from_tray`, also reconciling
+  native show/restore requests while hidden. This clears the tray state and
+  re-docks after Qt maps the window. Never kill other Python processes when a
+  mutex exists but the launcher window is not ready.
+- **Failed verification is not success.** AppBar Win32 declarations are
+  pointer-safe and private (do not overwrite other widgets' ctypes structure
+  prototypes). Missing monitor information or a failed reservation triggers
+  one retry, then a tray warning rather than claiming the bar is docked.
 - **Regression check:**
   `venv\Scripts\python.exe tools/app/test_taskbar_tray_cycle.py` drives the real
   taskbar through launch → hide → refresh-while-hidden → show → redundant
-  register and asserts the work area is reserved exactly when the bar is
-  visible. It must report `all_ok: true`.
+  register, native restore, cross-process shortcut activation, and floating/full
+  restores. It checks Qt/native visibility and the exact reserved height.
+  It must report `all_ok: true` and exit zero; `--output <path>` saves the JSON.
+  `tests/test_taskbar_restore.py` covers activation identities and failure paths.
 
 ## Identifier Inputs — Case-Insensitive Entry (MANDATORY)
 
@@ -1010,12 +1023,58 @@ across all apps. For app-specific details, see the relevant doc:
 | **ABR Quote** | *(see section below)* | Accelerated Death Benefit quoting tool — 3-step wizard, dedicated SQLite DB, Crimson Slate theme |
 | **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens on a **product-line chooser** (`product_chooser.py`): UL, Term or Whole Life rates. The header then shows Workup / Database (/ Converters, UL only) for the chosen line, plus a control to switch back.<br><br>**UL** — single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required). Verify against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py`.<br><br>**Term** (`workup/term_spec.py`, `term_builder.py`, `term_window.py`) — one IAF in, seven TERM_* CSVs out (TERM_POINT_PV, TERM_POINT_PVSRB, TERM_POINT_BENEFIT, TERM_RATE_MODEFACT, TERM_RATE_BANDSPECS, TERM_RATE_PREM, TERM_RATE_BEN). No MPF/CKULTB04/CKULTB01. See **§ Term Rates** below.<br><br>The UL/Term **Database** view (parameterized by `RateSchema`) validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports pointer editing plus unreferenced whole-index deletion.<br><br>**Whole Life** has source-keyed CVF/PUI/IAF imports, explicit-basis NSP CSV imports, integrated dividend loading and read-only PDF/rate browsing. See **§ Whole Life rate loading** below. |
 | **Task Manager** | *(future)* | Task management |
+| **Administrator** | `suiteview/administrator/` | Users / Roles & Apps maintenance of the three `SV_Access*` tables in UL_Rates. Packaged builds require enabled ADMIN access; source developer runs bypass access-table restrictions. See Testing below. |
 | **Cyberlife Query / Audit** | [`docs/audit/Audit_Criteria_Input_Types.md`](docs/audit/Audit_Criteria_Input_Types.md) | **52 Segment** page: eleven application/conversion fields from `TH_USER_GENERIC`, with ranges/text criteria and optional display. **Latest SC conversion dates (69)**: `LST_ETR_CD='O'`, both reversal flags zero, one `FH_FIXED` row ordered by `ENTRY_DT`, `ENTRY_TIME`, `SEQ_NO` descending. Live-verified: financial history has no `CK_SYS_CD`, and its time field is `ENTRY_TIME` (not the older workbook's `TIME`). |
 
 > **To add a new sub-app doc:** create `docs/<APPNAME>_CLAUDE.md`, add a row to
 > the table above, keep shared concerns (DB2, PolicyInformation) in this file,
 > and keep app-specific detail (UI, VBA mappings, business rules) in the sub-app
 > doc.
+
+## Query tool RegEx reference
+
+The header's **RegEx Cheatsheet** button opens a compact, non-modal blue/gold
+reference with expressions, character classes and useful patterns. It reuses
+one owned window for users with Query access. This is regular-expression
+syntax, not SQL LIKE; the existing field-row SQL LIKE help remains separate.
+Regression: `tests/test_audit_regex_cheatsheet.py` (use `QT_QPA_PLATFORM=windows`
+to also check text fit with native fonts).
+
+## Query participation filter
+
+Query's **Policy (2) > Participating (02)** uses base phase 1
+`LH_COV_PHA.DIV_PTP_TYP_CD`, even in coverage-level mode: A-H participating,
+9 participating with dividends paid up, blank/0-8 nonparticipating.
+NULL/unrecognized codes remain unknown. The three-choice multi-select follows
+the compact termination-date group and other left-column criteria. Checked
+adds the raw code and description; selections filter, no selection displays
+only. State persists through saved queries and clears with New. See
+`tests/test_audit_participating.py` and the Audit criteria documentation.
+Native no-DB verification: `tools/app/verify_policy2_participating.py
+--screenshot <path>` checks compact rows, three visible options and saved-query/New behavior.
+
+The **WL** page uses standard checkbox/listbox controls, fitted to text and row
+counts. Its full **Participation Type (02)** list shows Blank, 0-9 and A-H with
+descriptions; **Par** replaces the selection with exactly A-H, not 9. It shares
+base-code definitions with Policy (2), combines with that tab using AND, and adds
+the detailed type description without duplicate grouped columns. WL dividend,
+NFO and CV criteria are also wired to SQL. Existing saved dividend/NFO keys remain
+unchanged. Regression: `tests/test_audit_wl.py`; add `--wl-screenshot <path>` to
+the native participation verifier to check both pages.
+
+## Audit file-source text encodings
+
+File-source intake detects UTF-8, UTF-16 and UTF-32 byte-order marks before
+delimiter detection and persists the resolved encoding with the parse spec.
+BOM-less text remains strict UTF-8; explicit encodings are honored, never
+silently replaced or guessed. Delimited and fixed-width intake, member
+validation, preview and DuckDB querying share the same readers in
+`audit/adhoc_source_intake.py`. Delimiter sniffing reads only 8192 characters,
+not the whole file. Regression: `tests/test_text_source_encoding.py`.
+Read-only verification: `tools/audit/verify_text_file_source.py <path>
+--output <report.json>` checks an isolated saved-source round trip, preview
+and full SQL row count against an independent CSV reader without printing
+records or changing the original file or the user's saved sources.
 
 ## PolView coverage zero values
 
@@ -1027,10 +1086,10 @@ verification helper.
 
 ## PolView Policy Record segments 55 and 57
 
-The Policy Record viewer shows **only segments with policy data**, using the
-canonical record/table mapping through `PolicyInformation`. A populated segment
-without a supported screen keeps its tab but shows only "This screen cannot be
-reproduced in PolView at this time." No policy, absent segments and loading
+The Policy Record viewer shows **only implemented screens with policy data**, using
+the canonical record/table mapping through `PolicyInformation`. Populated segments
+without a supported screen have no tab; build them out one by one. Supported
+screens with data/build failures retain an explicit error tab. No policy, absent segments and loading
 failures must never display captured screens. Data-access errors remain explicit,
 not assumed empty. Every displayed value supports right-click Copy through
 `CopyableLabel`; independently colored bits copy their complete flag value.
@@ -1059,6 +1118,23 @@ UL045809 matches the supplied capture; U0633187 verifies multiple C/P/V sets.
 Regression: `tests/test_policy_record_segment55.py` and
 `tests/test_policy_record_segment57.py`. See `docs/POLVIEW_CLAUDE.md` for
 read-only/native checks.
+
+## PolView Policy Record segment 04
+
+Benefits (6204) is live through `PolicyInformation`, including all 16 flag bits,
+PPA interest rates, renewal indicators and the local automatic-rate-deny field.
+The 81-byte layout is in **D20** pp.159-175/374, not D202. U0566833's four
+captured benefit lines match live data; U0633187 also verifies an ABR benefit.
+Join LH/TH benefit rows by complete policy/company/system, phase, type/subtype,
+person/sequence, status and issue date; keep source order within each phase.
+Never replace NULL with a stored zero or assume a missing TH row means `N`.
+Unverified option/inflation and user-area variants raise explicit errors.
+Archived layouts disagree on the frequency/rate-deny byte positions: retain
+the verified displayed values without claiming those physical positions.
+Regression: `tests/test_policy_record_segment04.py`. Read-only verification:
+`tools/policyrecord/probe_segment04.py --expect-u0566833 --output <report.json>`.
+Native preview/copy verification uses `tools/policyrecord/preview_policy_record.py`;
+see `docs/POLVIEW_CLAUDE.md`.
 
 ## PolView Policy Record segment 67
 
@@ -1109,6 +1185,34 @@ See `docs/POLVIEW_CLAUDE.md` for UI and verification details.
 
 ## GLP Exception target-date quotes
 
+Negative opening AV is funded with a **one-time lump sum plus a separately
+solved ongoing modal premium**, never by repeating the catch-up amount.
+First solve gross initial funding through the next modal collection (or the
+target if sooner), then hold that first-payment floor while minimizing the
+ongoing premium. The extra above any first-month scheduled premium is a dated
+transaction; use `level_to_exception_inputs()` in both solver and display.
+All three scenarios retain loads, caps and exception rules. Show the lump sum,
+date and ongoing amount in the summary, clipboard, tooltips and workbook.
+Ordinary funding stays on the positive-value side of the lapse boundary, so
+cent rounding can leave a few cents rather than exactly zero.
+Read-only verified UL045809 / 01 to 2026-12-15: $131.31 once plus $185.49 monthly,
+giving $316.80 on October 15 and $185.49 on November 15, with displayed ESV $0.01.
+Regression: `tests/test_glp_target_engine.py`; the native verification helper
+also accepts `--screenshot <path>`.
+
+GP exception entry must also recognize **actual exhausted guideline room**
+after ordinary premiums, not just the annual scheduled-premium flag. For
+off-cycle quarterly starts that flag can remain false after a later payment
+uses the last available room. The shared `_compute_exception_premium()` checks
+the enforced GPT limit against paid premiums less withdrawals (floating-point
+tolerance only); allowance, safety-net, shadow, maturity and prior-lapse gates
+remain unchanged. U0148463 / 01 to 2027-05-25 is the read-only regression case:
+$233.75 initial lump sum, $296.03 quarterly level, a capped February payment,
+then a $32.68 April exception and ending value zero. All three GLP tabs and the
+workbook must calculate, not report "No level premium".
+`tools/glp/diagnose_target_funding.py --policy U0148463 --target 2027-05-25`
+traces initial/level solve brackets read-only.
+
 PolView Policy Support > GLP Exception solves minimum premium only for monthly
 deductions **strictly before** the target date. A solved zero must remain an
 explicit zero-premium schedule: empty inputs restore the policy's billed premium.
@@ -1146,6 +1250,16 @@ Regression coverage: `tests/test_glp_target_engine.py` uses the real engine;
 Calculate action read-only (optional `--output` writes the verification JSON).
 `--expect-opening-av` checks the starting post-deduction AV; `--reference` can
 compare displayed ledger cells against a supplied JSON list keyed by Date.
+
+## RERUN Values Summary loan columns
+
+Values > Summary separates the beginning-of-month loan buckets into
+`Loan_Accr_Int` (all outstanding accrued interest, not just this month's
+charge) and `Loan_Princ` (principal only), each summed across regular,
+preferred and variable loans. Ending loan columns remain unchanged.
+The shared `illustration/core/summary_results.py` mapping also drives debug
+exports and regression snapshots; its Summary schema version is now 2.
+Regression: `tests/test_illustration_values_tab.py`.
 
 ## RERUN existing GP exception periods
 
@@ -1337,6 +1451,36 @@ fund-cell editing, Apply and pending-draft guards on current and historical base
 Expanded regression coverage: `tests/test_edit_record_scenario.py` and
 `tests/test_edit_record_ui.py`.
 
+## Illustration specified-amount basis
+
+`illustration/plancodes/plancode_table.json` uses **SA_Basis** (specified amount),
+exposed as `PlancodeConfig.sa_basis`. It replaces Expense_Basis and consolidates
+the workbook's Target SA_Basis, EPU SA_Basis and Target BandLock controls.
+Every plancode row explicitly specifies `CurrentSA` or `OriginalSA`; do not infer
+it from SkippedCovRein or accept the retired keys.
+
+**OriginalSA** uses each coverage's original amount for EPU (table or flat),
+MTP, CTP and full surrender charges. Only MTP/MTP table-rating rates are locked
+to that coverage's issue band. CTP, COI, EPU and premium-load bands follow current
+combined specified amount; SCR is unbanded. Coverage increases capture their
+own issue band; later increases/decreases must not overwrite it. Policy-change
+rate refresh updates every active segment's COI/EPU band, not just the changed
+segment. CurrentSA retains current amounts and unlocked target bands.
+
+Live issue bands come from `PolicyInformation.cov_mtp_band(coverage_phase)`:
+the primary-person type-M renewal `RT_BAN_CD`, interpreted with the coverage's
+`BAN_STRUCTURE_CD` (structure 6 orders X/Y before A). This mirrors the workbook's
+BandAtIssue source, not a reconstruction from current face. Missing/ambiguous
+bands or missing original amounts block OriginalSA loading explicitly. Reload
+live policies and resave older illustration snapshots whose original-band field
+was populated with the current band.
+
+OriginalSA still has no partial surrender charge. Its withdrawal fee reduces
+AV but not specified amount, matching the workbook's Target SA_Basis fee gate.
+Shadow-account basis remains a separate contractual setting.
+Regression: `tests/test_illustration_sa_basis.py`,
+`tests/test_policy_mtp_band.py`, and the policy-service/withdrawal tests.
+
 ## Illustration COLA coverages and surrender charges
 
 Illustration base segments retain `CoverageSegment.is_cola` from the canonical
@@ -1408,7 +1552,7 @@ runtime. Loading previews differences, inserts new keys, skips unchanged
 values, and requires explicit per-table approval to update existing values.
 It never deletes rows absent from an input file. Updates are backed up before
 the transaction; source hashes and verified load receipts are retained under
-`~/.suiteview/rate_manager_backups/whole_life/`. Shared-database write guards
+`~/.suiteview/backups/rate_manager/whole_life/`. Shared-database write guards
 apply to both table creation and loading.
 
 ## 📐 Term Rates — Rules That Are Not Obvious
@@ -1522,17 +1666,12 @@ All ABR-specific colors and stylesheets live in `suiteview/abrquote/ui/abr_style
 
 ### ABR Quote Database
 
-**Location:** `~/.suiteview/abr_quote.db` (SQLite)
-**Manager:** `suiteview/abrquote/models/abr_database.py` → `ABRDatabase`
-**Singleton:** `get_abr_database()` — auto-creates schema on first access.
-
-| Table | Purpose | PK | Editable in Rate Viewer |
-|-------|---------|----|-----------------------|
-| `term_rates` | Base term premium rates (28K+ rows) | `key` (composite text) | No |
-| `interest_rates` | Monthly ABR interest rates | `date` (YYYY-MM) | Yes |
-| `per_diem` | Annual per diem limits | `year` (integer) | Yes |
-| `state_forms` | Election/disclosure form filenames per state | `state_abbr` | Yes |
-| `import_metadata` | Tracks when data was last imported | `table_name` | No |
+**Current source:** the shared `UL_Rates` ODBC DSN, through
+`suiteview/abrquote/models/abr_database.py` → `get_abr_database()` and
+`ABROdbcDatabase`. Premium tables use the `TERM_*` pointer/index architecture;
+interest, per diem, state variations and mortality use `SV_ABR_*` tables.
+An old local `abr_quote.db`, if present, is historical import material, not the
+normal runtime rate source or an automatic live-data fallback.
 
 **Rate Viewer** (`suiteview/abrquote/ui/rate_viewer_dialog.py`):
 - Accessible from ABR Quote header menu
@@ -1571,6 +1710,36 @@ Key features:
 ---
 
 # Part VI — Subsystems
+
+## Local profile storage and cleanup
+
+`~/.suiteview` remains local. `core/profile_paths.py` is the single source of
+truth: use `profile_path(name)`, not independent home-directory constructions.
+The root separates `settings`, `data`, `auth`, `assets`, `screenshots`, `backups`,
+`logs` and `diagnostics`. Saved queries/snapshots live in `data/query`, cases in
+`data/illustration`, notes in `data/notes`, and bookmarks in `data/bookmarks.json`.
+The mixed-purpose `data/suiteview.db` is not a disposable cache. Its saved
+credentials require `auth/.key`; SharePoint's token cache uses Windows DPAPI.
+
+Launchers initialize the layout before importing persistent-state modules.
+`core/profile_maintenance.py` moves known data without overwriting conflicts,
+verifies file hashes, rewrites moved JSON path references and repairs desktop
+icon references. Running real-profile launchers block maintenance. Normal
+startup migrates but never opts into deleting old work.
+`tools/app/maintain_profile.py --cleanup` previews the reviewed retired items;
+`--apply --cleanup` applies only after SuiteView exits. Unknown data is retained.
+Tests/tools can isolate storage with absolute `SUITEVIEW_PROFILE_DIR` set before
+imports; this does not enable local policy data or alter access permissions.
+
+The retired TaskTracker no longer creates new database tables. Audit retains
+widget-state helpers but no unused profile-file API; live picker settings use
+`settings/audit_ui_settings.json`. Agent Chat remains disconnected from the
+launcher (Albert uses its external bridge). The live registry uses SQL Server,
+not the retired local SQLite registry. Backup output remains enabled under
+`backups/rate_manager`; developer previews go to `diagnostics`, not the root.
+No OneDrive backup or automatic retention/deletion schedule is implied.
+See [docs/PROFILE_STORAGE.md](docs/PROFILE_STORAGE.md) for maintenance, recovery
+and distribution boundaries. Regression: `tests/test_profile_layout.py`.
 
 ## Bookmark Architecture
 
@@ -1628,7 +1797,7 @@ sidebar = BookmarkContainer(bar_id=1, orientation='vertical', parent=self)
 
 ### Bookmark Data Format
 
-**File Location:** `~/.suiteview/bookmarks.json`
+**File Location:** `~/.suiteview/data/bookmarks.json`
 
 ```json
 {
@@ -1741,50 +1910,75 @@ venv\Scripts\python.exe scripts/build_distribution.py
 
 ### Key decisions
 
-- **PolView and ABR Quote** databases are always included (bundled from
-  `~/.suiteview/` into the exe's data directory).
-- On first launch, `_install_bundled_abr_db()` copies the bundled DB to
-  the user's `~/.suiteview/` if it doesn't exist.
-- **Developer-only tools** are stripped from the Tools menu in distribution
-  builds. Rate Manager is included in the full SuiteView distribution but not
-  SuiteView Light.
+- Bundle repository-owned reference assets only. Never include a developer's
+  personal `.suiteview` database, key, tokens, saved work or screenshots.
+- First launch initializes the user's categorized local profile. Existing
+  personal data is moved safely; live policy/rate access remains separate.
+- **One distribution:** all apps ship in `SuiteView.spec`. Runtime permissions,
+  not separate editions or executable filenames, control access.
 
-### SuiteViewLight — the read-only edition
+### Runtime access permissions
 
-`SuiteViewLight` (`python scripts/build_distribution.py --light`, spec
-`SuiteViewLight.spec`) is a trimmed, **read-only** edition for the business area.
+`suiteview/core/access_control.py` resolves the current native Windows identity
+against live `SV_AccessUser`, `SV_AccessRole` and `SV_AccessRoleApp` in UL_Rates.
+Missing/disabled users and missing roles are denied. Connection failures are
+explicit errors, never unrestricted or stale-permission fallbacks.
 
-- **Included:** PolView, FileNav, ABR Quote, and the **Audit / Query Tool**
-  (read-only), plus View Screenshots and App Data Location.
-- **Excluded:** LLM Agent (`copilot`, `markdown`), Rate Manager, Mainframe
-  Navigator, ScratchPad, Email Attachments, RERUN illustration.
-- **Read-only against the shared UL_Rates SQL Server database.** Light must
-  never modify shared data — the ABR Rate Viewer's Add/Edit/Delete bar is
-  hidden, the Audit "Find & Register Unique Values" actions are hidden, and the
-  Unique Value Registry window is view-only (no edit-in-window, non-editable
-  cells, no delete).
-- **No arbitrary hand-written SQL.** The Audit **Manual SQL build mode** and the
-  SQL tab's **"Move to Build"** button are removed in Light (both open an
-  editable, runnable SQL surface). This covers the build-mode menu, the New
-  Query Object dialog, the source dashboard's New Query menu, and reopening a
-  saved Manual SQL object. Gated on `is_light_build()`.
+| Rule / helper | Meaning |
+|---------------|---------|
+| `has_developer_access()` | Source runs are unrestricted; every packaged EXE is checked |
+| `guard_app_access(code)` | Recheck enabled user and `AllApps`/whitelist before app entry |
+| `is_data_read_only()` | Cached UI state of `CanUpdateDatabase` |
+| `guard_data_writable(action)` | Fresh authorization before shared-database mutation |
+| `can_write_support_files()` | Cached UI state of `CanWriteSupportFiles` |
+| `guard_support_files_writable(action)` | Fresh authorization before policy-support file mutation |
 
-**How the switch works — single source of truth in
-[`suiteview/core/build_env.py`](suiteview/core/build_env.py):**
+App entry includes taskbar/tray actions, direct constructors and cross-app
+handoffs. Administrator and the experimental DB2 Table Check require the ADMIN
+role; `AllApps` is not an administrative grant. Write bits are independent of
+`AllApps`. Missing grants disable launcher controls rather than relying on hidden
+buttons for enforcement. **Tools > Refresh Permissions** reloads launcher state.
+Role changes are checked again on app entry and protected writes; existing
+windows are not forcibly closed and unsaved work is not discarded.
 
-| Function | Meaning |
-|----------|---------|
-| `is_light_build()` | True in the `SuiteViewLight.exe`, or when `SUITEVIEW_LIGHT=1` (run/test Light from source) |
-| `is_data_read_only()` | Gate every shared-DB write on this (currently == `is_light_build()`) |
-| `guard_data_writable(action)` | Raises `ReadOnlyDataError` — the last-line safety net beneath the UI gating |
+Normal startup verifies access before constructing the launcher. UI reads share
+a permission snapshot, but app-entry and write guards query live permissions.
+Database-write UI gating covers rate/registry editors and arbitrary Manual SQL.
+Each actual mutation must also use its guard, even if its UI is disabled.
+`core/sql_permissions.py` also guards SQL execution in Audit, DB2 and rate
+read helpers: read-only roles may execute a conservative single SELECT/CTE with
+recognized built-ins, not batches, SELECT INTO, DML/DDL/EXEC or external/custom
+functions. Unsupported SQL fails explicitly rather than being assumed safe.
+Arbitrary mutation/batch/EXEC SQL requires both ADMIN and CanUpdateDatabase in
+packaged runs. Non-ADMIN database writers retain controlled rate/registry editors
+and conservative SELECT/CTE reads; their write bit cannot grant access-table
+administration through Manual SQL. SQL Server ACLs must enforce the same separation.
+Registry schema initialization is lazy and write-guarded, never an import-time
+side effect. UL/Term/WL loaders and ABR save dialogs recheck before mutation.
+Personal settings, notes and unsaved Excel exports are not shared-database or
+policy-support mutations. SQL Server and filesystem ACLs remain essential;
+application permissions do not replace server-side authorization.
 
-**Enforcement is defense-in-depth:** the UI hides/disables write controls
-(taskbar `LIGHT_MODE`, ABR rate viewer, audit field menus, registry window)
-**and** the write layers guard themselves — `audit/shared_field_registry.py`
-(ABATBL_* registry) and `abrquote/ui/rate_viewer_dialog.py` (SV_ABR_* rate
-tables) both refuse writes when `is_data_read_only()`. When you add a new
-write path against the shared database, call `guard_data_writable()` at the top
-and gate its UI on `not is_data_read_only()`.
+Support browsers opt into `MiniExplorer(..., support_files=True)` and guarded
+workbook-copy helpers. `core/support_files.py` owns canonical PolView/ABR support
+roots and path-aware checks for FileNav paste/drop/cut, rename (including batch),
+delete, folder creation and SharePoint downloads. A copy checks its destination;
+a move/rename checks both source and destination. Copying out is allowed,
+moving/deleting protected content is not. Resolved aliases, root ancestors and
+descendants are protected; unrelated personal folders remain writable.
+Outlook attachment-save and preview destinations use the same path guard before
+directory creation or `SaveAsFile`; ordinary local previews remain available.
+
+Regression: `tests/test_runtime_access.py`, `tests/test_app_entry_access.py`,
+`tests/test_support_file_access.py`, `tests/test_filenav_support_access.py`,
+`tests/test_database_write_permissions.py`, `tests/test_audit_rate_app_access.py`.
+`tests/test_read_only_generated_sql.py` checks real PolicyInformation, rates,
+ABR viewer and Audit-generated queries under restricted permissions.
+Native verification: `tools/app/verify_runtime_access.py --output-dir <directory>`
+uses synthetic roles and an isolated temporary profile, checks disabled launcher
+controls, denied direct entry, permission refresh and FileNav without ScratchPad.
+`tools/admin/verify_access_repository.py --runtime` verifies the real packaged
+authorization query read-only, even when the helper runs from source.
 
 ### Troubleshooting
 
@@ -1799,6 +1993,63 @@ venv interpreter**.
 
 ## Testing
 
+### SuiteView access-control tables and Administrator
+
+`tools/admin/create_access_control.py` provisions `dbo.SV_AccessRole`,
+`dbo.SV_AccessRoleApp` and `dbo.SV_AccessUser` in live `UL_Rates`.
+Default invocation previews the initial seed offline; `--check` compares live
+rows read-only; `--apply` creates/seeds the three tables in one transaction and
+verifies every value after reconnecting. It never overwrites existing tables or
+permissions; later administrative edits intentionally make the seed check fail.
+Regression: `tests/test_access_control_setup.py`.
+
+Roles carry `AllApps`, `CanUpdateDatabase`, `CanWriteSupportFiles`, and
+`Description`; users carry network ID, display-only `Name`, `Enabled`, and one
+role. ADMIN includes current/future apps without whitelist rows; other roles use
+explicit app codes in `SV_AccessRoleApp`. Permission bits default off.
+Administrator checkboxes reuse the Query tool's `audit/tabs/_styles.make_checkbox`
+factory (square blue indicators with white checkmarks), including app grants.
+The **Administrator** app (`suiteview/administrator/window.py`) uses the shared
+frameless blue/gold frame, compact `FilterTableView` grids, and Users / Roles &
+Apps editors. In packaged builds, Tools > Administrator is shown only after an enabled ADMIN check;
+ADMINISTRATOR is not an app-whitelist grant. `AllApps` or database-write permission
+alone never grants administration. Native Windows `GetUserName()` supplies the
+network ID, not a user-editable field or an environment variable.
+
+**Source developer access is independent of the access tables.**
+`core/build_env.py` owns `has_developer_access()`: ordinary source runs bypass
+role/user restrictions, including a missing, disabled or non-ADMIN user record.
+The Administrator menu is immediately available without an identity/database
+probe, and its status reads **Developer access (source)** rather than claiming
+stored ADMIN membership. No hard-coded developer ID or environment-variable
+grant is used; a packaged EXE never receives this bypass. Runtime access checks
+honor this shared helper before querying access tables.
+It does not grant Windows/SQL Server credentials,
+hide connection/schema errors, or bypass data-integrity safeguards.
+
+`administrator/service.py` checks source developer access or reauthorizes each
+packaged read/write against live UL_Rates.
+Writes use parameterized SQL, shared transaction lock ordering, optimistic
+original-value checks, and atomic role-plus-whitelist saves. Keep at least one
+enabled ADMIN; ADMIN cannot be deleted, nor can a role assigned to any user
+(including disabled users). Existing keys cannot be renamed. Unknown existing
+app codes are preserved, but unknown new grants are rejected. AllApps ignores
+the explicit whitelist without deleting it.
+
+**Permissions are enforced at runtime across the packaged suite.**
+Source developer access is unaffected by table edits. SQL Server grants are not changed:
+database-update permission must
+never imply permission to edit access-control tables, and SQL Server must
+protect these tables from direct external writes separately.
+
+Regression: `tests/test_runtime_access.py`, `tests/test_administrator_service.py`,
+`tests/test_administrator_launcher.py`, `tests/test_administrator_ui.py`.
+`tools/admin/verify_access_repository.py` checks native identity and live table
+loading read-only. `tools/admin/verify_access_crud.py` exercises real SQL Server
+CRUD, conflicts and rollback using connection-local temporary tables and checks
+the live tables remain unchanged. `tools/app/verify_administrator.py` captures
+the native UI with synthetic data; no live access rows are changed.
+
 Run the test suite:
 ```powershell
 venv\Scripts\python.exe -m pytest tests/ -v
@@ -1811,7 +2062,7 @@ venv\Scripts\python.exe scripts/run_file_explorer_multitab.py
 
 Check bookmark data:
 ```powershell
-Get-Content "$env:USERPROFILE\.suiteview\bookmarks.json" | ConvertFrom-Json | ConvertTo-Json -Depth 10
+Get-Content "$env:USERPROFILE\.suiteview\data\bookmarks.json" | ConvertFrom-Json | ConvertTo-Json -Depth 10
 ```
 
 ---

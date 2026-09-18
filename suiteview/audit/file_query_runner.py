@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.dataforge import forge_engine
 from suiteview.audit.file_source import FileDataSource
+from suiteview.core.sql_permissions import guard_query_sql
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -66,6 +67,7 @@ def run_sql(
     Returns a ``ForgeResult`` (``.dataframe`` + the executed ``.sql``). Raises
     ``ForgeEngineError`` if the source has no members or the SQL fails.
     """
+    guard_query_sql(sql)
     tables = load_source_tables(file_source, table_names)
     if not tables:
         raise forge_engine.ForgeEngineError(

@@ -13,6 +13,8 @@ The token cache is persisted DPAPI-encrypted (per-user) when pywin32 is
 available; otherwise tokens live only in memory for the session.
 """
 
+from suiteview.core.profile_paths import profile_path
+
 import json
 import logging
 import threading
@@ -33,7 +35,7 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 SP_PREFIX = "sp://"
 
-TOKEN_CACHE_FILE = Path.home() / ".suiteview" / "sp_token_cache.bin"
+TOKEN_CACHE_FILE = profile_path('sp_token_cache.bin')
 
 
 class SharePointError(Exception):
@@ -270,9 +272,13 @@ class SharePointClient:
     def download_file(self, drive_id: str, item_id: str, dest_path: Path,
                       progress_cb=None, cancel_cb=None) -> Path:
         """Stream a file's content to dest_path. Returns dest_path."""
+        from suiteview.core.support_files import guard_support_file_paths
+
+        dest_path = Path(dest_path)
+        guard_support_file_paths(dest_path, action="download policy support files")
         token = self.get_token()
         url = f"{GRAPH}/drives/{drive_id}/items/{item_id}/content"
-        dest_path = Path(dest_path)
+        guard_support_file_paths(dest_path, action="download policy support files")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with requests.get(url, headers={"Authorization": f"Bearer {token}"},
                           stream=True, timeout=60) as r:
@@ -280,6 +286,7 @@ class SharePointClient:
                 raise SharePointError(f"Download failed (HTTP {r.status_code})")
             total = int(r.headers.get("Content-Length", 0) or 0)
             done = 0
+            guard_support_file_paths(dest_path, action="download policy support files")
             # Clear read-only flag from a previous cached download before overwrite
             if dest_path.exists():
                 try:

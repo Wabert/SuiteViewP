@@ -123,7 +123,7 @@ def test_face_decrease_reband_uses_preferred_class_fallback(monkeypatch):
     )
 
     calc_engine._reband_segment(
-        rates, segment, "1U143900", issue_date=None
+        rates, segment, "1U143900", band=2
     )
 
     assert segment.band == 2
@@ -151,5 +151,5 @@ def test_face_decrease_reband_never_keeps_a_zero_coi_on_missing_rate(monkeypatch
 
     with pytest.raises(RateLookupError, match="band 2"):
         calc_engine._reband_segment(
-            rates, segment, "1U143900", issue_date=None
+            rates, segment, "1U143900", band=2
         )

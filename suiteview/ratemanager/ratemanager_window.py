@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.core.access_control import guard_app_access
 from suiteview.ratemanager.parser import IAFParser
 from suiteview.ratemanager.product_chooser import (
     ProductLineChooser, TERM_LINE, UL_LINE, WL_LINE,
@@ -1326,6 +1327,7 @@ class RateManagerWindow(FramelessWindowBase):
     _PAGE_CHOOSER = 0
 
     def __init__(self, parent=None):
+        guard_app_access("RATEMANAGER")
         self._line_btn = QPushButton("Rate Line")
         self._workup_btn = QPushButton("Workup")
         self._database_btn = QPushButton("Database")

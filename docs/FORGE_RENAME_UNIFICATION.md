@@ -246,7 +246,7 @@ With a saved DataForge open in the builder and a real DB2-backed Source:
 
 ## 8. Risks & rollback
 - Touches persisted query/forge state across four stores. Take a restore point of
-  `~/.suiteview/` (query_objects, saved_queries, qdefinitions, saved_dataforges)
+  `~/.suiteview/data/query/` (query_objects, saved_queries, qdefinitions, saved_dataforges)
   before live testing.
 - Keep the change behind small commits per §6 step so a bad step is easy to
   revert. No production consumers — breaking changes are fine (replace cleanly,

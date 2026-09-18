@@ -322,13 +322,13 @@ hover-aware** — hovering a value shows its field name and, where known, the
 COBOL / DB2 source mapping. This turns an intimidating wall of codes into
 something self-explanatory.
 
-- **Policy-backed tabs only; never sample-screen fallbacks.** Tabs are discovered
+- **Implemented, policy-backed tabs only; never sample-screen fallbacks.** Tabs are discovered
   from the canonical `POLICY_RECORD_TABLES` mapping through
   `PolicyInformation.fetch_table()` and `table_error()`. Segments with no rows
   are omitted, including segment 56 on UL045809. Populated segments whose screen
-  is not implemented (including segments with no JSON) retain a blank tab with
-  only **"This screen cannot be reproduced in PolView at this time."**
-  No terminal values or Record Layout are shown on these tabs. No policy means
+  is not implemented are also omitted: screens will be built out one by one.
+  Segments without screen metadata do not query their unimplemented tables.
+  No policy means
   no segment tabs. DB2/build failures show an explicit **LIVE DATA ERROR** and
   the empty unavailable state, never captured values or an assumption of absence.
   Supported screens retain their green **LIVE** badge. The live path
@@ -347,6 +347,36 @@ something self-explanatory.
   values. Consecutive same-field runs (independently colored flag bits) copy as
   one complete value. Hover/source tooltips remain unchanged.
   Regression: `tests/test_policy_record_viewer.py`.
+- **Segment 04 Benefits (6204).** The live 81-byte layout is documented in
+  **D20** printed pp.159-175 and diagram p.374 (not D202). All four supplied
+  U0566833 / 01 / CKPR capture lines match, including PPA `4.500`, premium-waiver
+  `.01`, both eight-bit flags, renewable blank versus nonrenewable `X`, and the
+  local automatic-rate-deny `N`. U0633187 also verifies the ABR11-TM benefit.
+  `policy_record_benefits.py` reads only through `PolicyInformation`, joining
+  `LH_SPM_BNF` to `TH_SPM_BNF` by policy/company/system, phase, benefit
+  type/subtype, person/sequence, status and issue date. It preserves source
+  order within each phase; never sort the screenshot's A0/39 alphabetically.
+  All 16 bits have verified DB2 mappings; none are illustrative zeros.
+  Type U reads the use-code byte from `COL_ICE_FQY_CD`; other benefits use
+  `BNF_STA_CD`. Zero values remain real; NULL numeric slots are dim and annotated.
+  Missing TH rows show an unavailable deny slot, not an assumed `N`.
+  Option/inflation/CPI data, all-coverage request records and nonblank frequency/
+  ABR qualification user fields require further screen verification and report
+  explicit errors rather than silently discarding data. The old HTML sheets
+  disagree on rate-deny/frequency bytes 76/77; the layout reference discloses
+  that ambiguity. Do not invent reserved/user bytes or an 80-byte variant.
+  Segment 04 metadata contains field specs and layout only, with no captured
+  policy values; its dedicated builder supplies every terminal line.
+  - Regenerate metadata: `venv\Scripts\python.exe tools\policyrecord\build_seg04_screen.py`.
+  - Regression: `tests/test_policy_record_segment04.py`.
+  - Read-only capture comparison:
+    `venv\Scripts\python.exe tools\policyrecord\probe_segment04.py
+    --expect-u0566833 --output <report.json>`.
+  - Native preview:
+    `venv\Scripts\python.exe tools\policyrecord\preview_policy_record.py @<config.json>`,
+    with `policy: "U0566833"`, `company: "01"`, `tab: "04"`,
+    `expect_live: ["04"]`, `expect_absent: ["03", "69", "75"]`,
+    `expect_no_errors: true` and `copy_field: "Policy Protection Interest Rate"`.
 - **Three value kinds (color-coded).** Every rendered value is one of:
   - **real** (green) — the field has a DB2 source; the value comes from
     `pi.data_item(table, column)`, formatted to match the mainframe (dates

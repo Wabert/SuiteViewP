@@ -2,6 +2,10 @@ from datetime import date
 from types import SimpleNamespace
 
 import openpyxl
+import pytest
+from unittest.mock import Mock
+
+from suiteview.core.access_control import AccessDeniedError
 
 from suiteview.abrquote.models.abr_data import (
     ABRPolicyData,
@@ -11,7 +15,8 @@ from suiteview.abrquote.models.abr_data import (
 from suiteview.abrquote.ui.output_panel import OutputPanel
 
 
-def test_print_detail_uses_entered_ul_deduction_after_max_partial(tmp_path):
+@pytest.mark.parametrize("writable", [False, True])
+def test_print_detail_uses_entered_ul_deduction_after_max_partial(tmp_path, monkeypatch, writable):
     filepath = tmp_path / "detail.xlsx"
     panel = SimpleNamespace(
         _policy=ABRPolicyData(
@@ -35,7 +40,19 @@ def test_print_detail_uses_entered_ul_deduction_after_max_partial(tmp_path):
         _get_after_partial_deduction=lambda: "42.75",
     )
 
+    guard = Mock(side_effect=None if writable else AccessDeniedError("Support files denied"))
+    monkeypatch.setattr(
+        "suiteview.abrquote.ui.output_panel.guard_support_files_writable", guard
+    )
+    if not writable:
+        with pytest.raises(AccessDeniedError):
+            OutputPanel._write_detail_workbook(panel, str(filepath))
+        assert not filepath.exists()
+        guard.assert_called_once()
+        return
+
     OutputPanel._write_detail_workbook(panel, str(filepath))
+    guard.assert_called_once()
 
     workbook = openpyxl.load_workbook(filepath, data_only=True)
     assessment = workbook["Assessment"]
@@ -45,3 +62,4 @@ def test_print_detail_uses_entered_ul_deduction_after_max_partial(tmp_path):
         if row[0].value == "After (Partial):"
     )
     assert after_partial_row[1].value == "42.75"
+    workbook.close()

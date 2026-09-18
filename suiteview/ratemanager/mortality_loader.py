@@ -242,7 +242,9 @@ def _rate_rows(rates: Iterable[MortalityRate]) -> list[tuple[object, ...]]:
 def replace_live(package: MortalityPackage, dsn: str = "UL_Rates") -> dict[str, int]:
     """Replace the unused mortality objects atomically and verify row counts."""
     import pyodbc
+    from suiteview.core.build_env import guard_data_writable
 
+    guard_data_writable("replace mortality rate tables")
     connection = pyodbc.connect(f"DSN={dsn}", autocommit=False, timeout=10)
     try:
         cursor = connection.cursor()

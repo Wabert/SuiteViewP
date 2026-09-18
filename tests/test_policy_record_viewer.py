@@ -48,21 +48,21 @@ def test_absent_segments_never_render_samples(segment):
     ("56", "LH_GEN_FND_RLE"), ("56", "LH_MKT_VAL_ADJ_RLE"),
     ("03", "LH_SST_XTR_CRG"), ("75", "LH_POL_MVRY_VAL"),
 ])
-def test_present_but_unbuilt_records_are_empty(segment, table, monkeypatch):
+def test_present_but_unbuilt_records_are_omitted(segment, table, monkeypatch):
     monkeypatch.setattr(builder, "build_segment_lines", lambda *args: None)
-    screen = viewer.build_screen(segment, Policy({table: [{"value": 0}]}))
-    assert not screen.get("live")
-    assert not screen.get("live_error")
-    assert screen["lines"] == []
-    assert screen["fields"] == {}
-    assert screen["layout_html"] == ""
+    assert viewer.build_screen(segment, Policy({table: [{"value": 0}]})) is None
 
 
-def test_secondary_only_segment56_is_unavailable_not_a_sample():
-    screen = viewer.build_screen("56", Policy({"LH_MKT_VAL_ADJ_RLE": [{"value": 0}]}))
-    assert not screen.get("live")
-    assert screen["lines"] == []
-    assert screen["layout_html"] == ""
+def test_secondary_only_segment56_is_omitted_not_a_sample():
+    assert viewer.build_screen("56", Policy({"LH_MKT_VAL_ADJ_RLE": [{"value": 0}]})) is None
+
+
+def test_segments_without_a_screen_do_not_query_unimplemented_tables():
+    class UnimplementedPolicy(Policy):
+        def fetch_table(self, table):
+            pytest.fail(f"Unimplemented screen queried {table}")
+
+    assert viewer.build_screen("03", UnimplementedPolicy()) is None
 
 
 @pytest.mark.parametrize("has_rows", [False, True])
@@ -101,17 +101,31 @@ def test_supported_live_screen_keeps_layout_and_does_not_mutate_template(monkeyp
     assert base == original
 
 
-def test_window_includes_only_present_segments_and_empty_unsupported_content(app, monkeypatch):
+def test_window_omits_populated_unsupported_segments(app, monkeypatch):
     pi = Policy({"LH_SST_XTR_CRG": [{"value": 0}], "LH_POL_MVRY_VAL": [{"value": 0}]})
     monkeypatch.setattr(viewer.PolicyRecordViewerWindow, "_load_policy", lambda self: pi)
     window = viewer.PolicyRecordViewerWindow(policy_number=pi.policy_number)
     try:
-        assert [window.tabs.tabText(index) for index in range(window.tabs.count())] == ["03", "75"]
-        for index in range(window.tabs.count()):
-            tab = window.tabs.widget(index)
-            assert not tab.findChildren(viewer._MainframeToken)
-            assert not tab.findChildren(QTextBrowser)
-            assert [label.text() for label in tab.findChildren(QLabel)] == [viewer._UNAVAILABLE_MESSAGE]
+        assert window.tabs.count() == 0
+        assert not window.findChildren(viewer._MainframeToken)
+        assert not window.findChildren(QTextBrowser)
+        assert any("No supported policy record screens" in label.text()
+                   for label in window.findChildren(QLabel))
+    finally:
+        window.close()
+
+
+def test_window_retains_supported_error_tabs(app, monkeypatch):
+    pi = Policy(errors={"LH_MKT_VAL_ADJ_RLE": "SELECT denied"})
+    monkeypatch.setattr(viewer.PolicyRecordViewerWindow, "_load_policy", lambda self: pi)
+    window = viewer.PolicyRecordViewerWindow(policy_number=pi.policy_number)
+    try:
+        assert [window.tabs.tabText(index) for index in range(window.tabs.count())] == ["56"]
+        tab = window.tabs.widget(0)
+        assert not tab.findChildren(viewer._MainframeToken)
+        assert not tab.findChildren(QTextBrowser)
+        assert any("LIVE DATA ERROR" in label.text() and "SELECT denied" in label.text()
+                   for label in tab.findChildren(QLabel))
     finally:
         window.close()
 

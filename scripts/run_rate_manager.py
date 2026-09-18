@@ -13,10 +13,12 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtWidgets import QApplication
-from suiteview.ratemanager.ratemanager_window import RateManagerWindow
 
 
 def main():
+    from suiteview.core.profile_maintenance import initialize_profile
+    initialize_profile()
+    from suiteview.ratemanager.ratemanager_window import RateManagerWindow
     app = QApplication(sys.argv)
     win = RateManagerWindow()
     if "--database" in sys.argv or "--manage" in sys.argv:

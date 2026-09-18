@@ -311,6 +311,9 @@ class TermWorkupPanel(QWidget):
     _BENEFIT_COLUMNS = ("Benefit", "Renewable", "Cease Age", "Max Dur", "Detail")
 
     def __init__(self, parent=None):
+        from suiteview.core.access_control import guard_app_access
+
+        guard_app_access("RATEMANAGER")
         super().__init__(parent)
         self._analysis: TermWorkupAnalysis | None = None
         self._analyze_worker: _AnalyzeWorker | None = None

@@ -16,6 +16,8 @@ class MainframeWindow(QMainWindow):
     """Dedicated window for Mainframe tools"""
 
     def __init__(self):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("MAINFRAMENAV")
         super().__init__()
         self.conn_manager = ConnectionManager()
         self.cred_manager = CredentialManager()

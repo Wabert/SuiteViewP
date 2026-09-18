@@ -1,154 +1,138 @@
-"""
-WL tab — faithful replica of VBA frmAudit WL tab.
-
-Layout:
-  TOP ROW:
-    Primary Dividend Option (01) — checkable group box + listbox
-    Secondary Dividend Option (01) — checkable group box + listbox
-  BOTTOM ROW:
-    NFO code (01) — checkable group box + listbox
-    Current CV rate > 0 on base cov (02) — standalone checkbox
-"""
+"""Compact Whole Life dividend, nonforfeiture and base participation criteria."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-)
 from PyQt6.QtGui import QFont
-
-from ..constants import DIVIDEND_OPTION_ITEMS, NFO_CODE_ITEMS
-from ._styles import make_checkbox as _make_checkbox, make_listbox as _make_listbox
-
-# ── Compact sizing helpers ──────────────────────────────────────────────
-_FONT = QFont("Segoe UI", 9)
-_ROW_H = 16
-_V_SPACING = 2
-
-_GRP_STYLE = (
-    "QGroupBox { font-weight: bold; color: #1E5BA8; border: 1px solid #6A9BD1;"
-    " border-radius: 3px; margin-top: 8px; padding-top: 10px; }"
-    "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+from PyQt6.QtWidgets import (
+    QCheckBox, QHBoxLayout, QListWidget, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
+
+from ..constants import (
+    DIVIDEND_OPTION_ITEMS, NFO_CODE_ITEMS, PARTICIPATION_CODES,
+    PARTICIPATION_TYPE_DESCRIPTIONS,
+)
+from ._styles import make_checkbox, make_listbox, connect_checkbox_listbox
+
+_FONT = QFont("Segoe UI", 9)
+
+
+def _selector(title: str, items: list[str], button: QPushButton | None = None
+              ) -> tuple[QWidget, QCheckBox, QListWidget]:
+    panel = QWidget()
+    panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    layout = QVBoxLayout(panel)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(2)
+    checkbox = make_checkbox(title)
+    checkbox.setFixedHeight(20)
+    header = QHBoxLayout()
+    header.setSpacing(4)
+    header.addWidget(checkbox)
+    if button is not None:
+        header.addWidget(button)
+    header.addStretch()
+    layout.addLayout(header)
+    listbox = make_listbox(items, height_rows=len(items), enabled=False)
+    connect_checkbox_listbox(checkbox, listbox)
+    layout.addWidget(listbox)
+    content_width = max(listbox.fontMetrics().horizontalAdvance(text) for text in items) + 16
+    panel.setFixedWidth(max(content_width, header.sizeHint().width()))
+    return panel, checkbox, listbox
 
 
 class WlTab(QWidget):
-    """WL (Whole Life) tab — dividend and NFO criteria."""
+    """WL criteria use base coverage participation, never the rider code mapping."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build_ui()
 
     def _build_ui(self):
-        root = QVBoxLayout(self)
+        root = QHBoxLayout(self)
         root.setContentsMargins(6, 6, 6, 4)
-        root.setSpacing(6)
+        root.setSpacing(12)
+        left = QVBoxLayout()
+        left.setSpacing(8)
+        primary, self.chk_pri_div, self.list_pri_div = _selector(
+            "Primary Dividend Option (01)", DIVIDEND_OPTION_ITEMS)
+        left.addWidget(primary)
+        nfo, self.chk_nfo, self.list_nfo = _selector("NFO code (01)", NFO_CODE_ITEMS)
+        left.addWidget(nfo)
+        left.addStretch()
+        root.addLayout(left)
 
-        # ────────────────────────────────────────────────────────────
-        # TOP ROW — Primary + Secondary Dividend Option
-        # ────────────────────────────────────────────────────────────
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        middle = QVBoxLayout()
+        middle.setSpacing(8)
+        secondary, self.chk_sec_div, self.list_sec_div = _selector(
+            "Secondary Dividend Option (01)", DIVIDEND_OPTION_ITEMS)
+        dividend_width = max(primary.width(), secondary.width())
+        for panel in (primary, secondary, nfo):
+            panel.setFixedWidth(dividend_width)
+        middle.addWidget(secondary)
+        self.chk_cv_rate = make_checkbox("Current CV rate > 0 on base cov (02)")
+        middle.addWidget(self.chk_cv_rate)
+        middle.addStretch()
+        root.addLayout(middle)
 
-        # Primary Dividend Option (01)
-        grp_pri = QGroupBox("Primary Dividend Option (01)")
-        grp_pri.setStyleSheet(_GRP_STYLE)
-        grp_pri.setCheckable(True)
-        grp_pri.setChecked(False)
-        pri_lay = QVBoxLayout(grp_pri)
-        pri_lay.setContentsMargins(6, 6, 6, 4)
-        pri_lay.setSpacing(_V_SPACING)
-        self.list_pri_div = _make_listbox(
-            DIVIDEND_OPTION_ITEMS, height_rows=12, enabled=False)
-        pri_lay.addWidget(self.list_pri_div)
-        grp_pri.toggled.connect(
-            lambda on: self.list_pri_div.setEnabled(on) or
-            (not on and self.list_pri_div.clearSelection()))
-        top_row.addWidget(grp_pri)
-
-        # Secondary Dividend Option (01)
-        grp_sec = QGroupBox("Secondary Dividend Option (01)")
-        grp_sec.setStyleSheet(_GRP_STYLE)
-        grp_sec.setCheckable(True)
-        grp_sec.setChecked(False)
-        sec_lay = QVBoxLayout(grp_sec)
-        sec_lay.setContentsMargins(6, 6, 6, 4)
-        sec_lay.setSpacing(_V_SPACING)
-        self.list_sec_div = _make_listbox(
-            DIVIDEND_OPTION_ITEMS, height_rows=12, enabled=False)
-        sec_lay.addWidget(self.list_sec_div)
-        grp_sec.toggled.connect(
-            lambda on: self.list_sec_div.setEnabled(on) or
-            (not on and self.list_sec_div.clearSelection()))
-        top_row.addWidget(grp_sec)
-
-        top_row.addStretch()
-        root.addLayout(top_row)
-
-        # ────────────────────────────────────────────────────────────
-        # BOTTOM ROW — NFO code + CV rate checkbox
-        # ────────────────────────────────────────────────────────────
-        bot_row = QHBoxLayout()
-        bot_row.setSpacing(12)
-
-        # NFO code (01)
-        grp_nfo = QGroupBox("NFO code (01)")
-        grp_nfo.setStyleSheet(_GRP_STYLE)
-        grp_nfo.setCheckable(True)
-        grp_nfo.setChecked(False)
-        nfo_lay = QVBoxLayout(grp_nfo)
-        nfo_lay.setContentsMargins(6, 6, 6, 4)
-        nfo_lay.setSpacing(_V_SPACING)
-        self.list_nfo = _make_listbox(
-            NFO_CODE_ITEMS, height_rows=8, enabled=False)
-        nfo_lay.addWidget(self.list_nfo)
-        grp_nfo.toggled.connect(
-            lambda on: self.list_nfo.setEnabled(on) or
-            (not on and self.list_nfo.clearSelection()))
-        bot_row.addWidget(grp_nfo)
-
-        # Standalone checkbox
-        self.chk_cv_rate = _make_checkbox(
-            "Current CV rate > 0 on base cov (02)")
-        bot_row.addWidget(self.chk_cv_rate, alignment=Qt.AlignmentFlag.AlignTop)
-
-        bot_row.addStretch()
-        root.addLayout(bot_row)
-
+        self.btn_par = QPushButton("Par")
+        self.btn_par.setFont(_FONT)
+        self.btn_par.setFixedSize(36, 20)
+        self.btn_par.setStyleSheet("padding:0 2px;")
+        self.btn_par.setToolTip("Select A-H only; excludes code 9 (dividends paid up).")
+        self.btn_par.clicked.connect(self._select_par)
+        participation, self.chk_participation_type, self.list_participation_type = _selector(
+            "Participation Type (02)",
+            [f"{code or 'Blank'} - {description}"
+             for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()],
+            self.btn_par,
+        )
+        for row, code in enumerate(PARTICIPATION_TYPE_DESCRIPTIONS):
+            self.list_participation_type.item(row).setData(Qt.ItemDataRole.UserRole, code)
+        tip = (
+            "Base coverage (phase 1) DIV_PTP_TYP_CD. Select individual codes, "
+            "or Par for A-H. Blank is a stored blank, not SQL NULL. "
+            "Rider participation uses different codes. Combines with Policy (2) "
+            "participation criteria using AND. Check without selecting to display only."
+        )
+        self.chk_participation_type.setToolTip(tip)
+        self.list_participation_type.setToolTip(tip)
+        root.addWidget(participation, alignment=Qt.AlignmentFlag.AlignTop)
         root.addStretch()
 
-    # ── Profile save/load ────────────────────────────────────────────
+    def selected_participation_codes(self) -> list[str]:
+        return [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self.list_participation_type.selectedItems()
+        ]
+
+    def _select_par(self):
+        self.chk_participation_type.setChecked(True)
+        for row in range(self.list_participation_type.count()):
+            item = self.list_participation_type.item(row)
+            item.setSelected(item.data(Qt.ItemDataRole.UserRole) in PARTICIPATION_CODES["Participating"])
+
     def get_state(self) -> dict:
-        from ..profile_manager import (
-            get_checkbox_checked as _c, get_listbox_selected as _sel,
-            get_groupbox_checked as _gc,
-        )
-        # Find the parent QGroupBox widgets for primary/secondary/nfo
-        grp_pri = self.list_pri_div.parent()
-        grp_sec = self.list_sec_div.parent()
-        grp_nfo = self.list_nfo.parent()
+        from ..profile_manager import get_checkbox_checked as _c, get_listbox_selected as _sel
         return {
-            "grp_pri_checked": _gc(grp_pri),
+            "grp_pri_checked": _c(self.chk_pri_div),
             "list_pri_div": _sel(self.list_pri_div),
-            "grp_sec_checked": _gc(grp_sec),
+            "grp_sec_checked": _c(self.chk_sec_div),
             "list_sec_div": _sel(self.list_sec_div),
-            "grp_nfo_checked": _gc(grp_nfo),
+            "grp_nfo_checked": _c(self.chk_nfo),
             "list_nfo": _sel(self.list_nfo),
             "chk_cv_rate": _c(self.chk_cv_rate),
+            "chk_participation_type": _c(self.chk_participation_type),
+            "list_participation_type": _sel(self.list_participation_type),
         }
 
     def set_state(self, state: dict):
-        from ..profile_manager import (
-            set_checkbox_checked as _c, set_listbox_selected as _sel,
-            set_groupbox_checked as _gc,
-        )
-        grp_pri = self.list_pri_div.parent()
-        grp_sec = self.list_sec_div.parent()
-        grp_nfo = self.list_nfo.parent()
-        _gc(grp_pri, state.get("grp_pri_checked", False))
+        from ..profile_manager import set_checkbox_checked as _c, set_listbox_selected as _sel
+        _c(self.chk_pri_div, state.get("grp_pri_checked", False))
         _sel(self.list_pri_div, state.get("list_pri_div", []))
-        _gc(grp_sec, state.get("grp_sec_checked", False))
+        _c(self.chk_sec_div, state.get("grp_sec_checked", False))
         _sel(self.list_sec_div, state.get("list_sec_div", []))
-        _gc(grp_nfo, state.get("grp_nfo_checked", False))
+        _c(self.chk_nfo, state.get("grp_nfo_checked", False))
         _sel(self.list_nfo, state.get("list_nfo", []))
         _c(self.chk_cv_rate, state.get("chk_cv_rate", False))
+        _c(self.chk_participation_type, state.get("chk_participation_type", False))
+        _sel(self.list_participation_type, state.get("list_participation_type", []))

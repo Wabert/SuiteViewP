@@ -5,9 +5,11 @@ import sys
 from PyQt6.QtWidgets import QApplication
 
 from .ui import IllustrationWindow
+from suiteview.core.access_control import guard_app_access
 
 
 def create_illustration_window(policy_number=None, region="CKPR", company_code=""):
+    guard_app_access("RERUN")
     app = QApplication.instance() or QApplication(sys.argv)
     window = IllustrationWindow()
     window.show()

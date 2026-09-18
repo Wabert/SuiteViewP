@@ -29,6 +29,10 @@ from .abr_styles import (
 from ..models.abr_data import ABRPolicyData, ABRQuoteResult, MedicalAssessment
 from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS
 from ...utils.excel_template import copy_as_workbook, workbook_filename
+from suiteview.core.access_control import (
+    can_write_support_files, guard_support_files_writable,
+)
+from suiteview.core.support_files import onedrive_directory, abr_support_directory
 logger = logging.getLogger(__name__)
 
 # ── Custom styles for MiniExplorer components (matching ABR theme) ────────────────
@@ -283,18 +287,10 @@ class OutputPanel(QWidget):
         self._check_onedrive_sync()
 
     def _get_onedrive_dir(self) -> str:
-        username = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
-        return os.path.join(
-            "C:\\Users", username,
-            "OneDrive - American National Insurance Company",
-        )
+        return onedrive_directory()
 
     def _get_tools_root_path(self) -> str:
-        return os.path.join(
-            self._get_onedrive_dir(),
-            "Life Product - Accelerated_Benefits",
-            "Accelerated Death Benefit (ABR11 & ABR14)",
-        )
+        return abr_support_directory()
 
     def _is_onedrive_synced(self) -> bool:
         """Check whether the OneDrive folder is actively synced (not just a local directory)."""
@@ -387,7 +383,8 @@ class OutputPanel(QWidget):
         self._subfolder_explorer = MiniExplorer(
             title="Policy Subfolders",
             list_widget_class=CrimsonDropTargetList,
-            root_path="" # Will be set when policy loads
+            root_path="", # Will be set when policy loads
+            support_files=True,
         )
         self._apply_abr_style(self._subfolder_explorer)
 
@@ -518,7 +515,8 @@ class OutputPanel(QWidget):
         self._tools_explorer = MiniExplorer(
             title="Resources",
             list_widget_class=CrimsonDraggableToolsList,
-            root_path=self._tools_root_path
+            root_path=self._tools_root_path,
+            support_files=True,
         )
         self._apply_abr_style(self._tools_explorer)
         if hasattr(self._tools_explorer, 'list_widget') and self._tools_explorer.list_widget:
@@ -529,6 +527,27 @@ class OutputPanel(QWidget):
         cl.addWidget(self._tools_explorer, 1)
 
         layout.addWidget(cols, 1)
+        self._support_access_note = QLabel(
+            "Read-only support files — your role cannot create, copy, rename, delete or print files."
+        )
+        self._support_access_note.setWordWrap(True)
+        self._support_access_note.setStyleSheet(
+            f"color: {GRAY_MID}; font-size: 10px; font-style: italic;"
+        )
+        layout.addWidget(self._support_access_note)
+        self._refresh_support_access()
+
+    def _refresh_support_access(self):
+        writable = can_write_support_files()
+        self._support_access_note.setVisible(not writable)
+        for button in (self._create_folder_btn, self._copy_up_btn, self._copy_left_btn):
+            button.setEnabled(writable)
+            button.setToolTip("" if writable else "Your role cannot modify policy support files.")
+        self._print_detail_btn.setEnabled(bool(writable and self._policy and self._result))
+        self._print_detail_btn.setToolTip(
+            "" if writable else "Your role cannot save policy support detail workbooks."
+        )
+        self._subfolder_explorer.list_widget.setAcceptDrops(writable)
 
     def _apply_abr_style(self, explorer: MiniExplorer):
         """Inject ABR stylesheets into MiniExplorer components."""
@@ -572,7 +591,7 @@ class OutputPanel(QWidget):
 
     def set_result(self, result: ABRQuoteResult):
         self._result = result
-        self._print_detail_btn.setEnabled(bool(self._policy and self._result))
+        self._refresh_support_access()
 
     def set_assessment(self, assessment: MedicalAssessment):
         self._assessment = assessment
@@ -613,6 +632,7 @@ class OutputPanel(QWidget):
         return (p.face_amount if p else 0.0, p.min_face_amount if p else 0.0)
 
     def _update_ui_state(self):
+        self._refresh_support_access()
         if not self._policy:
             self._policy_folder_label.setText("No policy loaded")
             self._library_path_label.setText("")
@@ -804,6 +824,7 @@ class OutputPanel(QWidget):
             self._check_onedrive_sync()
             return
         try:
+            guard_support_files_writable("create policy support folders")
             os.makedirs(self._policy_folder_path, exist_ok=True)
             self._update_ui_state()
             QMessageBox.information(self, "Success", "Policy folder created.")
@@ -843,7 +864,7 @@ class OutputPanel(QWidget):
                 continue
 
             try:
-                copy_as_workbook(source_path, dest_path)
+                copy_as_workbook(source_path, dest_path, support_files=True)
                 copied_count += 1
             except Exception as e:
                 errors.append(f"Failed to copy '{filename}': {e}")
@@ -1333,4 +1354,5 @@ class OutputPanel(QWidget):
         for c in range(1, len(apv_headers) + 1):
             ws5.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 16
 
+        guard_support_files_writable("save policy support detail workbooks")
         wb.save(filepath)

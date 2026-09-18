@@ -1,8 +1,8 @@
 """Database initialization and connection management for SQLite"""
 
 import sqlite3
-from pathlib import Path
 from typing import Optional
+from suiteview.core.profile_paths import profile_path
 
 
 class Database:
@@ -16,11 +16,9 @@ class Database:
             db_path: Path to SQLite database file. If None, uses default in user home
         """
         if db_path is None:
-            # Use ~/.suiteview/suiteview.db as default (cross-platform)
-            home = Path.home()
-            app_dir = home / '.suiteview'
-            app_dir.mkdir(exist_ok=True)
-            self.db_path = str(app_dir / 'suiteview.db')
+            path = profile_path("suiteview.db")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.db_path = str(path)
         else:
             self.db_path = db_path
 
@@ -220,44 +218,6 @@ class Database:
             )
         """)
 
-        # Task tracker tables (LEGACY — TaskTracker now uses JSON storage
-        # at ~/.suiteview/tasktracker.json. These tables are kept for
-        # backward compatibility but are no longer read or written.)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id TEXT NOT NULL UNIQUE,
-                description TEXT NOT NULL DEFAULT '',
-                assignee_name TEXT NOT NULL DEFAULT '',
-                assignee_email TEXT NOT NULL DEFAULT '',
-                priority TEXT NOT NULL DEFAULT 'Medium',
-                due_date TEXT,
-                status TEXT NOT NULL DEFAULT 'Open',
-                created_date TEXT NOT NULL,
-                updated_date TEXT NOT NULL,
-                email_sent BOOLEAN DEFAULT 0,
-                email_sent_date TEXT
-            )
-        """)
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS task_attachments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id TEXT NOT NULL,
-                file_name TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                is_copy BOOLEAN DEFAULT 0,
-                added_date TEXT NOT NULL,
-                FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
-            )
-        """)
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS task_id_sequence (
-                current_value INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-
         conn.commit()
         print(f"Database initialized at: {self.db_path}")
         
@@ -373,57 +333,6 @@ class Database:
             """)
             conn.commit()
             print("Migration completed: bookmark_icons table created")
-
-        # Migration 8: Create task tracker tables (LEGACY — kept for DB compat)
-        try:
-            cursor.execute("SELECT 1 FROM tasks LIMIT 1")
-        except:
-            print("Running migration: Creating task tracker tables")
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL UNIQUE,
-                    description TEXT NOT NULL DEFAULT '',
-                    assignee_name TEXT NOT NULL DEFAULT '',
-                    assignee_email TEXT NOT NULL DEFAULT '',
-                    priority TEXT NOT NULL DEFAULT 'Medium',
-                    due_date TEXT,
-                    status TEXT NOT NULL DEFAULT 'Open',
-                    created_date TEXT NOT NULL,
-                    updated_date TEXT NOT NULL,
-                    email_sent BOOLEAN DEFAULT 0,
-                    email_sent_date TEXT
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS task_attachments (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL,
-                    file_name TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    is_copy BOOLEAN DEFAULT 0,
-                    added_date TEXT NOT NULL,
-                    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS task_id_sequence (
-                    current_value INTEGER NOT NULL DEFAULT 0
-                )
-            """)
-            # Seed the sequence table
-            cursor.execute("INSERT INTO task_id_sequence (current_value) VALUES (0)")
-            conn.commit()
-            print("Migration completed: task tracker tables created")
-
-        # Ensure task_id_sequence has a row (for fresh installs)
-        try:
-            cursor.execute("SELECT current_value FROM task_id_sequence LIMIT 1")
-            if cursor.fetchone() is None:
-                cursor.execute("INSERT INTO task_id_sequence (current_value) VALUES (0)")
-                conn.commit()
-        except:
-            pass
 
         # Migration 9: Create abr_email_recipients table for ABR Quote Email Print
         try:

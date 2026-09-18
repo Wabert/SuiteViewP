@@ -18,6 +18,8 @@ from PyQt6.QtGui import QFont
 
 
 def main():
+    from suiteview.core.profile_maintenance import initialize_profile
+    initialize_profile()
     app = QApplication(sys.argv)
     app.setFont(QFont("Segoe UI", 9))
     app.setStyle("Fusion")

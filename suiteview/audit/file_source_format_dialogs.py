@@ -143,7 +143,8 @@ def _prompt_delimited_spec(parent, path: str, current: dict | None = None) -> di
     if not ok:
         raise DialogCancelled
     return delimited_text_spec(
-        delimiter=delimiter, has_header=has_header, skip_rows=skip_rows)
+        delimiter=delimiter, has_header=has_header, skip_rows=skip_rows,
+        encoding=(current or {}).get("encoding", "auto"))
 
 
 def _prompt_fixed_width_spec(parent, current: list | None = None) -> dict:

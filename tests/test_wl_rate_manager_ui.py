@@ -20,6 +20,7 @@ from suiteview.ratemanager.product_chooser import (
 )
 from suiteview.ratemanager.ratemanager_window import RateManagerWindow
 from suiteview.ratemanager.whole_life import panel as wl
+from suiteview.core import access_control
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -34,7 +35,6 @@ def _drain(panel):
 
 @pytest.fixture
 def fake_service(monkeypatch):
-    monkeypatch.delenv("SUITEVIEW_LIGHT", raising=False)
     calls = []
     failures = {}
     notices = []
@@ -663,7 +663,7 @@ def test_create_table_error_invalidates_previous_comparison(workup, fake_service
 
 def test_read_only_blocks_write_buttons_and_direct_actions(
         workup, fake_service, monkeypatch):
-    monkeypatch.setenv("SUITEVIEW_LIGHT", "1")
+    monkeypatch.setattr(access_control, "get_access", lambda **_: SimpleNamespace(can_update_database=False))
     _analyzed(workup)
     for check in workup._approvals.values():
         check.setChecked(True)
@@ -674,7 +674,7 @@ def test_read_only_blocks_write_buttons_and_direct_actions(
     workup._create_tables()
     assert not workup.is_busy
     assert not any(call[0] in ("apply", "create_tables") for call in fake_service.calls)
-    assert "read-only" in workup.status.text()
+    assert "CanUpdateDatabase" in workup.status.text()
 
 
 def test_running_worker_blocks_parent_close_and_source_controls(

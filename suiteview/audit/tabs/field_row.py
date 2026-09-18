@@ -1131,7 +1131,7 @@ class FieldRow(QWidget):
         menu.addSeparator()
 
         # Registry actions (only if registry_info is set). "Find & Register"
-        # writes to the shared registry, so it's hidden in the read-only edition;
+        # writes to the shared registry, so it requires database-write permission;
         # "Open Unique Value Registry" (view-only) stays available.
         act_find = act_open = None
         if self._registry_info:
@@ -1850,7 +1850,7 @@ class FieldGrid(QWidget):
         menu.addSeparator()
 
         # Find & Register Unique Values (only if any selected field has
-        # registry_info) — hidden in the read-only edition since it writes to
+        # registry_info) — requires database-write permission since it writes to
         # the shared registry.
         act_find = None
         has_registry = any(r._registry_info for r in self._selection)

@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QEventLoop
 from PyQt6.QtGui import QFont
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.core.support_files import guard_support_file_paths
 
 import logging
 logger = logging.getLogger(__name__)
@@ -394,6 +395,9 @@ class BatchRenameDialog(FramelessWindowBase):
         
         for old_path, new_path in rename_map.items():
             try:
+                guard_support_file_paths(
+                    old_path, new_path, action="rename policy support files"
+                )
                 Path(old_path).rename(new_path)
                 success_count += 1
             except Exception as e:
@@ -418,4 +422,4 @@ class BatchRenameDialog(FramelessWindowBase):
                 f"✅ Successfully renamed {success_count} files!"
             )
         
-        return True
+        return success_count > 0

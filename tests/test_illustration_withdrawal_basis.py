@@ -43,7 +43,7 @@ def _config(**overrides) -> PlancodeConfig:
     values = dict(
         withdrawal_fee=FEE,
         md_holdback=0.0,
-        expense_basis="CurrentSA",
+        sa_basis="CurrentSA",
         min_face_after_wd=25_000.0,
     )
     values.update(overrides)
@@ -148,7 +148,7 @@ def test_net_basis_with_psc_adds_charge_into_gross():
 def test_original_sa_withdrawal_charges_fee_but_not_psc():
     wd = _compute(
         _policy(),
-        _config(expense_basis="OriginalSA"),
+        _config(sa_basis="OriginalSA"),
         request=10_000.0,
         corridor_rate=1.0,
         scr=20.0,
@@ -157,6 +157,7 @@ def test_original_sa_withdrawal_charges_fee_but_not_psc():
     assert wd.partial_sc == 0.0
     assert wd.gross_withdrawal == pytest.approx(10_000.0 + FEE)
     assert wd.av_post_withdrawal == pytest.approx(50_000.0 - 10_000.0 - FEE)
+    assert wd.face_decrease == pytest.approx(10_000.0)
 
 
 def test_original_sa_full_surrender_charge_still_uses_original_face():
@@ -172,7 +173,7 @@ def test_original_sa_full_surrender_charge_still_uses_original_face():
     )
     wd = _compute(
         policy,
-        _config(expense_basis="OriginalSA"),
+        _config(sa_basis="OriginalSA"),
         request=1.0,
         av=50_000.0,
         corridor_rate=2.5,

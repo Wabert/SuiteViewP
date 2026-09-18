@@ -14,7 +14,7 @@ from datetime import datetime
 import pyodbc
 
 from suiteview.core.odbc_utils import DB2, detect_dialect
-from suiteview.core.build_env import guard_data_writable, is_data_read_only
+from suiteview.core.build_env import guard_data_writable
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ def _user() -> str:
 
 def _ensure_source_dsn_column() -> None:
     """Add source_dsn column to ABATBL_FIELD_REG if it doesn't exist yet."""
+    guard_data_writable("initialize the field registry schema")
     conn = _connect()
     try:
         cursor = conn.cursor()
@@ -53,6 +54,7 @@ def _ensure_source_dsn_column() -> None:
             conn.commit()
     except Exception:
         conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -64,6 +66,7 @@ def _ensure_column_note_table() -> None:
     (dsn, table_name, column_name).  Independent of whether the column
     is registered for unique-value tracking.
     """
+    guard_data_writable("initialize the column notes schema")
     conn = _connect()
     try:
         cursor = conn.cursor()
@@ -88,16 +91,9 @@ def _ensure_column_note_table() -> None:
             conn.commit()
     except Exception:
         conn.rollback()
+        raise
     finally:
         conn.close()
-
-
-# Run once on import. Skipped in the read-only edition — these are schema
-# migrations (ALTER/CREATE) and the shared UL_Rates already carries them; Light
-# must not attempt any DDL.
-if not is_data_read_only():
-    _ensure_source_dsn_column()
-    _ensure_column_note_table()
 
 
 def fetch_and_register(table_name: str, column_name: str,
@@ -120,6 +116,7 @@ def fetch_and_register(table_name: str, column_name: str,
     Returns a list of (value, count) tuples sorted by count descending.
     """
     guard_data_writable("register unique values")
+    _ensure_source_dsn_column()
     # 1. Query live unique values
     live_dsn = source_dsn or _DSN
     dialect = detect_dialect(live_dsn)
@@ -154,6 +151,7 @@ def fetch_and_register(table_name: str, column_name: str,
         live_conn.close()
 
     # 2. Store results in the registry (always on UL_Rates)
+    guard_data_writable("register unique values")
     conn = _connect()
     try:
         cursor = conn.cursor()
@@ -516,6 +514,7 @@ def set_column_note(dsn: str, table_name: str, column_name: str,
                     note: str) -> None:
     """Insert, update, or clear the note for a single table column."""
     guard_data_writable("edit column notes")
+    _ensure_column_note_table()
     live_dsn = dsn or _DSN
     note = (note or "").strip()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -1,7 +1,7 @@
 """
 FileDataSource persistence — id-keyed, atomic.
 
-Storage: ~/.suiteview/file_sources/<safe_name>__<id8>.json. Names need NOT be
+Storage: ~/.suiteview/data/query/file_sources/<safe_name>__<id8>.json. Names need NOT be
 unique (queries reference a File Source by ``FileDataSource.id``); the id8
 suffix keeps filenames collision-free and readable. Tests/tools can override the
 directory with SUITEVIEW_FILE_SOURCES_DIR.
@@ -12,6 +12,8 @@ so a crash mid-write can never corrupt a saved File Source. Mirrors the shape of
 migrate (File Sources are new).
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import logging
 import os
@@ -31,7 +33,7 @@ def _sources_dir() -> Path:
     override = os.environ.get("SUITEVIEW_FILE_SOURCES_DIR")
     if override:
         return Path(override)
-    return Path.home() / ".suiteview" / "file_sources"
+    return profile_path('file_sources')
 
 
 def _ensure_dir() -> Path:

@@ -3,6 +3,8 @@ Mainframe Terminal Screen - TN3270 Terminal Emulator UI
 Provides a 3270 terminal interface for TSO/ISPF access
 """
 
+from suiteview.core.profile_paths import profile_path
+
 import logging
 import time
 import socket
@@ -1078,7 +1080,7 @@ class MainframeTerminalScreen(QWidget):
         
         # Settings file for persistence
         from pathlib import Path
-        self.settings_file = Path.home() / '.suiteview' / 'terminal_settings.json'
+        self.settings_file = profile_path('terminal_settings.json')
         
         # Connection settings (stored for settings dialog)
         self.conn_host = ""

@@ -5,7 +5,7 @@ A simple free-form scratchpad that slides out from the right side.
 Just a header + a plain QPlainTextEdit that auto-saves on every change.
 Enter = newline (normal text editing). No word-wrap — horizontal scroll instead.
 
-Persists to ~/.suiteview/scratchpad.txt via ScratchPadDataManager.
+Persists to ~/.suiteview/data/notes/scratchpad.txt via ScratchPadDataManager.
 """
 
 import logging
@@ -174,6 +174,8 @@ class ScratchPadPanel(QWidget):
     MAX_FONT_SIZE = 20
 
     def __init__(self, parent=None, show_header=True):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("SCRATCHPAD")
         super().__init__(parent)
         self.setMinimumWidth(50)
         self.setStyleSheet("background: #CCE5F8;")
@@ -387,6 +389,8 @@ class ScratchPadWindow:
     @staticmethod
     def open(parent_bar=None) -> "QWidget":
         """Create and return the ScratchPad window widget."""
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("SCRATCHPAD")
         from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
         class _ScratchPadWindow(FramelessWindowBase):

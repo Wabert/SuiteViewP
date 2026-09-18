@@ -4,7 +4,7 @@ Take a screenshot of the entire desktop using PyQt6.
 Usage:
     venv\\Scripts\\python.exe tools/app/take_screenshot.py [output_path]
 
-Default output: ~/.suiteview/screenshot.png
+Default output: ~/.suiteview/diagnostics/screenshot.png
 
 This uses PyQt6's QScreen.grabWindow(0) to capture the full desktop — 
 no extra dependencies needed since PyQt6 is already installed.
@@ -16,10 +16,13 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from suiteview.core.profile_paths import diagnostics_dir
+
 
 def main():
     output = sys.argv[1] if len(sys.argv) > 1 else str(
-        Path.home() / ".suiteview" / "screenshot.png"
+        diagnostics_dir() / "screenshot.png"
     )
 
     app = QApplication(sys.argv)

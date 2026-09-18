@@ -80,7 +80,7 @@ class ImportedCasesView(QWidget):
         super().__init__(parent)
         self._host = host_panel
         # Read by refresh(); tests point it at a tmp folder. None → the store's
-        # default (~/.suiteview/illustration_imported_cases).
+        # default (~/.suiteview/data/illustration/imported_cases).
         self.imported_directory = None
         self._bundles: list = []
         self._error: str | None = None

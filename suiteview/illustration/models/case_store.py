@@ -13,13 +13,15 @@ so reloading the case later illustrates the policy *as it was when saved* —
 no DB2 round trip, no drift from the live policy. v1 files (inputs only)
 remain loadable; their ``policy_snapshot`` is ``None`` and the UI must say so.
 
-Storage: one JSON file per case under ``~/.suiteview/illustration_cases/``
+Storage: one JSON file per case under ``~/.suiteview/data/illustration/cases/``
 (``<slug>.case.json``). There is no separate index — listing scans the folder
 and each file self-describes. Writes are atomic (temp file + ``os.replace``)
 so a crash can never corrupt a saved case. Loads are LOUD: an unknown schema
 version or a corrupt/incomplete file raises — never a silent partial load.
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import dataclasses
 import json
@@ -95,7 +97,7 @@ class SavedCase:
 
 
 def default_cases_dir() -> Path:
-    return Path.home() / ".suiteview" / "illustration_cases"
+    return profile_path('illustration_cases')
 
 
 def _slugify(name: str) -> str:

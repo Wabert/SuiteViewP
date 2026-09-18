@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from suiteview.core.profile_paths import profile_path
 
 
 @dataclass
@@ -36,11 +37,7 @@ def load_config() -> Config:
     config = Config()
 
     # Set up default paths
-    home = Path.home()
-    app_dir = home / '.suiteview'
-    app_dir.mkdir(exist_ok=True)
-
-    config.log_dir = str(app_dir / 'logs')
-    Path(config.log_dir).mkdir(exist_ok=True)
+    config.log_dir = str(profile_path("logs"))
+    Path(config.log_dir).mkdir(parents=True, exist_ok=True)
 
     return config

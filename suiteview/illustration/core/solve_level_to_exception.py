@@ -37,9 +37,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional
 
+from dateutil.relativedelta import relativedelta
+
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
+    DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
     ScheduledTransaction,
@@ -73,7 +77,7 @@ class LevelToExceptionResult:
     iterations: int                  # engine projections spent solving
 
 
-def _default_mode(policy: IllustrationPolicyData) -> str:
+def default_premium_mode(policy: IllustrationPolicyData) -> str:
     return _MODE_FROM_FREQ.get(int(policy.billing_frequency or 1), "M")
 
 
@@ -134,6 +138,8 @@ def solve_level_to_exception(
     horizon_months: Optional[int] = None,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
+    first_month_premium_floor: float = 0.0,
+    single_premium: bool = False,
 ) -> LevelToExceptionResult:
     """Minimum modal level premium that keeps ``policy`` in force to maturity.
 
@@ -148,6 +154,11 @@ def solve_level_to_exception(
             layered on top at ``start_policy_year`` (a later same-or-greater year
             schedule wins in the compiler), so the years before it keep whatever
             these inputs specify.
+        first_month_premium_floor: optional gross first-month funding floor.
+            Any amount above that month's scheduled premium is paid once, not
+            repeated as part of the solved level premium.
+        single_premium: solve a single first-month payment instead of recurring
+            premiums, for an initial bridge before regular modal billing resumes.
         resolution: rounding granularity; the result is rounded UP to this so it
             lands on the in-force side of the lapse boundary.
         fund_transition_cleanly: prefer the (slightly higher) premium that keeps
@@ -183,7 +194,7 @@ def solve_level_to_exception(
         allow_exceptions = False
         conform_to_tamra = False
 
-    mode = (mode or _default_mode(policy)).upper()
+    mode = (mode or default_premium_mode(policy)).upper()
     options = level_to_exception_options(
         base_options, allow_exceptions, apply_prem_to_loan, conform_to_tamra)
     engine = engine or IllustrationEngine()
@@ -191,14 +202,11 @@ def solve_level_to_exception(
     base = base_future_inputs
 
     def project(premium: float) -> List[MonthlyState]:
-        scheds = list(base.scheduled_transactions) if base is not None else []
-        scheds.append(ScheduledTransaction(
-            kind=TransactionKind.PREMIUM, policy_year=int(start_policy_year),
-            amount=float(premium), mode=mode))
-        future = IllustrationInputSet(
-            scheduled_transactions=scheds,
-            dated_transactions=list(base.dated_transactions) if base is not None else [],
-            policy_changes=list(base.policy_changes) if base is not None else [],
+        future = level_to_exception_inputs(
+            policy, premium, mode, start_policy_year,
+            base_future_inputs=base,
+            first_month_premium_floor=first_month_premium_floor,
+            single_premium=single_premium,
         )
         return engine.project(policy, options=options, future_inputs=future,
                               months=horizon_months)
@@ -313,6 +321,44 @@ def solve_level_to_exception(
         raise LevelToExceptionError(
             "The rounded premium did not meet the target-date surrender-value requirement.")
     return _build_result(premium, mode, states, iterations)
+
+
+def level_to_exception_inputs(
+    policy: IllustrationPolicyData, premium: float, mode: str,
+    start_policy_year: int, *,
+    base_future_inputs: Optional[IllustrationInputSet] = None,
+    first_month_premium_floor: float = 0.0,
+    single_premium: bool = False,
+) -> IllustrationInputSet:
+    """Share the exact level/one-time funding schedule between solve and display."""
+    if not math.isfinite(first_month_premium_floor) or first_month_premium_floor < 0:
+        raise LevelToExceptionError("The first-month premium floor must be finite and non-negative.")
+    base = base_future_inputs
+    future = IllustrationInputSet(
+        scheduled_transactions=list(base.scheduled_transactions) if base is not None else [],
+        dated_transactions=list(base.dated_transactions) if base is not None else [],
+        policy_changes=list(base.policy_changes) if base is not None else [],
+    )
+    future.scheduled_transactions.append(ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=int(start_policy_year),
+        amount=0.0 if single_premium else float(premium), mode=mode))
+    if single_premium:
+        first_month_premium_floor = max(first_month_premium_floor, premium)
+    if first_month_premium_floor > 0:
+        if policy.issue_date is None:
+            raise LevelToExceptionError("An issue date is required for the one-time premium.")
+        first = compile_month_inputs(policy, future, 1)[policy.duration + 1]
+        top_up = round(max(
+            0.0, first_month_premium_floor
+            - (first.scheduled_premium or 0.0) - first.unscheduled_premium), 2)
+        if top_up > 0:
+            future.dated_transactions.append(DatedTransaction(
+                kind=TransactionKind.PREMIUM,
+                effective_date=policy.issue_date + relativedelta(months=policy.duration),
+                amount=top_up,
+                subtype="initial_shortfall",
+            ))
+    return future
 
 
 def _build_result(

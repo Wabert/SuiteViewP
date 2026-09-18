@@ -12,7 +12,7 @@ JSON keys (all optional):
     corridor_pct    LH_NON_TRD_POL.CDR_PCT          (default 250)
     db_option       "1" | "2" | "3"                 (default "1")
     advanced        advanced (UL) product           (default true)
-    out             output PNG path                 (default ~/.suiteview/coverages_header.png)
+    out             output PNG path                 (default ~/.suiteview/diagnostics/coverages_header.png)
 """
 
 import json
@@ -22,6 +22,8 @@ from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from suiteview.core.profile_paths import diagnostics_dir
 
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
@@ -115,7 +117,7 @@ class _StubPolicy:
 
 def main():
     opts = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
-    out = opts.get("out") or str(Path.home() / ".suiteview" / "coverages_header.png")
+    out = opts.get("out") or str(diagnostics_dir() / "coverages_header.png")
     Path(out).parent.mkdir(parents=True, exist_ok=True)
 
     app = QApplication(sys.argv[:1])

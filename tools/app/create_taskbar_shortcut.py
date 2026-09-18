@@ -6,7 +6,7 @@ Single-purpose helper:
      (``SuiteViewTaskbar._create_icon_pixmap`` — a pure function of size, it
      never touches ``self``), so the shortcut icon always matches the live app.
   2. Assembles those renders into a multi-resolution ``.ico`` written to
-     ``~/.suiteview/suiteview.ico`` (app-owned, persistent, out of the repo).
+     ``~/.suiteview/assets/suiteview.ico`` (app-owned, persistent, out of the repo).
   3. Creates ``SuiteView.lnk`` on the Desktop pointing at
      ``venv\\Scripts\\pythonw.exe scripts\\run_suiteview.py`` so double-clicking
      starts the taskbar with no console window.
@@ -29,6 +29,7 @@ from pathlib import Path
 # Project root = parent of this tools/ directory.
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from suiteview.core.profile_paths import profile_path
 
 ICON_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
@@ -155,7 +156,7 @@ def main():
 
     pythonw = ROOT / "venv" / "Scripts" / "pythonw.exe"
     run_script = ROOT / cfg["script"]
-    ico_path = Path(os.path.expanduser("~")) / ".suiteview" / cfg["ico"]
+    ico_path = profile_path(cfg["ico"])
 
     if not pythonw.exists():
         print(json.dumps({"ok": False, "error": f"pythonw.exe not found: {pythonw}"}))

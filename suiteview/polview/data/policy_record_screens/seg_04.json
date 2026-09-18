@@ -1,0 +1,519 @@
+{
+  "segment": "04",
+  "title": "Benefits (screen 6204)",
+  "source": "D20 pp.159-175/374; COBOLDB2translation.xls; U0566833 capture 2026-09-17",
+  "lines": [],
+  "fields": {
+    "Segment Identification": [
+      "Byte: 1-2",
+      "COBOL: FSBIDENT-SEGMENT-IDENT"
+    ],
+    "Segment Length": [
+      "Byte: 3-4",
+      "COBOL: FSBLNGTH-SEGMENT-LENGTH",
+      "81 bytes; D20 byte diagram p.374 includes reserved byte 75 and user bytes 76-81."
+    ],
+    "Flag Byte A": [
+      "Byte: 5",
+      "COBOL: FSBFLAGA-FLAG-BYTE-A",
+      "Bit 0: LH_SPM_BNF.IF_POL_IND - Derived from inforce record",
+      "Bit 1: LH_SPM_BNF.MAT_EXTN_IND - Contract maturity extended",
+      "Bit 2: LH_SPM_BNF.CEA_DT_INP_IND - Cease date explicitly input",
+      "Bit 3: LH_SPM_BNF.BNF_NBR_LIVES_CD - Joint lives",
+      "Bit 4: LH_SPM_BNF.PW_PCT_IND - Waiver premium is a percentage",
+      "Bit 5: LH_SPM_BNF.DCA_FCA_IND - Requested decrease applied",
+      "Bit 6: LH_SPM_BNF.STP_BAN_IND - Step-banded premium",
+      "Bit 7: LH_SPM_BNF.BNF_SEG_IVD_IND - Invalid benefit"
+    ],
+    "Flag Byte B": [
+      "Byte: 6",
+      "COBOL: FSBFLAGB-FLAG-BYTE-B",
+      "Bit 0: LH_SPM_BNF.UNT_REQ_IND - Units explicitly requested",
+      "Bit 1: LH_SPM_BNF.BNF_REQ_MTH_IND - Requested on all applicable coverages",
+      "Bit 2: LH_SPM_BNF.INP_FRM_NBR_IND - Form number input override",
+      "Bit 3: LH_SPM_BNF.INP_BNF_PRM_IND - Annual premium input override",
+      "Bit 4: LH_SPM_BNF.INT_TRM_IND - Regular premium during initial term",
+      "Bit 5: LH_SPM_BNF.IHT_BNF_IND - Inherent benefit",
+      "Bit 6: LH_SPM_BNF.BNF_VLD_IND - Internal validation indicator",
+      "Bit 7: LH_SPM_BNF.BNF_DENIED_IND - Underwriter denied benefit"
+    ],
+    "Coverage Phase": [
+      "Byte: 7",
+      "COBOL: FSBBPHS-PHASE-CODE",
+      "DB2: LH_SPM_BNF.COV_PHA_NBR"
+    ],
+    "Benefit Type": [
+      "Byte: 8",
+      "COBOL: FSBBTYP-TYPE-CODE",
+      "DB2: LH_SPM_BNF.SPM_BNF_TYP_CD",
+      "Format: 1 character(s); retain stored blanks."
+    ],
+    "Benefit Subtype": [
+      "Byte: 9",
+      "COBOL: FSBBSTYP-SUBTYPE-CODE",
+      "DB2: LH_SPM_BNF.SPM_BNF_SBY_CD",
+      "Format: 1 character(s); retain stored blanks."
+    ],
+    "Person Code": [
+      "Byte: 10-11",
+      "COBOL: FSBPERSN-PERSON-CODE",
+      "DB2: LH_SPM_BNF.PRS_CD",
+      "Format: 2 character(s); retain stored blanks."
+    ],
+    "Person Sequence": [
+      "Byte: 12",
+      "COBOL: FSBPSEQ-PERSON-SEQUENCE",
+      "DB2: LH_SPM_BNF.PRS_SEQ_NBR"
+    ],
+    "Cease Date": [
+      "Byte: 13-17",
+      "COBOL: FSBBCDDF-CEASE-DATE-FIELDS",
+      "DB2: LH_SPM_BNF.BNF_CEA_DT",
+      "Format: MM/DD/YYYY; sentinel dates display **/**/****."
+    ],
+    "Use Code": [
+      "Byte: 18",
+      "COBOL: FSBBCUSE-USE-CODE",
+      "DB2: LH_SPM_BNF.BNF_STA_CD",
+      "Format: 1 character(s); retain stored blanks.",
+      "0 = ceased; 1 = active; 2/3 = special waiver/payor cases. For type U (COLA), DB2: LH_SPM_BNF.COL_ICE_FQY_CD supplies the increase frequency instead."
+    ],
+    "Commission Code": [
+      "Byte: 19",
+      "COBOL: FSBBCOM-COMMISSION-CODE",
+      "DB2: LH_SPM_BNF.BNF_COM_CD",
+      "Format: 1 character(s); retain stored blanks."
+    ],
+    "Reserve Plan": [
+      "Byte: 20-22",
+      "COBOL: FSBBPLN-RESERVE-PLAN",
+      "DB2: LH_SPM_BNF.RES_MTH_PLN_CD",
+      "Format: 3 character(s); retain stored blanks."
+    ],
+    "Issue Age": [
+      "Byte: 23-24",
+      "COBOL: FSBBAGE-ISSUE-AGE",
+      "DB2: LH_SPM_BNF.BNF_ISS_AGE",
+      "Format: 3 packed digits, 0 decimals."
+    ],
+    "Age Admitted Code": [
+      "Byte: 25",
+      "COBOL: FSBAGADM-AGE-ADMITTED-CODE",
+      "DB2: LH_SPM_BNF.AGE_SRC_CD",
+      "Format: 1 character(s); retain stored blanks."
+    ],
+    "Issue Date": [
+      "Byte: 26-30",
+      "COBOL: FSBBISDF-ISSUE-DATE-FIELDS",
+      "DB2: LH_SPM_BNF.BNF_ISS_DT",
+      "Format: MM/DD/YYYY; sentinel dates display **/**/****."
+    ],
+    "Pay-Up Date": [
+      "Byte: 31-35",
+      "COBOL: FSBPUDAT-PAY-UP-DATE",
+      "DB2: LH_SPM_BNF.BNF_PAY_UP_DT",
+      "Format: MM/DD/YYYY; sentinel dates display **/**/****."
+    ],
+    "Rating Factor": [
+      "Byte: 36-37",
+      "COBOL: FSBBRAT-RATING-FACTOR",
+      "DB2: LH_SPM_BNF.BNF_RT_FCT",
+      "Format: 3 packed digits, 2 decimals."
+    ],
+    "Annual Premium per Unit": [
+      "Byte: 38-42",
+      "COBOL: FSBBAP-ANNUAL-PREM-PER-UNIT",
+      "DB2: LH_SPM_BNF.BNF_ANN_PPU_AMT",
+      "Format: 9 packed digits, 2 decimals."
+    ],
+    "Premium Calculation Percent": [
+      "Byte: 43-44",
+      "COBOL: FSBPRMCP-PREMIUM-CALC-PERCENT",
+      "DB2: LH_SPM_BNF.BNF_PRM_CLC_PCT",
+      "Format: 3 packed digits, 0 decimals."
+    ],
+    "Number of Units": [
+      "Byte: 45-49",
+      "COBOL: FSBBUNT-NUMBER-OF-UNITS",
+      "DB2: LH_SPM_BNF.BNF_UNT_QTY",
+      "Format: 9 packed digits, 3 decimals."
+    ],
+    "Value per Unit": [
+      "Byte: 50-54",
+      "COBOL: FSBBVPU-VALUE-PER-UNIT",
+      "DB2: LH_SPM_BNF.BNF_VPU_AMT",
+      "Format: 9 packed digits, 2 decimals."
+    ],
+    "Original Cease Date": [
+      "Byte: 55-59",
+      "COBOL: FSBOCSDF-ORIG-CSE-DATE-FIELDS",
+      "DB2: LH_SPM_BNF.BNF_OGN_CEA_DT",
+      "Format: MM/DD/YYYY; sentinel dates display **/**/****."
+    ],
+    "Renewable Rate Indicator": [
+      "Byte: 60",
+      "COBOL: FSBRENRT-RENEWABLE-RATE-IND",
+      "DB2: LH_SPM_BNF.RNL_RT_IND",
+      "DB2 0 = X (not renewable); 1 = blank (renewable)."
+    ],
+    "Benefit Form Number": [
+      "Byte: 61-69",
+      "COBOL: FSBFRMNO-BENEFIT-FORM-NUMBER",
+      "DB2: LH_SPM_BNF.BNF_FRM_NBR",
+      "Format: 9 character(s); retain stored blanks."
+    ],
+    "Policy Protection Interest Rate": [
+      "Byte: 70-72",
+      "COBOL: FSBPPAP-POL-PROTECTION-PCT",
+      "DB2: LH_SPM_BNF.PRT_PCT",
+      "Format: 5 packed digits, 3 decimals.",
+      "Type A (PPA) only; 4.50 in DB2 displays 4.500. Bytes 70-74 are shared with OPT_DT / IFT_PCT / CPI_ADJ_REJ_NBR variants, not additional fields."
+    ],
+    "Automatic Rate Deny": [
+      "Byte: 76-77 (archived positions conflict)",
+      "COBOL: FSBRDIND-RATE-DENY-IND",
+      "DB2: TH_SPM_BNF.AUTO_RATE_DENY",
+      "Format: 1 character(s); retain stored blanks.",
+      "Live value and display position verified; archived layouts disagree on bytes 76/77. Do not infer the physical byte position from a capture with blank frequency."
+    ],
+    "Benefit Frequency": [
+      "Byte: 76-77 (archived positions conflict)",
+      "COBOL: FSBBFREQ-BENEFIT-FREQ",
+      "DB2: TH_SPM_BNF.BENEFIT_FREQ",
+      "Format: 1 character(s); retain stored blanks.",
+      "Blank in verified captures and not printed. Nonblank frequency is guarded pending a matching capture."
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "cobol": "FSBIDENT-SEGMENT-IDENT",
+      "kind": "header"
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "cobol": "FSBLNGTH-SEGMENT-LENGTH",
+      "kind": "header"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "kind": "flag",
+      "cobol": "FSBFLAGA-FLAG-BYTE-A",
+      "bits": [
+        {
+          "bit": 0,
+          "db2": "LH_SPM_BNF.IF_POL_IND",
+          "meaning": "Derived from inforce record"
+        },
+        {
+          "bit": 1,
+          "db2": "LH_SPM_BNF.MAT_EXTN_IND",
+          "meaning": "Contract maturity extended"
+        },
+        {
+          "bit": 2,
+          "db2": "LH_SPM_BNF.CEA_DT_INP_IND",
+          "meaning": "Cease date explicitly input"
+        },
+        {
+          "bit": 3,
+          "db2": "LH_SPM_BNF.BNF_NBR_LIVES_CD",
+          "meaning": "Joint lives"
+        },
+        {
+          "bit": 4,
+          "db2": "LH_SPM_BNF.PW_PCT_IND",
+          "meaning": "Waiver premium is a percentage"
+        },
+        {
+          "bit": 5,
+          "db2": "LH_SPM_BNF.DCA_FCA_IND",
+          "meaning": "Requested decrease applied"
+        },
+        {
+          "bit": 6,
+          "db2": "LH_SPM_BNF.STP_BAN_IND",
+          "meaning": "Step-banded premium"
+        },
+        {
+          "bit": 7,
+          "db2": "LH_SPM_BNF.BNF_SEG_IVD_IND",
+          "meaning": "Invalid benefit"
+        }
+      ]
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "6",
+      "kind": "flag",
+      "cobol": "FSBFLAGB-FLAG-BYTE-B",
+      "bits": [
+        {
+          "bit": 0,
+          "db2": "LH_SPM_BNF.UNT_REQ_IND",
+          "meaning": "Units explicitly requested"
+        },
+        {
+          "bit": 1,
+          "db2": "LH_SPM_BNF.BNF_REQ_MTH_IND",
+          "meaning": "Requested on all applicable coverages"
+        },
+        {
+          "bit": 2,
+          "db2": "LH_SPM_BNF.INP_FRM_NBR_IND",
+          "meaning": "Form number input override"
+        },
+        {
+          "bit": 3,
+          "db2": "LH_SPM_BNF.INP_BNF_PRM_IND",
+          "meaning": "Annual premium input override"
+        },
+        {
+          "bit": 4,
+          "db2": "LH_SPM_BNF.INT_TRM_IND",
+          "meaning": "Regular premium during initial term"
+        },
+        {
+          "bit": 5,
+          "db2": "LH_SPM_BNF.IHT_BNF_IND",
+          "meaning": "Inherent benefit"
+        },
+        {
+          "bit": 6,
+          "db2": "LH_SPM_BNF.BNF_VLD_IND",
+          "meaning": "Internal validation indicator"
+        },
+        {
+          "bit": 7,
+          "db2": "LH_SPM_BNF.BNF_DENIED_IND",
+          "meaning": "Underwriter denied benefit"
+        }
+      ]
+    },
+    {
+      "name": "Coverage Phase",
+      "db2": "LH_SPM_BNF.COV_PHA_NBR",
+      "cobol": "FSBBPHS-PHASE-CODE",
+      "byte": "7",
+      "kind": "binary",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Benefit Type",
+      "db2": "LH_SPM_BNF.SPM_BNF_TYP_CD",
+      "cobol": "FSBBTYP-TYPE-CODE",
+      "byte": "8",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Benefit Subtype",
+      "db2": "LH_SPM_BNF.SPM_BNF_SBY_CD",
+      "cobol": "FSBBSTYP-SUBTYPE-CODE",
+      "byte": "9",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Person Code",
+      "db2": "LH_SPM_BNF.PRS_CD",
+      "cobol": "FSBPERSN-PERSON-CODE",
+      "byte": "10-11",
+      "kind": "text",
+      "width": 2,
+      "decimals": 0
+    },
+    {
+      "name": "Person Sequence",
+      "db2": "LH_SPM_BNF.PRS_SEQ_NBR",
+      "cobol": "FSBPSEQ-PERSON-SEQUENCE",
+      "byte": "12",
+      "kind": "binary",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Cease Date",
+      "db2": "LH_SPM_BNF.BNF_CEA_DT",
+      "cobol": "FSBBCDDF-CEASE-DATE-FIELDS",
+      "byte": "13-17",
+      "kind": "date",
+      "width": 5,
+      "decimals": 0
+    },
+    {
+      "name": "Use Code",
+      "db2": "LH_SPM_BNF.BNF_STA_CD",
+      "cobol": "FSBBCUSE-USE-CODE",
+      "byte": "18",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Commission Code",
+      "db2": "LH_SPM_BNF.BNF_COM_CD",
+      "cobol": "FSBBCOM-COMMISSION-CODE",
+      "byte": "19",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Reserve Plan",
+      "db2": "LH_SPM_BNF.RES_MTH_PLN_CD",
+      "cobol": "FSBBPLN-RESERVE-PLAN",
+      "byte": "20-22",
+      "kind": "text",
+      "width": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Issue Age",
+      "db2": "LH_SPM_BNF.BNF_ISS_AGE",
+      "cobol": "FSBBAGE-ISSUE-AGE",
+      "byte": "23-24",
+      "kind": "number",
+      "width": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Age Admitted Code",
+      "db2": "LH_SPM_BNF.AGE_SRC_CD",
+      "cobol": "FSBAGADM-AGE-ADMITTED-CODE",
+      "byte": "25",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Issue Date",
+      "db2": "LH_SPM_BNF.BNF_ISS_DT",
+      "cobol": "FSBBISDF-ISSUE-DATE-FIELDS",
+      "byte": "26-30",
+      "kind": "date",
+      "width": 5,
+      "decimals": 0
+    },
+    {
+      "name": "Pay-Up Date",
+      "db2": "LH_SPM_BNF.BNF_PAY_UP_DT",
+      "cobol": "FSBPUDAT-PAY-UP-DATE",
+      "byte": "31-35",
+      "kind": "date",
+      "width": 5,
+      "decimals": 0
+    },
+    {
+      "name": "Rating Factor",
+      "db2": "LH_SPM_BNF.BNF_RT_FCT",
+      "cobol": "FSBBRAT-RATING-FACTOR",
+      "byte": "36-37",
+      "kind": "number",
+      "width": 3,
+      "decimals": 2
+    },
+    {
+      "name": "Annual Premium per Unit",
+      "db2": "LH_SPM_BNF.BNF_ANN_PPU_AMT",
+      "cobol": "FSBBAP-ANNUAL-PREM-PER-UNIT",
+      "byte": "38-42",
+      "kind": "number",
+      "width": 9,
+      "decimals": 2
+    },
+    {
+      "name": "Premium Calculation Percent",
+      "db2": "LH_SPM_BNF.BNF_PRM_CLC_PCT",
+      "cobol": "FSBPRMCP-PREMIUM-CALC-PERCENT",
+      "byte": "43-44",
+      "kind": "number",
+      "width": 3,
+      "decimals": 0
+    },
+    {
+      "name": "Number of Units",
+      "db2": "LH_SPM_BNF.BNF_UNT_QTY",
+      "cobol": "FSBBUNT-NUMBER-OF-UNITS",
+      "byte": "45-49",
+      "kind": "number",
+      "width": 9,
+      "decimals": 3
+    },
+    {
+      "name": "Value per Unit",
+      "db2": "LH_SPM_BNF.BNF_VPU_AMT",
+      "cobol": "FSBBVPU-VALUE-PER-UNIT",
+      "byte": "50-54",
+      "kind": "number",
+      "width": 9,
+      "decimals": 2
+    },
+    {
+      "name": "Original Cease Date",
+      "db2": "LH_SPM_BNF.BNF_OGN_CEA_DT",
+      "cobol": "FSBOCSDF-ORIG-CSE-DATE-FIELDS",
+      "byte": "55-59",
+      "kind": "date",
+      "width": 5,
+      "decimals": 0
+    },
+    {
+      "name": "Renewable Rate Indicator",
+      "db2": "LH_SPM_BNF.RNL_RT_IND",
+      "cobol": "FSBRENRT-RENEWABLE-RATE-IND",
+      "byte": "60",
+      "kind": "renewal",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Benefit Form Number",
+      "db2": "LH_SPM_BNF.BNF_FRM_NBR",
+      "cobol": "FSBFRMNO-BENEFIT-FORM-NUMBER",
+      "byte": "61-69",
+      "kind": "text",
+      "width": 9,
+      "decimals": 0
+    },
+    {
+      "name": "Policy Protection Interest Rate",
+      "db2": "LH_SPM_BNF.PRT_PCT",
+      "cobol": "FSBPPAP-POL-PROTECTION-PCT",
+      "byte": "70-72",
+      "kind": "number",
+      "width": 5,
+      "decimals": 3
+    },
+    {
+      "name": "Automatic Rate Deny",
+      "db2": "TH_SPM_BNF.AUTO_RATE_DENY",
+      "cobol": "FSBRDIND-RATE-DENY-IND",
+      "byte": "76-77 (archived positions conflict)",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    },
+    {
+      "name": "Benefit Frequency",
+      "db2": "TH_SPM_BNF.BENEFIT_FREQ",
+      "cobol": "FSBBFREQ-BENEFIT-FREQ",
+      "byte": "76-77 (archived positions conflict)",
+      "kind": "text",
+      "width": 1,
+      "decimals": 0
+    }
+  ],
+  "layout_html": "<p>References: CyberDoc 1201 D20 pp.159-175 and byte diagram p.374; COBOLDB2translation.xls Translation; Policy Record html.xls sheets 04 / 04 - Supp Benefit. Verified read-only against U0566833 / 01 / CKPR and its September 17, 2026 capture. Join LH_SPM_BNF to TH_SPM_BNF by policy/company/system, phase, benefit type/subtype, person/sequence, status and issue date. Preserve source order within each phase. All 16 flag bits are live. NULL slots are dim and annotated, never stored zeros. Option/inflation/CPI variants, all-coverage requests, nonblank benefit frequency and ABR qualification user bytes require additional screen verification and report explicit errors. Missing TH rows show an unavailable rate-deny slot, never an assumed N. Reserved byte 75 and unknown user bytes 78-81 are not invented or displayed.</p><table border=\"1\" cellspacing=\"0\" cellpadding=\"3\"><tr bgcolor=\"#E6A0AA\"><th>Byte</th><th>Field / source / applicability</th></tr><tr><td>1-2</td><td><b>Segment Identification</b><br>Byte: 1-2<br>COBOL: FSBIDENT-SEGMENT-IDENT</td></tr><tr><td>3-4</td><td><b>Segment Length</b><br>Byte: 3-4<br>COBOL: FSBLNGTH-SEGMENT-LENGTH<br>81 bytes; D20 byte diagram p.374 includes reserved byte 75 and user bytes 76-81.</td></tr><tr><td>5</td><td><b>Flag Byte A</b><br>Byte: 5<br>COBOL: FSBFLAGA-FLAG-BYTE-A<br>Bit 0: LH_SPM_BNF.IF_POL_IND - Derived from inforce record<br>Bit 1: LH_SPM_BNF.MAT_EXTN_IND - Contract maturity extended<br>Bit 2: LH_SPM_BNF.CEA_DT_INP_IND - Cease date explicitly input<br>Bit 3: LH_SPM_BNF.BNF_NBR_LIVES_CD - Joint lives<br>Bit 4: LH_SPM_BNF.PW_PCT_IND - Waiver premium is a percentage<br>Bit 5: LH_SPM_BNF.DCA_FCA_IND - Requested decrease applied<br>Bit 6: LH_SPM_BNF.STP_BAN_IND - Step-banded premium<br>Bit 7: LH_SPM_BNF.BNF_SEG_IVD_IND - Invalid benefit</td></tr><tr><td>6</td><td><b>Flag Byte B</b><br>Byte: 6<br>COBOL: FSBFLAGB-FLAG-BYTE-B<br>Bit 0: LH_SPM_BNF.UNT_REQ_IND - Units explicitly requested<br>Bit 1: LH_SPM_BNF.BNF_REQ_MTH_IND - Requested on all applicable coverages<br>Bit 2: LH_SPM_BNF.INP_FRM_NBR_IND - Form number input override<br>Bit 3: LH_SPM_BNF.INP_BNF_PRM_IND - Annual premium input override<br>Bit 4: LH_SPM_BNF.INT_TRM_IND - Regular premium during initial term<br>Bit 5: LH_SPM_BNF.IHT_BNF_IND - Inherent benefit<br>Bit 6: LH_SPM_BNF.BNF_VLD_IND - Internal validation indicator<br>Bit 7: LH_SPM_BNF.BNF_DENIED_IND - Underwriter denied benefit</td></tr><tr><td>7</td><td><b>Coverage Phase</b><br>Byte: 7<br>COBOL: FSBBPHS-PHASE-CODE<br>DB2: LH_SPM_BNF.COV_PHA_NBR</td></tr><tr><td>8</td><td><b>Benefit Type</b><br>Byte: 8<br>COBOL: FSBBTYP-TYPE-CODE<br>DB2: LH_SPM_BNF.SPM_BNF_TYP_CD<br>Format: 1 character(s); retain stored blanks.</td></tr><tr><td>9</td><td><b>Benefit Subtype</b><br>Byte: 9<br>COBOL: FSBBSTYP-SUBTYPE-CODE<br>DB2: LH_SPM_BNF.SPM_BNF_SBY_CD<br>Format: 1 character(s); retain stored blanks.</td></tr><tr><td>10-11</td><td><b>Person Code</b><br>Byte: 10-11<br>COBOL: FSBPERSN-PERSON-CODE<br>DB2: LH_SPM_BNF.PRS_CD<br>Format: 2 character(s); retain stored blanks.</td></tr><tr><td>12</td><td><b>Person Sequence</b><br>Byte: 12<br>COBOL: FSBPSEQ-PERSON-SEQUENCE<br>DB2: LH_SPM_BNF.PRS_SEQ_NBR</td></tr><tr><td>13-17</td><td><b>Cease Date</b><br>Byte: 13-17<br>COBOL: FSBBCDDF-CEASE-DATE-FIELDS<br>DB2: LH_SPM_BNF.BNF_CEA_DT<br>Format: MM/DD/YYYY; sentinel dates display **/**/****.</td></tr><tr><td>18</td><td><b>Use Code</b><br>Byte: 18<br>COBOL: FSBBCUSE-USE-CODE<br>DB2: LH_SPM_BNF.BNF_STA_CD<br>Format: 1 character(s); retain stored blanks.<br>0 = ceased; 1 = active; 2/3 = special waiver/payor cases. For type U (COLA), DB2: LH_SPM_BNF.COL_ICE_FQY_CD supplies the increase frequency instead.</td></tr><tr><td>19</td><td><b>Commission Code</b><br>Byte: 19<br>COBOL: FSBBCOM-COMMISSION-CODE<br>DB2: LH_SPM_BNF.BNF_COM_CD<br>Format: 1 character(s); retain stored blanks.</td></tr><tr><td>20-22</td><td><b>Reserve Plan</b><br>Byte: 20-22<br>COBOL: FSBBPLN-RESERVE-PLAN<br>DB2: LH_SPM_BNF.RES_MTH_PLN_CD<br>Format: 3 character(s); retain stored blanks.</td></tr><tr><td>23-24</td><td><b>Issue Age</b><br>Byte: 23-24<br>COBOL: FSBBAGE-ISSUE-AGE<br>DB2: LH_SPM_BNF.BNF_ISS_AGE<br>Format: 3 packed digits, 0 decimals.</td></tr><tr><td>25</td><td><b>Age Admitted Code</b><br>Byte: 25<br>COBOL: FSBAGADM-AGE-ADMITTED-CODE<br>DB2: LH_SPM_BNF.AGE_SRC_CD<br>Format: 1 character(s); retain stored blanks.</td></tr><tr><td>26-30</td><td><b>Issue Date</b><br>Byte: 26-30<br>COBOL: FSBBISDF-ISSUE-DATE-FIELDS<br>DB2: LH_SPM_BNF.BNF_ISS_DT<br>Format: MM/DD/YYYY; sentinel dates display **/**/****.</td></tr><tr><td>31-35</td><td><b>Pay-Up Date</b><br>Byte: 31-35<br>COBOL: FSBPUDAT-PAY-UP-DATE<br>DB2: LH_SPM_BNF.BNF_PAY_UP_DT<br>Format: MM/DD/YYYY; sentinel dates display **/**/****.</td></tr><tr><td>36-37</td><td><b>Rating Factor</b><br>Byte: 36-37<br>COBOL: FSBBRAT-RATING-FACTOR<br>DB2: LH_SPM_BNF.BNF_RT_FCT<br>Format: 3 packed digits, 2 decimals.</td></tr><tr><td>38-42</td><td><b>Annual Premium per Unit</b><br>Byte: 38-42<br>COBOL: FSBBAP-ANNUAL-PREM-PER-UNIT<br>DB2: LH_SPM_BNF.BNF_ANN_PPU_AMT<br>Format: 9 packed digits, 2 decimals.</td></tr><tr><td>43-44</td><td><b>Premium Calculation Percent</b><br>Byte: 43-44<br>COBOL: FSBPRMCP-PREMIUM-CALC-PERCENT<br>DB2: LH_SPM_BNF.BNF_PRM_CLC_PCT<br>Format: 3 packed digits, 0 decimals.</td></tr><tr><td>45-49</td><td><b>Number of Units</b><br>Byte: 45-49<br>COBOL: FSBBUNT-NUMBER-OF-UNITS<br>DB2: LH_SPM_BNF.BNF_UNT_QTY<br>Format: 9 packed digits, 3 decimals.</td></tr><tr><td>50-54</td><td><b>Value per Unit</b><br>Byte: 50-54<br>COBOL: FSBBVPU-VALUE-PER-UNIT<br>DB2: LH_SPM_BNF.BNF_VPU_AMT<br>Format: 9 packed digits, 2 decimals.</td></tr><tr><td>55-59</td><td><b>Original Cease Date</b><br>Byte: 55-59<br>COBOL: FSBOCSDF-ORIG-CSE-DATE-FIELDS<br>DB2: LH_SPM_BNF.BNF_OGN_CEA_DT<br>Format: MM/DD/YYYY; sentinel dates display **/**/****.</td></tr><tr><td>60</td><td><b>Renewable Rate Indicator</b><br>Byte: 60<br>COBOL: FSBRENRT-RENEWABLE-RATE-IND<br>DB2: LH_SPM_BNF.RNL_RT_IND<br>DB2 0 = X (not renewable); 1 = blank (renewable).</td></tr><tr><td>61-69</td><td><b>Benefit Form Number</b><br>Byte: 61-69<br>COBOL: FSBFRMNO-BENEFIT-FORM-NUMBER<br>DB2: LH_SPM_BNF.BNF_FRM_NBR<br>Format: 9 character(s); retain stored blanks.</td></tr><tr><td>70-72</td><td><b>Policy Protection Interest Rate</b><br>Byte: 70-72<br>COBOL: FSBPPAP-POL-PROTECTION-PCT<br>DB2: LH_SPM_BNF.PRT_PCT<br>Format: 5 packed digits, 3 decimals.<br>Type A (PPA) only; 4.50 in DB2 displays 4.500. Bytes 70-74 are shared with OPT_DT / IFT_PCT / CPI_ADJ_REJ_NBR variants, not additional fields.</td></tr><tr><td>76-77 (archived positions conflict)</td><td><b>Automatic Rate Deny</b><br>Byte: 76-77 (archived positions conflict)<br>COBOL: FSBRDIND-RATE-DENY-IND<br>DB2: TH_SPM_BNF.AUTO_RATE_DENY<br>Format: 1 character(s); retain stored blanks.<br>Live value and display position verified; archived layouts disagree on bytes 76/77. Do not infer the physical byte position from a capture with blank frequency.</td></tr><tr><td>76-77 (archived positions conflict)</td><td><b>Benefit Frequency</b><br>Byte: 76-77 (archived positions conflict)<br>COBOL: FSBBFREQ-BENEFIT-FREQ<br>DB2: TH_SPM_BNF.BENEFIT_FREQ<br>Format: 1 character(s); retain stored blanks.<br>Blank in verified captures and not printed. Nonblank frequency is guarded pending a matching capture.</td></tr></table>"
+}

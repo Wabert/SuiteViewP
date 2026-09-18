@@ -188,6 +188,9 @@ class RateWorkupPanel(QWidget):
     workup_built = pyqtSignal(str)
 
     def __init__(self, parent=None):
+        from suiteview.core.access_control import guard_app_access
+
+        guard_app_access("RATEMANAGER")
         super().__init__(parent)
         self._analysis: WorkupAnalysis | None = None
         self._analyze_worker: _AnalyzeWorker | None = None

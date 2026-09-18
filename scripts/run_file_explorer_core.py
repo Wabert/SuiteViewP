@@ -9,6 +9,8 @@ if __name__ == '__main__':
     
     # Add parent directory to path so we can import suiteview
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    from suiteview.core.profile_maintenance import initialize_profile
+    initialize_profile()
     
     from PyQt6.QtWidgets import QApplication
     from suiteview.file_nav.file_explorer_core import FileExplorerCore

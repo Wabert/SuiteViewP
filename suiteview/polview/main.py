@@ -18,6 +18,7 @@ from PyQt6.QtGui import QFont
 
 from .ui.main_window import GetPolicyWindow
 from suiteview.core.db2_constants import DEFAULT_REGION
+from suiteview.core.access_control import guard_app_access
 
 
 def create_viewer(
@@ -38,6 +39,7 @@ def create_viewer(
     Returns:
         The GetPolicyWindow instance (caller can connect signals, etc.).
     """
+    guard_app_access("POLVIEW")
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -63,6 +65,7 @@ def main(policy_number: Optional[str] = None, region: str = DEFAULT_REGION):
         policy_number: Optional policy number to load immediately
         region: Region code (default CKPR)
     """
+    guard_app_access("POLVIEW")
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)

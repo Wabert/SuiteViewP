@@ -32,6 +32,7 @@ from suiteview.audit import saved_query_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.query_runner import execute_odbc_query
+from suiteview.core.access_control import guard_app_access, requires_app_access
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.audit.query_object_viewer_window import (
     _display_dsn_for_object,
@@ -853,6 +854,7 @@ class QueryFieldPicker(QWidget):
                 self.list_queries.setCurrentItem(first)
         self.sources_changed.emit(self._real_source_names())
 
+    @requires_app_access("QUERY")
     def _open_query_builder(self, query_name: str):
         audit_window = self._new_audit_window_for_builder(query_name)
         if audit_window is not None:
@@ -867,6 +869,7 @@ class QueryFieldPicker(QWidget):
         )
 
     def _new_audit_window_for_builder(self, query_name: str):
+        guard_app_access("QUERY")
         source = self._sources.get(query_name)
         existing = query_object_store.load_object(query_name)
         if source is not None and (existing is None or self._should_republish_builder_source(query_name, source, existing)):

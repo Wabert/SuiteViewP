@@ -7,6 +7,8 @@ enabled, audited assumption; other missing actuarial values are not synthesized.
 
 from __future__ import annotations
 
+from suiteview.core.profile_paths import profile_path
+
 import hashlib
 import json
 from collections import OrderedDict
@@ -236,7 +238,7 @@ class WholeLifeRepository(ULRatesRepository):
         super().__init__(dsn)
         self.receipt_root = (
             Path(receipt_root) if receipt_root is not None
-            else Path.home() / ".suiteview" / "rate_manager_backups" / "whole_life"
+            else profile_path('rate_manager_backups') / "whole_life"
         )
         self._stage_number = 0
 
@@ -577,6 +579,7 @@ class WholeLifeRepository(ULRatesRepository):
                     for row in current if row.before_rows
                 },
             }
+            guard_data_writable("load Whole Life rates")
             write_json(receipt_path, receipt)
             for row in current:
                 name = row.table

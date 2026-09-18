@@ -3,7 +3,7 @@
 Imported cases are kept in their OWN on-disk collection — separate from the
 Saved Cases store — so importing files for review or batch work never clutters
 the user's permanent saved cases. Each imported FILE is stored as its own
-readable ``.cases.json`` bundle under ``~/.suiteview/illustration_imported_cases/``,
+readable ``.cases.json`` bundle under ``~/.suiteview/data/illustration/imported_cases/``,
 which is exactly how the grouping is preserved: one stored bundle == one node in
 the Imported Cases tree. A multi-case bundle expands to its cases; a single-case
 bundle shows the case name directly.
@@ -13,6 +13,8 @@ caller's decision — the store simply refuses to clobber an existing bundle
 unless ``overwrite`` is set. Writes go through the atomic bundle writer.
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import re
 from dataclasses import dataclass
@@ -58,7 +60,7 @@ class ImportedBundle:
 
 
 def default_imported_dir() -> Path:
-    return Path.home() / ".suiteview" / "illustration_imported_cases"
+    return profile_path('illustration_imported_cases')
 
 
 def _slugify(name: str) -> str:

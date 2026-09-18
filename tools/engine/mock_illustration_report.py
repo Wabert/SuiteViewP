@@ -3,7 +3,7 @@
 Runs U0688012 with the validated force-out scenario (over-funded premium +
 year-9 face decrease) so the ledger markers, footnotes, and policy-change
 sections all fire, then saves the rendered pages to
-~/.suiteview/mock_illustration_report.png for inspection.
+~/.suiteview/diagnostics/mock_illustration_report.png for inspection.
 
 Usage:
     venv\\Scripts\\python.exe tools/engine/mock_illustration_report.py
@@ -18,6 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from suiteview.core.profile_paths import diagnostics_dir
 
 os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 # Render on the native platform — offscreen falls back to box glyphs for
@@ -64,7 +66,7 @@ def main() -> None:
     tab._sheet_host.adjustSize()
     app.processEvents()
 
-    out = Path.home() / ".suiteview" / "mock_illustration_report.png"
+    out = diagnostics_dir() / "mock_illustration_report.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     tab._sheet_host.grab().save(str(out))
     print(f"pages={len(report.ledger)} ledger rows; saved {out}")

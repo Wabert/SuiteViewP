@@ -1,16 +1,15 @@
 """
 SuiteView Distribution Builder
 ================================
-Builds SuiteView or SuiteViewLight into a distributable folder with all required data files.
+Builds SuiteView into a distributable folder with runtime role-based access.
 
 Steps:
   1. Cleans previous build artifacts
-  2. Runs PyInstaller with the appropriate .spec file
+  2. Runs PyInstaller with SuiteView.spec
   3. Creates a ZIP archive for easy distribution
 
 Usage:
-  python scripts/build_distribution.py            # Full SuiteView build
-  python scripts/build_distribution.py --light     # SuiteViewLight build
+  python scripts/build_distribution.py
 """
 
 import argparse
@@ -58,16 +57,9 @@ def step(msg: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Build SuiteView distribution")
-    parser.add_argument("--light", action="store_true",
-                        help="Build SuiteViewLight (core tools only)")
-    args = parser.parse_args()
-
-    if args.light:
-        dist_name = "SuiteViewLight"
-        spec_file = PROJECT_ROOT / "SuiteViewLight.spec"
-    else:
-        dist_name = "SuiteView"
-        spec_file = PROJECT_ROOT / "SuiteView.spec"
+    parser.parse_args()
+    dist_name = "SuiteView"
+    spec_file = PROJECT_ROOT / "SuiteView.spec"
 
     dist_dir = PROJECT_ROOT / "dist"
 
@@ -155,7 +147,7 @@ def main():
     ║  Requirements for coworkers:                          ║
     ║  • Windows 10/11                                      ║
     ║  • DB2 ODBC driver (for PolView)                      ║
-    ║  • UL_Rates ODBC DSN (for ABR Quote)                  ║
+    ║  • UL_Rates ODBC DSN and enabled SuiteView user      ║
     ║  • Network access to DB2 mainframe (for PolView)      ║
     ║                                                       ║
     ╚═══════════════════════════════════════════════════════╝

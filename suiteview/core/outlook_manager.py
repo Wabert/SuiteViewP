@@ -13,6 +13,9 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
+from suiteview.core.access_control import AccessDeniedError, AccessUnavailableError
+from suiteview.core.support_files import guard_support_file_paths
+
 logger = logging.getLogger(__name__)
 
 
@@ -626,6 +629,7 @@ class OutlookManager:
             attachment = item.Attachments.Item(attachment_index)
             
             # Ensure directory exists
+            guard_support_file_paths(save_path, action="save policy support attachments")
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             
             # Handle file name conflicts
@@ -636,10 +640,13 @@ class OutlookManager:
                     counter += 1
                 save_path = f"{base}_{counter}{ext}"
             
+            guard_support_file_paths(save_path, action="save policy support attachments")
             attachment.SaveAsFile(save_path)
             logger.info(f"Saved attachment to: {save_path}")
             return True
         
+        except (AccessDeniedError, AccessUnavailableError):
+            raise
         except Exception as e:
             logger.error(f"Error saving attachment: {e}")
             return False
@@ -731,16 +738,19 @@ class OutlookManager:
             attachment = item.Attachments.Item(attachment_index)
             
             temp_dir = os.path.join(os.getenv('TEMP'), 'SuiteView_Email_Previews')
-            os.makedirs(temp_dir, exist_ok=True)
-            
             temp_path = os.path.join(temp_dir, attachment.FileName)
+            guard_support_file_paths(temp_dir, temp_path, action="save policy support attachments")
+            os.makedirs(temp_dir, exist_ok=True)
             
             # Only save if not already exists or is old
             if not os.path.exists(temp_path):
+                guard_support_file_paths(temp_path, action="save policy support attachments")
                 attachment.SaveAsFile(temp_path)
             
             return temp_path
         
+        except (AccessDeniedError, AccessUnavailableError):
+            raise
         except Exception as e:
             logger.error(f"Error getting attachment preview: {e}")
             return None

@@ -51,6 +51,7 @@ from suiteview.audit import common_table_store
 from suiteview.audit.common_table_defaults import seed_defaults
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.core.access_control import guard_app_access, requires_app_access
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,7 @@ class CommonTableDialog(FramelessWindowBase):
     _instance = None
 
     @classmethod
+    @requires_app_access("QUERY")
     def show_instance(cls, parent=None):
         """Show or raise the singleton dialog."""
         if cls._instance is None or not cls._instance.isVisible():
@@ -147,6 +149,7 @@ class CommonTableDialog(FramelessWindowBase):
         return cls._instance
 
     def __init__(self, parent=None, *, embedded: bool = False, editor_only: bool = False):
+        guard_app_access("QUERY")
         self._current_name: str = ""  # name of table being edited
         self._dirty = False
         self._embedded = embedded  # True = read-only preview with a single Edit button

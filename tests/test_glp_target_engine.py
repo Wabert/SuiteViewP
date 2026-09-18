@@ -119,6 +119,94 @@ def test_regular_premium_funds_positive_surrender_value(forecast):
         assert not row.state.lapsed
 
 
+@pytest.mark.parametrize("billing_frequency", [1, 3, 6, 12])
+@pytest.mark.parametrize("load", ["0", "0.095"])
+def test_negative_opening_value_is_funded_once(forecast, billing_frequency, load):
+    policy, config, _, run = forecast
+    config.premium_load = load
+    policy.account_value = -118.83
+    policy.billing_frequency = billing_frequency
+    original = copy.deepcopy(policy)
+    result = run(date(2026, 5, 15))
+    assert policy == original
+    for scenario in (result, result.zero_glp, result.no_forceout):
+        assert scenario.lump_sum > 0
+        assert scenario.lump_sum_date == date(2026, 3, 15)
+        assert scenario.rows[0].account_value == -118.83
+        assert scenario.rows[1].state.applied_lumpsum == scenario.lump_sum
+        assert scenario.rows[2].state.applied_lumpsum == 0
+        assert 0 < scenario.rows[-1].surrender_value <= 0.03
+        assert not any(row.state.lapsed for row in scenario.rows)
+        assert all(row.date < date(2026, 5, 15) for row in scenario.rows)
+    if billing_frequency == 1:
+        assert result.rows[1].premium > result.rows[2].premium + 100
+        assert result.rows[1].premium == pytest.approx(result.premium + result.lump_sum)
+        assert result.rows[2].premium == result.premium
+        lower_inputs = gea.level_to_exception_inputs(
+            policy, result.premium - 0.01, result.premium_mode, policy.policy_year,
+            first_month_premium_floor=result.rows[1].premium)
+        lower = calc_engine.IllustrationEngine().project(
+            copy.deepcopy(policy), months=2, future_inputs=lower_inputs,
+            options=gea.level_to_exception_options(gea.IllustrationOptions(
+                exact_days_interest=False, recognize_inforce_exception_period=False)))
+        assert any(state.lapsed for state in lower) or lower[-1].ending_sv <= 0
+    assert result.zero_glp.summary.total_premium_needed == pytest.approx(
+        sum(row.premium for row in result.zero_glp.rows))
+
+
+def test_one_remaining_month_needs_only_the_lump_sum(forecast):
+    policy, _, _, run = forecast
+    policy.account_value = -118.83
+    result = run(date(2026, 4, 15))
+    assert result.premium == 0
+    assert result.lump_sum > 118.83
+    assert result.rows[-1].premium == result.lump_sum
+    assert 0 < result.rows[-1].surrender_value <= 0.02
+
+
+def test_negative_value_with_no_regular_room_uses_exception_premiums(forecast):
+    policy, _, _, run = forecast
+    policy.account_value = -118.83
+    policy.accumulated_glp = policy.gsp = policy.premiums_paid_to_date = 1_000
+    policy.withdrawals_to_date = 0
+    result = run(date(2026, 5, 15))
+    for scenario in (result, result.zero_glp, result.no_forceout):
+        assert scenario.premium == scenario.lump_sum == 0
+        assert scenario.exception_start == date(2026, 3, 15)
+        assert scenario.rows[1].exception_premium > scenario.rows[2].exception_premium
+        assert scenario.rows[-1].surrender_value == 0
+        assert not any(row.state.lapsed for row in scenario.rows)
+
+
+def test_off_cycle_quarterly_bridge_exhausts_room_before_exception(forecast):
+    policy, _, _, run = forecast
+    policy.account_value = -118.83
+    policy.billing_frequency = 3
+    policy.accumulated_glp = policy.gsp = 1_000.0
+    policy.premiums_paid_to_date = 200.0
+    policy.withdrawals_to_date = 0.0
+    original = copy.deepcopy(policy)
+    result = run(date(2026, 7, 15))
+    assert policy == original
+    for scenario in (result, result.zero_glp, result.no_forceout):
+        assert scenario.lump_sum > 0
+        assert scenario.premium > 0
+        assert scenario.premium_mode == "Q"
+        assert scenario.lump_sum_date == date(2026, 3, 15)
+        assert scenario.rows[1].state.applied_scheduled_premium == 0
+        assert scenario.rows[2].state.applied_scheduled_premium > 0
+        assert all(row.state.applied_lumpsum == 0 for row in scenario.rows[2:])
+        assert scenario.exception_start is not None
+        assert scenario.rows[-1].surrender_value == 0
+        assert not any(row.state.lapsed for row in scenario.rows)
+        assert sum(row.state.gross_premium for row in scenario.rows) == pytest.approx(800)
+        for row in scenario.rows:
+            if row.exception_premium > 0:
+                assert row.state.premiums_to_date >= 1_000 - 1e-9
+    assert result.zero_glp.summary.total_premium_needed == pytest.approx(
+        sum(row.premium for row in result.zero_glp.rows))
+
+
 def test_surrender_charge_is_not_treated_as_available_cash(forecast):
     policy, config, rates, run = forecast
     policy.account_value = 1_000.0
@@ -441,6 +529,47 @@ def test_calculate_renders_and_exports_zero_after_exception_quote(forecast, monk
             assert not tab._glp_forecast_tabs.tabToolTip(tab._glp_forecast_tabs.indexOf(display))
         assert tab._glp_result is None
         assert not tab._glp_export_btn.isEnabled()
+    finally:
+        tab.close()
+        tab.deleteLater()
+        app.processEvents()
+
+
+def test_lump_sum_summary_clipboard_and_export(forecast, monkeypatch):
+    from PyQt6.QtWidgets import QApplication
+    from suiteview.polview.ui.tabs.policy_support_tab import PolicySupportTab
+
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    global _QT_APP
+    _QT_APP = app = QApplication.instance() or QApplication([])
+    policy, _, _, run = forecast
+    policy.account_value = -118.83
+    result = run(date(2026, 5, 15))
+    tab = PolicySupportTab()
+    tab._glp_target_date.setText("05/15/2026")
+    try:
+        tab._display_glp_exception_result(result)
+        lines = tab._glp_funding_lines(result)
+        assert len(lines) == 3
+        for line in lines:
+            assert line in tab._glp_plugged_label.text()
+            assert line in tab._glp_summary_copy_text()
+        for index in range(3):
+            tooltip = tab._glp_forecast_tabs.tabToolTip(index)
+            assert "Lump sum needed" in tooltip and "not repeated" in tooltip
+        wb = tab._build_glp_quote_workbook()
+        try:
+            rows = list(wb.active.values)
+            lump_rows = [row for row in rows if row[0] == "Lump sum needed"]
+            assert len(lump_rows) == 3
+            assert all(f"${result.lump_sum:,.2f} once on 03/15/2026" in row[1]
+                       for row in lump_rows)
+        finally:
+            wb.close()
+        policy.account_value = 5_000
+        tab._display_glp_exception_result(run(date(2026, 5, 15)))
+        assert "Lump sum needed" not in tab._glp_summary_copy_text()
+        assert "Lump sum needed" not in tab._glp_plugged_label.text()
     finally:
         tab.close()
         tab.deleteLater()

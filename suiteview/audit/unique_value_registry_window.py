@@ -7,6 +7,8 @@ Right panel: sortable value table with description, notes, active flag,
 """
 from __future__ import annotations
 
+from suiteview.core.profile_paths import profile_path
+
 import json
 import logging
 from datetime import datetime
@@ -24,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.build_env import is_data_read_only
+from suiteview.core.access_control import guard_app_access, requires_app_access
 from . import shared_field_registry as registry
 from .tabs._styles import make_checkbox as _make_checkbox
 
@@ -105,7 +108,7 @@ _TABLE_STYLE = (
     "  border-right: 1px solid #C8D8E8; }"
 )
 
-_SETTINGS_PATH = Path.home() / ".suiteview" / "registry_window_geometry.json"
+_SETTINGS_PATH = profile_path('registry_window_geometry.json')
 
 _BTN_STYLE = (
     "QPushButton { background-color: #1E5BA8; color: white;"
@@ -173,6 +176,7 @@ class RegistryValueEditorWindow(FramelessWindowBase):
     _ACTIVE_TRUE = {"1", "y", "yes", "true", "t", "active", "x", "\u2713"}
 
     def __init__(self, field_id: int, field_label: str, parent=None):
+        guard_app_access("QUERY")
         self._field_id = field_id
         self._field_label = field_label
         self._dirty = False
@@ -425,6 +429,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
     _instance = None  # singleton reference
 
     def __init__(self, parent=None):
+        guard_app_access("QUERY")
         saved = self._load_geometry_settings()
         self._current_field_id = None
         self._expanded = False  # More/Less state
@@ -449,6 +454,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             logger.exception("Failed to load registrations on startup")
 
     @classmethod
+    @requires_app_access("QUERY")
     def show_instance(cls, parent=None):
         """Show or raise the singleton window."""
         if cls._instance is None or not cls._instance.isVisible():
@@ -575,7 +581,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.btn_edit_window.clicked.connect(self._open_value_editor_window)
         self.btn_edit_window.setEnabled(False)
         # The pop-out editor writes to the shared registry — hidden in the
-        # read-only (Light) edition, which is view-only.
+        # read-only role, which is view-only.
         if self._read_only:
             self.btn_edit_window.setVisible(False)
         action_bar.addWidget(self.btn_edit_window)
@@ -623,7 +629,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.value_table.customContextMenuRequested.connect(
             self._on_value_table_context_menu)
-        # In the read-only edition, block in-place cell editing entirely (the
+        # Without database-write permission, block in-place cell editing (the
         # description/notes/active columns are otherwise editable and would write
         # to the shared registry).
         if self._read_only:
@@ -1088,8 +1094,8 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
     def _on_tree_context_menu(self, pos):
         """Right-click menu on tree: permanently delete a table or field."""
-        # Read-only edition: registry deletion is disabled entirely.
-        if self._read_only:
+        # Recheck the role in case permissions changed while this window was open.
+        if is_data_read_only():
             return
         item = self.tree.itemAt(pos)
         if item is None:

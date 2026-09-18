@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from suiteview.core.build_env import ReadOnlyDataError
+from suiteview.core import access_control
 from suiteview.ratemanager.database_loader import (
     PackageValidationError, RateDatabaseError, StaleAnalysisError, UnsafeOperationError,
 )
@@ -80,7 +81,7 @@ def analysis_for(source, changed=0):
 
 
 def test_read_only_blocks_ddl_and_writes_before_connect(monkeypatch):
-    monkeypatch.setenv("SUITEVIEW_LIGHT", "1")
+    monkeypatch.setattr(access_control, "get_access", lambda **_: SimpleNamespace(can_update_database=False))
     with patch("suiteview.ratemanager.database_loader.pyodbc.connect") as connect:
         with WholeLifeRepository() as repository:
             with pytest.raises(ReadOnlyDataError):
@@ -96,7 +97,6 @@ def test_explicit_cvf_zero_schema_setup_changes_only_nullability(
 ):
     from tools.rates import configure_wl_cv_zero_null as tool
 
-    monkeypatch.delenv("SUITEVIEW_LIGHT", raising=False)
     monkeypatch.setattr(tool.sys, "argv", ["configure", json.dumps({"apply": apply})])
     repository = MagicMock()
     repository.__enter__.return_value = repository
@@ -125,7 +125,7 @@ def test_explicit_cvf_zero_schema_setup_changes_only_nullability(
 def test_cvf_zero_schema_setup_respects_read_only_before_connect(monkeypatch):
     from tools.rates import configure_wl_cv_zero_null as tool
 
-    monkeypatch.setenv("SUITEVIEW_LIGHT", "1")
+    monkeypatch.setattr(access_control, "get_access", lambda **_: SimpleNamespace(can_update_database=False))
     monkeypatch.setattr(tool.sys, "argv", ["configure", '{"apply": true}'])
     with patch.object(tool, "WholeLifeRepository") as connect:
         with pytest.raises(ReadOnlyDataError):

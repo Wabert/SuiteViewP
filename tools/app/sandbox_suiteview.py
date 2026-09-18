@@ -22,9 +22,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from suiteview.core.profile_paths import profile_root
 
 SANDBOX = Path(tempfile.gettempdir()) / "suiteview_sandbox_home"
-REAL = Path.home() / ".suiteview"
+REAL = profile_root()
 
 
 def _copy() -> None:
@@ -36,7 +38,7 @@ def _copy() -> None:
 
 
 def _churn() -> None:
-    objs = SANDBOX / ".suiteview" / "query_objects"
+    objs = SANDBOX / ".suiteview" / "data" / "query" / "query_objects"
     n = 0
     for path in list(objs.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -58,6 +60,7 @@ def _run() -> None:
     env = dict(os.environ)
     env["USERPROFILE"] = str(SANDBOX)
     env["HOME"] = str(SANDBOX)
+    env["SUITEVIEW_PROFILE_DIR"] = str(SANDBOX / ".suiteview")
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     subprocess.run([sys.executable, "scripts/run_audit.py"], env=env)
 

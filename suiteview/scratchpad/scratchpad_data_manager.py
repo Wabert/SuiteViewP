@@ -2,8 +2,10 @@
 ScratchPad Data Manager
 
 Simple persistence for the ScratchPad.
-Stores a single plain-text string in ~/.suiteview/scratchpad.txt.
+Stores a single plain-text string in ~/.suiteview/data/notes/scratchpad.txt.
 """
+
+from suiteview.core.profile_paths import profile_path
 
 import logging
 from pathlib import Path
@@ -17,8 +19,7 @@ class ScratchPadDataManager:
     _instance = None
     _initialized = False
 
-    DATA_FILE = Path.home() / ".suiteview" / "scratchpad.txt"
-    OLD_DATA_FILE = Path.home() / ".suiteview" / "quick_notes.txt"
+    DATA_FILE = profile_path('scratchpad.txt')
 
     def __new__(cls):
         if cls._instance is None:
@@ -30,7 +31,6 @@ class ScratchPadDataManager:
             return
         ScratchPadDataManager._initialized = True
         self._text = ""
-        self._migrate_old_file()
         self._load()
 
     @classmethod
@@ -41,17 +41,6 @@ class ScratchPadDataManager:
     def reset_instance(cls):
         cls._instance = None
         cls._initialized = False
-
-    # -- migration ------------------------------------------------------------
-
-    def _migrate_old_file(self):
-        """Rename quick_notes.txt -> scratchpad.txt if the old file exists."""
-        if self.OLD_DATA_FILE.exists() and not self.DATA_FILE.exists():
-            try:
-                self.OLD_DATA_FILE.rename(self.DATA_FILE)
-                logger.info("Migrated %s -> %s", self.OLD_DATA_FILE, self.DATA_FILE)
-            except Exception as e:
-                logger.error("Failed to migrate old notes file: %s", e, exc_info=True)
 
     # -- persistence ----------------------------------------------------------
 

@@ -1,13 +1,15 @@
 """
 RegisteredDataSource persistence — id-keyed, atomic.
 
-Storage: ~/.suiteview/data_sources/<safe_name>__<id8>.json. Mirrors
+Storage: ~/.suiteview/data/query/data_sources/<safe_name>__<id8>.json. Mirrors
 ``file_source_store`` exactly (same id8-suffixed filenames, atomic writes via
 ``core.json_store``); the two stores stay separate because a File Source and a
 registered ODBC/Access source are different shapes. Tests/tools can override the
 directory with SUITEVIEW_DATA_SOURCES_DIR.
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import logging
 import os
@@ -25,7 +27,7 @@ def _sources_dir() -> Path:
     override = os.environ.get("SUITEVIEW_DATA_SOURCES_DIR")
     if override:
         return Path(override)
-    return Path.home() / ".suiteview" / "data_sources"
+    return profile_path('data_sources')
 
 
 def _ensure_dir() -> Path:

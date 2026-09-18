@@ -30,7 +30,7 @@ of a DSN — everywhere else in SuiteView a *data source* (a DSN like `NEON_DSN`
 is separate from the queries run against it; files now match.
 
 **`FileDataSource`** (`suiteview/audit/file_source.py`) — its own id-keyed store
-at `~/.suiteview/file_sources/` (`file_source_store.py`, atomic via
+at `~/.suiteview/data/query/file_sources/` (`file_source_store.py`, atomic via
 `core/json_store.py`):
 
 - **`source_type`** — `csv` (delimited) / `fixed_width` / `excel` (the same
@@ -156,7 +156,7 @@ this was a small, additive change.
   - **Step 3b — ODBC registry (done, screenshot-verified):** registered ODBC
     sources are now first-class. New `data_source.py` (`RegisteredDataSource` —
     pure model, kind=odbc|access) + `data_source_store.py` (id-keyed atomic JSON
-    at `~/.suiteview/data_sources/`, mirrors `file_source_store`; env override
+    at `~/.suiteview/data/query/data_sources/`, mirrors `file_source_store`; env override
     `SUITEVIEW_DATA_SOURCES_DIR`). `core/odbc_utils` gained `list_installed_dsns()`
     and a dialect-agnostic `probe_dsn_connection()`. The `+ New File Source`
     button became a typed `+ Add Data Source ▾` chooser (File Source… / ODBC

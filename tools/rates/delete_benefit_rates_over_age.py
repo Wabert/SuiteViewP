@@ -22,7 +22,7 @@ Safety
   trimmed by surprise. (Per the task owner, the fix is intentionally extended to
   any co-referencing plancode, since they share the identical over-loaded rates.)
 * Before any DELETE the exact rows are backed up to CSV under
-  ``~/.suiteview/rate_manager_backups/<timestamp>_delete_benefit_rates/``.
+  ``~/.suiteview/backups/rate_manager/<timestamp>_delete_benefit_rates/``.
 * The DELETE runs inside a single serializable transaction; the same range is
   re-counted afterwards and the transaction only commits when 0 rows remain.
 * Refuses to run in a read-only (SuiteView Light) edition.
@@ -55,6 +55,7 @@ import pyodbc
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.core.build_env import guard_data_writable  # noqa: E402
+from suiteview.core.profile_paths import profile_path
 
 BENCOI_TABLE = "RATE_BENCOI"
 BENCOI_COLUMNS = ("Index(BENCOI)", "Scale", "IssueAge", "Duration", "Rate")
@@ -129,7 +130,7 @@ def _fetch_index_references(cursor, indices: list[int]) -> list[tuple]:
 def _write_backup(rows: list[tuple]) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     folder = (
-        Path.home() / ".suiteview" / "rate_manager_backups"
+        profile_path("rate_manager_backups")
         / f"{timestamp}_delete_benefit_rates"
     )
     folder.mkdir(parents=True, exist_ok=False)

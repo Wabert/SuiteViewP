@@ -11,7 +11,7 @@ invoked, and the requested tab/pages are grabbed to PNG files via QWidget.grab.
 
 Keys: policy (required), region (CKPR), premium_type (sets the first premium
 row's type before the run), group (Values rail page to also capture, e.g.
-"Apply Premium"), out_dir (default ~/.suiteview). Writes
+"Apply Premium"), out_dir (default ~/.suiteview/diagnostics). Writes
 <out_dir>/illustration_<policy>_inputs.png / _overview.png / _<group>.png and
 prints their paths as JSON.
 """
@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from suiteview.core.profile_paths import diagnostics_dir
+
 os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
 
@@ -36,7 +38,7 @@ def main() -> None:
     region = cmd.get("region", "CKPR")
     premium_type = cmd.get("premium_type")
     group = cmd.get("group")
-    out_dir = Path(cmd.get("out_dir") or (Path.home() / ".suiteview"))
+    out_dir = Path(cmd.get("out_dir") or (diagnostics_dir()))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from PyQt6.QtWidgets import QApplication

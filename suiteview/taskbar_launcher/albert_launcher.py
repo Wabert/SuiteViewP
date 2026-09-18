@@ -6,6 +6,7 @@ import sys
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox, QPushButton
+from suiteview.core.access_control import guard_app_access, requires_app_access
 
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ BRIDGE = (Path(__file__).resolve().parents[3] / "Email Manager"
 
 
 def launch_albert():
+    guard_app_access("ALBERT")
     if not BRIDGE.is_file():
         raise FileNotFoundError(f"Albert's assignment launcher was not found:\n{BRIDGE}")
     return subprocess.Popen(
@@ -54,7 +56,8 @@ class AlbertButton(QPushButton):
         """)
         self.clicked.connect(self._open)
 
-    def _open(self):
+    @requires_app_access("ALBERT")
+    def _open(self, checked=False):
         try:
             launch_albert()
         except OSError as exc:

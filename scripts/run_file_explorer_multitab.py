@@ -29,6 +29,14 @@ if __name__ == '__main__':
     sys.excepthook = exception_hook
     
     try:
+        from suiteview.taskbar_launcher.single_instance import acquire_or_activate
+        from suiteview.core.profile_maintenance import initialize_profile
+        if not acquire_or_activate(
+            "SuiteView_FileNav_SingleInstance_Mutex", ("File Explorer - Multi-Tab Edition",)
+        ):
+            sys.exit(0)
+        initialize_profile()
+
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
         
@@ -80,5 +88,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"ERROR: {e}")
         traceback.print_exc()
-        input("Press Enter to exit...")
+        from PyQt6.QtWidgets import QApplication, QMessageBox
+        app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, "Cannot Start SuiteView", str(e))
         sys.exit(1)

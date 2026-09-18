@@ -4,7 +4,7 @@ the exact SQL, bound parameter values, target database, connection,
 and expected result schema (field names and types).
 
 Produced by applying specific inputs to a Query Design.
-Persisted as JSON in ~/.suiteview/qdefinitions/<forge_name>/<name>.json
+Persisted as JSON in ~/.suiteview/data/query/qdefinitions/<forge_name>/<name>.json
 Snapshots stored as .parquet in the same folder.
 """
 from __future__ import annotations

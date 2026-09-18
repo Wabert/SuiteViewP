@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QEvent, QTimer, QFileInfo
 from PyQt6.QtGui import QIcon
+from suiteview.core.access_control import requires_app_access
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +240,8 @@ class FileOpenHistoryPanel(QWidget):
     _icon_provider = None  # shared QFileIconProvider instance
 
     def __init__(self, parent=None):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("HISTORY")
         super().__init__(parent)
         self.setWindowFlags(
             Qt.WindowType.Tool
@@ -460,6 +463,7 @@ class FileOpenHistoryPanel(QWidget):
             col = self._make_column(col_entries)
             self.columns_layout.addWidget(col, 1)  # equal stretch factor
 
+    @requires_app_access("HISTORY")
     def show_under(self, button: QWidget):
         """Position with bottom edge aligned to top of the button, stretching up to top of screen."""
         self._search_box.clear()

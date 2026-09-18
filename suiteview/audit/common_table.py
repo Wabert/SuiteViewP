@@ -5,7 +5,7 @@ Rendered as a VALUES-based CTE (WITH clause) at query time so users
 can join reference data against live database tables without needing
 write access to any database.
 
-Persisted as JSON in ~/.suiteview/common_tables/<name>.json
+Persisted as JSON in ~/.suiteview/data/query/common_tables/<name>.json
 """
 from __future__ import annotations
 

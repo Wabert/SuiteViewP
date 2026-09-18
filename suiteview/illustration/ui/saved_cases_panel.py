@@ -138,7 +138,7 @@ class SavedCasesView(QWidget):
         # dock state (same rule as the Policies view's tree).
         self._host = host_panel
         # Read by refresh_cases(); tests point it at a tmp folder. None → the
-        # store's default (~/.suiteview/illustration_cases).
+        # store's default (~/.suiteview/data/illustration/cases).
         self.cases_directory = None
         self._cases: list = []                   # newest first from the store
         self._cases_error: str | None = None

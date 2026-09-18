@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.core.access_control import guard_app_access, requires_app_access
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
@@ -60,6 +61,7 @@ class QDefViewerWindow(FramelessWindowBase):
     _instance = None
 
     def __init__(self, parent=None):
+        guard_app_access("QUERY")
         self._current_qdef: QDefinition | None = None
         super().__init__(
             title="QDefinition Viewer",
@@ -71,6 +73,7 @@ class QDefViewerWindow(FramelessWindowBase):
         )
 
     @classmethod
+    @requires_app_access("QUERY")
     def show_instance(cls, parent=None):
         if cls._instance is None or not cls._instance.isVisible():
             cls._instance = cls(parent)
@@ -433,6 +436,9 @@ class QDefViewerWindow(FramelessWindowBase):
             except Exception:
                 from suiteview.core.db2_connection import DB2Connection
                 db = DB2Connection(qd.dsn)
+                from suiteview.core.sql_permissions import guard_query_sql
+
+                guard_query_sql(qd.sql)
                 columns, rows = db.execute_query_with_headers(qd.sql)
             df = pd.DataFrame([list(r) for r in rows], columns=columns)
             qdef_store.save_snapshot(qd.name, df, forge_name=qd.forge_name)

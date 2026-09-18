@@ -63,10 +63,23 @@ class MONITORINFO(ctypes.Structure):
 
 
 def _apis():
-    user32 = ctypes.windll.user32
-    shell32 = ctypes.windll.shell32
-    shell32.SHAppBarMessage.restype = wt.ULONG
+    # Keep structure-specific prototypes private; other widgets declare their
+    # own MONITORINFO types on ctypes.windll's shared function objects.
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    shell32.SHAppBarMessage.argtypes = [wt.DWORD, ctypes.POINTER(APPBARDATA)]
+    shell32.SHAppBarMessage.restype = ctypes.c_size_t
+    user32.RegisterWindowMessageW.argtypes = [wt.LPCWSTR]
     user32.RegisterWindowMessageW.restype = wt.UINT
+    user32.MonitorFromWindow.argtypes = [wt.HWND, wt.DWORD]
+    user32.MonitorFromWindow.restype = wt.HANDLE
+    user32.GetMonitorInfoW.argtypes = [wt.HANDLE, ctypes.POINTER(MONITORINFO)]
+    user32.GetMonitorInfoW.restype = wt.BOOL
+    user32.SetWindowPos.argtypes = [
+        wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, wt.UINT,
+    ]
+    user32.SetWindowPos.restype = wt.BOOL
     return user32, shell32
 
 
@@ -79,6 +92,7 @@ def monitor_rects(hwnd: int) -> Optional[Tuple[Rect, Rect]]:
     mi = MONITORINFO()
     mi.cbSize = ctypes.sizeof(MONITORINFO)
     if not user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+        logger.error("Could not read monitor work area for HWND %s", hwnd)
         return None
     m, w = mi.rcMonitor, mi.rcWork
     return ((m.left, m.top, m.right, m.bottom),
@@ -142,21 +156,31 @@ def register_bottom(hwnd: int, bar_h_phys: int,
 
         # Let the shell negotiate the rectangle (e.g. above the taskbar), then
         # restore the height we asked for.
-        shell32.SHAppBarMessage(ABM_QUERYPOS, ctypes.byref(abd))
+        if not shell32.SHAppBarMessage(ABM_QUERYPOS, ctypes.byref(abd)):
+            logger.error("SHAppBarMessage ABM_QUERYPOS failed")
+            unregister(hwnd)
+            return None
         abd.rc.top = abd.rc.bottom - bar_h_phys
-        shell32.SHAppBarMessage(ABM_SETPOS, ctypes.byref(abd))
+        if not shell32.SHAppBarMessage(ABM_SETPOS, ctypes.byref(abd)):
+            logger.error("SHAppBarMessage ABM_SETPOS failed")
+            unregister(hwnd)
+            return None
 
-        user32.SetWindowPos(
+        if not user32.SetWindowPos(
             hwnd, 0,
             abd.rc.left, abd.rc.top,
             abd.rc.right - abd.rc.left,
             abd.rc.bottom - abd.rc.top,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW):
+            logger.error("Could not position the AppBar")
+            unregister(hwnd)
+            return None
 
         return (abd.rc.left, abd.rc.top, abd.rc.right, abd.rc.bottom)
 
     except Exception as exc:
         logger.error(f"AppBar registration failed: {exc}")
+        unregister(hwnd)
         return None
 
 
@@ -166,10 +190,12 @@ def space_reserved(hwnd: int, bar_top_phys: int, tolerance: int = 2) -> bool:
     This is the read-back that tells us the shell honoured the reservation —
     ``SHAppBarMessage`` can report success while leaving the work area intact.
     """
-    if not IS_WINDOWS or not hwnd:
+    if not IS_WINDOWS:
         return True
+    if not hwnd:
+        return False
     rects = monitor_rects(hwnd)
     if rects is None:
-        return True
+        return False
     _monitor, (_wl, _wt, _wr, work_bottom) = rects
     return work_bottom <= bar_top_phys + tolerance

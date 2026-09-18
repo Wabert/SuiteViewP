@@ -102,6 +102,8 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Suspense Code (01):** Checkbox + Listbox (`CheckBox_SuspenseCode` and `ListBox_SuspenseCode`)
 
 ### 2. Policy (2) Tab
+*   **Participating (02):** Checkbox + three-row multi-select list below Failed Guideline/TAMRA. Uses the **base coverage only** (`LH_COV_PHA.COV_PHA_NBR = 1`, `DIV_PTP_TYP_CD`), including in coverage-level queries. Options: **Participating** (A-H), **Participating but divs are paid up** (9), **Nonparticipating** (blank or 0-8). Codes are trimmed; SQL NULL/unrecognized values are not nonparticipating. Checking adds `ParticipationCode` and `Participation` result columns; selecting categories ORs them together, ANDed with other criteria. Checked without selections displays only (unknowns labeled `Unknown`); unchecked adds nothing. Save/reopen and New/reset include the checkbox and selections. Source: CyberLife D20 pp.117-118; do not apply the base mapping to rider codes.
+*   The three termination ranges are consecutive compact single-line rows: Entry Date, Last Fin Date, and Date (both). Their existing date/filter semantics are unchanged; the shortened financial label retains its full meaning in the input tooltip.
 *   **1035 Amt (59):** Checkbox (`CheckBox_Has1035Amount`)
 *   **MEC (59):** Checkbox (`CheckBox_ShowMECStatus`)
 *   **Failed Guideline or TAMRA (66):** Checkbox (`CheckBox_HasFailedGuidelineOrTAMRA`)
@@ -113,10 +115,13 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Premium Year To Date (63):** Range (`TextBox_PremYTDLessThan` to `TextBox_PremYTDGreaterThan`)
 *   **Definition of Life Insurance (66):** Checkbox + Listbox (`CheckBox_SpecifyDefinitionOfLifeInsurance` and `ListBox_DefinitionOfLifeInsurance`)
 *   **Reinsurance Code:** Checkbox + Listbox (`CheckBox_ReinsuranceCode` and `ListBox_ReinsuranceCode`)
-*   **Termination Entry Date (69):** Range (`TextBox_TerminationLowDate` to `TextBox_TerminationHighDate`). Uses unreversed SC, SI, SF, TD, TM, TN, TL, and TO policy-termination transactions.
+*   **Termination Entry Date (69):** Range (`TextBox_TerminationLowDate` to `TextBox_TerminationHighDate`). Uses unreversed SC, SI, SF, TD, TM, TN, TL, and TO transactions only when the current policy record has `PRM_PAY_STA_REA_CD >= '97'` and a termination last-entry code (`J, L, M, N, O, P, Q, R, X`). A rider surrender on an active policy does not count. The Termination Date (69) display uses the same gate: active policies remain in display-only results, but their termination columns are blank.
 *   **BIL_COMMENCE_DT(66):** Range (`TextBox_LowBillCommenceDate` to `TextBox_HighBillCommenceDate`)
 *   **Billing suspended (66):** Checkbox (`CheckBox_ShowBillingControlNumber` / varies)
 *   **Last Financial Date (01):** Range (`TextBox_LowLastFinancialDate` to `TextBox_HighLastFinancialDate`)
+*   **Termination Last Financial Date (01):** Inclusive low/high date range (`txt_term_last_fin_date_lo` / `txt_term_last_fin_date_hi`). Uses `LH_BAS_POL.LST_FIN_DT` only where `PRM_PAY_STA_REA_CD >= '97'` and `LST_ETR_CD` is `J, L, M, N, O, P, Q, R, X` (the termination entries in the Last Entry Code picker). Null and `9999-12-31` dates cannot match. Adds `TERM_LAST_FIN_DT`, status and last-entry context to results.
+*   **Termination Date (both):** Inclusive low/high date range (`txt_term_date_both_lo` / `txt_term_date_both_hi`). Requires the same current-policy status/code gate as the financial method for **both** sources. Uses the latest usable unreversed transaction **ENTRY_DT**, with the same SC/SI/SF/TD/TM/TN/TL/TO codes and both reversal flags equal to `'0'` as the (69) method. Only if no such date exists, falls back to the qualified Last Financial Date method above. Selects the source **before** applying the range: a transaction outside the range never permits fallback. Adds `TERM_DATE_BOTH`, `TERM_DATE_SOURCE`, status and last-entry context. Rider termination transactions on active policies cannot qualify. This is not an effective-date or historical-inforce reconstruction; the gate prevents active-policy false positives but does not classify every rider transaction within the history of an already-terminated policy.
+    * Both new ranges accept MM/DD/YYYY or YYYY-MM-DD with either bound optional. Invalid/reversed bounds raise a query-build error. Blank ranges leave existing behavior unchanged. Saved profiles, query-object criteria, and New/reset include these fields. Other selected criteria remain AND filters; no status selection is silently cleared.
 *   **Loan Type (01):** Checkbox + Listbox (`CheckBox_SpecifyLoanType` and `ListBox_LoanType`)
 *   **Loan charge Rate (01):** Text Input (`TextBox_LoanChargeRate`)
 *   **Has Loan (77):** Checkbox (`CheckBox_HasLoan`)
@@ -198,10 +203,22 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Type V Sequence (57) (Under IUL Only Sequence Count):** Range (`TextBox_TypeVCountLessThan` to `TextBox_TypeVCountGreaterThan`)
 
 ### 5. WL (Whole Life) Tab
+The page uses compact standard checkbox/listbox selectors, sized to their text
+and exact row counts rather than checkable group boxes. All controls participate
+in generated SQL, saved-query/profile state and New/reset.
+
+*   **Participation Type (02):** Full base-coverage code list, **Blank, 0-9 and A-H**, with descriptions from CyberLife D20 pp.117-118. **Par** enables the selector and replaces its selection with exactly **A-H** (not 9). Uses phase 1 `LH_COV_PHA.DIV_PTP_TYP_CD` even in coverage-level mode. Blank matches stored spaces/empty strings, not NULL; unknowns are not silently nonparticipating. Selected codes are ORed within this list and ANDed with Policy (2)'s grouped participation selection. Checking displays `ParticipationCode`, grouped `Participation`, and detailed `ParticipationType`; no selection is display-only. The first two columns are not duplicated when both tabs are enabled.
 *   **Primary Dividend Option (01):** Checkbox + Listbox (`CheckBox_SpecifyPrimaryDivOpt` and `ListBox_PrimaryDivOption`)
 *   **Secondary Dividend Option (01):** Checkbox + Listbox (`CheckBox_SpecifySecondaryDivOpt` and `ListBox_SecondaryDivOption`)
 *   **NFO code (01):** Checkbox + Listbox (`CheckBox_SpecifyNFO` and `ListBox_NFO`)
 *   **Current CV rate > 0 on base cov (02):** Checkbox (`CheckBox_SpecifyCashValueRateGTzeroOnBaseCov`)
+
+SQL sources: primary/secondary/NFO use `LH_BAS_POL.PRI_DIV_OPT_CD`,
+`DIV_2ND_OPT_CD`, and `NFO_OPT_TYP_CD`; CV uses the existing Coverages-tab
+predicate for positive `LOW_DUR_1_CSV_AMT` or `LOW_DUR_2_CSV_AMT` on phase 1.
+Regression: `tests/test_audit_wl.py`. Native verification:
+`tools/app/verify_policy2_participating.py --screenshot <policy2.png>
+--wl-screenshot <wl.png>` (no DB2 access).
 
 ### 6. DI (Disability Income) Tab
 *   **Benefit Period Code (02) - Accident:** Checkbox + Listbox (`CheckBox_BenefitPeriodCodeForAccident` and `ListBox_BenefitPeriodCodeForAccident`)

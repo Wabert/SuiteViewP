@@ -15,6 +15,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 from suiteview.audit.sql_helpers import fmt_time
+from suiteview.core.sql_permissions import guard_query_sql
 from suiteview.audit.ui.bottom_bar import AuditBottomBar
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 def execute_odbc_query(dsn: str, sql: str) -> tuple[list[str], list]:
     """Execute SQL via ODBC and return (columns, rows)."""
+    guard_query_sql(sql)
     conn = pyodbc.connect(f"DSN={dsn}", autocommit=True)
     try:
         cursor = conn.cursor()
@@ -47,6 +49,7 @@ def execute_odbc_query_with_types(dsn: str, sql: str) -> tuple[list[str], list, 
 
     column_types maps column name → SQL type string (e.g. 'VARCHAR(50)', 'INTEGER').
     """
+    guard_query_sql(sql)
     conn = pyodbc.connect(f"DSN={dsn}", autocommit=True)
     try:
         cursor = conn.cursor()

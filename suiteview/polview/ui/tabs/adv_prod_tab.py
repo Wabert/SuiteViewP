@@ -3,6 +3,8 @@ Advanced Product Values tab – Policy Info, Fund Values, Monthliversary,
 and Fund History sections for UL/VUL products.
 """
 
+from decimal import Decimal
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy
 
 from ..formatting import format_currency, format_date
@@ -55,7 +57,10 @@ class AdvProdValuesTab(QWidget):
         left_column.addLayout(fund_values_row)
 
         self.mv_values = StyledInfoTableGroup("Monthliversary Values", show_info=False)
-        self.mv_values.setup_table(["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg", "OtherChrg", "Expenses", "NAR"])
+        self.mv_values.setup_table(
+            ["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg",
+             "OtherChrg", "Expenses", "NAR", "MD"]
+        )
         self.mv_values.setFixedWidth(595)
         self.mv_values.setMinimumHeight(120)
         self.mv_values.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -259,6 +264,11 @@ class AdvProdValuesTab(QWidget):
             else:
                 pol_month = str(data.get("POL_MTH_NBR", "")).strip()
 
+            monthly_deduction = sum(
+                (Decimal(str(data.get(field) or 0)) for field in
+                 ("CINS_AMT", "OTH_PRM_AMT", "EXP_CRG_AMT")),
+                Decimal("0"),
+            )
             table_rows.append([
                 eff_date, pol_year, pol_month,
                 format_currency(data.get("TOT_CRE_ITS_AMT")),
@@ -267,6 +277,7 @@ class AdvProdValuesTab(QWidget):
                 format_currency(data.get("OTH_PRM_AMT")),
                 format_currency(data.get("EXP_CRG_AMT")),
                 format_currency(data.get("NAR_AMT")),
+                format_currency(monthly_deduction),
             ])
 
         self.mv_values.load_table_data(table_rows)

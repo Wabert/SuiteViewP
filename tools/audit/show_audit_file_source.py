@@ -15,13 +15,15 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from suiteview.core.profile_paths import diagnostics_dir
+
 from PyQt6.QtCore import QTimer  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 
 def main():
     output = sys.argv[1] if len(sys.argv) > 1 else str(
-        Path.home() / ".suiteview" / "audit_file_source.png")
+        diagnostics_dir() / "audit_file_source.png")
 
     app = QApplication(sys.argv)
     from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow

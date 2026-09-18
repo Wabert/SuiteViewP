@@ -1,8 +1,10 @@
-﻿"""
+"""
 Bookmarks Panel Dialog
 Displays categorized bookmarks to folders, files, SharePoint sites, and URLs
 Similar to browser bookmarks bar
 """
+
+from suiteview.core.profile_paths import profile_path
 
 import os
 import sys
@@ -1981,7 +1983,7 @@ class BookmarkBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.file_explorer = parent  # Reference to the FileExplorerCore for Quick Links operations
-        self.bookmarks_file = Path.home() / ".suiteview" / "bookmarks.json"
+        self.bookmarks_file = profile_path('bookmarks.json')
         self.bookmarks_data = self.load_bookmarks()
         
         # Icon provider for real file icons (matching sidebar)

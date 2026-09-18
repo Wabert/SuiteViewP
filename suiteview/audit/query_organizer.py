@@ -7,7 +7,7 @@ ordered tree, persisted atomically. The organizer stores only *references*
 (query ids, forge names) plus the user's grouping/order — query content lives
 in query_object_store, forge content in dataforge_store.
 
-Schema (~/.suiteview/query_organizer.json):
+Schema (~/.suiteview/data/query/query_organizer.json):
 
     {
       "next_group_id": 3,
@@ -30,6 +30,8 @@ Rules:
   browser starts familiar.
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import logging
 from pathlib import Path
@@ -74,7 +76,7 @@ def _organizer_path() -> Path:
     override = os.environ.get("SUITEVIEW_QUERY_ORGANIZER_FILE")
     if override:
         return Path(override)
-    return Path.home() / ".suiteview" / "query_organizer.json"
+    return profile_path('query_organizer.json')
 
 
 def _is_forge_owned(obj: QueryObject) -> bool:

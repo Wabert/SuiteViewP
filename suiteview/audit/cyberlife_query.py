@@ -9,6 +9,38 @@ from .sql_helpers import (
     strict_range_predicates,
 )
 from .segment52_fields import SEGMENT52_FIELDS
+from .constants import (
+    PARTICIPATION_CODES, PARTICIPATION_TYPE_DESCRIPTIONS, TERMINATION_LAST_ENTRY_CODES,
+)
+
+
+def _terminated_policy_predicate() -> str:
+    return (
+        "POLICY1.PRM_PAY_STA_REA_CD >= '97'"
+        f" AND POLICY1.LST_ETR_CD IN ({in_list(TERMINATION_LAST_ENTRY_CODES)})"
+    )
+
+
+def _termination_financial_date() -> str:
+    return (
+        f"(CASE WHEN {_terminated_policy_predicate()}"
+        " THEN NULLIF(POLICY1.LST_FIN_DT, DATE('9999-12-31')) END)"
+    )
+
+
+def _participation_description() -> str:
+    cases = [
+        f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) IN ({in_list(codes)}) "
+        f"THEN '{esc(label)}'"
+        for label, codes in PARTICIPATION_CODES.items()
+    ]
+    return "(CASE " + " ".join(cases) + " ELSE 'Unknown' END)"
+
+
+def _participation_predicate(codes: list[str]) -> str:
+    if any(code not in PARTICIPATION_TYPE_DESCRIPTIONS for code in codes):
+        raise ValueError("Unknown base-coverage participation type selected.")
+    return f"TRIM(COVERAGE1.DIV_PTP_TYP_CD) IN ({in_list(codes)})"
 
 
 def _cease_code_predicate(column: str, values: list[str]) -> str | None:
@@ -273,6 +305,7 @@ def build_cyberlife_sql(
     custom_display_tab=None,
     people_tab=None,
     segment52_tab=None,
+    wl_tab=None,
 ) -> str:
     """Build the CyberLife audit SQL from all wired-up tab controls.
 
@@ -297,6 +330,8 @@ def build_cyberlife_sql(
         The People tab widget holding the person-name filters.
     segment52_tab
         Optional 52-G application/conversion criteria and display selections.
+    wl_tab
+        Optional Whole Life dividend, NFO and base participation criteria.
     """
     pt = policy_tab
     dt = display_tab
@@ -449,6 +484,16 @@ def build_cyberlife_sql(
     has_overloan = bool(p2t.chk_trad_overloan.isChecked() and p2t.list_trad_overloan.selectedItems())
     has_term_entry = bool(
         p2t.txt_term_entry_date_lo.text().strip() or p2t.txt_term_entry_date_hi.text().strip())
+    term_fin_date = _termination_financial_date()
+    term_both_date = f"COALESCE(TDB.TERM_ENTRY_DT, {term_fin_date})"
+    term_fin_predicates = strict_range_predicates(
+        term_fin_date, p2t.txt_term_last_fin_date_lo.text(),
+        p2t.txt_term_last_fin_date_hi.text(), "date", "Termination Last Financial Date (01)")
+    term_both_predicates = strict_range_predicates(
+        term_both_date, p2t.txt_term_date_both_lo.text(),
+        p2t.txt_term_date_both_hi.text(), "date", "Termination Date (both)")
+    has_term_fin = bool(term_fin_predicates)
+    has_term_both = bool(term_both_predicates)
     has_77_segment = bool(
         p2t.chk_has_loan.isChecked() or
         p2t.txt_total_loan_prin_lo.text().strip() or p2t.txt_total_loan_prin_hi.text().strip() or
@@ -523,7 +568,8 @@ def build_cyberlife_sql(
     cov_gio = covt.chk_cov_gio.isChecked()
     cov_cola = covt.chk_cov_cola.isChecked()
     cov_skipped_rein = covt.chk_skipped_cov_rein.isChecked()
-    cov_cv_rate = covt.chk_cv_rate_gt_zero.isChecked()
+    cov_cv_rate = covt.chk_cv_rate_gt_zero.isChecked() or (
+        wl_tab is not None and wl_tab.chk_cv_rate.isChecked())
     cov_gcv_gt_cv = covt.chk_gcv_gt_cv.isChecked()
     cov_gcv_lt_cv = covt.chk_gcv_lt_cv.isChecked()
     cov_non_trad = bool(covt.chk_non_trad.isChecked() and covt.list_non_trad.selectedItems())
@@ -667,7 +713,7 @@ def build_cyberlife_sql(
         sql_parts.append(", " + _conversion_sc_cte(schema))
 
     # Policy(2): Termination Entry Date (69) CTEs
-    if has_term_entry or disp_term_date:
+    if has_term_entry or disp_term_date or has_term_both:
         sql_parts.append(f", TERMINATION_TRANS AS")
         sql_parts.append(f"  (SELECT FH.CK_CMP_CD, FH.TCH_POL_ID,")
         sql_parts.append(f"    FH.ENTRY_DT, FH.ASOF_DT, FH.TRANS")
@@ -732,6 +778,13 @@ def build_cyberlife_sql(
         else:
             sql_parts.append(f", TERMINATION_DATES AS")
             sql_parts.append(f"  (SELECT * FROM TERMINATION_ENTRY_DETAILS)")
+        if has_term_both:
+            # Choose from all usable dates before applying either UI date range.
+            sql_parts.append(", TERMINATION_BOTH_DATES AS")
+            sql_parts.append("  (SELECT CK_CMP_CD, TCH_POL_ID, MAX(ENTRY_DT) AS TERM_ENTRY_DT")
+            sql_parts.append("   FROM TERMINATION_TRANS")
+            sql_parts.append("   WHERE ENTRY_DT < DATE('9999-12-31')")
+            sql_parts.append("   GROUP BY CK_CMP_CD, TCH_POL_ID)")
 
     # Policy(2): Loan CTEs (77 segment)
     if has_77_segment or disp_policy_debt:
@@ -1073,6 +1126,12 @@ def build_cyberlife_sql(
         sql_parts.append("  , VARCHAR_FORMAT(POLICY1.LST_ACT_TRS_DT, 'MM/DD/YYYY') LastAcctDate")
     if disp_last_fin:
         sql_parts.append("  , VARCHAR_FORMAT(POLICY1.LST_FIN_DT, 'MM/DD/YYYY') LastFinDate")
+    if has_term_fin:
+        sql_parts.append(f"  , VARCHAR_FORMAT({term_fin_date}, 'MM/DD/YYYY') TERM_LAST_FIN_DT")
+    if has_term_both:
+        sql_parts.append(f"  , VARCHAR_FORMAT({term_both_date}, 'MM/DD/YYYY') TERM_DATE_BOTH")
+        sql_parts.append("  , CASE WHEN TDB.TERM_ENTRY_DT IS NOT NULL THEN 'Transaction (69)'")
+        sql_parts.append("      ELSE 'Last Financial (01)' END TERM_DATE_SOURCE")
 
     # Circle 4: Billable Premium / Billable Mode / Billable Form
     if disp_bill_prem:
@@ -1097,7 +1156,7 @@ def build_cyberlife_sql(
         sql_parts.append("  , SUBSTR(POLICY1.SVC_AGC_NBR, 1, 1) MarkOrg")
     if disp_reinsured:
         sql_parts.append("  , POLICY1.REINSURED_CD ReinsuredCode")
-    if disp_last_entry:
+    if disp_last_entry or has_term_fin or has_term_both:
         sql_parts.append("  , POLICY1.LST_ETR_CD LastEntryCode")
         sql_parts.append("  , VARCHAR_FORMAT(POLICY1.LST_FIN_DT, 'MM/DD/YYYY') LastFinDate_Entry")
     if disp_orig_entry:
@@ -1156,6 +1215,19 @@ def build_cyberlife_sql(
     # Circle 8: Target / value display columns
     if disp_commission_target:
         sql_parts.append("  , COMMTARGET.TAR_PRM_AMT CTP")
+    if p2t.chk_participating.isChecked() or (
+        wl_tab is not None and wl_tab.chk_participation_type.isChecked()
+    ):
+        sql_parts.append("  , COVERAGE1.DIV_PTP_TYP_CD ParticipationCode")
+        sql_parts.append(f"  , {_participation_description()} Participation")
+    if wl_tab is not None and wl_tab.chk_participation_type.isChecked():
+        cases = [
+            f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) = '{esc(code)}' "
+            f"THEN '{esc(description)}'"
+            for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()
+        ]
+        sql_parts.append(
+            "  , (CASE " + " ".join(cases) + " ELSE 'Unknown' END) ParticipationType")
     if disp_monthly_mtp:
         sql_parts.append("  , MTP.TAR_PRM_AMT MonthlyMTP")
     if disp_accum_mtp:
@@ -1670,6 +1742,12 @@ def build_cyberlife_sql(
         sql_parts.append(f"  {_td_join} TERMINATION_DATES AS TD")
         sql_parts.append("    ON POLICY1.CK_CMP_CD = TD.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = TD.TCH_POL_ID")
+        sql_parts.append(f"    AND {_terminated_policy_predicate()}")
+    if has_term_both:
+        sql_parts.append("  LEFT OUTER JOIN TERMINATION_BOTH_DATES AS TDB")
+        sql_parts.append("    ON POLICY1.CK_CMP_CD = TDB.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = TDB.TCH_POL_ID")
+        sql_parts.append(f"    AND {_terminated_policy_predicate()}")
     if disp_conversion_dates:
         sql_parts.append("  LEFT OUTER JOIN CONVERSION_SC SC")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = SC.CK_SYS_CD")
@@ -2426,10 +2504,35 @@ def build_cyberlife_sql(
     # -- Failed Guideline or TAMRA (66) --
     if p2t.chk_failed_guideline.isChecked():
         wheres.append("NONTRAD.PR_LIMIT_EXC_ONL = '1'")
+    if p2t.chk_participating.isChecked():
+        codes = []
+        for item in p2t.list_participating.selectedItems():
+            label = item.text()
+            if label not in PARTICIPATION_CODES:
+                raise ValueError(f"Unknown participation category: {label}")
+            codes.extend(PARTICIPATION_CODES[label])
+        if codes:
+            wheres.append(_participation_predicate(codes))
+    if wl_tab is not None:
+        for checkbox, listbox, column in (
+            (wl_tab.chk_pri_div, wl_tab.list_pri_div, "POLICY1.PRI_DIV_OPT_CD"),
+            (wl_tab.chk_sec_div, wl_tab.list_sec_div, "POLICY1.DIV_2ND_OPT_CD"),
+            (wl_tab.chk_nfo, wl_tab.list_nfo, "POLICY1.NFO_OPT_TYP_CD"),
+        ):
+            if checkbox.isChecked():
+                codes = selected_codes(listbox)
+                if codes:
+                    wheres.append(f"{column} IN ({in_list(codes)})")
+        if wl_tab.chk_participation_type.isChecked():
+            codes = wl_tab.selected_participation_codes()
+            if codes:
+                wheres.append(_participation_predicate(codes))
     # -- Person Info: name filter applied via the PERSONINFO join (below). --
     # -- Last Financial Date (01) --
     add_date_range(wheres, "POLICY1.LST_FIN_DT",
                    p2t.txt_last_fin_date_lo, p2t.txt_last_fin_date_hi)
+    wheres.extend(term_fin_predicates)
+    wheres.extend(term_both_predicates)
     # -- Has converted policy (52) --
     if p2t.chk_has_converted.isChecked():
         wheres.append("USERGEN.EXCH_POL_NUMBER IS NOT NULL")

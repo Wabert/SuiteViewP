@@ -3,9 +3,10 @@ Policy (2) tab — faithful replica of VBA frmAudit Policy (2) (tab 2).
 
 Layout — left column groups (ordered top to bottom):
   GROUP 1: TAMRA range fields
-  GROUP 2: Termination Entry Date, BIL_COMMENCE_DT, Billing suspended, Last Financial Date
+  GROUP 2: Termination, billing, and last-financial-date ranges
   GROUP 3: Converted/replacement/GIO/COLA/Rein checkboxes
   GROUP 4: 1035 Amt, MEC, Failed Guideline or TAMRA checkboxes
+  GROUP 5: Base-coverage participation checkbox and three-option list
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from ..constants import (
     LOAN_TYPE_ITEMS, TRAD_OVERLOAN_IND_ITEMS, NON_TRAD_INDICATOR_ITEMS,
     DEFINITION_OF_LIFE_ITEMS, REINSURANCE_CODE_ITEMS,
     STANDARD_LOAN_PAYMENT_ITEMS,
-    CHANGE_SEQ_68_ITEMS,
+    CHANGE_SEQ_68_ITEMS, PARTICIPATION_CODES,
 )
 from ._styles import make_checkbox as _make_checkbox, make_listbox as _make_listbox, connect_checkbox_listbox as _connect_checkbox_listbox
 
@@ -137,22 +138,47 @@ class Policy2Tab(QWidget):
         r = 0
         self.txt_term_entry_date_lo, self.txt_term_entry_date_hi = _add_range_row(
             grid2, r, "Termination Entry Date (69)"); r += 1
-        self.txt_bil_commence_dt_lo, self.txt_bil_commence_dt_hi = _add_range_row(
-            grid2, r, "BIL_COMMENCE_DT (66)"); r += 1
-
+        for widget in (self.txt_term_entry_date_lo, self.txt_term_entry_date_hi):
+            widget.setToolTip(
+                "Latest unreversed termination transaction ENTRY_DT, only for "
+                "policies with premium-paying status >= 97 and termination last entry code. "
+                "Rider transactions on active policies do not count."
+            )
+        self.txt_term_last_fin_date_lo, self.txt_term_last_fin_date_hi = _add_range_row(
+            grid2, r, "Termination Last Fin Date (01)"); r += 1
+        self.txt_term_date_both_lo, self.txt_term_date_both_hi = _add_range_row(
+            grid2, r, "Termination Date (both)")
+        financial_tip = (
+            "Termination Last Financial Date (01): LST_FIN_DT with "
+            "premium-paying status >= 97 and last entry code "
+            "J, L, M, N, O, P, Q, R, or X. Excludes 9999-12-31. "
+            "Enter MM/DD/YYYY or YYYY-MM-DD; either bound may be blank."
+        )
+        both_tip = (
+            "Latest unreversed transaction ENTRY_DT using the existing (69) "
+            "termination codes, only for policies with premium-paying status >= 97 "
+            "and termination last entry code; falls back to the Termination Last Financial "
+            "Date (01) method only when no usable transaction date exists. "
+            "Not an effective-date or historical inforce reconstruction. "
+            "Enter MM/DD/YYYY or YYYY-MM-DD; either bound may be blank."
+        )
+        for widget in (self.txt_term_last_fin_date_lo, self.txt_term_last_fin_date_hi):
+            widget.setToolTip(financial_tip)
+        for widget in (self.txt_term_date_both_lo, self.txt_term_date_both_hi):
+            widget.setToolTip(both_tip)
         col1.addLayout(grid2)
-
-        # Billing suspended checkbox (standalone, between the ranges)
-        self.chk_billing_suspended = _make_checkbox("Billing suspended (66)")
-        col1.addWidget(self.chk_billing_suspended)
 
         grid2b = QGridLayout()
         grid2b.setSpacing(_V_SPACING)
         grid2b.setContentsMargins(0, 0, 0, 0)
         grid2b.setHorizontalSpacing(_H_SPACING)
+        self.txt_bil_commence_dt_lo, self.txt_bil_commence_dt_hi = _add_range_row(
+            grid2b, 0, "BIL_COMMENCE_DT (66)")
         self.txt_last_fin_date_lo, self.txt_last_fin_date_hi = _add_range_row(
-            grid2b, 0, "Last Financial Date (01)")
+            grid2b, 1, "Last Financial Date (01)")
         col1.addLayout(grid2b)
+        self.chk_billing_suspended = _make_checkbox("Billing suspended (66)")
+        col1.addWidget(self.chk_billing_suspended)
 
         col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
 
@@ -179,6 +205,23 @@ class Policy2Tab(QWidget):
         col1.addWidget(self.chk_mec)
         self.chk_failed_guideline = _make_checkbox("Failed Guideline or TAMRA (66)")
         col1.addWidget(self.chk_failed_guideline)
+
+        col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
+        self.chk_participating = _make_checkbox("Participating (02)")
+        col1.addWidget(self.chk_participating)
+        self.list_participating = _make_listbox(
+            list(PARTICIPATION_CODES), height_rows=3, enabled=False)
+        _connect_checkbox_listbox(self.chk_participating, self.list_participating)
+        participation_tip = (
+            "Base coverage (phase 1) Participation Type, not rider participation "
+            "or the dividend option. A-H: participating; 9: dividends paid up; "
+            "blank or 0-8: nonparticipating. NULL and unrecognized codes are unknown. "
+            "Select one or more categories to filter; check without a selection "
+            "to display participation only."
+        )
+        self.chk_participating.setToolTip(participation_tip)
+        self.list_participating.setToolTip(participation_tip)
+        col1.addWidget(self.list_participating)
 
         col1.addStretch()
 
@@ -367,6 +410,10 @@ class Policy2Tab(QWidget):
             "chk_billing_suspended": _c(self.chk_billing_suspended),
             "txt_last_fin_date_lo": _t(self.txt_last_fin_date_lo),
             "txt_last_fin_date_hi": _t(self.txt_last_fin_date_hi),
+            "txt_term_last_fin_date_lo": _t(self.txt_term_last_fin_date_lo),
+            "txt_term_last_fin_date_hi": _t(self.txt_term_last_fin_date_hi),
+            "txt_term_date_both_lo": _t(self.txt_term_date_both_lo),
+            "txt_term_date_both_hi": _t(self.txt_term_date_both_hi),
             "chk_has_converted": _c(self.chk_has_converted),
             "chk_is_replacement": _c(self.chk_is_replacement),
             "chk_has_replacement_pol": _c(self.chk_has_replacement_pol),
@@ -376,6 +423,8 @@ class Policy2Tab(QWidget):
             "chk_1035_amt": _c(self.chk_1035_amt),
             "chk_mec": _c(self.chk_mec),
             "chk_failed_guideline": _c(self.chk_failed_guideline),
+            "chk_participating": _c(self.chk_participating),
+            "list_participating": _sel(self.list_participating),
             "chk_loan_type": _c(self.chk_loan_type),
             "list_loan_type": _sel(self.list_loan_type),
             "txt_loan_charge_rate": _t(self.txt_loan_charge_rate),
@@ -423,6 +472,10 @@ class Policy2Tab(QWidget):
         _c(self.chk_billing_suspended, state.get("chk_billing_suspended", False))
         _t(self.txt_last_fin_date_lo, state.get("txt_last_fin_date_lo", ""))
         _t(self.txt_last_fin_date_hi, state.get("txt_last_fin_date_hi", ""))
+        _t(self.txt_term_last_fin_date_lo, state.get("txt_term_last_fin_date_lo", ""))
+        _t(self.txt_term_last_fin_date_hi, state.get("txt_term_last_fin_date_hi", ""))
+        _t(self.txt_term_date_both_lo, state.get("txt_term_date_both_lo", ""))
+        _t(self.txt_term_date_both_hi, state.get("txt_term_date_both_hi", ""))
         _c(self.chk_has_converted, state.get("chk_has_converted", False))
         _c(self.chk_is_replacement, state.get("chk_is_replacement", False))
         _c(self.chk_has_replacement_pol, state.get("chk_has_replacement_pol", False))
@@ -432,6 +485,8 @@ class Policy2Tab(QWidget):
         _c(self.chk_1035_amt, state.get("chk_1035_amt", False))
         _c(self.chk_mec, state.get("chk_mec", False))
         _c(self.chk_failed_guideline, state.get("chk_failed_guideline", False))
+        _c(self.chk_participating, state.get("chk_participating", False))
+        _sel(self.list_participating, state.get("list_participating", []))
         _c(self.chk_loan_type, state.get("chk_loan_type", False))
         _sel(self.list_loan_type, state.get("list_loan_type", []))
         _t(self.txt_loan_charge_rate, state.get("txt_loan_charge_rate", ""))

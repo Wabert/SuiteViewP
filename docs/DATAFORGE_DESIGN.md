@@ -227,7 +227,7 @@ renames, reorders, and drags queries between.
 ### Identity — unique IDs, names no longer unique
 - Every `QueryObject` carries a permanent `id` (uuid4 hex), stamped on
   creation and migrated onto legacy objects on first load.
-- On disk: `~/.suiteview/query_objects/<safe_name>__<id8>.json` — readable
+- On disk: `~/.suiteview/data/query/query_objects/<safe_name>__<id8>.json` — readable
   *and* collision-free. `load_object(name)` survives as a compatibility seam
   (first match, newest-updated); new code references queries **by id**.
   Duplicate names are now legal (e.g. the same query copied into two groups).
@@ -236,7 +236,7 @@ renames, reorders, and drags queries between.
   benign); they migrate to ids in the #11 vocabulary/identity pass.
 
 ### The organizer (`suiteview/audit/query_organizer.py`)
-A single JSON document (`~/.suiteview/query_organizer.json`, atomic writes via
+A single JSON document (`~/.suiteview/data/query/query_organizer.json`, atomic writes via
 `json_store`), modeled on `BookmarkDataManager`:
 
 ```json
@@ -416,7 +416,7 @@ Visual Query once it adopts the canvas (roadmap #1):
   (prefill-from-visual, editable editor, manual Run path, duckdb Code-tab
   generation, `sql_mode`/`manual_sql` persisted in the config). `get_config`
   also gained engine-shaped `joins`/`outputs`/`limit`. Drive-by fixes:
-  `qdef_store` no longer crashes when `~/.suiteview/qdefinitions` doesn't exist
+  `qdef_store` no longer crashes when `~/.suiteview/data/query/qdefinitions` doesn't exist
   yet. Tests: engine 27, runtime 25 (incl. an offscreen-Qt designer
   flip/run/round-trip), canvas 13 — all green. In-app click-through deferred
   to the laptop (`WORK_LAPTOP_SPEC.md` §1.9).

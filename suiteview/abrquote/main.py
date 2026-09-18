@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont
 
 from .ui.abr_window import ABRQuoteWindow
+from suiteview.core.access_control import guard_app_access
 
 
 def create_abrquote_window(parent=None) -> ABRQuoteWindow:
@@ -28,6 +29,7 @@ def create_abrquote_window(parent=None) -> ABRQuoteWindow:
     Returns:
         The ABRQuoteWindow instance.
     """
+    guard_app_access("ABR")
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)

@@ -19,9 +19,6 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy")
@@ -32,7 +29,12 @@ def main() -> int:
     parser.add_argument("--expect-opening-av", type=float)
     parser.add_argument("--reference", type=Path, help="JSON list of expected ledger cells keyed by Date")
     parser.add_argument("--output", type=Path, help="Also write the verification JSON here")
+    parser.add_argument("--screenshot", type=Path, help="Save a native Qt capture of the quote panel")
     args = parser.parse_args()
+    os.environ.setdefault(
+        "QT_QPA_PLATFORM",
+        "windows" if args.screenshot and sys.platform == "win32" else "offscreen",
+    )
     reference = json.loads(args.reference.read_text(encoding="utf-8")) if args.reference else []
     from PyQt6.QtWidgets import QApplication
 
@@ -105,6 +107,8 @@ def main() -> int:
             all_ok &= valid
             scenarios[label] = {
                 "solved_premium": scenario.premium, "premium_mode": scenario.premium_mode,
+                "lump_sum": scenario.lump_sum,
+                "lump_sum_date": scenario.lump_sum_date.isoformat() if scenario.lump_sum_date else None,
                 "opening_av": scenario.rows[0].state.av_after_deduction,
                 "ledger_rows": ledger_rows,
                 "reference_rows_checked": len(reference), "reference_match": reference_ok,
@@ -142,6 +146,16 @@ def main() -> int:
             "scenarios": scenarios, "workbook_ok": workbook_ok,
             "summary": tab._glp_summary_copy_text(), "all_ok": all_ok,
         }
+        if args.screenshot:
+            tab._content_stack.setCurrentWidget(tab._glp_exception_page)
+            tab._current_section = tab.SECTION_GLP_EXCEPTION
+            tab._refresh_section_buttons()
+            tab.resize(1400, 850)
+            tab.show()
+            app.processEvents()
+            if not tab.grab().save(str(args.screenshot)):
+                raise RuntimeError(f"Could not save screenshot to {args.screenshot}")
+            out["screenshot"] = str(args.screenshot)
         encoded = json.dumps(out, indent=2)
         print(encoded)
         if args.output:
@@ -156,9 +170,11 @@ def main() -> int:
             premium_mode="M",
             exception_start=None,
             rows=[],
-            zero_glp=SimpleNamespace(premium=premium, premium_mode="M", exception_start=None),
+            zero_glp=SimpleNamespace(premium=premium, premium_mode="M", exception_start=None,
+                                    lump_sum=0, lump_sum_date=None),
             no_forceout=SimpleNamespace(
-                premium=premium / 2, premium_mode="M", exception_start=None),
+                premium=premium / 2, premium_mode="M", exception_start=None,
+                lump_sum=0, lump_sum_date=None),
             current_glp=0.0,
         )
         tab._set_glp_target_tab_tooltip(result)

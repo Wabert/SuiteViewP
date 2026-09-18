@@ -17,7 +17,7 @@ Architecture:
 - Each bookmark bar has an integer ID (0, 1, 2, ...)
 - Bar 0 = default horizontal (top) bar
 - Bar 1 = default vertical (side) bar
-- Data stored in ~/.suiteview/bookmarks.json via BookmarkDataManager
+- Data stored in ~/.suiteview/data/bookmarks.json via BookmarkDataManager
 - BookmarkContainerRegistry enables cross-bar drag/drop between any bars
 """
 
@@ -3650,7 +3650,7 @@ class BookmarkContainer(QWidget):
     
     Data Storage:
     - Uses the centralized BookmarkDataManager
-    - Data is automatically loaded from/saved to ~/.suiteview/bookmarks.json
+    - Data is automatically loaded from/saved to ~/.suiteview/data/bookmarks.json
     - Each bar is identified by an integer ID (0, 1, 2, ...)
     """
     

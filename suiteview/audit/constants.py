@@ -93,6 +93,11 @@ LAST_ENTRY_CODE_ITEMS = [
     "X - Termination - free look",
 ]
 
+TERMINATION_LAST_ENTRY_CODES = tuple(
+    item.split(" - ", 1)[0] for item in LAST_ENTRY_CODE_ITEMS
+    if " - Termination - " in item
+)
+
 # ── Billing Form (01) ───────────────────────────────────────────────────
 BILLING_FORM_ITEMS = [
     "0 - Direct pay notice",
@@ -151,6 +156,30 @@ NON_TRAD_INDICATOR_ITEMS = [
     "0 - Trad",
     "1 - Advanced",
 ]
+
+# Base coverage only: CyberLife D20 pp.117-118; rider codes have other meanings.
+PARTICIPATION_TYPE_DESCRIPTIONS = {
+    "": "Nonparticipating",
+    "0": "Nonparticipating",
+    "1": "Nonparticipating",
+    "2": "Nonparticipating with coupons",
+    "3": "Nonparticipating with pure endowments",
+    "4": "Nonparticipating with guaranteed annual endowments",
+    **{code: "Nonparticipating with other forms" for code in "5678"},
+    "9": "Participating but divs are paid up",
+    "A": "Participating (dividends)",
+    "B": "Participating with coupons",
+    "C": "Participating with pure endowments",
+    "D": "Participating with guaranteed annual endowments",
+    **{code: "Participating with other forms" for code in "EFGH"},
+}
+
+PARTICIPATION_CODES = {
+    "Participating": tuple("ABCDEFGH"),
+    "Participating but divs are paid up": ("9",),
+    "Nonparticipating": ("", *tuple("012345678")),
+}
+
 # ── Definition of Life Insurance (66) ─────────────────────────────────────────
 DEFINITION_OF_LIFE_ITEMS = [
     "1 - TEFRA GP",

@@ -38,6 +38,14 @@ from ..styles import (
 from ..widgets import CopyableLabel, FixedHeaderTableWidget
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
 from ....utils.excel_template import copy_as_workbook, workbook_filename
+from suiteview.core.access_control import (
+    AccessDeniedError, AccessUnavailableError,
+    can_write_support_files, guard_support_files_writable,
+)
+from suiteview.core.support_files import (
+    onedrive_directory, process_control_directory, policy_support_directory,
+    abr_support_directory,
+)
 from ....illustration.ui.values_overview import LEDGER_COLUMNS, monthly_ledger_cells
 from ...services.glp_exception import (
     calculate_policy_support_forecast,
@@ -60,39 +68,25 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 def _get_process_control_dir() -> str:
-    username = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
-    return os.path.join(
-        "C:\\Users", username,
-        "OneDrive - American National Insurance Company",
-        "Life Product - Process_Control",
-    )
+    return process_control_directory()
 
 
 def _get_onedrive_dir() -> str:
-    username = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
-    return os.path.join(
-        "C:\\Users", username,
-        "OneDrive - American National Insurance Company",
-    )
+    return onedrive_directory()
 
 
 def _get_abr_root_dir() -> str:
-    return os.path.join(
-        _get_onedrive_dir(),
-        "Life Product - Accelerated_Benefits",
-    )
+    return os.path.dirname(abr_support_directory())
+
 
 def _get_policy_support_dir() -> str:
-    return os.path.join(_get_process_control_dir(), "Policy Support")
+    return policy_support_directory()
 
 def _get_policy_library_dir() -> str:
     return os.path.join(_get_policy_support_dir(), "POLICY_LIBRARY")
 
 def _get_abr_dir() -> str:
-    return os.path.join(
-        _get_abr_root_dir(),
-        "Accelerated Death Benefit (ABR11 & ABR14)",
-    )
+    return abr_support_directory()
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +189,8 @@ This screen answers a practical question for a Universal Life / Guideline Premiu
 How the solve works
 
 1. Minimum premium to the target date. When you click Calculate, the tool solves for the smallest level premium (paid on the policy's current mode) that keeps the policy in force through the target date, with exception premiums allowed in the forecast. The solve stops at the target date - it is not a solve to maturity, because premium the policy would need years later has no bearing on whether the Accum GLP must be opened up now.
+
+If opening account value is negative, first fund the shortfall through the next modal payment with a one-time lump sum, then solve the ongoing premium above it. The first forecast payment combines the lump sum and any premium due that month; the lump sum is not repeated. Loads, guideline/TAMRA caps and exception rules still apply. Ordinary funding is solved as close to zero as cent-rounded premiums and the engine's positive-value lapse boundary permit; exact zero is available when protected by the exception rules.
 
 2. The answer lands in one of three places. The minimum may be $0, meaning the account value alone carries the policy to the target date. It may be a positive premium that fits inside the remaining guideline room, which the policy can simply pay. Or the room may run out before the policy can be funded, at which point the forecast starts paying guideline exception premiums.
 
@@ -682,6 +678,13 @@ class _DropTargetSubfolderList(QListWidget):
 
     def dropEvent(self, event):
         md = event.mimeData()
+        if md.hasFormat(_MIME_CATEGORY) or md.hasFormat(_MIME_TOOL_FILE):
+            try:
+                guard_support_files_writable()
+            except (AccessDeniedError, AccessUnavailableError) as error:
+                event.ignore()
+                QMessageBox.warning(self, "SuiteView Access", str(error))
+                return
         if md.hasFormat(_MIME_CATEGORY):
             name = bytes(md.data(_MIME_CATEGORY)).decode()
             self.category_dropped.emit(name)
@@ -1154,6 +1157,20 @@ class PolicySupportTab(QWidget):
         self._glp_quote_cache = {}
         self._forecast_cache = {}
         self._setup_ui()
+        self._refresh_support_access()
+
+    def _refresh_support_access(self):
+        writable = can_write_support_files()
+        self._create_folder_btn.setEnabled(writable)
+        self._create_folder_btn.setToolTip(
+            "" if writable else "Your role cannot modify policy support files."
+        )
+        self._subfolder_explorer._list.setAcceptDrops(writable)
+        self._support_access_note.setVisible(not writable)
+        self._glp_print_details_btn.setEnabled(writable and self._has_glp_quote_to_export())
+        self._glp_print_details_btn.setToolTip(
+            "" if writable else "Your role cannot save policy support detail workbooks."
+        )
 
     # -- UI ----------------------------------------------------------------
 
@@ -1256,6 +1273,14 @@ class PolicySupportTab(QWidget):
         workspace_layout = QVBoxLayout(self._workspace_page)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(4)
+        self._support_access_note = QLabel(
+            "Read-only support files — your role cannot create, copy, rename, delete or print files."
+        )
+        self._support_access_note.setWordWrap(True)
+        self._support_access_note.setStyleSheet(
+            f"color: {GRAY_MID}; font-size: 10px; font-style: italic;"
+        )
+        workspace_layout.addWidget(self._support_access_note)
 
         # ── Top info bar ──────────────────────────────────────────────────
         self._info_frame = QGroupBox("Policy Support")
@@ -1490,6 +1515,7 @@ class PolicySupportTab(QWidget):
         self._glp_plugged_label = CopyableLabel("-")
         self._glp_plugged_label.set_copy_text_provider(self._glp_summary_copy_text)
         self._glp_plugged_label.setTextFormat(Qt.TextFormat.RichText)
+        self._glp_plugged_label.setWordWrap(True)
         self._glp_plugged_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._glp_plugged_label.setStyleSheet(
             f"font-size: 12px; color: {GRAY_DARK}; background: transparent; border: none;"
@@ -1646,6 +1672,7 @@ class PolicySupportTab(QWidget):
     # -- Data loading -------------------------------------------------------
 
     def load_data_from_policy(self, policy: 'PolicyInformation'):
+        self._refresh_support_access()
         self._policy = policy
         has_annuity_rider = self._has_annuity_rider(policy)
         self._btn_mode_annuity.setEnabled(has_annuity_rider)
@@ -2072,12 +2099,13 @@ class PolicySupportTab(QWidget):
         otherwise it states no exception premium is required.
         """
         target_text = self._glp_target_date.text().strip()
+        funding_html = "".join(f"<br>{line}" for line in self._glp_funding_lines(result))
         if not result.exception_before_target:
             self._glp_formula_label.setVisible(False)
             self._glp_plugged_label.setText(
                 f"<b style='color:{GREEN_DARK};'>NO EXCEPTION PREMIUM NEEDED "
                 f"for target date {target_text}. "
-                f"DO NOT ADJUST THE ACCUM GLP.</b>"
+                f"DO NOT ADJUST THE ACCUM GLP.</b>{funding_html}"
             )
             self._glp_segment_note_label.setVisible(False)
             return
@@ -2097,7 +2125,7 @@ class PolicySupportTab(QWidget):
             f"<br>Premium to get to {v['target_text']} = "
             f"<b style='color:{red};'>{v['premium_to_target']:,.2f}</b>"
         )
-        self._glp_plugged_label.setText(summary_html)
+        self._glp_plugged_label.setText(summary_html + funding_html)
         self._glp_segment_note_label.setText(
             self._glp_segment_note_text(
                 v["new_accum"], v["current_accum"], result.current_glp)
@@ -2150,6 +2178,23 @@ class PolicySupportTab(QWidget):
             self._glp_segment_note_text(
                 v["new_accum"], v["current_accum"], result.current_glp)
         )
+        lines.extend(self._glp_funding_lines(result))
+        return lines
+
+    @staticmethod
+    def _glp_funding_lines(result: GuidelineExceptionTargetForecastResult) -> list[str]:
+        lines = []
+        for label, scenario in (
+            ("Current GLP", result), ("GLP=0", result.zero_glp),
+            ("GLP=0, no forceout (comparison only)", result.no_forceout),
+        ):
+            if scenario.lump_sum > 0:
+                mode = _GLP_PREMIUM_MODE_LABELS.get(
+                    scenario.premium_mode, scenario.premium_mode)
+                lines.append(
+                    f"{label}: Lump sum needed = ${scenario.lump_sum:,.2f} once on "
+                    f"{scenario.lump_sum_date:%m/%d/%Y}; ongoing premium = "
+                    f"${scenario.premium:,.2f} {mode} in addition.")
         return lines
 
     def _glp_summary_copy_text(self) -> str:
@@ -2159,10 +2204,11 @@ class PolicySupportTab(QWidget):
             return ""
         if not result.exception_before_target:
             target_text = self._glp_target_date.text().strip()
-            return (
+            message = (
                 f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
                 f"DO NOT ADJUST THE ACCUM GLP."
             )
+            return "\n".join([message, *self._glp_funding_lines(result)])
         return "\n".join(self._glp_summary_lines(result))
 
     @staticmethod
@@ -2199,7 +2245,7 @@ class PolicySupportTab(QWidget):
 
         self._glp_forecast_frame.setVisible(True)
         self._glp_export_btn.setEnabled(True)
-        self._glp_print_details_btn.setEnabled(True)
+        self._glp_print_details_btn.setEnabled(can_write_support_files())
 
     def _has_glp_quote_to_export(self) -> bool:
         return getattr(self, "_glp_result", None) is not None
@@ -2228,7 +2274,7 @@ class PolicySupportTab(QWidget):
         mode = _GLP_PREMIUM_MODE_LABELS.get(
             str(result.premium_mode or "").upper(), str(result.premium_mode or ""))
         target_text = self._glp_target_date.text().strip()
-        if result.premium <= 0.0 and result.exception_start is None:
+        if result.premium <= 0.0 and result.lump_sum <= 0.0 and result.exception_start is None:
             detail = (
                 "Minimum premium to hold the policy to "
                 f"{target_text}: $0.00.\n\n"
@@ -2241,6 +2287,12 @@ class PolicySupportTab(QWidget):
                 f"${result.premium:,.2f} {mode}.\n\n"
                 "This is the least the policy must take in to stay in force "
                 "through the target date."
+            )
+        if result.lump_sum > 0:
+            detail += (
+                f"\n\nLump sum needed: ${result.lump_sum:,.2f} once on "
+                f"{result.lump_sum_date:%m/%d/%Y}, in addition to the ongoing premium. "
+                "It is included in the first forecast payment, not repeated."
             )
         self._glp_forecast_tabs.setTabToolTip(
             index,
@@ -2312,16 +2364,21 @@ class PolicySupportTab(QWidget):
             )).font = bold_font
         row_num += 1
         if result is not None:
-            ws.cell(row=row_num, column=1,
-                    value="Min Prem To Target").font = bold_font
-            ws.cell(row=row_num, column=2,
-                    value=f"${result.premium:,.2f} ({result.premium_mode})")
-            row_num += 1
-            ws.cell(row=row_num, column=1,
-                    value="Min Prem To Target (GLP=0)").font = bold_font
-            ws.cell(row=row_num, column=2,
-                    value=f"${result.zero_glp.premium:,.2f} ({result.zero_glp.premium_mode})")
-            row_num += 1
+            for label, scenario in (
+                ("Min Prem To Target", result),
+                ("Min Prem To Target (GLP=0)", result.zero_glp),
+                ("Min Prem to Target (no forceout)", result.no_forceout),
+            ):
+                ws.cell(row=row_num, column=1, value=label).font = bold_font
+                ws.cell(row=row_num, column=2,
+                        value=f"${scenario.premium:,.2f} ({scenario.premium_mode}) ongoing")
+                row_num += 1
+                if scenario.lump_sum > 0:
+                    ws.cell(row=row_num, column=1, value="Lump sum needed").font = bold_font
+                    ws.cell(row=row_num, column=2, value=(
+                        f"${scenario.lump_sum:,.2f} once on "
+                        f"{scenario.lump_sum_date:%m/%d/%Y}; in addition to ongoing premium"))
+                    row_num += 1
             ws.cell(row=row_num, column=1, value="Exception Premium Status").font = bold_font
             ws.cell(
                 row=row_num,
@@ -2440,7 +2497,11 @@ class PolicySupportTab(QWidget):
 
         try:
             wb = self._build_glp_quote_workbook()
+            guard_support_files_writable("save policy support GLP detail workbooks")
             wb.save(file_path)
+        except (AccessDeniedError, AccessUnavailableError) as exc:
+            QMessageBox.warning(self, "SuiteView Access", str(exc))
+            return
         except Exception as exc:
             self._show_glp_folder_inaccessible(folder_path, str(exc))
             return
@@ -2761,6 +2822,7 @@ class PolicySupportTab(QWidget):
         try:
             # Auto-create policy folder if needed
             if not os.path.isdir(self._policy_support_folder_path):
+                guard_support_files_writable("create policy support folders")
                 os.makedirs(self._policy_support_folder_path, exist_ok=True)
                 self._subfolder_explorer.set_root(self._policy_support_folder_path)
                 self._create_folder_btn.setVisible(False)
@@ -2772,6 +2834,7 @@ class PolicySupportTab(QWidget):
                         f"background: transparent; border: none;"
                     )
 
+            guard_support_files_writable("create policy support task folders")
             os.makedirs(task_folder, exist_ok=True)
             self._status_label.setText(f"✓ Created task folder: {category_name}")
             self._status_label.setStyleSheet(
@@ -2810,7 +2873,7 @@ class PolicySupportTab(QWidget):
             return
 
         try:
-            copy_as_workbook(source_path, dest_path)
+            copy_as_workbook(source_path, dest_path, support_files=True)
             self._status_label.setText(f"✓ Copied: {dest_filename}")
             self._status_label.setStyleSheet(
                 f"font-size: 10px; color: {GREEN_DARK}; font-weight: bold; "
@@ -2826,6 +2889,7 @@ class PolicySupportTab(QWidget):
         if not self._policy_support_folder_path:
             return
         try:
+            guard_support_files_writable("create policy support folders")
             os.makedirs(self._policy_support_folder_path, exist_ok=True)
             self._status_label.setText("✓ Policy folder created")
             self._status_label.setStyleSheet(
@@ -2966,6 +3030,11 @@ class _SubfolderExplorer(QWidget):
                 open_act = menu.addAction(f"Open '{entry_name}'")
                 rename_act = menu.addAction(f"Rename '{entry_name}'...")
                 delete_act = menu.addAction(f"Delete '{entry_name}'")
+                writable = can_write_support_files()
+                for edit_action in (rename_act, delete_act):
+                    edit_action.setEnabled(writable)
+                    if not writable:
+                        edit_action.setToolTip("Your role cannot modify policy support files.")
 
         action = menu.exec(self._list.viewport().mapToGlobal(pos))
         if action is up_act:
@@ -2994,6 +3063,7 @@ class _SubfolderExplorer(QWidget):
             QMessageBox.information(self, "Exists", f"'{new_name}' already exists.")
             return
         try:
+            guard_support_files_writable("rename policy support files or folders")
             os.rename(path, new_path)
             self._refresh()
         except Exception as e:
@@ -3012,6 +3082,7 @@ class _SubfolderExplorer(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
+            guard_support_files_writable("delete policy support files or folders")
             if is_dir:
                 shutil.rmtree(path)
             else:

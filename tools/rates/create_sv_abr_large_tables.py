@@ -20,10 +20,12 @@ import pyodbc
 
 # ── Paths ───────────────────────────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SQLITE_DB = os.path.join(os.path.expanduser("~"), ".suiteview", "abr_quote.db")
 ODBC_DSN = "UL_Rates"
 
 sys.path.insert(0, PROJECT_ROOT)
+from suiteview.core.profile_paths import profile_path
+
+SQLITE_DB = str(profile_path("abr_quote.db"))
 
 
 def connect_odbc():

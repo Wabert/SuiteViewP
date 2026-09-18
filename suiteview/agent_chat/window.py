@@ -151,6 +151,8 @@ class ActivityRow(QFrame):
 
 class AgentChatWindow(FramelessWindowBase):
     def __init__(self, parent=None, store: ConversationStore | None = None):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("ALBERT")
         self.store = store or ConversationStore()
         self.conversations: list[AgentConversation] = []
         self.current_conversation: AgentConversation | None = None

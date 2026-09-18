@@ -24,6 +24,7 @@ from PyQt6.QtGui import QCursor
 from PyQt6.QtCore import Qt
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.core.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import REGION_DSN_MAP
 from suiteview.core.odbc_utils import is_password_error
@@ -115,6 +116,8 @@ class GetPolicyWindow(FramelessWindowBase):
     def __init__(self, parent=None, *, enable_policy_list: bool = True,
                  initial_policy: str = "", initial_region: str = "CKPR",
                  initial_company: str = ""):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("POLVIEW")
         self._enable_policy_list = enable_policy_list
         self._window_bg = GREEN_BG if enable_policy_list else "#E8F5E9"
         # Callback (policy_number, region, company_code) that opens the
@@ -488,6 +491,7 @@ class GetPolicyWindow(FramelessWindowBase):
             and current_company.upper() == str(company or "").strip().upper()
         )
 
+    @requires_app_access("POLVIEW")
     def _open_policy_in_new_window(self, region: str, company: str, policy: str):
         window = GetPolicyWindow(enable_policy_list=False)
         self._child_polview_windows.append(window)
@@ -762,7 +766,8 @@ class GetPolicyWindow(FramelessWindowBase):
         window is reused; when unset the button opens a standalone RERUN window."""
         self._illustration_launcher = launcher
 
-    def _open_in_illustrator(self):
+    @requires_app_access("RERUN")
+    def _open_in_illustrator(self, checked=False):
         """Open the currently-loaded policy in RERUN."""
         if not self._current_policy:
             return

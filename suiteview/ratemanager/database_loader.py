@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from suiteview.core.profile_paths import profile_path
+
 import csv
 import hashlib
 import json
@@ -15,6 +17,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 import pyodbc
+
+from suiteview.core.build_env import guard_data_writable
 
 
 class RateDatabaseError(RuntimeError):
@@ -1163,6 +1167,8 @@ class ULRatesRepository:
         plan: ExecutionPlan,
         progress_callback: Optional[Callable[[str], None]] = None,
     ) -> dict[str, int]:
+        guard_data_writable("load rate data")
+
         def progress(message: str) -> None:
             if progress_callback is not None:
                 progress_callback(message)
@@ -1259,6 +1265,8 @@ def execute_package(
     backup_root: str | Path | None = None,
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> ExecutionResult:
+    guard_data_writable("load rate data")
+
     def progress(message: str) -> None:
         if progress_callback is not None:
             progress_callback(message)
@@ -1376,7 +1384,7 @@ def write_backup(
     root = (
         Path(backup_root).expanduser()
         if backup_root is not None
-        else Path.home() / ".suiteview" / "rate_manager_backups"
+        else profile_path('rate_manager_backups')
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     safe_plancode = re.sub(r"[^A-Za-z0-9_.-]+", "_", plan.plancode).strip("._")
@@ -1454,6 +1462,7 @@ def update_pointer_row(
     backup_root: str | Path | None = None,
     schema: RateSchema = UL_SCHEMA,
 ) -> str:
+    guard_data_writable("edit rate pointers")
     spec = schema.specs[table_name]
     if not spec.is_pointer:
         raise ValueError(f"{table_name} is not a pointer table.")
@@ -1534,6 +1543,7 @@ def delete_pointer_rows(
     backup_root: str | Path | None = None,
     schema: RateSchema = UL_SCHEMA,
 ) -> str:
+    guard_data_writable("delete rate pointers")
     spec = schema.specs[table_name]
     selected = tuple(rows)
     if not spec.is_pointer:
@@ -1593,6 +1603,7 @@ def delete_rate_index(
     backup_root: str | Path | None = None,
     schema: RateSchema = UL_SCHEMA,
 ) -> str:
+    guard_data_writable("delete rate indexes")
     spec = schema.specs[table_name]
     expected = tuple(expected_rows)
     if spec.is_pointer:
@@ -1629,6 +1640,7 @@ def delete_rate_index(
             (),
         )
         backup_path = write_backup(backup_plan, backup_root, schema)
+        guard_data_writable("delete rate indexes")
         cursor = repository.connect().cursor()
         try:
             cursor.execute(
@@ -1675,6 +1687,7 @@ def _delete_exact_rows(
     spec: TableSpec,
     rows: Iterable[tuple[Any, ...]],
 ) -> None:
+    guard_data_writable("delete rate data")
     cursor = repository.connect().cursor()
     try:
         for row in rows:
@@ -1705,6 +1718,7 @@ def _insert_rows(
     spec: TableSpec,
     rows: Iterable[tuple[Any, ...]],
 ) -> None:
+    guard_data_writable("insert rate data")
     rows = tuple(rows)
     if not rows:
         return

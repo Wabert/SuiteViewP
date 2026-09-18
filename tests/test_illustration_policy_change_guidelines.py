@@ -209,11 +209,11 @@ def test_cvat_rider_drop_does_not_solve_guideline_premiums(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("expense_basis", "expected_psc"),
+    ("sa_basis", "expected_psc"),
     [("CurrentSA", 400.0), ("OriginalSA", 0.0)],
 )
-def test_specified_face_decrease_follows_expense_basis_without_withdrawal_fee(
-    monkeypatch, expense_basis, expected_psc,
+def test_specified_face_decrease_follows_sa_basis_without_withdrawal_fee(
+    monkeypatch, sa_basis, expected_psc,
 ):
     """A specified (elective) face decrease never incurs the $25 withdrawal fee.
 
@@ -236,7 +236,7 @@ def test_specified_face_decrease_follows_expense_basis_without_withdrawal_fee(
 
     outcome = calc_engine._apply_policy_change(
         policy,
-        PlancodeConfig(withdrawal_fee=25.0, expense_basis=expense_basis),
+        PlancodeConfig(withdrawal_fee=25.0, sa_basis=sa_basis),
         PolicyChangeEvent(
             kind=PolicyChangeKind.FACE_AMOUNT,
             effective_date=date(2026, 6, 9),

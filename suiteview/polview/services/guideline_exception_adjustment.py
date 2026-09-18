@@ -11,6 +11,10 @@ enforcement. Its outlay sizes the adjustment only if the original needs exceptio
 A third independent GLP=0 solve suppresses only forceouts, for comparison;
 it never determines the recommended adjustment.
 
+For negative opening AV, solve a one-time initial bridge first, then minimize
+the ongoing modal premium with that first-payment funding floor. Only the
+excess over the scheduled first payment is a lump sum; it is never repeated.
+
 Solving to the target date (not to maturity) is the point: a maturity solve
 answers "what premium sustains this policy forever", which can demand guideline
 room the policy never actually needs by the target.
@@ -41,17 +45,15 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.solve_level_to_exception import (
     LevelToExceptionError,
+    default_premium_mode,
+    level_to_exception_inputs,
     level_to_exception_options,
     solve_level_to_exception,
 )
-from suiteview.illustration.models.input_set import (
-    IllustrationInputSet,
-    IllustrationOptions,
-    ScheduledTransaction,
-    TransactionKind,
-)
+from suiteview.illustration.models.input_set import IllustrationOptions
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.illustration.models.calc_state import MonthlyState
 
@@ -120,13 +122,15 @@ class GuidelineExceptionZeroGlpForecastResult:
     premium: float
     premium_mode: str
     exception_start: date | None
+    lump_sum: float = 0.0
+    lump_sum_date: date | None = None
 
 
 @dataclass
 class GuidelineExceptionTargetForecastResult:
     """Min-premium-to-target projection and two always-available GLP=0 solves.
 
-    ``premium`` is the **minimum** level premium (on the policy's billing mode)
+    ``premium`` is the **minimum** ongoing level premium (on the policy's billing mode)
     that keeps the policy in force through the target date — $0 when the account
     value alone carries it that far. Solving the least the policy must take in is
     what makes the exception test meaningful: if even the cheapest way to stay in
@@ -138,6 +142,8 @@ class GuidelineExceptionTargetForecastResult:
     independently calculated whether or not the original needs exceptions.
     ``no_forceout`` independently solves GLP=0 with only forceouts disabled;
     its summary is comparison-only, not the recommended adjustment.
+    ``lump_sum`` is the accepted one-time top-up on ``lump_sum_date``, in addition
+    to any ongoing premium due that month, already included in the ledger outlay.
     """
 
     premium: float
@@ -147,6 +153,8 @@ class GuidelineExceptionTargetForecastResult:
     zero_glp: GuidelineExceptionZeroGlpForecastResult
     no_forceout: GuidelineExceptionZeroGlpForecastResult
     current_glp: float = 0.0
+    lump_sum: float = 0.0
+    lump_sum_date: date | None = None
 
     @property
     def exception_before_target(self) -> bool:
@@ -177,17 +185,17 @@ def project_guideline_exception_target_forecast(
     """
     ill_policy, valuation_date, months_to_target = (
         _prepare_projection(policy, target_date))
-    solved, rows, exception_start = _solve_and_project_target(
+    solved, rows, exception_start, lump_sum, lump_sum_date = _solve_and_project_target(
         ill_policy, months_to_target, target_date)
     zero_glp_policy = copy.deepcopy(ill_policy)
     zero_glp_policy.glp = 0.0
-    zero_solved, zero_rows, zero_exception_start = _solve_and_project_target(
+    zero_solved, zero_rows, zero_exception_start, zero_lump, zero_lump_date = _solve_and_project_target(
         zero_glp_policy, months_to_target, target_date)
     summary = _summarize(
         policy, valuation_date, target_date, months_to_target,
         sum(row.premium for row in zero_rows),
     )
-    no_forceout_solved, no_forceout_rows, no_forceout_exception_start = (
+    no_forceout_solved, no_forceout_rows, no_forceout_exception_start, no_forceout_lump, no_forceout_lump_date = (
         _solve_and_project_target(
             zero_glp_policy, months_to_target, target_date,
             guideline_forceouts=False))
@@ -196,16 +204,19 @@ def project_guideline_exception_target_forecast(
         premium_mode=solved.mode,
         exception_start=exception_start,
         rows=rows,
+        lump_sum=lump_sum, lump_sum_date=lump_sum_date,
         zero_glp=GuidelineExceptionZeroGlpForecastResult(
             summary=summary, rows=zero_rows, premium=zero_solved.premium,
-            premium_mode=zero_solved.mode, exception_start=zero_exception_start),
+            premium_mode=zero_solved.mode, exception_start=zero_exception_start,
+            lump_sum=zero_lump, lump_sum_date=zero_lump_date),
         no_forceout=GuidelineExceptionZeroGlpForecastResult(
             summary=_summarize(
                 policy, valuation_date, target_date, months_to_target,
                 sum(row.premium for row in no_forceout_rows)),
             rows=no_forceout_rows, premium=no_forceout_solved.premium,
             premium_mode=no_forceout_solved.mode,
-            exception_start=no_forceout_exception_start),
+            exception_start=no_forceout_exception_start,
+            lump_sum=no_forceout_lump, lump_sum_date=no_forceout_lump_date),
         current_glp=_f(ill_policy.glp),
     )
 
@@ -223,7 +234,27 @@ def _solve_and_project_target(
     base_options = IllustrationOptions(
         exact_days_interest=False, guideline_forceouts=guideline_forceouts,
         recognize_inforce_exception_period=False)
+    first_month_floor = 0.0
     try:
+        if ill_policy.account_value < 0 and months_to_target > 0:
+            cadence = default_premium_mode(ill_policy)
+            schedule = level_to_exception_inputs(
+                ill_policy, 1.0, cadence, int(ill_policy.policy_year or 1))
+            compiled = compile_month_inputs(ill_policy, schedule, months_to_target)
+            bridge_months = next(
+                (offset - 1 for offset in range(2, months_to_target + 1)
+                 if compiled[ill_policy.duration + offset].scheduled_premium),
+                months_to_target)
+            initial = solve_level_to_exception(
+                ill_policy, mode=cadence,
+                start_policy_year=int(ill_policy.policy_year or 1),
+                allow_exceptions=allow_exceptions,
+                conform_to_tamra=not ill_policy.is_cvat,
+                horizon_months=bridge_months, fund_transition_cleanly=False,
+                base_options=base_options, engine=engine,
+                single_premium=True,
+            )
+            first_month_floor = initial.premium
         solved = solve_level_to_exception(
             ill_policy,
             mode=None,
@@ -234,6 +265,7 @@ def _solve_and_project_target(
             fund_transition_cleanly=False,
             base_options=base_options,
             engine=engine,
+            first_month_premium_floor=first_month_floor,
         )
     except LevelToExceptionError as exc:
         raise ValueError(str(exc)) from exc
@@ -244,14 +276,10 @@ def _solve_and_project_target(
         conform_to_tamra=not ill_policy.is_cvat,
     )
     # An explicit zero overrides billing; an empty input set bills modal_premium.
-    future = IllustrationInputSet(scheduled_transactions=[
-        ScheduledTransaction(
-            kind=TransactionKind.PREMIUM,
-            policy_year=int(ill_policy.policy_year or 1),
-            amount=solved.premium,
-            mode=solved.mode,
-        )
-    ])
+    future = level_to_exception_inputs(
+        ill_policy, solved.premium, solved.mode, int(ill_policy.policy_year or 1),
+        first_month_premium_floor=first_month_floor,
+    )
     states = engine.project(
         copy.deepcopy(ill_policy),
         options=options,
@@ -268,7 +296,10 @@ def _solve_and_project_target(
         None,
     )
 
-    return solved, rows, exception_start
+    lump_sum = sum(row.state.applied_lumpsum for row in rows)
+    lump_sum_date = next(
+        (row.date for row in rows if row.state.applied_lumpsum > 0), None)
+    return solved, rows, exception_start, lump_sum, lump_sum_date
 
 
 def _prepare_projection(

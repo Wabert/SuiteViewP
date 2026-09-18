@@ -9,7 +9,8 @@ This workflow builds SuiteView into a distributable folder + ZIP that coworkers 
 ## Prerequisites
 - Virtual environment activated (`venv`)
 - PyInstaller installed (`pip install pyinstaller`)
-- ABR Quote database populated at `~/.suiteview/abr_quote.db`
+- UL_Rates access-control tables provisioned, with intended recipients enabled
+- Reviewed reference data only; never bundle the developer's personal profile
 
 ## Version Bump (do this FIRST, every build)
 
@@ -30,7 +31,6 @@ venv\Scripts\python.exe scripts/build_distribution.py
 ```
 
 The script automatically:
-- Copies `abr_quote.db` from `~/.suiteview/` to `bundled_data/`
 - Cleans previous build artifacts
 - Runs PyInstaller with `SuiteView.spec`
 - Creates `dist/SuiteView.zip`
@@ -42,18 +42,16 @@ The script automatically:
 ## Distribution Instructions for Coworkers
 1. Extract `SuiteView.zip` to any folder (e.g., Desktop or Documents)
 2. Run `SuiteView.exe` from the extracted folder
-3. On first launch, the ABR Quote database is automatically installed to `~/.suiteview/`
+3. The packaged app verifies their native Windows identity against UL_Rates.
+   Missing or disabled users cannot start it; configure their roles before rollout.
 
 ## What's Included in the Distribution
-- SuiteView File Navigator
-- PolView (Policy Viewer) — requires DB2 ODBC driver & network access
-- ABR Quote Tool — pre-loaded with rate data
-
-## What's NOT Included (dev-only)
-- Audit button & Audit Tool
-- Email Attachments
+- All SuiteView modules in one build, enabled according to runtime app grants
+- PolView requires the DB2 ODBC driver and network access
+- Runtime authorization and shared rates require the UL_Rates ODBC DSN
 
 ## Notes
-- The `DEV_MODE` flag is automatically `False` in the built exe
-- PolView and ABR Quote are always available (not gated by DEV_MODE)
+- Source runs always have developer access; packaged apps never inherit that bypass
+- `AllApps` controls app entry, not Administrator or database/support-file write bits
+- SQL Server grants and filesystem permissions remain separate requirements
 - The `bundled_data/` directory is in `.gitignore`

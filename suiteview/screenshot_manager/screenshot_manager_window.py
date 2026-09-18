@@ -3,6 +3,8 @@ SuiteView - Screen Shot Manager
 Capture, organize, and export screenshots
 """
 
+from suiteview.core.profile_paths import profile_path
+
 import logging
 import os
 from datetime import datetime
@@ -91,6 +93,8 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
     screenshot_added = pyqtSignal(str)  # Emits filepath
     
     def __init__(self):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("SCREENSHOT")
         super().__init__()
         
         # Frameless window setup
@@ -113,8 +117,8 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
         self.screenshots = []  # List of (pixmap, name, timestamp, filepath) tuples
         self.screenshot_counter = 0
         self.current_viewer_pixmap = None
-        self.screenshots_dir = Path.home() / '.suiteview' / 'screenshots'
-        self.archive_dir = Path.home() / '.suiteview' / 'screenshots' / 'archive'
+        self.screenshots_dir = profile_path('screenshots')
+        self.archive_dir = profile_path('screenshots') / 'archive'
         self._viewing_archive = False  # Track if viewing archive
         
         self.init_ui()

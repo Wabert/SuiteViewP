@@ -13,15 +13,14 @@ def test_full_distribution_tools_menu_includes_db2_table_check():
         / "suiteview_taskbar.py"
     ).read_text(encoding="utf-8")
 
-    tools_menu_block = source.split("# Apps submenu", 1)[1].split(
+    tools_menu_block = source.split(
+        'self.tools_menu.addAction("View Screenshots"', 1
+    )[1].split(
         "self.tools_menu.addSeparator()", 1
     )[0]
-    full_build_block = tools_menu_block.split("if not LIGHT_MODE:", 1)[1].split(
-        "if DEV_MODE and not LIGHT_MODE:", 1
-    )[0]
     assert (
-        '"DB2 Table Check", self._open_db2_table_check'
-        in full_build_block
+        '("ADMINISTRATOR", "DB2 Table Check", self._open_db2_table_check)'
+        in tools_menu_block
     )
 
 

@@ -14,6 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from suiteview.core.profile_paths import diagnostics_dir
+
 from PyQt6.QtCore import Qt, QTimer  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
@@ -22,7 +24,7 @@ def _seed():
     from suiteview.audit import data_source_store
     from suiteview.audit.data_source import KIND_ACCESS, RegisteredDataSource
 
-    base = Path.home() / ".suiteview"
+    base = diagnostics_dir()
     base.mkdir(parents=True, exist_ok=True)
     accdb = base / "ClaimsArchive.accdb"
     if not accdb.exists():
@@ -50,7 +52,7 @@ def _select_access(win):
 
 def main():
     output = sys.argv[1] if len(sys.argv) > 1 else str(
-        Path.home() / ".suiteview" / "access_data_source.png")
+        diagnostics_dir() / "access_data_source.png")
 
     app = QApplication(sys.argv)
     _seed()

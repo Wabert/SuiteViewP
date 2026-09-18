@@ -3,6 +3,8 @@ Enhanced File Explorer with Custom Model - OneDrive at Top Level
 Shows Quick Access shortcuts (OneDrive) alongside system drives
 """
 
+from suiteview.core.profile_paths import profile_path
+
 import os
 import sys
 import shutil
@@ -26,6 +28,7 @@ from suiteview.file_nav.sharepoint_client import (
     SharePointListWorker, SharePointResolveWorker, SharePointDownloadWorker,
     SharePointDiscoverWorker, SharePointDepthScanWorker,
 )
+from suiteview.core.support_files import guard_support_file_paths
 
 import logging
 
@@ -818,6 +821,8 @@ class FileExplorerCore(QWidget):
     }
     
     def __init__(self):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("FILENAV")
         super().__init__()
         
         # Allow widget to shrink so parent window can collapse to minimal size
@@ -852,15 +857,15 @@ class FileExplorerCore(QWidget):
         self.custom_quick_links = self._bookmark_manager.get_bar_data(1)
         
         # Load hidden OneDrive paths
-        self.hidden_onedrive_file = Path.home() / ".suiteview" / "hidden_onedrive.json"
+        self.hidden_onedrive_file = profile_path('hidden_onedrive.json')
         self.hidden_onedrive_paths = self.load_hidden_onedrive()
         
         # Load pinned folders for the Folders panel
-        self.pinned_folders_file = Path.home() / ".suiteview" / "pinned_folders.json"
+        self.pinned_folders_file = profile_path('pinned_folders.json')
         self.pinned_folders = self.load_pinned_folders()
         
         # SharePoint document libraries (browsed live via Graph API - no OneDrive sync)
-        self.sharepoint_libraries_file = Path.home() / ".suiteview" / "sharepoint_libraries.json"
+        self.sharepoint_libraries_file = profile_path('sharepoint_libraries.json')
         self.sharepoint_libraries = self.load_sharepoint_libraries()
         self._sp_workers = []             # keep refs so QThreads aren't GC'd mid-run
         self._sp_pending_tree = set()     # sp paths with an in-flight tree listing
@@ -868,11 +873,11 @@ class FileExplorerCore(QWidget):
         self._sp_current_name = None      # display name of current SP folder in details
         
         # Column width settings file
-        self.column_widths_file = Path.home() / ".suiteview" / "column_widths.json"
+        self.column_widths_file = profile_path('column_widths.json')
         self.column_widths = self.load_column_widths()
         
         # Panel widths persistence
-        self.panel_widths_file = Path.home() / '.suiteview' / 'file_explorer_panel_widths.json'
+        self.panel_widths_file = profile_path('file_explorer_panel_widths.json')
         self.panel_widths = self.load_panel_widths()
         
         # Debounce timers for performance - avoid disk writes on every pixel
@@ -3012,6 +3017,9 @@ class FileExplorerCore(QWidget):
             
             # Perform the rename
             try:
+                guard_support_file_paths(
+                    old_path_obj, new_path_obj, action="rename policy support files or folders"
+                )
                 old_path_obj.rename(new_path_obj)
                 
                 # Update the item's UserRole data with new path
@@ -4068,6 +4076,7 @@ class FileExplorerCore(QWidget):
         if self.clipboard.get("paths"):
             success_count = 0
             error_count = 0
+            errors = []
             
             for source_path in self.clipboard["paths"]:
                 source = Path(source_path)
@@ -4079,8 +4088,10 @@ class FileExplorerCore(QWidget):
                         dest = self._get_unique_dest_path(dest)
                     
                     if self.clipboard["operation"] == "cut":
+                        guard_support_file_paths(source, dest, action="move policy support files or folders")
                         shutil.move(str(source), str(dest))
                     else:
+                        guard_support_file_paths(dest, action="copy policy support files or folders")
                         if source.is_dir():
                             shutil.copytree(str(source), str(dest))
                         else:
@@ -4089,6 +4100,7 @@ class FileExplorerCore(QWidget):
                     logger.info(f"Pasted {source.name} to {dest_path}")
                 except Exception as e:
                     error_count += 1
+                    errors.append(f"{source.name}: {e}")
                     logger.error(f"Failed to paste {source.name}: {e}")
             
             # Clear clipboard after cut operation
@@ -4102,7 +4114,8 @@ class FileExplorerCore(QWidget):
             if error_count > 0:
                 QMessageBox.warning(
                     self, "Paste Results",
-                    f"Pasted {success_count} item(s).\n{error_count} item(s) failed."
+                    f"Pasted {success_count} item(s).\n{error_count} item(s) failed.\n"
+                    + "\n".join(errors[:5])
                 )
             return
         
@@ -4111,6 +4124,7 @@ class FileExplorerCore(QWidget):
         if clipboard_files:
             success_count = 0
             error_count = 0
+            errors = []
             
             for file_path in clipboard_files:
                 source = Path(file_path)
@@ -4121,6 +4135,7 @@ class FileExplorerCore(QWidget):
                     if dest.exists():
                         dest = self._get_unique_dest_path(dest)
                     
+                    guard_support_file_paths(dest, action="copy policy support files or folders")
                     if source.is_dir():
                         shutil.copytree(str(source), str(dest))
                     else:
@@ -4129,6 +4144,7 @@ class FileExplorerCore(QWidget):
                     logger.info(f"Pasted {source.name} to {dest_path}")
                 except Exception as e:
                     error_count += 1
+                    errors.append(f"{source.name}: {e}")
                     logger.error(f"Failed to paste {source.name}: {e}")
             
             # Refresh the details view
@@ -4138,7 +4154,8 @@ class FileExplorerCore(QWidget):
             if error_count > 0:
                 QMessageBox.warning(
                     self, "Paste Results", 
-                    f"Pasted {success_count} file(s).\n{error_count} file(s) failed."
+                    f"Pasted {success_count} file(s).\n{error_count} file(s) failed.\n"
+                    + "\n".join(errors[:5])
                 )
             return
         
@@ -4216,6 +4233,7 @@ class FileExplorerCore(QWidget):
         
         success_count = 0
         error_count = 0
+        errors = []
         
         for file_path in file_paths:
             source = Path(file_path)
@@ -4232,6 +4250,7 @@ class FileExplorerCore(QWidget):
                 if dest.exists():
                     dest = self._get_unique_dest_path(dest)
                 
+                guard_support_file_paths(dest, action="copy policy support files or folders")
                 if source.is_dir():
                     shutil.copytree(str(source), str(dest))
                 else:
@@ -4240,6 +4259,7 @@ class FileExplorerCore(QWidget):
                 logger.info(f"Copied {source.name} to {dest_folder}")
             except Exception as e:
                 error_count += 1
+                errors.append(f"{source.name}: {e}")
                 logger.error(f"Failed to copy {source.name}: {e}")
         
         # Refresh the details view
@@ -4250,7 +4270,8 @@ class FileExplorerCore(QWidget):
         if error_count > 0:
             QMessageBox.warning(
                 self, "Copy Results", 
-                f"Copied {success_count} file(s).\n{error_count} file(s) failed."
+                f"Copied {success_count} file(s).\n{error_count} file(s) failed.\n"
+                + "\n".join(errors[:5])
             )
         elif success_count > 1:
             logger.info(f"Successfully copied {success_count} files to {dest_folder}")
@@ -4270,6 +4291,9 @@ class FileExplorerCore(QWidget):
         if ok and new_name:
             try:
                 new_path = old_path.parent / new_name
+                guard_support_file_paths(
+                    old_path, new_path, action="rename policy support files or folders"
+                )
                 old_path.rename(new_path)
                 self.refresh_tree()
                 QMessageBox.information(self, "Success", f"Renamed to {new_name}")
@@ -4297,10 +4321,12 @@ class FileExplorerCore(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             deleted_count = 0
             error_count = 0
+            errors = []
             
             for path in paths:
                 try:
                     path_obj = Path(path)
+                    guard_support_file_paths(path_obj, action="delete policy support files or folders")
                     if path_obj.is_dir():
                         shutil.rmtree(path)
                     else:
@@ -4309,6 +4335,7 @@ class FileExplorerCore(QWidget):
                     logger.info(f"Deleted: {path}")
                 except Exception as e:
                     error_count += 1
+                    errors.append(f"{Path(path).name}: {e}")
                     logger.error(f"Failed to delete {path}: {e}")
             
             # Refresh the details view to show files are gone
@@ -4318,7 +4345,8 @@ class FileExplorerCore(QWidget):
             if error_count > 0:
                 QMessageBox.warning(
                     self, "Delete Results",
-                    f"Deleted {deleted_count} item(s).\n{error_count} item(s) failed."
+                    f"Deleted {deleted_count} item(s).\n{error_count} item(s) failed.\n"
+                    + "\n".join(errors[:5])
                 )
                 
     def refresh_tree(self):
@@ -4359,6 +4387,7 @@ class FileExplorerCore(QWidget):
         if ok and folder_name:
             try:
                 new_folder_path = Path(self.current_details_folder) / folder_name
+                guard_support_file_paths(new_folder_path, action="create policy support folders")
                 new_folder_path.mkdir(parents=False, exist_ok=False)
                 logger.info(f"Created folder: {new_folder_path}")
                 

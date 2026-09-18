@@ -16,6 +16,7 @@ import re
 
 from .db2_constants import REGION_DSN_MAP, DEFAULT_REGION, REGION_SCHEMA_MAP, DEFAULT_SCHEMA
 from .local_dev import connect_local_policy_database, local_data_enabled
+from .sql_permissions import guard_query_sql
 
 
 class DB2ConnectionError(Exception):
@@ -240,6 +241,7 @@ class DB2Connection:
 
         The cursor is always closed (even on error) to avoid leaks.
         """
+        guard_query_sql(sql)
         conn = self.connect()
         cursor = conn.cursor()
         try:
@@ -288,6 +290,7 @@ class DB2Connection:
         thread without corrupting a pooled connection that other parts of the
         app (PolView, Illustration, …) may use concurrently on another thread.
         """
+        guard_query_sql(sql)
         sql = self._prepare_sql(sql)
         if local_data_enabled():
             conn = connect_local_policy_database(self.region)

@@ -1,6 +1,7 @@
 """Ad hoc source intake for loose files used in audit/DataForge work."""
 from __future__ import annotations
 
+import codecs
 import csv
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -24,7 +25,7 @@ def delimited_text_spec(
     delimiter: str = ",",
     has_header: bool = True,
     column_names: list[str] | None = None,
-    encoding: str = "utf-8-sig",
+    encoding: str = "auto",
     skip_rows: int = 0,
 ) -> dict[str, Any]:
     """Build metadata for a delimited text source."""
@@ -41,7 +42,7 @@ def delimited_text_spec(
 def fixed_width_spec(
     columns: list[dict[str, Any]],
     *,
-    encoding: str = "utf-8-sig",
+    encoding: str = "auto",
     skip_rows: int = 0,
 ) -> dict[str, Any]:
     """Build metadata for a fixed-width text source."""
@@ -274,24 +275,44 @@ def _read_text_sample(
 def _resolve_text_format_spec(path: Path, format_spec: dict[str, Any] | None) -> dict[str, Any]:
     if format_spec:
         resolved = dict(format_spec)
+        resolved["encoding"] = _resolve_text_encoding(path, resolved.get("encoding", "auto"))
         if resolved.get("format") == "fixed_width":
             _validate_fixed_width_columns(resolved.get("columns", []))
         return resolved
+    encoding = _resolve_text_encoding(path)
     if path.suffix.lower() == ".csv":
-        return delimited_text_spec(delimiter=",")
-    delimiter = _sniff_delimiter(path)
-    return delimited_text_spec(delimiter=delimiter)
+        return delimited_text_spec(delimiter=",", encoding=encoding)
+    delimiter = _sniff_delimiter(path, encoding)
+    return delimited_text_spec(delimiter=delimiter, encoding=encoding)
 
 
-def _sniff_delimiter(path: Path) -> str:
+def _resolve_text_encoding(path: str | Path, encoding: str = "auto") -> str:
+    """Honor explicit encodings; otherwise detect Unicode BOMs without guessing."""
+    if encoding != "auto":
+        return encoding
+    with Path(path).open("rb") as handle:
+        prefix = handle.read(4)
+    # UTF-32 LE starts with the UTF-16 LE BOM, so test the longer marks first.
+    for marks, detected in (
+        ((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE), "utf-32"),
+        ((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE), "utf-16"),
+        ((codecs.BOM_UTF8,), "utf-8-sig"),
+    ):
+        if prefix.startswith(marks):
+            return detected
+    return "utf-8-sig"
+
+
+def _sniff_delimiter(path: Path, encoding: str) -> str:
+    with path.open("r", encoding=encoding) as handle:
+        sample = handle.read(8192)
     try:
-        sample = path.read_text(encoding="utf-8-sig", errors="replace")[:8192]
         # \x1f (Unit Separator) and \x1e (Record Separator) are the field/row
         # delimiters used by SAP / mainframe flat-file extracts (often .dat).
         dialect = csv.Sniffer().sniff(
             sample, delimiters=[",", "\t", "|", ";", "~", "\x1f", "\x1e"])
         return dialect.delimiter
-    except Exception:
+    except csv.Error:
         return ","
 
 
@@ -305,7 +326,7 @@ def _read_delimited_dataframe(
 
     delimiter = metadata.get("delimiter", ",")
     has_header = bool(metadata.get("has_header", True))
-    encoding = metadata.get("encoding", "utf-8-sig")
+    encoding = _resolve_text_encoding(path, metadata.get("encoding", "auto"))
     skip_rows = int(metadata.get("skip_rows", 0) or 0)
     df = pd.read_csv(
         path,
@@ -353,7 +374,7 @@ def _read_fixed_width_dataframe(
         colspecs=colspecs,
         names=names,
         header=None,
-        encoding=metadata.get("encoding", "utf-8-sig"),
+        encoding=_resolve_text_encoding(path, metadata.get("encoding", "auto")),
         skiprows=int(metadata.get("skip_rows", 0) or 0),
         nrows=nrows,
     )

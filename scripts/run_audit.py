@@ -22,6 +22,8 @@ from PyQt6.QtGui import QFont
 
 
 def main():
+    from suiteview.core.profile_maintenance import initialize_profile
+    initialize_profile()
     parser = argparse.ArgumentParser(description="Audit Tool - Policy Search")
     parser.add_argument("--region", "-r", default="CKPR",
                        choices=["CKPR", "CKMO", "CKAS", "CKSR", "CKCS"],

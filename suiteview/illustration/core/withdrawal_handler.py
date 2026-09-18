@@ -122,7 +122,7 @@ def compute_withdrawal(
     full_sc = sum(
         (
             seg.original_face_amount
-            if config.expense_basis == "OriginalSA"
+            if config.sa_basis == "OriginalSA"
             else seg.face_amount
         )
         * scr_rates_by_phase.get(seg.coverage_phase, 0.0)
@@ -166,7 +166,7 @@ def compute_withdrawal(
     ) + fee
     result.av_post_withdrawal = av - result.gross_withdrawal
     if result.reduces_sa:
-        fee_out = fee if config.target_sa_basis == "OriginalSA" else 0.0
+        fee_out = fee if config.sa_basis == "OriginalSA" else 0.0
         result.face_decrease = result.gross_withdrawal - fee_out
     return result
 

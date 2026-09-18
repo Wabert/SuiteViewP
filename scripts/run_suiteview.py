@@ -30,17 +30,6 @@ def main(local_data: bool = False):
                   else "SuiteView_SingleInstance_Mutex")
     appusermodel_id = "SuiteView.LocalData.1" if local_data else "SuiteView.FileExplorer.1"
 
-    # Under pythonw.exe there is no console — redirect stderr to a crash log
-    # so fatal errors are not silently swallowed.
-    _crash_log = _root / ("suiteview_local_crash.log" if local_data else "suiteview_crash.log")
-    if sys.executable.lower().endswith("pythonw.exe"):
-        try:
-            _crash_fh = open(_crash_log, "w", encoding="utf-8")
-            sys.stderr = _crash_fh
-            sys.stdout = _crash_fh
-        except Exception:
-            pass
-
     # Custom exception handler to catch Qt crashes
     def exception_hook(exctype, value, tb):
         print("UNHANDLED EXCEPTION:")
@@ -50,40 +39,23 @@ def main(local_data: bool = False):
     sys.excepthook = exception_hook
 
     try:
-        # --- Single-instance enforcement ---
-        # Create a named mutex; if it already exists another instance is running.
-        import ctypes as _ctypes
-        import ctypes.wintypes as _wt
-        _kernel32 = _ctypes.WinDLL('kernel32', use_last_error=True)
-        _kernel32.CreateMutexW.argtypes = [_wt.LPVOID, _wt.BOOL, _wt.LPCWSTR]
-        _kernel32.CreateMutexW.restype = _wt.HANDLE
-        _mutex = _kernel32.CreateMutexW(None, True, mutex_name)
-        if _ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
-            hwnd = _ctypes.windll.user32.FindWindowW(None, app_title)
-            if hwnd:
-                _ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                _ctypes.windll.user32.SetForegroundWindow(hwnd)
-                sys.exit(0)
-            # Window not found — stale process holding the mutex.
-            # Kill it so this new instance can start.
-            import subprocess, os, signal
-            result = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq pythonw.exe",
-                 "/FO", "CSV", "/NH"],
-                capture_output=True, text=True)
-            for line in result.stdout.splitlines():
-                parts = line.strip().strip('"').split('","')
-                if len(parts) >= 2 and parts[1].isdigit():
-                    pid = int(parts[1])
-                    if pid != os.getpid():
-                        try:
-                            os.kill(pid, signal.SIGTERM)
-                        except OSError:
-                            pass
-            # Close the inherited mutex handle and re-acquire it cleanly
-            _kernel32.CloseHandle(_mutex)
-            import time; time.sleep(0.5)
-            _mutex = _kernel32.CreateMutexW(None, True, mutex_name)
+        from suiteview.taskbar_launcher.single_instance import acquire_or_activate
+
+        titles = (app_title,)
+        if not acquire_or_activate(mutex_name, titles):
+            sys.exit(0)
+
+        from suiteview.core.profile_maintenance import initialize_profile
+        from suiteview.core.profile_paths import profile_path
+        initialize_profile()
+        _crash_log = profile_path(
+            "suiteview_local_crash.log" if local_data else "suiteview_crash.log"
+        )
+        if sys.executable.lower().endswith("pythonw.exe"):
+            _crash_log.parent.mkdir(parents=True, exist_ok=True)
+            _crash_fh = open(_crash_log, "a", encoding="utf-8")
+            sys.stderr = _crash_fh
+            sys.stdout = _crash_fh
 
         # Set Windows AppUserModelID for proper taskbar icon display
         # This must be done before creating QApplication
@@ -131,7 +103,9 @@ def main(local_data: bool = False):
     except Exception as e:
         print(f"ERROR: {e}")
         traceback.print_exc()
-        input("Press Enter to exit...")
+        from PyQt6.QtWidgets import QApplication, QMessageBox
+        app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, "Cannot Start SuiteView", str(e))
         sys.exit(1)
 
 

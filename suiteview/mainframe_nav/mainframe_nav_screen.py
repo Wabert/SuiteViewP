@@ -2,6 +2,8 @@
 Mainframe Navigation Screen - File explorer interface for browsing mainframe datasets
 """
 
+from suiteview.core.profile_paths import profile_path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLineEdit, QPushButton,
     QLabel, QMessageBox, QTableWidget, QTableWidgetItem,
@@ -1964,9 +1966,8 @@ class MainframeNavScreen(QWidget):
             from pathlib import Path
             
             # Save to app config directory
-            config_dir = Path.home() / '.suiteview'
-            config_dir.mkdir(exist_ok=True)
-            config_file = config_dir / 'mainframe_nav_splitter.json'
+            config_file = profile_path("mainframe_nav_splitter.json")
+            config_file.parent.mkdir(parents=True, exist_ok=True)
             
             # Get splitter sizes
             sizes = self.main_splitter.sizes()
@@ -1984,7 +1985,7 @@ class MainframeNavScreen(QWidget):
             import json
             from pathlib import Path
             
-            config_file = Path.home() / '.suiteview' / 'mainframe_nav_splitter.json'
+            config_file = profile_path('mainframe_nav_splitter.json')
             
             if not config_file.exists():
                 return
@@ -2006,9 +2007,8 @@ class MainframeNavScreen(QWidget):
             from pathlib import Path
             
             # Save to app config directory
-            config_dir = Path.home() / '.suiteview'
-            config_dir.mkdir(exist_ok=True)
-            config_file = config_dir / 'mainframe_nav_columns.json'
+            config_file = profile_path("mainframe_nav_columns.json")
+            config_file.parent.mkdir(parents=True, exist_ok=True)
             
             # Get all column widths
             widths = {}
@@ -2030,7 +2030,7 @@ class MainframeNavScreen(QWidget):
             import json
             from pathlib import Path
             
-            config_file = Path.home() / '.suiteview' / 'mainframe_nav_columns.json'
+            config_file = profile_path('mainframe_nav_columns.json')
             
             if not config_file.exists():
                 return

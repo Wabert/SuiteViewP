@@ -779,10 +779,83 @@ def test_summary_tab_columns_and_relabels():
         return model.headerData(index, QtCore.Orientation.Horizontal, QtCore.ItemDataRole.DisplayRole)
 
     assert header("Attained Age") == "Age"
-    assert "Loan Int" in columns
+    assert header("Loan_Accr_Int") == "Loan_Accr_Int"
+    assert header("Loan_Princ") == "Loan_Princ"
+    assert "Loan Int" not in columns
+    assert "Loan Balance" not in columns
     assert "New Loan" in columns
     assert summary.df.iloc[0]["AV"] == 9_975.25
     assert summary.df.iloc[0]["EAV"] == 9_990.00
+
+
+@pytest.mark.parametrize(
+    "loan_buckets,expected_principal,expected_accrued",
+    [
+        ({}, 0.0, 0.0),
+        ({"rg_loan_princ": 100.0, "rg_loan_accrued": 12.5}, 100.0, 12.5),
+        ({"pf_loan_princ": 200.0, "pf_loan_accrued": 25.0}, 200.0, 25.0),
+        ({"vbl_loan_princ": 300.0, "vbl_loan_accrued": 37.5}, 300.0, 37.5),
+        (
+            {
+                "rg_loan_princ": 100.0, "rg_loan_accrued": 12.5,
+                "pf_loan_princ": 200.0, "pf_loan_accrued": 25.0,
+                "vbl_loan_princ": 300.0, "vbl_loan_accrued": 37.5,
+            },
+            600.0, 75.0,
+        ),
+    ],
+)
+def test_summary_separates_all_accrued_interest_from_principal(
+    loan_buckets, expected_principal, expected_accrued,
+):
+    from suiteview.illustration.core.summary_results import (
+        json_safe_rows, project_summary_rows,
+    )
+    from suiteview.illustration.debug.summary_export import build_summary_workbook
+
+    _app()
+    policy = _policy()
+    state = MonthlyState(
+        date=date(2026, 1, 15),
+        reg_loan_charge=1.0, pref_loan_charge=2.0, vbl_loan_charge=3.0,
+        end_rg_loan_princ=110.0, end_rg_loan_accrued=13.5,
+        end_pf_loan_princ=220.0, end_pf_loan_accrued=27.0,
+        end_vbl_loan_princ=330.0, end_vbl_loan_accrued=40.5,
+        policy_debt=741.0,
+        **loan_buckets,
+    )
+    expected = {
+        "Loan_Accr_Int": expected_accrued,
+        "Loan_Princ": expected_principal,
+        "Reg Loan": 123.5, "Pref Loan": 247.0, "Var Loan": 370.5,
+        "Ending LB": 741.0,
+    }
+    tab = IllustrationValuesTab()
+    tab.display_projection(policy, [state])
+    grid = tab._tab_grids["Summary"]
+    snapshot = json_safe_rows(project_summary_rows(policy, [state]))[0]
+    copied_lines = grid._dataframe_to_clipboard_text(grid.df).splitlines()
+    copied = dict(zip(copied_lines[0].split("\t"), copied_lines[1].split("\t")))
+    for column, value in expected.items():
+        assert grid.df.iloc[0][column] == value
+        assert snapshot[column] == value
+        assert float(copied[column]) == value
+
+    workbook = build_summary_workbook(policy, [state], [state])
+    try:
+        for sheet in workbook:
+            headers, values = list(sheet.values)
+            exported = dict(zip(headers, values))
+            assert "Loan Int" not in exported
+            assert "Loan Balance" not in exported
+            for column, value in expected.items():
+                assert exported[column] == value
+    finally:
+        workbook.close()
+
+    for column in ("Loan_Accr_Int", "Loan_Princ"):
+        tab._drill_down(0, column)
+        assert tab.content_stack.currentWidget() is tab._tab_grids["Loan Capitalize and Repay"]
 
 
 def test_av_column_shows_zero_when_exception_holds_account_value_flat():
@@ -1196,8 +1269,8 @@ def test_summary_tab_uses_requested_illustration_values_order():
     summary = tab._tab_grids["Summary"]
     assert list(summary.df.columns) == ["Date", "Year", "Month", "Attained Age"] + [
         "GrossWD", "DBO", "TotalSA", "PSC",
-        "MonthlyMTP", "Accum MTP", "GLP", "GSP", "AccumGLP", "ForceOut", "Loan Int",
-        "Loan Balance", "Loan Repay", "Premium", "PremTD", "Prem Load", "mAV",
+        "MonthlyMTP", "Accum MTP", "GLP", "GSP", "AccumGLP", "ForceOut", "Loan_Accr_Int",
+        "Loan_Princ", "Loan Repay", "Premium", "PremTD", "Prem Load", "mAV",
         "NAAR", "Base COI", "Rider COI", "Benefit COI", "EPU", "MFEE", "MD",
         "Exception Prem", "AV", "New Loan", "Interest Rate", "Interest", "EAV",
         "SC", "ESV", "Var Loan", "Pref Loan", "Reg Loan", "Ending LB", "IllustratedDB",
@@ -1207,7 +1280,7 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "Date": date(2026, 1, 15), "Year": 1, "Month": 1, "Attained Age": 45,
         "GrossWD": 20.0, "DBO": "B", "TotalSA": 150000.0, "PSC": 6.0,
         "MonthlyMTP": 100.0, "Accum MTP": 500.0, "GLP": 1000.0, "GSP": 2000.0,
-        "AccumGLP": 3000.0, "ForceOut": 0.0, "Loan Int": 6.0, "Loan Balance": 66.0,
+        "AccumGLP": 3000.0, "ForceOut": 0.0, "Loan_Accr_Int": 6.0, "Loan_Princ": 60.0,
         "Loan Repay": 12.0, "Premium": 100.0, "PremTD": 20000.0,
         "Prem Load": 7.5, "mAV": 900.0, "NAAR": 50000.0, "Base COI": 20.0,
         "Rider COI": 2.0, "Benefit COI": 4.0, "EPU": 6.0, "MFEE": 8.0,

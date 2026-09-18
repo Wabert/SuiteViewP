@@ -138,8 +138,8 @@ def build_segment_lines(segment: str, pi, screen: Optional[dict] = None) -> Opti
     """Return the ``lines`` for *segment* built from live policy data.
 
     Returns ``None`` when this segment/data variant has no live rendering.
-    The viewer omits absent records or shows an unavailable message, never a
-    captured screen. *screen* is the bundled
+    The viewer omits absent/unsupported records and identifies errors, never
+    substituting a captured screen. *screen* is the bundled
     ``seg_<n>.json`` dict.  A ``template`` screen (e.g. Segment 01) carries the
     authentic mainframe layout as annotated ``lines``; each value token is
     filled live from its ``db2`` source (or shown as clearly-labelled example
@@ -171,6 +171,10 @@ def build_segment_lines(segment: str, pi, screen: Optional[dict] = None) -> Opti
         return build_segment_63(pi) if segment == "63" else build_segment_64(pi)
     if segment == "02":
         return _build_segment_02(pi)
+    if segment == "04":
+        from .policy_record_benefits import build_segment_04
+
+        return build_segment_04(pi)
     if segment == "66":
         return _build_segment_66(pi)
     if segment == "67":

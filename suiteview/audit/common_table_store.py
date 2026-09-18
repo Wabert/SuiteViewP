@@ -1,9 +1,11 @@
 """
 Common table persistence — save/load/list/delete user-defined tables.
 
-Storage: ~/.suiteview/common_tables/<name>.json
+Storage: ~/.suiteview/data/query/common_tables/<name>.json
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
@@ -14,7 +16,7 @@ from suiteview.audit.common_table import CommonTable
 
 logger = logging.getLogger(__name__)
 
-_TABLES_DIR = Path.home() / ".suiteview" / "common_tables"
+_TABLES_DIR = profile_path('common_tables')
 
 
 def _ensure_dir() -> Path:

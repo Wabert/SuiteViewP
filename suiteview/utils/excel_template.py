@@ -22,6 +22,9 @@ import os
 import shutil
 import zipfile
 
+from suiteview.core.access_control import guard_support_files_writable
+from suiteview.core.support_files import guard_support_file_paths
+
 # Source template extension → destination workbook extension.
 _TEMPLATE_EXT_MAP = {
     ".xltx": ".xlsx",
@@ -68,14 +71,21 @@ def _convert_ooxml_template(source_path: str, dest_path: str) -> None:
                 zout.writestr(item, data)
 
 
-def copy_as_workbook(source_path: str, dest_path: str) -> None:
+def copy_as_workbook(
+    source_path: str, dest_path: str, *, support_files: bool = False
+) -> None:
     """Copy *source_path* to *dest_path*.
 
     If the source is an Excel template, it is converted to a regular
     workbook at *dest_path* (whose extension should already reflect the
     target format, e.g. via :func:`workbook_filename`). Otherwise the file
-    is copied verbatim with metadata preserved.
+    is copied verbatim with metadata preserved. Policy-support callers must set
+    ``support_files=True`` to authorize the write immediately before copying.
     """
+    if support_files:
+        guard_support_files_writable("copy policy support files")
+    else:
+        guard_support_file_paths(dest_path, action="copy policy support files")
     ext = os.path.splitext(source_path)[1].lower()
     if ext in (".xltx", ".xltm"):
         _convert_ooxml_template(source_path, dest_path)

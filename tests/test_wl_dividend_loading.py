@@ -69,8 +69,7 @@ def _statements(cursor):
 
 
 @pytest.fixture(autouse=True)
-def prohibit_live_database_and_enable_full_build(monkeypatch):
-    monkeypatch.delenv("SUITEVIEW_LIGHT", raising=False)
+def prohibit_live_database(monkeypatch):
     with patch(
         "suiteview.ratemanager.database_loader.pyodbc.connect",
         side_effect=AssertionError("Dividend integration tests must never access a live database"),

@@ -8,9 +8,19 @@ This document outlines UI design principles for SuiteView development.
 
 Guidelines:
 - **No backward compatibility needed** - we can freely change data formats, APIs, and structures
-- **No migration code** - when formats change, just update the code directly
+- **No compatibility APIs** - update callers directly when formats change.
+  Moving existing personal data is different: the profile-layout maintenance
+  path preserves users' work rather than discarding it.
 - **Remove legacy code** - delete code we've moved past rather than keeping it "just in case"
 - **Clean as we go** - keep the codebase lean and focused on current functionality
+
+## Profile storage
+
+Use the canonical `suiteview.core.profile_paths` helpers. Settings, saved work,
+authentication material, logs, rate backups and developer previews have separate
+directories under the existing local `.suiteview` root. See
+[PROFILE_STORAGE.md](PROFILE_STORAGE.md) for layout, migration/cleanup commands,
+test isolation and backup/distribution boundaries.
 
 ## UI Design Principles
 
@@ -610,43 +620,25 @@ excel.ScreenUpdating = True
 
 ## Build & Distribution
 
-SuiteView ships as **two distributions** built with PyInstaller:
+SuiteView ships as **one distribution**, built with PyInstaller using
+`SuiteView.spec`. All apps are included; the user's runtime role determines app
+access, shared-database writes and policy-support file writes.
 
-| Distribution | Spec File | Description |
-|---|---|---|
-| **SuiteView** | `SuiteView.spec` | Full suite — all tools and modules |
-| **SuiteViewLight** | `SuiteViewLight.spec` | Lightweight — core tools only |
+The packaged EXE reads the current Windows user's access from the three
+`SV_Access*` tables in UL_Rates. Missing/disabled users or unavailable permissions
+block access explicitly. Source runs always retain developer access.
 
-### SuiteView (Full)
-
-Includes everything:
-
-**Taskbar buttons:** PolView (P), FileNav (F), ABR Quote (A), Audit/QueryTool (Q), ScratchPad (📝), File History (H)
-
-**Tools menu:** View Screenshots, PolView, ABR Quote, Mainframe Navigator, Audit Tool, DB2 Table Check, Email Attachments (dev), Task Tracker (dev), Rate File Converter (dev), App Data Location
-
-### SuiteViewLight
-
-Stripped-down build for users who only need the essentials:
-
-**Taskbar buttons:** PolView (P), FileNav (F), ABR Quote (A)
-
-**Tools menu:** View Screenshots, App Data Location
-
-**Excluded from Light:** Audit Tool, DB2 Table Check, ScratchPad, File History, Mainframe Navigator, Email Attachments, Task Tracker, Rate File Converter, messaging badge
-
-### How Light Mode Works
-
-The app detects its own executable name at startup. If the exe is named `SuiteViewLight`, it sets `LIGHT_MODE = True` in `suiteview_taskbar.py`, which hides the extra buttons and menu items. Both builds share the same source code — only the spec file and exe name differ.
+The shared checks live in `suiteview/core/access_control.py`; database mutation
+guards live in `suiteview/core/build_env.py`. UI gating is not sufficient:
+app entry, cross-app handoffs and actual writes must also be guarded.
+`AllApps` does not grant Administrator access or either write permission.
+Tools > Refresh Permissions refreshes launcher controls after role changes.
+See [Agent.md](../Agent.md#runtime-access-permissions) for the complete contract.
 
 ### Building
 
-```bash
-# Full build
-python scripts/build_distribution.py
-
-# Light build
-python scripts/build_distribution.py --light
+```powershell
+venv\Scripts\python.exe scripts\build_distribution.py
 ```
 
-Both produce a folder + ZIP in `dist/`.
+The build produces a folder + ZIP in `dist/`.

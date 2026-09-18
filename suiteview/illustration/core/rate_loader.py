@@ -283,7 +283,8 @@ def load_rates(
         ) or [],
         mtp=rates_db.get_mtp(
             policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, seg.band,
+            seg.rate_class,
+            seg.original_band if config.sa_basis == "OriginalSA" else seg.band,
         ) or 0.0,
         ctp=rates_db.get_ctp(
             policy.plancode, seg.issue_age, seg.rate_sex,

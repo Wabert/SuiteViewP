@@ -23,6 +23,8 @@ from PyQt6.QtGui import QFont
 
 
 def main():
+    from suiteview.core.profile_maintenance import initialize_profile
+    initialize_profile()
     parser = argparse.ArgumentParser(description="PolView - Policy Viewer")
     parser.add_argument("policy", nargs="?", default=None, help="Policy number to load")
     parser.add_argument("--region", "-r", default="CKPR",

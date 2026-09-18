@@ -288,7 +288,12 @@ def build_illustration_data(
 
     for cov in active_base_covs:
         seg_face = float(cov.face_amount) if cov.face_amount else 0.0
-        seg_orig_face = float(cov.orig_amount) if cov.orig_amount else seg_face
+        if plancode_config.sa_basis == "OriginalSA" and cov.orig_amount is None:
+            raise ValueError(
+                f"Coverage {cov.cov_pha_nbr}: original specified amount is required "
+                "for SA_Basis=OriginalSA"
+            )
+        seg_orig_face = float(cov.orig_amount) if cov.orig_amount is not None else seg_face
         seg_units = float(cov.units) if cov.units else seg_face / 1000.0
         # Every base coverage (original + increases) bands on the COMBINED base
         # specified amount, so they all share the policy base band computed above.
@@ -298,6 +303,11 @@ def build_illustration_data(
         # wrong coverage and can yield band 0 -> an empty COI schedule -> a COI
         # rate/charge of 0 for that increase segment.)
         seg_band = band
+        original_band = (
+            pi.cov_mtp_band(cov.cov_pha_nbr)
+            if plancode_config.sa_basis == "OriginalSA"
+            else seg_band
+        )
 
         # Get rate sex from coverage record
         try:
@@ -332,7 +342,7 @@ def build_illustration_data(
             units=seg_units,
             vpu=float(cov.vpu) if cov.vpu else 1000.0,
             band=seg_band,
-            original_band=seg_band,
+            original_band=original_band,
             table_rating=seg_table,
             table_cease_date=seg_table_cease,
             flat_extra=seg_flat,

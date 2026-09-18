@@ -2003,23 +2003,21 @@ def _compile_policy_changes(policy: IllustrationPolicyData, changes) -> Dict[int
     return by_duration
 
 
-def _reband_segment(rates, segment, plancode: str, issue_date=None) -> None:
-    """Re-band a segment to its current face's band and reload its COI/EPU rates.
+def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
+    """Reload COI/EPU at the current combined specified-amount band.
 
     CyberLife/RERUN band the COI by the CURRENT specified amount, so a face change
     that crosses a band breakpoint moves the per-unit rate. SCR is band-independent
     (varies only by rateclass), so it is not reloaded here.
 
-    ``issue_date`` is the POLICY issue date (RERUN sINPUT_Issue_Date) — it feeds
-    the Rates_Control-CZ issue-date band boundary (see Rates.get_band).
+    The caller resolves the policy issue-date boundary once for all segments.
     """
     from suiteview.core.rates import Rates
 
     rates_db = Rates()
-    new_band = rates_db.get_band(plancode, segment.face_amount, issue_date=issue_date)
-    if new_band is None or int(new_band) == segment.band:
+    if band == segment.band:
         return
-    segment.band = int(new_band)
+    segment.band = band
     rates.segment_coi[segment.coverage_phase] = load_coverage_coi_rates(
         rates_db,
         plancode=plancode,
@@ -2101,7 +2099,7 @@ def _reband_benefits(rates, policy) -> None:
 
 
 def _reload_policy_band_rates(rates, policy, config) -> None:
-    """Reload the policy-level band-keyed schedules at the CURRENT total-SA band.
+    """Re-band COI/EPU and policy schedules at the CURRENT total-SA band.
 
     RERUN keys TPP/EPP (premium loads), MFEE, and PoAV on the month's
     CurrentBand (PolicyRates EC/ED/FE/FF all VLOOKUP on CalcEngine FD), so a
@@ -2118,6 +2116,11 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
     band = rates_db.get_band(
         policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
     band = int(band) if band is not None else seg.band
+    policy.band = band
+    for segment in policy.segments:
+        if segment.face_amount > 0:
+            _reband_segment(rates, segment, policy.plancode, band=band)
+    _reband_benefits(rates, policy)
     for attr, kind in (("tpp", "TPP"), ("epp", "EPP"), ("mfee", "MFEE")):
         setattr(rates, attr, rates_db.get_rates(
             kind, policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
@@ -2160,7 +2163,7 @@ class _FaceCutResult:
 
 
 def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr, config) -> _FaceCutResult:
-    """Reduce base coverage newest-first by ``amount``; re-band what remains.
+    """Reduce base coverage newest-first; the caller then reloads policy bands.
 
     The AV adjustment is the decreased units' surrender charge when
     ``charge_scr`` — RERUN charges it on an elective face decrease and the
@@ -2183,9 +2186,7 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr,
         seg.units -= cut_units
         seg.face_amount -= cut
         remaining -= cut
-        _reband_segment(rates, seg, policy.plancode, issue_date=policy.issue_date)
     policy.face_amount = sum(s.face_amount for s in policy.segments)
-    _reband_benefits(rates, policy)  # benefit COI rates follow the base band
     return result
 
 
@@ -2580,9 +2581,7 @@ def _apply_policy_change(
                 if base is not None and av_whole > 0.0:
                     base.face_amount += av_whole
                     base.units += av_whole / (base.vpu or 1000.0)
-                    _reband_segment(rates, base, policy.plancode, issue_date=policy.issue_date)
                     policy.face_amount = sum(s.face_amount for s in policy.segments)
-                    _reband_benefits(rates, policy)
                     outcome.coverage_changed = True
                 outcome.material_change = True  # KZ fires on "BA"
                 detail["DBO Face Decrease"] = 0.0
@@ -3686,8 +3685,14 @@ def _compute_exception_premium(
     ccv_active = policy.has_shadow_account
     # The exception kicks in when the policy is at the guideline limit with a
     # residual negative AV — either the usual scheduled-premium limit-reached
-    # flag, or (with the MD premium) the room having just run out.
-    at_guideline = guideline_limit_reached or result.md_prem_capped
+    # flag, or the room having run out. An off-cycle first forecast month can
+    # leave the annual scheduled-premium flag false even after a later payment
+    # exhausts the actual guideline room.
+    room_exhausted = (
+        guideline_cap_enabled and policy.is_gpt
+        and guideline_limit - (premiums_to_date - withdrawals_to_date) <= 1e-9
+    )
+    at_guideline = guideline_limit_reached or result.md_prem_capped or room_exhausted
     triggered = options.allow_exception_prems and at_guideline and av < 0.0
     gp_mode = prior_exception_mode or triggered      # already past_maturity-guarded
     # An Option B policy uses Option A (level death benefit) assumptions for the
@@ -3748,10 +3753,10 @@ def _calculate_surrender_charge(
     projection_date,
     config: PlancodeConfig = None,
 ):
-    # Expense_Basis drives the SCR units basis: OriginalSA plans charge the
+    # SA_Basis drives the SCR units basis: OriginalSA plans charge the
     # surrender charge on the coverage's ORIGINAL units; every other plan uses
     # the current units. (Units are the specified amount per $1,000.)
-    original_basis = bool(config is not None and config.expense_basis == "OriginalSA")
+    original_basis = bool(config is not None and config.sa_basis == "OriginalSA")
 
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]

@@ -109,10 +109,14 @@ class TestShippedSegmentScreens:
         shipped = {path.stem.removeprefix("seg_") for path in Path(prv._DATA_DIR).glob("seg_??.json")}
         assert set(screens) == shipped
 
-    def test_screens_have_lines_fields_and_layout(self):
+    def test_screens_have_rendering_metadata_fields_and_layout(self):
         _, screens = self._screens()
         for seg, screen in screens.items():
-            assert screen.get("lines"), f"seg {seg}: no terminal lines"
+            assert isinstance(screen.get("lines"), list), f"seg {seg}: no terminal line collection"
+            if screen.get("template"):
+                assert screen["lines"], f"seg {seg}: no template lines"
+            else:
+                assert screen["lines"] or screen.get("field_specs"), f"seg {seg}: no rendering metadata"
             assert isinstance(screen.get("fields"), dict), f"seg {seg}: no fields map"
             assert screen.get("layout_html"), f"seg {seg}: no record layout"
 

@@ -5,23 +5,21 @@ import sys
 import logging
 import traceback
 from datetime import datetime
-from pathlib import Path
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.single_instance import acquire_or_activate
+from suiteview.core.profile_maintenance import initialize_profile
+from suiteview.core.profile_paths import profile_path
 
 logger = logging.getLogger(__name__)
 
 # -- Crash log setup -------------------------------------------------------
-_LOG_DIR = Path.home() / ".suiteview"
-_CRASH_LOG = _LOG_DIR / "crash.log"
-
-
 def _setup_crash_log():
-    """Configure logging to write to ~/.suiteview/crash.log and install
+    """Configure logging to write to the profile logs directory and install
     a global exception hook so unhandled errors are captured even when
     the exe is launched by double-click (no console)."""
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _CRASH_LOG = profile_path("crash.log")
+    _CRASH_LOG.parent.mkdir(parents=True, exist_ok=True)
 
     file_handler = logging.FileHandler(_CRASH_LOG, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
@@ -54,44 +52,19 @@ def _setup_crash_log():
     logger.info("SuiteView starting  %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 
-def _check_single_instance():
-    """Ensure only one instance of SuiteView is running.
-    
-    Returns True if this is the first instance, False if another is already running.
-    """
-    try:
-        import ctypes
-        import ctypes.wintypes as wt
-        # Use use_last_error=True so ctypes captures GetLastError reliably
-        _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-        _kernel32.CreateMutexW.argtypes = [wt.LPVOID, wt.BOOL, wt.LPCWSTR]
-        _kernel32.CreateMutexW.restype = wt.HANDLE
-        mutex = _kernel32.CreateMutexW(None, True, "SuiteView_SingleInstance_Mutex")
-        ERROR_ALREADY_EXISTS = 183
-        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-            # Try to find and activate the existing SuiteView window
-            hwnd = ctypes.windll.user32.FindWindowW(None, "SuiteView")
-            if hwnd:
-                SW_RESTORE = 9
-                ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-            return False
-        # Keep a reference so the mutex isn't garbage-collected
-        _check_single_instance._mutex = mutex
-        return True
-    except Exception:
-        # If mutex check fails (non-Windows), allow launch
-        return True
-
-
 def main():
     """Application entry point"""
-    _setup_crash_log()
-
     # Prevent multiple instances
-    if not _check_single_instance():
+    if not acquire_or_activate():
         logger.info("Another instance already running — exiting")
         sys.exit(0)
+    try:
+        initialize_profile()
+    except Exception as exc:
+        app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, "Profile needs attention", str(exc))
+        raise
+    _setup_crash_log()
     logger.info("Single-instance check passed")
 
     # Clear corrupted win32com gen_py cache if it exists (prevents Excel export errors)
@@ -123,14 +96,12 @@ def main():
 
     # Create and show the main SuiteView window
     try:
+        from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+
         logger.info("Creating SuiteViewTaskbar...")
         suiteview = SuiteViewTaskbar()
         logger.info("SuiteViewTaskbar created successfully")
-        # Set window title based on executable name
-        if getattr(sys, 'frozen', False) and 'SuiteViewLight' in sys.executable:
-            suiteview.setWindowTitle("SuiteView Light")
-        else:
-            suiteview.setWindowTitle("SuiteView")
+        suiteview.setWindowTitle("SuiteView")
         # Window starts in compact mini-bar mode at bottom-right corner
         # (positioning is handled inside SuiteViewTaskbar.__init__)
         
@@ -141,6 +112,7 @@ def main():
         logger.info("SuiteView File Navigator displayed")
     except Exception as e:
         logger.error(f"Failed to create SuiteView window: {e}", exc_info=True)
+        QMessageBox.critical(None, "Cannot Start SuiteView", str(e))
         sys.exit(1)
 
     # Start event loop

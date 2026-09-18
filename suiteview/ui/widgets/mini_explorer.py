@@ -12,6 +12,12 @@ It supports:
 import os
 import shutil
 
+from suiteview.core.access_control import (
+    AccessDeniedError, AccessUnavailableError,
+    can_write_support_files, guard_support_files_writable,
+)
+from suiteview.core.support_files import guard_support_file_paths, is_support_file_path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QGroupBox, QMenu,
@@ -159,7 +165,8 @@ class MiniExplorer(QWidget):
     """Compact file explorer with Home/Up navigation and path breadcrumb.
 
     The list widget passed in (via list_widget_class) is used so callers
-    can supply a drag-enabled subclass.
+    can supply a drag-enabled subclass. Set ``support_files=True`` for policy
+    support browsers; unrelated file browsers retain their existing behavior.
     """
 
     file_selected = pyqtSignal(str)
@@ -168,8 +175,9 @@ class MiniExplorer(QWidget):
     PATH_ROLE = Qt.ItemDataRole.UserRole
 
     def __init__(self, title: str = "", root_path: str = "",
-                 list_widget_class=None, parent=None):
+                 list_widget_class=None, parent=None, *, support_files: bool = False):
         super().__init__(parent)
+        self._support_files = support_files
         self._root_path = root_path
         self._current_path = root_path
         self._title = title
@@ -224,6 +232,8 @@ class MiniExplorer(QWidget):
 
         # List
         self._list = self._list_cls()
+        if isinstance(self._list, DropTargetSubfolderList):
+            self._list.support_files = self._support_files
         self._list.setStyleSheet(_LIST_STYLE)
         self._list.setItemDelegate(TightItemDelegate(self._list))
         self._list.setUniformItemSizes(True)
@@ -362,6 +372,12 @@ class MiniExplorer(QWidget):
                 if not self._at_home:
                     rename_act = menu.addAction(f"Rename '{entry_name}'...")
                     delete_act = menu.addAction(f"Delete '{entry_name}'")
+                    protected = self._support_files or is_support_file_path(path)
+                    writable = not protected or can_write_support_files()
+                    for edit_action in (rename_act, delete_act):
+                        edit_action.setEnabled(writable)
+                        if not writable:
+                            edit_action.setToolTip("Your role cannot modify policy support files.")
 
         action = menu.exec(self._list.viewport().mapToGlobal(pos))
         if action is up_act:
@@ -392,6 +408,10 @@ class MiniExplorer(QWidget):
             QMessageBox.information(self, "Exists", f"'{new_name}' already exists.")
             return
         try:
+            if self._support_files:
+                guard_support_files_writable("rename policy support files or folders")
+            else:
+                guard_support_file_paths(path, new_path, action="rename policy support files or folders")
             os.rename(path, new_path)
             self._refresh()
         except Exception as e:
@@ -410,6 +430,10 @@ class MiniExplorer(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
+            if self._support_files:
+                guard_support_files_writable("delete policy support files or folders")
+            else:
+                guard_support_file_paths(path, action="delete policy support files or folders")
             if is_dir:
                 shutil.rmtree(path)
             else:
@@ -560,6 +584,7 @@ class DropTargetSubfolderList(QListWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.support_files = False
         self.setAcceptDrops(True)
         self.setDragEnabled(True)
         # Internal move or copy from outside
@@ -583,6 +608,15 @@ class DropTargetSubfolderList(QListWidget):
 
     def dropEvent(self, event):
         md = event.mimeData()
+        if self.support_files and (
+            md.hasFormat(_MIME_CATEGORY) or md.hasFormat(_MIME_TOOL_FILE)
+        ):
+            try:
+                guard_support_files_writable()
+            except (AccessDeniedError, AccessUnavailableError) as error:
+                event.ignore()
+                QMessageBox.warning(self, "SuiteView Access", str(error))
+                return
         if md.hasFormat(_MIME_CATEGORY):
             name = bytes(md.data(_MIME_CATEGORY)).decode()
             self.category_dropped.emit(name)

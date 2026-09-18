@@ -9,6 +9,8 @@ fill the page width.
 """
 from __future__ import annotations
 
+from suiteview.core.profile_paths import profile_path
+
 import re
 from datetime import datetime
 from html import escape
@@ -45,7 +47,7 @@ from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT, apply_input_checkbox_s
 
 # Persisted illustration UI settings (output folder for printed PDFs and the
 # Add Expense Report toggle).
-_SETTINGS_FILE = Path.home() / ".suiteview" / "illustration_settings.json"
+_SETTINGS_FILE = profile_path('illustration_settings.json')
 _OUTPUT_FOLDER_KEY = "report_output_folder"
 _EXPENSE_PAGE_KEY = "report_add_expense_page"
 

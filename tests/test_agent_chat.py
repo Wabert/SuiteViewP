@@ -320,7 +320,7 @@ def test_agent_worker_emits_discrete_tool_activity(tmp_path):
     ]
 
 
-def test_taskbar_source_exposes_agent_only_through_tools_menu():
+def test_tools_menu_omits_primary_apps_and_agent():
     source_path = (
         os.path.dirname(__file__)
         + os.sep
@@ -334,6 +334,18 @@ def test_taskbar_source_exposes_agent_only_through_tools_menu():
     )
     source = open(source_path, encoding="utf-8").read()
 
-    assert 'self.tools_menu.addAction("LLM Agent", self._open_agent_chat)' in source
+    omitted_actions = (
+        'self.tools_menu.addAction("LLM Agent", self._open_agent_chat)',
+        'self.tools_menu.addAction("PolView", self._open_polview)',
+        'self.tools_menu.addAction("ABR Quote", self._open_abrquote)',
+        'self.tools_menu.addAction("RERUN", self._open_illustration)',
+        'self.tools_menu.addAction("Audit Tool", self._open_audit)',
+    )
+    assert all(action not in source for action in omitted_actions)
+    assert 'self.tools_menu.addAction("View Screenshots", self._open_screenshot)' in source
+    assert 'self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)' in source
+    assert 'self.tools_menu.addAction("Rate Manager", self._open_rate_manager)' in source
+    assert '"DB2 Table Check", self._open_db2_table_check' in source
+    assert '"📁 App Data Location", self._open_app_data_location' in source
     assert "agent_chat_btn" not in source
     assert "_agent_chat_action" not in source

@@ -6,7 +6,7 @@ QWidget.grab (no live desktop needed).
 
     venv\Scripts\python.exe tools/engine/screenshot_illustration_control.py '{"policy":"UX012760"}'
 
-Keys: policy (required), region (CKPR), out_dir (default ~/.suiteview).
+Keys: policy (required), region (CKPR), out_dir (default ~/.suiteview/diagnostics).
 Prints the output path as JSON.
 """
 from __future__ import annotations
@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from suiteview.core.profile_paths import diagnostics_dir
+
 os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
 
@@ -27,7 +29,7 @@ def main() -> None:
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
     policy = cmd["policy"]
     region = cmd.get("region", "CKPR")
-    out_dir = Path(cmd.get("out_dir") or (Path.home() / ".suiteview"))
+    out_dir = Path(cmd.get("out_dir") or (diagnostics_dir()))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from PyQt6.QtWidgets import QApplication

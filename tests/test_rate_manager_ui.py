@@ -17,7 +17,7 @@ from suiteview.ratemanager.product_chooser import TERM_LINE, UL_LINE
 from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
 
-def test_full_distribution_tools_menu_includes_rate_manager():
+def test_tools_menu_uses_runtime_rate_manager_permission():
     source = (
         Path(__file__).parents[1]
         / "suiteview"
@@ -25,13 +25,8 @@ def test_full_distribution_tools_menu_includes_rate_manager():
         / "suiteview_taskbar.py"
     ).read_text(encoding="utf-8")
 
-    full_build_block = source.split(
-        "if not LIGHT_MODE:", 1
-    )[1].split("if DEV_MODE and not LIGHT_MODE:", 1)[0]
-    assert (
-        'self.tools_menu.addAction("Rate Manager", self._open_rate_manager)'
-        in full_build_block
-    )
+    assert '("RATEMANAGER", "Rate Manager", self._open_rate_manager)' in source
+    assert '@requires_app_access("RATEMANAGER")' in source
 
 
 _QT_APP = QApplication.instance() or QApplication([])

@@ -5,7 +5,7 @@ This module provides centralized data management for all BookmarkContainer insta
 Uses a recursive tree structure where categories can contain bookmarks or other categories.
 
 File structure:
-~/.suiteview/bookmarks.json
+~/.suiteview/data/bookmarks.json
 {
     "next_bar_id": 2,
     "next_item_id": 7,
@@ -43,6 +43,8 @@ Usage:
     manager.save()
 """
 
+from suiteview.core.profile_paths import profile_path
+
 import json
 import logging
 from pathlib import Path
@@ -68,7 +70,7 @@ class BookmarkDataManager:
     _initialized = False
     
     # File path
-    DATA_FILE = Path.home() / ".suiteview" / "bookmarks.json"
+    DATA_FILE = profile_path('bookmarks.json')
     
     # Default bar configurations
     DEFAULT_BARS = {

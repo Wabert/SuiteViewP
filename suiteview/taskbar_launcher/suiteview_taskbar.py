@@ -4,6 +4,8 @@ SuiteView - Main Application Window
 File Navigator with Multi-Tab support, system tray integration, and access to all SuiteView tools
 """
 
+from suiteview.core.profile_paths import profile_path, profile_root
+
 import os
 import sys
 import subprocess
@@ -16,8 +18,12 @@ from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect, QTimer
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
 from suiteview import __version__ as APP_VERSION
-from suiteview.core.build_env import is_distribution_build, is_light_build
+from suiteview.core.access_control import (
+    AccessDeniedError, AccessUnavailableError, can_access_app, get_access, guard_app_access,
+    requires_app_access,
+)
 from suiteview.taskbar_launcher import appbar
+from suiteview.taskbar_launcher.single_instance import activation_message
 
 # Import the base FileExplorerCore
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
@@ -34,19 +40,6 @@ from suiteview.ui.widgets.bookmark_widgets import (
 
 import logging
 logger = logging.getLogger(__name__)
-
-# DEV_MODE is True when running from source, False when running as a PyInstaller exe.
-# Experimental features (Mainframe Nav, ScratchPad, Email Attachments, etc.) are
-# only shown in DEV_MODE.
-DEV_MODE = not is_distribution_build()
-
-# LIGHT_MODE is True in the SuiteViewLight edition (read-only, trimmed feature
-# set). Light includes PolView, FileNav, ABR Quote, and the Audit / Query Tool
-# (read-only), plus View Screenshots and App Data Location. It excludes the LLM
-# Agent and Rate Manager. Sourced from build_env so every module shares one
-# definition.
-LIGHT_MODE = is_light_build()
-
 
 class NavigableTreeView(DropTreeView):
     """Custom QTreeView that emits signals for back/forward mouse buttons and supports file drops"""
@@ -459,14 +452,12 @@ class FileExplorerTab(FileExplorerCore):
             self.bookmark_bar.sidebar_toggle_btn.setChecked(self.dual_pane_active)
 
         # ── ScratchPad panel (4th splitter widget, index 3) ────────────
-        from suiteview.scratchpad.scratchpad_panel import ScratchPadPanel
-        self.scratchpad_panel = ScratchPadPanel(parent=self)
-        self.scratchpad_panel.setVisible(False)
-        self.scratchpad_panel.fullscreen_toggled.connect(self._on_scratchpad_fullscreen)
-        self.main_splitter.addWidget(self.scratchpad_panel)
-        self.main_splitter.setStretchFactor(3, 0)  # ScratchPad panel stays fixed width
-        self.scratchpad_panel_active = self.panel_widths.get('scratchpad_visible', False)
+        self.scratchpad_panel = None
+        self.scratchpad_panel_active = (
+            can_access_app("SCRATCHPAD") and self.panel_widths.get('scratchpad_visible', False)
+        )
         if self.scratchpad_panel_active:
+            self._create_scratchpad_panel()
             self.scratchpad_panel.setVisible(True)
             # Restore widths including scratchpad panel
             saved_scratchpad = self.panel_widths.get('scratchpad_panel', 220)
@@ -1134,10 +1125,20 @@ class FileExplorerTab(FileExplorerCore):
         
         print(f"Dual pane {'enabled' if self.dual_pane_active else 'disabled'}")
 
+    def _create_scratchpad_panel(self):
+        from suiteview.scratchpad.scratchpad_panel import ScratchPadPanel
+
+        self.scratchpad_panel = ScratchPadPanel(parent=self)
+        self.scratchpad_panel.setVisible(False)
+        self.scratchpad_panel.fullscreen_toggled.connect(self._on_scratchpad_fullscreen)
+        self.main_splitter.addWidget(self.scratchpad_panel)
+        self.main_splitter.setStretchFactor(3, 0)
+
+    @requires_app_access("SCRATCHPAD")
     def toggle_scratchpad_panel(self):
         """Toggle the ScratchPad panel on/off"""
-        if not hasattr(self, 'scratchpad_panel'):
-            return
+        if self.scratchpad_panel is None:
+            self._create_scratchpad_panel()
 
         self.scratchpad_panel_active = not self.scratchpad_panel_active
         self.scratchpad_panel.setVisible(self.scratchpad_panel_active)
@@ -1166,6 +1167,7 @@ class FileExplorerTab(FileExplorerCore):
         self.save_panel_widths()
         print(f"ScratchPad panel {'shown' if self.scratchpad_panel_active else 'hidden'}")
 
+    @requires_app_access("SCRATCHPAD")
     def _on_scratchpad_fullscreen(self, go_full: bool):
         """Expand the scratchpad panel to fill the entire splitter, or restore."""
         if not hasattr(self, 'main_splitter'):
@@ -2061,7 +2063,7 @@ class FileExplorerTab(FileExplorerCore):
                 logger.error(f"Failed to open file: {e}")
 
 
-class SuiteViewTaskbar(QWidget):
+class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
     """
     SuiteView main application window and tool launcher.
     Features:
@@ -2071,8 +2073,15 @@ class SuiteViewTaskbar(QWidget):
     - All FileExplorerCore features in each tab
     """
     
+    _restore_requested = pyqtSignal()
+
     def __init__(self):
+        access = get_access(refresh=True)
         super().__init__()
+        self._permission_actions = []
+        self._restore_message = activation_message()
+        self._restore_requested.connect(
+            self._show_from_tray, Qt.ConnectionType.QueuedConnection)
         
         # Frameless window setup
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowMinMaxButtonsHint)
@@ -2113,6 +2122,7 @@ class SuiteViewTaskbar(QWidget):
         self.audit_window = None
         self.db2_check_window = None
         self.ratemanager_window = None
+        self.administrator_window = None
         self.abrquote_window = None
         self.illustration_window = None
         self.file_nav_window = None
@@ -2142,10 +2152,57 @@ class SuiteViewTaskbar(QWidget):
         self._connect_screen_change_handlers()
 
         # Create initial tab
-        self.add_new_tab()
+        if access.allows_app("FILENAV"):
+            self.add_new_tab()
         
         # Start in compact mini-bar mode at bottom-right corner
         self._enter_compact_mode(initial=True)
+        self._apply_permissions(access)
+
+    def _apply_permissions(self, access):
+        controls = (
+            ("POLVIEW", "polview_btn"), ("FILENAV", "filenav_btn"),
+            ("ABR", "abrquote_btn"), ("RERUN", "illustration_btn"),
+            ("QUERY", "audit_btn"), ("ALBERT", "albert_btn"),
+            ("SCRATCHPAD", "scratchpad_window_btn"), ("HISTORY", "file_history_btn"),
+            ("SCREENSHOT", "quick_screenshot_btn"), ("FILENAV", "_file_nav_action"),
+            ("MAINFRAMENAV", "_mainframe_action"), ("SCREENSHOT", "_screenshot_action"),
+            ("POLVIEW", "_polview_action"), ("ABR", "_abrquote_action"),
+            ("QUERY", "_audit_action"),
+        )
+        for code, name in controls:
+            control = getattr(self, name, None)
+            if control is not None:
+                if isinstance(control, QPushButton) and not control.property("accessStyleApplied"):
+                    control.setStyleSheet(control.styleSheet() + """
+                        QPushButton:disabled {
+                            background: #DFE3E8; color: #737B85; border-color: #AAB0B7;
+                        }
+                    """)
+                    control.setProperty("accessStyleApplied", True)
+                control.setEnabled(access is not None and access.allows_app(code))
+        for code, action in self._permission_actions:
+            action.setEnabled(access is not None and access.allows_app(code))
+        for name in ("tools_menu", "_tray_menu"):
+            menu = getattr(self, name, None)
+            if isinstance(menu, QMenu) and not menu.property("accessStyleApplied"):
+                menu.setStyleSheet(menu.styleSheet() + "QMenu::item:disabled { color: #919BA8; }")
+                menu.setProperty("accessStyleApplied", True)
+        file_access = access is not None and access.allows_app("FILENAV")
+        for name in ("tab_widget", "sidebar_container"):
+            control = getattr(self, name, None)
+            if control is not None:
+                control.setEnabled(file_access)
+
+    def _refresh_permissions(self):
+        try:
+            access = get_access(refresh=True)
+        except (AccessDeniedError, AccessUnavailableError) as error:
+            logger.warning("Cannot refresh SuiteView permissions: %s", error)
+            self._apply_permissions(None)
+            QMessageBox.warning(self, "SuiteView Access", str(error))
+            return
+        self._apply_permissions(access)
     
     def _build_suiteview_icon(self, size=64):
         """Build the SuiteView icon - blue square with gold trim and golden S
@@ -2245,16 +2302,15 @@ class SuiteViewTaskbar(QWidget):
         self._file_nav_action.triggered.connect(self._open_file_nav)
         tray_menu.addAction(self._file_nav_action)
 
-        if not LIGHT_MODE:
-            self._mainframe_action = QAction("💻 Mainframe Navigator", self)
-            self._mainframe_action.triggered.connect(self._open_mainframe)
-            tray_menu.addAction(self._mainframe_action)
+        self._mainframe_action = QAction("💻 Mainframe Navigator", self)
+        self._mainframe_action.triggered.connect(self._open_mainframe)
+        tray_menu.addAction(self._mainframe_action)
         
         self._screenshot_action = QAction("📸 View Screenshots", self)
         self._screenshot_action.triggered.connect(self._open_screenshot)
         tray_menu.addAction(self._screenshot_action)
         
-        # PolView and ABR Quote are always available (including distribution builds)
+        # App permissions are applied after all launcher controls are constructed.
         self._polview_action = QAction("📋 PolView", self)
         self._polview_action.triggered.connect(self._open_polview)
         tray_menu.addAction(self._polview_action)
@@ -2357,11 +2413,7 @@ class SuiteViewTaskbar(QWidget):
         floating on top of maximised windows instead of docked beside them.
         """
         self._hidden_to_tray = False
-        self.show()
-        self.activateWindow()
-        self.raise_()
-        if self._is_maximized:
-            self.showMaximized()
+        self.restore_window()
 
         if self._is_compact_mode:
             # Re-apply WS_EX_TOOLWINDOW so the bar stays out of the taskbar
@@ -2371,6 +2423,24 @@ class SuiteViewTaskbar(QWidget):
             QTimer.singleShot(0, self._redock_appbar)
         elif self._is_floating_mode:
             self._apply_toolwindow_style()
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            msg = wintypes.MSG.from_address(int(message))
+            if msg.message == getattr(self, "_restore_message", 0):
+                self._restore_requested.emit()
+                return True, 0
+            # Windows can also show/restore us without changing Qt's hidden
+            # flag. Reconcile on the UI thread, not inside a Win32 callback.
+            if getattr(self, "_hidden_to_tray", False):
+                if ((msg.message == 0x0018 and msg.wParam)  # WM_SHOWWINDOW
+                        or (msg.message == 0x0112
+                            and msg.wParam & 0xFFF0 == 0xF120)):  # SC_RESTORE
+                    self._restore_requested.emit()
+        return False, 0
 
     def _redock_appbar(self):
         """Re-establish the AppBar reservation for the compact mini-bar."""
@@ -2411,6 +2481,10 @@ class SuiteViewTaskbar(QWidget):
         import logging
         logger = logging.getLogger(__name__)
         logger.info("Quit requested from system tray")
+
+        # Preserve Administrator's unsaved-change cancellation before exiting.
+        if self.administrator_window is not None and not self.administrator_window.close():
+            return
         
         try:
             # Unregister AppBar to restore desktop work area (compact mode)
@@ -2443,6 +2517,7 @@ class SuiteViewTaskbar(QWidget):
             # Force quit anyway
             QApplication.quit()
 
+    @requires_app_access("SCREENSHOT")
     def _take_quick_screenshot(self):
         """Take a screenshot of the primary screen INCLUDING SuiteView windows"""
         try:
@@ -2454,7 +2529,7 @@ class SuiteViewTaskbar(QWidget):
             time.sleep(0.05)
             
             # Get screenshots folder
-            screenshots_dir = Path.home() / '.suiteview' / 'screenshots'
+            screenshots_dir = profile_path('screenshots')
             screenshots_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate filename with timestamp
@@ -2492,6 +2567,7 @@ class SuiteViewTaskbar(QWidget):
                 2000
             )
     
+    @requires_app_access("SCREENSHOT")
     def _capture_active_window(self):
         """Capture full screen EXCLUDING SuiteView and Screenshot Manager windows"""
         try:
@@ -2532,7 +2608,7 @@ class SuiteViewTaskbar(QWidget):
             from datetime import datetime
             
             # Get screenshots folder
-            screenshots_dir = Path.home() / '.suiteview' / 'screenshots'
+            screenshots_dir = profile_path('screenshots')
             screenshots_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate filename with timestamp
@@ -2573,6 +2649,7 @@ class SuiteViewTaskbar(QWidget):
             for window in windows_to_restore:
                 window.show()
     
+    @requires_app_access("ALBERT")
     def _open_agent_chat(self):
         """Open or reuse the folder-scoped Copilot Agent window."""
         if self.agent_chat_window is not None:
@@ -2597,6 +2674,7 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.agent_chat_window)
 
+    @requires_app_access("MAINFRAMENAV")
     def _open_mainframe(self):
         """Open the Mainframe Navigator window"""
         if self.mainframe_window is None:
@@ -2606,9 +2684,11 @@ class SuiteViewTaskbar(QWidget):
                 self._setup_child_window(self.mainframe_window, "Mainframe Navigator")
             except Exception as e:
                 logger.error(f"Failed to open Mainframe Navigator: {e}")
+                QMessageBox.warning(self, "Mainframe Navigator", str(e))
                 return
         self._bring_to_front(self.mainframe_window)
     
+    @requires_app_access("SCREENSHOT")
     def _open_screenshot(self):
         """Open the Screenshot Manager window"""
         if self.screenshot_window is None:
@@ -2618,12 +2698,14 @@ class SuiteViewTaskbar(QWidget):
                 self._setup_child_window(self.screenshot_window, "Screenshot Manager")
             except Exception as e:
                 logger.error(f"Failed to open Screenshot Manager: {e}")
+                QMessageBox.warning(self, "Screenshot Manager", str(e))
                 return
         else:
             # Reload screenshots to show any new ones taken while window was hidden
             self.screenshot_window._load_existing_screenshots()
         self._bring_to_front(self.screenshot_window)
     
+    @requires_app_access("EMAILATTACHMENTS")
     def _open_email_attachments(self):
         """Open the Email Attachments window"""
         if self.email_attachments_window is None:
@@ -2633,9 +2715,11 @@ class SuiteViewTaskbar(QWidget):
                 self.email_attachments_window.setWindowIcon(self._build_suiteview_icon(32))
             except Exception as e:
                 logger.error(f"Failed to open Email Attachments: {e}")
+                QMessageBox.warning(self, "Email Attachments", str(e))
                 return
         self._bring_to_front(self.email_attachments_window)
     
+    @requires_app_access("POLVIEW")
     def _open_polview(self):
         """Open the PolView - Policy Viewer window"""
         if self.polview_window is None:
@@ -2646,6 +2730,7 @@ class SuiteViewTaskbar(QWidget):
                 self._wire_polview_illustrator(self.polview_window)
             except Exception as e:
                 logger.error(f"Failed to open PolView: {e}")
+                QMessageBox.warning(self, "PolView", str(e))
                 return
         self._bring_to_front(self.polview_window)
 
@@ -2659,6 +2744,7 @@ class SuiteViewTaskbar(QWidget):
         if window is not None and hasattr(window, 'set_polview_launcher'):
             window.set_polview_launcher(self._launch_polview_with_policy)
 
+    @requires_app_access("POLVIEW")
     def _get_polview_window(self):
         """Get the shared PolView window (used as provider callback for child tools).
 
@@ -2675,6 +2761,7 @@ class SuiteViewTaskbar(QWidget):
                 logger.info("PolView package not available")
             except Exception as e:
                 logger.error(f"Failed to create PolView: {e}")
+                QMessageBox.warning(self, "PolView", str(e))
         return self.polview_window
 
     def _polview_btn_clicked(self):
@@ -2753,6 +2840,7 @@ class SuiteViewTaskbar(QWidget):
             # doesn't keep re-pulling it — even if the load raised.
             self._clear_compact_policy()
 
+    @requires_app_access("RERUN")
     def _launch_illustration_with_policy(self, policy_number, region="CKPR",
                                          company_code=""):
         """Open (or reuse) RERUN and load *policy_number*.
@@ -2765,6 +2853,7 @@ class SuiteViewTaskbar(QWidget):
             win.load_policy(policy_number, region=region, company_code=company_code)
         self._bring_to_front(win)
 
+    @requires_app_access("POLVIEW")
     def _launch_polview_with_policy(self, policy_number, region="CKPR",
                                     company_code=""):
         """Open (or reuse) PolView and load *policy_number*."""
@@ -2774,6 +2863,7 @@ class SuiteViewTaskbar(QWidget):
             win.load_policy(policy_number, region=region, company_code=company_code)
         self._bring_to_front(win)
 
+    @requires_app_access("QUERY")
     def _open_audit(self):
         """Open the Audit Tool window"""
         if self.audit_window is None:
@@ -2796,6 +2886,7 @@ class SuiteViewTaskbar(QWidget):
                 self._launch_illustration_with_policy)
         self._bring_to_front(self.audit_window)
 
+    @requires_app_access("ABR")
     def _open_abrquote(self):
         """Open the ABR Quote Tool window"""
         # Guard: if the stored window was destroyed (e.g. C++ object deleted),
@@ -2822,6 +2913,7 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.abrquote_window)
 
+    @requires_app_access("RERUN")
     def _open_illustration(self):
         """Open the RERUN app window."""
         if self.illustration_window is not None:
@@ -2847,6 +2939,7 @@ class SuiteViewTaskbar(QWidget):
         self._bring_to_front(self.illustration_window)
 
 
+    @requires_app_access("RATEMANAGER")
     def _open_rate_manager(self):
         """Open the Rate Manager window."""
         if self.ratemanager_window is None:
@@ -2856,9 +2949,32 @@ class SuiteViewTaskbar(QWidget):
                 self._setup_child_window(self.ratemanager_window, "Rate Manager")
             except Exception as e:
                 logger.error(f"Failed to open Rate Manager: {e}")
+                QMessageBox.warning(self, "Rate Manager", str(e))
                 return
         self._bring_to_front(self.ratemanager_window)
 
+    def _open_administrator(self):
+        """Recheck ADMIN membership even when reopening an existing window."""
+        from suiteview.administrator.service import AccessRepository
+
+        try:
+            repository = AccessRepository()
+            repository.load()
+            if self.administrator_window is None:
+                from suiteview.administrator.window import AdministratorWindow
+                self.administrator_window = AdministratorWindow(repository=repository)
+                self.administrator_window.setWindowIcon(self._build_suiteview_icon(32))
+                self.administrator_window.permissions_changed.connect(
+                    self._administrator_menu_access.refresh)
+                self.administrator_window.permissions_changed.connect(self._refresh_permissions)
+            self._bring_to_front(self.administrator_window)
+        except Exception as exc:
+            logger.exception("Failed to open Administrator")
+            if self.administrator_window is not None:
+                self.administrator_window.hide()
+            QMessageBox.warning(self, "Administrator", f"Cannot open Administrator:\n\n{exc}")
+
+    @requires_app_access("ADMINISTRATOR")
     def _open_db2_table_check(self):
         """Open the CKPR DB2 Table Check window."""
         if self.db2_check_window is None:
@@ -2879,6 +2995,7 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.db2_check_window)
 
+    @requires_app_access("FILENAV")
     def _open_file_nav(self):
         """Open the File Navigator as a separate window."""
         # Guard: if the stored window was destroyed, reset it
@@ -2900,9 +3017,10 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.file_nav_window)
 
+    @requires_app_access("FILENAV")
     def _open_app_data_location(self):
         """Navigate to the app data folder (~/.suiteview) in the details view"""
-        app_data_dir = Path.home() / '.suiteview'
+        app_data_dir = profile_root()
         # Create the directory if it doesn't exist
         app_data_dir.mkdir(parents=True, exist_ok=True)
         # Navigate to it in the current tab's details pane
@@ -2910,6 +3028,7 @@ class SuiteViewTaskbar(QWidget):
         if current_tab and hasattr(current_tab, 'navigate_to_path'):
             current_tab.navigate_to_path(str(app_data_dir))
 
+    @requires_app_access("SCRATCHPAD")
     def _toggle_scratchpad_window(self):
         """Toggle the ScratchPad window visibility."""
         # Guard: if the stored window was destroyed, reset it
@@ -2928,6 +3047,7 @@ class SuiteViewTaskbar(QWidget):
                 import traceback
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open ScratchPad window: {e}\n{tb}")
+                QMessageBox.warning(self, "ScratchPad", str(e))
                 self.scratchpad_window = None
                 return
 
@@ -2936,6 +3056,7 @@ class SuiteViewTaskbar(QWidget):
         else:
             self._bring_to_front(self.scratchpad_window)
 
+    @requires_app_access("HISTORY")
     def _toggle_file_open_history(self):
         """Toggle the File Open History popup panel."""
         if not hasattr(self, '_file_open_history_panel') or self._file_open_history_panel is None:
@@ -3486,10 +3607,9 @@ class SuiteViewTaskbar(QWidget):
         self.audit_btn.clicked.connect(self._open_audit)
         header_layout.addWidget(self.audit_btn)
 
-        if DEV_MODE and not LIGHT_MODE:
-            from suiteview.taskbar_launcher.albert_launcher import AlbertButton
-            self.albert_btn = AlbertButton(self)
-            header_layout.addWidget(self.albert_btn)
+        from suiteview.taskbar_launcher.albert_launcher import AlbertButton
+        self.albert_btn = AlbertButton(self)
+        header_layout.addWidget(self.albert_btn)
         
         # ====== WINDOW CAPTURE BUTTON (blue dot) - HIDDEN FOR NOW ======
         # Functionality preserved in _capture_active_window() for future use
@@ -3547,8 +3667,7 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         self.scratchpad_window_btn.clicked.connect(self._toggle_scratchpad_window)
-        if not LIGHT_MODE:
-            header_layout.addWidget(self.scratchpad_window_btn)
+        header_layout.addWidget(self.scratchpad_window_btn)
 
         # ====== FILE OPEN HISTORY BUTTON (teal "H" with gold trim) ======
         self.file_history_btn = QPushButton("H")
@@ -3576,8 +3695,7 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         self.file_history_btn.clicked.connect(self._toggle_file_open_history)
-        if not LIGHT_MODE:
-            header_layout.addWidget(self.file_history_btn)
+        header_layout.addWidget(self.file_history_btn)
 
         # Tools dropdown menu button - gold text only
         self.tools_menu_btn = QPushButton("Tools")
@@ -3617,27 +3735,24 @@ class SuiteViewTaskbar(QWidget):
                 background-color: #3A7DC8;
             }
         """)
-        # Apps submenu
-        if not LIGHT_MODE:
-            self.tools_menu.addAction("LLM Agent", self._open_agent_chat)
-        self.tools_menu.addAction("View Screenshots", self._open_screenshot)
-        if not LIGHT_MODE:
-            # Full build: the complete tool set. PolView / ABR Quote / Audit are
-            # also reachable from the header buttons and tray.
-            self.tools_menu.addAction("PolView", self._open_polview)
-            self.tools_menu.addAction("ABR Quote", self._open_abrquote)
-            self.tools_menu.addAction("RERUN", self._open_illustration)
-            self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
-        # Audit / Query Tool is available in Light too (read-only).
-        self.tools_menu.addAction("Audit Tool", self._open_audit)
-        if not LIGHT_MODE:
-            self.tools_menu.addAction("Rate Manager", self._open_rate_manager)
-            self.tools_menu.addAction(
-                "DB2 Table Check", self._open_db2_table_check)
-        if DEV_MODE and not LIGHT_MODE:
-            self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
+        self._permission_actions.append((
+            "SCREENSHOT", self.tools_menu.addAction("View Screenshots", self._open_screenshot)))
+        from suiteview.administrator.launcher import AdministratorMenuAccess
+        self.administrator_action = self.tools_menu.addAction(
+            "Administrator", self._open_administrator)
+        self._administrator_menu_access = AdministratorMenuAccess(
+            self.tools_menu, self.administrator_action)
+        for code, title, callback in (
+            ("MAINFRAMENAV", "Mainframe Navigator", self._open_mainframe),
+            ("RATEMANAGER", "Rate Manager", self._open_rate_manager),
+            ("ADMINISTRATOR", "DB2 Table Check", self._open_db2_table_check),
+            ("EMAILATTACHMENTS", "Email Attachments", self._open_email_attachments),
+        ):
+            self._permission_actions.append((code, self.tools_menu.addAction(title, callback)))
+        self.tools_menu.addAction("Refresh Permissions", self._refresh_permissions)
         self.tools_menu.addSeparator()
-        self.tools_menu.addAction("📁 App Data Location", self._open_app_data_location)
+        self._permission_actions.append((
+            "FILENAV", self.tools_menu.addAction("📁 App Data Location", self._open_app_data_location)))
         self.tools_menu_btn.setMenu(self.tools_menu)
         header_layout.addWidget(self.tools_menu_btn)
 
@@ -3850,6 +3965,7 @@ class SuiteViewTaskbar(QWidget):
         except Exception as e:
             logger.error(f"Failed to duplicate tab: {e}")
 
+    @requires_app_access("FILENAV")
     def add_new_tab(self, path=None, title=None):
         """Add a new tab"""
         # Create new tab - if no path specified, navigate to OneDrive
@@ -4200,7 +4316,7 @@ class SuiteViewTaskbar(QWidget):
         """Collapse to the compact mini-bar docked above the taskbar.
 
         The bar spans the FULL screen width and sits immediately above the
-        Windows taskbar.  SPI_SETWORKAREA then shrinks the desktop work area
+        Windows taskbar.  The shell AppBar shrinks the desktop work area
         so its bottom edge aligns with the TOP of our bar — exactly like
         docking a new toolbar.  The bar is NOT draggable while docked.
 
@@ -4307,7 +4423,7 @@ class SuiteViewTaskbar(QWidget):
 
         hwnd = int(self.winId())
         # Convert bar_h from Qt logical pixels → physical pixels
-        dpr = QApplication.primaryScreen().devicePixelRatio()
+        dpr = self.devicePixelRatioF()
         bar_h_phys = round(bar_h * dpr)
 
         rect = appbar.register_bottom(hwnd, bar_h_phys)
@@ -4316,6 +4432,8 @@ class SuiteViewTaskbar(QWidget):
             if _retry:
                 appbar.unregister(hwnd)
                 self._register_appbar(bar_h, _retry=False)
+            else:
+                self._notify_docking_failure()
             return
 
         self._appbar_registered = True
@@ -4327,9 +4445,22 @@ class SuiteViewTaskbar(QWidget):
                 self._appbar_registered = False
                 self._register_appbar(bar_h, _retry=False)
                 return
-            logger.warning("AppBar registered but work area was not reduced")
+            appbar.unregister(hwnd)
+            self._appbar_registered = False
+            self._notify_docking_failure()
+            return
 
         logger.info(f"AppBar registered: rect={rect}")
+
+    def _notify_docking_failure(self):
+        logger.error("SuiteView could not reserve desktop space for the mini-bar")
+        self.tray_icon.showMessage(
+            "SuiteView docking failed",
+            "Windows did not reserve desktop space. Click the SuiteView tray "
+            "icon to retry docking.",
+            QSystemTrayIcon.MessageIcon.Warning,
+            5000,
+        )
 
     def _unregister_appbar(self, force: bool = False):
         """Unregister the AppBar so the shell restores the full work area.
@@ -4345,6 +4476,7 @@ class SuiteViewTaskbar(QWidget):
         self._appbar_registered = False
         logger.info("AppBar unregistered — work area restored")
 
+    @requires_app_access("FILENAV")
     def _exit_compact_mode(self):
         """Expand from compact mini-bar back to the full window."""
         # Unregister the AppBar FIRST, before repositioning our window
@@ -4520,7 +4652,12 @@ class SuiteViewTaskbar(QWidget):
                 pass
             self._bookmark_popup = None
 
-        popup = BookmarkBarsPopup(parent_bar=self)
+        screen_obj = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
+        screen = screen_obj.availableGeometry()
+        popup = BookmarkBarsPopup(
+            parent_bar=self,
+            maximum_height=max(120, screen.height() - 8),
+        )
         popup.bookmark_activated.connect(self._on_popup_bookmark_activated)
         self._bookmark_popup = popup
 
@@ -4529,17 +4666,18 @@ class SuiteViewTaskbar(QWidget):
         popup_height = popup.sizeHint().height()
         popup_width  = popup.sizeHint().width()
 
-        # Prefer to show above the click; if not enough room, show below
+        # Prefer to show above the bar; otherwise use the largest visible
+        # position on the current monitor.
         bar_geo = self.geometry()
         y = bar_geo.top() - popup_height - 4
-        if y < 0:
+        if y < screen.top():
             y = bar_geo.bottom() + 4
+        y = max(screen.top(), min(y, screen.bottom() - popup_height + 1))
 
         # Horizontally: centre the popup on the right-click X position,
         # clamped so it stays fully on screen.
-        screen = QApplication.primaryScreen().availableGeometry()
         x = global_pos.x() - popup_width // 2
-        x = max(screen.left(), min(x, screen.right() - popup_width))
+        x = max(screen.left(), min(x, screen.right() - popup_width + 1))
 
         popup.move(x, y)
         popup.show()
@@ -4579,6 +4717,7 @@ class SuiteViewTaskbar(QWidget):
             except Exception as e:
                 logger.error(f"Failed to open bookmark path: {e}")
 
+    @requires_app_access("FILENAV")
     def _open_file_nav_at(self, path):
         """Open (or reuse) the FileNav window and navigate it to *path*."""
         # Guard against stale C++ wrapped object
@@ -4738,10 +4877,11 @@ class BookmarkBarsPopup(QWidget):
     # Emitted with the path when a bookmark is clicked
     bookmark_activated = pyqtSignal(str)
 
-    def __init__(self, parent_bar=None):
+    def __init__(self, parent_bar=None, maximum_height=None):
         super().__init__(parent=None)  # Top-level so it floats above everything
         self._parent_bar = parent_bar
         self._containers = []  # Keep refs so they don't get GC'd
+        self._maximum_height = maximum_height
 
         # Use Tool | FramelessWindowHint | WindowStaysOnTopHint instead of
         # Qt.WindowType.Popup.  The Popup flag auto-closes but it also
@@ -4821,9 +4961,9 @@ class BookmarkBarsPopup(QWidget):
         panels_layout.setSpacing(10)
 
         PANEL_WIDTH = 220
-        PANEL_MAX_HEIGHT = 460
-
         _panels_built = 0
+        panels = []
+        desired_panel_height = 0
 
         for bar_id in bar_ids:
             bar_data = manager.get_bar_data(bar_id)
@@ -4838,7 +4978,6 @@ class BookmarkBarsPopup(QWidget):
             # ── Per-bar outer panel ──────────────────────────────────────────
             panel = QFrame()
             panel.setFixedWidth(PANEL_WIDTH)
-            panel.setMaximumHeight(PANEL_MAX_HEIGHT)
             panel.setStyleSheet("""
                 QFrame {
                     background: #9EC8EE;
@@ -4956,7 +5095,31 @@ class BookmarkBarsPopup(QWidget):
             panel_layout.addWidget(scroll)
 
             panels_layout.addWidget(panel)
+            panels.append(panel)
+            desired_panel_height = max(
+                desired_panel_height,
+                title_lbl.sizeHint().height()
+                + items_layout.sizeHint().height()
+                + (panel.frameWidth() * 2),
+            )
             _panels_built += 1
+
+        if panels:
+            popup_chrome_height = (
+                outer_layout.contentsMargins().top()
+                + outer_layout.contentsMargins().bottom()
+                + header.sizeHint().height()
+                + panels_layout.contentsMargins().top()
+                + panels_layout.contentsMargins().bottom()
+            )
+            available_panel_height = desired_panel_height
+            if self._maximum_height is not None:
+                available_panel_height = max(
+                    120, self._maximum_height - popup_chrome_height
+                )
+            panel_height = min(desired_panel_height, available_panel_height)
+            for panel in panels:
+                panel.setFixedHeight(panel_height)
 
         outer_layout.addWidget(panels_frame)
 
@@ -5076,6 +5239,7 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
     _PANEL_BG     = "#CCE5F8"  # Light blue panel background
 
     def __init__(self, parent_bar=None):
+        guard_app_access("FILENAV")
         super().__init__()
         self._parent_bar = parent_bar  # Reference to SuiteView compact bar
 
@@ -5413,6 +5577,7 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
     # ------------------------------------------------------------------
     #  Tab management
     # ------------------------------------------------------------------
+    @requires_app_access("FILENAV")
     def add_new_tab(self, path=None, title=None):
         """Add a new file explorer tab."""
         tab = FileExplorerTab(initial_path=path)
@@ -5511,7 +5676,7 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
             logger.error(f"FileNav tab switch error (tab {index}): {e}\n{tb}")
             # Also write to crash log for diagnostics
             try:
-                crash_file = Path.home() / '.suiteview' / 'filenav_crash.log'
+                crash_file = profile_path('filenav_crash.log')
                 crash_file.parent.mkdir(parents=True, exist_ok=True)
                 from datetime import datetime
                 with open(crash_file, 'a') as f:

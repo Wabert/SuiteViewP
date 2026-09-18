@@ -516,6 +516,8 @@ class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
     """Simple email attachments viewer with FilterTableView"""
     
     def __init__(self, parent=None):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("EMAILATTACHMENTS")
         super().__init__(parent)
         
         self.outlook = None  # Lazy-load Outlook only when needed

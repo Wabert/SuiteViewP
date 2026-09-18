@@ -252,6 +252,48 @@ def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch)
     ] == [(date(2000, 1, 1), 100.0, "PR")]
 
 
+def test_original_sa_loads_stored_mtp_band_by_phase(monkeypatch):
+    source = _FakePolicyInfo()
+    calls = []
+
+    def stored_band(phase):
+        calls.append(phase)
+        return {1: 1, 2: 3}[phase]
+
+    source.cov_mtp_band = stored_band
+    monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_: source)
+    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(
+        illustration_policy_service, "load_plancode",
+        lambda _: PlancodeConfig(plancode="TESTUL", sa_basis="OriginalSA"),
+    )
+    policy = illustration_policy_service.build_illustration_data("TEST")
+    assert calls == [1, 2]
+    assert [seg.band for seg in policy.segments] == [2, 2]
+    assert [seg.original_band for seg in policy.segments] == [1, 3]
+
+
+@pytest.mark.parametrize("original", [None, 0.0])
+def test_original_sa_load_does_not_substitute_current_amount(monkeypatch, original):
+    source = _FakePolicyInfo()
+    coverage = source._coverage(1, "", None)
+    coverage.orig_amount = original
+    source.get_base_coverages = lambda: [coverage]
+    source.cov_mtp_band = lambda phase: 1
+    monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_: source)
+    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(
+        illustration_policy_service, "load_plancode",
+        lambda _: PlancodeConfig(plancode="TESTUL", sa_basis="OriginalSA"),
+    )
+    if original is None:
+        with pytest.raises(ValueError, match="original specified amount is required"):
+            illustration_policy_service.build_illustration_data("TEST")
+    else:
+        policy = illustration_policy_service.build_illustration_data("TEST")
+        assert policy.segments[0].original_face_amount == 0.0
+
+
 def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch):
     class _FixedDate(date):
         @classmethod

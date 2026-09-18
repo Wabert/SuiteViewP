@@ -73,7 +73,10 @@ def test_shortcut_is_wired_in_header_and_preserved_in_floating_mode():
     bar = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                and node.name == "SuiteViewTaskbar")
     methods = {node.name: ast.unparse(node) for node in bar.body if isinstance(node, ast.FunctionDef)}
-    assert "if DEV_MODE and (not LIGHT_MODE):" in methods["init_ui"]
+    assert "DEV_MODE" not in methods["init_ui"]
+    assert "LIGHT_MODE" not in methods["init_ui"]
+    assert "('ALBERT', 'albert_btn')" in methods["_apply_permissions"]
+    assert "control.setEnabled(access is not None and access.allows_app(code))" in methods["_apply_permissions"]
     assert "self.albert_btn = AlbertButton(self)" in methods["init_ui"]
     assert "header_layout.addWidget(self.albert_btn)" in methods["init_ui"]
     assert "self.albert_btn.show()" in methods["_enter_floating_mode"]

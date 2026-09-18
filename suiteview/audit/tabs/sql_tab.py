@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont, QSyntaxHighlighter, QTextCharFormat, QColor
 
-from suiteview.core.build_env import is_light_build
+from suiteview.core.build_env import is_data_read_only
 
 
 _FONT_MONO = QFont("Consolas", 10)
@@ -178,9 +178,8 @@ class SqlTab(QWidget):
         )
         self.btn_move_to_build.clicked.connect(self._on_move_to_build)
         # "Move to Build" hands the SQL to an editable Build-SQL surface where it
-        # can be modified and run — omitted from the read-only SuiteView Light
-        # edition.
-        if is_light_build():
+        # can be modified and run — requires database-write permission.
+        if is_data_read_only():
             self.btn_move_to_build.setVisible(False)
         footer_row.addWidget(self.btn_move_to_build)
 
@@ -196,6 +195,8 @@ class SqlTab(QWidget):
 
     def _on_move_to_build(self):
         """Emit the current SQL text for the Build SQL tab."""
+        if is_data_read_only():
+            return
         sql = self.txt_sql.toPlainText()
         if sql.strip():
             self.move_to_build.emit(sql)

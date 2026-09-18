@@ -271,6 +271,9 @@ class Rates:
         if not sql:
             return None
 
+        from .sql_permissions import guard_query_sql
+
+        guard_query_sql(sql)
         try:
             conn = self._get_connection()
             cursor = conn.cursor()

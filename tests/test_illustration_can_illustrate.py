@@ -40,7 +40,9 @@ def test_can_illustrate_defaults_true_when_key_absent(monkeypatch):
 
     # A table row with no CanIllustrate key still loads as True — existing
     # plancodes keep illustrating.
-    monkeypatch.setattr(pc, "_TABLE_CACHE", {"ZZNOKEY00": {"Plancode": "ZZNOKEY00"}})
+    monkeypatch.setattr(pc, "_TABLE_CACHE", {
+        "ZZNOKEY00": {"Plancode": "ZZNOKEY00", "SA_Basis": "CurrentSA"},
+    })
     monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
     assert load_plancode("ZZNOKEY00").can_illustrate is True
 
@@ -48,7 +50,9 @@ def test_can_illustrate_defaults_true_when_key_absent(monkeypatch):
 def test_can_illustrate_reads_false_from_table(monkeypatch):
     monkeypatch.setattr(
         pc, "_TABLE_CACHE",
-        {"ZZBLOCK00": {"Plancode": "ZZBLOCK00", "CanIllustrate": False}})
+        {"ZZBLOCK00": {
+            "Plancode": "ZZBLOCK00", "CanIllustrate": False, "SA_Basis": "CurrentSA",
+        }})
     monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
     assert load_plancode("ZZBLOCK00").can_illustrate is False
 

@@ -1,11 +1,15 @@
 """Verify effective rate lookup for today's date."""
 
 import sqlite3
+import sys
 from pathlib import Path
 from datetime import date
 
-db_path = Path.home() / ".suiteview" / "abr_quote.db"
-conn = sqlite3.connect(str(db_path))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from suiteview.core.profile_paths import profile_path
+
+db_path = profile_path("abr_quote.db")
+conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
 conn.row_factory = sqlite3.Row
 
 today = date.today()

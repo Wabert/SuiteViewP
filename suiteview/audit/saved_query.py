@@ -1,7 +1,7 @@
 """
 SavedQuery model — a snapshot of a dynamic query's full designer config.
 
-Persisted as JSON in ~/.suiteview/saved_queries/<name>.json
+Persisted as JSON in ~/.suiteview/data/query/saved_queries/<name>.json
 """
 from __future__ import annotations
 

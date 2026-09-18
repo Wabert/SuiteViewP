@@ -40,9 +40,9 @@ Rate sources (local rates.sqlite / UL_Rates):
     Select_RATE_BENMTP / Select_RATE_BENCTP
         keyed by (plancode, benefit key, POLICY issue age, sex, rateclass, band)
 
-Band semantics (RERUN PolicyRates CO: IF(sTarget_BandLock, EY, FD)): when the
-plancode does not lock bands, target rates use the band of the CURRENT total
-specified amount — a face change re-bands every segment's target rate.
+SA_Basis consolidates the workbook's target/EPU basis and target band lock.
+OriginalSA locks MTP rates to each coverage's issue band. CTP always uses the
+CURRENT total specified-amount band, as do unlocked CurrentSA MTP rates.
 """
 from __future__ import annotations
 
@@ -296,7 +296,7 @@ def compute_target_premiums(
     base = policy.base_segment
     total_face = policy.total_face
 
-    # Target band: current total-SA band unless the plancode locks bands. The
+    # CTP and unlocked MTP rates use the current total-SA band. The
     # band face includes any rider that bands as base coverage (core.band_rules).
     # issue_date feeds the Rates_Control-CZ issue-date band boundary.
     current_band = rates_db.get_band(
@@ -311,13 +311,13 @@ def compute_target_premiums(
     for seg in policy.segments:
         if seg.face_amount <= 0:
             continue
-        band = seg.original_band if config.target_band_lock else current_band
-        # Expense_Basis drives the MTP/CTP specified-amount basis: OriginalSA
+        mtp_band = seg.original_band if config.sa_basis == "OriginalSA" else current_band
+        # SA_Basis drives the MTP/CTP specified-amount basis: OriginalSA
         # plans use the coverage's ORIGINAL SA (i.e. original units); every
         # other plan uses the current specified amount.
         sa = (
             seg.original_face_amount
-            if config.expense_basis == "OriginalSA"
+            if config.sa_basis == "OriginalSA"
             else seg.face_amount
         )
         table = (
@@ -330,11 +330,11 @@ def compute_target_premiums(
             if seg.flat_extra and seg.flat_extra > 0 and _active(seg.flat_cease_date, as_of)
             else 0.0
         )
-        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class, band)
-        mtp_rate = rates_db.get_mtp(*args) or 0.0
-        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args) or 0.0
-        ctp_rate = rates_db.get_ctp(*args) or 0.0
-        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args) or 0.0
+        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
+        mtp_rate = rates_db.get_mtp(*args, mtp_band) or 0.0
+        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band) or 0.0
+        ctp_rate = rates_db.get_ctp(*args, current_band) or 0.0
+        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, current_band) or 0.0
         mtp_val = _segment_target(
             sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
         )
@@ -353,7 +353,7 @@ def compute_target_premiums(
     # Benefit targets — looked up at the POLICY issue age (RERUN
     # tRates_Benefit_Targets key uses sINPUT_Issue_Age), base sex/rateclass and
     # the target band. PW is applied last against the MTP-without-PW total.
-    ben_band = base.original_band if config.target_band_lock else current_band
+    ben_band = base.original_band if config.sa_basis == "OriginalSA" else current_band
     pw_rate = 0.0
     pwst_rate = 0.0
     pwst_ctp_rate = 0.0
@@ -375,10 +375,9 @@ def compute_target_premiums(
         ben_key = ben_type + (ben.benefit_subtype or "")
         ben_args = (
             policy.plancode, policy.issue_age, base.rate_sex, base.rate_class,
-            ben_band, ben_key,
         )
-        ben_mtp_rate = rates_db.get_ben_mtp(*ben_args) or 0.0
-        ben_ctp_rate = rates_db.get_ben_ctp(*ben_args) or 0.0
+        ben_mtp_rate = rates_db.get_ben_mtp(*ben_args, ben_band, ben_key) or 0.0
+        ben_ctp_rate = rates_db.get_ben_ctp(*ben_args, current_band, ben_key) or 0.0
         if ben_type == "3":
             # Premium Waiver of Charges (PWoC) — applied last against the
             # MTP-without-PW total (IV), or the FFL PWoC basis (JB).

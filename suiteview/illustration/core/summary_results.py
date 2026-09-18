@@ -12,11 +12,11 @@ from typing import Iterable
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
-SUMMARY_SCHEMA_VERSION = 1
+SUMMARY_SCHEMA_VERSION = 2
 LEAD_COLUMNS = ("Date", "Year", "Month", "Attained Age")
 SUMMARY_COLUMNS = (
     "GrossWD", "DBO", "TotalSA", "PSC", "MonthlyMTP", "Accum MTP",
-    "GLP", "GSP", "AccumGLP", "ForceOut", "Loan Int", "Loan Balance",
+    "GLP", "GSP", "AccumGLP", "ForceOut", "Loan_Accr_Int", "Loan_Princ",
     "Loan Repay", "Premium", "PremTD", "Prem Load", "mAV", "NAAR",
     "Base COI", "Rider COI", "Benefit COI", "EPU", "MFEE", "MD",
     "Exception Prem", "AV", "New Loan", "Interest Rate", "Interest",
@@ -60,14 +60,6 @@ def _total_specified_amount(
     return float(policy.total_face or 0.0)
 
 
-def _beginning_loan_balance(state: MonthlyState) -> float:
-    return (
-        state.rg_loan_princ + state.rg_loan_accrued
-        + state.pf_loan_princ + state.pf_loan_accrued
-        + state.vbl_loan_princ + state.vbl_loan_accrued
-    )
-
-
 def _av_before_monthly_deduction(state: MonthlyState) -> float:
     return state.md_check_av_before_deduction or state.av_after_premium
 
@@ -93,11 +85,13 @@ def summary_values(
         "GSP": state.gsp,
         "AccumGLP": state.accumulated_glp,
         "ForceOut": state.guideline_forceout,
-        "Loan Int": (
-            state.reg_loan_charge + state.pref_loan_charge
-            + state.vbl_loan_charge
+        "Loan_Accr_Int": (
+            state.rg_loan_accrued + state.pf_loan_accrued
+            + state.vbl_loan_accrued
         ),
-        "Loan Balance": _beginning_loan_balance(state),
+        "Loan_Princ": (
+            state.rg_loan_princ + state.pf_loan_princ + state.vbl_loan_princ
+        ),
         "Loan Repay": state.applied_loan_repayment,
         "Premium": state.gross_premium,
         "PremTD": state.premiums_to_date,

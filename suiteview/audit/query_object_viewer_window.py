@@ -94,7 +94,8 @@ from suiteview.core.odbc_utils import (
     get_dsn_details,
 )
 from suiteview.polview.ui.widgets import StyledInfoTableGroup
-from suiteview.core.build_env import is_light_build
+from suiteview.core.build_env import is_data_read_only
+from suiteview.core.access_control import guard_app_access, requires_app_access
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ui.widgets.bookmark_widgets import (
@@ -1396,6 +1397,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     _instance = None
 
     def __init__(self, parent=None):
+        guard_app_access("QUERY")
         self._current: QueryObject | None = None
         self._current_forge_name = ""
         self._current_source_path = ""
@@ -1425,6 +1427,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         )
 
     @classmethod
+    @requires_app_access("QUERY")
     def show_instance(cls, parent=None):
         if cls._instance is None or not cls._instance.isVisible():
             cls._instance = cls(parent)
@@ -1705,8 +1708,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         new_query_menu = QMenu(self._source_dashboard.btn_new_query)
         new_query_menu.addAction("Visual Query").triggered.connect(
             lambda: self._on_source_new_query("visual"))
-        # No hand-written SQL surface in the read-only SuiteView Light edition.
-        if not is_light_build():
+        # Hand-written SQL requires database-write permission.
+        if not is_data_read_only():
             new_query_menu.addAction("Manual SQL").triggered.connect(
                 lambda: self._on_source_new_query("manual"))
         self._source_dashboard.btn_new_query.setMenu(new_query_menu)
@@ -2548,7 +2551,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _offer_to_save_file_source_edits(self) -> None:
         """If a File Source has unsaved edits, offer to Save before navigating away.
 
-        Light guard — it never blocks navigation, it just asks whether to persist
+        Navigation guard — it never blocks navigation, it just asks whether to persist
         the draft first (Save) or drop it (Discard)."""
         dash = self._source_dashboard
         if self._current_source_kind != "file_data_source" or not dash.is_dirty():
@@ -4717,6 +4720,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         except Exception as exc:
             QMessageBox.warning(self, "Open Folder Failed", str(exc))
 
+    @requires_app_access("FILENAV")
     def _open_folder_in_suiteview_file_nav(self, folder: str) -> bool:
         launcher = self._find_file_nav_launcher()
         if launcher is not None:
@@ -4864,6 +4868,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         opener(object_name)
 
+    @requires_app_access("QUERY")
     def _open_query_object_in_new_builder(self, object_name: str):
         """Open a Query Object in a brand-new builder window.
 
@@ -4930,6 +4935,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         opener(forge_name)
 
+    @requires_app_access("QUERY")
     def _audit_window_for_builder(self):
         for candidate in (self._audit_parent, self.parent(), self._find_audit_window()):
             if not self._is_audit_window(candidate):
@@ -4960,6 +4966,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return False
 
     def _show_audit_window(self, window) -> bool:
+        guard_app_access("QUERY")
         try:
             restore = getattr(window, "restore_window", None)
             if callable(restore):

@@ -86,15 +86,13 @@ Each plancode has a configuration record (currently in the Rates_Control "BasePl
 | `InherentGCO` | Has inherent GCO rider | False |
 | `MFEE` | Monthly fee amount (or "Table") | 5 |
 | `EPU_Code` | Expense per unit source | Table (from UL_Rates DB) |
-| `EPU SA_Basis` | EPU applied to current or original SA | CurrentSA |
+| `SA_Basis` | Shared EPU/MTP/CTP/SCR amount basis; OriginalSA also locks MTP bands at coverage issue | CurrentSA, OriginalSA |
 | `Table Rating Factor` | Substandard rating multiplier | 0.25 |
 | `DBD` | Death benefit discount rate | 0.03 |
 | `Bonus` | Bonus type | Table (from UL_Rates DB) |
 | `PremiumLoad` | Premium load source | Table (from UL_Rates DB) |
 | `PremFlatLoad` | Flat premium load (older products) | 0 |
 | `SNET` | Safety net period (years) | 10 |
-| `Target SA_Basis` | Target premium basis | CurrentSA |
-| `Target BandLock` | Band locked at issue | False |
 | `PSC` | Partial Surrender Charge applies | True |
 | `CanIllustrate` | Plancode supported for illustration | True |
 | `CorridorCode` | Which corridor table to use | 1 |
@@ -103,6 +101,24 @@ Each plancode has a configuration record (currently in the Rates_Control "BasePl
 | `Interest Method` | Day count method | ExactDays |
 
 **Decision:** Store the plancode table as JSON, with an editor UI for updates/additions. Migrate to database later.
+
+**Specified-amount basis (September 2026):** The JSON field `SA_Basis` replaces
+`Expense_Basis`. One field implements the workbook's EPU SA_Basis, Target
+SA_Basis and Target BandLock rules. `OriginalSA` multiplies EPU, MTP, CTP and
+full surrender rates by each coverage's original specified amount. It locks
+only MTP rates (including table-rating MTP rates) to the band's value at coverage
+issue. CTP, COI, EPU and premium-load rates are not locked by this setting;
+surrender rates are not banded. `CurrentSA` uses current amounts and current
+target bands.
+
+Inforce locked bands are read through `PolicyInformation.cov_mtp_band()` from
+the primary-person type-M renewal band, matching VBA `BandAtIssue`. Never use
+the current policy band as a substitute for missing stored bands. New projected
+coverages capture the current combined-SA band on their own issue date.
+Subsequent face changes refresh COI/EPU for all active segments, preserving
+their separate issue bands. OriginalSA also retains no partial surrender charge
+and excludes the withdrawal fee from the specified-amount decrease (not from
+the AV withdrawal). The shadow-account basis remains independent.
 
 ---
 

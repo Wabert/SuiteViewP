@@ -14,6 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from suiteview.core.profile_paths import diagnostics_dir
+
 from PyQt6.QtCore import Qt, QTimer  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
@@ -22,7 +24,7 @@ def _seed():
     from suiteview.audit import file_source_store
     from suiteview.audit.file_source_intake import add_member_file, infer_file_source_from_file
 
-    base = Path.home() / ".suiteview"
+    base = diagnostics_dir()
     base.mkdir(parents=True, exist_ok=True)
     claims = base / "CLAIMS.csv"
     claims.write_text("policy,state,claim_amount,status\nP1,TX,100,OPEN\n", encoding="utf-8")
@@ -48,7 +50,7 @@ def _select_first_file_source(win):
 
 def main():
     output = sys.argv[1] if len(sys.argv) > 1 else str(
-        Path.home() / ".suiteview" / "source_dashboard.png")
+        diagnostics_dir() / "source_dashboard.png")
 
     app = QApplication(sys.argv)
     _seed()

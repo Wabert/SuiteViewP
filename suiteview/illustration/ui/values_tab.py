@@ -174,8 +174,8 @@ LEDGER_DRILL_TABS = {
     "GSP": "TEFRA and TAMRA",
     "AccumGLP": "TEFRA and TAMRA",
     "ForceOut": "TEFRA and TAMRA",
-    "Loan Int": "Accumulation",
-    "Loan Balance": "Loan Capitalize and Repay",
+    "Loan_Accr_Int": "Loan Capitalize and Repay",
+    "Loan_Princ": "Loan Capitalize and Repay",
     "Loan Repay": "Loan Capitalize and Repay",
     "Premium": "Apply Premium",
     "PremTD": "Apply Premium",
@@ -1958,9 +1958,6 @@ class IllustrationValuesTab(QWidget):
         loan_capitalize = self._loan_capitalize_values(state)
         row.update(loan_capitalize)
         row.update(self._surrender_values(state, coverage_keys))
-        # Summary-tab composites derived from group columns above.
-        row["Loan Int"] = state.reg_loan_charge + state.pref_loan_charge + state.vbl_loan_charge
-        row["New Loan"] = state.applied_new_loan
         row.update(self._summary_values(policy, state))
         row.update(self._testing_values(state))
         return row

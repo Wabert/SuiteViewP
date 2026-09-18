@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.build_env import is_distribution_build
+from suiteview.core.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
 from suiteview.illustration.core.calc_engine import IllustrationEngine
@@ -80,6 +81,8 @@ class IllustrationWindow(FramelessWindowBase):
 
     def __init__(self, parent=None, initial_policy: str = "",
                  initial_region: str = "CKPR", initial_company: str = ""):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("RERUN")
         self._db: Optional[DB2Connection] = None
         self._policy: Optional[PolicyInformation] = None
         self._current_policy = None
@@ -271,7 +274,8 @@ class IllustrationWindow(FramelessWindowBase):
         """Register the shared PolView policy launcher supplied by the taskbar."""
         self._polview_launcher = launcher
 
-    def _open_in_polview(self):
+    @requires_app_access("POLVIEW")
+    def _open_in_polview(self, checked=False):
         """Open the currently loaded policy in PolView."""
         if not self._current_policy:
             return
@@ -317,7 +321,7 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.layout().addWidget(self.run_values_btn)
 
         # Saved cases: persist named input scenarios (plus a frozen policy
-        # snapshot) to disk (~/.suiteview/illustration_cases) and reload them
+        # snapshot) to disk (~/.suiteview/data/illustration/cases) and reload them
         # across sessions. Save lives here; browsing/loading/rename/delete
         # live in the Saved Cases panel (header toggle).
         self._cases_controller = CasesController(

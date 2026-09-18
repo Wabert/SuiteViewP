@@ -30,7 +30,7 @@ from .abr_styles import (
 from ...ui.widgets.frameless_window import FramelessWindowBase
 from ...polview.ui.widgets import FixedHeaderTableWidget
 from ..models.abr_database import get_abr_database
-from ...core.build_env import is_data_read_only
+from ...core.build_env import ReadOnlyDataError, guard_data_writable, is_data_read_only
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +366,7 @@ class RateViewerDialog(FramelessWindowBase):
         # Show action bar only for tables we can edit directly (SV_ tables).
         # TERM-managed tables (modal_factors, band_amounts, policy_fees, min_face)
         # are read-only in the viewer — they're managed by the term rate loader.
-        # In the read-only edition (SuiteView Light) the action bar is hidden for
+        # Without database-write permission the action bar is hidden for
         # every table: the shared UL_Rates database is view-only.
         editable = table_key in (
             "interest_rates", "per_diem", "state_variations",
@@ -476,13 +476,11 @@ class RateViewerDialog(FramelessWindowBase):
         return values
 
     def _reject_write(self, action: str) -> bool:
-        """Block a write in the read-only (Light) edition. Returns True when the
-        caller should abort. The action bar is already hidden in read-only, so
-        this is the belt-and-braces guard behind the UI."""
-        if is_data_read_only():
-            QMessageBox.information(
-                self, "Read-only",
-                f"SuiteView Light is read-only — you cannot {action}.")
+        """Recheck live permissions, including for already-open editors."""
+        try:
+            guard_data_writable(action)
+        except ReadOnlyDataError as exc:
+            QMessageBox.information(self, "Permission Required", str(exc))
             return True
         return False
 
@@ -582,6 +580,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("delete rate data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -700,6 +699,7 @@ class RateViewerDialog(FramelessWindowBase):
         iul_rate = float(iul_text) if iul_text else None
 
         try:
+            guard_data_writable("save interest rate data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -831,6 +831,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("save per diem data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -962,6 +963,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("save state variation data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -1086,6 +1088,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("save minimum face data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -1221,6 +1224,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("save modal factor data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -1356,6 +1360,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("save band amount data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()
@@ -1472,6 +1477,7 @@ class RateViewerDialog(FramelessWindowBase):
             return
 
         try:
+            guard_data_writable("save policy fee data")
             db = get_abr_database()
             conn = db.connect()
             cursor = conn.cursor()

@@ -3,10 +3,12 @@ DataForge persistence — save/load/list/delete named DataForge definitions, plu
 per-Source parquet Snapshot I/O.
 
 Storage:
-  ~/.suiteview/saved_dataforges/<name>.json          — the Forge definition
-  ~/.suiteview/saved_dataforges/<name>/<alias>.parquet — each Source's Snapshot
+  ~/.suiteview/data/query/saved_dataforges/<name>.json          — the Forge definition
+  ~/.suiteview/data/query/saved_dataforges/<name>/<alias>.parquet — each Source's Snapshot
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
@@ -20,7 +22,7 @@ from .dataforge_model import DataForge
 
 logger = logging.getLogger(__name__)
 
-_FORGES_DIR = Path.home() / ".suiteview" / "saved_dataforges"
+_FORGES_DIR = profile_path('saved_dataforges')
 
 
 def _ensure_dir() -> Path:

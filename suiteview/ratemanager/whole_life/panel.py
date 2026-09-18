@@ -341,7 +341,7 @@ class WholeLifeWorkupPanel(_AsyncPanel):
             "Does not run automatically.")
         footer.addWidget(self.create_btn)
         footer.addWidget(_label(
-            "Read-only edition: loading and table creation are disabled."
+            "CanUpdateDatabase permission is required to load or create tables."
             if is_data_read_only() else
             "Updates are backed up transactionally. No rows are deleted.",
             note=True), 1)
@@ -527,7 +527,7 @@ class WholeLifeWorkupPanel(_AsyncPanel):
         if self.is_busy:
             return
         if is_data_read_only():
-            self._report_error("This edition is read-only; loading is disabled.")
+            self._report_error("CanUpdateDatabase permission is required to load rates.")
             return
         analysis = self._analysis
         if analysis is None:
@@ -582,7 +582,7 @@ class WholeLifeWorkupPanel(_AsyncPanel):
         if self.is_busy:
             return
         if is_data_read_only():
-            self._report_error("This edition is read-only; table creation is disabled.")
+            self._report_error("CanUpdateDatabase permission is required to create tables.")
             return
         answer = QMessageBox.question(
             self, "Create missing Whole Life tables",

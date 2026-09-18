@@ -1,14 +1,16 @@
 """
 QDefinition persistence — save/load/list/delete named query definitions.
 
-Storage: ~/.suiteview/qdefinitions/<forge_name>/<qdef_name>.json
-Snapshots: ~/.suiteview/qdefinitions/<forge_name>/<qdef_name>.parquet
+Storage: ~/.suiteview/data/query/qdefinitions/<forge_name>/<qdef_name>.json
+Snapshots: ~/.suiteview/data/query/qdefinitions/<forge_name>/<qdef_name>.parquet
 
 QDefs are scoped to a DataForge. Names must be unique within a forge,
 but the same name can exist under different forges.
 QDefs without a forge go into the '_commons' folder.
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
@@ -20,7 +22,7 @@ from suiteview.audit.qdefinition import QDefinition
 
 logger = logging.getLogger(__name__)
 
-_QDEFS_DIR = Path.home() / ".suiteview" / "qdefinitions"
+_QDEFS_DIR = profile_path('qdefinitions')
 COMMONS_NAME = "_commons"
 
 

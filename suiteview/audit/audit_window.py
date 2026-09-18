@@ -19,7 +19,8 @@ from PyQt6.QtWidgets import (
     QSplitter, QFileDialog, QMenu, QToolButton,
 )
 from suiteview.core.db2_constants import DEFAULT_REGION
-from suiteview.core.build_env import is_light_build
+from suiteview.core.build_env import ReadOnlyDataError, guard_data_writable, is_data_read_only
+from suiteview.core.access_control import guard_app_access, requires_app_access
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from .constants import REGION_ITEMS, SYSTEM_CODE_ITEMS
 from .tabs.policy_tab import PolicyTab
@@ -106,9 +107,8 @@ class QueryObjectModeDialog(QDialog):
                 "Table-driven builder for sources, inputs, outputs, joins, and preview",
             ),
         ]
-        # Manual SQL lets a user run arbitrary hand-written SQL — omitted from
-        # the read-only SuiteView Light edition.
-        if not is_light_build():
+        # Arbitrary SQL requires database-write permission.
+        if not is_data_read_only():
             modes.append((
                 "manual_sql",
                 "Manual SQL Object",
@@ -131,7 +131,9 @@ class AuditWindow(FramelessWindowBase):
     query_object_saved = pyqtSignal(str)
 
     def __init__(self, region: str = DEFAULT_REGION, parent=None):
+        guard_app_access("QUERY")
         self._region = region
+        self._regex_cheatsheet = None
         super().__init__(
             title="SuiteView - Audit Tool",
             default_size=(1215, 720),
@@ -140,6 +142,14 @@ class AuditWindow(FramelessWindowBase):
             header_colors=_HEADER_COLORS,
             border_color=_BORDER_COLOR,
         )
+
+    def _show_regex_cheatsheet(self):
+        from .regex_cheatsheet import RegexCheatsheetWindow
+
+        if self._regex_cheatsheet is None:
+            self._regex_cheatsheet = RegexCheatsheetWindow(self)
+        self._regex_cheatsheet.restore_window()
+
     # ── UI construction ──────────────────────────────────────────────
     def build_content(self) -> QWidget:
         body = QWidget()
@@ -188,6 +198,12 @@ class AuditWindow(FramelessWindowBase):
         self.btn_objects.setStyleSheet(_HEADER_BTN_STYLE)
         self.btn_objects.setToolTip("Open the unified Query Object browser")
         self.btn_objects.clicked.connect(self._open_query_object_viewer)
+        self.btn_regex_cheatsheet = QPushButton("RegEx Cheatsheet")
+        self.btn_regex_cheatsheet.setFont(QFont("Segoe UI", 8))
+        self.btn_regex_cheatsheet.setFixedHeight(24)
+        self.btn_regex_cheatsheet.setStyleSheet(_HEADER_BTN_STYLE)
+        self.btn_regex_cheatsheet.setToolTip("Show regular expressions and useful patterns")
+        self.btn_regex_cheatsheet.clicked.connect(self._show_regex_cheatsheet)
         self.lbl_build_mode = QLabel("Build Mode")
         self.lbl_build_mode.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
         self.lbl_build_mode.setStyleSheet("color: #D4A017; padding: 0 4px;")
@@ -208,8 +224,8 @@ class AuditWindow(FramelessWindowBase):
             ("manual_sql", "Manual SQL"),
             ("dataforge", "DataForge"),
         ]
-        # No arbitrary hand-written SQL in the read-only SuiteView Light edition.
-        if is_light_build():
+        # No arbitrary hand-written SQL without database-write permission.
+        if is_data_read_only():
             _build_modes = [m for m in _build_modes if m[0] != "manual_sql"]
         for mode, label in _build_modes:
             action = mode_menu.addAction(label)
@@ -318,6 +334,7 @@ class AuditWindow(FramelessWindowBase):
             QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
         header_layout.insertWidget(insert_pos + 2, self.lbl_build_mode)
         header_layout.insertWidget(insert_pos + 3, self.btn_build_mode)
+        header_layout.insertWidget(insert_pos + 4, self.btn_regex_cheatsheet)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -1257,6 +1274,7 @@ class AuditWindow(FramelessWindowBase):
             logger.exception("Failed to open Query Object browser")
             QMessageBox.warning(self, "Query Object Error", str(exc))
 
+    @requires_app_access("QUERY")
     def open_query_object_in_builder(self, object_name: str):
         """Open a QueryObject in the builder that owns its editable design."""
         from suiteview.audit import query_object_store, saved_query_store as sq_store
@@ -1280,13 +1298,13 @@ class AuditWindow(FramelessWindowBase):
             if self._open_dataforge_source_design(obj):
                 return
         if obj.kind == OBJECT_KIND_MANUAL_SQL:
-            if is_light_build():
+            if is_data_read_only():
                 QMessageBox.information(
                     self,
-                    "Not Available in SuiteView Light",
+                    "Permission Required",
                     "Manual SQL objects can't be opened in the editor in "
-                    "SuiteView Light — this edition is read-only and doesn't "
-                    "run hand-written SQL.",
+                    "your role — CanUpdateDatabase permission is required "
+                    "to run hand-written SQL.",
                 )
                 return
             self.open_manual_sql_object(obj)
@@ -1357,6 +1375,7 @@ class AuditWindow(FramelessWindowBase):
             return ""
         return source.strip()
 
+    @requires_app_access("QUERY")
     def open_dataforge_in_builder(self, forge_name: str):
         """Open a saved DataForge, or a new DataForge for unnamed source copies."""
         from suiteview.audit.dataforge import dataforge_store as df_store
@@ -1466,6 +1485,8 @@ class AuditWindow(FramelessWindowBase):
 
     def _start_manual_sql_object(self, *, reset: bool = True):
         """Open the dedicated Manual SQL Object editor shell."""
+        if not self._allow_manual_sql():
+            return
         if reset or not self._manual_sql_started:
             self.manual_sql_object_tab.new_object()
             self._manual_sql_started = True
@@ -1483,6 +1504,8 @@ class AuditWindow(FramelessWindowBase):
 
     def open_manual_sql_object(self, obj):
         """Open a saved Manual SQL QueryObject in its editor."""
+        if not self._allow_manual_sql():
+            return
         self._manual_sql_started = True
         self.manual_sql_object_tab.load_object(obj)
         self.manual_sql_object_tab.set_connection_options(
@@ -1592,6 +1615,7 @@ class AuditWindow(FramelessWindowBase):
             benefits_tab=self.benefits_tab,
             transaction_tab=self.transaction_tab,
             segment52_tab=self.segment52_tab,
+            wl_tab=self.wl_tab,
         )
 
         # Prepend Common Table CTEs if any are selected
@@ -1783,6 +1807,9 @@ class AuditWindow(FramelessWindowBase):
         dsn = db.dsn
 
         def work():
+            from suiteview.core.sql_permissions import guard_query_sql
+
+            guard_query_sql(sql)
             t0 = time.time()
             columns, rows = db.execute_query_with_headers_isolated(sql)
             t_query = time.time() - t0
@@ -2088,8 +2115,18 @@ class AuditWindow(FramelessWindowBase):
         self._remove_dataforge_group(display)
         self._refresh_picker_forge_list()
     # ── Build SQL feature ───────────────────────────────────────
+    def _allow_manual_sql(self) -> bool:
+        try:
+            guard_data_writable("use the Manual SQL editor")
+        except ReadOnlyDataError as exc:
+            QMessageBox.information(self, "Permission Required", str(exc))
+            return False
+        return True
+
     def _on_move_to_build(self, sql: str):
         """Copy SQL to the Build SQL tab and switch to it."""
+        if not self._allow_manual_sql():
+            return
         # Add tab if not already present
         if self._build_sql_tab_index < 0:
             self._build_sql_tab_index = self.tabs.addTab(
@@ -2098,11 +2135,14 @@ class AuditWindow(FramelessWindowBase):
         self.tabs.setCurrentWidget(self.build_sql_tab)
     def _run_build_sql(self, sql: str):
         """Execute user-edited SQL and show results in Build SQL Results."""
+        if not self._allow_manual_sql():
+            return
         region = self.cmb_region.currentText()
         db = DB2Connection(region)
         dsn = getattr(db, "dsn", region)
 
         def work():
+            guard_data_writable("run hand-written SQL")
             columns, rows = db.execute_query_with_headers_isolated(sql)
             return pd.DataFrame([list(r) for r in rows], columns=columns)
 
@@ -2129,6 +2169,8 @@ class AuditWindow(FramelessWindowBase):
 
     def _run_manual_sql_preview(self, sql: str):
         """Execute Manual SQL Object preview and capture output schema."""
+        if not self._allow_manual_sql():
+            return
         dsn = self.manual_sql_object_tab.current_connection()
         if not dsn:
             QMessageBox.warning(self, "Connection Required", "Select a connection before previewing SQL.")
@@ -2138,6 +2180,7 @@ class AuditWindow(FramelessWindowBase):
             return
 
         def work():
+            guard_data_writable("run hand-written SQL")
             t0 = time.time()
             columns, rows = execute_odbc_query(dsn, sql)
             t_query = time.time() - t0
@@ -2168,6 +2211,8 @@ class AuditWindow(FramelessWindowBase):
 
     def _run_manual_sql_preview_file(self, token: str, sql: str):
         """Run a Manual SQL preview against a File Source via DuckDB."""
+        if not self._allow_manual_sql():
+            return
         from suiteview.audit import file_query_runner
 
         fds = file_query_runner.resolve_file_source(token[len("file:"):])
@@ -2176,6 +2221,7 @@ class AuditWindow(FramelessWindowBase):
             return
 
         def work():
+            guard_data_writable("run hand-written SQL")
             t0 = time.time()
             result = file_query_runner.run_sql(fds, sql, limit=1000)
             return result.dataframe, time.time() - t0
@@ -2214,6 +2260,8 @@ class AuditWindow(FramelessWindowBase):
 
     def _open_manual_sql_on_file_source(self, file_source_id: str):
         """Open the Manual SQL editor targeted at a saved File Source (DuckDB)."""
+        if not self._allow_manual_sql():
+            return
         from suiteview.audit import file_query_runner
 
         fds = file_query_runner.resolve_file_source(file_source_id)
@@ -2374,6 +2422,7 @@ class AuditWindow(FramelessWindowBase):
     def set_polview_provider(self, provider):
         """Set a callback that returns the shared PolView window."""
         self._polview_provider = provider
+    @requires_app_access("POLVIEW")
     def _open_polview_with_policy(self, policy_number: str,
                                   company_code: str):
         """Open PolView and load the given policy."""
@@ -2433,6 +2482,7 @@ class AuditWindow(FramelessWindowBase):
                              policy_number)
             return False
 
+    @requires_app_access("RERUN")
     def _open_rerun_with_policy(self, policy_number: str, company_code: str):
         """Open RERUN and load the given policy."""
         region = self.cmb_region.currentText()

@@ -63,6 +63,43 @@ def _rates():
     return IllustrationRates(coi=[0.0, 6.0], segment_coi={1: [0.0, 6.0]})
 
 
+@pytest.mark.parametrize(
+    "doli,room,cap_enabled,allow,past_snet,shadow,age,lapsed,pays",
+    [
+        ("GPT", 0.0, True, True, True, False, 70, False, True),
+        ("GPT", 1e-10, True, True, True, False, 70, False, True),
+        ("GPT", 0.01, True, True, True, False, 70, False, False),
+        ("GPT", 100.0, True, True, True, False, 70, False, False),
+        ("GPT", 0.0, False, True, True, False, 70, False, False),
+        ("GPT", 0.0, True, False, True, False, 70, False, False),
+        ("CVAT", 0.0, True, True, True, False, 70, False, False),
+        ("", 0.0, True, True, True, False, 70, False, False),
+        ("GPT", 0.0, True, True, False, False, 70, False, False),
+        ("GPT", 0.0, True, True, True, True, 70, False, False),
+        ("GPT", 0.0, True, True, True, False, 121, False, False),
+        ("GPT", 0.0, True, True, True, False, 70, True, False),
+    ],
+)
+def test_spent_guideline_room_triggers_exception_without_annual_flag(
+    doli, room, cap_enabled, allow, past_snet, shadow, age, lapsed, pays,
+):
+    policy = _md_policy()
+    policy.def_of_life_ins = doli
+    policy.ccv_active = shadow
+    result = calc_engine._compute_exception_premium(
+        IllustrationOptions(allow_exception_prems=allow),
+        policy, PlancodeConfig(maturity_age=121), _rates(), 1,
+        av_after_charge=-100.0, coi_rate=6.0,
+        guideline_limit_reached=False, past_snet=past_snet,
+        prior_exception_mode=False, prior_lapsed=lapsed, attained_age=age,
+        guideline_limit=1_000.0, premiums_to_date=1_100.0 - room,
+        withdrawals_to_date=100.0, guideline_cap_enabled=cap_enabled,
+    )
+    assert (result.prem > 0) == pays
+    assert result.md_prem == 0
+    assert result.av_after_exception == pytest.approx(0 if pays else -100.0)
+
+
 @pytest.mark.parametrize("timing", list(calc_engine.ProjectionTiming))
 @pytest.mark.parametrize("md_premium", [False, True])
 def test_zero_glp_starts_exception_period_and_spends_av_first(monkeypatch, timing, md_premium):

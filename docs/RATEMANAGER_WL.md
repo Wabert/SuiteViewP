@@ -50,7 +50,7 @@ preview limit, not evidence that a source/table contains no further rows.
   analysis. All selected table writes commit together.
 - Existing values selected for update are backed up atomically before writing.
   Load receipts include source paths, SHA-256 hashes, counts and commit status
-  under `~/.suiteview/rate_manager_backups/whole_life/`. A **prepared** receipt
+  under `~/.suiteview/backups/rate_manager/whole_life/`. A **prepared** receipt
   alone is not proof of a successful commit.
 - The service verifies equality against the staged source before and after
   committing. Repeating the same import is a no-op.

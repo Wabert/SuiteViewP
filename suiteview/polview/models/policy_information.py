@@ -3116,6 +3116,39 @@ class PolicyInformation:
             return None
         return covs[cov_index - 1].cov_pha_nbr
     
+    def cov_mtp_band(self, cov_pha_nbr: int) -> int:
+        """Stored MTP band by phase, RERUN's BandAtIssue (not current face).
+
+        Segment 02/67 mappings verify BAN_STRUCTURE_CD and RT_BAN_CD.
+        ExecuLife structure 6 orders X/Y before A; other structures start at A.
+        """
+        coverage_rows = [
+            row for row in self.fetch_table("LH_COV_PHA")
+            if int(row["COV_PHA_NBR"]) == cov_pha_nbr
+        ]
+        if len(coverage_rows) != 1:
+            raise ValueError(f"Coverage {cov_pha_nbr}: missing or ambiguous band structure")
+        raw_structure = coverage_rows[0]["BAN_STRUCTURE_CD"]
+        if raw_structure is None:
+            raise ValueError(f"Coverage {cov_pha_nbr}: NULL band structure")
+        structure = str(raw_structure).strip()
+        if structure in ("", "00", "0"):
+            return 0
+        codes = {
+            str(row["RT_BAN_CD"] or "").strip()
+            for row in self.fetch_table("LH_COV_INS_RNL_RT")
+            if int(row["COV_PHA_NBR"]) == cov_pha_nbr
+            and str(row["PRM_RT_TYP_CD"]).strip() == "M"
+            and str(row["JT_INS_IND"]).strip() == "0"
+        }
+        alphabet = "XYABCDEFGHIJK" if structure in ("6", "06") else "ABCDEFGHIJK"
+        if len(codes) != 1:
+            raise ValueError(f"Coverage {cov_pha_nbr}: missing or ambiguous stored MTP band")
+        code = codes.pop()
+        if len(code) != 1 or code not in alphabet:
+            raise ValueError(f"Coverage {cov_pha_nbr}: invalid stored MTP band {code!r}")
+        return alphabet.index(code) + 1
+
     def cov_band(self, cov_index: int) -> Optional[int]:
         """
         Get face amount band for coverage.

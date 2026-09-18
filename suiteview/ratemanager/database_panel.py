@@ -9,6 +9,8 @@ from typing import Any, Callable, Optional
 import pandas as pd
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QIntValidator
+from suiteview.core.build_env import is_data_read_only
+
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -484,7 +486,8 @@ class WorkupDatabaseLoadTab(QWidget):
 
     def _can_apply(self) -> bool:
         return bool(
-            self._plan
+            not is_data_read_only()
+            and self._plan
             and self._plan.is_safe
             and any(action != LoadAction.SKIP for action in self._actions().values())
         )
@@ -760,7 +763,7 @@ class ManageExistingTab(QWidget):
     def _on_pointers_loaded(self, data: TableData) -> None:
         self._pointer_data = data
         self.pointer_view.set_dataframe(_records_dataframe(data))
-        enabled = bool(data.rows)
+        enabled = bool(data.rows) and not is_data_read_only()
         self.edit_pointer_btn.setEnabled(enabled)
         self.delete_pointer_btn.setEnabled(enabled)
         self.operation_status.setText(
@@ -865,7 +868,7 @@ class ManageExistingTab(QWidget):
     def _on_rate_loaded(self, data: TableData) -> None:
         self._rate_data = data
         self.rate_view.set_dataframe(_records_dataframe(data))
-        self.delete_rate_btn.setEnabled(bool(data.rows))
+        self.delete_rate_btn.setEnabled(bool(data.rows) and not is_data_read_only())
         self.operation_status.setText(
             f"Loaded {len(data.rows):,} {data.spec.name} row(s). "
             "Deletion will recheck pointer references inside the transaction."

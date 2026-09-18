@@ -7,8 +7,8 @@ known, its COBOL / DB2 source mapping.  This turns an intimidating wall of codes
 into something self-explanatory.  Below the screen, a scrollable "Record Layout"
 reference table documents each field's byte position and source (COBOL / DB2).
 
-Tabs follow the loaded policy's mapped DB2 records. Absent segments are omitted;
-present segments without a supported screen show an unavailable message, never
+Tabs show implemented screens backed by the loaded policy's mapped DB2 records.
+Absent and unsupported segments are omitted; failures stay explicit, never
 another policy's captured values. Each terminal value supports right-click Copy.
 
 Rendering approach (native, no browser engine):
@@ -80,7 +80,7 @@ def load_screen(segment: str) -> Optional[dict]:
 
 
 def build_screen(segment: str, pi) -> Optional[dict]:
-    """Return a live/unsupported screen, or None for an absent policy segment."""
+    """Return a live/error screen, or None for an absent or unsupported segment."""
     if pi is None:
         return None
     unavailable = {
@@ -90,6 +90,10 @@ def build_screen(segment: str, pi) -> Optional[dict]:
     try:
         from suiteview.polview.models.policy_record_builder import build_segment_lines
 
+        base = load_screen(segment)
+        if base is None:
+            return None
+        unavailable["title"] = base["title"]
         tables = POLICY_RECORD_TABLES[f"Policy Record {segment}"]
         has_data = False
         for table in tables:
@@ -100,17 +104,13 @@ def build_screen(segment: str, pi) -> Optional[dict]:
             has_data = has_data or bool(rows)
         if not has_data:
             return None
-        base = load_screen(segment)
-        if base is None:
-            return unavailable
-        unavailable["title"] = base["title"]
         lines = build_segment_lines(segment, pi, base)
     except Exception as exc:
         logger.exception("Failed to build live policy-record segment %s", segment)
         return {**unavailable, "live_error": str(exc)}
 
     if not lines:
-        return unavailable
+        return None
 
     live = dict(base)
     live["lines"] = lines
@@ -372,7 +372,7 @@ class _SegmentTab(QScrollArea):
 class PolicyRecordViewerWindow(FramelessWindowBase):
     """Frameless PolView-themed window hosting the policy-record segment tabs.
 
-    Only policy-backed segments are shown. Unsupported screens stay blank.
+    Only implemented, policy-backed segments are shown, plus explicit errors.
     """
 
     def __init__(self, parent=None, policy_number: str = "",
@@ -469,12 +469,12 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
             who = f"{region}-{company}" if company else region
             text = (
                 f"CyberLife policy record \u2014 {pi.policy_number}  ({who}).  "
-                "Tabs show segments with policy data; data-load errors are identified. "
-                "Screens not yet supported remain blank. Hover a value for its source "
+                "Tabs show implemented screens with policy data; data-load errors are identified. "
+                "Screens not yet supported are omitted. Hover a value for its source "
                 "mapping; right-click to copy. Scroll down for the record layout."
             )
             if not self.tabs.count():
-                text += " No policy record segment data was found."
+                text += " No supported policy record screens are available for this policy."
         else:
             text = self._policy_error or "Load a policy to view its policy record."
         legend = QLabel(text)

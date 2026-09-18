@@ -11,11 +11,11 @@ Usage:
     venv\\Scripts\\python.exe tools/policyrecord/preview_policy_record.py '{"policy": "", "out": "C:/tmp"}'
 
 Config may also be read from @path.json. Optional verification keys:
-expect_absent (segment list), expect_unavailable (segment list), copy_field
+expect_absent (absent or unsupported segment list), expect_live (segment list), copy_field
 (a tooltip field to copy through the real native menu on the selected tab).
 Set expect_no_errors to require every displayed segment to be error-free.
 Writes <out>/policy_record_top.png, _tooltip.png, _layout.png
-(default out: ~/.suiteview; default policy: U0633187).
+(default out: ~/.suiteview/diagnostics; default policy: U0633187).
 """
 
 import json
@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from suiteview.core.profile_paths import diagnostics_dir
 
 from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QTextBrowser, QToolTip
 from PyQt6.QtCore import QMimeData, QTimer, QPoint, Qt
@@ -56,6 +58,7 @@ def _verify(window, cfg, app):
         labels = [label.text() for label in tab.findChildren(QLabel)]
         live = bool(tab.findChildren(_TerminalScreen))
         if not live:
+            assert any(text.startswith("LIVE DATA ERROR") for text in labels)
             assert not tab.findChildren(_MainframeToken)
             assert not tab.findChildren(QTextBrowser)
             assert _UNAVAILABLE_MESSAGE in labels
@@ -64,8 +67,8 @@ def _verify(window, cfg, app):
             "live": live, "error": any(text.startswith("LIVE DATA ERROR") for text in labels),
         }
     assert set(cfg.get("expect_absent", [])).isdisjoint(tabs), "An absent segment is still visible."
-    for segment in cfg.get("expect_unavailable", []):
-        assert segment in tabs and not tabs[segment]["live"] and not tabs[segment]["error"]
+    for segment in cfg.get("expect_live", []):
+        assert segment in tabs and tabs[segment]["live"] and not tabs[segment]["error"]
     if cfg.get("expect_no_errors"):
         assert not any(tab["error"] for tab in tabs.values()), "A segment has a live data error."
     result = {"tabs": tabs}
@@ -102,7 +105,7 @@ def _verify(window, cfg, app):
 
 def main():
     cfg = _parse_cfg(sys.argv)
-    out_dir = Path(cfg["out"]) if cfg.get("out") else (Path.home() / ".suiteview")
+    out_dir = Path(cfg["out"]) if cfg.get("out") else (diagnostics_dir())
     out_dir.mkdir(parents=True, exist_ok=True)
 
     app = QApplication(sys.argv)

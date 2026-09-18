@@ -2,8 +2,8 @@
 DataForge model — a saved combination of Queries (the **Forge**) that joins and
 queries several **Sources** with DuckDB over cached **Snapshots**.
 
-Persisted as JSON in ~/.suiteview/saved_dataforges/<name>.json; each Source's
-Snapshot is a parquet file under ~/.suiteview/saved_dataforges/<name>/.
+Persisted as JSON in ~/.suiteview/data/query/saved_dataforges/<name>.json; each Source's
+Snapshot is a parquet file under ~/.suiteview/data/query/saved_dataforges/<name>/.
 
 Vocabulary & decisions (see DATAFORGE_DESIGN.md):
 - A **Source** is an *editable copy* of a Query: it carries its own

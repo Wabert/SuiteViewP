@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from suiteview.core.profile_paths import profile_path
+
 import json
 import os
 from pathlib import Path
@@ -16,7 +18,7 @@ class ConversationStoreError(RuntimeError):
 
 class ConversationStore:
     def __init__(self, root: Path | None = None):
-        self.root = root or Path.home() / ".suiteview" / "agent_chat"
+        self.root = root or profile_path('agent_chat')
         self.path = self.root / "sessions.json"
 
     def load(self) -> list[AgentConversation]:

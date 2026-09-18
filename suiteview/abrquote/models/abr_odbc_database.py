@@ -28,6 +28,8 @@ This module provides full read access.  Schema is managed externally
 in SQL Server.
 """
 
+from suiteview.core.profile_paths import profile_path
+
 import logging
 import time
 from datetime import date
@@ -122,8 +124,8 @@ class ABROdbcDatabase:
         self._query_stats.clear()
 
     def dump_query_stats(self):
-        """Write a summary table of all query timings to ~/.suiteview/timing.log."""
-        log_path = Path.home() / ".suiteview" / "timing.log"
+        """Write a summary table of all query timings to ~/.suiteview/logs/timing.log."""
+        log_path = profile_path('timing.log')
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as f:
             import datetime

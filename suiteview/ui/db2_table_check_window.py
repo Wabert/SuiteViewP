@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.core.db2_table_access import scan_table_access
+from suiteview.core.access_control import guard_app_access, requires_app_access
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class DB2TableCheckWindow(FramelessWindowBase):
     """List LH_/TH_ tables and flag the ones the login can't SELECT."""
 
     def __init__(self, region: str = "CKPR", parent=None):
+        guard_app_access("ADMINISTRATOR")
         self._region = region.upper()
         self._result: dict | None = None
         self._worker: _ScanWorker | None = None
@@ -130,6 +132,7 @@ class DB2TableCheckWindow(FramelessWindowBase):
 
     # ── Scan lifecycle ────────────────────────────────────────────────
 
+    @requires_app_access("ADMINISTRATOR")
     def _start_scan(self):
         if self._worker is not None and self._worker.isRunning():
             return

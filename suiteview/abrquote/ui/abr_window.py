@@ -59,6 +59,8 @@ class ABRQuoteWindow(FramelessWindowBase):
 
     def __init__(self, parent=None, initial_policy: str = "",
                  initial_region: str = "CKPR", initial_company: str = ""):
+        from suiteview.core.access_control import guard_app_access
+        guard_app_access("ABR")
         # State
         self._policy: Optional[ABRPolicyData] = None
         self._assessment: Optional[MedicalAssessment] = None

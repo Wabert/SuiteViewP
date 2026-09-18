@@ -7,6 +7,8 @@ Shows ABR interest rate and per diem limits.
 
 from __future__ import annotations
 
+from suiteview.core.profile_paths import profile_path
+
 import logging
 import time
 from datetime import date
@@ -1346,7 +1348,7 @@ class PolicyPanel(QWidget):
 
             t_total_elapsed = time.perf_counter() - t_total
             # Write section timings to file
-            timing_path = Path.home() / ".suiteview" / "timing.log"
+            timing_path = profile_path('timing.log')
             timing_path.parent.mkdir(parents=True, exist_ok=True)
             with open(timing_path, "a", encoding="utf-8") as f:
                 f.write(f"\n[TIMING] Policy {p.policy_number} — Section Timings:\n")

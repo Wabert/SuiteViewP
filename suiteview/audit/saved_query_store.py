@@ -1,9 +1,11 @@
 """
 Saved query persistence — save/load/list/delete named query snapshots.
 
-Storage: ~/.suiteview/saved_queries/<name>.json
+Storage: ~/.suiteview/data/query/saved_queries/<name>.json
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
@@ -15,7 +17,7 @@ from suiteview.core.json_store import write_json
 
 logger = logging.getLogger(__name__)
 
-_QUERIES_DIR = Path.home() / ".suiteview" / "saved_queries"
+_QUERIES_DIR = profile_path('saved_queries')
 
 
 def _ensure_dir() -> Path:

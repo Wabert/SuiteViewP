@@ -620,6 +620,9 @@ def run_manual_sql(
     Source filters are NOT applied — the SQL is authoritative; write them in.
     ``column_sources`` is empty: arbitrary SQL output can't be mapped back.
     """
+    from suiteview.core.sql_permissions import guard_query_sql
+
+    guard_query_sql(sql)
     if not sources:
         raise ForgeEngineError("A Forge needs at least one Source.")
     statement = prepare_manual_statement(sql, limit)

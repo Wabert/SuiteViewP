@@ -1,7 +1,7 @@
 """
 QueryObject persistence — id-keyed.
 
-Storage: ~/.suiteview/query_objects/<safe_name>__<id8>.json — readable AND
+Storage: ~/.suiteview/data/query/query_objects/<safe_name>__<id8>.json — readable AND
 collision-free, because query **names are no longer unique** (the organizer
 and browser reference queries by ``QueryObject.id``; see DATAFORGE_DESIGN §8).
 Tests and tools can override the directory with SUITEVIEW_QUERY_OBJECTS_DIR.
@@ -16,6 +16,8 @@ Re-sync, qdef_store, saved visual designs); they resolve to the **newest
 updated** object with that name. New code should use the ``*_by_id`` forms.
 """
 from __future__ import annotations
+
+from suiteview.core.profile_paths import profile_path
 
 import copy
 import json
@@ -37,7 +39,7 @@ def _objects_dir() -> Path:
     override = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
     if override:
         return Path(override)
-    return Path.home() / ".suiteview" / "query_objects"
+    return profile_path('query_objects')
 
 
 def _ensure_dir() -> Path:

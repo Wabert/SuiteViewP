@@ -3,6 +3,7 @@
 import logging
 import sys
 from pathlib import Path
+from suiteview.core.profile_paths import profile_path
 from logging.handlers import RotatingFileHandler
 
 
@@ -15,8 +16,7 @@ def setup_logging(log_dir: str = None, log_level: str = "INFO"):
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
     if log_dir is None:
-        home = Path.home()
-        log_dir = home / '.suiteview' / 'logs'
+        log_dir = profile_path("logs")
         log_dir.mkdir(parents=True, exist_ok=True)
     else:
         log_dir = Path(log_dir)

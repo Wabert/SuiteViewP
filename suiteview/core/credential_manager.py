@@ -2,9 +2,10 @@
 
 import os
 import logging
-from pathlib import Path
+import sqlite3
 from cryptography.fernet import Fernet
 from typing import Optional
+from suiteview.core.profile_paths import profile_path
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +20,12 @@ class CredentialManager:
 
     def _get_or_create_key(self) -> bytes:
         """
-        Get or create encryption key for this machine/user.
-        Uses a machine-specific key stored in user's home directory.
+        Get or create the profile's file-based encryption key.
         """
-        home = Path.home()
-        key_dir = home / '.suiteview'
-        key_file = key_dir / '.key'
+        key_file = profile_path(".key")
 
         # Create directory if it doesn't exist
-        key_dir.mkdir(exist_ok=True)
+        key_file.parent.mkdir(parents=True, exist_ok=True)
 
         if key_file.exists():
             # Read existing key
@@ -35,11 +33,29 @@ class CredentialManager:
                 key = f.read()
             logger.debug("Loaded existing encryption key")
         else:
+            database = profile_path("suiteview.db")
+            if database.exists():
+                conn = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+                try:
+                    has_connections = conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connections'"
+                    ).fetchone()
+                    if has_connections and conn.execute(
+                        "SELECT 1 FROM connections WHERE length(encrypted_username) > 0 "
+                        "OR length(encrypted_password) > 0 LIMIT 1"
+                    ).fetchone():
+                        raise RuntimeError(
+                            "The profile encryption key is missing, but saved credentials "
+                            "exist. Restore auth/.key from the same profile backup; "
+                            "a replacement key cannot decrypt those credentials."
+                        )
+                finally:
+                    conn.close()
             # Generate new key
             key = Fernet.generate_key()
 
             # Save key with restricted permissions
-            with open(key_file, 'wb') as f:
+            with open(key_file, 'xb') as f:
                 f.write(key)
 
             # Set file permissions to user-only (600)

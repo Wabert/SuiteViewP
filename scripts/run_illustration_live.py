@@ -21,6 +21,8 @@ if str(ROOT) not in sys.path:
 
 
 def main() -> None:
+    from suiteview.core.profile_maintenance import initialize_profile
+    initialize_profile()
     from PyQt6.QtWidgets import QApplication
 
     from suiteview.illustration.main import create_illustration_window

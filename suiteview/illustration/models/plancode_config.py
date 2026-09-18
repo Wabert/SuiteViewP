@@ -66,17 +66,10 @@ class PlancodeConfig:
     # Non-FFL ULs are all basis 1; some FFL ULs use 2 or 3.
     pwot_coi_basis: int = 1
 
-    # Target premiums (MTP/CTP) — RERUN sTarget_BandLock. The specified-amount
-    # basis for MTP/CTP is driven by ``expense_basis`` (see below). RERUN's
-    # sTarget_SA_Basis also gates the withdrawal fee (CalcEngine BP); that is
-    # what ``target_sa_basis`` still controls here.
-    target_sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA" (withdrawal fee gate)
-    target_band_lock: bool = False       # True = keep each segment's original band
-
     # Withdrawals — RERUN sWithdrawalFee / sMD_HoldBack, plus the
     # post-withdrawal minimum face hardcoded in the workbook (AY: SA - 25,025
     # = 25,000 floor + the fee). Partial surrender charge eligibility is
-    # derived from ``expense_basis`` below.
+    # derived from ``sa_basis`` below.
     withdrawal_fee: float = 25.0
     md_holdback: float = 0.0             # months of prior MD held back from max-net
     min_face_after_wd: float = 25000.0
@@ -105,19 +98,21 @@ class PlancodeConfig:
     # does not depend on issue date (every other plancode).
     band_table2_issue_date: Optional[date] = None
     skipped_cov_rein: bool = False
-    # Expense (charge) specified-amount basis. Derived from skipped_cov_rein:
-    # plans that reinstate skipped coverage (the IUL family) charge expenses on
-    # the ORIGINAL specified amount ("OriginalSA"); every other plan charges on
-    # the CURRENT specified amount ("CurrentSA"). Drives the EPU charge, the
-    # MTP/CTP target premiums, and the full surrender charge (SCR) units.
+    # Specified-amount basis for EPU, MTP, CTP and full surrender charges.
+    # OriginalSA also locks only MTP rates to each coverage's issue band;
+    # CTP, COI, EPU and premium-load bands remain current (SCR is unbanded).
     # CurrentSA plans assess partial surrender charges on withdrawals and
     # specified-amount decreases; OriginalSA plans do not.
-    expense_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
+    sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
+
+    def __post_init__(self) -> None:
+        if self.sa_basis not in ("CurrentSA", "OriginalSA"):
+            raise ValueError(f"{self.plancode}: invalid SA_Basis {self.sa_basis!r}")
 
     @property
     def partial_surrender_charge(self) -> bool:
         """Whether decreases assess a partial surrender charge."""
-        return self.expense_basis == "CurrentSA"
+        return self.sa_basis == "CurrentSA"
 
     # Loans
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
@@ -224,8 +219,6 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
         company_sub=str(data.get("CompanySub", "ANICO")).strip(),
         pwot_coi_basis=_int_or_default(data.get("PWoT_COI_Basis", 1), 1),
-        target_sa_basis=data.get("Target_SA_Basis", "CurrentSA"),
-        target_band_lock=bool(data.get("Target_BandLock", False)),
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),
         md_holdback=float(data.get("MD_HoldBack", 0)),
         min_face_after_wd=float(data.get("MinFaceAfterWD", 25000)),
@@ -239,10 +232,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         rachet_banding=bool(data.get("Rachet_Banding", False)),
         band_table2_issue_date=_date_or_none(data.get("BandTable2IssueDate")),
         skipped_cov_rein=bool(data.get("SkippedCovRein", False)),
-        expense_basis=data.get(
-            "Expense_Basis",
-            "OriginalSA" if bool(data.get("SkippedCovRein", False)) else "CurrentSA",
-        ),
+        sa_basis=data["SA_Basis"],
         loan_type=data.get("LoanType", "Arrears"),
         loan_charge_rate_guar=float(data.get("LoanChargeRate", data.get("LoanChargeRateGuar", 0))),
         loan_charge_rate_curr=float(data.get("LoanCollateralCreditRate", data.get("LoanChargeRateCurr", 0))),

@@ -241,7 +241,7 @@ def build_guideline_basis(
                     seg_rate = 0.0
             sa_basis = (
                 seg.original_face_amount
-                if config.expense_basis == "OriginalSA"
+                if config.sa_basis == "OriginalSA"
                 else seg.face_amount
             )
             epu_total += seg_rate * sa_basis / 1000.0
