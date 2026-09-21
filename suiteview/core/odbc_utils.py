@@ -233,30 +233,34 @@ def test_dsn_connection(dsn: str) -> tuple[bool, str]:
 
 
 def is_password_error(error_message: str) -> bool:
-    """Heuristic: does the ODBC error look like a connection/auth failure?
-
-    Intentionally broad — any ODBC connect failure against a DSN with
-    stored credentials is almost always a stale password.
-    """
+    """Recognize authentication failures, not transport or SQL permission errors."""
     markers = [
-        "08001",          # SQLSTATE: Unable to connect
-        "08S01",          # Communication link failure
         "28000",          # SQLSTATE: Invalid authorization
         "SQL30082",       # DB2 security processing failure
-        "password",
-        "credential",
-        "authentication",
-        "not authorized",
+        "-30082",
+        "password expired",
+        "password has expired",
+        "invalid password",
+        "incorrect password",
+        "invalid credential",
+        "authentication failed",
+        "login failed",
         "logon denied",
-        "signon",
-        "failed to connect",   # DB2ConnectionError message
-        "communication link",
-        "connection failure",
-        "pyodbc",              # raw pyodbc errors
-        "odbc",                # general ODBC failures
+        "signon failed",
     ]
     lower = error_message.lower()
     return any(m.lower() in lower for m in markers)
+
+
+def is_communication_error(error_message: str) -> bool:
+    """Recognize broken/unavailable connections eligible for one read retry."""
+    if is_password_error(error_message):
+        return False
+    upper = error_message.upper()
+    return any(marker in upper for marker in (
+        "08001", "08003", "08006", "08S01", "SQL30081", "-30081",
+        "TCP/IP COMMUNICATIONS ERROR", "COMMUNICATION LINK FAILURE",
+    ))
 
 
 def update_dsn_password(dsn: str, new_password: str) -> tuple[bool, str]:

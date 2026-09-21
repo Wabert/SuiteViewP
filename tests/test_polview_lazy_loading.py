@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import pyodbc
 from PyQt6 import sip
 from PyQt6.QtCore import QCoreApplication, QEvent, QTimer
 from PyQt6.QtWidgets import QApplication, QLabel
@@ -42,7 +43,7 @@ def host(qtbot, monkeypatch, tmp_path):
     monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path))
     state = SimpleNamespace(
         gates={}, entered=[], calls=[], closed=[], rendered=[],
-        failures={}, policies={}, unavailable=set(), sessions=[],
+        failures={}, errors={}, policies={}, unavailable=set(), sessions=[],
     )
 
     class Session:
@@ -59,7 +60,7 @@ def host(qtbot, monkeypatch, tmp_path):
             state.calls.append((self.number, stage, get_ident()))
             if state.failures.get(stage, 0):
                 state.failures[stage] -= 1
-                raise RuntimeError(f"{stage} database unavailable")
+                raise state.errors.get(stage, RuntimeError(f"{stage} database unavailable"))
             return SimpleNamespace(
                 policy=self.policy.detached_copy(), stage=stage,
                 available=stage not in state.unavailable,
@@ -109,6 +110,59 @@ def host(qtbot, monkeypatch, tmp_path):
 
 def settled(qtbot, window):
     qtbot.waitUntil(lambda: not window._loader.busy, timeout=5000)
+
+
+@pytest.mark.parametrize("stage", ["coverages", "policy"])
+def test_communication_failure_retries_once_without_password_prompt(host, qtbot, monkeypatch, stage):
+    window, state = host
+    prompt = Mock()
+    monkeypatch.setattr(main_window, "_show_odbc_warning", prompt)
+    state.failures[stage] = 1
+    state.errors[stage] = pyodbc.Error(
+        "08001", "[08001] SQLCODE = -30081, TCP/IP COMMUNICATIONS ERROR\x00garbage")
+    window.load_policy("FIRST")
+    settled(qtbot, window)
+    assert window._tab_states[stage] == "ready"
+    assert sum(s == stage for _, s, _ in state.calls) == 2
+    prompt.assert_not_called()
+    if stage == "coverages":
+        assert len(state.sessions) == 2
+        assert state.closed
+
+
+def test_persistent_transport_error_is_clean_and_manual_retry_remains(host, qtbot, monkeypatch):
+    window, state = host
+    prompt = Mock()
+    monkeypatch.setattr(main_window, "_show_odbc_warning", prompt)
+    state.failures["coverages"] = 2
+    state.errors["coverages"] = pyodbc.Error(
+        "08001", "[08001] SQLCODE = -30081, TCP/IP COMMUNICATIONS ERROR\x00garbage")
+    window.load_policy("FIRST")
+    settled(qtbot, window)
+    assert window._tab_states["coverages"] == "failed"
+    assert len(state.calls) == 2
+    detail = window.tabs.tabToolTip(window.tabs.indexOf(window.coverages_tab))
+    assert "-30081" in detail
+    assert "reconnecting once" in detail
+    assert "garbage" not in detail
+    assert "password" not in detail.lower()
+    prompt.assert_not_called()
+    window._retry_policy_tab("coverages")
+    settled(qtbot, window)
+    assert window._tab_states["coverages"] == "ready"
+
+
+def test_authentication_error_prompts_without_automatic_retry(host, qtbot, monkeypatch):
+    window, state = host
+    prompt = Mock()
+    monkeypatch.setattr(main_window, "_show_odbc_warning", prompt)
+    state.failures["coverages"] = 1
+    state.errors["coverages"] = pyodbc.Error("28000", "[28000] Invalid password")
+    window.load_policy("FIRST")
+    settled(qtbot, window)
+    assert len(state.calls) == 1
+    prompt.assert_called_once()
+    assert window._tab_states["coverages"] == "failed"
 
 
 def test_initial_request_returns_immediately_and_gui_keeps_ticking(host, qtbot):

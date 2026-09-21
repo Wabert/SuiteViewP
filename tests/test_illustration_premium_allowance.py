@@ -556,6 +556,55 @@ def test_premium_allowances_respects_levelizing_option():
     assert off.applied_scheduled_premium == pytest.approx(500.0)  # dollar-for-dollar
 
 
+@pytest.mark.parametrize("payments", [12, 4, 2, 1])
+@pytest.mark.parametrize("levelizing,has_loan", [(True, False), (False, False), (True, True)])
+def test_maturity_options_levelize_first_guideline_capped_year(payments, levelizing, has_loan):
+    from suiteview.illustration.core.calc_engine import _premium_allowances
+    from suiteview.illustration.core.solve_level_to_exception import level_to_exception_options
+    from suiteview.illustration.models.input_set import IllustrationOptions
+    from suiteview.illustration.models.policy_data import IllustrationPolicyData
+
+    # UE006519 year 12: $204.18 room, formerly $37.12 x 5 + $18.58 then zero.
+    options = level_to_exception_options(IllustrationOptions(levelizing_premium=levelizing))
+    policy = IllustrationPolicyData(def_of_life_ins="GPT", tamra_7pay_level=0.0)
+    prior = None
+    paid = 0.0
+    amounts = []
+    step = 12 // payments
+    for month in range(1, 13):
+        due = (month - 1) % step == 0
+        allowance = _premium_allowances(
+            options, policy,
+            guideline_limit=204.18, premiums_to_date=paid,
+            withdrawals_before_forceout=0.0, force_out=0.0, amount_in_7pay=0.0,
+            tamra_year=12, tamra_month_of_year=month, policy_month=month,
+            tamra_reset=False, requested_scheduled=37.12 * step if due else 0.0,
+            requested_lumpsum=0.0, payment_count_policy_year=payments,
+            payment_count_tamra_year=payments, has_loan_balance=has_loan,
+            beginning_of_year=month == 1,
+            prior_scheduled_prem_cap=prior.scheduled_prem_cap if prior else 0.0,
+            prior_scheduled_cap_by_guideline=prior.scheduled_cap_by_guideline if prior else False,
+            prior_transition_year_active=prior.in_transition_year if prior else False,
+        )
+        assert allowance.apply_levelized is (levelizing and not has_loan)
+        if due:
+            amounts.append(allowance.applied_scheduled_premium)
+        else:
+            assert allowance.applied_scheduled_premium == 0.0
+        paid += allowance.applied_scheduled_premium
+        prior = allowance
+
+    if levelizing and not has_loan:
+        expected = {12: 17.01, 4: 51.04, 2: 102.09, 1: 204.18}[payments]
+        assert amounts == pytest.approx([expected] * payments)
+        assert 0 <= 204.18 - paid < payments * 0.01 + 1e-9
+    else:
+        assert paid == pytest.approx(204.18)
+        assert amounts[0] == pytest.approx(min(37.12 * step, 204.18))
+        if payments == 12:
+            assert amounts == pytest.approx([37.12] * 5 + [18.58] + [0.0] * 6)
+
+
 def test_to_detail_exposes_every_named_column():
     a = _alw(requested_scheduled=100.0)
     detail = a.to_detail()
@@ -568,3 +617,51 @@ def test_to_detail_exposes_every_named_column():
     ):
         assert key in detail
     assert detail["Apply Levelized Premium"] is False
+
+
+@pytest.mark.parametrize("requested,expected", [(37.12, True), (17.01, True), (17.0, False)])
+def test_guideline_limit_latch_uses_payable_cap_not_fractional_allowance(requested, expected):
+    from suiteview.illustration.core.calc_engine import _guideline_limit_reached
+    from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+    allowance = _alw(
+        tefra_force=True, guideline_limit=204.18,
+        requested_scheduled=requested, levelizing_premium=True,
+    )
+    assert allowance.gp_level_allowance == pytest.approx(17.015)
+    assert allowance.scheduled_prem_cap == 17.01
+    config = PlancodeConfig(maturity_age=95)
+    assert _guideline_limit_reached(
+        config, allowance, attained_age=21, beginning_of_year=True,
+        prior_limit_reached=False,
+    ) is expected
+    assert _guideline_limit_reached(
+        config, allowance, attained_age=21, beginning_of_year=False,
+        prior_limit_reached=expected,
+    ) is expected
+    assert not _guideline_limit_reached(
+        config, allowance, attained_age=95, beginning_of_year=True,
+        prior_limit_reached=True,
+    )
+
+
+@pytest.mark.parametrize("overrides", [
+    {"tefra_force": False},
+    {"tamra_force": True, "seven_pay_level": 100.0},
+    {"tamra_force": True, "seven_pay_level": 204.15},
+])
+def test_guideline_limit_latch_requires_guideline_cap_source(overrides):
+    from suiteview.illustration.core.calc_engine import _guideline_limit_reached
+    from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+    inputs = dict(
+        tefra_force=True, guideline_limit=204.18,
+        requested_scheduled=37.12, levelizing_premium=True,
+    )
+    inputs.update(overrides)
+    allowance = _alw(**inputs)
+    assert not allowance.scheduled_cap_by_guideline
+    assert not _guideline_limit_reached(
+        PlancodeConfig(maturity_age=95), allowance, attained_age=21,
+        beginning_of_year=True, prior_limit_reached=False,
+    )

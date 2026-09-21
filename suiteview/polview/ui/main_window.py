@@ -90,15 +90,17 @@ def _show_odbc_warning(parent, dsn: str, error_detail: str = ""):
     """Show a warning about ODBC connection failure with an Open ODBC Manager button."""
     msg = QMessageBox(parent)
     msg.setIcon(QMessageBox.Icon.Warning)
-    msg.setWindowTitle("ODBC Connection Failed")
+    msg.setWindowTitle("ODBC Authentication Failed")
     msg.setText(
-        f"Connection to {dsn} failed.\n\n"
-        "This likely means you need to update your ODBC password.\n\n"
+        f"Authentication to {dsn} failed.\n\n"
+        "Check the saved credentials for this DSN.\n\n"
         "1.  Click \"Open Manager\" below\n"
         f"2.  Double-click on {dsn} to open it\n"
         "3.  Update your password, then click Test to verify it works\n"
         "4.  Close the ODBC Manager and retry your policy lookup"
     )
+    if error_detail:
+        msg.setDetailedText(error_detail)
 
     odbc_btn = msg.addButton("Open Manager", QMessageBox.ButtonRole.ActionRole)
     msg.addButton(QMessageBox.StandardButton.Close)

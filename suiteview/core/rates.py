@@ -583,7 +583,8 @@ class Rates:
 
         Returns:
             List of rates (1-indexed by duration for most types)
-            or None if not found
+            or None if not found. All-NULL TBL1MTP/TBL1CTP rows also mean
+            unavailable, not a zero rate; callers must check applicability.
         """
         # Normalize inputs
         plancode = (plancode or "").strip()
@@ -637,6 +638,18 @@ class Rates:
             return None
         
         rate_type_upper = rate_type.upper()
+
+        if rate_type_upper in {"TBL1MTP", "TBL1CTP"} and any(
+            row[0] is None for row in rows
+        ):
+            if not all(row[0] is None for row in rows):
+                raise RatesError(
+                    f"Inconsistent NULL and numeric {rate_type_upper} rates for "
+                    f"plancode {plancode}, issue age {issue_age}, sex {sex}, "
+                    f"rate class {rateclass}, band {band}."
+                )
+            self._cache[rate_key] = None
+            return None
         
         # Process results based on rate type
         if rate_type_upper == "BANDSPECS":

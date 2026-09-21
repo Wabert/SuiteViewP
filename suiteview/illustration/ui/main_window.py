@@ -2007,9 +2007,11 @@ class IllustrationWindow(FramelessWindowBase):
                     )
             self._show_status(status)
         except RateLookupError as exc:
+            logger.error("Run Values rate lookup failed: %s", exc, exc_info=True)
             QMessageBox.warning(self, "Missing Illustration Rate", str(exc))
             self._show_status(f"Run Values failed: {exc}")
         except Exception as exc:
+            logger.exception("Run Values failed: %s", exc)
             QMessageBox.critical(self, "Run Values", f"Failed to run illustration values: {exc}")
             self._show_status(f"Run Values failed: {exc}")
         finally:

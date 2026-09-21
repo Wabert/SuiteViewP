@@ -163,12 +163,13 @@ def test_horizon_solve_still_reports_a_policy_it_cannot_fund():
 
 @pytest.mark.parametrize("horizon", [None, 20])
 @pytest.mark.parametrize("forceouts", [False, True])
-def test_solve_and_display_preserve_forceouts_without_relaxing_caps(horizon, forceouts):
+@pytest.mark.parametrize("levelizing", [False, True])
+def test_solve_and_display_preserve_forceouts_without_relaxing_caps(horizon, forceouts, levelizing):
     from dataclasses import asdict
 
     base = IllustrationOptions(
         guideline_forceouts=forceouts, exact_days_interest=False,
-        levelizing_premium=True, apply_prem_to_loan=True)
+        levelizing_premium=levelizing, apply_prem_to_loan=True)
     original = asdict(base)
     display_options = level_to_exception_options(base)
 
@@ -182,6 +183,8 @@ def test_solve_and_display_preserve_forceouts_without_relaxing_caps(horizon, for
             assert options.conform_to_tefra and options.conform_to_tamra
             assert options.guideline_cap_enabled and options.tamra_cap_enabled
             assert options.allow_exception_prems
+            assert options.levelizing_premium is levelizing
+            assert options.dollar_for_dollar_in_transition_year is not levelizing
             return super().project(policy, options=options, **kwargs)
 
     engine = CheckedEngine(account_value=1000.0, burn=100.0)

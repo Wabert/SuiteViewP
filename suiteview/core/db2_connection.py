@@ -161,8 +161,8 @@ class DB2Connection:
             if "returned a result" in msg:
                 # Could not extract real message — provide a helpful fallback
                 msg = (
-                    "Connection refused by the server. "
-                    "This usually means your ODBC password needs to be updated."
+                    "The ODBC driver failed without a usable diagnostic. "
+                    "Retry the connection or test the DSN in ODBC Manager."
                 )
             raise DB2ConnectionError(
                 f"Failed to connect to {self.dsn}: {msg}"

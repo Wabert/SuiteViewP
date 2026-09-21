@@ -266,7 +266,8 @@ class IllustrationOptions:
     # bills the scheduled premium in full (up to the annual guideline room) and
     # lets the MD / GP exception premium take over once the room is exhausted.
     # Off by default (normal runs keep RERUN levelizing); the Prem-to-Maturity
-    # solve and its displayed run turn it on. See ``core/premium_allowance.py``.
+    # solve and its displayed run turn it on only when levelizing is off.
+    # See ``core/premium_allowance.py``.
     dollar_for_dollar_in_transition_year: bool = False
 
     # None keeps the plancode interest method. True/False force exact-days or

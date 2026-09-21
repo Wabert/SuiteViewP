@@ -9,6 +9,9 @@ from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication
 from PyQt6 import sip
 
+from suiteview.core.db2_connection import _extract_odbc_message
+from suiteview.core.odbc_utils import is_communication_error
+
 if TYPE_CHECKING:
     from ..models.policy_information import PolicyInformation
 
@@ -47,26 +50,45 @@ class _PolicyWorker(QObject):
             return
         result = None
         error = ""
-        try:
-            if job.stage == "coverages":
-                self._close_session()
-                if self._session_factory is None:
-                    from ..services.policy_prefetch import PolicyLoadSession
-                    factory = PolicyLoadSession
+        for attempt in range(2):
+            if job.cancelled.is_set():
+                return
+            try:
+                if job.stage == "coverages":
+                    self._close_session()
+                    if self._session_factory is None:
+                        from ..services.policy_prefetch import PolicyLoadSession
+                        factory = PolicyLoadSession
+                    else:
+                        factory = self._session_factory
+                    self._session = factory(
+                        job.policy_number, job.region, job.company_code, seed=job.seed,
+                    )
+                    self._token = job.token
+                    result = self._session.load_initial()
+                elif self._session is not None and self._token == job.token:
+                    result = self._session.prepare(job.stage)
                 else:
-                    factory = self._session_factory
-                self._session = factory(
-                    job.policy_number, job.region, job.company_code, seed=job.seed,
+                    raise RuntimeError("The policy loading session is no longer available. Reload the policy.")
+                break
+            except Exception as exc:
+                detail = _extract_odbc_message(exc)
+                communication_failure = is_communication_error(detail)
+                if communication_failure and attempt == 0:
+                    # The session's failed scope has closed its private connections.
+                    logger.warning(
+                        "PolView %s communication failed; retrying once: %s",
+                        job.stage, detail, exc_info=True,
+                    )
+                    continue
+                logger.exception("PolView background %s failed", job.stage)
+                error = (
+                    "The database connection was interrupted and reconnecting once "
+                    "did not resolve it. Retry the lookup or this tab. If it persists, "
+                    "check network/VPN and database availability.\n\n" + detail
+                    if communication_failure else detail
                 )
-                self._token = job.token
-                result = self._session.load_initial()
-            elif self._session is not None and self._token == job.token:
-                result = self._session.prepare(job.stage)
-            else:
-                raise RuntimeError("The policy loading session is no longer available. Reload the policy.")
-        except Exception as exc:
-            logger.exception("PolView background %s failed", job.stage)
-            error = str(exc)
+                break
         if not job.cancelled.is_set():
             self.completed.emit(job.token, job.stage, result, error)
 

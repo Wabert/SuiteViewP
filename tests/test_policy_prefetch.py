@@ -2,16 +2,19 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from threading import get_ident
+from threading import Event, get_ident
 from types import SimpleNamespace
 import re
 
 import pytest
+import pyodbc
+from PyQt6.QtCore import Qt
 
 from suiteview.core import policy_service
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.polview.models.policy_data import CachedReadError, _ConnectionManager
 from suiteview.polview.services import policy_prefetch as prefetch
+from suiteview.polview.ui.policy_load_controller import _LoadJob, _PolicyWorker
 
 
 class DriverRow:
@@ -115,6 +118,45 @@ def source(monkeypatch):
         lambda *args: pytest.fail("Touched global connection manager"),
     )
     return SimpleNamespace(tables=tables, connections=connections)
+
+
+@pytest.mark.parametrize("stage", ["coverages", "targets"])
+def test_transport_retry_replaces_private_connection_and_clears_failed_reads(
+    source, monkeypatch, stage,
+):
+    original_execute = Cursor.execute
+    failed = []
+    target = "SELECT CK_CMP_CD" if stage == "coverages" else "FROM DB2TAB.LH_POL_TARGET"
+
+    def execute(cursor, sql, parameters=()):
+        if target in sql and not failed:
+            failed.append(cursor.connection)
+            raise pyodbc.Error("08001", "[08001] SQLCODE = -30081 TCP/IP COMMUNICATIONS ERROR")
+        return original_execute(cursor, sql, parameters)
+
+    monkeypatch.setattr(Cursor, "execute", execute)
+
+    def run():
+        worker = _PolicyWorker()
+        results = []
+        worker.completed.connect(
+            lambda *args: results.append(args), Qt.ConnectionType.DirectConnection)
+        try:
+            worker.execute(_LoadJob(1, "coverages", "TEST", "CKPR", "01", Event()))
+            if stage == "targets":
+                worker.execute(_LoadJob(1, "targets", "TEST", "CKPR", "01", Event()))
+            assert results[-1][3] == ""
+            assert results[-1][2].policy.exists
+            assert not results[-1][2].policy._data._table_errors
+            assert len(source.connections) == 2
+            assert failed[0] is source.connections[0]
+            assert source.connections[0].closed == get_ident()
+            assert source.connections[1].closed is None
+        finally:
+            worker._close_session()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(run).result()
 
 
 def test_worker_owns_connections_and_snapshots_are_plain_independent(source):

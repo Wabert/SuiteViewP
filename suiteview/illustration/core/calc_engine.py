@@ -65,6 +65,7 @@ from suiteview.illustration.core.target_premium import (
     compute_target_premiums,
     floor_monthly_cent,
     target_actives_signature,
+    truncate_monthly_mtp,
 )
 from suiteview.illustration.core.withdrawal_handler import (
     WithdrawalResult,
@@ -221,7 +222,7 @@ class IllustrationEngine:
             if policy.valuation_date
             else policy.issue_date + relativedelta(months=policy.duration)
         )
-        monthly_mtp_0 = math.trunc(policy.mtp * 100) / 100
+        monthly_mtp_0 = truncate_monthly_mtp(policy.mtp)
         # MTP/CTP per-component detail (display) — computed from rates for the
         # inforce coverage state; the headline vMTP/vCTP stay the loaded values.
         mtp_detail_0, ctp_detail_0 = build_target_detail_snapshots(
@@ -786,7 +787,7 @@ class IllustrationEngine:
         # Accumulation uses vMonthlyMTP = TRUNC(vMTP/12, 2) (JE/JF); the PW
         # waive basis uses ROUND(vMTP/12, 2) (SL) — they differ by a cent when
         # the recomputed annual MTP is not an even multiple of 12 cents.
-        monthly_mtp = math.trunc(policy.mtp * 100) / 100
+        monthly_mtp = truncate_monthly_mtp(policy.mtp)
         pw_monthly_mtp = _round_near(policy.mtp, 2)
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
 
@@ -1639,7 +1640,7 @@ class IllustrationEngine:
             rate_year,
             attained_age,
             prem.premiums_to_date,
-            monthly_mtp=math.trunc(policy.mtp * 100) / 100,
+            monthly_mtp=truncate_monthly_mtp(policy.mtp),
             projection_date=month_date,
         )
 
@@ -1694,7 +1695,7 @@ class IllustrationEngine:
                 rate_year,
                 attained_age,
                 prem.premiums_to_date,
-                monthly_mtp=math.trunc(policy.mtp * 100) / 100,
+                monthly_mtp=truncate_monthly_mtp(policy.mtp),
                 projection_date=month_date,
             )
             asset_charge = monthly_asset_charge(
@@ -1746,7 +1747,7 @@ class IllustrationEngine:
             variable_loan_accrual_rate(
                 iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
         )
-        monthly_mtp = math.trunc(policy.mtp * 100) / 100
+        monthly_mtp = truncate_monthly_mtp(policy.mtp)
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
         accum_mtp_less_prem = (
             prem.premiums_to_date - withdrawals_to_date
@@ -3472,17 +3473,22 @@ def _guideline_limit_reached(
             IF(vBeginningOfYearCalc, NW=NU, SX_prior))
 
     Latched at the start of each policy year to whether the GP level cap is the
-    binding constraint on the scheduled premium. The flag is true exactly when
-    Levelized Max Premium (NW) equals GP_Level_Allowance (NU): NV (Scheduled Prem
-    Cap) collapses to NU when the guideline — not the 7-pay limit — sets the cap,
-    and NW = MIN(NV, requested) lands on that same NU once the requested premium
-    reaches it. It is carried forward untouched the rest of the year and forced
-    off from the maturity year on.
+    binding constraint on the scheduled premium. NV is floored to whole cents,
+    so comparing NW to the unrounded NU loses the flag for fractional-cent
+    allowances. Use the recorded cap source and compare NW to the payable NV
+    instead. It is carried forward untouched the rest of the year and forced
+    off from the maturity year on. With levelizing, this means the year's
+    scheduled premiums bind the guideline cap, not that all annual room has
+    already been collected. GEP may therefore fund a midyear shortfall while
+    room remains for the later levelized payments.
     """
     if attained_age >= config.maturity_age:
         return False
     if beginning_of_year:
-        return allowances.levelized_max_premium == allowances.gp_level_allowance
+        return (
+            allowances.scheduled_cap_by_guideline
+            and allowances.levelized_max_premium == allowances.scheduled_prem_cap
+        )
     return prior_limit_reached
 
 
@@ -3684,8 +3690,9 @@ def _compute_exception_premium(
     # ── Phase 2: GP exception premium (uncapped, on the residual) ──
     ccv_active = policy.has_shadow_account
     # The exception kicks in when the policy is at the guideline limit with a
-    # residual negative AV — either the usual scheduled-premium limit-reached
-    # flag, or the room having run out. An off-cycle first forecast month can
+    # residual negative AV — either the annual scheduled-premium cap binds
+    # (even with unspent room under levelizing), or the room has run out.
+    # An off-cycle first forecast month can
     # leave the annual scheduled-premium flag false even after a later payment
     # exhausts the actual guideline room.
     room_exhausted = (

@@ -214,6 +214,16 @@ def test_eager_capture_standard_ul_is_usable_with_disclosed_target_derivation():
     assert result.accumulated_mtp == 4900
 
 
+def test_rollback_monthly_mtp_preserves_recorded_cents():
+    source = _Source()
+    for row in source.tables["LH_POL_TARGET"]:
+        if row["TAR_TYP_CD"] == "MT":
+            row["TAR_PRM_AMT"] = 32.66
+    snapshot, = build_value_rollback_snapshots(source, _policy())
+    assert snapshot.blocking_errors == []
+    assert snapshot.accumulated_mtp == 4967.34
+
+
 def test_missing_target_amount_stays_unavailable():
     source = _Source()
     source.tables["LH_POL_TARGET"][0]["TAR_PRM_AMT"] = None

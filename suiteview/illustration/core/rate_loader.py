@@ -368,6 +368,13 @@ def load_rates(
         shadow_tbl1 = rates_db.get_tbl1_mtp(
             shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band,
         )
+        if config.shadow_target == "Table" and seg.table_rating > 0 and shadow_tbl1 is None:
+            raise RateLookupError(
+                f"Required shadow TBL1MTP rate is unavailable for plancode {shp}, "
+                f"coverage phase {seg.coverage_phase}, issue age {seg.issue_age}, "
+                f"sex {seg.rate_sex}, rate class {seg.rate_class}, "
+                f"band {seg.original_band}, table rating {seg.table_rating}."
+            )
         result.shadow_tpr_tbl1 = [None, shadow_tbl1] if shadow_tbl1 is not None else []
         if config.shadow_int_rate_code == "Table":
             result.shadow_int = rates_db.get_rates("GINT", shp) or []

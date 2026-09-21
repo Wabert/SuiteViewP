@@ -1189,6 +1189,16 @@ prioritizes it after the active query. Tab overlays show loading/errors and Retr
 covering and disabling old-policy controls. Generation tokens reject stale
 results after policy switches. Optional tab availability is checked in background.
 
+PolView retries a read-only stage once on communication failures such as
+`08S01` / DB2 `-30081`, using a fresh worker-owned connection. Persistent failures
+retain explicit error overlays and manual Retry. Never label transport failures
+as expired passwords: only explicit authentication diagnostics trigger the ODBC
+credentials prompt (the shared classification also serves RERUN). Strip NUL-padded
+driver-buffer garbage before displaying errors. Cancellation still suppresses
+stale retries/results. Regressions: `tests/test_db2_connection_errors.py`,
+`tests/test_polview_lazy_loading.py`, `tests/test_policy_prefetch.py`.
+Read-only native checks of S1362723 and UIP00108 / 01 passed with all tabs ready.
+
 `polview/services/policy_prefetch.py` owns data preparation and worker-private
 connections/cache; `ui/policy_load_controller.py` owns scheduling and shutdown.
 Only detached snapshots cross threads. GUI rendering is cache-only and preserves
@@ -1393,6 +1403,37 @@ Calculate action read-only (optional `--output` writes the verification JSON).
 `--expect-opening-av` checks the starting post-deduction AV; `--reference` can
 compare displayed ledger cells against a supplied JSON list keyed by Date.
 
+## RERUN Monthly MTP truncation
+
+Monthly MTP uses decimal-safe cent truncation via `truncate_monthly_mtp()`.
+Never use `math.trunc(mtp * 100) / 100`: an already-recorded 32.66 can multiply
+to just below 3266 in binary floating point and incorrectly become 32.65.
+UIP12968's annual MAP of 392 gives `TRUNC(392 / 12, 2) = 32.66`.
+The initial snapshot, both projection timings, target calculations, guideline
+MTP basis and rollback reverse accrual share this rule. Preserve the separate
+rounded PW basis in illustration timing. The Values grids and exports consume
+the corrected state; do not patch display formatting or replace loaded targets
+with recomputed annual targets.
+Regression: `tests/test_illustration_monthly_mtp.py` and the recorded-cent case
+in `tests/test_value_rollback_data.py`.
+
+## RERUN unavailable table-rating target rates
+
+All-NULL `TBL1MTP` / `TBL1CTP` lookup rows mean the table-rating target rate
+is unavailable, not zero. `Rates` returns `None` for that case, retains stored
+numeric zero, and rejects mixed NULL/numeric results explicitly. Unrated
+coverages and expired table ratings can still calculate their ordinary targets;
+active table ratings require both target rates. A shadow target configured as
+`Table` also requires its table rate when the base coverage is rated. Never
+replace a required missing rate with zero. Run Values logs failure tracebacks.
+
+Read-only live/native verified `000340565 / 26 / 1U14L300`: phases 1 and 7
+have table rating zero and NULL table-target rates; Run Values now builds
+725 current rows, 523 guaranteed rows and a 61-year report.
+Regression: `tests/test_null_table_target_rates.py`.
+Repeat with `tools/engine/verify_table_target_rates.py 000340565 --native`;
+the helper uses an isolated temporary profile and writes no database records.
+
 ## RERUN Values Summary loan columns
 
 Values > Summary separates the beginning-of-month loan buckets into
@@ -1427,6 +1468,39 @@ Verified U0389725 / 01: $1,000 once on 2028-04-06, $56 monthly through March
 control). Both native and saved-case runners match. Existing terminal age-95
 rows carry both matured/lapsed flags in both controls; no pre-maturity current
 lapse occurred. Guaranteed values stop on lapse in February 2035.
+
+## RERUN Prem to Maturity levelizing
+
+The Levelize choice applies even in the first guideline-capped policy year.
+`level_to_exception_options()` must not enable the transition-year
+dollar-for-dollar override when levelizing is on. Solver trials, Run Values,
+saved/Compare runs and the shared target-date solves use this same option
+builder. Outstanding loans still disable levelizing; Levelize off retains
+dollar-for-dollar acceptance. Whole-cent modal caps remain floored and carried.
+The guideline-limit latch uses the recorded guideline cap source and payable
+cent cap, not equality with the unrounded allowance; fractional-cent room must
+not prevent later GP exception entry or make the maturity solve fail.
+With Levelize on, binding the annual guideline cap is sufficient for GEP
+eligibility even while there is unspent room for later scheduled payments.
+Do not require that all annual room has already been collected before funding
+a midyear AV shortfall. Exception permission, safety-net, shadow and maturity
+gates still apply; a below-cap request or TAMRA-only cap is not this trigger.
+`tests/test_illustration_monthly_deduction_premium.py` exercises actual
+month-6 GEP with annual room remaining, both projection timings, off-anniversary
+starts, INPUT/Prem-to-Maturity options and negative eligibility controls.
+UE006519 year 12 reproduced the override: $37.12 for five months, $18.58,
+then six zeros despite Levelize on. With the same requested premium, the fixed
+run accepts $17.01 in each of the twelve months.
+Regression: `tests/test_illustration_premium_allowance.py` and
+`tests/test_illustration_level_to_exception_horizon.py`.
+Read-only live check: `tools/engine/check_premium_levelization.py UE006519 37.12
+--prem-to-maturity --months 28 --year 12 --expect-level`; add `--solve` to
+recalculate the maturity premium on the corrected basis.
+Use `--native --year 12 --expect-level` to exercise actual Run Values and
+saved-case Compare in an isolated temporary profile. Verified UE006519:
+the corrected solve is $21.89 monthly, all twelve year-12 payments are $21.89,
+and the current projection reaches age 121 without a pre-maturity lapse.
+Guaranteed output is also built; saved Compare exactly matches Run Values.
 
 ## RERUN existing GP exception periods
 

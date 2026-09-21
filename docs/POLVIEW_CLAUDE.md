@@ -93,8 +93,18 @@ Connections request a 15-second login timeout. The DB2 provider probes query
 timeout support before querying: CyberLife's DV driver rejects
 `SQL_ATTR_QUERY_TIMEOUT` with HYC00, so only that specific unsupported feature
 is logged and disabled. In-flight DV queries cannot be forcibly timed out by
-this mechanism; shutdown waits for the driver to finish. Other connection/query
-errors remain failures. Worker-scoped rate connections close on the worker,
+this mechanism; shutdown waits for the driver to finish. Communication failures
+(`08S01`, connection-class SQLSTATEs, DB2 `-30081`) retry the read-only stage once
+on the worker after the failed scope closes its connections. Initial-load retry
+creates a new private session; detail retry clears failed table reads and retains
+successful snapshots. Cancellation suppresses retry/results for an old policy.
+Persistent failures remain visible with manual Retry. Authentication and SQL
+errors do not auto-retry. Only explicit authentication diagnostics open the ODBC
+credentials warning; a socket/READ failure is not evidence of a stale password.
+Driver diagnostics are extracted before crossing to the GUI, stripping NUL-padded
+buffer garbage. Regression: `test_db2_connection_errors.py`,
+`test_polview_lazy_loading.py` and `test_policy_prefetch.py`.
+Worker-scoped rate connections close on the worker,
 including helper-local instances created by the illustration calculation.
 
 Dividends/Loans appear pending until their availability checks finish; the

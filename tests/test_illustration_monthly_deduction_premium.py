@@ -63,6 +63,91 @@ def _rates():
     return IllustrationRates(coi=[0.0, 6.0], segment_coi={1: [0.0, 6.0]})
 
 
+@pytest.fixture
+def levelized_guideline_policy(monkeypatch):
+    policy = _md_policy()
+    policy.valuation_date = date(2025, 5, 15)
+    policy.policy_year = 25
+    policy.policy_month = 12
+    policy.glp = 204.24
+    policy.premiums_paid_to_date = 0.06
+    policy.modal_premium = 37.12
+    policy.account_value = 450.0
+    config = PlancodeConfig(
+        plancode=policy.plancode, dbd=0.0, gint=0.0, corridor_code=None,
+        epu_code="0", mfee="100", premium_load="0", prem_flat_load=0.0,
+    )
+    monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
+    rates = IllustrationRates(coi=[0.0, 0.0], segment_coi={1: [0.0, 0.0]})
+    return policy, config, rates
+
+
+@pytest.mark.parametrize("timing", list(calc_engine.ProjectionTiming))
+@pytest.mark.parametrize("first_month", [1, 3])
+@pytest.mark.parametrize("maturity_solve", [False, True])
+def test_levelized_guideline_cap_allows_midyear_gep_before_room_is_spent(
+    levelized_guideline_policy, timing, first_month, maturity_solve,
+):
+    from dateutil.relativedelta import relativedelta
+    from suiteview.illustration.core.solve_level_to_exception import level_to_exception_options
+
+    policy, _, rates = levelized_guideline_policy
+    if first_month != 1:
+        policy.valuation_date += relativedelta(months=first_month - 1)
+        policy.duration += first_month - 1
+        policy.policy_year = 26
+        policy.policy_month = first_month - 1
+        policy.accumulated_glp = policy.glp
+    expected_cap = 17.01 if first_month == 1 else 20.41
+    options = IllustrationOptions(levelizing_premium=True, allow_exception_prems=True)
+    if maturity_solve:
+        options = level_to_exception_options(options)
+    states = IllustrationEngine().project(
+        policy, months=13 - first_month, timing=timing, options=options,
+        rates_override=rates, bonus_override=BonusConfig(),
+    )
+    assert len(states) == 14 - first_month
+    before = states[1:6]
+    first_gep = states[6]
+    assert first_gep.policy_month == first_month + 5
+    assert all(s.guideline_limit_reached and s.apply_levelized for s in states[1:])
+    assert all(s.gp_exception_prem == 0 and s.av_end_of_month > 0 for s in before)
+    assert [s.applied_scheduled_premium for s in states[1:7]] == pytest.approx([expected_cap] * 6)
+    assert first_gep.guideline_limit - first_gep.premiums_to_date > 75.0
+    assert first_gep.md_premium == 0
+    assert first_gep.gp_exception_prem == pytest.approx(6 * (100.0 - expected_cap) - 450.0)
+    assert first_gep.av_end_of_month == pytest.approx(0)
+    assert all(s.gp_exception_mode and not s.lapsed for s in states[6:])
+
+
+@pytest.mark.parametrize("timing", list(calc_engine.ProjectionTiming))
+@pytest.mark.parametrize("restriction", ["below_cap", "exceptions_off", "tefra_off", "cvat", "safety_net"])
+def test_midyear_gep_still_requires_guideline_binding_and_eligibility(
+    levelized_guideline_policy, timing, restriction,
+):
+    policy, config, rates = levelized_guideline_policy
+    options = IllustrationOptions(levelizing_premium=True, allow_exception_prems=True)
+    if restriction == "below_cap":
+        policy.modal_premium = 10.0
+    elif restriction == "exceptions_off":
+        options.allow_exception_prems = False
+    elif restriction == "tefra_off":
+        options.conform_to_tefra = False
+    elif restriction == "cvat":
+        policy.def_of_life_ins = "CVAT"
+    else:
+        config.snet_period = 100
+    states = IllustrationEngine().project(
+        policy, months=12, timing=timing, options=options,
+        rates_override=rates, bonus_override=BonusConfig(), stop_on_lapse=False,
+    )
+    assert any(s.av_end_of_month < 0 for s in states[1:])
+    assert all(s.gp_exception_prem == 0 for s in states)
+    if restriction in ("below_cap", "tefra_off", "cvat"):
+        assert all(not s.guideline_limit_reached for s in states)
+
+
 @pytest.mark.parametrize(
     "doli,room,cap_enabled,allow,past_snet,shadow,age,lapsed,pays",
     [

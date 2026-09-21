@@ -73,6 +73,7 @@ from typing import List, Optional
 
 from suiteview.core.benefit_rate_rules import benefit_charge_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, _safe_rate
+from suiteview.illustration.core.target_premium import truncate_monthly_mtp
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
@@ -190,7 +191,7 @@ def build_guideline_basis(
         gsp_rate_floor=gsp_rate_floor,
     )
 
-    monthly_mtp = _trunc2(float(policy.mtp or 0.0))
+    monthly_mtp = truncate_monthly_mtp(float(policy.mtp or 0.0))
 
     month_in_year = months_into_year
     policy_year = start_year

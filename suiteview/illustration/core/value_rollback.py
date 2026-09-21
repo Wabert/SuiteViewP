@@ -17,14 +17,16 @@ import calendar
 from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-import math
 from typing import TYPE_CHECKING
 
 from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
     ValueRollbackSnapshot,
 )
-from suiteview.illustration.core.target_premium import floor_monthly_cent
+from suiteview.illustration.core.target_premium import (
+    floor_monthly_cent,
+    truncate_monthly_mtp,
+)
 from suiteview.illustration.models.index_strategies import is_iul_plan
 
 if TYPE_CHECKING:
@@ -531,7 +533,7 @@ def _recover_targets(snapshot, tables, policy, history, coverages):
     last_month = _completed_months(policy.issue_date, anchor)
     # calc_engine steps 8/10: MTP is already MONTHLY; GLP is added only at
     # anniversaries before attained age 100, not one twelfth every month.
-    monthly_mtp = Decimal(str(math.trunc(float(monthly_mtp) * 100) / 100))
+    monthly_mtp = Decimal(str(truncate_monthly_mtp(float(monthly_mtp))))
     mtp_delta = monthly_mtp * (last_month - first_month)
     anniversaries = sum(
         month % 12 == 0 and policy.issue_age + month // 12 < 100

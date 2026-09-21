@@ -96,7 +96,8 @@ def level_to_exception_options(
     interest-day convention, forceout choice and premium-levelizing choice are inherited so
     the applied premium is shown consistently with the rest of the app; both the
     solve and the displayed run must use this same basis, or the solved premium
-    won't behave as solved.
+    won't behave as solved. Levelizing also applies in the first guideline-capped
+    year; the transition-year dollar-for-dollar option must not override it.
 
     ``apply_prem_to_loan`` (sInput_ApplyPremToLoan) makes the level premium repay
     the policy loan before funding the account value — required to solve a policy
@@ -116,7 +117,7 @@ def level_to_exception_options(
         allow_exception_prems=allow_exceptions,
         exact_days_interest=exact,
         levelizing_premium=levelizing,
-        dollar_for_dollar_in_transition_year=True,
+        dollar_for_dollar_in_transition_year=not levelizing,
         apply_prem_to_loan=apply_prem_to_loan,
         guideline_forceouts=base.guideline_forceouts if base is not None else True,
         recognize_inforce_exception_period=(
