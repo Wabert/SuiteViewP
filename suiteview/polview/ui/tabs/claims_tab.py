@@ -1,7 +1,7 @@
 """
 Claims tab - queries the CLAIMSFILE flat file for the loaded policy.
 
-Opened from the "CLAIMSFILE" button on the Policy Support tab's left nav panel.
+Embedded in the Other Data tab and queried immediately on first selection.
 Reads a semicolon-delimited flat file on the TAI actuarial support share and shows
 every claim record whose ``Policy_Number`` matches the loaded policy.
 
@@ -122,7 +122,7 @@ class ClaimsTab(QWidget):
         sep.setStyleSheet(f"color: {GREEN_PRIMARY};")
         controls.addWidget(sep)
 
-        self.query_btn = QPushButton("CLAIMSFILE")
+        self.query_btn = QPushButton("Refresh")
         self.query_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.query_btn.setStyleSheet(_BTN_STYLE)
         self.query_btn.clicked.connect(self._on_query)
@@ -191,7 +191,7 @@ class ClaimsTab(QWidget):
         return {
             "df": df,
             "status": self._status_label.text(),
-            "no_access": self._no_access_label.isVisible(),
+            "no_access": not self._no_access_label.isHidden(),
         }
 
     def restore_state(self, policy: Optional['PolicyInformation'], state: dict):

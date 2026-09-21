@@ -292,7 +292,8 @@ class DB2Connection:
         """
         guard_query_sql(sql)
         sql = self._prepare_sql(sql)
-        if local_data_enabled():
+        use_local_data = local_data_enabled()
+        if use_local_data:
             conn = connect_local_policy_database(self.region)
         else:
             conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True)
@@ -300,6 +301,13 @@ class DB2Connection:
             cursor = conn.cursor()
             try:
                 if params:
+                    if not use_local_data:
+                        # DataDirect DB2 rejects inferred Unicode string parameters (HY004).
+                        cursor.setinputsizes([
+                            (pyodbc.SQL_VARCHAR, max(len(value), 1), 0)
+                            if isinstance(value, str) else None
+                            for value in params
+                        ])
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)

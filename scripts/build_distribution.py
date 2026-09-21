@@ -81,11 +81,11 @@ def main():
     
     if build_dir.exists():
         print(f"  Removing {build_dir}")
-        shutil.rmtree(build_dir, ignore_errors=True)
+        shutil.rmtree(build_dir)
     
     if dist_output.exists():
         print(f"  Removing {dist_output}")
-        shutil.rmtree(dist_output, ignore_errors=True)
+        shutil.rmtree(dist_output)
     
     print("  ✓ Clean")
     
@@ -108,12 +108,14 @@ def main():
         print("\n  ✗ PyInstaller build FAILED!")
         sys.exit(1)
     
+    if not (dist_output / f"{dist_name}.exe").is_file():
+        raise RuntimeError("PyInstaller did not produce the expected SuiteView.exe.")
     print("\n  ✓ PyInstaller build succeeded")
     
     # ── Step 3: Create ZIP archive ─────────────────────────────────
     step("Step 3: Creating distribution ZIP")
     
-    zip_path = dist_dir / f"{dist_name}"
+    zip_path = dist_dir / f"{dist_name}-{APP_VERSION}"
     
     if dist_output.exists():
         print(f"  Creating: {zip_path}.zip")
@@ -127,7 +129,7 @@ def main():
         print(f"    Folder size: {folder_size / 1024 / 1024:.1f} MB")
         print(f"    ZIP size:    {zip_file.stat().st_size / 1024 / 1024:.1f} MB")
     else:
-        print("  ⚠ Distribution folder not found, skipping ZIP")
+        raise RuntimeError("Distribution folder disappeared before ZIP creation.")
     
     # ── Done ───────────────────────────────────────────────────────
     exe_name = f"{dist_name}.exe"
@@ -137,7 +139,7 @@ def main():
     ╠═══════════════════════════════════════════════════════╣
     ║                                                       ║
     ║  Distribution folder: dist/{dist_name}/               ║
-    ║  ZIP archive:         dist/{dist_name}.zip            ║
+    ║  ZIP archive:         dist/{dist_name}-{APP_VERSION}.zip        ║
     ║                                                       ║
     ║  To distribute:                                       ║
     ║  1. Send the ZIP to coworkers                         ║

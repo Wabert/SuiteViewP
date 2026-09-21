@@ -343,8 +343,9 @@ def test_tools_menu_omits_primary_apps_and_agent():
     )
     assert all(action not in source for action in omitted_actions)
     assert 'self.tools_menu.addAction("View Screenshots", self._open_screenshot)' in source
-    assert 'self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)' in source
-    assert 'self.tools_menu.addAction("Rate Manager", self._open_rate_manager)' in source
+    assert '("MAINFRAMENAV", "Mainframe Navigator", self._open_mainframe)' in source
+    assert '("RATEMANAGER", "Rate Manager", self._open_rate_manager)' in source
+    assert 'self.tools_menu.addAction(title, callback)' in source
     assert '"DB2 Table Check", self._open_db2_table_check' in source
     assert '"📁 App Data Location", self._open_app_data_location' in source
     assert "agent_chat_btn" not in source

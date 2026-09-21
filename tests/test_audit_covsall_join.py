@@ -3,6 +3,8 @@ the coverage count, so it must only appear when a filter actually binds to it.
 """
 import os
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
@@ -26,11 +28,14 @@ def _app():
     return _QT_APP
 
 
-def _build(coverage_level=False, plancodes=(), product_line=False, cov_gio=False):
+def _build(coverage_level=False, plancodes=(), product_line=False, cov_gio=False,
+           policy_plancode="", cov1_only=False):
     plancode_tab = PlancodeTab()
+    plancode_tab.chk_cov1_plancode_match_only.setChecked(cov1_only)
     for code in plancodes:
-        plancode_tab.list_plancodes.addItem(code)
+        plancode_tab.plancodes.list_values.addItem(code)
     policy_tab = PolicyTab()
+    policy_tab.txt_plancode.setText(policy_plancode)
     if product_line:
         policy_tab.chk_product_line.setChecked(True)
         policy_tab.list_product_line.item(0).setSelected(True)
@@ -85,3 +90,35 @@ def test_covsall_kept_when_modcovsall_needs_it():
     sql = _build(coverage_level=True, cov_gio=True)
     assert "LH_COV_PHA COVSALL" in sql
     assert "MODCOVSALL.CK_SYS_CD = COVSALL.CK_SYS_CD" in sql
+
+
+@pytest.mark.parametrize("coverage_level,cov1_only,alias", [
+    (False, False, "COVSALL"),
+    (True, False, "RESULTCOV"),
+    (False, True, "COVERAGE1"),
+    (True, True, "COVERAGE1"),
+])
+def test_policy_plancode_exact_match_preserves_coverage_scope(coverage_level, cov1_only, alias):
+    _app()
+    sql = _build(
+        coverage_level=coverage_level, cov1_only=cov1_only,
+        policy_plancode="  u1f4  ",
+    )
+    column = f"{alias}.PLN_DES_SER_CD"
+    assert f"{column} = 'U1F4'" in sql
+    assert ("LH_COV_PHA COVSALL" in sql) == (alias == "COVSALL")
+
+
+def test_empty_policy_plancode_adds_no_filter_or_join():
+    _app()
+    assert _build(policy_plancode="  ") == _build()
+
+
+def test_exact_plancode_escapes_quotes_and_combines_with_plancode_list():
+    _app()
+    sql = _build(
+        policy_plancode="a'_%",
+        plancodes=["8N562900"],
+    )
+    assert "COVSALL.PLN_DES_SER_CD = 'A''_%'" in sql
+    assert "COVSALL.PLN_DES_SER_CD IN ('8N562900')" in sql

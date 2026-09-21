@@ -2079,6 +2079,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         access = get_access(refresh=True)
         super().__init__()
         self._permission_actions = []
+        self._launcher_access = access
         self._restore_message = activation_message()
         self._restore_requested.connect(
             self._show_from_tray, Qt.ConnectionType.QueuedConnection)
@@ -2160,39 +2161,38 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         self._apply_permissions(access)
 
     def _apply_permissions(self, access):
+        self._launcher_access = access
+        floating_only_hidden = {
+            "scratchpad_window_btn", "file_history_btn", "quick_screenshot_btn",
+        }
         controls = (
             ("POLVIEW", "polview_btn"), ("FILENAV", "filenav_btn"),
             ("ABR", "abrquote_btn"), ("RERUN", "illustration_btn"),
             ("QUERY", "audit_btn"), ("ALBERT", "albert_btn"),
             ("SCRATCHPAD", "scratchpad_window_btn"), ("HISTORY", "file_history_btn"),
-            ("SCREENSHOT", "quick_screenshot_btn"), ("FILENAV", "_file_nav_action"),
-            ("MAINFRAMENAV", "_mainframe_action"), ("SCREENSHOT", "_screenshot_action"),
-            ("POLVIEW", "_polview_action"), ("ABR", "_abrquote_action"),
-            ("QUERY", "_audit_action"),
+            ("SCREENSHOT", "quick_screenshot_btn"),
+            ("ADMINISTRATOR", "administrator_action"),
         )
         for code, name in controls:
             control = getattr(self, name, None)
             if control is not None:
-                if isinstance(control, QPushButton) and not control.property("accessStyleApplied"):
-                    control.setStyleSheet(control.styleSheet() + """
-                        QPushButton:disabled {
-                            background: #DFE3E8; color: #737B85; border-color: #AAB0B7;
-                        }
-                    """)
-                    control.setProperty("accessStyleApplied", True)
-                control.setEnabled(access is not None and access.allows_app(code))
+                allowed = access is not None and access.allows_app(code)
+                control.setEnabled(allowed)
+                control.setVisible(allowed and not (
+                    getattr(self, "_is_floating_mode", False) and name in floating_only_hidden
+                ))
         for code, action in self._permission_actions:
-            action.setEnabled(access is not None and access.allows_app(code))
-        for name in ("tools_menu", "_tray_menu"):
-            menu = getattr(self, name, None)
-            if isinstance(menu, QMenu) and not menu.property("accessStyleApplied"):
-                menu.setStyleSheet(menu.styleSheet() + "QMenu::item:disabled { color: #919BA8; }")
-                menu.setProperty("accessStyleApplied", True)
+            allowed = access is not None and access.allows_app(code)
+            action.setEnabled(allowed)
+            action.setVisible(allowed)
         file_access = access is not None and access.allows_app("FILENAV")
         for name in ("tab_widget", "sidebar_container"):
             control = getattr(self, name, None)
             if control is not None:
                 control.setEnabled(file_access)
+        if getattr(self, "_is_floating_mode", False):
+            self.layout().activate()
+            self.resize(self.layout().sizeHint().width(), self.height())
 
     def _refresh_permissions(self):
         try:
@@ -2280,50 +2280,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
             QMenu::item:selected {
                 background-color: #3A7DC8;
             }
-            QMenu::separator {
-                height: 1px;
-                background: #D4A017;
-                margin: 4px 8px;
-            }
         """)
-        
-        # Store all actions as instance variables to prevent garbage collection
-        self._show_action = QAction("Show SuiteView", self)
-        self._show_action.triggered.connect(self._show_from_tray)
-        tray_menu.addAction(self._show_action)
-
-        self._refresh_bar_action = QAction("Refresh Bar", self)
-        self._refresh_bar_action.triggered.connect(self._refresh_bar_position)
-        tray_menu.addAction(self._refresh_bar_action)
-        
-        tray_menu.addSeparator()
-
-        self._file_nav_action = QAction("📁 File Nav", self)
-        self._file_nav_action.triggered.connect(self._open_file_nav)
-        tray_menu.addAction(self._file_nav_action)
-
-        self._mainframe_action = QAction("💻 Mainframe Navigator", self)
-        self._mainframe_action.triggered.connect(self._open_mainframe)
-        tray_menu.addAction(self._mainframe_action)
-        
-        self._screenshot_action = QAction("📸 View Screenshots", self)
-        self._screenshot_action.triggered.connect(self._open_screenshot)
-        tray_menu.addAction(self._screenshot_action)
-        
-        # App permissions are applied after all launcher controls are constructed.
-        self._polview_action = QAction("📋 PolView", self)
-        self._polview_action.triggered.connect(self._open_polview)
-        tray_menu.addAction(self._polview_action)
-        
-        self._abrquote_action = QAction("💰 ABR Quote", self)
-        self._abrquote_action.triggered.connect(self._open_abrquote)
-        tray_menu.addAction(self._abrquote_action)
-        
-        self._audit_action = QAction("🔍 Audit Tool", self)
-        self._audit_action.triggered.connect(self._open_audit)
-        tray_menu.addAction(self._audit_action)
-        
-        tray_menu.addSeparator()
         
         # Store as instance variable to prevent garbage collection
         self._quit_action = QAction("Quit SuiteView", self)
@@ -2802,8 +2759,8 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         if not policy:
             return
 
-        # Populate and load before the first show so a newly-created PolView
-        # window does not briefly appear as a small blank pythonw window.
+        # Build the complete frame first. load_policy now only queues the
+        # background request, so showing it does not wait for a DB connection.
         window = self._get_polview_window()
         if not window or not hasattr(window, 'load_policy'):
             return
@@ -4238,19 +4195,9 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         if hasattr(self, 'file_history_btn'):
             self.file_history_btn.hide()
 
-        # Ensure the core buttons are visible: P, F, A, Q
-        if hasattr(self, 'polview_btn'):
-            self.polview_btn.show()
-        if hasattr(self, 'filenav_btn'):
-            self.filenav_btn.show()
-        if hasattr(self, 'abrquote_btn'):
-            self.abrquote_btn.show()
-        if hasattr(self, 'illustration_btn'):
-            self.illustration_btn.show()
-        if hasattr(self, 'audit_btn'):
-            self.audit_btn.show()
-        if hasattr(self, 'albert_btn'):
-            self.albert_btn.show()
+        self._is_compact_mode = False
+        self._is_floating_mode = True
+        self._apply_permissions(self._launcher_access)
         if hasattr(self, 'close_btn'):
             self.close_btn.show()
 
@@ -4259,7 +4206,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         self.setMinimumSize(100, bar_h)
         self.setMaximumHeight(bar_h)
 
-        bar_w = 320 + (36 if hasattr(self, 'albert_btn') else 0)
+        bar_w = self.layout().sizeHint().width()
 
         # Position: center of screen, near bottom (above taskbar)
         avail = QApplication.primaryScreen().availableGeometry()
@@ -4291,9 +4238,6 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         except Exception:
             pass
 
-        self._is_compact_mode = False
-        self._is_floating_mode = True
-
     def _exit_floating_mode(self):
         """Exit floating mini-bar mode (caller will re-dock or restore)."""
         self._is_floating_mode = False
@@ -4305,8 +4249,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         # Restore all header widgets to their proper visibility
         # (the caller — _enter_compact_mode or _exit_compact_mode — will
         #  handle showing/hiding the right widgets for the target state)
-        if hasattr(self, 'quick_screenshot_btn'):
-            self.quick_screenshot_btn.show()
+        self._apply_permissions(self._launcher_access)
         if hasattr(self, 'tools_menu_btn'):
             self.tools_menu_btn.show()
         if hasattr(self, 'header_spacer'):
@@ -4350,6 +4293,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
             self.compact_region_combo.show()
         if hasattr(self, 'compact_policy_input'):
             self.compact_policy_input.show()
+        self._apply_permissions(self._launcher_access)
 
         # Shrink to just the header bar height
         bar_h = 42  # header height + 2 px border top/bottom

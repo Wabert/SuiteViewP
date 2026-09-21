@@ -117,3 +117,4 @@ class PersonsTab(QWidget):
             self._build_table(persons, names_data)
         except Exception as e:
             self.persons_group.load_table_data([["Error loading data", str(e)]])
+            raise

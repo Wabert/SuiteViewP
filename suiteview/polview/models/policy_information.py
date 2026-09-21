@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
+from copy import deepcopy
 
 # Import from cl_polrec package (single source of truth)
 from .cl_polrec.policy_translations import (
@@ -135,6 +136,43 @@ class PolicyInformation:
         # (32 refs to loan_records, 17 refs to total_records)
         self.loan_records = LoanRecords(self)
         self.total_records = TotalRecords(self)
+
+    def cached_reads_only(self):
+        """Guard UI rendering against missing/failed prefetches, even if caught."""
+        return self._data.cached_reads_only()
+
+    def detached_copy(self) -> "PolicyInformation":
+        """Produce independent plain-data state for handoff to another thread."""
+        clone = object.__new__(type(self))
+        for name, value in self.__dict__.items():
+            if name not in ("_data", "_rates", "loan_records", "total_records"):
+                setattr(clone, name, deepcopy(value))
+        clone._data = self._data.detached_copy()
+        clone._rates = None
+        clone.loan_records = LoanRecords(clone)
+        clone.total_records = TotalRecords(clone)
+        return clone
+
+    def merge_prefetched(self, snapshot: "PolicyInformation") -> None:
+        """Merge a detached snapshot while preserving the GUI policy identity."""
+        identity = lambda policy: (
+            policy.policy_number, policy.company_code, policy.system_code,
+            policy.region, policy.policy_id,
+        )
+        if identity(self) != identity(snapshot):
+            raise ValueError("Cannot merge a different policy/company/system/region")
+        incoming = snapshot.detached_copy()
+        self._data._table_cache.update(incoming._data._table_cache)
+        for table in incoming._data._table_cache:
+            self._data._table_errors.pop(table, None)
+        self._data._table_errors.update(incoming._data._table_errors)
+        # Any collection built against older rows must be reconstructed.
+        for name in ("_coverages", "_benefits", "_agents", "_loans",
+                     "_mv_values", "_activities"):
+            setattr(self, name, getattr(incoming, name, None))
+        self.loan_records.invalidate()
+        self.total_records.invalidate()
+        self._band_cache.clear()
     
     # =========================================================================
     # CORE API  (delegates to PolicyData)
@@ -849,6 +887,14 @@ class PolicyInformation:
     def coverage_count(self) -> int:
         """Number of coverage phases."""
         return self.data_item_count("LH_COV_PHA")
+
+    @property
+    def has_annuity_rider(self) -> bool:
+        """Whether Policy Support's 0699830R annuity-rider tool applies."""
+        return any(
+            coverage.plancode.strip().upper() == "0699830R"
+            for coverage in self.get_coverages()
+        )
     
     def get_coverages(self) -> List[CoverageInfo]:
         """Get all coverage phases with complete field mapping.
@@ -3048,6 +3094,7 @@ class PolicyInformation:
     
     def _get_rates(self) -> Optional['Rates']:
         """Get or create Rates instance for rate lookups."""
+        self._data.reject_uncached_read("Rates lookup during cached rendering")
         if self._rates is None:
             if Rates is not None:
                 self._rates = Rates()

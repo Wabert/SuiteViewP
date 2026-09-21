@@ -718,3 +718,4 @@ class TargetsAccumulatorsTab(QWidget):
         except Exception:
             import traceback
             traceback.print_exc()
+            raise

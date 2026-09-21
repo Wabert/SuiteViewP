@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import logging
 import pyodbc
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime
 from decimal import Decimal
 import re
@@ -53,6 +55,22 @@ except ImportError:
     DB2Connection = None
 
 logger = logging.getLogger(__name__)
+_owned_rates: ContextVar[list["Rates"] | None] = ContextVar("owned_rates", default=None)
+
+
+@contextmanager
+def owned_rate_connections():
+    """Close all helper-created rate connections on their owning worker."""
+    instances = []
+    token = _owned_rates.set(instances)
+    try:
+        yield
+    finally:
+        try:
+            for rates in reversed(instances):
+                rates.close()
+        finally:
+            _owned_rates.reset(token)
 
 # The IUL14 Bonus illustration-rate source splits three fund rates onto
 # fund-specific rate plancodes while the policy/parameter plancode stays
@@ -113,6 +131,9 @@ class Rates:
         """
         self._connection_string = connection_string
         self._connection: Optional[Any] = None
+        owned = _owned_rates.get()
+        if owned is not None:
+            owned.append(self)
     
     def _get_connection(self) -> pyodbc.Connection:
         """Get or create database connection."""
@@ -122,7 +143,7 @@ class Rates:
                 self._connection.execute("SELECT 1")
                 return self._connection
             except Exception:
-                self._connection = None
+                self.close()
 
         if local_data_enabled():
             try:
@@ -132,15 +153,20 @@ class Rates:
             return self._connection
         
         # Create new connection
+        options = {"timeout": 15} if _owned_rates.get() is not None else {}
         if self._connection_string:
-            self._connection = pyodbc.connect(self._connection_string)
+            self._connection = pyodbc.connect(self._connection_string, **options)
         else:
             # Use local ODBC DSN
             try:
-                self._connection = pyodbc.connect(f"DSN={self.DEFAULT_DSN}", autocommit=True)
+                self._connection = pyodbc.connect(
+                    f"DSN={self.DEFAULT_DSN}", autocommit=True, **options,
+                )
             except Exception as e:
                 raise RatesError(f"Could not connect to UL_Rates database via DSN '{self.DEFAULT_DSN}': {e}")
         
+        if _owned_rates.get() is not None:
+            self._connection.timeout = 30
         return self._connection
     
     def _get_rate_key(
@@ -1056,7 +1082,7 @@ class Rates:
             try:
                 self._connection.close()
             except Exception:
-                pass
+                logger.exception("Could not close rates connection")
             self._connection = None
 
 
@@ -1075,6 +1101,12 @@ def get_rates_instance(connection_string: str = None) -> Rates:
         Rates instance
     """
     global _rates_instance
+    owned = _owned_rates.get()
+    if owned is not None:
+        for instance in owned:
+            if instance._connection_string == connection_string:
+                return instance
+        return Rates(connection_string)
     if _rates_instance is None:
         _rates_instance = Rates(connection_string)
     return _rates_instance

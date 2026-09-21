@@ -27,20 +27,20 @@ the taskbar header (e.g. `SuiteView (2.0)`).
 // turbo
 1. Run the build script (must use venv Python so PyInstaller finds all packages):
 ```
-venv\Scripts\python.exe scripts/build_distribution.py
+venv\Scripts\python.exe tools\app\build_distribution.py
 ```
 
 The script automatically:
 - Cleans previous build artifacts
 - Runs PyInstaller with `SuiteView.spec`
-- Creates `dist/SuiteView.zip`
+- Creates `dist/SuiteView-<version>.zip` and verifies its contents and embedded version
 
 ## Output
 - **Folder**: `dist/SuiteView/` — the complete distributable application
-- **ZIP**: `dist/SuiteView.zip` — ready to send to coworkers
+- **ZIP**: `dist/SuiteView-<version>.zip` — ready to send to coworkers
 
 ## Distribution Instructions for Coworkers
-1. Extract `SuiteView.zip` to any folder (e.g., Desktop or Documents)
+1. Extract `SuiteView-<version>.zip` to any folder (e.g., `C:\Apps\SuiteView`)
 2. Run `SuiteView.exe` from the extracted folder
 3. The packaged app verifies their native Windows identity against UL_Rates.
    Missing or disabled users cannot start it; configure their roles before rollout.

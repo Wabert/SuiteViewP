@@ -55,7 +55,13 @@ class TAICessionResult:
 
 def _get_connection() -> pyodbc.Connection:
     """Open a connection to UL_Rates via ODBC DSN."""
-    return pyodbc.connect(f"DSN={ODBC_DSN}", autocommit=True)
+    connection = pyodbc.connect(f"DSN={ODBC_DSN}", autocommit=True, timeout=15)
+    try:
+        connection.timeout = 30
+    except Exception:
+        connection.close()
+        raise
+    return connection
 
 
 def fetch_tai_cession(policy_number: str) -> TAICessionResult:
@@ -83,6 +89,7 @@ def fetch_tai_cession(policy_number: str) -> TAICessionResult:
         result.error = str(e)
         return result
 
+    cursor = None
     try:
         cursor = conn.cursor()
 
@@ -124,12 +131,15 @@ def fetch_tai_cession(policy_number: str) -> TAICessionResult:
                 else ""
             )
 
-        cursor.close()
-        conn.close()
-
     except Exception as e:
         logger.warning("TAICession query failed: %s", e)
         result.error = str(e)
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            conn.close()
 
     return result
 

@@ -1,7 +1,7 @@
 """
 SAP tab - queries the SAP.LDTI_TX7 ledger for the loaded policy.
 
-Opened from the "SAP" button on the Policy Support tab's left nav panel.
+Embedded in the Other Data tab; date inputs are shown before querying.
 Provides a POSTING_DATE range (defaulting the start to two years before the
 policy's valuation date), a SAP_LDTI_TX7 button that runs the query against the
 "VRD Prod" SQL Server ODBC connection, and a filterable/searchable ledger grid.

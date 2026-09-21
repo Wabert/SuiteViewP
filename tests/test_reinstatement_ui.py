@@ -167,9 +167,9 @@ def test_failed_recalculation_clears_previous_quote_and_allows_retry(tab, calcul
 def test_policy_reload_closes_and_clears_old_quote(host):
     host._show_reinstatement_tab()
     tab = host.reinstatement_tab
-    # _load_all_tabs clears before validating/loading the replacement policy.
+    # Preparing a replacement policy clears the previous quote.
     host._policy = None
-    GetPolicyWindow._load_all_tabs(host)
+    GetPolicyWindow._prepare_policy_tabs(host)
     assert host.tabs.indexOf(tab) == -1
     assert tab._result is None and tab._policy is None
     assert tab.home_group.premium.text() == ""

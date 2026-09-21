@@ -1,7 +1,7 @@
 """
 CYBERLIFE_PDF tab - queries dbo.CYBERLIFE_PDF in the UL_Rates database.
 
-Opened from the "CYBERLIFE_PDF" button on the Policy Support tab's left nav panel.
+Embedded in the Other Data tab and queried immediately on first selection.
 Looks up every plancode on the policy (the base plancode plus any rider
 plancodes - benefits are excluded) and returns the UserID / Plancode /
 FieldName / FieldValue rows for those plancodes.
@@ -118,7 +118,7 @@ class CyberlifePdfTab(QWidget):
         controls.addWidget(self._plancodes_label)
 
         controls.addSpacing(6)
-        self.query_btn = QPushButton("CYBERLIFE_PDF")
+        self.query_btn = QPushButton("Refresh")
         self.query_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.query_btn.setStyleSheet(_BTN_STYLE)
         self.query_btn.clicked.connect(self._on_query)
@@ -157,7 +157,7 @@ class CyberlifePdfTab(QWidget):
     # -- Public API --------------------------------------------------------
 
     def load_policy(self, policy: Optional['PolicyInformation']):
-        """Bind a policy and capture its plancodes (base + riders)."""
+        """Bind a policy and query its plancodes (base + riders)."""
         self._policy = policy
         self._has_access = _ul_rates_available()
         self._apply_access_state()
@@ -170,6 +170,8 @@ class CyberlifePdfTab(QWidget):
         else:
             self._policy_label.setText("No policy loaded")
         self._update_plancodes_label()
+        if policy is not None and getattr(policy, "exists", False):
+            self._on_query()
 
     def reset(self):
         """Clear all data for a clean slate (used when a new policy loads)."""
@@ -191,7 +193,7 @@ class CyberlifePdfTab(QWidget):
             "plancodes": list(self._plancodes),
             "df": df,
             "status": self._status_label.text(),
-            "no_access": self._no_access_label.isVisible(),
+            "no_access": not self._no_access_label.isHidden(),
         }
 
     def restore_state(self, policy: Optional['PolicyInformation'], state: dict):

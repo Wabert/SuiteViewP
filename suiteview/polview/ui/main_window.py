@@ -15,19 +15,21 @@ from typing import Optional
 
 import logging
 import subprocess
+from time import perf_counter
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QPushButton, QLabel, QMessageBox, QApplication,
 )
 from PyQt6.QtGui import QCursor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSignalBlocker, pyqtSignal, pyqtSlot
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import REGION_DSN_MAP
 from suiteview.core.odbc_utils import is_password_error
+from suiteview.core.policy_service import cache_policy_info, remove_from_cache
 from ..models.policy_information import PolicyInformation
 
 from .styles import (
@@ -37,13 +39,15 @@ from .styles import (
 )
 from .widgets import PolicyLookupBar
 from .tree_panel import PolicyRecordTreePanel
+from .loading_overlay import TabLoadingOverlay
+from .policy_load_controller import PolicyLoadController
 from .tabs.reinstatement_tab import ReinstatementTab
+from .tabs.other_data_tab import OtherDataTab
 from ..services.reinstatement import is_ul_policy
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
     PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab,
-    SapTab, ClaimsTab, TaiFdTab, OrionPcrTab, CyberlifePdfTab,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,6 +117,9 @@ class GetPolicyWindow(FramelessWindowBase):
     Uses PolicyInformation for centralized data access.
     """
 
+    policy_ready = pyqtSignal()
+    background_ready = pyqtSignal()
+
     def __init__(self, parent=None, *, enable_policy_list: bool = True,
                  initial_policy: str = "", initial_region: str = "CKPR",
                  initial_company: str = ""):
@@ -134,12 +141,19 @@ class GetPolicyWindow(FramelessWindowBase):
         self._child_polview_windows = []
         self._record_windows = []
         self._history_panel_visible = False
-        # Cache: (policy_number, region) -> (PolicyInformation, policy_info_dict, where_clause)
+        # Cache: (policy_number, region, company) -> loaded policy context.
         self._policy_cache: dict = {}
-        # Per-policy snapshots of the optional SAP / CLAIMSFILE tabs so switching
+        # Per-policy snapshots of Other Data so switching
         # between already-viewed policies restores what was there, while a brand
         # new policy starts with a clean slate.
         self._aux_tab_state: dict = {}
+        self._pending_policy_tabs: set[QWidget] = set()
+        self._tab_states: dict[str, str] = {}
+        self._tab_payloads: dict[str, object] = {}
+        self._load_token = 0
+        self._requested_policy = ("", "CKPR", "")
+        self._load_started = 0.0
+        self._pending_annuity = False
         self.reinstatement_tab: ReinstatementTab | None = None
 
         # Header-bar "Open in RERUN" button (built before super().__init__
@@ -172,6 +186,12 @@ class GetPolicyWindow(FramelessWindowBase):
         )
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
         self.open_record_btn.clicked.connect(self._open_policy_record)
+        self._loader = PolicyLoadController()
+        self._loader.ready.connect(self._on_prepared_policy)
+        self._loader.failed.connect(self._on_load_failed)
+        self._loader.state_changed.connect(self._on_load_state_changed)
+        self._loader.settled.connect(self._on_background_settled)
+        self.destroyed.connect(self._loader.dispose)
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar).
         if initial_policy:
@@ -264,30 +284,16 @@ class GetPolicyWindow(FramelessWindowBase):
 
         self.policy_support_tab = PolicySupportTab(self.tabs)
         self.policy_library_tab = PolicyLibraryTab(self.tabs)
-        self.sap_tab = SapTab(self.tabs)
-        self.claims_tab = ClaimsTab(self.tabs)
-        self.tai_fd_tab = TaiFdTab(self.tabs)
-        self.orion_pcr_tab = OrionPcrTab(self.tabs)
-        self.cyberlife_pdf_tab = CyberlifePdfTab(self.tabs)
-
-        # Optional database-backed tabs that get a clean slate on a new policy
-        # but are restored when switching back to an already-viewed policy.
-        # (tab widget, tab title)
-        self._aux_tabs = [
-            (self.sap_tab, "SAP"),
-            (self.claims_tab, "CLAIMSFILE"),
-            (self.tai_fd_tab, "TAICyberTAIFd"),
-            (self.orion_pcr_tab, "orion_pcr3_r"),
-            (self.cyberlife_pdf_tab, "CYBERLIFE_PDF"),
-        ]
+        self.other_data_tab = OtherDataTab(self.tabs)
 
         self.tabs.addTab(self.coverages_tab, "Coverages")
         self.tabs.addTab(self.policy_tab, "Policy")
         self.tabs.addTab(self.targets_tab, "Targets && Accumulators")
         self.tabs.addTab(self.persons_tab, "Persons")
-        # AdvProdValues tab added dynamically in _load_all_tabs() for advanced products only
+        # AdvProdValues is added for advanced products when a policy is loaded.
         self.tabs.addTab(self.activity_tab, "Activity")
         self.tabs.addTab(self.policy_support_tab, "Policy Support")
+        self.tabs.addTab(self.other_data_tab, "Other Data")
         self.tabs.addTab(self.raw_table_tab, "Raw Table")
 
         for optional_tab in (
@@ -296,22 +302,32 @@ class GetPolicyWindow(FramelessWindowBase):
             self.loans_tab,
             self.reinsurance_tab,
             self.policy_library_tab,
-            self.sap_tab,
-            self.claims_tab,
-            self.tai_fd_tab,
-            self.orion_pcr_tab,
-            self.cyberlife_pdf_tab,
         ):
             optional_tab.hide()
 
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
         self.policy_support_tab.reinstatement_requested.connect(self._show_reinstatement_tab)
-        self.policy_support_tab.sap_requested.connect(self._show_sap_tab)
-        self.policy_support_tab.claims_requested.connect(self._show_claims_tab)
-        self.policy_support_tab.tai_fd_requested.connect(self._show_tai_fd_tab)
-        self.policy_support_tab.orion_pcr_requested.connect(self._show_orion_pcr_tab)
-        self.policy_support_tab.cyberlife_pdf_requested.connect(self._show_cyberlife_pdf_tab)
         self.coverages_tab.annuity_rider_requested.connect(self._show_annuity_rider_tab)
+        self._stage_tabs = {
+            "coverages": (self.coverages_tab, "Coverages"),
+            "policy": (self.policy_tab, "Policy"),
+            "targets": (self.targets_tab, "Targets && Accumulators"),
+            "persons": (self.persons_tab, "Persons"),
+            "dividends": (self.dividends_tab, "Dividends"),
+            "loans": (self.loans_tab, "Loans"),
+            "advprod": (self.advprod_tab, "AdvProdValues"),
+            "reinsurance": (self.reinsurance_tab, "Reinsurance"),
+            "activity": (self.activity_tab, "Activity"),
+            "support": (self.policy_support_tab, "Policy Support"),
+            "other": (self.other_data_tab, "Other Data"),
+            "raw": (self.raw_table_tab, "Raw Table"),
+        }
+        self._load_overlays = {}
+        for stage, (tab, _title) in self._stage_tabs.items():
+            overlay = TabLoadingOverlay(tab, stage)
+            overlay.retry_requested.connect(self._retry_policy_tab)
+            self._load_overlays[stage] = overlay
+        self.tabs.currentChanged.connect(self._on_policy_tab_changed)
 
         tabs_layout.addWidget(self.tabs)
 
@@ -535,11 +551,16 @@ class GetPolicyWindow(FramelessWindowBase):
             if k[0] == policy_number and k[1] == region
         ]
         for k in keys_to_remove:
+            remove_from_cache(
+                k[0], region=k[1], company_code=k[2],
+                system_code=self._policy_cache[k]["policy"].system_code,
+            )
             del self._policy_cache[k]
 
     def _on_all_policies_removed(self):
         """Evict all policies from the cache."""
-        self._policy_cache.clear()
+        for policy_number, region, _company in list(self._policy_cache):
+            self._on_policy_removed_from_list(policy_number, region)
 
     # == Window events =====================================================
 
@@ -593,10 +614,8 @@ class GetPolicyWindow(FramelessWindowBase):
 
     def _show_policy_support_tab(self):
         """Show the always-visible Policy Support tab."""
-        if self._policy and self._policy.exists:
-            self.policy_support_tab.load_data_from_policy(self._policy)
-
         self.tabs.setCurrentWidget(self.policy_support_tab)
+        self._load_policy_tab(self.policy_support_tab)
         self._show_status("Policy Support tab opened")
 
     def _show_policy_library_tab(self):
@@ -648,36 +667,7 @@ class GetPolicyWindow(FramelessWindowBase):
         else:
             self.tabs.addTab(tab, title)
 
-    def _show_aux_tab(self, tab: QWidget, title: str):
-        """Open (or focus) an optional database-backed tab for the loaded policy."""
-        first_open = self.tabs.indexOf(tab) < 0
-        self._insert_aux_tab(tab, title)
-        if first_open:
-            tab.load_policy(self._policy)
-        self.tabs.setCurrentWidget(tab)
-        self._show_status(f"{title} tab opened")
-
-    def _show_sap_tab(self):
-        """Show the SAP.LDTI_TX7 ledger tab for the loaded policy."""
-        self._show_aux_tab(self.sap_tab, "SAP")
-
-    def _show_claims_tab(self):
-        """Show the CLAIMSFILE claim-file tab for the loaded policy."""
-        self._show_aux_tab(self.claims_tab, "CLAIMSFILE")
-
-    def _show_tai_fd_tab(self):
-        """Show the dbo.TAICyberTAIFd tab for the loaded policy."""
-        self._show_aux_tab(self.tai_fd_tab, "TAICyberTAIFd")
-
-    def _show_orion_pcr_tab(self):
-        """Show the dbo.orion_pcr3_r tab for the loaded policy."""
-        self._show_aux_tab(self.orion_pcr_tab, "orion_pcr3_r")
-
-    def _show_cyberlife_pdf_tab(self):
-        """Show the dbo.CYBERLIFE_PDF (pivoted) tab for the loaded policy."""
-        self._show_aux_tab(self.cyberlife_pdf_tab, "CYBERLIFE_PDF")
-
-    # -- Optional-tab state (SAP / CLAIMSFILE) ----------------------------
+    # -- Per-policy Other Data state ------------------------------------
 
     def _current_aux_key(self):
         """Cache key for the currently loaded policy, or None if none loaded."""
@@ -687,45 +677,22 @@ class GetPolicyWindow(FramelessWindowBase):
         return (self._current_policy, self._current_region, company)
 
     def _save_current_aux_state(self):
-        """Snapshot the optional database-backed tabs for the outgoing policy."""
+        """Snapshot Other Data for the outgoing policy."""
         key = self._current_aux_key()
         if key is None:
             return
-        snapshot = {}
-        for tab, title in self._aux_tabs:
-            snapshot[title] = {
-                "open": self.tabs.indexOf(tab) >= 0,
-                "state": tab.export_state(),
-            }
-        self._aux_tab_state[key] = snapshot
-
-    def _remove_aux_tabs(self):
-        """Detach all optional database-backed tabs from the tab bar."""
-        for tab, _title in self._aux_tabs:
-            idx = self.tabs.indexOf(tab)
-            if idx >= 0:
-                self.tabs.removeTab(idx)
-            tab.hide()
+        self._aux_tab_state[key] = self.other_data_tab.export_state()
 
     def _reset_aux_tabs(self, key=None):
-        """Clean slate for a brand new policy: close and clear all aux tabs."""
-        self._remove_aux_tabs()
-        for tab, _title in self._aux_tabs:
-            tab.reset()
+        """Clear Other Data and bind the newly loaded policy without querying."""
+        self.other_data_tab.reset(self._policy)
         if key is not None:
             self._aux_tab_state.pop(key, None)
 
     def _restore_aux_tabs(self, key):
-        """Restore the optional tabs for a previously-viewed policy."""
-        self._remove_aux_tabs()
+        """Restore Other Data for a previously viewed policy without querying."""
         snapshot = self._aux_tab_state.get(key) or {}
-        for tab, title in self._aux_tabs:
-            entry = snapshot.get(title)
-            if entry and entry.get("open"):
-                self._insert_aux_tab(tab, title)
-                tab.restore_state(self._policy, entry.get("state", {}))
-            else:
-                tab.reset()
+        self.other_data_tab.restore_state(self._policy, snapshot)
 
     def _show_annuity_rider_tab(self, coverage=None):
         """Focus the embedded Annuity Rider section for eligible rider coverage."""
@@ -737,7 +704,10 @@ class GetPolicyWindow(FramelessWindowBase):
             if plancode != "0699830R":
                 return
 
-        self.policy_support_tab.load_data_from_policy(self._policy)
+        self.tabs.setCurrentWidget(self.policy_support_tab)
+        if not self._load_policy_tab(self.policy_support_tab):
+            self._pending_annuity = True
+            return
         self.policy_support_tab.show_annuity_rider()
         self.tabs.setCurrentWidget(self.policy_support_tab)
         self._show_status("Annuity Rider opened")
@@ -802,291 +772,274 @@ class GetPolicyWindow(FramelessWindowBase):
         window.show()
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
-        """Handle policy lookup request using PolicyInformation.
-
-        Results are cached so re-selecting a policy from the list is instant.
-        When company_code is empty and multiple companies are found,
-        shows a company chooser instead of loading.
-        """
-        # Hide any previous company chooser
+        """Queue lookup and Coverages; return to the event loop without DB work."""
+        policy_number = policy_number.strip().upper()
+        region = region.strip().upper()
+        company_code = company_code.strip().upper()
         self.lookup_bar.hide_company_chooser()
-
-        # Snapshot the optional SAP / CLAIMSFILE tabs for the outgoing policy
-        # before we switch, so returning to it restores what was there.
         self._save_current_aux_state()
-
-        # Show loading indicator immediately
-        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
-
-        cache_key = (policy_number, region, company_code)
-
-        # Check cache first
-        if company_code and cache_key in self._policy_cache:
-            self._show_status(f"Loading policy {policy_number} from cache...")
-            QApplication.processEvents()
-            cached = self._policy_cache[cache_key]
-            self._policy = cached["policy"]
-            self._policy_info = cached["policy_info"]
-            self._where_clause = cached["where_clause"]
-            self._current_policy = policy_number
-            self._current_region = region
-
-            company_code = self._policy_info["CompanyCode"]
-            is_pending = self._policy_info.get("SystemCode") == "P"
-
-            # Reconnect DB if region changed
-            if not self._db or self._db.region != region:
-                if self._db:
-                    self._db.close()
-                self._db = DB2Connection(region)
-                self._db.connect()
-
-            self.lookup_bar.set_policy_display(
-                company_code, policy_number, region, is_pending=is_pending
-            )
-
-            # Deferred tree loading for cached policies too
-            self.records_tree.reset_for_new_policy()
-            self.records_tree.store_connection_info(
-                self._db, self._where_clause,
-                policy_id=self._policy_info["PolicyID"],
-                company_code=company_code,
-            )
-            self.records_tree.enable_rates_tab(self._policy)
-            self.records_tree.show_rates_tab()
-
-            self._load_all_tabs()
-            # Switching back to a previously-viewed policy: restore its
-            # SAP / CLAIMSFILE tabs exactly as they were left.
-            self._restore_aux_tabs(self._current_aux_key())
-            self._show_status(
-                f"Loaded policy {policy_number} ({company_code}) "
-                f"- {self._policy.status_description} (cached)"
-            )
-            QApplication.restoreOverrideCursor()
-            return
-
+        self._requested_policy = (policy_number, region, company_code)
+        cached = self._policy_cache.get(self._requested_policy) if company_code else None
+        seed = cached["policy"].detached_copy() if cached else None
+        self._policy = None
+        self._current_policy = None
+        self._current_region = None
+        self._policy_info = {}
+        self._where_clause = None
+        self._tab_payloads.clear()
+        self._pending_annuity = False
+        self.open_illustrator_btn.setEnabled(False)
+        self.open_record_btn.setEnabled(False)
+        self._tree_toggle_btn.setEnabled(False)
+        self.records_tree.setEnabled(False)
+        self._clear_reinstatement_tab()
+        self._pending_policy_tabs = {tab for tab, _ in self._stage_tabs.values()}
+        for stage in self._stage_tabs:
+            self._set_tab_state(stage, "queued")
+        self._load_started = perf_counter()
         self._show_status(f"Loading policy {policy_number} from {region}...")
-        QApplication.processEvents()
+        self._load_token = self._loader.start(
+            policy_number, region, company_code, seed=seed,
+        )
 
+    @pyqtSlot(int, str, object)
+    def _on_prepared_policy(self, token: int, stage: str, prepared):
+        if token != self._load_token:
+            return
         try:
-            import time as _time
+            self._apply_prepared_policy(token, stage, prepared)
+        except Exception as exc:
+            logger.exception("Could not apply PolView %s result", stage)
+            self._on_load_failed(token, stage, str(exc))
 
-            t0 = _time.perf_counter()
-            self._policy = PolicyInformation(
-                policy_number,
-                company_code=company_code or None,
-                region=region,
-            )
-            t_policy = _time.perf_counter() - t0
-
-            # Check if multiple companies were found (no extra DB query needed)
-            if self._policy.available_companies:
+    def _apply_prepared_policy(self, token: int, stage: str, prepared):
+        policy = prepared.policy
+        if stage == "coverages":
+            number, region, _company = self._requested_policy
+            if policy.available_companies:
                 self.lookup_bar.show_company_chooser(
-                    self._policy.available_companies, policy_number, region
+                    policy.available_companies, number, region,
                 )
-                self._show_status(
-                    f"Policy {policy_number} found in "
-                    f"{len(self._policy.available_companies)} companies: "
-                    f"{', '.join(self._policy.available_companies)} — select one above"
-                )
+                self._show_initial_notice("Select a company above to finish loading this policy.")
                 return
-
-            # Fallback: if inforce (I) not found, try pending (P)
-            if not self._policy.exists:
-                self._policy = PolicyInformation(
-                    policy_number,
-                    company_code=company_code or None,
-                    system_code="P",
-                    region=region,
-                )
-                # Pending may also have multiple companies
-                if self._policy.available_companies:
-                    self.lookup_bar.show_company_chooser(
-                        self._policy.available_companies, policy_number, region
-                    )
-                    self._show_status(
-                        f"Policy {policy_number} (Pending) found in "
-                        f"{len(self._policy.available_companies)} companies: "
-                        f"{', '.join(self._policy.available_companies)} — select one above"
-                    )
-                    return
-
-            if not self._policy.exists:
-                error_text = self._policy.last_error or ""
-                # Detect connection / auth errors and offer ODBC Manager
-                if error_text and is_password_error(error_text):
-                    dsn = REGION_DSN_MAP.get(region, "NEON_DSN")
-                    QApplication.restoreOverrideCursor()
-                    _show_odbc_warning(self, dsn, error_detail=error_text)
-                    self._show_status(
-                        f"{dsn} connection failed — update your ODBC password and retry"
-                    )
-                    return
-
-                QMessageBox.warning(
-                    self, "Not Found",
-                    f"Policy {policy_number} not found in {region}\n{error_text}",
-                )
-                self._show_status("Policy not found")
+            if not policy.exists:
+                self._on_load_failed(token, stage, policy.last_error or "Policy not found.")
                 return
-
-            company_code = self._policy.company_code
-            system_code = self._policy.system_code
-            tch_pol_id = self._policy.policy_id
-
-            self._where_clause = (
-                f"CK_SYS_CD = \'{system_code}\' "
-                f"AND TCH_POL_ID = \'{tch_pol_id}\' "
-                f"AND CK_CMP_CD = \'{company_code}\'"
-            )
-
+            self._policy = policy
+            self._current_policy = policy.policy_number
+            self._current_region = policy.region
             self._policy_info = {
-                "PolicyID": tch_pol_id,
-                "PolicyNumber": policy_number,
-                "CompanyCode": company_code,
-                "SystemCode": system_code,
-                "Region": region,
+                "PolicyID": policy.policy_id, "PolicyNumber": policy.policy_number,
+                "CompanyCode": policy.company_code, "SystemCode": policy.system_code,
+                "Region": policy.region,
             }
-
-            # Store in cache (keyed by policy+region+company)
-            store_key = (policy_number, region, company_code)
+            self._where_clause = (
+                f"CK_SYS_CD = '{policy.system_code}' "
+                f"AND TCH_POL_ID = '{policy.policy_id}' "
+                f"AND CK_CMP_CD = '{policy.company_code}'"
+            )
+            store_key = self._current_aux_key()
+            was_viewed = store_key in self._policy_cache
             self._policy_cache[store_key] = {
-                "policy": self._policy,
+                "policy": policy,
                 "policy_info": dict(self._policy_info),
                 "where_clause": self._where_clause,
             }
-
-            self._current_policy = policy_number
-            self._current_region = region
-
-            if not self._db or self._db.region != region:
-                if self._db:
-                    self._db.close()
-                self._db = DB2Connection(region)
-                self._db.connect()
-
-            is_pending = self._policy.system_code == "P"
-            self._add_policy_to_history(region, company_code, policy_number)
+            cache_policy_info(policy)
+            self._db = DB2Connection(policy.region)
+            self._add_policy_to_history(policy.region, policy.company_code, policy.policy_number)
             self.lookup_bar.set_policy_display(
-                company_code, policy_number, region, is_pending=is_pending
+                policy.company_code, policy.policy_number, policy.region,
+                is_pending=policy.system_code == "P",
             )
-
-            # Reset tree and store connection info for lazy loading
             self.records_tree.reset_for_new_policy()
             self.records_tree.store_connection_info(
                 self._db, self._where_clause,
-                policy_id=tch_pol_id, company_code=company_code,
+                policy_id=policy.policy_id, company_code=policy.company_code,
             )
-            self.records_tree.enable_rates_tab(self._policy)
-            # Start on Rates tab (fast) — Tables will load on-demand
-            self.records_tree.show_rates_tab()
-
-            t2 = _time.perf_counter()
-            self._load_all_tabs()
-            # Brand new policy: start with a clean slate — close the optional
-            # SAP / CLAIMSFILE tabs and clear any prior policy's data.
-            self._reset_aux_tabs(store_key)
-            t_tabs = _time.perf_counter() - t2
-
-            t_total = _time.perf_counter() - t0
-            self._show_status(
-                f"Loaded {policy_number} ({company_code}) "
-                f"- {self._policy.status_description}  |  "
-                f"Policy: {t_policy:.1f}s  Tabs: {t_tabs:.1f}s  "
-                f"Total: {t_total:.1f}s"
-            )
-
-        except Exception as e:
-            error_text = str(e)
-            if is_password_error(error_text):
-                dsn = REGION_DSN_MAP.get(region, "NEON_DSN")
-                QApplication.restoreOverrideCursor()
-                _show_odbc_warning(self, dsn, error_detail=error_text)
-                self._show_status(
-                    f"{dsn} connection failed — update your ODBC password and retry"
-                )
-                return
-            QMessageBox.critical(self, "Error", f"Failed to load policy: {e}")
-            self._show_status(f"Error: {e}")
-        finally:
-            QApplication.restoreOverrideCursor()
-
-    def _load_all_tabs(self):
-        """Load data into all tabs using PolicyInformation."""
-        self._clear_reinstatement_tab()
-        if not self._policy or not self._policy.exists:
-            return
-
-        # A policy is loaded — enable the "Open in RERUN" header button.
-        self.open_illustrator_btn.setEnabled(True)
-
-        # Clear the Raw Table tab so stale data doesn't persist across policies
-        self.raw_table_tab.clear()
-
-        self.coverages_tab.load_data_from_policy(self._policy)
-        self.policy_tab.load_data_from_policy(self._policy, self._policy_info)
-        self.targets_tab.load_data_from_policy(self._policy)
-        self.persons_tab.load_data_from_policy(self._policy)
-        self.activity_tab.load_data_from_policy(self._policy)
-
-        # AdvProdValues tab -- add/remove dynamically based on product type
-        advprod_index = self.tabs.indexOf(self.advprod_tab)
-        if self._policy.is_advanced_product:
-            if advprod_index < 0:
-                # Insert after Persons (index 4) or after Dividends if present
-                insert_pos = self.tabs.indexOf(self.dividends_tab)
-                if insert_pos >= 0:
-                    insert_pos += 1
-                else:
-                    insert_pos = 4
-                self.tabs.insertTab(insert_pos, self.advprod_tab, "AdvProdValues")
-            self.advprod_tab.load_data_from_policy(self._policy)
-        else:
-            if advprod_index >= 0:
-                self.tabs.removeTab(advprod_index)
-            self.advprod_tab.hide()
-
-        # Dividends tab -- add/remove dynamically
-        dividends_index = self.tabs.indexOf(self.dividends_tab)
-        if dividends_index >= 0:
-            self.tabs.removeTab(dividends_index)
-        self.dividends_tab.hide()
-
-        if self.dividends_tab.has_dividend_data(self._policy):
-            self.tabs.insertTab(4, self.dividends_tab, "Dividends")
-            self.dividends_tab.load_data_from_policy(self._policy)
-
-        # Loans tab -- add/remove dynamically based on loan data
-        loans_idx = self.tabs.indexOf(self.loans_tab)
-        if loans_idx >= 0:
-            self.tabs.removeTab(loans_idx)
-        self.loans_tab.hide()
-
-        if self.loans_tab.has_loan_data(self._policy):
-            # Insert before Activity tab
-            activity_idx = self.tabs.indexOf(self.activity_tab)
-            if activity_idx >= 0:
-                self.tabs.insertTab(activity_idx, self.loans_tab, "Loans")
+            self.records_tree.enable_rates_tab(policy)
+            with policy.cached_reads_only():
+                self.records_tree.show_rates_tab()
+            self._prepare_policy_tabs()
+            if was_viewed:
+                self._restore_aux_tabs(store_key)
             else:
-                self.tabs.addTab(self.loans_tab, "Loans")
-            self.loans_tab.load_data_from_policy(self._policy)
+                self._reset_aux_tabs(store_key)
+            self.raw_table_tab.clear()
+            for key in ("other", "raw"):
+                self._set_tab_state(key, "ready")
+                self._pending_policy_tabs.discard(self._stage_tabs[key][0])
+                self._load_overlays[key].hide()
+            self.open_illustrator_btn.setEnabled(True)
+            self.open_record_btn.setEnabled(True)
+            self._tree_toggle_btn.setEnabled(True)
+            self.records_tree.setEnabled(True)
+            self._set_tab_state("coverages", "ready")
+            coverages_ok = self._load_policy_tab(self.coverages_tab)
+            self._on_policy_tab_changed(self.tabs.currentIndex())
+            if not coverages_ok:
+                return
+            elapsed = perf_counter() - self._load_started
+            logger.info("PolView Coverages ready in %.3fs; details loading asynchronously", elapsed)
+            self._show_status(
+                f"{policy.policy_number} ({policy.company_code}) ready in {elapsed:.1f}s"
+                " - loading details in background"
+            )
+            self.policy_ready.emit()
+            return
+        if self._policy is None:
+            return
+        self._policy.merge_prefetched(policy)
+        self._tab_payloads[stage] = prepared.payload
+        tab, _title = self._stage_tabs[stage]
+        if not prepared.available:
+            with QSignalBlocker(self.tabs):
+                if self.tabs.currentWidget() is tab:
+                    self.tabs.setCurrentWidget(self.coverages_tab)
+                index = self.tabs.indexOf(tab)
+                if index >= 0:
+                    self.tabs.removeTab(index)
+                tab.hide()
+            self._pending_policy_tabs.discard(tab)
+        self._set_tab_state(stage, "ready")
+        if prepared.available and self.tabs.currentWidget() is tab:
+            self._load_policy_tab(tab)
 
-        # Reinsurance tab -- add/remove dynamically based on TAICession data
-        reins_idx = self.tabs.indexOf(self.reinsurance_tab)
-        if reins_idx >= 0:
-            self.tabs.removeTab(reins_idx)
-        self.reinsurance_tab.hide()
+    def _prepare_policy_tabs(self) -> bool:
+        """No data queries: optional tabs remain pending until their worker result."""
+        with QSignalBlocker(self.tabs):
+            self._clear_reinstatement_tab()
+        if not self._policy or not self._policy.exists:
+            return False
+        selected = self.tabs.currentWidget()
+        with QSignalBlocker(self.tabs):
+            for tab in (self.dividends_tab, self.advprod_tab,
+                        self.loans_tab, self.reinsurance_tab):
+                index = self.tabs.indexOf(tab)
+                if index >= 0:
+                    self.tabs.removeTab(index)
+                tab.hide()
+            self.tabs.insertTab(4, self.dividends_tab, "Dividends")
+            if self._policy.is_advanced_product:
+                self.tabs.insertTab(5, self.advprod_tab, "AdvProdValues")
+            self.tabs.insertTab(
+                self.tabs.indexOf(self.activity_tab), self.loans_tab, "Loans",
+            )
+            self.tabs.insertTab(
+                self.tabs.indexOf(self.activity_tab), self.reinsurance_tab, "Reinsurance",
+            )
+            self.tabs.setCurrentWidget(
+                selected if self.tabs.indexOf(selected) >= 0 else self.coverages_tab,
+            )
+        for stage in self._stage_tabs:
+            self._set_tab_state(stage, self._tab_states.get(stage, "queued"))
+        return True
 
-        # Always show the tab — it will display either data or "not found" message
-        activity_idx = self.tabs.indexOf(self.activity_tab)
-        if activity_idx >= 0:
-            self.tabs.insertTab(activity_idx, self.reinsurance_tab, "Reinsurance")
+    @pyqtSlot(int)
+    def _on_policy_tab_changed(self, _index: int):
+        self._load_policy_tab(self.tabs.currentWidget())
+
+    def _load_policy_tab(self, tab: QWidget) -> bool:
+        stage = next((key for key, (page, _) in self._stage_tabs.items() if page is tab), None)
+        if stage is None:
+            return True
+        if tab not in self._pending_policy_tabs:
+            return True
+        if self._tab_states.get(stage) != "ready" or self._policy is None:
+            if hasattr(self, "_loader"):
+                self._loader.prioritize(stage)
+            return False
+        title = self.tabs.tabText(self.tabs.indexOf(tab)).replace("&&", "&")
+        started = perf_counter()
+        try:
+            self._load_overlays[stage].release_controls()
+            if stage == "support":
+                # File browsing/GLP tools are explicit actions, never auto-prefetched.
+                tab.load_data_from_policy(self._policy)
+                if self._pending_annuity:
+                    self._pending_annuity = False
+                    tab.show_annuity_rider()
+            else:
+                with self._policy.cached_reads_only():
+                    if stage == "policy":
+                        tab.load_data_from_policy(self._policy, self._policy_info)
+                    elif stage in ("advprod", "reinsurance"):
+                        tab.load_data_from_policy(self._policy, self._tab_payloads[stage])
+                    else:
+                        tab.load_data_from_policy(self._policy)
+            self._pending_policy_tabs.discard(tab)
+            self._load_overlays[stage].hide()
+            elapsed = perf_counter() - started
+            logger.info("PolView tab %s rendered in %.3fs", title, elapsed)
+            return True
+        except Exception as exc:
+            logger.exception("Failed to render PolView tab %s", title)
+            self._on_load_failed(self._load_token, stage, str(exc))
+            return False
+
+    def _set_tab_state(self, stage: str, state: str, error: str = ""):
+        self._tab_states[stage] = state
+        tab, title = self._stage_tabs[stage]
+        index = self.tabs.indexOf(tab)
+        if index >= 0:
+            suffix = "..." if state in ("queued", "loading") else " !" if state == "failed" else ""
+            self.tabs.setTabText(index, title + suffix)
+            self.tabs.setTabToolTip(index, error or {
+                "queued": "Waiting to load. Select to prioritize.",
+                "loading": "Loading in background", "ready": "Ready",
+                "failed": "Failed - open the tab to retry",
+            }[state])
+        if state in ("queued", "loading"):
+            self._load_overlays[stage].display(
+                f"Loading {title.replace('&&', '&')} for {self._requested_policy[0]}...\n"
+                "You can use other ready tabs while this loads."
+            )
+        elif state == "failed":
+            self._load_overlays[stage].display(error, failed=True)
+
+    @pyqtSlot(str, str)
+    def _on_load_state_changed(self, stage: str, state: str):
+        self._set_tab_state(stage, state)
+
+    def _show_initial_notice(self, message: str, *, failed: bool = False):
+        self._show_status(message)
+        for stage, overlay in self._load_overlays.items():
+            self._set_tab_state(stage, "failed" if failed else "queued", message)
+            overlay.display(message, failed=failed)
+
+    @pyqtSlot(int, str, str)
+    def _on_load_failed(self, token: int, stage: str, error: str):
+        if token != self._load_token:
+            return
+        logger.error("PolView %s unavailable: %s", stage, error)
+        if stage == "coverages" and self._policy is None:
+            self._show_initial_notice(error, failed=True)
+            if is_password_error(error):
+                dsn = REGION_DSN_MAP.get(self._requested_policy[1], "NEON_DSN")
+                _show_odbc_warning(self, dsn, error_detail=error)
         else:
-            self.tabs.addTab(self.reinsurance_tab, "Reinsurance")
-        self.reinsurance_tab.load_data_from_policy(self._policy)
+            self._set_tab_state(stage, "failed", error)
+            self._show_status(f"{self._stage_tabs[stage][1]} unavailable: {error}")
 
-        self.policy_support_tab.load_data_from_policy(self._policy)
+    @pyqtSlot(str)
+    def _retry_policy_tab(self, stage: str):
+        if self._policy is None or stage == "coverages":
+            self._on_get_policy(*self._requested_policy)
+        else:
+            self._pending_policy_tabs.add(self._stage_tabs[stage][0])
+            self._loader.retry(stage)
+
+    @pyqtSlot(int)
+    def _on_background_settled(self, token: int):
+        if token != self._load_token or self._policy is None:
+            return
+        failures = [key for key, state in self._tab_states.items() if state == "failed"]
+        self._show_status(
+            f"{self._policy.policy_number} - "
+            + (f"{len(failures)} tab(s) unavailable; open a marked tab to retry"
+               if failures else "Background data ready")
+        )
+        self.background_ready.emit()
 
     # == Tree selection handlers ===========================================
 

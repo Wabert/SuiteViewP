@@ -16,12 +16,33 @@ Data flow:
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
+from copy import deepcopy
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime
 from pyodbc import SQL_VARCHAR
 
 # Use the shared database connection module
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
+
+
+_connection_provider = ContextVar("policy_connection_provider", default=None)
+_cached_read_guards = ContextVar("policy_cached_read_guards", default=())
+
+
+class CachedReadError(RuntimeError):
+    """A render attempted a read that was not successfully prefetched."""
+
+
+@contextmanager
+def connection_provider_scope(provider):
+    """Route this context's DB2 reads to a private owner, with strict errors."""
+    token = _connection_provider.set(provider)
+    try:
+        yield
+    finally:
+        _connection_provider.reset(token)
 
 
 # =============================================================================
@@ -42,6 +63,9 @@ class _ConnectionManager:
     def get_connection(self, region: str):
         """Get or create connection for region via shared DB2Connection."""
         region = region.upper()
+        provider = _connection_provider.get()
+        if provider is not None:
+            return provider(region)
         if region not in self._db_instances:
             self._db_instances[region] = _DB2Connection(region)
         return self._db_instances[region].connect()
@@ -94,7 +118,7 @@ class PolicyData:
         self._table_errors: Dict[str, str] = {}
 
         # Connection
-        self._conn_mgr = _ConnectionManager()
+        self._conn_mgr = None if _connection_provider.get() is not None else _ConnectionManager()
 
         # Load policy header (validates existence, resolves company)
         self._load_policy()
@@ -384,12 +408,75 @@ class PolicyData:
 
     def refresh(self):
         """Clear table cache and reload policy header from database."""
+        self.reject_uncached_read("Policy refresh during cached rendering")
         self._table_cache.clear()
+        self._table_errors.clear()
         self._load_policy()
 
     def invalidate_table(self, table_name: str):
         """Remove a single table from cache so it is re-fetched next access."""
         self._table_cache.pop(table_name, None)
+        self._table_errors.pop(table_name, None)
+
+    def clear_failed_tables(self):
+        """Make failed fetches retryable, retaining successfully loaded tables."""
+        for table in tuple(self._table_errors):
+            self.invalidate_table(table)
+
+    def raise_table_errors(self):
+        """Do not let legacy callers' exception handling hide a failed fetch."""
+        if self._table_errors:
+            raise RuntimeError("; ".join(
+                f"{table}: {error}" for table, error in self._table_errors.items()
+            ))
+
+    @contextmanager
+    def cached_reads_only(self):
+        """Forbid missing/error reads, including errors swallowed by a renderer."""
+        violations = []
+        token = _cached_read_guards.set(
+            (*_cached_read_guards.get(), (self, violations))
+        )
+        try:
+            yield
+        finally:
+            _cached_read_guards.reset(token)
+            if violations:
+                raise CachedReadError("; ".join(dict.fromkeys(violations)))
+
+    def reject_uncached_read(self, description: str):
+        guards = [
+            violations for data, violations in _cached_read_guards.get()
+            if data is self
+        ]
+        if guards:
+            for violations in guards:
+                violations.append(description)
+            raise CachedReadError(description)
+
+    def detached_copy(self):
+        """Copy only plain policy state; never copy a connection manager/handle."""
+        clone = object.__new__(type(self))
+        for name, value in self.__dict__.items():
+            if name not in ("_conn_mgr", "_table_cache"):
+                setattr(clone, name, deepcopy(value))
+        clone._conn_mgr = None
+        clone._table_cache = {
+            table: {
+                "columns": list(data["columns"]),
+                "rows": [deepcopy(tuple(row)) for row in data["rows"]],
+            }
+            for table, data in self._table_cache.items()
+        }
+        return clone
+
+    def _connection(self):
+        # Detached GUI snapshots may deliberately read live data outside rendering.
+        provider = _connection_provider.get()
+        if provider is not None:
+            return provider(self._region)
+        manager = self._conn_mgr or _ConnectionManager()
+        return manager.get_connection(self._region)
 
     # =========================================================================
     # STATIC HELPERS
@@ -408,24 +495,32 @@ class PolicyData:
         """
         from suiteview.core.db2_connection import sql_for_region
 
-        conn_mgr = _ConnectionManager()
+        cursor = None
         try:
-            conn = conn_mgr.get_connection(region.upper())
+            provider = _connection_provider.get()
+            conn = (provider(region.upper()) if provider is not None
+                    else _ConnectionManager().get_connection(region.upper()))
             sql = sql_for_region(
                 "WITH DUMBY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) "
                 "SELECT DISTINCT CK_CMP_CD FROM DB2TAB.LH_BAS_POL "
-                f"WHERE CK_SYS_CD = '{system_code}' "
-                f"AND CK_POLICY_NBR = '{policy_number.strip()}' "
+                "WHERE CK_SYS_CD = ? "
+                "AND CK_POLICY_NBR = ? "
                 "ORDER BY CK_CMP_CD",
                 region,
             )
             cursor = conn.cursor()
-            cursor.execute(sql)
+            parameters = (system_code, policy_number.strip())
+            cursor.setinputsizes([(SQL_VARCHAR, len(value), 0) for value in parameters])
+            cursor.execute(sql, parameters)
             rows = cursor.fetchall()
-            cursor.close()
             return [str(r[0]).strip() for r in rows]
         except Exception:
+            if _connection_provider.get() is not None:
+                raise
             return []
+        finally:
+            if cursor is not None:
+                cursor.close()
 
     # =========================================================================
     # INTERNAL — LOADING & CACHING
@@ -433,16 +528,23 @@ class PolicyData:
 
     def _load_policy(self):
         """Load and validate policy from database."""
+        self.reject_uncached_read("Policy header refresh during cached rendering")
+        self._cancelled = False
+        self._last_error = ""
+        self._available_companies = []
+        cursor = None
         try:
-            conn = self._conn_mgr.get_connection(self._region)
+            conn = self._connection()
 
             # Build WHERE clause
             where_parts = [
-                f"CK_SYS_CD = '{self._system_code}'",
-                f"CK_POLICY_NBR = '{self._policy_number}'",
+                "CK_SYS_CD = ?",
+                "CK_POLICY_NBR = ?",
             ]
+            parameters = (self._system_code, self._policy_number)
             if self._company_code:
-                where_parts.append(f"CK_CMP_CD = '{self._company_code}'")
+                where_parts.append("CK_CMP_CD = ?")
+                parameters += (self._company_code,)
 
             sql = self._add_with_clause(f"""
                 SELECT CK_CMP_CD, CK_POLICY_NBR, CK_SYS_CD, TCH_POL_ID
@@ -451,9 +553,9 @@ class PolicyData:
             """)
 
             cursor = conn.cursor()
-            cursor.execute(sql)
+            cursor.setinputsizes([(SQL_VARCHAR, len(value), 0) for value in parameters])
+            cursor.execute(sql, parameters)
             rows = cursor.fetchall()
-            cursor.close()
 
             if not rows:
                 self._exists = False
@@ -487,6 +589,11 @@ class PolicyData:
                 f"(region={self._region}): {self._last_error}",
                 file=sys.stderr,
             )
+            if _connection_provider.get() is not None:
+                raise
+        finally:
+            if cursor is not None:
+                cursor.close()
 
     # Tables that should be ordered by COV_PHA_NBR (matches VBA LoadDB2Table)
     _COV_PHA_ORDERED_TABLES = {
@@ -527,14 +634,21 @@ class PolicyData:
 
     def _ensure_table_loaded(self, table_name: str):
         """Ensure a table is loaded into cache."""
+        if table_name in self._table_errors:
+            error = f"{table_name}: {self._table_errors[table_name]}"
+            self.reject_uncached_read(error)
+            if _connection_provider.get() is not None:
+                raise RuntimeError(error)
         if table_name in self._table_cache:
             return
 
+        self.reject_uncached_read(f"Table {table_name} was not prefetched")
         if not self._exists:
             return
 
+        cursor = None
         try:
-            conn = self._conn_mgr.get_connection(self._region)
+            conn = self._connection()
 
             if table_name in self._NO_SYSTEM_KEY_TABLES:
                 where_clause = "TCH_POL_ID = ? AND CK_CMP_CD = ?"
@@ -563,7 +677,6 @@ class PolicyData:
 
             columns = [desc[0].upper() for desc in cursor.description] if cursor.description else []
             rows = cursor.fetchall()
-            cursor.close()
 
             self._table_cache[table_name] = {
                 "columns": columns,
@@ -585,6 +698,11 @@ class PolicyData:
             )
             # Cache empty result so we don't retry on every access
             self._table_cache[table_name] = {"columns": [], "rows": []}
+            if _connection_provider.get() is not None:
+                raise RuntimeError(f"{table_name}: {error}") from exc
+        finally:
+            if cursor is not None:
+                cursor.close()
 
     def _add_with_clause(self, sql: str) -> str:
         """Add WITH clause for Office 365 compatibility and apply

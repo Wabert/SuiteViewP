@@ -5,10 +5,11 @@ and Fund History sections for UL/VUL products.
 
 from decimal import Decimal
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel
 
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
+from ...services.policy_prefetch import SurrenderValues, SurrenderValuesUnavailable
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -35,6 +36,15 @@ class AdvProdValuesTab(QWidget):
         self.policy_info.setFixedSize(595, 190)
         self._setup_policy_info_fields()
         left_column.addWidget(self.policy_info)
+
+        self.surrender_notice = QLabel()
+        self.surrender_notice.setWordWrap(True)
+        self.surrender_notice.setFixedWidth(595)
+        self.surrender_notice.setStyleSheet(
+            "background: #F0F0F0; color: #555555; font-style: italic; padding: 4px;"
+        )
+        self.surrender_notice.hide()
+        left_column.addWidget(self.surrender_notice)
 
         fund_values_row = QHBoxLayout()
         fund_values_row.setSpacing(4)
@@ -111,7 +121,10 @@ class AdvProdValuesTab(QWidget):
 
     # ── PolicyInformation path ───────────────────────────────────────────
 
-    def load_data_from_policy(self, policy: 'PolicyInformation'):
+    def load_data_from_policy(
+        self, policy: 'PolicyInformation',
+        surrender_values: SurrenderValues | SurrenderValuesUnavailable,
+    ):
         # Clear old data first so stale values never remain when switching policies
         self.policy_info.clear_info()
         self.mv_values.load_table_data([])
@@ -119,13 +132,27 @@ class AdvProdValuesTab(QWidget):
         self.unimpaired_values.load_table_data([])
         self.impaired_values.load_table_data([])
         self.allocation_percent.load_table_data([])
+        self.surrender_notice.clear()
+        self.surrender_notice.hide()
+        for field in ("surrender_charge", "surrender_value"):
+            self.policy_info._fields[field].setToolTip("")
 
         try:
             if not policy.is_advanced_product:
                 return
 
             self._load_policy_info_from_policy(policy)
-            self._load_surrender_values_from_policy(policy)
+            if isinstance(surrender_values, SurrenderValuesUnavailable):
+                for field in ("surrender_charge", "surrender_value"):
+                    self.policy_info.set_value(field, "N/A")
+                    self.policy_info._fields[field].setToolTip(surrender_values.reason)
+                self.surrender_notice.setText(surrender_values.reason)
+                self.surrender_notice.show()
+            else:
+                self.policy_info.set_value(
+                    "surrender_charge", format_currency(surrender_values.surrender_charge))
+                self.policy_info.set_value(
+                    "surrender_value", format_currency(surrender_values.surrender_value))
             self._load_monthliversary_from_policy(policy)
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
@@ -134,6 +161,7 @@ class AdvProdValuesTab(QWidget):
             import traceback, sys
             print(f"[AdvProdValuesTab] Error loading data: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
+            raise
 
     def _load_policy_info_from_policy(self, policy):
         mvav = policy.mv_av(0)
@@ -208,31 +236,6 @@ class AdvProdValuesTab(QWidget):
                 self.policy_info.set_value("sp_prem_cease_age", str(policy.sp_prem_cease_age))
         if policy.db_dial_to_age:
             self.policy_info.set_value("db_dial_to_age", str(policy.db_dial_to_age))
-
-    def _load_surrender_values_from_policy(self, policy):
-        """Compute the full surrender charge and net surrender value as of the
-        valuation date using the Illustration engine.
-
-        UL/advanced products only (this tab already returns early for trad).
-        If the required rates are missing or any error occurs, show "cannot calc".
-        """
-        try:
-            from suiteview.illustration import build_illustration_data, IllustrationEngine
-
-            ill_policy = build_illustration_data(
-                policy.policy_number, policy.region, policy.company_code
-            )
-            results = IllustrationEngine().project(ill_policy, months=0)
-            inforce = results[0]
-            self.policy_info.set_value(
-                "surrender_charge", format_currency(inforce.surrender_charge))
-            self.policy_info.set_value(
-                "surrender_value", format_currency(inforce.surrender_value))
-        except Exception as e:
-            import sys
-            print(f"[AdvProdValuesTab] Surrender calc failed: {e}", file=sys.stderr)
-            self.policy_info.set_value("surrender_charge", "cannot calc")
-            self.policy_info.set_value("surrender_value", "cannot calc")
 
     def _load_monthliversary_from_policy(self, policy):
         mv_rows = policy.fetch_table("LH_POL_MVRY_VAL")

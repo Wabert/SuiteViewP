@@ -187,6 +187,7 @@ class CoveragesTab(QWidget):
             import traceback, sys
             print(f"[CoveragesTab] Error loading data: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
+            raise
 
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):
         coverages = policy.get_coverages()

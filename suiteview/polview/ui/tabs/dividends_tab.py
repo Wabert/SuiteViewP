@@ -88,24 +88,6 @@ class DividendsTab(QWidget):
         scroll.setWidget(content)
         layout.addWidget(scroll)
 
-    # ── public helpers ───────────────────────────────────────────────────
-
-    def has_dividend_data(self, policy) -> bool:
-        """Check if policy has any dividend data to display."""
-        if not policy:
-            return False
-        try:
-            unapplied_count = policy.data_item_count("LH_UNAPPLIED_PTP")
-            oyt_count = policy.data_item_count("LH_ONE_YR_TRM_ADD")
-            deposit_count = policy.data_item_count("LH_PTP_ON_DEP")
-            pua_count = policy.data_item_count("LH_PAID_UP_ADD")
-            has_data = (unapplied_count > 0 or oyt_count > 0
-                        or deposit_count > 0 or pua_count > 0)
-            return has_data
-        except Exception:
-            pass
-            return False
-
     # ── data loading ─────────────────────────────────────────────────────
 
     def load_data_from_policy(self, policy):
@@ -128,6 +110,7 @@ class DividendsTab(QWidget):
             import traceback, sys
             print(f"[DividendsTab] Error loading data: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
+            raise
 
     # ── private helpers ──────────────────────────────────────────────────
 
@@ -205,7 +188,7 @@ class DividendsTab(QWidget):
 
             table.autoFitAllColumns()
         except Exception:
-            pass
+            raise
 
     def _load_pua(self, policy, issue_day: int):
         """Load Paid Up Additions table."""
@@ -310,7 +293,7 @@ class DividendsTab(QWidget):
 
             table.autoFitAllColumns()
         except Exception:
-            pass
+            raise
 
     def _load_oyt(self, policy, issue_day: int):
         """Load One Year Term table."""
@@ -341,7 +324,7 @@ class DividendsTab(QWidget):
 
             table.autoFitAllColumns()
         except Exception:
-            pass
+            raise
 
     def _load_deposit(self, policy, issue_day: int):
         """Load On Deposit table."""
@@ -381,4 +364,4 @@ class DividendsTab(QWidget):
 
             table.autoFitAllColumns()
         except Exception:
-            pass
+            raise

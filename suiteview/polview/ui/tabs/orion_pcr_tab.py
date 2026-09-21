@@ -1,7 +1,7 @@
 """
 orion_pcr3_r tab - queries dbo.orion_pcr3_r in the UL_Rates database.
 
-Opened from the "orion_pcr3_r" button on the Policy Support tab's left nav panel.
+Embedded in the Other Data tab; date inputs are shown before querying.
 Provides a monthEnd date range (defaulting the start to three months ago), an
 orion_pcr3_r button that runs the query against the "UL_Rates" SQL Server ODBC
 connection, and a filterable/searchable grid.
@@ -222,7 +222,7 @@ class OrionPcrTab(QWidget):
             "to": self.date_to.text(),
             "df": df,
             "status": self._status_label.text(),
-            "no_access": self._no_access_label.isVisible(),
+            "no_access": not self._no_access_label.isHidden(),
         }
 
     def restore_state(self, policy: Optional['PolicyInformation'], state: dict):

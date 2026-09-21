@@ -10,7 +10,7 @@ from pandas.api.types import is_numeric_dtype
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QLabel, QWidgetAction, QFileDialog, QMessageBox)
-from PyQt6.QtCore import (Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect,
+from PyQt6.QtCore import (Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, pyqtSlot, QRect,
                           QPoint, QTimer, QThread, QStringListModel, QSize, QRegularExpression)
 from PyQt6.QtGui import QFont, QFontMetrics, QAction, QPainter, QColor
 
@@ -1266,7 +1266,7 @@ class FilterTableView(QWidget):
         self.frozen_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.frozen_header.setStretchLastSection(False)
         self.frozen_header.sort_enabled = False
-        self.frozen_header.sectionResized.connect(lambda *_args: self._update_frozen_table_width())
+        self.frozen_header.sectionResized.connect(self._on_frozen_section_resized)
 
         self.header = ClickableHeaderView(Qt.Orientation.Horizontal, self.table_view)
         self.table_view.setHorizontalHeader(self.header)
@@ -1291,11 +1291,11 @@ class FilterTableView(QWidget):
         self.sort_order = {}  # column_index -> Qt.SortOrder
 
         # Keep the grouped-header band aligned with live column geometry.
-        self.header.sectionResized.connect(lambda *_args: self.group_bar.update())
-        self.header.sectionMoved.connect(lambda *_args: self.group_bar.update())
-        self.frozen_header.sectionResized.connect(lambda *_args: self.group_bar.update())
+        self.header.sectionResized.connect(self._update_group_bar)
+        self.header.sectionMoved.connect(self._update_group_bar)
+        self.frozen_header.sectionResized.connect(self._update_group_bar)
         self.table_view.horizontalScrollBar().valueChanged.connect(
-            lambda *_args: self.group_bar.update())
+            self._update_group_bar)
 
         # Set font
         font = QFont("Consolas", 9)
@@ -1308,7 +1308,7 @@ class FilterTableView(QWidget):
         # strip of viewport height; reserve the same strip under the frozen pane so
         # the two panels' rows stay aligned (freeze-pane look).
         self.table_view.horizontalScrollBar().rangeChanged.connect(
-            lambda *_args: self._sync_frozen_bottom_inset())
+            self._on_horizontal_scroll_range_changed)
         # The frozen pane sits in a column with a bottom spacer that reserves the
         # height of the main view's horizontal scrollbar — a real layout widget
         # Qt won't clobber (unlike viewport margins, which QAbstractScrollArea
@@ -1331,6 +1331,21 @@ class FilterTableView(QWidget):
         self.info_label = QLabel("")
         self.info_label.setStyleSheet("color: #666; font-size: 10px; padding: 2px;")
         layout.addWidget(self.info_label)
+
+    # QObject-bound slots disconnect when this receiver is destroyed. Lambdas
+    # capturing self keep the widget graph cyclic and can run during GC teardown.
+    @pyqtSlot(int, int, int)
+    def _on_frozen_section_resized(self, *_args):
+        self._update_frozen_table_width()
+
+    @pyqtSlot(int)
+    @pyqtSlot(int, int, int)
+    def _update_group_bar(self, *_args):
+        self.group_bar.update()
+
+    @pyqtSlot(int, int)
+    def _on_horizontal_scroll_range_changed(self, *_args):
+        self._sync_frozen_bottom_inset()
 
     def apply_ledger_style(
         self,

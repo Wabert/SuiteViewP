@@ -1,198 +1,184 @@
-"""
-Plancode tab — lets users build a list of plancodes to filter the audit query.
-
-Layout:
-  LEFT column:   Plancode label + input + "Add -->" button
-                 "Remove Selected" button
-                 "Remove All" button
-                 "Paste from Clipboard" button
-  RIGHT column:  QListWidget showing added plancodes
-"""
+"""Side-by-side plancode and policy-number lists for the audit query."""
 from __future__ import annotations
 
+import re
+
 from PyQt6.QtCore import QSize
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QCheckBox,
-    QListWidget, QAbstractItemView, QStyledItemDelegate,
-    QApplication,
-)
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QApplication, QAbstractItemView, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QPushButton, QStyledItemDelegate, QVBoxLayout,
+    QWidget,
+)
+
+from suiteview.ui.widgets.uppercase_input import force_uppercase
+from ._styles import make_checkbox
 
 _FONT = QFont("Segoe UI", 9)
 _ROW_H = 16
 _CTRL_H = 22
-_V_SPACING = 2
-_H_SPACING = 4
 
 
 class _TightItemDelegate(QStyledItemDelegate):
-    ROW_H = _ROW_H
-
     def sizeHint(self, option, index):
         sh = super().sizeHint(option, index)
-        return QSize(sh.width(), self.ROW_H)
+        return QSize(sh.width(), _ROW_H)
 
 
-class PlancodeTab(QWidget):
-    """Plancode multi-select tab — add plancodes individually or paste from clipboard."""
+class _IdentifierListPanel(QWidget):
+    """Shared add/remove/clipboard controls for exact identifier lists."""
 
-    def __init__(self, parent=None):
+    def __init__(self, title: str, input_label: str, extra_control=None, parent=None):
         super().__init__(parent)
-        self._build_ui()
-
-    def _build_ui(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(12)
-
-        # ── LEFT: input + buttons ────────────────────────────────────
-        left = QVBoxLayout()
-        left.setSpacing(_V_SPACING)
-
-        # Plancode input row
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+        heading = QLabel(title)
+        heading.setFont(_FONT)
+        heading.setStyleSheet("color: #1E5BA8; font-weight: bold;")
+        root.addWidget(heading)
+        body = QHBoxLayout()
+        body.setSpacing(8)
+        root.addLayout(body, 1)
+        controls = QVBoxLayout()
+        controls.setSpacing(2)
         row = QHBoxLayout()
-        row.setSpacing(_H_SPACING)
-        lbl = QLabel("Plancode")
-        lbl.setFont(_FONT)
-        self.txt_plancode = QLineEdit()
-        self.txt_plancode.setFont(_FONT)
-        self.txt_plancode.setFixedSize(80, _CTRL_H)
-        row.addWidget(lbl)
-        row.addWidget(self.txt_plancode)
+        row.setSpacing(4)
+        label = QLabel(input_label)
+        label.setFont(_FONT)
+        self.input = QLineEdit()
+        self.input.setFont(_FONT)
+        self.input.setFixedSize(100, _CTRL_H)
+        force_uppercase(self.input)
+        row.addWidget(label)
+        row.addWidget(self.input)
         row.addStretch()
-        left.addLayout(row)
+        controls.addLayout(row)
+        controls.addSpacing(8)
 
-        left.addSpacing(8)
-
-        # Add button
         self.btn_add = QPushButton("Add -->")
-        self.btn_add.setFont(_FONT)
-        self.btn_add.setFixedSize(120, 26)
-        left.addWidget(self.btn_add)
-
-        self.chk_cov1_plancode_match_only = QCheckBox("Cov1 plancode match only")
-        self.chk_cov1_plancode_match_only.setFont(_FONT)
-        left.addWidget(self.chk_cov1_plancode_match_only)
-
-        left.addSpacing(4)
-
-        # Remove Selected button
         self.btn_remove_selected = QPushButton("Remove Selected")
-        self.btn_remove_selected.setFont(_FONT)
-        self.btn_remove_selected.setFixedSize(120, 26)
-        left.addWidget(self.btn_remove_selected)
-
-        # Remove All button
         self.btn_remove_all = QPushButton("Remove All")
-        self.btn_remove_all.setFont(_FONT)
-        self.btn_remove_all.setFixedSize(120, 26)
-        left.addWidget(self.btn_remove_all)
-
-        left.addSpacing(24)
-
-        # Paste from Clipboard button
         self.btn_paste = QPushButton("Paste from\nClipboard")
-        self.btn_paste.setFont(_FONT)
-        self.btn_paste.setFixedSize(120, 40)
-        left.addWidget(self.btn_paste)
+        for button in (
+            self.btn_add, self.btn_remove_selected, self.btn_remove_all, self.btn_paste,
+        ):
+            button.setFont(_FONT)
+            button.setFixedSize(120, 40 if button is self.btn_paste else 26)
+        controls.addWidget(self.btn_add)
+        if extra_control is not None:
+            extra_control.setFixedHeight(_CTRL_H)
+            controls.addWidget(extra_control)
+        else:
+            placeholder = QWidget()
+            placeholder.setFixedHeight(_CTRL_H)
+            controls.addWidget(placeholder)
+        controls.addSpacing(4)
+        controls.addWidget(self.btn_remove_selected)
+        controls.addWidget(self.btn_remove_all)
+        controls.addSpacing(24)
+        controls.addWidget(self.btn_paste)
+        controls.addStretch()
+        body.addLayout(controls)
 
-        left.addStretch()
-        root.addLayout(left)
-
-        # ── RIGHT: plancode list ─────────────────────────────────────
-        self.list_plancodes = QListWidget()
-        self.list_plancodes.setFont(_FONT)
-        self.list_plancodes.setItemDelegate(_TightItemDelegate(self.list_plancodes))
-        self.list_plancodes.setUniformItemSizes(True)
-        self.list_plancodes.setSelectionMode(
+        self.list_values = QListWidget()
+        self.list_values.setFont(_FONT)
+        self.list_values.setItemDelegate(_TightItemDelegate(self.list_values))
+        self.list_values.setUniformItemSizes(True)
+        self.list_values.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        self.list_plancodes.setStyleSheet(
+        self.list_values.setStyleSheet(
             "QListWidget { border: 1px solid #1E5BA8; background-color: white; }"
             "QListWidget::item { padding: 0px 2px; border: none; }"
             "QListWidget::item:selected { background-color: #A0C4E8; color: black; border: none; }"
         )
-        self.list_plancodes.setMinimumWidth(120)
-        root.addWidget(self.list_plancodes, 1)  # stretch=1
+        self.list_values.setMinimumWidth(120)
+        body.addWidget(self.list_values, 1)
 
-        # ── Connect signals ──────────────────────────────────────────
-        self.btn_add.clicked.connect(self._add_plancode)
-        self.txt_plancode.returnPressed.connect(self._add_plancode)
+        self.btn_add.clicked.connect(self._add_input)
+        self.input.returnPressed.connect(self._add_input)
         self.btn_remove_selected.clicked.connect(self._remove_selected)
-        self.btn_remove_all.clicked.connect(self._remove_all)
+        self.btn_remove_all.clicked.connect(self.list_values.clear)
         self.btn_paste.clicked.connect(self._paste_from_clipboard)
+        self.btn_paste.setToolTip(
+            "Paste identifiers separated by lines, tabs, commas, semicolons or spaces. "
+            "Duplicates are ignored; leading zeros are kept."
+        )
 
-    # ── Actions ──────────────────────────────────────────────────────
-
-    def _add_plancode(self):
-        """Add the typed plancode to the list (if non-empty and not duplicate)."""
-        code = self.txt_plancode.text().strip().upper()
-        if not code:
-            return
-        # Avoid duplicates
-        existing = self.get_plancodes()
-        if code not in existing:
-            self.list_plancodes.addItem(code)
-        self.txt_plancode.clear()
-        self.txt_plancode.setFocus()
-
-    def _remove_selected(self):
-        """Remove all selected items from the list."""
-        for item in reversed(self.list_plancodes.selectedItems()):
-            self.list_plancodes.takeItem(self.list_plancodes.row(item))
-
-    def _remove_all(self):
-        """Clear the entire plancode list."""
-        self.list_plancodes.clear()
-
-    def _paste_from_clipboard(self):
-        """Parse clipboard text and add each plancode found.
-
-        Handles newline-separated, comma-separated, tab-separated,
-        or space-separated values (e.g. pasted from Excel column).
-        """
-        clipboard = QApplication.clipboard()
-        if clipboard is None:
-            return
-        text = clipboard.text()
-        if not text:
-            return
-
-        existing = set(self.get_plancodes())
-        # Split on common delimiters: newline, comma, tab, semicolon
-        import re
-        tokens = re.split(r'[\n\r,;\t]+', text)
-        for token in tokens:
-            code = token.strip().upper()
+    def _append_values(self, values: list[str]):
+        existing = set(self.values())
+        for value in values:
+            code = value.strip().upper()
             if code and code not in existing:
-                self.list_plancodes.addItem(code)
+                self.list_values.addItem(code)
                 existing.add(code)
 
-    # ── Public API ───────────────────────────────────────────────────
+    def _add_input(self):
+        self._append_values([self.input.text()])
+        self.input.clear()
+        self.input.setFocus()
 
-    def get_plancodes(self) -> list[str]:
-        """Return the list of plancodes currently in the list widget."""
+    def _remove_selected(self):
+        for item in self.list_values.selectedItems():
+            self.list_values.takeItem(self.list_values.row(item))
+
+    def _paste_from_clipboard(self):
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            self._append_values(re.split(r"[\s,;]+", clipboard.text()))
+
+    def values(self) -> list[str]:
         return [
-            self.list_plancodes.item(i).text()
-            for i in range(self.list_plancodes.count())
+            self.list_values.item(i).text().strip().upper()
+            for i in range(self.list_values.count())
         ]
 
+    def set_values(self, values: list[str]):
+        self.input.clear()
+        self.list_values.clear()
+        self._append_values(values)
+
+
+class PlancodeTab(QWidget):
+    """Plans and Policies criteria, combined with each other and other tabs."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(12)
+        self.chk_cov1_plancode_match_only = make_checkbox("Cov1 plancode match only")
+        self.plancodes = _IdentifierListPanel(
+            "Plancode", "Plancode", self.chk_cov1_plancode_match_only,
+        )
+        self.policies = _IdentifierListPanel("Policies", "Policy number")
+        root.addWidget(self.plancodes, 1)
+        root.addWidget(self.policies, 1)
+        self.policies.setToolTip(
+            "Match any policy number in this list exactly, together with all other "
+            "active query criteria. An empty list adds no restriction."
+        )
+
+    def get_plancodes(self) -> list[str]:
+        return self.plancodes.values()
+
+    def get_policies(self) -> list[str]:
+        return self.policies.values()
+
     def cov1_plancode_match_only(self) -> bool:
-        """Return True when plancode matching should only use Coverage 1."""
         return self.chk_cov1_plancode_match_only.isChecked()
 
-    # ── Profile save/load ────────────────────────────────────────────
     def get_state(self) -> dict:
         return {
             "plancodes": self.get_plancodes(),
+            "policies": self.get_policies(),
             "cov1_plancode_match_only": self.cov1_plancode_match_only(),
         }
 
     def set_state(self, state: dict):
-        self.list_plancodes.clear()
-        for code in state.get("plancodes", []):
-            self.list_plancodes.addItem(code)
+        self.plancodes.set_values(state.get("plancodes", []))
+        self.policies.set_values(state.get("policies", []))
         self.chk_cov1_plancode_match_only.setChecked(
             bool(state.get("cov1_plancode_match_only", False))
         )

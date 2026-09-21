@@ -1018,17 +1018,14 @@ def test_current_year_change_lands_on_forecast_date():
     assert change.effective_date == date(2026, 6, 9)
 
 
-def test_max_and_min_level_unlock_side_sections_but_lock_new_loans():
-    # Max Level / Prem to Maturity keep Face Amount / DB Option / riders
-    # editable AND now keep withdrawals, loan repayments, rate-class and table
-    # changes editable (they feed the solve). Only NEW loans stay locked. When
-    # no level type is active everything is editable again.
+def test_prem_to_maturity_allows_loans_without_relaxing_max_level():
     panel = _panel()
     row = panel.premium_section.rows()[0]
 
     for level_type in ("Prem to Maturity", "Max Level"):
         row.type_combo.setCurrentText(level_type)
-        assert panel.loan_section.isEnabled() is False, level_type
+        assert panel.loan_section.isEnabled() == (level_type == "Prem to Maturity")
+        assert panel.forecast_loan_edit.isEnabled() == (level_type == "Prem to Maturity")
         for section in (panel.face_section, panel.dbo_section,
                         panel.withdrawal_section, panel.repayment_section,
                         panel.rateclass_section, panel.table_section):
@@ -1064,8 +1061,7 @@ def test_shadow_level_locks_all_side_sections():
 
 def _populate_level_side_inputs(panel):
     """Face + DBO + withdrawal + fixed loan repayment + NEW loan + rate-class +
-    table rows, used by the level-type collection tests. The new loan is the
-    one input the level solves must still exclude."""
+    table rows, used by the level-type collection tests."""
     face = panel.face_section.rows()[0]
     face.year_edit.setText("9")
     face._year_edited()
@@ -1088,7 +1084,7 @@ def _populate_level_side_inputs(panel):
     repay.amount_edit.setText("500")
     repay.mode_combo.setCurrentText("A")
 
-    loan = panel.loan_section.rows()[0]        # a NEW loan — must stay excluded
+    loan = panel.loan_section.rows()[0]
     loan.year_edit.setText("12")
     loan._year_edited()
     loan.amount_edit.setText("2000")
@@ -1104,11 +1100,7 @@ def _populate_level_side_inputs(panel):
     table.value_combo.setCurrentIndex(0)       # "0" = remove rating
 
 
-def test_level_solves_collect_side_inputs_but_not_new_loans():
-    # Max Level / Prem to Maturity now export withdrawals, fixed loan
-    # repayments, and rate-class / table changes (all feed the solve and its
-    # displayed run) alongside the Face / DBO changes — but a NEW loan is still
-    # excluded (that section stays locked).
+def test_level_solves_collect_new_loans_only_for_prem_to_maturity():
     for level_type in ("Prem to Maturity", "Max Level"):
         panel = _panel()
         panel.premium_section.rows()[0].type_combo.setCurrentText(level_type)
@@ -1127,10 +1119,30 @@ def test_level_solves_collect_side_inputs_but_not_new_loans():
         assert TransactionKind.WITHDRAWAL in dated_kinds, level_type
         assert TransactionKind.LOAN_REPAYMENT in dated_kinds, level_type
 
-        # The new loan never leaks in (loan section stays locked under a level
-        # solve), neither dated nor scheduled.
         all_kinds = dated_kinds | {t.kind for t in input_set.scheduled_transactions}
-        assert TransactionKind.LOAN not in all_kinds, level_type
+        assert (TransactionKind.LOAN in all_kinds) == (level_type == "Prem to Maturity")
+
+
+@pytest.mark.parametrize("restricted_type", ["Max Level", "Prem to Shadow Maturity"])
+def test_mixed_level_types_keep_new_loans_locked(restricted_type):
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(_FakePolicy(), has_shadow=True)
+    state = panel.capture_state()
+    state["sections"]["premiums"] = [
+        {"type": "Prem to Maturity", "year": "7", "mode": "M"},
+        {"type": restricted_type, "year": "10", "mode": "M"},
+    ]
+    state["forecast_loan"] = "1000"
+    state["sections"]["loans"] = [
+        {"type": "Input", "year": "9", "amount": "1000", "mode": "A", "for_years": "1"},
+    ]
+    assert panel.apply_state(state) == []
+    assert not panel.loan_section.isEnabled()
+    inputs = IllustrationInputSet()
+    panel.collect_into(inputs)
+    assert not any(t.kind == TransactionKind.LOAN for t in
+                   inputs.dated_transactions + inputs.scheduled_transactions)
 
 
 def test_shadow_level_collects_face_and_dbo_changes_only():

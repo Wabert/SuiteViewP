@@ -2566,7 +2566,7 @@ class DynamicInputsPanel(QWidget):
 
     def _on_premium_changed(self):
         # Level types lock the non-premium inputs, but not uniformly:
-        #   • Max Level / Prem to Maturity lock ONLY new loans —
+        #   • Max Level locks new loans; Prem to Maturity honors them.
         #     withdrawals, loan repayments, and rate-class / table changes
         #     stay editable and feed the solve (a withdrawal, downgrade or
         #     rating change moves the funding the solve measures).
@@ -2606,6 +2606,10 @@ class DynamicInputsPanel(QWidget):
         """The level premium types selected across the premium rows."""
         return {row.premium_type() for row in self.premium_section.rows()
                 if row.premium_type() in _LEVEL_TYPES}
+
+    def _new_loans_allowed(self) -> bool:
+        return not self._selected_level_types().intersection(
+            {_TYPE_MAX_LEVEL, _TYPE_SHADOW_LEVEL})
 
     # ── Premium Solve (target-value) ──────────────────────────
 
@@ -2702,7 +2706,9 @@ class DynamicInputsPanel(QWidget):
         # solves can reflect them — they alter the guideline premiums that
         # bound Max Level and the funding need behind Prem to Maturity).
         #   • No level type: everything below is editable.
-        #   • Max Level / Prem to Maturity: lock ONLY new loans;
+        #   • Prem to Maturity: new loans also feed the solve, before or after
+        #     the solved premium's start year.
+        #   • Max Level: lock ONLY new loans;
         #     withdrawals, loan repayments, rate-class and table changes feed
         #     the solve, so they stay editable.
         #   • Prem to Shadow Maturity (or it mixed with another level type):
@@ -2710,8 +2716,7 @@ class DynamicInputsPanel(QWidget):
         #     plus face/DBO/riders.
         types = self._selected_level_types()
         lock_all = _TYPE_SHADOW_LEVEL in types
-        lock_loans = bool(types)          # any level type locks new loans
-        self.loan_section.setEnabled(not lock_loans)
+        self.loan_section.setEnabled(self._new_loans_allowed())
         for section in (self.withdrawal_section, self.repayment_section,
                         self.rateclass_section, self.table_section):
             section.setEnabled(not lock_all)
@@ -2983,17 +2988,15 @@ class DynamicInputsPanel(QWidget):
         # policy_changes into every projection they run.
         #   • Prem to Shadow Maturity keeps its full lock — only the face/DBO
         #     changes and riders feed it (nothing else is editable).
-        #   • Max Level / Prem to Maturity additionally honor the now-
-        #     editable withdrawals, loan repayments, and rate-class / table
-        #     changes — but NEVER a new loan (that section stays locked). Pay-off
-        #     repayment rows are still excluded here (unsolved under a level type).
+        #   • Max Level / Prem to Maturity honor withdrawals, loan repayments,
+        #     and rate-class / table changes. Only Prem to Maturity also honors
+        #     new loans. Pay-off repayment rows remain excluded under level types.
         types = self._selected_level_types()
         if _TYPE_SHADOW_LEVEL in types:
             self._collect_face_dbo_changes(input_set)
             input_set.policy_changes.extend(self.riders_panel.collect_changes(ctx))
             return
-        # No level type -> new loans are honored too; Max/Min level -> excluded.
-        self._collect_side_inputs(input_set, include_loans=not types)
+        self._collect_side_inputs(input_set, include_loans=self._new_loans_allowed())
 
     def _collect_side_inputs(self, input_set: IllustrationInputSet, *,
                              include_loans: bool):
@@ -3001,8 +3004,8 @@ class DynamicInputsPanel(QWidget):
         riders -> the exported input set.
 
         Shared by the normal export and the Max Level / Prem to Maturity
-        level solves. Those two level types honor every side input EXCEPT new
-        loans, so ``include_loans`` gates only the new-loan schedule. Pay-off
+        level solves. Max Level still excludes new loans; Prem to Maturity
+        includes them. ``include_loans`` gates only new loans. Pay-off
         repayment rows are always excluded — main_window solves and layers them
         (and never solves them under a level type)."""
         ctx = self._ctx

@@ -9,6 +9,7 @@ from .sql_helpers import (
     strict_range_predicates,
 )
 from .segment52_fields import SEGMENT52_FIELDS
+from .transaction_filters import transaction_predicates
 from .constants import (
     PARTICIPATION_CODES, PARTICIPATION_TYPE_DESCRIPTIONS, TERMINATION_LAST_ENTRY_CODES,
 )
@@ -2201,79 +2202,6 @@ def build_cyberlife_sql(
     _emit_rider_joins(rider1_info, "RIDER1", 1)
     _emit_rider_joins(rider2_info, "RIDER2", 2)
 
-    # ── Transaction tab JOIN (FH_FIXED — 69 segment) ────────────
-    if transaction_tab is not None:
-        tt = transaction_tab
-        trans_codes = tt.transaction_types.selected_values()
-        tr_entry_lo = tt.txt_entry_lo.text().strip()
-        tr_entry_hi = tt.txt_entry_hi.text().strip()
-        tr_eff_lo = tt.txt_eff_lo.text().strip()
-        tr_eff_hi = tt.txt_eff_hi.text().strip()
-        tr_eff_month_lo = tt.txt_eff_month_lo.text().strip()
-        tr_eff_month_hi = tt.txt_eff_month_hi.text().strip()
-        tr_eff_day_lo = tt.txt_eff_day_lo.text().strip()
-        tr_eff_day_hi = tt.txt_eff_day_hi.text().strip()
-        tr_gross_lo = tt.txt_gross_lo.text().strip()
-        tr_gross_hi = tt.txt_gross_hi.text().strip()
-        tr_origin = tt.txt_origin.text().strip()
-        tr_fund_id = tt.txt_fund_id.text().strip()
-        tr_eff_day_chk = tt.chk_eff_day.isChecked()
-        tr_eff_month_chk = tt.chk_eff_month.isChecked()
-
-        has_transaction = bool(
-            trans_codes or tr_entry_lo or tr_entry_hi
-            or tr_eff_lo or tr_eff_hi or tr_origin
-            or tr_eff_month_lo or tr_eff_month_hi
-            or tr_eff_day_lo or tr_eff_day_hi
-            or tr_gross_lo or tr_gross_hi
-            or tr_fund_id or tr_eff_day_chk or tr_eff_month_chk
-        )
-        if has_transaction:
-            sql_parts.append(f"  INNER JOIN {schema}.FH_FIXED TR1")
-            sql_parts.append("    ON POLICY1.CK_CMP_CD = TR1.CK_CMP_CD")
-            sql_parts.append("    AND POLICY1.TCH_POL_ID = TR1.TCH_POL_ID")
-            if trans_codes:
-                sql_parts.append(f"    AND TR1.TRANS IN ({in_list(trans_codes)})")
-            # Entry date range
-            if tr_entry_lo:
-                sql_parts.append(f"    AND TR1.ENTRY_DT >= '{esc(tr_entry_lo)}'")
-            if tr_entry_hi:
-                sql_parts.append(f"    AND TR1.ENTRY_DT <= '{esc(tr_entry_hi)}'")
-            # Effective date range
-            if tr_eff_lo:
-                sql_parts.append(f"    AND TR1.ASOF_DT >= '{esc(tr_eff_lo)}'")
-            if tr_eff_hi:
-                sql_parts.append(f"    AND TR1.ASOF_DT <= '{esc(tr_eff_hi)}'")
-            # Effective day = Issue day
-            if tr_eff_day_chk:
-                sql_parts.append("    AND DAY(TR1.ASOF_DT) = DAY(COVERAGE1.ISSUE_DT)")
-            # Effective month = Issue month
-            if tr_eff_month_chk:
-                sql_parts.append("    AND MONTH(TR1.ASOF_DT) = MONTH(COVERAGE1.ISSUE_DT)")
-            # Eff month range
-            if tr_eff_month_lo:
-                sql_parts.append(f"    AND MONTH(TR1.ASOF_DT) >= {int(tr_eff_month_lo)}")
-            if tr_eff_month_hi:
-                sql_parts.append(f"    AND MONTH(TR1.ASOF_DT) <= {int(tr_eff_month_hi)}")
-            # Eff day range
-            if tr_eff_day_lo:
-                sql_parts.append(f"    AND DAY(TR1.ASOF_DT) >= {int(tr_eff_day_lo)}")
-            if tr_eff_day_hi:
-                sql_parts.append(f"    AND DAY(TR1.ASOF_DT) <= {int(tr_eff_day_hi)}")
-            # Gross amount range
-            if tr_gross_lo:
-                sql_parts.append(f"    AND TR1.GROSS_AMT >= {float(tr_gross_lo)}")
-            if tr_gross_hi:
-                sql_parts.append(f"    AND TR1.GROSS_AMT <= {float(tr_gross_hi)}")
-            # ORIGIN_OF_TRANS
-            if tr_origin:
-                sql_parts.append(f"    AND TR1.ORIGIN_OF_TRANS = '{esc(tr_origin)}'")
-            # Fund ID list — comma-separated values → IN clause
-            if tr_fund_id:
-                fund_ids = [f.strip() for f in tr_fund_id.split(",") if f.strip()]
-                if fund_ids:
-                    sql_parts.append(f"    AND TR1.FUND_ID IN ({in_list(fund_ids)})")
-
     # ── Custom Display tab: user-selected table JOINs ───────────
     sql_parts.extend(custom_join_lines)
 
@@ -2283,20 +2211,23 @@ def build_cyberlife_sql(
     # -- Custom Display tab: text criteria on user-selected fields --
     wheres.extend(custom_where_lines)
     wheres.extend(segment52_where_lines)
+    if transaction_tab is not None:
+        first_transaction, second_transaction = transaction_tab.criteria()
+        wheres.extend(transaction_predicates(first_transaction, second_transaction, schema))
 
     # -- Bottom bar: System code --
     if sys_code:
         wheres.append(f"POLICY1.CK_SYS_CD = '{esc(sys_code)}'")
 
     # -- Policy tab: Plancode (searches all coverages unless cov1-only is enabled) --
-    plancode = pt.txt_plancode.text().strip()
+    plancode = pt.txt_plancode.text().strip().upper()
     if plancode:
         cov_filter_alias = "COVERAGE1" if cov1_plancode_match_only else (
             result_cov_alias if coverage_level else "COVSALL"
         )
         wheres.append(f"{cov_filter_alias}.PLN_DES_SER_CD = '{esc(plancode)}'")
 
-    # -- Plancode tab: multiple plancodes (IN list) --
+    # -- Plans and Policies tab: exact identifier lists --
     plancode_list = plancode_tab.get_plancodes()
     if plancode_list:
         cov_filter_alias = "COVERAGE1" if cov1_plancode_match_only else (
@@ -2304,6 +2235,10 @@ def build_cyberlife_sql(
         )
         wheres.append(
             f"{cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(plancode_list)})")
+
+    policy_list = plancode_tab.get_policies()
+    if policy_list:
+        wheres.append(f"POLICY1.CK_POLICY_NBR IN ({in_list(policy_list)})")
 
     # -- Policy tab: Market Org --
     _mkt_org_map = {"MLM": "1", "CSSD": "2", "IMG": "7", "DIRECT": "D"}

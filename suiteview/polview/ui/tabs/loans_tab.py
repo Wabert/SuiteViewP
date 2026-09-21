@@ -112,20 +112,6 @@ class LoansTab(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll)
 
-    # ── public API ───────────────────────────────────────────────────────
-
-    @staticmethod
-    def has_loan_data(policy) -> bool:
-        """Return True if the policy has any active loan rows."""
-        if not policy:
-            return False
-        try:
-            trad = policy.data_item_count("LH_CSH_VAL_LOAN")
-            fund = policy.data_item_count("LH_FND_VAL_LOAN")
-            return (trad > 0) or (fund > 0)
-        except Exception:
-            return False
-
     # ── data loading ─────────────────────────────────────────────────────
 
     def load_data_from_policy(self, policy):
@@ -154,6 +140,7 @@ class LoansTab(QWidget):
             import traceback, sys
             print(f"[LoansTab] Error loading data", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
+            raise
 
     # ── private loaders ──────────────────────────────────────────────────
 

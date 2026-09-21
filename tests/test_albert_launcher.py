@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from suiteview.taskbar_launcher import albert_launcher
+from suiteview.core import access_control, build_env
 
 
 @pytest.fixture
@@ -33,6 +34,38 @@ def test_missing_bridge_fails_explicitly(tmp_path, monkeypatch):
     monkeypatch.setattr(albert_launcher, "BRIDGE", tmp_path / "missing.py")
     with pytest.raises(FileNotFoundError, match="not found"):
         albert_launcher.launch_albert()
+
+
+def test_packaged_launch_is_blocked_before_permissions_or_subprocess(monkeypatch):
+    monkeypatch.setattr(build_env.sys, "frozen", True, raising=False)
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unavailable Albert must not access the database or start a process")
+    monkeypatch.setattr(access_control, "get_access", unexpected)
+    monkeypatch.setattr(albert_launcher.subprocess, "Popen", unexpected)
+    with pytest.raises(access_control.AccessDeniedError, match="not available in the packaged EXE"):
+        albert_launcher.launch_albert()
+
+
+@pytest.mark.parametrize("role,all_apps,apps", [
+    ("ADMIN", True, frozenset()),
+    ("BUSINESS", True, frozenset()),
+    ("BUSINESS", False, frozenset({"ALBERT", "POLVIEW"})),
+])
+def test_packaged_badge_stays_hidden_after_refresh(app, monkeypatch, role, all_apps, apps):
+    from types import SimpleNamespace
+    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+
+    monkeypatch.setattr(build_env.sys, "frozen", True, raising=False)
+    button = albert_launcher.AlbertButton()
+    bar = SimpleNamespace(albert_btn=button, _permission_actions=[])
+    rights = access_control.EffectiveAccess("PERSON", role, all_apps, True, True, apps)
+    SuiteViewTaskbar._apply_permissions(bar, rights)
+    assert not button.isEnabled()
+    assert button.isHidden()
+    assert "not available in the packaged EXE" in button.toolTip()
+    assert not rights.allows_app("ALBERT")
+    assert rights.allows_app("POLVIEW")
+    button.close()
 
 
 def test_badge_appearance_and_click(app, monkeypatch):
@@ -76,8 +109,9 @@ def test_shortcut_is_wired_in_header_and_preserved_in_floating_mode():
     assert "DEV_MODE" not in methods["init_ui"]
     assert "LIGHT_MODE" not in methods["init_ui"]
     assert "('ALBERT', 'albert_btn')" in methods["_apply_permissions"]
-    assert "control.setEnabled(access is not None and access.allows_app(code))" in methods["_apply_permissions"]
+    assert "control.setEnabled(allowed)" in methods["_apply_permissions"]
+    assert "control.setVisible(" in methods["_apply_permissions"]
     assert "self.albert_btn = AlbertButton(self)" in methods["init_ui"]
     assert "header_layout.addWidget(self.albert_btn)" in methods["init_ui"]
-    assert "self.albert_btn.show()" in methods["_enter_floating_mode"]
-    assert "36 if hasattr(self, 'albert_btn') else 0" in methods["_enter_floating_mode"]
+    assert "self._apply_permissions(self._launcher_access)" in methods["_enter_floating_mode"]
+    assert "bar_w = self.layout().sizeHint().width()" in methods["_enter_floating_mode"]

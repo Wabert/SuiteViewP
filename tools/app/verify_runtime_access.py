@@ -42,14 +42,26 @@ def main():
             bar.show()
             app.processEvents()
             checks["native_platform"] = app.platformName() == "windows"
-            checks["allowed_buttons"] = bar.polview_btn.isEnabled() and bar.audit_btn.isEnabled()
-            checks["denied_buttons"] = not any(
-                button.isEnabled() for button in (
+            checks["allowed_buttons"] = all(
+                button.isEnabled() and button.isVisible()
+                for button in (bar.polview_btn, bar.audit_btn)
+            )
+            checks["denied_buttons_hidden"] = all(
+                not button.isEnabled() and button.isHidden() for button in (
                     bar.filenav_btn, bar.abrquote_btn, bar.illustration_btn,
                     bar.albert_btn, bar.scratchpad_window_btn, bar.file_history_btn,
                     bar.quick_screenshot_btn,
                 )
             )
+            checks["denied_menu_actions_hidden"] = all(
+                not action.isVisible() and not action.isEnabled()
+                for code, action in bar._permission_actions if not rights.allows_app(code)
+            )
+            checks["tray_has_only_quit"] = (
+                [action.text() for action in bar._tray_menu.actions()] == ["Quit SuiteView"]
+                and bar._quit_action.isVisible() and bar._quit_action.isEnabled()
+            )
+            checks["administrator_hidden"] = not bar.administrator_action.isVisible()
             checks["no_embedded_filenav"] = bar.tab_widget.count() == 0
             checks["database_read_only"] = build_env.is_data_read_only()
             checks["support_read_only"] = not access.can_write_support_files()
@@ -59,19 +71,61 @@ def main():
             screenshot = args.output_dir / "restricted-launcher.png"
             if not bar.grab().save(str(screenshot)):
                 raise RuntimeError(f"Cannot save screenshot: {screenshot}")
+            bar._enter_floating_mode()
+            app.processEvents()
+            checks["floating_honors_grants"] = (
+                bar.polview_btn.isVisible() and bar.audit_btn.isVisible()
+                and bar.filenav_btn.isHidden() and bar.albert_btn.isHidden()
+            )
             load.return_value = access.EffectiveAccess("SYNTHETIC", "ADMIN", True, True, True)
             bar._refresh_permissions()
             checks["refresh_applies_new_grants"] = all(
-                button.isEnabled() for button in (
-                    bar.polview_btn, bar.filenav_btn, bar.albert_btn, bar.illustration_btn,
+                button.isEnabled() and button.isVisible() for button in (
+                    bar.polview_btn, bar.filenav_btn, bar.illustration_btn,
                 )
+            )
+            checks["packaged_albert_stays_unavailable"] = (
+                not bar.albert_btn.isEnabled() and bar.albert_btn.isHidden()
+            )
+            checks["floating_refresh_preserves_layout"] = (
+                bar.quick_screenshot_btn.isHidden() and bar.scratchpad_window_btn.isHidden()
+                and bar.file_history_btn.isHidden()
+            )
+            bar._exit_floating_mode()
+            bar._enter_compact_mode()
+            app.processEvents()
+            checks["docking_restores_allowed_utilities"] = all(
+                button.isVisible() for button in (
+                    bar.quick_screenshot_btn, bar.scratchpad_window_btn, bar.file_history_btn,
+                )
+            )
+            bar._exit_compact_mode()
+            checks["full_mode_honors_grants"] = (
+                bar.filenav_btn.isVisible() and bar.albert_btn.isHidden()
             )
             checks["refreshed_write_permissions"] = (
                 not build_env.is_data_read_only() and access.can_write_support_files()
             )
             load.return_value = access.EffectiveAccess(
                 "SYNTHETIC", "FILES_ONLY", False, False, False, frozenset({"FILENAV"}))
-            access.clear_access_cache()
+            bar._refresh_permissions()
+            checks["revoked_apps_disappear"] = (
+                bar.polview_btn.isHidden() and bar.audit_btn.isHidden()
+                and not bar.administrator_action.isVisible()
+                and all(not action.isVisible() for code, action in bar._permission_actions
+                        if code != "FILENAV")
+            )
+            bar._enter_floating_mode()
+            bar._exit_floating_mode()
+            bar._enter_compact_mode()
+            checks["redocking_cannot_reveal_revoked_apps"] = (
+                bar.polview_btn.isHidden() and bar.quick_screenshot_btn.isHidden()
+                and bar.scratchpad_window_btn.isHidden()
+            )
+            checks["tray_unchanged_after_refresh"] = (
+                [action.text() for action in bar._tray_menu.actions()] == ["Quit SuiteView"]
+                and bar._quit_action.isVisible() and bar._quit_action.isEnabled()
+            )
             bar._open_file_nav()
             checks["filenav_without_scratchpad"] = (
                 bar.file_nav_window is not None

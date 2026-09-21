@@ -71,7 +71,8 @@ the conversion CTE; neither verifier exports policy rows.
 ## Fields by Tab (VBA ExcelTool)
 
 ### 1. Policy Tab
-*   **Plancode:** Text Input (`TextBox_PlancodeAllCovs`)
+*   **Plancode:** Uppercased text input with exact matching only; no match-mode dropdown. Blank text applies no filter. Preserves the Plans and Policies tab's Cov1-only setting and coverage-level scope; the separate multi-plancode list remains an exact IN filter.
+*   **Identifier layout:** Plancode, Company, Market, Form number like, Branch and Policy number use compact aligned rows. The Plancode input is left-aligned with the other controls, with RGA immediately to its right. Existing Company/Market, form prefix, branch and policy-number semantics are unchanged.
 *   **RGA (52):** Checkbox (`CheckBox_RGA`)
 *   **Company:** Combobox (`ComboBox_Company`)
 *   **Market:** Combobox (`ComboBox_MarketOrg`)
@@ -235,17 +236,155 @@ Regression: `tests/test_audit_wl.py`. Native verification:
 *   **Cease Date Status:** Combobox (`ComboBox_Benefit1CeaseDateStatus`, `ComboBox_Benefit2CeaseDateStatus`, `ComboBox_Benefit3CeaseDateStatus`)
 
 ### 8. Transaction Tab
-*   **Transaction Type and Subtype (Top large box):** Multi-select Listbox (`ListBox_TransactionTypeAndSubtype`)
-*   **Effective day = Issue day:** Checkbox (`CheckBox_Transaction1OnIssueDay`)
-*   **Effective month = Issue month:** Checkbox (`CheckBox_Transaction1OnIssueMonth`)
-*   **Eff Month Range:** Range (`TextBox_Transaction1EffMonthLow` to `TextBox_Transaction1EffMonthHigh`)
-*   **Eff Day Range:** Range (`TextBox_Transaction1EffDayLow` to `TextBox_Transaction1EffDayHigh`)
-*   **Transaction 1 Type and Subtype:** Combobox (`ComboBox_Transaction1`)
-*   **Entry Date Range:** Range (`TextBox_Transaction1LowEntryDate` to `TextBox_Transaction1HighEntryDate`)
-*   **Effective Date Range:** Range (`TextBox_Transaction1LowEffectiveDate` to `TextBox_Transaction1HighEffectiveDate`)
-*   **Gross Amount range:** Range (`TextBox_Transaction1GrossAmtLow` to `TextBox_Transaction1GrossAmtHigh`)
-*   **ORIGIN_OF_TRANS:** Text Input (`TextBox_Origin_of_Trans`)
-*   **Fund ID List:** Text Input (`TextBox_FundIDList`)
+The left list is a read-only transaction type/subtype reference. On the right,
+**Transaction 1** and **Transaction 2** are stacked, with aligned compact rows:
+
+* **Transaction Type:** multi-select dropdown; selected codes are ORed within the section.
+* **Entry Dt:** inclusive From / To date inputs.
+* **Eff Dt:** inclusive From / To date inputs.
+* **Transaction 2 date comparisons:** one dropdown beside Entry Dt and another
+  beside Eff Dt. Both offer `none`, `After Trans1 Entry Date`,
+  `Before Trans1 Entry Date`, `Equal Trans1 Entry Date`, `After Trans1 Eff Date`,
+  `Before Trans1 Eff Date`, and `Equal Trans1 Eff Date`.
+* **Eff Mth / Eff Day:** separate compact rows with 40px numeric range inputs;
+  **Eff Mth = Issue Mth** and **Eff Day = Issue Day** sit beside their respective ranges.
+* **Gross Amt:** inclusive From / To amounts below the month/day rows.
+* **Origin / Fund ID List:** beside the reversal controls below Gross Amt.
+  Origin matches exact `ORIGIN_OF_TRANS`; fund IDs are comma-separated and ORed.
+* **Exclude:** per-section checkbox. Checked uses `NOT EXISTS`: the policy must have
+  no transaction matching all of that section's criteria. Other nonmatching
+  transactions do not let a policy pass. Exclude alone still leaves an empty
+  section ignored.
+* **Is Reversal / Reversed:** independent enabling checkboxes with two-row
+  multi-select lists (`0` = No, `1` = Yes). Is Reversal filters `FCB0_REV_IND`;
+  Reversed filters `FCB2_REV_APPL_IND`. Unchecking clears/disables the list.
+  Checked with no selections leaves that flag unrestricted. Selecting both
+  values accepts either stored value, not NULL. The flags constrain the same
+  transaction as the section's other criteria, also when Exclude is checked.
+
+With both date comparisons set to **none**, populated sections are combined with **AND**, using independent correlated
+`EXISTS` or `NOT EXISTS` predicates against `FH_FIXED`. All criteria within one section must
+match one history row; the two sections can match different rows (or the same
+row if it satisfies both). No distinct-transaction or ordering requirement is
+implied. Multiple matching transactions do not multiply result rows. Empty
+sections are ignored, including Transaction 1 when only Transaction 2 is used.
+Any individual field or checkbox activates its section without needing a type.
+
+Selecting either date comparison instead requires a qualifying pair on the same
+policy, using nested `EXISTS`. Entry Dt compares `TR2.ENTRY_DT`; Eff Dt compares
+`TR2.ASOF_DT`, against the selected `TR1.ENTRY_DT` or `TR1.ASOF_DT`.
+After/Before/Equal mean strict `>` / `<` / `=` on dates, not entry times.
+Both comparisons and all existing section criteria must hold for the **same
+pair**. Any qualifying pair is enough; do not implicitly choose the latest or
+earliest Transaction 1. NULL dates do not satisfy a comparison. No distinct-row
+requirement is added: equality can match the same transaction if it meets both
+sections. With a date link and no Transaction 1 criteria, any policy transaction
+can be the reference.
+
+**Transaction 1 Exclude** clears and disables both comparison dropdowns; turning
+it off enables them at `none`. Contradictory saved/programmatic criteria fail
+explicitly, not silently. With a date link, **Transaction 2 Exclude** requires a
+matching Transaction 1 and **no qualifying pair anywhere on that policy**.
+An additional Transaction 1 without a matching partner must not let the policy
+pass if another pair qualifies.
+
+History correlation uses company and technical policy ID, never `CK_SYS_CD`.
+Issue-month/day comparisons continue to use the base coverage issue date,
+including in coverage-level queries. There is no implicit reversal exclusion:
+reversal flags filter only when enabled with a selection.
+
+Dates accept MM/DD/YYYY or YYYY-MM-DD. Either endpoint may be blank; invalid or
+inverted ranges raise a section/field-specific error. Months must be 1-12 and
+days 1-31. Amounts accept finite decimals, including zero/negative amounts.
+Nonempty fund lists must not contain empty entries.
+
+Both sections, including Exclude, reversal controls and date comparisons, persist with saved queries
+and clear with New. The new checkboxes default off. Transaction 1
+retains its original saved-state keys; Transaction 2 uses a nested
+`transaction2` object. Loading a query without it leaves Transaction 2 empty.
+Its `entry_comparison` and `eff_comparison` keys store the selected labels and
+default to `none` when absent. New resets both to `none`.
+Regression: `tests/test_audit_transaction_tab.py`,
+`tests/test_audit_transaction_filters.py`, `tests/test_read_only_generated_sql.py`.
+Native no-DB verification:
+`tools/app/verify_transaction_tab.py --screenshot <path>`.
+
+### Plans and Policies (identifier lists)
+
+The former **Plancode** tab has side-by-side **Plancode** and **Policies**
+sections. Both support Add (or Enter), Remove Selected, Remove All and Paste
+from Clipboard. Paste accepts Excel rows/columns, newlines, commas, semicolons
+and whitespace; values are trimmed, uppercased and deduplicated in input order,
+with leading zeros retained. **Cov1 plancode match only** belongs to Plancode
+alone and retains its existing coverage-scope behavior.
+
+Policies matches `LH_BAS_POL.CK_POLICY_NBR` exactly, not `TCH_POL_ID`, with
+an IN list. Entries within a list are alternatives; populated plan/policy lists
+combine with each other and all other query criteria using AND. An empty list
+adds no filter or join. Region, company, system, coverage scope and Max Count
+still apply, so clear other filters or increase Max Count when appropriate.
+Both lists save with queries and clear with New; results are not guaranteed
+to contain every requested policy when other criteria exclude them.
+
+Regression: `tests/test_audit_plans_policies.py`.
+Native no-DB check: `tools/app/verify_plans_policies.py --screenshot <path>`.
+
+### Other Queries (standalone lookups)
+
+This replaces the **CyberLife Common Tables** tab, not the separate visual query
+builder's common-table features. It restores the three functions from
+`docs/vba_reference/frmAudit.frm` (`BuildSQLStringToFindRiders`,
+`BuildSQLStringToFindBase`, `BuildSQLStringToFindValues`).
+
+* **Base Plancode / Find all riders:** exact uppercase plancode of coverage
+  phase 1. Lists later phases with a different plancode, grouped by base plan/form
+  and rider plan/form. **Rider Count** uses `COUNT(*)` for all matching coverage
+  occurrences, active or inactive, not distinct policies or distinct plancodes.
+* **Rider Plancode / Find all base:** exact uppercase rider plancode on phases
+  greater than 1, grouped by rider plan/form and the phase-1 base plan/form.
+* Each **Show policies** checkbox independently replaces the count with
+  **Policy Number** and **Company**, one row per matched coverage. Repeated policies
+  are intentional when multiple matching coverages exist. The policy number
+  comes from `LH_BAS_POL.CK_POLICY_NBR`, not a truncated technical ID.
+* **Table / Field / Find all values:** enter unqualified DB2 names. Groups the
+  field and counts records with non-NULL `TCH_POL_ID`, retaining NULL/blank field
+  groups. This is **Record Count**, not distinct policies. The table
+  must expose `TCH_POL_ID`; unknown tables/fields fail explicitly.
+
+These are independent lookups: only **Region** applies. The main tab filters,
+system selector, coverage scope and Max Count do not limit these results, matching
+the old Excel actions. There is no implicit inforce/active-coverage filter.
+Base/rider joins use system, company and technical policy ID together.
+Both Show policies controls work independently (fixing the original VBA's
+FindRiders SELECT referencing the wrong checkbox).
+
+Each panel runs asynchronously with its own **Find**, **View SQL**, sortable/
+filterable result table and **Excel** button. Excel opens a new unsaved workbook
+containing the displayed rows; policy/company/form codes retain leading zeros.
+Cells are read-only: clicks may select for copying, but cannot open an editor
+or blank/change a value.
+SQL previews show escaped literal values for copying; execution binds plancodes
+as parameters on isolated DB2 connections. Table/field identifiers are strictly
+validated, not arbitrary SQL expressions.
+
+The live Data Virtualization driver gives distinct-value counts for
+`COUNT(column)`, so it must not implement occurrence counts. Rider/base lookups
+use `COUNT(*)`; field frequencies use
+`SUM(CASE WHEN V.TCH_POL_ID IS NOT NULL THEN 1 ELSE 0 END)` to preserve
+non-NULL-record semantics. The driver rejects `COUNT(ALL column)`.
+Read-only live verification reconciles against detail rows:
+`tools/audit/verify_other_query_counts.py --plancode 1U143900`;
+use `--kind bases --plancode 1U535A00` for the reverse lookup.
+
+Inputs and checkboxes persist with the query; results are not saved. New clears
+inputs and results. Editing inputs or changing region clears affected results;
+late responses to older criteria are discarded. Errors are reported rather than
+shown as an empty success. The main footer Run explains that these lookups use
+their own Find buttons.
+
+Regression: `tests/test_audit_other_queries.py`, `tests/test_audit_other_queries_ui.py`.
+Native integration check with synthetic results only:
+`tools/app/verify_other_queries.py --screenshot <path>`.
 
 ### 9. Display Tab
 *All fields on this tab are Checkboxes.*

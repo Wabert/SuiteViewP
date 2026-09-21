@@ -100,8 +100,9 @@ def test_actual_rate_query_builder_runs_under_restricted_access(kind, monkeypatc
 
 @pytest.mark.parametrize("all_display", [False, True])
 @pytest.mark.parametrize("region,schema", [("CKPR", "DB2TAB"), ("CKAS", "UNIT")])
+@pytest.mark.parametrize("transaction_mode", ["independent", "linked", "linked_exclude"])
 def test_actual_cyberlife_builder_ctes_and_dates_pass_restricted_db2_execution(
-    all_display, region, schema, app, monkeypatch,
+    all_display, region, schema, transaction_mode, app, monkeypatch,
 ):
     from suiteview.audit.cyberlife_query import build_cyberlife_sql
     from suiteview.audit.tabs.adv_tab import AdvTab
@@ -126,7 +127,20 @@ def test_actual_cyberlife_builder_ctes_and_dates_pass_restricted_db2_execution(
         policy2.chk_participating.setChecked(True)
         policy2.list_participating.item(0).setSelected(True)
         wl._select_par()
-        transaction.transaction_types.setText("SI")
+        transaction.transaction1.transaction_types.setText("SI")
+        transaction.transaction2.transaction_types.setText("PR")
+        transaction.transaction2.chk_eff_month.setChecked(True)
+        transaction.transaction2.chk_eff_day.setChecked(True)
+        transaction.transaction2.ranges["gross"][0].setText("0")
+        transaction.transaction2.chk_exclude.setChecked(True)
+        for panel in (transaction.transaction1, transaction.transaction2):
+            for checkbox, choices in panel.reversal_filters.values():
+                checkbox.setChecked(True)
+                choices.item(0).setSelected(True)
+    if transaction_mode != "independent":
+        transaction.transaction2.date_comparisons["entry"].setCurrentText("After Trans1 Eff Date")
+        transaction.transaction2.date_comparisons["eff"].setCurrentText("Equal Trans1 Entry Date")
+        transaction.transaction2.chk_exclude.setChecked(transaction_mode == "linked_exclude")
     sql = build_cyberlife_sql(
         schema, "I", "25", policy_tab=PolicyTab(), display_tab=display,
         policy2_tab=policy2, adv_tab=AdvTab(), coverages_tab=CoveragesTab(),
@@ -137,6 +151,8 @@ def test_actual_cyberlife_builder_ctes_and_dates_pass_restricted_db2_execution(
     if all_display:
         assert "MONTHS_BETWEEN(" in sql and "TRUNCATE(" in sql
         assert "DATE('9999-12-31')" in sql and "CONVERSION_SC" in sql
+    if transaction_mode != "independent":
+        assert "TR2.ENTRY_DT > TR1.ASOF_DT" in sql and "TR2.ASOF_DT = TR1.ENTRY_DT" in sql
     connection = MagicMock()
     cursor = connection.cursor.return_value
     cursor.description = [("PolicyNumber",)]

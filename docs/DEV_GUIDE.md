@@ -628,17 +628,29 @@ The packaged EXE reads the current Windows user's access from the three
 `SV_Access*` tables in UL_Rates. Missing/disabled users or unavailable permissions
 block access explicitly. Source runs always retain developer access.
 
+Albert is unavailable in the 4.0 EXE because its external Python bridge is not
+packaged. Its badge stays hidden regardless of ADMIN, AllApps or explicit
+grants, including after permission refresh. Source launches are unchanged.
+
 The shared checks live in `suiteview/core/access_control.py`; database mutation
 guards live in `suiteview/core/build_env.py`. UI gating is not sufficient:
 app entry, cross-app handoffs and actual writes must also be guarded.
 `AllApps` does not grant Administrator access or either write permission.
-Tools > Refresh Permissions refreshes launcher controls after role changes.
+Unauthorized app buttons and Tools/tray entries are hidden, not merely disabled.
+Tools > Refresh Permissions updates visibility after role changes; switching
+between docked, floating and full layouts must not reveal unauthorized apps.
 See [Agent.md](../Agent.md#runtime-access-permissions) for the complete contract.
 
 ### Building
 
 ```powershell
-venv\Scripts\python.exe scripts\build_distribution.py
+venv\Scripts\python.exe tools\app\build_distribution.py
 ```
 
-The build produces a folder + ZIP in `dist/`.
+The build produces `dist/SuiteView/` and `dist/SuiteView-<version>.zip`.
+The wrapper checks the embedded application version, required modules, archive
+integrity and every ZIP member against the distribution folder, then saves a
+verification receipt. Use `--verify-only` to repeat those checks without rebuilding.
+Extract the entire archive and keep `_internal` beside `SuiteView.exe`.
+Close the source launcher before testing the EXE: they share a single-instance
+mutex. This is not yet a self-installing package.

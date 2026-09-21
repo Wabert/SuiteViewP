@@ -7,6 +7,7 @@ import sys
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox, QPushButton
 from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.build_env import app_unavailable_reason
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,9 @@ class AlbertButton(QPushButton):
         self.setObjectName("albertTaskButton")
         self.setAccessibleName("Send a task to Albert")
         self.setFixedSize(28, 28)
-        self.setToolTip("Send a task to Albert - no email required")
+        unavailable = app_unavailable_reason("ALBERT")
+        self.setToolTip(unavailable or "Send a task to Albert - no email required")
+        self.setEnabled(not unavailable)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Keep the Outlook badge colors in SuiteView's flatter rounded button shape.
         self.setStyleSheet("""
@@ -52,6 +55,11 @@ class AlbertButton(QPushButton):
             QPushButton:pressed {
                 background: #103F3C;
                 border-color: #D4A017;
+            }
+            QPushButton:disabled {
+                background: #DFE3E8;
+                color: #737B85;
+                border-color: #AAB0B7;
             }
         """)
         self.clicked.connect(self._open)

@@ -25,6 +25,51 @@ How to use this doc (for the laptop LLM):
 These are committed behavior changes that compiled clean but were never run
 against live data. Test each before relying on them.
 
+### Query Transaction date comparisons — live DB2 verification (2026-09-20)
+
+Transaction 2 can compare Entry/Eff dates with a matching Transaction 1's
+Entry/Eff dates. Synthetic history tests execute all six comparisons, same-pair
+constraints, NULLs, exclusion and policy/company isolation. Native no-DB
+verification and restricted-SQL tests cover the UI and generated queries.
+Live DataDirect execution/performance remains unverified.
+
+- On a narrowly filtered known policy/plancode, run each comparison and both
+  together; reconcile `ENTRY_DT` / `ASOF_DT` against history records.
+- Multiple Transaction 1 rows must use any qualifying pair, never an implicit
+  latest row or different anchors for the two comparisons.
+- Linked Transaction 2 Exclude requires a matching Transaction 1 and no
+  qualifying pair anywhere. A nonmatching anchor must not bypass a matching pair.
+- Verify nested correlation through the selected DB2 region/schema, including
+  coverage-level mode. Neither history alias uses `CK_SYS_CD`.
+- Keep access read-only; do not use local policy data as a live-access fallback.
+
+### Query Other Queries — live DB2 lookup verification (2026-09-18)
+
+The new CyberLife **Other Queries** tab has synthetic SQL/data tests and a native
+no-DB verifier (`tools/app/verify_other_queries.py --screenshot <path>`).
+Read-only CKPR counts are now verified for base `1U143900` and rider `1U535A00`
+against individual Show policies rows and `SUM(1)`. The screenshot's all-1
+counts were caused by the driver's distinct-value `COUNT(column)` behavior.
+Rider/base counts now use `COUNT(*)`; Field Record Count uses a non-NULL-key
+`SUM(CASE...)` rather than counting distinct technical IDs. The latter aggregate
+was also live-verified on the joined records; field-wide/other-region checks
+below remain. `COUNT(ALL column)` is rejected by this driver.
+Recheck using `tools/audit/verify_other_query_counts.py --plancode 1U143900`
+or `--kind bases --plancode 1U535A00`. Both must report `all_ok: true`.
+
+- Select the intended Region, then use a known base plancode and rider plancode.
+  Compare both lookup counts against coverage records. Later same-plan phases
+  are excluded only from base-to-rider lookup, as in the original VBA.
+- Toggle each Show policies independently; confirm real policy numbers and
+  company codes, one row per matching coverage. Test a leading-zero policy.
+- Test `LH_BAS_POL` / `NON_TRD_POL_IND` in Find all values. **Record Count**
+  intentionally counts non-NULL `TCH_POL_ID` record occurrences, not distinct policies.
+- Check CKAS/CKCS/CKSR schema routing and DataDirect string parameter binding
+  (`SQL_VARCHAR` prevents HY004). Unknown table/field and connection errors must
+  produce explicit errors, never local-data fallback.
+- Verify View SQL and unsaved Excel export using the displayed rows. Main policy
+  criteria, Sys Code and Max Count do not apply to these standalone lookups.
+
 ### UL Reinstatement — validate live quote bases (2026-09-14)
 
 The Home Office reinstatement service and native UI have offline real-engine
@@ -763,6 +808,8 @@ counted in `missing_abs_max` (not front-load-capable, conservative).
 ---
 
 ## Changelog
+- **2026-09-20** — Added Transaction 2 date-comparison live execution/performance
+  checks; synthetic, native no-DB and restricted-SQL verification is local only.
 - **2026-07-17 (minipc)** — Guideline expense-basis fix (7702 rule: guaranteed
   COI + statutory interest + CURRENT expenses): `build_guideline_basis` now
   includes rider charge streams (CTR/spouse term, current COI — the same

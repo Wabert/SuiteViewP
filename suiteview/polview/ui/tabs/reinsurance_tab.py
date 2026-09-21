@@ -103,31 +103,15 @@ class ReinsuranceTab(QWidget):
         scroll.setWidget(content)
         layout.addWidget(scroll)
 
-    # ── public helpers ───────────────────────────────────────────────────
-
-    def has_reinsurance_data(self, policy) -> bool:
-        """Return True if cached TAICession lookup has records for this policy."""
-        if not policy:
-            return False
-        try:
-            info = ReinsuranceInformation.load(policy.policy_number, policy.region)
-            return info.tai_cession.found
-        except Exception:
-            return False
-
     # ── data loading ─────────────────────────────────────────────────────
 
-    def load_data_from_policy(self, policy):
-        """Load reinsurance data from cached TAICession information."""
+    def load_data_from_policy(self, policy, info: ReinsuranceInformation):
+        """Render a completed worker result without querying on the GUI thread."""
+        self._summary_label.clear()
+        self._multi_co_label.hide()
+        self.cession_group.table.setRowCount(0)
+        self._no_data_label.hide()
         if not policy:
-            return
-
-        try:
-            info = ReinsuranceInformation.load(policy.policy_number, policy.region)
-        except Exception as e:
-            import traceback, sys
-            print(f"[ReinsuranceTab] Error: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
             return
 
         result = info.tai_cession

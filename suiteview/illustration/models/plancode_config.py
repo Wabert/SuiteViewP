@@ -177,6 +177,10 @@ def _date_or_none(value) -> Optional[date]:
     return date.fromisoformat(str(value).strip())
 
 
+class MissingPlancodeError(KeyError):
+    """The plan has no illustration configuration, rather than a malformed row."""
+
+
 def load_plancode(plancode: str) -> PlancodeConfig:
     """Load plancode configuration from the plancode table JSON file.
 
@@ -188,14 +192,14 @@ def load_plancode(plancode: str) -> PlancodeConfig:
 
     Raises:
         FileNotFoundError: If the plancode table does not exist.
-        KeyError: If the plancode has no row in the table.
+        MissingPlancodeError: If the plancode has no row in the table.
     """
     if plancode in _CONFIG_CACHE:
         return _CONFIG_CACHE[plancode]
 
     data = _load_plancode_table().get(plancode)
     if data is None:
-        raise KeyError(
+        raise MissingPlancodeError(
             f"No plancode config found for {plancode} in {_PLANCODE_TABLE_PATH}"
         )
 

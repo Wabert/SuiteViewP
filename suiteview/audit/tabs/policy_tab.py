@@ -1,8 +1,8 @@
 """
-Policy tab — faithful replica of VBA frmAudit Policy (tab 1).
+Policy tab — compact CyberLife policy criteria.
 
 Layout (from the screenshot):
-  LEFT column:  Plancode/RGA, Company/Market, Form#/Branch, PolicyNum criteria,
+  LEFT column:  Aligned Plancode/RGA, Company/Market, Form#/Branch, Policy number,
                 then stacked range rows (Issue Age .. Billing Prem)
   CENTER-LEFT:  Status Code
   CENTER:       Product Line Code, Product Indicator, Suspense Code, Grace Indicator
@@ -116,7 +116,7 @@ def _add_range_row(layout: QGridLayout, row: int, label_text: str) -> tuple[QLin
 
 
 class PolicyTab(QWidget):
-    """Policy criteria tab — mirrors VBA frmAudit Page1 exactly."""
+    """Policy criteria with compact, aligned identifier and range inputs."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -151,69 +151,58 @@ class PolicyTab(QWidget):
         col1 = QVBoxLayout()
         col1.setSpacing(_V_SPACING)
 
-        # Plancode + RGA
-        row = QHBoxLayout(); row.setSpacing(_H_SPACING)
-        lbl_pc = QLabel("Plancode"); lbl_pc.setFont(_FONT)
+        identifiers = QGridLayout()
+        identifiers.setContentsMargins(0, 0, 0, 0)
+        identifiers.setVerticalSpacing(_V_SPACING)
+        identifiers.setHorizontalSpacing(_H_SPACING)
+        identifiers.setColumnStretch(2, 1)
+        for index, text in enumerate((
+            "Plancode", "Company", "Market", "Form number like",
+            "3 digit Branch #", "Policy number",
+        )):
+            label = QLabel(text)
+            label.setFont(_FONT)
+            label.setFixedHeight(_CTRL_H)
+            identifiers.addWidget(label, index, 0)
+
         self.txt_plancode = QLineEdit()
-        self.txt_plancode.setFont(_FONT); self.txt_plancode.setFixedSize(80, _CTRL_H)
+        self.txt_plancode.setFont(_FONT)
+        self.txt_plancode.setFixedSize(92, _CTRL_H)
+        force_uppercase(self.txt_plancode)
+        self.txt_plancode.setToolTip(
+            "Matches the complete plancode. Blank applies no plancode filter."
+        )
         self.chk_rga = _make_checkbox("RGA (52)")
-        row.addWidget(lbl_pc); row.addWidget(self.txt_plancode)
-        row.addSpacing(8); row.addWidget(self.chk_rga); row.addStretch()
-        col1.addLayout(row)
+        identifiers.addWidget(self.txt_plancode, 0, 1)
+        identifiers.addWidget(self.chk_rga, 0, 2, Qt.AlignmentFlag.AlignLeft)
 
-        col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
-
-        # Company / Market — label above each combo, aligned in a grid
-        cm_grid = QGridLayout()
-        cm_grid.setSpacing(1)
-        cm_grid.setHorizontalSpacing(8)
-        lbl_co = QLabel("Company"); lbl_co.setFont(_FONT)
-        lbl_mk = QLabel("Market"); lbl_mk.setFont(_FONT)
         self.cmb_company = QComboBox(); self.cmb_company.setFont(_FONT)
         self.cmb_company.addItems(COMPANY_ITEMS); self.cmb_company.setFixedHeight(_CTRL_H)
         self.cmb_company.setMinimumWidth(130); _style_combo(self.cmb_company)
         self.cmb_market = QComboBox(); self.cmb_market.setFont(_FONT)
         self.cmb_market.addItems(MARKET_ORG_ITEMS); self.cmb_market.setFixedHeight(_CTRL_H)
         self.cmb_market.setMinimumWidth(110); _style_combo(self.cmb_market)
-        cm_grid.addWidget(lbl_co, 0, 0)
-        cm_grid.addWidget(lbl_mk, 0, 1)
-        cm_grid.addWidget(self.cmb_company, 1, 0)
-        cm_grid.addWidget(self.cmb_market, 1, 1)
-        col1.addLayout(cm_grid)
+        identifiers.addWidget(self.cmb_company, 1, 1, 1, 2)
+        identifiers.addWidget(self.cmb_market, 2, 1, 1, 2)
 
-        col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
-
-        # Form number like
-        row = QHBoxLayout(); row.setSpacing(_H_SPACING)
-        lbl = QLabel("Form number like:"); lbl.setFont(_FONT)
         self.txt_form_number = QLineEdit(); self.txt_form_number.setFont(_FONT)
-        self.txt_form_number.setFixedSize(90, _CTRL_H)
-        row.addWidget(lbl); row.addWidget(self.txt_form_number); row.addStretch()
-        col1.addLayout(row)
+        self.txt_form_number.setFixedHeight(_CTRL_H)
+        identifiers.addWidget(self.txt_form_number, 3, 1, 1, 2)
 
-        # 3 digit Branch #
-        row = QHBoxLayout(); row.setSpacing(_H_SPACING)
-        lbl = QLabel("3 digit Branch #:"); lbl.setFont(_FONT)
         self.txt_branch = QLineEdit(); self.txt_branch.setFont(_FONT)
         self.txt_branch.setFixedSize(50, _CTRL_H); self.txt_branch.setMaxLength(3)
-        row.addWidget(lbl); row.addWidget(self.txt_branch); row.addStretch()
-        col1.addLayout(row)
+        identifiers.addWidget(self.txt_branch, 4, 1, Qt.AlignmentFlag.AlignLeft)
 
-        col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
-
-        # Policynumber criteria
-        lbl_pn = QLabel("Policynumber criteria"); lbl_pn.setFont(_FONT)
-        col1.addWidget(lbl_pn)
-        row = QHBoxLayout(); row.setSpacing(_H_SPACING)
         self.cmb_polnum_criteria = QComboBox(); self.cmb_polnum_criteria.setFont(_FONT)
         self.cmb_polnum_criteria.addItems(POLICYNUMBER_CRITERIA_ITEMS)
         self.cmb_polnum_criteria.setCurrentText(POLICYNUMBER_CRITERIA_DEFAULT)
-        self.cmb_polnum_criteria.setFixedHeight(_CTRL_H); _style_combo(self.cmb_polnum_criteria)
+        self.cmb_polnum_criteria.setFixedSize(92, _CTRL_H); _style_combo(self.cmb_polnum_criteria)
         self.txt_polnum_value = QLineEdit(); self.txt_polnum_value.setFont(_FONT)
         self.txt_polnum_value.setFixedHeight(_CTRL_H); self.txt_polnum_value.setMinimumWidth(90)
         force_uppercase(self.txt_polnum_value)
-        row.addWidget(self.cmb_polnum_criteria); row.addWidget(self.txt_polnum_value); row.addStretch()
-        col1.addLayout(row)
+        identifiers.addWidget(self.cmb_polnum_criteria, 5, 1)
+        identifiers.addWidget(self.txt_polnum_value, 5, 2)
+        col1.addLayout(identifiers)
 
         col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
 

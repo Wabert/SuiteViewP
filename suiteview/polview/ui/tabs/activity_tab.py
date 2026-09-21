@@ -109,3 +109,4 @@ class ActivityTab(QWidget):
             table.setRowCount(0)  # clear all old data first
             table.setRowCount(1)
             table.setItem(0, 0, QTableWidgetItem(f"Error: {e}"))
+            raise

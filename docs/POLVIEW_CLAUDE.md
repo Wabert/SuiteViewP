@@ -39,6 +39,124 @@ application (`SuiteView v2.2`).
 
 ## Architecture
 
+### Progressive background loading
+
+`GetPolicyWindow.load_policy()` queues work and returns without database access.
+The native window can display a loading state immediately. A dedicated worker
+loads identity and Coverages first, then prepares Policy, Targets, Persons,
+Activity, Dividends, Loans, Advanced Values, Reinsurance and Support eligibility.
+Ready pages remain usable while other data loads. Selecting a pending page moves
+it ahead of queued work; it does not interrupt an active database call.
+
+`ui/policy_load_controller.py` owns the serial QThread scheduler.
+`services/policy_prefetch.py` owns data-only preparation, including the existing
+illustration-based surrender calculation and Reinsurance lookup. Never move a
+widget's `load_data_from_policy()` into a worker. Widgets render prepared data
+on the GUI thread, once per displayed policy, under `cached_reads_only()`.
+Advanced Values and Reinsurance receive their prepared payloads explicitly.
+Hidden pages are prepared but not populated until selected.
+
+Advanced Values' **policy data is not conditional on illustration support**.
+If optional surrender calculation encounters missing rates/configuration,
+invalid illustration inputs or unavailable calculation dependencies, only the calculated
+Surrender Charge / Surrender Value show `N/A`, with an explanatory notice and
+tooltips; AV, fund history, allocations and monthliversary data still render.
+Validate and snapshot the record data **before** attempting the optional calculation;
+failed illustration-only table reads must not contaminate that snapshot. Expected
+calculation failures are logged with their traceback and shown beside the affected
+fields, never as a whole-tab error/Retry. Required policy-record read failures
+still fail explicitly, rather than displaying blank/zero values as retrieved data.
+Never invent a plan configuration or substitute zero. Switching to a supported
+plan clears the notice and restores calculated fields. Calculation-dependent
+tools such as RERUN retain their existing validation.
+Live regressions: N0100046 / 01 / FN2VN300 (no configuration) and S1360299 / 01 /
+1S134F00 (missing surrender rates); use the native profiling helper with
+`--all-tabs --expect-surrender-unavailable --expect-surrender-reason
+"Missing surrender rates" --screenshot <path>` for the latter.
+UL045809 continues to verify supported-plan calculations.
+
+The worker owns its database connections and private policy cache. Cross-thread
+results are detached data snapshots, never live connections or mutable shared
+cache dictionaries. Merging snapshots preserves the GUI policy's identity.
+The shared policy service still handles company choice, pending policies and
+cross-app cache reuse; worker calculations use their own scoped instance.
+Removing history invalidates shared aliases.
+
+Tab suffixes/tooltips identify pending and failed loads. Opaque loading/error
+overlays cover old-policy contents and disable underlying controls, including
+keyboard actions. Failures remain explicit and offer Retry without blocking
+other pages. Every request has a generation token: switching policies ignores
+old results and cancels queued work. In-flight ODBC calls finish on their owning
+thread before connections close. Window destruction requests nonblocking
+cleanup; application exit waits for orderly worker shutdown.
+Connections request a 15-second login timeout. The DB2 provider probes query
+timeout support before querying: CyberLife's DV driver rejects
+`SQL_ATTR_QUERY_TIMEOUT` with HYC00, so only that specific unsupported feature
+is logged and disabled. In-flight DV queries cannot be forcibly timed out by
+this mechanism; shutdown waits for the driver to finish. Other connection/query
+errors remain failures. Worker-scoped rate connections close on the worker,
+including helper-local instances created by the illustration calculation.
+
+Dividends/Loans appear pending until their availability checks finish; the
+existing final availability and advanced-product rules are unchanged. Block
+`currentChanged` while rebuilding optional tabs. Other Data retains per-policy
+inputs/results restoration. External Other Data queries, raw-table/rate browsing,
+support-folder browsing, GLP and Forecast remain explicit user actions, not
+automatic background scans.
+
+Read-only native verification:
+`venv\Scripts\python.exe tools\app\profile_polview_load.py --policy UL045809
+--company 01 --all-tabs --output <report.json> [--screenshot <path>]`.
+It uses an isolated profile and reports request-return, shell-visible,
+Coverages-ready and background-complete timings separately. It checks GUI timer
+heartbeats (maximum gap below 0.5 seconds), off-GUI connections/table fetching,
+unique table reads, all visible page states, cache identity and surrender fields.
+Screenshots include both loading and completed views. `--profile-load` profiles
+initial preparation on the worker; `--profile-construction` profiles native widget
+construction. `--compare-warm` repeats without policy caches and reports the
+complete second background load, not a cache-hit timing.
+
+The first use still pays module/window construction and initial ODBC startup.
+Background loading avoids freezing the GUI during data access; it does not
+eliminate network latency. Historical synchronous measurements were 9.76s /
+56 table reads originally, then approximately 2.1s / 15 initial reads after
+deferring hidden tabs. That policy-only timer excluded imports/construction:
+the latter synchronous version took 3.45s overall in a fresh standalone run,
+including 1.23s for its first DB2 connection. Do not present those historical
+measurements as current async click-to-display timings or latency guarantees.
+
+Read-only native UL045809 / 01 verification on 2026-09-20: request returned in
+0.009s, loading shell displayed in 0.287s, Coverages ready in 1.895s (10 table
+reads), and remaining background data ready in 8.141s. All 33 table reads and
+database connections ran off the GUI thread; maximum timer heartbeat gap was
+0.100s. Imports (1.146s) and widget construction (1.281s) are separate cold costs,
+not included in those request-relative timings.
+
+Regressions: `tests/test_polview_lazy_loading.py`,
+`tests/test_polview_loading_overlay.py`, `tests/test_policy_prefetch.py`,
+`tests/test_policy_service_cache.py`, `tests/test_policy_launcher.py`,
+`tests/test_polview_other_data.py` and `tests/test_reinstatement_ui.py`.
+
+### Other Data
+
+The permanent **Other Data** tab follows Policy Support. Its left panel selects
+SAP, CLAIMSFILE, TAICyberTAIFd, orion_pcr3_r or CYBERLIFE_PDF; their existing
+filterable grids and query controls are embedded in the main panel, not opened
+as separate tabs. These five buttons no longer appear on Policy Support.
+
+CLAIMSFILE and CYBERLIFE_PDF query immediately on first selection for a loaded
+policy, with a **Refresh** button for another read. SAP, TAICyberTAIFd and
+orion_pcr3_r retain their date inputs and explicit query actions. Merely loading
+a policy or opening Other Data does not query any of these sources.
+Switching sources retains inputs/results. Switching back to a cached policy
+restores its selected source, inputs, results and access notices without querying.
+A new policy clears the panel and starts with no source selected.
+
+Regression: `tests/test_polview_other_data.py` covers native routing, immediate
+versus prompted queries, refresh, errors and policy-state isolation without live
+data. `tools/app/verify_other_data_tab.py --output-dir <directory>` captures the
+native layout using synthetic results only.
+
 ### UL Reinstatement
 
 **Policy Support > UL Reinstatement** opens a single optional **Reinstatement**

@@ -282,6 +282,17 @@ When configuring a `FilterTableView` for a compact panel, use this recipe:
 > numbers, white background, zero-padding items, autofit columns then stretch the
 > name column. Auto-size panel width to fit all columns.
 
+### Learnings — FilterTableView QObject lifetime
+
+Header/scrollbar signals that call back into `FilterTableView` must use
+QObject-bound `@pyqtSlot` handlers, not self-capturing lambdas such as
+`lambda *_args: self.group_bar.update()`. Those closures created cycles that
+could invoke callbacks during native/cyclic-GC teardown, causing Windows access
+violations when repeatedly creating and destroying result grids. Keep optional
+hidden widgets parented, and test both native destruction and Python-wrapper
+collection rather than retaining leaked widgets or disabling GC.
+Regression: `tests/test_audit_other_queries_ui.py`.
+
 ## StyledInfoTableGroup — Default UI Container
 
 **Location:** `suiteview/polview/ui/widgets.py`
@@ -515,6 +526,10 @@ mechanism the Windows taskbar uses — not the fragile `SPI_SETWORKAREA`.
 - Maximized windows respect the reserved space and don't cover the bar.
 
 ### AppBar docking rules (MANDATORY)
+
+The system-tray context menu contains only **Quit SuiteView**. Single- and
+double-clicking the tray icon still restore the launcher; app shortcuts remain
+in the launcher, not the tray menu. Regression: `tests/test_taskbar_tray_menu.py`.
 
 The Win32 dance lives in
 [`suiteview/taskbar_launcher/appbar.py`](suiteview/taskbar_launcher/appbar.py).
@@ -1042,6 +1057,13 @@ to also check text fit with native fonts).
 
 ## Query participation filter
 
+Policy's identifier controls use aligned compact rows. Plancode is exact-only,
+with its input left-aligned and RGA immediately beside it; there is no match-mode
+dropdown. Existing all-coverage/Cov1/coverage-level scope is unchanged; the
+Plancode tab's list stays exact. Regression:
+`tests/test_audit_policy_tab_defaults.py`, `tests/test_audit_covsall_join.py`.
+Native no-DB check: `tools/app/verify_policy_identifiers.py --screenshot <path>`.
+
 Query's **Policy (2) > Participating (02)** uses base phase 1
 `LH_COV_PHA.DIV_PTP_TYP_CD`, even in coverage-level mode: A-H participating,
 9 participating with dividends paid up, blank/0-8 nonparticipating.
@@ -1062,6 +1084,88 @@ NFO and CV criteria are also wired to SQL. Existing saved dividend/NFO keys rema
 unchanged. Regression: `tests/test_audit_wl.py`; add `--wl-screenshot <path>` to
 the native participation verifier to check both pages.
 
+## Query Plans and Policies
+
+The former Plancode tab now contains two shared identifier-list panels:
+Plancode and Policies. Both support Add/Enter, multi-select removal, clearing
+and clipboard paste (Excel rows/columns, commas, semicolons or whitespace).
+Normalize to uppercase, preserve leading zeros and deduplicate in input order.
+Only Plancode has the existing Cov1-only option. Policies filters the canonical
+`LH_BAS_POL.CK_POLICY_NBR`, never `TCH_POL_ID`, using exact IN matching without
+adding a coverage join. Empty lists are ignored; populated lists AND with
+each other and all other criteria. Region/company/system/Max Count still apply.
+Both lists persist in the existing `plancode` saved-state section and clear with
+New. Regression: `tests/test_audit_plans_policies.py`; native no-DB verification:
+`tools/app/verify_plans_policies.py --screenshot <path>`.
+
+## Query Other Queries
+
+CyberLife's **Other Queries** replaces its Common Tables tab. The separate visual
+query builder's common-table functionality remains. Three standalone lookups
+restore `frmAudit.frm`'s Other queries functions: base plan to riders, rider plan
+to bases, and table/field value frequencies. They use the selected Region only,
+not the main criteria, system selector or Max Count. Each panel has its own Find,
+View SQL, compact `FilterTableView` and unsaved Excel export.
+
+Counts represent occurrences, not distinct policies, including active/inactive
+policies and coverages. **Use `COUNT(*)` for rider coverage rows.** Live CKPR's
+Data Virtualization driver returns distinct-value counts for `COUNT(column)`:
+`COUNT(R.PLN_DES_SER_CD)` produced 1 per group. Field **Record Count** uses
+`SUM(CASE WHEN V.TCH_POL_ID IS NOT NULL THEN 1 ELSE 0 END)` to count non-NULL
+record occurrences, not distinct technical IDs. Do not use `COUNT(ALL column)`:
+the live driver rejects that syntax. Keep result grids explicitly read-only
+(`NoEditTriggers` for both normal/frozen views); clicking must not open blank editors.
+Read-only flags alone do not prevent the native blank-cell appearance: overriding
+the table stylesheet must retain explicit selected foreground/background colors.
+Use black text on light blue for active/inactive selections. The native verifier
+and UI tests compare rendered text pixels before/after clicks, not only model data.
+Base-to-rider excludes later phases with the base's own plancode. Joins use the
+complete system/company/technical-policy key. Show policies uses `CK_POLICY_NBR`
+plus company, not a substring of `TCH_POL_ID`; each checkbox controls only its own
+panel. Inputs save/reset with the query; changing inputs/region clears results,
+and stale async responses cannot repopulate them. Plancodes are bound with DB2
+VARCHAR parameter types; table/field inputs permit unqualified identifiers only.
+Failures remain explicit. Read-only live verification of base `1U143900` and
+rider `1U535A00` reconciles counts against Show policies detail rows using
+`tools/audit/verify_other_query_counts.py --plancode <plan> [--kind bases]`.
+Remaining live checks are tracked in WORK_LAPTOP_SPEC.md.
+Tests: `tests/test_audit_other_queries.py`, `tests/test_audit_other_queries_ui.py`.
+Native synthetic/no-DB check: `tools/app/verify_other_queries.py --screenshot <path>`.
+
+## Query Transaction criteria
+
+Transaction has two compact stacked sections, **Transaction 1 AND Transaction 2**.
+With no date comparisons, each populated section requires one matching `FH_FIXED` row via independent
+`EXISTS`, or no matching row via `NOT EXISTS` when **Exclude** is checked.
+Blank sections are ignored, even with Exclude checked. Types and fund IDs are ORed within their
+section, while all fields in that section constrain the same row. Both sections
+may match different rows or the same row; do not require distinct transactions
+or multiply results with history joins. Correlate on company/technical policy ID,
+never `CK_SYS_CD`. Issue-month/day checkboxes retain the base issue date.
+The original optional month/day ranges remain in both sections. Dates/ranges
+are validated with section-specific errors. Transaction 1 retains its saved-state
+keys; `transaction2` holds the second set. New clears both.
+Each section also has checkbox-enabled **Is Reversal** (`FCB0_REV_IND`) and
+**Reversed** (`FCB2_REV_APPL_IND`) 0/1 multi-select lists. Flags constrain the
+same row as the other criteria. Unchecking clears/disables its list; checked
+without selections is unrestricted. NULL is not zero. Exclude and both flag
+controls save/reset with their section and default off.
+Both sections place compact 40px Eff Mth and Eff Day ranges on separate rows,
+each beside its existing Issue-month/day checkbox. Gross Amt follows those
+rows; Origin and Fund ID List sit beside the reversal controls below it.
+Transaction 2 has Entry Dt / Eff Dt comparison dropdowns: none, or strict
+After/Before/Equal to Transaction 1 Entry/Eff Date. Nested `EXISTS` requires one
+qualifying pair satisfying both comparisons and all section criteria; never
+combine different anchors or pick an implicit latest transaction. Empty
+Transaction 1 means any reference row when linked; equality may use the same
+row, and NULL dates do not compare. Transaction 1 Exclude clears/disables the
+dropdowns. Linked Transaction 2 Exclude requires an anchor and no qualifying
+pair anywhere, not merely an anchor without a partner. Invalid combinations
+raise explicitly. Both comparison labels save under `transaction2` and default
+to none on missing keys/New. No joins that multiply policies are introduced.
+See the Audit criteria documentation and `tests/test_audit_transaction_{tab,filters}.py`.
+Native no-DB check: `tools/app/verify_transaction_tab.py --screenshot <path>`.
+
 ## Audit file-source text encodings
 
 File-source intake detects UTF-8, UTF-16 and UTF-32 byte-order marks before
@@ -1075,6 +1179,44 @@ Read-only verification: `tools/audit/verify_text_file_source.py <path>
 --output <report.json>` checks an isolated saved-source round trip, preview
 and full SQL row count against an independent CSV reader without printing
 records or changing the original file or the user's saved sources.
+
+## PolView initial loading
+
+PolView queues initial identity/Coverages lookup on a dedicated worker, then
+prepares remaining data pages (including Reinsurance and the Advanced Values
+calculation) while the user interacts with ready pages. Selecting a queued page
+prioritizes it after the active query. Tab overlays show loading/errors and Retry,
+covering and disabling old-policy controls. Generation tokens reject stale
+results after policy switches. Optional tab availability is checked in background.
+
+`polview/services/policy_prefetch.py` owns data preparation and worker-private
+connections/cache; `ui/policy_load_controller.py` owns scheduling and shutdown.
+Only detached snapshots cross threads. GUI rendering is cache-only and preserves
+the shared GUI policy identity; never share worker ODBC handles or render widgets
+off-thread. Company selection/pending behavior remains in the shared policy
+service. Other Data, raw/rate browsing and support tools remain explicit actions.
+See `docs/POLVIEW_CLAUDE.md` for architecture, read-only native profiling and
+responsiveness/cancellation/retry regressions. Cold module/widget initialization
+still costs time; do not confuse queue-return time with usable policy data.
+
+Policy-record pages must not depend on optional illustration calculations.
+Advanced Values snapshots validated record data before calculating surrender
+values. Missing rates/configuration or failed calculation dependencies leave only
+Surrender Charge / Value `N/A`, with a local notice/tooltips and logged diagnostics,
+never a full-tab error. Required record retrieval failures still remain explicit;
+never invent values or guessed plan/rate settings. RERUN validation is unchanged.
+Regressions: N0100046 / FN2VN300 and S1360299 / 1S134F00,
+`tests/test_policy_prefetch.py`; native profiler supports
+`--expect-surrender-unavailable` and `--expect-surrender-reason` with `--all-tabs`.
+
+## PolView Other Data
+
+PolView's permanent **Other Data** tab now owns SAP, CLAIMSFILE, TAICyberTAIFd,
+orion_pcr3_r and CYBERLIFE_PDF, formerly on Policy Support. Left-panel buttons
+select embedded viewers. Claims/PDF load on first selection; the others retain
+date inputs and explicit queries. Per-policy inputs/results/selection are
+restored without querying; new policies start empty. See
+`docs/POLVIEW_CLAUDE.md` and `tests/test_polview_other_data.py`.
 
 ## PolView coverage zero values
 
@@ -1260,6 +1402,31 @@ preferred and variable loans. Ending loan columns remain unchanged.
 The shared `illustration/core/summary_results.py` mapping also drives debug
 exports and regression snapshots; its Summary schema version is now 2.
 Regression: `tests/test_illustration_values_tab.py`.
+
+## RERUN Prem to Maturity new loans
+
+Dynamic Inputs permits new loans with **Prem to Maturity**, including forecast
+loans and loans before the solved premium's start year. UI enablement and input
+export share `_new_loans_allowed()`; **Max Level** and **Prem to Shadow Maturity**
+still block new loans, including when mixed with Prem to Maturity. Loan payoff
+solve restrictions are unchanged. Explicit one-year annual loan rows emit a
+zero cutoff next year, not an indefinitely recurring loan.
+
+Existing solver trials, Run Values and saved/Compare materialization carry the
+same loan schedules and Apply Premium to Loan option. Guaranteed projections
+lock the current side's applied loans and premium-diverted repayments, without
+solving another premium or repaying those dollars twice. No rate/model changes
+were needed. Regression: `tests/test_illustration_prem_to_maturity_loans.py` and
+the dynamic-input level-type tests.
+Read-only current-source verification:
+`tools/app/verify_prem_to_maturity_loans.py --snapshot <policy-snapshot.json>
+--output <report.json>` exercises revised Case9 through native Run Values and
+save/export/import, without Excel or modifying the supplied snapshot.
+Verified U0389725 / 01: $1,000 once on 2028-04-06, $56 monthly through March
+2029, then $23.01 solved monthly from April 2029 ($14.54 in the separate no-loan
+control). Both native and saved-case runners match. Existing terminal age-95
+rows carry both matured/lapsed flags in both controls; no pre-maturity current
+lapse occurred. Guaranteed values stop on lapse in February 2035.
 
 ## RERUN existing GP exception periods
 
@@ -1877,6 +2044,19 @@ coworkers using PyInstaller. See the workflow: `/build-distribution`.
 
 **Build script:** `scripts/build_distribution.py`
 
+Release preflight/build entry point:
+`venv\Scripts\python.exe tools\app\build_distribution.py`.
+It uses the canonical builder, produces `dist/SuiteView-<version>.zip`, and
+verifies the embedded version, required modules, ZIP integrity and every
+archived file against the output folder. `--verify-only` rechecks an existing
+build. This is a one-folder EXE distribution, not an installer.
+
+**Albert is source-only in 4.0.** Its external Python bridge is not packaged.
+The EXE hides its unavailable badge; ADMIN,
+AllApps, explicit grants and permission refresh cannot enable it. The shared
+build-capability check also rejects direct ALBERT entry before querying access
+tables or launching a process. Source/developer access remains unrestricted.
+
 ### Versioning (REQUIRED for every release)
 
 Every distribution carries a **version number** so users can tell builds
@@ -1936,8 +2116,9 @@ explicit errors, never unrestricted or stale-permission fallbacks.
 App entry includes taskbar/tray actions, direct constructors and cross-app
 handoffs. Administrator and the experimental DB2 Table Check require the ADMIN
 role; `AllApps` is not an administrative grant. Write bits are independent of
-`AllApps`. Missing grants disable launcher controls rather than relying on hidden
-buttons for enforcement. **Tools > Refresh Permissions** reloads launcher state.
+`AllApps`. Missing grants hide app buttons and Tools/tray entries; direct-entry
+guards still enforce authorization. Floating/docked transitions and permission
+refresh preserve visibility rules. **Tools > Refresh Permissions** reloads launcher state.
 Role changes are checked again on app entry and protected writes; existing
 windows are not forcibly closed and unsaved work is not discarded.
 
@@ -1975,7 +2156,7 @@ Regression: `tests/test_runtime_access.py`, `tests/test_app_entry_access.py`,
 `tests/test_read_only_generated_sql.py` checks real PolicyInformation, rates,
 ABR viewer and Audit-generated queries under restricted permissions.
 Native verification: `tools/app/verify_runtime_access.py --output-dir <directory>`
-uses synthetic roles and an isolated temporary profile, checks disabled launcher
+uses synthetic roles and an isolated temporary profile, checks hidden launcher
 controls, denied direct entry, permission refresh and FileNav without ScratchPad.
 `tools/admin/verify_access_repository.py --runtime` verifies the real packaged
 authorization query read-only, even when the helper runs from source.

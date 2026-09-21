@@ -38,7 +38,7 @@ from .tabs.custom_display_tab import CustomDisplayTab
 from .tabs.results_tab import ResultsTab
 from .tabs.sql_tab import SqlTab
 from .tabs.plancode_tab import PlancodeTab
-from .tabs.common_tables_tab import CommonTablesTab
+from .tabs.other_queries_tab import OtherQueriesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
 from .tabs.manual_sql_object_editor import ManualSqlObjectEditor
@@ -47,7 +47,6 @@ from .tabs._styles import style_combo as _style_combo, _ensure_checkmark, _CHECK
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
 from .cyberlife_query import build_cyberlife_sql
-from .dynamic_query import build_common_table_cte
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
 from .field_picker_panel import FieldPickerPanel
@@ -382,6 +381,9 @@ class AuditWindow(FramelessWindowBase):
         # Transaction tab
         self.transaction_tab = TransactionTab()
         self.tabs.addTab(self.transaction_tab, "Transaction")
+        self.other_queries_tab = OtherQueriesTab(lambda: self.cmb_region.currentText())
+        self.tabs.addTab(self.other_queries_tab, "Other Queries")
+        self.other_queries_tab.sql_requested.connect(self._show_other_query_sql)
         # Display tab
         self.display_tab = DisplayTab()
         self.tabs.addTab(self.display_tab, "Display")
@@ -401,12 +403,9 @@ class AuditWindow(FramelessWindowBase):
         self._illustration_window = None
         self._illustration_owner = False  # True if we created the window ourselves
         self._illustration_launcher = None  # callback → shared RERUN window
-        # Plancode tab
+        # Plans and Policies tab
         self.plancode_tab = PlancodeTab()
-        self.tabs.addTab(self.plancode_tab, "Plancode")
-        # Common Tables tab
-        self.cyb_common_tables_tab = CommonTablesTab()
-        self.tabs.addTab(self.cyb_common_tables_tab, "Common Tables")
+        self.tabs.addTab(self.plancode_tab, "Plans and Policies")
         # SQL tab
         self.sql_tab = SqlTab()
         self.tabs.addTab(self.sql_tab, "SQL")
@@ -653,6 +652,7 @@ class AuditWindow(FramelessWindowBase):
         )
     def _connect_signals(self):
         self.btn_run.clicked.connect(self._run_audit)
+        self.cmb_region.currentTextChanged.connect(self.other_queries_tab.invalidate)
         self.sql_tab.build_sql_requested.connect(self._build_cyberlife_sql_only)
         self.sql_tab.move_to_build.connect(self._on_move_to_build)
         self.build_sql_tab.run_sql_requested.connect(self._run_build_sql)
@@ -1181,6 +1181,10 @@ class AuditWindow(FramelessWindowBase):
             self._picker_width = int(pw)
     def closeEvent(self, event):
         """Save UI settings on window close."""
+        if self.other_queries_tab.is_busy():
+            QMessageBox.information(self, "Query Running", "Wait for Other Queries to finish before closing.")
+            event.ignore()
+            return
         ui = load_ui_settings()
         ui["field_picker"] = self._field_picker.get_state()
         if hasattr(self._forge_field_picker, 'get_state'):
@@ -1541,10 +1545,6 @@ class AuditWindow(FramelessWindowBase):
             criteria.get("coverage_scope", "All Covs"))
         self.cmb_coverage_scope.setCurrentIndex(_scope_idx if _scope_idx >= 0 else 0)
 
-        common_tables = criteria.get("common_tables")
-        if common_tables:
-            self.cyb_common_tables_tab.set_state(common_tables)
-
         tab_states = criteria.get("tabs") or {}
         for key, tab in self._cyberlife_criteria_tabs():
             tab.set_state(tab_states.get(key, {}))
@@ -1618,18 +1618,11 @@ class AuditWindow(FramelessWindowBase):
             wl_tab=self.wl_tab,
         )
 
-        # Prepend Common Table CTEs if any are selected
-        common_tables = self.cyb_common_tables_tab.get_selected_tables()
-        if common_tables:
-            cte_prefix = build_common_table_cte(common_tables, dialect="DB2")
-            # Cyberlife SQL starts with 'WITH COVERAGE1 AS ...'
-            # Merge by replacing 'WITH' with the common tables CTE + comma
-            if sql.strip().upper().startswith("WITH "):
-                sql = cte_prefix + ",\n" + sql.strip()[4:]  # strip 'WITH'
-            else:
-                sql = cte_prefix + "\n" + sql
-
         return sql
+
+    def _show_other_query_sql(self, sql: str):
+        self.sql_tab.set_sql(sql)
+        self.tabs.setCurrentWidget(self.sql_tab)
 
     def _build_cyberlife_sql_only(self):
         """Build and show Cyberlife SQL without executing the query."""
@@ -1654,6 +1647,7 @@ class AuditWindow(FramelessWindowBase):
             ("di", self.di_tab),
             ("benefits", self.benefits_tab),
             ("transaction", self.transaction_tab),
+            ("other_queries", self.other_queries_tab),
             ("segment52", self.segment52_tab),
             ("display", self.display_tab),
             ("custom_display", self.custom_display_tab),
@@ -1665,7 +1659,6 @@ class AuditWindow(FramelessWindowBase):
             "max_count": self.txt_max_count.text().strip(),
             "coverage_level": self.chk_coverage_level.isChecked(),
             "coverage_scope": self.cmb_coverage_scope.currentText(),
-            "common_tables": self.cyb_common_tables_tab.get_state(),
             "tabs": {
                 key: tab.get_state()
                 for key, tab in self._cyberlife_criteria_tabs()
@@ -1794,6 +1787,10 @@ class AuditWindow(FramelessWindowBase):
     # ── Run audit ────────────────────────────────────────────────────
     def _run_audit(self):
         """Execute the audit query and display results."""
+        if self.tabs.currentWidget() is self.other_queries_tab:
+            QMessageBox.information(
+                self, "Other Queries", "Use Find all riders, Find all base, or Find all values on this tab.")
+            return
         try:
             sql = self._build_sql()
         except Exception as exc:

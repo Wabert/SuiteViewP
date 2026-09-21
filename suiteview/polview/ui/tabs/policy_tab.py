@@ -171,6 +171,7 @@ class PolicyTab(QWidget):
         except Exception:
             import traceback
             traceback.print_exc()
+            raise
 
     def _populate_column1_from_policy(self, policy, policy_info: dict):
         c = self.col1

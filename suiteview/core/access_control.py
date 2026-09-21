@@ -9,7 +9,7 @@ from threading import RLock
 
 import pyodbc
 
-from suiteview.core.build_env import has_developer_access
+from suiteview.core.build_env import app_unavailable_reason, has_developer_access
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,8 @@ class EffectiveAccess:
     developer: bool = False
 
     def allows_app(self, app_code: str) -> bool:
+        if app_unavailable_reason(app_code):
+            return False
         if app_code == "ADMINISTRATOR":
             return self.developer or self.role_code == "ADMIN"
         return self.developer or self.all_apps or app_code in self.apps
@@ -127,6 +129,9 @@ def can_access_app(app_code: str) -> bool:
 
 
 def guard_app_access(app_code: str) -> None:
+    unavailable = app_unavailable_reason(app_code)
+    if unavailable:
+        raise AccessDeniedError(unavailable)
     access = get_access(refresh=True)
     if not access.allows_app(app_code):
         raise AccessDeniedError(
