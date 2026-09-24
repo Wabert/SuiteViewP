@@ -359,7 +359,8 @@ ISWL policies (advanced, product line `I`) keep the UL Rates view on
 GuarCOI = scale 0), a `GINT` column (`Select_RATE_GINT`), **CVR** (the
 `WL_RATE_CV` per-unit cash value at each row's Date, so Year *n* is duration
 *n*-1) and **Prem Rate** (the base `WL_RATE_PREM` type-N annual premium per
-unit, repeated through the IAF pay age), plus premium/benefit
+unit, repeated through the IAF pay age), the four `RATE_LOAN` rates by table
+code (`PLNCRG`/`PLNCRD`/`RLNCRG`/`RLNCRD`), plus premium/benefit
 cease ages (`Select_RATE_PREMIUMCEASE` / `_BENEFITCEASEAGE`). Amount/OrigAmount
 are whole dollars with commas. Premium load
 remains on the **Policy** leaf (TPP/EPP). ISWL and traditional WL policies
@@ -398,8 +399,11 @@ arithmetic is `core/modal_premium.py`.
 Live regression: `tools/rates/verify_polview_iswl_rates.py
 @tools/rates/iswl_rates_13034048_case.json --output-dir <dir>` (ISWL 13034048 /
 01, plancode 81335200, user 00: CV durations 31-34 = 333/351/369/388, premiums
-11.76 / 0.98 / 0.44, 318.50 x .093 + 30 x .11333 = **33.02** = POL_PRM_AMT)
-drives each leaf through the real window and saves screenshots.
+11.76 / 0.98 / 0.44, 318.50 x .093 + 30 x .11333 = **33.02** = POL_PRM_AMT;
+SCR 82.32 in years 1-10 to 8.232 in year 19 then 0 via `POINT_PVSRB.Index(SCR)`
+39100; loan rates 8/4/8/4) drives each leaf through the real window and saves
+screenshots. Read plan pointers from `POINT_PVSRB`, never the legacy
+`POINT_PVSRB2` row, which was deliberately left unchanged for this plan.
 `tools/rates/dump_polview_rate_matrices.py` prints every leaf for any policy.
 Tests: `tests/test_polview_fixed_premium_rates.py`.
 

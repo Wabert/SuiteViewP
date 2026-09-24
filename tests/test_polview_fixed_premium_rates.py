@@ -314,8 +314,11 @@ def test_substandard_is_flagged_on_the_comparison():
 
 def test_iswl_coverage_extras_add_scales_gint_and_cease_ages():
     policy = object.__new__(PolicyInformation)
+    calendar = [(date(1998, 5, 1), 1), (date(1900, 1, 1), 3), (date(1993, 1, 1), 2)]
+    loans = {"PLNCRG": [None, 8.0], "PLNCRD": [None, 4.0], "RLNCRG": [None, 8.0], "RLNCRD": None}
     rates = SimpleNamespace(
-        get_rates=Mock(return_value=[(date(1998, 5, 1), 1), (date(1900, 1, 1), 3), (date(1993, 1, 1), 2)]),
+        get_rates=Mock(side_effect=lambda rate_type, plancode: calendar if rate_type == "COI_SCALE"
+                       else loans[rate_type]),
         get_age_limits=Mock(return_value={"premium_cease": 95, "benefit_cease": None}),
         get_gint=Mock(return_value=[None, 0.04, 0.04]),
     )
@@ -329,6 +332,8 @@ def test_iswl_coverage_extras_add_scales_gint_and_cease_ages():
     assert extra["COI S3"] == [None, 3.0]
     assert ("  from 1900-01-01", "Scale 3") in meta and ("  from 1998-05-01", "Scale 1") in meta
     assert ("Prem Cease Age", 95) in meta and ("Ben Cease Age", "Not loaded") in meta
+    assert ("  PLNCRG", "8%") in meta and ("  PLNCRD", "4%") in meta
+    assert ("  RLNCRD", "Not loaded") in meta
 
 
 @pytest.fixture

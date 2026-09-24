@@ -4167,7 +4167,12 @@ class PolicyInformation:
         extra["GINT"] = rates.get_gint(plancode)
         cvr_meta, extra["CVR"] = self._iswl_cash_value_column(cov_index)
         prem_meta, extra["Prem Rate"] = self._iswl_premium_rate_column(cov_index)
-        meta += [(" ", " "), cvr_meta, prem_meta, (" ", " "), ("Rider premiums", "See Fixed Premium")]
+        meta += [(" ", " "), cvr_meta, prem_meta, (" ", " "), ("Loan rates", "RATE_LOAN")]
+        for rate_type in ("PLNCRG", "PLNCRD", "RLNCRG", "RLNCRD"):
+            values = rates.get_rates(rate_type, plancode)
+            rate = values[1] if values and len(values) > 1 else None
+            meta.append((f"  {rate_type}", f"{rate:g}%" if rate is not None else "Not loaded"))
+        meta += [(" ", " "), ("Rider premiums", "See Fixed Premium")]
         return meta, extra
 
     def _iswl_cash_value_column(self, cov_index: int) -> Tuple[tuple, Optional[list]]:
