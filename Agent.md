@@ -1046,6 +1046,39 @@ across all apps. For app-specific details, see the relevant doc:
 > and keep app-specific detail (UI, VBA mappings, business rules) in the sub-app
 > doc.
 
+## Query conversion source company
+
+Query's **Converted policy info (52)** display and **Has converted policy (52)**
+criterion each include the live-verified `TH_USER_GENERIC.SOURCE_CMP_CODE`
+as `SOURCE_CMP_CODE` in results, once when both are checked. Existing display
+and filtering semantics are unchanged. Regression:
+`tests/test_audit_segment52.py`; read-only live verification:
+`tools/audit/verify_conversion_segments.py --verify-live`.
+
+**Show post conversion policy (link)** on Display reverses destination 52
+records into `POST_CONV_POLICY` / `POST_CONV_COMPANY`. Match the original's
+system, company and `CK_POLICY_NBR` to the destination record's system,
+`SOURCE_CMP_CODE` and `EXCH_POL_NUMBER`; resolve the destination's number
+through its full-key `LH_BAS_POL` join. Gate `LST_ETR_CD = 'O'` in the outer
+left join, never WHERE, so non-`O` and unmatched policies stay visible with
+blanks. Preserve distinct multiple destinations and cross-company conversions;
+do not pick an arbitrary latest policy or traverse a chain. No lookup when
+unchecked. See the Audit criteria doc; regression:
+`tests/test_audit_segment52.py`; read-only live result check:
+`tools/audit/verify_post_conversion_link.py`.
+
+## Query SQL Assist source toggle
+
+SQL Assist's source label is an **ODBC / Files** toggle button. ODBC lists
+saved connections and system/user DSNs; Files lists saved File Sources
+(`file:<id>` tokens) with their stored member tables and schema, no ODBC.
+Choosing a file makes Visual Query and Manual SQL run through DuckDB via the
+existing `file:` routing; +Table is disabled in Files mode. Toggling with no
+file sources shows a placeholder and leaves the active query's source intact.
+`FieldPickerPanel.show_file_source()` is the single entry for file-backed
+queries. Regression: `tests/test_dynamic_query.py`; native no-DB check:
+`tools/app/verify_sql_assist_source_toggle.py --screenshot <dir>`.
+
 ## Query tool RegEx reference
 
 The header's **RegEx Cheatsheet** button opens a compact, non-modal blue/gold
@@ -1054,6 +1087,27 @@ one owned window for users with Query access. This is regular-expression
 syntax, not SQL LIKE; the existing field-row SQL LIKE help remains separate.
 Regression: `tests/test_audit_regex_cheatsheet.py` (use `QT_QPA_PLATFORM=windows`
 to also check text fit with native fonts).
+
+## Query ADV specified-amount comparisons
+
+ADV's **Current SA < Original SA** and **Current SA > Original SA** emit strict
+`<` and `>` comparisons of `COVSUMMARY.TOTAL_SA` with `TOTAL_ORIGINAL_SA`.
+Equal amounts are excluded; the independent checkboxes retain AND semantics
+if both are selected. Saved-state keys and coverage-summary scope are unchanged.
+Regression: `tests/test_audit_adv_glp_gsp_ranges.py` checks generated operators,
+switching selections, saved-state restore, and less/equal/greater/NULL outcomes.
+
+## Query change sequence (68)
+
+Policy (2)'s **Has Change Seq (68)** unions four source tables. Live
+`LH_COV_TMN` has no `CHG_TYP_CD`: termination rows contribute literal
+`'9' AS CHG_TYP_CD`. The other three change/schedule tables retain their
+stored codes. Never select a nonexistent change-type column from termination
+detail; the Rocket DV driver can obscure that SQL error as a pyodbc SystemError.
+Full policy-key joins, selected-code filtering and saved state are unchanged.
+Regression: `tests/test_audit_change_segment.py`. Read-only live CKPR type 4,
+type 9 and combined queries passed via
+`tools/audit/verify_change_segment.py --sample` (Max Count 1).
 
 ## Query participation filter
 
@@ -1182,6 +1236,10 @@ records or changing the original file or the user's saved sources.
 
 ## PolView initial loading
 
+Each policy/region/company first opened in a PolView session defaults to
+**Coverages**. Returning to a previously viewed policy preserves the existing
+tab-selection behavior. Regression: `tests/test_polview_lazy_loading.py`.
+
 PolView queues initial identity/Coverages lookup on a dedicated worker, then
 prepares remaining data pages (including Reinsurance and the Advanced Values
 calculation) while the user interacts with ready pages. Selecting a queued page
@@ -1198,6 +1256,35 @@ driver-buffer garbage before displaying errors. Cancellation still suppresses
 stale retries/results. Regressions: `tests/test_db2_connection_errors.py`,
 `tests/test_polview_lazy_loading.py`, `tests/test_policy_prefetch.py`.
 Read-only native checks of S1362723 and UIP00108 / 01 passed with all tabs ready.
+
+PolView's worker identifies Rocket DV `rdvodbc64.dll` before configuring query
+timeouts. Never probe its unsupported `SQL_ATTR_QUERY_TIMEOUT`: the driver can
+return malformed UTF-16 diagnostics and a pyodbc `SystemError` during app
+handoffs. Keep the login timeout and genuine communication-failure retry.
+Diagnostic cleanup must preserve separately supplied SQLSTATE codes so those
+retries and authentication handling still work when the message omits the code.
+Missing monthliversary AV remains unavailable; both account-value accessors use
+`LH_POL_MVRY_VAL.CSV_AMT`, never the nonexistent `TH_POL_MVRY_VAL` fallback.
+The loading/error heading shows the requested policy, not the prior one.
+Read-only native U0613620 / U0482811 repeated Query/RERUN handoffs passed with
+all tabs ready via `tools/app/profile_polview_load.py --policy U0613620
+--company 01 --all-tabs --handoff-policy U0482811 --output <report.json>`.
+
+SuiteView disables pyodbc's process-wide ODBC Driver Manager pooling at package
+startup, before the first ODBC environment is created. Otherwise a closed
+Query/PolView connection can be recycled into another worker or into the same
+failed-session retry; bypassing `DB2Connection._connections` alone is not physical
+isolation. Application-owned live connection caches remain unchanged. The ODBC
+setting necessarily applies to all pyodbc DSNs and requires a full application
+restart, not another Get. Never toggle it lazily in a worker after connections
+already exist. Regression tests model failed physical-handle recycling and
+verify startup performs no database I/O. `profile_polview_load.py --prime-query`
+adds a real isolated source query on a retiring worker before native handoffs;
+`--odbc-pooling on|off` is a fresh-process diagnostic override only.
+Read-only 000226237 / 26 and 000239324 / 26 native checks passed. The intermittent
+live Permanent Agent Error / Host communication failure also occurred in logs,
+but did not recur in fresh-process pooled baseline checks; do not claim those
+checks conclusively establish pooling as the cause of every transport failure.
 
 `polview/services/policy_prefetch.py` owns data preparation and worker-private
 connections/cache; `ui/policy_load_controller.py` owns scheduling and shutdown.
@@ -1227,6 +1314,44 @@ select embedded viewers. Claims/PDF load on first selection; the others retain
 date inputs and explicit queries. Per-policy inputs/results/selection are
 restored without querying; new policies start empty. See
 `docs/POLVIEW_CLAUDE.md` and `tests/test_polview_other_data.py`.
+
+## PolView Single/Joint insured display
+
+PolView Coverages and RERUN's live Policy Single/Joint labels share
+`PolicyInformation.insured_lives_description`, using base phase 1's
+`LH_COV_PHA.NBR_OF_LIVES_CD` / `FCVLIVES-LIVES`: 1 = Single,
+2 = Joint First to Die, 3 = Joint Second to Die. `number_of_lives_code`
+and `is_joint_insured` use this same source; never infer from person roles
+or `LIVES_COV_CD`. Missing/invalid codes remain explicit errors.
+Initial Coverages prefetch validates the description for cache-only rendering.
+Live-verified 000321709 / 26 has code 3 and shows Joint Second to Die; see
+`docs/POLVIEW_CLAUDE.md` and `tools/app/verify_joint_insured.py`.
+
+## PolView / RERUN Decrease Charge Rule
+
+`PolicyInformation.decrease_charge_rule` reads live-verified
+`TH_NON_TRD_POL.DECR_CHRG_ALLOW` (CyberLife FULDRRUL, segment 66):
+`1` = specified decreases assess a partial surrender charge, `0` = they do not.
+Blank/NUL-padded rows are unset (`""`); `decrease_charge_allowed` returns
+True/False/None. PolView's Policy tab shows **Decrease Charge Rule** below
+TEFRA/DEFRA only when the code exists. RERUN carries it as
+`IllustrationPolicyData.decrease_charge_allowed`: `False` removes the specified
+face-decrease PSC, even on CurrentSA plans (e.g. FFL/FIUL plans such as
+`1U14L400`, `NU1F3H00`). `True`/unset keep `PlancodeConfig.partial_surrender_charge`;
+the policy rule never adds a charge to OriginalSA plans. Withdrawals and
+A→B option-change decreases are unchanged. Regression:
+`tests/test_polview_decrease_charge_rule.py` and
+`tests/test_illustration_policy_change_guidelines.py`. Read-only live probe:
+`tools/policyrecord/probe_decrease_charge_rule.py [--by-plancode --summary-only]
+[--policy <n> --company <cc>]`.
+
+Query's ADV tab has a gated **Decrease Charge Rule (66)** list (0, 1, Blank)
+filtering through a full-key `EXISTS` on `TH_NON_TRD_POL`; Blank means not 0/1
+(space/NUL/NULL), never a missing row. The ADV page is three top-aligned,
+content-fitted columns (checks + Value Ranges; code lists; IUL/fund criteria).
+Regression: `tests/test_audit_adv_decrease_charge_rule.py`; native no-DB check:
+`tools/app/verify_adv_tab.py --screenshot <path>`; read-only live check:
+`tools/audit/verify_decrease_charge_rule_filter.py`.
 
 ## PolView coverage zero values
 
@@ -1403,6 +1528,223 @@ Calculate action read-only (optional `--output` writes the verification JSON).
 `--expect-opening-av` checks the starting post-deduction AV; `--reference` can
 compare displayed ledger cells against a supplied JSON list keyed by Date.
 
+## RERUN guideline calculation maturity
+
+GLP calculations end at **min(policy maturity age, 100)**, not an unconditional
+age 100. The policy's loaded `maturity_age` is authoritative; premium-cease age
+is a separate charge rule, not the endowment horizon. The shared monthly
+GLP/GSP/7-pay basis, policy-derived commutation inputs, optional engine search
+and PV drill-downs use `monthly_guideline.guideline_maturity_age()`.
+Age-95 policies have charge months only through age 94 and their terminal
+endowment at 95; age-100/121 policies retain the age-100 cap. Midyear monthly
+bases retain the partial-year offset.
+
+The search's pre-anniversary seed uses the prior attained age so the engine's
+contract-maturity clamp does not cut eleven months off an age-95 calculation.
+Loaded inforce GLP/GSP/7-pay values are not overwritten; recalculations and
+from-issue scenarios use the corrected basis. Source snapshots remain unchanged.
+Regression: `tests/test_illustration_guideline_maturity.py`.
+Read-only C19 / U0394137 verification:
+`tools/engine/verify_guideline_maturity.py <bundle.cases.json> --case "C19 Batch"
+--output <report.json>` reconciles before/after GLP/GSP drill-downs at both
+changes to the solver, with all terminal endowment rows at age 95.
+
+## RERUN renewal-rated benefit adjustments
+
+Riders & Benefits must not infer adjustability from a benefit's stored issue
+COI rate. Active non-administrative benefits load separate rate schedules;
+NULL/zero issue rates do not mean free coverage. Live and saved-snapshot cards
+use the same type-based eligibility. Administrative `#` benefits and already
+matured/inactive benefits stay inspectable but their adjustment controls are
+disabled. Existing rider coverage eligibility is unchanged.
+
+U0416030's Benefit 39 (ULDW91) has a NULL issue rate and a 2028-02-15 cease
+date. Verified Drop on 2026-10-15 with Prem to Maturity: current and guaranteed
+charges stop, and saved-case Compare matches native Run Values. No snapshot
+rate substitution or live-record change is needed.
+Regression: `tests/test_illustration_rider_buttons.py`.
+Read-only native verification:
+`tools/app/verify_benefit_drop.py <c43b.cases.json> --output <report.json>
+--screenshot <image.png>`.
+
+## RERUN guideline substandard cease dates
+
+Monthly guideline GLP/GSP/7-pay bases apply table ratings and flat extras using
+each actual projection-month date and the same adjusted-COI helper as monthly
+deductions. Charges stop on the recorded cease date, including midyear dates.
+Never add the absolute policy year to the recalculation year: that counts
+elapsed policy years twice and drops a lifelong rating decades early.
+
+U0416030 / 01, Table 2 through 2063-02-15, reproduced the erroneous age-68
+drop in the 2030-02-15 face-decrease recalculation. Corrected GLP Before is
+6,519.52 instead of 5,624.62; month 73 q'x is 0.00378750 instead of 0.00252819.
+The earlier table-drop scenario was not leaking into subsequent runs.
+Regression: `tests/test_illustration_guideline_substandard.py`.
+Read-only saved-snapshot/native check:
+`tools/engine/verify_guideline_substandard.py <c43b.cases.json> --case C43B
+--output <report.json> --screenshot <image.png>` recreates the screenshot inputs
+in memory, checks explicit removal and rerun isolation, and leaves saved work
+unchanged.
+
+## RERUN monthly MEC detection
+
+**Conform to TAMRA** controls premium capping, not MEC detection. After each
+projected month, the engine tests accepted seven-pay contributions against the
+active **TAMRA year**, independent of the policy anniversary. The first excess
+or failed decrease back-test permanently sets `is_mec` and `mec_year`; later
+anniversaries, withdrawals or recalculations cannot clear or redate that status.
+Projection-private policy state prevents a MEC result from contaminating the
+loaded snapshot, another solve or the guaranteed run. Values, Report and Compare
+share the detection rule; both projection timings carry the permanent status.
+
+C19 Batch / U0394137 verified read-only with TAMRA off: B-to-A starts a new
+period on 2026-10-01, accepting $10,897.44. The next annual payment on 2027-09-01
+is still in TAMRA year 1, so $21,794.88 exceeds the recalculated $10,920.96
+limit (after the maturity-95 horizon correction) and establishes MEC in
+**policy year 28**, not at the later year-32 face decrease. TAMRA on caps the
+year-28 payment; the separate year-32 decrease can still fail its back-test.
+Regression: `tests/test_illustration_mec_detection.py` and
+`tests/test_illustration_tamra_recalc_sheets.py`. Native saved-case verification:
+`tools/app/verify_saved_case_mec.py <bundle.cases.json> --case "C19 Batch"
+--tamra off --expect-year 28 --native --output <report.json>`.
+
+## RERUN face decrease before B-to-A option change — pending implementation
+
+**Business/compliance decision (2026-09-21): recorded for future minimum non-MEC
+face options; calculation behavior is not changed by this note.**
+
+When a policyholder requests a face decrease together with a death-benefit option
+change from B to A, process the **decrease first, then the option change**.
+This is the adopted conservative business rule, not a claim that the engine
+already implements it or an independent interpretation of regulations.
+
+For a policy in an existing 7-pay period where the objective is to avoid MEC
+status:
+
+1. Determine the maximum permissible decrease (minimum remaining face) on the
+   **pre-option-change basis**, with the recalculated 7-pay premium still passing
+   backtesting against the existing period's premium history.
+2. Apply and evaluate that decrease before allowing the B-to-A change to start
+   another 7-pay period. A later reset must not erase a failed decrease backtest.
+3. Then process B-to-A, including its increase in specified amount and applicable
+   material-change / new 7-pay-period treatment.
+
+Do not solve the minimum face after first resetting the period through B-to-A:
+that could allow a much larger decrease and lower face than the adopted rule.
+An absolute face input for the decrease is the **post-decrease, pre-option-change
+face**, not the final face after B-to-A. The subsequent option-change increase
+must not be overwritten by reapplying that absolute target. Preserve this
+distinction when accepting a target face rather than a decrease amount.
+
+**Known implementation gap:** `illustration/core/calc_engine.py` currently
+orders `DB_OPTION` before `FACE_AMOUNT` through `_POLICY_CHANGE_ORDER`, used by
+both `_compile_policy_changes()` and the monthly processing loop. That loop
+combines changes for guideline/7-pay recalculation and material-change reset.
+A future implementation must preserve the intermediate decrease/backtest stage;
+swapping sort priorities alone is not sufficient evidence of compliance.
+Revisit this with minimum non-MEC face options, with regressions for an active
+7-pay period, a decrease failing before but passing after a reset, and equivalent
+absolute-target/decrease-amount inputs. Verify shared solver, Run Values and
+saved-case/Compare behavior; do not silently extend this decision to unrelated
+option-change combinations.
+
+## RERUN target-based benefit amounts
+
+Primary-insured **Table Rating Change** inputs also replace every type-3/type-4
+premium waiver's rating multiplier with `1 + TableRatingFactor * new_table`
+on the change date (table zero means multiplier 1). Apply this to the private
+projection policy before target and guideline recalculation, so monthly charges,
+displayed adjusted rates and GLP/GSP/7-pay after-bases all agree. Before-bases and
+unchanged runs retain the recorded benefit factors; other benefit types, riders
+and the loaded snapshot remain unchanged. Regression:
+`tests/test_illustration_waiver_rating_changes.py`.
+
+Target-based stipulated-premium waiver (type 4) charges use the plan's explicit
+`PWoT_COI_Basis`: 2 is current annual MTP (`policy.mtp * 12`), 3 is current annual
+CTP, and 1 retains recorded units. `1U14L400` (UFF90022 / 26, benefit 4M) uses
+**basis 2**, per the business correction of 2026-09-21; its previously omitted
+setting incorrectly froze the benefit at $913.20 after a face change.
+Do not infer a target basis from an amount coincidentally matching MTP/CTP or
+change all FFL plans. Existing policy-change recalculation updates the targets
+before monthly deduction; both displayed amounts and actual charges consume
+them without mutating the loaded benefit.
+Read-only verification: `tools/engine/verify_target_benefit_amounts.py --policy
+UFF90022 --company 26 --date 2027-01-04 --face 100000` verifies a hypothetical
+decrease: annual MTP and 4M amount become $610.31, and its charge becomes $1.10
+instead of $1.64. Tests: `tests/test_illustration_pwot_coi_basis.py`.
+
+GLP/GSP/7-pay monthly bases and their Before/After PV detail use the same
+`target_waiver_charge()` helper as monthly deductions for PWoT basis 2/3.
+Use each side's annual MTP/CTP and the base coverage's active table rating;
+do not use recorded benefit units or its independent rating factor. Charges
+are cent-rounded and ratings stop on their actual cease date. Basis 1 and
+type-3 waiver rules are unchanged. The earlier face-change fix covered monthly
+deductions but missed this guideline path.
+Read-only verified `000239324 / 26 / NU1F3L00`, face 50,000 on 2026-09-24:
+annual MTP 217.83, first After 4M charge 0.81 (not 1.36), GLP After 1,397.26
+(not 1,402.75). The verifier above now checks GLP/GSP After against monthly
+charges; regressions also cover 7-pay, current/guaranteed projections, increases,
+decreases, zero targets, rating cessation and source immutability.
+
+## RERUN Policy calculated monthly deduction
+
+RERUN's live Policy refresh retains the load-time calculated monthly deduction
+and validation warnings for that exact `PolicyInformation` instance. The
+post-load Edit Record/basis refresh must not clear Calculated MD or hide failed
+MD/rate checks. A refresh reuses the check without rerunning the engine; a new
+Get replaces it, and saved/edited snapshots never inherit the live result.
+Regression: `tests/test_illustration_session_state.py`.
+Read-only native verification: `tools/app/verify_policy_calculated_md.py
+--policy UFF90022 --company 26 --screenshot <path>` uses an isolated temporary
+profile and the real Get/refresh path. Verified both MD fields display $18.70.
+
+## RERUN corridor COI rate
+
+Corridor COI uses the **latest active base segment's adjusted COI rate**, not
+coverage 1's rate. Reuse that segment's current duration, rate band, table rating
+and active flat extra. Skip depleted, matured, terminated and not-yet-issued
+segments; a stored zero rate remains zero, not a reason to select an older
+segment. Segment order is the engine's existing oldest-to-newest order.
+Ratchet-banded plans select the same segment for both corridor band rates,
+retaining their band-split charges.
+
+`coi_rate_corr` carries the corridor rate separately from the existing
+coverage-1 `coi_rate`, through the inforce row, both projection timings, Values
+and Excel/debug exports. Ratchet's single display rate remains its band-1
+representative; charges still use both bands. No COI rate tables are changed.
+Regression: `tests/test_illustration_corridor_coi.py` and
+`tests/test_illustration_values_tab.py` include the 2.39 / 2.55 distinction.
+
+## RERUN waiver target rate units
+
+UL_Rates stores benefit **39 / 3#** target rates as percentages, not decimal
+multipliers: 5.5 means 5.5%, not 550%. `compute_target_premiums()` converts
+these rates only for calculation, retaining the raw rate in Values/export
+detail. Never infer units from the rate's magnitude or divide all type-3 rates:
+FFL **3F** retains its existing cost-basis units. CTP continues to use the
+rounded MTP-basis waiver component. No shared rate-table values are changed.
+
+UIP45890 / 01's $50,000 to $100,000 face increase on 2026-09-26 exposed
+the issue: waiver MTP was overstated 100-fold. The corrected annual target is
+689 + (689 x 0.055 x 1.5) = 745.8425, giving Monthly MTP **62.15**, not
+531.10. The loaded basis independently reconciles to **40.86**.
+Regression: `tests/test_illustration_waiver_target_units.py` and
+`tests/test_illustration_ffl_waiver_targets.py`. Read-only live verification:
+`tools/engine/verify_face_increase_targets.py --policy UIP45890 --company 01
+--date 2026-09-26 --face 100000 --expect-monthly 62.15 --expect-loaded-match`.
+It checks the face-change illustration, unchanged control/source and Values/Summary
+export mappings without changing live records.
+
+## RERUN plan interest bonuses
+
+Illustration bonuses use `illustration/plancodes/tRates_IntBonus.json`, selected
+by plancode and latest effective date on or before the valuation date.
+`1U135P00` has an unconditional 0.90% duration bonus effective 2023-02-01,
+starting in policy year 11, with zero AV and guaranteed bonuses. Store its
+`BonusDurThreshold` as 10 because the engine applies the bonus strictly after
+the threshold year. Earlier effective entries remain intact.
+Regression: `tests/test_illustration_bonus_rates.py`.
+
 ## RERUN Monthly MTP truncation
 
 Monthly MTP uses decimal-safe cent truncation via `truncate_monthly_mtp()`.
@@ -1441,8 +1783,25 @@ Values > Summary separates the beginning-of-month loan buckets into
 charge) and `Loan_Princ` (principal only), each summed across regular,
 preferred and variable loans. Ending loan columns remain unchanged.
 The shared `illustration/core/summary_results.py` mapping also drives debug
-exports and regression snapshots; its Summary schema version is now 2.
+exports and regression snapshots.
 Regression: `tests/test_illustration_values_tab.py`.
+
+## RERUN Values Summary shadow columns
+
+Summary appends the workbook columns `vShadow_TP`, `Shadow COI`, `Shadow EPU`,
+`Rider Charges`, `Shadow MD`, `Shadow Int Rate`, `vShadowEAV` in that order.
+They read the existing monthly shadow state, not a UI recalculation.
+Rider Charges is the shadow charge total (riders and benefits excluding CCV),
+not the regular-side Rider COI. vShadowEAV is ending shadow AV before debt.
+Summary's interest rate is a decimal (0.045 = 4.5%), like its regular Interest
+Rate; the separate Shadow Account detail retains percentage units and compact
+headings. Summary retains the full workbook names to distinguish regular and
+shadow COI/EPU/MD. Both current/guaranteed Summary exports and regression
+snapshots share these fields; Summary schema version is now 3, and shadow
+interest comparisons use rate tolerance rather than money tolerance.
+Tests: `tests/test_illustration_summary_shadow.py`,
+`tests/test_illustration_values_tab.py`. Native no-DB verification:
+`tools/app/verify_summary_shadow.py --screenshot <path>`.
 
 ## RERUN Prem to Maturity new loans
 
@@ -1459,6 +1818,12 @@ lock the current side's applied loans and premium-diverted repayments, without
 solving another premium or repaying those dollars twice. No rate/model changes
 were needed. Regression: `tests/test_illustration_prem_to_maturity_loans.py` and
 the dynamic-input level-type tests.
+`MonthlyState.applied_loan_repayment` is total applied cash and already includes
+`loan_repay_from_prem`; guaranteed `lock_values()` must copy the total alone.
+Adding that subset again doubled a $33.25 payment to $66.50 and understated
+guaranteed loan balances. Engine-backed regression:
+`tests/test_illustration_guaranteed_loan_repayments.py` covers both projection
+timings, arrears/advance loans, mixed repayment sources and payoff remainders.
 Read-only current-source verification:
 `tools/app/verify_prem_to_maturity_loans.py --snapshot <policy-snapshot.json>
 --output <report.json>` exercises revised Case9 through native Run Values and
@@ -1468,6 +1833,20 @@ Verified U0389725 / 01: $1,000 once on 2028-04-06, $56 monthly through March
 control). Both native and saved-case runners match. Existing terminal age-95
 rows carry both matured/lapsed flags in both controls; no pre-maturity current
 lapse occurred. Guaranteed values stop on lapse in February 2035.
+
+## RERUN loan repayment priority
+
+Loan repayments use the conservative fixed-loan order approved 2026-09-23:
+**preferred accrued interest, regular accrued interest, preferred principal,
+regular principal**. The shared `loan_handler.repay_loan()` owns this order for
+explicit repayments, premium-to-loan diversion and Pay-off solver trials;
+current/guaranteed and both projection timings consume it. Variable accrued
+interest and principal remain afterward. Advance loans retain preferred-first
+payoff and their existing unearned-interest refund; anniversary capitalization,
+cash caps and overpayment handling are unchanged. Loaded records are never
+mutated. Regression: `tests/test_illustration_loan_repayment_order.py` covers
+each bucket boundary, payment sources, guaranteed cash-flow replay and a real
+engine-backed payoff solve with unequal charge rates.
 
 ## RERUN Prem to Maturity levelizing
 
