@@ -2175,8 +2175,8 @@ fall back to another user or variant. Keep duration zero and source duration
 labels intact. NSP/PUI/dividend lookups in this view remain future work.
 ISWL and WL policies also get a Rates **Fixed Premium** branch (ISWL cash
 values, `WL_RATE_PREM` premium rates, and the `RATE_MODEFACT` modal premium
-beside `POL_PRM_AMT`), while ISWL coverages keep the UL view plus all COI
-scales, GINT and cease ages. See `docs/POLVIEW_CLAUDE.md` § "ISWL / WL
+beside `POL_PRM_AMT`), while ISWL coverages keep the UL view (current-scale
+COI only) plus GINT, CVR, premium rate, loan rates and cease ages. See `docs/POLVIEW_CLAUDE.md` § "ISWL / WL
 fixed-premium rates".
 For ETI/RPU policies (premium-paying status 44/45), the Rates view shows
 "Cash value file is not available for policies on ETI or RPU." without querying

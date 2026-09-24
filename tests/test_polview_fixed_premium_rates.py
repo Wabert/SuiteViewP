@@ -328,9 +328,9 @@ def test_iswl_coverage_extras_add_scales_gint_and_cease_ages():
     policy._iswl_cash_value_column = Mock(return_value=(("CVR", "WL_RATE_CV 235211 at Date"), [None, "0.00"]))
     policy._iswl_premium_rate_column = Mock(return_value=(("Prem Rate", "WL_RATE_PREM ** to age 95"), [None, "11.76"]))
     meta, extra = policy._iswl_coverage_rate_extras(1)
-    assert list(extra) == ["COI S2", "COI S3", "GINT", "CVR", "Prem Rate"]
-    assert extra["COI S3"] == [None, 3.0]
-    assert ("  from 1900-01-01", "Scale 3") in meta and ("  from 1998-05-01", "Scale 1") in meta
+    assert list(extra) == ["GINT", "CVR", "Prem Rate"]
+    policy.rates_coi.assert_not_called()
+    assert ("COI", "Scale 1 (current from 1998-05-01)") in meta and ("GuarCOI", "Scale 0") in meta
     assert ("Prem Cease Age", 95) in meta and ("Ben Cease Age", "Not loaded") in meta
     assert ("  PLNCRG", "8%") in meta and ("  PLNCRD", "4%") in meta
     assert ("  RLNCRD", "Not loaded") in meta

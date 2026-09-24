@@ -210,7 +210,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
                 )
             elif policy.product_type == "ISWL":
                 cov_item.setToolTip(
-                    0, "UL-style rates: COI by scale with the SCALE_COI calendar, GINT and cease ages.\n"
+                    0, "UL-style rates (current-scale COI), GINT, CVR, premium rate, loans and cease ages.\n"
                     "Cash values, premium rates and modal factors are under Fixed Premium."
                 )
             cov_node.addChild(cov_item)

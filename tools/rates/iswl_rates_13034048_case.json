@@ -10,7 +10,8 @@
     "annual_premium": "318.50",
     "modal_premium": "33.02",
     "pol_prm_amt": "33.02",
-    "coi_scales": [1, 2, 3],
+    "coverage_columns": ["RateFields", "RateInfo", "Date", "Age", "Year", "COI", "EPU", "SCR",
+                         "GuarCOI", "GuarEPU", "GINT", "CVR", "Prem Rate"],
     "coverage_info": {"Amount": "25,000", "  PLNCRG": "8%", "  PLNCRD": "4%",
                       "  RLNCRG": "8%", "  RLNCRD": "4%"},
     "coverage_cells": {

@@ -259,15 +259,15 @@ def test_other_products_keep_existing_coverage_rate_path(policy, monkeypatch, pr
     policy.cov_band = lambda index: 1
     policy.cov_table_rating = lambda index: 0
     policy._iswl_coverage_rate_extras = Mock(return_value=(
-        [("Prem Cease Age", 95)], {"COI S2": [None] + [2.5] * 42, "GINT": [None] + [0.04] * 42},
+        [("Prem Cease Age", 95)], {"GINT": [None] + [0.04] * 42},
     ))
     matrix = policy.build_coverage_rate_matrix(1)
     ul_columns = ["COI", "EPU", "SCR", "GuarCOI", "GuarEPU"]
     assert matrix[0][5:10] == ul_columns
     assert matrix[1][5:10] == [1.25] * 5
     if product == "ISWL":
-        assert matrix[0][10:] == ["COI S2", "GINT"]
-        assert matrix[1][10:] == [2.5, 0.04]
+        assert matrix[0][10:] == ["GINT"]
+        assert matrix[1][10:] == [0.04]
         assert ["Prem Cease Age", 95] in [row[:2] for row in matrix]
     else:
         assert matrix[0][5:] == ul_columns

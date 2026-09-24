@@ -354,9 +354,9 @@ schedule with the database and can capture the actual native Rates surface.
 ### ISWL / WL fixed-premium rates (Rates tree)
 
 ISWL policies (advanced, product line `I`) keep the UL Rates view on
-**Coverages > Cov NN**, extended with every current COI scale from the
-`SCALE_COI` calendar (`COI S2`, `COI S3`... beside COI = scale 1 and
-GuarCOI = scale 0), a `GINT` column (`Select_RATE_GINT`), **CVR** (the
+**Coverages > Cov NN**. COI is the current scale (1) only, as for UL (older
+`SCALE_COI` scales are intentionally not shown; the metadata notes when scale 1
+became current), GuarCOI is scale 0, and it adds a `GINT` column (`Select_RATE_GINT`), **CVR** (the
 `WL_RATE_CV` per-unit cash value at each row's Date, so Year *n* is duration
 *n*-1) and **Prem Rate** (the base `WL_RATE_PREM` type-N annual premium per
 unit, repeated through the IAF pay age), the four `RATE_LOAN` rates by table

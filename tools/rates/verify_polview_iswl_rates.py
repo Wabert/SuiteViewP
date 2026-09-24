@@ -8,7 +8,7 @@ Config: {"policy", "company", "region", "coverage": 1, "output": report.json,
          "expected": {"user_code": "00", "cash_values": {"31": "333.00"},
                       "premiums": {"**": "11.76", "10": "0.98"},
                       "annual_premium": "318.50", "modal_premium": "33.02",
-                      "pol_prm_amt": "33.02", "coi_scales": [1, 2, 3]}}
+                      "pol_prm_amt": "33.02", "coverage_columns": [...],
 
 Reads live policy and UL_Rates data only. Each Rates-tree leaf is selected
 through the real PolView window, its displayed grid must equal the model's
@@ -147,9 +147,8 @@ def main():
         info = {row[0]: row[1] for row in coverage[1:] if row[0]}
         for field, value in expected.get("coverage_info", {}).items():
             check(f"coverage {field}", info.get(field), value)
-        if iswl and "coi_scales" in expected:
-            scales = sorted([1] + [int(c.split("S")[1]) for c in coverage_columns if c.startswith("COI S")])
-            check("COI scales", scales, sorted(expected["coi_scales"]))
+        if iswl and "coverage_columns" in expected:
+            check("coverage columns", coverage_columns, expected["coverage_columns"])
 
         names = {"Coverages": "coverage", "Cash Values": "cash_values",
                  "Premium Rates": "premium_rates", "Modal Premium": "modal_premium"}

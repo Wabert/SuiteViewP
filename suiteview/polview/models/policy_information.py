@@ -4139,10 +4139,9 @@ class PolicyInformation:
         return f"{Decimal(str(amount)).quantize(Decimal('1'), rounding=ROUND_HALF_UP):,}"
 
     def _iswl_coverage_rate_extras(self, cov_index: int) -> Tuple[List[tuple], Dict[str, Optional[list]]]:
-        """ISWL plan rates beside the UL view: every COI scale, GINT and cease ages.
+        """ISWL plan rates beside the UL view: GINT, CVR, premium, cease ages, loans.
 
-        Scale 1 (current) and 0 (guaranteed) are already the COI/GuarCOI
-        columns; older current scales from the SCALE_COI calendar are added.
+        COI stays the current scale (1) only; older SCALE_COI windows are not shown.
         """
         rates = self._get_rates()
         if rates is None:
@@ -4153,17 +4152,16 @@ class PolicyInformation:
              for row in (rates.get_rates("COI_SCALE", plancode) or [])),
             key=lambda entry: entry[0],
         )
+        current = next((start for start, scale in calendar if scale == 1), None)
         ages = rates.get_age_limits(plancode)
-        meta: List[tuple] = [(" ", " "), ("COI Scale Calendar", " " if calendar else "Not loaded")]
-        meta += [(f"  from {start:%Y-%m-%d}", f"Scale {scale}") for start, scale in calendar]
-        meta += [
+        meta: List[tuple] = [
+            (" ", " "),
+            ("COI", f"Scale 1 (current from {current:%Y-%m-%d})" if current else "Scale 1 (current)"),
             ("GuarCOI", "Scale 0"),
             ("Prem Cease Age", ages["premium_cease"] if ages["premium_cease"] is not None else "Not loaded"),
             ("Ben Cease Age", ages["benefit_cease"] if ages["benefit_cease"] is not None else "Not loaded"),
         ]
         extra: Dict[str, Optional[list]] = {}
-        for scale in sorted({s for _, s in calendar if s > 1}):
-            extra[f"COI S{scale}"] = self.rates_coi(cov_index, scale)
         extra["GINT"] = rates.get_gint(plancode)
         cvr_meta, extra["CVR"] = self._iswl_cash_value_column(cov_index)
         prem_meta, extra["Prem Rate"] = self._iswl_premium_rate_column(cov_index)
