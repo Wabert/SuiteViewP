@@ -322,11 +322,64 @@ def test_iswl_coverage_extras_add_scales_gint_and_cease_ages():
     policy._get_rates = lambda: rates
     policy.cov_plancode = lambda index: "81335200"
     policy.rates_coi = Mock(side_effect=lambda index, scale: [None, float(scale)])
+    policy._iswl_cash_value_column = Mock(return_value=(("CVR", "WL_RATE_CV 235211 at Date"), [None, "0.00"]))
+    policy._iswl_premium_rate_column = Mock(return_value=(("Prem Rate", "WL_RATE_PREM ** to age 95"), [None, "11.76"]))
     meta, extra = policy._iswl_coverage_rate_extras(1)
-    assert list(extra) == ["COI S2", "COI S3", "GINT"]
+    assert list(extra) == ["COI S2", "COI S3", "GINT", "CVR", "Prem Rate"]
     assert extra["COI S3"] == [None, 3.0]
     assert ("  from 1900-01-01", "Scale 3") in meta and ("  from 1998-05-01", "Scale 1") in meta
     assert ("Prem Cease Age", 95) in meta and ("Ben Cease Age", "Not loaded") in meta
+
+
+@pytest.fixture
+def column_policy(monkeypatch):
+    monkeypatch.setattr(PolicyInformation, "premium_pay_status_code", property(lambda self: self._status))
+    policy = object.__new__(PolicyInformation)
+    policy._status = "22"
+    policy.rates_wl_cv = Mock(return_value={0: Decimal("0.00"), 31: Decimal("333.00")})
+    policy.cov_cash_value_key = lambda index: "235211"
+    policy.cov_issue_age = lambda index: 33
+    return policy
+
+
+def test_cvr_column_aligns_duration_with_the_date_column(column_policy):
+    column_policy.rates_wl_cv.return_value = {d: Decimal(d) for d in range(0, 63)}
+    meta, column = column_policy._iswl_cash_value_column(1)
+    assert meta == ("CVR", "WL_RATE_CV 235211 at Date")
+    assert column[1] == Decimal(0) and column[32] == Decimal(31) and len(column) == 64
+
+
+@pytest.mark.parametrize("status", ["44", "45"])
+def test_cvr_column_is_not_available_on_eti_rpu(column_policy, status):
+    column_policy._status = status
+    assert column_policy._iswl_cash_value_column(1) == (("CVR", "Not available on ETI/RPU"), None)
+    column_policy.rates_wl_cv.assert_not_called()
+
+
+def test_cvr_column_missing_and_errors_are_explicit(column_policy):
+    column_policy.rates_wl_cv.return_value = {}
+    assert column_policy._iswl_cash_value_column(1) == (("CVR", "Not loaded (WL_RATE_CV 235211)"), None)
+    column_policy.rates_wl_cv.side_effect = RatesError("Company 26 has no verified CyberLife rate-file user mapping.")
+    meta, column = column_policy._iswl_cash_value_column(1)
+    assert column is None and meta[1].startswith("Error: Company 26")
+
+
+def test_prem_rate_column_runs_to_the_pay_age(column_policy, monkeypatch):
+    row = {"RATE": Decimal("11.76000000"), "PAY_AGE": 95, "PAY_AGE_USE": 1}
+    monkeypatch.setattr(fpr, "premium_items", lambda policy, index: [SimpleNamespace(rate_row=row, reason="")])
+    meta, column = column_policy._iswl_premium_rate_column(1)
+    assert meta == ("Prem Rate", "WL_RATE_PREM ** to age 95")
+    assert column[1:] == ["11.76"] * 62
+    monkeypatch.setattr(fpr, "premium_items", lambda policy, index: [
+        SimpleNamespace(rate_row=None, reason="Not loaded: no WL_RATE_PREM rows")])
+    assert column_policy._iswl_premium_rate_column(1) == (("Prem Rate", "Not loaded: no WL_RATE_PREM rows"), None)
+
+
+@pytest.mark.parametrize("amount,text", [
+    (Decimal("25000.00000"), "25,000"), (Decimal("1234567.50"), "1,234,568"), (Decimal("0"), "0"), (None, ""),
+])
+def test_rates_grid_amounts_are_whole_dollars_with_commas(amount, text):
+    assert PolicyInformation._whole_dollars(amount) == text
 
 
 # -- Rates tree and routing -----------------------------------------------------

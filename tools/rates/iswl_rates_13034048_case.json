@@ -10,6 +10,11 @@
     "annual_premium": "318.50",
     "modal_premium": "33.02",
     "pol_prm_amt": "33.02",
-    "coi_scales": [1, 2, 3]
+    "coi_scales": [1, 2, 3],
+    "coverage_info": {"Amount": "25,000"},
+    "coverage_cells": {
+      "CVR": {"1": "0.00", "32": "333.00", "33": "351.00", "35": "388.00"},
+      "Prem Rate": {"1": "11.76", "62": "11.76"}
+    }
   }
 }

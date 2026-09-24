@@ -137,6 +137,16 @@ def main():
         check("POL_PRM_AMT", modal.get("LH_BAS_POL.POL_PRM_AMT", [None] * 8)[amount], expected.get("pol_prm_amt"))
 
         coverage_columns = matrices["Coverages"][0]
+        coverage = matrices["Coverages"]
+        by_year = {row[coverage_columns.index("Year")]: row for row in coverage[1:]}
+        for column, cells in expected.get("coverage_cells", {}).items():
+            for year, value in cells.items():
+                actual = by_year.get(int(year), [None] * len(coverage_columns))[coverage_columns.index(column)] \
+                    if column in coverage_columns else "missing column"
+                check(f"{column} year {year}", actual, value)
+        info = {row[0]: row[1] for row in coverage[1:] if row[0]}
+        for field, value in expected.get("coverage_info", {}).items():
+            check(f"coverage {field}", info.get(field), value)
         if iswl and "coi_scales" in expected:
             scales = sorted([1] + [int(c.split("S")[1]) for c in coverage_columns if c.startswith("COI S")])
             check("COI scales", scales, sorted(expected["coi_scales"]))

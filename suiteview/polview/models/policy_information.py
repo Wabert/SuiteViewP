@@ -61,9 +61,10 @@ from .policy_data import PolicyData as _PolicyData, _ConnectionManager
 
 # Import Rates class for rate lookups
 try:
-    from suiteview.core.rates import Rates
+    from suiteview.core.rates import Rates, RatesError
 except ImportError:
     Rates = None  # type: ignore[assignment,misc]
+    RatesError = RuntimeError  # type: ignore[assignment,misc]
 
 # Import DataLookup for official plancode table lookups
 try:
@@ -4058,8 +4059,8 @@ class PolicyInformation:
             issue_date.strftime("%Y-%m-%d") if issue_date else "",
             issue_age, sex_display,
             self.renewal_cov_rateclass_by_cov(cov_index),
-            str(self.cov_amount(cov_index) or ""),
-            str(self.cov_orig_amount(cov_index) or ""),
+            self._whole_dollars(self.cov_amount(cov_index) or None),
+            self._whole_dollars(self.cov_orig_amount(cov_index) or None),
             band_display, self.cov_table_rating(cov_index),
             str(flat_extra or 0), flat_duration,
             " ", mtp, ctp, tbl1_mtp, tbl1_ctp,
@@ -4130,6 +4131,13 @@ class PolicyInformation:
         
         return matrix
 
+    @staticmethod
+    def _whole_dollars(amount) -> str:
+        """Face amount for the rates grid: commas, no decimals; blank if unknown."""
+        if amount is None or amount == "":
+            return ""
+        return f"{Decimal(str(amount)).quantize(Decimal('1'), rounding=ROUND_HALF_UP):,}"
+
     def _iswl_coverage_rate_extras(self, cov_index: int) -> Tuple[List[tuple], Dict[str, Optional[list]]]:
         """ISWL plan rates beside the UL view: every COI scale, GINT and cease ages.
 
@@ -4152,13 +4160,49 @@ class PolicyInformation:
             ("GuarCOI", "Scale 0"),
             ("Prem Cease Age", ages["premium_cease"] if ages["premium_cease"] is not None else "Not loaded"),
             ("Ben Cease Age", ages["benefit_cease"] if ages["benefit_cease"] is not None else "Not loaded"),
-            (" ", " "), ("Fixed premium rates", "See Fixed Premium"),
         ]
         extra: Dict[str, Optional[list]] = {}
         for scale in sorted({s for _, s in calendar if s > 1}):
             extra[f"COI S{scale}"] = self.rates_coi(cov_index, scale)
         extra["GINT"] = rates.get_gint(plancode)
+        cvr_meta, extra["CVR"] = self._iswl_cash_value_column(cov_index)
+        prem_meta, extra["Prem Rate"] = self._iswl_premium_rate_column(cov_index)
+        meta += [(" ", " "), cvr_meta, prem_meta, (" ", " "), ("Rider premiums", "See Fixed Premium")]
         return meta, extra
+
+    def _iswl_cash_value_column(self, cov_index: int) -> Tuple[tuple, Optional[list]]:
+        """Per-unit CVF value at each row's Date: Year n is duration n - 1."""
+        if self.premium_pay_status_code.strip() in ("44", "45"):
+            return ("CVR", "Not available on ETI/RPU"), None
+        try:
+            values = self.rates_wl_cv(cov_index)
+        except (RatesError, ValueError) as exc:
+            return ("CVR", f"Error: {exc}"), None
+        if not values:
+            return ("CVR", f"Not loaded (WL_RATE_CV {self.cov_cash_value_key(cov_index)})"), None
+        last = max(values)
+        column = [None] + [values.get(year - 1, "") for year in range(1, last + 2)]
+        return ("CVR", f"WL_RATE_CV {self.cov_cash_value_key(cov_index)} at Date"), column
+
+    def _iswl_premium_rate_column(self, cov_index: int) -> Tuple[tuple, Optional[list]]:
+        """Annual base premium per unit (WL_RATE_PREM type N) through the pay age."""
+        from .fixed_premium_rates import _rate, premium_items
+
+        try:
+            base = premium_items(self, cov_index)[0]
+        except (RatesError, ValueError) as exc:
+            return ("Prem Rate", f"Error: {exc}"), None
+        row = base.rate_row
+        if row is None:
+            return ("Prem Rate", base.reason), None
+        pay_age, pay_use = row.get("PAY_AGE"), row.get("PAY_AGE_USE")
+        issue_age = self.cov_issue_age(cov_index)
+        if pay_age is None or pay_use not in (0, 1) or issue_age is None:
+            return ("Prem Rate", f"Pay age {pay_age} (use {pay_use}) is not verified"), None
+        years = pay_age - issue_age if pay_use == 1 else pay_age
+        rate = _rate(row["RATE"])
+        column = [None] + [rate] * max(years, 0)
+        return ("Prem Rate", f"WL_RATE_PREM ** to {'age' if pay_use == 1 else 'year'} {pay_age}"), column
 
     def build_benefit_rate_matrix(self, ben_index: int, scale: int = 1) -> Optional[List[List]]:
         """

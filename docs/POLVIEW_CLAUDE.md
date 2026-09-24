@@ -356,8 +356,12 @@ schedule with the database and can capture the actual native Rates surface.
 ISWL policies (advanced, product line `I`) keep the UL Rates view on
 **Coverages > Cov NN**, extended with every current COI scale from the
 `SCALE_COI` calendar (`COI S2`, `COI S3`... beside COI = scale 1 and
-GuarCOI = scale 0), a `GINT` column (`Select_RATE_GINT`) and premium/benefit
-cease ages (`Select_RATE_PREMIUMCEASE` / `_BENEFITCEASEAGE`). Premium load
+GuarCOI = scale 0), a `GINT` column (`Select_RATE_GINT`), **CVR** (the
+`WL_RATE_CV` per-unit cash value at each row's Date, so Year *n* is duration
+*n*-1) and **Prem Rate** (the base `WL_RATE_PREM` type-N annual premium per
+unit, repeated through the IAF pay age), plus premium/benefit
+cease ages (`Select_RATE_PREMIUMCEASE` / `_BENEFITCEASEAGE`). Amount/OrigAmount
+are whole dollars with commas. Premium load
 remains on the **Policy** leaf (TPP/EPP). ISWL and traditional WL policies
 (`PolicyInformation.has_fixed_premium_rates`) also get a **Fixed Premium**
 branch; UL, Term and the WL cash-value leaf are unchanged:
