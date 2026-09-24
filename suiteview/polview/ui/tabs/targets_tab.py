@@ -3,6 +3,7 @@ Targets & Accumulators tab – Definition of Life Insurance, Accumulators,
 TAMRA Values, Commission Target Premium, and Minimum Premium widgets.
 """
 
+import logging
 from typing import TYPE_CHECKING, Dict, List, Any
 
 from PyQt6.QtWidgets import (
@@ -19,6 +20,8 @@ from ..styles import (
 
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
+
+logger = logging.getLogger(__name__)
 
 
 # ─── N/A interior background style ───────────────────────────────────────────
@@ -297,6 +300,8 @@ class AccumulatorsWidget(StyledInfoTableGroup):
         # not read directly from DB2.
         self.add_field("Prem Allowed by GPT", "prem_allowed_gpt_label", 130, 100)
         self._make_field_italic("prem_allowed_gpt_label")
+        self.add_field("Guaranteed Cash Value", "gcv_label", 130, 100)
+        self._make_field_italic("gcv_label")
 
     def _make_field_italic(self, attr_name: str):
         """Italicize a field's label and value to flag it as a calculated value."""
@@ -319,6 +324,37 @@ class AccumulatorsWidget(StyledInfoTableGroup):
             "prem_allowed_gpt_label",
             prem_allowed if prem_allowed == "N/A" else format_currency(prem_allowed),
         )
+        gcv = totals.get("gcv") or {}
+        value = gcv.get("value")
+        text = "N/A"
+        if value is not None:
+            nsp = any(d["basis"] == "NSP" for d in gcv.get("details", []))
+            text = format_currency(value) + (" (NSP)" if nsp else "")
+        self.set_value("gcv_label", text)
+        if "gcv_label" in self._fields:
+            self._fields["gcv_label"].setToolTip(self._gcv_tooltip(gcv))
+
+    @staticmethod
+    def _gcv_tooltip(gcv: Dict[str, Any]) -> str:
+        lines = ["Interpolated from the stored 02-segment CV rates (NSP rates when on "
+                 "nonforfeiture):",
+                 "units x (BOY rate x months remaining + EOY rate x months elapsed) / 12"]
+        as_of = gcv.get("as_of")
+        if as_of:
+            lines.append(f"As of {format_date(as_of)}")
+        for d in gcv.get("details", []):
+            basis = d["basis"] + (f" ({d['nonforfeiture']})" if d["nonforfeiture"] else "")
+            lines.append(
+                f"Cov {d.get('cov_pha_nbr') or d['cov_index']} {basis}: "
+                f"dur {d['duration']} {d['boy_rate']:,.2f} -> "
+                f"dur {d['duration'] + 1} {d['eoy_rate']:,.2f}, {d['months']} mo, "
+                f"{d['units']:,} units = {d['value']:,.2f}"
+            )
+        if any(d["basis"] == "NSP" for d in gcv.get("details", [])):
+            lines.append("NSP-basis value is not reconciled to a CyberLife nonforfeiture quote.")
+        if gcv.get("reason"):
+            lines.append(gcv["reason"])
+        return "\n".join(lines)
 
 
 class TamraValuesWidget(_NaCapableGroup):
@@ -575,6 +611,15 @@ class TargetsAccumulatorsTab(QWidget):
         layout.setColumnStretch(2, 1)
         layout.setColumnStretch(3, 1)
 
+    @staticmethod
+    def _guaranteed_cash_value(policy: 'PolicyInformation') -> Dict[str, Any]:
+        try:
+            return policy.guaranteed_cash_value()
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            logger.warning("Guaranteed cash value not calculated for %s: %s",
+                           policy.policy_number, exc, exc_info=True)
+            return {"value": None, "details": [], "reason": f"Not calculated: {exc}"}
+
     def load_data_from_policy(self, policy: 'PolicyInformation'):
         """Load all data for this tab using PolicyInformation."""
         try:
@@ -685,6 +730,7 @@ class TargetsAccumulatorsTab(QWidget):
                 "cost_basis": cost_basis_val,
                 "accum_wds": accum_wds_val,
                 "prem_allowed_gpt": prem_allowed_gpt,
+                "gcv": self._guaranteed_cash_value(policy),
             }
             self.accum_widget.load_data(accum_data)
 

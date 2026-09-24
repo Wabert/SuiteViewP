@@ -343,6 +343,47 @@ Duration 26 is **610.86** per unit; duration 41 is **1,000.00**. The auditable
 `tools/rates/verify_polview_wl_rates.py` helper compares the entire displayed
 schedule with the database and can capture the actual native Rates surface.
 
+### Stored cash value rates and Guaranteed Cash Value
+
+CyberLife carries a short per-unit value window on each 02 segment
+(`LH_COV_PHA`): `LOW_DUR_CSV_AMT`/`_1`/`_2`/`_3` (cash value) and
+`LOW_DUR_NSP_AMT`/`_1`/`_2` (NSP). Value *k* applies at policy duration
+`LOW_DUR_PER + k`. When the CV fields are blank the NSP fields are in play; this
+is how ETI (44), RPU (45) and paid-up coverages are carried. This also covers
+ISWL, which 62Q1 rejects because it is an advanced product.
+
+- `PolicyInformation.cov_cash_value_rates(cov_index)` returns the basis
+  (`CV`/`NSP`), nonforfeiture label and the duration-keyed rates.
+- The **Policy** tab (Billing & Valuation) shows the base coverage's rates in play
+  as `CV Rate Basis` plus one `Dur N CV|NSP` row per stored value.
+- `PolicyInformation.guaranteed_cash_value(as_of=None)` sums, over active
+  coverages with rates, `units x (BOY x months remaining + EOY x months elapsed) / 12`,
+  where BOY/EOY are the rates at the completed duration and the next one and
+  months are completed monthliversaries since the anniversary (month-end issue
+  dates clamp, e.g. 1/31 -> 2/28). The default date is the later of the last
+  processed monthliversary and `valuation_date` (the stored monthly value date
+  can be years stale for advanced policies on nonforfeiture). Rates are matched
+  to coverage records by `COV_PHA_NBR`, not list position. Inactive coverages
+  are excluded with a note. If any active coverage with rates cannot be valued
+  (window does not cover the duration, missing units/issue date/record), the
+  result is **no value with a reason**, never a partial total.
+- **Targets & Accumulators** shows it as the italic calculated field
+  `Guaranteed Cash Value`; the tooltip lists the rates, months and units used.
+  NSP-basis values display with an `(NSP)` suffix and a tooltip note that they
+  are not reconciled to a CyberLife nonforfeiture quote. Negative stored NSP
+  rates (e.g. 13034023's -3.81) are used as stored, not dropped.
+- The prefetch `targets` stage builds coverages so the tab renders cache-only.
+
+Live examples (company 01) are pinned in
+`tools/app/guaranteed_cash_value_cases.json`; run read-only with
+`tools/app/verify_guaranteed_cash_value.py @<config.json>` (add `screenshot_dir`
+/ `output` keys for PNGs and a JSON report). ISWL **13034048** (25 units, issued
+7/6/1994, `LOW_DUR_PER` 31, rates 333/351/369/388) shows **8,850.00** as of
+9/6/2026: 25 x (351 x 10 + 369 x 2) / 12. 13034003 8,750.00; RPU 13034005
+2,966.85 (NSP); ETI 13034052 4,442.71 (NSP); paid-up 13034024 N/A (stale window,
+inactive base). NSP-basis values have not been reconciled with a CyberLife
+nonforfeiture quote.
+
 ### VBA Architecture (for reference)
 ```
 Form (frmPolicyMasterTV)

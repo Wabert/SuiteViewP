@@ -1,0 +1,10 @@
+{
+  "cases": [
+    {"policy": "13034048", "company": "01", "basis": "CV", "gcv": "8,850.00", "as_of": "2026-09-06"},
+    {"policy": "13034003", "company": "01", "basis": "CV", "gcv": "8,750.00"},
+    {"policy": "13034005", "company": "01", "basis": "NSP", "gcv": "2,966.85 (NSP)", "as_of": "2026-09-11"},
+    {"policy": "13034052", "company": "01", "basis": "NSP", "gcv": "4,442.71 (NSP)", "as_of": "2026-08-26"},
+    {"policy": "13034024", "company": "01", "basis": "CV", "gcv": "N/A"},
+    {"policy": "13034023", "company": "01", "basis": "NSP"}
+  ]
+}

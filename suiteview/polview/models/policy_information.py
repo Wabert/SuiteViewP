@@ -3755,6 +3755,140 @@ class PolicyInformation:
             raise RuntimeError("The shared rates service is not available.")
         return rates.get_wl_cash_values(self.company_code, key, age, user_defined)
 
+    # CyberLife keeps a short per-unit value window on the 02 segment. Each
+    # value applies at policy duration LOW_DUR_PER + offset.
+    _CV_RATE_COLUMNS = (
+        "LOW_DUR_CSV_AMT", "LOW_DUR_1_CSV_AMT", "LOW_DUR_2_CSV_AMT", "LOW_DUR_3_CSV_AMT",
+    )
+    _NSP_RATE_COLUMNS = ("LOW_DUR_NSP_AMT", "LOW_DUR_1_NSP_AMT", "LOW_DUR_2_NSP_AMT")
+    _NONFORFEITURE_STATUS = {"44": "ETI", "45": "RPU"}
+
+    def cov_cash_value_rates(self, cov_index: int) -> Dict[str, Any]:
+        """Stored 02-segment cash value rates in play for a coverage (1-based).
+
+        Uses the CV rates when present; otherwise the NSP rates, which CyberLife
+        carries for nonforfeiture (ETI/RPU) and paid-up coverages. Rates are per
+        coverage unit, keyed by the policy duration where each value applies.
+        """
+        if not 1 <= cov_index <= self.coverage_count:
+            raise ValueError(f"Coverage index {cov_index} is out of range.")
+        idx = cov_index - 1
+
+        def values(columns):
+            return [self._parse_optional_decimal(self.data_item("LH_COV_PHA", c, idx))
+                    for c in columns]
+
+        cv = values(self._CV_RATE_COLUMNS)
+        nsp = values(self._NSP_RATE_COLUMNS)
+        if any(v for v in cv):
+            basis, rates = "CV", cv
+        elif any(v for v in nsp):
+            basis, rates = "NSP", nsp
+        else:
+            basis, rates = None, []
+
+        low_duration = self._parse_optional_int(self.data_item("LH_COV_PHA", "LOW_DUR_PER", idx))
+        schedule: Dict[int, Decimal] = {}
+        if basis and low_duration is not None:
+            schedule = {low_duration + k: v for k, v in enumerate(rates) if v is not None}
+
+        return {
+            "cov_index": cov_index,
+            "cov_pha_nbr": self._parse_optional_int(self.data_item("LH_COV_PHA", "COV_PHA_NBR", idx)),
+            "basis": basis,
+            "nonforfeiture": self._NONFORFEITURE_STATUS.get(self.premium_pay_status_code, ""),
+            "low_duration": low_duration,
+            "rates": schedule,
+            "units": self._parse_optional_decimal(self.data_item("LH_COV_PHA", "COV_UNT_QTY", idx)),
+            "vpu": self._parse_optional_decimal(self.data_item("LH_COV_PHA", "COV_VPU_AMT", idx)),
+        }
+
+    def _guaranteed_cash_value_date(self) -> Optional[date]:
+        """Last processed monthliversary; the stored monthly value date can be
+        stale for advanced policies on nonforfeiture."""
+        from dateutil.relativedelta import relativedelta
+
+        candidates = []
+        next_mv = self.next_monthliversary_date
+        if next_mv and next_mv.year < 9999:
+            candidates.append(next_mv - relativedelta(months=1))
+        if self.valuation_date:
+            candidates.append(self.valuation_date)
+        return max(candidates) if candidates else None
+
+    def guaranteed_cash_value(self, as_of: Optional[date] = None) -> Dict[str, Any]:
+        """Interpolated guaranteed cash value from the stored 02-segment rates.
+
+        For each active coverage with stored CV (or nonforfeiture NSP) rates:
+        units x (BOY rate x months remaining + EOY rate x months elapsed) / 12,
+        where BOY/EOY are the rates at the completed policy duration and the next
+        one, and months are completed months since the anniversary on or before
+        ``as_of`` (default: the last processed monthliversary). Coverages that are
+        not active are excluded; if any active coverage with stored rates cannot
+        be valued, ``value`` is None with a ``reason`` rather than a partial total.
+        """
+        from dateutil.relativedelta import relativedelta
+
+        as_of = as_of or self._guaranteed_cash_value_date()
+        result: Dict[str, Any] = {"value": None, "as_of": as_of, "details": [], "reason": ""}
+        if as_of is None:
+            result["reason"] = "No valuation date"
+            return result
+        coverages = {cov.cov_pha_nbr: cov for cov in self.get_coverages()}
+        total = Decimal("0")
+        excluded, blockers = [], []
+        for cov_index in range(1, self.coverage_count + 1):
+            info = self.cov_cash_value_rates(cov_index)
+            if not info["basis"]:
+                continue
+            label = f"Cov {info['cov_pha_nbr'] or cov_index}"
+            cov = coverages.get(info["cov_pha_nbr"])
+            if cov is None:
+                blockers.append(f"{label}: coverage record unavailable")
+                continue
+            if not self._coverage_is_active(cov, as_of):
+                excluded.append(f"{label}: coverage not active")
+                continue
+            issue = cov.issue_date
+            if issue is None or info["units"] is None:
+                blockers.append(f"{label}: missing issue date or units")
+                continue
+            if as_of < issue:
+                blockers.append(f"{label}: as-of date precedes issue date")
+                continue
+            duration = self._completed_date_parts_years(issue, as_of)
+            anniversary = issue + relativedelta(years=duration)
+            # Monthliversaries clamp to month end (issue on the 31st -> Feb 28).
+            months = 0
+            while months < 12 and anniversary + relativedelta(months=months + 1) <= as_of:
+                months += 1
+            boy = info["rates"].get(duration)
+            eoy = info["rates"].get(duration + 1)
+            if boy is None or eoy is None:
+                available = sorted(info["rates"])
+                span = f"{available[0]}-{available[-1]}" if available else "none"
+                blockers.append(
+                    f"{label}: stored {info['basis']} rates cover durations "
+                    f"{span}, not {duration}-{duration + 1}"
+                )
+                continue
+            value = (info["units"] * (boy * (12 - months) + eoy * months) / 12).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP)
+            total += value
+            result["details"].append({
+                "cov_index": cov_index, "cov_pha_nbr": info["cov_pha_nbr"],
+                "basis": info["basis"], "nonforfeiture": info["nonforfeiture"],
+                "duration": duration, "months": months, "boy_rate": boy, "eoy_rate": eoy,
+                "units": info["units"], "value": value,
+            })
+        if result["details"] and not blockers:
+            result["value"] = total
+        reasons = blockers + excluded
+        if not reasons and not result["details"]:
+            reasons.append("No stored cash value or NSP rates")
+        result["reason"] = "; ".join(reasons)
+        return result
+
     def build_whole_life_coverage_rate_matrix(self, cov_index: int) -> Optional[List[List]]:
         """Source-keyed WL rates; other WL rate families can add independent schedules."""
         from dateutil.relativedelta import relativedelta

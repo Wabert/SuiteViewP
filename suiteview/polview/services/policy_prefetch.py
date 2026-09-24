@@ -285,6 +285,9 @@ class PolicyLoadSession:
         if stage == "coverages":
             policy.get_coverages()
             policy.get_benefits()
+        elif stage == "targets":
+            # Guaranteed cash value matches stored rates to coverage records.
+            policy.get_coverages()
         elif stage == "dividends":
             available = any(policy.data_item_count(t) for t in STAGE_TABLES[stage])
             policy.cov_issue_date(1)

@@ -44,6 +44,8 @@ class PolicyTab(QWidget):
       Column 3: Marketing/Servicing, Class/Base/Sub, Loan info
     """
 
+    _CV_RATE_FIELDS = ("cv_rate_0", "cv_rate_1", "cv_rate_2", "cv_rate_3")
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._db_data = {}
@@ -133,6 +135,10 @@ class PolicyTab(QWidget):
         c.add_field("RPU Table", "nsp_rpu_tbl", 130, 120)
         c.add_field("Description", "nsp_rpu_desc", 130, 120)
         c.add_field("NSP Interest Rate", "nsp_its_rt", 130, 120)
+        c.add_field("CV Rate Basis", "cv_rate_basis", 130, 120)
+        for k in range(len(self._CV_RATE_FIELDS)):
+            c.add_field(f"Rate T{k}", self._CV_RATE_FIELDS[k], 130, 120)
+            c.set_field_visible(self._CV_RATE_FIELDS[k], False)
 
     def _setup_column3_fields(self):
         c = self.col3
@@ -280,6 +286,29 @@ class PolicyTab(QWidget):
             c.set_value("nsp_its_rt", format_rate(nsp_rt, decimals=2, suffix="%"))
         else:
             c.set_value("nsp_its_rt", "")
+        self._populate_cash_value_rates(policy)
+
+    def _populate_cash_value_rates(self, policy):
+        """Show the base coverage's stored CV (or nonforfeiture NSP) rates."""
+        c = self.col2
+        for attr in self._CV_RATE_FIELDS:
+            c.set_value(attr, "")
+            c.set_field_visible(attr, False)
+        info = policy.cov_cash_value_rates(1) if policy.coverage_count else None
+        if not info or not info["basis"]:
+            c.set_value("cv_rate_basis", "None stored")
+            return
+        if info["basis"] == "NSP":
+            basis = f"NSP - {info['nonforfeiture']}" if info["nonforfeiture"] else "NSP"
+        else:
+            basis = "Cash Value"
+        vpu = info["vpu"]
+        per = f" per {vpu:,.0f}" if vpu else " per unit"
+        c.set_value("cv_rate_basis", basis + per)
+        for attr, (duration, rate) in zip(self._CV_RATE_FIELDS, sorted(info["rates"].items())):
+            c._labels[attr].setText(f"Dur {duration} {info['basis']}:")
+            c.set_value(attr, f"{rate:,.2f}")
+            c.set_field_visible(attr, True)
 
     def _populate_column3_from_policy(self, policy, policy_info: dict):
         c = self.col3

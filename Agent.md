@@ -1306,6 +1306,18 @@ Regressions: N0100046 / FN2VN300 and S1360299 / 1S134F00,
 `tests/test_policy_prefetch.py`; native profiler supports
 `--expect-surrender-unavailable` and `--expect-surrender-reason` with `--all-tabs`.
 
+## PolView stored CV/NSP rates and Guaranteed Cash Value
+
+The Policy tab shows the base coverage's stored 02-segment per-unit window
+(`LH_COV_PHA.LOW_DUR_*_CSV_AMT`, else `LOW_DUR_*_NSP_AMT` for ETI/RPU/paid-up),
+keyed from `LOW_DUR_PER`. Targets & Accumulators interpolates **Guaranteed Cash
+Value** from it through `PolicyInformation.guaranteed_cash_value()`; this serves
+ISWL, where CyberLife 62Q1 errors. Any unvaluable active coverage yields N/A
+with a reason, never a partial total. NSP-basis values are labelled `(NSP)` and
+are not reconciled to a CyberLife nonforfeiture quote. See `docs/POLVIEW_CLAUDE.md`,
+`tests/test_polview_guaranteed_cash_value.py` and the read-only live check
+`tools/app/verify_guaranteed_cash_value.py @tools/app/guaranteed_cash_value_cases.json`.
+
 ## PolView Other Data
 
 PolView's permanent **Other Data** tab now owns SAP, CLAIMSFILE, TAICyberTAIFd,
