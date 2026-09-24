@@ -88,6 +88,28 @@ def test_cash_values_database_failure_is_not_missing_data(monkeypatch):
         rates.get_wl_cash_values("08", "1WL511", 59)
 
 
+def test_interactive_connections_have_a_query_timeout(monkeypatch):
+    connection = SimpleNamespace(timeout=0)
+    connect = Mock(return_value=connection)
+    monkeypatch.setattr("suiteview.core.rates.local_data_enabled", lambda: False)
+    monkeypatch.setattr("suiteview.core.rates.pyodbc.connect", connect)
+    assert Rates()._get_connection() is connection
+    assert connection.timeout == Rates.QUERY_TIMEOUT > 0
+    assert connect.call_args.kwargs["timeout"] == 15
+
+
+def test_locked_rate_tables_time_out_with_an_explanation(monkeypatch):
+    import pyodbc
+
+    cursor = Mock()
+    cursor.execute.side_effect = pyodbc.OperationalError("HYT00", "[HYT00] Query timeout expired")
+    rates = Rates()
+    monkeypatch.setattr(rates, "_get_connection", Mock(return_value=Mock(cursor=Mock(return_value=cursor))))
+    with pytest.raises(RatesError, match="probably locked by a rate load"):
+        rates.get_wl_cash_values("08", "1WL511", 59)
+    cursor.close.assert_called_once()
+
+
 @pytest.fixture
 def policy(monkeypatch):
     policy = object.__new__(PolicyInformation)

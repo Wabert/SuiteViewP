@@ -134,6 +134,12 @@ _MODEFACT_COLUMNS = (
 )
 
 
+def _is_query_timeout(error: Exception) -> bool:
+    """ODBC SQLSTATE HYT00 (query timeout expired)."""
+    args = getattr(error, "args", ()) or ()
+    return (bool(args) and str(args[0]).upper() == "HYT00") or "HYT00" in str(error)
+
+
 def _as_date(value) -> Optional[date]:
     if value is None or isinstance(value, date) and not isinstance(value, datetime):
         return value
@@ -173,6 +179,8 @@ class Rates:
     
     # Default SQL Server connection settings for UL_Rates database
     DEFAULT_DSN = "UL_Rates"
+    QUERY_TIMEOUT = 15          # seconds, interactive (GUI-thread) lookups
+    WORKER_QUERY_TIMEOUT = 30   # seconds, background worker lookups
     
     def __init__(self, connection_string: str = None):
         """
@@ -206,7 +214,7 @@ class Rates:
             return self._connection
         
         # Create new connection
-        options = {"timeout": 15} if _owned_rates.get() is not None else {}
+        options = {"timeout": 15}
         if self._connection_string:
             self._connection = pyodbc.connect(self._connection_string, **options)
         else:
@@ -218,8 +226,11 @@ class Rates:
             except Exception as e:
                 raise RatesError(f"Could not connect to UL_Rates database via DSN '{self.DEFAULT_DSN}': {e}")
         
-        if _owned_rates.get() is not None:
-            self._connection.timeout = 30
+        # A read blocked by another session's rate-load transaction must fail
+        # loudly instead of hanging the caller (PolView reads on the GUI thread).
+        self._connection.timeout = (
+            self.WORKER_QUERY_TIMEOUT if _owned_rates.get() is not None else self.QUERY_TIMEOUT
+        )
         return self._connection
     
     def _get_rate_key(
@@ -363,6 +374,11 @@ class Rates:
                 cursor.close()
         except Exception as e:
             logger.error("Rate query failed: %s | SQL: %s | params: %r", e, sql, params)
+            if _is_query_timeout(e):
+                raise RatesError(
+                    "UL_Rates did not answer within the query timeout. The rate tables are "
+                    "probably locked by a rate load in progress; try again when it finishes."
+                ) from e
             raise RatesError(f"Rate lookup failed: {e}") from e
 
         if not rows:
