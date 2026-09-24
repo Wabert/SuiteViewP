@@ -2014,7 +2014,9 @@ def build_cyberlife_sql(
         sql_parts.append("    AND RESULTCOV.TCH_POL_ID = RESULTCOV_RENEWALS.TCH_POL_ID")
         sql_parts.append("    AND RESULTCOV.COV_PHA_NBR = RESULTCOV_RENEWALS.COV_PHA_NBR")
         sql_parts.append("    AND RESULTCOV_RENEWALS.PRM_RT_TYP_CD = 'C'")
-    elif disp_sex_rateclass:
+    elif disp_sex_rateclass and not cov_needs_renewals:
+        # The criteria join above already provides COV1_RENEWALS; a second
+        # join with the same alias is rejected by DB2.
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_COV_INS_RNL_RT COV1_RENEWALS")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = COV1_RENEWALS.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = COV1_RENEWALS.CK_CMP_CD")
