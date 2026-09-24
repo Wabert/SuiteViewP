@@ -1,28 +1,26 @@
 """
-ADV tab — faithful replica of VBA frmAudit ADV tab.
+ADV tab — Advanced product (UL, IUL, ISWL) criteria.
 
-Layout:
-  TOP ROW (3 columns):
-    COL 1: "ADV Products = UL, IUL, ISWL" header + checkboxes
-    COL 2: Grace Period Rule Code (66) + Death Benefit Option (66)
-    COL 3: Orig Entry Code (01)
-  BOTTOM ROW (3 zones):
-    LEFT:   Current Fund Value (65) group + range fields below
-    CENTER: IUL Only – Premium Allocation funds (57)
-    RIGHT:  IUL Only – Allocation Sequence Count (57 segment)
+Layout (three top-aligned columns, each fitted to its content):
+  LEFT:   ADV comparison checkboxes, then the value/target ranges
+  MIDDLE: code lists — Grace Period Rule (66), Death Benefit Option (66),
+          Decrease Charge Rule (66), Orig Entry Code (01)
+  RIGHT:  IUL/fund criteria — CIRF Key (55), Premium Allocation funds (57),
+          Allocation Sequence Count (57), Current Fund Value (65)
 """
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-    QLabel, QLineEdit, QCheckBox, QComboBox, QFrame,
+    QLabel, QLineEdit, QCheckBox, QListWidget, QSizePolicy,
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontMetrics
 
 from ..constants import (
     GRACE_PERIOD_RULE_CODE_ITEMS,
     DEATH_BENEFIT_OPTION_ITEMS,
+    DECREASE_CHARGE_RULE_ITEMS,
     ORIG_ENTRY_CODE_ITEMS,
     PREMIUM_ALLOCATION_FUND_ITEMS,
 )
@@ -33,12 +31,12 @@ from ._styles import (
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
 _FONT = QFont("Segoe UI", 9)
-_ROW_H = 16
+_CHK_H = 20
 _CTRL_H = 22
 _V_SPACING = 2
 _H_SPACING = 4
+_SECTION_GAP = 8
 _RANGE_W = 70
-_LABEL_W = 210
 
 _GRP_STYLE = (
     "QGroupBox { font-weight: bold; color: #1E5BA8; border: 1px solid #6A9BD1;"
@@ -47,22 +45,16 @@ _GRP_STYLE = (
 )
 
 
-def _connect_checkbox_widgets(chk: QCheckBox, widgets: list[QWidget]):
-    def _on_toggle(checked: bool):
-        for w in widgets:
-            w.setEnabled(checked)
-            if not checked and isinstance(w, QLineEdit):
-                w.clear()
-    chk.toggled.connect(_on_toggle)
+def _label_width(texts: list[str]) -> int:
+    metrics = QFontMetrics(_FONT)
+    return max(metrics.horizontalAdvance(text) for text in texts) + 8
 
 
 def _add_range_row(layout: QGridLayout, row: int, label_text: str,
-                   *, label_color: str | None = None) -> tuple[QLineEdit, QLineEdit]:
+                   label_width: int) -> tuple[QLineEdit, QLineEdit]:
     lbl = QLabel(label_text)
     lbl.setFont(_FONT)
-    lbl.setFixedWidth(_LABEL_W)
-    if label_color:
-        lbl.setStyleSheet(f"color: {label_color};")
+    lbl.setFixedWidth(label_width)
 
     lo = QLineEdit()
     lo.setFont(_FONT)
@@ -82,6 +74,43 @@ def _add_range_row(layout: QGridLayout, row: int, label_text: str,
     return lo, hi
 
 
+def _group(title: str) -> tuple[QGroupBox, QGridLayout]:
+    grp = QGroupBox(title)
+    grp.setStyleSheet(_GRP_STYLE)
+    grid = QGridLayout(grp)
+    grid.setContentsMargins(6, 6, 6, 4)
+    grid.setHorizontalSpacing(_H_SPACING)
+    grid.setVerticalSpacing(_V_SPACING)
+    return grp, grid
+
+
+def _code_list(title: str, items: list[str]) -> tuple[QWidget, QCheckBox, QListWidget]:
+    """Gating checkbox above a listbox sized to show every item without scrolling."""
+    panel = QWidget()
+    panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+    layout = QVBoxLayout(panel)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(_V_SPACING)
+    checkbox = _make_checkbox(title)
+    checkbox.setFixedHeight(_CHK_H)
+    layout.addWidget(checkbox)
+    listbox = _make_listbox(items, height_rows=len(items), enabled=False)
+    listbox.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    listbox.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    listbox.setMinimumWidth(
+        max(listbox.fontMetrics().horizontalAdvance(text) for text in items) + 16)
+    _connect_checkbox_listbox(checkbox, listbox)
+    layout.addWidget(listbox)
+    return panel, checkbox, listbox
+
+
+def _column() -> QVBoxLayout:
+    col = QVBoxLayout()
+    col.setSpacing(_SECTION_GAP)
+    col.setAlignment(Qt.AlignmentFlag.AlignTop)
+    return col
+
+
 class AdvTab(QWidget):
     """ADV Products tab — UL, IUL, ISWL criteria."""
 
@@ -91,135 +120,109 @@ class AdvTab(QWidget):
 
     # ================================================================
     def _build_ui(self):
-        root = QVBoxLayout(self)
+        root = QHBoxLayout(self)
         root.setContentsMargins(6, 6, 6, 4)
-        root.setSpacing(6)
+        root.setSpacing(16)
 
-        # ────────────────────────────────────────────────────────────
-        # TOP SECTION
-        # ────────────────────────────────────────────────────────────
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        left = self._build_left_column()
+        middle = self._build_code_column()
+        right = self._build_fund_column()
+        for col in (left, middle, right):
+            root.addLayout(col)
+        root.addStretch()
 
-        # ── Column 1: header label + checkboxes ────────────────────
-        col1 = QVBoxLayout()
-        col1.setSpacing(_V_SPACING)
+    # ── Left: comparisons + value ranges ──────────────────────────
+    def _build_left_column(self) -> QVBoxLayout:
+        col = _column()
 
+        checks = QVBoxLayout()
+        checks.setSpacing(_V_SPACING)
         hdr = QLabel("ADV Products = UL, IUL, ISWL")
         hdr.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        col1.addWidget(hdr)
-        col1.addSpacing(4)
+        checks.addWidget(hdr)
 
-        self.chk_cv_corr = _make_checkbox(
-            "CV * CORR% > Specified Amount + OPTDB")
-        self.chk_accum_gt_prem = _make_checkbox(
-            "Accumulation Value > Premiums Paid")
-        col1.addWidget(self.chk_cv_corr)
-        col1.addWidget(self.chk_accum_gt_prem)
-        col1.addSpacing(8)
-
+        self.chk_cv_corr = _make_checkbox("CV * CORR% > Specified Amount + OPTDB")
+        self.chk_accum_gt_prem = _make_checkbox("Accumulation Value > Premiums Paid")
+        self.chk_prem_wd_gt_face = _make_checkbox("Prem - WD > Face")
         self.chk_glp_neg = _make_checkbox("GLP is negative")
         self.chk_sa_lt_orig = _make_checkbox("Current SA < Original SA")
         self.chk_sa_gt_orig = _make_checkbox("Current SA > Original SA")
-        self.chk_apb_rider = _make_checkbox(
-            "Include APB Rider as Base Coverage")
-        self.chk_gcv_gt_cv = _make_checkbox(
-            "GCV > Current CV (02 and 75) (ISWL)")
-        self.chk_gcv_lt_cv = _make_checkbox(
-            "GCV < Current CV (02 and 75) (ISWL)")
-        for cb in (self.chk_glp_neg, self.chk_sa_lt_orig,
-                   self.chk_sa_gt_orig, self.chk_apb_rider,
-                   self.chk_gcv_gt_cv, self.chk_gcv_lt_cv):
-            col1.addWidget(cb)
+        self.chk_apb_rider = _make_checkbox("Include APB Rider as Base Coverage")
+        self.chk_gcv_gt_cv = _make_checkbox("GCV > Current CV (02 and 75) (ISWL)")
+        self.chk_gcv_lt_cv = _make_checkbox("GCV < Current CV (02 and 75) (ISWL)")
+        for cb in (self.chk_cv_corr, self.chk_accum_gt_prem, self.chk_prem_wd_gt_face,
+                   self.chk_glp_neg, self.chk_sa_lt_orig, self.chk_sa_gt_orig,
+                   self.chk_apb_rider, self.chk_gcv_gt_cv, self.chk_gcv_lt_cv):
+            cb.setFixedHeight(_CHK_H)
+            checks.addWidget(cb)
+        col.addLayout(checks)
 
-        col1.addSpacing(8)
-        self.chk_prem_wd_gt_face = _make_checkbox("Prem - WD > Face")
-        col1.addWidget(self.chk_prem_wd_gt_face)
+        range_labels = [
+            "Accumulation Value (75)", "Shadow Account Value (58)",
+            "Current Specified Amount (02)", "Accum MTP (58)", "Accum GLP (58)",
+            "GLP (58)", "GSP (58)",
+        ]
+        width = _label_width(range_labels)
+        grp, grid = _group("Value Ranges")
+        (self.rng_accum_val, self.rng_shadow_acct, self.rng_curr_spec_amt,
+         self.rng_accum_mtp, self.rng_accum_glp, self.rng_glp, self.rng_gsp) = [
+            _add_range_row(grid, row, text, width)
+            for row, text in enumerate(range_labels)
+        ]
+        col.addWidget(grp)
+        return col
 
-        col1.addStretch()
-        top_row.addLayout(col1)
+    # ── Middle: code lists ────────────────────────────────────────
+    def _build_code_column(self) -> QVBoxLayout:
+        col = _column()
+        panel, self.chk_grace_rule, self.list_grace_rule = _code_list(
+            "Grace Period Rule Code (66)", GRACE_PERIOD_RULE_CODE_ITEMS)
+        col.addWidget(panel)
+        panel, self.chk_db_option, self.list_db_option = _code_list(
+            "Death Benefit Option (66)", DEATH_BENEFIT_OPTION_ITEMS)
+        col.addWidget(panel)
+        panel, self.chk_decr_chrg_rule, self.list_decr_chrg_rule = _code_list(
+            "Decrease Charge Rule (66)", DECREASE_CHARGE_RULE_ITEMS)
+        col.addWidget(panel)
+        panel, self.chk_orig_entry, self.list_orig_entry = _code_list(
+            "Orig Entry Code (01)", ORIG_ENTRY_CODE_ITEMS)
+        col.addWidget(panel)
+        return col
 
-        # ── Column 2: Grace Period Rule Code + Death Benefit Opt ───
-        col2 = QVBoxLayout()
-        col2.setSpacing(_V_SPACING)
+    # ── Right: IUL / fund criteria ────────────────────────────────
+    def _build_fund_column(self) -> QVBoxLayout:
+        col = _column()
 
-        # Grace Period Rule Code (66)
-        self.chk_grace_rule = _make_checkbox("Grace Period Rule Code (66)")
-        col2.addWidget(self.chk_grace_rule)
-        self.list_grace_rule = _make_listbox(
-            GRACE_PERIOD_RULE_CODE_ITEMS, height_rows=6, enabled=False)
-        _connect_checkbox_listbox(self.chk_grace_rule, self.list_grace_rule)
-        col2.addWidget(self.list_grace_rule)
-        col2.addSpacing(8)
-
-        # Death Benefit Option (66)
-        self.chk_db_option = _make_checkbox("Death Benefit Option (66)")
-        col2.addWidget(self.chk_db_option)
-        self.list_db_option = _make_listbox(
-            DEATH_BENEFIT_OPTION_ITEMS, height_rows=4, enabled=False)
-        _connect_checkbox_listbox(self.chk_db_option, self.list_db_option)
-        col2.addWidget(self.list_db_option)
-
-        col2.addStretch()
-        top_row.addLayout(col2)
-
-        # ── Column 3: Orig Entry Code (01) ────────────────────────
-        col3 = QVBoxLayout()
-        col3.setSpacing(_V_SPACING)
-
-        self.chk_orig_entry = _make_checkbox("Orig Entry Code (01)")
-        col3.addWidget(self.chk_orig_entry)
-        self.list_orig_entry = _make_listbox(
-            ORIG_ENTRY_CODE_ITEMS, height_rows=10, enabled=False)
-        _connect_checkbox_listbox(self.chk_orig_entry, self.list_orig_entry)
-        col3.addWidget(self.list_orig_entry)
-
-        # ── CIRF Key (55) search ──────────────────────────────────
-        col3.addSpacing(8)
         grp_cirf = QGroupBox("CIRF Key (55)")
         grp_cirf.setStyleSheet(_GRP_STYLE)
         cirf_row = QHBoxLayout(grp_cirf)
         cirf_row.setContentsMargins(6, 6, 6, 4)
         cirf_row.setSpacing(_H_SPACING)
-
         self.cbo_cirf_match = _make_combo(["Contains", "Exact"], width=80)
         self.txt_cirf = QLineEdit()
         self.txt_cirf.setFont(_FONT)
         self.txt_cirf.setFixedHeight(_CTRL_H)
-
         cirf_row.addWidget(self.cbo_cirf_match)
         cirf_row.addWidget(self.txt_cirf)
-        col3.addWidget(grp_cirf)
+        col.addWidget(grp_cirf)
 
-        col3.addStretch()
-        top_row.addLayout(col3)
+        panel, self.chk_prem_alloc, self.list_prem_alloc = _code_list(
+            "IUL Only - Premium Allocation funds (57)", PREMIUM_ALLOCATION_FUND_ITEMS)
+        col.addWidget(panel)
 
-        top_row.addStretch()
-        root.addLayout(top_row)
+        seq_labels = ["Type P Sequence (57)", "Type V Sequence (57)"]
+        width = _label_width(seq_labels)
+        grp_alloc, alloc_grid = _group("IUL Only - Allocation Sequence Count (57)")
+        self.rng_type_p = _add_range_row(alloc_grid, 0, seq_labels[0], width)
+        self.rng_type_v = _add_range_row(alloc_grid, 1, seq_labels[1], width)
+        col.addWidget(grp_alloc)
 
-        # ────────────────────────────────────────────────────────────
-        # BOTTOM SECTION
-        # ────────────────────────────────────────────────────────────
-        bot_row = QHBoxLayout()
-        bot_row.setSpacing(12)
-
-        # ── Bottom-left: Current Fund Value (65) + range fields ────
-        bot_left = QVBoxLayout()
-        bot_left.setSpacing(_V_SPACING)
-
-        grp_fund = QGroupBox("Current Fund Value (65)")
-        grp_fund.setStyleSheet(_GRP_STYLE)
-        fund_grid = QGridLayout(grp_fund)
-        fund_grid.setContentsMargins(6, 6, 6, 4)
-        fund_grid.setHorizontalSpacing(_H_SPACING)
-        fund_grid.setVerticalSpacing(_V_SPACING)
-
+        grp_fund, fund_grid = _group("Current Fund Value (65)")
         lbl_fid = QLabel("Fund ID")
         lbl_fid.setFont(_FONT)
         self.txt_fund_id = QLineEdit()
         self.txt_fund_id.setFont(_FONT)
-        self.txt_fund_id.setFixedSize(80, _CTRL_H)
-
+        self.txt_fund_id.setFixedSize(_RANGE_W, _CTRL_H)
         lbl_fvr = QLabel("Fund Value Range")
         lbl_fvr.setFont(_FONT)
         self.txt_fund_lo = QLineEdit()
@@ -230,88 +233,15 @@ class AdvTab(QWidget):
         self.txt_fund_hi = QLineEdit()
         self.txt_fund_hi.setFont(_FONT)
         self.txt_fund_hi.setFixedSize(_RANGE_W, _CTRL_H)
-
         fund_grid.addWidget(lbl_fid, 0, 0)
         fund_grid.addWidget(lbl_fvr, 0, 1, 1, 3)
         fund_grid.addWidget(self.txt_fund_id, 1, 0)
         fund_grid.addWidget(self.txt_fund_lo, 1, 1)
         fund_grid.addWidget(lbl_to_f, 1, 2, Qt.AlignmentFlag.AlignCenter)
         fund_grid.addWidget(self.txt_fund_hi, 1, 3)
-
-        bot_left.addWidget(grp_fund)
-        bot_left.addSpacing(4)
-
-        # Range fields below the group
-        range_grid = QGridLayout()
-        range_grid.setHorizontalSpacing(_H_SPACING)
-        range_grid.setVerticalSpacing(_V_SPACING)
-
-        self.rng_accum_val = _add_range_row(
-            range_grid, 0, "Accumulation Value range (75)")
-        self.rng_shadow_acct = _add_range_row(
-            range_grid, 1, "Shadow Account Value (58)")
-        self.rng_curr_spec_amt = _add_range_row(
-            range_grid, 2, "Current Specified Amount (02)")
-        self.rng_accum_mtp = _add_range_row(
-            range_grid, 3, "Accum MTP (58)")
-        self.rng_accum_glp = _add_range_row(
-            range_grid, 4, "Accum GLP (58)")
-        self.rng_glp = _add_range_row(
-            range_grid, 5, "GLP (58)")
-        self.rng_gsp = _add_range_row(
-            range_grid, 6, "GSP (58)")
-
-        bot_left.addLayout(range_grid)
-        bot_left.addStretch()
-
-        bot_row.addLayout(bot_left)
-
-        # ── Bottom-center: IUL Only – Premium Allocation Funds ────
-        bot_center = QVBoxLayout()
-        bot_center.setSpacing(_V_SPACING)
-
-        self.chk_prem_alloc = _make_checkbox("IUL Only - Premium Allocation funds (57)")
-        bot_center.addWidget(self.chk_prem_alloc)
-        self.list_prem_alloc = _make_listbox(
-            PREMIUM_ALLOCATION_FUND_ITEMS, height_rows=10, enabled=False)
-        _connect_checkbox_listbox(self.chk_prem_alloc, self.list_prem_alloc)
-        bot_center.addWidget(self.list_prem_alloc)
-
-        bot_center.addStretch()
-        bot_row.addLayout(bot_center)
-
-        # ── Bottom-right: IUL Only – Allocation Sequence Count ────
-        bot_right = QVBoxLayout()
-        bot_right.setSpacing(_V_SPACING)
-
-        grp_alloc = QGroupBox(
-            "IUL Only - Allocation Sequence Count (57 segment)")
-        grp_alloc.setStyleSheet(_GRP_STYLE)
-        alloc_grid = QGridLayout(grp_alloc)
-        alloc_grid.setContentsMargins(6, 6, 6, 4)
-        alloc_grid.setHorizontalSpacing(_H_SPACING)
-        alloc_grid.setVerticalSpacing(_V_SPACING)
-
-        self.rng_type_p = _add_range_row(
-            alloc_grid, 0, "Type P Sequence (57)")
-        self.rng_type_v = _add_range_row(
-            alloc_grid, 1, "Type V Sequence (57)")
-
-        bot_right.addWidget(grp_alloc)
-        bot_right.addStretch()
-
-        bot_row.addLayout(bot_right)
-        bot_row.addStretch()
-
-        root.addLayout(bot_row)
-
-    # ── Vertical separator helper ──────────────────────────────────
-    @staticmethod
-    def _vsep() -> QFrame:
-        f = QFrame()
-        f.setFrameShape(QFrame.Shape.VLine)
-        f.setFrameShadow(QFrame.Shadow.Sunken)
-        return f
+        fund_grid.setColumnStretch(4, 1)
+        col.addWidget(grp_fund)
+        return col
 
     # ── Profile save/load ────────────────────────────────────────────
     def get_state(self) -> dict:
@@ -333,6 +263,8 @@ class AdvTab(QWidget):
             "list_grace_rule": _sel(self.list_grace_rule),
             "chk_db_option": _c(self.chk_db_option),
             "list_db_option": _sel(self.list_db_option),
+            "chk_decr_chrg_rule": _c(self.chk_decr_chrg_rule),
+            "list_decr_chrg_rule": _sel(self.list_decr_chrg_rule),
             "chk_orig_entry": _c(self.chk_orig_entry),
             "list_orig_entry": _sel(self.list_orig_entry),
             "txt_fund_id": _t(self.txt_fund_id),
@@ -380,6 +312,8 @@ class AdvTab(QWidget):
         _sel(self.list_grace_rule, state.get("list_grace_rule", []))
         _c(self.chk_db_option, state.get("chk_db_option", False))
         _sel(self.list_db_option, state.get("list_db_option", []))
+        _c(self.chk_decr_chrg_rule, state.get("chk_decr_chrg_rule", False))
+        _sel(self.list_decr_chrg_rule, state.get("list_decr_chrg_rule", []))
         _c(self.chk_orig_entry, state.get("chk_orig_entry", False))
         _sel(self.list_orig_entry, state.get("list_orig_entry", []))
         _t(self.txt_fund_id, state.get("txt_fund_id", ""))

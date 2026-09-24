@@ -260,6 +260,23 @@ def _conversion_sc_cte(schema: str) -> str:
      AND FH.FCB2_REV_APPL_IND = '0')"""
 
 
+def _post_conversion_cte(schema: str) -> str:
+    """Reverse the destination's source reference; keep every distinct destination."""
+    return f"""POST_CONVERSION AS
+  (SELECT DISTINCT G.CK_SYS_CD,
+    TRIM(G.SOURCE_CMP_CODE) AS SOURCE_CMP_CODE,
+    TRIM(G.EXCH_POL_NUMBER) AS SOURCE_POLICY_NBR,
+    DEST.CK_CMP_CD AS POST_CONV_COMPANY,
+    DEST.CK_POLICY_NBR AS POST_CONV_POLICY
+   FROM {schema}.TH_USER_GENERIC G
+   INNER JOIN {schema}.LH_BAS_POL DEST
+     ON G.CK_SYS_CD = DEST.CK_SYS_CD
+    AND G.CK_CMP_CD = DEST.CK_CMP_CD
+    AND G.TCH_POL_ID = DEST.TCH_POL_ID
+   WHERE TRIM(G.SOURCE_CMP_CODE) <> ''
+     AND TRIM(G.EXCH_POL_NUMBER) <> '')"""
+
+
 def _valuation_date_sql(schema: str) -> str:
     """SQL expression for the policy valuation date.
 
@@ -436,6 +453,7 @@ def build_cyberlife_sql(
     disp_trad_overloan = dt.chk_trad_overloan.isChecked()
     disp_replacement_pol = dt.chk_replacement_pol.isChecked()
     disp_converted_pol = dt.chk_converted_pol.isChecked()
+    disp_post_conversion = dt.chk_post_conversion.isChecked()
     disp_conv_credit = dt.chk_conv_credit.isChecked()
     disp_within_conv = dt.chk_disp_conv_period.isChecked()
     disp_conv_period = dt.chk_disp_conv_period_calc.isChecked()
@@ -712,6 +730,8 @@ def build_cyberlife_sql(
 
     if disp_conversion_dates:
         sql_parts.append(", " + _conversion_sc_cte(schema))
+    if disp_post_conversion:
+        sql_parts.append(", " + _post_conversion_cte(schema))
 
     # Policy(2): Termination Entry Date (69) CTEs
     if has_term_entry or disp_term_date or has_term_both:
@@ -815,7 +835,8 @@ def build_cyberlife_sql(
     # Policy(2): Change Seq (68) CTE
     if has_change_seq:
         sql_parts.append(f", CHANGE_SEGMENT AS (")
-        sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, CHG_TYP_CD FROM {schema}.LH_COV_TMN")
+        # Termination detail has no CHG_TYP_CD column; its segment-68 type is 9.
+        sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, '9' AS CHG_TYP_CD FROM {schema}.LH_COV_TMN")
         sql_parts.append(f"  UNION")
         sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, CHG_TYP_CD FROM {schema}.LH_NT_COV_CHG")
         sql_parts.append(f"  UNION")
@@ -1342,6 +1363,8 @@ def build_cyberlife_sql(
         sql_parts.append("  , USERDEF_52R.REPLACED_POLICY REPLACED_POL")
 
     # Circle 11: Batch 5 — Conversion-related display fields
+    if disp_converted_pol or p2t.chk_has_converted.isChecked():
+        sql_parts.append("  , USERGEN.SOURCE_CMP_CODE SOURCE_CMP_CODE")
     if disp_converted_pol:
         sql_parts.append("  , USERGEN.EXCH_POL_NUMBER EXCHANGE_POL")
         sql_parts.append("  , USERGEN.EXCHANGE EXCHANGE_CD")
@@ -1349,6 +1372,9 @@ def build_cyberlife_sql(
         sql_parts.append("  , USERGEN.SOURCE_ISSUE_DATE CONV_ISSDT")
         sql_parts.append("  , USERGEN.SOURCE_PLAN_CODE CONV_PLAN")
         sql_parts.append("  , USERGEN.SOURCE_FACE_AMT CONV_FACE")
+    if disp_post_conversion:
+        sql_parts.append("  , PC.POST_CONV_POLICY")
+        sql_parts.append("  , PC.POST_CONV_COMPANY")
     if disp_conv_credit:
         sql_parts.append("  , UPDF.CONV_CREDIT_IND CN_CRED_IND")
         sql_parts.append("  , UPDF.CONV_CREDIT_RULE CN_CRED_RULE")
@@ -1755,6 +1781,12 @@ def build_cyberlife_sql(
         sql_parts.append("    AND POLICY1.CK_CMP_CD = SC.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = SC.TCH_POL_ID")
         sql_parts.append("    AND SC.SC_ROW = 1")
+    if disp_post_conversion:
+        sql_parts.append("  LEFT OUTER JOIN POST_CONVERSION PC")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = PC.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = PC.SOURCE_CMP_CODE")
+        sql_parts.append("    AND POLICY1.CK_POLICY_NBR = PC.SOURCE_POLICY_NBR")
+        sql_parts.append("    AND POLICY1.LST_ETR_CD = 'O'")
     if has_77_segment or disp_policy_debt:
         _loan_join = "INNER JOIN" if has_77_segment else "LEFT OUTER JOIN"
         sql_parts.append(f"  {_loan_join} ALL_LOANS")
@@ -2540,10 +2572,10 @@ def build_cyberlife_sql(
         wheres.append("(GLP.GLP_VALUE < 0)")
     # -- Current SA < Original SA --
     if adv_sa_lt_orig:
-        wheres.append("(COVSUMMARY.TOTAL_SA <= COVSUMMARY.TOTAL_ORIGINAL_SA)")
+        wheres.append("(COVSUMMARY.TOTAL_SA < COVSUMMARY.TOTAL_ORIGINAL_SA)")
     # -- Current SA > Original SA --
     if adv_sa_gt_orig:
-        wheres.append("(COVSUMMARY.TOTAL_SA >= COVSUMMARY.TOTAL_ORIGINAL_SA)")
+        wheres.append("(COVSUMMARY.TOTAL_SA > COVSUMMARY.TOTAL_ORIGINAL_SA)")
     # -- GCV > Current CV (ISWL) --
     if adv_gcv_gt_cv:
         wheres.append("(ISWL_INTERPOLATED_GCV.ISWL_GCV >= MVVAL.CSV_AMT)")
@@ -2566,6 +2598,25 @@ def build_cyberlife_sql(
         codes = selected_codes(at.list_db_option)
         if codes:
             wheres.append(f"NONTRAD.DTH_BNF_PLN_OPT_CD IN ({in_list(codes)})")
+    # -- Decrease Charge Rule (66): TH_NON_TRD_POL.DECR_CHRG_ALLOW --
+    if at.chk_decr_chrg_rule.isChecked() and at.list_decr_chrg_rule.selectedItems():
+        codes = selected_codes(at.list_decr_chrg_rule)
+        rule_preds = []
+        known = [code for code in codes if code in ("0", "1")]
+        if known:
+            rule_preds.append(f"DECRCHG.DECR_CHRG_ALLOW IN ({in_list(known)})")
+        if "Blank" in codes:
+            # Unset rows hold a space or NUL; compare against the known codes
+            # rather than embedding a NUL literal.
+            rule_preds.append(
+                "(DECRCHG.DECR_CHRG_ALLOW IS NULL"
+                " OR DECRCHG.DECR_CHRG_ALLOW NOT IN ('0', '1'))")
+        wheres.append(
+            f"EXISTS (SELECT 1 FROM {schema}.TH_NON_TRD_POL DECRCHG"
+            " WHERE DECRCHG.CK_SYS_CD = POLICY1.CK_SYS_CD"
+            " AND DECRCHG.CK_CMP_CD = POLICY1.CK_CMP_CD"
+            " AND DECRCHG.TCH_POL_ID = POLICY1.TCH_POL_ID"
+            f" AND ({' OR '.join(rule_preds)}))")
     # -- Orig Entry Code (01) --
     if adv_orig_entry:
         codes = selected_codes(at.list_orig_entry)

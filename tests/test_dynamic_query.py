@@ -132,6 +132,80 @@ class DynamicQueryOrderByTests(unittest.TestCase):
 
 
 class DynamicQueryUiTests(unittest.TestCase):
+    def test_sql_assist_toggles_between_odbc_and_file_sources(self):
+        from types import SimpleNamespace
+
+        from suiteview.audit.file_source import SOURCE_TYPE_EXCEL
+
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        fds = SimpleNamespace(
+            id="abc123",
+            name="Claims",
+            source_type=SOURCE_TYPE_EXCEL,
+            parse_spec={},
+            members=[SimpleNamespace(resolved_table_name=lambda: "claims")],
+            columns=[SimpleNamespace(name="CLAIM_ID", data_type="INTEGER")],
+        )
+        picker = FieldPickerPanel()
+        tables_events = []
+        picker.tables_changed.connect(tables_events.append)
+        try:
+            with patch("suiteview.audit.file_source_store.list_file_sources", return_value=[fds]), \
+                    patch("suiteview.audit.file_query_runner.resolve_file_source",
+                          side_effect=lambda ref: fds if ref == "abc123" else None):
+                picker.set_connection_options([("Work", "WORK_DSN")], "WORK_DSN")
+                self.assertEqual(picker.btn_source_kind.text(), "ODBC")
+                self.assertEqual(picker.current_connection(), "WORK_DSN")
+
+                picker.btn_source_kind.click()
+                self.assertEqual(picker.btn_source_kind.text(), "Files")
+                self.assertEqual(picker.current_connection(), "file:abc123")
+                self.assertEqual(picker.current_connection_label(), "Claims [Excel]")
+                self.assertEqual(picker.list_tables.item(0).text(), "claims")
+                self.assertEqual(picker.list_fields.item(0).text(), "CLAIM_ID")
+                self.assertFalse(picker.btn_add_table.isEnabled())
+                self.assertEqual(tables_events, [[]])
+
+                picker.btn_source_kind.click()
+                self.assertEqual(picker.btn_source_kind.text(), "ODBC")
+                self.assertEqual(picker.current_connection(), "WORK_DSN")
+                self.assertEqual(picker.list_tables.count(), 0)
+                self.assertTrue(picker.btn_add_table.isEnabled())
+
+                # A file-backed query re-selects Files mode and its source.
+                picker.set_group("file:abc123", [], {})
+                self.assertEqual(picker.btn_source_kind.text(), "Files")
+                self.assertEqual(picker.current_connection(), "file:abc123")
+        finally:
+            picker.close()
+
+    def test_sql_assist_files_mode_without_sources_keeps_query_source(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        picker = FieldPickerPanel()
+        tables_events = []
+        picker.tables_changed.connect(tables_events.append)
+        try:
+            picker._load_fields = lambda table: None
+            with patch("suiteview.audit.file_source_store.list_file_sources", return_value=[]):
+                picker.set_connection_options([("Work", "WORK_DSN")], "WORK_DSN")
+                picker.set_group("WORK_DSN", ["dbo.policy"], {})
+                picker.btn_source_kind.click()
+                self.assertEqual(picker.current_connection(), "")
+                self.assertIn("No file sources", picker.current_connection_label())
+                self.assertEqual(picker.list_tables.count(), 0)
+
+                picker.btn_source_kind.click()
+                self.assertEqual(picker.current_connection(), "WORK_DSN")
+                self.assertEqual(picker.list_tables.item(0).text(), "dbo.policy")
+                self.assertEqual(tables_events, [])
+        finally:
+            picker.close()
     def test_sql_assist_shows_only_explicit_selected_tables(self):
         app = QApplication.instance()
         if app is None:

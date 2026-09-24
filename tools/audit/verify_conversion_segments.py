@@ -42,6 +42,20 @@ def main() -> int:
         win.segment52_tab.text_inputs["SOURCE_PLAN_CODE"].setText("testplan")
         win.segment52_tab._display_all()
         win.display_tab.chk_conversion_dates.setChecked(True)
+        win.display_tab.chk_post_conversion.setChecked(True)
+        conversion_queries = {}
+        for display, has_converted in (
+            (False, False), (True, False), (False, True), (True, True),
+        ):
+            win.display_tab.chk_converted_pol.setChecked(display)
+            win.policy2_tab.chk_has_converted.setChecked(has_converted)
+            query = win._build_sql()
+            name = f"source_company_display_{display}_filter_{has_converted}"
+            expected = display or has_converted
+            conversion_queries[name] = (query, expected)
+            checks[name] = query.count(
+                ", USERGEN.SOURCE_CMP_CODE SOURCE_CMP_CODE"
+            ) == int(expected)
         sql = win._build_sql()
         checks["all_fields_wired"] = all(
             f"USERGEN.{field.name} {field.name}" in sql for field in SEGMENT52_FIELDS
@@ -51,6 +65,15 @@ def main() -> int:
             and "UPPER(TRIM(USERGEN.SOURCE_PLAN_CODE)) = 'TESTPLAN'" in sql
         )
         checks["conversion_display_wired"] = "CONVERSION_SC" in sql
+        checkbox = win.display_tab.chk_post_conversion
+        win.tabs.setCurrentWidget(win.display_tab)
+        app.processEvents()
+        checks["post_conversion_visible_and_fits"] = (
+            checkbox.isVisible()
+            and checkbox.width() >= checkbox.sizeHint().width()
+            and win.display_tab.rect().contains(checkbox.geometry())
+        )
+        checks["post_conversion_wired"] = "LEFT OUTER JOIN POST_CONVERSION PC" in sql
         if args.verify_live:
             from suiteview.core.db2_connection import DB2Connection
 
@@ -65,8 +88,15 @@ def main() -> int:
                 checks["live_sql_compiles"] = not rows
                 checks["live_result_columns"] = (
                     {field.name for field in SEGMENT52_FIELDS}
-                    | {"CONV_SC_ENTRY_DT", "CONV_SC_EFFECTIVE_DT"}
+                    | {"CONV_SC_ENTRY_DT", "CONV_SC_EFFECTIVE_DT",
+                       "POST_CONV_POLICY", "POST_CONV_COMPANY"}
                 ).issubset(columns)
+                for name, (query, expected) in conversion_queries.items():
+                    columns, rows = db.execute_query_with_headers(
+                        query.replace("\nWHERE ", "\nWHERE 1 = 0 AND ", 1))
+                    checks[f"live_{name}"] = (
+                        not rows and columns.count("SOURCE_CMP_CODE") == int(expected)
+                    )
             finally:
                 db.close()
         saved = json.loads(json.dumps(win._cyberlife_query_object_state()))
@@ -85,6 +115,8 @@ def main() -> int:
         checks["clear_resets_new_controls"] = (
             "USERGEN.APP_RECEIVED_DATE" not in cleared
             and "CONVERSION_SC" not in cleared
+            and "USERGEN.SOURCE_CMP_CODE" not in cleared
+            and "POST_CONVERSION" not in cleared
         )
         for key, tab in win._cyberlife_criteria_tabs():
             tab.set_state(saved["tabs"].get(key, {}))

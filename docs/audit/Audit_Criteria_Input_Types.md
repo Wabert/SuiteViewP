@@ -41,6 +41,36 @@ These are policy user fields, not the similarly named conversion rules in
 `TH_USER_PDF`; the existing conversion/PDF displays remain available separately.
 Page selections and criteria participate in Save, reopen, and New/clear.
 
+Checking **Display > Converted policy info (52)** or **Policy (2) > Has
+converted policy (52)** also includes `TH_USER_GENERIC.SOURCE_CMP_CODE` as
+`SOURCE_CMP_CODE` in results. Checking both includes it only once. The display
+option remains display-only; Has converted policy retains its existing
+`EXCH_POL_NUMBER IS NOT NULL` filter. The source-company field was verified
+against live CKPR metadata.
+
+**Display > Show post conversion policy (link)** adds `POST_CONV_POLICY` and
+`POST_CONV_COMPANY`. For an original policy with `LST_ETR_CD = 'O'`, the
+optional `POST_CONVERSION` CTE reverses destination `TH_USER_GENERIC` records:
+`SOURCE_CMP_CODE` and `EXCH_POL_NUMBER` identify the original company and
+`LH_BAS_POL.CK_POLICY_NBR`, within the same system. The destination's own full
+system/company/technical-policy key joins its master record to obtain its actual
+policy number and company. Never derive that number from `TCH_POL_ID` or assume
+source and destination companies are equal. Blank/NULL source keys do not match.
+
+The main query **left joins** this mapping with the `O` condition in the join,
+not the WHERE clause. Non-`O` and unmatched policies remain with blank destination
+columns. The lookup is not restricted by the original policy's company, plan,
+status or other criteria. Duplicate reference records collapse to distinct
+source/destination pairs; multiple destinations produce separate result rows.
+Only the immediate destination is shown, not a recursive conversion chain.
+Unchecked adds no reverse lookup. The checkbox saves/reopens and clears with New.
+The columns use the existing results grid and Excel export.
+
+Live CKPR master-field inspection found no destination-policy field on the
+original policy; five sampled conversion links existed on the destination's
+52 record, with no forward exchange reference on those original policies.
+Read-only result verification: `tools/audit/verify_post_conversion_link.py`.
+
 **Display > Latest SC conversion dates (69)** adds `CONV_SC_ENTRY_DT` and
 `CONV_SC_EFFECTIVE_DT`. It considers only policies with
 `LH_BAS_POL.LST_ETR_CD = 'O'` (Termination - Conversion), and only `FH_FIXED`
@@ -139,6 +169,15 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Cov has COLA ind (02):** Checkbox (`CheckBox_CovHasCOLAInd`)
 *   **Skipped Cov Rein (09):** Checkbox (`CheckBox_SkippedCoverageReinstatement`)
 *   **Has Change Seq (68):** Checkbox + Listbox (`CheckBox_HasChangeSegment` and `ListBox_68SegmentChangeCodes`)
+    Selected codes filter the union of `LH_NT_COV_CHG`,
+    `LH_NT_COV_CHG_SCH`, `LH_SPM_BNF_CHG_SCH`, and termination detail
+    `LH_COV_TMN`, joined on system/company/technical policy ID. The first
+    three tables supply `CHG_TYP_CD`; live-verified `LH_COV_TMN` has no such
+    column and contributes literal `'9' AS CHG_TYP_CD` (termination data).
+    Disabled or empty selections add no filter. Regression:
+    `tests/test_audit_change_segment.py`. Read-only live verification:
+    `tools/audit/verify_change_segment.py --sample` compiles the generated SQL
+    and retrieves at most one result for type 4, type 9 and both together.
 *   **Init Term Period (02):** Checkbox + Listbox (`CheckBox_SpecifyInitialTermPeriod` and `ListBox_InitialTermPeriod`)
 
 ### 3. Coverages Tab
@@ -185,6 +224,11 @@ the conversion CTE; neither verifier exports policy rows.
 *   **GLP is negative:** Checkbox (`CheckBox_ShowGLPIsNegative`)
 *   **Current SA < Original SA:** Checkbox (`CheckBox_ShowCurrentSALTOriginal`)
 *   **Current SA > Original SA:** Checkbox (`CheckBox_ShowCurrentSAGTOriginal`)
+    These two criteria use strict `<` and `>` comparisons respectively between
+    `COVSUMMARY.TOTAL_SA` and `COVSUMMARY.TOTAL_ORIGINAL_SA`; equal amounts do
+    not match either. Each checkbox controls its own predicate, including after
+    saved-query restore. Checking both retains the usual AND semantics (no
+    matching amounts). Unchecking both adds neither predicate.
 *   **Include APB Rider as Base Coverage:** Checkbox (`CheckBox_IncludeAPBRiderAsBase`)
 *   **GCV > Current CV (02 and 75) (ISWL):** Checkbox (`CheckBox_ShowGCVGTCurrentCV`)
 *   **GCV < Current CV (02 and 75) (ISWL):** Checkbox (`CheckBox_ShowGCVLTCVT`)
@@ -199,6 +243,21 @@ the conversion CTE; neither verifier exports policy rows.
 *   **GSP (58):** Range (`TextBox_GSPLessThan` to `TextBox_GSPGreaterThan`)
 *   **Grace Period Rule Code (66):** Checkbox + Listbox (`CheckBox_GracePeriodRuleCode` and `ListBox_GracePeriodRuleCode`)
 *   **Death Benefit Option (66):** Checkbox + Listbox (`CheckBox_SpecifyDBOption` and `ListBox_DBOption`)
+*   **Decrease Charge Rule (66):** Checkbox + Listbox (`chk_decr_chrg_rule` / `list_decr_chrg_rule`; SuiteView addition).
+    Filters live-verified `TH_NON_TRD_POL.DECR_CHRG_ALLOW` through an `EXISTS` on the
+    full system/company/technical-policy key (no join, no row multiplication).
+    Items list every live value: `0 - No charge on decrease`, `1 - Charge on decrease`,
+    `Blank - Not set` (space/NUL/NULL rows, matched as "not 0 or 1" to avoid a NUL
+    literal). Selections are ORed; policies with no TH_NON_TRD_POL row never match.
+    Unchecked or no selection adds nothing. State saves with the query and clears with New.
+
+Layout: three top-aligned columns fitted to content — comparison checkboxes over
+a **Value Ranges** group; the four code lists (Grace Period Rule, Death Benefit
+Option, Decrease Charge Rule, Orig Entry Code) each showing every row; and the
+IUL/fund criteria (CIRF Key, Premium Allocation funds, Allocation Sequence Count,
+Current Fund Value). Native no-DB check: `tools/app/verify_adv_tab.py --screenshot <path>`;
+read-only live filter check: `tools/audit/verify_decrease_charge_rule_filter.py`.
+Regression: `tests/test_audit_adv_decrease_charge_rule.py`.
 *   **IUL Only - Premium Allocation funds (57):** Checkbox + Listbox (`CheckBox_PremiumAllocationFunds` and `ListBox_PremiumAllocationFunds`)
 *   **Type P Sequence (57) (Under IUL Only Sequence Count):** Range (`TextBox_TypePCountLessThan` to `TextBox_TypePCountGreaterThan`)
 *   **Type V Sequence (57) (Under IUL Only Sequence Count):** Range (`TextBox_TypeVCountLessThan` to `TextBox_TypeVCountGreaterThan`)

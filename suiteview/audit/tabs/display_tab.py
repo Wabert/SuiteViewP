@@ -90,6 +90,13 @@ class DisplayTab(QWidget):
         c1.addWidget(_spacer())
 
         self.chk_converted_pol = _cb("Converted policy info (52)")
+        self.chk_post_conversion = _cb("Show post conversion policy (link)")
+        self.chk_post_conversion.setToolTip(
+            "For last entry code O, find destination policies whose conversion "
+            "record names this policy and source company, within the same system. "
+            "Shows destination policy number and company; unmatched policies stay "
+            "in the results with blanks. Multiple destinations appear on separate rows."
+        )
         self.chk_segment52 = _cb("Application / conversion fields (52-G)")
         self.chk_conversion_dates = _cb("Latest SC conversion dates (69)")
         self.chk_conversion_dates.setToolTip(
@@ -102,7 +109,7 @@ class DisplayTab(QWidget):
         self.chk_init_term_period = _cb("Initial Term Period (02)")
         self.chk_disp_conv_period = _cb("Display if within Conversion Period (Calc)")
         self.chk_disp_conv_period_calc = _cb("Display Conversion Period (Calc)")
-        for w in (self.chk_converted_pol, self.chk_segment52,
+        for w in (self.chk_converted_pol, self.chk_post_conversion, self.chk_segment52,
                   self.chk_conversion_dates, self.chk_conv_credit,
                   self.chk_init_term_period, self.chk_disp_conv_period,
                   self.chk_disp_conv_period_calc):

@@ -449,6 +449,14 @@ DEATH_BENEFIT_OPTION_ITEMS = [
     "3 - Return Of Prem(C)",
 ]
 
+# ── Decrease Charge Rule (66) — TH_NON_TRD_POL.DECR_CHRG_ALLOW ───────────────
+# Live values are 0, 1 and unset (space or NUL). "Blank" matches the unset rows.
+DECREASE_CHARGE_RULE_ITEMS = [
+    "0 - No charge on decrease",
+    "1 - Charge on decrease",
+    "Blank - Not set",
+]
+
 # ── Orig Entry Code (01) ─────────────────────────────────────────────────────
 ORIG_ENTRY_CODE_ITEMS = [
     "A - New business",

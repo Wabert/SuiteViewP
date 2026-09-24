@@ -1,4 +1,8 @@
 import os
+import re
+import sqlite3
+
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -41,6 +45,65 @@ def _build(adv_tab: AdvTab, display_tab: DisplayTab | None = None):
 
 def _select_head(sql: str) -> str:
     return sql.split("\nFROM ", 1)[0]
+
+
+@pytest.mark.parametrize("less,greater,operators,matching", [
+    (False, False, [], ["less", "equal", "greater", "unknown"]),
+    (True, False, ["<"], ["less"]),
+    (False, True, [">"], ["greater"]),
+    (True, True, ["<", ">"], []),
+])
+def test_current_original_sa_comparisons_are_strict_and_independent(
+    less, greater, operators, matching,
+):
+    _app()
+    adv = AdvTab()
+    adv.chk_sa_lt_orig.setChecked(less)
+    adv.chk_sa_gt_orig.setChecked(greater)
+    sql = _build(adv)
+    predicates = re.findall(
+        r"\(COVSUMMARY\.TOTAL_SA ([<>=]+) COVSUMMARY\.TOTAL_ORIGINAL_SA\)",
+        sql,
+    )
+    assert predicates == operators
+    if operators:
+        assert "COVSUMMARY AS (" in sql
+        assert "JOIN COVSUMMARY" in sql
+
+    restored = AdvTab()
+    restored.set_state(adv.get_state())
+    assert _build(restored) == sql
+
+    where = " AND ".join(
+        f"COVSUMMARY.TOTAL_SA {op} COVSUMMARY.TOTAL_ORIGINAL_SA"
+        for op in predicates
+    ) or "1=1"
+    with sqlite3.connect(":memory:") as db:
+        db.execute("CREATE TABLE COVSUMMARY (name TEXT, TOTAL_SA REAL, TOTAL_ORIGINAL_SA REAL)")
+        db.executemany(
+            "INSERT INTO COVSUMMARY VALUES (?, ?, ?)",
+            [("less", 99.99, 100), ("equal", 100, 100),
+             ("greater", 100.01, 100), ("unknown", None, 100)],
+        )
+        assert [row[0] for row in db.execute(
+            f"SELECT name FROM COVSUMMARY WHERE {where}",
+        )] == matching
+
+
+def test_switching_sa_comparison_rebuilds_in_the_correct_direction():
+    _app()
+    adv = AdvTab()
+    adv.chk_sa_lt_orig.setChecked(True)
+    assert "(COVSUMMARY.TOTAL_SA < COVSUMMARY.TOTAL_ORIGINAL_SA)" in _build(adv)
+
+    adv.chk_sa_lt_orig.setChecked(False)
+    adv.chk_sa_gt_orig.setChecked(True)
+    sql = _build(adv)
+    assert "(COVSUMMARY.TOTAL_SA > COVSUMMARY.TOTAL_ORIGINAL_SA)" in sql
+    assert "(COVSUMMARY.TOTAL_SA <" not in sql
+
+    adv.set_state({})
+    assert "COVSUMMARY.TOTAL_ORIGINAL_SA)" not in _build(adv)
 
 
 def test_glp_range_adds_where_join_and_result_column():

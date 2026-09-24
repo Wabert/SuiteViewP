@@ -123,7 +123,50 @@ _NEW_BTN_STYLE = (
     f" border: 1px solid {_GOLD}; border-radius: 2px;"
     f" padding: 1px 6px; font-size: 8pt; font-weight: bold; }}"
     f"QPushButton:hover {{ background-color: {_BLUE}; }}"
+    f"QPushButton:disabled {{ background-color: #8A9BB5; color: #D9E1EC; border-color: #8A9BB5; }}"
 )
+
+_SOURCE_ODBC = "odbc"
+_SOURCE_FILES = "files"
+_FILE_TOKEN_PREFIX = "file:"
+
+_SOURCE_KIND_STYLES = {
+    _SOURCE_ODBC: (
+        f"QPushButton {{ background-color: {_BLUE_BG}; color: {_BLUE_DARK};"
+        f" border: 1px solid {_BLUE}; border-radius: 2px;"
+        f" padding: 0px; font-size: 8pt; font-weight: bold; }}"
+        f"QPushButton:hover {{ background-color: {_BLUE_LIGHT}; }}"
+    ),
+    _SOURCE_FILES: (
+        f"QPushButton {{ background-color: {_BLUE_DARK}; color: {_GOLD};"
+        f" border: 1px solid {_GOLD}; border-radius: 2px;"
+        f" padding: 0px; font-size: 8pt; font-weight: bold; }}"
+        f"QPushButton:hover {{ background-color: {_BLUE}; }}"
+    ),
+}
+_SOURCE_KIND_TEXT = {_SOURCE_ODBC: "ODBC", _SOURCE_FILES: "Files"}
+_SOURCE_KIND_TIPS = {
+    _SOURCE_ODBC: "Showing ODBC data sources — click to switch to File Sources",
+    _SOURCE_FILES: "Showing File Sources (CSV / Excel / text) — click to switch to ODBC",
+}
+_NO_FILE_SOURCES = "No file sources — create one in Objects"
+
+
+def is_file_source_token(dsn: str) -> bool:
+    return str(dsn or "").startswith(_FILE_TOKEN_PREFIX)
+
+
+def file_source_label(fds) -> str:
+    from suiteview.audit.file_source import datasource_label
+    return f"{fds.name} [{datasource_label(fds)}]"
+
+
+def file_source_table_fields(fds) -> dict[str, list[tuple[str, str]]]:
+    """Map each File Source member table to its stored [(column, type), ...]."""
+    return {
+        member.resolved_table_name(): [(col.name, col.data_type) for col in fds.columns]
+        for member in fds.members
+    }
 
 
 class _FieldLoaderThread(QThread):
@@ -259,7 +302,9 @@ class FieldPickerPanel(QWidget):
         self._table_loader: _TableLoaderThread | None = None
         self._field_cache: dict[str, list[tuple]] = {}
         self._common_table_cols: dict[str, list[tuple]] = {}
-        self._connections: list[tuple[str, str]] = []
+        self._connections: list[tuple[str, str]] = []  # ODBC options only
+        self._source_kind = _SOURCE_ODBC
+        self._last_selection: dict[str, str] = {_SOURCE_ODBC: "", _SOURCE_FILES: ""}
         self._local_mode = False  # file-backed source: tables/fields from a stored schema, no ODBC
         self._fields_sort_mode = "native"
         self._preferred_table: str = ""
@@ -283,14 +328,16 @@ class FieldPickerPanel(QWidget):
         connection_row = QHBoxLayout()
         connection_row.setContentsMargins(0, 0, 0, 0)
         connection_row.setSpacing(4)
-        lbl_connection = QLabel("ODBC")
-        lbl_connection.setFont(_FONT_BOLD)
-        lbl_connection.setStyleSheet(f"color: {_BLUE_DARK};")
+        self.btn_source_kind = QPushButton()
+        self.btn_source_kind.setFont(_FONT_BOLD)
+        self.btn_source_kind.setFixedSize(44, 24)
+        self.btn_source_kind.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_source_kind.clicked.connect(self._on_source_kind_toggled)
         self.cmb_connection = QComboBox()
         self.cmb_connection.setFont(_FONT_SMALL)
         self.cmb_connection.setFixedHeight(24)
-        self.cmb_connection.currentTextChanged.connect(self._on_connection_changed)
-        connection_row.addWidget(lbl_connection)
+        self.cmb_connection.currentIndexChanged.connect(self._on_connection_changed)
+        connection_row.addWidget(self.btn_source_kind)
         connection_row.addWidget(self.cmb_connection, 1)
         root.addLayout(connection_row)
 
@@ -398,6 +445,7 @@ class FieldPickerPanel(QWidget):
         self._splitter = splitter
         splitter.splitterMoved.connect(self._on_splitter_moved)
         root.addWidget(splitter, 1)
+        self._set_source_kind(_SOURCE_ODBC)
 
     # ── State persistence ─────────────────────────────────────────
 
@@ -456,11 +504,12 @@ class FieldPickerPanel(QWidget):
     # ── Public API ────────────────────────────────────────────────
 
     def set_connection_options(self, connections: list, current: str = ""):
-        """Set the ODBC connections available to the Visual Query SQL Assist picker."""
+        """Set the ODBC connections available to the SQL Assist picker.
+
+        A ``file:<id>`` *current* keeps (or puts) the picker in Files mode;
+        any other value selects from the ODBC list.
+        """
         selected = current or self.current_connection()
-        previous_dsn = self._dsn
-        self.cmb_connection.blockSignals(True)
-        self.cmb_connection.clear()
         self._connections = []
         for connection in connections:
             if isinstance(connection, tuple):
@@ -468,8 +517,69 @@ class FieldPickerPanel(QWidget):
             else:
                 label = str(connection)
                 dsn = str(connection)
-            self._connections.append((str(label), str(dsn)))
+            if not is_file_source_token(dsn):
+                self._connections.append((str(label), str(dsn)))
+        if is_file_source_token(selected):
+            self._set_source_kind(_SOURCE_FILES)
+            self._fill_connection_combo(self._file_connection_options(selected), selected)
+            dsn = self.current_connection()
+            if dsn and dsn != self._dsn:
+                self._apply_file_source(dsn)
+            return
+        self._set_source_kind(_SOURCE_ODBC)
+        self._fill_connection_combo(self._connections, selected)
+        dsn = self.current_connection()
+        if dsn and dsn != self._dsn:
+            self._apply_odbc_source(dsn)
+
+    def show_file_source(self, token: str) -> bool:
+        """Switch to Files mode and show a File Source's stored schema (no ODBC)."""
+        self._set_source_kind(_SOURCE_FILES)
+        self._fill_connection_combo(self._file_connection_options(token), token)
+        if self.current_connection() != token:
+            return False
+        return self._apply_file_source(token)
+
+    def current_connection(self) -> str:
+        return str(self.cmb_connection.currentData() or "").strip()
+
+    def current_connection_label(self) -> str:
+        return self.cmb_connection.currentText().strip()
+
+    def source_kind(self) -> str:
+        return self._source_kind
+
+    def _set_source_kind(self, kind: str):
+        self._source_kind = kind
+        self.btn_source_kind.setText(_SOURCE_KIND_TEXT[kind])
+        self.btn_source_kind.setToolTip(_SOURCE_KIND_TIPS[kind])
+        self.btn_source_kind.setStyleSheet(_SOURCE_KIND_STYLES[kind])
+        self.btn_add_table.setEnabled(kind == _SOURCE_ODBC)
+
+    def _file_connection_options(self, ensure: str = "") -> list[tuple[str, str]]:
+        from suiteview.audit import file_query_runner, file_source_store
+
+        try:
+            options = [
+                (file_source_label(fds), f"{_FILE_TOKEN_PREFIX}{fds.id}")
+                for fds in file_source_store.list_file_sources()
+            ]
+        except Exception:
+            logger.exception("Failed to list File Sources for SQL Assist")
+            options = []
+        if is_file_source_token(ensure) and ensure not in {dsn for _label, dsn in options}:
+            fds = file_query_runner.resolve_file_source(ensure[len(_FILE_TOKEN_PREFIX):])
+            if fds is not None:
+                options.insert(0, (file_source_label(fds), ensure))
+        return options
+
+    def _fill_connection_combo(self, options: list[tuple[str, str]], selected: str = ""):
+        self.cmb_connection.blockSignals(True)
+        self.cmb_connection.clear()
+        for label, dsn in options:
             self.cmb_connection.addItem(str(label), str(dsn))
+        if not options and self._source_kind == _SOURCE_FILES:
+            self.cmb_connection.addItem(_NO_FILE_SOURCES, "")
         selected_index = -1
         if selected:
             for row in range(self.cmb_connection.count()):
@@ -481,36 +591,82 @@ class FieldPickerPanel(QWidget):
         if selected_index >= 0:
             self.cmb_connection.setCurrentIndex(selected_index)
         self.cmb_connection.blockSignals(False)
+
+    def _on_source_kind_toggled(self):
+        """Flip the dropdown between ODBC data sources and saved File Sources."""
+        if self._dsn:
+            kind_of_current = _SOURCE_FILES if is_file_source_token(self._dsn) else _SOURCE_ODBC
+            self._last_selection[kind_of_current] = self._dsn
+        kind = _SOURCE_FILES if self._source_kind == _SOURCE_ODBC else _SOURCE_ODBC
+        self._set_source_kind(kind)
+        remembered = self._last_selection.get(kind, "")
+        if kind == _SOURCE_FILES:
+            options = self._file_connection_options(remembered)
+        else:
+            options = list(self._connections)
+        self._fill_connection_combo(options, remembered)
         dsn = self.current_connection()
-        if dsn and dsn != previous_dsn:
-            self._dsn = dsn
-            self._display_names = {}
-            self._field_cache.clear()
-            self._current_table = ""
-            self._preferred_table = ""
+        if not dsn:
+            # Nothing to pick in this mode; the active query keeps its source.
+            self.list_tables.clear()
+            self.list_fields.clear()
+            return
+        if dsn == self._dsn:
             self._rebuild_table_list()
+            return
+        self._on_connection_changed()
 
-    def current_connection(self) -> str:
-        data = self.cmb_connection.currentData()
-        return str(data or self.cmb_connection.currentText()).strip()
-
-    def current_connection_label(self) -> str:
-        return self.cmb_connection.currentText().strip()
-
-    def _on_connection_changed(self, connection: str):
+    def _on_connection_changed(self, *_args):
         dsn = self.current_connection()
         if not dsn or dsn == self._dsn:
             return
+        if is_file_source_token(dsn):
+            if not self._apply_file_source(dsn):
+                return
+        else:
+            self._tables = []
+            self._pinned_tables.clear()
+            self._apply_odbc_source(dsn)
+        self.tables_changed.emit([])
+        self.pinned_tables_changed.emit([])
+
+    def _apply_odbc_source(self, dsn: str):
+        if self._local_mode:
+            # File member tables never belong to an ODBC source.
+            self._tables = []
+            self._pinned_tables.clear()
+        self._local_mode = False
         self._dsn = dsn
         self._display_names = {}
         self._field_cache.clear()
         self._current_table = ""
         self._preferred_table = ""
-        self._tables = []
-        self._pinned_tables.clear()
         self._rebuild_table_list()
-        self.tables_changed.emit([])
-        self.pinned_tables_changed.emit([])
+
+    def _apply_file_source(self, token: str) -> bool:
+        """Serve tables + fields from a File Source's stored schema (cache pre-filled)."""
+        from suiteview.audit import file_query_runner
+
+        fds = file_query_runner.resolve_file_source(token[len(_FILE_TOKEN_PREFIX):])
+        if fds is None:
+            logger.warning("SQL Assist could not resolve File Source %s", token)
+            self.list_tables.clear()
+            self.list_fields.clear()
+            return False
+        table_fields = file_source_table_fields(fds)
+        self._local_mode = True
+        self._dsn = token
+        self._display_names = {}
+        self._tables = list(table_fields.keys())
+        self._pinned_tables = set(self._tables)
+        self._field_cache = {
+            name: [(col, type_name, None, "", False) for col, type_name in cols]
+            for name, cols in table_fields.items()
+        }
+        self._current_table = ""
+        self._preferred_table = self._tables[0] if self._tables else ""
+        self._rebuild_table_list()
+        return True
 
     def _load_tables(self, dsn: str):
         self.list_tables.clear()
@@ -534,32 +690,15 @@ class FieldPickerPanel(QWidget):
         logger.warning("Visual Query SQL Assist table load failed: %s", message)
         self._table_loader = None
 
-    def load_local_source(self, label: str, token: str,
-                          table_fields: dict[str, list[tuple[str, str]]]):
-        """Show a file-backed source: tables + fields from a stored schema, no ODBC.
-
-        ``table_fields`` maps table name -> [(column, type), ...]. Tables and
-        columns are served directly (the field cache is pre-filled), so the
-        ODBC loader threads are never used while this source is active.
-        """
-        self._local_mode = True
-        self.set_connection_options([(label, token)], token)
-        self._dsn = token
-        self._tables = list(table_fields.keys())
-        self._pinned_tables = set(self._tables)
-        self._field_cache = {
-            name: [(col, type_name, None, "", False) for col, type_name in cols]
-            for name, cols in table_fields.items()
-        }
-        self._current_table = ""
-        self._preferred_table = self._tables[0] if self._tables else ""
-        self._rebuild_table_list()
-
     def set_group(self, dsn: str, tables: list[str],
                   display_names: dict[str, str],
                   preferred_table: str = "",
                   pinned_tables: list[str] | None = None):
         """Load tables and fields from a dynamic group."""
+        if is_file_source_token(dsn):
+            if not self.show_file_source(dsn):
+                self.clear()
+            return
         self._local_mode = False
         previous_dsn = self._dsn
         self._dsn = dsn

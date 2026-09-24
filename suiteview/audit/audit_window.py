@@ -2301,20 +2301,8 @@ class AuditWindow(FramelessWindowBase):
 
     def _bind_picker_to_file_source(self, dq):
         """Fill the SQL Assist picker from a File Source's stored schema (no ODBC)."""
-        from suiteview.audit import file_query_runner
-        from suiteview.audit.file_source import datasource_label
-
-        fds = file_query_runner.resolve_file_source(dq.dsn[len("file:"):])
-        if fds is None:
+        if not self._field_picker.show_file_source(dq.dsn):
             self._field_picker.clear()
-            return
-        label = f"{fds.name} [{datasource_label(fds)}]"
-        table_fields = {
-            member.resolved_table_name():
-                [(col.name, col.data_type) for col in fds.columns]
-            for member in fds.members
-        }
-        self._field_picker.load_local_source(label, dq.dsn, table_fields)
 
     def _manual_sql_odbc_connections(self) -> list[tuple[str, str]]:
         """Return saved ODBC connections plus system/user DSNs."""
@@ -2436,12 +2424,7 @@ class AuditWindow(FramelessWindowBase):
             self._polview_window = GetPolicyWindow()
             self._polview_owner = True
         pw = self._polview_window
-        if hasattr(pw, 'lookup_bar'):
-            lb = pw.lookup_bar
-            lb.region_input.setText(region)
-            lb.company_input.setText(company_code)
-            lb.policy_input.setText(policy_number)
-            lb._on_get_policy()
+        pw.load_policy(policy_number, region=region, company_code=company_code)
         pw.show()
         pw.raise_()
         pw.activateWindow()
