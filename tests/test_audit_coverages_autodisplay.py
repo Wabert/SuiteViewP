@@ -203,6 +203,17 @@ def test_gcv_lt_cv_shows_gcv_and_current_cv():
     assert "MVVAL.CSV_AMT CurrentCV" in head
 
 
+def test_iswl_gcv_weights_boy_rate_by_months_remaining():
+    _app()
+    cov = CoveragesTab()
+    cov.chk_gcv_gt_cv.setChecked(True)
+
+    sql = " ".join(_build(cov).split())
+
+    assert ("ROUND((INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN * COVSUMMARY.TOTAL_CV1 "
+            "+ INTERPOLATION_MONTHS.MONTHS_YTD * COVSUMMARY.TOTAL_CV2)/12, 2) ISWL_GCV") in sql
+
+
 def test_criteria_column_suppressed_when_display_checkbox_covers_it():
     _app()
     cov = CoveragesTab()

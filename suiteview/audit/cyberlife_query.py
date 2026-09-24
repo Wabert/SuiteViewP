@@ -958,8 +958,8 @@ def build_cyberlife_sql(
     if needs_iswl_gcv:
         sql_parts.append(f", ISWL_INTERPOLATED_GCV AS (")
         sql_parts.append(f"  SELECT COVSUMMARY.CK_SYS_CD, COVSUMMARY.CK_CMP_CD, COVSUMMARY.TCH_POL_ID")
-        sql_parts.append(f"    , ROUND((INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN * COVSUMMARY.TOTAL_CV2")
-        sql_parts.append(f"            + INTERPOLATION_MONTHS.MONTHS_YTD * COVSUMMARY.TOTAL_CV1)/12, 2) ISWL_GCV")
+        sql_parts.append(f"    , ROUND((INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN * COVSUMMARY.TOTAL_CV1")
+        sql_parts.append(f"            + INTERPOLATION_MONTHS.MONTHS_YTD * COVSUMMARY.TOTAL_CV2)/12, 2) ISWL_GCV")
         sql_parts.append(f"  FROM COVSUMMARY")
         sql_parts.append(f"    INNER JOIN INTERPOLATION_MONTHS")
         sql_parts.append(f"      ON COVSUMMARY.CK_SYS_CD = INTERPOLATION_MONTHS.CK_SYS_CD")
