@@ -3744,6 +3744,25 @@ class PolicyInformation:
             parts.append(text.ljust(width))
         return "".join(parts)
 
+    @property
+    def cyberlife_rate_user_code(self) -> str:
+        """CyberLife rate-file user for source-keyed WL/ISWL rates (01 -> 00)."""
+        from suiteview.core.rates import cyberlife_rate_user
+        return cyberlife_rate_user(self.company_code)
+
+    @property
+    def has_fixed_premium_rates(self) -> bool:
+        """ISWL or traditional WL: IAF premiums, CVF cash values and mode factors apply."""
+        product = self.product_type
+        return product == "ISWL" or (not self.is_advanced_product and product == "WL")
+
+    def cov_rate_sex_code(self, cov_index: int) -> str:
+        """CyberLife sex code (1/2/3) for rate keys: the 67 segment, else LH_COV_PHA."""
+        code = self.renewal_cov_sex_code(cov_index)
+        if not code:
+            code = str(self.data_item("LH_COV_PHA", "INS_SEX_CD", cov_index - 1) or "")
+        return code.strip()
+
     def rates_wl_cv(self, cov_index: int, user_defined: str = "") -> Dict[int, Decimal]:
         """Whole Life cash values by actual source duration, not a one-based array."""
         key = self.cov_cash_value_key(cov_index)
@@ -3753,7 +3772,31 @@ class PolicyInformation:
         rates = self._get_rates()
         if rates is None:
             raise RuntimeError("The shared rates service is not available.")
-        return rates.get_wl_cash_values(self.company_code, key, age, user_defined)
+        return rates.get_wl_cash_values(self.cyberlife_rate_user_code, key, age, user_defined)
+
+    def rates_wl_premium(self, plancode: str, issue_age: int, issue_date: Optional[date]) -> Dict[str, Any]:
+        """IAF premium cells (WL_RATE_PREM) for a plancode at an issue age."""
+        rates = self._get_rates()
+        if rates is None:
+            raise RuntimeError("The shared rates service is not available.")
+        return rates.get_wl_premium_rates(self.cyberlife_rate_user_code, plancode, issue_age, issue_date)
+
+    def rates_modal_factors(self) -> Dict[str, Any]:
+        """Base plan mode factors and policy fee (POINT_MODEFACT -> RATE_MODEFACT)."""
+        rates = self._get_rates()
+        if rates is None:
+            raise RuntimeError("The shared rates service is not available.")
+        return rates.get_modal_factors(self.cov_plancode(1))
+
+    def build_premium_rate_matrix(self, cov_index: int) -> List[List]:
+        """IAF base and benefit premium rates for a fixed-premium coverage."""
+        from .fixed_premium_rates import build_premium_rate_matrix
+        return build_premium_rate_matrix(self, cov_index)
+
+    def build_modal_premium_matrix(self) -> List[List]:
+        """Modal premium from IAF rates and RATE_MODEFACT, beside POL_PRM_AMT."""
+        from .fixed_premium_rates import build_modal_premium_matrix
+        return build_modal_premium_matrix(self)
 
     # CyberLife keeps a short per-unit value window on the 02 segment. Each
     # value applies at policy duration LOW_DUR_PER + offset.
@@ -3889,6 +3932,19 @@ class PolicyInformation:
         result["reason"] = "; ".join(reasons)
         return result
 
+    def _stored_cv_check(self, cov_index: int, cash_values: Dict[int, Decimal]) -> str:
+        """Compare the 02 segment's stored LOW_DUR CV window with the CVF schedule."""
+        stored = self.cov_cash_value_rates(cov_index)
+        if stored["basis"] != "CV" or not stored["rates"]:
+            return f"Stored rates are {stored['basis']} (not compared)" if stored["basis"] else "None stored"
+        durations = sorted(stored["rates"])
+        differences = [
+            f"dur {d}: {stored['rates'][d]} vs {cash_values.get(d, 'none')}"
+            for d in durations if cash_values.get(d) != stored["rates"][d]
+        ]
+        span = f"Durations {durations[0]}-{durations[-1]}"
+        return f"{span} match" if not differences else "Differs: " + "; ".join(differences)
+
     def build_whole_life_coverage_rate_matrix(self, cov_index: int) -> Optional[List[List]]:
         """Source-keyed WL rates; other WL rate families can add independent schedules."""
         from dateutil.relativedelta import relativedelta
@@ -3901,12 +3957,14 @@ class PolicyInformation:
         coverage = self.get_coverages()[cov_index - 1]
         metadata = [
             ("Policy", self.policy_number), ("Company", self.company_code),
+            ("Rate User", self.cyberlife_rate_user_code),
             ("Cov Index", cov_index), ("Plancode", coverage.plancode),
             ("Rate Key", self.cov_cash_value_key(cov_index)),
             ("User Defined", "(blank)"), ("Issue Age", issue_age),
             ("CV Basis", "Per coverage unit"),
             ("Value per Unit", coverage.vpu if coverage.vpu is not None else "Unknown"),
-            ("Source", "WL_RATE_CV"), ("NSP / PUI / Div", "Not yet available"),
+            ("Source", "WL_RATE_CV"), ("02 Stored CV", self._stored_cv_check(cov_index, cash_values)),
+            ("NSP / PUI / Div", "Not yet available"),
         ]
         matrix = [["RateFields", "RateInfo", "Date", "Age", "Duration", "CV"]]
         schedule = sorted(cash_values.items())
@@ -4009,12 +4067,17 @@ class PolicyInformation:
         ]
         
         # Ensure metadata lists are same length
+        extra_columns: Dict[str, Optional[list]] = {}
+        if self.product_type == "ISWL":
+            iswl_meta, extra_columns = self._iswl_coverage_rate_extras(cov_index)
+            rate_fields += [name for name, _ in iswl_meta]
+            rate_info += [value for _, value in iswl_meta]
         max_meta = max(len(rate_fields), len(rate_info))
         xmax = max(xmax, max_meta)
         
         # Build the matrix
         columns = ["RateFields", "RateInfo", "Date", "Age", "Year", "COI", "EPU", "SCR", "GuarCOI", "GuarEPU"]
-        matrix = [columns]  # Row 0 = headers
+        matrix = [columns + list(extra_columns)]  # Row 0 = headers
         
         for row in range(1, xmax + 1):
             row_data = []
@@ -4058,9 +4121,44 @@ class PolicyInformation:
                         row_data.append(guar_epu[row])
                     else:
                         row_data.append("NA" if guar_epu is None else "")
+            for values in extra_columns.values():
+                if values and row < len(values):
+                    row_data.append(values[row])
+                else:
+                    row_data.append("NA" if values is None else "")
             matrix.append(row_data)
         
         return matrix
+
+    def _iswl_coverage_rate_extras(self, cov_index: int) -> Tuple[List[tuple], Dict[str, Optional[list]]]:
+        """ISWL plan rates beside the UL view: every COI scale, GINT and cease ages.
+
+        Scale 1 (current) and 0 (guaranteed) are already the COI/GuarCOI
+        columns; older current scales from the SCALE_COI calendar are added.
+        """
+        rates = self._get_rates()
+        if rates is None:
+            raise RuntimeError("The shared rates service is not available.")
+        plancode = self.cov_plancode(cov_index)
+        calendar = sorted(
+            ((row[0].date() if hasattr(row[0], "date") else row[0], int(row[1]))
+             for row in (rates.get_rates("COI_SCALE", plancode) or [])),
+            key=lambda entry: entry[0],
+        )
+        ages = rates.get_age_limits(plancode)
+        meta: List[tuple] = [(" ", " "), ("COI Scale Calendar", " " if calendar else "Not loaded")]
+        meta += [(f"  from {start:%Y-%m-%d}", f"Scale {scale}") for start, scale in calendar]
+        meta += [
+            ("GuarCOI", "Scale 0"),
+            ("Prem Cease Age", ages["premium_cease"] if ages["premium_cease"] is not None else "Not loaded"),
+            ("Ben Cease Age", ages["benefit_cease"] if ages["benefit_cease"] is not None else "Not loaded"),
+            (" ", " "), ("Fixed premium rates", "See Fixed Premium"),
+        ]
+        extra: Dict[str, Optional[list]] = {}
+        for scale in sorted({s for _, s in calendar if s > 1}):
+            extra[f"COI S{scale}"] = self.rates_coi(cov_index, scale)
+        extra["GINT"] = rates.get_gint(plancode)
+        return meta, extra
 
     def build_benefit_rate_matrix(self, ben_index: int, scale: int = 1) -> Optional[List[List]]:
         """

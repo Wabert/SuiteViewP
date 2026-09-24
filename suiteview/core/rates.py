@@ -25,7 +25,8 @@ Rate Types:
 - BENMTP: Benefit Maximum Target Premium
 - BENCTP: Benefit Commission Target Premium
 - BANDSPECS: Band specifications for face amount banding
-- WL cash values: exact company/class-base-sub/issue-age schedules by source duration
+- WL cash values: exact CyberLife user/class-base-sub/issue-age schedules by source duration
+- WL/ISWL fixed premiums (WL_RATE_PREM) and mode factors (POINT_MODEFACT/RATE_MODEFACT)
 - And more...
 
 Usage:
@@ -87,6 +88,58 @@ _INDEX_ILLUSTRATION_PLAN_ALIASES = {
 class RatesError(Exception):
     """Exception for rate lookup errors."""
     pass
+
+
+# Source-keyed CyberLife rate files (CVF prints, IAF premiums, CKUDT323-325
+# mode premium tables) are stored under the CyberLife *user* code, not the
+# policy company code. Company 01 shares user 00's entries (online-table
+# print: "USER 01 SHARES ENTRIES WITH USER 00"); 04/06/08 are their own users,
+# as loaded in UL_Rates. Unlisted companies (e.g. 26) have no verified link.
+CYBERLIFE_RATE_USER_BY_COMPANY = {"01": "00", "04": "04", "06": "06", "08": "08"}
+
+
+def cyberlife_rate_user(company_code: str) -> str:
+    """CyberLife rate-file user code for a policy company; never guessed."""
+    company = str(company_code or "").strip().zfill(2)
+    try:
+        return CYBERLIFE_RATE_USER_BY_COMPANY[company]
+    except KeyError:
+        raise RatesError(
+            f"Company {company} has no verified CyberLife rate-file user mapping."
+        ) from None
+
+
+# WL_RATE_PREM rate types, as printed on the IAF.
+WL_PREMIUM_RATE_TYPES = {
+    "N": "Premium",
+    "W": "Target premium",
+    "C": "Current COI (IAF)",
+    "G": "Guaranteed COI (IAF)",
+}
+
+_WL_PREMIUM_COLUMNS = (
+    "IAF_VERSION", "EFFECTIVE_DATE", "FIRST_AGE", "LAST_AGE", "IAR_USE", "PAY_AGE",
+    "PAY_AGE_USE", "ME_AGE", "ME_AGE_USE", "VALUE_PER_UNIT", "RATE_TYPE",
+    "SCALE_START", "SCALE_STOP", "PREMIUM_IDENTIFIER", "DURATION_CODE", "SEX",
+    "RATECLASS", "BAND", "PLAN_OPTION", "RATE",
+)
+
+_MODEFACT_COLUMNS = (
+    "Index(MODEFACT)", "PACS", "PACQ", "PACM", "DIRS", "DIRQ", "DIRM",
+    "PACS_FEE", "PACQ_FEE", "PACM_FEE", "DIRS_FEE", "DIRQ_FEE", "DIRM_FEE",
+    "POLICY_FEE", "POLICY_FEE_ADD", "POLICY_FEE_RULE", "COLLECTION_FEE",
+    "COLLECTION_FEE_ADD", "MULTIPLY_ORDER", "RATING_ORDER", "ROUNDING_RULE",
+    "USER_CODE", "MODE_PREM_TABLE", "PAC_FACTOR_TABLE", "PAC_FEE_FACTOR_TABLE",
+    "DIR_FACTOR_TABLE", "DIR_FEE_FACTOR_TABLE", "RULES_TABLE", "FACTOR_SOURCE",
+)
+
+
+def _as_date(value) -> Optional[date]:
+    if value is None or isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    return date.fromisoformat(str(value)[:10])
 
 
 class Rates:
@@ -318,19 +371,21 @@ class Rates:
         return rows
 
     def get_wl_cash_values(
-        self, company: str, rate_key: str, issue_age: int, user_defined: str = "",
+        self, user_code: str, rate_key: str, issue_age: int, user_defined: str = "",
     ) -> Dict[int, Decimal]:
         """Return an exact CVF schedule, retaining duration zero and decimal rates.
 
-        Blank user-defined selects only the blank key, never another variant or
-        company. No match returns an empty schedule; database failures propagate.
+        ``user_code`` is the CyberLife rate-file user (see
+        ``cyberlife_rate_user``), not the policy company. Blank user-defined
+        selects only the blank key, never another variant or user. No match
+        returns an empty schedule; database failures propagate.
         """
-        company = company.strip().upper()
+        company = user_code.strip().upper()
         # Base/subseries are fixed-width source keys; retain their spaces.
         rate_key = rate_key.upper()
         user_defined = user_defined.strip().upper()
         if not re.fullmatch(r"[0-9]{2}", company):
-            raise RatesError("Whole Life cash values require a two-digit company code.")
+            raise RatesError("Whole Life cash values require a two-digit CyberLife user code.")
         if not re.fullmatch(r"[A-Z0-9][A-Z0-9 ]{5}", rate_key):
             raise RatesError("Whole Life cash values require a six-character class/base/sub key.")
         if isinstance(issue_age, bool) or not isinstance(issue_age, int) or not 0 <= issue_age <= 999:
@@ -360,6 +415,126 @@ class Rates:
         if first > last or set(values) != set(range(first, last + 1)):
             raise RatesError("Incomplete Whole Life cash-value schedule.")
         return values
+
+    def get_wl_premium_rates(
+        self, user_code: str, plancode: str, issue_age: int, issue_date: Optional[date] = None,
+    ) -> Dict[str, Any]:
+        """IAF fixed-premium cells (``WL_RATE_PREM``) for one plan and issue age.
+
+        Returns ``{"rows": [...], "iaf_version", "effective_date", "versions"}``.
+        Every rate type is returned (N premium, W target, C/G COI as printed);
+        callers choose sex/rateclass/option. When several IAF versions exist,
+        the latest effective on or before ``issue_date`` is used; without an
+        issue date that choice fails rather than mixing versions. No rows for
+        the plan/user/age returns an empty ``rows`` list.
+        """
+        user_code = str(user_code or "").strip()
+        plancode = str(plancode or "").strip().upper()
+        if not re.fullmatch(r"[0-9]{2}", user_code):
+            raise RatesError("Fixed premiums require a two-digit CyberLife user code.")
+        if not plancode:
+            raise RatesError("Fixed premiums require a plancode.")
+        if isinstance(issue_age, bool) or not isinstance(issue_age, int) or issue_age < 0:
+            raise RatesError("Fixed premiums require a nonnegative integer issue age.")
+        rows = self._fetch_rates(
+            "SELECT " + ", ".join(f"[{c}]" for c in _WL_PREMIUM_COLUMNS) + ", "
+            "[SOURCE_PLANCODE], [SOURCE_IAF_VERSION], [SOURCE_EFFECTIVE_DATE] "
+            "FROM [WL_RATE_PREM] WHERE [USER_CODE] = ? AND [PLANCODE] = ? "
+            "AND [FIRST_AGE] <= ? AND [LAST_AGE] >= ? "
+            "ORDER BY [EFFECTIVE_DATE], [RATE_TYPE], [PLAN_OPTION], [SCALE_START], [PREMIUM_IDENTIFIER]",
+            [user_code, plancode, issue_age, issue_age],
+        ) or []
+        records = []
+        for raw in rows:
+            record = dict(zip(_WL_PREMIUM_COLUMNS + (
+                "SOURCE_PLANCODE", "SOURCE_IAF_VERSION", "SOURCE_EFFECTIVE_DATE"), raw))
+            for key in ("EFFECTIVE_DATE", "SCALE_START", "SCALE_STOP", "SOURCE_EFFECTIVE_DATE"):
+                record[key] = _as_date(record[key])
+            for key in ("RATE", "VALUE_PER_UNIT"):
+                if record[key] is not None:
+                    record[key] = Decimal(str(record[key]))
+            for key in ("IAF_VERSION", "RATE_TYPE", "PREMIUM_IDENTIFIER", "DURATION_CODE",
+                        "SEX", "RATECLASS", "BAND", "PLAN_OPTION", "SOURCE_PLANCODE",
+                        "SOURCE_IAF_VERSION"):
+                record[key] = str(record[key] or "").strip()
+            if record["RATE"] is None:
+                raise RatesError(f"WL_RATE_PREM {plancode} has a NULL rate.")
+            if record["IAR_USE"] not in (0, None):
+                raise RatesError(
+                    f"WL_RATE_PREM {plancode} issue-age-range use {record['IAR_USE']} is not verified."
+                )
+            records.append(record)
+        versions = sorted({(r["EFFECTIVE_DATE"], r["IAF_VERSION"]) for r in records},
+                          key=lambda v: (v[0] or date.min, v[1]))
+        result = {"rows": [], "iaf_version": None, "effective_date": None, "versions": versions}
+        if not versions:
+            return result
+        eligible = [v for v in versions if issue_date is None or v[0] is None or v[0] <= issue_date]
+        if len(versions) > 1 and issue_date is None:
+            raise RatesError(f"WL_RATE_PREM {plancode} has several IAF versions; an issue date is required.")
+        if not eligible:
+            return result
+        chosen = eligible[-1]
+        if len([v for v in eligible if v[0] == chosen[0]]) > 1:
+            raise RatesError(f"WL_RATE_PREM {plancode} has several IAF versions effective {chosen[0]}.")
+        selected = [r for r in records if (r["EFFECTIVE_DATE"], r["IAF_VERSION"]) == chosen]
+        if len({(r["SOURCE_PLANCODE"], r["SOURCE_IAF_VERSION"], r["SOURCE_EFFECTIVE_DATE"])
+                for r in selected}) > 1:
+            raise RatesError(f"WL_RATE_PREM {plancode} mixes several source IAF prints.")
+        result.update(rows=selected, effective_date=chosen[0], iaf_version=chosen[1])
+        return result
+
+    def get_modal_factors(self, plancode: str) -> Dict[str, Any]:
+        """Plan mode-premium factors via ``POINT_MODEFACT`` → ``RATE_MODEFACT``.
+
+        Returns ``{"index": None, "factors": None}`` without a pointer and
+        ``{"index": idx, "factors": None}`` for a pointer whose table is not
+        loaded, so callers can say which source is missing.
+        """
+        plancode = str(plancode or "").strip().upper()
+        pointer = self._fetch_rates(
+            "SELECT [Index(MODEFACT)] FROM [POINT_MODEFACT] WHERE [Plancode] = ? AND [IssueVersion] = 1",
+            [plancode],
+        )
+        if not pointer:
+            return {"index": None, "factors": None}
+        if len(pointer) > 1:
+            raise RatesError(f"POINT_MODEFACT has several rows for plancode {plancode}.")
+        index = str(pointer[0][0] or "").strip()
+        if not index:
+            raise RatesError(f"POINT_MODEFACT has a blank index for plancode {plancode}.")
+        rows = self._fetch_rates(
+            "SELECT " + ", ".join(f"[{c}]" for c in _MODEFACT_COLUMNS)
+            + " FROM [RATE_MODEFACT] WHERE [Index(MODEFACT)] = ?",
+            [index],
+        )
+        if not rows:
+            return {"index": index, "factors": None}
+        if len(rows) > 1:
+            raise RatesError(f"RATE_MODEFACT has several rows for {index}.")
+        factors = dict(zip(_MODEFACT_COLUMNS, rows[0]))
+        for key in _MODEFACT_COLUMNS[1:13] + ("POLICY_FEE", "COLLECTION_FEE"):
+            if factors[key] is None:
+                raise RatesError(f"RATE_MODEFACT {index} has a NULL {key}.")
+            factors[key] = Decimal(str(factors[key]))
+        for key in ("POLICY_FEE_ADD", "POLICY_FEE_RULE", "COLLECTION_FEE_ADD",
+                    "MULTIPLY_ORDER", "RATING_ORDER", "ROUNDING_RULE", "USER_CODE", "FACTOR_SOURCE"):
+            factors[key] = str(factors[key] or "").strip()
+        return {"index": index, "factors": factors}
+
+    def get_age_limits(self, plancode: str) -> Dict[str, Optional[int]]:
+        """Premium and benefit cease ages from ``POINT_PV.Index(AGE)`` (None if absent)."""
+        plancode = str(plancode or "").strip().upper()
+        result = {}
+        for key, view in (("premium_cease", "Select_RATE_PREMIUMCEASE"),
+                          ("benefit_cease", "Select_RATE_BENEFITCEASEAGE")):
+            rows = self._fetch_rates(
+                f"SELECT [Rate] FROM [{view}] WHERE [Plancode] = ? AND [IssueVersion] = 1", [plancode],
+            )
+            if rows and len(rows) > 1:
+                raise RatesError(f"{view} has several rows for plancode {plancode}.")
+            result[key] = int(rows[0][0]) if rows and rows[0][0] is not None else None
+        return result
 
     def get_index_illustration_rates(
         self,

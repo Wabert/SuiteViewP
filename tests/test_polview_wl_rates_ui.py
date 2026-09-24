@@ -21,7 +21,7 @@ def display(qtbot):
     qtbot.addWidget(tabs)
     policy = SimpleNamespace(
         is_advanced_product=False, product_type="WL", company_code="08",
-        premium_pay_status_code="22",
+        cyberlife_rate_user_code="08", premium_pay_status_code="22",
         cov_cash_value_key=lambda index: "1WL511", cov_issue_age=lambda index: 59,
         build_coverage_rate_matrix=Mock(),
     )
@@ -131,6 +131,7 @@ def test_rate_database_error_is_visible_and_does_not_leave_stale_data(display, c
 def test_rates_tree_retains_selection_and_wl_tooltip_across_tab_switch(qtbot, product, advanced):
     policy = SimpleNamespace(
         is_advanced_product=advanced, product_type=product,
+        has_fixed_premium_rates=product == "WL",
         coverage_count=1, benefit_count=0, cov_plancode=lambda index: "201WL500",
         get_benefits=lambda: [],
     )

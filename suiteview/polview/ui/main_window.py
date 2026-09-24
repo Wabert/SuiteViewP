@@ -1097,6 +1097,20 @@ class GetPolicyWindow(FramelessWindowBase):
                 display_title = f"Rates for Coverage {index}"
                 if matrix and "CV" in matrix[0]:
                     display_title = f"Whole Life Cash Value Rates - Coverage {index}"
+            elif category == "Cash Values":
+                display_title = f"Cash Value Rates - Coverage {index}"
+                if self._policy.premium_pay_status_code.strip() in ("44", "45"):
+                    message = "Cash value file is not available for policies on ETI or RPU."
+                    self.raw_table_tab.show_message(message, table_name=display_title)
+                    self._show_status(message)
+                    return
+                matrix = self._policy.build_whole_life_coverage_rate_matrix(index)
+            elif category == "Premium Rates":
+                display_title = f"Premium Rates - Coverage {index}"
+                matrix = self._policy.build_premium_rate_matrix(index)
+            elif category == "Modal Premium":
+                display_title = "Modal Premium"
+                matrix = self._policy.build_modal_premium_matrix()
             elif category == "Benefits":
                 matrix = self._policy.build_benefit_rate_matrix(index)
                 display_title = f"Rates for Benefit {index}"
@@ -1140,13 +1154,18 @@ class GetPolicyWindow(FramelessWindowBase):
                 if matrix is None:
                     ok = 'OK'
                     miss = 'MISSING'
-                    if category == "Coverages":
+                    def wl_cv():
+                        return (
+                            f" (WL_RATE_CV: user={self._policy.cyberlife_rate_user_code} "
+                            f"(company {self._policy.company_code}), "
+                            f"key={self._policy.cov_cash_value_key(index)!r}, "
+                            f"issue_age={self._policy.cov_issue_age(index)}, user_defined=blank)"
+                        )
+                    if category == "Cash Values":
+                        diag = wl_cv()
+                    elif category == "Coverages":
                         if not self._policy.is_advanced_product and self._policy.product_type == "WL":
-                            diag = (
-                                f" (WL_RATE_CV: company={self._policy.company_code}, "
-                                f"key={self._policy.cov_cash_value_key(index)!r}, "
-                                f"issue_age={self._policy.cov_issue_age(index)}, user_defined=blank)"
-                            )
+                            diag = wl_cv()
                         else:
                             iss_dt = self._policy.cov_issue_date(index)
                             iss_age = self._policy.cov_issue_age(index)

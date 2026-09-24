@@ -91,7 +91,9 @@ def test_cash_values_database_failure_is_not_missing_data(monkeypatch):
 @pytest.fixture
 def policy(monkeypatch):
     policy = object.__new__(PolicyInformation)
-    policy._data = SimpleNamespace(company_code="08", policy_number="05335420")
+    policy._data = SimpleNamespace(
+        company_code="08", policy_number="05335420", reject_uncached_read=lambda reason: None,
+    )
     policy._rates = Rates()
     coverage = SimpleNamespace(
         plancode="201WL500", issue_age=59, issue_date=date(2000, 1, 22),
@@ -115,6 +117,33 @@ def test_policy_uses_verified_coverage_fields_not_plancode_or_band(policy):
     values = policy.rates_wl_cv(1)
     assert len(values) == 42
     assert policy._rates._fetch_rates.call_args.args[1] == ["08", "1WL511", 59, ""]
+
+
+@pytest.mark.parametrize("company,user", [("01", "00"), ("04", "04"), ("06", "06"), ("08", "08")])
+def test_policy_cash_values_use_the_cyberlife_rate_user_not_the_company(policy, company, user):
+    policy._data.company_code = company
+    policy.rates_wl_cv(1)
+    assert policy._rates._fetch_rates.call_args.args[1][0] == user
+
+
+def test_unmapped_company_fails_instead_of_querying_its_own_code(policy):
+    policy._data.company_code = "26"
+    with pytest.raises(RatesError, match="26 has no verified CyberLife rate-file user"):
+        policy.rates_wl_cv(1)
+    policy._rates._fetch_rates.assert_not_called()
+
+
+def test_cash_value_matrix_compares_the_stored_02_segment_window(policy):
+    stored = {"LOW_DUR_PER": 31, "LOW_DUR_CSV_AMT": "31.00", "LOW_DUR_1_CSV_AMT": "32.00",
+              "LOW_DUR_2_CSV_AMT": "33.50", "INS_CLS_CD": "1", "PLN_BSE_SRE_CD": "WL5",
+              "LIF_PLN_SUB_SRE_CD": "11"}
+    policy.data_item = lambda table, field, index=0: stored.get(field)
+    info = {row[0]: row[1] for row in policy.build_whole_life_coverage_rate_matrix(1)[1:] if row[0]}
+    assert info["Rate User"] == "08"
+    assert info["02 Stored CV"] == "Differs: dur 33: 33.50 vs 33.00"
+    stored["LOW_DUR_2_CSV_AMT"] = "33.00"
+    info = {row[0]: row[1] for row in policy.build_whole_life_coverage_rate_matrix(1)[1:] if row[0]}
+    assert info["02 Stored CV"] == "Durations 31-33 match"
 
 
 def test_policy_cash_key_uses_requested_coverage_row_and_padding(policy):
@@ -207,7 +236,18 @@ def test_other_products_keep_existing_coverage_rate_path(policy, monkeypatch, pr
     policy.renewal_cov_rateclass_by_cov = lambda index: "N"
     policy.cov_band = lambda index: 1
     policy.cov_table_rating = lambda index: 0
+    policy._iswl_coverage_rate_extras = Mock(return_value=(
+        [("Prem Cease Age", 95)], {"COI S2": [None] + [2.5] * 42, "GINT": [None] + [0.04] * 42},
+    ))
     matrix = policy.build_coverage_rate_matrix(1)
-    assert matrix[0][-5:] == ["COI", "EPU", "SCR", "GuarCOI", "GuarEPU"]
-    assert matrix[1][-5:] == [1.25] * 5
+    ul_columns = ["COI", "EPU", "SCR", "GuarCOI", "GuarEPU"]
+    assert matrix[0][5:10] == ul_columns
+    assert matrix[1][5:10] == [1.25] * 5
+    if product == "ISWL":
+        assert matrix[0][10:] == ["COI S2", "GINT"]
+        assert matrix[1][10:] == [2.5, 0.04]
+        assert ["Prem Cease Age", 95] in [row[:2] for row in matrix]
+    else:
+        assert matrix[0][5:] == ul_columns
+        policy._iswl_coverage_rate_extras.assert_not_called()
     policy._rates._fetch_rates.assert_not_called()

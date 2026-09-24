@@ -1,0 +1,15 @@
+{
+  "policy": "13034048",
+  "company": "01",
+  "region": "CKPR",
+  "coverage": 1,
+  "expected": {
+    "user_code": "00",
+    "cash_values": {"31": "333.00", "32": "351.00", "33": "369.00", "34": "388.00"},
+    "premiums": {"**": "11.76", "10": "0.98", "33": "0.44"},
+    "annual_premium": "318.50",
+    "modal_premium": "33.02",
+    "pol_prm_amt": "33.02",
+    "coi_scales": [1, 2, 3]
+  }
+}

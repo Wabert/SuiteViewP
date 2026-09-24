@@ -4,7 +4,10 @@ Usage:
     query_ul_rates.py '<json>'
     query_ul_rates.py @path\to\query.json
 
-    {"sql": "SELECT ...", "params": [...], "dsn": "UL_Rates", "limit": 50}
+    {"sql": "SELECT ...", "params": [...], "dsn": "UL_Rates", "limit": 50,
+     "compact": false}
+
+``compact`` prints one JSON array per row instead of one object per row.
 
 The ``@file`` form avoids shell quoting problems with SQL that contains
 brackets, parentheses, or quotes.
@@ -43,6 +46,12 @@ def main() -> None:
         cursor.close()
     finally:
         conn.close()
+    if cmd.get("compact"):
+        # One JSON array per row keeps wide result sets readable.
+        print(json.dumps({"dsn": dsn, "columns": columns, "count": len(rows)}))
+        for row in rows:
+            print(json.dumps([row[column] for column in columns]))
+        return
     print(json.dumps({"dsn": dsn, "columns": columns, "rows": rows, "count": len(rows)}, indent=2))
 
 

@@ -293,7 +293,8 @@ amounts and can save a screenshot and JSON report.
 In the left **Rates > Coverages** tree, selecting a coverage on a traditional
 `WL` policy now displays cash values from `UL_Rates.WL_RATE_CV`, not UL COI
 tables. `PolicyInformation.build_coverage_rate_matrix()` dispatches to the
-separate Whole Life matrix builder; the existing UL/ISWL/Term route is unchanged.
+separate Whole Life matrix builder; the UL/Term route is unchanged (ISWL adds
+columns; see "ISWL / WL fixed-premium rates" below).
 The view reuses the normal filterable/sortable `RawTableTab` grid.
 
 The canonical lookup is `PolicyInformation.rates_wl_cv(coverage_index)` through
@@ -307,11 +308,18 @@ PolView rate methods. Build the six-character key from these **verified**
 | Base series | `PLN_BSE_SRE_CD` | 3 |
 | Subseries | `LIF_PLN_SUB_SRE_CD` | 2 |
 
-Preserve fixed-width spaces; additionally bind the policy's company code and
-the coverage's issue age. PolView selects the **blank `USER_DEFINED` variant
-only**. It never falls back to user `00`, another company, another age or a
-nonblank variant. A nonblank variant requires an independently established
-mapping (the shared API can accept an explicit key).
+Preserve fixed-width spaces; additionally bind the policy's **CyberLife
+rate-file user** and the coverage's issue age. CVF, IAF and mode premium tables
+are stored under the CyberLife user, not the company:
+`suiteview.core.rates.CYBERLIFE_RATE_USER_BY_COMPANY` maps company **01 → 00**
+(online-table prints: "USER 01 SHARES ENTRIES WITH USER 00") and 04/06/08 to
+themselves; any other company (e.g. 26) raises instead of being guessed.
+`PolicyInformation.cyberlife_rate_user_code` exposes it. PolView selects the
+**blank `USER_DEFINED` variant only**. It never falls back to another user,
+another age or a nonblank variant. A nonblank variant requires an independently
+established mapping (the shared API can accept an explicit key). The matrix
+also compares the 02 segment's stored `LOW_DUR_*_CSV_AMT` window with the CVF
+schedule (`02 Stored CV` row).
 
 For Whole Life policies on **ETI or RPU** (`premium_pay_status_code` 44 or 45),
 selecting a coverage shows **"Cash value file is not available for policies on
@@ -342,6 +350,54 @@ plancode `201WL500`, key **1WL511**, issue age **59** has 42 durations, **0-41**
 Duration 26 is **610.86** per unit; duration 41 is **1,000.00**. The auditable
 `tools/rates/verify_polview_wl_rates.py` helper compares the entire displayed
 schedule with the database and can capture the actual native Rates surface.
+
+### ISWL / WL fixed-premium rates (Rates tree)
+
+ISWL policies (advanced, product line `I`) keep the UL Rates view on
+**Coverages > Cov NN**, extended with every current COI scale from the
+`SCALE_COI` calendar (`COI S2`, `COI S3`... beside COI = scale 1 and
+GuarCOI = scale 0), a `GINT` column (`Select_RATE_GINT`) and premium/benefit
+cease ages (`Select_RATE_PREMIUMCEASE` / `_BENEFITCEASEAGE`). Premium load
+remains on the **Policy** leaf (TPP/EPP). ISWL and traditional WL policies
+(`PolicyInformation.has_fixed_premium_rates`) also get a **Fixed Premium**
+branch; UL, Term and the WL cash-value leaf are unchanged:
+
+| Leaf | Builder | Source |
+|---|---|---|
+| Cash Values Cov NN (ISWL only; WL keeps CVs on Coverages) | `build_whole_life_coverage_rate_matrix` | `WL_RATE_CV` |
+| Premium Rates Cov NN | `build_premium_rate_matrix` | `WL_RATE_PREM` |
+| Modal Premium | `build_modal_premium_matrix` | `WL_RATE_PREM` + `POINT_MODEFACT` → `RATE_MODEFACT` |
+
+Builders live in `polview/models/fixed_premium_rates.py`; lookups are
+`Rates.get_wl_premium_rates`, `get_modal_factors` and `get_age_limits`; the
+arithmetic is `core/modal_premium.py`.
+
+- **Premium cells.** Type `N` is the annual premium per unit. `PLAN_OPTION`
+  `**` is the base; benefits match `SPM_BNF_TYP_CD + SPM_BNF_SBY_CD`
+  (`10` = waiver 1/0), at the benefit's issue age, on the coverage's plancode.
+  Sex is the CyberLife code (67 segment, else `INS_SEX_CD`); an exact rate
+  class wins, else IAF class `0` (as printed for riders). Several remaining
+  cells are shown as ambiguous and not chosen. Multiple IAF versions select
+  the latest effective on or before the issue date. Types W/C/G are listed as
+  printed. Each row is checked against `ANN_PRM_UNT_AMT` / `BNF_ANN_PPU_AMT`.
+- **Modal premium** = round(annual x factor, 2) + round(`POLICY_FEE` x fee
+  factor, 2). Annual = active coverages' and benefits' rate x units (ceased
+  benefits excluded as of the valuation date). Bill form `0` → DIR, `G` → PAC;
+  `PMT_FQY_PER` 12/6/3/1 → A/S/Q/M (annual factors 1; non-standard modes are
+  monthly). `POLICY_FEE_ADD` limits the fee to its modes (D20). Only the rule
+  set verified on in-force policies (`POLICY_FEE_RULE` 3, multiply/rating/
+  rounding 1, no collection fee) is calculated; other bill forms or rules,
+  missing premium rows, a missing pointer or table, and ETI/RPU say why and
+  show "Not calculated". The result sits beside `POL_PRM_AMT`; substandard
+  ratings are flagged, not added.
+
+Live regression: `tools/rates/verify_polview_iswl_rates.py
+@tools/rates/iswl_rates_13034048_case.json --output-dir <dir>` (ISWL 13034048 /
+01, plancode 81335200, user 00: CV durations 31-34 = 333/351/369/388, premiums
+11.76 / 0.98 / 0.44, 318.50 x .093 + 30 x .11333 = **33.02** = POL_PRM_AMT)
+drives each leaf through the real window and saves screenshots.
+`tools/rates/dump_polview_rate_matrices.py` prints every leaf for any policy.
+Tests: `tests/test_polview_fixed_premium_rates.py`.
 
 ### Stored cash value rates and Guaranteed Cash Value
 

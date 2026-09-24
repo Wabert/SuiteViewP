@@ -100,7 +100,10 @@ def main():
     try:
         matrix = policy.build_coverage_rate_matrix(index)
         if not matrix:
-            raise RuntimeError(f"No cash-value schedule for company {policy.company_code}, key {key}, age {age}.")
+            raise RuntimeError(
+                f"No cash-value schedule for user {policy.cyberlife_rate_user_code} "
+                f"(company {policy.company_code}), key {key}, age {age}."
+            )
         duration_column = matrix[0].index("Duration")
         rate_column = matrix[0].index("CV")
         actual = {
@@ -113,7 +116,7 @@ def main():
                 "SELECT [DURATION], [RATE] FROM [WL_RATE_CV] "
                 "WHERE [USER_CODE] = ? AND [RATE_KEY] = ? AND [ISSUE_AGE] = ? "
                 "AND [USER_DEFINED] = ? ORDER BY [DURATION]",
-                [policy.company_code, key, age, ""],
+                [policy.cyberlife_rate_user_code, key, age, ""],
             ).fetchall()
         finally:
             cursor.close()
@@ -129,6 +132,7 @@ def main():
         report = {
             "all_ok": True, "policy": policy.policy_number, "company": policy.company_code,
             "coverage": index, "plancode": policy.cov_plancode(index), **observed,
+            "user_code": policy.cyberlife_rate_user_code,
             "user_defined": "", "source": "WL_RATE_CV",
             "first_duration": min(actual), "last_duration": max(actual),
             "database_matches_display": True,

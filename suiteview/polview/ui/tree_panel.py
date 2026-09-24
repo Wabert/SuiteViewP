@@ -178,6 +178,10 @@ class PolicyRecordTreeWidget(QTreeWidget):
           ▶ Benefits
           │   ├── Ben 01 (typecode)
           │   └── ...
+          ▶ Fixed Premium        (ISWL / traditional WL only)
+          │   ├── Cash Values Cov 01   (ISWL; WL shows CVs on Coverages)
+          │   ├── Premium Rates Cov 01
+          │   └── Modal Premium
           Policy
         """
         self.clear()
@@ -201,8 +205,13 @@ class PolicyRecordTreeWidget(QTreeWidget):
             })
             if whole_life:
                 cov_item.setToolTip(
-                    0, "Cash values from WL_RATE_CV by company, class/base/sub and issue age.\n"
+                    0, "Cash values from WL_RATE_CV by CyberLife user, class/base/sub and issue age.\n"
                     "NSP, PUI and dividend rate lookups are not yet available."
+                )
+            elif policy.product_type == "ISWL":
+                cov_item.setToolTip(
+                    0, "UL-style rates: COI by scale with the SCALE_COI calendar, GINT and cease ages.\n"
+                    "Cash values, premium rates and modal factors are under Fixed Premium."
                 )
             cov_node.addChild(cov_item)
         
@@ -223,6 +232,9 @@ class PolicyRecordTreeWidget(QTreeWidget):
                 "index": i
             })
             ben_node.addChild(ben_item)
+
+        if policy.has_fixed_premium_rates:
+            self._add_fixed_premium_branch(policy, whole_life)
         
         # Policy node (top-level leaf)
         policy_node = QTreeWidgetItem(["  Policy"])
@@ -235,6 +247,29 @@ class PolicyRecordTreeWidget(QTreeWidget):
         self.addTopLevelItem(policy_node)
         
         self._rates_loaded = True
+
+    def _add_fixed_premium_branch(self, policy: 'PolicyInformation', whole_life: bool):
+        """ISWL/WL fixed-premium sources. WL cash values stay on the Coverages leaves."""
+        node = QTreeWidgetItem(["▶  Fixed Premium"])
+        node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Fixed Premium"})
+        self.addTopLevelItem(node)
+        leaves = []
+        for i in range(1, policy.coverage_count + 1):
+            if not whole_life:
+                leaves.append(("Cash Values", f"Cash Values Cov {i:02d}", i,
+                               "Guaranteed cash values from WL_RATE_CV (CVF) by duration."))
+            leaves.append(("Premium Rates", f"Premium Rates Cov {i:02d}", i,
+                           "IAF premiums from WL_RATE_PREM for the base plan and its benefits."))
+        leaves.append(("Modal Premium", "Modal Premium", 1,
+                       "Annual premium x RATE_MODEFACT mode factor plus policy fee,\n"
+                       "compared with LH_BAS_POL.POL_PRM_AMT."))
+        for category, label, index, tooltip in leaves:
+            item = QTreeWidgetItem([f"      {label}"])
+            item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "rate_leaf", "category": category, "label": label, "index": index,
+            })
+            item.setToolTip(0, tooltip)
+            node.addChild(item)
     
     def _save_tree_snapshot(self):
         """Save the current tree items as a serializable snapshot."""
