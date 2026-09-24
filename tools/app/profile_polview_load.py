@@ -8,9 +8,11 @@ from pathlib import Path
 import pstats
 import sys
 from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
 from tempfile import TemporaryDirectory
 from threading import get_ident
 from time import perf_counter
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -37,6 +39,18 @@ def main() -> int:
     parser.add_argument("--profile-construction", action="store_true")
     parser.add_argument("--profile-load", action="store_true")
     parser.add_argument("--compare-warm", action="store_true")
+    parser.add_argument(
+        "--prime-query", action="store_true",
+        help="Run and close an isolated DB2 query on a retiring worker before handoffs.",
+    )
+    parser.add_argument(
+        "--odbc-pooling", choices=("on", "off"),
+        help="Diagnostic override, applied before the first ODBC connection.",
+    )
+    parser.add_argument(
+        "--handoff-policy",
+        help="Also switch to this policy and back through Query/RERUN's handoff handlers.",
+    )
     parser.add_argument("--expect-surrender-unavailable", action="store_true")
     parser.add_argument("--expect-surrender-reason")
     args = parser.parse_args()
@@ -52,10 +66,13 @@ def main() -> int:
         from PyQt6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
         from PyQt6.QtWidgets import QApplication, QMessageBox
         from suiteview.core.policy_service import clear_cache, get_policy_info
+        from suiteview.core.db2_connection import DB2Connection
         from suiteview.polview.models.policy_data import PolicyData
         from suiteview.polview.services.policy_prefetch import PolicyLoadSession
         from suiteview.polview.ui import main_window
 
+        if args.odbc_pooling:
+            pyodbc.pooling = args.odbc_pooling == "on"
         report["import_seconds"] = perf_counter() - started
         app = QApplication.instance() or QApplication([])
         gui_thread = get_ident()
@@ -67,6 +84,18 @@ def main() -> int:
         original_connect = pyodbc.connect
         original_ensure = PolicyData._ensure_table_loaded
         original_initial = PolicyLoadSession.load_initial
+        report["odbc_pooling"] = pyodbc.pooling
+
+        def prime_query():
+            if not args.prime_query:
+                return
+            with ThreadPoolExecutor(max_workers=1) as source_worker:
+                columns, rows = source_worker.submit(
+                    DB2Connection(args.region).execute_query_with_headers_isolated,
+                    "SELECT 1 AS CONNECTION_CHECK FROM SYSIBM.SYSDUMMY1",
+                ).result()
+            if len(columns) != 1 or len(rows) != 1 or rows[0][0] != 1:
+                raise AssertionError("Source Query connection check failed.")
 
         def dialog(_parent, title, message, *unused):
             report["ui_errors"].append(f"{title}: {message}")
@@ -77,12 +106,20 @@ def main() -> int:
 
         def track_connect(*pos, **kw):
             start = perf_counter()
+            driver = None
             try:
-                return original_connect(*pos, **kw)
+                connection = original_connect(*pos, **kw)
+                try:
+                    driver = connection.getinfo(pyodbc.SQL_DRIVER_NAME)
+                except Exception:
+                    connection.close()
+                    raise
+                return connection
             finally:
                 report["connections"].append({
                     "phase": phase, "gui_thread": get_ident() == gui_thread,
                     "seconds": perf_counter() - start,
+                    "driver": driver,
                 })
 
         def track_table(data, table):
@@ -153,6 +190,7 @@ def main() -> int:
             if args.profile_load:
                 patches.enter_context(patch.object(PolicyLoadSession, "load_initial", profile_initial))
             try:
+                prime_query()
                 start = perf_counter()
                 profiler = cProfile.Profile() if args.profile_construction else None
                 if profiler:
@@ -260,6 +298,74 @@ def main() -> int:
                     report["checks"]["warm_uses_fresh_policy"] = (
                         window._policy is not None and window._policy is not previous
                         and window._tab_states["coverages"] == "ready"
+                    )
+                if args.handoff_policy:
+                    from suiteview.audit.audit_window import AuditWindow
+                    from suiteview.illustration.ui.main_window import IllustrationWindow
+
+                    query = SimpleNamespace(
+                        cmb_region=SimpleNamespace(currentText=lambda: args.region),
+                        _polview_provider=lambda: window, _polview_window=None,
+                    )
+                    rerun = SimpleNamespace(
+                        _current_region=args.region,
+                        _policy_info={"CompanyCode": args.company},
+                        _polview_launcher=window.load_policy,
+                    )
+                    report["handoffs"] = []
+                    for index, (origin, number) in enumerate((
+                        ("query", args.handoff_policy), ("rerun", args.policy),
+                        ("rerun", args.handoff_policy), ("query", args.policy),
+                    )):
+                        phase = f"handoff-{index + 1}-{origin}"
+                        prime_query()
+                        first_read = len(report["table_reads"])
+                        first_connection = len(report["connections"])
+                        start = perf_counter()
+                        if origin == "query":
+                            AuditWindow._open_polview_with_policy(query, number, args.company)
+                        else:
+                            rerun._current_policy = number
+                            IllustrationWindow._open_in_polview(rerun)
+                        pending_heading = window.lookup_bar.policy_label.text()
+                        wait_until(lambda: not window._loader.busy)
+                        for tab, _title in window._stage_tabs.values():
+                            if window.tabs.indexOf(tab) >= 0:
+                                window.tabs.setCurrentWidget(tab)
+                                app.processEvents()
+                        window.tabs.setCurrentWidget(window.coverages_tab)
+                        reads = report["table_reads"][first_read:]
+                        connections = report["connections"][first_connection:]
+                        checks = {
+                            "requested_heading": number.upper() in pending_heading,
+                            "correct_policy": (
+                                window._policy is not None
+                                and window._policy.policy_number == number.upper()
+                            ),
+                            "all_visible_tabs_ready": all(
+                                window._tab_states[stage] == "ready"
+                                for stage, (tab, _) in window._stage_tabs.items()
+                                if window.tabs.indexOf(tab) >= 0
+                            ),
+                            "no_table_errors": not any(r["failed"] for r in reads),
+                            "no_gui_table_fetches": not any(r["gui_thread"] for r in reads),
+                            "no_gui_database_connections": not any(
+                                c["gui_thread"] for c in connections
+                            ),
+                            "no_ui_errors": not report["ui_errors"],
+                        }
+                        report["handoffs"].append({
+                            "origin": origin, "policy": number,
+                            "seconds": perf_counter() - start, "checks": checks,
+                            "tab_states": dict(window._tab_states),
+                            "errors": {
+                                stage: window._load_overlays[stage].message.text()
+                                for stage, state in window._tab_states.items()
+                                if state == "failed"
+                            },
+                        })
+                    report["checks"]["handoffs_ready"] = all(
+                        all(handoff["checks"].values()) for handoff in report["handoffs"]
                     )
                 report["all_ok"] = all(report["checks"].values())
             except Exception as exc:

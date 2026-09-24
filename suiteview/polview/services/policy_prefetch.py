@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 import logging
+import ntpath
 from threading import get_ident
 
 import pyodbc
@@ -54,7 +55,7 @@ STAGE_TABLES = {
     ),
     "policy": (
         "LH_BAS_POL", "LH_COV_PHA", "TH_COV_PHA", "LH_BIL_FRM_CTL",
-        "TH_USER_REPLACEMENT", "TH_USER_GENERIC", "LH_FXD_PRM_POL",
+        "TH_USER_REPLACEMENT", "TH_USER_GENERIC", "LH_FXD_PRM_POL", "TH_NON_TRD_POL",
     ),
     "targets": (
         "LH_TAMRA_7_PY_PER", "LH_TAMRA_7_PY_YR", "LH_COV_PHA",
@@ -80,12 +81,14 @@ STAGE_PROPERTIES = {
         "valuation_date", "policy_year", "attained_age", "premium_pay_status_code",
         "premium_pay_status_description", "reins_partner", "db_option_code",
         "standard_death_benefit", "corridor_death_benefit", "total_death_benefit",
+        "insured_lives_description",
     ),
     "policy": (
         "base_plancode", "product_line_code", "issue_state_code",
         "grace_period_expiry_date", "paid_to_date", "last_anniversary",
         "next_bill_date", "mec_indicator", "nfo_code", "nfo_description",
         "div_option_code", "div_option_description", "annual_policy_fee",
+        "decrease_charge_rule",
     ),
     "targets": (
         "is_advanced_product", "gsp", "glp", "accumulated_glp_target",
@@ -128,6 +131,16 @@ def _open_connection(region):
         timeout=CONNECTION_TIMEOUT_SECONDS,
     )
     try:
+        driver = ntpath.basename(connection.getinfo(pyodbc.SQL_DRIVER_NAME)).lower()
+        if driver == "rdvodbc64.dll":
+            # Probing this unsupported attribute can corrupt DV's error diagnostics.
+            logger.warning(
+                "DB2 Data Virtualization driver: skipping unsupported query timeout; "
+                "login timeout remains %ss. An in-flight query must finish before "
+                "worker shutdown.",
+                CONNECTION_TIMEOUT_SECONDS,
+            )
+            return connection
         connection.timeout = QUERY_TIMEOUT_SECONDS
         try:
             probe = connection.cursor()

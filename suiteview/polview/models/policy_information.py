@@ -640,6 +640,34 @@ class PolicyInformation:
     # =========================================================================
     # BASE COVERAGE PROPERTIES
     # =========================================================================
+
+    @property
+    def number_of_lives_code(self) -> str:
+        """Base phase 1 FCVLIVES-LIVES: 1 single, 2 first-to-die, 3 second-to-die."""
+        value = self.data_item_where(
+            "LH_COV_PHA", "NBR_OF_LIVES_CD", "COV_PHA_NBR", 1,
+        )
+        code = str(value).strip() if value is not None else ""
+        if code not in ("1", "2", "3"):
+            raise ValueError(
+                f"Missing or invalid LH_COV_PHA.NBR_OF_LIVES_CD "
+                f"for base coverage phase 1: {value!r}"
+            )
+        return code
+
+    @property
+    def insured_lives_description(self) -> str:
+        """Single/joint classification from the base coverage's lives code."""
+        return {
+            "1": "Single",
+            "2": "Joint First to Die",
+            "3": "Joint Second to Die",
+        }[self.number_of_lives_code]
+
+    @property
+    def is_joint_insured(self) -> bool:
+        """Whether the base coverage is joint first-to-die or second-to-die."""
+        return self.number_of_lives_code in ("2", "3")
     
     @property
     def base_plancode(self) -> str:
@@ -743,11 +771,8 @@ class PolicyInformation:
 
     @property
     def current_account_value(self) -> Optional[Decimal]:
-        """Account value at the most recent monthliversary, else the total record AV."""
-        account_value = self.mv_av(0)
-        if account_value is None:
-            account_value = self.accumulation_value
-        return account_value
+        """Recorded account value at the most recent monthliversary, if present."""
+        return self.mv_av(0)
 
     @property
     def standard_death_benefit(self) -> Decimal:
@@ -1781,6 +1806,25 @@ class PolicyInformation:
     def grace_rule_code(self) -> str:
         """Grace period rule code."""
         return str(self.data_item("LH_NON_TRD_POL", "GRA_THD_RLE_CD") or "")
+
+    @property
+    def decrease_charge_rule(self) -> str:
+        """Decrease Charge Rule code (TH_NON_TRD_POL.DECR_CHRG_ALLOW, FULDRRUL).
+
+        Live values are ``"1"`` (specified decreases assess a partial surrender
+        charge) and ``"0"`` (they do not). Blank/NUL-padded rows are unset and
+        return ``""``.
+        """
+        return str(self.data_item("TH_NON_TRD_POL", "DECR_CHRG_ALLOW") or "").strip(" \x00")
+
+    @property
+    def decrease_charge_allowed(self) -> Optional[bool]:
+        """Whether a specified-amount decrease assesses a partial surrender charge.
+
+        ``None`` when the Decrease Charge Rule is unset or unrecognized, so
+        callers keep their plan-level rule rather than guessing.
+        """
+        return {"1": True, "0": False}.get(self.decrease_charge_rule)
     
     @property
     def tefra_defra_code(self) -> str:
@@ -2394,14 +2438,6 @@ class PolicyInformation:
     def person_code(self, index: int) -> str:
         """Get person code at index."""
         return str(self.data_item("LH_CTT_CLIENT", "PRS_CD", index) or "")
-    
-    @property
-    def is_joint_insured(self) -> bool:
-        """Whether policy has a joint insured (person code 01)."""
-        for i in range(self.person_count):
-            if self.person_code(i) == "01":
-                return True
-        return False
     
     @property
     def primary_insured_name(self) -> str:

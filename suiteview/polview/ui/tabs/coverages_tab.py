@@ -61,7 +61,7 @@ class CoveragesTab(QWidget):
         self.info_group.add_field("Billable Premium", "premium_label", 100, 80)
 
         self.info_group.add_field("Market Org", "market_org_label", 80, 80)
-        self.info_group.add_field("Single/Joint", "joint_label", 80, 80)
+        self.info_group.add_field("Single/Joint", "joint_label", 80, 120)
         self.info_group.add_field("Attained Age", "att_age_label", 80, 100)
         self.info_group.add_field("Corridor", "corridor_label", 80, 80)
 
@@ -190,7 +190,6 @@ class CoveragesTab(QWidget):
             raise
 
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):
-        coverages = policy.get_coverages()
         self.policy_label.setText(policy.policy_number)
         self.company_label.setText(policy.company_code)
         self.market_org_label.setText(policy.servicing_market_org)
@@ -202,11 +201,7 @@ class CoveragesTab(QWidget):
         self.region_label.setText(policy.region)
         self.system_cd_label.setText(policy.system_code)
 
-        base_cov = next((c for c in coverages if c.is_base), None)
-        if base_cov and base_cov.lives_cov_cd in ("2", "3"):
-            self.joint_label.setText("Joint")
-        else:
-            self.joint_label.setText("Single")
+        self.joint_label.setText(policy.insured_lives_description)
 
         self.suspense_label.setText(f"{policy.suspense_code} - {policy.suspense_description}")
 

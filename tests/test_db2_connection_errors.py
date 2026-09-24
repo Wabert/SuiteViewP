@@ -1,8 +1,24 @@
+import runpy
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
 import pyodbc
 import pytest
+import suiteview
 
 from suiteview.core.db2_connection import _extract_odbc_message
 from suiteview.core.odbc_utils import is_communication_error, is_password_error
+
+
+def test_package_configures_odbc_before_any_connection(monkeypatch):
+    def connect(*args, **kwargs):
+        pytest.fail("Package initialization must not open database connections")
+
+    driver = SimpleNamespace(pooling=True, connect=connect)
+    monkeypatch.setitem(sys.modules, "pyodbc", driver)
+    runpy.run_path(str(Path(suiteview.__file__)))
+    assert driver.pooling is False
 
 
 @pytest.mark.parametrize("message", [
@@ -64,3 +80,23 @@ def test_strips_nul_padded_driver_buffer_data():
         _extract_odbc_message(error)
         == "[42501] SQLCODE = -551 ON DB2TAB.LH_SWF_SCH"
     )
+
+
+@pytest.mark.parametrize("state,message,transport,authentication", [
+    ("08S01", "Host communication failed", True, False),
+    ("28000", "Authorization rejected", False, True),
+    ("42704", "Undefined table", False, False),
+])
+def test_preserves_separate_sqlstate_through_wrapping(state, message, transport, authentication):
+    driver_error = pyodbc.Error(state, message + "\x00corrupt buffer")
+    wrapper = RuntimeError("Table fetch failed")
+    wrapper.__cause__ = driver_error
+    detail = _extract_odbc_message(wrapper)
+    assert detail == f"[{state}] {message}"
+    assert is_communication_error(detail) is transport
+    assert is_password_error(detail) is authentication
+
+
+def test_does_not_duplicate_sqlstate_already_in_driver_message():
+    detail = _extract_odbc_message(pyodbc.Error("08S01", "[08S01] Host communication failed"))
+    assert detail == "[08S01] Host communication failed"

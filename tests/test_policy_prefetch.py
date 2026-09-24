@@ -14,6 +14,7 @@ from suiteview.core import policy_service
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.polview.models.policy_data import CachedReadError, _ConnectionManager
 from suiteview.polview.services import policy_prefetch as prefetch
+from suiteview.polview.services.policy_prefetch import _open_connection
 from suiteview.polview.ui.policy_load_controller import _LoadJob, _PolicyWorker
 
 
@@ -65,6 +66,8 @@ class Cursor:
         conn = self.connection
         conn.calls.append((sql, parameters, get_ident()))
         table = re.search(r"FROM (?:DB2TAB|UNIT|CYBERTEK|CKSR)\.(\w+)", sql).group(1)
+        if table == "TH_POL_MVRY_VAL":
+            raise RuntimeError("SQLCODE = -204: DB2TAB.TH_POL_MVRY_VAL IS AN UNDEFINED NAME")
         if table in conn.fail:
             raise RuntimeError(f"{table} offline")
         if "SELECT CK_CMP_CD" in sql:
@@ -101,6 +104,7 @@ def source(monkeypatch):
             "COV_PHA_NBR": 1, "PLN_DES_SER_CD": "SYNTH",
             "ISSUE_DT": date(2020, 1, 15), "COV_MT_EXP_DT": date(2100, 1, 15),
             "COV_UNT_QTY": 100, "COV_VPU_AMT": 1000, "INS_ISS_AGE": 30,
+            "NBR_OF_LIVES_CD": "1",
         }],
         "LH_NON_TRD_POL": [{"TFDF_CD": "2", "CDR_PCT": 250}],
         "LH_POL_MVRY_VAL": [{"MVRY_DT": date(2026, 9, 15), "CSV_AMT": 200}],
@@ -159,6 +163,49 @@ def test_transport_retry_replaces_private_connection_and_clears_failed_reads(
         executor.submit(run).result()
 
 
+def test_retry_cannot_reacquire_failed_physical_odbc_connection(source, monkeypatch):
+    from suiteview.core import local_dev
+
+    physical_connections = []
+    original_execute = Cursor.execute
+
+    def connect(*args, **kwargs):
+        if pyodbc.pooling and physical_connections:
+            return physical_connections[0]
+        connection = Connection(source.tables)
+        connection.getinfo = lambda _key: "rdvodbc64.dll"
+        physical_connections.append(connection)
+        return connection
+
+    def execute(cursor, sql, parameters=()):
+        if cursor.connection is physical_connections[0]:
+            raise pyodbc.Error("08S01", "[DV][ODBC Driver]Host communication failed")
+        return original_execute(cursor, sql, parameters)
+
+    monkeypatch.setattr(prefetch, "_open_connection", _open_connection)
+    monkeypatch.setattr(local_dev, "local_data_enabled", lambda: False)
+    monkeypatch.setattr(pyodbc, "connect", connect)
+    monkeypatch.setattr(Cursor, "execute", execute)
+
+    def run():
+        worker = _PolicyWorker()
+        results = []
+        worker.completed.connect(
+            lambda *args: results.append(args), Qt.ConnectionType.DirectConnection,
+        )
+        try:
+            worker.execute(_LoadJob(1, "coverages", "TEST", "CKPR", "01", Event()))
+            assert results[-1][3] == ""
+            assert results[-1][2].policy.exists
+            assert len(physical_connections) == 2
+            assert physical_connections[0].closed == get_ident()
+        finally:
+            worker._close_session()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(run).result()
+
+
 def test_worker_owns_connections_and_snapshots_are_plain_independent(source):
     global_cache = dict(policy_service._cache)
     global_connections = dict(DB2Connection._connections)
@@ -179,6 +226,8 @@ def test_worker_owns_connections_and_snapshots_are_plain_independent(source):
     assert initial.policy._rates is None
     assert isinstance(initial.policy._data._table_cache["LH_COV_PHA"]["rows"][0], tuple)
     assert "LH_CTT_CLIENT" not in initial.policy._data._table_cache
+    assert "VH_POL_HAS_LOC_CLT" not in initial.policy._data._table_cache
+    assert "VH_POL_HAS_LOC_CLT" in later.policy._data._table_cache
     initial.policy.get_coverages()[0].raw_data["COV_UNT_QTY"] = 999
     assert later.policy.get_coverages()[0].raw_data["COV_UNT_QTY"] == 100
     assert not {"FH_FIXED", "LH_CSH_VAL_LOAN", "LH_FND_VAL_LOAN",
@@ -198,6 +247,139 @@ def test_failed_fetch_is_not_empty_success_and_retry_clears_error(source):
     assert result.policy.fetch_table("FH_FIXED") == []
     assert not result.policy._data._table_errors
     session.close()
+
+
+@pytest.mark.parametrize("rows,expected", [
+    ([], None),
+    ([{"CSV_AMT": None}], None),
+    ([{"CSV_AMT": 0}], 0),
+    ([{"CSV_AMT": 125}], 125),
+])
+def test_missing_monthliversary_value_never_probes_an_invented_table(source, qtbot, rows, expected):
+    from suiteview.polview.ui.tabs.coverages_tab import CoveragesTab
+
+    source.tables["LH_POL_MVRY_VAL"] = rows
+    source.tables["LH_NON_TRD_POL"][0]["DTH_BNF_PLN_OPT_CD"] = "2"
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        prepared = session.load_initial()
+        policy = prepared.policy
+        widget = CoveragesTab()
+        qtbot.addWidget(widget)
+        with policy.cached_reads_only():
+            assert policy.accumulation_value == expected
+            assert policy.current_account_value == expected
+            widget.load_data_from_policy(policy)
+        assert not policy._data._table_errors
+        assert all("TH_POL_MVRY_VAL" not in sql
+                   for sql, _, _ in source.connections[0].calls)
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("roles,number_of_lives,lives_code,expected", [
+    (["00", "01", "10"], "1", "0", "Single"),
+    (["00", "10"], "2", "0", "Joint First to Die"),
+    (["00", "01"], "3", "0", "Joint Second to Die"),
+    (["00", "20"], " 3 ", "2", "Joint Second to Die"),
+    (["00", "10"], 1, "3", "Single"),
+])
+def test_single_joint_uses_number_of_lives_in_both_policy_displays(
+    source, qtbot, roles, number_of_lives, lives_code, expected,
+):
+    from PyQt6.QtWidgets import QApplication
+    from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
+    from suiteview.polview.ui.tabs.coverages_tab import CoveragesTab
+
+    source.tables["LH_CTT_CLIENT"] = [
+        {"PRS_CD": role, "PRS_SEQ_NBR": 1} for role in roles
+    ]
+    source.tables["LH_COV_PHA"][0]["LIVES_COV_CD"] = lives_code
+    source.tables["LH_COV_PHA"][0]["NBR_OF_LIVES_CD"] = number_of_lives
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        policy = session.load_initial().policy
+        tab = CoveragesTab()
+        qtbot.addWidget(tab)
+        calls_before_render = len(source.connections[0].calls)
+        with policy.cached_reads_only():
+            assert policy.number_of_lives_code == str(number_of_lives).strip()
+            assert policy.is_joint_insured == (expected != "Single")
+            tab.load_data_from_policy(policy)
+        assert tab.joint_label.text() == expected
+        assert "LH_CTT_CLIENT" not in policy._data._table_cache
+        assert len(source.connections[0].calls) == calls_before_render
+
+        rerun = IllustrationPolicyTab()
+        qtbot.addWidget(rerun)
+        with session._scope():
+            rerun._coverages = policy.get_coverages()
+            rerun._populate_policy_info(policy, {})
+        assert rerun.policy_info.get_value("joint_label") == expected
+        for widget, label in (
+            (tab, tab.joint_label),
+            (rerun, rerun.policy_info.joint_label),
+        ):
+            widget.resize(1160, 700)
+            widget.show()
+            qtbot.wait(1)
+            if QApplication.platformName() == "windows":
+                assert label.fontMetrics().horizontalAdvance(expected) <= label.contentsRect().width()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("code", [None, "", " ", "0", "4", "X"])
+def test_missing_or_invalid_number_of_lives_is_not_assumed_single(source, code):
+    source.tables["LH_COV_PHA"][0]["NBR_OF_LIVES_CD"] = code
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        with pytest.raises(ValueError, match="NBR_OF_LIVES_CD"):
+            session.load_initial()
+        with session._scope():
+            with pytest.raises(ValueError, match="NBR_OF_LIVES_CD"):
+                _ = session._policy.is_joint_insured
+    finally:
+        session.close()
+
+
+def test_number_of_lives_uses_phase_one_not_first_row_or_riders(source):
+    base = source.tables["LH_COV_PHA"][0]
+    base["NBR_OF_LIVES_CD"] = "3"
+    source.tables["LH_COV_PHA"].insert(
+        0, {**base, "COV_PHA_NBR": 2, "NBR_OF_LIVES_CD": "1"},
+    )
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        policy = session.load_initial().policy
+        with policy.cached_reads_only():
+            assert policy.number_of_lives_code == "3"
+            assert policy.is_joint_insured
+            assert policy.insured_lives_description == "Joint Second to Die"
+    finally:
+        session.close()
+
+
+def test_missing_base_lives_code_does_not_use_a_rider(source):
+    source.tables["LH_COV_PHA"][0]["COV_PHA_NBR"] = 2
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        with pytest.raises(ValueError, match="NBR_OF_LIVES_CD.*base coverage phase 1"):
+            session.load_initial()
+    finally:
+        session.close()
+
+
+def test_joint_insured_lookup_failure_is_not_rendered_as_single(source):
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        session.load_initial()
+        source.connections[0].fail.add("LH_COV_PHA")
+        session._policy._data._table_cache.pop("LH_COV_PHA")
+        with pytest.raises(RuntimeError, match="LH_COV_PHA offline"):
+            session.prepare("coverages")
+    finally:
+        session.close()
 
 
 def test_guard_raises_when_loader_swallows_missing_or_failed_table(source):
@@ -676,6 +858,7 @@ def test_private_connections_bound_login_and_query_timeouts(monkeypatch, kind):
     calls = []
     connection = SimpleNamespace(
         timeout=0, cursor=lambda: SimpleNamespace(close=lambda: None),
+        getinfo=lambda key: "other-db2-driver.dll",
     )
 
     def connect(*args, **kwargs):
@@ -706,6 +889,7 @@ def test_timeout_probe_only_recovers_unsupported_query_timeout(
     from suiteview.core import local_dev
 
     connection = Mock()
+    connection.getinfo.return_value = "other-db2-driver.dll"
     connection.cursor.side_effect = [pyodbc.Error(state, message), Mock()]
     monkeypatch.setattr(pyodbc, "connect", Mock(return_value=connection))
     monkeypatch.setattr(local_dev, "local_data_enabled", lambda: False)
@@ -718,6 +902,42 @@ def test_timeout_probe_only_recovers_unsupported_query_timeout(
         with pytest.raises(pyodbc.Error):
             prefetch._open_connection("CKPR")
         connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("driver", ["rdvodbc64.dll", r"C:\ODBC\RDVODBC64.DLL"])
+def test_dv_driver_never_probes_unsupported_timeout(monkeypatch, caplog, driver):
+    from unittest.mock import Mock
+    from suiteview.core import local_dev
+
+    connection = Mock(timeout=0)
+    connection.getinfo.return_value = driver
+    connection.cursor.side_effect = SystemError(
+        "<class 'pyodbc.Error'> returned a result with an exception set"
+    )
+    connect = Mock(return_value=connection)
+    monkeypatch.setattr(pyodbc, "connect", connect)
+    monkeypatch.setattr(local_dev, "local_data_enabled", lambda: False)
+    assert prefetch._open_connection("CKPR") is connection
+    connection.getinfo.assert_called_once_with(pyodbc.SQL_DRIVER_NAME)
+    connection.cursor.assert_not_called()
+    connection.close.assert_not_called()
+    assert connection.timeout == 0
+    assert connect.call_args.kwargs["timeout"] == 15
+    assert "skipping unsupported query timeout" in caplog.text
+
+
+def test_driver_identification_failure_closes_connection_and_propagates(monkeypatch):
+    from unittest.mock import Mock
+    from suiteview.core import local_dev
+
+    connection = Mock()
+    connection.getinfo.side_effect = pyodbc.Error("08001", "Connection failed")
+    monkeypatch.setattr(pyodbc, "connect", Mock(return_value=connection))
+    monkeypatch.setattr(local_dev, "local_data_enabled", lambda: False)
+    with pytest.raises(pyodbc.Error, match="Connection failed"):
+        prefetch._open_connection("CKPR")
+    connection.close.assert_called_once()
+    connection.cursor.assert_not_called()
 
 
 @pytest.mark.parametrize("advanced", [False, True])

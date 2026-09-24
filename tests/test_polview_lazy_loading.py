@@ -234,9 +234,44 @@ def test_switching_policies_discards_inflight_old_result(host, qtbot):
     gate.set()
     settled(qtbot, window)
     assert window._policy.policy_number == "SECOND"
+    assert window.tabs.currentWidget() is window.coverages_tab
+    window.tabs.setCurrentWidget(window.reinsurance_tab)
     assert window.reinsurance_tab.test_label.text() == "SECOND"
     assert not any(number == "FIRST" and stage == "reinsurance" for number, stage, _, _ in state.rendered)
     assert state.closed and all(thread != get_ident() for thread in state.closed)
+
+
+@pytest.mark.parametrize("company", ["", "01"])
+def test_first_view_of_each_policy_defaults_to_coverages(host, qtbot, company):
+    window, state = host
+    window.tabs.setCurrentWidget(window.policy_tab)
+    window.load_policy("FIRST", company_code=company)
+    settled(qtbot, window)
+    assert window.tabs.currentWidget() is window.coverages_tab
+
+    window.tabs.setCurrentWidget(window.reinsurance_tab)
+    window.load_policy("SECOND", company_code=company)
+    settled(qtbot, window)
+    assert window.tabs.currentWidget() is window.coverages_tab
+    assert window.coverages_tab.test_label.text() == "SECOND"
+
+    window.tabs.setCurrentWidget(window.policy_tab)
+    window.load_policy("FIRST", company_code=company)
+    settled(qtbot, window)
+    assert window.tabs.currentWidget() is window.policy_tab
+    assert window.policy_tab.test_label.text() == "FIRST"
+
+
+def test_new_company_for_same_policy_defaults_to_coverages(host, qtbot):
+    window, state = host
+    window.load_policy("FIRST", company_code="01")
+    settled(qtbot, window)
+    window.tabs.setCurrentWidget(window.reinsurance_tab)
+    state.policies["FIRST"] = policy("FIRST", company="26")
+    window.load_policy("FIRST", company_code="26")
+    settled(qtbot, window)
+    assert window._policy.company_code == "26"
+    assert window.tabs.currentWidget() is window.coverages_tab
 
 
 def test_second_lookup_cancels_first_before_initial_response(host, qtbot):
@@ -293,6 +328,46 @@ def test_initial_failure_and_retry_are_nonmodal(host, qtbot):
     window._load_overlays["coverages"].retry_button.click()
     settled(qtbot, window)
     assert window._policy.policy_number == "FIRST"
+
+
+@pytest.mark.parametrize("origin", ["query", "rerun"])
+@pytest.mark.parametrize("transport_failure", [False, True])
+def test_handoff_failure_identifies_requested_policy_and_get_recovers(
+    host, qtbot, origin, transport_failure,
+):
+    window, state = host
+    window.load_policy("FIRST", company_code="01")
+    settled(qtbot, window)
+    state.failures["coverages"] = 2 if transport_failure else 1
+    if transport_failure:
+        state.errors["coverages"] = pyodbc.Error("08S01", "Host communication failed")
+    if origin == "query":
+        from suiteview.audit.audit_window import AuditWindow
+
+        caller = SimpleNamespace(
+            cmb_region=SimpleNamespace(currentText=lambda: "CKPR"),
+            _polview_provider=lambda: window, _polview_window=None,
+        )
+        AuditWindow._open_polview_with_policy(caller, "SECOND", "01")
+    else:
+        from suiteview.illustration.ui.main_window import IllustrationWindow
+
+        caller = SimpleNamespace(
+            _current_policy="SECOND", _current_region="CKPR",
+            _policy_info={"CompanyCode": "01"}, _polview_launcher=window.load_policy,
+        )
+        IllustrationWindow._open_in_polview(caller)
+    assert "SECOND" in window.lookup_bar.policy_label.text()
+    assert "FIRST" not in window.lookup_bar.policy_label.text()
+    settled(qtbot, window)
+    assert window._policy is None
+    assert "SECOND" in window.lookup_bar.policy_label.text()
+    assert not window.open_record_btn.isEnabled()
+    window.lookup_bar.get_button.click()
+    settled(qtbot, window)
+    assert window._policy.policy_number == "SECOND"
+    assert window.coverages_tab.test_label.text() == "SECOND"
+    assert window.open_record_btn.isEnabled()
 
 
 def test_optional_tab_checks_remove_absent_data_without_loading_on_gui(host, qtbot):

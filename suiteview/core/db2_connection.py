@@ -50,7 +50,12 @@ def _extract_odbc_message(exc: BaseException) -> str:
         if isinstance(e, pyodbc.Error) and len(getattr(e, 'args', ())) >= 2:
             msg = e.args[1]
             if isinstance(msg, str) and msg:
-                return _clean_odbc_message(msg)
+                msg = _clean_odbc_message(msg)
+                state = e.args[0]
+                if (isinstance(state, str) and re.fullmatch(r"[A-Z0-9]{5}", state)
+                        and state not in msg):
+                    msg = f"[{state}] {msg}"
+                return msg
 
     # Fallback: any exception with a useful args[1]
     for e in seen:

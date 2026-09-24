@@ -39,7 +39,32 @@ application (`SuiteView v2.2`).
 
 ## Architecture
 
+### Single/Joint insured display
+
+PolView Coverages and RERUN's live Policy tab use
+`PolicyInformation.insured_lives_description`, derived from base phase 1's
+`LH_COV_PHA.NBR_OF_LIVES_CD` (Segment 02, PDF field `FCVLIVES-LIVES`):
+`1` = **Single**, `2` = **Joint First to Die** (equal-age calculation),
+`3` = **Joint Second to Die** (exact-age calculation).
+`number_of_lives_code` is the canonical normalized code;
+`is_joint_insured` is true only for codes 2/3. Do not infer classification from
+person roles (`LH_CTT_CLIENT.PRS_CD`), `LIVES_COV_CD`, rider codes or row order.
+Missing/invalid base codes and database errors remain explicit errors, never
+"Single". Initial Coverages prefetch validates the description without loading
+person records. Saved illustration snapshots leave this uncaptured field blank.
+
+Live read-only verification of CKPR / 26 / 000321709 found code `3`, displaying
+**Joint Second to Die**. Repeat with
+`tools/app/verify_joint_insured.py --expect "Joint Second to Die" --screenshot <path>`.
+Regression: `tests/test_policy_prefetch.py`; use `QT_QPA_PLATFORM=windows`
+for native label-fit checks in both PolView and RERUN.
+
 ### Progressive background loading
+
+The first successful load of each policy/region/company in a PolView session
+selects **Coverages**, rather than inheriting the previous policy's selected tab.
+Revisiting an already viewed policy retains the existing tab-selection behavior.
+Regression: `tests/test_polview_lazy_loading.py`.
 
 `GetPolicyWindow.load_policy()` queues work and returns without database access.
 The native window can display a loading state immediately. A dedicated worker
@@ -89,23 +114,52 @@ other pages. Every request has a generation token: switching policies ignores
 old results and cancels queued work. In-flight ODBC calls finish on their owning
 thread before connections close. Window destruction requests nonblocking
 cleanup; application exit waits for orderly worker shutdown.
-Connections request a 15-second login timeout. The DB2 provider probes query
-timeout support before querying: CyberLife's DV driver rejects
-`SQL_ATTR_QUERY_TIMEOUT` with HYC00, so only that specific unsupported feature
-is logged and disabled. In-flight DV queries cannot be forcibly timed out by
-this mechanism; shutdown waits for the driver to finish. Communication failures
+Connections request a 15-second login timeout. The DB2 provider identifies the
+driver via `SQL_DRIVER_NAME`. Rocket Data Virtualization's `rdvodbc64.dll`
+must skip query-timeout configuration and probing entirely: its unsupported
+`SQL_ATTR_QUERY_TIMEOUT` diagnostics can produce a UTF-16 decoding failure and
+`SystemError: <class 'pyodbc.Error'> returned a result with an exception set`.
+This was reproduced during repeated Query/RERUN handoffs, not a policy lookup
+or password failure. Other drivers still probe support; only explicit HYC00
+for that attribute disables the timeout. In-flight DV queries cannot be forcibly
+timed out by this mechanism; shutdown waits for the driver to finish. Communication failures
 (`08S01`, connection-class SQLSTATEs, DB2 `-30081`) retry the read-only stage once
 on the worker after the failed scope closes its connections. Initial-load retry
 creates a new private session; detail retry clears failed table reads and retains
 successful snapshots. Cancellation suppresses retry/results for an old policy.
+`suiteview/__init__.py` disables pyodbc/ODBC Driver Manager connection pooling
+before the first ODBC environment is allocated. Opening a new Python connection
+object is otherwise not a guarantee of a fresh physical connection: a retired
+Query worker's or failed PolView connection can be handed back by the pool.
+Explicit application connection caches remain unchanged; Driver Manager pooling
+is process-wide across DSNs. A full SuiteView restart is required. Do not try
+to change pooling only when retrying or add arbitrary sleeps/more retries.
 Persistent failures remain visible with manual Retry. Authentication and SQL
 errors do not auto-retry. Only explicit authentication diagnostics open the ODBC
 credentials warning; a socket/READ failure is not evidence of a stale password.
 Driver diagnostics are extracted before crossing to the GUI, stripping NUL-padded
-buffer garbage. Regression: `test_db2_connection_errors.py`,
+buffer garbage while preserving a separately supplied SQLSTATE; losing that code
+can prevent a communication retry or misclassify authentication failures.
+Regression: `test_db2_connection_errors.py`,
 `test_polview_lazy_loading.py` and `test_policy_prefetch.py`.
+The latter includes a failed-physical-connection recycling regression.
+For a read-only native cross-worker check, add `--prime-query` to
+`tools/app/profile_polview_load.py --policy 000226237 --company 26 --all-tabs
+--handoff-policy 000239324 --output <report.json>`. The optional
+`--odbc-pooling on|off` override is for fresh-process diagnostic comparisons,
+not a runtime preference. Both the pooled baseline and unpooled native check
+passed; the intermittent logged failure was not reproduced live in those runs.
 Worker-scoped rate connections close on the worker,
 including helper-local instances created by the illustration calculation.
+
+Account value uses the verified `LH_POL_MVRY_VAL.CSV_AMT` mapping, including
+the generic `accumulation_value` accessor. No monthliversary rows or a NULL
+value means unavailable, not an invented `TH_POL_MVRY_VAL.ACC_VAL_AMT`
+fallback; numeric zero remains zero. U0482811 / 01 (Not Issued, option B)
+reproduced the invalid-table failure during initial Coverages preparation.
+The requested identity now replaces the previous policy's heading immediately
+and remains explicit if loading fails or needs company selection. Query uses
+the same `load_policy()` entry point as RERUN and Get.
 
 Dividends/Loans appear pending until their availability checks finish; the
 existing final availability and advanced-product rules are unchanged. Block
@@ -125,6 +179,12 @@ Screenshots include both loading and completed views. `--profile-load` profiles
 initial preparation on the worker; `--profile-construction` profiles native widget
 construction. `--compare-warm` repeats without policy caches and reports the
 complete second background load, not a cache-hit timing.
+`--handoff-policy <number>` additionally drives the real Query/RERUN handoff
+handlers into the native PolView window four times, alternating policies and
+including cached revisits. It records driver names, identity, all visible page
+states, failures and off-GUI database ownership. On 2026-09-22, U0613620 / 01
+with `--handoff-policy U0482811 --all-tabs` passed every check after both fixes.
+All database operations in this helper are read-only.
 
 The first use still pays module/window construction and initial ODBC startup.
 Background loading avoids freezing the GUI during data access; it does not

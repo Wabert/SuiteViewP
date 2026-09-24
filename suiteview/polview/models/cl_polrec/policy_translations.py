@@ -1064,3 +1064,14 @@ def translate_multiply_order_code(code: str) -> str:
 def translate_rating_order_code(code: str) -> str:
     """Translate rating order code to description."""
     return RATING_ORDER_CODES.get(str(code).strip(), str(code))
+
+
+DECREASE_CHARGE_RULE_CODES = {
+    "0": "No charge on decrease",
+    "1": "Charge on decrease",
+}
+
+
+def translate_decrease_charge_rule(code: str) -> str:
+    """Translate TH_NON_TRD_POL.DECR_CHRG_ALLOW (Decrease Charge Rule)."""
+    return DECREASE_CHARGE_RULE_CODES.get(str(code).strip(), str(code))

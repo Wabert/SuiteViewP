@@ -15,6 +15,7 @@ from typing import Optional
 
 import logging
 import subprocess
+from html import escape
 from time import perf_counter
 
 from PyQt6.QtWidgets import (
@@ -781,6 +782,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self.lookup_bar.hide_company_chooser()
         self._save_current_aux_state()
         self._requested_policy = (policy_number, region, company_code)
+        self._set_requested_policy_display("Loading...")
         cached = self._policy_cache.get(self._requested_policy) if company_code else None
         seed = cached["policy"].detached_copy() if cached else None
         self._policy = None
@@ -867,6 +869,8 @@ class GetPolicyWindow(FramelessWindowBase):
                 self._restore_aux_tabs(store_key)
             else:
                 self._reset_aux_tabs(store_key)
+                with QSignalBlocker(self.tabs):
+                    self.tabs.setCurrentWidget(self.coverages_tab)
             self.raw_table_tab.clear()
             for key in ("other", "raw"):
                 self._set_tab_state(key, "ready")
@@ -1003,7 +1007,13 @@ class GetPolicyWindow(FramelessWindowBase):
     def _on_load_state_changed(self, stage: str, state: str):
         self._set_tab_state(stage, state)
 
+    def _set_requested_policy_display(self, status: str):
+        number, region, company = self._requested_policy
+        requested_label = " - ".join(part for part in (region, company, number) if part)
+        self.lookup_bar.policy_label.setText(f"{escape(requested_label)} ({status})")
+
     def _show_initial_notice(self, message: str, *, failed: bool = False):
+        self._set_requested_policy_display("Load failed" if failed else "Select company")
         self._show_status(message)
         for stage, overlay in self._load_overlays.items():
             self._set_tab_state(stage, "failed" if failed else "queued", message)

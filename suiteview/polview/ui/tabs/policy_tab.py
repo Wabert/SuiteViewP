@@ -25,6 +25,7 @@ from ...models.cl_polrec.policy_translations import (
     translate_tefra_defra_ind,
     translate_multiply_order_code,
     translate_rating_order_code,
+    translate_decrease_charge_rule,
 )
 
 from typing import TYPE_CHECKING
@@ -102,6 +103,8 @@ class PolicyTab(QWidget):
         c.add_field("1035 Exchange Indicator", "pol_1035", 160, 120)
         c.add_field("Indeterminate Premium Indicator", "idt_prm_ind", 160, 120)
         c.add_field("Policy Under TEFRA/DEFRA", "tfdf_gdl", 160, 120)
+        c.add_field("Decrease Charge Rule", "decr_chrg_rule", 160, 120)
+        c.set_field_visible("decr_chrg_rule", False)
         c.add_field("Initial Monthliversary", "int_mlv_nbr", 160, 120)
         c.add_field("Reinsured Code", "reinsured", 160, 120)
 
@@ -213,6 +216,12 @@ class PolicyTab(QWidget):
         c.set_value("idt_prm_ind", str(policy.data_item("LH_BAS_POL", "IDT_PRM_IND") or ""))
         tfdf = str(policy.data_item("LH_BAS_POL", "TFDF_GDL_IND") or "")
         c.set_value("tfdf_gdl", f"{tfdf} - {translate_tefra_defra_ind(tfdf)}" if tfdf else "")
+        decr_rule = policy.decrease_charge_rule
+        c.set_value(
+            "decr_chrg_rule",
+            f"{decr_rule} - {translate_decrease_charge_rule(decr_rule)}" if decr_rule else "",
+        )
+        c.set_field_visible("decr_chrg_rule", bool(decr_rule))
         c.set_value("int_mlv_nbr", str(policy.data_item("LH_BAS_POL", "INT_MLV_NBR") or ""))
         rein_cd = str(policy.data_item("LH_BAS_POL", "REINSURED_CD") or "").strip()
         c.set_value("reinsured", translate_reinsurance_code(rein_cd))

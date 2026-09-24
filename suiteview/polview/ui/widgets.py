@@ -1016,6 +1016,16 @@ class StyledInfoTableGroup(QGroupBox):
             if isinstance(lbl, ClickableTooltipLabel):
                 lbl.set_tooltip_text(tooltip_text)
     
+    def set_field_visible(self, attr_name: str, visible: bool):
+        """Show or hide a field's label and value cell together."""
+        widgets = [self._labels[attr_name], self._fields[attr_name]]
+        editor = getattr(self, "_field_editors", {}).get(attr_name)
+        if editor is not None:
+            widgets.append(editor)
+        for widget in widgets:
+            in_layout = self._info_layout.indexOf(widget) >= 0
+            widget.setVisible(visible and in_layout)
+
     def set_value(self, attr_name: str, value: str):
         """Set the value of an info field by attribute name."""
         if attr_name in self._fields:
