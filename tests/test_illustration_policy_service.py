@@ -93,6 +93,7 @@ class _FakePolicyInfo:
     issue_state = "TX"
     company_name = "TEST"
     preferred_loans_available = False
+    decrease_charge_allowed = None
 
     def get_fund_buckets(self, *, current_only):
         return []
@@ -222,6 +223,19 @@ def test_build_illustration_data_recognizes_only_known_zero_glp(monkeypatch, glp
     policy = illustration_policy_service.build_illustration_data("U0126221")
     assert policy.glp_is_known is known
     assert policy.in_exception_period is exception
+
+
+@pytest.mark.parametrize("allowed", [True, False, None])
+def test_build_illustration_data_carries_decrease_charge_rule(monkeypatch, allowed):
+    source = _FakePolicyInfo()
+    source.decrease_charge_allowed = allowed
+    monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: source)
+    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(
+        illustration_policy_service, "load_plancode",
+        lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0))
+    policy = illustration_policy_service.build_illustration_data("U0126221")
+    assert policy.decrease_charge_allowed is allowed
 
 
 def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch):

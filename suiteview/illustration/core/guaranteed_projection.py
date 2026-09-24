@@ -77,7 +77,8 @@ def lock_values(
             dated.append(DatedTransaction(
                 kind=TransactionKind.LOAN, effective_date=month_date,
                 amount=state.applied_variable_loan, subtype="variable"))
-        repayment = state.applied_loan_repayment + state.loan_repay_from_prem
+        # The applied total already includes premium dollars diverted to the loan.
+        repayment = state.applied_loan_repayment
         if repayment > _EPS:
             dated.append(DatedTransaction(
                 kind=TransactionKind.LOAN_REPAYMENT, effective_date=month_date,

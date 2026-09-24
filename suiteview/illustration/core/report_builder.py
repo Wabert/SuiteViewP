@@ -33,6 +33,7 @@ from datetime import date
 from textwrap import wrap
 from typing import Dict, List, Optional
 
+from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
@@ -451,11 +452,7 @@ def _annualize(
         # (only reachable with TAMRA conformance off, or an already-MEC load).
         if year_of_mec is None:
             for m in months:
-                if (
-                    1 <= m.tamra_year <= 7
-                    and m.tamra_7pay_level > 0
-                    and m.accumulated_7pay > m.tamra_7pay_level * m.tamra_year + 0.005
-                ):
+                if seven_pay_limit_exceeded(m):
                     year_of_mec = year
                     break
 

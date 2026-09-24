@@ -161,7 +161,7 @@ def test_guaranteed_locks_applied_loan_and_diverted_premium_without_double_repay
         ),
         MonthlyState(
             duration=338, date=date(2028, 5, 6),
-            loan_repay_from_prem=56, gross_premium=0,
+            applied_loan_repayment=56, loan_repay_from_prem=56, gross_premium=0,
         ),
     ]
     base = tab.export_input_set()

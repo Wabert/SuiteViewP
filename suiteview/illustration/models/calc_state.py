@@ -73,7 +73,7 @@ class MonthlyState:
     pf_loan_accrued: float = 0.0
     vbl_loan_princ: float = 0.0
     vbl_loan_accrued: float = 0.0
-    applied_loan_repayment: float = 0.0
+    applied_loan_repayment: float = 0.0  # Total cash, including diverted premiums
     # Premium dollars diverted to repay the loan this month (RERUN MH + MI),
     # when sInput_ApplyPremToLoan is on. Zero otherwise.
     loan_repay_from_prem: float = 0.0
@@ -192,10 +192,11 @@ class MonthlyState:
     nar: float = 0.0               # total NAR
     total_nar: float = 0.0
 
-    # Per-segment COI (corridor uses cov1 rate)
+    # Per-segment COI (corridor uses the latest active segment's rate)
     coi_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
     coi_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
     coi_rate: float = 0.0
+    coi_rate_corr: float = 0.0
     coi_charge_cov1: float = 0.0
     coi_charge_corr: float = 0.0
     coi_charge: float = 0.0

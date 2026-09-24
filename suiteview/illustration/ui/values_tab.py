@@ -27,6 +27,7 @@ from suiteview.illustration.core.report_builder import (
 )
 from suiteview.illustration.core.summary_results import (
     LEAD_COLUMNS,
+    SHADOW_SUMMARY_COLUMNS,
     SUMMARY_COLUMNS,
     summary_values,
 )
@@ -202,6 +203,7 @@ LEDGER_DRILL_TABS = {
     "Ending LB": "Ending Values",
     "IllustratedDB": "Ending Values",
     "LN": "Summary",
+    **{column: "Shadow Account" for column in SHADOW_SUMMARY_COLUMNS},
 }
 
 
@@ -982,6 +984,7 @@ class IllustrationValuesTab(QWidget):
     SUMMARY_COLUMNS = list(SUMMARY_COLUMNS)
     SUMMARY_HEADER_LABELS = {
         "Attained Age": "Age",
+        **{column: column for column in SHADOW_SUMMARY_COLUMNS},
     }
     TESTING_GROUP = "Testing"
     TESTING_COLUMNS = [
@@ -1807,8 +1810,15 @@ class IllustrationValuesTab(QWidget):
                     seen.add(column_name)
                     tab_columns.append(column_name)
             navigator_columns[title] = tab_columns
-            grid.set_dataframe(frame.loc[:, tab_columns], limit_rows=False)
-            grid.set_numeric_formatting(default_decimals=2, column_decimals=column_decimals)
+            tab_frame = frame.loc[:, tab_columns].copy()
+            if title == self.SHADOW_ACCOUNT_GROUP:
+                # Summary uses workbook decimals; the detail tab retains percent units.
+                tab_frame["Shadow Int Rate"] *= 100.0
+            grid.set_dataframe(tab_frame, limit_rows=False)
+            tab_decimals = dict(column_decimals)
+            if title == self.SUMMARY_GROUP:
+                tab_decimals["Shadow Int Rate"] = 4
+            grid.set_numeric_formatting(default_decimals=2, column_decimals=tab_decimals)
             grid.set_header_labels(self._header_labels_for_tab(title))
             # Placeholder columns the engine does not compute yet render
             # greyed with an em dash — loud, never mistakable for zero.
@@ -2332,7 +2342,7 @@ class IllustrationValuesTab(QWidget):
             for key in coverage_keys:
                 label = cls._coverage_label(key)
                 values[f"COI Rate {label}"] = state.coi_rates_by_coverage.get(key, 0.0)
-        values["COI Rate Corr"] = state.coi_rate
+        values["COI Rate Corr"] = state.coi_rate_corr
         for key in coverage_keys:
             label = cls._coverage_label(key)
             values[f"COI Charge {label}"] = state.coi_charges_by_coverage.get(key, 0.0)

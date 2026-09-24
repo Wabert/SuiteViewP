@@ -543,7 +543,7 @@ class IllustrationPolicyTab(QWidget):
                 self.policy_info.add_field("-", attr, 1, 1)
                 self._set_group_field_visible(self.policy_info, attr, False)
             else:
-                self.policy_info.add_field(label, attr, 110, 100)
+                self.policy_info.add_field(label, attr, 110, 120 if attr == "joint_label" else 100)
 
     def _make_value_group(self, title: str, fields: list[tuple[str, str]], columns: int = 1):
         group = StyledInfoTableGroup(title, columns=columns, show_table=False)
@@ -1055,7 +1055,7 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("issue_state_label", policy.issue_state)
         self.policy_info.set_value("billing_mode_label", policy.billing_mode)
         self.policy_info.set_value("premium_label", format_currency(policy.modal_premium, "$"))
-        self.policy_info.set_value("joint_label", "Joint" if base_cov and base_cov.lives_cov_cd in ("2", "3") else "Single")
+        self.policy_info.set_value("joint_label", policy.insured_lives_description)
         self.policy_info.set_value("suspense_label", f"{policy.suspense_code} - {policy.suspense_description}")
         self.policy_info.set_value("grace_label", "In Grace" if policy.in_grace else "Not in Grace")
         self.policy_info.set_value("eff_date_label", format_date(policy.valuation_date))

@@ -28,6 +28,49 @@ def test_int_bonus_table_resolves_1u135k00_latest_effective_rate():
     assert bonus.bonus_av_threshold == 0.0
 
 
+@pytest.mark.parametrize(
+    ("valuation_date", "expected_rate"),
+    [
+        (date(2023, 1, 31), 0.005),
+        (date(2023, 2, 1), 0.009),
+        (date(2026, 9, 22), 0.009),
+    ],
+)
+def test_int_bonus_table_resolves_1u135p00_effective_rate(valuation_date, expected_rate):
+    bonus = load_bonus_config(" 1u135p00 ", valuation_date)
+
+    assert bonus.bonus_dur_rate == expected_rate
+    assert bonus.bonus_dur_threshold == 10
+    assert bonus.bonus_av_rate == 0.0
+    assert bonus.bonus_av_threshold == 0.0
+    assert bonus.guaranteed().bonus_dur_rate == 0.0
+    assert bonus.guaranteed().bonus_av_rate == 0.0
+
+
+@pytest.mark.parametrize(
+    ("rate_year", "guaranteed", "expected_rate"),
+    [(10, False, 0.0), (11, False, 0.009), (12, False, 0.009), (11, True, 0.0)],
+)
+def test_1u135p00_duration_bonus_starts_in_year_11(rate_year, guaranteed, expected_rate):
+    bonus = load_bonus_config("1U135P00", date(2023, 2, 1))
+    if guaranteed:
+        bonus = bonus.guaranteed()
+
+    result = credit_interest(
+        100_000.0,
+        IllustrationPolicyData(current_interest_rate=0.03),
+        load_plancode("1U135P00"),
+        IllustrationRates(),
+        bonus,
+        rate_year=rate_year,
+        attained_age=60,
+        month_date=date(2023, 2, 1),
+    )
+
+    assert result.bonus_interest_rate == expected_rate
+    assert result.effective_annual_rate == pytest.approx(0.03 + expected_rate)
+
+
 def test_int_bonus_table_resolves_1u147800_current_and_guaranteed_rates():
     bonus = load_bonus_config("1U147800", date(2026, 8, 3))
 

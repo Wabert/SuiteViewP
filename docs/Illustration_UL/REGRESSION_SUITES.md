@@ -26,8 +26,17 @@ therefore does not reload policy data from DB2 when it runs.
    all actual Summary rows and differences from the completed run.
 
 Money, balance, and charge fields use an absolute `$0.005` tolerance. Interest
-Rate uses `1e-8`. Dates, row structure, text, integers, nulls, missing months,
+Rate and Shadow Int Rate use `1e-8`. Dates, row structure, text, integers, nulls, missing months,
 and Current/Guaranteed presence are exact.
+
+Summary schema **3** appends the workbook columns `vShadow_TP`, `Shadow COI`,
+`Shadow EPU`, `Rider Charges`, `Shadow MD`, `Shadow Int Rate`, and `vShadowEAV`.
+These are existing engine shadow values; Rider Charges includes the shadow
+rider/benefit charges excluding CCV, and vShadowEAV is before debt subtraction.
+Interest rates remain decimal fractions, not percentage-point values.
+The same columns appear in current/guaranteed Summary workbook exports.
+Suites with an older Summary schema must be recreated from saved cases and
+given new baselines; they are not silently compared against a different shape.
 
 ## Create or update a baseline
 

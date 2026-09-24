@@ -259,6 +259,55 @@ def test_specified_face_decrease_follows_sa_basis_without_withdrawal_fee(
     assert outcome.face_detail["Total PSC Spec Dec"] == pytest.approx(expected_psc)
 
 
+@pytest.mark.parametrize(
+    ("sa_basis", "decrease_charge_allowed", "expected_psc"),
+    [
+        ("CurrentSA", False, 0.0),
+        ("CurrentSA", True, 400.0),
+        ("CurrentSA", None, 400.0),
+        ("OriginalSA", True, 0.0),
+    ],
+)
+def test_specified_face_decrease_honors_decrease_charge_rule(
+    monkeypatch, sa_basis, decrease_charge_allowed, expected_psc,
+):
+    """TH_NON_TRD_POL.DECR_CHRG_ALLOW = 0 removes the specified-decrease PSC.
+
+    An unset rule keeps the plancode rule; the policy rule never adds a charge
+    to a plan that does not assess one.
+    """
+    _patch_policy_change_dependencies(monkeypatch, [])
+    policy = IllustrationPolicyData(
+        def_of_life_ins="GPT",
+        face_amount=100_000.0,
+        glp=1_200.0,
+        gsp=2_400.0,
+        tamra_7pay_level=72.0,
+        decrease_charge_allowed=decrease_charge_allowed,
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0)],
+    )
+
+    outcome = calc_engine._apply_policy_change(
+        policy,
+        PlancodeConfig(sa_basis=sa_basis),
+        PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT,
+            effective_date=date(2026, 6, 9),
+            value=60_000.0,
+        ),
+        attained_age=56,
+        change_date=date(2026, 6, 9),
+        rates=IllustrationRates(scr=[None, 10.0], segment_scr={1: [None, 10.0]}),
+        rate_year=7,
+        av=10_000.0,
+    )
+
+    assert policy.face_amount == 60_000.0
+    assert outcome.face_detail["Specified Face Decrease"] == 40_000.0
+    assert outcome.av_adjustment == pytest.approx(-expected_psc)
+    assert outcome.face_detail["Total PSC Spec Dec"] == pytest.approx(expected_psc)
+
+
 def test_increase_segment_gets_true_segment_maturity_date(monkeypatch):
     class FakeRates:
         def get_band(self, *_args, **_kwargs):

@@ -1274,6 +1274,8 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "NAAR", "Base COI", "Rider COI", "Benefit COI", "EPU", "MFEE", "MD",
         "Exception Prem", "AV", "New Loan", "Interest Rate", "Interest", "EAV",
         "SC", "ESV", "Var Loan", "Pref Loan", "Reg Loan", "Ending LB", "IllustratedDB",
+        "vShadow_TP", "Shadow COI", "Shadow EPU", "Rider Charges",
+        "Shadow MD", "Shadow Int Rate", "vShadowEAV",
     ]
 
     assert summary.df.iloc[0].to_dict() == {
@@ -1288,6 +1290,9 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "Interest Rate": 0.049, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
         "ESV": 838.0, "Var Loan": 36.0, "Pref Loan": 24.0, "Reg Loan": 12.0,
         "Ending LB": 72.0, "IllustratedDB": 150000.0,
+        "vShadow_TP": 0.0, "Shadow COI": 0.0, "Shadow EPU": 0.0,
+        "Rider Charges": 0.0, "Shadow MD": 0.0, "Shadow Int Rate": 0.0,
+        "vShadowEAV": 0.0,
     }
     assert summary.df.iloc[1]["AV"] == 1050.0
     assert summary.df.iloc[1]["Interest Rate"] == 0.05
@@ -1295,6 +1300,50 @@ def test_summary_tab_uses_requested_illustration_values_order():
     # ESV is the ENDING surrender value (EAV − SC − Ending LB), not the
     # lapse-check surrender_value.
     assert summary.df.iloc[1]["ESV"] == 940.0
+
+
+def test_summary_shadow_columns_match_workbook_without_relabeling_regular_values():
+    from PyQt6.QtCore import Qt as QtCore
+    from suiteview.illustration.core.summary_results import SHADOW_SUMMARY_COLUMNS
+    from suiteview.illustration.ui.values_tab import LEDGER_DRILL_TABS
+
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(
+        _state(), shadow_target_prem=1200.25, shadow_coi=21.5,
+        shadow_epu=3.75, shadow_rider_charges=7.25, shadow_md=37.5,
+        shadow_int_rate=0.0425, shadow_eav=-125.75,
+        rider_charges=2.0, epu_charge=1.0, total_deduction=10.0,
+    )
+    tab.display_projection(_policy(), [state])
+    grid = tab._tab_grids["Summary"]
+    assert list(grid.df.columns[-7:]) == list(SHADOW_SUMMARY_COLUMNS)
+    assert grid.df.iloc[0][list(SHADOW_SUMMARY_COLUMNS)].tolist() == [
+        1200.25, 21.5, 3.75, 7.25, 37.5, 0.0425, -125.75,
+    ]
+    for name in SHADOW_SUMMARY_COLUMNS:
+        index = grid.df.columns.get_loc(name)
+        assert grid.model.headerData(
+            index, QtCore.Orientation.Horizontal, QtCore.ItemDataRole.DisplayRole,
+        ) == name
+        assert LEDGER_DRILL_TABS[name] == "Shadow Account"
+    assert _cell(grid, "Shadow Int Rate", QtCore.ItemDataRole.DisplayRole) == "0.0425"
+    assert _cell(grid, "vShadowEAV", QtCore.ItemDataRole.DisplayRole) == "-125.75"
+    assert grid.df.iloc[0]["Rider COI"] == 2.0
+    assert grid.df.iloc[0]["EPU"] == 1.0
+    assert grid.df.iloc[0]["MD"] == 10.0
+    shadow = tab._tab_grids["Shadow Account"]
+    assert shadow.df.iloc[0]["Shadow Int Rate"] == pytest.approx(4.25)
+    index = shadow.df.columns.get_loc("Shadow COI")
+    assert shadow.model.headerData(
+        index, QtCore.Orientation.Horizontal, QtCore.ItemDataRole.DisplayRole,
+    ) == "COI"
+    assert _cell(shadow, "Shadow Int Rate", QtCore.ItemDataRole.DisplayRole) == "4.25"
+    tab.set_guaranteed_results(_policy(), [replace(state, shadow_eav=99.5)])
+    tab.guaranteed_toggle.click()
+    assert tab._tab_grids["Summary"].df.iloc[0]["vShadowEAV"] == 99.5
+    tab.current_toggle.click()
+    assert tab._tab_grids["Summary"].df.iloc[0]["vShadowEAV"] == -125.75
 
 
 def test_overview_ledger_restores_compact_values_order():
@@ -1637,6 +1686,21 @@ def test_monthly_deduction_tab_follows_rerun_order():
     ]
     start = columns.index("mAV")
     assert columns[start : start + len(expected_block)] == expected_block
+
+
+def test_corridor_coi_grid_uses_its_own_rate():
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(
+        _state(), coi_rate=2.39, coi_rate_corr=2.55,
+        coi_rates_by_coverage={"cov1": 2.39, "cov2": 2.55},
+    )
+
+    tab.display_projection(_policy(), [state])
+
+    row = tab._tab_grids["Monthly Deduction"].df.iloc[0]
+    assert row["COI Rate Corr"] == row["COI Rate Cov2"] == 2.55
+    assert row["COI Rate Cov1"] == 2.39
 
 
 def _ratchet_state() -> MonthlyState:

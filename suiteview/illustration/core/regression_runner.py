@@ -165,7 +165,11 @@ def compare_rows(
                 tolerance = None
                 delta = None
             else:
-                tolerance = RATE_TOLERANCE if column == "Interest Rate" else MONEY_TOLERANCE
+                tolerance = (
+                    RATE_TOLERANCE
+                    if column in ("Interest Rate", "Shadow Int Rate")
+                    else MONEY_TOLERANCE
+                )
                 delta = float(actual_value) - float(expected_value)
                 boundary = tolerance + max(
                     math.ulp(float(actual_value)),

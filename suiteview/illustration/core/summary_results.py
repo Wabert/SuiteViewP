@@ -12,8 +12,12 @@ from typing import Iterable
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
-SUMMARY_SCHEMA_VERSION = 2
+SUMMARY_SCHEMA_VERSION = 3
 LEAD_COLUMNS = ("Date", "Year", "Month", "Attained Age")
+SHADOW_SUMMARY_COLUMNS = (
+    "vShadow_TP", "Shadow COI", "Shadow EPU", "Rider Charges",
+    "Shadow MD", "Shadow Int Rate", "vShadowEAV",
+)
 SUMMARY_COLUMNS = (
     "GrossWD", "DBO", "TotalSA", "PSC", "MonthlyMTP", "Accum MTP",
     "GLP", "GSP", "AccumGLP", "ForceOut", "Loan_Accr_Int", "Loan_Princ",
@@ -22,7 +26,7 @@ SUMMARY_COLUMNS = (
     "Exception Prem", "AV", "New Loan", "Interest Rate", "Interest",
     "EAV", "SC", "ESV", "Var Loan", "Pref Loan", "Reg Loan",
     "Ending LB", "IllustratedDB",
-)
+) + SHADOW_SUMMARY_COLUMNS
 ALL_COLUMNS = LEAD_COLUMNS + SUMMARY_COLUMNS
 
 
@@ -68,7 +72,7 @@ def summary_values(
     policy: IllustrationPolicyData,
     state: MonthlyState,
 ) -> dict:
-    """Return the 37 Summary values for one monthly state."""
+    """Return the Summary values for one monthly state."""
     return {
         "GrossWD": state.gross_withdrawal,
         "DBO": str(
@@ -117,6 +121,13 @@ def summary_values(
         "Reg Loan": state.end_rg_loan_princ + state.end_rg_loan_accrued,
         "Ending LB": state.policy_debt,
         "IllustratedDB": state.ending_db or state.gross_db,
+        "vShadow_TP": state.shadow_target_prem,
+        "Shadow COI": state.shadow_coi,
+        "Shadow EPU": state.shadow_epu,
+        "Rider Charges": state.shadow_rider_charges,
+        "Shadow MD": state.shadow_md,
+        "Shadow Int Rate": state.shadow_int_rate,
+        "vShadowEAV": state.shadow_eav,
     }
 
 

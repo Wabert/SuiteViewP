@@ -1242,7 +1242,7 @@ def test_riders_panel_excludes_base_coverages():
 def test_riders_panel_enables_renewal_rated_benefit():
     """A waiver benefit (e.g. ULDW91) has a zero issue rate (BNF_ANN_PPU_AMT)
     but a real charge in the renewal-rate segment — it must be adjustable.
-    Free ABR (#-type) benefits stay disabled."""
+    Free ABR (#-type) benefits stay view-only."""
     from types import SimpleNamespace
 
     def _ben(type_cd, subtype_cd, form, coi_rate, renewal_rate):
@@ -1250,7 +1250,7 @@ def test_riders_panel_enables_renewal_rated_benefit():
             cov_pha_nbr=1, benefit_code=type_cd + subtype_cd,
             benefit_type_cd=type_cd, benefit_subtype_cd=subtype_cd,
             benefit_desc=type_cd, form_number=form,
-            issue_date=date(2019, 11, 9), cease_date=None,
+            issue_date=date(2019, 11, 9), pay_up_date=None, cease_date=None,
             units=250.0, benefit_amount=250000.0, issue_age=50,
             coi_rate=coi_rate, renewal_rate=renewal_rate)
 
@@ -1265,7 +1265,8 @@ def test_riders_panel_enables_renewal_rated_benefit():
     panel = DynamicInputsPanel()
     panel.load_from_policy(PolicyWithWaiver())
 
-    assert not panel.riders_panel._buttons["ben:#4:1"].isEnabled()
+    assert panel.riders_panel._buttons["ben:#4:1"].isEnabled()
+    assert "view only" in panel.riders_panel._buttons["ben:#4:1"].toolTip().lower()
     waiver_btn = panel.riders_panel._buttons["ben:39:1"]
     assert waiver_btn.isEnabled()
     assert waiver_btn.toolTip() == "Keep / change / drop this rider"

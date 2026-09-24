@@ -270,7 +270,10 @@ def policy_to_guideline_inputs(
     loaded lazily so this module stays import-light for callers that only need
     the pure commutation math.
     """
-    from suiteview.illustration.core.monthly_guideline import statutory_guideline_rates
+    from suiteview.illustration.core.monthly_guideline import (
+        guideline_maturity_age,
+        statutory_guideline_rates,
+    )
     from suiteview.illustration.core.rate_loader import load_rates
 
     guar = load_rates(policy, config, coi_scale=0)
@@ -305,7 +308,7 @@ def policy_to_guideline_inputs(
         mortality=mort,
         specified_amount=total_face,
         db_option="A",                 # commutation detail is the level-DB view
-        endowment_age=endowment_age,
+        endowment_age=guideline_maturity_age(policy, endowment_age),
         guaranteed_rate=float(policy.guaranteed_interest_rate or 0.0),
         glp_rate=glp_rate,
         gsp_rate=gsp_rate,
@@ -485,7 +488,8 @@ def calculate_glp_iterative(
         endowment projection).
 
     The account value starts at 0 at the current attained age. ``target_face``
-    defaults to the policy face amount.
+    defaults to the policy face amount. The endowment age cannot exceed either
+    policy maturity or age 100.
 
     NOTE: requires live guaranteed COI rates, so it is validated on the work
     laptop (the home minipc has no UL_Rates DB). The pure-math sibling
@@ -494,6 +498,7 @@ def calculate_glp_iterative(
     # Imported lazily so the commutation method has no engine/DB import weight.
     from suiteview.illustration.core.bonus_rates import BonusConfig
     from suiteview.illustration.core.calc_engine import IllustrationEngine
+    from suiteview.illustration.core.monthly_guideline import guideline_maturity_age
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet,
         IllustrationOptions,
@@ -503,6 +508,7 @@ def calculate_glp_iterative(
     from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
     face = policy.face_amount if target_face is None else target_face
+    endowment_age = guideline_maturity_age(policy, endowment_age)
     months = max(0, (endowment_age - policy.attained_age) * 12)
     if months <= 0 or face <= 0:
         return IterativeGuidelineResult(0.0, 0.0, 0.0, face, 0, True)
@@ -600,6 +606,8 @@ def search_guideline_premiums(
     on multi-coverage policies) — which is exactly where the two methods can
     diverge.
 
+    The endowment age cannot exceed either policy maturity or age 100.
+
     Returns a ``monthly_guideline.GuidelineSolveResult``.
     """
     import dataclasses
@@ -609,6 +617,7 @@ def search_guideline_premiums(
     from suiteview.illustration.core.monthly_guideline import (
         SEVEN_PAY_YEARS,
         GuidelineSolveResult,
+        guideline_maturity_age,
         statutory_guideline_rates,
     )
     from suiteview.illustration.models.input_set import (
@@ -619,6 +628,7 @@ def search_guideline_premiums(
     )
 
     face = policy.total_face
+    maturity_age = guideline_maturity_age(policy, maturity_age)
     months = max(0, (maturity_age - attained_age) * 12)
     if months <= 0 or face <= 0:
         return GuidelineSolveResult()
@@ -637,7 +647,7 @@ def search_guideline_premiums(
     elapsed_years = max(0, attained_age - policy.issue_age)
     base_policy = dataclasses.replace(
         policy,
-        attained_age=attained_age,
+        attained_age=attained_age - 1 if elapsed_years > 0 else attained_age,
         policy_year=max(1, elapsed_years),
         policy_month=12 if elapsed_years > 0 else 0,
         duration=elapsed_years * 12,

@@ -1,6 +1,18 @@
 """TAMRA seven-pay back-testing and permanent MEC determination."""
 from __future__ import annotations
 
+from suiteview.illustration.models.calc_state import MonthlyState
+
+
+def seven_pay_limit_exceeded(state: MonthlyState) -> bool:
+    """Test accepted contributions against the active seven-pay year's limit."""
+    return (
+        1 <= state.tamra_year <= 7
+        and state.tamra_7pay_level >= 0.0
+        and state.accumulated_7pay
+        > state.tamra_year * state.tamra_7pay_level + 0.005
+    )
+
 
 def _add_years(value, years: int):
     if value is None:

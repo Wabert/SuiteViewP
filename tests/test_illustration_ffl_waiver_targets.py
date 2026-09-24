@@ -31,7 +31,7 @@ class _FakeRates:
 
     MTP_RATE = 20.0        # HO — coverage MTP per 1000
     CTP_RATE = 24.0        # coverage CTP per 1000
-    PW_RATE = 0.06         # IU — PWoC MTPR (benefit "39")
+    PW_RATE = 6.0          # Raw percent for benefit "39"; multiplier = 0.06.
     PWST_RATE = 8.0        # IJ — PWoT MTPR per 100 (benefit "49")
     PWST_CTP_RATE = 9.0    # KD
     ADB_RATE = 0.5         # generic benefit (units × rate)
@@ -54,12 +54,12 @@ class _FakeRates:
         return 0.0
 
     def get_ben_mtp(self, plancode, issue_age, sex, rateclass, band, benefit_type):
-        return {"39": self.PW_RATE, "49": self.PWST_RATE, "71": self.ADB_RATE}.get(
+        return {"39": self.PW_RATE, "3F": 0.06, "49": self.PWST_RATE, "71": self.ADB_RATE}.get(
             benefit_type, 0.0
         )
 
     def get_ben_ctp(self, plancode, issue_age, sex, rateclass, band, benefit_type):
-        return {"39": self.PW_RATE, "49": self.PWST_CTP_RATE, "71": self.ADB_RATE}.get(
+        return {"39": self.PW_RATE, "3F": 0.06, "49": self.PWST_CTP_RATE, "71": self.ADB_RATE}.get(
             benefit_type, 0.0
         )
 
@@ -116,9 +116,12 @@ def _config(company_sub: str) -> PlancodeConfig:
     )
 
 
-def test_ffl_waiver_targets_use_cost_bases(fake_rates):
+@pytest.mark.parametrize("subtype, raw_rate", [("9", 6.0), ("F", 0.06)])
+def test_ffl_waiver_targets_use_cost_bases(fake_rates, subtype, raw_rate):
     policy = _make_policy()
+    policy.benefits[0].benefit_subtype = subtype
     result = compute_target_premiums(policy, _config("FFL"), as_of=date(2020, 6, 9))
+    assert result.pw_rate == raw_rate
 
     # Coverage MTP (HW): 100000·20/1000 = 2000; generic benefit: 10·0.5 = 5.
     assert result.mtp_by_coverage[1] == pytest.approx(2000.0)

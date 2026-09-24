@@ -47,6 +47,7 @@ from suiteview.illustration.core.monthly_deduction import (
     _round_near,
     calculate_deduction,
 )
+from suiteview.illustration.core.mec import seven_pay_backtest, seven_pay_limit_exceeded
 from suiteview.illustration.core.premium_allowance import (
     PremiumAllowances,
     compute_premium_allowances,
@@ -190,27 +191,9 @@ class IllustrationEngine:
             remaining_months if months is None else min(months, remaining_months)
         )
 
-        # Policy changes (face decrease, DBO change) mutate a PRIVATE copy of the
-        # policy at their effective month — as can a withdrawal that reduces the
-        # specified amount or an Option B policy starting exception premiums.
-        # Base cases with no possible mutation keep the original object.
+        # Coverage changes and permanent MEC detection mutate only this run's basis.
+        policy = copy.deepcopy(policy)
         changes_by_duration: Dict[int, list] = {}
-        requires_private_policy = (
-            (options.allow_exception_prems or starting_exception_period)
-            and str(policy.db_option or "").upper() == "B"
-        )
-        if future_inputs is not None and not future_inputs.is_empty():
-            has_withdrawal = any(
-                tx.kind == TransactionKind.WITHDRAWAL
-                for tx in future_inputs.dated_transactions
-            ) or any(
-                tx.kind == TransactionKind.WITHDRAWAL
-                for tx in future_inputs.scheduled_transactions
-            )
-            if future_inputs.policy_changes or has_withdrawal:
-                requires_private_policy = True
-        if requires_private_policy:
-            policy = copy.deepcopy(policy)
         if future_inputs is not None and not future_inputs.is_empty():
             changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
 
@@ -425,6 +408,7 @@ class IllustrationEngine:
             coi_rates_by_coverage=ded0.coi_rates_by_coverage,
             coi_charges_by_coverage=ded0.coi_charges_by_coverage,
             coi_rate=ded0.coi_rate,
+            coi_rate_corr=ded0.coi_rate_corr,
             coi_charge_cov1=ded0.coi_charge_cov1,
             coi_charge_corr=ded0.coi_charge_corr,
             coi_charge=ded0.coi_charge,
@@ -607,7 +591,7 @@ class IllustrationEngine:
                     policy_changes=changes_by_duration.get(state.duration + 1),
                     iul_ctx=iul_ctx,
                 )
-            state = _apply_retroactive_mec(policy, results, state)
+            state = _apply_mec_status(policy, results, state)
             results.append(state)
             if stop_on_lapse and state.lapsed:
                 break
@@ -1333,6 +1317,7 @@ class IllustrationEngine:
             coi_rates_by_coverage=ded.coi_rates_by_coverage,
             coi_charges_by_coverage=ded.coi_charges_by_coverage,
             coi_rate=ded.coi_rate,
+            coi_rate_corr=ded.coi_rate_corr,
             coi_charge_cov1=ded.coi_charge_cov1,
             coi_charge_corr=ded.coi_charge_corr,
             coi_charge=ded.coi_charge,
@@ -1821,6 +1806,7 @@ class IllustrationEngine:
             guideline_forceout=guideline_forceout,
             guideline_av_before_monthly_deduction=av_before_deduction,
             accumulated_7pay=accumulated_7pay,
+            amount_in_7pay=state.accumulated_7pay,
             tamra_year=tamra_year,
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
@@ -1859,6 +1845,7 @@ class IllustrationEngine:
             coi_rates_by_coverage=ded.coi_rates_by_coverage,
             coi_charges_by_coverage=ded.coi_charges_by_coverage,
             coi_rate=ded.coi_rate,
+            coi_rate_corr=ded.coi_rate_corr,
             coi_charge_cov1=ded.coi_charge_cov1,
             coi_charge_corr=ded.coi_charge_corr,
             coi_charge=ded.coi_charge,
@@ -1947,23 +1934,22 @@ class IllustrationEngine:
         return load_rates(policy, config)
 
 
-def _apply_retroactive_mec(policy, prior_states, state: MonthlyState) -> MonthlyState:
-    """Latch a mid-window seven-pay back-test failure into projection state."""
+def _apply_mec_status(policy, prior_states, state: MonthlyState) -> MonthlyState:
+    """Latch monthly excess or a recalc back-test failure independently of capping."""
+    if policy.is_mec:
+        return replace(state, is_mec=True, mec_year=prior_states[-1].mec_year)
+
+    backtest_failed = False
     detail = state.guideline_recalc
-    if policy.is_mec or detail.get("tamra_case") != "within_period":
-        return state
-
-    from suiteview.illustration.core.mec import seven_pay_backtest
-
-    history = list(prior_states) + [state]
-    backtest = seven_pay_backtest(policy, history, len(history) - 1, detail)
-    if backtest is None:
-        return state
-
-    detail = dict(detail)
-    detail["seven_pay_backtest"] = backtest
-    state = replace(state, guideline_recalc=detail)
-    if backtest["is_mec"]:
+    if detail.get("tamra_case") == "within_period":
+        history = list(prior_states) + [state]
+        backtest = seven_pay_backtest(policy, history, len(history) - 1, detail)
+        if backtest is not None:
+            detail = dict(detail)
+            detail["seven_pay_backtest"] = backtest
+            state = replace(state, guideline_recalc=detail)
+            backtest_failed = backtest["is_mec"]
+    if backtest_failed or seven_pay_limit_exceeded(state):
         policy.is_mec = True
         state = replace(state, is_mec=True, mec_year=state.policy_year)
     return state
@@ -2612,6 +2598,7 @@ def _apply_policy_change(
                 rate_year,
                 charge_scr=(
                     config.partial_surrender_charge
+                    and policy.decrease_charge_allowed is not False
                     and bool(md.get("charge_surrender", True))
                 ),
                 config=config,
@@ -2651,10 +2638,8 @@ def _apply_policy_change(
             _reband_benefits(rates, policy)
             outcome.coverage_changed = True
     elif change.kind == PolicyChangeKind.SUBSTANDARD:
-        # Table-rating change on the base coverage (0 removes the rating).
-        # COI substandard applies as a multiplier at deduction time; targets
-        # pick up the new rating through the recompute below.
-        # TODO: validate vs RERUN on the laptop.
+        # Waivers store a multiplier, not a table number. Change their private
+        # basis before targets, deductions and guideline after-solves consume it.
         new_table = int(change.value or 0)
         base = policy.base_segment
         if base is not None and new_table != base.table_rating:
@@ -2663,6 +2648,9 @@ def _apply_policy_change(
                 base.table_cease_date = change_date
             else:
                 base.table_cease_date = None
+            for benefit in policy.benefits:
+                if benefit.benefit_type in ("3", "4"):
+                    benefit.rating_factor = 1.0 + config.table_rating_factor * new_table
             outcome.coverage_changed = True
     elif change.kind == PolicyChangeKind.RIDER_DROP:
         # Drop/changed rider or benefit: value is the new amount (0 = drop).

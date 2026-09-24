@@ -300,8 +300,8 @@ def repay_loan(
     payoff, and the loan *principal* is reduced by the grossed-up amount
     ``repay/(1-factor)`` (MR) — i.e. the cash plus the unearned interest on it.
 
-    Arrears loans: the cash reduces the buckets directly (interest already lives
-    in the accrued buckets), preferred-first then regular then variable.
+    Arrears loans: cash pays preferred interest, regular interest, preferred
+    principal, then regular principal. Variable interest/principal follow.
 
     Returns a :class:`LoanRepayResult` (does not add new/variable loans — that
     happens separately). ``applied_repayment`` is the total cash applied to the
@@ -353,10 +353,10 @@ def repay_loan(
         + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
     )                                                                            # MF = SUM(LX:MC)
     remaining = attempted
-    rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
-    rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
     pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
+    rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
     pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
+    rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
     vbl_accrued, remaining = _reduce_bucket(cap_loan.vbl_loan_accrued, remaining)
     vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)
     applied = attempted - remaining

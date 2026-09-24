@@ -38,6 +38,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 
 # Policy-year marks the KPI summary samples AV/SV/DB at (plus each side's end).
 KPI_YEAR_MARKS = (5, 10, 20)
@@ -399,9 +400,7 @@ def _mec_status(policy, projected: list) -> str:
     if established is not None:
         return f"Becomes MEC (Yr {established})"
     for state in projected:
-        if (1 <= state.tamra_year <= 7 and state.tamra_7pay_level > 0
-                and state.accumulated_7pay
-                > state.tamra_year * state.tamra_7pay_level + _ZERO):
+        if seven_pay_limit_exceeded(state):
             return f"Becomes MEC (Yr {state.policy_year})"
     return "Not a MEC"
 

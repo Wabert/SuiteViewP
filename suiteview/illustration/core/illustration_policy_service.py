@@ -531,6 +531,7 @@ def build_illustration_data(
         variable_loan_accrued=var_loan_acc,
         variable_loan_charge_rate=var_loan_charge_rate,
         withdrawals_to_date=withdrawals,
+        decrease_charge_allowed=pi.decrease_charge_allowed,
         shadow_account_value=shadow_av,
         ccv_active=ccv_active,
         ccv_ceased=ccv_ceased,

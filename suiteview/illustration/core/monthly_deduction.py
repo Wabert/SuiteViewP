@@ -15,6 +15,7 @@ from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
     IllustrationPolicyData,
     benefit_rate_keys,
     rider_active_on,
@@ -56,6 +57,28 @@ def _charge_active(cease_date: date | None, projection_date: date | None) -> boo
     return projection_date < cease_date
 
 
+def target_waiver_charge(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rate: float,
+    projection_date: date | None,
+) -> tuple[float, float]:
+    """Return PWoT annual target amount and cent-rounded monthly charge."""
+    if config.pwot_coi_basis not in (2, 3):
+        raise ValueError("Target-based PWoT requires MTP (2) or CTP (3).")
+    base = policy.base_segment
+    table = (
+        base.table_rating
+        if base and base.table_rating and base.table_rating > 0
+        and _charge_active(base.table_cease_date, projection_date)
+        else 0
+    )
+    # The per-100 rate uses the base coverage rating, not the benefit rating.
+    factor = 1.0 + config.table_rating_factor * table
+    amount = policy.mtp * 12.0 if config.pwot_coi_basis == 2 else policy.ctp
+    return amount, _round_near(amount * rate / 100.0 * factor, 2)
+
+
 def _segment_matured(segment, projection_date: date | None) -> bool:
     """Whether a base coverage segment has reached its own maturity date.
 
@@ -81,6 +104,29 @@ def _at_or_after_policy_maturity(
         if age is not None and age > 0
     ]
     return bool(maturity_ages and attained_age >= min(maturity_ages))
+
+
+def _corridor_coverage_key(
+    segment_nars: list[tuple[CoverageSegment | None, float]],
+    projection_date: date | None,
+) -> str | None:
+    """Select the last active segment in the engine's oldest-to-newest order."""
+    for index in range(len(segment_nars) - 1, -1, -1):
+        segment, _ = segment_nars[index]
+        if segment is not None:
+            if (
+                segment.face_amount <= 0
+                or segment.status == "T"
+                or _segment_matured(segment, projection_date)
+                or (
+                    projection_date is not None
+                    and segment.issue_date is not None
+                    and segment.issue_date > projection_date
+                )
+            ):
+                continue
+        return f"cov{index + 1}"
+    return None
 
 
 def _adjusted_coi_rate(
@@ -245,9 +291,9 @@ def _ratchet_coi(
     # Corridor (RERUN QW, corrected): the last active base segment's
     # substandard-adjusted band rates against the band-1/band-2 corridor NAR.
     # Reuse the rates already computed for that segment above.
-    last_key = f"cov{len(segment_nars)}" if segment_nars else None
-    corr_b1_rate = result.band1_rates.get(last_key, 0.0)
-    corr_b2_rate = result.band2_rates.get(last_key, 0.0)
+    last_key = _corridor_coverage_key(segment_nars, projection_date)
+    corr_b1_rate = result.band1_rates[last_key] if last_key is not None else 0.0
+    corr_b2_rate = result.band2_rates[last_key] if last_key is not None else 0.0
     corr_b1_nar = band1_slots[-1]
     corr_b2_nar = band2_slots[-1]
     charge_corr = (corr_b1_nar / 1000.0) * corr_b1_rate + (corr_b2_nar / 1000.0) * corr_b2_rate
@@ -290,10 +336,11 @@ class DeductionResult:
     nar: float = 0.0
     total_nar: float = 0.0
 
-    # Per-segment COI (corridor uses cov1 COI rate)
+    # Per-segment COI (corridor uses the latest active segment's rate)
     coi_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
     coi_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
     coi_rate: float = 0.0
+    coi_rate_corr: float = 0.0
     coi_charge_cov1: float = 0.0
     coi_charge_corr: float = 0.0
     coi_charge: float = 0.0
@@ -493,7 +540,9 @@ def calculate_deduction(
         coi_charges_by_coverage[key] = segment_coi_charge
 
     coi_charge_cov1 = coi_charges_by_coverage.get("cov1", 0.0)
-    coi_charge_corr = (nar_corr / 1000.0) * adjusted_coi
+    corridor_key = _corridor_coverage_key(segment_nars, projection_date)
+    coi_rate_corr = coi_rates_by_coverage[corridor_key] if corridor_key is not None else 0.0
+    coi_charge_corr = (nar_corr / 1000.0) * coi_rate_corr
     coi_charge = sum(coi_charges_by_coverage.values()) + coi_charge_corr
 
     # ── 3.2.6b Ratchet banding override (cols PP-QX) ─────────
@@ -517,6 +566,7 @@ def calculate_deduction(
         coi_charge_cov1 = rc.charges_by_coverage.get("cov1", 0.0)
         # Representative single rate (display): band-1 rate covers the bulk.
         adjusted_coi = rc.cov1_band1_rate
+        coi_rate_corr = rc.band1_rates["corr"]
         coi_rates_by_coverage = dict(rc.band1_rates)
         band_break = rates.band_break
         coi_band1_nar_by_coverage = rc.band1_nar
@@ -701,27 +751,9 @@ def calculate_deduction(
                 benefit_amount = monthly_deduction_basis
             charge = adjusted_rate * benefit_amount * charge_factor
         elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
-            # Stipulated Premium Waiver (PWoT) charge on an MTP/CTP basis
-            # (RERUN CalcEngine RB, sPWoT_COI_Basis 2/3 — FFL products):
-            #   ROUND(CHOOSE(basis, vMTP*RA/100, vCTP*RA/100)
-            #         * (1 + tableRatingFactor * baseTableRating), 2)
-            # RA is the raw per-100 PWST COI rate; the gross-up uses the BASE
-            # coverage's table rating (vTableCov1), not the benefit's own
-            # substandard. Annual vMTP = policy.mtp*12; annual vCTP = policy.ctp.
-            base_seg = policy.base_segment
-            base_table = (
-                base_seg.table_rating
-                if base_seg
-                and base_seg.table_rating
-                and base_seg.table_rating > 0
-                and _charge_active(base_seg.table_cease_date, projection_date)
-                else 0
+            benefit_amount, charge = target_waiver_charge(
+                policy, config, ben_coi_rate, projection_date,
             )
-            gross = 1.0 + config.table_rating_factor * base_table
-            benefit_amount = (
-                policy.mtp * 12.0 if config.pwot_coi_basis == 2 else policy.ctp
-            )
-            charge = benefit_amount * ben_coi_rate / 100.0 * gross
         else:
             benefit_amount = ben.benefit_amount
             charge = ben.units * adjusted_rate * charge_factor
@@ -768,6 +800,7 @@ def calculate_deduction(
         coi_rates_by_coverage=coi_rates_by_coverage,
         coi_charges_by_coverage=coi_charges_by_coverage,
         coi_rate=adjusted_coi,
+        coi_rate_corr=coi_rate_corr,
         coi_charge_cov1=coi_charge_cov1,
         coi_charge_corr=coi_charge_corr,
         coi_charge=coi_charge,

@@ -111,7 +111,11 @@ class PlancodeConfig:
 
     @property
     def partial_surrender_charge(self) -> bool:
-        """Whether decreases assess a partial surrender charge."""
+        """Whether decreases assess a partial surrender charge.
+
+        Specified-amount decreases additionally honor the policy's Decrease
+        Charge Rule (``IllustrationPolicyData.decrease_charge_allowed``).
+        """
         return self.sa_basis == "CurrentSA"
 
     # Loans

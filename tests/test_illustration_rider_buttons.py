@@ -6,7 +6,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from datetime import date
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QApplication
+import pytest
+from PyQt6.QtWidgets import QApplication, QPushButton
 
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.illustration.ui.inputs_dynamic import (
@@ -38,7 +39,7 @@ def _ben(**kw):
     base = dict(
         cov_pha_nbr=3, form_number="B-1", benefit_code="WP", benefit_type_cd="3",
         benefit_subtype_cd="", benefit_desc="Waiver", issue_date=date(2000, 1, 1),
-        cease_date=None, units=0.0, benefit_amount=0.0, issue_age=40, coi_rate=0.5,
+        pay_up_date=None, cease_date=None, units=0.0, benefit_amount=0.0, issue_age=40, coi_rate=0.5,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -85,17 +86,80 @@ def test_matured_benefit_deemphasized_but_clickable():
     assert "italic" not in panel._buttons[cov_key].styleSheet()
 
 
-def test_non_premium_paying_active_benefit_stays_disabled():
+@pytest.mark.parametrize("snapshot", [False, True])
+@pytest.mark.parametrize("issue_rate", [None, 0.0])
+def test_renewal_rated_benefit_can_be_dropped_and_restored(monkeypatch, snapshot, issue_rate):
+    from suiteview.illustration.models.policy_data import BenefitInfo, IllustrationPolicyData
+    from suiteview.illustration.ui.inputs_dynamic import FramelessDialog
+
     _app()
     panel = RiderButtonsPanel()
-    ctx = PolicyContext(valuation_date=date(2026, 6, 1))
-    # Active (future cease) but not premium-paying: disabled, as before.
-    panel.set_policy(_policy(
-        benefits=[_ben(cov_pha_nbr=3, coi_rate=None, cease_date=date(2040, 1, 1))],
-    ), ctx)
-    btn = panel._buttons["ben:3:3"]
-    assert btn.isEnabled() is False
-    assert "ben:3:3" not in panel._matured
+    ctx = PolicyContext(
+        valuation_date=date(2026, 9, 15), issue_date=date(2002, 2, 15),
+        issue_age=34, forecast_date=date(2026, 10, 15), forecast_year=25,
+        forecast_age=58, maturity_age=95,
+    )
+    if snapshot:
+        policy = IllustrationPolicyData(benefits=[BenefitInfo(
+            coverage_phase=1, benefit_type="3", benefit_subtype="9",
+            coi_rate=issue_rate, pay_up_date=date(2028, 2, 15),
+            cease_date=date(2028, 2, 15),
+        )])
+    else:
+        policy = _policy(benefits=[_ben(
+            cov_pha_nbr=1, benefit_subtype_cd="9", coi_rate=issue_rate,
+            renewal_rate=7100.0, pay_up_date=date(2028, 2, 15),
+            cease_date=date(2028, 2, 15),
+        )])
+    panel.set_policy(policy, ctx)
+
+    def choose_drop(dialog):
+        buttons = {b.text(): b for b in dialog.findChildren(QPushButton)}
+        assert buttons["Drop rider"].isEnabled()
+        buttons["Drop rider"].click()
+        dialog.accept()
+        return 1
+
+    monkeypatch.setattr(FramelessDialog, "exec", choose_drop)
+    item = panel._items[0]
+    panel._open_dialog(item[0], item[1], item[2], item[4], item[3])
+    events = panel.collect_changes(ctx)
+    assert len(events) == 1
+    assert events[0].metadata == {"target": "ben:39:1", "action": "drop"}
+    assert events[0].effective_date == date(2026, 10, 15)
+    assert events[0].value == 0
+    saved = panel.capture_adjustments()
+    panel.set_policy(policy, ctx)
+    assert panel.apply_adjustments(saved) == []
+    assert panel.collect_changes(ctx) == events
+    panel.deleteLater()
+
+
+@pytest.mark.parametrize("administrative", [False, True])
+def test_view_only_benefit_dialog_actions_disabled(monkeypatch, administrative):
+    from suiteview.illustration.models.policy_data import BenefitInfo, IllustrationPolicyData
+    from suiteview.illustration.ui.inputs_dynamic import FramelessDialog
+
+    _app()
+    panel = RiderButtonsPanel()
+    ctx = PolicyContext(valuation_date=date(2026, 9, 15))
+    panel.set_policy(IllustrationPolicyData(benefits=[BenefitInfo(
+        benefit_type="#" if administrative else "3", benefit_subtype="9",
+        coi_rate=1.0, cease_date=None if administrative else date(2026, 9, 15),
+    )]), ctx)
+
+    def inspect(dialog):
+        buttons = {b.text(): b for b in dialog.findChildren(QPushButton)}
+        for name in ("Keep rider", "Change rider", "Drop rider"):
+            assert not buttons[name].isEnabled()
+        dialog.accept()
+        return 1
+
+    monkeypatch.setattr(FramelessDialog, "exec", inspect)
+    item = panel._items[0]
+    panel._open_dialog(item[0], item[1], item[2], item[4], item[3])
+    assert panel.collect_changes(ctx) == []
+    panel.deleteLater()
 
 
 def test_policy_tab_matured_button_is_paler_but_clickable():

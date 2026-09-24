@@ -33,7 +33,7 @@ Because the recursion is LINEAR in the premium P, track the fund as
 
     a_end + b_end·P = SA        →        P = (SA − a_end) / b_end
 
-at the deemed maturity (attained age 100). No search needed.
+at the lesser of policy maturity age and age 100. No search needed.
 
 Premium patterns (matching the workbook):
   * GSP    — single premium at the calculation date; rate = max(guar, 4%+2%).
@@ -71,7 +71,12 @@ from datetime import date
 from decimal import ROUND_DOWN, Decimal
 from typing import List, Optional
 
+from dateutil.relativedelta import relativedelta
+
 from suiteview.core.benefit_rate_rules import benefit_charge_factor
+from suiteview.illustration.core.monthly_deduction import (
+    _adjusted_coi_rate, target_waiver_charge,
+)
 from suiteview.illustration.core.rate_loader import IllustrationRates, _safe_rate
 from suiteview.illustration.core.target_premium import truncate_monthly_mtp
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -92,7 +97,7 @@ SEVEN_PAY_YEARS = 7
 # TODO: verify the GIO type code ("5") against a live GIO policy.
 _GUIDELINE_BENEFIT_TYPES = {"3", "4", "5"}
 COI_MONTHLY_CAP = 83.333          # per $1000 per month — Guideline_Premiums T column
-DEEMED_MATURITY_AGE = 100         # s7702_MaturityAge
+DEEMED_MATURITY_AGE = 100         # upper bound on the guideline endowment age
 GLP_RATE_FLOOR = 0.04             # s7702_GLP_Rate (pre-2021 contracts)
 GSP_RATE_SPREAD = 0.02            # GSP floor = GLP floor + 2%
 _POST_2020_EFFECTIVE_DATE = date(2021, 1, 1)
@@ -103,6 +108,13 @@ def statutory_guideline_rates(issue_date: Optional[date]) -> tuple[float, float]
     if issue_date is not None and issue_date >= _POST_2020_EFFECTIVE_DATE:
         return 0.02, 0.04
     return GLP_RATE_FLOOR, GLP_RATE_FLOOR + GSP_RATE_SPREAD
+
+
+def guideline_maturity_age(
+    policy: IllustrationPolicyData, age_limit: int = DEEMED_MATURITY_AGE,
+) -> int:
+    """Bound guideline endowment by both contract maturity and the age-100 cap."""
+    return min(policy.maturity_age, DEEMED_MATURITY_AGE, age_limit)
 
 
 def _trunc2(value: float) -> float:
@@ -174,7 +186,7 @@ def build_guideline_basis(
     """
     base = policy.base_segment
     issue_age = policy.issue_age
-    total_months = max(0, (DEEMED_MATURITY_AGE - attained_age) * 12 - months_into_year)
+    total_months = max(0, (guideline_maturity_age(policy) - attained_age) * 12 - months_into_year)
     if active_as_of is None:
         active_as_of = as_of
 
@@ -195,6 +207,10 @@ def build_guideline_basis(
 
     month_in_year = months_into_year
     policy_year = start_year
+    start_date = as_of
+    if start_date is None and policy.issue_date is not None:
+        start_date = policy.issue_date + relativedelta(
+            months=(start_year - 1) * 12 + months_into_year)
     for m in range(total_months):
         if m > 0 and month_in_year == 0:
             policy_year += 1
@@ -211,10 +227,8 @@ def build_guideline_basis(
             raw_coi = 0.0
         else:
             raw_coi = _safe_rate(rates.segment_coi.get(base.coverage_phase, rates.coi), policy_year)
-        table = base.table_rating if base.table_rating > 0 and _active(base.table_cease_date, as_of, policy_year) else 0
-        adjusted = raw_coi * (1.0 + config.table_rating_factor * table)
-        if base.flat_extra and base.flat_extra > 0 and _active(base.flat_cease_date, as_of, policy_year):
-            adjusted += _trunc2(base.flat_extra / 12.0)
+        month_date = start_date + relativedelta(months=m) if start_date is not None else None
+        adjusted = _adjusted_coi_rate(raw_coi, base, config, month_date)
         gm.coi_rate = min(adjusted, COI_MONTHLY_CAP) / 1000.0
 
         # ── Monthly policy fee (zero from the contract maturity age on —
@@ -288,6 +302,8 @@ def build_guideline_basis(
                 policy.plancode, ben_type + (ben.benefit_subtype or ""))
             if ben_type == "3":
                 charge = _trunc2(gross * monthly_mtp * charge_factor)
+            elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
+                _, charge = target_waiver_charge(policy, config, rate, month_date)
             else:
                 charge = (ben.units or 0.0) * gross * charge_factor
             ben_total += charge
@@ -342,15 +358,6 @@ def build_guideline_basis(
         month_in_year = (month_in_year + 1) % 12
 
     return basis
-
-
-def _active(cease_date: Optional[date], as_of: Optional[date], years_ahead: int) -> bool:
-    """Whether a substandard charge is still active ``years_ahead`` from the start."""
-    if cease_date is None or as_of is None:
-        return True
-    # Compare by year horizon — within-year precision is not needed because
-    # guideline-basis rates are constant within a policy year anyway.
-    return (as_of.year + years_ahead - 1) <= cease_date.year
 
 
 def _policy_year_start(policy: IllustrationPolicyData, policy_year: int) -> Optional[date]:

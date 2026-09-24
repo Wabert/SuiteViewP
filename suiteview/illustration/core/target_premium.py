@@ -40,6 +40,10 @@ Rate sources (local rates.sqlite / UL_Rates):
     Select_RATE_BENMTP / Select_RATE_BENCTP
         keyed by (plancode, benefit key, POLICY issue age, sex, rateclass, band)
 
+Waivers 39 / 3# store target rates as percentages (5.5 means 5.5%).
+Convert those rates to multipliers for calculation only; retain the raw rate
+in the detail snapshot. Other waiver units, including FFL 3F, are unchanged.
+
 SA_Basis consolidates the workbook's target/EPU basis and target band lock.
 OriginalSA locks MTP rates to each coverage's issue band. CTP always uses the
 CURRENT total specified-amount band, as do unlocked CurrentSA MTP rates.
@@ -168,7 +172,7 @@ class TargetPremiumResult:
     mtp_tbl_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
     ctp_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
     ctp_tbl_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
-    pw_rate: float = 0.0        # IU — PW MTPR
+    pw_rate: float = 0.0        # PW MTPR — raw database rate (percent for 39 / 3#)
     mtp_wo_pw: float = 0.0      # IT
     ctp_wo_pw: float = 0.0      # KN basis (cov + benefit CTPs before PW)
 
@@ -374,6 +378,7 @@ def compute_target_premiums(
     # the target band. PW is applied last against the MTP-without-PW total.
     ben_band = base.original_band if config.sa_basis == "OriginalSA" else current_band
     pw_rate = 0.0
+    pw_multiplier = 0.0
     pwst_rate = 0.0
     pwst_ctp_rate = 0.0
     pwst_units = 0.0
@@ -401,6 +406,9 @@ def compute_target_premiums(
             # Premium Waiver of Charges (PWoC) — applied last against the
             # MTP-without-PW total (IV), or the FFL PWoC basis (JB).
             pw_rate = ben_mtp_rate
+            # UL_Rates stores 39/3# as percent; RERUN's target table
+            # already converted these to fractions before CalcEngine.
+            pw_multiplier = ben_mtp_rate / 100.0 if ben_key in ("39", "3#") else ben_mtp_rate
             continue
         if ben_type == "4":
             # Stipulated Premium Waiver (PWoT/PWSTP) — applied last (IK);
@@ -500,7 +508,7 @@ def compute_target_premiums(
         pwoc_basis = (mtp_ben_generic + mtp_rider_sum) / 12.0 + iw + ix + iy + mfee_monthly
         if pw_rate > 0.0:
             # JB — PWoC_MTP.
-            pw_component = _trunc2(pw_rate * pwoc_basis * (1.0 + factor * base_table))
+            pw_component = _trunc2(pw_multiplier * pwoc_basis * (1.0 + factor * base_table))
         # JA — PWoT min basis: coverage + benefit + rider targets + the PWoC
         # target (excludes CCV and the PWoT target itself).
         pwot_basis = mtp_cov_sum + mtp_ben_generic + mtp_rider_sum + pw_component
@@ -526,7 +534,7 @@ def compute_target_premiums(
 
     if not config.is_ffl and pw_rate > 0.0:
         # IV — PW (PWoC): pwRate x (MTP w/o PW) x (1 + factor x table).
-        pw_component = pw_rate * mtp_wo_pw * (1.0 + factor * base_table)
+        pw_component = pw_multiplier * mtp_wo_pw * (1.0 + factor * base_table)
 
     result.mtp_annual = mtp_wo_pw + pw_component   # JG
     if config.is_ffl and pwst_active:

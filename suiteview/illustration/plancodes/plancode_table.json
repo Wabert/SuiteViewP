@@ -6587,7 +6587,8 @@
       "DynamicBanding": 3,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
-      "CompanySub": "FFL"
+      "CompanySub": "FFL",
+      "PWoT_COI_Basis": 2
     },
     {
       "Plancode": "1U1F4A00",

@@ -9,8 +9,8 @@ Pins the expense basis of ``build_guideline_basis`` (and ``load_rates``):
 * Rider charge streams (CTR / spouse term) load the guideline with their
   CURRENT COI — the same ``rates.rider_rates`` schedules the deduction uses.
 * ADB (benefit type 1) is not a QAB: its charges never enter the guideline.
-* The base COI zeroes from the premium-cease age on and the policy fee from
-  the maturity age on (RERUN Guideline_Premiums COIR / Fee gates).
+* The base COI zeroes from the premium-cease age on. All charges stop at the
+  lesser of policy maturity age and 100.
 
 Verified against RERUN Guideline_Premiums on U0356726 (DBO B->A @yr31).
 """
@@ -299,24 +299,26 @@ def test_guideline_excludes_rider_ceased_at_change_row():
     assert all(gm.rider_charges == 0.0 for gm in basis.months)
 
 
-# ── Age gates: COI at premium-cease, fee at maturity, EPU persists ─────────
+# ── Age gates: COI at premium-cease, all charges end at maturity ──────────
 
 
-def test_guideline_coi_and_fee_cease_at_config_ages_epu_persists():
+def test_guideline_coi_ceases_before_maturity_while_fee_and_epu_continue():
     current_epu = [None] + [0.3] * 80
+    policy = _policy()
+    policy.maturity_age = 95
     basis = build_guideline_basis(
-        _policy(),
-        _config(premium_cease_age=95, maturity_age=95, mfee="3.25"),
+        policy,
+        _config(premium_cease_age=90, maturity_age=95, mfee="3.25"),
         _rates(epu=current_epu),
         attained_age=40, as_of=date(2000, 6, 1),
     )
     by_age = {}
     for gm in basis.months:
         by_age.setdefault(gm.attained_age, gm)
-    assert by_age[94].coi_rate > 0.0
+    assert by_age[89].coi_rate > 0.0
+    assert by_age[90].coi_rate == 0.0
+    assert by_age[94].coi_rate == 0.0
     assert by_age[94].fee == 3.25
-    assert by_age[95].coi_rate == 0.0     # COIR: IF(age>=sPremiumCeaseAge,0,..)
-    assert by_age[95].fee == 0.0          # Fee:  IF(age>=sMaturityAge,0,..)
-    assert by_age[99].coi_rate == 0.0
-    # EPU has no age gate — it charges to the deemed maturity.
-    assert by_age[99].epu > 0.0
+    assert by_age[94].epu > 0.0
+    assert max(by_age) == 94
+    assert len(basis.months) == 55 * 12

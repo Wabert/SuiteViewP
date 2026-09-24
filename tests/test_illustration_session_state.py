@@ -16,6 +16,7 @@ from suiteview.illustration.core.report_builder import IllustrationReport, Ledge
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.ui.main_window import IllustrationWindow
+from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
 from suiteview.illustration.ui.values_tab import IllustrationValuesTab
 
 _QT_APP = None
@@ -165,6 +166,62 @@ def _make_window(monkeypatch) -> IllustrationWindow:
     window.policy_tab.load_data_from_policy = lambda *a, **kw: None
     window.policy_tab.set_rate_warnings = lambda *a, **kw: None
     return window
+
+
+def test_live_policy_refresh_retains_calculated_md_and_validation_warnings(monkeypatch):
+    window = _make_window(monkeypatch)
+    tab = window.policy_tab
+    tab.load_data_from_policy = IllustrationPolicyTab.load_data_from_policy.__get__(tab)
+    tab.set_rate_warnings = IllustrationPolicyTab.set_rate_warnings.__get__(tab)
+    monkeypatch.setattr(_StubPolicy, "get_coverages", lambda self: [], raising=False)
+    monkeypatch.setattr(_StubPolicy, "get_benefits", lambda self: [], raising=False)
+    monkeypatch.setattr(tab, "_populate_policy_info", lambda *_: None)
+    monkeypatch.setattr(tab, "_populate_value_groups", lambda *_: None)
+    monkeypatch.setattr(tab, "_populate_fund_values", lambda *_: None)
+    monkeypatch.setattr(tab, "_populate_coverage_buttons", lambda: None)
+    checks = []
+    results = {
+        "POLA": (["MD validation warning for POLA"], MonthlyState(
+            system_monthly_deduction=18.70, md_check_calculated_deduction=19.25)),
+        "POLB": ([], MonthlyState(
+            system_monthly_deduction=0.0, md_check_calculated_deduction=0.0)),
+        "POLC": (["Unable to validate monthly deduction: missing rates"], None),
+    }
+
+    def load_checks(self, policy_number, region, company_code):
+        checks.append(policy_number)
+        self._illustration_data = IllustrationPolicyData(
+            policy_number=policy_number, company_code=company_code, region=region,
+            issue_date=date(2010, 5, 15), valuation_date=date(2026, 6, 15),
+            face_amount=150_000, account_value=10_000, db_option="A",
+        )
+        return results[policy_number]
+
+    monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", load_checks)
+    try:
+        for number, expected in (
+            ("POLA", "$19.25"), ("POLB", "$0.00"), ("POLC", ""), ("POLA", "$19.25"),
+        ):
+            window._on_get_policy(number, "CKPR", "01")
+            assert tab.policy_info.get_value("calculated_md") == expected
+            assert tab.rate_warning_label.text() == "\n".join(results[number][0])
+            count = len(checks)
+            window._refresh_policy_basis()
+            assert len(checks) == count
+            assert tab.policy_info.get_value("calculated_md") == expected
+            assert tab.rate_warning_label.text() == "\n".join(results[number][0])
+
+        window._policy = _StubPolicy("UNCHECKED")
+        window._refresh_policy_basis()
+        assert tab.policy_info.get_value("calculated_md") == ""
+        assert tab.rate_warning_label.text() == ""
+
+        window._policy = None
+        window._refresh_policy_basis()
+        assert tab.policy_info.get_value("calculated_md") == ""
+        assert tab.rate_warning_label.text() == ""
+    finally:
+        window.close()
 
 
 def test_switching_policies_preserves_inputs_and_values_per_policy(monkeypatch):

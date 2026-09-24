@@ -283,6 +283,10 @@ class IllustrationPolicyData:
 
     # ── Withdrawals ───────────────────────────────────────────
     withdrawals_to_date: float = 0.0
+    # TH_NON_TRD_POL Decrease Charge Rule: False means specified-amount
+    # decreases assess no partial surrender charge. None (unset) keeps the
+    # plancode's partial-surrender-charge rule.
+    decrease_charge_allowed: Optional[bool] = None
 
     # ── Shadow Account ────────────────────────────────────────
     shadow_account_value: float = 0.0

@@ -279,7 +279,7 @@ def test_engine_latches_retroactive_mec_in_discovery_year():
         },
     )
 
-    result = calc_engine._apply_retroactive_mec(policy, [seed], change_state)
+    result = calc_engine._apply_mec_status(policy, [seed], change_state)
 
     assert policy.is_mec is True
     assert result.is_mec is True

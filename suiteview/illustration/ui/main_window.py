@@ -40,6 +40,7 @@ from suiteview.polview.ui.widgets import PolicyLookupBar
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 from suiteview.illustration.models.case_store import CaseStoreError
+from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.app_settings import get_illustration_settings
 
 from .case_controls import CasesController
@@ -94,6 +95,9 @@ class IllustrationWindow(FramelessWindowBase):
         self._list_panel_visible = False
         self._last_scenario = None
         self._illustration_data = None
+        self._live_policy_checks: tuple[
+            PolicyInformation, list[str], MonthlyState | None
+        ] | None = None
         self._rollback_projection_blocked = False
         self._record_drafts_pending = False
         # Per-policy session state, keyed like _policy_cache by
@@ -752,7 +756,14 @@ class IllustrationWindow(FramelessWindowBase):
                 f"{format_saved_stamp(self._snapshot_case.saved_at)}. "
                 "Get the policy to return to live data.")
         elif self._policy is not None and self._policy.exists:
-            self.policy_tab.load_data_from_policy(self._policy, self._policy_info)
+            checks = self._live_policy_checks
+            warnings, md_check = (
+                checks[1:] if checks is not None and checks[0] is self._policy
+                else ([], None)
+            )
+            self.policy_tab.load_data_from_policy(
+                self._policy, self._policy_info, md_check=md_check)
+            self.policy_tab.set_rate_warnings(warnings)
         elif self._illustration_data is not None:
             self.policy_tab.load_data_from_snapshot(self._illustration_data)
             self.policy_tab.set_snapshot_banner(None)
@@ -950,11 +961,13 @@ class IllustrationWindow(FramelessWindowBase):
             region,
             is_pending=self._policy.system_code == "P",
         )
+        self._live_policy_checks = None
         warnings, md_check = self._policy_load_checks(
             policy_number=self._policy_info.get("PolicyNumber", self._policy.policy_number),
             region=region,
             company_code=company_code,
         )
+        self._live_policy_checks = (self._policy, warnings, md_check)
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
         self.policy_tab.set_rate_warnings(warnings)
         # Backfill both List views' "| <form>" label segment now that the
@@ -1100,6 +1113,7 @@ class IllustrationWindow(FramelessWindowBase):
 
         self._snapshot_case = case
         self._policy = None            # no live PolicyInformation in this mode
+        self._live_policy_checks = None
         self._where_clause = None
         self._current_policy = policy_number
         self._current_region = region

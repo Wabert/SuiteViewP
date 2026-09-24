@@ -37,7 +37,7 @@ _PIPELINE_ORDER = [
     "nar_av", "corridor_rate", "standard_db", "gross_db", "corr_amount",
     "discounted_db_cov1", "discounted_db_corr", "discounted_db",
     "nar_cov1", "nar_corr", "nar",
-    "coi_rate", "coi_charge_cov1", "coi_charge_corr", "coi_charge",
+    "coi_rate", "coi_rate_corr", "coi_charge_cov1", "coi_charge_corr", "coi_charge",
     "epu_rate",
     "epu_charge", "mfee_charge", "av_charge", "pw_charge", "benefit_charges",
     "rider_charges", "total_deduction",
@@ -159,7 +159,7 @@ _CURRENCY_FIELDS = {
 }
 
 _RATE_FIELDS = {
-    "corridor_rate", "coi_rate", "epu_rate", "scr_rate",
+    "corridor_rate", "coi_rate", "coi_rate_corr", "epu_rate", "scr_rate",
     "annual_interest_rate", "bonus_interest_rate",
     "effective_annual_rate", "monthly_interest_rate",
     "shadow_coi_rate", "shadow_dbd_rate", "shadow_epu_rate",
@@ -263,7 +263,7 @@ def _build_projection_order(
         "standard_db", "gross_db", "corr_amount", "epu_rate", "epu_charge",
         "discounted_db_cov1", "discounted_db_corr", "discounted_db",
         "nar_cov1", "nar_corr", "nar",
-        "coi_rate", "coi_charge_cov1", "coi_charge_corr", "coi_charge",
+        "coi_rate", "coi_rate_corr", "coi_charge_cov1", "coi_charge_corr", "coi_charge",
     ]
     for field in collapsed_deduction_fields:
         if field in order:
@@ -381,7 +381,7 @@ def _get_projection_value(state: MonthlyState, field_name: str):
     if field_name.startswith("coi_rate"):
         suffix = field_name[len("coi_rate"):]
         if suffix == "_corr":
-            return state.coi_rate
+            return state.coi_rate_corr
         if suffix.isdigit():
             return state.coi_rates_by_coverage.get(f"cov{suffix}", 0.0)
     if field_name.startswith("coi_charge_cov"):

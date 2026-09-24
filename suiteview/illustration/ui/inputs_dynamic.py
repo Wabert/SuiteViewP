@@ -1444,6 +1444,12 @@ class RiderButtonsPanel(QGroupBox):
 
     changed = pyqtSignal()
 
+    @staticmethod
+    def _benefit_adjustable(benefit_type: str) -> bool:
+        # Like the rate loader, exclude administrative benefits. A missing
+        # issue rate does not mean free coverage: renewal schedules are separate.
+        return bool(benefit_type) and not benefit_type.startswith("#")
+
     _BTN = (
         "QPushButton {{ background: {bg}; color: {fg}; border: 1px solid {border};"
         " border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: bold; }}"
@@ -1464,7 +1470,7 @@ class RiderButtonsPanel(QGroupBox):
         super().__init__("Riders && Benefits", parent)
         self.setStyleSheet(INPUT_SECTION_GROUP_STYLE)
         self._ctx: Optional[PolicyContext] = None
-        self._items: list[tuple] = []          # (key, label, detail_rows, premium_paying, amount, matured)
+        self._items: list[tuple] = []          # (key, label, detail_rows, adjustable, amount, matured)
         self._adjustments: dict[str, RiderAdjustment] = {}
         self._buttons: dict[str, QPushButton] = {}
         self._matured: set[str] = set()        # keys whose rider/benefit has already matured
@@ -1530,12 +1536,7 @@ class RiderButtonsPanel(QGroupBox):
         for ben in benefits:
             label = ben.form_number or ben.benefit_code or f"Benefit {ben.cov_pha_nbr}"
             benefit_type = str(getattr(ben, "benefit_type_cd", "") or "")
-            # Charged benefits are adjustable. Waiver-style benefits (e.g.
-            # ULDW91) carry a zero issue rate (BNF_ANN_PPU_AMT) with the real
-            # charge in the renewal-rate segment, so check both rate sources.
-            has_charge = bool(getattr(ben, "coi_rate", None)) or bool(
-                getattr(ben, "renewal_rate", None))
-            premium_paying = has_charge and not benefit_type.startswith("#")
+            adjustable = self._benefit_adjustable(benefit_type)
             rows = [
                 ("Code:", ben.benefit_code), ("Type:", ben.benefit_type_cd),
                 ("Description:", ben.benefit_desc), ("Issue Date:", format_date(ben.issue_date)),
@@ -1546,7 +1547,7 @@ class RiderButtonsPanel(QGroupBox):
             amount = float(getattr(ben, "benefit_amount", 0.0) or 0.0)
             key = f"ben:{benefit_type}{getattr(ben, 'benefit_subtype_cd', '') or ''}:{ben.cov_pha_nbr}"
             self._items.append(
-                (key, label, rows, premium_paying, amount, coverage_or_benefit_matured(ben, as_of)))
+                (key, label, rows, adjustable, amount, coverage_or_benefit_matured(ben, as_of)))
 
         self._finish_item_buttons()
 
@@ -1576,7 +1577,7 @@ class RiderButtonsPanel(QGroupBox):
             benefit_type = str(ben.benefit_type or "")
             subtype = str(ben.benefit_subtype or "")
             label = f"Benefit {benefit_type}{subtype}".strip()
-            premium_paying = bool(ben.coi_rate) and not benefit_type.startswith("#")
+            adjustable = self._benefit_adjustable(benefit_type)
             rows = [
                 ("Type:", benefit_type), ("Subtype:", subtype),
                 ("Issue Date:", format_date(ben.issue_date)),
@@ -1590,7 +1591,7 @@ class RiderButtonsPanel(QGroupBox):
                        or not ben.is_active)
             key = f"ben:{benefit_type}{subtype}:{ben.coverage_phase}"
             self._items.append(
-                (key, label, rows, premium_paying,
+                (key, label, rows, adjustable,
                  float(ben.benefit_amount or 0.0), matured))
 
     def _finish_item_buttons(self):
@@ -1599,25 +1600,21 @@ class RiderButtonsPanel(QGroupBox):
             note.setStyleSheet(
                 f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
             self._layout.addWidget(note)
-        for key, label, rows, premium_paying, amount, matured in self._items:
+        for key, label, rows, adjustable, amount, matured in self._items:
             self._adjustments[key] = RiderAdjustment()
             if matured:
                 self._matured.add(key)
             btn = QPushButton(label)
-            # Matured riders stay clickable (view their details) but wear the
-            # de-emphasized look; non-premium-paying active ones are disabled.
-            # Every card remains open for inspection; non-premium-paying cards
-            # are view-only rather than being disabled at the button level.
             btn.setEnabled(True)
             if matured:
                 btn.setToolTip("Already matured — view details (no illustration adjustment)")
-            elif premium_paying:
+            elif adjustable:
                 btn.setToolTip("Keep / change / drop this rider")
             else:
-                btn.setToolTip("Not premium-paying — no illustration adjustment")
+                btn.setToolTip("View only — no illustration adjustment")
             self._style_button(btn, RiderAdjustment.KEEP, matured=matured)
             btn.clicked.connect(
-                lambda checked=False, k=key, l=label, r=rows, a=amount, p=premium_paying:
+                lambda checked=False, k=key, l=label, r=rows, a=amount, p=adjustable:
                 self._open_dialog(k, l, r, a, p))
             self._buttons[key] = btn
             self._layout.addWidget(btn)
@@ -1636,8 +1633,9 @@ class RiderButtonsPanel(QGroupBox):
 
     def _open_dialog(
         self, key: str, label: str, rows: list, current_amount: float,
-        premium_paying: bool = True,
+        adjustable: bool = True,
     ):
+        adjustable = adjustable and key not in self._matured
         ctx = self._ctx or PolicyContext()
         adj = self._adjustments[key]
         dlg = FramelessDialog(
@@ -1763,10 +1761,10 @@ class RiderButtonsPanel(QGroupBox):
         date_edit.dateChanged.connect(lambda _d: check_monthliversary())
 
         def refresh_detail():
-            adjusting = change_btn.isChecked() or drop_btn.isChecked()
+            adjusting = adjustable and (change_btn.isChecked() or drop_btn.isChecked())
             by_date = by_date_btn.isChecked()
-            amount_caption.setEnabled(change_btn.isChecked())
-            amount_edit.setEnabled(change_btn.isChecked())
+            amount_caption.setEnabled(adjustable and change_btn.isChecked())
+            amount_edit.setEnabled(adjustable and change_btn.isChecked())
             for widget in (effective_caption, by_year_btn, by_date_btn):
                 widget.setEnabled(adjusting)
             for widget in (year_caption, year_edit, age_caption, age_edit):
@@ -1779,7 +1777,7 @@ class RiderButtonsPanel(QGroupBox):
 
         for button in (keep_btn, change_btn, drop_btn, by_year_btn, by_date_btn):
             button.toggled.connect(lambda _on: refresh_detail())
-        if not premium_paying:
+        if not adjustable:
             for button in (keep_btn, change_btn, drop_btn, by_year_btn, by_date_btn):
                 button.setEnabled(False)
             amount_caption.setEnabled(False)

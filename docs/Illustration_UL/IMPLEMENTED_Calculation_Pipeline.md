@@ -27,6 +27,18 @@
 
 This document is intended to show the pipeline that exists now so the next round of work can focus on the remaining gaps instead of re-documenting already-implemented pieces.
 
+> **Pending business-rule change (2026-09-21; documentation only):** for a
+> combined face decrease and B-to-A option change, the adopted order is
+> **decrease first, backtest within the existing 7-pay period, then B-to-A**.
+> Future minimum non-MEC face options must find the permissible decrease before
+> the option change can reset the period. An absolute decrease target is the
+> pre-option-change face, not the final face after the B-to-A increase.
+> The current engine still orders DB option changes first and combines
+> same-month recalculations; the implemented order described below is **not**
+> confirmation of this new rule. Preserve the intermediate decrease/backtest
+> stage when implementing it, rather than only swapping event priorities.
+> See [the canonical decision and follow-up requirements](../../Agent.md#rerun-face-decrease-before-b-to-a-option-change--pending-implementation).
+
 > **Recent changes (2026-06):** advance (interest-in-advance) loans are now fully
 > modeled (capitalization + repayment gross-up, cents-rounded); the full NC..NZ
 > premium-acceptance chain replaced the old single guideline cap; Apply-Premium-to-Loan,
@@ -119,7 +131,7 @@ At a high level, the normal illustration path is being structured to follow the 
 15. Policy values: account value, surrender value, and new loan processing (with the loan SV cap)
 16. Accumulation: interest crediting, loan interest charges, and ending values
 17. Shadow account processing
-18. Testing: guideline/7-pay caps, lapse via SV/shadow/SNET/AV/exception now; full MEC flagging later
+18. Testing: guideline/7-pay caps, permanent monthly MEC status, lapse via SV/shadow/SNET/AV/exception
 19. Deemed Cash Value (later)
 ```
 
@@ -301,6 +313,19 @@ Face increases append a new base `CoverageSegment`:
 
 On any specified-amount change the engine now recomputes the target premiums (vMTP/vCTP) from rates via `target_premium.py`, recalculates GLP/GSP by the attained-age delta method (guaranteed-COI commutation, monthly-cent floor), and on a material change (face increase, DBO B-to-A) restarts the 7-pay period and recomputes the 7-pay level. `PolicyChangeEvent.metadata` can inject RERUN's recalculated guideline values (`new_glp`/`new_gsp`/`new_7pay`) for mechanics-only validation. Validated EXACT vs RERUN on U0688012 (increase, decrease, DBO A-to-B at the year-9 anniversary; all comparison groups 0.0 over 40 months). Still open: the engine's own guideline recalc calibration vs RERUN's Guideline_Premiums calculator, B-to-A validation, and mid-year (non-anniversary) AccumGLP pro-ration.
 
+**Waiver target rate units (2026-09-22).** `Select_RATE_BENMTP` returns raw
+percentages for benefits **39 / 3#**. Convert to a multiplier (`rate / 100`)
+inside `compute_target_premiums()`, not in the database, display or generic
+rate accessor. RERUN's benefit-target table already contains fractional
+multipliers; directly using the raw SQL rate overstated the PW component
+100-fold. Keep other waiver units (especially FFL 3F) unchanged and do not
+infer units from the size of a rate. CTP still uses the rounded MTP-basis
+PW component. UIP45890 / 01, face 50,000 to 100,000 on 2026-09-26:
+annual MTP = `689 + 689 * 0.055 * 1.5 = 745.8425`; Monthly MTP truncates
+to **62.15**, versus the erroneous 531.10. The unchanged basis reconciles to
+40.86. Regression: `tests/test_illustration_waiver_target_units.py`;
+live read-only check: `tools/engine/verify_face_increase_targets.py`.
+
 **FFL premium waiver targets (2026-07-08).** Plancodes with `CompanySub = "FFL"` in the plancode table (RERUN `sblnFFL = sCompanySub="FFL"`, ~49 plancodes) compute both premium-waiver targets from cost bases instead of units×rate — RERUN CalcEngine's "FFL Premium Waivers" section IW..JD:
 
 - PWoC (benefit type 3, `IV`) = `JB = TRUNC(pwRate·IZ·(1+factor·table), 2)` where `IZ` = benefit MTPs/12 + current base COI on SA (`IW`) + table extra (`IX`) + flat term (`IY`, replicated exactly — RERUN applies neither /1000 nor /12 there, suspected workbook bug) + monthly expense fee.
@@ -366,6 +391,18 @@ Premium YTD resets on policy anniversary and then accumulates by gross premium.
 
 ### 4.9 Step 10 - 7702 / 7702A Currently Implemented Slice
 
+**Guideline calculation horizon:** use `min(policy.maturity_age, 100)` for
+the endowment age. This applies to the shared monthly GLP/GSP/7-pay basis,
+policy-derived commutation inputs, engine-search helpers and the matching
+PV drill-downs. A policy maturing at 95 stops charges at the end of age 94
+and places its pure endowment at 95; a policy maturing after 100 still ends
+the guideline basis at 100. Premium-cease age remains a separate charge gate.
+Midyear monthly calculations subtract the months elapsed since the anniversary.
+The search seed carries the prior age at its pre-anniversary snapshot so the
+engine can project every requested month through contract maturity.
+Existing loaded guideline values are retained until a scenario recalculation.
+Regression: `tests/test_illustration_guideline_maturity.py`.
+
 Valuation-date injection points:
 
 - GLP
@@ -375,7 +412,47 @@ Valuation-date injection points:
 - TAMRA start date
 - Lowest7YearFace
 
-The monthly projection path consumes loaded policy GLP/GSP values and covers GLP accumulation, force-out tracking, and the full NC..NZ premium-acceptance chain (guideline + 7-pay capping at acceptance). What is still missing is 7702A **MEC determination/flagging** and the CVAT Necessary-Premium Test — the cap enforces the limits but no MEC status is surfaced.
+The monthly projection path consumes loaded policy GLP/GSP values and covers GLP accumulation, force-out tracking, and the full NC..NZ premium-acceptance chain (guideline + 7-pay capping at acceptance). Monthly seven-pay excesses and failed recalculation back-tests permanently set MEC status, independently of the Conform to TAMRA premium-capping option. The CVAT Necessary-Premium Test remains incomplete.
+
+Monthly guideline bases retain table ratings and flat extras until their actual
+cease dates, using the same adjusted-COI helper as monthly deductions. Each
+guideline month has its own date; an absolute policy-year index must never be
+added to the recalculation date. Charges stop on, not after, the cease date.
+This corrects U0416030's premature age-68 Table 2 removal in its 2030 recalc.
+Regression: `tests/test_illustration_guideline_substandard.py`.
+
+An explicit primary-insured table-rating change also sets all type-3/type-4
+premium-waiver rating multipliers to `1 + table_rating_factor * new_table`.
+Removing the rating sets the multiplier to 1, not the old recorded factor.
+The change runs on the private projection policy before the guideline after-solve,
+so GLP/GSP/7-pay, their PV detail and subsequent monthly charges use the new
+waiver basis. Before-solve factors and unchanged projections retain the loaded
+benefit ratings; other benefit types and riders are untouched.
+Regression: `tests/test_illustration_waiver_rating_changes.py`.
+
+Target-based PWoT charges in the monthly GLP/GSP/7-pay basis share
+`monthly_deduction.target_waiver_charge()` with the deduction engine.
+`PWoT_COI_Basis=2` uses annual MTP, `=3` annual CTP, including the recalculated
+target on the After side. The shared helper applies the base coverage's active
+table rating and cent rounding; recorded benefit units/rating are not that
+basis. Basis 1 and type-3 waiver behavior remain unchanged. This fixes the
+guideline path omitted from the earlier monthly face-change correction.
+Read-only reproduction: 000239324 / 26 / NU1F3L00, face 50,000 on 2026-09-24,
+annual MTP 217.83: first After 4M charge 0.81 instead of 1.36; GLP After
+1,397.26 instead of 1,402.75. Regressions:
+`tests/test_illustration_pwot_coi_basis.py`; live check:
+`tools/engine/verify_target_benefit_amounts.py`.
+
+The seven-pay anniversary is independent of the policy anniversary. A new period
+starting October 1 receives only its first annual limit through the following
+September, even if a new policy year starts September 1. `core/mec.py` owns the
+shared excess test (including a known zero limit and half-cent tolerance).
+The engine latches the first discovery policy year on a private policy copy;
+Values, Report and Compare retain it after later recalculations. Both monthly
+timings and the guaranteed projection use the same monthly detection.
+Regression: `tests/test_illustration_mec_detection.py`. C19 / U0394137's two
+$10,897.44 payments on 2026-10-01 and 2027-09-01 exceed the first TAMRA-year
+limit and establish MEC in policy year 28 when conformance is off.
 
 Guideline premium accumulation is separated from force-out application:
 
@@ -443,7 +520,6 @@ RERUN's `new_glp`/`new_gsp`/`new_7pay` for mechanics-only validation).
 
 Deferred:
 
-- full integrated 7702A / MEC *flagging* in the monthly projection path (the cap enforces the 7-pay limit but does not report MEC status)
 - Necessary Premium Test (CVAT) and the 1035 exchange
 - force-out reduction of cost basis (CalcEngine `OD`)
 - RERUN-calibrated guideline/GSP/7-pay recalc on face or DB option changes (mechanics wired; values not yet matched), and mid-year AccumGLP pro-ration
@@ -541,11 +617,17 @@ premium-acceptance chain (NL/NY) so only what remains loads onto the AV.
 Loan repayment honors the loan type:
 
 - **arrears** — the cash reduces the buckets directly (interest already lives in the
-  accrued buckets) in order: regular accrued, regular principal, preferred accrued,
-  preferred principal, variable accrued, variable principal
+  accrued buckets) in order: preferred accrued, regular accrued, preferred principal,
+  regular principal, variable accrued, variable principal. The preferred-first
+  interest/principal order is the conservative illustration rule adopted 2026-09-23.
 - **advance** — preferred payoff first then regular, each capped at its payoff, with the
   principal reduced by the grossed-up `round2(repay / (1 - factor))` and the result
   rounded to whole cents
+
+The shared `repay_loan()` order applies to explicit repayments, premium-to-loan
+diversion, Pay-off solver trials and current/guaranteed projections. Repayment
+caps, excess cash handling and anniversary capitalization are unchanged.
+Regression: `tests/test_illustration_loan_repayment_order.py`.
 
 These future cash-flow inputs affect projected months only. They do not alter the inforce snapshot row.
 
@@ -676,10 +758,22 @@ nar_corr = max(0, discounted_db_corr - remaining_av)
 
 COI charges:
 
+- Target-based type-4 stipulated waiver amounts follow recalculated annual MTP
+  (`PWoT_COI_Basis=2`) or annual CTP (`=3`) before charges are computed; basis 1
+  remains fixed recorded units. `1U14L400` explicitly uses MTP basis 2, correcting
+  the previously omitted setting that held UFF90022's benefit 4M at $913.20
+  after a decrease. Values and exports use the same calculated benefit amounts.
 - coverage segments, riders, and benefits use their own issue dates to establish
   COI duration, but that duration advances only on the policy anniversary
 - raw COI is adjusted for table ratings and flat extras when active
 - the annual flat extra is converted to a monthly amount with `TRUNC(flat_extra / 12, 2)`, matching RERUN's cent truncation rather than ordinary rounding
+- corridor NAR uses the latest active base segment's adjusted COI rate, skipping
+  depleted, matured, terminated and not-yet-issued segments in the existing
+  oldest-to-newest segment order; a zero rate on an active segment stays zero
+- `coi_rate_corr` carries that rate independently of coverage 1's `coi_rate`
+  through the inforce row, both projection timings, Values and workbook exports
+- ratchet corridor charges use that same segment's band-1 and band-2 rates;
+  the single corridor-rate display is the band-1 representative, not a blended rate
 
 The duration used to index a COI schedule is:
 
@@ -1148,7 +1242,7 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - DBO B-to-A is implemented (inverse level-DB mechanic, material change) but not yet validated against a RERUN reference
 - mid-year (non-anniversary) changes do not pro-rate the year-of-change AccumGLP (Guideline_Premiums col K AccumAdjust)
 - the 1035 exchange (allowance row "1") and the CVAT Necessary-Premium Test (vNPT_Premium) are stubbed at zero in the premium chain
-- TAMRA/MEC *flagging* is not surfaced (the cap enforces the 7-pay limit but no MEC status is reported); deemed cash value, GCO logic, and full integrated 7702A determination remain out of this monthly path
+- Deemed cash value, GCO logic, and full integrated 7702A determination beyond the implemented seven-pay excess/back-tests remain out of this monthly path
 - advance loans are validated penny-exact at current/early durations; the cents-rounding divergence from RERUN (unrounded AA/AC) is intentional and still wants a long-horizon RERUN-saved-case confirmation
 
 ## 8. Recommended Next Review Questions
