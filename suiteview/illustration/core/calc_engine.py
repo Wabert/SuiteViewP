@@ -134,6 +134,16 @@ class IllustrationEngine:
                 "historical shadow amount before projecting Value Rollback.")
         if options is None:
             options = IllustrationOptions()
+        if (
+            timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY
+            and future_inputs is not None
+            and future_inputs.policy_changes
+        ):
+            raise ValueError(
+                "ProjectionTiming.CYBERLIFE_MONTHLIVERSARY does not support "
+                "policy changes; policy changes are not supported on the "
+                "CyberLife-monthliversary path."
+            )
         starting_exception_period = (
             options.recognize_inforce_exception_period
             and policy.in_exception_period and not options.guaranteed_assumption)
