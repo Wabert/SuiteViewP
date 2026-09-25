@@ -207,7 +207,7 @@ Regressions: `tests/test_polview_lazy_loading.py`,
 `tests/test_policy_service_cache.py`, `tests/test_policy_launcher.py`,
 `tests/test_polview_other_data.py` and `tests/test_reinstatement_ui.py`.
 
-### Usability layer (badges, command box, navigation, analyst tools)
+### Usability layer (badges, analyst tools)
 
 Everything below reads the progressively merged `PolicyInformation` through
 named properties under per-fact `cached_reads_only()` guards
@@ -231,12 +231,8 @@ named properties under per-fact `cached_reads_only()` guards
   DB option (advanced products only), death benefit, issue date/age, policy year,
   attained age, valuation and paid-to dates and flags — never the insured name
   or face amount.
-- **Title bar:** a VS Code-style **command box** (`ui/command_palette.py`,
-  Ctrl+Shift+P) centred in the header lists every action with its shortcut —
-  policy actions, tabs, Policy Support tools, recent policies, apps, help — and
-  hides ones that do not apply yet. It takes focus only on click/shortcut. A
-  **⌨ Shortcuts** button opens the shortcut list (same as F1). Commands never go
-  through the policy-number box.
+- **Title bar:** a **⌨ Shortcuts** button opens the shortcut list (same as F1).
+  There is no command box for now (removed 2026-09-25 at the author's request).
 - **Tabs never move.** All pages keep a fixed order; Dividends/Loans without
   rows and Account Values (formerly AdvProdValues) on traditional policies are
   greyed in place with the reason as the tab tooltip.
@@ -246,10 +242,10 @@ named properties under per-fact `cached_reads_only()` guards
   `settings/polview_recent.json`) complete by number *or insured name*. The bar
   is shared with RERUN. Tables/List toggles show checked as solid green with gold
   text (never a pale yellow wash).
-- **Shortcuts:** Ctrl+Shift+P (command box), Ctrl+L, Ctrl+1–9, Alt+←/→ (policy
-  history), F5 (reload fresh), Ctrl+F (field finder across every tab),
-  Ctrl+Shift+C (copy summary), Ctrl+N (notes), Ctrl+D (timeline), Ctrl+T
-  (Tables panel), F1.
+- **Shortcuts:** only Ctrl+F (field finder across every tab) and F1 (help);
+  Enter in the policy box gets the policy. Navigation history, reload (F5),
+  tab-number and other shortcuts were removed 2026-09-25 until the author wants
+  them; use the on-screen buttons for Timeline, Notes, Copy and Tables.
 - **Tooltips** over PolView windows get their own light style
   (`ui/tooltip_style.py`). Qt styles a tooltip with the showing widget's style
   sheets, and PolView's `background: transparent` label rules made them dark
@@ -277,11 +273,20 @@ named properties under per-fact `cached_reads_only()` guards
 - **Tables panel** is filled by a background `tables` loader stage using
   PolicyData's verified keys (FH tables without `CK_SYS_CD`), not GUI-thread
   f-string SQL; unreadable tables remain explicit errors.
+- **Tables search** (box under the Tables/Rates header, Tables mode only) finds
+  a case-insensitive substring in table names, field names and values across
+  every table with data (`services/table_search.py`). It reads only rows the
+  `tables` stage already cached (`PolicyInformation.cached_table`, never a DB2
+  query); a table missing from the cache is named as "not searched". Matches
+  (Match/Record/Table/Field/Row/Value, capped at 2,000) list in Raw Table; a
+  field-name match is one line with its values. Double-click opens the table
+  with the field and matched cell selected; Enter re-runs the search.
+  Preview without DB2: `tools/app/render_tables_search.py`.
 
-Regressions: `tests/test_polview_ux.py` (plus the updated lazy-loading and
+Regressions: `tests/test_polview_ux.py` and `tests/test_polview_table_search.py` (plus the updated lazy-loading and
 tree-panel tests). Native live verification: `tools/app/tour_polview.py
---policy <p[:co]> [--policy ...] [--panels] [--dialogs] [--palette TEXT]
---output-dir <dir>` screenshots every tab (and panels/dialogs/command box) with
+--policy <p[:co]> [--policy ...] [--panels] [--dialogs]
+--output-dir <dir>` screenshots every tab (and panels/dialogs) with
 an isolated profile.
 
 ### Other Data

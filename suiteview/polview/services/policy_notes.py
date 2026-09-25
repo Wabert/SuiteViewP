@@ -41,10 +41,6 @@ class PolicyNotesStore:
     def count(self, company_code: str, policy_number: str) -> int:
         return len(self.notes(company_code, policy_number))
 
-    def total(self) -> int:
-        """Notes saved across every policy."""
-        return sum(len(rows) for rows in self._store.load().values() if isinstance(rows, list))
-
     def add(self, company_code: str, policy_number: str, text: str,
             now: Optional[datetime] = None) -> PolicyNote:
         text = (text or "").strip()

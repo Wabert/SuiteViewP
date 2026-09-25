@@ -3,14 +3,15 @@ Left-panel tree widgets for navigating Policy Record tables and Rates.
 
 Contains:
 - PolicyRecordTreeWidget – tree listing DB2 tables with data
-- PolicyRecordTreePanel  – wrapper with Tables/Rates tab header
+- PolicyRecordTreePanel  – wrapper with Tables/Rates tab header and the
+  table/field/value search box
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QTreeWidget, QTreeWidgetItem, QPushButton,
+    QTreeWidget, QTreeWidgetItem, QPushButton, QLineEdit,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 
 from ..config.policy_records import POLICY_RECORD_TABLES, get_sorted_policy_records
 from .styles import (
@@ -336,12 +337,21 @@ class PolicyRecordTreePanel(QWidget):
     table_selected = pyqtSignal(str, str)
     rate_selected = pyqtSignal(str, str, int)
     mode_changed = pyqtSignal(str)  # "tables" or "rates"
+    # Debounced text of the Tables search box ("" when cleared)
+    search_requested = pyqtSignal(str)
+
+    SEARCH_DEBOUNCE_MS = 250
+    SEARCH_PLACEHOLDER = "Search tables, fields, values…"
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy = None
         self._presence = None
         self._presence_error = ""
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(self.SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._emit_search)
         self._setup_ui()
     
     def _setup_ui(self):
@@ -374,8 +384,6 @@ class PolicyRecordTreePanel(QWidget):
             btn.setFixedHeight(22)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        self._update_tab_styles("tables")  # Tables selected by default
-        
         self._tables_btn.clicked.connect(lambda: self._on_tab_clicked("tables"))
         self._rates_btn.clicked.connect(lambda: self._on_tab_clicked("rates"))
         
@@ -384,6 +392,49 @@ class PolicyRecordTreePanel(QWidget):
         header_layout.addStretch()
         
         layout.addWidget(header)
+
+        # Search strip (Tables mode only): finds tables, fields and values
+        # across every table with data; results show in the main panel.
+        self._search_bar = QWidget()
+        self._search_bar.setObjectName("tablesSearchBar")
+        self._search_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._search_bar.setStyleSheet(f"""
+            QWidget#tablesSearchBar {{
+                background-color: {BLUE_RICH};
+                border-left: 2px solid {BLUE_PRIMARY};
+                border-right: 2px solid {BLUE_PRIMARY};
+            }}
+        """)
+        search_layout = QHBoxLayout(self._search_bar)
+        search_layout.setContentsMargins(4, 0, 4, 4)
+        search_layout.setSpacing(0)
+        self._search_box = QLineEdit()
+        self._search_box.setPlaceholderText(self.SEARCH_PLACEHOLDER)
+        self._search_box.setClearButtonEnabled(True)
+        self._search_box.setFixedHeight(22)
+        self._search_box.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {WHITE};
+                border: 1px solid {GOLD_PRIMARY};
+                border-radius: 3px;
+                padding: 1px 4px;
+                font-size: 11px;
+                color: {BLUE_DARK};
+            }}
+            QLineEdit:focus {{
+                border-color: {GOLD_TEXT};
+                background-color: #FFFEF5;
+            }}
+            QLineEdit:disabled {{
+                background-color: {GRAY_MID};
+                border-color: {GRAY_MID};
+            }}
+        """)
+        self._search_box.textChanged.connect(self._on_search_text_changed)
+        self._search_box.returnPressed.connect(self._emit_search)
+        search_layout.addWidget(self._search_box)
+        layout.addWidget(self._search_bar)
+        self._set_search_enabled(False, "Available once the table check finishes.")
         
         # Tree widget (no header, scrollbar won't overlap)
         self._tree = PolicyRecordTreeWidget()
@@ -400,6 +451,7 @@ class PolicyRecordTreePanel(QWidget):
         
         # Rates button disabled until policy loaded
         self._rates_btn.setEnabled(False)
+        self._update_tab_styles("tables")  # Tables selected by default
     
     def _update_tab_styles(self, active_tab: str):
         """Update button styles based on which tab is active."""
@@ -450,6 +502,7 @@ class PolicyRecordTreePanel(QWidget):
         else:
             self._rates_btn.setStyleSheet(active_style)
             self._tables_btn.setStyleSheet(inactive_style)
+        self._search_bar.setVisible(active_tab == "tables")
     
     def _on_tab_clicked(self, tab: str):
         """Handle tab button click."""
@@ -467,6 +520,52 @@ class PolicyRecordTreePanel(QWidget):
         if self._presence_error:
             return "⚠ Could not check tables"
         return "Checking which tables have data…"
+
+    # =========================================================================
+    # Search box
+    # =========================================================================
+
+    def _set_search_enabled(self, enabled: bool, tooltip: str = ""):
+        self._search_box.setEnabled(enabled)
+        self._search_box.setToolTip(tooltip or (
+            "Find a table, field (column) or value in every table with data "
+            "for this policy.\nMatches list in the main panel; double-click one "
+            "to open its table.\nPress Enter to show the matches again."
+        ))
+
+    @pyqtSlot(str)
+    def _on_search_text_changed(self, _text: str):
+        self._search_timer.start()
+
+    @pyqtSlot()
+    def _emit_search(self):
+        self._search_timer.stop()
+        self.search_requested.emit(self._search_box.text().strip())
+
+    @property
+    def search_box(self) -> QLineEdit:
+        return self._search_box
+
+    def search_text(self) -> str:
+        return self._search_box.text().strip()
+
+    def clear_search(self):
+        """Empty the box without announcing a search."""
+        self._search_timer.stop()
+        self._search_box.blockSignals(True)
+        self._search_box.clear()
+        self._search_box.blockSignals(False)
+
+    def tables_with_data(self) -> list[tuple[str, str]]:
+        """(policy_record, table) pairs holding rows, in tree order."""
+        if not self._presence:
+            return []
+        return [
+            (record, table)
+            for record in get_sorted_policy_records()
+            for table in POLICY_RECORD_TABLES.get(record, [])
+            if self._presence.get(table) is True
+        ]
     
     # =========================================================================
     # Public API - forward to tree widget
@@ -480,11 +579,16 @@ class PolicyRecordTreePanel(QWidget):
         """Receive the background table check; refresh the tree if it is waiting."""
         self._presence = dict(presence or {})
         self._presence_error = ""
+        self._set_search_enabled(True)
         if self._tree.mode == PolicyRecordTreeWidget.MODE_TABLES:
             self._tree.build_tables_tree(self._presence)
+        if self.search_text():
+            self._emit_search()
 
     def set_table_presence_error(self, error: str):
         self._presence_error = error or "Unknown error"
+        if self._presence is None:
+            self._set_search_enabled(False, f"Tables could not be checked:\n{self._presence_error}")
         if self._tree.mode == PolicyRecordTreeWidget.MODE_TABLES and self._presence is None:
             self._tree.show_placeholder("⚠ Could not check tables", self._presence_error)
     
@@ -514,6 +618,8 @@ class PolicyRecordTreePanel(QWidget):
         """Reset state when a new policy is loaded."""
         self._presence = None
         self._presence_error = ""
+        self.clear_search()
+        self._set_search_enabled(False, "Available once the table check finishes.")
         self._tree.reset_for_new_policy()
         self._update_tab_styles("tables")
     

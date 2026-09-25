@@ -254,6 +254,18 @@ class PolicyData:
         table_data["dict_rows"] = dict_rows
         return dict_rows
 
+    def cached_table(self, table_name: str) -> Optional[tuple]:
+        """Return ``(columns, rows)`` already in the cache, never querying DB2.
+
+        ``None`` means the table has not been loaded, or its load failed.
+        """
+        if table_name in self._table_errors:
+            return None
+        table_data = self._table_cache.get(table_name)
+        if table_data is None:
+            return None
+        return list(table_data["columns"]), [tuple(row) for row in table_data["rows"]]
+
     def table_error(self, table_name: str) -> str:
         """Return the DB2 load error for *table_name*, if one occurred."""
         self._ensure_table_loaded(table_name)

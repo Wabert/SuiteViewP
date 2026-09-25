@@ -52,7 +52,6 @@ def main() -> int:
             "coverages info value": window.coverages_tab.info_group._fields["status_label"],
             "policy tab value": window.policy_tab.col1._fields["prm_paid_to"],
             "summary strip button": window.summary_strip.copy_button,
-            "command box": window.command_box,
             "tab bar": window.tabs.tabBar(),
             "table cell viewport": window.coverages_tab.cov_table._data_table.viewport(),
         }

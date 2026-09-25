@@ -136,23 +136,11 @@ class PolicyNotesDialog(FramelessDialog):
 # =============================================================================
 
 SHORTCUTS = (
-    ("Ctrl+Shift+P", "Command box — search and run any PolView action"),
-    ("Ctrl+L", "Jump to the policy number box"),
     ("Enter", "Get the typed policy"),
-    ("Ctrl+1 … Ctrl+9", "Switch to tab 1–9"),
-    ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"),
-    ("Alt+← / Alt+→", "Back / forward through viewed policies"),
-    ("F5", "Reload the current policy fresh from DB2"),
     ("Ctrl+F", "Find a field anywhere in PolView"),
-    ("Ctrl+Shift+C", "Copy the policy summary"),
-    ("Ctrl+N", "Open your notes for this policy"),
-    ("Ctrl+D", "Timeline of every key policy date"),
-    ("Ctrl+T", "Show / hide the Tables & Rates panel"),
     ("F1", "This help"),
     ("", ""),
     ("Paste", "“CKPR - 01 - U0613620”, “01_13034048” or a TCH_POL_ID fills every field"),
-    ("Type a name", "Recent policies match by number or insured name"),
-    ("Tables", "Select cells to see Σ / Avg / Min / Max; right-click a header to hide columns"),
     ("Double-click", "A coverage or benefit row shows every field, interpreted and raw"),
     ("Right-click", "A sourced value (hover shows “Source:”) jumps to its DB2 rows"),
 )

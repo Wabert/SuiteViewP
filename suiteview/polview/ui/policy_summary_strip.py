@@ -120,13 +120,13 @@ class PolicySummaryStrip(QWidget):
         row.addWidget(self._suggest_host)
 
         self.timeline_button = self._tool_button(
-            "🗓 Timeline", "Every key policy date in order, with today marked (Ctrl+D)",
+            "🗓 Timeline", "Every key policy date in order, with today marked",
             self.timeline_requested)
         self.notes_button = self._tool_button(
-            "📝 Notes", "Your private notes for this policy (Ctrl+N)", self.notes_requested)
+            "📝 Notes", "Your private notes for this policy", self.notes_requested)
         self.copy_button = self._tool_button(
             "⧉ Copy",
-            "Copy a policy summary for email, tickets or test evidence (Ctrl+Shift+C).\n"
+            "Copy a policy summary for email, tickets or test evidence.\n"
             "Pastes as a neat table in Outlook/Word/Excel and as aligned text elsewhere.",
             self.copy_requested)
         for button in (self.timeline_button, self.notes_button, self.copy_button):

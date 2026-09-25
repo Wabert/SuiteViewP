@@ -36,8 +36,6 @@ def main() -> int:
                         help="Also open the Tables & Rates panel's Tables view")
     parser.add_argument("--dialogs", action="store_true",
                         help="After the last policy, open the Timeline dialog")
-    parser.add_argument("--palette", default="",
-                        help="After the last policy, type this into the command box and capture it")
     args = parser.parse_args()
     width, height = (int(v) for v in args.size.lower().split("x"))
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -135,17 +133,6 @@ def main() -> int:
                     ]
                     window._toggle_tree_panel()
                 report["policies"].append(entry)
-            if args.palette:
-                window.command_box.open_palette()
-                window.command_box.setText(args.palette)
-                window.command_box._refresh(args.palette)
-                pump(500)
-                popup = window.command_box._completer.popup()
-                shot = args.output_dir / "command_palette.png"
-                window.grab().save(str(args.output_dir / "command_palette_window.png"), "PNG")
-                popup.grab().save(str(shot), "PNG")
-                report["palette"] = {"text": args.palette, "screenshot": str(shot),
-                                     "commands": window.command_box.visible_command_keys()}
             if args.panels:
                 window._toggle_tree_panel()
                 pump(300)

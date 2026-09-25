@@ -43,7 +43,6 @@ from .tree_panel import PolicyRecordTreePanel
 from .loading_overlay import TabLoadingOverlay
 from .policy_load_controller import PolicyLoadController
 from .policy_summary_strip import PolicySummaryStrip
-from .command_palette import Command, CommandPaletteBox
 from .tooltip_style import use_readable_tooltips
 from .tabs.reinstatement_tab import ReinstatementTab
 from .tabs.other_data_tab import OtherDataTab
@@ -53,6 +52,7 @@ from ..services.policy_insights import (
     support_tool_availability,
 )
 from ..services.policy_notes import PolicyNotesStore, RecentPoliciesStore
+from ..services.table_search import search_policy_tables
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
@@ -200,14 +200,10 @@ class GetPolicyWindow(FramelessWindowBase):
         self._pending_annuity = False
         self.reinstatement_tab: ReinstatementTab | None = None
         self._unavailable_tabs: dict[str, str] = {}
-        self._nav_history: list[tuple[str, str, str]] = []
-        self._nav_index = -1
-        self._navigating = False
         self._notes_store = PolicyNotesStore()
         self._recent_store = RecentPoliciesStore()
         self._recent_recorded: tuple = ()
         self._key_trail: list = []
-        self._session_stats = {"loads": 0, "fastest": None, "policies": set()}
         self._dialogs: list = []
 
         # Header-bar "Open in RERUN" button (built before super().__init__
@@ -230,9 +226,6 @@ class GetPolicyWindow(FramelessWindowBase):
         self.shortcuts_btn.setToolTip("Keyboard shortcuts and tips (F1)")
         self.shortcuts_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
-        # VS Code-style command box, centred in the title bar.
-        self.command_box = CommandPaletteBox(self.palette_commands)
-
         super().__init__(
             title="SuiteView:  PolView",
             default_size=(1200, 780),
@@ -246,9 +239,6 @@ class GetPolicyWindow(FramelessWindowBase):
             border_color=POLVIEW_BORDER_COLOR,
             header_widgets=[self.shortcuts_btn, self.open_record_btn, self.open_illustrator_btn],
         )
-        header_layout = self.header_bar.layout()
-        header_layout.insertWidget(2, self.command_box)
-        header_layout.insertStretch(3)
         self.shortcuts_btn.clicked.connect(self._show_help)
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
         self.open_record_btn.clicked.connect(self._open_policy_record)
@@ -261,9 +251,8 @@ class GetPolicyWindow(FramelessWindowBase):
         self._install_shortcuts()
         self._refresh_recent_completer()
         use_readable_tooltips(self)
-        # Easter-egg listener: only the typing boxes, never an app-wide filter.
+        # Easter-egg listener: only the policy box, never an app-wide filter.
         self.lookup_bar.policy_input.installEventFilter(self)
-        self.command_box.installEventFilter(self)
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar).
         if initial_policy:
@@ -294,6 +283,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self.records_tree = PolicyRecordTreePanel()
         self.records_tree.table_selected.connect(self._on_table_selected)
         self.records_tree.rate_selected.connect(self._on_rate_selected)
+        self.records_tree.search_requested.connect(self._on_tables_search)
         self.records_tree.setFixedWidth(self.TREE_PANEL_WIDTH)
         self.records_tree.setVisible(False)
         body_layout.addWidget(self.records_tree)
@@ -340,7 +330,7 @@ class GetPolicyWindow(FramelessWindowBase):
         """
         # Tables & Rates panel toggle sits at the left, next to where the panel opens.
         self._tree_toggle_btn = QPushButton("⊞ Tables")
-        self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
+        self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel")
         self._tree_toggle_btn.setCheckable(True)
         self._tree_toggle_btn.setEnabled(False)
         self._tree_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -398,6 +388,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self.loans_tab = LoansTab(self.tabs)
         self.reinsurance_tab = ReinsuranceTab(self.tabs)
         self.raw_table_tab = RawTableTab(self.tabs)
+        self.raw_table_tab.search_hit_activated.connect(self._on_search_hit_activated)
 
         self.policy_support_tab = PolicySupportTab(self.tabs)
         self.policy_library_tab = PolicyLibraryTab(self.tabs)
@@ -507,7 +498,7 @@ class GetPolicyWindow(FramelessWindowBase):
             self.records_tree.setVisible(False)
             self._tree_visible = False
             self._tree_toggle_btn.setChecked(False)
-            self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
+            self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel")
             header_layout.setContentsMargins(
                 margins.left() - tree_w, margins.top(), margins.right(), margins.bottom())
             self.setGeometry(geo.x() + tree_w, geo.y(),
@@ -517,7 +508,7 @@ class GetPolicyWindow(FramelessWindowBase):
             self.records_tree.setVisible(True)
             self._tree_visible = True
             self._tree_toggle_btn.setChecked(True)
-            self._tree_toggle_btn.setToolTip("Hide the Tables & Rates panel (Ctrl+T)")
+            self._tree_toggle_btn.setToolTip("Hide the Tables & Rates panel")
             header_layout.setContentsMargins(
                 margins.left() + tree_w, margins.top(), margins.right(), margins.bottom())
             self.setGeometry(geo.x() - tree_w, geo.y(),
@@ -641,53 +632,7 @@ class GetPolicyWindow(FramelessWindowBase):
             if self._load_policy_tab(self.policy_support_tab):
                 self.policy_support_tab.open_section(key)
 
-    # == Navigation history, refresh & shortcuts ============================
-
-    def _record_navigation(self, policy):
-        entry = (policy.policy_number, policy.region, policy.company_code)
-        if self._navigating:
-            self._navigating = False
-            return
-        if 0 <= self._nav_index < len(self._nav_history) and self._nav_history[self._nav_index] == entry:
-            return
-        del self._nav_history[self._nav_index + 1:]
-        self._nav_history.append(entry)
-        self._nav_index = len(self._nav_history) - 1
-
-    def _note_load_stats(self, policy, elapsed: float):
-        stats = self._session_stats
-        stats["loads"] += 1
-        stats["policies"].add((policy.company_code, policy.policy_number))
-        if stats["fastest"] is None or elapsed < stats["fastest"][0]:
-            stats["fastest"] = (elapsed, policy.policy_number)
-
-    def navigate_history(self, step: int):
-        target = self._nav_index + step
-        if not 0 <= target < len(self._nav_history):
-            self._show_status("No more policies in that direction")
-            return
-        self._nav_index = target
-        self._navigating = True
-        number, region, company = self._nav_history[target]
-        self.load_policy(number, region=region, company_code=company)
-
-    def reload_current_policy(self):
-        """F5: discard cached data for the current policy and fetch it again."""
-        if self._policy is None:
-            if self._requested_policy[0]:
-                self._on_get_policy(*self._requested_policy)
-            return
-        key = self._current_aux_key()
-        cached = self._policy_cache.pop(key, None)
-        remove_from_cache(
-            self._policy.policy_number, region=self._policy.region,
-            company_code=self._policy.company_code,
-            system_code=(cached["policy"].system_code if cached else self._policy.system_code),
-        )
-        self._navigating = True
-        self._show_status(f"Reloading {self._policy.policy_number} fresh from {self._policy.region}…")
-        self._on_get_policy(self._policy.policy_number, self._policy.region,
-                            self._policy.company_code)
+    # == Shortcuts ==========================================================
 
     def _install_shortcuts(self):
         def bind(sequence, handler):
@@ -697,51 +642,9 @@ class GetPolicyWindow(FramelessWindowBase):
             return shortcut
 
         self._shortcuts = [
-            bind("Ctrl+L", self._focus_policy_input),
-            bind("F5", self.reload_current_policy),
-            bind("Alt+Left", self._go_back),
-            bind("Alt+Right", self._go_forward),
-            bind("Ctrl+Shift+C", self._copy_policy_summary),
-            bind("Ctrl+N", self._open_policy_notes),
-            bind("Ctrl+D", self._open_timeline),
             bind("Ctrl+F", self._open_field_finder),
-            bind("Ctrl+T", self._shortcut_toggle_tree),
-            bind("Ctrl+Shift+P", self.command_box.open_palette),
             bind("F1", self._show_help),
         ]
-        for number in range(1, 10):
-            shortcut = bind(f"Ctrl+{number}", self._on_tab_number_shortcut)
-            shortcut.setProperty("tab_number", number)
-            self._shortcuts.append(shortcut)
-
-    @pyqtSlot()
-    def _go_back(self):
-        self.navigate_history(-1)
-
-    @pyqtSlot()
-    def _go_forward(self):
-        self.navigate_history(1)
-
-    @pyqtSlot()
-    def _on_tab_number_shortcut(self):
-        sender = self.sender()
-        if sender is not None:
-            self._select_tab_number(int(sender.property("tab_number")))
-
-    @pyqtSlot()
-    def _focus_policy_input(self):
-        self.lookup_bar.policy_input.setFocus()
-        self.lookup_bar.policy_input.selectAll()
-
-    def _select_tab_number(self, number: int):
-        index = number - 1
-        if index < self.tabs.count() and self.tabs.isTabEnabled(index):
-            self.tabs.setCurrentIndex(index)
-
-    @pyqtSlot()
-    def _shortcut_toggle_tree(self):
-        if self._tree_toggle_btn.isEnabled():
-            self._toggle_tree_panel()
 
     @pyqtSlot()
     def _show_help(self):
@@ -792,121 +695,10 @@ class GetPolicyWindow(FramelessWindowBase):
         flash_widget(widget)
         self._show_status(f"Found “{label}”")
 
-    # == Command box & easter eggs =========================================
-
-    def _policy_loaded(self) -> bool:
-        return self._policy is not None and self._policy.exists
-
-    def palette_commands(self) -> list:
-        """Everything the title-bar command box can run (availability re-checked on open)."""
-        loaded = self._policy_loaded
-        commands = [
-            Command("shortcuts", "Show keyboard shortcuts", self._show_help, "F1", "Help",
-                    "keys hotkeys tips"),
-            Command("focus_policy", "Go to the policy number box", self._focus_policy_input,
-                    "Ctrl+L", "Policy", "lookup get search"),
-            Command("reload", "Reload this policy fresh from DB2", self.reload_current_policy,
-                    "F5", "Policy", "refresh", available=loaded),
-            Command("back", "Back to the previous policy", self._go_back, "Alt+←", "Policy",
-                    "history", available=lambda: self._nav_index > 0),
-            Command("forward", "Forward to the next policy", self._go_forward, "Alt+→", "Policy",
-                    "history", available=lambda: self._nav_index < len(self._nav_history) - 1),
-            Command("copy_summary", "Copy policy summary", self._copy_policy_summary,
-                    "Ctrl+Shift+C", "Policy", "clipboard email ticket", available=loaded),
-            Command("notes", "Open my notes for this policy", self._open_policy_notes, "Ctrl+N",
-                    "Policy", available=loaded),
-            Command("timeline", "Show the policy timeline", self._open_timeline, "Ctrl+D",
-                    "Policy", "dates history", available=loaded),
-            Command("find_field", "Find a field…", self._open_field_finder, "Ctrl+F", "Policy",
-                    "search label column", available=loaded),
-            Command("tables_panel", "Show / hide the Tables & Rates panel",
-                    self._shortcut_toggle_tree, "Ctrl+T", "View", "db2 raw rates",
-                    available=self._tree_toggle_btn.isEnabled),
-            Command("open_rerun", "Open this policy in RERUN", self._open_in_illustrator, "",
-                    "Apps", "illustration", available=loaded),
-            Command("open_record", "Open the CyberLife policy record", self._open_policy_record, "",
-                    "Apps", "green screen segments", available=loaded),
-        ]
-        if self._enable_policy_list:
-            commands.append(Command("policy_list", "Show / hide the Policy List",
-                                    self._toggle_policy_list, "", "View", "history list"))
-        for index in range(self.tabs.count()):
-            title = self._stage_title(self.tabs.widget(index)) or self.tabs.tabText(index)
-            title = title.replace("&&", "&")
-            shortcut = f"Ctrl+{index + 1}" if index < 9 else ""
-            commands.append(Command(
-                f"tab_{index}", title, self._tab_selector(index), shortcut, "Go to tab",
-                available=lambda i=index: self.tabs.isTabEnabled(i)))
-        for key, label in (("glp_exception", "GLP Exception"), ("forecast", "Forecast"),
-                           ("abr", "ABR"), ("annuity_rider", "Annuity Rider"),
-                           ("reinstatement", "UL Reinstatement")):
-            commands.append(Command(
-                f"support_{key}", label, self._support_opener(key), "", "Policy Support",
-                available=self._support_available(key)))
-        for entry in self._recent_store.entries()[:10]:
-            name = f" · {entry['insured']}" if entry.get("insured") else ""
-            commands.append(Command(
-                f"recent_{entry['region']}_{entry['company']}_{entry['policy']}",
-                f"{entry['policy']} {entry['company']} {entry['region']}{name}",
-                self._recent_opener(entry), "", "Open recent"))
-        commands += [
-            Command("stats", "My PolView session statistics", self._show_session_stats, "",
-                    "Help", "fun"),
-            Command("about", "About PolView", self._show_about, "", "Help", "version"),
-            Command("coffee", "Take a coffee break ☕", self._coffee_break, "", "Help", "tea fun"),
-        ]
-        return commands
-
-    def _stage_title(self, tab) -> str:
-        return next((title for page, title in self._stage_tabs.values() if page is tab), "")
-
-    def _tab_selector(self, index: int):
-        return lambda: self.tabs.setCurrentIndex(index)
-
-    def _support_opener(self, key: str):
-        return lambda: self._on_suggestion_clicked(key)
-
-    def _support_available(self, key: str):
-        def available():
-            if not self._policy_loaded():
-                return False
-            tool = support_tool_availability(self._policy).get(key)
-            return bool(tool and tool.available)
-        return available
-
-    def _recent_opener(self, entry: dict):
-        return lambda: self.load_policy(entry["policy"], region=entry.get("region") or "CKPR",
-                                        company_code=entry.get("company", ""))
-
-    def _show_session_stats(self):
-        from .polview_dialogs import show_message_dialog
-
-        stats = self._session_stats
-        fastest = (f"{stats['fastest'][1]} in {stats['fastest'][0]:.2f}s"
-                   if stats["fastest"] else "—")
-        self._keep_dialog(show_message_dialog(self, "Your PolView session", (
-            f"Policy loads this session: <b>{stats['loads']}</b><br>"
-            f"Distinct policies: <b>{len(stats['policies'])}</b><br>"
-            f"Fastest Coverages load: <b>{fastest}</b><br>"
-            f"Notes saved across all policies: <b>{self._notes_store.total()}</b>")))
-
-    def _show_about(self):
-        from suiteview import __version__
-        from .polview_dialogs import show_message_dialog
-
-        self._keep_dialog(show_message_dialog(self, "About PolView", (
-            f"<b>PolView</b> · SuiteView {__version__}<br><br>"
-            "One authoritative view of every policy — CyberLife data, "
-            "translated, explained and ready to support.<br><br>"
-            "<i>Built for the Business Analysts, Life Administration, analysts and "
-            "IT testers who keep the policies right.</i>")))
-
-    def _coffee_break(self):
-        self._show_status("☕ Brewing… PolView runs on DB2 and caffeine. Take five, the policies will wait.")
+    # == Easter egg ========================================================
 
     def eventFilter(self, obj, event):
-        if (obj in (self.lookup_bar.policy_input, self.command_box)
-                and event.type() == QEvent.Type.KeyPress):
+        if obj is self.lookup_bar.policy_input and event.type() == QEvent.Type.KeyPress:
             self._key_trail = (self._key_trail + [event.key()])[-len(_KONAMI):]
             if tuple(self._key_trail) == _KONAMI:
                 self._key_trail = []
@@ -1361,8 +1153,6 @@ class GetPolicyWindow(FramelessWindowBase):
                 f"{policy.policy_number} ({policy.company_code}) ready in {elapsed:.1f}s{flash}"
                 " - loading details in background"
             )
-            self._record_navigation(policy)
-            self._note_load_stats(policy, elapsed)
             self._refresh_summary()
             self.policy_ready.emit()
             return
@@ -1563,6 +1353,27 @@ class GetPolicyWindow(FramelessWindowBase):
             self._db, table_name, self._where_clause,
             policy_id=policy_id, company_code=company_code,
         )
+
+    @pyqtSlot(str)
+    def _on_tables_search(self, text: str):
+        """Tables-panel search: list matching tables/fields/values in Raw Table."""
+        if not text:
+            if self.raw_table_tab.showing_search_results:
+                self.raw_table_tab.clear()
+            return
+        if self._policy is None:
+            return
+        result = search_policy_tables(self._policy, self.records_tree.tables_with_data(), text)
+        self.tabs.setCurrentWidget(self.raw_table_tab)
+        self.raw_table_tab.show_search_results(result)
+
+    @pyqtSlot(str, str, str, int)
+    def _on_search_hit_activated(self, record: str, table_name: str, field: str, row: int):
+        self._on_table_selected(record, table_name)
+        self.raw_table_tab.focus_field(field, row)
+        where = f".{field}" if field else ""
+        self._show_status(f"Opened {table_name}{where} from search "
+                          f"“{self.records_tree.search_text()}”")
 
     def _on_rate_selected(self, category: str, label: str, index: int):
         """Handle rate node selection from the rates tree."""

@@ -9,19 +9,25 @@ import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QMessageBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, pyqtSignal, pyqtSlot
 
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.ui.widgets.filter_table_view import FilterTableView
+from ...services.table_search import TableSearchResult
 from ..styles import (
     BLUE_LIGHT, BLUE_DARK, BLUE_PRIMARY, GOLD_LIGHT, GOLD_PRIMARY,
     GREEN_SUBTLE, GREEN_DARK, GREEN_PRIMARY,
 )
 from ..widgets import CopyableLabel
 
+SEARCH_COLUMNS = ["Match", "Record", "Table", "Field", "Row", "Value"]
+
 
 class RawTableTab(QWidget):
     """Tab for viewing raw table data with transpose and export functionality."""
+
+    # record, table, field ("" for a table-name hit), row (1-based; 0 = all rows)
+    search_hit_activated = pyqtSignal(str, str, str, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,6 +35,7 @@ class RawTableTab(QWidget):
         self._current_cols = []
         self._current_rows = []
         self._current_table_name = ""
+        self._search_result: TableSearchResult | None = None
         # Cached DataFrames per orientation so repeated transposing never
         # rebuilds the frame or recomputes each grid's unique-value filters.
         self._df_normal = None
@@ -110,8 +117,13 @@ class RawTableTab(QWidget):
         self._stack = QStackedWidget()
         self._normal_grid = self._make_grid()
         self._transposed_grid = self._make_grid()
+        self._search_grid = self._make_grid()
+        self._search_grid.set_full_row_selection(True)
+        self._search_grid.table_view.setToolTip("Double-click a match to open its table")
+        self._search_grid.table_view.doubleClicked.connect(self._on_search_hit_double_clicked)
         self._stack.addWidget(self._normal_grid)      # index 0 – normal
         self._stack.addWidget(self._transposed_grid)  # index 1 – transposed
+        self._stack.addWidget(self._search_grid)      # index 2 – Tables search matches
         layout.addWidget(self._stack)
 
         self._update_active_grid()
@@ -137,10 +149,13 @@ class RawTableTab(QWidget):
         self._current_table_name = ""
         self._df_normal = None
         self._df_transposed = None
+        self._leave_search_mode()
         self.table_label.setText("Select a table from the left panel")
         empty = pd.DataFrame()
         self._normal_grid.set_dataframe(empty, limit_rows=False)
         self._transposed_grid.set_dataframe(empty, limit_rows=False)
+        self._search_grid.set_dataframe(empty, limit_rows=False)
+        self._update_active_grid()
 
     # ── view toggling ────────────────────────────────────────────────────
 
@@ -151,9 +166,16 @@ class RawTableTab(QWidget):
 
     def _update_active_grid(self):
         """Show the grid for the current orientation (no recompute)."""
+        if self._search_result is not None:
+            self._stack.setCurrentWidget(self._search_grid)
+            return
         self._stack.setCurrentWidget(
             self._transposed_grid if self._is_transposed else self._normal_grid
         )
+
+    def _leave_search_mode(self):
+        self._search_result = None
+        self.transpose_btn.setEnabled(True)
 
     def _display_data(self):
         """Build (and cache) both orientation frames, then show the active one.
@@ -196,6 +218,7 @@ class RawTableTab(QWidget):
         if table_name is not None:
             self._current_table_name = table_name
             self.table_label.setText(table_name)
+        self._leave_search_mode()
         self._current_cols = []
         self._current_rows = []
         self._df_normal = None
@@ -215,6 +238,7 @@ class RawTableTab(QWidget):
         """
         self._current_cols = list(cols)
         self._current_rows = [tuple(r) for r in rows]
+        self._leave_search_mode()
         if table_name is not None:
             self._current_table_name = table_name
             self.table_label.setText(table_name)
@@ -227,11 +251,105 @@ class RawTableTab(QWidget):
         else:
             self.show_message("No data")
 
+    # ── Tables search results ────────────────────────────────────────────
+
+    @property
+    def showing_search_results(self) -> bool:
+        return self._search_result is not None
+
+    def show_search_results(self, result: TableSearchResult):
+        """List Tables-panel search matches; double-click one to open its table."""
+        self._search_result = result
+        self.transpose_btn.setEnabled(False)
+        self._current_table_name = "Table Search"
+        hits = result.hits
+        tables = len({hit.table for hit in hits})
+        summary = (
+            f"Search: “{result.term}” — {len(hits):,} match{'es' if len(hits) != 1 else ''}"
+            f" in {tables} of {result.tables_searched} table"
+            f"{'s' if result.tables_searched != 1 else ''}"
+        )
+        if result.truncated:
+            summary += f" (first {len(hits):,} shown — refine the search)"
+        if result.not_searched:
+            summary += f"  ⚠ not searched (not loaded): {', '.join(result.not_searched)}"
+        self.table_label.setText(summary)
+        if hits:
+            df = pd.DataFrame(
+                [(h.match, h.record, h.table, h.field, h.row or None, h.value) for h in hits],
+                columns=SEARCH_COLUMNS,
+            )
+            df["Row"] = df["Row"].astype("Int64")
+        else:
+            df = pd.DataFrame({"Result": [f"No table, field or value contains “{result.term}”"]})
+        self._search_grid.set_dataframe(df, limit_rows=False)
+        self._search_grid.autofit_columns_to_data(max_width=420)
+        self._update_active_grid()
+
+    def search_hits_frame(self) -> pd.DataFrame:
+        """The displayed matches (after any grid filter/sort)."""
+        model = self._search_grid.model
+        return model.get_display_data() if model is not None else pd.DataFrame()
+
+    @pyqtSlot(QModelIndex)
+    def _on_search_hit_double_clicked(self, index: QModelIndex):
+        self.activate_search_hit(index.row())
+
+    def activate_search_hit(self, view_row: int):
+        if self._search_result is None:
+            return
+        frame = self.search_hits_frame()
+        if "Table" not in frame.columns or not 0 <= view_row < len(frame):
+            return
+        hit = frame.iloc[view_row]
+        row = hit["Row"]
+        self.search_hit_activated.emit(
+            str(hit["Record"]), str(hit["Table"]), str(hit["Field"]),
+            0 if pd.isna(row) else int(row),
+        )
+
+    def focus_field(self, field: str, row: int = 0):
+        """After a search hit opens its table, select and scroll to the match.
+
+        Selection (not a BackgroundRole tint) marks the cells: the ledger QSS
+        suppresses model background brushes on unselected items.
+        """
+        if not field or field not in self._current_cols:
+            return
+        field_index = self._current_cols.index(field)
+        row_count = len(self._current_rows)
+        rows = [row] if 1 <= row <= row_count else list(range(1, row_count + 1))
+        cells = {
+            self._transposed_grid: [(field_index, 0)] + [(field_index, r) for r in rows],
+            self._normal_grid: [(r - 1, field_index) for r in rows],
+        }
+        for grid, targets in cells.items():
+            model, selection = grid.model, grid.table_view.selectionModel()
+            if model is None or selection is None:
+                continue
+            indexes = [model.index(*t) for t in targets]
+            indexes = [i for i in indexes if i.isValid()]
+            if not indexes:
+                continue
+            anchor = indexes[-1] if row else indexes[0]
+            selection.setCurrentIndex(anchor, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            for index in indexes:
+                selection.select(index, QItemSelectionModel.SelectionFlag.Select)
+            grid.table_view.scrollTo(anchor, grid.table_view.ScrollHint.PositionAtCenter)
+
     # ── Excel export ─────────────────────────────────────────────────────
 
     def _export_to_excel(self):
-        """Export current table data to a new Excel file."""
-        if not self._current_cols or not self._current_rows:
+        """Export current table data (or the search matches) to a new Excel file."""
+        if self._search_result is not None:
+            frame = self.search_hits_frame()
+            cols = [] if "Table" not in frame.columns else list(frame.columns)
+            rows = [tuple(None if pd.isna(v) else v for v in r)
+                    for r in frame.itertuples(index=False)] if cols else []
+            transposed = False
+        else:
+            cols, rows, transposed = self._current_cols, self._current_rows, self._is_transposed
+        if not cols or not rows:
             QMessageBox.information(self, "Export", "No data to export")
             return
 
@@ -262,31 +380,31 @@ class RawTableTab(QWidget):
         )
 
         # Write data based on current view mode
-        if self._is_transposed:
+        if transposed:
             ws.cell(row=1, column=1, value="Field").font = header_font
             ws.cell(row=1, column=1).fill = header_fill
             ws.cell(row=1, column=1).border = thin_border
 
-            for col_idx in range(len(self._current_rows)):
+            for col_idx in range(len(rows)):
                 cell = ws.cell(row=1, column=col_idx + 2, value=f"Row {col_idx + 1}")
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.border = thin_border
 
-            for row_idx, field_name in enumerate(self._current_cols):
+            for row_idx, field_name in enumerate(cols):
                 ws.cell(row=row_idx + 2, column=1, value=field_name).border = thin_border
-                for col_idx, row_data in enumerate(self._current_rows):
+                for col_idx, row_data in enumerate(rows):
                     value = row_data[row_idx] if row_idx < len(row_data) else ""
                     cell = ws.cell(row=row_idx + 2, column=col_idx + 2, value=value)
                     cell.border = thin_border
         else:
-            for col_idx, col_name in enumerate(self._current_cols):
+            for col_idx, col_name in enumerate(cols):
                 cell = ws.cell(row=1, column=col_idx + 1, value=col_name)
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.border = thin_border
 
-            for row_idx, row_data in enumerate(self._current_rows):
+            for row_idx, row_data in enumerate(rows):
                 for col_idx, value in enumerate(row_data):
                     cell = ws.cell(row=row_idx + 2, column=col_idx + 1, value=value)
                     cell.border = thin_border
@@ -338,6 +456,7 @@ class RawTableTab(QWidget):
         """
         self.table_label.setText(f"Table: {table_name}")
         self._current_table_name = table_name
+        self._leave_search_mode()
 
         try:
             # FH_ tables don't have CK_SYS_CD column

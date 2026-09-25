@@ -536,7 +536,7 @@ def settle(qtbot, win):
     qtbot.waitUntil(lambda: not win._loader.busy, timeout=5000)
 
 
-def test_window_badges_copy_history_and_command_box(window, qtbot):
+def test_window_badges_copy_and_recent_policies(window, qtbot):
     window.test_policies["GRACE1"] = window.test_make("GRACE1", in_grace=True, region="CKPR")
     window.load_policy("GRACE1")
     settle(qtbot, window)
@@ -552,43 +552,23 @@ def test_window_badges_copy_history_and_command_box(window, qtbot):
 
     window.load_policy("SECOND")
     settle(qtbot, window)
-    assert window._nav_history == [("GRACE1", "CKPR", "01"), ("SECOND", "CKPR", "01")]
-    window.navigate_history(-1)
-    settle(qtbot, window)
-    assert window._policy.policy_number == "GRACE1"
-    assert window._nav_index == 0
-    window.navigate_history(1)
-    settle(qtbot, window)
     assert window._policy.policy_number == "SECOND"
 
     # Recent policies feed the completer and persist.
     assert window.lookup_bar._recent_model.rowCount() == 2
-
-    # The command box lists available commands and runs the chosen one.
-    box = window.command_box
-    assert window.header_bar.layout().indexOf(box) >= 0
-    box._refresh("timeline")
-    assert box.visible_command_keys() == ["timeline"]
-    box._refresh("")
-    keys = box.visible_command_keys()
-    assert {"shortcuts", "reload", "copy_summary", "notes", "about", "coffee"} <= set(keys)
-    assert "back" in keys and "forward" not in keys
-    assert any(key.startswith("recent_") for key in keys)
-    assert "tab_0" in keys
-    box.run("coffee")
-    qtbot.waitUntil(lambda: "☕" in window._status_label.text(), timeout=2000)
-    box.run("tab_2")
-    qtbot.waitUntil(lambda: window.tabs.currentIndex() == 2, timeout=2000)
     window._activate_actuary_mode()
     assert window._header_colors[0] == "#6A1B9A"
 
 
-def test_command_box_hides_commands_that_need_a_policy(window, qtbot):
-    box = window.command_box
-    box._refresh("")
-    keys = set(box.visible_command_keys())
-    assert "shortcuts" in keys and "focus_policy" in keys
-    assert not keys & {"reload", "copy_summary", "notes", "timeline", "open_rerun"}
+def test_only_find_field_and_help_shortcuts_remain(window, qtbot):
+    from PyQt6.QtGui import QKeySequence
+
+    keys = sorted(s.key().toString() for s in window._shortcuts)
+    assert keys == sorted([QKeySequence("Ctrl+F").toString(), QKeySequence("F1").toString()])
+    assert not hasattr(window, "command_box")
+    from suiteview.polview.ui.polview_dialogs import SHORTCUTS
+    assert [key for key, _ in SHORTCUTS if key] == [
+        "Enter", "Ctrl+F", "F1", "Paste", "Double-click", "Right-click"]
 
 
 def test_shortcuts_button_and_toggle_placement(window, qtbot):
@@ -611,7 +591,6 @@ def test_tables_panel_leaves_the_main_window_in_place(window, qtbot):
     qtbot.waitExposed(window)
     watched = {
         "title": window._title_label,
-        "command box": window.command_box,
         "shortcuts": window.shortcuts_btn,
         "lookup bar": window.lookup_bar,
         "tables button": window._tree_toggle_btn,
@@ -632,6 +611,38 @@ def test_tables_panel_leaves_the_main_window_in_place(window, qtbot):
     assert tree.mapToGlobal(tree.rect().topRight()).x() < before["lookup bar"][0].x()
     window._toggle_tree_panel()
     assert screen_rects() == before
+
+
+def test_tables_search_lists_matches_and_opens_the_table(window, qtbot):
+    window.load_policy("ANY1")
+    settle(qtbot, window)
+    columns = ["TCH_POL_ID", "PLN_DES_SER_CD"]
+    rows = [("ANY1 TEST", "1U143900  ")]
+    window._policy.cached_table = lambda table: (columns, rows) if table == "LH_COV_PHA" else None
+    window.records_tree.set_table_presence({"LH_COV_PHA": True})
+    opened = []
+
+    def load_table(db, table, where, policy_id=None, company_code=None):
+        opened.append(table)
+        window.raw_table_tab.set_data(columns, rows, table_name=f"Table: {table}")
+
+    window.raw_table_tab.load_table = load_table
+    with qtbot.waitSignal(window.records_tree.search_requested, timeout=2000):
+        window.records_tree.search_box.setText("1u14")
+    assert window.tabs.currentWidget() is window.raw_table_tab
+    assert window.raw_table_tab.showing_search_results
+    assert window.raw_table_tab.search_hits_frame()["Field"].tolist() == ["PLN_DES_SER_CD"]
+
+    window.raw_table_tab.activate_search_hit(0)
+    assert opened == ["LH_COV_PHA"]
+    assert not window.raw_table_tab.showing_search_results
+    assert "LH_COV_PHA.PLN_DES_SER_CD" in window._status_label.text()
+
+    window.records_tree.search_box.returnPressed.emit()
+    assert window.raw_table_tab.showing_search_results
+    with qtbot.waitSignal(window.records_tree.search_requested, timeout=2000):
+        window.records_tree.search_box.clear()
+    assert not window.raw_table_tab.showing_search_results
 
 
 def test_non_production_region_is_loud(window, qtbot):
@@ -675,45 +686,3 @@ def test_tooltips_in_polview_get_their_own_light_style(window, qtbot):
         pytest.skip("platform does not show tooltips")
     assert tip.styleSheet() == TOOLTIP_STYLE
     QToolTip.hideText()
-
-
-def test_command_box_list_closes_and_stays_closed(window, qtbot):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QFocusEvent
-    from PyQt6.QtTest import QTest
-
-    box = window.command_box
-    popup = box._completer.popup()
-
-    def settle_events():
-        for _ in range(5):
-            QApplication.processEvents()
-            qtbot.wait(20)
-
-    # Escape inside the list closes it and does not reopen on refocus.
-    box.open_palette()
-    qtbot.waitUntil(popup.isVisible, timeout=2000)
-    QTest.keyClick(popup, Qt.Key.Key_Escape)
-    settle_events()
-    assert not popup.isVisible() and box.text() == ""
-
-    # An outside click (Qt hides the popup) dismisses the box.
-    box.open_palette()
-    box.setText("tab")
-    box._refresh("tab")
-    qtbot.waitUntil(popup.isVisible, timeout=2000)
-    popup.hide()
-    settle_events()
-    assert not popup.isVisible() and box.text() == ""
-
-    # Focus returning from the popup never reopens the list by itself.
-    box.focusInEvent(QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.PopupFocusReason))
-    settle_events()
-    assert not popup.isVisible()
-
-    # Escape typed in the box itself also closes it.
-    box.open_palette()
-    qtbot.waitUntil(popup.isVisible, timeout=2000)
-    box.dismiss()
-    settle_events()
-    assert not popup.isVisible()

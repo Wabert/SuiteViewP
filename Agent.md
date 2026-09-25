@@ -796,6 +796,7 @@ if pi:
 | `data_item_array(table, field)` | All values for a field across rows |
 | `data_item_count(table)` | Row count for a table |
 | `fetch_table(table)` | Entire table as `List[Dict]` |
+| `cached_table(table)` | `(columns, rows)` already loaded, or `None`; never queries DB2 (safe on the GUI thread) |
 | `data_item_where(table, return_field, filter_field, filter_value)` | Filtered single value |
 | `data_items_where(table, return_field, filter_field, filter_value)` | All matching values |
 
@@ -1326,8 +1327,9 @@ pending, never a GUI-thread query or a guess. Show the definition of life as
 **GPT**, never "GP" (reads as Grace Period). Optional tabs keep a fixed
 position and grey out with the reason instead of disappearing. The lookup bar
 (shared with RERUN) accepts pasted references and completes recent policies by
-number or insured name; it never runs commands. Commands live in a VS Code-style
-**command box** in the title bar (Ctrl+Shift+P) beside a **Shortcuts** button.
+number or insured name; it never runs commands. A **Shortcuts** button in the
+title bar lists the only shortcuts, Ctrl+F (field finder) and F1 (help); there
+is no command box for now.
 Private per-policy notes (local profile only), a field finder, Timeline and a
 Copy summary (HTML table + aligned text; no insured name or face) complete the
 toolkit. Grids gain selection totals, column choosers and empty-state notes;

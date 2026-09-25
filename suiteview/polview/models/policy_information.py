@@ -215,6 +215,10 @@ class PolicyInformation:
         """Get entire table as list of dictionaries."""
         return self._data.fetch_table(table_name)
 
+    def cached_table(self, table_name: str) -> Optional[tuple]:
+        """Return ``(columns, rows)`` already loaded for a table, never querying DB2."""
+        return self._data.cached_table(table_name)
+
     def table_error(self, table_name: str) -> str:
         """Return the DB2 load error for a table, if one occurred."""
         return self._data.table_error(table_name)
