@@ -7,7 +7,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QCheckBox, QGroupBox
 from suiteview.audit.constants import PARTICIPATION_TYPE_DESCRIPTIONS
-from suiteview.audit.cyberlife_query import _participation_predicate, build_cyberlife_sql
+from suiteview.audit.cyberlife_query import participation_predicate, build_cyberlife_sql
 from suiteview.audit.tabs.adv_tab import AdvTab
 from suiteview.audit.tabs.benefits_tab import BenefitsTab
 from suiteview.audit.tabs.coverages_tab import CoveragesTab
@@ -46,7 +46,7 @@ def test_each_code_filters_individually_without_including_null(tab, code):
     item = tab.list_participation_type.item(list(PARTICIPATION_TYPE_DESCRIPTIONS).index(code))
     item.setSelected(True)
     sql = _build(tab)
-    predicate = _participation_predicate([code])
+    predicate = participation_predicate([code])
     assert predicate in sql.rsplit('\nWHERE ', 1)[1]
     db = sqlite3.connect(':memory:')
     try:
@@ -65,8 +65,8 @@ def test_base_scope_and_policy2_composition(tab, qtbot, coverage_level):
     tab._select_par()
     sql = _build(tab, policy2, schema='UNIT', coverage_level=coverage_level)
     where = sql.rsplit('\nWHERE ', 1)[1]
-    assert _participation_predicate(list('ABCDEFGH')) in where
-    assert _participation_predicate(['9']) in where
+    assert participation_predicate(list('ABCDEFGH')) in where
+    assert participation_predicate(['9']) in where
     assert where.count('TRIM(COVERAGE1.DIV_PTP_TYP_CD)') == 2
     assert 'RESULTCOV.DIV_PTP_TYP_CD' not in sql
     assert 'FROM UNIT.LH_COV_PHA C1 WHERE C1.COV_PHA_NBR = 1' in sql

@@ -6,7 +6,7 @@ import re
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from PyQt6.QtWidgets import QApplication
-from suiteview.audit.cyberlife_query import build_cyberlife_sql, _termination_financial_date
+from suiteview.audit.cyberlife_query import build_cyberlife_sql, termination_financial_date
 from suiteview.audit.sql_helpers import esc
 from suiteview.audit.tabs.adv_tab import AdvTab
 from suiteview.audit.tabs.benefits_tab import BenefitsTab
@@ -61,7 +61,7 @@ def main():
     both_match = re.search(', TERMINATION_BOTH_DATES AS\\n(.*?\\n   GROUP BY CK_CMP_CD, TCH_POL_ID\\))', sql, re.DOTALL)
     if both_match is None:
         raise RuntimeError('Generated SQL is missing the combined-date CTE.')
-    resolved_date = f'COALESCE(TDB.TERM_ENTRY_DT, {_termination_financial_date()})'
+    resolved_date = f'COALESCE(TDB.TERM_ENTRY_DT, {termination_financial_date()})'
     join_match = re.search('  LEFT OUTER JOIN TERMINATION_BOTH_DATES AS TDB\\n    ON POLICY1.CK_CMP_CD = TDB.CK_CMP_CD\\n    AND POLICY1.TCH_POL_ID = TDB.TCH_POL_ID(?:\\n    AND [^\\n]+)*', sql)
     if join_match is None:
         raise RuntimeError('Generated SQL is missing the combined-date join.')

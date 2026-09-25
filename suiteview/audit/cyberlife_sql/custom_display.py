@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .helpers import _name_match_predicate
+from .helpers import name_match_predicate
 
-def _build_custom_display(custom_display_tab, result_cov_alias: str, schema: str) -> tuple[list[str], list[str], list[str]]:
+def build_custom_display(custom_display_tab, result_cov_alias: str, schema: str) -> tuple[list[str], list[str], list[str]]:
     """Build SELECT column lines, JOIN lines, and WHERE conditions for the
     Custom Display tab.
 
@@ -38,7 +38,7 @@ def _build_custom_display(custom_display_tab, result_cov_alias: str, schema: str
         if not alias or not fields:
             continue
         used_tables.add(table)
-        preds = [_name_match_predicate(f'{alias}.{field}', match_type, value) for field in fields]
+        preds = [name_match_predicate(f'{alias}.{field}', match_type, value) for field in fields]
         if len(preds) == 1:
             where_conditions.append(preds[0])
         else:

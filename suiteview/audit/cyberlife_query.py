@@ -6,20 +6,20 @@ from __future__ import annotations
 
 from .cyberlife_sql import (
     _conversion_sc_cte,
-    _name_match_predicate,
-    _participation_description,
-    _participation_predicate,
+    name_match_predicate,
+    participation_description,
+    participation_predicate,
     _post_conversion_cte,
-    _termination_financial_date,
+    termination_financial_date,
     build_cyberlife_sql,
 )
 
 __all__ = [
     "build_cyberlife_sql",
     "_conversion_sc_cte",
-    "_name_match_predicate",
-    "_participation_description",
-    "_participation_predicate",
+    "name_match_predicate",
+    "participation_description",
+    "participation_predicate",
     "_post_conversion_cte",
-    "_termination_financial_date",
+    "termination_financial_date",
 ]

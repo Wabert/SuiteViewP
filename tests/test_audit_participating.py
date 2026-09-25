@@ -5,7 +5,7 @@ import sqlite3
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 from PyQt6.QtWidgets import QLabel
-from suiteview.audit.cyberlife_query import _participation_description, build_cyberlife_sql
+from suiteview.audit.cyberlife_query import participation_description, build_cyberlife_sql
 from suiteview.audit.tabs.adv_tab import AdvTab
 from suiteview.audit.tabs.benefits_tab import BenefitsTab
 from suiteview.audit.tabs.coverages_tab import CoveragesTab
@@ -38,7 +38,7 @@ def test_selected_categories_use_only_base_coverage(tab, rows, codes, schema, co
     assert f'TRIM(COVERAGE1.DIV_PTP_TYP_CD) IN ({codes})' in sql.rsplit('\nWHERE ', 1)[1]
     assert "POLICY1.LST_FIN_DT >= '2025-01-01'" in sql
     assert 'COVERAGE1.DIV_PTP_TYP_CD ParticipationCode' in sql
-    assert f'{_participation_description()} Participation' in sql
+    assert f'{participation_description()} Participation' in sql
     assert 'RESULTCOV.DIV_PTP_TYP_CD' not in sql
     assert 'COVSALL.DIV_PTP_TYP_CD' not in sql
     if schema != 'DB2TAB':
@@ -48,7 +48,7 @@ def test_selected_categories_use_only_base_coverage(tab, rows, codes, schema, co
 def test_description_and_filters_agree_for_every_code(tab, code, expected):
     db = sqlite3.connect(':memory:')
     try:
-        description = db.execute(f'WITH COVERAGE1 AS (SELECT ? AS DIV_PTP_TYP_CD) SELECT {_participation_description()} FROM COVERAGE1', (code,)).fetchone()[0]
+        description = db.execute(f'WITH COVERAGE1 AS (SELECT ? AS DIV_PTP_TYP_CD) SELECT {participation_description()} FROM COVERAGE1', (code,)).fetchone()[0]
         assert description == expected
         tab.chk_participating.setChecked(True)
         for index, label in enumerate(LABELS):

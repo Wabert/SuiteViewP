@@ -1,81 +1,109 @@
 """CyberLife SQL ctes policy section builders."""
 from __future__ import annotations
 
-from .common import *
+from .common import (
+    PARTICIPATION_CODES,
+    PARTICIPATION_TYPE_DESCRIPTIONS,
+    QueryContext,
+    SqlParts,
+    _ISS_STATE_MAP,
+    _STATE_ABBR_TO_CODE,
+    build_custom_display,
+    build_segment52,
+    _conversion_sc_cte,
+    _post_conversion_cte,
+    _valuation_date_sql,
+    add_date_range,
+    add_decimal_range,
+    add_int_range,
+    build_bill_mode_where,
+    cease_code_predicate,
+    esc,
+    in_list,
+    name_match_predicate,
+    normalize_date,
+    participation_description,
+    participation_predicate,
+    selected_codes,
+    strict_range_predicates,
+    termination_financial_date,
+    today_str,
+    transaction_predicates,
+)
 
 
-def build_step_003(state: BuildState) -> None:
-    state.adv_gcv_lt_cv = state.at.chk_gcv_lt_cv.isChecked()
-    state.adv_prem_wd_gt_face = state.at.chk_prem_wd_gt_face.isChecked()
-    state.adv_grace_rule = bool(state.at.chk_grace_rule.isChecked() and state.at.list_grace_rule.selectedItems())
-    state.adv_db_option = bool(state.at.chk_db_option.isChecked() and state.at.list_db_option.selectedItems())
-    state.adv_orig_entry = bool(state.at.chk_orig_entry.isChecked() and state.at.list_orig_entry.selectedItems())
-    state.adv_prem_alloc = bool(state.at.chk_prem_alloc.isChecked() and state.at.list_prem_alloc.selectedItems())
-    state.adv_fund_id = state.at.txt_fund_id.text().strip()
-    state.adv_fund_lo = state.at.txt_fund_lo.text().strip()
-    state.adv_fund_hi = state.at.txt_fund_hi.text().strip()
-    state.has_fund_values = bool(state.adv_fund_id or state.adv_fund_lo or state.adv_fund_hi)
-    state.adv_cirf_match = state.at.cbo_cirf_match.currentText().strip()
-    state.adv_cirf_val = state.at.txt_cirf.text().strip()
-    state.has_accum_val = bool(state.at.rng_accum_val[0].text().strip() or state.at.rng_accum_val[1].text().strip())
-    state.has_shadow_av = bool(state.at.rng_shadow_acct[0].text().strip() or state.at.rng_shadow_acct[1].text().strip())
-    state.has_curr_spec_amt = bool(state.at.rng_curr_spec_amt[0].text().strip() or state.at.rng_curr_spec_amt[1].text().strip())
-    state.has_accum_mtp = bool(state.at.rng_accum_mtp[0].text().strip() or state.at.rng_accum_mtp[1].text().strip())
-    state.has_accum_glp_range = bool(state.at.rng_accum_glp[0].text().strip() or state.at.rng_accum_glp[1].text().strip())
-    state.has_glp_range = bool(state.at.rng_glp[0].text().strip() or state.at.rng_glp[1].text().strip())
-    state.has_gsp_range = bool(state.at.rng_gsp[0].text().strip() or state.at.rng_gsp[1].text().strip())
-    state.has_type_p = bool(state.at.rng_type_p[0].text().strip() or state.at.rng_type_p[1].text().strip())
-    state.has_type_v = bool(state.at.rng_type_v[0].text().strip() or state.at.rng_type_v[1].text().strip())
-    state.multi_base_covs = state.pt.chk_multiple_base_covs.isChecked()
-    state.is_mdo = state.pt.chk_is_mdo.isChecked()
-    state.in_conversion = state.pt.chk_in_conversion.isChecked()
-    state.cov_val_classes = state.covt.val_class.selected_values() if hasattr(state.covt.val_class, 'selected_values') else []
-    state.cov_val_class = state.covt.val_class.text().strip()
-    state.cov_val_base = state.covt.val_base.text().strip()
-    state.cov_val_sub = state.covt.val_sub.text().strip()
-    state.cov_val_mort = state.covt.val_mort_table.text().strip()
-    state.cov_rpu_mort = state.covt.rpu_mort_table.text().strip()
-    state.cov_eti_mort = state.covt.eti_mort_table.text().strip()
-    state.cov_nfo_rate = state.covt.nfo_int_rate.text().strip()
-    state.cov_val_class_ne = state.covt.chk_val_class_ne_plan.isChecked()
-    state.cov_multi_base = state.covt.chk_multiple_base.isChecked()
-    state.cov_gio = state.covt.chk_cov_gio.isChecked()
-    state.cov_cola = state.covt.chk_cov_cola.isChecked()
-    state.cov_skipped_rein = state.covt.chk_skipped_cov_rein.isChecked()
-    state.cov_cv_rate = state.covt.chk_cv_rate_gt_zero.isChecked() or (state.wl_tab is not None and state.wl_tab.chk_cv_rate.isChecked())
-    state.cov_gcv_gt_cv = state.covt.chk_gcv_gt_cv.isChecked()
-    state.cov_gcv_lt_cv = state.covt.chk_gcv_lt_cv.isChecked()
-    state.cov_non_trad = bool(state.covt.chk_non_trad.isChecked() and state.covt.list_non_trad.selectedItems())
-    state.cov_spec_amt_lo = state.covt.txt_spec_amt_lo.text().strip()
-    state.cov_spec_amt_hi = state.covt.txt_spec_amt_hi.text().strip()
-    state.cov_has_spec_amt = bool(state.cov_spec_amt_lo or state.cov_spec_amt_hi)
-    state.cov_init_term = bool(state.covt.chk_init_term.isChecked() and state.covt.list_init_term.selectedItems())
-    state._bw = state.covt.base_cov_widgets
-    state.cov_base_plancode = state._bw['plancode'].text().strip()
-    state.cov_base_prod_line = state._bw['prod_line'].currentText().strip()
-    state.cov_base_prod_ind = state._bw['prod_ind'].currentText().strip()
-    state.cov_base_form_number = state._bw['form_number'].text().strip()
-    state.cov_base_rateclass = state._bw['rateclass'].currentText().strip()
-    state.cov_base_sex67 = state._bw['sex_code_67'].currentText().strip()
-    state.cov_base_sex02 = state._bw['sex_code_02'].currentText().strip()
-    state.cov_base_person = state._bw['person'].currentText().strip()
-    state.cov_base_lives_cov = state._bw['lives_cov'].currentText().strip()
-    state.cov_base_change_type = state._bw['change_type'].currentText().strip()
-    state.cov_base_cease_code = state._bw['cease_code'].selected_values()
-    state.cov_base_cola_ind = state._bw['cola_ind'].currentText().strip()
-    state.cov_base_gio_fio = state._bw['gio_fio'].currentText().strip()
-    state.cov_base_table03 = state._bw['table_03'].isChecked()
-    state.cov_base_flat03 = state._bw['flat_03'].isChecked()
-    state.cov_base_active_flat03 = state._bw['active_flat_03'].isChecked()
-    state.cov_base_issue_lo = normalize_date(state._bw['issue_date_lo'].text()) or ''
-    state.cov_base_issue_hi = normalize_date(state._bw['issue_date_hi'].text()) or ''
-    state.cov_base_change_lo = normalize_date(state._bw['change_date_lo'].text()) or ''
-    state.cov_base_change_hi = normalize_date(state._bw['change_date_hi'].text()) or ''
-    state.cov_needs_modcov1 = bool(state.cov_base_prod_ind or state.cov_base_cola_ind or state.cov_base_gio_fio)
-    state.cov_needs_renewals = bool(state.cov_base_rateclass or state.cov_base_sex67)
+def add_policy2_ctes(ctx: QueryContext, parts: SqlParts) -> None:
+    ctx.adv_gcv_lt_cv = ctx.at.chk_gcv_lt_cv.isChecked()
+    ctx.adv_prem_wd_gt_face = ctx.at.chk_prem_wd_gt_face.isChecked()
+    ctx.adv_grace_rule = bool(ctx.at.chk_grace_rule.isChecked() and ctx.at.list_grace_rule.selectedItems())
+    ctx.adv_db_option = bool(ctx.at.chk_db_option.isChecked() and ctx.at.list_db_option.selectedItems())
+    ctx.adv_orig_entry = bool(ctx.at.chk_orig_entry.isChecked() and ctx.at.list_orig_entry.selectedItems())
+    ctx.adv_prem_alloc = bool(ctx.at.chk_prem_alloc.isChecked() and ctx.at.list_prem_alloc.selectedItems())
+    ctx.adv_fund_id = ctx.at.txt_fund_id.text().strip()
+    ctx.adv_fund_lo = ctx.at.txt_fund_lo.text().strip()
+    ctx.adv_fund_hi = ctx.at.txt_fund_hi.text().strip()
+    ctx.has_fund_values = bool(ctx.adv_fund_id or ctx.adv_fund_lo or ctx.adv_fund_hi)
+    ctx.adv_cirf_match = ctx.at.cbo_cirf_match.currentText().strip()
+    ctx.adv_cirf_val = ctx.at.txt_cirf.text().strip()
+    ctx.has_accum_val = bool(ctx.at.rng_accum_val[0].text().strip() or ctx.at.rng_accum_val[1].text().strip())
+    ctx.has_shadow_av = bool(ctx.at.rng_shadow_acct[0].text().strip() or ctx.at.rng_shadow_acct[1].text().strip())
+    ctx.has_curr_spec_amt = bool(ctx.at.rng_curr_spec_amt[0].text().strip() or ctx.at.rng_curr_spec_amt[1].text().strip())
+    ctx.has_accum_mtp = bool(ctx.at.rng_accum_mtp[0].text().strip() or ctx.at.rng_accum_mtp[1].text().strip())
+    ctx.has_accum_glp_range = bool(ctx.at.rng_accum_glp[0].text().strip() or ctx.at.rng_accum_glp[1].text().strip())
+    ctx.has_glp_range = bool(ctx.at.rng_glp[0].text().strip() or ctx.at.rng_glp[1].text().strip())
+    ctx.has_gsp_range = bool(ctx.at.rng_gsp[0].text().strip() or ctx.at.rng_gsp[1].text().strip())
+    ctx.has_type_p = bool(ctx.at.rng_type_p[0].text().strip() or ctx.at.rng_type_p[1].text().strip())
+    ctx.has_type_v = bool(ctx.at.rng_type_v[0].text().strip() or ctx.at.rng_type_v[1].text().strip())
+    ctx.multi_base_covs = ctx.pt.chk_multiple_base_covs.isChecked()
+    ctx.is_mdo = ctx.pt.chk_is_mdo.isChecked()
+    ctx.in_conversion = ctx.pt.chk_in_conversion.isChecked()
+    ctx.cov_val_classes = ctx.covt.val_class.selected_values() if hasattr(ctx.covt.val_class, 'selected_values') else []
+    ctx.cov_val_class = ctx.covt.val_class.text().strip()
+    ctx.cov_val_base = ctx.covt.val_base.text().strip()
+    ctx.cov_val_sub = ctx.covt.val_sub.text().strip()
+    ctx.cov_val_mort = ctx.covt.val_mort_table.text().strip()
+    ctx.cov_rpu_mort = ctx.covt.rpu_mort_table.text().strip()
+    ctx.cov_eti_mort = ctx.covt.eti_mort_table.text().strip()
+    ctx.cov_nfo_rate = ctx.covt.nfo_int_rate.text().strip()
+    ctx.cov_val_class_ne = ctx.covt.chk_val_class_ne_plan.isChecked()
+    ctx.cov_multi_base = ctx.covt.chk_multiple_base.isChecked()
+    ctx.cov_gio = ctx.covt.chk_cov_gio.isChecked()
+    ctx.cov_cola = ctx.covt.chk_cov_cola.isChecked()
+    ctx.cov_skipped_rein = ctx.covt.chk_skipped_cov_rein.isChecked()
+    ctx.cov_cv_rate = ctx.covt.chk_cv_rate_gt_zero.isChecked() or (ctx.wl_tab is not None and ctx.wl_tab.chk_cv_rate.isChecked())
+    ctx.cov_gcv_gt_cv = ctx.covt.chk_gcv_gt_cv.isChecked()
+    ctx.cov_gcv_lt_cv = ctx.covt.chk_gcv_lt_cv.isChecked()
+    ctx.cov_non_trad = bool(ctx.covt.chk_non_trad.isChecked() and ctx.covt.list_non_trad.selectedItems())
+    ctx.cov_spec_amt_lo = ctx.covt.txt_spec_amt_lo.text().strip()
+    ctx.cov_spec_amt_hi = ctx.covt.txt_spec_amt_hi.text().strip()
+    ctx.cov_has_spec_amt = bool(ctx.cov_spec_amt_lo or ctx.cov_spec_amt_hi)
+    ctx.cov_init_term = bool(ctx.covt.chk_init_term.isChecked() and ctx.covt.list_init_term.selectedItems())
+    ctx._bw = ctx.covt.base_cov_widgets
+    ctx.cov_base_plancode = ctx._bw['plancode'].text().strip()
+    ctx.cov_base_prod_line = ctx._bw['prod_line'].currentText().strip()
+    ctx.cov_base_prod_ind = ctx._bw['prod_ind'].currentText().strip()
+    ctx.cov_base_form_number = ctx._bw['form_number'].text().strip()
+    ctx.cov_base_rateclass = ctx._bw['rateclass'].currentText().strip()
+    ctx.cov_base_sex67 = ctx._bw['sex_code_67'].currentText().strip()
+    ctx.cov_base_sex02 = ctx._bw['sex_code_02'].currentText().strip()
+    ctx.cov_base_person = ctx._bw['person'].currentText().strip()
+    ctx.cov_base_lives_cov = ctx._bw['lives_cov'].currentText().strip()
+    ctx.cov_base_change_type = ctx._bw['change_type'].currentText().strip()
+    ctx.cov_base_cease_code = ctx._bw['cease_code'].selected_values()
+    ctx.cov_base_cola_ind = ctx._bw['cola_ind'].currentText().strip()
+    ctx.cov_base_gio_fio = ctx._bw['gio_fio'].currentText().strip()
+    ctx.cov_base_table03 = ctx._bw['table_03'].isChecked()
+    ctx.cov_base_flat03 = ctx._bw['flat_03'].isChecked()
+    ctx.cov_base_active_flat03 = ctx._bw['active_flat_03'].isChecked()
+    ctx.cov_base_issue_lo = normalize_date(ctx._bw['issue_date_lo'].text()) or ''
+    ctx.cov_base_issue_hi = normalize_date(ctx._bw['issue_date_hi'].text()) or ''
+    ctx.cov_base_change_lo = normalize_date(ctx._bw['change_date_lo'].text()) or ''
+    ctx.cov_base_change_hi = normalize_date(ctx._bw['change_date_hi'].text()) or ''
+    ctx.cov_needs_modcov1 = bool(ctx.cov_base_prod_ind or ctx.cov_base_cola_ind or ctx.cov_base_gio_fio)
+    ctx.cov_needs_renewals = bool(ctx.cov_base_rateclass or ctx.cov_base_sex67)
 
 
-def build_step_004(state: BuildState) -> None:
+def collect_coverage_context(ctx: QueryContext, parts: SqlParts) -> None:
 
     def _rider_info(widgets: dict) -> dict:
         info = {}
@@ -116,139 +144,140 @@ def build_step_004(state: BuildState) -> None:
         info['needs_covmod'] = bool(info['prod_ind'] or info['cola_ind'] or info['gio_fio'])
         info['needs_renewals'] = bool(info['rateclass'] or info['sex_code_67'])
         return info
-    state._rider_info = _rider_info
-    state.rider1_info = state._rider_info(state.covt.rider1_widgets)
-    state.rider2_info = state._rider_info(state.covt.rider2_widgets)
-    state.cov_needs_modcovsall = bool(state.cov_gio or state.cov_cola)
-    state.has_modcovsall = state.has_modcovsall or state.cov_needs_modcovsall
-    state.has_skipped_rein = state.has_skipped_rein or state.cov_skipped_rein
-    state.multi_base_covs = state.multi_base_covs or state.cov_multi_base
-    state.cov_needs_covsummary = bool(state.cov_has_spec_amt or state.cov_multi_base)
-    state.cov_needs_iswl_gcv = bool(state.cov_gcv_gt_cv or state.cov_gcv_lt_cv)
-    state.cov_needs_mvval = bool(state.cov_gcv_gt_cv or state.cov_gcv_lt_cv)
-    state.needs_mvval = state.adv_cv_corr or state.adv_accum_gt_prem or state.has_accum_val or state.adv_gcv_gt_cv or state.adv_gcv_lt_cv or state.cov_needs_mvval or state.disp_accum_value or state.disp_prem_ptd or state.disp_account_value or state.adv_prem_wd_gt_face
-    state.needs_iswl_gcv = state.adv_gcv_gt_cv or state.adv_gcv_lt_cv or state.cov_needs_iswl_gcv
-    state.needs_interpolation = state.needs_iswl_gcv or state.disp_trad_cv_cov1 or state.disp_account_value
-    state.needs_covsummary = state.disp_spec_amt or state.multi_base_covs or state.adv_cv_corr or state.adv_sa_lt_orig or state.adv_sa_gt_orig or state.has_curr_spec_amt or state.needs_iswl_gcv or state.cov_needs_covsummary
-    state.needs_premwd_face = state.adv_prem_wd_gt_face
-    if state.needs_pol_yr_tot:
-        state.sql_parts.append(f', LH_POL_YR_TOT_withMaxDuration AS')
-        state.sql_parts.append(f'  (SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, MAX(POL_YR_DUR) MAX_DURATION')
-        state.sql_parts.append(f'   FROM {state.schema}.LH_POL_YR_TOT')
-        state.sql_parts.append(f'   GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)')
-        state.sql_parts.append(f', LH_POL_YR_TOT_at_MaxDuration AS')
-        state.sql_parts.append(f'  (SELECT YEARTOTS.*')
-        state.sql_parts.append(f'   FROM {state.schema}.LH_POL_YR_TOT YEARTOTS')
-        state.sql_parts.append(f'   INNER JOIN LH_POL_YR_TOT_withMaxDuration')
-        state.sql_parts.append(f'     ON YEARTOTS.CK_SYS_CD = LH_POL_YR_TOT_withMaxDuration.CK_SYS_CD')
-        state.sql_parts.append(f'    AND YEARTOTS.CK_CMP_CD = LH_POL_YR_TOT_withMaxDuration.CK_CMP_CD')
-        state.sql_parts.append(f'    AND YEARTOTS.TCH_POL_ID = LH_POL_YR_TOT_withMaxDuration.TCH_POL_ID')
-        state.sql_parts.append(f'    AND YEARTOTS.POL_YR_DUR = LH_POL_YR_TOT_withMaxDuration.MAX_DURATION)')
-    if state.needs_grace_table:
-        state.sql_parts.append(f', GRACE_TABLE AS')
-        state.sql_parts.append(f'  (SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, GRA_PER_EXP_DT, IN_GRA_PER_IND')
-        state.sql_parts.append(f'   FROM {state.schema}.LH_NON_TRD_POL')
-        state.sql_parts.append(f'   UNION')
-        state.sql_parts.append(f'   SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, GRA_PER_EXP_DT, IN_GRA_PER_IND')
-        state.sql_parts.append(f'   FROM {state.schema}.LH_TRD_POL)')
-    if state.disp_conversion_dates:
-        state.sql_parts.append(', ' + _conversion_sc_cte(state.schema))
-    if state.disp_post_conversion:
-        state.sql_parts.append(', ' + _post_conversion_cte(state.schema))
+    ctx._rider_info = _rider_info
+    ctx.rider1_info = ctx._rider_info(ctx.covt.rider1_widgets)
+    ctx.rider2_info = ctx._rider_info(ctx.covt.rider2_widgets)
+    ctx.cov_needs_modcovsall = bool(ctx.cov_gio or ctx.cov_cola)
+    ctx.has_modcovsall = ctx.has_modcovsall or ctx.cov_needs_modcovsall
+    ctx.has_skipped_rein = ctx.has_skipped_rein or ctx.cov_skipped_rein
+    ctx.multi_base_covs = ctx.multi_base_covs or ctx.cov_multi_base
+    ctx.cov_needs_covsummary = bool(ctx.cov_has_spec_amt or ctx.cov_multi_base)
+    ctx.cov_needs_iswl_gcv = bool(ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv)
+    ctx.cov_needs_mvval = bool(ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv)
+    ctx.needs_mvval = ctx.adv_cv_corr or ctx.adv_accum_gt_prem or ctx.has_accum_val or ctx.adv_gcv_gt_cv or ctx.adv_gcv_lt_cv or ctx.cov_needs_mvval or ctx.disp_accum_value or ctx.disp_prem_ptd or ctx.disp_account_value or ctx.adv_prem_wd_gt_face
+    ctx.needs_iswl_gcv = ctx.adv_gcv_gt_cv or ctx.adv_gcv_lt_cv or ctx.cov_needs_iswl_gcv
+    ctx.needs_interpolation = ctx.needs_iswl_gcv or ctx.disp_trad_cv_cov1 or ctx.disp_account_value
+    ctx.needs_covsummary = ctx.disp_spec_amt or ctx.multi_base_covs or ctx.adv_cv_corr or ctx.adv_sa_lt_orig or ctx.adv_sa_gt_orig or ctx.has_curr_spec_amt or ctx.needs_iswl_gcv or ctx.cov_needs_covsummary
+    ctx.needs_premwd_face = ctx.adv_prem_wd_gt_face
+    if ctx.needs_pol_yr_tot:
+        parts.sql_parts.append(f', LH_POL_YR_TOT_withMaxDuration AS')
+        parts.sql_parts.append(f'  (SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, MAX(POL_YR_DUR) MAX_DURATION')
+        parts.sql_parts.append(f'   FROM {ctx.schema}.LH_POL_YR_TOT')
+        parts.sql_parts.append(f'   GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)')
+        parts.sql_parts.append(f', LH_POL_YR_TOT_at_MaxDuration AS')
+        parts.sql_parts.append(f'  (SELECT YEARTOTS.*')
+        parts.sql_parts.append(f'   FROM {ctx.schema}.LH_POL_YR_TOT YEARTOTS')
+        parts.sql_parts.append(f'   INNER JOIN LH_POL_YR_TOT_withMaxDuration')
+        parts.sql_parts.append(f'     ON YEARTOTS.CK_SYS_CD = LH_POL_YR_TOT_withMaxDuration.CK_SYS_CD')
+        parts.sql_parts.append(f'    AND YEARTOTS.CK_CMP_CD = LH_POL_YR_TOT_withMaxDuration.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND YEARTOTS.TCH_POL_ID = LH_POL_YR_TOT_withMaxDuration.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND YEARTOTS.POL_YR_DUR = LH_POL_YR_TOT_withMaxDuration.MAX_DURATION)')
+    if ctx.needs_grace_table:
+        parts.sql_parts.append(f', GRACE_TABLE AS')
+        parts.sql_parts.append(f'  (SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, GRA_PER_EXP_DT, IN_GRA_PER_IND')
+        parts.sql_parts.append(f'   FROM {ctx.schema}.LH_NON_TRD_POL')
+        parts.sql_parts.append(f'   UNION')
+        parts.sql_parts.append(f'   SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, GRA_PER_EXP_DT, IN_GRA_PER_IND')
+        parts.sql_parts.append(f'   FROM {ctx.schema}.LH_TRD_POL)')
+    if ctx.disp_conversion_dates:
+        parts.sql_parts.append(', ' + _conversion_sc_cte(ctx.schema))
+    if ctx.disp_post_conversion:
+        parts.sql_parts.append(', ' + _post_conversion_cte(ctx.schema))
 
 
-def build_step_005(state: BuildState) -> None:
-    if state.has_term_entry or state.disp_term_date or state.has_term_both:
-        state.sql_parts.append(f', TERMINATION_TRANS AS')
-        state.sql_parts.append(f'  (SELECT FH.CK_CMP_CD, FH.TCH_POL_ID,')
-        state.sql_parts.append(f'    FH.ENTRY_DT, FH.ASOF_DT, FH.TRANS')
-        state.sql_parts.append(f'   FROM {state.schema}.FH_FIXED AS FH')
-        state.sql_parts.append(f"   WHERE FH.TRANS IN ('SC', 'SI', 'SF', 'TD', 'TM', 'TN', 'TL', 'TO')")
-        state.sql_parts.append(f"   AND FH.FCB0_REV_IND = '0'")
-        state.sql_parts.append(f"   AND FH.FCB2_REV_APPL_IND = '0')")
-        state.sql_parts.append(f', PRE_TERMINATION_DATES AS')
-        state.sql_parts.append(f'  (SELECT TT.CK_CMP_CD, TT.TCH_POL_ID,')
-        state.sql_parts.append(f'   MAX(TT.ENTRY_DT) AS TERM_ENTRY_DT')
-        state.sql_parts.append(f'   FROM TERMINATION_TRANS AS TT')
-        state.sql_parts.append(f'   GROUP BY TT.CK_CMP_CD, TT.TCH_POL_ID)')
-        state.sql_parts.append(f', TERMINATION_ENTRY_EFFECTIVE_DATES AS')
-        state.sql_parts.append(f'  (SELECT CK_CMP_CD, TCH_POL_ID, ENTRY_DT,')
-        state.sql_parts.append(f'    MAX(ASOF_DT) AS TERM_EFFECTIVE_DT')
-        state.sql_parts.append(f'   FROM TERMINATION_TRANS')
-        state.sql_parts.append(f'   GROUP BY CK_CMP_CD, TCH_POL_ID, ENTRY_DT)')
-        state.sql_parts.append(f', TERMINATION_ENTRY_TRANS_TYPES AS')
-        state.sql_parts.append(f'  (SELECT CK_CMP_CD, TCH_POL_ID, ENTRY_DT,')
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SC' THEN 1 ELSE 0 END) AS HAS_SC,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SI' THEN 1 ELSE 0 END) AS HAS_SI,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SF' THEN 1 ELSE 0 END) AS HAS_SF,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TD' THEN 1 ELSE 0 END) AS HAS_TD,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TM' THEN 1 ELSE 0 END) AS HAS_TM,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TN' THEN 1 ELSE 0 END) AS HAS_TN,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TL' THEN 1 ELSE 0 END) AS HAS_TL,")
-        state.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TO' THEN 1 ELSE 0 END) AS HAS_TO")
-        state.sql_parts.append(f'   FROM TERMINATION_TRANS')
-        state.sql_parts.append(f'   GROUP BY CK_CMP_CD, TCH_POL_ID, ENTRY_DT)')
-        state.sql_parts.append(f', TERMINATION_ENTRY_DETAILS AS')
-        state.sql_parts.append(f'  (SELECT PTD.CK_CMP_CD, PTD.TCH_POL_ID, PTD.TERM_ENTRY_DT,')
-        state.sql_parts.append(f'    TED.TERM_EFFECTIVE_DT,')
-        state.sql_parts.append(f'    SUBSTR(')
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_SC = 1 THEN ', SC' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_SI = 1 THEN ', SI' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_SF = 1 THEN ', SF' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_TD = 1 THEN ', TD' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_TM = 1 THEN ', TM' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_TN = 1 THEN ', TN' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_TL = 1 THEN ', TL' ELSE '' END ||")
-        state.sql_parts.append(f"      CASE WHEN TTT.HAS_TO = 1 THEN ', TO' ELSE '' END,")
-        state.sql_parts.append(f'      3) AS TERM_TRANS_TYPES')
-        state.sql_parts.append(f'   FROM PRE_TERMINATION_DATES AS PTD')
-        state.sql_parts.append(f'   INNER JOIN TERMINATION_ENTRY_EFFECTIVE_DATES AS TED')
-        state.sql_parts.append(f'     ON PTD.CK_CMP_CD = TED.CK_CMP_CD')
-        state.sql_parts.append(f'    AND PTD.TCH_POL_ID = TED.TCH_POL_ID')
-        state.sql_parts.append(f'    AND PTD.TERM_ENTRY_DT = TED.ENTRY_DT')
-        state.sql_parts.append(f'   INNER JOIN TERMINATION_ENTRY_TRANS_TYPES AS TTT')
-        state.sql_parts.append(f'     ON PTD.CK_CMP_CD = TTT.CK_CMP_CD')
-        state.sql_parts.append(f'    AND PTD.TCH_POL_ID = TTT.TCH_POL_ID')
-        state.sql_parts.append(f'    AND PTD.TERM_ENTRY_DT = TTT.ENTRY_DT)')
-        state._term_lo = normalize_date(state.p2t.txt_term_entry_date_lo.text()) or ''
-        state._term_hi = normalize_date(state.p2t.txt_term_entry_date_hi.text()) or ''
-        if state._term_lo or state._term_hi:
-            state._tw = 'WHERE 1=1'
-            if state._term_lo:
-                state._tw += f" AND TERMINATION_ENTRY_DETAILS.TERM_ENTRY_DT >= '{state._term_lo}'"
-            if state._term_hi:
-                state._tw += f" AND TERMINATION_ENTRY_DETAILS.TERM_ENTRY_DT <= '{state._term_hi}'"
-            state.sql_parts.append(f', TERMINATION_DATES AS')
-            state.sql_parts.append(f'  (SELECT * FROM TERMINATION_ENTRY_DETAILS {state._tw})')
+def add_policy_and_coverage_ctes(ctx: QueryContext, parts: SqlParts) -> None:
+    if ctx.has_term_entry or ctx.disp_term_date or ctx.has_term_both:
+        parts.sql_parts.append(f', TERMINATION_TRANS AS')
+        parts.sql_parts.append(f'  (SELECT FH.CK_CMP_CD, FH.TCH_POL_ID,')
+        parts.sql_parts.append(f'    FH.ENTRY_DT, FH.ASOF_DT, FH.TRANS')
+        parts.sql_parts.append(f'   FROM {ctx.schema}.FH_FIXED AS FH')
+        parts.sql_parts.append(f"   WHERE FH.TRANS IN ('SC', 'SI', 'SF', 'TD', 'TM', 'TN', 'TL', 'TO')")
+        parts.sql_parts.append(f"   AND FH.FCB0_REV_IND = '0'")
+        parts.sql_parts.append(f"   AND FH.FCB2_REV_APPL_IND = '0')")
+        parts.sql_parts.append(f', PRE_TERMINATION_DATES AS')
+        parts.sql_parts.append(f'  (SELECT TT.CK_CMP_CD, TT.TCH_POL_ID,')
+        parts.sql_parts.append(f'   MAX(TT.ENTRY_DT) AS TERM_ENTRY_DT')
+        parts.sql_parts.append(f'   FROM TERMINATION_TRANS AS TT')
+        parts.sql_parts.append(f'   GROUP BY TT.CK_CMP_CD, TT.TCH_POL_ID)')
+        parts.sql_parts.append(f', TERMINATION_ENTRY_EFFECTIVE_DATES AS')
+        parts.sql_parts.append(f'  (SELECT CK_CMP_CD, TCH_POL_ID, ENTRY_DT,')
+        parts.sql_parts.append(f'    MAX(ASOF_DT) AS TERM_EFFECTIVE_DT')
+        parts.sql_parts.append(f'   FROM TERMINATION_TRANS')
+        parts.sql_parts.append(f'   GROUP BY CK_CMP_CD, TCH_POL_ID, ENTRY_DT)')
+        parts.sql_parts.append(f', TERMINATION_ENTRY_TRANS_TYPES AS')
+        parts.sql_parts.append(f'  (SELECT CK_CMP_CD, TCH_POL_ID, ENTRY_DT,')
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SC' THEN 1 ELSE 0 END) AS HAS_SC,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SI' THEN 1 ELSE 0 END) AS HAS_SI,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SF' THEN 1 ELSE 0 END) AS HAS_SF,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TD' THEN 1 ELSE 0 END) AS HAS_TD,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TM' THEN 1 ELSE 0 END) AS HAS_TM,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TN' THEN 1 ELSE 0 END) AS HAS_TN,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TL' THEN 1 ELSE 0 END) AS HAS_TL,")
+        parts.sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TO' THEN 1 ELSE 0 END) AS HAS_TO")
+        parts.sql_parts.append(f'   FROM TERMINATION_TRANS')
+        parts.sql_parts.append(f'   GROUP BY CK_CMP_CD, TCH_POL_ID, ENTRY_DT)')
+        parts.sql_parts.append(f', TERMINATION_ENTRY_DETAILS AS')
+        parts.sql_parts.append(f'  (SELECT PTD.CK_CMP_CD, PTD.TCH_POL_ID, PTD.TERM_ENTRY_DT,')
+        parts.sql_parts.append(f'    TED.TERM_EFFECTIVE_DT,')
+        parts.sql_parts.append(f'    SUBSTR(')
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_SC = 1 THEN ', SC' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_SI = 1 THEN ', SI' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_SF = 1 THEN ', SF' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_TD = 1 THEN ', TD' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_TM = 1 THEN ', TM' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_TN = 1 THEN ', TN' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_TL = 1 THEN ', TL' ELSE '' END ||")
+        parts.sql_parts.append(f"      CASE WHEN TTT.HAS_TO = 1 THEN ', TO' ELSE '' END,")
+        parts.sql_parts.append(f'      3) AS TERM_TRANS_TYPES')
+        parts.sql_parts.append(f'   FROM PRE_TERMINATION_DATES AS PTD')
+        parts.sql_parts.append(f'   INNER JOIN TERMINATION_ENTRY_EFFECTIVE_DATES AS TED')
+        parts.sql_parts.append(f'     ON PTD.CK_CMP_CD = TED.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND PTD.TCH_POL_ID = TED.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND PTD.TERM_ENTRY_DT = TED.ENTRY_DT')
+        parts.sql_parts.append(f'   INNER JOIN TERMINATION_ENTRY_TRANS_TYPES AS TTT')
+        parts.sql_parts.append(f'     ON PTD.CK_CMP_CD = TTT.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND PTD.TCH_POL_ID = TTT.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND PTD.TERM_ENTRY_DT = TTT.ENTRY_DT)')
+        ctx._term_lo = normalize_date(ctx.p2t.txt_term_entry_date_lo.text()) or ''
+        ctx._term_hi = normalize_date(ctx.p2t.txt_term_entry_date_hi.text()) or ''
+        if ctx._term_lo or ctx._term_hi:
+            ctx._tw = 'WHERE 1=1'
+            if ctx._term_lo:
+                ctx._tw += f" AND TERMINATION_ENTRY_DETAILS.TERM_ENTRY_DT >= '{ctx._term_lo}'"
+            if ctx._term_hi:
+                ctx._tw += f" AND TERMINATION_ENTRY_DETAILS.TERM_ENTRY_DT <= '{ctx._term_hi}'"
+            parts.sql_parts.append(f', TERMINATION_DATES AS')
+            parts.sql_parts.append(f'  (SELECT * FROM TERMINATION_ENTRY_DETAILS {ctx._tw})')
         else:
-            state.sql_parts.append(f', TERMINATION_DATES AS')
-            state.sql_parts.append(f'  (SELECT * FROM TERMINATION_ENTRY_DETAILS)')
-        if state.has_term_both:
-            state.sql_parts.append(', TERMINATION_BOTH_DATES AS')
-            state.sql_parts.append('  (SELECT CK_CMP_CD, TCH_POL_ID, MAX(ENTRY_DT) AS TERM_ENTRY_DT')
-            state.sql_parts.append('   FROM TERMINATION_TRANS')
-            state.sql_parts.append("   WHERE ENTRY_DT < DATE('9999-12-31')")
-            state.sql_parts.append('   GROUP BY CK_CMP_CD, TCH_POL_ID)')
-    if state.has_77_segment or state.disp_policy_debt:
-        state.sql_parts.append(f', ALL_LOANS AS (')
-        state.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, PRF_LN_IND, LN_PRI_AMT,')
-        state.sql_parts.append(f"    (CASE LN_ITS_AMT_TYP_CD WHEN '2' THEN POL_LN_ITS_AMT ELSE 0 END) LN_INT")
-        state.sql_parts.append(f"  FROM {state.schema}.LH_FND_VAL_LOAN WHERE MVRY_DT = '9999-12-31'")
-        state.sql_parts.append(f'  UNION')
-        state.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, PRF_LN_IND, LN_PRI_AMT,')
-        state.sql_parts.append(f"    (CASE LN_ITS_AMT_TYP_CD WHEN '2' THEN POL_LN_ITS_AMT ELSE 0 END) LN_INT")
-        state.sql_parts.append(f"  FROM {state.schema}.LH_CSH_VAL_LOAN WHERE MVRY_DT = '9999-12-31')")
-        state.sql_parts.append(f', POLICYDEBT AS (')
-        state.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,')
-        state.sql_parts.append(f'    SUM(ALL_LOANS.LN_PRI_AMT) LOAN_PRINCIPLE,')
-        state.sql_parts.append(f'    SUM(ALL_LOANS.LN_INT) LOAN_ACCRUED,')
-        state.sql_parts.append(f"    SUM(CASE WHEN COALESCE(ALL_LOANS.PRF_LN_IND, '0') <> '1'")
-        state.sql_parts.append(f'      THEN ALL_LOANS.LN_PRI_AMT ELSE 0 END) REG_LOAN_PRINCIPLE,')
-        state.sql_parts.append(f"    SUM(CASE WHEN COALESCE(ALL_LOANS.PRF_LN_IND, '0') <> '1'")
-        state.sql_parts.append(f'      THEN ALL_LOANS.LN_INT ELSE 0 END) REG_LOAN_ACCRUED,')
-        state.sql_parts.append(f"    SUM(CASE WHEN ALL_LOANS.PRF_LN_IND = '1'")
-        state.sql_parts.append(f'      THEN ALL_LOANS.LN_PRI_AMT ELSE 0 END) PREF_LOAN_PRINCIPLE,')
-        state.sql_parts.append(f"    SUM(CASE WHEN ALL_LOANS.PRF_LN_IND = '1'")
-        state.sql_parts.append(f'      THEN ALL_LOANS.LN_INT ELSE 0 END) PREF_LOAN_ACCRUED')
-        state.sql_parts.append(f'  FROM ALL_LOANS')
-        state.sql_parts.append(f'  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)')
+            parts.sql_parts.append(f', TERMINATION_DATES AS')
+            parts.sql_parts.append(f'  (SELECT * FROM TERMINATION_ENTRY_DETAILS)')
+        if ctx.has_term_both:
+            parts.sql_parts.append(', TERMINATION_BOTH_DATES AS')
+            parts.sql_parts.append('  (SELECT CK_CMP_CD, TCH_POL_ID, MAX(ENTRY_DT) AS TERM_ENTRY_DT')
+            parts.sql_parts.append('   FROM TERMINATION_TRANS')
+            parts.sql_parts.append("   WHERE ENTRY_DT < DATE('9999-12-31')")
+            parts.sql_parts.append('   GROUP BY CK_CMP_CD, TCH_POL_ID)')
+    if ctx.has_77_segment or ctx.disp_policy_debt:
+        parts.sql_parts.append(f', ALL_LOANS AS (')
+        parts.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, PRF_LN_IND, LN_PRI_AMT,')
+        parts.sql_parts.append(f"    (CASE LN_ITS_AMT_TYP_CD WHEN '2' THEN POL_LN_ITS_AMT ELSE 0 END) LN_INT")
+        parts.sql_parts.append(f"  FROM {ctx.schema}.LH_FND_VAL_LOAN WHERE MVRY_DT = '9999-12-31'")
+        parts.sql_parts.append(f'  UNION')
+        parts.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, PRF_LN_IND, LN_PRI_AMT,')
+        parts.sql_parts.append(f"    (CASE LN_ITS_AMT_TYP_CD WHEN '2' THEN POL_LN_ITS_AMT ELSE 0 END) LN_INT")
+        parts.sql_parts.append(f"  FROM {ctx.schema}.LH_CSH_VAL_LOAN WHERE MVRY_DT = '9999-12-31')")
+        parts.sql_parts.append(f', POLICYDEBT AS (')
+        parts.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,')
+        parts.sql_parts.append(f'    SUM(ALL_LOANS.LN_PRI_AMT) LOAN_PRINCIPLE,')
+        parts.sql_parts.append(f'    SUM(ALL_LOANS.LN_INT) LOAN_ACCRUED,')
+        parts.sql_parts.append(f"    SUM(CASE WHEN COALESCE(ALL_LOANS.PRF_LN_IND, '0') <> '1'")
+        parts.sql_parts.append(f'      THEN ALL_LOANS.LN_PRI_AMT ELSE 0 END) REG_LOAN_PRINCIPLE,')
+        parts.sql_parts.append(f"    SUM(CASE WHEN COALESCE(ALL_LOANS.PRF_LN_IND, '0') <> '1'")
+        parts.sql_parts.append(f'      THEN ALL_LOANS.LN_INT ELSE 0 END) REG_LOAN_ACCRUED,')
+        parts.sql_parts.append(f"    SUM(CASE WHEN ALL_LOANS.PRF_LN_IND = '1'")
+        parts.sql_parts.append(f'      THEN ALL_LOANS.LN_PRI_AMT ELSE 0 END) PREF_LOAN_PRINCIPLE,')
+        parts.sql_parts.append(f"    SUM(CASE WHEN ALL_LOANS.PRF_LN_IND = '1'")
+        parts.sql_parts.append(f'      THEN ALL_LOANS.LN_INT ELSE 0 END) PREF_LOAN_ACCRUED')
+        parts.sql_parts.append(f'  FROM ALL_LOANS')
+        parts.sql_parts.append(f'  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)')
+
