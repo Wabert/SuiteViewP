@@ -155,7 +155,10 @@ including helper-local instances created by the illustration calculation.
 Account value uses the verified `LH_POL_MVRY_VAL.CSV_AMT` mapping, including
 the generic `accumulation_value` accessor. No monthliversary rows or a NULL
 value means unavailable, not an invented `TH_POL_MVRY_VAL.ACC_VAL_AMT`
-fallback; numeric zero remains zero. U0482811 / 01 (Not Issued, option B)
+fallback; numeric zero remains zero. `cash_surrender_value` and
+`net_amount_at_risk` likewise read only `LH_POL_MVRY_VAL` (`CSV_AMT`/`NAR_AMT`);
+`TH_POL_MVRY_VAL` is undefined in DB2 (SQLCODE -204) and is never queried.
+U0482811 / 01 (Not Issued, option B)
 reproduced the invalid-table failure during initial Coverages preparation.
 The requested identity now replaces the previous policy's heading immediately
 and remains explicit if loading fails or needs company selection. Query uses

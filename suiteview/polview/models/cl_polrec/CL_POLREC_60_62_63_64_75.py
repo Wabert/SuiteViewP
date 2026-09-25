@@ -8,11 +8,9 @@ Record 60 — Policy Totals
     LH_POL_TOTALS        Lifetime totals (premiums, withdrawals, cost basis)
     LH_POL_YR_TOT        Year-to-date totals
 
-Record 62 — Monthliversary Values (Traditional)
-    LH_POL_MVRY_VAL      Traditional MV values (CSV, DB, NAR)
-
-Record 63 — Monthliversary Values (Advanced)
-    TH_POL_MVRY_VAL      Advanced (UL/VUL) MV values (AV, CSV, DB)
+Record 62 — Monthliversary Values
+    LH_POL_MVRY_VAL      MV values (CSV_AMT is the recorded AV/CSV, NAR)
+    TH_POL_MVRY_VAL is not a DB2 table (SQLCODE -204); never query it.
 
 Record 64 — TAMRA/MEC
     LH_TAMRA_MEC_PRM     MEC indicator
@@ -39,7 +37,6 @@ class TotalRecords:
         "LH_POL_TOTALS",
         "LH_POL_YR_TOT",
         "LH_POL_MVRY_VAL",
-        "TH_POL_MVRY_VAL",
         "LH_TAMRA_MEC_PRM",
         "LH_TAMRA_7_PY_PER",
         "LH_TAMRA_7_PY_YR",
@@ -110,10 +107,8 @@ class TotalRecords:
 
     @property
     def CSH_SUR_VAL_AMT(self) -> Optional[Decimal]:
-        """Current CSV — try advanced first, then traditional."""
-        val = self._policy.data_item("TH_POL_MVRY_VAL", "CSV_AMT")
-        if val is None:
-            val = self._policy.data_item("LH_POL_MVRY_VAL", "CSV_AMT")
+        """Recorded monthliversary CSV; missing rows/NULL remain unavailable."""
+        val = self._policy.data_item("LH_POL_MVRY_VAL", "CSV_AMT")
         return Decimal(str(val)) if val is not None else None
 
     @property
@@ -129,7 +124,8 @@ class TotalRecords:
 
     @property
     def NET_AMT_RSK(self) -> Optional[Decimal]:
-        val = self._policy.data_item("TH_POL_MVRY_VAL", "NET_AMT_RSK")
+        """Recorded monthliversary NAR; missing rows/NULL remain unavailable."""
+        val = self._policy.data_item("LH_POL_MVRY_VAL", "NAR_AMT")
         return Decimal(str(val)) if val is not None else None
 
     # =====================================================================

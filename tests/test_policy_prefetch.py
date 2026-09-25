@@ -269,8 +269,25 @@ def test_missing_monthliversary_value_never_probes_an_invented_table(source, qtb
         with policy.cached_reads_only():
             assert policy.accumulation_value == expected
             assert policy.current_account_value == expected
+            assert policy.cash_surrender_value == expected
+            assert policy.net_amount_at_risk is None
             widget.load_data_from_policy(policy)
         assert not policy._data._table_errors
+        assert all("TH_POL_MVRY_VAL" not in sql
+                   for sql, _, _ in source.connections[0].calls)
+    finally:
+        session.close()
+
+
+def test_net_amount_at_risk_reads_recorded_monthliversary_nar(source):
+    source.tables["LH_POL_MVRY_VAL"] = [{"CSV_AMT": 125, "NAR_AMT": 99875}]
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        session.load_initial()
+        policy = session.prepare("advprod").policy
+        with policy.cached_reads_only():
+            assert policy.net_amount_at_risk == 99875
+            assert policy.cash_surrender_value == 125
         assert all("TH_POL_MVRY_VAL" not in sql
                    for sql, _, _ in source.connections[0].calls)
     finally:
