@@ -1437,7 +1437,8 @@ PolView's permanent **Other Data** tab now owns SAP, CLAIMSFILE, TAICyberTAIFd,
 orion_pcr3_r and CYBERLIFE_PDF, formerly on Policy Support. Left-panel buttons
 select embedded viewers. Claims/PDF load on first selection; the others retain
 date inputs and explicit queries. Per-policy inputs/results/selection are
-restored without querying; new policies start empty. See
+restored without querying; new policies start empty. CLAIMSFILE's editable File
+Location persists in the profile's `settings/polview_other_data.json`. See
 `docs/POLVIEW_CLAUDE.md` and `tests/test_polview_other_data.py`.
 
 ## PolView Single/Joint insured display

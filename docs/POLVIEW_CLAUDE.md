@@ -300,6 +300,12 @@ CLAIMSFILE and CYBERLIFE_PDF query immediately on first selection for a loaded
 policy, with a **Refresh** button for another read. SAP, TAICyberTAIFd and
 orion_pcr3_r retain their date inputs and explicit query actions. Merely loading
 a policy or opening Other Data does not query any of these sources.
+
+CLAIMSFILE's **File Location** box at the top of its page is editable (type or
+paste, then Enter; or **Browse…**). The location persists across sessions in the
+local profile's `settings/polview_other_data.json`; **Default** (or clearing the
+box) restores the standard TAI share path. Changing it re-reads for the loaded
+policy.
 Switching sources retains inputs/results. Switching back to a cached policy
 restores its selected source, inputs, results and access notices without querying.
 A new policy clears the panel and starts with no source selected.

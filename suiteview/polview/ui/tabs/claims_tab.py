@@ -8,14 +8,20 @@ every claim record whose ``Policy_Number`` matches the loaded policy.
 If the user cannot read the file, the canvas states access is not available.  If
 the file is readable but holds no matching records, a single placeholder row is
 shown instead.
+
+The file location is editable at the top of the page and persists across sessions
+in the local profile (``settings/polview_other_data.json``).  Clearing it or
+pressing Default restores the standard TAI share path.
 """
 
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import pandas as pd
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QApplication, QFrame,
+    QLineEdit, QFileDialog, QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor
@@ -30,6 +36,40 @@ if TYPE_CHECKING:
 
 
 CLAIMS_FILE_PATH = r"\\Svpw-ds1fs\LAB_ACT_SUPPORT\TAI\PRDOUT\TAJR001P\CLAIMSDATA.TXT"
+
+_SETTINGS_KEY = "claims_file_path"
+
+
+def _settings_store():
+    from suiteview.core.json_store import JsonStore
+    from suiteview.core.profile_paths import profile_path
+    return JsonStore(profile_path("polview_other_data.json"), default={})
+
+
+def _normalize_path(text: str) -> str:
+    """Trim whitespace and the quotes Explorer's "Copy as path" adds."""
+    return (text or "").strip().strip('"').strip()
+
+
+def load_claims_file_path() -> str:
+    """The user's saved claim-file location, else the standard share path."""
+    saved = _settings_store().load()
+    value = saved.get(_SETTINGS_KEY) if isinstance(saved, dict) else None
+    return _normalize_path(value) if isinstance(value, str) and value.strip() else CLAIMS_FILE_PATH
+
+
+def save_claims_file_path(path: str) -> None:
+    """Persist *path*; the standard path (or blank) removes the override."""
+    store = _settings_store()
+    data = store.load()
+    if not isinstance(data, dict):
+        data = {}
+    path = _normalize_path(path)
+    if path and path != CLAIMS_FILE_PATH:
+        data[_SETTINGS_KEY] = path
+    else:
+        data.pop(_SETTINGS_KEY, None)
+    store.save(data)
 
 # Field names in positional order, as defined by the flat-file layout.
 FIELD_NAMES = [
@@ -72,9 +112,17 @@ _LBL_STYLE = (
     f"background: transparent; border: none;"
 )
 
-_PATH_STYLE = (
-    f"font-size: 11px; color: {GRAY_DARK}; background: transparent; border: none;"
-)
+_PATH_STYLE = f"""
+    QLineEdit {{
+        background: {WHITE};
+        color: {GREEN_DARK};
+        border: 1px solid {GREEN_PRIMARY};
+        border-radius: 3px;
+        padding: 1px 6px;
+        font-size: 11px;
+        min-height: 18px;
+    }}
+"""
 
 
 class ClaimsTab(QWidget):
@@ -83,7 +131,12 @@ class ClaimsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy: Optional['PolicyInformation'] = None
+        self._file_path = load_claims_file_path()
         self._setup_ui()
+
+    @property
+    def file_path(self) -> str:
+        return self._file_path
 
     # -- UI ----------------------------------------------------------------
 
@@ -101,12 +154,29 @@ class ClaimsTab(QWidget):
         loc_label.setStyleSheet(_LBL_STYLE)
         file_row.addWidget(loc_label)
 
-        path_value = QLabel(CLAIMS_FILE_PATH)
-        path_value.setStyleSheet(_PATH_STYLE)
-        path_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        file_row.addWidget(path_value)
+        self.path_edit = QLineEdit(self._file_path)
+        self.path_edit.setStyleSheet(_PATH_STYLE)
+        self.path_edit.setPlaceholderText(CLAIMS_FILE_PATH)
+        self.path_edit.setToolTip(
+            "Claim file to read. Press Enter to apply; the location is remembered."
+        )
+        self.path_edit.editingFinished.connect(self._on_path_edited)
+        file_row.addWidget(self.path_edit, 1)
 
-        file_row.addStretch(1)
+        self.browse_btn = QPushButton("Browse…")
+        self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.browse_btn.setStyleSheet(_BTN_STYLE)
+        self.browse_btn.clicked.connect(self._on_browse)
+        file_row.addWidget(self.browse_btn)
+
+        self.default_btn = QPushButton("Default")
+        self.default_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.default_btn.setStyleSheet(_BTN_STYLE)
+        self.default_btn.setToolTip(f"Use the standard location:\n{CLAIMS_FILE_PATH}")
+        self.default_btn.clicked.connect(lambda: self.set_file_path(CLAIMS_FILE_PATH))
+        file_row.addWidget(self.default_btn)
+        self._update_default_btn()
+
         layout.addLayout(file_row)
 
         # ── Controls row ──────────────────────────────────────────────────
@@ -150,6 +220,12 @@ class ClaimsTab(QWidget):
             selection_fg=GREEN_DARK,
         )
         layout.addWidget(self.grid, 1)
+
+        # Takes the grid's space while it is hidden so the rows stay at the top.
+        self._filler = QWidget(self)
+        self._filler.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._filler.setVisible(False)
+        layout.addWidget(self._filler, 1)
 
         # ── Status line ───────────────────────────────────────────────────
         self._status_label = QLabel("")
@@ -228,11 +304,42 @@ class ClaimsTab(QWidget):
     def _show_no_access(self):
         self._no_access_label.setVisible(True)
         self.grid.setVisible(False)
+        self._filler.setVisible(True)
         self._set_status("")
 
     def _show_grid(self):
         self._no_access_label.setVisible(False)
+        self._filler.setVisible(False)
         self.grid.setVisible(True)
+
+    def set_file_path(self, path: str):
+        """Apply and remember a claim-file location, re-reading for the loaded policy."""
+        path = _normalize_path(path) or CLAIMS_FILE_PATH
+        self.path_edit.setText(path)
+        if path == self._file_path:
+            return
+        self._file_path = path
+        self._update_default_btn()
+        try:
+            save_claims_file_path(path)
+        except OSError as exc:
+            self._set_status(f"Could not save file location: {exc}", is_error=True)
+        if self._policy is not None and getattr(self._policy, "exists", False):
+            self._on_query()
+
+    def _on_path_edited(self):
+        self.set_file_path(self.path_edit.text())
+
+    def _on_browse(self):
+        start = self._file_path
+        chosen, _ = QFileDialog.getOpenFileName(
+            self, "Select claim file", start, "Text files (*.txt);;All files (*)",
+        )
+        if chosen:
+            self.set_file_path(str(Path(chosen)))
+
+    def _update_default_btn(self):
+        self.default_btn.setEnabled(self._file_path != CLAIMS_FILE_PATH)
 
     def _on_query(self):
         if not self._policy or not getattr(self._policy, "exists", False):
@@ -275,11 +382,11 @@ class ClaimsTab(QWidget):
     def _read_claims_file(self) -> pd.DataFrame:
         """Read the semicolon-delimited claim file into a string DataFrame."""
         # Probe readability first so a missing/locked file surfaces as no-access.
-        with open(CLAIMS_FILE_PATH, "r", encoding="latin-1"):
+        with open(self._file_path, "r", encoding="latin-1"):
             pass
 
         df = pd.read_csv(
-            CLAIMS_FILE_PATH,
+            self._file_path,
             sep=";",
             header=None,
             names=FIELD_NAMES,

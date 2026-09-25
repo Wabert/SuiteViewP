@@ -1,6 +1,7 @@
 """Other Data navigation, lazy queries and per-policy restoration without live data."""
 
 from datetime import date
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -15,7 +16,8 @@ from suiteview.polview.ui.tabs.other_data_tab import OtherDataTab
 
 
 @pytest.fixture
-def sources(monkeypatch):
+def sources(monkeypatch, tmp_path):
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
     for module in (cyberlife_pdf_tab, orion_pcr_tab, tai_fd_tab):
         monkeypatch.setattr(module, "_ul_rates_available", lambda: True)
     monkeypatch.setattr(sap_tab, "_vrd_prod_available", lambda: True)
@@ -143,6 +145,62 @@ def test_no_policy_does_not_query_and_new_policy_clears_selection(tab, sources, 
     tab.reset(policy)
     tab.buttons["CYBERLIFE_PDF"].click()
     sources["CYBERLIFE_PDF"].assert_called_once_with(["DEMO"])
+
+
+def test_claims_file_location_is_editable_and_persists(tab, sources, tmp_path):
+    page = tab.pages["CLAIMSFILE"]
+    tab.buttons["CLAIMSFILE"].click()
+    assert page.path_edit.text() == claims_tab.CLAIMS_FILE_PATH
+    assert not page.default_btn.isEnabled()
+    assert page.path_edit.geometry().top() < page.query_btn.mapTo(page, page.query_btn.rect().topLeft()).y()
+    sources["CLAIMSFILE"].assert_called_once()
+
+    custom = str(tmp_path / "claims" / "MY CLAIMS.TXT")
+    page.path_edit.setText(f'  "{custom}"  ')
+    page.path_edit.editingFinished.emit()
+    assert page.file_path == custom
+    assert page.path_edit.text() == custom
+    assert page.default_btn.isEnabled()
+    assert sources["CLAIMSFILE"].call_count == 2
+    page.path_edit.editingFinished.emit()
+    assert sources["CLAIMSFILE"].call_count == 2
+
+    saved = tmp_path / "profile" / "settings" / "polview_other_data.json"
+    assert json.loads(saved.read_text(encoding="utf-8")) == {"claims_file_path": custom}
+    fresh = claims_tab.ClaimsTab()
+    try:
+        assert fresh.file_path == custom
+        assert fresh.path_edit.text() == custom
+    finally:
+        fresh.deleteLater()
+
+    page.default_btn.click()
+    assert page.file_path == claims_tab.CLAIMS_FILE_PATH
+    assert json.loads(saved.read_text(encoding="utf-8")) == {}
+    page.path_edit.setText(custom)
+    page.path_edit.editingFinished.emit()
+    page.path_edit.setText("   ")
+    page.path_edit.editingFinished.emit()
+    assert page.file_path == claims_tab.CLAIMS_FILE_PATH
+    assert page.path_edit.text() == claims_tab.CLAIMS_FILE_PATH
+
+
+def test_claims_reads_the_configured_location(monkeypatch, tmp_path, qtbot):
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
+    data = tmp_path / "claims.txt"
+    data.write_text(
+        "X;C-1;2020-01-01;Cause;2020-01-02;2020-02-01;0000123;01;Name;1950-01-01;P\n"
+        "X;C-2;2021-01-01;Cause;2021-01-02;2021-02-01;999;01;Other;1960-01-01;P\n",
+        encoding="latin-1",
+    )
+    page = claims_tab.ClaimsTab()
+    qtbot.addWidget(page)
+    page.set_file_path(str(data))
+    page.load_policy(SimpleNamespace(exists=True, policy_number="123", company_code="01"))
+    assert page.grid.model.get_original_data()["Claim_number"].tolist() == ["C-1"]
+    page.set_file_path(str(tmp_path / "missing.txt"))
+    assert not page._no_access_label.isHidden()
+    assert page.grid.isHidden()
 
 
 def test_empty_and_failed_immediate_sources_show_explicit_states(tab, sources):

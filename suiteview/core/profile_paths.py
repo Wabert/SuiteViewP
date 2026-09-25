@@ -38,6 +38,7 @@ for _name in (
     "illustration_settings.json", "registry_window_geometry.json",
     "mainframe_nav_columns.json", "mainframe_nav_splitter.json",
     "terminal_settings.json", "polview_recent.json", "polview_table_columns.json",
+    "polview_other_data.json",
 ):
     PROFILE_PATHS[_name] = f"settings/{_name}"
 for _name in (
