@@ -39,10 +39,13 @@ def resolve_file_source(ref: str) -> FileDataSource | None:
 def load_source_tables(
     file_source: FileDataSource,
     table_names: list[str] | None = None,
+    *,
+    dtype=None,
 ) -> dict[str, "pd.DataFrame"]:
     """Load member files into DataFrames keyed by table name.
 
     ``table_names`` limits the load to specific member tables; None loads all.
+    ``dtype`` is passed to the pandas reader (``str`` keeps raw text values).
     """
     wanted = set(table_names) if table_names is not None else None
     tables: dict[str, "pd.DataFrame"] = {}
@@ -51,7 +54,7 @@ def load_source_tables(
         if wanted is not None and name not in wanted:
             continue
         tables[name] = dataframe_from_adhoc_metadata(
-            file_source.source_type, file_source.member_metadata(member))
+            file_source.source_type, file_source.member_metadata(member), dtype=dtype)
     return tables
 
 
@@ -91,13 +94,13 @@ def run_query(
     """
     df = run_sql(file_source, sql, limit=limit, table_names=table_names).dataframe
     columns = [str(c) for c in df.columns]
-    column_types = {str(c): _dtype_label(df[c]) for c in df.columns}
+    column_types = {str(c): dtype_label(df[c]) for c in df.columns}
     safe = df.astype(object).where(df.notnull(), None)
     rows = [tuple(row) for row in safe.to_numpy().tolist()]
     return columns, rows, column_types
 
 
-def _dtype_label(series) -> str:
+def dtype_label(series) -> str:
     """Map a pandas dtype to the TEXT/INTEGER/DECIMAL/DATE vocabulary."""
     import pandas as pd
 

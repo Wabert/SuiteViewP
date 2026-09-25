@@ -224,10 +224,11 @@ class JoinCanvasModel:
             if src is None:
                 if not add_missing:
                     continue
-                # Cascade new boxes so they don't stack exactly.
+                # Lay new boxes out left-to-right in rows so they don't overlap.
+                slot = len(existing)
                 self.sources.append(CanvasSource(
                     alias=name, fields=fields,
-                    x=40 + 60 * len(existing), y=40 + 40 * len(existing)))
+                    x=30 + 250 * (slot % 4), y=30 + 280 * (slot // 4)))
                 existing.add(name)
             else:
                 src.fields = fields

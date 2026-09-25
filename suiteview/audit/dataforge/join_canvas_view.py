@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from PyQt6 import sip
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QPainter, QPainterPath, QPainterPathStroker, QPen,
@@ -30,7 +31,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.audit.query_builder_menu import query_builder_menu
 
-from .forge_canvas_model import JOIN_TYPES, JoinCanvasModel, JoinKey
+from .forge_canvas_model import JoinCanvasModel, JoinKey
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,15 @@ _PAD = 8
 _RESIZE_HANDLE = 12
 _MIN_VISIBLE_ROWS = 3
 _DEFAULT_VISIBLE_ROWS = 12
+_STATUS_H = 16
+
+# Box status strip: kind → (text colour, fill).
+_STATUS_COLORS = {
+    "ok": ("#166534", "#DCFCE7"),
+    "warn": ("#92400E", "#FEF3C7"),
+    "info": ("#1E3A8A", "#E0E7FF"),
+    "muted": ("#64748B", "#F1F5F9"),
+}
 
 # Theme (royal blue/gold, matching the query builders)
 @dataclass(frozen=True)
@@ -105,8 +115,9 @@ _MEMBER_H = 18
 
 _FONT = QFont("Segoe UI", 8)
 _FONT_BOLD = QFont("Segoe UI", 8, QFont.Weight.Bold)
+_FONT_TAG = QFont("Segoe UI", 7, QFont.Weight.Bold)
 
-_HOW_LABEL = {"inner": "=", "left": "⊐=", "right": "=⊏", "outer": "⊐⊏"}
+_HOW_LABEL = {"inner": "INNER", "left": "LEFT", "right": "RIGHT", "outer": "FULL"}
 
 
 # ── Source box ───────────────────────────────────────────────────────────
@@ -131,6 +142,10 @@ class SourceBoxItem(QGraphicsObject):
         self.visible_rows = max(_MIN_VISIBLE_ROWS, int(visible_rows))
         self.scroll_offset = max(0, int(scroll_offset))
         self._hover_field: str | None = None
+        self.tag = ""
+        self.key_fields: set[str] = set()
+        self.status_text = ""
+        self.status_kind = ""
         self._resizing = False
         self._resize_start_pos = QPointF()
         self._resize_start_width = self.width
@@ -155,7 +170,18 @@ class SourceBoxItem(QGraphicsObject):
 
     def boundingRect(self) -> QRectF:
         h = _HEADER_H + self._body_rows() * _ROW_H
+        if self.status_text:
+            h += _STATUS_H
         return QRectF(0, 0, self.width, max(h, _HEADER_H))
+
+    def set_status(self, kind: str, text: str, tooltip: str = ""):
+        """A one-line note under the box (e.g. how a staged table is narrowed)."""
+        if (kind, text) == (self.status_kind, self.status_text):
+            return
+        self.prepareGeometryChange()
+        self.status_kind, self.status_text = kind, text
+        self.setToolTip(tooltip or text)
+        self.update()
 
     def resize_handle_rect(self) -> QRectF:
         rect = self.boundingRect()
@@ -216,24 +242,43 @@ class SourceBoxItem(QGraphicsObject):
         path.addRoundedRect(header, 4, 4)
         painter.drawPath(path)
         painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), self.theme.source_accent)
+        title_rect = header.adjusted(_PAD, 0, -_PAD, 0)
+        if self.tag:
+            painter.setFont(_FONT_TAG)
+            tag_w = painter.fontMetrics().horizontalAdvance(self.tag) + 8
+            tag_rect = QRectF(self.width - _PAD - tag_w, 4, tag_w, _HEADER_H - 8)
+            painter.setBrush(QBrush(self.theme.line_selected))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(tag_rect, 3, 3)
+            painter.setPen(QPen(self.theme.source_accent))
+            painter.drawText(tag_rect, Qt.AlignmentFlag.AlignCenter, self.tag)
+            title_rect.setRight(tag_rect.left() - 4)
         painter.setPen(QPen(self.theme.header_fg))
         painter.setFont(_FONT_BOLD)
-        painter.drawText(header.adjusted(_PAD, 0, -_PAD, 0),
+        title = painter.fontMetrics().elidedText(
+            self.alias, Qt.TextElideMode.ElideMiddle, int(title_rect.width()))
+        painter.drawText(title_rect,
                          Qt.AlignmentFlag.AlignVCenter
-                         | Qt.AlignmentFlag.AlignLeft, self.alias)
+                         | Qt.AlignmentFlag.AlignLeft, title)
         # Fields
         if not self.collapsed:
-            painter.setFont(_FONT)
             self._clamp_scroll()
             visible_fields = self.fields[self.scroll_offset:self.scroll_offset + self._body_rows()]
             for i, name in enumerate(visible_fields):
                 row = QRectF(1, _HEADER_H + i * _ROW_H, self.width - 2, _ROW_H)
                 if name == self._hover_field:
                     painter.fillRect(row, self.theme.source_row_hover)
+                is_key = name in self.key_fields
+                if is_key:
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QBrush(self.theme.line_color))
+                    painter.drawEllipse(QPointF(_PAD - 3, row.center().y()), 2.5, 2.5)
+                painter.setFont(_FONT_BOLD if is_key else _FONT)
                 painter.setPen(QPen(self.theme.row_fg))
                 painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                                  Qt.AlignmentFlag.AlignVCenter
                                  | Qt.AlignmentFlag.AlignLeft, name)
+            painter.setFont(_FONT)
             if len(self.fields) > self.visible_rows:
                 track = QRectF(self.width - 8, _HEADER_H + 2, 4,
                                self._body_rows() * _ROW_H - 4)
@@ -246,6 +291,20 @@ class SourceBoxItem(QGraphicsObject):
                 handle_y = track.y() + travel * (self.scroll_offset / max(1, self._max_scroll_offset()))
                 painter.setBrush(QBrush(self.theme.source_accent))
                 painter.drawRoundedRect(QRectF(track.x(), handle_y, track.width(), handle_h), 2, 2)
+        if self.status_text:
+            fg, bg = _STATUS_COLORS.get(self.status_kind, _STATUS_COLORS["muted"])
+            strip = QRectF(1, rect.bottom() - _STATUS_H, self.width - 2, _STATUS_H - 1)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(bg)))
+            painter.drawRoundedRect(strip, 3, 3)
+            painter.setPen(QPen(QColor(fg)))
+            painter.setFont(_FONT_TAG)
+            text_rect = strip.adjusted(_PAD - 2, 0, -_RESIZE_HANDLE, 0)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             painter.fontMetrics().elidedText(
+                                 self.status_text, Qt.TextElideMode.ElideRight,
+                                 int(text_rect.width())))
+        if not self.collapsed:
             handle = self.resize_handle_rect()
             painter.setPen(QPen(self.theme.source_accent, 1))
             painter.drawLine(handle.bottomLeft() + QPointF(3, -2),
@@ -655,6 +714,72 @@ class AppendBoxItem(QGraphicsObject):
 
 # ── Join line ─────────────────────────────────────────────────────────────
 
+def _curve_between(left_box, left_field: str, right_box, right_field: str) -> QPainterPath:
+    """Bezier from one box's field row to another's, on the facing sides."""
+    left_right = left_box.center_x_scene() <= right_box.center_x_scene()
+    p1 = left_box.anchor_scene_pos(left_field, right_side=left_right)
+    p2 = right_box.anchor_scene_pos(right_field, right_side=not left_right)
+    path = QPainterPath(p1)
+    dx = abs(p2.x() - p1.x()) * 0.5
+    c1 = QPointF(p1.x() + (dx if left_right else -dx), p1.y())
+    c2 = QPointF(p2.x() + (-dx if left_right else dx), p2.y())
+    path.cubicTo(c1, c2, p2)
+    return path
+
+
+class SuggestionLineItem(QGraphicsPathItem):
+    """A dashed, not-yet-accepted join key. Clicking it accepts the join."""
+
+    def __init__(self, left_box, left_field: str, right_box, right_field: str,
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME, *, show_pill: bool = True):
+        super().__init__()
+        self.left_box = left_box
+        self.left_field = left_field
+        self.right_box = right_box
+        self.right_field = right_field
+        self.theme = theme
+        self.show_pill = show_pill
+        self.setZValue(0.5)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(
+            f"Suggested join: {left_box.alias}.{left_field} = "
+            f"{right_box.alias}.{right_field}\nClick to accept.")
+        self.update_path()
+
+    def update_path(self):
+        self.prepareGeometryChange()
+        self.setPath(_curve_between(self.left_box, self.left_field,
+                                    self.right_box, self.right_field))
+
+    def _pill_rect(self) -> QRectF:
+        mid = self.path().pointAtPercent(0.5)
+        return QRectF(mid.x() - 26, mid.y() - 7, 52, 14)
+
+    def boundingRect(self) -> QRectF:
+        return super().boundingRect().united(self._pill_rect().adjusted(-2, -2, 2, 2))
+
+    def paint(self, painter, option, widget=None):
+        gold = QColor("#B8860B")
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(gold, 2, Qt.PenStyle.DashLine))
+        painter.drawPath(self.path())
+        if self.show_pill:
+            pill = self._pill_rect()
+            painter.setPen(QPen(gold, 1))
+            painter.setBrush(QBrush(QColor("#FFF8DC")))
+            painter.drawRoundedRect(pill, 7, 7)
+            painter.setFont(_FONT_TAG)
+            painter.setPen(QPen(QColor("#7A5A00")))
+            painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, "+ JOIN?")
+
+    def shape(self):
+        pen = QPen(Qt.PenStyle.SolidLine)
+        pen.setWidth(10)
+        shape = QPainterPathStroker(pen).createStroke(QPainterPath(self.path()))
+        if self.show_pill:
+            shape.addRoundedRect(self._pill_rect(), 7, 7)
+        return shape
 class JoinLineItem(QGraphicsPathItem):
     """One field-to-field join line (one key) between two Source boxes."""
 
@@ -668,44 +793,62 @@ class JoinLineItem(QGraphicsPathItem):
         self.right_field = right_field
         self.how = how
         self.theme = theme
+        # One join-type pill per relationship; the scene picks which line shows it.
+        self.show_pill = True
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(0)
         self.setPen(QPen(self.theme.line_color, 2))
         self.update_path()
 
+    def set_show_pill(self, show: bool):
+        if show != self.show_pill:
+            self.prepareGeometryChange()
+            self.show_pill = show
+            self.update()
+
     def update_path(self):
-        # Anchor on the sides facing each other.
-        left_right = self.left_box.center_x_scene() <= \
-            self.right_box.center_x_scene()
-        p1 = self.left_box.anchor_scene_pos(self.left_field, right_side=left_right)
-        p2 = self.right_box.anchor_scene_pos(self.right_field,
-                                             right_side=not left_right)
-        path = QPainterPath(p1)
-        dx = abs(p2.x() - p1.x()) * 0.5
-        c1 = QPointF(p1.x() + (dx if left_right else -dx), p1.y())
-        c2 = QPointF(p2.x() + (-dx if left_right else dx), p2.y())
-        path.cubicTo(c1, c2, p2)
-        self.setPath(path)
+        self.prepareGeometryChange()
+        self.setPath(_curve_between(self.left_box, self.left_field,
+                                    self.right_box, self.right_field))
+
+    def _pill_rect(self) -> QRectF:
+        mid = self.path().pointAtPercent(0.5)
+        return QRectF(mid.x() - 18, mid.y() - 7, 36, 14)
+
+    def boundingRect(self) -> QRectF:
+        rect = super().boundingRect()
+        if self.show_pill:
+            rect = rect.united(self._pill_rect().adjusted(-2, -2, 2, 2))
+        return rect
 
     def paint(self, painter, option, widget=None):
         sel = self.isSelected()
-        pen = QPen(self.theme.line_selected if sel else self.theme.line_color,
-                   3 if sel else 2)
-        self.setPen(pen)
-        super().paint(painter, option, widget)
-        # Join-type glyph at the midpoint.
-        mid = self.path().pointAtPercent(0.5)
-        painter.setFont(_FONT_BOLD)
-        painter.setPen(QPen(self.theme.line_selected if sel else self.theme.line_color))
-        painter.drawText(QPointF(mid.x() - 6, mid.y() - 4),
-                         _HOW_LABEL.get(self.how, "="))
+        color = self.theme.line_selected if sel else self.theme.line_color
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(color, 3 if sel else 2))
+        painter.drawPath(self.path())
+        if not self.show_pill:
+            return
+        # Join-type pill at the midpoint — click it (or the line) to change it.
+        pill = self._pill_rect()
+        painter.setPen(QPen(color, 1))
+        painter.setBrush(QBrush(QColor("#FFFFFF")))
+        painter.drawRoundedRect(pill, 7, 7)
+        painter.setFont(_FONT_TAG)
+        painter.setPen(QPen(color))
+        painter.drawText(pill, Qt.AlignmentFlag.AlignCenter,
+                         _HOW_LABEL.get(self.how, "INNER"))
 
     def shape(self):
         # Fatten the clickable area around the thin curve.
         stroker_path = QPainterPath(self.path())
         pen = QPen(Qt.PenStyle.SolidLine)
         pen.setWidth(10)
-        return QPainterPathStroker(pen).createStroke(stroker_path)
+        shape = QPainterPathStroker(pen).createStroke(stroker_path)
+        if self.show_pill:
+            shape.addRoundedRect(self._pill_rect(), 7, 7)
+        return shape
 
 
 # ── Scene ───────────────────────────────────────────────────────────────
@@ -716,6 +859,8 @@ class JoinCanvasScene(QGraphicsScene):
     changed_model = pyqtSignal()
     warning_requested = pyqtSignal(str)
     query_dropped_on_append = pyqtSignal(str, str)
+    line_activated = pyqtSignal(object, object)  # JoinLineItem, global QPoint
+    suggestion_accepted = pyqtSignal(str, str)   # left alias, right alias
 
     def __init__(self, model: JoinCanvasModel, parent=None, *,
                  theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
@@ -725,21 +870,33 @@ class JoinCanvasScene(QGraphicsScene):
         self.box_items: dict[str, SourceBoxItem | AppendBoxItem] = {}
         self.append_items: dict[str, AppendBoxItem] = {}
         self.line_items: list[JoinLineItem] = []
+        self.box_tags: dict[str, str] = {}
+        self.box_status: dict[str, tuple[str, str]] = {}
+        # Suggested (not yet accepted) keys: (left, left field, right, right field).
+        self.suggestions: list[tuple[str, str, str, str]] = []
+        self.suggestion_items: list[SuggestionLineItem] = []
         self._link_from: tuple[SourceBoxItem | AppendBoxItem, str] | None = None
+        self._link_target: SourceBoxItem | AppendBoxItem | None = None
         self._temp_line: QGraphicsPathItem | None = None
 
     # -- (re)build from model --
     def rebuild(self):
         self.clear()
+        self._link_from = None
+        self._link_target = None
+        self._temp_line = None
         self.box_items.clear()
         self.append_items.clear()
         self.line_items.clear()
+        self.suggestion_items = []
         for src in self.model.sources:
             if self.model.member_of(src.alias) is not None:
                 continue
-            self._add_box_item(src.alias, src.field_names(), src.collapsed,
-                               src.x, src.y, src.width, src.visible_rows,
-                               src.scroll_offset)
+            box = self._add_box_item(src.alias, src.field_names(), src.collapsed,
+                                     src.x, src.y, src.width, src.visible_rows,
+                                     src.scroll_offset)
+            box.tag = self.box_tags.get(src.alias, "")
+            box.set_status(*self.box_status.get(src.alias, ("", "")))
         for append in self.model.appends:
             self._add_append_item(
                 append.name,
@@ -761,6 +918,74 @@ class JoinCanvasScene(QGraphicsScene):
             for key in join.keys:
                 self._add_line_item(lbox, key.left_field,
                                     rbox, key.right_field, join.how)
+        self._draw_suggestions()
+        self.refresh_key_markers()
+        self.fit_scene_rect()
+
+    # -- suggestions / box status --
+    def set_suggestions(self, suggestions: list[tuple[str, str, str, str]]):
+        """Replace the dashed suggested-join lines (no model change)."""
+        suggestions = list(suggestions)
+        if suggestions == self.suggestions and len(self.suggestion_items) == len(
+                [s for s in suggestions if s[0] in self.box_items and s[2] in self.box_items]):
+            return
+        for item in self.suggestion_items:
+            self.removeItem(item)
+            # Delete now, not whenever Python collects the wrapper (possibly after
+            # the QApplication is gone, which crashes on exit).
+            sip.delete(item)
+        self.suggestion_items = []
+        self.suggestions = suggestions
+        self._draw_suggestions()
+        self.fit_scene_rect()
+
+    def _draw_suggestions(self):
+        drawn_pairs: set[frozenset[str]] = set()
+        for left, left_field, right, right_field in self.suggestions:
+            lbox, rbox = self.box_items.get(left), self.box_items.get(right)
+            if not isinstance(lbox, SourceBoxItem) or not isinstance(rbox, SourceBoxItem):
+                continue
+            pair = frozenset((left, right))
+            item = SuggestionLineItem(lbox, left_field, rbox, right_field, self.theme,
+                                      show_pill=pair not in drawn_pairs)
+            drawn_pairs.add(pair)
+            self.addItem(item)
+            self.suggestion_items.append(item)
+
+    def set_box_status(self, status: dict[str, tuple[str, str]]):
+        """Per-box status strips: alias → (kind, text); missing aliases clear."""
+        self.box_status = dict(status)
+        for alias, box in self.box_items.items():
+            if isinstance(box, SourceBoxItem):
+                box.set_status(*self.box_status.get(alias, ("", "")))
+        for line in [*self.line_items, *self.suggestion_items]:
+            line.update_path()
+        self.fit_scene_rect()
+
+    def fit_scene_rect(self):
+        """Keep the origin in view so boxes sit where they were dropped/saved."""
+        bounds = self.itemsBoundingRect().united(QRectF(0, 0, 1, 1))
+        left, top = min(0.0, bounds.left()), min(0.0, bounds.top())
+        self.setSceneRect(QRectF(left, top, bounds.right() + 40 - left,
+                                 bounds.bottom() + 40 - top))
+
+    def refresh_key_markers(self):
+        """Bold + dot the fields that take part in a join line; one pill per join."""
+        keys: dict[str, set[str]] = {}
+        pairs: dict[frozenset[str], list[JoinLineItem]] = {}
+        for line in self.line_items:
+            keys.setdefault(line.left_box.alias, set()).add(line.left_field)
+            keys.setdefault(line.right_box.alias, set()).add(line.right_field)
+            pairs.setdefault(frozenset((line.left_box.alias, line.right_box.alias)),
+                             []).append(line)
+        for lines in pairs.values():
+            middle = len(lines) // 2
+            for index, line in enumerate(lines):
+                line.set_show_pill(index == middle)
+        for alias, box in self.box_items.items():
+            if isinstance(box, SourceBoxItem):
+                box.key_fields = keys.get(alias, set())
+                box.update()
 
     def _add_box_item(self, alias, fields, collapsed, x, y, width=_BOX_W,
                       visible_rows=_DEFAULT_VISIBLE_ROWS,
@@ -813,8 +1038,9 @@ class JoinCanvasScene(QGraphicsScene):
                 append.collapsed = box.collapsed
                 append.visible_rows = box.visible_rows
                 append.scroll_offset = box.scroll_offset
-        for line in self.line_items:
+        for line in [*self.line_items, *self.suggestion_items]:
             line.update_path()
+        self.fit_scene_rect()
         self.changed_model.emit()
 
     def _on_source_released(self, alias: str, scene_center: QPointF):
@@ -866,6 +1092,7 @@ class JoinCanvasScene(QGraphicsScene):
                     and ln.right_box is rbox and ln.right_field == rf):
                 return False
         self._add_line_item(lbox, lf, rbox, rf, join.how)
+        self.refresh_key_markers()
         self.changed_model.emit()
         return True
 
@@ -876,7 +1103,24 @@ class JoinCanvasScene(QGraphicsScene):
         if line in self.line_items:
             self.line_items.remove(line)
         self.removeItem(line)
+        self.refresh_key_markers()
         self.changed_model.emit()
+
+    def remove_relationship(self, line: JoinLineItem):
+        """Delete every key line between the two boxes ``line`` connects."""
+        pair = {line.left_box.alias, line.right_box.alias}
+        for ln in [ln for ln in self.line_items
+                   if {ln.left_box.alias, ln.right_box.alias} == pair]:
+            self.line_items.remove(ln)
+            self.removeItem(ln)
+        self.model.remove_join(line.left_box.alias, line.right_box.alias)
+        self.refresh_key_markers()
+        self.changed_model.emit()
+
+    def lines_between(self, line: JoinLineItem) -> list[JoinLineItem]:
+        pair = {line.left_box.alias, line.right_box.alias}
+        return [ln for ln in self.line_items
+                if {ln.left_box.alias, ln.right_box.alias} == pair]
 
     def set_line_how(self, line: JoinLineItem, how: str):
         self.model.set_how(line.left_box.alias, line.right_box.alias, how)
@@ -888,10 +1132,16 @@ class JoinCanvasScene(QGraphicsScene):
                 ln.update()
         self.changed_model.emit()
 
-    # -- mouse: header moves a box; a field starts a link --
+    # -- mouse: header moves a box; a field starts a link; a line opens its type --
+    def _view_transform(self):
+        return self.views()[0].transform() if self.views() else None
+
     def mousePressEvent(self, event):
-        item = self.itemAt(event.scenePos(), self.views()[0].transform()
-                           if self.views() else None)  # type: ignore[arg-type]
+        item = self.itemAt(event.scenePos(), self._view_transform())  # type: ignore[arg-type]
+        if isinstance(item, SuggestionLineItem) and event.button() == Qt.MouseButton.LeftButton:
+            self.suggestion_accepted.emit(item.left_box.alias, item.right_box.alias)
+            event.accept()
+            return
         if isinstance(item, (SourceBoxItem, AppendBoxItem)):
             local = item.mapFromScene(event.scenePos())
             if item.is_resize_handle(local):
@@ -904,16 +1154,41 @@ class JoinCanvasScene(QGraphicsScene):
                     self._begin_link(item, field, event.scenePos())
                     return  # don't start moving the box
         super().mousePressEvent(event)
+        if isinstance(item, JoinLineItem) and event.button() == Qt.MouseButton.LeftButton:
+            self.clearSelection()
+            item.setSelected(True)
+            self.line_activated.emit(item, event.screenPos())
 
     def mouseMoveEvent(self, event):
         if self._link_from is not None and self._temp_line is not None:
             box, field = self._link_from
-            start = box.anchor_scene_pos(field, right_side=True)
+            pos = event.scenePos()
+            start = box.anchor_scene_pos(field, right_side=pos.x() >= box.center_x_scene())
             path = QPainterPath(start)
-            path.lineTo(event.scenePos())
+            path.lineTo(pos)
             self._temp_line.setPath(path)
+            self._update_link_target(pos)
             return
         super().mouseMoveEvent(event)
+
+    def _update_link_target(self, scene_pos):
+        """Highlight the field under the cursor while a join line is dragged."""
+        target = None
+        field = None
+        for item in self.items(scene_pos):
+            if isinstance(item, (SourceBoxItem, AppendBoxItem)):
+                target = item
+                field = item.field_at(item.mapFromScene(scene_pos).y())
+                break
+        if self._link_from is not None and target is self._link_from[0]:
+            target, field = None, None
+        if self._link_target is not None and self._link_target is not target:
+            self._link_target._hover_field = None
+            self._link_target.update()
+        self._link_target = target
+        if target is not None:
+            target._hover_field = field
+            target.update()
 
     def mouseReleaseEvent(self, event):
         if self._link_from is not None:
@@ -932,12 +1207,15 @@ class JoinCanvasScene(QGraphicsScene):
         if self._temp_line is not None:
             self.removeItem(self._temp_line)
             self._temp_line = None
+        if self._link_target is not None:
+            self._link_target._hover_field = None
+            self._link_target.update()
+            self._link_target = None
         src = self._link_from
         self._link_from = None
         if src is None:
             return
-        target = self.itemAt(scene_pos, self.views()[0].transform()
-                             if self.views() else None)  # type: ignore[arg-type]
+        target = self.itemAt(scene_pos, self._view_transform())  # type: ignore[arg-type]
         if not isinstance(target, (SourceBoxItem, AppendBoxItem)) or target is src[0]:
             return
         tfield = target.field_at(target.mapFromScene(scene_pos).y())
@@ -948,6 +1226,55 @@ class JoinCanvasScene(QGraphicsScene):
 
 # ── Public widget ──────────────────────────────────────────────────────────
 
+class _CanvasGraphicsView(QGraphicsView):
+    """Graphics view that forwards menus/keys/external drops to its canvas."""
+
+    def __init__(self, scene: QGraphicsScene, owner: "JoinCanvasView"):
+        super().__init__(scene)
+        self._owner = owner
+        self.empty_text = ""
+
+    def contextMenuEvent(self, event):
+        self._owner._view_context_menu(event)
+
+    def keyPressEvent(self, event):
+        self._owner._view_key_press(event)
+
+    def dragEnterEvent(self, event):
+        if self._owner._accepts_external_drop(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._owner._accepts_external_drop(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        mime = event.mimeData()
+        if self._owner._accepts_external_drop(mime):
+            scene_pos = self.mapToScene(event.position().toPoint())
+            self._owner._handle_external_drop(mime, scene_pos)
+            event.acceptProposedAction()
+            return
+        super().dropEvent(event)
+
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        if not self.empty_text or self.scene().box_items:
+            return
+        painter.save()
+        area = self.mapToScene(self.viewport().rect()).boundingRect()
+        painter.setPen(QPen(QColor("#7A8CA5")))
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Normal, True))
+        painter.drawText(area.adjusted(24, 24, -24, -24),
+                         Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                         self.empty_text)
+        painter.restore()
+
+
 class JoinCanvasView(QWidget):
     """Drop-in replacement for ForgeJoinsTab using an MS-Access-style canvas."""
 
@@ -955,7 +1282,9 @@ class JoinCanvasView(QWidget):
 
     def __init__(self, parent=None, *, source_label: str = "Source",
                  add_menu_label: str = "Add Query Table",
-                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME,
+                 allow_appends: bool = True,
+                 empty_text: str = ""):
         super().__init__(parent)
         self._source_label = source_label
         self._add_menu_label = add_menu_label
@@ -972,29 +1301,31 @@ class JoinCanvasView(QWidget):
         self.scene.changed_model.connect(self.state_changed.emit)
         self.scene.warning_requested.connect(self._show_canvas_warning)
         self.scene.query_dropped_on_append.connect(self._add_query_to_append)
+        self.scene.line_activated.connect(self._on_line_activated)
+        self._allow_appends = allow_appends
 
-        self.view = QGraphicsView(self.scene)
+        self.view = _CanvasGraphicsView(self.scene, self)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.view.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.view.setAcceptDrops(True)
+        self.view.empty_text = empty_text
 
-        hint = QLabel(
+        self.hint_label = QLabel(
             f"Drag a field from one {self._source_label} onto a field in another to join. "
-            "Click a line to set its type or delete it.")
-        hint.setFont(QFont("Segoe UI", 8))
-        hint.setStyleSheet("color: #64748B; padding: 2px;")
-        hint.setWordWrap(True)
+            "Click a line (or its INNER/LEFT pill) to set the join type or delete it.")
+        self.hint_label.setFont(QFont("Segoe UI", 8))
+        self.hint_label.setStyleSheet("color: #64748B; padding: 2px;")
+        self.hint_label.setWordWrap(True)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        lay.addWidget(hint)
+        lay.addWidget(self.hint_label)
         lay.addWidget(self.view, 1)
 
         self.view.setContextMenuPolicy(
             Qt.ContextMenuPolicy.DefaultContextMenu)
-        self.view.contextMenuEvent = self._view_context_menu  # type: ignore
-        self.view.keyPressEvent = self._view_key_press  # type: ignore
 
     # ── Public API (compatible with ForgeJoinsTab) ──────────────────────
 
@@ -1091,7 +1422,7 @@ class JoinCanvasView(QWidget):
         visible = {src.alias for src in self.model.sources}
         return [name for name in self._available_query_names if name not in visible]
 
-    def _add_query_table(self, name: str):
+    def _add_query_table(self, name: str, scene_pos: QPointF | None = None):
         if name not in self._available_query_names:
             return False
         self._removed_aliases.discard(name)
@@ -1100,6 +1431,10 @@ class JoinCanvasView(QWidget):
             return False
         self.model.set_sources(visible + [name], self._available_query_columns,
                                self._available_query_types, add_missing=True)
+        if scene_pos is not None:
+            src = self.model.get_source(name)
+            if src is not None:
+                src.x, src.y = scene_pos.x(), scene_pos.y()
         self.scene.rebuild()
         self.state_changed.emit()
         return True
@@ -1183,9 +1518,9 @@ class JoinCanvasView(QWidget):
         self._removed_aliases.add(alias)
         self.scene.remove_source(alias)
 
-    def add_query_table(self, name: str) -> bool:
+    def add_query_table(self, name: str, scene_pos: QPointF | None = None) -> bool:
         """Add an available query Source box to the join canvas."""
-        return self._add_query_table(name)
+        return self._add_query_table(name, scene_pos)
 
     def _selected_line(self) -> JoinLineItem | None:
         for item in self.scene.selectedItems():
@@ -1193,20 +1528,77 @@ class JoinCanvasView(QWidget):
                 return item
         return None
 
+    # ── Hooks for subclasses (external drops / Add menu) ─────────────────
+
+    def _accepts_external_drop(self, mime) -> bool:
+        return False
+
+    def _handle_external_drop(self, mime, scene_pos: QPointF) -> None:
+        return None
+
+    def _populate_add_menu(self, add_menu, scene_pos: QPointF) -> None:
+        names = self._available_to_add()
+        if names:
+            for name in names:
+                act = add_menu.addAction(name)
+                act.triggered.connect(lambda _=False, n=name: self._add_query_table(n))
+        else:
+            act = add_menu.addAction("No available queries")
+            act.setEnabled(False)
+
+    # ── Join properties ──────────────────────────────────────────────────
+
+    def join_type_choices(self, line: JoinLineItem) -> list[tuple[str, str]]:
+        """(how, Access-style description) for the relationship ``line`` is in."""
+        left, right = line.left_box.alias, line.right_box.alias
+        return [
+            ("inner", "Inner join — only rows where both match"),
+            ("left", f"Left join — all rows from {left}, matching rows from {right}"),
+            ("right", f"Right join — all rows from {right}, matching rows from {left}"),
+            ("outer", "Full outer join — all rows from both, matched where possible"),
+        ]
+
+    def _on_line_activated(self, line: JoinLineItem, global_pos):
+        from PyQt6.QtCore import QTimer
+
+        # Defer so the menu opens after the scene finishes the mouse press.
+        QTimer.singleShot(0, lambda ln=line, pos=global_pos: self._show_join_menu(ln, pos))
+
+    def _show_join_menu(self, line: JoinLineItem, global_pos):
+        if line not in self.scene.line_items:
+            return
+        menu = self._build_join_menu(line)
+        menu.exec(global_pos)
+
+    def _build_join_menu(self, line: JoinLineItem):
+        menu = query_builder_menu(self.view)
+        header = menu.addAction(
+            f"{line.left_box.alias}.{line.left_field}  =  "
+            f"{line.right_box.alias}.{line.right_field}")
+        header.setEnabled(False)
+        menu.addSeparator()
+        for how, label in self.join_type_choices(line):
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(line.how == how)
+            act.triggered.connect(
+                lambda _=False, h=how, ln=line: self.scene.set_line_how(ln, h))
+        menu.addSeparator()
+        act_del = menu.addAction("Delete this key")
+        act_del.triggered.connect(lambda _=False, ln=line: self.scene.remove_line(ln))
+        if len(self.scene.lines_between(line)) > 1:
+            act_all = menu.addAction("Delete join (all keys)")
+            act_all.triggered.connect(
+                lambda _=False, ln=line: self.scene.remove_relationship(ln))
+        return menu
+
     def _view_context_menu(self, event):
         scene_pos = self.view.mapToScene(event.pos())
         item = self.scene.itemAt(scene_pos, self.view.transform())
         if isinstance(item, JoinLineItem):
-            menu = query_builder_menu(self.view)
-            for how in JOIN_TYPES:
-                act = menu.addAction(f"{how.title()} join"
-                                     + ("  ✓" if item.how == how else ""))
-                act.triggered.connect(
-                    lambda _=False, h=how, ln=item: self.scene.set_line_how(ln, h))
-            menu.addSeparator()
-            act_del = menu.addAction("Delete this key")
-            act_del.triggered.connect(lambda: self.scene.remove_line(item))
-            menu.exec(event.globalPos())
+            self.scene.clearSelection()
+            item.setSelected(True)
+            self._build_join_menu(item).exec(event.globalPos())
         elif isinstance(item, AppendBoxItem):
             local = item.mapFromScene(scene_pos)
             member = item.member_at(local.y())
@@ -1255,18 +1647,13 @@ class JoinCanvasView(QWidget):
             menu.exec(event.globalPos())
         else:
             menu = query_builder_menu(self.view)
-            act_append = menu.addAction("Add Append Table")
-            act_append.triggered.connect(lambda _=False, p=scene_pos: self._add_append_table(p))
-            menu.addSeparator()
             add_menu = menu.addMenu(self._add_menu_label)
-            names = self._available_to_add()
-            if names:
-                for name in names:
-                    act = add_menu.addAction(name)
-                    act.triggered.connect(lambda _=False, n=name: self._add_query_table(n))
-            else:
-                act = add_menu.addAction("No available queries")
-                act.setEnabled(False)
+            self._populate_add_menu(add_menu, scene_pos)
+            if self._allow_appends:
+                menu.addSeparator()
+                act_append = menu.addAction("Add Append Table")
+                act_append.triggered.connect(
+                    lambda _=False, p=scene_pos: self._add_append_table(p))
             menu.exec(event.globalPos())
 
     def _view_key_press(self, event):

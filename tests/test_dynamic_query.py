@@ -350,6 +350,10 @@ class DynamicQueryUiTests(unittest.TestCase):
         try:
             group.joins_tab.set_table_columns("dbo.policy", ["pol_id", "co"])
             group.joins_tab.set_table_columns("dbo.coverage", ["pol_id", "cov_no"])
+            # Tables are available, but only go on the canvas when placed.
+            self.assertEqual(group.joins_tab.canvas_tables(), [])
+            group.joins_tab.ensure_on_canvas("dbo.policy")
+            group.joins_tab.ensure_on_canvas("dbo.coverage")
 
             self.assertTrue(
                 group.joins_tab.scene.add_link(

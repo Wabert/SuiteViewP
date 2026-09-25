@@ -271,11 +271,12 @@ def _saved_query_join_fields(saved_query, existing: set[str]) -> list[QueryObjec
 
 def object_from_saved_query(saved_query) -> QueryObject:
     """Convert an existing SavedQuery into a QueryObject."""
+    table_sources = dict((saved_query.config or {}).get("table_sources", {}) or {})
     sources = [
         QueryObjectSource(
             name=table,
             source_type="table",
-            dsn=saved_query.dsn,
+            dsn=table_sources.get(table, saved_query.dsn),
             status=SOURCE_STATUS_REGISTERED,
         )
         for table in saved_query.tables

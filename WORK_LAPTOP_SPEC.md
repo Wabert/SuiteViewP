@@ -496,6 +496,37 @@ All headless-tested (227 green); **click-test in the running app:**
   built yet — next minipc session; do not expect to see appends on the
   canvas, but a hand-edited saved-forge config with appends should run.
 
+### 1.11 Visual Query: database tables joined with file datasets (2026-09-24)
+
+Built and verified without a database (unit tests + native
+`tools/app/verify_visual_query_joins.py --screenshot <dir>`, which uses the
+real CSV reader and DuckDB with a stand-in DB2 fetch). **Verify live, read-only:**
+
+- In Query › Visual Query, add `DB2TAB.LH_BAS_POL` with **+Table**, toggle to
+  **Files**, **+Table** a CSV policy list. Both list in SQL Assist; drag both onto
+  the Joins tab; drag the CSV policy column onto `CK_POLICY_NBR`; click the line
+  and pick Left join. Place a CSV field and `TCH_POL_ID` on Display; Run.
+- The SQL tab must show `restricted to CK_POLICY_NBR values found in …`; the
+  result must list every CSV policy, with DB2 columns filled for real policies
+  and blank for unknown ones. Policies with leading zeros must match.
+- Chain a second DB2 table (`LH_COV_PHA` on `TCH_POL_ID`): it must be staged
+  by `TCH_POL_ID IN (…)` from the staged `LH_BAS_POL`, not downloaded whole.
+- Numeric DB2 key vs CSV text key (e.g. a DECIMAL column) joins numerically.
+- A DB2 table with no filter and a preserved (Left-join driving) side must ask
+  "Download Whole Table?" — answer No.
+- Save, reopen: SQL Assist shows both tables (file icon), the canvas restores
+  boxes, badge and join type; Run again gives the same rows.
+- **Paste Policy List:** copy ~20 policies + company codes from Excel (include a
+  company-26 numeric policy and a one-digit company like `1`), Ctrl+V on the
+  Joins tab. Confirm company `1` → `01`; tick "Restore leading zeros" only if the
+  real `CK_POLICY_NBR` length is 9 (verify the actual company-26 length first).
+  Run with no fields: every pasted row returns, unknown policies with blank
+  LH_BAS_POL columns; the SQL tab shows `CK_POLICY_NBR IN (...)`.
+- Add `LH_COV_PHA`: a dashed suggestion for the full policy key appears; accept
+  it and confirm the badge reads "Only rows matching LH_BAS_POL" and the staged
+  SQL is `TCH_POL_ID IN (...)`. Close the query while columns are still loading —
+  no crash.
+
 ---
 
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
@@ -808,6 +839,9 @@ counted in `missing_abs_max` (not front-load-capable, conservative).
 ---
 
 ## Changelog
+- **2026-09-24** — Added §1.11: Visual Query mixed database + file-dataset
+  joins (federated staging with key pushdown), pasted policy lists, join
+  suggestions and plan badges; live DB2 checks outstanding.
 - **2026-09-20** — Added Transaction 2 date-comparison live execution/performance
   checks; synthetic, native no-DB and restricted-SQL verification is local only.
 - **2026-07-17 (minipc)** — Guideline expense-basis fix (7702 rule: guaranteed

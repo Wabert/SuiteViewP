@@ -579,10 +579,12 @@ class AuditWindow(FramelessWindowBase):
         # ── Left picker panel (embedded) ───────────────────────────
         from suiteview.audit.dataforge.query_field_picker import QueryFieldPicker
         from PyQt6.QtWidgets import QStackedWidget
-        self._field_picker = FieldPickerPanel()
+        self._field_picker = FieldPickerPanel(multi_source=True)
         self._field_picker.field_requested.connect(self._on_picker_field_requested)
         self._field_picker.query_clicked.connect(self._on_picker_query_clicked)
         self._field_picker.new_query_requested.connect(self._start_visual_query_object)
+        self._field_picker.table_sources_changed.connect(self._on_picker_table_sources_changed)
+        self._field_picker.table_requested.connect(self._on_picker_table_requested)
         self._field_picker.pinned_tables_changed.connect(self._on_picker_pinned_tables_changed)
         self._field_picker.common_table_requested.connect(self._on_picker_common_table_requested)
         self._field_picker.common_table_remove_requested.connect(self._on_picker_common_table_remove_requested)
@@ -759,17 +761,7 @@ class AuditWindow(FramelessWindowBase):
         if mode in self._dynamic_queries:
             dq = self._dynamic_queries[mode]
             self._set_mode_footer(dq.bottom_bar)
-            if dq.dsn.startswith("file:"):
-                self._bind_picker_to_file_source(dq)
-            else:
-                self._field_picker.set_connection_options(
-                    self._manual_sql_odbc_connections(), dq.dsn)
-                self._field_picker.set_group(
-                    dq.dsn, dq.tables, dq.display_names,
-                    preferred_table=self._preferred_query_table(dq),
-                    pinned_tables=dq.pinned_tables)
-                dq.set_source_dsn(self._field_picker.current_connection())
-                self._push_common_tables_to_picker(dq)
+            self._bind_picker_to_query(dq, preferred_table=self._preferred_query_table(dq))
             raw_name = mode.removeprefix("▸ ")
             self._field_picker.highlight_query(raw_name)
         else:
@@ -861,16 +853,24 @@ class AuditWindow(FramelessWindowBase):
             self._active_mode_footer.setVisible(False)
         self._mode_footer_host.setVisible(False)
     # ── Field Picker panel ───────────────────────────────────────────
+    def _bind_picker_to_query(self, group, preferred_table: str = ""):
+        """Show a Visual Query's tables (database + file datasets) in SQL Assist."""
+        self._field_picker.set_connection_options(
+            self._manual_sql_odbc_connections(), group.dsn)
+        self._field_picker.set_group(
+            group.dsn, group.tables, group.display_names,
+            preferred_table=preferred_table,
+            pinned_tables=group.pinned_tables,
+            table_sources=group.table_sources,
+            inline_tables=group.inline_tables)
+        group.set_source_dsn(self._field_picker.query_dsn())
+        self._push_common_tables_to_picker(group)
+
     def _update_field_picker(self):
         """Populate the field picker from the active dynamic query."""
         group = self._dynamic_queries.get(self._current_mode)
         if group is not None:
-            self._field_picker.set_connection_options(
-                self._manual_sql_odbc_connections(), group.dsn)
-            self._field_picker.set_group(
-                group.dsn, group.tables, group.display_names,
-                pinned_tables=group.pinned_tables)
-            self._push_common_tables_to_picker(group)
+            self._bind_picker_to_query(group)
         else:
             self._field_picker.clear()
 
@@ -893,7 +893,7 @@ class AuditWindow(FramelessWindowBase):
         """Double-click in field picker — delegate to the active dynamic query."""
         group = self._dynamic_queries.get(self._current_mode)
         if group is not None:
-            group.set_source_dsn(self._field_picker.current_connection())
+            group.set_source_dsn(self._field_picker.query_dsn())
             group._on_field_requested(table, column, type_name, display)
     def _on_picker_query_clicked(self, query_name: str):
         """User clicked a query name in the picker's query list."""
@@ -906,19 +906,35 @@ class AuditWindow(FramelessWindowBase):
         name = f"\u25b8 {sq.name}"
         group = self._dynamic_queries.get(name)
         if group is not None:
-            self._field_picker.set_connection_options(
-                self._manual_sql_odbc_connections(), group.dsn)
-            self._field_picker.set_group(
-                group.dsn, group.tables, group.display_names,
-                preferred_table=self._preferred_query_table(group),
-                pinned_tables=group.pinned_tables)
+            self._bind_picker_to_query(
+                group, preferred_table=self._preferred_query_table(group))
             self._field_picker.highlight_query(sq.name)
     def _on_picker_tables_changed(self, tables: list[str]):
         """Tables list was changed in the picker — sync back to the query."""
         group = self._dynamic_queries.get(self._current_mode)
         if group is not None:
-            group.set_source_dsn(self._field_picker.current_connection())
-            group.tables = list(tables)
+            group.set_source_dsn(self._field_picker.query_dsn())
+            group.set_tables(tables)
+
+    def _on_picker_table_sources_changed(self, table_sources: dict):
+        """File datasets in the SQL Assist list changed for the active query."""
+        group = self._dynamic_queries.get(self._current_mode)
+        if group is not None:
+            group.set_table_sources(table_sources)
+
+    def _on_picker_table_requested(self, table: str):
+        """Double-clicked SQL Assist table → put it on the Joins canvas."""
+        group = self._dynamic_queries.get(self._current_mode)
+        if group is not None:
+            group.show_table_on_canvas(table)
+
+    def _on_group_add_tables_requested(self, kind: str):
+        """Joins canvas › Add Table › Browse… — add via SQL Assist, then place."""
+        group = self.sender()
+        if group is None or group is not self._dynamic_queries.get(self._current_mode):
+            return
+        for table in self._field_picker.request_add_tables(kind):
+            group.joins_tab.ensure_on_canvas(table)
 
     def _on_picker_pinned_tables_changed(self, tables: list[str]):
         """Pinned SQL Assist tables changed for the active Visual Query."""
@@ -1144,10 +1160,22 @@ class AuditWindow(FramelessWindowBase):
         group.setVisible(False)
         self._dynamic_queries[name] = group
         self._dynamic_query_container.addWidget(group)
+        self._wire_dynamic_query(group)
+
+    def _wire_dynamic_query(self, group):
         group.query_saved.connect(self._on_dynamic_query_saved)
         group.query_deleted.connect(self._on_query_deleted_from_group)
         group.common_tables_changed.connect(self._on_common_tables_changed)
         group.new_query_requested.connect(self._start_visual_query_object)
+        group.add_tables_requested.connect(self._on_group_add_tables_requested)
+        group.sources_changed.connect(self._on_group_sources_changed)
+
+    def _on_group_sources_changed(self):
+        """A query added a table itself (e.g. a pasted list) — refresh SQL Assist."""
+        group = self.sender()
+        if group is not None and group is self._dynamic_queries.get(self._current_mode):
+            self._bind_picker_to_query(group, preferred_table=group.tables[-1]
+                                       if group.tables else "")
 
     def _on_dynamic_query_saved(self, saved_query):
         self._refresh_picker_query_list()
@@ -1943,10 +1971,7 @@ class AuditWindow(FramelessWindowBase):
         group.setVisible(False)
         self._dynamic_queries[name] = group
         self._dynamic_query_container.addWidget(group)
-        group.query_saved.connect(self._on_dynamic_query_saved)
-        group.query_deleted.connect(self._on_query_deleted_from_group)
-        group.common_tables_changed.connect(self._on_common_tables_changed)
-        group.new_query_requested.connect(self._start_visual_query_object)
+        self._wire_dynamic_query(group)
         # Restore saved config into the group (marks clean after load)
         group.set_config(config)
         # Switch to new query first, then remove old (avoids flash to Cyberlife)
@@ -2290,7 +2315,7 @@ class AuditWindow(FramelessWindowBase):
             name = f"{base_name} {suffix}"
         # tables=[] → the source table is inferred from the fields the user drags,
         # so a multi-file source with identical columns can't silently pick the
-        # wrong one. The picker still lists every member (see _bind_picker...).
+        # wrong one. The picker still lists every member (see _bind_picker_to_query).
         self._create_dynamic_query(name, token, [], saved_query_name="")
         self.btn_workbench.setChecked(True)
         prev = self._active_unpinned
@@ -2298,11 +2323,6 @@ class AuditWindow(FramelessWindowBase):
         self._switch_mode(name)
         if prev and prev != name:
             self._remove_query(prev)
-
-    def _bind_picker_to_file_source(self, dq):
-        """Fill the SQL Assist picker from a File Source's stored schema (no ODBC)."""
-        if not self._field_picker.show_file_source(dq.dsn):
-            self._field_picker.clear()
 
     def _manual_sql_odbc_connections(self) -> list[tuple[str, str]]:
         """Return saved ODBC connections plus system/user DSNs."""

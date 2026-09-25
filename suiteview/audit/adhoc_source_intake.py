@@ -192,13 +192,15 @@ def dataframe_from_adhoc_metadata(
     *,
     columns: list[str] | None = None,
     nrows: int | None = None,
+    dtype=None,
 ):
     """Load an ad hoc file source into a pandas DataFrame.
 
     ``nrows`` limits how many rows are read (e.g. a sample for fast validation);
-    None reads the whole file.
+    None reads the whole file. ``dtype`` is passed to the pandas reader
+    (``dtype=str`` keeps identifiers such as ``000226237`` as their raw text).
     """
-    df = _dataframe_from_source_metadata(source_type, metadata, nrows=nrows)
+    df = _dataframe_from_source_metadata(source_type, metadata, nrows=nrows, dtype=dtype)
 
     if columns:
         available = [column for column in columns if column in df.columns]
@@ -212,6 +214,7 @@ def _dataframe_from_source_metadata(
     metadata: dict[str, Any],
     *,
     nrows: int | None = None,
+    dtype=None,
 ):
     import pandas as pd
 
@@ -220,11 +223,12 @@ def _dataframe_from_source_metadata(
         raise ValueError("Ad hoc source is missing a file path.")
 
     if source_type == "csv":
-        return _read_delimited_dataframe(path, metadata, nrows=nrows)
+        return _read_delimited_dataframe(path, metadata, nrows=nrows, dtype=dtype)
     if source_type == "excel":
-        return pd.read_excel(path, sheet_name=metadata.get("sheet_name", 0), nrows=nrows)
+        return pd.read_excel(path, sheet_name=metadata.get("sheet_name", 0), nrows=nrows,
+                             dtype=dtype)
     if source_type == "fixed_width":
-        return _read_fixed_width_dataframe(path, metadata, nrows=nrows)
+        return _read_fixed_width_dataframe(path, metadata, nrows=nrows, dtype=dtype)
     raise ValueError(f"Unsupported ad hoc source type: {source_type}")
 
 
@@ -321,6 +325,7 @@ def _read_delimited_dataframe(
     metadata: dict[str, Any],
     *,
     nrows: int | None = None,
+    dtype=None,
 ):
     import pandas as pd
 
@@ -335,6 +340,7 @@ def _read_delimited_dataframe(
         encoding=encoding,
         skiprows=skip_rows,
         nrows=nrows,
+        dtype=dtype,
     )
     column_names = _normalized_column_names(metadata.get("column_names", []))
     if column_names:
@@ -360,6 +366,7 @@ def _read_fixed_width_dataframe(
     metadata: dict[str, Any],
     *,
     nrows: int | None = None,
+    dtype=None,
 ):
     import pandas as pd
 
@@ -377,6 +384,7 @@ def _read_fixed_width_dataframe(
         encoding=_resolve_text_encoding(path, metadata.get("encoding", "auto")),
         skiprows=int(metadata.get("skip_rows", 0) or 0),
         nrows=nrows,
+        dtype=dtype,
     )
     return df
 

@@ -19,10 +19,22 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QListWidgetItem,
     QDialog,
+    QMessageBox,
+    QStyle,
 )
 
 from .dialogs.tables_dialog import _clean_odbc_identifier
 from .query_builder_menu import query_builder_menu
+from .query_sources import (
+    TABLE_DRAG_MIME,
+    file_source_label,
+    file_source_table_fields,
+    file_token,
+    is_file_token,
+    is_list_token,
+    is_local_token,
+    resolve_file_token,
+)
 from .tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -128,7 +140,6 @@ _NEW_BTN_STYLE = (
 
 _SOURCE_ODBC = "odbc"
 _SOURCE_FILES = "files"
-_FILE_TOKEN_PREFIX = "file:"
 
 _SOURCE_KIND_STYLES = {
     _SOURCE_ODBC: (
@@ -150,23 +161,6 @@ _SOURCE_KIND_TIPS = {
     _SOURCE_FILES: "Showing File Sources (CSV / Excel / text) — click to switch to ODBC",
 }
 _NO_FILE_SOURCES = "No file sources — create one in Objects"
-
-
-def is_file_source_token(dsn: str) -> bool:
-    return str(dsn or "").startswith(_FILE_TOKEN_PREFIX)
-
-
-def file_source_label(fds) -> str:
-    from suiteview.audit.file_source import datasource_label
-    return f"{fds.name} [{datasource_label(fds)}]"
-
-
-def file_source_table_fields(fds) -> dict[str, list[tuple[str, str]]]:
-    """Map each File Source member table to its stored [(column, type), ...]."""
-    return {
-        member.resolved_table_name(): [(col.name, col.data_type) for col in fds.columns]
-        for member in fds.members
-    }
 
 
 class _FieldLoaderThread(QThread):
@@ -276,23 +270,55 @@ class DraggableFieldList(QListWidget):
         drag.exec(Qt.DropAction.CopyAction)
 
 
+class DraggableTableList(QListWidget):
+    """Tables list whose items drag out as table names (onto the Joins canvas)."""
+
+    def startDrag(self, supportedActions):
+        tables = [
+            str(item.data(Qt.ItemDataRole.UserRole) or item.text())
+            for item in self.selectedItems()
+        ]
+        tables = [t for t in tables if t and t != "__separator__"]
+        if not tables:
+            return
+        mime = QMimeData()
+        mime.setData(TABLE_DRAG_MIME, "\n".join(tables).encode("utf-8"))
+        mime.setText(", ".join(tables))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+
 class FieldPickerPanel(QWidget):
-    """Side panel: Query list | Tables list | Fields list with teal theme."""
+    """Side panel: Query list | Tables list | Fields list with teal theme.
+
+    ``multi_source=True`` (Visual Query) lets one query hold ODBC tables and
+    File Source datasets side by side: the ODBC/Files toggle only chooses what
+    **+Table** browses, and the table list always shows every query table.
+    The default single-source mode (Manual SQL) keeps one connection whose
+    tables replace the list when it changes.
+    """
     field_requested = pyqtSignal(str, str, str, str)  # table, column, type, display
     table_requested = pyqtSignal(str)  # table double-clicked for SQL insertion
     tables_changed = pyqtSignal(list)  # emitted when tables added via + Table
     pinned_tables_changed = pyqtSignal(list)  # per-query pinned table list changed
+    table_sources_changed = pyqtSignal(dict)  # multi-source: {file table: file:<id>}
     common_table_requested = pyqtSignal(str)  # common table name selected from picker
     common_table_remove_requested = pyqtSignal(str)  # common table name removed from picker
     query_clicked = pyqtSignal(str)    # query name clicked → load it
     new_query_requested = pyqtSignal()  # user clicked "+ New"
     splitter_changed = pyqtSignal()     # internal column widths changed
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, multi_source: bool = False):
         super().__init__(parent)
         self.setMinimumWidth(300)
         self.setMaximumWidth(600)
 
+        self._multi_source = multi_source
+        self._table_sources: dict[str, str] = {}
+        self._missing_file_tables: set[str] = set()
+        self._inline_tables: dict[str, dict] = {}
+        self._file_labels: dict[str, str] = {}
         self._dsn: str = ""
         self._tables: list[str] = []
         self._available_tables: list[str] = []
@@ -367,13 +393,15 @@ class FieldPickerPanel(QWidget):
         self.txt_table_search.textChanged.connect(self._filter_tables)
         tl.addWidget(self.txt_table_search)
 
-        self.list_tables = QListWidget()
+        self.list_tables = DraggableTableList()
         self.list_tables.setFont(_FONT)
         self.list_tables.setStyleSheet(_TABLE_LIST_STYLE)
         self.list_tables.setItemDelegate(TightItemDelegate(self.list_tables))
         self.list_tables.setUniformItemSizes(True)
         self.list_tables.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
+        self.list_tables.setDragEnabled(True)
+        self.list_tables.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.list_tables.currentItemChanged.connect(self._on_table_selected)
         self.list_tables.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
@@ -517,13 +545,13 @@ class FieldPickerPanel(QWidget):
             else:
                 label = str(connection)
                 dsn = str(connection)
-            if not is_file_source_token(dsn):
+            if not is_file_token(dsn):
                 self._connections.append((str(label), str(dsn)))
-        if is_file_source_token(selected):
+        if is_file_token(selected):
             self._set_source_kind(_SOURCE_FILES)
             self._fill_connection_combo(self._file_connection_options(selected), selected)
             dsn = self.current_connection()
-            if dsn and dsn != self._dsn:
+            if dsn and dsn != self._dsn and not self._multi_source:
                 self._apply_file_source(dsn)
             return
         self._set_source_kind(_SOURCE_ODBC)
@@ -543,6 +571,14 @@ class FieldPickerPanel(QWidget):
     def current_connection(self) -> str:
         return str(self.cmb_connection.currentData() or "").strip()
 
+    def query_dsn(self) -> str:
+        """The connection the query itself uses (multi-source: its ODBC DSN)."""
+        return self._dsn
+
+    def table_sources(self) -> dict[str, str]:
+        """Multi-source: file tables in the list → their ``file:<id>`` token."""
+        return dict(self._table_sources)
+
     def current_connection_label(self) -> str:
         return self.cmb_connection.currentText().strip()
 
@@ -554,21 +590,25 @@ class FieldPickerPanel(QWidget):
         self.btn_source_kind.setText(_SOURCE_KIND_TEXT[kind])
         self.btn_source_kind.setToolTip(_SOURCE_KIND_TIPS[kind])
         self.btn_source_kind.setStyleSheet(_SOURCE_KIND_STYLES[kind])
-        self.btn_add_table.setEnabled(kind == _SOURCE_ODBC)
+        self.btn_add_table.setEnabled(kind == _SOURCE_ODBC or self._multi_source)
+        if self._multi_source:
+            self.btn_add_table.setToolTip(
+                "Add file datasets from your File Sources" if kind == _SOURCE_FILES
+                else "Add tables from this database")
 
     def _file_connection_options(self, ensure: str = "") -> list[tuple[str, str]]:
-        from suiteview.audit import file_query_runner, file_source_store
+        from suiteview.audit import file_source_store
 
         try:
             options = [
-                (file_source_label(fds), f"{_FILE_TOKEN_PREFIX}{fds.id}")
+                (file_source_label(fds), file_token(fds))
                 for fds in file_source_store.list_file_sources()
             ]
         except Exception:
             logger.exception("Failed to list File Sources for SQL Assist")
             options = []
-        if is_file_source_token(ensure) and ensure not in {dsn for _label, dsn in options}:
-            fds = file_query_runner.resolve_file_source(ensure[len(_FILE_TOKEN_PREFIX):])
+        if is_file_token(ensure) and ensure not in {dsn for _label, dsn in options}:
+            fds = resolve_file_token(ensure)
             if fds is not None:
                 options.insert(0, (file_source_label(fds), ensure))
         return options
@@ -594,8 +634,11 @@ class FieldPickerPanel(QWidget):
 
     def _on_source_kind_toggled(self):
         """Flip the dropdown between ODBC data sources and saved File Sources."""
+        if self._multi_source:
+            self._toggle_multi_source_kind()
+            return
         if self._dsn:
-            kind_of_current = _SOURCE_FILES if is_file_source_token(self._dsn) else _SOURCE_ODBC
+            kind_of_current = _SOURCE_FILES if is_file_token(self._dsn) else _SOURCE_ODBC
             self._last_selection[kind_of_current] = self._dsn
         kind = _SOURCE_FILES if self._source_kind == _SOURCE_ODBC else _SOURCE_ODBC
         self._set_source_kind(kind)
@@ -616,11 +659,30 @@ class FieldPickerPanel(QWidget):
             return
         self._on_connection_changed()
 
+    def _toggle_multi_source_kind(self):
+        """Multi-source: the toggle only chooses what +Table browses."""
+        kind = _SOURCE_FILES if self._source_kind == _SOURCE_ODBC else _SOURCE_ODBC
+        self._set_source_kind(kind)
+        if kind == _SOURCE_FILES:
+            remembered = self._last_selection.get(_SOURCE_FILES, "")
+            if not remembered and is_file_token(self._dsn):
+                remembered = self._dsn
+            self._fill_connection_combo(self._file_connection_options(remembered), remembered)
+            return
+        remembered = self._dsn if self._dsn and not is_file_token(self._dsn) \
+            else self._last_selection.get(_SOURCE_ODBC, "")
+        self._fill_connection_combo(list(self._connections), remembered)
+        if self.current_connection() and self.current_connection() != self._dsn:
+            self._on_connection_changed()
+
     def _on_connection_changed(self, *_args):
         dsn = self.current_connection()
         if not dsn or dsn == self._dsn:
             return
-        if is_file_source_token(dsn):
+        if self._multi_source:
+            self._change_multi_source_connection(dsn)
+            return
+        if is_file_token(dsn):
             if not self._apply_file_source(dsn):
                 return
         else:
@@ -630,7 +692,37 @@ class FieldPickerPanel(QWidget):
         self.tables_changed.emit([])
         self.pinned_tables_changed.emit([])
 
+    def _change_multi_source_connection(self, dsn: str):
+        if is_file_token(dsn):
+            # Choosing a File Source only sets what +Table browses.
+            self._last_selection[_SOURCE_FILES] = dsn
+            return
+        # A new database for the query: its old ODBC tables belong to the old
+        # DSN, but the file datasets stay.
+        self._last_selection[_SOURCE_ODBC] = dsn
+        self._tables = [t for t in self._tables if t in self._table_sources]
+        self._pinned_tables = {t for t in self._pinned_tables if t in self._table_sources}
+        self._apply_odbc_source(dsn)
+        self._emit_table_changes()
+
+    def _emit_table_changes(self):
+        tables = list(self._tables)
+        if self._multi_source:
+            self.table_sources_changed.emit(dict(self._table_sources))
+        self.tables_changed.emit(tables)
+        self.pinned_tables_changed.emit(tables)
+
     def _apply_odbc_source(self, dsn: str):
+        if self._multi_source:
+            self._dsn = dsn
+            self._local_mode = False
+            self._field_cache = {
+                table: cols for table, cols in self._field_cache.items()
+                if table in self._table_sources or table in self._common_table_cols
+            }
+            self._current_table = ""
+            self._rebuild_table_list()
+            return
         if self._local_mode:
             # File member tables never belong to an ODBC source.
             self._tables = []
@@ -645,9 +737,7 @@ class FieldPickerPanel(QWidget):
 
     def _apply_file_source(self, token: str) -> bool:
         """Serve tables + fields from a File Source's stored schema (cache pre-filled)."""
-        from suiteview.audit import file_query_runner
-
-        fds = file_query_runner.resolve_file_source(token[len(_FILE_TOKEN_PREFIX):])
+        fds = resolve_file_token(token)
         if fds is None:
             logger.warning("SQL Assist could not resolve File Source %s", token)
             self.list_tables.clear()
@@ -693,9 +783,17 @@ class FieldPickerPanel(QWidget):
     def set_group(self, dsn: str, tables: list[str],
                   display_names: dict[str, str],
                   preferred_table: str = "",
-                  pinned_tables: list[str] | None = None):
+                  pinned_tables: list[str] | None = None,
+                  table_sources: dict[str, str] | None = None,
+                  inline_tables: dict[str, dict] | None = None):
         """Load tables and fields from a dynamic group."""
-        if is_file_source_token(dsn):
+        if self._multi_source:
+            self._inline_tables = dict(inline_tables or {})
+            self._set_multi_source_group(
+                dsn, tables, display_names, preferred_table,
+                pinned_tables or [], table_sources or {})
+            return
+        if is_file_token(dsn):
             if not self.show_file_source(dsn):
                 self.clear()
             return
@@ -713,6 +811,67 @@ class FieldPickerPanel(QWidget):
             self._field_cache.clear()
             self._current_table = ""
         self._rebuild_table_list()
+
+    def _set_multi_source_group(self, dsn: str, tables: list[str],
+                                display_names: dict[str, str], preferred_table: str,
+                                pinned_tables: list[str], table_sources: dict[str, str]):
+        previous_dsn = self._dsn
+        self._local_mode = False
+        self._table_sources = {
+            table: token for table, token in table_sources.items() if is_local_token(token)}
+        if is_file_token(dsn):
+            # File-only query: every member of its File Source is listed.
+            fds = resolve_file_token(dsn)
+            if fds is not None:
+                for table in file_source_table_fields(fds):
+                    self._table_sources.setdefault(table, dsn)
+        self._dsn = dsn
+        self._display_names = display_names
+        selected = _dedupe_tables(
+            list(tables) + list(pinned_tables) + list(self._table_sources))
+        self._tables = selected
+        self._pinned_tables = set(selected)
+        self._preferred_table = preferred_table or (selected[0] if selected else "")
+        if dsn != previous_dsn:
+            self._field_cache.clear()
+            self._current_table = ""
+        self._prime_file_field_cache()
+        if is_file_token(dsn):
+            self._set_source_kind(_SOURCE_FILES)
+            self._fill_connection_combo(self._file_connection_options(dsn), dsn)
+            self._rebuild_table_list()
+            return
+        self._set_source_kind(_SOURCE_ODBC)
+        self._fill_connection_combo(self._connections, dsn)
+        current = self.current_connection()
+        if current and current != self._dsn:
+            self._apply_odbc_source(current)
+            return
+        self._rebuild_table_list()
+
+    def _prime_file_field_cache(self):
+        """Serve file / pasted-list tables' fields from their stored schema."""
+        self._missing_file_tables: set[str] = set()
+        for table, token in self._table_sources.items():
+            if is_list_token(token):
+                data = self._inline_tables.get(table)
+                if data is None:
+                    self._missing_file_tables.add(table)
+                self._field_cache[table] = [
+                    (col, "TEXT", None, "", False) for col in (data or {}).get("columns", [])]
+        for token in {tok for tok in self._table_sources.values() if is_file_token(tok)}:
+            members = [t for t, tok in self._table_sources.items() if tok == token]
+            fds = resolve_file_token(token)
+            fields = file_source_table_fields(fds) if fds is not None else {}
+            for table in members:
+                if table not in fields:
+                    self._missing_file_tables.add(table)
+                self._field_cache[table] = [
+                    (col, type_name, None, "", False)
+                    for col, type_name in fields.get(table, [])
+                ]
+            if fds is not None:
+                self._file_labels[token] = file_source_label(fds)
 
     def set_common_tables(
         self, common_cols: dict[str, list[tuple[str, str]]]
@@ -756,16 +915,19 @@ class FieldPickerPanel(QWidget):
             table for table in sorted(self._pinned_tables, key=str.lower)
             if table not in self._common_table_cols
         ])
+        db_names = [t for t in selected_names if t not in self._table_sources]
+        file_names = [t for t in selected_names if t in self._table_sources]
 
-        for name in selected_names:
+        for name in db_names:
             self._add_table_item(name, pinned=True, common=False)
 
+        if db_names and file_names:
+            self._add_separator()
+        for name in file_names:
+            self._add_table_item(name, pinned=True, common=False, file_table=True)
+
         if selected_names and ct_names:
-            sep = QListWidgetItem("────────────────────")
-            sep.setFlags(Qt.ItemFlag.NoItemFlags)
-            sep.setForeground(QBrush(QColor("#7A8CA5")))
-            sep.setData(Qt.ItemDataRole.UserRole, "__separator__")
-            self.list_tables.addItem(sep)
+            self._add_separator()
 
         for name in ct_names:
             self._add_table_item(name, pinned=True, common=True)
@@ -776,7 +938,15 @@ class FieldPickerPanel(QWidget):
         if self.list_tables.count() > 0:
             self.list_tables.setCurrentRow(0)
 
-    def _add_table_item(self, table: str, *, pinned: bool, common: bool):
+    def _add_separator(self):
+        sep = QListWidgetItem("────────────────────")
+        sep.setFlags(Qt.ItemFlag.NoItemFlags)
+        sep.setForeground(QBrush(QColor("#7A8CA5")))
+        sep.setData(Qt.ItemDataRole.UserRole, "__separator__")
+        self.list_tables.addItem(sep)
+
+    def _add_table_item(self, table: str, *, pinned: bool, common: bool,
+                        file_table: bool = False):
         label = table
         if common:
             label = f"○ {table}"
@@ -786,6 +956,29 @@ class FieldPickerPanel(QWidget):
             item.setForeground(QBrush(QColor("#4F5F73")))
             item.setBackground(QBrush(QColor("#F0F4FA")))
             item.setToolTip(f"Pinned Common Table: {table}")
+        elif file_table:
+            token = self._table_sources.get(table, "")
+            if is_list_token(token):
+                item.setIcon(self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileDialogDetailedView))
+            else:
+                item.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
+            if table in self._missing_file_tables:
+                item.setForeground(QBrush(QColor("#B91C1C")))
+                item.setToolTip(
+                    f"{table}: its File Source is missing or no longer lists this file.")
+            elif is_list_token(token):
+                rows = len(self._inline_tables.get(table, {}).get("rows", []))
+                item.setForeground(QBrush(QColor("#1E3A8A")))
+                item.setToolTip(f"Pasted policy list ({rows} rows)"
+                                " — drag (or double-click) onto the Joins tab")
+            else:
+                item.setForeground(QBrush(QColor("#6B4E00")))
+                item.setToolTip(
+                    f"File dataset from {self._file_labels.get(token, 'a File Source')}"
+                    " — drag (or double-click) onto the Joins tab to join it")
+        elif self._multi_source:
+            item.setToolTip(f"{table} ({self._dsn}) — drag (or double-click) onto the Joins tab")
         self.list_tables.addItem(item)
 
     def _select_table(self, table_name: str) -> bool:
@@ -806,6 +999,8 @@ class FieldPickerPanel(QWidget):
         """Clear the panel."""
         self._dsn = ""
         self._tables = []
+        self._table_sources = {}
+        self._missing_file_tables = set()
         self._available_tables = []
         self._display_names = {}
         self._field_cache.clear()
@@ -837,8 +1032,8 @@ class FieldPickerPanel(QWidget):
         if table in self._field_cache:
             self._populate_fields(table, self._field_cache[table])
             return
-        if self._local_mode:
-            # File-backed sources serve only from the pre-filled cache.
+        if self._local_mode or table in self._table_sources or is_file_token(self._dsn):
+            # File-backed tables serve only from the pre-filled cache.
             self.list_fields.clear()
             self.lbl_status.setText("")
             return
@@ -924,7 +1119,7 @@ class FieldPickerPanel(QWidget):
 
     def _show_table_context_menu(self, pos):
         """Right-click a table → pin/unpin or show field details."""
-        if self._local_mode:
+        if self._local_mode and not self._multi_source:
             return  # file-backed tables aren't ODBC-removable / previewable here
         item = self.list_tables.itemAt(pos)
         if item is None:
@@ -935,10 +1130,11 @@ class FieldPickerPanel(QWidget):
 
         menu = query_builder_menu(self)
         is_common = table in self._common_table_cols
+        is_file = table in self._table_sources
         if not is_common:
             act_remove_table = menu.addAction("Remove Table")
             act_remove_common = None
-            act_preview = menu.addAction("View Top 1000 Rows")
+            act_preview = None if is_file else menu.addAction("View Top 1000 Rows")
         else:
             act_remove_table = None
             act_remove_common = menu.addAction("Remove Common Table")
@@ -951,12 +1147,11 @@ class FieldPickerPanel(QWidget):
             self._tables = [item for item in self._tables if item != table]
             self._pinned_tables.discard(table)
             self._field_cache.pop(table, None)
+            self._table_sources.pop(table, None)
             if self._current_table == table:
                 self._current_table = ""
             self._rebuild_table_list()
-            selected = list(self._tables)
-            self.tables_changed.emit(selected)
-            self.pinned_tables_changed.emit(selected)
+            self._emit_table_changes()
             return
         if act_remove_common is not None and chosen is act_remove_common:
             self.common_table_remove_requested.emit(table)
@@ -1031,27 +1226,77 @@ class FieldPickerPanel(QWidget):
         dialog.exec()
 
     def _on_add_table(self):
-        """Open the Add Table dialog to add more tables from the DSN."""
-        if not self._dsn or self._local_mode:
+        """Open the Add Table dialog (database tables, or file datasets)."""
+        if self._multi_source:
+            self.request_add_tables(
+                _SOURCE_FILES if self._source_kind == _SOURCE_FILES else _SOURCE_ODBC)
             return
+        self._add_odbc_tables_dialog()
+
+    def request_add_tables(self, kind: str) -> list[str]:
+        """Browse and add tables of ``kind`` ("odbc" / "files"); returns the added names."""
+        if kind == _SOURCE_FILES:
+            return self._add_file_tables_dialog()
+        return self._add_odbc_tables_dialog()
+
+    def _add_odbc_tables_dialog(self) -> list[str]:
+        if not self._dsn or self._local_mode or is_file_token(self._dsn):
+            return []
         from .dialogs.tables_dialog import _AddTableDialog
         existing = _dedupe_tables(list(self._tables) + list(self._common_table_cols.keys()))
         dlg = _AddTableDialog(self._dsn, existing, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            new_tables = dlg.get_selected()
-            first_new = ""
-            for t in new_tables:
-                if t not in self._tables:
-                    self._tables.append(t)
-                    self._pinned_tables.add(t)
-                    first_new = first_new or t
-            if first_new:
-                self._preferred_table = first_new
-            self._tables = _dedupe_tables(self._tables)
-            self._rebuild_table_list()
-            selected = list(self._tables)
-            self.tables_changed.emit(selected)
-            self.pinned_tables_changed.emit(selected)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return []
+        added = [t for t in dlg.get_selected() if t not in self._tables]
+        self._add_tables(added)
+        return added
+
+    def _add_file_tables_dialog(self) -> list[str]:
+        from .dialogs.add_file_tables_dialog import AddFileTablesDialog
+
+        preferred = self.current_connection() if self._source_kind == _SOURCE_FILES else ""
+        dlg = AddFileTablesDialog(
+            existing=set(self._tables) | set(self._common_table_cols),
+            preferred_token=preferred if is_file_token(preferred) else "",
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return []
+        added: list[str] = []
+        conflicts: list[str] = []
+        taken = {t.upper() for t in [*self._tables, *self._common_table_cols]}
+        for token, table in dlg.get_selected():
+            # DuckDB table names are case-insensitive, and two File Sources can
+            # both have a member of the same name.
+            if table.upper() in taken:
+                conflicts.append(table)
+                continue
+            taken.add(table.upper())
+            self._table_sources[table] = token
+            added.append(table)
+        self._prime_file_field_cache()
+        self._add_tables(added)
+        if conflicts:
+            self._warn_name_conflicts(conflicts)
+        return added
+
+    def _add_tables(self, tables: list[str]):
+        if not tables:
+            return
+        for table in tables:
+            self._tables.append(table)
+            self._pinned_tables.add(table)
+        self._tables = _dedupe_tables(self._tables)
+        self._preferred_table = tables[0]
+        self._rebuild_table_list()
+        self._emit_table_changes()
+
+    def _warn_name_conflicts(self, tables: list[str]):
+        QMessageBox.warning(
+            self, "Table Already In Query",
+            "A table with the same name is already in this query, so these were "
+            "not added (a query can't tell two same-named tables apart):\n\n"
+            + "\n".join(tables))
 
     def _on_view_table(self):
         """Preview first 1000 rows of the selected table."""

@@ -100,6 +100,194 @@ def _select_prefix(top_clause: str, distinct: bool, dialect: str) -> str:
     return f"{top_clause}{'DISTINCT ' if distinct else ''}"
 
 
+def filter_conditions(filt: dict, qcol: str) -> list[str]:
+    """Render one field filter as WHERE conditions against ``qcol``."""
+    mode = filt.get("mode", "contains")
+    val = str(filt.get("value", "") or "").strip()
+    lo = str(filt.get("range_lo", "") or "").strip()
+    hi = str(filt.get("range_hi", "") or "").strip()
+    list_vals = filt.get("list_values", []) or []
+    if mode == "not_null":
+        # Federated queries: the filter already ran on the database table.
+        return [f"{qcol} IS NOT NULL"]
+    if mode == "contains" and val:
+        return [f"{qcol} LIKE '%{_escape(val)}%'"]
+    if mode == "regex" and val:
+        return [f"{qcol} LIKE '{_escape(val)}'"]
+    if mode == "combo" and val:
+        return [f"{qcol} = '{_escape(val)}'"]
+    if mode == "range":
+        conds = []
+        if lo:
+            conds.append(f"{qcol} >= '{_escape(lo)}'")
+        if hi:
+            conds.append(f"{qcol} <= '{_escape(hi)}'")
+        return conds
+    if mode == "list" and list_vals:
+        escaped = [f"'{_escape(str(v))}'" for v in list_vals]
+        return [f"{qcol} IN ({', '.join(escaped)})"]
+    return []
+
+
+def split_field_key(field_key: str, known_tables=()) -> tuple[str, str]:
+    """Split ``table.column`` into (table, column).
+
+    Table names may be schema-qualified and file column names may contain dots
+    (``SLR Output[Source.Name]``), so the longest known table prefix wins; the
+    last dot is only a fallback when no table is known.
+    """
+    key = str(field_key or "")
+    for table in sorted((t for t in known_tables if t), key=len, reverse=True):
+        if key.startswith(table + "."):
+            return table, key[len(table) + 1:]
+    if "." not in key:
+        return "", key
+    table, column = key.rsplit(".", 1)
+    return table, column
+
+
+def _null_supplied(ji: dict) -> set[str]:
+    """Tables on the optional (null-supplying) side of one join."""
+    how = str(ji.get("join_type", "")).upper()
+    if how.startswith("LEFT"):
+        return {ji["right_table"]}
+    if how.startswith("RIGHT"):
+        return {ji["left_table"]}
+    if how.startswith("FULL"):
+        return {ji["left_table"], ji["right_table"]}
+    return set()
+
+
+def null_supplied_tables(join_infos: list[dict]) -> set[str]:
+    tables: set[str] = set()
+    for ji in join_infos:
+        tables |= _null_supplied(ji)
+    return tables
+
+
+def find_outer_join_ambiguity(join_infos: list[dict]) -> tuple[str, str, str] | None:
+    """(table, outer partner, inner partner) of an ambiguous outer join, if any.
+
+    A table on the optional side of an outer join that is also INNER-joined to
+    some other table (``A LEFT B``, ``B INNER C``) means ``A⟕(B⋈C)`` or
+    ``(A⟕B)⋈C`` depending on which table the query starts from — different rows.
+    """
+    for outer in join_infos:
+        for table in _null_supplied(outer):
+            partner = outer["left_table"] if table == outer["right_table"] else outer["right_table"]
+            for inner in join_infos:
+                if inner is outer or not str(inner.get("join_type", "")).upper().startswith("INNER"):
+                    continue
+                if table in (inner["left_table"], inner["right_table"]):
+                    other = inner["right_table"] if table == inner["left_table"] else inner["left_table"]
+                    if other != partner:
+                        return table, partner, other
+    return None
+
+
+def outer_join_ambiguity(join_infos: list[dict]) -> str:
+    """Why the joins have no single meaning ("" when they do)."""
+    found = find_outer_join_ambiguity(join_infos)
+    if found is None:
+        return ""
+    table, partner, other = found
+    return (
+        f"{table} is on the optional side of its join with {partner} "
+        f"but Inner-joined to {other}, so the result would depend on "
+        f"which table the query starts from.\n\nOn the Joins tab, make "
+        f"the join between {table} and {other} a Left join from "
+        f"{table} (keep all {partner} rows), or make the join with "
+        f"{partner} an Inner join.")
+
+
+def choose_primary_table(used_tables: list[str], join_infos: list[dict],
+                         fallback: str = "") -> str:
+    """Pick the FROM table from the join graph.
+
+    Prefer tables that are never on the optional side of an outer join (so the
+    arrows on the canvas decide the result, not field order), then the first
+    used table, then any joined table.
+    """
+    joined: list[str] = []
+    for ji in join_infos:
+        for table in (ji.get("left_table", ""), ji.get("right_table", "")):
+            if table and table not in joined:
+                joined.append(table)
+    optional = null_supplied_tables(join_infos)
+    preserved = [t for t in joined if t not in optional]
+    for candidates in (preserved, joined):
+        for table in used_tables:
+            if table in candidates:
+                return table
+        if candidates:
+            return candidates[0]
+    if used_tables:
+        return used_tables[0]
+    return fallback
+
+
+_FLIPPED_JOIN = {
+    "LEFT JOIN": "RIGHT JOIN",
+    "RIGHT JOIN": "LEFT JOIN",
+    "LEFT OUTER JOIN": "RIGHT OUTER JOIN",
+    "RIGHT OUTER JOIN": "LEFT OUTER JOIN",
+}
+
+
+def order_join_infos(primary_table: str, join_infos: list[dict]) -> list[dict]:
+    """Orient joins so each one introduces a new table from the tables in scope.
+
+    A join drawn from B to A (``B LEFT JOIN A``) with A already in the FROM
+    scope is emitted as ``A RIGHT JOIN B`` — flipping the direction keeps the
+    preserved side the user chose. A join whose two tables are both already in
+    scope (a cycle) becomes extra ON conditions of the later join. Joins that
+    cannot be reached from the primary table raise ``ValueError``.
+    """
+    in_scope = {primary_table}
+    ordered: list[dict] = []
+    pending = [dict(ji) for ji in join_infos]
+    while pending:
+        progressed = False
+        for original in list(pending):
+            ji = original
+            lt, rt = ji["left_table"], ji["right_table"]
+            if lt in in_scope and rt in in_scope:
+                target = next(
+                    (o for o in reversed(ordered)
+                     if o["right_table"] in (lt, rt)), None)
+                if target is None:
+                    raise ValueError(
+                        f"Join between {lt} and {rt} joins a table to itself.")
+                target.setdefault("cross_pairs", []).extend(
+                    (lt, lc, rt, rc) for lc, rc in ji.get("on_pairs", []))
+            elif lt in in_scope or rt in in_scope:
+                if rt in in_scope:
+                    ji = {
+                        **ji,
+                        "left_table": rt,
+                        "right_table": lt,
+                        "alias_left": ji.get("alias_right", ""),
+                        "alias_right": ji.get("alias_left", ""),
+                        "join_type": _FLIPPED_JOIN.get(
+                            ji.get("join_type", "INNER JOIN"),
+                            ji.get("join_type", "INNER JOIN")),
+                        "on_pairs": [(r, l) for l, r in ji.get("on_pairs", [])],
+                    }
+                ordered.append(ji)
+                in_scope.add(ji["right_table"])
+            else:
+                continue
+            pending.remove(original)
+            progressed = True
+        if not progressed:
+            orphan = pending[0]
+            raise ValueError(
+                f"The join between {orphan['left_table']} and "
+                f"{orphan['right_table']} is not connected to {primary_table}. "
+                "Draw a join line that links every table on the Joins tab.")
+    return ordered
+
+
 def build_dynamic_sql(
     table_name: str,
     max_count: str,
@@ -135,27 +323,7 @@ def build_dynamic_sql(
     wheres: list[str] = []
 
     for filt in field_filters:
-        col = filt["column"]
-        mode = filt.get("mode", "contains")
-        val = filt.get("value", "").strip()
-        lo = filt.get("range_lo", "").strip()
-        hi = filt.get("range_hi", "").strip()
-        list_vals = filt.get("list_values", [])
-
-        if mode == "contains" and val:
-            wheres.append(f"{q(col)} LIKE '%{_escape(val)}%'")
-        elif mode == "regex" and val:
-            wheres.append(f"{q(col)} LIKE '{_escape(val)}'")
-        elif mode == "combo" and val:
-            wheres.append(f"{q(col)} = '{_escape(val)}'")
-        elif mode == "range":
-            if lo:
-                wheres.append(f"{q(col)} >= '{_escape(lo)}'")
-            if hi:
-                wheres.append(f"{q(col)} <= '{_escape(hi)}'")
-        elif mode == "list" and list_vals:
-            escaped = [f"'{_escape(v)}'" for v in list_vals]
-            wheres.append(f"{q(col)} IN ({', '.join(escaped)})")
+        wheres.extend(filter_conditions(filt, q(filt["column"])))
 
     # Build row-limit clause (dialect-specific)
     top_clause = ""
@@ -249,9 +417,12 @@ def collect_field_filters(field_grid) -> list[dict]:
     for row in field_grid._rows:
         mode = row.mode
         col_name = row.field_key
-        # field_key may be "schema.table.column" — extract just column
-        parts = col_name.split(".")
-        actual_col = parts[-1] if parts else col_name
+        registry = getattr(row, "_registry_info", None)
+        if registry and len(registry) > 1 and registry[1]:
+            # The placed field knows its real column (may contain dots).
+            actual_col = str(registry[1])
+        else:
+            actual_col = split_field_key(col_name)[1]
 
         filt = {"column": actual_col, "field_key": col_name, "mode": mode}
 
@@ -297,25 +468,17 @@ def _resolve_field_key(field_key: str, alias_map: dict[str, str],
                        dialect: str) -> str:
     """Resolve a field_key like 'schema.table.column' to a qualified ref.
 
-    Uses alias_map to find the alias/table prefix.  Returns alias.col or
-    table.col (quoted appropriately).
+    Uses alias_map to find the alias/table prefix (longest table name wins, so
+    schema-qualified tables and dotted file column names both resolve).
+    Returns alias.col or table.col (quoted appropriately).
     """
     q = lambda c: _q(c, dialect)
-    parts = field_key.split(".")
-    col = parts[-1]
-
-    if len(parts) >= 2:
-        # Try matching the full table name first (schema.table)
-        if len(parts) == 3:
-            table_name = f"{parts[0]}.{parts[1]}"
-        else:
-            table_name = parts[0]
-
+    table_name, col = split_field_key(field_key, alias_map.keys())
+    if table_name in alias_map:
         alias = alias_map.get(table_name, "")
         if alias:
             return f"{alias}.{q(col)}"
-        if table_name in alias_map:
-            return f"{_q_table(table_name, dialect)}.{q(col)}"
+        return f"{_q_table(table_name, dialect)}.{q(col)}"
 
     # Fallback: bare column (shouldn't happen with properly keyed fields)
     return q(col)
@@ -349,6 +512,7 @@ def build_join_sql(
         dialect: SQL dialect.
     """
     q = lambda col: _q(col, dialect)
+    ordered_joins = order_join_infos(primary_table, join_infos)
 
     # Build alias map: table → alias (or table short name)
     # Track which tables appear and their aliases
@@ -391,30 +555,8 @@ def build_join_sql(
     # ── WHERE clauses from field filters ─────────────────────────
     wheres: list[str] = []
     for filt in field_filters:
-        col = filt["column"]
-        fk = filt.get("field_key", "")
-        mode = filt.get("mode", "contains")
-        val = filt.get("value", "").strip()
-        lo = filt.get("range_lo", "").strip()
-        hi = filt.get("range_hi", "").strip()
-        list_vals = filt.get("list_values", [])
-
-        qcol = _qualify(fk, col)
-
-        if mode == "contains" and val:
-            wheres.append(f"{qcol} LIKE '%{_escape(val)}%'")
-        elif mode == "regex" and val:
-            wheres.append(f"{qcol} LIKE '{_escape(val)}'")
-        elif mode == "combo" and val:
-            wheres.append(f"{qcol} = '{_escape(val)}'")
-        elif mode == "range":
-            if lo:
-                wheres.append(f"{qcol} >= '{_escape(lo)}'")
-            if hi:
-                wheres.append(f"{qcol} <= '{_escape(hi)}'")
-        elif mode == "list" and list_vals:
-            escaped = [f"'{_escape(v)}'" for v in list_vals]
-            wheres.append(f"{qcol} IN ({', '.join(escaped)})")
+        qcol = _qualify(filt.get("field_key", ""), filt["column"])
+        wheres.extend(filter_conditions(filt, qcol))
 
     # ── Row limit ────────────────────────────────────────────────
     top_clause = ""
@@ -482,46 +624,29 @@ def build_join_sql(
     # ── Build FROM + JOINs ───────────────────────────────────────
     from_expr = _table_alias(primary_table, primary_alias, dialect)
 
+    def _ref(table: str, col: str) -> str:
+        alias = alias_map.get(table, "")
+        return (_col_ref(alias, col, dialect) if alias
+                else f"{_q_table(table, dialect)}.{q(col)}")
+
     join_clauses: list[str] = []
-    joined_tables: set[str] = {primary_table}
-    for ji in join_infos:
-        jtype = ji["join_type"]
+    for ji in ordered_joins:
         lt = ji["left_table"]
         rt = ji["right_table"]
-        al = ji["alias_left"]
-        ar = ji["alias_right"]
-
-        # If the right table is already in FROM scope (e.g. primary)
-        # but the left table is not, swap so the new table gets JOINed.
-        swapped = False
-        if rt in joined_tables and lt not in joined_tables:
-            lt, rt = rt, lt
-            al, ar = ar, al
-            swapped = True
-
-        joined_tables.add(rt)
-        join_target = _table_alias(rt, ar, dialect)
-
-        # Build ON clause — use alias_map for globally consistent aliases
-        al_eff = alias_map.get(lt, al)
-        ar_eff = alias_map.get(rt, ar)
-
-        on_parts = []
-        for left_col, right_col in ji["on_pairs"]:
-            if swapped:
-                left_col, right_col = right_col, left_col
-            l_ref = (_col_ref(al_eff, left_col, dialect) if al_eff
-                     else f"{_q_table(lt, dialect)}.{q(left_col)}")
-            r_ref = (_col_ref(ar_eff, right_col, dialect) if ar_eff
-                     else f"{_q_table(rt, dialect)}.{q(right_col)}")
-            on_parts.append(f"{l_ref} = {r_ref}")
+        join_target = _table_alias(rt, alias_map.get(rt, ji.get("alias_right", "")),
+                                   dialect)
+        on_parts = [f"{_ref(lt, left_col)} = {_ref(rt, right_col)}"
+                    for left_col, right_col in ji["on_pairs"]]
+        on_parts.extend(
+            f"{_ref(ta, ca)} = {_ref(tb, cb)}"
+            for ta, ca, tb, cb in ji.get("cross_pairs", []))
 
         # Extra conditions go into ON clause
         for col, expr in ji.get("extra_conditions", []):
             on_parts.append(f"{q(col)} {expr}")
 
         on_clause = " AND ".join(on_parts) if on_parts else "1 = 1"
-        join_clauses.append(f"  {jtype} {join_target}\n    ON {on_clause}")
+        join_clauses.append(f"  {ji['join_type']} {join_target}\n    ON {on_clause}")
 
     # ── Assemble SQL ─────────────────────────────────────────────
     sql = f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}"

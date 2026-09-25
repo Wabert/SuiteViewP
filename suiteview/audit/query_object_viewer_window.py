@@ -2500,8 +2500,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if obj.dsn.strip():
             dsns.add(obj.dsn.strip())
         for source in obj.sources:
-            if source.dsn.strip():
-                dsns.add(source.dsn.strip())
+            dsn = source.dsn.strip()
+            if dsn and not dsn.startswith(("file:", "list:")):
+                dsns.add(dsn)
         return sorted(dsns, key=str.lower)
 
     @staticmethod

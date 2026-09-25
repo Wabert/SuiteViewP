@@ -1072,12 +1072,93 @@ unchecked. See the Audit criteria doc; regression:
 SQL Assist's source label is an **ODBC / Files** toggle button. ODBC lists
 saved connections and system/user DSNs; Files lists saved File Sources
 (`file:<id>` tokens) with their stored member tables and schema, no ODBC.
-Choosing a file makes Visual Query and Manual SQL run through DuckDB via the
-existing `file:` routing; +Table is disabled in Files mode. Toggling with no
+**Manual SQL** (single-source picker): choosing a file makes the SQL run
+through DuckDB via the existing `file:` routing; +Table is disabled in Files
+mode; `FieldPickerPanel.show_file_source()` is its single entry for file-backed
+SQL. **Visual Query** uses `FieldPickerPanel(multi_source=True)`: the toggle
+only chooses what **+Table** browses (database tables, or file datasets via
+`dialogs/add_file_tables_dialog.py`), and the Tables list always shows every
+query table — database tables, then file datasets (file icon). Changing the
+ODBC DSN drops the old DSN's tables but keeps file datasets. Toggling with no
 file sources shows a placeholder and leaves the active query's source intact.
-`FieldPickerPanel.show_file_source()` is the single entry for file-backed
-queries. Regression: `tests/test_dynamic_query.py`; native no-DB check:
-`tools/app/verify_sql_assist_source_toggle.py --screenshot <dir>`.
+Regression: `tests/test_dynamic_query.py`, `tests/test_visual_query_joins_ui.py`;
+native no-DB check: `tools/app/verify_sql_assist_source_toggle.py --screenshot <dir>`.
+
+## Query Visual Query joins and mixed sources
+
+One Visual Query may join **database tables with File Source datasets**.
+`DynamicQuery.table_sources` maps file tables to `file:<id>`; every other
+table belongs to the query DSN (`source_for()`); `query_sources.py` owns the
+token helpers. Persisted as config `table_sources`; the published Query Object
+records each table's own source. Same-named tables from two sources are refused.
+
+The Joins tab (`tabs/visual_joins_tab.py` over `dataforge/join_canvas_view.py`)
+shows only tables placed on it: drag tables (or fields) from SQL Assist or
+double-click a table there, use
+right-click **Add Table** (SQL Assist tables plus **Browse database tables… /
+Browse file datasets…**), or place a field on Filter/Display (its table is
+added automatically). File boxes carry a format badge (CSV, EXCEL…). Drag a
+field onto a field to join; key fields are bolded with a dot; **click a line or
+its INNER/LEFT/RIGHT/FULL pill** for Access-style join types and delete. Append
+Tables stay DataForge-only (not offered in Visual Query). Missing/unconnected
+joins are explicit errors that open the Joins tab.
+
+`build_join_sql` orders joins outward from the FROM table
+(`order_join_infos`); a join drawn toward the in-scope table flips LEFT/RIGHT
+so the preserved side is the one the user chose. Cycles become extra ON
+conditions. The FROM table comes from the join graph (a table never on an outer
+join's optional side), not field order. A table on an optional side that is
+also Inner-joined onward (`A LEFT B`, `B INNER C`) has no single meaning and is
+refused with an explanation (`find_outer_join_ambiguity`); accepted suggestions
+extend such chains with a Left join instead. `split_field_key` uses the longest
+known table prefix — file column names may contain dots (`SLR Output[Source.Name]`).
+
+Mixed or file-only designs run federated (`federated_query.py`): file tables
+load; each database table is staged by its own read-only SELECT with its
+filters pushed down and, only where rows removed could never reach the result
+(INNER, or null-supplying side of LEFT/RIGHT), `KEY IN (...)` from a staged
+neighbour's keys, chunked by 1,000; then the same design compiles to DuckDB.
+Database filters become `IS NOT NULL` in DuckDB (exactly equivalent; keeps WHERE
+semantics). Cross-source keys compare through hidden `__svk…` helper columns
+(dropped from results; the user's columns are never rewritten): numerically when
+either side is a database numeric column, else as trimmed text; file keys are
+re-read as text so identifiers keep leading zeros. A database table with no filter and no safe
+restriction asks before downloading it whole. The SQL tab shows the staging
+plan as comments; edited Build SQL is refused for mixed-source queries.
+Regression: `tests/test_visual_query_federated.py`,
+`tests/test_visual_query_joins_ui.py`; native no-DB end-to-end check (real CSV
+reader + DuckDB, stand-in DB2 fetch): `tools/app/verify_visual_query_joins.py
+--screenshot <dir>`. Live DB2 verification is tracked in WORK_LAPTOP_SPEC.md.
+
+**Paste Policy List** (Joins toolbar, Add Table menu, or Ctrl+V on the canvas)
+turns rows copied from Excel into an in-query table (`list:<name>` in
+`table_sources`; its data in config `inline_tables`), left-joined to
+`DB2TAB.LH_BAS_POL` on `PolicyNumber`/`CompanyCode`/`SystemCode` →
+`CK_POLICY_NBR`/`CK_CMP_CD`/`CK_SYS_CD`, so every pasted row stays in the
+result. `policy_list.py` owns parsing (tab/comma/semicolon/space, header and
+column guessing): policies trimmed/upper-cased, one-digit companies regain the
+leading zero, other pasted columns are kept. Unknown/blank companies, missing
+company column and possible Excel-dropped policy leading zeros are warned;
+padding all-digit policies is an explicit choice (default off, 9 digits),
+never a guess. Pasted lists run federated like file datasets.
+
+**Join suggestions** (`join_suggestions.py`): each canvas table not yet joined
+gets one best partner, drawn as dashed gold `+ JOIN?` lines with a banner
+(Accept / Dismiss; **Suggest Joins** looks again). CyberLife pairs get the full
+`CK_SYS_CD`+`CK_CMP_CD`+`TCH_POL_ID` key (+`COV_PHA_NBR` when both have it);
+lists/files match policy/company/system names (bracketed file names use the
+inner name); otherwise identical key-like names. A company or system match
+alone is never suggested. Dismissals persist with the query.
+
+**Plan badges**: for designs with files/lists, a strip under each database box
+says how it will be fetched — `✓ Only rows matching <table>` (key pushdown),
+`✓ Narrowed by its filters`, or `⚠ Downloads the whole table`; unused boxes say
+so; lists show their row count (details in the tooltip). Pushdown prefers
+identifier keys over broad codes (company/system/phase).
+Column loaders are unparented and kept alive until finished: closing a query
+while a loader waits on ODBC must not destroy a running `QThread` (abort 0xC0000409).
+Regression: `tests/test_visual_query_policy_list.py`; native check using the real
+clipboard: `tools/app/verify_policy_list_paste.py --screenshot <dir>`.
 
 ## Query tool RegEx reference
 
