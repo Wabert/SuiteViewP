@@ -48,17 +48,6 @@ from suiteview.ratemanager.parser import ParseResult
 # Data types
 # ---------------------------------------------------------------------------
 
-@dataclass
-class PointerRecord:
-    """One row of the POINTER table."""
-    plancode: str
-    issue_version: str
-    sex: str
-    rate_class: str
-    band: str
-    state: str
-    index_coi: Optional[int]
-    index_trgprem: Optional[int]
 
 
 @dataclass

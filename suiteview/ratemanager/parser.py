@@ -1,4 +1,4 @@
-﻿"""
+"""
 IAF (Issue Age Factor) Rate File Parser
 
 Parses Cyberlife mainframe IAF fixed-width text files into structured data.

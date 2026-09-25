@@ -25,7 +25,7 @@ from .tabs.field_row import FieldRow, FieldGrid
 from .tabs.results_tab import ResultsTab
 from .tabs.sql_tab import SqlTab
 from .tabs.select_tab import SelectTab
-from .tabs.visual_joins_tab import VisualJoinsTab as JoinsTab
+from .tabs.visual_joins_tab import VisualJoinsTab
 from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
@@ -643,7 +643,7 @@ class DynamicQuery(QWidget):
         self._add_criteria_tab("Filter")
 
         # Joins tab — for building table joins
-        self.joins_tab = JoinsTab(tables=self.tables, dsn=self.dsn)
+        self.joins_tab = VisualJoinsTab(tables=self.tables, dsn=self.dsn)
         self.tab_widget.addTab(self.joins_tab, "Joins")
 
         # Common Tables state — driven from SQL Assist instead of a visible tab

@@ -1957,6 +1957,9 @@ class MainframeNavScreen(QWidget):
         if not connection_id:
             return
         
+        self.edit_conn_button.setEnabled(True)
+        self.delete_conn_button.setEnabled(True)
+        
         # Load connection's dataset
         self.load_connection_dataset(connection_id)
     
@@ -2575,23 +2578,6 @@ class MainframeNavScreen(QWidget):
         except Exception as e:
             logger.error(f"Failed to load connections: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to load connections:\n{str(e)}")
-    
-    def on_connection_list_item_clicked(self, item):
-        """Handle click on connection in list - load its dataset"""
-        if not item:
-            return
-        
-        # Get connection ID from item data
-        connection_id = item.data(Qt.ItemDataRole.UserRole)
-        if not connection_id:
-            return
-        
-        # Enable edit/delete buttons
-        self.edit_conn_button.setEnabled(True)
-        self.delete_conn_button.setEnabled(True)
-        
-        # Load connection's dataset
-        self.load_connection_dataset(connection_id)
     
     def add_connection(self):
         """Add a new mainframe connection"""

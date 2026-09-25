@@ -2577,91 +2577,11 @@ class CategoryButton(QPushButton):
         self._hover_show_timer.stop()
         super().leaveEvent(event)
     
-    def dragEnterEvent(self, event):
-        """Accept drag enter but don't auto-open popup to preserve click behavior"""
-        mime = event.mimeData()
-        if mime.hasFormat('application/x-item-move') or mime.hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-    
     def dragMoveEvent(self, event):
         """Accept drag moves over this button"""
         mime = event.mimeData()
         if mime.hasFormat('application/x-item-move') or mime.hasUrls():
             event.acceptProposedAction()
-        else:
-            event.ignore()
-    
-    def dropEvent(self, event):
-        """
-        Handle drop directly onto this category button.
-        
-        Unified handling for both bookmarks and categories.
-        """
-        mime = event.mimeData()
-        
-        if mime.hasFormat('application/x-item-move'):
-            try:
-                item_data = json.loads(mime.data('application/x-item-move').data().decode())
-                item_type = item_data.get('type')  # 'bookmark' or 'category'
-                item = item_data.get('item', {})
-                item_id = item.get('id')
-                
-                # For categories, don't drop onto self
-                if item_type == 'category' and item.get('name') == self.category_name:
-                    event.ignore()
-                    return
-                
-                from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
-                manager = get_bookmark_manager()
-                
-                # For categories, check for circular reference
-                if item_type == 'category' and manager._is_ancestor_of(item.get('name'), self.category_name):
-                    logger.warning(f"Cannot make '{item.get('name')}' a subcategory of its descendant")
-                    event.ignore()
-                    return
-                
-                # Get target category ID
-                target_category_id = self.category_id
-                if not target_category_id:
-                    target_cat = manager.find_category_by_name(self.category_name)
-                    target_category_id = target_cat.get('id') if target_cat else None
-                
-                if item_id and target_category_id:
-                    # Move item into this category
-                    if manager.move_item(item_id, target_category_id=target_category_id):
-                        manager.save()
-                        logger.info(f"Moved {item_type} '{item.get('name')}' into '{self.category_name}'")
-                        close_all_category_popups()
-                        for container in BookmarkContainerRegistry.get_all_flat():
-                            try:
-                                container.refresh()
-                            except RuntimeError:
-                                pass
-                elif item_type == 'bookmark':
-                    # New bookmark without ID
-                    self._handle_drop(item)
-                    close_all_category_popups()
-                
-                event.acceptProposedAction()
-            except Exception as e:
-                logger.error(f"Error dropping item onto category button: {e}")
-                event.ignore()
-        
-        elif mime.hasUrls():
-            # Dropping file/folder/web URLs from file system - create bookmarks
-            try:
-                for url in mime.urls():
-                    data = _bookmark_data_from_url(url)
-                    if data:
-                        self._handle_drop({'name': data['name'], 'path': data['path']})
-                
-                close_all_category_popups()
-                event.acceptProposedAction()
-            except Exception as e:
-                logger.error(f"Error dropping files onto category: {e}")
-                event.ignore()
         else:
             event.ignore()
     
@@ -4133,14 +4053,13 @@ class BookmarkContainer(QWidget):
             self.refresh()
     
     # -------------------------------------------------------------------------
-    # Backwards Compatibility Methods (for code that used BookmarkBar)
+    # Legacy data-shape helpers
     # -------------------------------------------------------------------------
     
     @property
     def bookmarks_data(self):
         """
-        Backwards compatibility property.
-        Returns a dict-like view of the data that matches the old BookmarkBar structure:
+        Return a dict-like view of the bar data:
         - 'items': Same as self.items (from data_store)
         - 'bar_items': Same as self.items (alias)
         - 'categories': Global categories dict

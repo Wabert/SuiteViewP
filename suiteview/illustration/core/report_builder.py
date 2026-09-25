@@ -36,6 +36,7 @@ from typing import Dict, List, Optional
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
+    DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
     PolicyChangeKind,
