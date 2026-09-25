@@ -14,11 +14,11 @@ from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
-import re
 import shutil
 from pathlib import Path
 
 from suiteview.audit.qdefinition import QDefinition
+from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,7 @@ COMMONS_NAME = "_commons"
 
 def _ensure_dir(forge_name: str = "") -> Path:
     d = _QDEFS_DIR / _safe_filename(forge_name) if forge_name else _QDEFS_DIR
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _safe_filename(name: str) -> str:
-    """Convert a name to a safe filename."""
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+    return ensure_dir(d)
 
 
 def _forge_dir(forge_name: str) -> Path:
@@ -44,7 +38,7 @@ def _forge_dir(forge_name: str) -> Path:
 
 def list_forge_names() -> list[str]:
     """Return all forge names that have QDefs stored."""
-    _QDEFS_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_dir(_QDEFS_DIR)
     names: list[str] = []
     for d in _QDEFS_DIR.iterdir():
         if d.is_dir() and any(d.glob("*.json")):
@@ -58,7 +52,7 @@ def list_qdefs(forge_name: str = "") -> list[QDefinition]:
     If forge_name is empty, returns all QDefs from all forges.
     When a specific forge is given, also includes QDefs from _commons.
     """
-    _QDEFS_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_dir(_QDEFS_DIR)
     qdefs: list[QDefinition] = []
 
     if forge_name:
@@ -141,8 +135,7 @@ def save_qdef(qd: QDefinition) -> None:
     forge = qd.forge_name or COMMONS_NAME
     d = _ensure_dir(forge)
     path = d / f"{_safe_filename(qd.name)}.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(qd.to_dict(), f, indent=2)
+    write_json(path, qd.to_dict(), ensure_ascii=True)
     try:
         from suiteview.audit.query_object import object_from_qdefinition
         from suiteview.audit import query_object_store

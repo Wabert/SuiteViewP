@@ -9,10 +9,10 @@ from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
-import re
 from pathlib import Path
 
 from suiteview.audit.common_table import CommonTable
+from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +20,7 @@ _TABLES_DIR = profile_path('common_tables')
 
 
 def _ensure_dir() -> Path:
-    _TABLES_DIR.mkdir(parents=True, exist_ok=True)
-    return _TABLES_DIR
-
-
-def _safe_filename(name: str) -> str:
-    """Convert a table name to a safe filename."""
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+    return ensure_dir(_TABLES_DIR)
 
 
 def list_tables() -> list[CommonTable]:
@@ -60,8 +54,7 @@ def save_table(ct: CommonTable) -> None:
     """Save a common table. Overwrites if same name exists."""
     _ensure_dir()
     path = _TABLES_DIR / f"{_safe_filename(ct.name)}.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(ct.to_dict(), f, indent=2)
+    write_json(path, ct.to_dict(), ensure_ascii=True)
 
 
 def delete_table(name: str) -> None:

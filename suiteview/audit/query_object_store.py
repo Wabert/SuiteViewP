@@ -29,6 +29,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from suiteview.audit.query_object import OBJECT_KIND_VISUAL, QueryObject
+from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,7 @@ def _objects_dir() -> Path:
 
 
 def _ensure_dir() -> Path:
-    directory = _objects_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
-def _safe_filename(name: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+    return ensure_dir(_objects_dir())
 
 
 def object_path(query_object: QueryObject) -> Path:
@@ -93,8 +88,7 @@ def _load_path(path: Path) -> QueryObject | None:
     if needs_migration:
         try:
             target = object_path(obj)
-            with open(target, "w", encoding="utf-8") as handle:
-                json.dump(obj.to_dict(), handle, indent=2)
+            write_json(target, obj.to_dict(), ensure_ascii=True)
             if target != path:
                 path.unlink(missing_ok=True)
             logger.info("Migrated query object to id storage: %s", target.name)
@@ -211,8 +205,7 @@ def save_object(query_object: QueryObject, *, force_new: bool = False) -> None:
         if existing:
             query_object.id = existing[0].id
     target = object_path(query_object)
-    with open(target, "w", encoding="utf-8") as handle:
-        json.dump(query_object.to_dict(), handle, indent=2)
+    write_json(target, query_object.to_dict(), ensure_ascii=True)
 
     # A rename moves the file: clear any other file carrying this id.
     for path in _objects_dir().glob(f"*__{query_object.id[:8]}.json"):
