@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 import time
 
 import pandas as pd
-import pyodbc
 from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
@@ -25,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.audit.query_builder_menu import query_builder_menu
+from suiteview.core.odbc_utils import connect_dsn
 
 from ..tabs._styles import TightItemDelegate
 
@@ -109,7 +109,9 @@ class _FieldLoaderThread(QThread):
 
     def run(self):
         try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=15)
+            conn = connect_dsn(
+                self.dsn, autocommit=True, timeout=15, readonly=False,
+            )
             cursor = conn.cursor()
 
             # Parse schema.table
@@ -604,7 +606,7 @@ class _AddTableDialog(QDialog):
         self._loader = _FieldLoaderThread.__class__.__mro__  # just need the thread
         # Use inline loading (simpler for a secondary dialog)
         try:
-            conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=15)
+            conn = connect_dsn(dsn, autocommit=True, timeout=15, readonly=False)
             cursor = conn.cursor()
             tables = []
             rows = cursor.tables()
@@ -681,7 +683,9 @@ class _PreviewLoaderThread(QThread):
                 df = load_file_table(self.source_token, self.table_name)
                 self.data_loaded.emit(df.head(self.row_limit).reset_index(drop=True))
                 return
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=30)
+            conn = connect_dsn(
+                self.dsn, autocommit=True, timeout=30, readonly=False,
+            )
             try:
                 cursor = conn.cursor()
                 cursor.execute(_table_view_sql(self.table_name, self.dialect, self.row_limit))

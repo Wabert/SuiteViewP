@@ -83,11 +83,13 @@ class _Connection:
 
 def open_rate_database(product_type):
     """New per-request connection/caches; no reuse of stale rate singleton."""
-    import pyodbc
+    from suiteview.core.odbc_utils import connect_dsn
     from .models.abr_odbc_database import ABROdbcDatabase
     db = ABROdbcDatabase()
     evidence = []
-    connection = pyodbc.connect("DSN=UL_Rates", readonly=True, autocommit=False)
+    connection = connect_dsn(
+        "UL_Rates", autocommit=False, timeout=None, readonly=True,
+    )
     db._conn = _Connection(connection, evidence, product_type)
     return db, evidence
 

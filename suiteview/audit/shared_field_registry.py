@@ -13,7 +13,7 @@ from datetime import datetime
 
 import pyodbc
 
-from suiteview.core.odbc_utils import DB2, detect_dialect
+from suiteview.core.odbc_utils import DB2, connect_dsn, detect_dialect
 from suiteview.core.build_env import guard_data_writable
 
 logger = logging.getLogger(__name__)
@@ -24,9 +24,7 @@ _DATABASE = "UL_Rates"
 
 def _connect() -> pyodbc.Connection:
     """Return a connection to the SQL Server registry database."""
-    conn = pyodbc.connect(f"DSN={_DSN}")
-    conn.autocommit = False
-    return conn
+    return connect_dsn(_DSN, autocommit=False, timeout=None, readonly=False)
 
 
 def _user() -> str:
@@ -141,7 +139,7 @@ def fetch_and_register(table_name: str, column_name: str,
     )
     logger.info("Unique value query: %s (dsn=%s, dialect=%s)", sql, live_dsn, dialect)
 
-    live_conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True)
+    live_conn = connect_dsn(live_dsn, autocommit=True, timeout=None, readonly=False)
     try:
         cursor = live_conn.cursor()
         cursor.execute(sql)
@@ -573,7 +571,7 @@ def list_table_columns(dsn: str, table_name: str) -> list[tuple[str, str, int, s
     parts = table_name.split(".", 1)
     schema, table = (parts[0], parts[1]) if len(parts) == 2 else (None, parts[0])
     live_dsn = dsn or _DSN
-    conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True, timeout=15)
+    conn = connect_dsn(live_dsn, autocommit=True, timeout=15, readonly=False)
     try:
         cursor = conn.cursor()
         columns = []
@@ -628,7 +626,7 @@ def preview_table_rows(dsn: str, table_name: str,
     else:
         sql = f"SELECT TOP {max_rows} * FROM {quoted_table}"
 
-    conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True, timeout=30)
+    conn = connect_dsn(live_dsn, autocommit=True, timeout=30, readonly=False)
     try:
         cursor = conn.cursor()
         cursor.execute(sql)

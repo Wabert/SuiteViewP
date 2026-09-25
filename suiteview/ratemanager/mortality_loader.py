@@ -241,11 +241,11 @@ def _rate_rows(rates: Iterable[MortalityRate]) -> list[tuple[object, ...]]:
 
 def replace_live(package: MortalityPackage, dsn: str = "UL_Rates") -> dict[str, int]:
     """Replace the unused mortality objects atomically and verify row counts."""
-    import pyodbc
     from suiteview.core.build_env import guard_data_writable
+    from suiteview.core.odbc_utils import connect_dsn
 
     guard_data_writable("replace mortality rate tables")
-    connection = pyodbc.connect(f"DSN={dsn}", autocommit=False, timeout=10)
+    connection = connect_dsn(dsn, autocommit=False, timeout=10, readonly=False)
     try:
         cursor = connection.cursor()
         cursor.execute("IF OBJECT_ID('dbo.Select_RATE_MORT', 'V') IS NOT NULL DROP VIEW dbo.Select_RATE_MORT")

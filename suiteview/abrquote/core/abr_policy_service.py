@@ -41,8 +41,14 @@ def find_policy_companies(policy_num: str, region: str = "CKPR") -> List[str]:
     if the lookup fails or no records are found.
     """
     try:
-        from suiteview.polview.models.policy_information import PolicyInformation
-        pi = PolicyInformation(policy_num, company_code=None, region=region)
+        pi = get_policy_info(
+            policy_num,
+            company_code=None,
+            region=region,
+            include_unresolved=True,
+        )
+        if pi is None:
+            return []
         if pi.exists:
             # Single company — get the company code from the loaded data
             co = str(pi.data_item("LH_BAS_POL", "CK_CMP_CD") or "").strip()

@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import pyodbc
 from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag, QColor, QBrush
 from PyQt6.QtWidgets import (
@@ -36,6 +35,7 @@ from .query_sources import (
     resolve_file_token,
 )
 from .tabs._styles import TightItemDelegate
+from suiteview.core.odbc_utils import connect_dsn
 
 if TYPE_CHECKING:
     pass
@@ -175,7 +175,9 @@ class _FieldLoaderThread(QThread):
 
     def run(self):
         try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=15)
+            conn = connect_dsn(
+                self.dsn, autocommit=True, timeout=15, readonly=False,
+            )
             cursor = conn.cursor()
             parts = [_clean_odbc_identifier(part) for part in self.table_name.split(".", 1)]
             if len(parts) == 2:
@@ -210,7 +212,9 @@ class _TableLoaderThread(QThread):
 
     def run(self):
         try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=15)
+            conn = connect_dsn(
+                self.dsn, autocommit=True, timeout=15, readonly=False,
+            )
             cursor = conn.cursor()
             tables = []
             for table_type in ("TABLE", "VIEW"):

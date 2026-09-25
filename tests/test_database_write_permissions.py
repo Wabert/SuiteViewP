@@ -22,7 +22,7 @@ from suiteview.ratemanager.whole_life.service import WholeLifeRepository
 @pytest.fixture(autouse=True)
 def no_live_database(monkeypatch):
     connect = Mock(side_effect=AssertionError("Tests must never use live databases"))
-    monkeypatch.setattr(loader.pyodbc, "connect", connect)
+    monkeypatch.setattr(loader, "connect_dsn", connect)
     return connect
 
 
@@ -75,7 +75,7 @@ def test_read_only_role_can_still_run_read_queries(sql, rights, monkeypatch):
     cursor = connection.cursor.return_value
     cursor.description = [("rate",)]
     cursor.fetchall.return_value = [(1,)]
-    monkeypatch.setattr(query_runner.pyodbc, "connect", Mock(return_value=connection))
+    monkeypatch.setattr(query_runner, "connect_dsn", Mock(return_value=connection))
     assert query_runner.execute_odbc_query("UL_Rates", sql) == (["rate"], [(1,)])
     cursor.execute.assert_called_once_with(sql)
     connection.close.assert_called_once()

@@ -75,7 +75,7 @@ def probe_dsn_connection(dsn: str) -> tuple[bool, str]:
     and Access alike. Returns ``(success, error_message)``.
     """
     try:
-        conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=5)
+        conn = connect_dsn(dsn, autocommit=True, timeout=5, readonly=False)
         conn.close()
         return True, ""
     except pyodbc.Error as exc:
@@ -106,6 +106,39 @@ def access_connection_string(path: str) -> str:
     return f"DRIVER={{{driver}}};DBQ={path};"
 
 
+def _connect_connection_string(
+    connection_string: str, *, autocommit: bool, timeout: int | None, readonly: bool
+) -> pyodbc.Connection:
+    options = {"autocommit": autocommit, "readonly": readonly}
+    if timeout is not None:
+        options["timeout"] = timeout
+    return pyodbc.connect(connection_string, **options)
+
+
+def connect_dsn(
+    dsn: str, *, autocommit: bool, timeout: int | None = None, readonly: bool = False
+) -> pyodbc.Connection:
+    """Open an ODBC DSN with explicit connection semantics."""
+    return _connect_connection_string(
+        f"DSN={dsn}",
+        autocommit=autocommit,
+        timeout=timeout,
+        readonly=readonly,
+    )
+
+
+def connect_access_file(
+    path: str, *, autocommit: bool, timeout: int | None = None, readonly: bool = False
+) -> pyodbc.Connection:
+    """Open an Access database file using the shared Access connection string."""
+    return _connect_connection_string(
+        access_connection_string(path),
+        autocommit=autocommit,
+        timeout=timeout,
+        readonly=readonly,
+    )
+
+
 def probe_access_connection(path: str) -> tuple[bool, str]:
     """Test reachability of an MS Access file. Returns ``(success, message)``."""
     import os
@@ -117,7 +150,7 @@ def probe_access_connection(path: str) -> tuple[bool, str]:
     if not access_driver():
         return False, "Microsoft Access ODBC driver not installed"
     try:
-        conn = pyodbc.connect(access_connection_string(path), autocommit=True, timeout=5)
+        conn = connect_access_file(path, autocommit=True, timeout=5, readonly=False)
         conn.close()
         return True, ""
     except pyodbc.Error as exc:
@@ -136,7 +169,7 @@ def list_access_tables(path: str) -> list[str]:
     if not path or not os.path.exists(path) or not access_driver():
         return []
     try:
-        conn = pyodbc.connect(access_connection_string(path), autocommit=True, timeout=5)
+        conn = connect_access_file(path, autocommit=True, timeout=5, readonly=False)
         try:
             names = [
                 str(row.table_name)
@@ -222,7 +255,7 @@ def test_dsn_connection(dsn: str) -> tuple[bool, str]:
         contains the driver/server error text.
     """
     try:
-        conn = pyodbc.connect(f"DSN={dsn}", autocommit=True)
+        conn = connect_dsn(dsn, autocommit=True, timeout=None, readonly=False)
         conn.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
         conn.close()
         return True, ""

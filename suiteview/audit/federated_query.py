@@ -368,9 +368,9 @@ class OdbcSession:
     def _connection(self, dsn: str):
         conn = self._connections.get(dsn)
         if conn is None:
-            import pyodbc
+            from suiteview.core.odbc_utils import connect_dsn
 
-            conn = pyodbc.connect(f"DSN={dsn}", autocommit=True)
+            conn = connect_dsn(dsn, autocommit=True, timeout=None, readonly=False)
             self._connections[dsn] = conn
         return conn
 
