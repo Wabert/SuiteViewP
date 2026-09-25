@@ -24,6 +24,11 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFrame, QApplication
 
+from suiteview.ui.widgets.frame_geometry import (
+    cursor_for_resize_edge,
+    resize_edge_at,
+)
+
 _RESIZE_MARGIN = 6
 _MIN_HEIGHT_DEFAULT = 200
 # Distance (px) from a screen edge at which a dragged, undocked panel snaps
@@ -278,34 +283,9 @@ class DockableToolPanel(QWidget):
 
     # -- 8-edge resize + header drag ---------------------------------------
 
-    _EDGE_CURSORS = {
-        "left":   Qt.CursorShape.SizeHorCursor,
-        "right":  Qt.CursorShape.SizeHorCursor,
-        "top":    Qt.CursorShape.SizeVerCursor,
-        "bottom": Qt.CursorShape.SizeVerCursor,
-        "tl":     Qt.CursorShape.SizeFDiagCursor,
-        "br":     Qt.CursorShape.SizeFDiagCursor,
-        "tr":     Qt.CursorShape.SizeBDiagCursor,
-        "bl":     Qt.CursorShape.SizeBDiagCursor,
-    }
-
     def _edge_at(self, pos) -> Optional[str]:
         """Return the resize edge/corner name at pos, or None."""
-        em = _RESIZE_MARGIN
-        x, y, w, h = pos.x(), pos.y(), self.width(), self.height()
-        on_left   = x <= em
-        on_right  = x >= w - em
-        on_top    = y <= em
-        on_bottom = y >= h - em
-        if on_top and on_left:     return "tl"
-        if on_top and on_right:    return "tr"
-        if on_bottom and on_left:  return "bl"
-        if on_bottom and on_right: return "br"
-        if on_left:   return "left"
-        if on_right:  return "right"
-        if on_top:    return "top"
-        if on_bottom: return "bottom"
-        return None
+        return resize_edge_at(pos, self.rect(), _RESIZE_MARGIN)
 
     def _in_header(self, pos) -> bool:
         """Return True if pos is inside the header widget."""
@@ -365,7 +345,7 @@ class DockableToolPanel(QWidget):
         else:
             edge = self._edge_at(event.pos())
             if edge:
-                self.setCursor(self._EDGE_CURSORS[edge])
+                self.setCursor(cursor_for_resize_edge(edge))
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
         super().mouseMoveEvent(event)

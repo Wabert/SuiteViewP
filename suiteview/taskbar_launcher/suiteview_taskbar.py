@@ -29,6 +29,14 @@ from suiteview.taskbar_launcher.single_instance import activation_message
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
 from suiteview.file_nav.sharepoint_client import is_sp_path
 from suiteview.ui.widgets.uppercase_input import force_uppercase
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.ui.widgets.frame_geometry import (
+    ALL_RESIZE_EDGES,
+    cursor_for_resize_edge,
+    resize_edge_at,
+    resize_geometry_for_edge,
+    update_cursor_for_resize_edge,
+)
 from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 
 # Import unified bookmark widgets for sidebar categories
@@ -3107,17 +3115,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
                 self._start_geometry = None
                 
             def _get_cursor(self):
-                cursors = {
-                    'left': Qt.CursorShape.SizeHorCursor,
-                    'right': Qt.CursorShape.SizeHorCursor,
-                    'top': Qt.CursorShape.SizeVerCursor,
-                    'bottom': Qt.CursorShape.SizeVerCursor,
-                    'top-left': Qt.CursorShape.SizeFDiagCursor,
-                    'bottom-right': Qt.CursorShape.SizeFDiagCursor,
-                    'top-right': Qt.CursorShape.SizeBDiagCursor,
-                    'bottom-left': Qt.CursorShape.SizeBDiagCursor,
-                }
-                return cursors.get(self.edge, Qt.CursorShape.ArrowCursor)
+                return cursor_for_resize_edge(self.edge) or Qt.CursorShape.ArrowCursor
                 
             def mousePressEvent(self, event):
                 # Block resize when docked compact or floating
@@ -3136,27 +3134,12 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
                     return
                 if self._dragging and self._start_geometry:
                     delta = event.globalPosition().toPoint() - self._start_pos
-                    geo = self._start_geometry
-                    new_x, new_y = geo.x(), geo.y()
-                    new_w, new_h = geo.width(), geo.height()
-                    min_w, min_h = 330, 46  # Allow shrinking to just header bar
-                    
-                    # Calculate fixed edges for proper clamping
-                    right_edge = geo.x() + geo.width()
-                    bottom_edge = geo.y() + geo.height()
-                    
-                    if 'left' in self.edge:
-                        new_w = max(min_w, geo.width() - delta.x())
-                        new_x = right_edge - new_w  # Keep right edge fixed
-                    if 'right' in self.edge:
-                        new_w = max(min_w, geo.width() + delta.x())
-                    if 'top' in self.edge:
-                        new_h = max(min_h, geo.height() - delta.y())
-                        new_y = bottom_edge - new_h  # Keep bottom edge fixed
-                    if 'bottom' in self.edge:
-                        new_h = max(min_h, geo.height() + delta.y())
-                    
-                    self.parent_window.setGeometry(new_x, new_y, new_w, new_h)
+                    self.parent_window.setGeometry(resize_geometry_for_edge(
+                        self._start_geometry,
+                        delta,
+                        self.edge,
+                        QSize(330, 46),
+                    ))
                     event.accept()
                     
             def mouseReleaseEvent(self, event):
@@ -3164,34 +3147,8 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
                 self._start_pos = None
                 self._start_geometry = None
         
-        # Create edge widgets
-        margin = 6
-        
-        # Top edge
-        self._edge_top = ResizeEdge(self, 'top')
-        self._resize_widgets.append(('top', self._edge_top))
-        
-        # Bottom edge  
-        self._edge_bottom = ResizeEdge(self, 'bottom')
-        self._resize_widgets.append(('bottom', self._edge_bottom))
-        
-        # Left edge
-        self._edge_left = ResizeEdge(self, 'left')
-        self._resize_widgets.append(('left', self._edge_left))
-        
-        # Right edge
-        self._edge_right = ResizeEdge(self, 'right')
-        self._resize_widgets.append(('right', self._edge_right))
-        
-        # Corners
-        self._edge_tl = ResizeEdge(self, 'top-left')
-        self._resize_widgets.append(('top-left', self._edge_tl))
-        
-        self._edge_tr = ResizeEdge(self, 'top-right')
-        self._resize_widgets.append(('top-right', self._edge_tr))
-        
-        self._edge_bl = ResizeEdge(self, 'bottom-left')
-        self._resize_widgets.append(('bottom-left', self._edge_bl))
+        for edge in ALL_RESIZE_EDGES:
+            self._resize_widgets.append((edge, ResizeEdge(self, edge)))
         
     def resizeEvent(self, event):
         """Position the resize widgets on resize and collapse/expand UI elements"""
@@ -3233,6 +3190,8 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
                     widget.setGeometry(w - margin, 0, margin, margin)
                 elif edge_name == 'bottom-left':
                     widget.setGeometry(0, h - margin, margin, margin)
+                elif edge_name == 'bottom-right':
+                    widget.setGeometry(w - margin, h - margin, margin, margin)
                 widget.raise_()
     
     def init_ui(self):
@@ -4500,52 +4459,6 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
 
         self._is_compact_mode = False
 
-    
-    def _get_resize_edge(self, pos):
-        """Determine which edge/corner is being hovered for resize"""
-        margin = self._resize_margin
-        rect = self.rect()
-        
-        left = pos.x() < margin
-        right = pos.x() > rect.width() - margin
-        top = pos.y() < margin
-        bottom = pos.y() > rect.height() - margin
-        
-        if top and left:
-            return 'top-left'
-        elif top and right:
-            return 'top-right'
-        elif bottom and left:
-            return 'bottom-left'
-        elif bottom and right:
-            return 'bottom-right'
-        elif left:
-            return 'left'
-        elif right:
-            return 'right'
-        elif top:
-            return 'top'
-        elif bottom:
-            return 'bottom'
-        return None
-    
-    def _update_cursor_for_edge(self, edge):
-        """Update cursor based on resize edge"""
-        cursors = {
-            'left': Qt.CursorShape.SizeHorCursor,
-            'right': Qt.CursorShape.SizeHorCursor,
-            'top': Qt.CursorShape.SizeVerCursor,
-            'bottom': Qt.CursorShape.SizeVerCursor,
-            'top-left': Qt.CursorShape.SizeFDiagCursor,
-            'bottom-right': Qt.CursorShape.SizeFDiagCursor,
-            'top-right': Qt.CursorShape.SizeBDiagCursor,
-            'bottom-left': Qt.CursorShape.SizeBDiagCursor,
-        }
-        if edge in cursors:
-            self.setCursor(cursors[edge])
-        else:
-            self.unsetCursor()
-    
     def mousePressEvent(self, event):
         """Handle mouse press for dragging and resizing"""
         # Right-click anywhere on the bar → show bookmark bars popup
@@ -4568,7 +4481,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
             
             # Check if we're on a resize edge (not in floating mode)
             if not getattr(self, '_is_floating_mode', False):
-                edge = self._get_resize_edge(pos)
+                edge = resize_edge_at(pos, self.rect(), self._resize_margin)
                 if edge and not self._is_maximized:
                     self._resizing = True
                     self._resize_edge = edge
@@ -4712,8 +4625,8 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         
         # Update cursor when not pressing
         if not event.buttons():
-            edge = self._get_resize_edge(pos)
-            self._update_cursor_for_edge(edge)
+            edge = resize_edge_at(pos, self.rect(), self._resize_margin)
+            update_cursor_for_resize_edge(self, edge)
             super().mouseMoveEvent(event)
             return
         
@@ -4721,29 +4634,12 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
             # Handle resizing (takes priority - check first)
             if self._resizing and self._resize_edge and self._resize_start_pos is not None:
                 delta = event.globalPosition().toPoint() - self._resize_start_pos
-                geo = self._start_geometry
-                
-                new_x, new_y = geo.x(), geo.y()
-                new_w, new_h = geo.width(), geo.height()
-                min_w, min_h = 330, 46  # Allow shrinking to just header bar
-                
-                # For left/top edges, we need to keep the opposite edge fixed
-                # Calculate the fixed edges
-                right_edge = geo.x() + geo.width()
-                bottom_edge = geo.y() + geo.height()
-                
-                if 'left' in self._resize_edge:
-                    new_w = max(min_w, geo.width() - delta.x())
-                    new_x = right_edge - new_w  # Keep right edge fixed
-                if 'right' in self._resize_edge:
-                    new_w = max(min_w, geo.width() + delta.x())
-                if 'top' in self._resize_edge:
-                    new_h = max(min_h, geo.height() - delta.y())
-                    new_y = bottom_edge - new_h  # Keep bottom edge fixed
-                if 'bottom' in self._resize_edge:
-                    new_h = max(min_h, geo.height() + delta.y())
-                
-                self.setGeometry(new_x, new_y, new_w, new_h)
+                self.setGeometry(resize_geometry_for_edge(
+                    self._start_geometry,
+                    delta,
+                    self._resize_edge,
+                    QSize(330, 46),
+                ))
                 event.accept()
                 return
             
@@ -5168,7 +5064,7 @@ class BookmarkBarsPopup(QWidget):
 # FileNavWindow — Standalone File Navigator window (Blue & Gold theme)
 # =============================================================================
 
-class FileNavWindow(NativeMinimizeMixin, QWidget):
+class FileNavWindow(FramelessWindowBase):
     """Standalone File Navigator window with classic Blue & Gold theme.
     
     This window provides the full file explorer experience (multi-tab,
@@ -5192,40 +5088,23 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
 
     def __init__(self, parent_bar=None):
         guard_app_access("FILENAV")
-        super().__init__()
         self._parent_bar = parent_bar  # Reference to SuiteView compact bar
-
-        # Frameless window setup
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowMinMaxButtonsHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumSize(600, 400)
-
-        # Enable mouse tracking for resize
-        self.setMouseTracking(True)
-
-        # Drag tracking
-        self._drag_pos = None
-        self._is_maximized = False
-
-        # Snap-to-edge state
-        self._is_snapped = False
-        self._normal_geometry = None
-        self._snap_preview = None
-        self._snap_edge_threshold = 10  # px from screen edge to trigger snap
-
-        # Resize edge detection
-        self._resize_margin = 6
-        self._resizing = False
-        self._resize_edge = None
-        self._resize_start_pos = None
-        self._start_geometry = None
 
         # Shared splitter sizes
         self._shared_splitter_sizes = None
         self._syncing_splitter = False
 
-        self._init_ui()
-        self._add_resize_grips()
+        super().__init__(
+            title="FileNav",
+            default_size=(1400, 800),
+            min_size=(600, 400),
+            header_colors=(self._BLUE_START, self._BLUE_MID, self._BLUE_END),
+            border_color=self._GOLD_PRIMARY,
+            header_title_stretch=0,
+        )
+        self.setWindowTitle("SuiteView - FileNav")
+        self.close_btn.clicked.disconnect()
+        self.close_btn.clicked.connect(self.hide)
 
         # Create initial tab
         self.add_new_tab()
@@ -5240,10 +5119,69 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
     # ------------------------------------------------------------------
     #  UI Construction
     # ------------------------------------------------------------------
+    def header_title_style(self):
+        return f"""
+            QLabel {{
+                color: {self._GOLD_PRIMARY};
+                font-size: 18px;
+                font-weight: bold;
+                font-style: italic;
+                background: transparent;
+                padding-right: 4px;
+            }}
+        """
+
+    def header_widgets(self):
+        # ====== TOOLS DROPDOWN MENU ======
+        self.tools_menu_btn = QPushButton("Tools")
+        self.tools_menu_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                padding: 4px 12px;
+                color: {self._GOLD_PRIMARY};
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                color: {self._GOLD_BRIGHT};
+            }}
+            QPushButton::menu-indicator {{
+                image: none;
+            }}
+        """)
+
+        self.tools_menu = QMenu(self)
+        self.tools_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {self._BLUE_START};
+                border: 1px solid {self._GOLD_PRIMARY};
+                border-radius: 4px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                background-color: transparent;
+                color: white;
+                padding: 6px 20px;
+                font-size: 11px;
+            }}
+            QMenu::item:selected {{
+                background-color: #3A7DC8;
+            }}
+        """)
+        self.tools_menu.addAction("Print Directory", self._tools_print_directory)
+        self.tools_menu.addAction("Batch Rename", self._tools_batch_rename)
+        self.tools_menu_btn.setMenu(self.tools_menu)
+        return [self.tools_menu_btn]
+
+    def build_content(self):
+        return self._init_ui()
+
     def _init_ui(self):
         """Build the FileNav window UI with classic Blue & Gold theme."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         # Global scrollbar styling — blue-tinted (matching SuiteView bar)
@@ -5291,143 +5229,6 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
                 background: none;
             }
         """)
-
-        # ====== HEADER BAR (Blue gradient with gold accents — same as SuiteView) ======
-        self.header_bar = QFrame()
-        self.header_bar.setFixedHeight(38)
-        self.header_bar.setMouseTracking(True)
-        self.header_bar.setStyleSheet(f"""
-            QFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self._BLUE_START}, stop:0.5 {self._BLUE_MID},
-                    stop:1 {self._BLUE_END});
-                border: none;
-            }}
-        """)
-        self.header_bar.setCursor(Qt.CursorShape.ArrowCursor)
-        header_layout = QHBoxLayout(self.header_bar)
-        header_layout.setContentsMargins(12, 4, 8, 4)
-        header_layout.setSpacing(8)
-
-        # Title — "FileNav" in gold on blue
-        self.title_label = QLabel("FileNav")
-        self.title_label.setStyleSheet(f"""
-            QLabel {{
-                color: {self._GOLD_PRIMARY};
-                font-size: 18px;
-                font-weight: bold;
-                font-style: italic;
-                background: transparent;
-                padding-right: 4px;
-            }}
-        """)
-        header_layout.addWidget(self.title_label)
-
-        # ====== TOOLS DROPDOWN MENU ======
-        self.tools_menu_btn = QPushButton("Tools")
-        self.tools_menu_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                padding: 4px 12px;
-                color: {self._GOLD_PRIMARY};
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                color: {self._GOLD_BRIGHT};
-            }}
-            QPushButton::menu-indicator {{
-                image: none;
-            }}
-        """)
-
-        self.tools_menu = QMenu(self)
-        self.tools_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {self._BLUE_START};
-                border: 1px solid {self._GOLD_PRIMARY};
-                border-radius: 4px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                background-color: transparent;
-                color: white;
-                padding: 6px 20px;
-                font-size: 11px;
-            }}
-            QMenu::item:selected {{
-                background-color: #3A7DC8;
-            }}
-        """)
-        self.tools_menu.addAction("Print Directory", self._tools_print_directory)
-        self.tools_menu.addAction("Batch Rename", self._tools_batch_rename)
-        self.tools_menu_btn.setMenu(self.tools_menu)
-        header_layout.addWidget(self.tools_menu_btn)
-
-        # Spacer pushes window controls to the right
-        header_spacer = QWidget()
-        header_spacer.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        header_spacer.setMinimumWidth(20)
-        header_layout.addWidget(header_spacer)
-
-        # ====== WINDOW CONTROL BUTTONS (gold text on blue) ======
-        window_btn_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 0px;
-                padding: 0px;
-                min-width: 40px;
-                max-width: 40px;
-                min-height: 28px;
-                max-height: 28px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-        """
-
-        # Minimize
-        self.minimize_btn = QPushButton("–")
-        self.minimize_btn.setStyleSheet(window_btn_style + f"""
-            QPushButton {{ color: {self._GOLD_PRIMARY}; }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.15);
-                color: {self._GOLD_BRIGHT};
-            }}
-        """)
-        self.minimize_btn.setToolTip("Minimize")
-        self.minimize_btn.clicked.connect(self.showMinimized)
-        header_layout.addWidget(self.minimize_btn)
-
-        # Maximize / Restore
-        self.maximize_btn = QPushButton("□")
-        self.maximize_btn.setStyleSheet(window_btn_style + f"""
-            QPushButton {{ color: {self._GOLD_PRIMARY}; }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.15);
-                color: {self._GOLD_BRIGHT};
-            }}
-        """)
-        self.maximize_btn.setToolTip("Maximize")
-        self.maximize_btn.clicked.connect(self._toggle_maximize)
-        header_layout.addWidget(self.maximize_btn)
-
-        # Close
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setStyleSheet(window_btn_style + f"""
-            QPushButton {{ color: {self._GOLD_PRIMARY}; }}
-            QPushButton:hover {{
-                background-color: #E81123;
-                color: {self._GOLD_BRIGHT};
-            }}
-        """)
-        self.close_btn.setToolTip("Close")
-        self.close_btn.clicked.connect(self.hide)
-        header_layout.addWidget(self.close_btn)
-
-        layout.addWidget(self.header_bar)
 
         # ====== TAB WIDGET (Blue & Gold themed tabs — same as SuiteView) ======
         self.tab_widget = QTabWidget()
@@ -5525,6 +5326,7 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
         footer_layout.addWidget(self.footer_size)
 
         layout.addWidget(self.footer_bar)
+        return body
 
     # ------------------------------------------------------------------
     #  Tab management
@@ -5736,63 +5538,10 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
                 self.tab_widget.tabCloseRequested.emit(idx)
                 return
 
-    # ------------------------------------------------------------------
-    #  Window controls
-    # ------------------------------------------------------------------
-    def changeEvent(self, event):
-        """Keep _is_maximized in sync with the actual Qt window state.
-
-        This catches maximise / restore triggered by the OS (Win+Up,
-        taskbar right-click, etc.) that bypass _toggle_maximize().
-        """
-        if event.type() == QEvent.Type.WindowStateChange:
-            maximized_now = bool(self.windowState() & Qt.WindowState.WindowMaximized)
-            if maximized_now and not self._is_maximized:
-                self._is_maximized = True
-                self._is_snapped = False
-                self.maximize_btn.setText("❐")
-            elif not maximized_now and self._is_maximized:
-                self._is_maximized = False
-                self.maximize_btn.setText("□")
-        super().changeEvent(event)
-
-    def _toggle_maximize(self):
-        """Toggle maximized / normal."""
-        if self._is_maximized:
-            self.showNormal()
-            self.maximize_btn.setText("□")
-            self._is_maximized = False
-            self._is_snapped = False
-            self._normal_geometry = None
-        else:
-            if not self._is_maximized and not self._is_snapped:
-                self._normal_geometry = self.geometry()
-            self.showMaximized()
-            self.maximize_btn.setText("❐")
-            self._is_maximized = True
-            self._is_snapped = False
-
-    # ------------------------------------------------------------------
-    #  Resize grips
-    # ------------------------------------------------------------------
-    def _add_resize_grips(self):
-        """Add resize grips to edges for frameless window resizing."""
-        from PyQt6.QtWidgets import QSizeGrip
-        self.size_grip = QSizeGrip(self)
-        self.size_grip.setStyleSheet("QSizeGrip { background: transparent; }")
-
-        self._resize_widgets = []
-        edges = ['top', 'bottom', 'left', 'right',
-                 'top-left', 'top-right', 'bottom-left']
-        for edge in edges:
-            widget = _ResizeEdge(self, edge)
-            self._resize_widgets.append((edge, widget))
-
     def resizeEvent(self, event):
-        """Reposition resize widgets and update size label."""
+        """Collapse/expand FileNav content and update its footer size label."""
         super().resizeEvent(event)
         w, h = self.width(), self.height()
-        margin = 6
 
         if hasattr(self, 'footer_bar') and hasattr(self, 'tab_widget'):
             if h < 70:
@@ -5805,246 +5554,6 @@ class FileNavWindow(NativeMinimizeMixin, QWidget):
                 self.footer_bar.show()
                 self.tab_widget.show()
 
-        if hasattr(self, 'size_grip'):
-            self.size_grip.move(w - 16, h - 16)
-            self.size_grip.raise_()
-
-        if hasattr(self, '_resize_widgets'):
-            for edge_name, widget in self._resize_widgets:
-                if edge_name == 'top':
-                    widget.setGeometry(margin, 0, w - 2*margin, margin)
-                elif edge_name == 'bottom':
-                    widget.setGeometry(margin, h - margin, w - 2*margin, margin)
-                elif edge_name == 'left':
-                    widget.setGeometry(0, margin, margin, h - 2*margin)
-                elif edge_name == 'right':
-                    widget.setGeometry(w - margin, margin, margin, h - 2*margin)
-                elif edge_name == 'top-left':
-                    widget.setGeometry(0, 0, margin, margin)
-                elif edge_name == 'top-right':
-                    widget.setGeometry(w - margin, 0, margin, margin)
-                elif edge_name == 'bottom-left':
-                    widget.setGeometry(0, h - margin, margin, margin)
-                widget.raise_()
-
         # Update footer size label
         if hasattr(self, 'footer_size'):
             self.footer_size.setText(f"{w} × {h}")
-
-    # ------------------------------------------------------------------
-    #  Snap-to-edge helpers
-    # ------------------------------------------------------------------
-    def _detect_snap_edge(self, global_pos):
-        """Return 'left' or 'right' if global_pos is near a screen edge."""
-        screen = QApplication.screenAt(global_pos)
-        if screen is None:
-            return None
-        avail = screen.availableGeometry()
-        threshold = self._snap_edge_threshold
-        if global_pos.x() <= avail.left() + threshold:
-            return 'left'
-        if global_pos.x() >= avail.right() - threshold:
-            return 'right'
-        return None
-
-    def _show_snap_preview(self, edge, global_pos):
-        """Show a translucent overlay on the target half of the screen."""
-        from suiteview.ui.widgets.frameless_window import _SnapPreview
-        screen = QApplication.screenAt(global_pos)
-        if screen is None:
-            return
-        avail = screen.availableGeometry()
-        if edge == 'left':
-            target = QRect(avail.x(), avail.y(),
-                           avail.width() // 2, avail.height())
-        else:
-            half_w = avail.width() // 2
-            target = QRect(avail.x() + half_w, avail.y(),
-                           avail.width() - half_w, avail.height())
-        if self._snap_preview is None:
-            self._snap_preview = _SnapPreview()
-        self._snap_preview.setGeometry(target)
-        self._snap_preview.show()
-
-    def _hide_snap_preview(self):
-        if self._snap_preview is not None:
-            self._snap_preview.hide()
-            self._snap_preview.deleteLater()
-            self._snap_preview = None
-
-    def _snap_to_edge(self, edge, global_pos):
-        """Snap the window to the left or right half of the screen."""
-        screen = QApplication.screenAt(global_pos)
-        if screen is None:
-            return
-        avail = screen.availableGeometry()
-        if not self._is_snapped and not self._is_maximized:
-            self._normal_geometry = self.geometry()
-        if edge == 'left':
-            target = QRect(avail.x(), avail.y(),
-                           avail.width() // 2, avail.height())
-        else:
-            half_w = avail.width() // 2
-            target = QRect(avail.x() + half_w, avail.y(),
-                           avail.width() - half_w, avail.height())
-        self.setGeometry(target)
-        self._is_snapped = True
-        self._is_maximized = False
-        self.maximize_btn.setText("□")
-
-    # ------------------------------------------------------------------
-    #  Mouse handling (drag & resize)
-    # ------------------------------------------------------------------
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            header_rect = self.header_bar.geometry()
-            if header_rect.contains(event.pos()):
-                widget_at = self.childAt(event.pos())
-                if not isinstance(widget_at, QPushButton):
-                    self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                    event.accept()
-                    return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._drag_pos is not None and event.buttons() == Qt.MouseButton.LeftButton:
-            global_pos = event.globalPosition().toPoint()
-
-            # Un-maximize on drag (restore previous window size)
-            if self._is_maximized:
-                self._is_maximized = False
-                self.showNormal()
-                self.maximize_btn.setText("□")
-                restore_geo = self._normal_geometry or QRect(0, 0, 1400, 800)
-                self._normal_geometry = None
-                new_w = restore_geo.width()
-                self.resize(new_w, restore_geo.height())
-                self.move(global_pos.x() - new_w // 2, global_pos.y() - 20)
-                self._drag_pos = global_pos - self.frameGeometry().topLeft()
-            # Un-snap on drag (restore previous window size)
-            elif self._is_snapped:
-                self._is_snapped = False
-                restore_geo = self._normal_geometry or QRect(0, 0, 1400, 800)
-                self._normal_geometry = None
-                cursor = global_pos
-                new_w = restore_geo.width()
-                self.resize(new_w, restore_geo.height())
-                self.move(cursor.x() - new_w // 2, cursor.y() - 20)
-                self._drag_pos = cursor - self.frameGeometry().topLeft()
-            else:
-                self.move(global_pos - self._drag_pos)
-
-            # Show / hide snap preview while dragging
-            snap_edge = self._detect_snap_edge(global_pos)
-            if snap_edge:
-                self._show_snap_preview(snap_edge, global_pos)
-            else:
-                self._hide_snap_preview()
-
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if self._drag_pos is not None:
-            global_pos = event.globalPosition().toPoint()
-            snap_edge = self._detect_snap_edge(global_pos)
-            if snap_edge and not self._is_maximized:
-                self._snap_to_edge(snap_edge, global_pos)
-            self._hide_snap_preview()
-        self._drag_pos = None
-        super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            header_rect = self.header_bar.geometry()
-            if header_rect.contains(event.pos()):
-                widget_at = self.childAt(event.pos())
-                if not isinstance(widget_at, QPushButton):
-                    self._toggle_maximize()
-                    event.accept()
-                    return
-        super().mouseDoubleClickEvent(event)
-
-    # ------------------------------------------------------------------
-    #  Paint — blue border with gold accent
-    # ------------------------------------------------------------------
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        r = self.rect().adjusted(1, 1, -1, -1)
-        painter.setPen(QPen(QColor(self._GOLD_PRIMARY), 2))
-        painter.drawRect(r)
-        painter.setPen(QPen(QColor(self._GOLD_PRIMARY), 3))
-        painter.drawLine(r.bottomLeft(), r.bottomRight())
-        painter.end()
-
-
-class _ResizeEdge(QWidget):
-    """Invisible edge widget for frameless window resizing."""
-
-    def __init__(self, parent, edge):
-        super().__init__(parent)
-        self.edge = edge
-        self.parent_window = parent
-        self.setMouseTracking(True)
-        self.setCursor(self._get_cursor())
-        self.setStyleSheet("background-color: transparent;")
-        self._dragging = False
-        self._start_pos = None
-        self._start_geometry = None
-
-    def _get_cursor(self):
-        curmap = {
-            'top': Qt.CursorShape.SizeVerCursor,
-            'bottom': Qt.CursorShape.SizeVerCursor,
-            'left': Qt.CursorShape.SizeHorCursor,
-            'right': Qt.CursorShape.SizeHorCursor,
-            'top-left': Qt.CursorShape.SizeFDiagCursor,
-            'bottom-right': Qt.CursorShape.SizeFDiagCursor,
-            'top-right': Qt.CursorShape.SizeBDiagCursor,
-            'bottom-left': Qt.CursorShape.SizeBDiagCursor,
-        }
-        return curmap.get(self.edge, Qt.CursorShape.ArrowCursor)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            # Un-maximize first — can't resize a maximized window
-            pw = self.parent_window
-            if getattr(pw, '_is_maximized', False):
-                pw._is_maximized = False
-                pw.showNormal()
-                if hasattr(pw, 'maximize_btn'):
-                    pw.maximize_btn.setText("□")
-            self._dragging = True
-            self._start_pos = event.globalPosition().toPoint()
-            self._start_geometry = self.parent_window.geometry()
-
-    def mouseMoveEvent(self, event):
-        if not self._dragging:
-            return
-        gp = event.globalPosition().toPoint()
-        dx = gp.x() - self._start_pos.x()
-        dy = gp.y() - self._start_pos.y()
-        g = self._start_geometry
-        new_x, new_y = g.x(), g.y()
-        new_w, new_h = g.width(), g.height()
-
-        if 'left' in self.edge:
-            new_x = g.x() + dx
-            new_w = g.width() - dx
-        if 'right' in self.edge:
-            new_w = g.width() + dx
-        if 'top' in self.edge:
-            new_y = g.y() + dy
-            new_h = g.height() - dy
-        if 'bottom' in self.edge:
-            new_h = g.height() + dy
-
-        min_w = self.parent_window.minimumWidth()
-        min_h = self.parent_window.minimumHeight()
-        if new_w >= min_w and new_h >= min_h:
-            self.parent_window.setGeometry(new_x, new_y, new_w, new_h)
-
-    def mouseReleaseEvent(self, event):
-        self._dragging = False

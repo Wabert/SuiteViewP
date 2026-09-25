@@ -36,6 +36,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QFileInfo, QTimer, QByteArray, QBuffer, QIODevice, QRect, QPoint
 from PyQt6.QtGui import QDrag, QCursor, QIcon, QPixmap, QGuiApplication
 
+from suiteview.ui.widgets.frame_geometry import (
+    cursor_for_resize_edge,
+    resize_edge_at,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -1358,17 +1363,7 @@ class EditBookmarkDialog(QDialog):
         # Update cursor for edge hover
         edge = self._edge_at(event.position().toPoint())
         if edge:
-            cursors = {
-                'right': Qt.CursorShape.SizeHorCursor,
-                'left': Qt.CursorShape.SizeHorCursor,
-                'bottom': Qt.CursorShape.SizeVerCursor,
-                'top': Qt.CursorShape.SizeVerCursor,
-                'bottom-right': Qt.CursorShape.SizeFDiagCursor,
-                'bottom-left': Qt.CursorShape.SizeBDiagCursor,
-                'top-right': Qt.CursorShape.SizeBDiagCursor,
-                'top-left': Qt.CursorShape.SizeFDiagCursor,
-            }
-            self.setCursor(cursors.get(edge, Qt.CursorShape.ArrowCursor))
+            self.setCursor(cursor_for_resize_edge(edge) or Qt.CursorShape.ArrowCursor)
         else:
             self.unsetCursor()
         super().mouseMoveEvent(event)
@@ -1382,17 +1377,7 @@ class EditBookmarkDialog(QDialog):
     
     def _edge_at(self, pos, margin=6):
         """Return edge name if pos is near a dialog edge, else None."""
-        r = self.rect()
-        edge = ''
-        if pos.y() >= r.height() - margin:
-            edge += 'bottom'
-        elif pos.y() <= margin:
-            edge += 'top'
-        if pos.x() >= r.width() - margin:
-            edge += ('-' if edge else '') + 'right'
-        elif pos.x() <= margin:
-            edge += ('-' if edge else '') + 'left'
-        return edge or None
+        return resize_edge_at(pos, self.rect(), margin)
     
     def _on_save(self):
         new_name = self.name_edit.text().strip()

@@ -15,7 +15,7 @@ import logging
 import sys
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QPoint, QRect, QEvent
+from PyQt6.QtCore import Qt, QPoint, QRect, QEvent, QSize
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -23,6 +23,15 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.window_state import NativeMinimizeMixin
+from suiteview.ui.widgets.frame_geometry import (
+    ALL_RESIZE_EDGES,
+    cursor_for_resize_edge,
+    detect_snap_edge,
+    resize_edge_at,
+    resize_geometry_for_edge,
+    snap_rect_for_edge,
+    update_cursor_for_resize_edge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +169,8 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
     def __init__(self, title: str = "SuiteView", default_size=(1000, 700),
                  min_size=(500, 450), parent=None,
                  header_colors=None, border_color="#D4A017",
-                 header_widgets=None):
+                 header_widgets=None, header_prefix_widgets=None,
+                 header_title_stretch=0):
         super().__init__(parent)
 
         # Theme colours -- header gradient stops & border
@@ -169,6 +179,8 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         )
         self._border_color = border_color
         self._header_widgets = header_widgets or []
+        self._header_prefix_widgets = header_prefix_widgets or []
+        self._header_title_stretch = header_title_stretch
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -256,6 +268,26 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
             }}
         """)
 
+    def header_prefix_widgets(self):
+        """Return widgets placed before the title in the header bar."""
+        return list(self._header_prefix_widgets)
+
+    def header_widgets(self):
+        """Return widgets placed between the title and window controls."""
+        return list(self._header_widgets)
+
+    def header_title_style(self):
+        """Return the stylesheet for the header title label."""
+        return """
+            QLabel {
+                color: #FFFFFF;
+                font-size: 18px;
+                font-weight: bold;
+                font-style: italic;
+                background: transparent;
+            }
+        """
+
     def set_header_colors(self, colors):
         """Swap the header gradient at runtime (e.g. a mode indicator)."""
         self._header_colors = tuple(colors)
@@ -280,24 +312,20 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         layout.setContentsMargins(12, 4, 8, 4)
         layout.setSpacing(8)
 
+        for widget in self.header_prefix_widgets():
+            layout.addWidget(widget)
+
         # Title (always plain text — a runtime set_title may carry
         # user-entered strings, e.g. a saved-case name)
         self._title_label = QLabel(title)
         self._title_label.setTextFormat(Qt.TextFormat.PlainText)
-        self._title_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 18px;
-                font-weight: bold;
-                font-style: italic;
-                background: transparent;
-            }
-        """)
-        layout.addWidget(self._title_label)
+        self._title_label.setStyleSheet(self.header_title_style())
+        self.title_label = self._title_label
+        layout.addWidget(self._title_label, self._header_title_stretch)
         layout.addStretch()
 
         # Custom header widgets (injected)
-        for widget in self._header_widgets:
+        for widget in self.header_widgets():
             layout.addWidget(widget)
 
         # Window control buttons
@@ -322,12 +350,14 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         min_btn.clicked.connect(self.showMinimized)
         layout.addWidget(min_btn)
         self.min_btn = min_btn
+        self.minimize_btn = min_btn
 
         self.max_btn = QPushButton("\u25A1")
         self.max_btn.setStyleSheet(btn_style)
         self.max_btn.setToolTip("Maximize")
         self.max_btn.clicked.connect(self._toggle_maximize)
         layout.addWidget(self.max_btn)
+        self.maximize_btn = self.max_btn
 
         close_btn = QPushButton("\u2715")
         close_btn.setStyleSheet(btn_style + f"""
@@ -339,6 +369,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         close_btn.setToolTip("Close")
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn)
+        self.close_btn = close_btn
 
         return bar
 
@@ -409,8 +440,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
             self.size_grip.hide()
             return
 
-        for edge in ('top', 'bottom', 'left', 'right',
-                     'top-left', 'top-right', 'bottom-left'):
+        for edge in ALL_RESIZE_EDGES:
             w = _ResizeEdge(self, edge)
             self._resize_widgets.append((edge, w))
             w.raise_()
@@ -435,43 +465,14 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
     # â”€â”€ Edge detection helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _get_resize_edge(self, pos):
-        margin = self._resize_margin
-        rect = self.rect()
-        left = pos.x() < margin
-        right = pos.x() > rect.width() - margin
-        top = pos.y() < margin
-        bottom = pos.y() > rect.height() - margin
-
-        if top and left:     return 'top-left'
-        if top and right:    return 'top-right'
-        if bottom and left:  return 'bottom-left'
-        if bottom and right: return 'bottom-right'
-        if left:   return 'left'
-        if right:  return 'right'
-        if top:    return 'top'
-        if bottom: return 'bottom'
-        return None
+        return resize_edge_at(pos, self.rect(), self._resize_margin)
 
     @staticmethod
     def _cursor_for_edge(edge):
-        cursors = {
-            'left':         Qt.CursorShape.SizeHorCursor,
-            'right':        Qt.CursorShape.SizeHorCursor,
-            'top':          Qt.CursorShape.SizeVerCursor,
-            'bottom':       Qt.CursorShape.SizeVerCursor,
-            'top-left':     Qt.CursorShape.SizeFDiagCursor,
-            'bottom-right': Qt.CursorShape.SizeFDiagCursor,
-            'top-right':    Qt.CursorShape.SizeBDiagCursor,
-            'bottom-left':  Qt.CursorShape.SizeBDiagCursor,
-        }
-        return cursors.get(edge)
+        return cursor_for_resize_edge(edge)
 
     def _update_cursor_for_edge(self, edge):
-        cursor = self._cursor_for_edge(edge)
-        if cursor:
-            self.setCursor(cursor)
-        else:
-            self.unsetCursor()
+        update_cursor_for_resize_edge(self, edge)
 
     # â”€â”€ Event overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -510,6 +511,8 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
                     widget.setGeometry(w - margin, 0, margin, margin)
                 elif edge_name == 'bottom-left':
                     widget.setGeometry(0, h - margin, margin, margin)
+                elif edge_name == 'bottom-right':
+                    widget.setGeometry(w - margin, h - margin, margin, margin)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -539,27 +542,15 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         screen = QApplication.screenAt(global_pos)
         if screen is None:
             return None
-        avail = screen.availableGeometry()
-        threshold = self._snap_edge_threshold
-        if global_pos.x() <= avail.left() + threshold:
-            return 'left'
-        if global_pos.x() >= avail.right() - threshold:
-            return 'right'
-        return None
+        return detect_snap_edge(
+            global_pos, screen.availableGeometry(), self._snap_edge_threshold)
 
     def _show_snap_preview(self, edge: str, global_pos: QPoint):
         """Show a translucent overlay on the target half of the screen."""
         screen = QApplication.screenAt(global_pos)
         if screen is None:
             return
-        avail = screen.availableGeometry()
-        if edge == 'left':
-            target = QRect(avail.x(), avail.y(),
-                           avail.width() // 2, avail.height())
-        else:
-            half_w = avail.width() // 2
-            target = QRect(avail.x() + half_w, avail.y(),
-                           avail.width() - half_w, avail.height())
+        target = snap_rect_for_edge(edge, screen.availableGeometry())
 
         if self._snap_preview is None:
             self._snap_preview = _SnapPreview()
@@ -577,18 +568,10 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         screen = QApplication.screenAt(global_pos)
         if screen is None:
             return
-        avail = screen.availableGeometry()
-
         if not self._is_snapped and not self._is_maximized:
             self._normal_geometry = self.geometry()
 
-        if edge == 'left':
-            target = QRect(avail.x(), avail.y(),
-                           avail.width() // 2, avail.height())
-        else:
-            half_w = avail.width() // 2
-            target = QRect(avail.x() + half_w, avail.y(),
-                           avail.width() - half_w, avail.height())
+        target = snap_rect_for_edge(edge, screen.availableGeometry())
 
         self.setGeometry(target)
         self._is_snapped = True
@@ -625,25 +608,12 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
             if self._resizing and self._resize_edge and self._resize_start_pos is not None:
                 delta = event.globalPosition().toPoint() - self._resize_start_pos
                 geo = self._start_geometry
-                new_x, new_y = geo.x(), geo.y()
-                new_w, new_h = geo.width(), geo.height()
-                min_w = self.minimumWidth()
-                min_h = self.minimumHeight()
-                right_edge = geo.x() + geo.width()
-                bottom_edge = geo.y() + geo.height()
-
-                if 'left' in self._resize_edge:
-                    new_w = max(min_w, geo.width() - delta.x())
-                    new_x = right_edge - new_w
-                if 'right' in self._resize_edge:
-                    new_w = max(min_w, geo.width() + delta.x())
-                if 'top' in self._resize_edge:
-                    new_h = max(min_h, geo.height() - delta.y())
-                    new_y = bottom_edge - new_h
-                if 'bottom' in self._resize_edge:
-                    new_h = max(min_h, geo.height() + delta.y())
-
-                self.setGeometry(new_x, new_y, new_w, new_h)
+                self.setGeometry(resize_geometry_for_edge(
+                    geo,
+                    delta,
+                    self._resize_edge,
+                    QSize(self.minimumWidth(), self.minimumHeight()),
+                ))
                 event.accept()
                 return
 
@@ -857,7 +827,7 @@ class _ResizeEdge(QFrame):
         self.edge = edge
         self.parent_window = parent_window
         self.setMouseTracking(True)
-        cursor = FramelessWindowBase._cursor_for_edge(edge)
+        cursor = cursor_for_resize_edge(edge)
         if cursor:
             self.setCursor(cursor)
         self.setStyleSheet("background-color: transparent;")
@@ -875,26 +845,15 @@ class _ResizeEdge(QFrame):
     def mouseMoveEvent(self, event):
         if self._dragging and self._start_geometry:
             delta = event.globalPosition().toPoint() - self._start_pos
-            geo = self._start_geometry
-            new_x, new_y = geo.x(), geo.y()
-            new_w, new_h = geo.width(), geo.height()
-            min_w = self.parent_window.minimumWidth()
-            min_h = self.parent_window.minimumHeight()
-            right_edge = geo.x() + geo.width()
-            bottom_edge = geo.y() + geo.height()
-
-            if 'left' in self.edge:
-                new_w = max(min_w, geo.width() - delta.x())
-                new_x = right_edge - new_w
-            if 'right' in self.edge:
-                new_w = max(min_w, geo.width() + delta.x())
-            if 'top' in self.edge:
-                new_h = max(min_h, geo.height() - delta.y())
-                new_y = bottom_edge - new_h
-            if 'bottom' in self.edge:
-                new_h = max(min_h, geo.height() + delta.y())
-
-            self.parent_window.setGeometry(new_x, new_y, new_w, new_h)
+            self.parent_window.setGeometry(resize_geometry_for_edge(
+                self._start_geometry,
+                delta,
+                self.edge,
+                QSize(
+                    self.parent_window.minimumWidth(),
+                    self.parent_window.minimumHeight(),
+                ),
+            ))
             event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -1037,4 +996,3 @@ class FramelessDialog(QDialog):
         painter.setPen(QPen(QColor(self._border_color), 2))
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         painter.end()
-
