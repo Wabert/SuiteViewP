@@ -1,10 +1,7 @@
-"""Public CyberLife audit SQL imports.
-
-The implementation lives in :mod:`suiteview.audit.cyberlife_sql`.
-"""
+"""CyberLife audit SQL generation package."""
 from __future__ import annotations
 
-from .cyberlife_sql import (
+from .assembler import (
     _conversion_sc_cte,
     _name_match_predicate,
     _participation_description,

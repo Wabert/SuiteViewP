@@ -47,6 +47,7 @@ from .tabs._styles import style_combo as _style_combo, _ensure_checkmark, _CHECK
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
 from .cyberlife_query import build_cyberlife_sql
+from .cyberlife_criteria import collect_audit_criteria
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
 from .field_picker_panel import FieldPickerPanel
@@ -1626,7 +1627,7 @@ class AuditWindow(FramelessWindowBase):
         """Build the CyberLife audit SQL — delegates to cyberlife_query module."""
         region = self.cmb_region.currentText()
         schema = REGION_SCHEMA_MAP.get(region, DEFAULT_SCHEMA)
-        sql = build_cyberlife_sql(
+        criteria = collect_audit_criteria(
             schema=schema,
             sys_code=self.cmb_system.currentText().strip(),
             max_count_text=self.txt_max_count.text().strip(),
@@ -1645,6 +1646,7 @@ class AuditWindow(FramelessWindowBase):
             segment52_tab=self.segment52_tab,
             wl_tab=self.wl_tab,
         )
+        sql = build_cyberlife_sql(criteria)
 
         return sql
 
