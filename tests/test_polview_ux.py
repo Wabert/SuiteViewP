@@ -58,7 +58,7 @@ class SummaryPolicy(SimpleNamespace):
 
 def summary_policy(**overrides):
     base = SimpleNamespace(plancode="1U143900", form_number="EXEC-UL", face_amount=Decimal("100000"),
-                           issue_date=date(2009, 10, 19), issue_age=38)
+                           issue_date=date(2009, 10, 19), issue_age=38, cov_pha_nbr=1)
     values = dict(
         exists=True, policy_number="U0613620", company_code="01", region="CKPR",
         system_code="I", coverages=[base], premium_pay_status_code="22",
@@ -352,6 +352,92 @@ def test_background_table_presence_reports_errors_and_stays_retryable():
     assert session._policy._data.cleared
 
 
+# ── timeline, compare, record card ──────────────────────────────────────────
+
+def test_timeline_orders_events_names_sources_and_skips_sentinels():
+    from suiteview.polview.services.policy_timeline import build_policy_timeline, relative_text
+
+    tables = {
+        ("LH_BAS_POL", "APP_WRT_DT"): "2009-09-01",
+        ("LH_BAS_POL", "PRM_PAID_TO_DT"): date(2026, 9, 15),
+        ("LH_BAS_POL", "PLN_TMN_DT"): "9999-12-31",
+        ("LH_TAMRA_7_PY_PER", "SVPY_PER_STR_DT"): date(2020, 2, 29),
+    }
+    cov = SimpleNamespace(cov_pha_nbr=1, plancode="1U143900", issue_date=date(2009, 10, 19),
+                          maturity_date=date(2092, 10, 19), terminate_date=None,
+                          table_rating=2, table_cease_date=date(2030, 1, 1), flat_extra=None)
+    policy = summary_policy(in_grace=True, grace_period_expiry_date=date(2026, 10, 15),
+                            coverages=[cov])
+    policy.data_item = lambda table, field, index=0: tables.get((table, field))
+    policy.get_benefits = lambda: [SimpleNamespace(benefit_code="39", cov_pha_nbr=1,
+                                                   issue_date=None, pay_up_date=None,
+                                                   cease_date=date(2031, 10, 19))]
+    events = build_policy_timeline(policy)
+    labels = [e.label for e in events]
+    assert labels[0] == "Application written"
+    assert "Policy terminated" not in labels
+    assert "7-pay period ends (start + 7 years)" in labels
+    ends = next(e for e in events if e.label.startswith("7-pay period ends"))
+    assert ends.when == date(2027, 2, 28)
+    assert any(e.label == "Grace period expires" for e in events)
+    assert any("table rating ceases" in e.label for e in events)
+    assert [e.when for e in events] == sorted(e.when for e in events)
+    assert all(e.source for e in events)
+    assert relative_text(date(2026, 9, 30), date(2026, 9, 24)) == "in 6 days"
+    assert relative_text(date(2020, 9, 24), date(2026, 9, 24)) == "6.0 years ago"
+
+
+def test_compare_pairs_rows_by_key_and_reports_extras():
+    from suiteview.polview.services.policy_compare import compare_policies, only_in
+
+    first = {
+        "LH_BAS_POL": {"columns": ["TCH_POL_ID", "PRM_PAY_STA_REA_CD", "POL_PRM_AMT"],
+                       "rows": [("A  X", "22", 33.02)]},
+        "LH_COV_PHA": {"columns": ["TCH_POL_ID", "COV_PHA_NBR", "COV_UNT_QTY"],
+                       "rows": [("A  X", 2, 140), ("A  X", 1, 100)]},
+        "LH_SPM_BNF": {"columns": ["SPM_BNF_TYP_CD"], "rows": [("3",), ("1",)]},
+        "FH_FIXED": {"columns": ["SEQ_NO"], "rows": [(1,)]},
+    }
+    second = {
+        "LH_BAS_POL": {"columns": ["TCH_POL_ID", "PRM_PAY_STA_REA_CD", "POL_PRM_AMT"],
+                       "rows": [("B  Y", "22", 40.00)]},
+        "LH_COV_PHA": {"columns": ["TCH_POL_ID", "COV_PHA_NBR", "COV_UNT_QTY"],
+                       "rows": [("B  Y", 1, 100), ("B  Y", 2, 150)]},
+        "LH_SPM_BNF": {"columns": ["SPM_BNF_TYP_CD"], "rows": [("3",)]},
+    }
+    diffs = compare_policies(first, second)
+    found = {(d.table, d.row, d.column, d.first, d.second) for d in diffs}
+    assert ("LH_BAS_POL", "row 1", "POL_PRM_AMT", "33.02", "40.0") in found
+    assert ("LH_COV_PHA", "COV_PHA_NBR=2", "COV_UNT_QTY", "140", "150") in found
+    assert not any(d.column == "TCH_POL_ID" for d in diffs)
+    assert ("LH_SPM_BNF", "(row count)", "rows", "2", "1") in found
+    assert ("LH_SPM_BNF", "SPM_BNF_TYP_CD=1", "(whole row)", "present", "missing") in found
+    assert any(d.column == "TCH_POL_ID" for d in compare_policies(first, second, ignore_identity=False))
+    assert only_in(first, second) == (["FH_FIXED"], [])
+
+
+def test_record_card_lists_interpreted_and_raw_fields(qtbot):
+    from dataclasses import dataclass, field
+
+    from suiteview.polview.ui.polview_dialogs import RecordCardDialog, record_card_rows
+
+    @dataclass
+    class Card:
+        plancode: str
+        issue_date: date
+        face_amount: Decimal
+        raw_data: dict = field(default_factory=dict)
+
+    card = Card("1U143900", date(2009, 10, 19), Decimal("100000"), {"PLN_DES_SER_CD": "1U143900 "})
+    rows = record_card_rows(card)
+    assert ("Interpreted", "issue_date", "10/19/2009") in rows
+    assert ("Interpreted", "face_amount", "100,000") in rows
+    assert ("DB2 column", "PLN_DES_SER_CD", "1U143900") in rows
+    dialog = RecordCardDialog("Coverage 1", card)
+    qtbot.addWidget(dialog)
+    assert dialog.table.rowCount() == 4
+
+
 # ── main window ──────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -462,3 +548,27 @@ def test_field_finder_indexes_fields_across_tabs(window, qtbot):
     assert "Paid-To Date" in labels
     assert "Premiums Paid" in labels
     assert any(label.endswith("(column)") for label in labels)
+
+
+def test_timeline_and_compare_dialogs_open_from_the_window(window, qtbot):
+    from suiteview.polview.ui.polview_dialogs import CompareDialog, TimelineDialog
+
+    window.load_policy("ONE1")
+    settle(qtbot, window)
+    window._policy.data_item = lambda table, field, index=0: None
+    window._policy.get_benefits = lambda: []
+    window._policy.cached_tables = lambda: {"LH_BAS_POL": {"columns": ["A"], "rows": [(1,)]}}
+    window._open_timeline()
+    assert any(isinstance(d, TimelineDialog) for d in window._dialogs)
+    window._open_compare()
+    compare = next(d for d in window._dialogs if isinstance(d, CompareDialog))
+    assert not compare.other.isEnabled()
+    first = window._policy
+    window.load_policy("TWO2")
+    settle(qtbot, window)
+    window._policy.cached_tables = lambda: {"LH_BAS_POL": {"columns": ["A"], "rows": [(2,)]}}
+    window._open_compare()
+    compare = [d for d in window._dialogs if isinstance(d, CompareDialog)][-1]
+    assert compare.other.count() == 1
+    assert compare.table.rowCount() == 1
+    assert first.policy_number == "ONE1"

@@ -325,6 +325,8 @@ class GetPolicyWindow(FramelessWindowBase):
         self.summary_strip.suggestion_clicked.connect(self._on_suggestion_clicked)
         self.summary_strip.copy_requested.connect(self._copy_policy_summary)
         self.summary_strip.notes_requested.connect(self._open_policy_notes)
+        self.summary_strip.timeline_requested.connect(self._open_timeline)
+        self.summary_strip.compare_requested.connect(self._open_compare)
         strip_layout.addWidget(self.summary_strip)
         main_layout.addWidget(strip_host)
 
@@ -566,6 +568,41 @@ class GetPolicyWindow(FramelessWindowBase):
         self._dialogs = [d for d in self._dialogs if _alive(d)]
         self._dialogs.append(dialog)
 
+    @pyqtSlot()
+    def _open_timeline(self):
+        if self._policy is None or not self._policy.exists:
+            self._show_status("Load a policy to see its timeline")
+            return
+        from datetime import date as _date
+        from ..services.policy_timeline import build_policy_timeline
+        from .polview_dialogs import TimelineDialog
+
+        policy = self._policy
+        dialog = TimelineDialog(
+            f"Timeline · {policy.company_code} - {policy.policy_number}",
+            build_policy_timeline(policy), _date.today(), self,
+        )
+        self._keep_dialog(dialog)
+        dialog.show()
+
+    @pyqtSlot()
+    def _open_compare(self):
+        if self._policy is None or not self._policy.exists:
+            self._show_status("Load a policy to compare it")
+            return
+        from .polview_dialogs import CompareDialog
+
+        current_key = self._current_aux_key()
+        label = lambda key: f"{key[1]} - {key[2]} - {key[0]}"
+        choices = [
+            (label(key), entry["policy"].cached_tables())
+            for key, entry in self._policy_cache.items()
+            if key != current_key and entry["policy"].exists
+        ]
+        dialog = CompareDialog((label(current_key), self._policy.cached_tables()), choices, self)
+        self._keep_dialog(dialog)
+        dialog.show()
+
     @pyqtSlot(str)
     def _on_suggestion_clicked(self, key: str):
         if key == "reinstatement":
@@ -639,6 +676,8 @@ class GetPolicyWindow(FramelessWindowBase):
             bind("Alt+Right", self._go_forward),
             bind("Ctrl+Shift+C", self._copy_policy_summary),
             bind("Ctrl+N", self._open_policy_notes),
+            bind("Ctrl+D", self._open_timeline),
+            bind("Ctrl+Shift+D", self._open_compare),
             bind("Ctrl+F", self._open_field_finder),
             bind("Ctrl+T", self._shortcut_toggle_tree),
             bind("F1", self._show_help),
@@ -1409,6 +1448,15 @@ class GetPolicyWindow(FramelessWindowBase):
         self.background_ready.emit()
 
     # == Tree selection handlers ===========================================
+
+    def open_source_table(self, table_name: str):
+        """Jump from a field's documented source to its rows in Raw Table."""
+        from ..config.policy_records import POLICY_RECORD_TABLES
+
+        record = next((name for name, tables in POLICY_RECORD_TABLES.items()
+                       if table_name in tables), "")
+        self._show_status(f"Opening {table_name} rows…")
+        self._on_table_selected(record, table_name)
 
     def _on_table_selected(self, policy_record: str, table_name: str):
         if not self._db or not self._where_clause:

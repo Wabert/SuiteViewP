@@ -34,6 +34,8 @@ def main() -> int:
     parser.add_argument("--tabs", default="", help="Comma-separated tab-title filter")
     parser.add_argument("--panels", action="store_true",
                         help="Also open the Tables & Rates panel's Tables view")
+    parser.add_argument("--dialogs", action="store_true",
+                        help="After the last policy, open Timeline and Compare (vs earlier policies)")
     args = parser.parse_args()
     width, height = (int(v) for v in args.size.lower().split("x"))
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -131,6 +133,21 @@ def main() -> int:
                     ]
                     window._toggle_tree_panel()
                 report["policies"].append(entry)
+            if args.dialogs:
+                from suiteview.polview.ui.polview_dialogs import CompareDialog, TimelineDialog
+
+                window._open_timeline()
+                window._open_compare()
+                pump(600)
+                for dialog in window._dialogs:
+                    kind = "timeline" if isinstance(dialog, TimelineDialog) else (
+                        "compare" if isinstance(dialog, CompareDialog) else "dialog")
+                    shot = args.output_dir / f"dialog_{kind}.png"
+                    dialog.grab().save(str(shot), "PNG")
+                    info = {"kind": kind, "screenshot": str(shot), "rows": dialog.table.rowCount()}
+                    if kind == "compare":
+                        info["summary"] = dialog.summary.text()
+                    report.setdefault("dialogs", []).append(info)
             window.close()
             pump(200)
             window._loader.shutdown()

@@ -75,6 +75,8 @@ class PolicySummaryStrip(QWidget):
     suggestion_clicked = pyqtSignal(str)
     copy_requested = pyqtSignal()
     notes_requested = pyqtSignal()
+    timeline_requested = pyqtSignal()
+    compare_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,6 +110,23 @@ class PolicySummaryStrip(QWidget):
         self._chips_layout.setContentsMargins(0, 0, 0, 0)
         self._chips_layout.setSpacing(4)
         row.addWidget(self._chips_host)
+
+        self.timeline_button = QPushButton("🗓 Timeline")
+        self.timeline_button.setToolTip("Every key policy date in order, with today marked (Ctrl+D)")
+        self.timeline_button.setStyleSheet(_TOOL_BUTTON_STYLE)
+        self.timeline_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.timeline_button.clicked.connect(self.timeline_requested.emit)
+        row.addWidget(self.timeline_button)
+
+        self.compare_button = QPushButton("⇄ Compare")
+        self.compare_button.setToolTip(
+            "Diff this policy's DB2 rows against another policy loaded in this window — "
+            "e.g. production vs. a test region (Ctrl+Shift+D)"
+        )
+        self.compare_button.setStyleSheet(_TOOL_BUTTON_STYLE)
+        self.compare_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.compare_button.clicked.connect(self.compare_requested.emit)
+        row.addWidget(self.compare_button)
 
         self.notes_button = QPushButton("📝 Notes")
         self.notes_button.setToolTip("Your private notes for this policy (Ctrl+N)")
@@ -173,6 +192,8 @@ class PolicySummaryStrip(QWidget):
         self._set_detail((), ())
         self.copy_button.setEnabled(False)
         self.notes_button.setEnabled(False)
+        self.timeline_button.setEnabled(False)
+        self.compare_button.setEnabled(False)
 
     def set_summary(self, summary: PolicySummary, suggestions: Iterable[Suggestion] = ()):
         self._summary = summary
@@ -183,6 +204,8 @@ class PolicySummaryStrip(QWidget):
         self._set_detail(summary.notices, tuple(suggestions))
         self.copy_button.setEnabled(True)
         self.notes_button.setEnabled(True)
+        self.timeline_button.setEnabled(True)
+        self.compare_button.setEnabled(True)
 
     def set_notes_count(self, count: int):
         self.notes_button.setText(f"📝 Notes ({count})" if count else "📝 Notes")

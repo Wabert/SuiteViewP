@@ -41,6 +41,7 @@ class CoveragesTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cov_data = []
+        self._bnf_data = []
         self._setup_ui()
 
     def _setup_ui(self):
@@ -80,6 +81,18 @@ class CoveragesTab(QWidget):
         self.info_group.add_field("Definition of Life", "definition_of_life_label", 110, 80)
         self.info_group.add_field("DB Option", "db_option_label", 80, 80)
         self.info_group.add_field("Region", "region_label", 80, 80)
+        self.info_group.set_field_sources({
+            "suspense_label": "LH_BAS_POL.SUS_CD",
+            "billing_mode_label": "LH_BAS_POL.PMT_FQY_PER + NSD_MD_CD",
+            "grace_label": "LH_NON_TRD_POL / LH_TRD_POL.IN_GRA_PER_IND",
+            "premium_label": "LH_BAS_POL.POL_PRM_AMT",
+            "market_org_label": "LH_BAS_POL.SVC_AGC_NBR (first character)",
+            "joint_label": "LH_COV_PHA.NBR_OF_LIVES_CD (base phase 1)",
+            "status_label": "LH_BAS_POL.PRM_PAY_STA_REA_CD",
+            "reins_partner_label": "TH_USER_GENERIC.FUZGREIN_IND",
+            "db_option_label": "LH_NON_TRD_POL.DTH_BNF_PLN_OPT_CD",
+            "system_cd_label": "LH_BAS_POL.CK_SYS_CD",
+        })
 
         # Backward-compat aliases
         self.policy_label = self.info_group.policy_label
@@ -116,6 +129,9 @@ class CoveragesTab(QWidget):
         # Benefits table
         self.bnf_group = StyledInfoTableGroup("Benefits", show_info=False)
         self.bnf_table = self.bnf_group.table
+        self.bnf_table._data_table.itemDoubleClicked.connect(self._on_benefit_double_clicked)
+        self.cov_table.setToolTip("Double-click a coverage for every field, interpreted and raw")
+        self.bnf_table.setToolTip("Double-click a benefit for every field, interpreted and raw")
         self.bnf_table.set_empty_message("No supplemental benefits on this policy.")
         self.bnf_table.set_column_settings_key("polview.benefits")
         layout.addWidget(self.bnf_group, 1)
@@ -176,6 +192,24 @@ class CoveragesTab(QWidget):
         coverage = self._cov_data[row]
         if str(getattr(coverage, "plancode", "")).strip().upper() == "0699830R":
             self.annuity_rider_requested.emit(coverage)
+            return
+        self._open_record_card(
+            f"Coverage {coverage.cov_pha_nbr} · {getattr(coverage, 'plancode', '')}", coverage)
+
+    def _on_benefit_double_clicked(self, item):
+        row = item.row()
+        if 0 <= row < len(self._bnf_data):
+            benefit = self._bnf_data[row]
+            self._open_record_card(
+                f"Benefit {benefit.benefit_code} · phase {benefit.cov_pha_nbr}", benefit)
+
+    def _open_record_card(self, title: str, record):
+        from ..polview_dialogs import RecordCardDialog
+
+        dialog = RecordCardDialog(title, record, self.window())
+        dialog.show()
+        self._record_cards = [d for d in getattr(self, "_record_cards", []) if d.isVisible()]
+        self._record_cards.append(dialog)
 
     # ── data loading ─────────────────────────────────────────────────────
 
@@ -183,6 +217,7 @@ class CoveragesTab(QWidget):
         """Load coverage data using PolicyInformation object."""
         # Clear old data first so stale values never remain when switching policies
         self._cov_data = []
+        self._bnf_data = []
         self.info_group.clear_info()
         for lbl in (self.total_death_benefit_label, self.corridor_label):
             lbl.setStyleSheet(_VAL_STYLE)
@@ -198,6 +233,7 @@ class CoveragesTab(QWidget):
             self._cov_data = list(coverages)
             self._populate_coverages_from_policy(policy, coverages)
             benefits = policy.get_benefits()
+            self._bnf_data = list(benefits)
             self._populate_benefits_from_policy(benefits)
             self._balance_sections(len(coverages), len(benefits))
         except Exception as e:

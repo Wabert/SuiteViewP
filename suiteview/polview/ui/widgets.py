@@ -1478,10 +1478,23 @@ class CopyableLabel(QLabel):
 
     def _show_context_menu(self, pos):
         from PyQt6.QtWidgets import QMenu, QApplication
+        import re
         menu = QMenu(self)
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
         copy_action = menu.addAction("Copy")
+        source_actions = {}
+        tip = self.toolTip()
+        host = self.window()
+        if tip.startswith("Source: ") and hasattr(host, "open_source_table"):
+            tables = list(dict.fromkeys(re.findall(r"\b[LTFV]H_[A-Z0-9_]+\b", tip)))
+            if tables:
+                menu.addSeparator()
+                for table in tables:
+                    source_actions[menu.addAction(f"Show {table} rows in Raw Table")] = table
         action = menu.exec(self.mapToGlobal(pos))
+        if action in source_actions:
+            host.open_source_table(source_actions[action])
+            return
         if action == copy_action:
             selected = self.selectedText()
             if selected:
