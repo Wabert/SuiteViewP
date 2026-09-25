@@ -3,7 +3,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
-from suiteview.audit.cyberlife_query import build_cyberlife_sql
+from suiteview.audit.cyberlife_query import build_cyberlife_sql, _name_match_predicate
 from suiteview.audit.db2_table_fields import CUSTOM_DISPLAY_TABLES, TABLE_FIELDS
 from suiteview.audit.tabs.adv_tab import AdvTab
 from suiteview.audit.tabs.benefits_tab import BenefitsTab
@@ -59,6 +59,13 @@ def test_custom_display_collection_surfaces_errors():
             benefits_tab=BenefitsTab(), transaction_tab=TransactionTab(),
             custom_display_tab=BrokenCustomDisplay(),
         )
+
+
+def test_name_match_like_escapes_wildcards_literally():
+    predicate = _name_match_predicate("PERSON.FIRST_NAME", "Contains", "Ann_%\\")
+    assert predicate == (
+        "UPPER(TRIM(PERSON.FIRST_NAME)) LIKE '%ANN\\_\\%\\\\%' ESCAPE '\\'"
+    )
 
 def test_catalog_only_exposes_requested_tables():
     assert set(CUSTOM_DISPLAY_TABLES.values()) == {'LH_BAS_POL', 'TH_BAS_POL', 'LH_COV_PHA', 'TH_COV_PHA'}

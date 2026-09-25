@@ -125,6 +125,10 @@ def _build_bill_mode_where(modes: list[str]) -> str:
     return " OR ".join(parts)
 
 
+def _escape_like_literal(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _name_match_predicate(column: str, match_type: str, value: str) -> str:
     """Build a case-insensitive name predicate for the given match type.
 
@@ -135,11 +139,11 @@ def _name_match_predicate(column: str, match_type: str, value: str) -> str:
     v = esc(value.strip().upper())
     col = f"UPPER(TRIM({column}))"
     if match_type == "Contains":
-        return f"{col} LIKE '%{v}%'"
+        return f"{col} LIKE '%{_escape_like_literal(v)}%' ESCAPE '\\'"
     if match_type == "Begins with":
-        return f"{col} LIKE '{v}%'"
+        return f"{col} LIKE '{_escape_like_literal(v)}%' ESCAPE '\\'"
     if match_type == "Ends with":
-        return f"{col} LIKE '%{v}'"
+        return f"{col} LIKE '%{_escape_like_literal(v)}' ESCAPE '\\'"
     return f"{col} = '{v}'"
 
 

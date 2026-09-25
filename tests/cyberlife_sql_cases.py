@@ -154,7 +154,7 @@ def _custom_display(tabs: dict[str, object]) -> None:
 def _people_names(tabs: dict[str, object]) -> None:
     people = tabs["people_tab"]
     people.cmb_first_name_match.setCurrentText("Begins with")
-    people.txt_first_name.setText("Ann")
+    people.txt_first_name.setText("Ann_%")
     people.cmb_last_name_match.setCurrentText("Contains")
     people.txt_last_name.setText("O'Brien")
 
