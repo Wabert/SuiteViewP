@@ -23,8 +23,8 @@ from PyQt6.QtWidgets import (
     QLineEdit, QPushButton, QGridLayout,
     QListWidget, QListWidgetItem,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint
-from PyQt6.QtGui import QColor, QFontMetrics
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize, QPoint
+from PyQt6.QtGui import QColor, QFont, QFontMetrics
 
 from suiteview.ui.widgets.uppercase_input import force_uppercase
 
@@ -32,9 +32,39 @@ from .formatting import is_numeric
 from .styles import (
     BLUE_PRIMARY, BLUE_LIGHT,
     BLUE_SCROLL, BLUE_DARK, BLUE_SUBTLE, WHITE, GRAY_MID, GRAY_DARK,
+    GOLD_LIGHT, GRAY_TEXT,
     COMPACT_TABLE_STYLE, CONTEXT_MENU_STYLE, LOOKUP_BAR_STYLE,
     POLICY_DISPLAY_STYLE, POLICY_INFO_FRAME_STYLE,
 )
+
+
+def parse_number(text: str):
+    """Return a float for money/number cell text, or None (dates/codes excluded)."""
+    if not text:
+        return None
+    cleaned = text.strip()
+    if not cleaned or "/" in cleaned or ":" in cleaned:
+        return None
+    negative = cleaned.startswith("(") and cleaned.endswith(")")
+    cleaned = cleaned.strip("()").replace(",", "").replace("$", "").replace("%", "").strip()
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+    return -value if negative else value
+
+
+def summarize_numbers(values) -> str:
+    """Excel-style status text for a selection of numeric values."""
+    values = list(values)
+    if not values:
+        return ""
+    total = sum(values)
+    decimals = 2 if any(abs(v - round(v)) > 1e-9 for v in values) else 0
+    return (
+        f"Σ {total:,.{decimals}f}   Avg {total / len(values):,.2f}   "
+        f"Min {min(values):,.{decimals}f}   Max {max(values):,.{decimals}f}   Count {len(values)}"
+    )
 
 
 # =============================================================================
@@ -311,6 +341,8 @@ class FixedHeaderTableWidget(QWidget):
     - Rounded corners on the overall container
     - Clean, minimal styling with no grid lines
     """
+
+    filters_changed = pyqtSignal()
     
     def __init__(self, parent=None, filterable: bool = False):
         super().__init__(parent)
@@ -319,6 +351,8 @@ class FixedHeaderTableWidget(QWidget):
         self._column_filters = {}      # col_index -> set of selected values (empty = no filter)
         self._original_headers = []    # store original header labels
         self._filter_popup = None
+        self._column_settings_key = ""
+        self._empty_message = ""
         self._setup_ui()
     
     def _setup_ui(self):
@@ -350,7 +384,7 @@ class FixedHeaderTableWidget(QWidget):
                 border: none;
                 gridline-color: transparent;
                 font-size: 11px;
-                selection-background-color: {WHITE};
+                selection-background-color: {GOLD_LIGHT};
                 selection-color: {BLUE_DARK};
             }}
             QTableWidget::item {{
@@ -358,7 +392,7 @@ class FixedHeaderTableWidget(QWidget):
                 border: none;
             }}
             QTableWidget::item:selected {{
-                background-color: {WHITE};
+                background-color: {GOLD_LIGHT};
                 color: {BLUE_DARK};
                 border: none;
             }}
@@ -438,11 +472,36 @@ class FixedHeaderTableWidget(QWidget):
         header.sectionDoubleClicked.connect(self._auto_fit_column)
         
         outer_layout.addWidget(self._data_table, 1)
+
+        # Excel-style status for multi-cell selections (hidden otherwise)
+        self._selection_label = QLabel("")
+        self._selection_label.setObjectName("selectionSummary")
+        self._selection_label.setStyleSheet(
+            f"background: {BLUE_SUBTLE}; color: {BLUE_DARK}; font-size: 10px;"
+            " padding: 1px 6px; border: none;"
+        )
+        self._selection_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._selection_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._selection_label.setVisible(False)
+        outer_layout.addWidget(self._selection_label)
+        self._data_table.itemSelectionChanged.connect(self._update_selection_summary)
+
+        # Centered message shown when the table has no rows
+        self._empty_label = QLabel("", self._data_table.viewport())
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet(
+            f"color: {GRAY_TEXT}; font-size: 11px; font-style: italic; background: transparent;"
+        )
+        self._empty_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._empty_label.setVisible(False)
+
         main_layout.addWidget(self._outer_frame)
         
         # Context menu
         self._data_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._data_table.customContextMenuRequested.connect(self._show_context_menu)
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._show_header_menu)
         
         # Column filtering - connect header click
         if self._filterable:
@@ -485,6 +544,7 @@ class FixedHeaderTableWidget(QWidget):
         """Set the number of rows."""
         self._clear_all_filters(apply=False)
         self._data_table.setRowCount(count)
+        self._update_empty_label()
     
     def rowCount(self):
         """Get the number of rows."""
@@ -519,6 +579,7 @@ class FixedHeaderTableWidget(QWidget):
         self._clear_all_filters(apply=False)
         self._data_table.clear()
         self._data_table.setRowCount(0)
+        self._update_empty_label()
     
     def setHorizontalHeaderLabels(self, labels):
         """Set column headers using the native QTableWidget header (right-aligned)."""
@@ -529,6 +590,134 @@ class FixedHeaderTableWidget(QWidget):
             item = self._data_table.horizontalHeaderItem(col)
             if item:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._apply_saved_column_visibility()
+
+    def align_headers_left(self, names):
+        """Left-align the headers of text columns (numbers stay right-aligned)."""
+        for col, name in enumerate(self._original_headers):
+            if name in names:
+                item = self._data_table.horizontalHeaderItem(col)
+                if item:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+    def fitted_height(self, min_rows: int = 3, max_rows: int = 14) -> int:
+        """Pixel height showing the current rows (clamped), for content-sized panels."""
+        rows = min(max(self._data_table.rowCount(), min_rows), max_rows)
+        header = self._data_table.horizontalHeader().height()
+        scroll = self._data_table.horizontalScrollBar().sizeHint().height()
+        return header + rows * self._data_table.verticalHeader().defaultSectionSize() + scroll + 6
+
+    def set_empty_message(self, message: str):
+        """Centered italic note shown whenever the table has no rows."""
+        self._empty_message = message or ""
+        self._update_empty_label()
+
+    def empty_message_visible(self) -> bool:
+        return not self._empty_label.isHidden()
+
+    def _update_empty_label(self):
+        show = bool(self._empty_message) and self._data_table.rowCount() == 0
+        self._empty_label.setText(self._empty_message)
+        self._empty_label.setVisible(show)
+        if show:
+            self._empty_label.setGeometry(self._data_table.viewport().rect())
+
+    # -- Selection summary -------------------------------------------------
+
+    @pyqtSlot()
+    def _update_selection_summary(self):
+        items = self._data_table.selectedItems()
+        numbers = []
+        for item in items:
+            if self._data_table.isRowHidden(item.row()) or self._data_table.isColumnHidden(item.column()):
+                continue
+            value = parse_number(item.text())
+            if value is not None:
+                numbers.append(value)
+        if len(items) < 2:
+            self._selection_label.setVisible(False)
+            return
+        text = summarize_numbers(numbers) if len(numbers) >= 2 else f"Count {len(items)}"
+        self._selection_label.setText(text)
+        self._selection_label.setVisible(True)
+
+    def selection_summary_text(self) -> str:
+        return self._selection_label.text() if not self._selection_label.isHidden() else ""
+
+    # -- Column chooser ------------------------------------------------------
+
+    def set_column_settings_key(self, key: str):
+        """Persist the user's hidden columns for this table under *key*."""
+        self._column_settings_key = key or ""
+        self._apply_saved_column_visibility()
+
+    @staticmethod
+    def _column_store():
+        from suiteview.core.json_store import JsonStore
+        from suiteview.core.profile_paths import profile_path
+        return JsonStore(profile_path("polview_table_columns.json"), default={})
+
+    def _apply_saved_column_visibility(self):
+        if not self._column_settings_key or not self._original_headers:
+            return
+        hidden = set(self._column_store().load().get(self._column_settings_key, []))
+        for col, name in enumerate(self._original_headers):
+            self._data_table.setColumnHidden(col, name in hidden)
+
+    def _save_column_visibility(self):
+        if not self._column_settings_key:
+            return
+        store = self._column_store()
+        data = store.load()
+        hidden = [name for col, name in enumerate(self._original_headers)
+                  if self._data_table.isColumnHidden(col)]
+        if hidden:
+            data[self._column_settings_key] = hidden
+        else:
+            data.pop(self._column_settings_key, None)
+        store.save(data)
+
+    def set_column_visible(self, name: str, visible: bool):
+        if name in self._original_headers:
+            self._data_table.setColumnHidden(self._original_headers.index(name), not visible)
+            self._save_column_visibility()
+
+    def hidden_columns(self) -> list[str]:
+        return [name for col, name in enumerate(self._original_headers)
+                if self._data_table.isColumnHidden(col)]
+
+    @pyqtSlot(QPoint)
+    def _show_header_menu(self, pos):
+        from PyQt6.QtWidgets import QMenu
+        if not self._original_headers:
+            return
+        menu = QMenu(self)
+        menu.setStyleSheet(CONTEXT_MENU_STYLE)
+        title = menu.addAction("Show columns")
+        title.setEnabled(False)
+        toggles = {}
+        for col, name in enumerate(self._original_headers):
+            action = menu.addAction(name or f"Column {col + 1}")
+            action.setCheckable(True)
+            action.setChecked(not self._data_table.isColumnHidden(col))
+            toggles[action] = col
+        menu.addSeparator()
+        show_all = menu.addAction("Show all columns")
+        fit = menu.addAction("Autofit columns")
+        chosen = menu.exec(self._data_table.horizontalHeader().mapToGlobal(pos))
+        if chosen in toggles:
+            col = toggles[chosen]
+            visible_count = sum(not self._data_table.isColumnHidden(c)
+                                for c in range(self._column_count))
+            if chosen.isChecked() or visible_count > 1:
+                self._data_table.setColumnHidden(col, not chosen.isChecked())
+                self._save_column_visibility()
+        elif chosen is show_all:
+            for col in range(self._column_count):
+                self._data_table.setColumnHidden(col, False)
+            self._save_column_visibility()
+        elif chosen is fit:
+            self.autoFitAllColumns()
     
     def resizeColumnsToContents(self):
         """Resize columns to fit content."""
@@ -573,6 +762,8 @@ class FixedHeaderTableWidget(QWidget):
         self._data_table.viewport().update()
         self._data_table.update()
         self._outer_frame.update()
+        if not self._empty_label.isHidden():
+            self._empty_label.setGeometry(self._data_table.viewport().rect())
     
     # =========================================================================
     # Column Filtering (Excel-style)
@@ -670,6 +861,7 @@ class FixedHeaderTableWidget(QWidget):
         
         self._apply_filters()
         self._update_header_indicators()
+        self.filters_changed.emit()
     
     def _apply_filters(self):
         """Show/hide rows based on active column filters."""
@@ -701,6 +893,31 @@ class FixedHeaderTableWidget(QWidget):
             for row in range(row_count):
                 self._data_table.setRowHidden(row, False)
             self._update_header_indicators()
+            self.filters_changed.emit()
+
+    def filter_column(self, col_index: int, values: set):
+        """Programmatically filter *col_index* to *values* (empty set clears it)."""
+        self._on_filter_changed(col_index, set(values))
+
+    def clear_filters(self):
+        self._clear_all_filters()
+
+    def active_filters(self) -> dict:
+        return {col: set(vals) for col, vals in self._column_filters.items() if vals}
+
+    def visible_row_indexes(self) -> list[int]:
+        return [r for r in range(self._data_table.rowCount()) if not self._data_table.isRowHidden(r)]
+
+    def _selection_as_text(self) -> str:
+        items = self._data_table.selectedItems()
+        if not items:
+            return ""
+        rows = sorted({i.row() for i in items if not self._data_table.isRowHidden(i.row())})
+        cols = sorted({i.column() for i in items if not self._data_table.isColumnHidden(i.column())})
+        chosen = {(i.row(), i.column()): i.text() for i in items}
+        return "\n".join(
+            "\t".join(chosen.get((r, c), "") for c in cols) for r in rows
+        )
     
     def _update_header_indicators(self):
         """Update header labels to show filter indicators."""
@@ -723,21 +940,40 @@ class FixedHeaderTableWidget(QWidget):
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
         
         item = self._data_table.itemAt(pos)
+        selected = self._data_table.selectedItems()
         
         if item:
             copy_cell_action = menu.addAction("Copy Cell")
         else:
             copy_cell_action = None
+        copy_selection_action = (
+            menu.addAction(f"Copy Selection ({len(selected)} cells)") if len(selected) > 1 else None
+        )
         
         copy_row_action = menu.addAction("Copy Row")
         copy_table_action = menu.addAction("Copy Entire Table")
+        filter_action = clear_filter_action = None
+        if self._filterable and item is not None:
+            menu.addSeparator()
+            shown = item.text() or "(blank)"
+            filter_action = menu.addAction(f"Filter to \u201c{shown[:30]}\u201d")
+            if self._column_filters:
+                clear_filter_action = menu.addAction("Clear all filters")
         menu.addSeparator()
         dump_excel_action = menu.addAction("Dump to Excel")
         
         action = menu.exec(self._data_table.mapToGlobal(pos))
         
+        if action is None:
+            return
         if action == copy_cell_action and item:
             QApplication.clipboard().setText(item.text())
+        elif action == copy_selection_action:
+            QApplication.clipboard().setText(self._selection_as_text())
+        elif action == filter_action and item is not None:
+            self.filter_column(item.column(), {item.text()})
+        elif action == clear_filter_action:
+            self._clear_all_filters()
         elif action == copy_row_action:
             row = self._data_table.currentRow()
             if row >= 0:
@@ -758,7 +994,9 @@ class FixedHeaderTableWidget(QWidget):
         
         # Headers from native QHeaderView (strip filter indicator)
         headers = []
-        for i in range(self._data_table.columnCount()):
+        columns = [i for i in range(self._data_table.columnCount())
+                   if not self._data_table.isColumnHidden(i)]
+        for i in columns:
             h_item = self._data_table.horizontalHeaderItem(i)
             header_text = h_item.text() if h_item else ""
             if header_text.endswith(" ▼"):
@@ -772,7 +1010,7 @@ class FixedHeaderTableWidget(QWidget):
             if self._data_table.isRowHidden(row):
                 continue
             cells = []
-            for col in range(self._data_table.columnCount()):
+            for col in columns:
                 item = self._data_table.item(row, col)
                 cells.append(item.text() if item else "")
             lines.append("\t".join(cells))
@@ -786,10 +1024,11 @@ class FixedHeaderTableWidget(QWidget):
         col_count = self._data_table.columnCount()
         if col_count == 0:
             return
+        columns = [c for c in range(col_count) if not self._data_table.isColumnHidden(c)]
 
         # Build header row (strip filter indicator)
         headers = []
-        for c in range(col_count):
+        for c in columns:
             h_item = self._data_table.horizontalHeaderItem(c)
             header_text = h_item.text() if h_item else ""
             if header_text.endswith(" ▼"):
@@ -802,7 +1041,7 @@ class FixedHeaderTableWidget(QWidget):
             if self._data_table.isRowHidden(row):
                 continue
             row_data = []
-            for col in range(col_count):
+            for col in columns:
                 item = self._data_table.item(row, col)
                 cell_text = item.text() if item else ""
                 if cell_text:
@@ -965,7 +1204,11 @@ class StyledInfoTableGroup(QGroupBox):
         else:
             lbl = CopyableLabel(display_text)
         lbl.setStyleSheet(self._lbl_style)
-        lbl.setFixedWidth(label_width)
+        bold = QFont(lbl.font())
+        bold.setPixelSize(11)
+        bold.setBold(True)
+        # Never truncate a label: widen past the requested width when needed.
+        lbl.setFixedWidth(max(label_width, QFontMetrics(bold).horizontalAdvance(display_text) + 6))
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._info_layout.addWidget(lbl, self._current_row, col_group)
         
@@ -1025,6 +1268,34 @@ class StyledInfoTableGroup(QGroupBox):
         for widget in widgets:
             in_layout = self._info_layout.indexOf(widget) >= 0
             widget.setVisible(visible and in_layout)
+
+    def set_field_sources(self, sources: Dict[str, str]):
+        """Document where each field comes from (``{"attr": "TABLE.COLUMN"}``).
+
+        The source appears in the value's hover tooltip, so the screen teaches
+        its own data lineage; ``field_source`` exposes it to other tools.
+        """
+        if not hasattr(self, "_sources"):
+            self._sources = {}
+        for attr, source in sources.items():
+            if attr not in self._fields:
+                raise KeyError(f"Unknown field {attr!r} in {self.title()!r}")
+            self._sources[attr] = source
+            tip = f"Source: {source}"
+            self._fields[attr].setToolTip(tip)
+            label = self._labels[attr]
+            if not isinstance(label, ClickableTooltipLabel):
+                label.setToolTip(tip)
+
+    def field_source(self, attr_name: str) -> str:
+        return getattr(self, "_sources", {}).get(attr_name, "")
+
+    def field_entries(self):
+        """``(attr, label_text, value_label)`` for every field, in layout order."""
+        return [
+            (attr, self._labels[attr].text().rstrip(":"), self._fields[attr])
+            for attr in self._fields
+        ]
 
     def set_value(self, attr_name: str, value: str):
         """Set the value of an info field by attribute name."""
@@ -1306,6 +1577,7 @@ class PolicyLookupBar(QWidget):
     
     policy_requested = pyqtSignal(str, str, str)  # policy_number, region, company_code
     company_chosen = pyqtSignal(str, str, str)     # policy_number, region, company_code
+    command_requested = pyqtSignal(str)            # "/help" style commands typed in the policy box
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1361,9 +1633,17 @@ class PolicyLookupBar(QWidget):
         self.policy_input.setPlaceholderText("Policy #")
         self.policy_input.setFixedWidth(90)
         self.policy_input.setStyleSheet(input_style)
+        self.policy_input.setToolTip(
+            "Policy number. Paste \u201cCKPR - 01 - U0613620\u201d, a folder name like "
+            "\u201c01_13034048\u201d or a technical policy ID and the fields fill themselves.\n"
+            "Start typing a recent policy number or insured name to pick it again."
+        )
         self.policy_input.returnPressed.connect(self._on_get_policy)
+        self.policy_input.textEdited.connect(self._on_policy_text_edited)
         layout.addWidget(self.policy_input)
         force_uppercase(self.region_input, self.company_input, self.policy_input)
+        self._recent_model = None
+        self._completer = None
         
         # Get button
         self.get_button = QPushButton("Get")
@@ -1418,11 +1698,73 @@ class PolicyLookupBar(QWidget):
     
     def _on_get_policy(self):
         self.hide_company_chooser()
+        typed = self.policy_input.text().strip()
+        if typed.startswith("/"):
+            self.command_requested.emit(typed[1:].strip().lower())
+            return
+        self.apply_policy_reference(self.policy_input.text())
         policy = self.policy_input.text().strip().upper()
         region = self.region_input.text().strip().upper() or "CKPR"
         company = self.company_input.text().strip().upper()  # Allow empty!
         if policy:
             self.policy_requested.emit(policy, region, company)
+
+    # -- Smart paste & recent policies ------------------------------------
+
+    def apply_policy_reference(self, text: str) -> bool:
+        """Split a pasted reference into the region/company/policy fields."""
+        from suiteview.core.policy_reference import has_separator, parse_policy_reference
+
+        if not has_separator(text):
+            return False
+        reference = parse_policy_reference(text)
+        if reference is None:
+            return False
+        if reference.region:
+            self.region_input.setText(reference.region)
+        if reference.company or reference.region:
+            self.company_input.setText(reference.company)
+        self.policy_input.setText(reference.policy)
+        return True
+
+    @pyqtSlot(str)
+    def _on_policy_text_edited(self, text: str):
+        self.apply_policy_reference(text)
+
+    def set_recent_entries(self, entries: list):
+        """Offer recently viewed policies (matched by number or insured name)."""
+        from PyQt6.QtGui import QStandardItem, QStandardItemModel
+        from PyQt6.QtWidgets import QCompleter
+
+        if self._completer is None:
+            self._recent_model = QStandardItemModel(self)
+            self._completer = QCompleter(self._recent_model, self)
+            self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            self._completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+            self._completer.setMaxVisibleItems(12)
+            self._completer.activated[str].connect(self._on_recent_chosen)
+            self._completer.popup().setStyleSheet(
+                "QListView { font-size: 11px; } QListView::item:selected {"
+                " background: #FFF3D0; color: #0A3D0A; }"
+            )
+            self._completer.popup().setMinimumWidth(360)
+            self.policy_input.setCompleter(self._completer)
+        self._recent_model.clear()
+        for entry in entries:
+            parts = [entry.get("policy", ""), entry.get("company", ""), entry.get("region", "")]
+            if entry.get("insured"):
+                parts.append(entry["insured"].upper())
+            item = QStandardItem(" · ".join(p for p in parts if p))
+            item.setToolTip(
+                f"{entry.get('plancode', '')}  viewed {entry.get('viewed', '')}".strip()
+            )
+            self._recent_model.appendRow(item)
+
+    @pyqtSlot(str)
+    def _on_recent_chosen(self, text: str):
+        if self.apply_policy_reference(text):
+            self._on_get_policy()
     
     def set_policy_display(self, company: str, policy: str, region: str = "",
                             is_pending: bool = False):

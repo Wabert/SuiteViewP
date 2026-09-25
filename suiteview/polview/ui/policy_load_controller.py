@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 
 DETAIL_STAGES = (
     "policy", "targets", "persons", "activity", "dividends", "loans",
-    "advprod", "reinsurance", "support",
+    "advprod", "reinsurance", "support", "tables",
 )
+# Stages that feed a panel rather than a tab page.
+PANEL_STAGES = ("tables",)
 
 
 @dataclass(frozen=True)

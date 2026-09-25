@@ -220,7 +220,7 @@ TAB_WIDGET_STYLE = f"""
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
             stop:0 #E0E0E0, stop:1 #BDBDBD);
         color: {GRAY_DARK};
-        padding: 8px 16px;
+        padding: 6px 11px;
         margin-right: 2px;
         border-top-left-radius: 4px;
         border-top-right-radius: 4px;
@@ -238,6 +238,11 @@ TAB_WIDGET_STYLE = f"""
         color: {GOLD_TEXT};
         font-weight: bold;
         border-bottom: 3px solid {GOLD_PRIMARY};
+    }}
+    QTabBar::tab:disabled {{
+        background: #EEF1F4;
+        color: #A0AEC0;
+        font-style: italic;
     }}
 """
 

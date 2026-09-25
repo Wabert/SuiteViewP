@@ -46,6 +46,72 @@ class PolicyTab(QWidget):
 
     _CV_RATE_FIELDS = ("cv_rate_0", "cv_rate_1", "cv_rate_2", "cv_rate_3")
 
+    # Where each value comes from (shown on hover). Mirrors the reads below.
+    _COL1_SOURCES = {
+        "plancode": "LH_COV_PHA.PLN_DES_SER_CD (base coverage)",
+        "maj_lob": "LH_COV_PHA.MAJ_LIN_OF_BUS_CD",
+        "prod_line": "LH_COV_PHA.PRD_LIN_TYP_CD",
+        "an_prd_id": "TH_COV_PHA.AN_PRD_ID",
+        "non_trd_ind": "LH_BAS_POL.NON_TRD_POL_IND",
+        "prm_pay_sta": "LH_BAS_POL.PRM_PAY_STA_REA_CD",
+        "sus_cd": "LH_BAS_POL.SUS_CD",
+        "in_grace": "LH_NON_TRD_POL / LH_TRD_POL.IN_GRA_PER_IND",
+        "gpe_date": "LH_NON_TRD_POL / LH_TRD_POL.GRA_PER_EXP_DT",
+        "prm_paid_to": "LH_BAS_POL.PRM_PAID_TO_DT",
+        "prm_bill_to": "LH_BAS_POL.PRM_BILL_TO_DT",
+        "app_wrt_dt": "LH_BAS_POL.APP_WRT_DT",
+        "nxt_sch_not": "LH_BAS_POL.NXT_SCH_NOT_DT",
+        "nxt_sch_stt": "LH_BAS_POL.NXT_SCH_STT_DT",
+        "nxt_mvry_prc": "LH_BAS_POL.NXT_MVRY_PRC_DT",
+        "nxt_yr_end": "LH_BAS_POL.NXT_YR_END_PRC_DT",
+        "lst_fin_dt2": "LH_BAS_POL.LST_FIN_DT",
+        "pol_1035": "LH_BAS_POL.POL_1035_XCG_IND",
+        "idt_prm_ind": "LH_BAS_POL.IDT_PRM_IND",
+        "tfdf_gdl": "LH_BAS_POL.TFDF_GDL_IND",
+        "decr_chrg_rule": "TH_NON_TRD_POL.DECR_CHRG_ALLOW",
+        "int_mlv_nbr": "LH_BAS_POL.INT_MLV_NBR",
+        "reinsured": "LH_BAS_POL.REINSURED_CD",
+    }
+    _COL2_SOURCES = {
+        "prm_mode": "LH_BAS_POL.PMT_FQY_PER + NSD_MD_CD",
+        "modal_prm": "LH_BAS_POL.POL_PRM_AMT",
+        "bil_form": "LH_BAS_POL.BIL_FRM_CD",
+        "bil_ctl_nbr": "LH_BIL_FRM_CTL.BIL_CTL_NBR",
+        "replaced_pol": "TH_USER_REPLACEMENT.REPLACED_POLICY",
+        "ogn_etr_cd": "LH_BAS_POL.OGN_ETR_CD",
+        "conv_pol": "TH_USER_GENERIC.EXCH_POL_NUMBER",
+        "lst_etr_cd": "LH_BAS_POL.LST_ETR_CD",
+        "mdo": "LH_BAS_POL.USR_RES_CD (first character)",
+        "bypass_lapse": "LH_BAS_POL.USR_RES_CD (last character)",
+        "mec_status": "LH_TAMRA_7_PY_PER.MEC_STA_CD",
+        "div_2nd_opt": "LH_BAS_POL.DIV_2ND_OPT_CD",
+        "mtl_tbl": "LH_COV_PHA.MTL_FCT_TBL_CD",
+        "res_its_rt": "LH_COV_PHA.RES_ITS_RT",
+        "mtl_fun_cd": "LH_COV_PHA.MTL_FUN_CD",
+        "nsp_ei_tbl": "LH_COV_PHA.NSP_EI_TBL_CD",
+        "nsp_rpu_tbl": "LH_COV_PHA.NSP_RPU_TBL_CD",
+        "nsp_its_rt": "LH_COV_PHA.NSP_ITS_RT",
+    }
+    _COL3_SOURCES = {
+        "mkt_org": "LH_BAS_POL.SVC_AGC_NBR (first character)",
+        "svc_branch": "LH_BAS_POL.SVC_AGC_NBR",
+        "agency_br": "LH_BAS_POL.SVC_AGC_NBR (characters 2-4)",
+        "mdo3": "LH_BAS_POL.USR_RES_CD (first character)",
+        "svc_agent": "LH_BAS_POL.SVC_AGT_NBR",
+        "class_cd": "LH_COV_PHA.INS_CLS_CD",
+        "base_cd": "LH_COV_PHA.PLN_BSE_SRE_CD",
+        "sub_cd": "LH_COV_PHA.LIF_PLN_SUB_SRE_CD",
+        "ln_typ": "LH_BAS_POL.LN_TYP_CD",
+        "ln_rate": "LH_BAS_POL.LN_PLN_ITS_RT",
+        "san_md_fct": "LH_FXD_PRM_POL.SAN_MD_FCT",
+        "qtr_md_fct": "LH_FXD_PRM_POL.QTR_MD_FCT",
+        "mo_md_fct": "LH_FXD_PRM_POL.MO_MD_FCT",
+        "md_prm_ord": "LH_FXD_PRM_POL.MD_PRM_MUL_ORD_CD",
+        "rt_fct_ord": "LH_FXD_PRM_POL.RT_FCT_ORD_CD",
+        "rou_rle_cd": "LH_FXD_PRM_POL.ROU_RLE_CD",
+        "annual_fee": "LH_FXD_PRM_POL.POL_FEE_AMT",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._db_data = {}
@@ -73,6 +139,10 @@ class PolicyTab(QWidget):
                                          show_info=True, show_table=False)
         self._setup_column3_fields()
         columns_layout.addWidget(self.col3)
+
+        for group, sources in ((self.col1, self._COL1_SOURCES), (self.col2, self._COL2_SOURCES),
+                               (self.col3, self._COL3_SOURCES)):
+            group.set_field_sources(sources)
 
         main_layout.addLayout(columns_layout, stretch=1)
 
@@ -263,10 +333,10 @@ class PolicyTab(QWidget):
         else:
             c.set_value("nfo_opt", f"{nfo} - {policy.nfo_description}")
 
-        pri_div = policy.div_option_code
-        c.set_value("pri_div_opt", f"{pri_div} - {policy.div_option_description}")
-        div_2nd = str(policy.data_item("LH_BAS_POL", "DIV_2ND_OPT_CD") or "")
-        c.set_value("div_2nd_opt", f"{div_2nd} - {translate_div_option_code(div_2nd)}")
+        pri_div = str(policy.div_option_code or "").strip()
+        c.set_value("pri_div_opt", f"{pri_div} - {policy.div_option_description}" if pri_div else "")
+        div_2nd = str(policy.data_item("LH_BAS_POL", "DIV_2ND_OPT_CD") or "").strip()
+        c.set_value("div_2nd_opt", f"{div_2nd} - {translate_div_option_code(div_2nd)}" if div_2nd else "")
 
         mtl_tbl_cd = str(policy.data_item("LH_COV_PHA", "MTL_FCT_TBL_CD") or "").strip()
         c.set_value("mtl_tbl", mtl_tbl_cd)

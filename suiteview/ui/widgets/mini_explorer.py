@@ -122,7 +122,7 @@ _MIME_CATEGORY = "application/x-suiteview-category"
 _MIME_TOOL_FILE = "application/x-suiteview-toolfile"
 
 
-def _icon_for_ext(ext: str) -> str:
+def icon_for_ext(ext: str) -> str:
     return {
         ".py": "🐍", ".r": "📊", ".R": "📊",
         ".xlsx": "📗", ".xls": "📗", ".xlsm": "📗",
@@ -493,7 +493,7 @@ class MiniExplorer(QWidget):
                     item = QListWidgetItem(f"📁  {entry}")
                 else:
                     ext = os.path.splitext(entry)[1].lower()
-                    item = QListWidgetItem(f"{_icon_for_ext(ext)}  {entry}")
+                    item = QListWidgetItem(f"{icon_for_ext(ext)}  {entry}")
                 item.setData(self.PATH_ROLE, full)
                 self._list.addItem(item)
         except Exception as e:
@@ -569,6 +569,7 @@ class DraggableToolsList(QListWidget):
         painter.setPen(QColor(GREEN_DARK))
         painter.drawText(4, 13, os.path.basename(path))
         painter.end()
+        drag.setPixmap(pix)
         drag.exec(Qt.DropAction.CopyAction)
 
 
@@ -647,4 +648,5 @@ class DropTargetSubfolderList(QListWidget):
         painter.setPen(QColor(GREEN_DARK))
         painter.drawText(4, 13, os.path.basename(path))
         painter.end()
+        drag.setPixmap(pix)
         drag.exec(Qt.DropAction.CopyAction)

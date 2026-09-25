@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QPushButton, QLabel, QMessageBox, QApplication,
 )
-from PyQt6.QtGui import QCursor
-from PyQt6.QtCore import Qt, QSignalBlocker, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
+from PyQt6.QtCore import QEvent, QTimer, Qt, QSignalBlocker, pyqtSignal, pyqtSlot
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.access_control import requires_app_access
@@ -38,13 +38,18 @@ from .styles import (
     GREEN_BG, GOLD_TEXT, GOLD_PRIMARY,
     POLVIEW_HEADER_COLORS, POLVIEW_DUPLICATE_HEADER_COLORS, POLVIEW_BORDER_COLOR,
 )
-from .widgets import PolicyLookupBar
+from .widgets import PolicyLookupBar, StyledInfoTableGroup, FixedHeaderTableWidget
 from .tree_panel import PolicyRecordTreePanel
 from .loading_overlay import TabLoadingOverlay
 from .policy_load_controller import PolicyLoadController
+from .policy_summary_strip import PolicySummaryStrip
 from .tabs.reinstatement_tab import ReinstatementTab
 from .tabs.other_data_tab import OtherDataTab
 from ..services.reinstatement import is_ul_policy
+from ..services.policy_insights import (
+    build_policy_summary, suggested_actions, summary_text, support_tool_availability,
+)
+from ..services.policy_notes import PolicyNotesStore, RecentPoliciesStore
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
@@ -52,6 +57,31 @@ from .tabs import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Optional pages stay in a fixed position; when they do not apply they are
+# greyed with the reason in their tooltip rather than removed.
+UNAVAILABLE_TAB_REASONS = {
+    "dividends": "No dividend records on this policy "
+                 "(LH_UNAPPLIED_PTP, LH_ONE_YR_TRM_ADD, LH_PTP_ON_DEP, LH_PAID_UP_ADD).",
+    "loans": "No loan records on this policy (LH_CSH_VAL_LOAN, LH_FND_VAL_LOAN).",
+    "advprod": "Account values apply to advanced products (UL/IUL/VUL/ISWL); "
+               "this is a traditional policy.",
+}
+
+_KONAMI = (
+    Qt.Key.Key_Up, Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Down,
+    Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Left, Qt.Key.Key_Right,
+    Qt.Key.Key_B, Qt.Key.Key_A,
+)
+_LOADING_QUIPS = (
+    "Consulting the mortality tables…",
+    "Asking CyberLife nicely…",
+    "Rounding to the nearest cent…",
+    "Counting monthliversaries…",
+    "Checking the 7-pay test twice…",
+    "Warming up the green screen…",
+    "Reconciling accumulators…",
+)
 
 # Header-bar button style (PolView green/gold), matching the other compact
 # header controls — used for the "Open in RERUN" button.
@@ -74,6 +104,14 @@ HEADER_ILLUSTRATOR_BUTTON_STYLE = """
         border-color: rgba(212, 160, 23, 0.4);
     }
 """
+
+
+def _alive(obj) -> bool:
+    from PyQt6 import sip
+    try:
+        return obj is not None and not sip.isdeleted(obj)
+    except TypeError:
+        return False
 
 
 def _open_odbc_manager():
@@ -158,6 +196,16 @@ class GetPolicyWindow(FramelessWindowBase):
         self._load_started = 0.0
         self._pending_annuity = False
         self.reinstatement_tab: ReinstatementTab | None = None
+        self._unavailable_tabs: dict[str, str] = {}
+        self._nav_history: list[tuple[str, str, str]] = []
+        self._nav_index = -1
+        self._navigating = False
+        self._notes_store = PolicyNotesStore()
+        self._recent_store = RecentPoliciesStore()
+        self._recent_recorded: tuple = ()
+        self._key_trail: list = []
+        self._session_stats = {"loads": 0, "fastest": None, "policies": set()}
+        self._dialogs: list = []
 
         # Header-bar "Open in RERUN" button (built before super().__init__
         # so FramelessWindowBase can place it via header_widgets; wired after).
@@ -167,11 +215,12 @@ class GetPolicyWindow(FramelessWindowBase):
         self.open_illustrator_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
         # Header-bar "Policy Record" button -- opens the CyberLife green-screen
-        # segment viewer.  Always enabled (currently sample data).
+        # segment viewer for the loaded policy.
         self.open_record_btn = QPushButton("📟 Record")
         self.open_record_btn.setToolTip(
             "View the CyberLife policy record segments (mainframe-style)"
         )
+        self.open_record_btn.setEnabled(False)
         self.open_record_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
         super().__init__(
@@ -195,6 +244,10 @@ class GetPolicyWindow(FramelessWindowBase):
         self._loader.state_changed.connect(self._on_load_state_changed)
         self._loader.settled.connect(self._on_background_settled)
         self.destroyed.connect(self._loader.dispose)
+        self._install_shortcuts()
+        self._refresh_recent_completer()
+        # Easter-egg listener: only the policy box, never an app-wide filter.
+        self.lookup_bar.policy_input.installEventFilter(self)
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar).
         if initial_policy:
@@ -220,34 +273,60 @@ class GetPolicyWindow(FramelessWindowBase):
         self.lookup_bar = PolicyLookupBar()
         self.lookup_bar.policy_requested.connect(self._on_get_policy)  # (policy, region, company)
         self.lookup_bar.company_chosen.connect(self._on_get_policy)    # (policy, region, company)
+        self.lookup_bar.command_requested.connect(self._run_command)
+        toggle_style = """
+            QPushButton {
+                background: transparent;
+                border: 1px solid #D4A017;
+                border-radius: 3px;
+                min-height: 24px; max-height: 24px;
+                font-size: 11px; font-weight: bold;
+                color: #D4A017;
+                padding: 0 6px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+                color: #FFD700;
+            }
+            QPushButton:checked {
+                background-color: rgba(212, 160, 23, 0.3);
+                color: #FFD700;
+            }
+            QPushButton:disabled {
+                color: rgba(212, 160, 23, 0.4);
+                border-color: rgba(212, 160, 23, 0.4);
+            }
+        """
+        # Tables & Rates panel toggle lives with the other lookup controls.
+        self._tree_toggle_btn = QPushButton("⊞ Tables")
+        self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
+        self._tree_toggle_btn.setCheckable(True)
+        self._tree_toggle_btn.setEnabled(False)
+        self._tree_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tree_toggle_btn.setStyleSheet(toggle_style)
+        self._tree_toggle_btn.clicked.connect(self._toggle_tree_panel)
+        self.lookup_bar.layout().addWidget(self._tree_toggle_btn)
         if self._enable_policy_list:
             # Add "☰ List" toggle button to the lookup bar, right after Get button
             self.list_toggle_btn = QPushButton("☰ List")
             self.list_toggle_btn.setCheckable(True)
             self.list_toggle_btn.setToolTip("Toggle Policy List panel")
-            self.list_toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: 1px solid #D4A017;
-                    border-radius: 3px;
-                    min-width: 56px; max-width: 56px;
-                    min-height: 24px; max-height: 24px;
-                    font-size: 11px; font-weight: bold;
-                    color: #D4A017;
-                    padding: 0 6px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.15);
-                    color: #FFD700;
-                }
-                QPushButton:checked {
-                    background-color: rgba(212, 160, 23, 0.3);
-                    color: #FFD700;
-                }
-            """)
+            self.list_toggle_btn.setStyleSheet(toggle_style)
             self.list_toggle_btn.clicked.connect(self._toggle_policy_list)
             self.lookup_bar.layout().addWidget(self.list_toggle_btn)
         main_layout.addWidget(self.lookup_bar)
+
+        # At-a-glance policy summary strip
+        strip_host = QWidget()
+        strip_host.setStyleSheet(f"background-color: {self._window_bg};")
+        strip_layout = QHBoxLayout(strip_host)
+        strip_layout.setContentsMargins(10, 0, 10, 0)
+        self.summary_strip = PolicySummaryStrip()
+        self.summary_strip.suggestion_clicked.connect(self._on_suggestion_clicked)
+        self.summary_strip.copy_requested.connect(self._copy_policy_summary)
+        self.summary_strip.notes_requested.connect(self._open_policy_notes)
+        strip_layout.addWidget(self.summary_strip)
+        main_layout.addWidget(strip_host)
 
         # Main content area
         content_widget = QWidget()
@@ -268,8 +347,8 @@ class GetPolicyWindow(FramelessWindowBase):
         tabs_container = QWidget()
         tabs_container.setStyleSheet(f"background-color: {self._window_bg};")
         tabs_layout = QVBoxLayout(tabs_container)
-        tabs_layout.setContentsMargins(10, 10, 10, 10)
-        tabs_layout.setSpacing(10)
+        tabs_layout.setContentsMargins(10, 6, 10, 8)
+        tabs_layout.setSpacing(6)
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
@@ -293,20 +372,15 @@ class GetPolicyWindow(FramelessWindowBase):
         self.tabs.addTab(self.policy_tab, "Policy")
         self.tabs.addTab(self.targets_tab, "Targets && Accumulators")
         self.tabs.addTab(self.persons_tab, "Persons")
-        # AdvProdValues is added for advanced products when a policy is loaded.
+        self.tabs.addTab(self.advprod_tab, "Account Values")
+        self.tabs.addTab(self.dividends_tab, "Dividends")
+        self.tabs.addTab(self.loans_tab, "Loans")
+        self.tabs.addTab(self.reinsurance_tab, "Reinsurance")
         self.tabs.addTab(self.activity_tab, "Activity")
         self.tabs.addTab(self.policy_support_tab, "Policy Support")
         self.tabs.addTab(self.other_data_tab, "Other Data")
         self.tabs.addTab(self.raw_table_tab, "Raw Table")
-
-        for optional_tab in (
-            self.dividends_tab,
-            self.advprod_tab,
-            self.loans_tab,
-            self.reinsurance_tab,
-            self.policy_library_tab,
-        ):
-            optional_tab.hide()
+        self.policy_library_tab.hide()
 
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
         self.policy_support_tab.reinstatement_requested.connect(self._show_reinstatement_tab)
@@ -318,7 +392,7 @@ class GetPolicyWindow(FramelessWindowBase):
             "persons": (self.persons_tab, "Persons"),
             "dividends": (self.dividends_tab, "Dividends"),
             "loans": (self.loans_tab, "Loans"),
-            "advprod": (self.advprod_tab, "AdvProdValues"),
+            "advprod": (self.advprod_tab, "Account Values"),
             "reinsurance": (self.reinsurance_tab, "Reinsurance"),
             "activity": (self.activity_tab, "Activity"),
             "support": (self.policy_support_tab, "Policy Support"),
@@ -333,38 +407,6 @@ class GetPolicyWindow(FramelessWindowBase):
         self.tabs.currentChanged.connect(self._on_policy_tab_changed)
 
         tabs_layout.addWidget(self.tabs)
-
-        # Tree toggle button — properly laid out at bottom-left of tabs area
-        tree_btn_row = QHBoxLayout()
-        tree_btn_row.setContentsMargins(0, 0, 0, 0)
-        self._tree_toggle_btn = QPushButton("+")
-        self._tree_toggle_btn.setToolTip("Show/hide Tables & Rates panel")
-        self._tree_toggle_btn.setCheckable(True)
-        self._tree_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._tree_toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid #D4A017;
-                border-radius: 3px;
-                min-width: 28px; max-width: 28px;
-                min-height: 24px; max-height: 24px;
-                font-size: 15px; font-weight: bold;
-                color: #D4A017;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-                color: #FFD700;
-            }
-            QPushButton:checked {
-                background-color: rgba(212, 160, 23, 0.3);
-                color: #FFD700;
-            }
-        """)
-        self._tree_toggle_btn.clicked.connect(self._toggle_tree_panel)
-        tree_btn_row.addWidget(self._tree_toggle_btn)
-        tree_btn_row.addStretch(1)
-        tabs_layout.addLayout(tree_btn_row)
 
         content_layout.addWidget(tabs_container, 1)
 
@@ -426,18 +468,16 @@ class GetPolicyWindow(FramelessWindowBase):
             # Hide tree — shrink window from the left
             self.records_tree.setVisible(False)
             self._tree_visible = False
-            self._tree_toggle_btn.setText("+")
             self._tree_toggle_btn.setChecked(False)
-            self._tree_toggle_btn.setToolTip("Show Tables & Rates panel")
+            self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
             self.setGeometry(geo.x() + tree_w, geo.y(),
                              geo.width() - tree_w, geo.height())
         else:
             # Show tree — extend window to the left
             self.records_tree.setVisible(True)
             self._tree_visible = True
-            self._tree_toggle_btn.setText("−")
             self._tree_toggle_btn.setChecked(True)
-            self._tree_toggle_btn.setToolTip("Hide Tables & Rates panel")
+            self._tree_toggle_btn.setToolTip("Hide the Tables & Rates panel (Ctrl+T)")
             self.setGeometry(geo.x() - tree_w, geo.y(),
                              geo.width() + tree_w, geo.height())
 
@@ -460,6 +500,305 @@ class GetPolicyWindow(FramelessWindowBase):
 
     def _show_status(self, msg: str):
         self._status_label.setText(msg)
+
+    # == Summary strip, notes & recents ====================================
+
+    def _loading_quip(self) -> str:
+        return _LOADING_QUIPS[self._load_token % len(_LOADING_QUIPS)]
+
+    def _refresh_summary(self):
+        """Rebuild the at-a-glance strip from whatever data has arrived."""
+        policy = self._policy
+        if policy is None or not policy.exists:
+            return
+        summary = build_policy_summary(policy)
+        tools = support_tool_availability(policy)
+        self.summary_strip.set_summary(summary, suggested_actions(policy, summary, tools))
+        self.summary_strip.set_notes_count(
+            self._notes_store.count(policy.company_code, policy.policy_number))
+        self.policy_support_tab.apply_tool_availability(tools)
+        region = policy.region or ""
+        base_title = "SuiteView:  PolView"
+        self.set_title(base_title if region in ("", "CKPR") else f"{base_title}   ·   {region} (non-production)")
+        marker = (policy.policy_number, policy.company_code, policy.region, summary.insured_name)
+        if marker != self._recent_recorded:
+            self._recent_recorded = marker
+            try:
+                self._recent_store.record(
+                    policy=policy.policy_number, company=policy.company_code,
+                    region=policy.region, insured=summary.insured_name or "",
+                    plancode=summary.plancode or "",
+                )
+                self._refresh_recent_completer()
+            except OSError:
+                logger.warning("Could not save recent PolView policies", exc_info=True)
+
+    def _refresh_recent_completer(self):
+        try:
+            self.lookup_bar.set_recent_entries(self._recent_store.entries())
+        except OSError:
+            logger.warning("Could not read recent PolView policies", exc_info=True)
+
+    @pyqtSlot()
+    def _copy_policy_summary(self):
+        summary = self.summary_strip.summary
+        if summary is None:
+            self._show_status("Load a policy to copy its summary")
+            return
+        QApplication.clipboard().setText(summary_text(summary))
+        self._show_status(f"Copied {summary.policy_number} summary to the clipboard 📋")
+
+    @pyqtSlot()
+    def _open_policy_notes(self):
+        if self._policy is None or not self._policy.exists:
+            self._show_status("Load a policy to see its notes")
+            return
+        from .polview_dialogs import PolicyNotesDialog
+
+        dialog = PolicyNotesDialog(self._policy.company_code, self._policy.policy_number,
+                                   self, store=self._notes_store)
+        dialog.notes_changed.connect(self.summary_strip.set_notes_count)
+        self._keep_dialog(dialog)
+        dialog.show()
+        dialog.editor.setFocus()
+
+    def _keep_dialog(self, dialog):
+        self._dialogs = [d for d in self._dialogs if _alive(d)]
+        self._dialogs.append(dialog)
+
+    @pyqtSlot(str)
+    def _on_suggestion_clicked(self, key: str):
+        if key == "reinstatement":
+            self._show_reinstatement_tab()
+        elif key == "annuity_rider":
+            self._show_annuity_rider_tab()
+        elif key in ("glp_exception", "forecast", "abr", "policy_support"):
+            self.tabs.setCurrentWidget(self.policy_support_tab)
+            if self._load_policy_tab(self.policy_support_tab):
+                self.policy_support_tab.open_section(key)
+
+    # == Navigation history, refresh & shortcuts ============================
+
+    def _record_navigation(self, policy):
+        entry = (policy.policy_number, policy.region, policy.company_code)
+        if self._navigating:
+            self._navigating = False
+            return
+        if 0 <= self._nav_index < len(self._nav_history) and self._nav_history[self._nav_index] == entry:
+            return
+        del self._nav_history[self._nav_index + 1:]
+        self._nav_history.append(entry)
+        self._nav_index = len(self._nav_history) - 1
+
+    def _note_load_stats(self, policy, elapsed: float):
+        stats = self._session_stats
+        stats["loads"] += 1
+        stats["policies"].add((policy.company_code, policy.policy_number))
+        if stats["fastest"] is None or elapsed < stats["fastest"][0]:
+            stats["fastest"] = (elapsed, policy.policy_number)
+
+    def navigate_history(self, step: int):
+        target = self._nav_index + step
+        if not 0 <= target < len(self._nav_history):
+            self._show_status("No more policies in that direction")
+            return
+        self._nav_index = target
+        self._navigating = True
+        number, region, company = self._nav_history[target]
+        self.load_policy(number, region=region, company_code=company)
+
+    def reload_current_policy(self):
+        """F5: discard cached data for the current policy and fetch it again."""
+        if self._policy is None:
+            if self._requested_policy[0]:
+                self._on_get_policy(*self._requested_policy)
+            return
+        key = self._current_aux_key()
+        cached = self._policy_cache.pop(key, None)
+        remove_from_cache(
+            self._policy.policy_number, region=self._policy.region,
+            company_code=self._policy.company_code,
+            system_code=(cached["policy"].system_code if cached else self._policy.system_code),
+        )
+        self._navigating = True
+        self._show_status(f"Reloading {self._policy.policy_number} fresh from {self._policy.region}…")
+        self._on_get_policy(self._policy.policy_number, self._policy.region,
+                            self._policy.company_code)
+
+    def _install_shortcuts(self):
+        def bind(sequence, handler):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(handler)
+            return shortcut
+
+        self._shortcuts = [
+            bind("Ctrl+L", self._focus_policy_input),
+            bind("F5", self.reload_current_policy),
+            bind("Alt+Left", self._go_back),
+            bind("Alt+Right", self._go_forward),
+            bind("Ctrl+Shift+C", self._copy_policy_summary),
+            bind("Ctrl+N", self._open_policy_notes),
+            bind("Ctrl+F", self._open_field_finder),
+            bind("Ctrl+T", self._shortcut_toggle_tree),
+            bind("F1", self._show_help),
+        ]
+        for number in range(1, 10):
+            shortcut = bind(f"Ctrl+{number}", self._on_tab_number_shortcut)
+            shortcut.setProperty("tab_number", number)
+            self._shortcuts.append(shortcut)
+
+    @pyqtSlot()
+    def _go_back(self):
+        self.navigate_history(-1)
+
+    @pyqtSlot()
+    def _go_forward(self):
+        self.navigate_history(1)
+
+    @pyqtSlot()
+    def _on_tab_number_shortcut(self):
+        sender = self.sender()
+        if sender is not None:
+            self._select_tab_number(int(sender.property("tab_number")))
+
+    @pyqtSlot()
+    def _focus_policy_input(self):
+        self.lookup_bar.policy_input.setFocus()
+        self.lookup_bar.policy_input.selectAll()
+
+    def _select_tab_number(self, number: int):
+        index = number - 1
+        if index < self.tabs.count() and self.tabs.isTabEnabled(index):
+            self.tabs.setCurrentIndex(index)
+
+    @pyqtSlot()
+    def _shortcut_toggle_tree(self):
+        if self._tree_toggle_btn.isEnabled():
+            self._toggle_tree_panel()
+
+    @pyqtSlot()
+    def _show_help(self):
+        from .polview_dialogs import shortcut_help_html, show_message_dialog
+
+        self._keep_dialog(show_message_dialog(
+            self, "PolView shortcuts & tricks", shortcut_help_html(), width=520))
+
+    # == Field finder ========================================================
+
+    def field_index(self) -> list:
+        """Every info field and table column across the tabs, for Ctrl+F."""
+        entries = []
+        for index in range(self.tabs.count()):
+            page = self.tabs.widget(index)
+            if not self.tabs.isTabEnabled(index):
+                continue
+            tab_title = self.tabs.tabText(index).replace("&&", "&").rstrip(". !")
+            for group in page.findChildren(StyledInfoTableGroup):
+                if not group.isVisibleTo(page):
+                    continue
+                group_title = group.title()
+                if group._show_info:
+                    for attr, label, value in group.field_entries():
+                        if not value.isVisibleTo(page) and not group._labels[attr].isVisibleTo(page):
+                            continue
+                        entries.append((index, tab_title, group_title, label, value.text(),
+                                        group._labels[attr]))
+                if group.table is not None:
+                    for header in group.table._original_headers:
+                        entries.append((index, tab_title, group_title, f"{header} (column)", "",
+                                        group))
+        return entries
+
+    @pyqtSlot()
+    def _open_field_finder(self):
+        from .polview_dialogs import FieldFinderDialog
+
+        dialog = FieldFinderDialog(self.field_index, self._jump_to_field, self)
+        self._keep_dialog(dialog)
+        dialog.show()
+
+    def _jump_to_field(self, entry):
+        from .polview_dialogs import flash_widget
+
+        index, _tab, _group, label, _value, widget = entry
+        self.tabs.setCurrentIndex(index)
+        flash_widget(widget)
+        self._show_status(f"Found “{label}”")
+
+    # == Commands & easter eggs =============================================
+
+    @pyqtSlot(str)
+    def _run_command(self, command: str):
+        from .polview_dialogs import show_message_dialog
+
+        self.lookup_bar.policy_input.clear()
+        if command in ("", "help", "?", "shortcuts", "keys"):
+            self._show_help()
+        elif command == "recent":
+            rows = self._recent_store.entries()[:15]
+            html = "<br>".join(
+                f"<b>{r['policy']}</b> {r.get('company', '')} {r.get('region', '')}"
+                f" · {r.get('insured', '')} · <i>{r.get('viewed', '')}</i>" for r in rows
+            ) or "<i>No policies viewed yet.</i>"
+            self._keep_dialog(show_message_dialog(self, "Recently viewed policies", html))
+        elif command == "stats":
+            stats = self._session_stats
+            fastest = (f"{stats['fastest'][1]} in {stats['fastest'][0]:.2f}s"
+                       if stats["fastest"] else "—")
+            self._keep_dialog(show_message_dialog(self, "Your PolView session", (
+                f"Policy loads this session: <b>{stats['loads']}</b><br>"
+                f"Distinct policies: <b>{len(stats['policies'])}</b><br>"
+                f"Fastest Coverages load: <b>{fastest}</b><br>"
+                f"Notes saved across all policies: "
+                f"<b>{self._notes_store_total()}</b>")))
+        elif command == "about":
+            from suiteview import __version__
+            self._keep_dialog(show_message_dialog(self, "About PolView", (
+                f"<b>PolView</b> · SuiteView {__version__}<br><br>"
+                "One authoritative view of every policy — CyberLife data, "
+                "translated, explained and ready to support.<br><br>"
+                "<i>Built for the Business Analysts, Life Administration, analysts and "
+                "IT testers who keep the policies right.</i>")))
+        elif command in ("coffee", "tea"):
+            self._show_status("☕ Brewing… PolView runs on DB2 and caffeine. Take five, the policies will wait.")
+        elif command in ("actuary", "konami"):
+            self._activate_actuary_mode()
+        else:
+            self._show_status(f"Unknown command /{command} — type /help")
+
+    def _notes_store_total(self) -> int:
+        try:
+            from suiteview.core.json_store import read_json
+            data = read_json(self._notes_store._store.path, {})
+            return sum(len(v) for v in data.values() if isinstance(v, list))
+        except (OSError, AttributeError):
+            return 0
+
+    def eventFilter(self, obj, event):
+        if obj is self.lookup_bar.policy_input and event.type() == QEvent.Type.KeyPress:
+            self._key_trail = (self._key_trail + [event.key()])[-len(_KONAMI):]
+            if tuple(self._key_trail) == _KONAMI:
+                self._key_trail = []
+                QTimer.singleShot(0, self._activate_actuary_mode)
+        return super().eventFilter(obj, event)
+
+    def _activate_actuary_mode(self):
+        """↑↑↓↓←→←→BA: ten seconds of celebratory chrome."""
+        if getattr(self, "_actuary_mode", False):
+            return
+        self._actuary_mode = True
+        original = self._header_colors
+        self.set_header_colors(("#6A1B9A", "#D4A017", "#1B5E20"))
+        self._show_status("🎲 Actuary Mode unlocked — q(x) = 0 for the next ten seconds. Nobody tell reinsurance.")
+
+        def restore():
+            if _alive(self):
+                self.set_header_colors(original)
+                self._actuary_mode = False
+                self._show_status("Actuary Mode ended. Mortality has resumed. 😇")
+
+        QTimer.singleShot(10000, restore)
 
     # == Policy List helpers ===============================================
 
@@ -797,6 +1136,10 @@ class GetPolicyWindow(FramelessWindowBase):
         self._tree_toggle_btn.setEnabled(False)
         self.records_tree.setEnabled(False)
         self._clear_reinstatement_tab()
+        self._unavailable_tabs.clear()
+        for index in range(self.tabs.count()):
+            self.tabs.setTabEnabled(index, True)
+        self.summary_strip.clear(f"Loading {policy_number}…  {self._loading_quip()}")
         self._pending_policy_tabs = {tab for tab, _ in self._stage_tabs.values()}
         for stage in self._stage_tabs:
             self._set_tab_state(stage, "queued")
@@ -857,10 +1200,6 @@ class GetPolicyWindow(FramelessWindowBase):
                 is_pending=policy.system_code == "P",
             )
             self.records_tree.reset_for_new_policy()
-            self.records_tree.store_connection_info(
-                self._db, self._where_clause,
-                policy_id=policy.policy_id, company_code=policy.company_code,
-            )
             self.records_tree.enable_rates_tab(policy)
             with policy.cached_reads_only():
                 self.records_tree.show_rates_tab()
@@ -887,29 +1226,31 @@ class GetPolicyWindow(FramelessWindowBase):
                 return
             elapsed = perf_counter() - self._load_started
             logger.info("PolView Coverages ready in %.3fs; details loading asynchronously", elapsed)
+            flash = " ⚡" if elapsed < 1.0 else ""
             self._show_status(
-                f"{policy.policy_number} ({policy.company_code}) ready in {elapsed:.1f}s"
+                f"{policy.policy_number} ({policy.company_code}) ready in {elapsed:.1f}s{flash}"
                 " - loading details in background"
             )
+            self._record_navigation(policy)
+            self._note_load_stats(policy, elapsed)
+            self._refresh_summary()
             self.policy_ready.emit()
             return
         if self._policy is None:
             return
         self._policy.merge_prefetched(policy)
+        if stage == "tables":
+            self.records_tree.set_table_presence(prepared.payload)
+            return
         self._tab_payloads[stage] = prepared.payload
         tab, _title = self._stage_tabs[stage]
         if not prepared.available:
-            with QSignalBlocker(self.tabs):
-                if self.tabs.currentWidget() is tab:
-                    self.tabs.setCurrentWidget(self.coverages_tab)
-                index = self.tabs.indexOf(tab)
-                if index >= 0:
-                    self.tabs.removeTab(index)
-                tab.hide()
+            self._mark_tab_unavailable(stage)
             self._pending_policy_tabs.discard(tab)
         self._set_tab_state(stage, "ready")
         if prepared.available and self.tabs.currentWidget() is tab:
             self._load_policy_tab(tab)
+        self._refresh_summary()
 
     def _prepare_policy_tabs(self) -> bool:
         """No data queries: optional tabs remain pending until their worker result."""
@@ -919,27 +1260,32 @@ class GetPolicyWindow(FramelessWindowBase):
             return False
         selected = self.tabs.currentWidget()
         with QSignalBlocker(self.tabs):
-            for tab in (self.dividends_tab, self.advprod_tab,
-                        self.loans_tab, self.reinsurance_tab):
-                index = self.tabs.indexOf(tab)
-                if index >= 0:
-                    self.tabs.removeTab(index)
-                tab.hide()
-            self.tabs.insertTab(4, self.dividends_tab, "Dividends")
-            if self._policy.is_advanced_product:
-                self.tabs.insertTab(5, self.advprod_tab, "AdvProdValues")
-            self.tabs.insertTab(
-                self.tabs.indexOf(self.activity_tab), self.loans_tab, "Loans",
-            )
-            self.tabs.insertTab(
-                self.tabs.indexOf(self.activity_tab), self.reinsurance_tab, "Reinsurance",
-            )
-            self.tabs.setCurrentWidget(
-                selected if self.tabs.indexOf(selected) >= 0 else self.coverages_tab,
-            )
+            for index in range(self.tabs.count()):
+                self.tabs.setTabEnabled(index, True)
+            if not self._policy.is_advanced_product:
+                self._mark_tab_unavailable("advprod")
+            if not self.tabs.isTabEnabled(self.tabs.indexOf(selected)):
+                self.tabs.setCurrentWidget(self.coverages_tab)
         for stage in self._stage_tabs:
             self._set_tab_state(stage, self._tab_states.get(stage, "queued"))
         return True
+
+    def _mark_tab_unavailable(self, stage: str):
+        """Grey a not-applicable page in place, with the reason as its tooltip."""
+        tab, _title = self._stage_tabs[stage]
+        self._unavailable_tabs[stage] = UNAVAILABLE_TAB_REASONS.get(
+            stage, "Not applicable for this policy.")
+        index = self.tabs.indexOf(tab)
+        with QSignalBlocker(self.tabs):
+            if self.tabs.currentWidget() is tab:
+                self.tabs.setCurrentWidget(self.coverages_tab)
+            if index >= 0:
+                self.tabs.setTabEnabled(index, False)
+        self._load_overlays[stage].hide()
+
+    def is_tab_available(self, tab: QWidget) -> bool:
+        index = self.tabs.indexOf(tab)
+        return index >= 0 and self.tabs.isTabEnabled(index)
 
     @pyqtSlot(int)
     def _on_policy_tab_changed(self, _index: int):
@@ -984,21 +1330,29 @@ class GetPolicyWindow(FramelessWindowBase):
             return False
 
     def _set_tab_state(self, stage: str, state: str, error: str = ""):
+        if stage not in self._stage_tabs:
+            if stage == "tables" and state == "failed":
+                self.records_tree.set_table_presence_error(error)
+            return
         self._tab_states[stage] = state
         tab, title = self._stage_tabs[stage]
         index = self.tabs.indexOf(tab)
+        unavailable = self._unavailable_tabs.get(stage)
         if index >= 0:
-            suffix = "..." if state in ("queued", "loading") else " !" if state == "failed" else ""
+            suffix = "" if unavailable else (
+                "..." if state in ("queued", "loading") else " !" if state == "failed" else "")
             self.tabs.setTabText(index, title + suffix)
-            self.tabs.setTabToolTip(index, error or {
+            self.tabs.setTabToolTip(index, unavailable or error or {
                 "queued": "Waiting to load. Select to prioritize.",
                 "loading": "Loading in background", "ready": "Ready",
                 "failed": "Failed - open the tab to retry",
             }[state])
-        if state in ("queued", "loading"):
+        if unavailable:
+            self._load_overlays[stage].hide()
+        elif state in ("queued", "loading"):
             self._load_overlays[stage].display(
                 f"Loading {title.replace('&&', '&')} for {self._requested_policy[0]}...\n"
-                "You can use other ready tabs while this loads."
+                f"{self._loading_quip()}  You can use other ready tabs while this loads."
             )
         elif state == "failed":
             self._load_overlays[stage].display(error, failed=True)
@@ -1031,7 +1385,8 @@ class GetPolicyWindow(FramelessWindowBase):
                 _show_odbc_warning(self, dsn, error_detail=error)
         else:
             self._set_tab_state(stage, "failed", error)
-            self._show_status(f"{self._stage_tabs[stage][1]} unavailable: {error}")
+            title = self._stage_tabs[stage][1] if stage in self._stage_tabs else "Tables panel"
+            self._show_status(f"{title} unavailable: {error}")
 
     @pyqtSlot(str)
     def _retry_policy_tab(self, stage: str):

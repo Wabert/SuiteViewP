@@ -43,7 +43,7 @@ class PreparedPolicy:
     policy: PolicyInformation
     stage: str
     available: bool = True
-    payload: SurrenderValues | SurrenderValuesUnavailable | ReinsuranceInformation | None = None
+    payload: SurrenderValues | SurrenderValuesUnavailable | ReinsuranceInformation | dict | None = None
 
 
 # Direct table dependencies of the matching tab loaders. Named-property reads
@@ -72,6 +72,7 @@ STAGE_TABLES = {
     ),
     "reinsurance": (),
     "support": (),
+    "tables": (),
 }
 
 STAGE_PROPERTIES = {
@@ -270,6 +271,8 @@ class PolicyLoadSession:
     def _prepare(self, stage):
         policy = self._policy
         policy._data.clear_failed_tables()
+        if stage == "tables":
+            return self._table_presence()
         if stage == "advprod" and not policy.is_advanced_product:
             return PreparedPolicy(policy.detached_copy(), stage, False)
         # A swallowed failure in a collection builder may have left partial data.
@@ -330,6 +333,30 @@ class PolicyLoadSession:
             policy.fetch_table("FH_FIXED")
         policy._data.raise_table_errors()
         return PreparedPolicy(policy.detached_copy(), stage, available, payload)
+
+    def _table_presence(self) -> PreparedPolicy:
+        """Which Policy Record tables hold rows for this policy (Tables panel).
+
+        Uses PolicyData's own verified keys (including the FH tables without
+        CK_SYS_CD) on this worker's connection. A table that cannot be read is
+        reported with its error, never as empty, and is left retryable.
+        """
+        from suiteview.polview.config.policy_records import POLICY_RECORD_TABLES
+
+        policy = self._policy
+        presence: dict[str, bool | str] = {}
+        for tables in POLICY_RECORD_TABLES.values():
+            for table in tables:
+                if table in presence:
+                    continue
+                try:
+                    presence[table] = policy.data_item_count(table) > 0
+                except Exception:
+                    presence[table] = policy._data._table_errors.get(table) or "Unavailable"
+                if table in policy._data._table_errors:
+                    presence[table] = policy._data._table_errors[table]
+        policy._data.clear_failed_tables()
+        return PreparedPolicy(policy.detached_copy(), "tables", True, presence)
 
     def _surrender_values(self):
         from suiteview.illustration import build_illustration_data, IllustrationEngine

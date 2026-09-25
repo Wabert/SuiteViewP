@@ -27,21 +27,6 @@ def _app():
     return _QT_APP
 
 
-class _SweepDB:
-    def __init__(self):
-        self.queries = []
-
-    def execute_query(self, sql):
-        self.queries.append(sql)
-        if "DB2TAB.LH_SWF_SCH " in sql:
-            raise RuntimeError(
-                "SQLCODE=-551: user does not have SELECT privilege"
-            )
-        if "DB2TAB.LH_ATM_TRS_SCH " in sql:
-            return [(1,)]
-        return []
-
-
 def _record_item(tree, record_name):
     for index in range(tree.topLevelItemCount()):
         item = tree.topLevelItem(index)
@@ -55,18 +40,13 @@ def test_segment53_translation_tables_are_registered():
     assert POLICY_RECORD_TABLES["Policy Record 53"] == _SEGMENT_53_TABLES
 
 
-def test_segment53_sweep_checks_every_table_and_shows_access_error():
+def test_segment53_tables_show_data_and_access_errors_from_presence_map():
     _app()
-    db = _SweepDB()
+    presence = {table: False for table in _SEGMENT_53_TABLES}
+    presence["LH_ATM_TRS_SCH"] = True
+    presence["LH_SWF_SCH"] = "SQLCODE=-551: user does not have SELECT privilege"
     tree = PolicyRecordTreeWidget()
-    tree.rebuild_tree_with_data(
-        db,
-        "CK_SYS_CD = 'I' AND TCH_POL_ID = 'UE142109  6BJM' "
-        "AND CK_CMP_CD = '01'",
-    )
-
-    for table in _SEGMENT_53_TABLES:
-        assert any(f"DB2TAB.{table} " in query for query in db.queries)
+    tree.build_tables_tree(presence)
 
     record = _record_item(tree, "Policy Record 53")
     assert record is not None

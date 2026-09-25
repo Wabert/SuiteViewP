@@ -14,7 +14,7 @@ from PyQt6.QtCore import QCoreApplication, QEvent, QTimer
 from PyQt6.QtWidgets import QApplication, QLabel
 
 from suiteview.polview.ui import main_window
-from suiteview.polview.ui.policy_load_controller import PolicyLoadController, DETAIL_STAGES
+from suiteview.polview.ui.policy_load_controller import PolicyLoadController, DETAIL_STAGES, PANEL_STAGES
 
 
 class FakePolicy(SimpleNamespace):
@@ -64,7 +64,7 @@ def host(qtbot, monkeypatch, tmp_path):
             return SimpleNamespace(
                 policy=self.policy.detached_copy(), stage=stage,
                 available=stage not in state.unavailable,
-                payload=f"{self.number}:{stage}",
+                payload={} if stage == "tables" else f"{self.number}:{stage}",
             )
 
         def load_initial(self):
@@ -94,7 +94,7 @@ def host(qtbot, monkeypatch, tmp_path):
 
         monkeypatch.setattr(tab, "load_data_from_policy", Mock(side_effect=populate))
         tab.test_label = label
-    for name in ("reset_for_new_policy", "store_connection_info",
+    for name in ("reset_for_new_policy",
                  "enable_rates_tab", "show_rates_tab"):
         monkeypatch.setattr(window.records_tree, name, Mock())
     window.show()
@@ -196,7 +196,10 @@ def test_details_prepare_without_selection_and_render_only_when_selected(host, q
     settled(qtbot, window)
     assert {stage for _, stage, _ in state.calls} == {"coverages", *DETAIL_STAGES}
     assert [stage for _, stage, _, _ in state.rendered] == ["coverages"]
+    assert window.records_tree._presence == {}
     for stage in DETAIL_STAGES:
+        if stage in PANEL_STAGES:
+            continue
         tab = window._stage_tabs[stage][0]
         window.tabs.setCurrentWidget(tab)
         window.tabs.setCurrentWidget(window.coverages_tab)
@@ -370,15 +373,24 @@ def test_handoff_failure_identifies_requested_policy_and_get_recovers(
     assert window.open_record_btn.isEnabled()
 
 
-def test_optional_tab_checks_remove_absent_data_without_loading_on_gui(host, qtbot):
+def test_optional_tab_checks_grey_absent_data_in_place_without_loading_on_gui(host, qtbot):
     window, state = host
     state.unavailable.update(("loans", "dividends"))
     state.policies["TRAD"] = policy("TRAD", advanced=False)
+    titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
     window.load_policy("TRAD")
     settled(qtbot, window)
     for tab in (window.advprod_tab, window.loans_tab, window.dividends_tab):
-        assert window.tabs.indexOf(tab) == -1
+        index = window.tabs.indexOf(tab)
+        assert index >= 0
+        assert not window.tabs.isTabEnabled(index)
+        assert window.tabs.tabToolTip(index).startswith(("No ", "Account values apply"))
         tab.load_data_from_policy.assert_not_called()
+    assert window.tabs.count() == len(titles)
+    state.unavailable.clear()
+    window.load_policy("FIRST")
+    settled(qtbot, window)
+    assert all(window.tabs.isTabEnabled(i) for i in range(window.tabs.count()))
 
 
 def test_company_chooser_has_no_background_detail_queries(host, qtbot, monkeypatch):

@@ -14,6 +14,7 @@ PROFILE_PATHS = {
     "sp_token_cache.bin": "auth/sp_token_cache.bin",
     "bookmarks.json": "data/bookmarks.json",
     "scratchpad.txt": "data/notes/scratchpad.txt",
+    "polview_notes.json": "data/notes/polview_notes.json",
     "query_organizer.json": "data/query/query_organizer.json",
     "agent_chat": "data/agent_chat",
     "illustration_cases": "data/illustration/cases",
@@ -36,7 +37,7 @@ for _name in (
     "column_widths.json", "file_explorer_panel_widths.json",
     "illustration_settings.json", "registry_window_geometry.json",
     "mainframe_nav_columns.json", "mainframe_nav_splitter.json",
-    "terminal_settings.json",
+    "terminal_settings.json", "polview_recent.json", "polview_table_columns.json",
 ):
     PROFILE_PATHS[_name] = f"settings/{_name}"
 for _name in (

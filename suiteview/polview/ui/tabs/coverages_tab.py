@@ -6,14 +6,20 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTableWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 
 from ..formatting import format_date, format_amount
 from ..styles import WHITE, GRAY_DARK, GRAY_TEXT, GOLD_DARK
 from ..widgets import StyledInfoTableGroup
+from ...models.cl_polrec.policy_translations import translate_benefit_type
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
+
+
+# LH_COV_PHA.NXT_CHG_TYP_CD, shown as words (the code is in the cell tooltip).
+_COVERAGE_STATUS_TEXT = {"0": "Terminated", "1": "Paid Up", "2": "Prem Paying"}
 
 
 _VAL_STYLE = f"font-size: 11px; color: {GRAY_DARK}; background: transparent; border: none;"
@@ -103,12 +109,22 @@ class CoveragesTab(QWidget):
         self.cov_group = StyledInfoTableGroup("Coverages", show_info=False)
         self.cov_table = self.cov_group.table
         self.cov_table._data_table.itemDoubleClicked.connect(self._on_coverage_double_clicked)
+        self.cov_table.set_empty_message("No coverages on this policy.")
+        self.cov_table.set_column_settings_key("polview.coverages")
         layout.addWidget(self.cov_group, 2)
 
         # Benefits table
         self.bnf_group = StyledInfoTableGroup("Benefits", show_info=False)
         self.bnf_table = self.bnf_group.table
+        self.bnf_table.set_empty_message("No supplemental benefits on this policy.")
+        self.bnf_table.set_column_settings_key("polview.benefits")
         layout.addWidget(self.bnf_group, 1)
+        self._layout = layout
+
+    def _balance_sections(self, coverage_rows: int, benefit_rows: int):
+        """Share vertical space in proportion to the rows each table holds."""
+        self._layout.setStretchFactor(self.cov_group, max(2, min(coverage_rows, 12) + 1))
+        self._layout.setStretchFactor(self.bnf_group, max(1, min(benefit_rows, 12) + 1))
 
     # ── helpers ───────────────────────────────────────────────────────────
 
@@ -183,6 +199,7 @@ class CoveragesTab(QWidget):
             self._populate_coverages_from_policy(policy, coverages)
             benefits = policy.get_benefits()
             self._populate_benefits_from_policy(benefits)
+            self._balance_sections(len(coverages), len(benefits))
         except Exception as e:
             import traceback, sys
             print(f"[CoveragesTab] Error loading data: {e}", file=sys.stderr)
@@ -358,7 +375,13 @@ class CoveragesTab(QWidget):
             self._set_item(row_idx, col, format_date(getattr(cov, 'flat_cease_date', None)) if flat else ""); col += 1
             # Status, CeaseDate, Rate
             status = getattr(cov, 'nxt_chg_typ_cd', '') or getattr(cov, 'cov_status', '')
-            self._set_item(row_idx, col, status); col += 1
+            self._set_item(row_idx, col, _COVERAGE_STATUS_TEXT.get(str(status).strip(), status))
+            status_item = self.cov_table.item(row_idx, col)
+            if status_item is not None:
+                status_item.setToolTip(f"Next change type {status} (LH_COV_PHA.NXT_CHG_TYP_CD)")
+                if str(status).strip() == "0":
+                    status_item.setForeground(QColor("#B71C1C"))
+            col += 1
             self._set_item(row_idx, col, format_date(getattr(cov, 'nxt_chg_dt', None)) if status == "0" else ""); col += 1
             # Rate: cov.rate picks the right value automatically:
             #   Advanced products → coi_rate  (from LH_COV_INS_RNL_RT.RNL_RT)
@@ -384,14 +407,14 @@ class CoveragesTab(QWidget):
         self.cov_table.autoFitAllColumns()
 
     def _populate_benefits_from_policy(self, benefits: list):
-        if not benefits:
-            self.bnf_table.setRowCount(0)
-            return
-
-        columns = ["Code", "Phs", "Type", "Form", "IssueDate", "PayUpDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate", "RenewRate"]
+        columns = ["Code", "Name", "Phs", "Type", "Form", "IssueDate", "PayUpDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate", "RenewRate"]
 
         self.bnf_table.setColumnCount(len(columns))
         self.bnf_table.setHorizontalHeaderLabels(columns)
+        if not benefits:
+            self.bnf_table.setRowCount(0)
+            self.bnf_table.autoFitAllColumns()
+            return
         # Right-align all headers
         for c in range(len(columns)):
             h = self.bnf_table._data_table.horizontalHeaderItem(c)
@@ -400,27 +423,36 @@ class CoveragesTab(QWidget):
         self.bnf_table.setRowCount(len(benefits))
 
         for row_idx, bnf in enumerate(benefits):
-            self._set_bnf_item(row_idx, 0, bnf.benefit_code)
-            self._set_bnf_item(row_idx, 1, bnf.cov_pha_nbr)
-            self._set_bnf_item(row_idx, 2, bnf.benefit_type_cd)
-            self._set_bnf_item(row_idx, 3, getattr(bnf, 'form_number', ""))
-            self._set_bnf_item(row_idx, 4, format_date(getattr(bnf, 'issue_date', None)))
-            self._set_bnf_item(row_idx, 5, format_date(getattr(bnf, 'pay_up_date', None)))
-            self._set_bnf_item(row_idx, 6, format_date(bnf.cease_date))
-            self._set_bnf_item(row_idx, 7, format_date(getattr(bnf, 'orig_cease_date', None)))
-            self._set_bnf_item(row_idx, 8, format_amount(getattr(bnf, 'units', None)))
-            self._set_bnf_item(row_idx, 9, self._format_vpu(getattr(bnf, 'vpu', None)))
-            self._set_bnf_item(row_idx, 10, getattr(bnf, 'issue_age', None))
             rating = getattr(bnf, 'rating_factor', None)
-            rating_str = f"{rating:.0%}" if rating is not None else ""
-            self._set_bnf_item(row_idx, 11, rating_str)
             renew_ind = str(getattr(bnf, 'renewal_indicator', "") or "").strip()
-            self._set_bnf_item(row_idx, 12, renew_ind)
-            self._set_bnf_item(row_idx, 13, getattr(bnf, 'coi_rate', None))
             # Renewal rate (67 segment) — only shown when the benefit renews
             # (Renew indicator = 1) and a renewal rate exists; otherwise blank.
             renewal_rate = getattr(bnf, 'renewal_rate', None)
-            renew_rate_str = str(renewal_rate) if (renew_ind == "1" and renewal_rate is not None) else ""
-            self._set_bnf_item(row_idx, 14, renew_rate_str)
+            name = translate_benefit_type(str(bnf.benefit_type_cd or "").strip(),
+                                          str(getattr(bnf, 'benefit_subtype_cd', "") or "").strip())
+            values = [
+                bnf.benefit_code,
+                name,
+                bnf.cov_pha_nbr,
+                bnf.benefit_type_cd,
+                getattr(bnf, 'form_number', ""),
+                format_date(getattr(bnf, 'issue_date', None)),
+                format_date(getattr(bnf, 'pay_up_date', None)),
+                format_date(bnf.cease_date),
+                format_date(getattr(bnf, 'orig_cease_date', None)),
+                format_amount(getattr(bnf, 'units', None)),
+                self._format_vpu(getattr(bnf, 'vpu', None)),
+                getattr(bnf, 'issue_age', None),
+                f"{rating:.0%}" if rating is not None else "",
+                renew_ind,
+                getattr(bnf, 'coi_rate', None),
+                str(renewal_rate) if (renew_ind == "1" and renewal_rate is not None) else "",
+            ]
+            for col, value in enumerate(values):
+                self._set_bnf_item(row_idx, col, value)
+            description = str(getattr(bnf, 'benefit_desc', "") or "").strip()
+            name_item = self.bnf_table.item(row_idx, 1)
+            if name_item is not None and description:
+                name_item.setToolTip(description)
 
         self.bnf_table.autoFitAllColumns()

@@ -20,7 +20,7 @@ from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
 
 from suiteview.ui.widgets.mini_explorer import (
     MiniExplorer, DropTargetSubfolderList, DraggableToolsList,
-    DoubleClickablePathLabel, TightItemDelegate, _icon_for_ext
+    DoubleClickablePathLabel, TightItemDelegate, icon_for_ext
 )
 from .abr_styles import (
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK, SLATE_LIGHT,
@@ -745,7 +745,7 @@ class OutputPanel(QWidget):
                 full_path = self._find_form_file(filename, search_dirs)
 
                 ext = os.path.splitext(filename)[1].lower()
-                icon = _icon_for_ext(ext)
+                icon = icon_for_ext(ext)
 
                 if full_path:
                     item = QListWidgetItem(f"{icon}  {filename}")

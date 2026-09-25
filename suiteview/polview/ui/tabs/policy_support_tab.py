@@ -36,6 +36,9 @@ from ..styles import (
     POLICY_INFO_FRAME_STYLE,
 )
 from ..widgets import CopyableLabel, FixedHeaderTableWidget
+from suiteview.ui.widgets.mini_explorer import (
+    DoubleClickablePathLabel, DraggableToolsList, MiniExplorer, TightItemDelegate, icon_for_ext,
+)
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
 from ....utils.excel_template import copy_as_workbook, workbook_filename
 from suiteview.core.access_control import (
@@ -303,8 +306,8 @@ _MODE_BTN_ACTIVE_STYLE = f"""
         color: {WHITE};
         border: 2px solid {GREEN_DARK};
         border-radius: 4px;
-        padding: 4px 16px;
-        font-size: 12px;
+        padding: 4px 6px;
+        font-size: 11px;
         font-weight: bold;
         min-height: 22px;
     }}
@@ -316,8 +319,8 @@ _MODE_BTN_INACTIVE_STYLE = f"""
         color: {GRAY_DARK};
         border: 1px solid {GRAY_MID};
         border-radius: 4px;
-        padding: 4px 16px;
-        font-size: 12px;
+        padding: 4px 6px;
+        font-size: 11px;
         font-weight: bold;
         min-height: 22px;
     }}
@@ -543,8 +546,8 @@ _MODE_BTN_ABR_ACTIVE_STYLE = f"""
         color: {WHITE};
         border: 2px solid {_CRIMSON_DARK};
         border-radius: 4px;
-        padding: 4px 16px;
-        font-size: 12px;
+        padding: 4px 6px;
+        font-size: 11px;
         font-weight: bold;
         min-height: 22px;
     }}
@@ -553,30 +556,6 @@ _MODE_BTN_ABR_ACTIVE_STYLE = f"""
 # Mime type tokens used for drag-and-drop
 _MIME_CATEGORY = "application/x-suiteview-category"
 _MIME_TOOL_FILE = "application/x-suiteview-toolfile"
-
-
-# ---------------------------------------------------------------------------
-# TightItemDelegate
-# ---------------------------------------------------------------------------
-
-class _TightItemDelegate(QStyledItemDelegate):
-    ROW_H = 16
-    def sizeHint(self, option, index):
-        sh = super().sizeHint(option, index)
-        return QSize(sh.width(), self.ROW_H)
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-def _icon_for_ext(ext: str) -> str:
-    return {
-        ".py": "🐍", ".r": "📊", ".R": "📊",
-        ".xlsx": "📗", ".xls": "📗", ".xlsm": "📗",
-        ".sql": "🗃️", ".vbs": "⚙️", ".bat": "⚙️", ".ps1": "⚙️",
-        ".txt": "📝", ".pdf": "📕", ".docx": "📘",
-    }.get(ext, "📄")
 
 
 # ---------------------------------------------------------------------------
@@ -606,42 +585,6 @@ class _DraggableCategoryList(QListWidget):
         painter.setFont(QFont("Segoe UI", 9))
         painter.setPen(QColor(GREEN_DARK))
         painter.drawText(4, 13, item.text())
-        painter.end()
-        drag.setPixmap(pix)
-        drag.exec(Qt.DropAction.CopyAction)
-
-
-# ---------------------------------------------------------------------------
-# DraggableToolsList  — Available Tools list with drag support
-# ---------------------------------------------------------------------------
-
-class _DraggableToolsList(QListWidget):
-    """QListWidget that starts a drag carrying a file path."""
-
-    _PATH_ROLE = Qt.ItemDataRole.UserRole
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setDragEnabled(True)
-        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
-
-    def startDrag(self, supportedActions):
-        item = self.currentItem()
-        if not item:
-            return
-        path = item.data(self._PATH_ROLE) or ""
-        if not path or not os.path.isfile(path):
-            return  # only drag files, not folders
-        mime = QMimeData()
-        mime.setData(_MIME_TOOL_FILE, path.encode())
-        drag = QDrag(self)
-        drag.setMimeData(mime)
-        pix = QPixmap(200, 18)
-        pix.fill(QColor(GOLD_LIGHT))
-        painter = QPainter(pix)
-        painter.setFont(QFont("Segoe UI", 9))
-        painter.setPen(QColor(GREEN_DARK))
-        painter.drawText(4, 13, os.path.basename(path))
         painter.end()
         drag.setPixmap(pix)
         drag.exec(Qt.DropAction.CopyAction)
@@ -695,266 +638,6 @@ class _DropTargetSubfolderList(QListWidget):
             event.acceptProposedAction()
         else:
             event.ignore()
-
-
-# ---------------------------------------------------------------------------
-# MiniExplorer  — reusable mini file-explorer panel
-# ---------------------------------------------------------------------------
-
-class MiniExplorer(QWidget):
-    """Compact file explorer with Home/Up navigation and path breadcrumb.
-
-    The list widget passed in (via list_widget_class) is used so callers
-    can supply a drag-enabled subclass.
-    """
-
-    file_selected = pyqtSignal(str)
-
-    _PATH_ROLE = Qt.ItemDataRole.UserRole
-
-    def __init__(self, title: str = "", root_path: str = "",
-                 list_widget_class=None, parent=None):
-        super().__init__(parent)
-        self._root_path = root_path
-        self._current_path = root_path
-        self._title = title
-        self._at_home = True          # True when showing pinned home entries
-        self._home_entries: list = [] # [(label, full_path), ...] for home view
-        self._list_cls = list_widget_class or QListWidget
-        self._setup_ui()
-
-    def _setup_ui(self):
-        outer = QGroupBox(self._title)
-        outer.setStyleSheet(POLICY_INFO_FRAME_STYLE)
-        ol = QVBoxLayout(outer)
-        ol.setContentsMargins(2, 14, 2, 2)
-        ol.setSpacing(2)
-
-        # Nav bar
-        nav = QHBoxLayout()
-        nav.setContentsMargins(0, 0, 0, 0)
-        nav.setSpacing(2)
-
-        self._home_btn = QPushButton("⌂")
-        self._home_btn.setStyleSheet(_NAV_BTN_STYLE)
-        self._home_btn.setFixedWidth(22)
-        self._home_btn.setToolTip("Go home")
-        self._home_btn.clicked.connect(self._go_home)
-
-        self._up_btn = QPushButton("↑")
-        self._up_btn.setStyleSheet(_NAV_BTN_STYLE)
-        self._up_btn.setFixedWidth(22)
-        self._up_btn.setToolTip("Go up one level")
-        self._up_btn.clicked.connect(self._go_up)
-
-        self._path_label = _DoubleClickablePathLabel("")
-        self._path_label.setStyleSheet(_PATH_BAR_STYLE)
-        self._path_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-
-        nav.addWidget(self._home_btn)
-        nav.addWidget(self._up_btn)
-        nav.addWidget(self._path_label, 1)
-        ol.addLayout(nav)
-
-        # List
-        self._list: QListWidget = self._list_cls()
-        self._list.setStyleSheet(_LIST_STYLE)
-        self._list.setItemDelegate(_TightItemDelegate(self._list))
-        self._list.setUniformItemSizes(True)
-        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._list.itemDoubleClicked.connect(self._on_double_click)
-        self._list.currentItemChanged.connect(self._on_sel_changed)
-        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._list.customContextMenuRequested.connect(self._on_context_menu)
-        ol.addWidget(self._list, 1)
-
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.addWidget(outer)
-
-    # -- Home entries (pinned folders) -------------------------------------
-
-    def set_home_entries(self, entries: list):
-        """Set the list of (label, full_path) tuples shown on the home screen."""
-        self._home_entries = entries
-        self._go_home()
-
-    # -- Navigation --------------------------------------------------------
-
-    def set_root(self, path: str):
-        self._root_path = path
-        self._current_path = path
-        self._at_home = False
-        self._refresh()
-
-    def _go_home(self):
-        self._at_home = True
-        self._current_path = ""
-        self._refresh()
-
-    def _go_up(self):
-        """Navigate to the parent directory. Goes home only if already at a filesystem root."""
-        if self._at_home:
-            return
-        if not self._current_path:
-            self._go_home()
-            return
-        parent = os.path.dirname(self._current_path)
-        # If dirname returns the same path we're at a filesystem root — go home
-        if parent == self._current_path:
-            self._go_home()
-        else:
-            self._current_path = parent
-            self._refresh()
-
-    def _on_double_click(self, item: QListWidgetItem):
-        """Navigate into a folder (or do nothing for files — files are drag-only)."""
-        path = item.data(self._PATH_ROLE)
-        if path and os.path.isdir(path):
-            self._at_home = False
-            self._root_path = path if not self._root_path else self._root_path
-            self._current_path = path
-            self._refresh()
-
-    def _on_sel_changed(self, current: QListWidgetItem, _prev):
-        if not current:
-            return
-        path = current.data(self._PATH_ROLE) or ""
-        if os.path.isfile(path):
-            self.file_selected.emit(path)
-
-    def _on_context_menu(self, pos: QPoint):
-        menu = QMenu(self)
-        menu.setStyleSheet(_CONTEXT_MENU_STYLE)
-        up_act = menu.addAction("↑  Go Up")
-        up_act.setEnabled(not self._at_home)
-        home_act = menu.addAction("⌂  Go Home")
-        home_act.setEnabled(not self._at_home and bool(self._home_entries))
-
-        item = self._list.itemAt(pos)
-        open_act = None
-        if item:
-            path = item.data(self._PATH_ROLE) or ""
-            if os.path.isdir(path):
-                menu.addSeparator()
-                open_act = menu.addAction("Open in Explorer")
-
-        action = menu.exec(self._list.viewport().mapToGlobal(pos))
-        if action is up_act:
-            self._go_up()
-        elif action is home_act:
-            self._go_home()
-        elif action is open_act and item:
-            path = item.data(self._PATH_ROLE) or ""
-            if os.path.exists(path):
-                os.startfile(path)
-
-    # -- Rendering ---------------------------------------------------------
-
-    def _refresh(self):
-        self._list.clear()
-        self._up_btn.setEnabled(not self._at_home)
-        self._home_btn.setEnabled(not self._at_home and bool(self._home_entries))
-
-        if self._at_home:
-            self._path_label.setText("Home")
-            self._path_label.set_open_path("")  # nothing to open at home
-            for label, full_path in self._home_entries:
-                exists = os.path.isdir(full_path)
-                icon = "📁" if exists else "⚠️"
-                item = QListWidgetItem(f"{icon}  {label}")
-                item.setData(self._PATH_ROLE, full_path)
-                if not exists:
-                    item.setForeground(QColor(GRAY_MID))
-                    item.setToolTip("Folder not found")
-                self._list.addItem(item)
-            return
-
-        self._update_path_label()
-        if not self._current_path or not os.path.isdir(self._current_path):
-            return
-
-        try:
-            entries = sorted(
-                os.listdir(self._current_path),
-                key=lambda e: (
-                    not os.path.isdir(os.path.join(self._current_path, e)),
-                    e.lower()
-                )
-            )
-            for entry in entries:
-                full = os.path.join(self._current_path, entry)
-                if os.path.isdir(full):
-                    item = QListWidgetItem(f"📁  {entry}")
-                else:
-                    ext = os.path.splitext(entry)[1].lower()
-                    item = QListWidgetItem(f"{_icon_for_ext(ext)}  {entry}")
-                item.setData(self._PATH_ROLE, full)
-                self._list.addItem(item)
-        except Exception as e:
-            self._list.addItem(QListWidgetItem(f"(Error: {e})"))
-
-    def _update_path_label(self):
-        if not self._current_path:
-            self._path_label.setText("")
-            self._path_label.set_open_path("")
-            return
-        # Show last 2 path components for compactness; full path stored for open
-        try:
-            parts = self._current_path.replace("\\", "/").split("/")
-            rel = "\\".join(parts[-2:]) if len(parts) >= 2 else self._current_path
-        except Exception:
-            rel = self._current_path
-        self._path_label.setText(rel)
-        self._path_label.set_open_path(self._current_path)
-
-    # -- Public helpers ----------------------------------------------------
-
-    def current_path(self) -> str:
-        return self._current_path if not self._at_home else ""
-
-    def selected_file_path(self) -> str:
-        item = self._list.currentItem()
-        if not item:
-            return ""
-        path = item.data(self._PATH_ROLE) or ""
-        return path if os.path.isfile(path) else ""
-
-    def refresh(self):
-        self._refresh()
-
-
-# ---------------------------------------------------------------------------
-# _DoubleClickablePathLabel  — QLabel that opens a folder in Explorer on dbl-click
-# ---------------------------------------------------------------------------
-
-class _DoubleClickablePathLabel(QLabel):
-    """Path-bar label that opens its associated folder in Windows Explorer on double-click.
-
-    The displayed text may be a short/relative form; call set_open_path() to
-    store the full absolute path that will actually be opened.
-    """
-
-    def __init__(self, text: str = "", parent=None):
-        super().__init__(text, parent)
-        self._open_path: str = ""
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def set_open_path(self, path: str):
-        """Set the full path that will be opened on double-click."""
-        self._open_path = path
-        if path:
-            self.setToolTip(f"Double-click to open in Explorer:\n{path}")
-        else:
-            self.setToolTip("")
-
-    def mouseDoubleClickEvent(self, event):
-        path = self._open_path or self.text().strip()
-        if path and os.path.isdir(path):
-            os.startfile(path)
-        super().mouseDoubleClickEvent(event)
 
 
 class _PolicyLibraryGrid(FixedHeaderTableWidget):
@@ -1025,7 +708,7 @@ class PolicyLibraryTab(QWidget):
         folder_label.setStyleSheet(lbl_s)
         info_layout.addWidget(folder_label, 0, 0)
 
-        self._path_label = _DoubleClickablePathLabel(self._root_path)
+        self._path_label = DoubleClickablePathLabel(self._root_path)
         self._path_label.set_open_path(self._root_path)
         self._path_label.setStyleSheet(_PATH_LABEL_STYLE)
         self._path_label.setWordWrap(True)
@@ -1229,6 +912,14 @@ class PolicySupportTab(QWidget):
         nav_col.addWidget(self._btn_mode_annuity)
 
         nav_col.addStretch(1)
+        self._nav_hint = QLabel("Greyed tools don't apply to this policy — hover one to see why.")
+        self._nav_hint.setWordWrap(True)
+        self._nav_hint.setStyleSheet(
+            "color: #6B7785; font-size: 9px; font-style: italic;"
+            " background: transparent; border: none;"
+        )
+        self._nav_hint.setVisible(False)
+        nav_col.addWidget(self._nav_hint)
 
         layout.addWidget(nav_panel)
 
@@ -1288,7 +979,7 @@ class PolicySupportTab(QWidget):
         ig.addWidget(self._policy_library_btn, 0, 3)
 
         ig.addWidget(self._mk_lbl("Library Path:", lbl_s), 1, 0)
-        self._library_path_label = _DoubleClickablePathLabel("")
+        self._library_path_label = DoubleClickablePathLabel("")
         self._library_path_label.setStyleSheet(_PATH_LABEL_STYLE)
         self._library_path_label.setWordWrap(True)
         self._library_path_label.setToolTip("Double-click to open in Explorer")
@@ -1337,7 +1028,7 @@ class PolicySupportTab(QWidget):
 
         self._category_list = _DraggableCategoryList()
         self._category_list.setStyleSheet(_LIST_STYLE)
-        self._category_list.setItemDelegate(_TightItemDelegate(self._category_list))
+        self._category_list.setItemDelegate(TightItemDelegate(self._category_list))
         self._category_list.setUniformItemSizes(True)
         self._category_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._category_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1360,7 +1051,12 @@ class PolicySupportTab(QWidget):
         # Column 3 — Available Tools (draggable mini explorer)
         self._tools_explorer = MiniExplorer(
             title="Available Tools",
-            list_widget_class=_DraggableToolsList,
+            list_widget_class=DraggableToolsList,
+            support_files=True,
+        )
+        self._apply_explorer_theme(
+            self._tools_explorer,
+            POLICY_INFO_FRAME_STYLE, _LIST_STYLE, _NAV_BTN_STYLE, _PATH_BAR_STYLE,
         )
         # Build home entries from the current user's OneDrive root.
         onedrive_root = _get_onedrive_dir()
@@ -1809,6 +1505,39 @@ class PolicySupportTab(QWidget):
 
     def show_annuity_rider(self):
         self._select_section(self.SECTION_ANNUITY_RIDER)
+
+    def open_section(self, key: str):
+        """Open a support tool by its ``policy_insights`` key."""
+        section = {
+            "policy_support": self.MODE_POLICY_SUPPORT,
+            "abr": self.MODE_ABR,
+            "glp_exception": self.SECTION_GLP_EXCEPTION,
+            "forecast": self.SECTION_FORECAST,
+            "annuity_rider": self.SECTION_ANNUITY_RIDER,
+        }.get(key)
+        if section is not None:
+            self._select_section(section)
+
+    def apply_tool_availability(self, tools: dict):
+        """Explain greyed tools: each disabled button carries the reason."""
+        buttons = {
+            "policy_support": self._btn_mode_polsup,
+            "abr": self._btn_mode_abr,
+            "glp_exception": self._btn_mode_glp_exception,
+            "forecast": self._btn_mode_forecast,
+            "reinstatement": self._btn_reinstatement,
+            "annuity_rider": self._btn_mode_annuity,
+        }
+        any_unavailable = False
+        for key, button in buttons.items():
+            tool = tools.get(key)
+            if tool is None:
+                continue
+            if key == "reinstatement":
+                button.setEnabled(tool.available)
+            button.setToolTip(tool.reason if not tool.available else f"Open {tool.label}")
+            any_unavailable = any_unavailable or not tool.available
+        self._nav_hint.setVisible(any_unavailable)
 
     def _refresh_section_buttons(self):
         self._btn_mode_polsup.setStyleSheet(
@@ -2919,7 +2648,7 @@ class _SubfolderExplorer(QWidget):
         self._up_btn.setToolTip("Go up one level")
         self._up_btn.clicked.connect(self._go_up)
 
-        self._path_label = _DoubleClickablePathLabel("")
+        self._path_label = DoubleClickablePathLabel("")
         self._path_label.setStyleSheet(_PATH_BAR_STYLE)
         self._path_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -2932,7 +2661,7 @@ class _SubfolderExplorer(QWidget):
 
         self._list = _DropTargetSubfolderList()
         self._list.setStyleSheet(_LIST_STYLE)
-        self._list.setItemDelegate(_TightItemDelegate(self._list))
+        self._list.setItemDelegate(TightItemDelegate(self._list))
         self._list.setUniformItemSizes(True)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.itemDoubleClicked.connect(self._on_double_click)
@@ -3094,7 +2823,7 @@ class _SubfolderExplorer(QWidget):
                     item = QListWidgetItem(f"📁  {entry}")
                 else:
                     ext = os.path.splitext(entry)[1].lower()
-                    item = QListWidgetItem(f"{_icon_for_ext(ext)}  {entry}")
+                    item = QListWidgetItem(f"{icon_for_ext(ext)}  {entry}")
                 item.setData(self._PATH_ROLE, full)
                 self._list.addItem(item)
         except Exception as e:

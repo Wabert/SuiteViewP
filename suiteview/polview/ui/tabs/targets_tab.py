@@ -579,18 +579,12 @@ class TargetsAccumulatorsTab(QWidget):
                          Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self.accum_widget = AccumulatorsWidget()
-        layout.addWidget(self.accum_widget, 0, 1,
-                         Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-
-        note_label = QLabel(
-            "<-- Accumulators come from LH_POL_TOTALS table and in a few cases "
-            "may not match the sum of transaction history on the Activity sheet"
+        self.accum_widget.setTitle("Accumulators ⓘ")
+        self.accum_widget.setToolTip(
+            "Accumulators come from the LH_POL_TOTALS table and, in a few cases, "
+            "may not match the sum of transaction history on the Activity tab."
         )
-        note_label.setWordWrap(True)
-        note_label.setStyleSheet("color: gray; font-size: 10px;")
-
-        # Column 2, row 0: the accumulators source note.
-        layout.addWidget(note_label, 0, 2,
+        layout.addWidget(self.accum_widget, 0, 1,
                          Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # Row 1 — three expandable bottom widgets
@@ -605,11 +599,25 @@ class TargetsAccumulatorsTab(QWidget):
         self.min_prem_widget = MinimumPremiumWidget()
         self.min_prem_widget.setMinimumHeight(200)
         layout.addWidget(self.min_prem_widget, 1, 2)
+        self._grid = layout
 
         layout.setRowStretch(1, 1)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(2, 1)
         layout.setColumnStretch(3, 1)
+
+    def _compact_when_empty(self, widget, empty: bool, message: str = ""):
+        """Empty/not-applicable panels stay visible and greyed, but only as tall as their note."""
+        if empty:
+            widget.setMinimumHeight(64)
+            widget.setMaximumHeight(64)
+            self._grid.setAlignment(widget, Qt.AlignmentFlag.AlignTop)
+            if message:
+                widget._unavailable_label.setText(message)
+        else:
+            widget.setMaximumHeight(16777215)
+            widget.setMinimumHeight(200)
+            self._grid.setAlignment(widget, Qt.AlignmentFlag(0))
 
     @staticmethod
     def _guaranteed_cash_value(policy: 'PolicyInformation') -> Dict[str, Any]:
@@ -757,6 +765,15 @@ class TargetsAccumulatorsTab(QWidget):
                 pol_data_unavailable = len(pol_targets) == 0
                 self.commission_widget.set_data_unavailable(com_data_unavailable)
                 self.min_prem_widget.set_data_unavailable(pol_data_unavailable)
+                self._compact_when_empty(
+                    self.commission_widget, com_data_unavailable,
+                    "No commission target rows (LH_COM_TARGET) for this policy")
+                self._compact_when_empty(
+                    self.min_prem_widget, pol_data_unavailable,
+                    "No minimum premium target rows (LH_POL_TARGET) for this policy")
+            else:
+                self._compact_when_empty(self.commission_widget, True)
+                self._compact_when_empty(self.min_prem_widget, True)
 
             self.commission_widget.load_data(com_targets, cov_data, rnl_data)
             self.min_prem_widget.load_data(pol_targets, cov_data, rnl_data)

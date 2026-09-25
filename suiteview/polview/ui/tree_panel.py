@@ -12,8 +12,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from suiteview.core.db2_connection import _extract_odbc_message
-
 from ..config.policy_records import POLICY_RECORD_TABLES, get_sorted_policy_records
 from .styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_PRIMARY, BLUE_DARK,
@@ -60,54 +58,28 @@ class PolicyRecordTreeWidget(QTreeWidget):
         self.setIndentation(12)
         self.setRootIsDecorated(False)  # We'll add our own indicators
     
-    def rebuild_tree_with_data(self, db, where_clause: str, policy_id: str = None, company_code: str = None):
-        """Rebuild tree showing only records/tables that have data.
-        
-        Args:
-            db: Database connection
-            where_clause: Standard WHERE clause with CK_SYS_CD, TCH_POL_ID, CK_CMP_CD
-            policy_id: Policy ID for FH_ tables (which don't use CK_SYS_CD)
-            company_code: Company code for FH_ tables
+    def build_tables_tree(self, presence: dict):
+        """Show only records/tables that have data, from a worker-computed map.
+
+        *presence* maps table -> True (has rows), False (empty) or an error
+        string (could not be read, shown explicitly rather than as empty).
         """
         self.clear()
-        self._table_data_cache.clear()
-        
-        # Build alternate WHERE clause for FH_ tables (no CK_SYS_CD)
-        fh_where_clause = None
-        if policy_id and company_code:
-            fh_where_clause = f"TCH_POL_ID = '{policy_id}' AND CK_CMP_CD = '{company_code}'"
-        
+        self._table_data_cache = {
+            table: (value if isinstance(value, bool) else None)
+            for table, value in presence.items()
+        }
         for policy_record in get_sorted_policy_records():
             tables = POLICY_RECORD_TABLES.get(policy_record, [])
-            tables_with_data = []
-            table_errors = []
-            
-            # Check each table for data
-            for table in tables:
-                try:
-                    # FH_ tables don't have CK_SYS_CD column - use alternate WHERE clause
-                    if table.startswith("FH_") and fh_where_clause:
-                        sql = f"SELECT 1 FROM DB2TAB.{table} WHERE {fh_where_clause} FETCH FIRST 1 ROWS ONLY"
-                    else:
-                        sql = f"SELECT 1 FROM DB2TAB.{table} WHERE {where_clause} FETCH FIRST 1 ROWS ONLY"
-                    rows = db.execute_query(sql)
-                    has_data = len(rows) > 0
-                    self._table_data_cache[table] = has_data
-                    if has_data:
-                        tables_with_data.append(table)
-                except Exception as exc:
-                    error = _extract_odbc_message(exc)
-                    self._table_data_cache[table] = None
-                    table_errors.append((table, error))
-            
+            tables_with_data = [t for t in tables if presence.get(t) is True]
+            table_errors = [(t, presence[t]) for t in tables if isinstance(presence.get(t), str)]
             # Keep access failures visible instead of silently presenting them
             # as empty tables.
             if tables_with_data or table_errors:
-                # Add arrow indicator at start of text
                 record_item = QTreeWidgetItem([f"▶  {policy_record}"])
                 record_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": policy_record})
                 self.addTopLevelItem(record_item)
-                
+
                 for table in tables_with_data:
                     table_item = QTreeWidgetItem([f"      {table}"])
                     table_item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -133,9 +105,16 @@ class PolicyRecordTreeWidget(QTreeWidget):
                         f"{error}",
                     )
                     record_item.addChild(error_item)
-        
+
         # Cache the freshly-built tables tree
         self._tables_snapshot = self._save_tree_snapshot()
+
+    def show_placeholder(self, text: str, tooltip: str = ""):
+        self.clear()
+        item = QTreeWidgetItem([f"  {text}"])
+        item.setData(0, Qt.ItemDataRole.UserRole, {"type": "placeholder"})
+        item.setToolTip(0, tooltip)
+        self.addTopLevelItem(item)
     
     def _on_item_expanded(self, item: QTreeWidgetItem):
         """Update arrow when expanded."""
@@ -307,7 +286,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
             if top_data["expanded"]:
                 self.expandItem(top)
 
-    def switch_to_tables_mode(self, db=None, where_clause=None, policy_id=None, company_code=None):
+    def switch_to_tables_mode(self, presence=None, pending_message: str = "Checking which tables have data…"):
         """Switch back to Tables mode, restoring from cache if available."""
         if self._mode == self.MODE_TABLES:
             return
@@ -318,8 +297,11 @@ class PolicyRecordTreeWidget(QTreeWidget):
         if self._tables_snapshot:
             # Restore cached tables tree — no DB re-query needed
             self._restore_tree_snapshot(self._tables_snapshot)
-        elif db and where_clause:
-            self.rebuild_tree_with_data(db, where_clause, policy_id, company_code)
+        elif presence is not None:
+            self.build_tables_tree(presence)
+        else:
+            self.show_placeholder(pending_message,
+                                  "Tables are checked in the background after the policy tabs load.")
     
     def switch_to_rates_mode(self, policy: 'PolicyInformation'):
         """Switch to Rates mode, restoring from cache if available."""
@@ -358,10 +340,8 @@ class PolicyRecordTreePanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy = None
-        self._db = None
-        self._where_clause = None
-        self._policy_id = None
-        self._company_code = None
+        self._presence = None
+        self._presence_error = ""
         self._setup_ui()
     
     def _setup_ui(self):
@@ -474,22 +454,19 @@ class PolicyRecordTreePanel(QWidget):
     def _on_tab_clicked(self, tab: str):
         """Handle tab button click."""
         if tab == "tables" and self._tree.mode != PolicyRecordTreeWidget.MODE_TABLES:
-            from PyQt6.QtWidgets import QApplication
-            from PyQt6.QtGui import QCursor
-            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
-            try:
-                self._tree.switch_to_tables_mode(
-                    self._db, self._where_clause, self._policy_id, self._company_code
-                )
-                self._update_tab_styles("tables")
-                self.mode_changed.emit("tables")
-            finally:
-                QApplication.restoreOverrideCursor()
+            self._tree.switch_to_tables_mode(self._presence, self._pending_text())
+            self._update_tab_styles("tables")
+            self.mode_changed.emit("tables")
         elif tab == "rates" and self._tree.mode != PolicyRecordTreeWidget.MODE_RATES:
             if self._policy:
                 self._tree.switch_to_rates_mode(self._policy)
                 self._update_tab_styles("rates")
                 self.mode_changed.emit("rates")
+
+    def _pending_text(self) -> str:
+        if self._presence_error:
+            return "⚠ Could not check tables"
+        return "Checking which tables have data…"
     
     # =========================================================================
     # Public API - forward to tree widget
@@ -498,16 +475,18 @@ class PolicyRecordTreePanel(QWidget):
     @property
     def mode(self) -> str:
         return self._tree.mode
-    
-    def store_connection_info(self, db, where_clause: str, policy_id: str = None, company_code: str = None):
-        """Store DB connection info for deferred/lazy table loading.
-        
-        Tables will be scanned only when the user clicks the Tables tab.
-        """
-        self._db = db
-        self._where_clause = where_clause
-        self._policy_id = policy_id
-        self._company_code = company_code
+
+    def set_table_presence(self, presence: dict):
+        """Receive the background table check; refresh the tree if it is waiting."""
+        self._presence = dict(presence or {})
+        self._presence_error = ""
+        if self._tree.mode == PolicyRecordTreeWidget.MODE_TABLES:
+            self._tree.build_tables_tree(self._presence)
+
+    def set_table_presence_error(self, error: str):
+        self._presence_error = error or "Unknown error"
+        if self._tree.mode == PolicyRecordTreeWidget.MODE_TABLES and self._presence is None:
+            self._tree.show_placeholder("⚠ Could not check tables", self._presence_error)
     
     def show_rates_tab(self):
         """Switch to the Rates tab and build the rates tree if a policy is loaded."""
@@ -515,31 +494,14 @@ class PolicyRecordTreePanel(QWidget):
             self._tree.build_rates_tree(self._policy)
             self._update_tab_styles("rates")
     
-    def rebuild_tree_with_data(self, db, where_clause: str, policy_id: str = None, company_code: str = None):
-        """Rebuild tree showing only records/tables that have data."""
-        # Cache connection info for tab switching
-        self._db = db
-        self._where_clause = where_clause
-        self._policy_id = policy_id
-        self._company_code = company_code
-        self._tree.rebuild_tree_with_data(db, where_clause, policy_id, company_code)
-    
     def build_rates_tree(self, policy: 'PolicyInformation'):
         """Build the rates tree from PolicyInformation."""
         self._policy = policy
         self._tree.build_rates_tree(policy)
     
-    def switch_to_tables_mode(self, db=None, where_clause=None, policy_id=None, company_code=None):
+    def switch_to_tables_mode(self):
         """Switch to Tables mode."""
-        if db:
-            self._db = db
-        if where_clause:
-            self._where_clause = where_clause
-        if policy_id:
-            self._policy_id = policy_id
-        if company_code:
-            self._company_code = company_code
-        self._tree.switch_to_tables_mode(self._db, self._where_clause, self._policy_id, self._company_code)
+        self._tree.switch_to_tables_mode(self._presence, self._pending_text())
         self._update_tab_styles("tables")
     
     def switch_to_rates_mode(self, policy: 'PolicyInformation'):
@@ -550,6 +512,8 @@ class PolicyRecordTreePanel(QWidget):
     
     def reset_for_new_policy(self):
         """Reset state when a new policy is loaded."""
+        self._presence = None
+        self._presence_error = ""
         self._tree.reset_for_new_policy()
         self._update_tab_styles("tables")
     
@@ -558,28 +522,3 @@ class PolicyRecordTreePanel(QWidget):
         self._policy = policy
         self._rates_btn.setEnabled(True)
         self._update_tab_styles(self._tree.mode)
-    
-    def disable_rates_tab(self):
-        """Disable the rates tab."""
-        self._rates_btn.setEnabled(False)
-        self._update_tab_styles("tables")
-
-    def get_tree_snapshot(self):
-        """Return a serialisable snapshot of the current tables tree."""
-        return self._tree._save_tree_snapshot()
-
-    def restore_from_snapshot(self, snapshot, db=None, where_clause=None, policy_id=None, company_code=None):
-        """Restore the tables tree from a cached snapshot (no DB queries)."""
-        self._tree.reset_for_new_policy()
-        if db:
-            self._db = db
-        if where_clause:
-            self._where_clause = where_clause
-        if policy_id:
-            self._policy_id = policy_id
-        if company_code:
-            self._company_code = company_code
-        self._tree._mode = self._tree.MODE_TABLES
-        self._tree._restore_tree_snapshot(snapshot)
-        self._tree._tables_snapshot = snapshot
-        self._update_tab_styles("tables")
