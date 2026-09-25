@@ -586,6 +586,26 @@ def test_shortcuts_button_and_toggle_placement(window, qtbot):
     assert "#1B5E20" in window._tree_toggle_btn.styleSheet()
 
 
+def test_tables_panel_keeps_button_and_badges_in_place(window, qtbot):
+    window.load_policy("ANY1")
+    settle(qtbot, window)
+    window.show()
+    qtbot.waitExposed(window)
+    btn = window._tree_toggle_btn
+    strip = window.summary_strip
+
+    def screen_x():
+        qtbot.wait(50)
+        return btn.mapToGlobal(btn.rect().topLeft()).x(), strip.mapToGlobal(strip.rect().topLeft()).x()
+
+    before = screen_x()
+    window._toggle_tree_panel()
+    qtbot.waitUntil(lambda: window.records_tree.isVisible(), timeout=2000)
+    assert screen_x() == before
+    window._toggle_tree_panel()
+    assert screen_x() == before
+
+
 def test_non_production_region_is_loud(window, qtbot):
     window.test_policies["TESTPOL"] = window.test_make("TESTPOL", region="CKAS")
     window.load_policy("TESTPOL", region="CKAS")

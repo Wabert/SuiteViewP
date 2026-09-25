@@ -274,6 +274,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
     # Width of the tree panel when extended
     TREE_PANEL_WIDTH = 200
+    STRIP_LEFT_MARGIN = 10
 
     def build_content(self) -> QWidget:
         """Build the main body widget (everything below the title bar)."""
@@ -341,7 +342,8 @@ class GetPolicyWindow(FramelessWindowBase):
         strip_host = QWidget()
         strip_host.setStyleSheet(f"background-color: {self._window_bg};")
         strip_layout = QHBoxLayout(strip_host)
-        strip_layout.setContentsMargins(10, 0, 10, 0)
+        strip_layout.setContentsMargins(self.STRIP_LEFT_MARGIN, 0, 10, 0)
+        self._strip_layout = strip_layout
         strip_layout.setSpacing(6)
         strip_layout.addWidget(self._tree_toggle_btn)
         self.summary_strip = PolicySummaryStrip()
@@ -483,10 +485,12 @@ class GetPolicyWindow(FramelessWindowBase):
 
         The tabs container (and the + button inside it) stay at the
         same screen position because the window's left edge moves by
-        exactly the tree panel width.
+        exactly the tree panel width. The Tables button and badge strip
+        are indented by the same width so they stay put too.
         """
         geo = self.geometry()
         tree_w = self.TREE_PANEL_WIDTH
+        margins = self._strip_layout.contentsMargins()
 
         if self._tree_visible:
             # Hide tree — shrink window from the left
@@ -494,6 +498,8 @@ class GetPolicyWindow(FramelessWindowBase):
             self._tree_visible = False
             self._tree_toggle_btn.setChecked(False)
             self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
+            self._strip_layout.setContentsMargins(
+                self.STRIP_LEFT_MARGIN, margins.top(), margins.right(), margins.bottom())
             self.setGeometry(geo.x() + tree_w, geo.y(),
                              geo.width() - tree_w, geo.height())
         else:
@@ -502,6 +508,8 @@ class GetPolicyWindow(FramelessWindowBase):
             self._tree_visible = True
             self._tree_toggle_btn.setChecked(True)
             self._tree_toggle_btn.setToolTip("Hide the Tables & Rates panel (Ctrl+T)")
+            self._strip_layout.setContentsMargins(
+                self.STRIP_LEFT_MARGIN + tree_w, margins.top(), margins.right(), margins.bottom())
             self.setGeometry(geo.x() - tree_w, geo.y(),
                              geo.width() + tree_w, geo.height())
 
