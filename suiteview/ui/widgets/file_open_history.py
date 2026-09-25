@@ -20,6 +20,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QEvent, QTimer, QFileInfo
 from PyQt6.QtGui import QIcon
 from suiteview.core.access_control import requires_app_access
+from suiteview.ui.widgets.frame_geometry import (
+    HORIZONTAL_RESIZE_EDGES,
+    resize_edge_at,
+    update_cursor_for_resize_edge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -505,11 +510,12 @@ class FileOpenHistoryPanel(QWidget):
 
     def _edge_at(self, pos):
         """Return 'left', 'right', or None depending on proximity to edges."""
-        if pos.x() <= self._RESIZE_MARGIN:
-            return 'left'
-        if pos.x() >= self.width() - self._RESIZE_MARGIN:
-            return 'right'
-        return None
+        return resize_edge_at(
+            pos,
+            self.rect(),
+            self._RESIZE_MARGIN,
+            edges=HORIZONTAL_RESIZE_EDGES,
+        )
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -541,10 +547,7 @@ class FileOpenHistoryPanel(QWidget):
             event.accept()
             return
         # Show resize cursor when hovering near edges
-        if self._edge_at(pos):
-            self.setCursor(Qt.CursorShape.SizeHorCursor)
-        else:
-            self.unsetCursor()
+        update_cursor_for_resize_edge(self, self._edge_at(pos))
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):

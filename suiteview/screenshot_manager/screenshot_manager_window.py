@@ -9,14 +9,14 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QLabel, QListWidget, QListWidgetItem, QMenu, 
                               QInputDialog, QMessageBox, QComboBox, QFrame,
                               QSizePolicy, QAbstractItemView, QSplitter)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QBrush
 
-from suiteview.ui.widgets.window_state import NativeMinimizeMixin
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class ScreenshotListWidget(QListWidget):
         """)
 
 
-class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
+class ScreenShotManagerWindow(FramelessWindowBase):
     """Screen Shot Manager with capture, organize, and export functionality"""
     
     # Signal emitted when a new screenshot is added (for external listeners)
@@ -95,71 +95,41 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
     def __init__(self):
         from suiteview.core.access_control import guard_app_access
         guard_app_access("SCREENSHOT")
-        super().__init__()
-        
-        # Frameless window setup
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowMinMaxButtonsHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        
-        # Enable mouse tracking for resize cursor updates
-        self.setMouseTracking(True)
-        
-        # Drag tracking
-        self._drag_pos = None
-        self._is_maximized = False
-        
-        # Resize edge detection
-        self._resize_margin = 6
-        self._resizing = False
-        self._resize_edge = None
-        self._start_geometry = None
-        
+
         self.screenshots = []  # List of (pixmap, name, timestamp, filepath) tuples
         self.screenshot_counter = 0
         self.current_viewer_pixmap = None
         self.screenshots_dir = profile_path('screenshots')
         self.archive_dir = profile_path('screenshots') / 'archive'
         self._viewing_archive = False  # Track if viewing archive
-        
-        self.init_ui()
+
+        super().__init__(
+            title="SCREENSHOT MANAGER",
+            default_size=(900, 500),
+            min_size=(200, 50),
+            header_colors=("#1E5BA8", "#0D3A7A", "#082B5C"),
+            border_color="#D4A017",
+            header_title_stretch=1,
+        )
+        self.setWindowTitle("SuiteView - Screenshot Manager")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._load_existing_screenshots()
         logger.info("Screenshot Manager initialized")
     
-    def init_ui(self):
-        """Initialize the UI with SuiteView theme and frameless window"""
-        self.setWindowTitle("SuiteView - Screenshot Manager")
-        self.resize(900, 500)
-        
-        # Set gold border on the window
-        self.setStyleSheet("""
-            ScreenShotManagerWindow {
-                background-color: #0D3A7A;
-                border: 3px solid #D4A017;
-                border-radius: 4px;
+    def header_title_style(self):
+        return """
+            QLabel {
+                color: #D4A017;
+                font-size: 10pt;
+                font-weight: 700;
+                letter-spacing: 1px;
+                background: transparent;
             }
-        """)
-        
-        # Main layout - margins match border width
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(3, 3, 3, 3)
-        main_layout.setSpacing(0)
-        
-        # Header bar - custom title bar with window controls
-        self.header_bar = QFrame()
-        self.header_bar.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C);
-                border: none;
-                border-bottom: 2px solid #D4A017;
-            }
-        """)
-        self.header_bar.setFixedHeight(36)
-        
-        header_layout = QHBoxLayout(self.header_bar)
-        header_layout.setContentsMargins(8, 4, 8, 4)
-        header_layout.setSpacing(8)
-        
+        """
+
+    def header_prefix_widgets(self):
+        widgets = []
+
         # Grab button - styled like File Nav screenshot button with yellow dot
         self.grab_btn = QPushButton()
         self.grab_btn.setFixedSize(28, 28)
@@ -190,8 +160,8 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
             }
         """)
         self.grab_btn.clicked.connect(self.grab_screenshot)
-        header_layout.addWidget(self.grab_btn)
-        
+        widgets.append(self.grab_btn)
+
         # Window capture button - blue dot (captures active window only)
         self.window_capture_btn = QPushButton()
         self.window_capture_btn.setFixedSize(28, 28)
@@ -222,22 +192,12 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
             }
         """)
         self.window_capture_btn.clicked.connect(self.capture_active_window)
-        header_layout.addWidget(self.window_capture_btn)
-        
-        # Title in center
-        self.title_label = QLabel("SCREENSHOT MANAGER")
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #D4A017;
-                font-size: 10pt;
-                font-weight: 700;
-                letter-spacing: 1px;
-                background: transparent;
-            }
-        """)
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_layout.addWidget(self.title_label, stretch=1)
-        
+        widgets.append(self.window_capture_btn)
+        return widgets
+
+    def header_widgets(self):
+        widgets = []
+
         # Export controls
         self.export_type_combo = QComboBox()
         self.export_type_combo.addItems(["Word", "Outlook"])
@@ -274,8 +234,8 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
                 border: 1px solid #D4A017;
             }
         """)
-        header_layout.addWidget(self.export_type_combo)
-        
+        widgets.append(self.export_type_combo)
+
         # Export button
         self.export_btn = QPushButton("Export")
         self.export_btn.setFixedHeight(26)
@@ -307,8 +267,8 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
         """)
         self.export_btn.clicked.connect(self.export_screenshots)
         self.export_btn.setEnabled(False)
-        header_layout.addWidget(self.export_btn)
-        
+        widgets.append(self.export_btn)
+
         # Archive toggle button
         self.archive_toggle_btn = QPushButton("📦 Archive")
         self.archive_toggle_btn.setFixedHeight(26)
@@ -343,61 +303,19 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
         """)
         self.archive_toggle_btn.setToolTip("Toggle view between Screenshots and Archive")
         self.archive_toggle_btn.clicked.connect(self._toggle_archive_view)
-        header_layout.addWidget(self.archive_toggle_btn)
-        
-        header_layout.addSpacing(16)
-        
-        # Window control buttons
-        btn_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: #D4A017;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background: rgba(212, 160, 23, 0.3);
-                border-radius: 2px;
-            }
-        """
-        close_btn_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: #D4A017;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background: #c42b1c;
-                color: white;
-                border-radius: 2px;
-            }
-        """
-        
-        self.minimize_btn = QPushButton("─")
-        self.minimize_btn.setFixedSize(32, 26)
-        self.minimize_btn.setStyleSheet(btn_style)
-        self.minimize_btn.clicked.connect(self.showMinimized)
-        header_layout.addWidget(self.minimize_btn)
-        
-        self.maximize_btn = QPushButton("☐")
-        self.maximize_btn.setFixedSize(32, 26)
-        self.maximize_btn.setStyleSheet(btn_style)
-        self.maximize_btn.clicked.connect(self._toggle_maximize)
-        header_layout.addWidget(self.maximize_btn)
-        
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setFixedSize(32, 26)
-        self.close_btn.setStyleSheet(close_btn_style)
-        self.close_btn.clicked.connect(self.close)
-        header_layout.addWidget(self.close_btn)
-        
-        main_layout.addWidget(self.header_bar)
-        
+        widgets.append(self.archive_toggle_btn)
+        return widgets
+
+    def build_content(self):
+        return self.init_ui()
+
+    def init_ui(self):
+        """Initialize the UI with SuiteView theme."""
+        body = QWidget()
+        main_layout = QVBoxLayout(body)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
         # Content area - horizontal splitter
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
         content_splitter.setHandleWidth(4)
@@ -570,6 +488,7 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
         footer_layout.addWidget(resize_label)
         
         main_layout.addWidget(self.footer_bar)
+        return body
     
     def _load_existing_screenshots(self):
         """Load existing screenshots from the screenshots folder"""
@@ -1341,179 +1260,3 @@ class ScreenShotManagerWindow(NativeMinimizeMixin, QWidget):
             logger.error(f"Outlook export failed: {e}", exc_info=True)
             raise
     
-    def resizeEvent(self, event):
-        """Handle window resize to update viewer"""
-        # Don't process resize events during manual resize to avoid feedback loop
-        if self._resizing:
-            event.accept()
-            return
-        
-        super().resizeEvent(event)
-        # Viewer auto-scales with setScaledContents=True, no manual scaling needed
-    
-    def _toggle_maximize(self):
-        """Toggle between maximized and normal window state"""
-        if self._is_maximized:
-            self.showNormal()
-            self.maximize_btn.setText("☐")
-            self._is_maximized = False
-        else:
-            self.showMaximized()
-            self.maximize_btn.setText("❐")
-            self._is_maximized = True
-    
-    def _get_resize_edge(self, pos):
-        """Determine which edge (if any) the mouse is near for resizing"""
-        margin = self._resize_margin
-        rect = self.rect()
-        
-        on_left = pos.x() <= margin
-        on_right = pos.x() >= rect.width() - margin
-        on_top = pos.y() <= margin
-        on_bottom = pos.y() >= rect.height() - margin
-        
-        if on_top and on_left:
-            return 'top-left'
-        elif on_top and on_right:
-            return 'top-right'
-        elif on_bottom and on_left:
-            return 'bottom-left'
-        elif on_bottom and on_right:
-            return 'bottom-right'
-        elif on_left:
-            return 'left'
-        elif on_right:
-            return 'right'
-        elif on_top:
-            return 'top'
-        elif on_bottom:
-            return 'bottom'
-        return None
-    
-    def _update_cursor_for_edge(self, edge):
-        """Update cursor based on resize edge"""
-        cursors = {
-            'left': Qt.CursorShape.SizeHorCursor,
-            'right': Qt.CursorShape.SizeHorCursor,
-            'top': Qt.CursorShape.SizeVerCursor,
-            'bottom': Qt.CursorShape.SizeVerCursor,
-            'top-left': Qt.CursorShape.SizeFDiagCursor,
-            'bottom-right': Qt.CursorShape.SizeFDiagCursor,
-            'top-right': Qt.CursorShape.SizeBDiagCursor,
-            'bottom-left': Qt.CursorShape.SizeBDiagCursor,
-        }
-        if edge in cursors:
-            self.setCursor(cursors[edge])
-        else:
-            self.unsetCursor()
-    
-    def mousePressEvent(self, event):
-        """Handle mouse press for dragging and resizing"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            pos = event.pos()
-            
-            # Check if we're on a resize edge
-            edge = self._get_resize_edge(pos)
-            if edge and not self._is_maximized:
-                self._resizing = True
-                self._resize_edge = edge
-                self._drag_pos = event.globalPosition().toPoint()
-                self._start_geometry = self.geometry()
-                event.accept()
-                return
-            
-            # Check if we're in the header bar (for dragging)
-            header_rect = self.header_bar.geometry()
-            if header_rect.contains(pos):
-                # Don't drag if clicking on buttons
-                widget_at = self.childAt(pos)
-                if isinstance(widget_at, QPushButton):
-                    super().mousePressEvent(event)
-                    return
-                
-                self._drag_pos = event.globalPosition().toPoint()
-                event.accept()
-                return
-        
-        super().mousePressEvent(event)
-    
-    def mouseMoveEvent(self, event):
-        """Handle mouse move for dragging and resizing"""
-        pos = event.pos()
-        
-        # Update cursor when not pressing
-        if not event.buttons():
-            edge = self._get_resize_edge(pos)
-            self._update_cursor_for_edge(edge)
-            super().mouseMoveEvent(event)
-            return
-        
-        if event.buttons() == Qt.MouseButton.LeftButton:
-            # Handle resizing
-            if self._resizing and self._resize_edge:
-                delta = event.globalPosition().toPoint() - self._drag_pos
-                geo = self._start_geometry
-                
-                new_x, new_y = geo.x(), geo.y()
-                new_w, new_h = geo.width(), geo.height()
-                min_w, min_h = 200, 50  # Allow shrinking to just the header
-                
-                if 'left' in self._resize_edge:
-                    new_w = max(min_w, geo.width() - delta.x())
-                    if new_w > min_w:
-                        new_x = geo.x() + delta.x()
-                if 'right' in self._resize_edge:
-                    new_w = max(min_w, geo.width() + delta.x())
-                if 'top' in self._resize_edge:
-                    new_h = max(min_h, geo.height() - delta.y())
-                    if new_h > min_h:
-                        new_y = geo.y() + delta.y()
-                if 'bottom' in self._resize_edge:
-                    new_h = max(min_h, geo.height() + delta.y())
-                
-                self.setGeometry(new_x, new_y, new_w, new_h)
-                event.accept()
-                return
-            
-            # Handle dragging
-            if self._drag_pos is not None and not self._resizing:
-                # If maximized, restore and center on cursor
-                if self._is_maximized:
-                    self._is_maximized = False
-                    self.showNormal()
-                    self.maximize_btn.setText("☐")
-                    # Reposition so cursor is centered on title bar
-                    new_geo = self.geometry()
-                    self._drag_pos = event.globalPosition().toPoint()
-                    self.move(
-                        self._drag_pos.x() - new_geo.width() // 2,
-                        self._drag_pos.y() - 20
-                    )
-                else:
-                    delta = event.globalPosition().toPoint() - self._drag_pos
-                    self.move(self.pos() + delta)
-                    self._drag_pos = event.globalPosition().toPoint()
-                event.accept()
-                return
-        
-        super().mouseMoveEvent(event)
-    
-    def mouseReleaseEvent(self, event):
-        """Handle mouse release"""
-        self._drag_pos = None
-        self._resizing = False
-        self._resize_edge = None
-        super().mouseReleaseEvent(event)
-    
-    def mouseDoubleClickEvent(self, event):
-        """Handle double-click on title bar to maximize/restore"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            header_rect = self.header_bar.geometry()
-            if header_rect.contains(event.pos()):
-                # Don't toggle if clicking on buttons
-                widget_at = self.childAt(event.pos())
-                if not isinstance(widget_at, QPushButton):
-                    self._toggle_maximize()
-                    event.accept()
-                    return
-        super().mouseDoubleClickEvent(event)

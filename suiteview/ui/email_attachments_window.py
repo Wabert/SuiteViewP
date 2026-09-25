@@ -18,14 +18,14 @@ from datetime import datetime, timedelta
 import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
-    QMessageBox, QApplication, QSizeGrip, QComboBox, QFileIconProvider,
+    QMessageBox, QApplication, QComboBox, QFileIconProvider,
     QStyledItemDelegate, QStyle
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo, QUrl, QMimeData
 from PyQt6.QtGui import QIcon
 
 from suiteview.ui.widgets.filter_table_view import FilterTableView
-from suiteview.ui.widgets.window_state import NativeMinimizeMixin
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.outlook_manager import get_outlook_manager, close_thread_outlook_manager
 from suiteview.data.repositories import get_email_repository
 
@@ -512,14 +512,12 @@ class AttachmentLoaderThread(QThread):
                 pass
 
 
-class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
+class EmailAttachmentsWindow(FramelessWindowBase):
     """Simple email attachments viewer with FilterTableView"""
     
     def __init__(self, parent=None):
         from suiteview.core.access_control import guard_app_access
         guard_app_access("EMAILATTACHMENTS")
-        super().__init__(parent)
-        
         self.outlook = None  # Lazy-load Outlook only when needed
         self.repo = get_email_repository()
         self.attachment_data = None
@@ -532,25 +530,20 @@ class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
         except:
             self._scan_days = 14
         
-        # Frameless window setup
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowMinMaxButtonsHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        
-        # Enable mouse tracking for resize cursor updates
-        self.setMouseTracking(True)
-        
-        # Drag tracking
-        self._drag_pos = None
-        self._is_maximized = False
-        
-        # Resize edge detection
-        self._resize_margin = 6
-        self._resizing = False
-        self._resize_edge = None
-        self._start_geometry = None
         self._loader_thread = None
-        
-        self.init_ui()
+
+        FramelessWindowBase.__init__(
+            self,
+            title="📎 EMAIL ATTACHMENTS",
+            default_size=(1200, 600),
+            min_size=(400, 300),
+            parent=parent,
+            header_colors=("#1E5BA8", "#0D3A7A", "#082B5C"),
+            border_color="#D4A017",
+            header_title_stretch=1,
+        )
+        self.setWindowTitle("SuiteView - Email Attachments")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         # Load from cache immediately - no delay needed since it's fast (~30ms)
         self.load_from_cache_only()
         
@@ -560,41 +553,18 @@ class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
         
         logger.info("Email Attachments Window initialized")
     
-    def init_ui(self):
-        """Initialize the UI with SuiteView theme"""
-        self.setWindowTitle("SuiteView - Email Attachments")
-        self.resize(1200, 600)
-        
-        # Set gold border on the window
-        self.setStyleSheet("""
-            EmailAttachmentsWindow {
-                background-color: #0D3A7A;
-                border: 3px solid #D4A017;
-                border-radius: 4px;
+    def header_title_style(self):
+        return """
+            QLabel {
+                color: #D4A017;
+                font-size: 10pt;
+                font-weight: 700;
+                letter-spacing: 1px;
+                background: transparent;
             }
-        """)
-        
-        # Main layout - margins match border width
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(3, 3, 3, 3)
-        main_layout.setSpacing(0)
-        
-        # Header bar - custom title bar with window controls
-        self.header_bar = QFrame()
-        self.header_bar.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C);
-                border: none;
-                border-bottom: 2px solid #D4A017;
-            }
-        """)
-        self.header_bar.setFixedHeight(36)
-        
-        header_layout = QHBoxLayout(self.header_bar)
-        header_layout.setContentsMargins(8, 4, 8, 4)
-        header_layout.setSpacing(8)
-        
+        """
+
+    def header_prefix_widgets(self):
         # Update button - gets new attachments since last cached
         self.refresh_btn = QPushButton("↻")
         self.refresh_btn.setFixedSize(28, 28)
@@ -619,70 +589,18 @@ class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
             }
         """)
         self.refresh_btn.clicked.connect(self.load_attachments)
-        header_layout.addWidget(self.refresh_btn)
-        
-        # Title in center
-        self.title_label = QLabel("📎 EMAIL ATTACHMENTS")
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #D4A017;
-                font-size: 10pt;
-                font-weight: 700;
-                letter-spacing: 1px;
-                background: transparent;
-            }
-        """)
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_layout.addWidget(self.title_label, stretch=1)
-        
-        # Window control buttons
-        window_btn_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 0px;
-                padding: 0px;
-                min-width: 36px;
-                max-width: 36px;
-                min-height: 24px;
-                max-height: 24px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-        """
-        
-        # Minimize button
-        self.minimize_btn = QPushButton("–")
-        self.minimize_btn.setStyleSheet(window_btn_style + """
-            QPushButton { color: #D4A017; }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 0.15); color: #FFD700; }
-        """)
-        self.minimize_btn.setToolTip("Minimize")
-        self.minimize_btn.clicked.connect(self.showMinimized)
-        header_layout.addWidget(self.minimize_btn)
-        
-        # Maximize/Restore button
-        self.maximize_btn = QPushButton("□")
-        self.maximize_btn.setStyleSheet(window_btn_style + """
-            QPushButton { color: #D4A017; }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 0.15); color: #FFD700; }
-        """)
-        self.maximize_btn.setToolTip("Maximize")
-        self.maximize_btn.clicked.connect(self._toggle_maximize)
-        header_layout.addWidget(self.maximize_btn)
-        
-        # Close button
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setStyleSheet(window_btn_style + """
-            QPushButton { color: #D4A017; }
-            QPushButton:hover { background-color: #E81123; color: white; }
-        """)
-        self.close_btn.setToolTip("Close")
-        self.close_btn.clicked.connect(self.close)
-        header_layout.addWidget(self.close_btn)
-        
-        main_layout.addWidget(self.header_bar)
-        
+        return [self.refresh_btn]
+
+    def build_content(self):
+        return self.init_ui()
+
+    def init_ui(self):
+        """Initialize the UI with SuiteView theme"""
+        body = QWidget()
+        main_layout = QVBoxLayout(body)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
         # Content area
         content = QFrame()
         content.setStyleSheet("""
@@ -886,10 +804,7 @@ class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
         footer_layout.addWidget(self.stop_btn)
         
         main_layout.addWidget(footer)
-        
-        # Add size grip for resizing
-        self.size_grip = QSizeGrip(self)
-        self.size_grip.setStyleSheet("QSizeGrip { background-color: transparent; width: 16px; height: 16px; }")
+        return body
     
     def _on_rescan_clicked(self):
         """Handle rescan button click - clear cache and reload fresh"""
@@ -1261,130 +1176,3 @@ class EmailAttachmentsWindow(NativeMinimizeMixin, QWidget):
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", f"Failed to copy attachment: {e}")
     
-    def _toggle_maximize(self):
-        """Toggle maximize/restore"""
-        if self._is_maximized:
-            self.showNormal()
-            self.maximize_btn.setText("□")
-            self._is_maximized = False
-        else:
-            self.showMaximized()
-            self.maximize_btn.setText("❐")
-            self._is_maximized = True
-    
-    # ============ Window Drag and Resize ============
-    
-    def mousePressEvent(self, event):
-        """Handle mouse press for dragging and resizing"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            pos = event.position().toPoint()
-            
-            # Check if we're on a resize edge
-            edge = self._get_resize_edge(pos)
-            if edge:
-                self._resizing = True
-                self._resize_edge = edge
-                self._start_geometry = self.geometry()
-                self._start_pos = event.globalPosition().toPoint()
-            elif self.header_bar.geometry().contains(pos):
-                # Start drag if clicking on header
-                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-    
-    def mouseMoveEvent(self, event):
-        """Handle mouse move for dragging and resizing"""
-        pos = event.position().toPoint()
-        
-        if self._resizing and self._resize_edge:
-            self._do_resize(event.globalPosition().toPoint())
-        elif self._drag_pos is not None:
-            # Dragging window
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-        else:
-            # Update cursor based on position
-            edge = self._get_resize_edge(pos)
-            if edge in ['left', 'right']:
-                self.setCursor(Qt.CursorShape.SizeHorCursor)
-            elif edge in ['top', 'bottom']:
-                self.setCursor(Qt.CursorShape.SizeVerCursor)
-            elif edge in ['top-left', 'bottom-right']:
-                self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-            elif edge in ['top-right', 'bottom-left']:
-                self.setCursor(Qt.CursorShape.SizeBDiagCursor)
-            else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
-    
-    def mouseReleaseEvent(self, event):
-        """Handle mouse release"""
-        self._drag_pos = None
-        self._resizing = False
-        self._resize_edge = None
-    
-    def _get_resize_edge(self, pos):
-        """Determine which edge the mouse is on"""
-        margin = self._resize_margin
-        rect = self.rect()
-        
-        on_left = pos.x() <= margin
-        on_right = pos.x() >= rect.width() - margin
-        on_top = pos.y() <= margin
-        on_bottom = pos.y() >= rect.height() - margin
-        
-        if on_top and on_left:
-            return 'top-left'
-        elif on_top and on_right:
-            return 'top-right'
-        elif on_bottom and on_left:
-            return 'bottom-left'
-        elif on_bottom and on_right:
-            return 'bottom-right'
-        elif on_left:
-            return 'left'
-        elif on_right:
-            return 'right'
-        elif on_top:
-            return 'top'
-        elif on_bottom:
-            return 'bottom'
-        return None
-    
-    def _do_resize(self, global_pos):
-        """Perform resize based on edge being dragged"""
-        if not self._start_geometry or not self._start_pos:
-            return
-        
-        delta = global_pos - self._start_pos
-        geo = self._start_geometry
-        
-        min_width = 400
-        min_height = 300
-        
-        new_geo = self.geometry()
-        
-        if 'left' in self._resize_edge:
-            new_width = geo.width() - delta.x()
-            if new_width >= min_width:
-                new_geo.setLeft(geo.left() + delta.x())
-        if 'right' in self._resize_edge:
-            new_width = geo.width() + delta.x()
-            if new_width >= min_width:
-                new_geo.setWidth(new_width)
-        if 'top' in self._resize_edge:
-            new_height = geo.height() - delta.y()
-            if new_height >= min_height:
-                new_geo.setTop(geo.top() + delta.y())
-        if 'bottom' in self._resize_edge:
-            new_height = geo.height() + delta.y()
-            if new_height >= min_height:
-                new_geo.setHeight(new_height)
-        
-        self.setGeometry(new_geo)
-    
-    def resizeEvent(self, event):
-        """Handle resize to reposition size grip"""
-        super().resizeEvent(event)
-        # Position size grip at bottom-right corner
-        grip_size = self.size_grip.sizeHint()
-        self.size_grip.move(
-            self.width() - grip_size.width() - 3,
-            self.height() - grip_size.height() - 3
-        )
