@@ -36,7 +36,7 @@ def detect_dialect(dsn: str) -> str:
     try:
         sources = pyodbc.dataSources()
     except Exception:
-        logger.warning("Could not read ODBC data sources")
+        logger.warning("Could not read ODBC data sources", exc_info=True)
         return UNKNOWN
 
     driver = sources.get(dsn, "")
@@ -62,7 +62,7 @@ def list_installed_dsns() -> list[tuple[str, str]]:
     try:
         sources = pyodbc.dataSources()
     except Exception:
-        logger.warning("Could not enumerate ODBC data sources")
+        logger.warning("Could not enumerate ODBC data sources", exc_info=True)
         return []
     return sorted(sources.items(), key=lambda item: item[0].lower())
 
@@ -92,7 +92,7 @@ def access_driver() -> str:
     try:
         drivers = pyodbc.drivers()
     except Exception:
-        logger.warning("Could not enumerate ODBC drivers")
+        logger.warning("Could not enumerate ODBC drivers", exc_info=True)
         return ""
     for driver in drivers:
         if "access" in driver.lower():
@@ -228,7 +228,7 @@ def get_dsn_details(dsn: str) -> dict[str, str]:
         if driver:
             details["Driver"] = driver
     except Exception:
-        pass
+        logger.debug("Could not read ODBC dataSources while describing DSN %r", dsn, exc_info=True)
 
     if len(details) <= 1:
         details["Error"] = "DSN not found in ODBC registry"

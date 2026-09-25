@@ -111,17 +111,17 @@ class MainframeFTPManager:
             try:
                 self.keepalive_timer.stop()
                 self.keepalive_timer = None
-            except:
-                pass
+            except Exception:
+                logger.debug("Ignoring error stopping FTP keepalive timer during disconnect", exc_info=True)
         
         if self.ftp:
             try:
                 self.ftp.quit()
-            except:
+            except ftplib.all_errors:
                 try:
                     self.ftp.close()
-                except:
-                    pass
+                except ftplib.all_errors:
+                    logger.debug("Ignoring error closing FTP connection during disconnect", exc_info=True)
             self.ftp = None
         self.connected = False
         logger.info("Disconnected from mainframe FTP")
@@ -164,7 +164,7 @@ class MainframeFTPManager:
         try:
             self.ftp.voidcmd('NOOP')
             return True
-        except:
+        except ftplib.all_errors:
             logger.warning("Connection lost, attempting to reconnect...")
             return self._attempt_reconnect()
     
@@ -264,8 +264,8 @@ class MainframeFTPManager:
                     if original_path:
                         try:
                             self.ftp.cwd(original_path)
-                        except:
-                            pass
+                        except ftplib.all_errors:
+                            logger.debug("Could not restore FTP path after LIST permission error", exc_info=True)
                     return []
             except (EOFError, OSError, ConnectionError) as e:
                 logger.error(f"Connection lost during LIST: {e}")
@@ -273,16 +273,16 @@ class MainframeFTPManager:
                 if original_path:
                     try:
                         self.ftp.cwd(original_path)
-                    except:
-                        pass
+                    except ftplib.all_errors:
+                        logger.debug("Could not restore FTP path after LIST connection loss", exc_info=True)
                 return []
             except Exception as e:
                 logger.error(f"Error during LIST command: {e}")
                 if original_path:
                     try:
                         self.ftp.cwd(original_path)
-                    except:
-                        pass
+                    except ftplib.all_errors:
+                        logger.debug("Could not restore FTP path after LIST error", exc_info=True)
                 return []
             
             # Parse all lines - they could be dataset attributes OR members
@@ -573,8 +573,8 @@ class MainframeFTPManager:
                         'created': '',
                         'vv_mm': ''
                     }
-            except:
-                pass
+            except (IndexError, AttributeError, TypeError):
+                logger.debug("Could not recover member name from unparsable FTP listing line", exc_info=True)
         
         return None
     
@@ -620,8 +620,8 @@ class MainframeFTPManager:
                 try:
                     current_dir = self.ftp.pwd()
                     logger.debug(f"Current FTP directory: {current_dir}")
-                except:
-                    pass
+                except ftplib.all_errors:
+                    logger.debug("Could not read current FTP directory before RETR", exc_info=True)
                 
                 logger.info(f"Attempting to read dataset: {dataset_name}")
                 
@@ -703,8 +703,8 @@ class MainframeFTPManager:
                 try:
                     self.ftp.cwd(original_dir)
                     logger.debug(f"Restored directory after error to: {original_dir}")
-                except:
-                    pass
+                except ftplib.all_errors:
+                    logger.debug("Could not restore FTP directory after read failure", exc_info=True)
             
             return "", 0
     def get_dataset_info(self, dataset_name: str) -> Optional[Dict[str, any]]:
@@ -729,7 +729,7 @@ class MainframeFTPManager:
             try:
                 mdtm_response = self.ftp.sendcmd(f'MDTM {dataset_name}')
                 modified = mdtm_response.split()[1] if mdtm_response else ''
-            except:
+            except ftplib.all_errors:
                 modified = ''
             
             return {

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sqlite3
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from suiteview.data.database import get_database
@@ -254,7 +255,8 @@ class MetadataCacheRepository:
                 if isinstance(val, (int, float, str, bool)):
                     return val
                 return str(val)
-            except:
+            except Exception:
+                logger.debug("Could not convert cached unique value %r; using string fallback", val, exc_info=True)
                 return str(val)
         
         # Convert all values to native types
@@ -416,8 +418,10 @@ class EmailRepository:
         # Add sender_name column if missing (for existing databases)
         try:
             self.db.execute("ALTER TABLE email_attachments ADD COLUMN sender_name TEXT DEFAULT ''")
-        except Exception:
-            pass  # Column already exists
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+            logger.debug("email_attachments.sender_name column already exists", exc_info=True)
         
         # Sync tracking table
         self.db.execute("""
@@ -827,4 +831,3 @@ def get_email_repository() -> EmailRepository:
     if _email_repo is None:
         _email_repo = EmailRepository()
     return _email_repo
-

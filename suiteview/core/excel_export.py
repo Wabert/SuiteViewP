@@ -27,7 +27,10 @@ that, callers do NOT need to clear the gen_py cache themselves.
 
 from __future__ import annotations
 
+import logging
 from typing import Iterable, Sequence, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class ExcelExportError(Exception):
@@ -156,4 +159,4 @@ def dump_to_new_workbook(
         try:
             excel.ScreenUpdating = True
         except Exception:
-            pass
+            logger.debug("Could not restore Excel screen updating after export failure", exc_info=True)

@@ -27,7 +27,10 @@ static cache, a frequent source of COM corruption errors.
 
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 class WordExportError(Exception):
@@ -70,7 +73,7 @@ def open_in_word(path: str, visible: bool = True):
         try:
             word.Activate()
         except Exception:
-            pass
+            logger.debug("Could not activate Word window after opening document", exc_info=True)
         return document
     except Exception as e:  # COM / Word launch failure
         raise WordExportError(f"Could not open the document in Word: {e}") from e
