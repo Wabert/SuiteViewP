@@ -31,6 +31,15 @@ from suiteview.data.repositories import get_email_repository
 
 logger = logging.getLogger(__name__)
 
+try:
+    from pywintypes import com_error as OutlookComError
+except ImportError:
+    OutlookComError = None
+
+OUTLOOK_COM_ERRORS = (AttributeError, TypeError, OSError) + (
+    (OutlookComError,) if OutlookComError is not None else ()
+)
+
 # ============ Shared helper functions ============
 
 _IMAGE_TYPES = {'PNG', 'JPG', 'JPEG', 'GIF', 'BMP', 'TIFF', 'TIF', 'ICO', 'WEBP', 'SVG'}
@@ -44,7 +53,8 @@ def _safe_format_date(d):
         if hasattr(d, 'strftime'):
             return d.strftime('%Y-%m-%d')
         return pd.to_datetime(d).strftime('%Y-%m-%d')
-    except:
+    except (ValueError, TypeError, AttributeError):
+        logger.debug("Could not format email date %r", d, exc_info=True)
         return "Unknown"
 
 
@@ -372,7 +382,8 @@ class AttachmentLoaderThread(QThread):
                             if attach_count == 0:
                                 skipped_no_attachments += 1
                                 continue
-                        except:
+                        except OUTLOOK_COM_ERRORS:
+                            logger.debug("Could not read Outlook attachment count", exc_info=True)
                             continue
                         
                         # Get sender email address directly - works for ALL senders (internal and external)
@@ -393,7 +404,8 @@ class AttachmentLoaderThread(QThread):
                                     # Try to resolve to SMTP address for internal Exchange users
                                     try:
                                         sender_display = item.Sender.GetExchangeUser().PrimarySmtpAddress
-                                    except:
+                                    except OUTLOOK_COM_ERRORS:
+                                        logger.debug("Could not resolve Exchange sender while scanning attachments", exc_info=True)
                                         # Fallback to SenderName for internal users
                                         sender_display = item.SenderName or sender_email
                                 else:
@@ -407,7 +419,8 @@ class AttachmentLoaderThread(QThread):
                             # Try SenderName as absolute fallback
                             try:
                                 sender_display = item.SenderName or "(Unknown)"
-                            except:
+                            except OUTLOOK_COM_ERRORS:
+                                logger.debug("Could not read Outlook SenderName fallback", exc_info=True)
                                 sender_display = "(Unknown)"
                         
                         # Get subject line
@@ -420,7 +433,8 @@ class AttachmentLoaderThread(QThread):
                         email_id = None
                         try:
                             email_id = item.EntryID
-                        except:
+                        except OUTLOOK_COM_ERRORS:
+                            logger.debug("Could not read Outlook EntryID while scanning attachments", exc_info=True)
                             continue
                         
                         # Process attachments
@@ -449,8 +463,8 @@ class AttachmentLoaderThread(QThread):
                                 try:
                                     pr_attach_hidden = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
                                     is_hidden = attachment.PropertyAccessor.GetProperty(pr_attach_hidden)
-                                except:
-                                    pass  # If we can't read the property, assume not hidden
+                                except OUTLOOK_COM_ERRORS:
+                                    logger.debug("Could not read Outlook attachment hidden property; assuming visible", exc_info=True)
                                 
                                 # Skip hidden attachments - they don't show a paperclip in Outlook
                                 if is_hidden:
@@ -509,7 +523,7 @@ class AttachmentLoaderThread(QThread):
             try:
                 close_thread_outlook_manager()
             except Exception:
-                pass
+                logger.debug("Ignoring Outlook cleanup failure after attachment scan", exc_info=True)
 
 
 class EmailAttachmentsWindow(FramelessWindowBase):
@@ -527,7 +541,8 @@ class EmailAttachmentsWindow(FramelessWindowBase):
         saved_period = self.repo.get_setting('attachment_scan_days', '14')
         try:
             self._scan_days = int(saved_period)
-        except:
+        except (TypeError, ValueError):
+            logger.debug("Invalid saved attachment scan period %r; using default", saved_period, exc_info=True)
             self._scan_days = 14
         
         self._loader_thread = None
@@ -940,7 +955,8 @@ class EmailAttachmentsWindow(FramelessWindowBase):
                 if isinstance(cached_date, str):
                     try:
                         cached_date = datetime.fromisoformat(cached_date)
-                    except:
+                    except ValueError:
+                        logger.debug("Invalid cached email attachment date %r; using current time", cached_date, exc_info=True)
                         cached_date = datetime.now()
             else:
                 cached_date = datetime.now()

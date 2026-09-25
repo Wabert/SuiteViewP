@@ -77,7 +77,7 @@ class SharePointClient:
                     import win32crypt
                     data = win32crypt.CryptUnprotectData(data, None, None, None, 0)[1]
                 except ImportError:
-                    pass
+                    logger.debug("win32crypt unavailable; SharePoint token cache cannot be unprotected", exc_info=True)
                 cache.deserialize(data.decode("utf-8"))
             except Exception as e:
                 logger.warning(f"Could not load SharePoint token cache: {e}")
@@ -292,7 +292,7 @@ class SharePointClient:
                 try:
                     dest_path.chmod(0o666)
                 except OSError:
-                    pass
+                    logger.debug("Could not remove partial SharePoint download %s", dest_path, exc_info=True)
             with open(dest_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=256 * 1024):
                     if cancel_cb and cancel_cb():
@@ -300,7 +300,7 @@ class SharePointClient:
                         try:
                             dest_path.unlink()
                         except OSError:
-                            pass
+                            logger.debug("Could not remove cancelled SharePoint download %s", dest_path, exc_info=True)
                         raise SharePointError("Download cancelled")
                     f.write(chunk)
                     done += len(chunk)
@@ -488,7 +488,7 @@ class SharePointDepthScanWorker(QThread):
                         it["modified"].replace("Z", "+00:00")).astimezone()
                     modified = dt.strftime("%Y-%m-%d %H:%M")
                 except ValueError:
-                    pass
+                    logger.debug("SharePoint item size was not an integer: %r", item.get("size"), exc_info=True)
             results.append({
                 "path": make_sp_path(drive_id, it["id"]),
                 "display_name": display_name,
