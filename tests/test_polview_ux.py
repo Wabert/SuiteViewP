@@ -627,3 +627,45 @@ def test_tooltips_in_polview_get_their_own_light_style(window, qtbot):
         pytest.skip("platform does not show tooltips")
     assert tip.styleSheet() == TOOLTIP_STYLE
     QToolTip.hideText()
+
+
+def test_command_box_list_closes_and_stays_closed(window, qtbot):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFocusEvent
+    from PyQt6.QtTest import QTest
+
+    box = window.command_box
+    popup = box._completer.popup()
+
+    def settle_events():
+        for _ in range(5):
+            QApplication.processEvents()
+            qtbot.wait(20)
+
+    # Escape inside the list closes it and does not reopen on refocus.
+    box.open_palette()
+    qtbot.waitUntil(popup.isVisible, timeout=2000)
+    QTest.keyClick(popup, Qt.Key.Key_Escape)
+    settle_events()
+    assert not popup.isVisible() and box.text() == ""
+
+    # An outside click (Qt hides the popup) dismisses the box.
+    box.open_palette()
+    box.setText("tab")
+    box._refresh("tab")
+    qtbot.waitUntil(popup.isVisible, timeout=2000)
+    popup.hide()
+    settle_events()
+    assert not popup.isVisible() and box.text() == ""
+
+    # Focus returning from the popup never reopens the list by itself.
+    box.focusInEvent(QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.PopupFocusReason))
+    settle_events()
+    assert not popup.isVisible()
+
+    # Escape typed in the box itself also closes it.
+    box.open_palette()
+    qtbot.waitUntil(popup.isVisible, timeout=2000)
+    box.dismiss()
+    settle_events()
+    assert not popup.isVisible()

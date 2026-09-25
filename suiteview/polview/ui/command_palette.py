@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
-from PyQt6.QtCore import QModelIndex, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEvent, QModelIndex, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QCompleter, QLineEdit, QListView, QStyledItemDelegate
 
@@ -120,6 +120,10 @@ class CommandPaletteBox(QLineEdit):
         # setPopup installs Qt's own delegate, so ours must come after it.
         self._delegate = _CommandDelegate(popup)
         popup.setItemDelegate(self._delegate)
+        # Qt's completer eats Escape and outside clicks inside the popup; watch
+        # for them so the box is dismissed instead of reopening on refocus.
+        popup.installEventFilter(self)
+        self._hiding = False
         self._completer.activated[QModelIndex].connect(self._on_activated)
         self.textEdited.connect(self._refresh)
         self.returnPressed.connect(self._run_best_match)
@@ -131,22 +135,54 @@ class CommandPaletteBox(QLineEdit):
         self.selectAll()
         self._refresh(self.text())
 
+    def popup_visible(self) -> bool:
+        return self._completer.popup().isVisible()
+
     def focusInEvent(self, event):
         super().focusInEvent(event)
-        QTimer.singleShot(0, self._refresh_if_focused)
+        # Only a click opens the list. Focus also returns here when the popup
+        # closes (PopupFocusReason); reopening then made it impossible to close.
+        if event.reason() == Qt.FocusReason.MouseFocusReason:
+            QTimer.singleShot(0, self._refresh_if_focused)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if self.hasFocus() and not self.popup_visible():
+            self._refresh(self.text())
 
     @pyqtSlot()
     def _refresh_if_focused(self):
-        if self.hasFocus():
+        if self.hasFocus() and not self.popup_visible():
             self._refresh(self.text())
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
-            self._completer.popup().hide()
-            self.clear()
-            self.clearFocus()
+            self.dismiss()
             return
         super().keyPressEvent(event)
+
+    def dismiss(self):
+        """Close the list, clear the text and hand focus back to the window."""
+        self._hiding = True
+        self._completer.popup().hide()
+        self._hiding = False
+        self.clear()
+        self.clearFocus()
+
+    def eventFilter(self, obj, event):
+        if obj is self._completer.popup():
+            if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+                QTimer.singleShot(0, self.dismiss)
+                return True
+            if event.type() == QEvent.Type.Hide and not self._hiding:
+                # Closed by an outside click (or Qt's own Escape): stop being "active".
+                QTimer.singleShot(0, self._dismiss_if_closed)
+        return super().eventFilter(obj, event)
+
+    @pyqtSlot()
+    def _dismiss_if_closed(self):
+        if not self.popup_visible() and not self.underMouse():
+            self.dismiss()
 
     @pyqtSlot(str)
     def _refresh(self, text: str = ""):
@@ -171,7 +207,9 @@ class CommandPaletteBox(QLineEdit):
             popup = self._completer.popup()
             popup.setCurrentIndex(self._model.index(0, 0))
         else:
+            self._hiding = True
             self._completer.popup().hide()
+            self._hiding = False
 
     def visible_command_keys(self) -> list[str]:
         return [self._model.item(r).data(COMMAND_ROLE) for r in range(self._model.rowCount())]
@@ -199,9 +237,7 @@ class CommandPaletteBox(QLineEdit):
             (c for c in self._provider() if c.key == key), None)
         if command is None:
             return
-        self._completer.popup().hide()
-        self.clear()
-        self.clearFocus()
+        self.dismiss()
         # Defer so the popup closes before a dialog or reload starts.
         QTimer.singleShot(0, command.handler)
         self.command_run.emit(key)
