@@ -274,17 +274,35 @@ class GetPolicyWindow(FramelessWindowBase):
 
     # Width of the tree panel when extended
     TREE_PANEL_WIDTH = 200
-    STRIP_LEFT_MARGIN = 10
 
     def build_content(self) -> QWidget:
-        """Build the main body widget (everything below the title bar)."""
+        """Build the main body widget (everything below the title bar).
+
+        The Tables & Rates panel is a full-height column left of everything
+        else, so opening it (which grows the window leftwards) leaves the
+        lookup bar, badges, tabs and footer where they were on screen.
+        """
         self._tree_visible = False
 
         body = QWidget()
         body.setStyleSheet(f"background-color: {self._window_bg};")
-        main_layout = QVBoxLayout(body)
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+
+        # Tree panel (hidden initially, shown when toggled)
+        self.records_tree = PolicyRecordTreePanel()
+        self.records_tree.table_selected.connect(self._on_table_selected)
+        self.records_tree.rate_selected.connect(self._on_rate_selected)
+        self.records_tree.setFixedWidth(self.TREE_PANEL_WIDTH)
+        self.records_tree.setVisible(False)
+        body_layout.addWidget(self.records_tree)
+
+        main_column = QWidget()
+        main_layout = QVBoxLayout(main_column)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        body_layout.addWidget(main_column, 1)
 
         # Policy lookup bar
         self.lookup_bar = PolicyLookupBar()
@@ -342,8 +360,7 @@ class GetPolicyWindow(FramelessWindowBase):
         strip_host = QWidget()
         strip_host.setStyleSheet(f"background-color: {self._window_bg};")
         strip_layout = QHBoxLayout(strip_host)
-        strip_layout.setContentsMargins(self.STRIP_LEFT_MARGIN, 0, 10, 0)
-        self._strip_layout = strip_layout
+        strip_layout.setContentsMargins(10, 0, 10, 0)
         strip_layout.setSpacing(6)
         strip_layout.addWidget(self._tree_toggle_btn)
         self.summary_strip = PolicySummaryStrip()
@@ -360,14 +377,6 @@ class GetPolicyWindow(FramelessWindowBase):
         content_layout = QHBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
-
-        # Tree panel (hidden initially, shown when toggled)
-        self.records_tree = PolicyRecordTreePanel()
-        self.records_tree.table_selected.connect(self._on_table_selected)
-        self.records_tree.rate_selected.connect(self._on_rate_selected)
-        self.records_tree.setFixedWidth(self.TREE_PANEL_WIDTH)
-        self.records_tree.setVisible(False)
-        content_layout.addWidget(self.records_tree)
 
         # Tabs (main content, always visible)
         tabs_container = QWidget()
@@ -483,14 +492,15 @@ class GetPolicyWindow(FramelessWindowBase):
     def _toggle_tree_panel(self):
         """Toggle the tree panel — extends/shrinks window to the left.
 
-        The tabs container (and the + button inside it) stay at the
-        same screen position because the window's left edge moves by
-        exactly the tree panel width. The Tables button and badge strip
-        are indented by the same width so they stay put too.
+        The window's left edge moves by exactly the tree panel width and the
+        panel fills that new strip, so the rest of the body stays at the same
+        screen position. The title bar spans the whole window, so its
+        contents are indented by the same width to stay put too.
         """
         geo = self.geometry()
         tree_w = self.TREE_PANEL_WIDTH
-        margins = self._strip_layout.contentsMargins()
+        header_layout = self.header_bar.layout()
+        margins = header_layout.contentsMargins()
 
         if self._tree_visible:
             # Hide tree — shrink window from the left
@@ -498,8 +508,8 @@ class GetPolicyWindow(FramelessWindowBase):
             self._tree_visible = False
             self._tree_toggle_btn.setChecked(False)
             self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
-            self._strip_layout.setContentsMargins(
-                self.STRIP_LEFT_MARGIN, margins.top(), margins.right(), margins.bottom())
+            header_layout.setContentsMargins(
+                margins.left() - tree_w, margins.top(), margins.right(), margins.bottom())
             self.setGeometry(geo.x() + tree_w, geo.y(),
                              geo.width() - tree_w, geo.height())
         else:
@@ -508,8 +518,8 @@ class GetPolicyWindow(FramelessWindowBase):
             self._tree_visible = True
             self._tree_toggle_btn.setChecked(True)
             self._tree_toggle_btn.setToolTip("Hide the Tables & Rates panel (Ctrl+T)")
-            self._strip_layout.setContentsMargins(
-                self.STRIP_LEFT_MARGIN + tree_w, margins.top(), margins.right(), margins.bottom())
+            header_layout.setContentsMargins(
+                margins.left() + tree_w, margins.top(), margins.right(), margins.bottom())
             self.setGeometry(geo.x() - tree_w, geo.y(),
                              geo.width() + tree_w, geo.height())
 

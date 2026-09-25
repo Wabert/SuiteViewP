@@ -142,19 +142,37 @@ def test_anniversary_and_vintage_easter_eggs():
 
 
 def test_copied_summary_is_aligned_text_and_an_html_table_without_name_or_face():
-    policy = summary_policy(in_grace=True, mec_indicator="1")
+    policy = summary_policy(in_grace=True, mec_indicator="1", reins_partner="R")
     summary = insights.build_policy_summary(policy, today=date(2026, 9, 24))
     text = insights.summary_text(summary)
     lines = text.splitlines()
-    assert lines[0] == "Policy:         CKPR - 01 - U0613620 (ANICO)"
-    assert "Plan:           1U143900 / EXEC-UL  [UL]" in lines
-    assert "DB option:      Level Death Benefit (Option A)" in lines
+    assert [line.split(":", 1)[0] for line in lines] == [
+        "Policy", "Plan", "Form", "Status", "Rein block", "Valuation Date",
+        "Death benefit", "Issued", "Issue Age", "Attained Age",
+    ]
+    assert lines[0] == "Policy:         01-U0613620"
+    assert "Plan:           1U143900" in lines
+    assert "Form:           EXEC-UL" in lines
+    assert "Status:         22 Premium Paying" in lines
+    assert "Rein block:     RGA" in lines
+    assert "Valuation Date: 9/15/2026" in lines
+    assert "Death benefit:  $100,000" in lines
+    assert "Issued:         10/19/2009" in lines
+    assert "Issue Age:      38" in lines
+    assert "Attained Age:   55" in lines
     assert len({line.index(line.split(":", 1)[1].strip()) for line in lines}) == 1
-    assert "Angela" not in text and "Face" not in text and "100,000" in text
-    assert "In Grace" in text and "MEC" in text and "GPT" in text
+    assert "Angela" not in text and "ANICO" not in text and "In Grace" not in text
     html = insights.summary_html(summary)
     assert html.startswith("<table") and html.count("<tr>") == len(lines)
     assert "Angela" not in html
+
+
+def test_copied_summary_omits_unknown_facts():
+    policy = summary_policy(reins_partner="", pending={"attained_age"})
+    labels = [label for label, _ in insights.summary_rows(
+        insights.build_policy_summary(policy, today=date(2026, 9, 24)))]
+    assert "Rein block" not in labels and "Attained Age" not in labels
+    assert labels[0] == "Policy"
 
 
 def test_tool_availability_explains_why_tools_do_not_apply():
@@ -586,24 +604,34 @@ def test_shortcuts_button_and_toggle_placement(window, qtbot):
     assert "#1B5E20" in window._tree_toggle_btn.styleSheet()
 
 
-def test_tables_panel_keeps_button_and_badges_in_place(window, qtbot):
+def test_tables_panel_leaves_the_main_window_in_place(window, qtbot):
     window.load_policy("ANY1")
     settle(qtbot, window)
     window.show()
     qtbot.waitExposed(window)
-    btn = window._tree_toggle_btn
-    strip = window.summary_strip
+    watched = {
+        "title": window._title_label,
+        "command box": window.command_box,
+        "shortcuts": window.shortcuts_btn,
+        "lookup bar": window.lookup_bar,
+        "tables button": window._tree_toggle_btn,
+        "badges": window.summary_strip,
+        "tabs": window.tabs,
+        "footer": window._status_label,
+    }
 
-    def screen_x():
+    def screen_rects():
         qtbot.wait(50)
-        return btn.mapToGlobal(btn.rect().topLeft()).x(), strip.mapToGlobal(strip.rect().topLeft()).x()
+        return {name: (w.mapToGlobal(w.rect().topLeft()), w.size()) for name, w in watched.items()}
 
-    before = screen_x()
+    before = screen_rects()
     window._toggle_tree_panel()
     qtbot.waitUntil(lambda: window.records_tree.isVisible(), timeout=2000)
-    assert screen_x() == before
+    assert screen_rects() == before
+    tree = window.records_tree
+    assert tree.mapToGlobal(tree.rect().topRight()).x() < before["lookup bar"][0].x()
     window._toggle_tree_panel()
-    assert screen_x() == before
+    assert screen_rects() == before
 
 
 def test_non_production_region_is_loud(window, qtbot):

@@ -80,6 +80,7 @@ class PolicySummary:
     paid_to_date: Optional[date] = None
     status_code: Optional[str] = None
     status_description: Optional[str] = None
+    reins_partner: Optional[str] = None
     chips: tuple[Chip, ...] = ()
     pending: tuple[str, ...] = field(default_factory=tuple)
 
@@ -203,6 +204,7 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
                           "Total policy debt: loan principal plus accrued interest."))
     reins = read.get("reins_partner")
     reins = str(reins or "").strip()
+    partner = None
     if reins:
         partner = "RGA" if reins == "R" else "ANICO"
         chips.append(Chip("reins", f"Reins {partner}", INFO,
@@ -272,37 +274,29 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
         paid_to_date=paid_to,
         status_code=status_code,
         status_description=status_desc,
+        reins_partner=partner,
         chips=tuple(chips),
         pending=tuple(dict.fromkeys(read.pending)),
     )
 
 
 def summary_rows(summary: PolicySummary) -> list[tuple[str, str]]:
-    """Label/value pairs for the copied policy summary."""
-    rows = [("Policy", summary.identity
-             + (f" ({summary.company_name})" if summary.company_name else ""))]
-    plan = " / ".join(p for p in (summary.plancode, summary.form_number) if p)
-    if plan:
-        rows.append(("Plan", plan + (f"  [{summary.product_type}]" if summary.product_type else "")))
-    if summary.db_option:
-        rows.append(("DB option", summary.db_option))
-    if summary.total_death_benefit is not None:
-        rows.append(("Death benefit", _fmt_money(summary.total_death_benefit)))
-    if summary.issue_date:
-        age = f" at age {summary.issue_age}" if summary.issue_age is not None else ""
-        rows.append(("Issued", f"{_fmt_date(summary.issue_date)}{age}"))
-    if summary.policy_year:
-        rows.append(("Policy year", str(summary.policy_year)))
-    if summary.attained_age is not None:
-        rows.append(("Attained age", str(summary.attained_age)))
-    if summary.valuation_date:
-        rows.append(("Valuation date", _fmt_date(summary.valuation_date)))
-    if summary.paid_to_date:
-        rows.append(("Paid to", _fmt_date(summary.paid_to_date)))
-    flags = [c.text for c in summary.chips if c.tone != FUN and c.key not in ("product", "paid_to")]
-    if flags:
-        rows.append(("Flags", ", ".join(flags)))
-    return rows
+    """Label/value pairs for the copied policy summary; unknown facts are omitted."""
+    policy = "-".join(p for p in (summary.company_code, summary.policy_number) if p)
+    status = " ".join(p for p in (summary.status_code, summary.status_description) if p)
+    candidates = [
+        ("Policy", policy),
+        ("Plan", summary.plancode),
+        ("Form", summary.form_number),
+        ("Status", status),
+        ("Rein block", summary.reins_partner),
+        ("Valuation Date", _fmt_date(summary.valuation_date)),
+        ("Death benefit", _fmt_money(summary.total_death_benefit)),
+        ("Issued", _fmt_date(summary.issue_date)),
+        ("Issue Age", "" if summary.issue_age is None else str(summary.issue_age)),
+        ("Attained Age", "" if summary.attained_age is None else str(summary.attained_age)),
+    ]
+    return [(label, value) for label, value in candidates if value]
 
 
 def summary_text(summary: PolicySummary) -> str:
