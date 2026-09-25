@@ -14,7 +14,9 @@ from html import escape
 from typing import Iterable, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+)
 
 from ..services.policy_insights import (
     DANGER, FUN, INFO, NEUTRAL, OK, TEST, WARN, Chip, PolicySummary, Suggestion,
@@ -102,6 +104,9 @@ class PolicySummaryStrip(QWidget):
         self.facts_label.setStyleSheet(
             f"font-size: 11px; color: {GRAY_DARK}; background: transparent;"
         )
+        # Facts give way first when space is short; chips and buttons never squash.
+        self.facts_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.facts_label.setMinimumWidth(60)
         row.addWidget(self.facts_label, 1)
 
         self._chips_host = QWidget()
@@ -170,8 +175,27 @@ class PolicySummaryStrip(QWidget):
         outer.addWidget(self._detail_row)
         self._detail_row.setVisible(False)
 
+        self._notes_count = 0
+        self._compact = False
+        self._tool_labels = {
+            self.timeline_button: ("🗓 Timeline", "🗓"),
+            self.compare_button: ("⇄ Compare", "⇄"),
+            self.copy_button: ("⧉ Copy", "⧉"),
+        }
         self.set_notes_count(0)
         self.clear("Enter a policy number to begin  ·  press F1 for shortcuts")
+
+    # Below this width the tool buttons show icons only (tooltips keep the names).
+    COMPACT_WIDTH = 1320
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        compact = self.width() < self.COMPACT_WIDTH
+        if compact != self._compact:
+            self._compact = compact
+            for button, (full, icon) in self._tool_labels.items():
+                button.setText(icon if compact else full)
+            self.set_notes_count(self._notes_count)
 
     # -- public API -------------------------------------------------------
 
@@ -200,6 +224,8 @@ class PolicySummaryStrip(QWidget):
         self.name_label.setText(summary.insured_name or "")
         self.name_label.setVisible(bool(summary.insured_name))
         self.facts_label.setText(self._facts_html(summary))
+        from ..services.policy_insights import summary_text
+        self.facts_label.setToolTip(summary_text(summary))
         self._set_chips(summary.chips)
         self._set_detail(summary.notices, tuple(suggestions))
         self.copy_button.setEnabled(True)
@@ -208,7 +234,9 @@ class PolicySummaryStrip(QWidget):
         self.compare_button.setEnabled(True)
 
     def set_notes_count(self, count: int):
-        self.notes_button.setText(f"📝 Notes ({count})" if count else "📝 Notes")
+        self._notes_count = count
+        base = "📝" if getattr(self, "_compact", False) else "📝 Notes"
+        self.notes_button.setText(f"{base} ({count})" if count else base)
         self.notes_button.setStyleSheet(
             _TOOL_BUTTON_STYLE + (
                 f"QPushButton {{ background: #FFF3D0; border-color: {GOLD_PRIMARY}; }}"
@@ -257,6 +285,7 @@ class PolicySummaryStrip(QWidget):
             label.setStyleSheet(chip_style(chip.tone))
             label.setToolTip(chip.tooltip)
             label.setFixedHeight(18)
+            label.setMinimumWidth(label.sizeHint().width())
             self._chips_layout.addWidget(label)
             self._chip_labels[chip.key] = label
 

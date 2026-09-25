@@ -1315,6 +1315,25 @@ Read-only verification: `tools/audit/verify_text_file_source.py <path>
 and full SQL row count against an independent CSV reader without printing
 records or changing the original file or the user's saved sources.
 
+## PolView usability layer
+
+A **summary strip** under the lookup bar shows insured, plan, face, key dates
+and status chips (non-production region, grace, MEC, loan, reinsurance,
+product, joint), notices and context-aware suggested support actions. It is
+built from named `PolicyInformation` properties read under per-fact
+`cached_reads_only()` guards (`polview/services/policy_insights.py`): facts not
+yet prefetched stay pending, never a GUI-thread query or a guess. Optional tabs
+keep a fixed position and grey out with the reason instead of disappearing.
+The lookup bar (shared with RERUN) accepts pasted references and completes
+recent policies by number or insured name; `/help`-style commands never reach
+DB2. Shortcuts, private per-policy notes (local profile only), a field finder,
+Timeline and Compare (diff of two loaded policies' cached DB2 rows) complete
+the toolkit. Grids gain selection totals, column choosers and empty-state notes;
+`StyledInfoTableGroup.set_field_sources()` documents field lineage. The Tables
+panel is filled by a background loader stage with PolicyData's verified keys.
+See `docs/POLVIEW_CLAUDE.md` § "Usability layer"; regression
+`tests/test_polview_ux.py`; native live check `tools/app/tour_polview.py`.
+
 ## PolView initial loading
 
 Each policy/region/company first opened in a PolView session defaults to

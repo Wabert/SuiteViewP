@@ -207,6 +207,63 @@ Regressions: `tests/test_polview_lazy_loading.py`,
 `tests/test_policy_service_cache.py`, `tests/test_policy_launcher.py`,
 `tests/test_polview_other_data.py` and `tests/test_reinstatement_ui.py`.
 
+### Usability layer (summary strip, navigation, analyst tools)
+
+Everything below reads the progressively merged `PolicyInformation` through
+named properties under per-fact `cached_reads_only()` guards
+(`services/policy_insights.py`). A fact whose tables have not arrived yet is
+*pending* and simply not shown; it never triggers a GUI-thread query or a guess.
+
+- **Summary strip** (`ui/policy_summary_strip.py`) under the lookup bar: insured
+  name, plan/form, face, issue date/age, policy year, attained age, paid-to, then
+  status chips — non-production region (loud purple, and the window title says
+  so), pending, premium-paying status, suspense, In Grace (with expiry), MEC,
+  loan debt, reinsurance partner, product/Advanced-Traditional, GP/CVAT, corridor,
+  joint lives. A notices row (grace, traditional paid-to behind valuation) and
+  context-aware **Suggested** actions (lapse-eligible UL → reinstatement quote,
+  in-grace GP UL → GLP Exception, annuity rider). Buttons: Timeline, Compare,
+  Notes, Copy (plain-text summary). Tool buttons go icon-only below 1320px.
+  Small easter eggs: policy anniversary, insured birthday, 50+ year "vintage".
+- **Tabs never move.** All pages keep a fixed order; Dividends/Loans without
+  rows and Account Values (formerly AdvProdValues) on traditional policies are
+  greyed in place with the reason as the tab tooltip.
+- **Lookup bar:** smart paste of `CKPR - 01 - U0613620`, `01_13034048`
+  (support-folder names) or a `TCH_POL_ID` fills region/company/policy
+  (`core/policy_reference.py`); recent policies (profile
+  `settings/polview_recent.json`) complete by number *or insured name*; `/help`,
+  `/recent`, `/stats`, `/about` commands (never sent to DB2). The bar is shared
+  with RERUN, which ignores commands.
+- **Shortcuts:** Ctrl+L, Ctrl+1–9, Alt+←/→ (policy history), F5 (reload fresh),
+  Ctrl+F (field finder across every tab), Ctrl+Shift+C (copy summary), Ctrl+N
+  (notes), Ctrl+D (timeline), Ctrl+Shift+D (compare), Ctrl+T (Tables panel), F1.
+- **Notes** are private, timestamped, per company+policy in the local profile
+  (`data/notes/polview_notes.json`, atomic writes) — never CyberLife.
+- **Grids** (`FixedHeaderTableWidget`): visible selection with an Excel-style
+  Σ/Avg/Min/Max/Count bar, right-click header column chooser (persisted per
+  table key in `settings/polview_table_columns.json`), "Filter to value",
+  copy selection, and centered empty-state notes. Copy/Excel skip hidden columns.
+- **Field lineage:** `StyledInfoTableGroup.set_field_sources()` documents each
+  value's DB2 source (Policy and Coverages tabs); hover shows it and right-click
+  offers "Show TABLE rows in Raw Table". Labels auto-widen and never truncate.
+- **Activity:** code descriptions inline, Reversal/Reversed spelled out and
+  dimmed, a clickable transaction-type index with counts, totals footer.
+- **Coverages:** coverage status as words (code in tooltip), benefit names,
+  double-click any coverage/benefit for a record card of interpreted + raw fields.
+- **Timeline** (`services/policy_timeline.py`): every key date with source and
+  relative time; sentinel 9999/0001 dates omitted.
+- **Compare** (`services/policy_compare.py`): diffs `PolicyInformation.cached_tables()`
+  of two policies loaded in the window (e.g. CKPR vs a test region), pairing
+  rows by key columns; unequal row counts list whole extra/missing rows; identity
+  columns and FH history optional.
+- **Tables panel** is filled by a background `tables` loader stage using
+  PolicyData's verified keys (FH tables without `CK_SYS_CD`), not GUI-thread
+  f-string SQL; unreadable tables remain explicit errors.
+
+Regressions: `tests/test_polview_ux.py` (plus the updated lazy-loading and
+tree-panel tests). Native live verification: `tools/app/tour_polview.py
+--policy <p[:co]> [--policy ...] [--panels] [--dialogs] --output-dir <dir>`
+screenshots every tab (and panels/dialogs) with an isolated profile.
+
 ### Other Data
 
 The permanent **Other Data** tab follows Policy Support. Its left panel selects
@@ -1371,7 +1428,7 @@ WHERE POLICY1.CK_SYS_CD = 'I'
 2. **Targets & Accumulators Tab** — TEFRA/DEFRA, accumulators, TAMRA, commission targets, MTP, minimum premium
 3. **Policy Tab** — Basic policy details, billing info, agents, and the traditional-product monthly policy fee from `LH_FXD_PRM_POL.POL_FEE_AMT`
 4. **Persons Tab** — Policy persons & addresses
-5. **AdvProdValues Tab** — Advanced product values, monthliversary history, fund allocations
+5. **Account Values Tab** (`AdvProdValuesTab`) — Advanced product values, monthliversary history, fund allocations
 6. **Activity Tab** — Transaction history (FH_FIXED)
 7. **Dividends Tab** — Applied/unapplied dividends, PUA, OYT, deposits on deposit
 8. **Policy Support Tab** — File management using MiniExplorer, drag-and-drop tools
@@ -1399,7 +1456,7 @@ WHERE POLICY1.CK_SYS_CD = 'I'
 5. **Tooltip system** — Field tooltips stored in JSON for easy maintenance.
 6. **CL_POLREC modules** — Each module handles a group of related policy records and returns typed dataclass objects.
 7. **Dual-layer data access** — `PolicyInformation` provides both raw `data_item()` API and high-level methods like `get_coverages()` returning typed objects.
-8. **Blue & Gold theme** — PolView uses a classic navy/gold color scheme defined in `ui/styles.py` (distinct from ABR Quote's Crimson Slate).
+8. **Green & Gold theme** — PolView uses a rich green/gold scheme defined in `ui/styles.py` (constants keep legacy `BLUE_*` names; distinct from ABR Quote's Crimson Slate).
 
 ---
 *This file covers PolView-specific details. For shared architecture, see [`Agent.md`](../Agent.md).*
