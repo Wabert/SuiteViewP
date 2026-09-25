@@ -1956,6 +1956,9 @@ class MainframeNavScreen(QWidget):
         if not connection_id:
             return
         
+        self.edit_conn_button.setEnabled(True)
+        self.delete_conn_button.setEnabled(True)
+        
         # Load connection's dataset
         self.load_connection_dataset(connection_id)
     
