@@ -10,10 +10,6 @@ from suiteview.core import odbc_utils
 ROOT = Path(__file__).resolve().parents[1]
 SUITEVIEW = ROOT / "suiteview"
 
-# Parallel dead-code cleanup removes this file; this branch must not edit it.
-PENDING_DELETION = {SUITEVIEW / "audit" / "tabs" / "joins_tab.py"}
-
-
 def _uses_direct_pyodbc_connect(path: Path) -> bool:
     tokens = [
         token
@@ -36,8 +32,6 @@ def _uses_direct_pyodbc_connect(path: Path) -> bool:
 def test_non_core_code_uses_odbc_connection_factory():
     offenders = []
     for path in SUITEVIEW.rglob("*.py"):
-        if path in PENDING_DELETION:
-            continue
         if "core" in path.relative_to(SUITEVIEW).parts:
             continue
         if _uses_direct_pyodbc_connect(path):
