@@ -204,11 +204,15 @@ class CoveragesTab(QWidget):
                 f"Benefit {benefit.benefit_code} · phase {benefit.cov_pha_nbr}", benefit)
 
     def _open_record_card(self, title: str, record):
+        from PyQt6 import sip
         from ..polview_dialogs import RecordCardDialog
 
+        # Closed cards delete themselves; drop their dead wrappers before touching them.
+        self._record_cards = [d for d in getattr(self, "_record_cards", []) if not sip.isdeleted(d)]
         dialog = RecordCardDialog(title, record, self.window())
+        offset = 24 * (len(self._record_cards) % 8)
         dialog.show()
-        self._record_cards = [d for d in getattr(self, "_record_cards", []) if d.isVisible()]
+        dialog.move(dialog.pos().x() + offset, dialog.pos().y() + offset)
         self._record_cards.append(dialog)
 
     # ── data loading ─────────────────────────────────────────────────────
@@ -247,8 +251,7 @@ class CoveragesTab(QWidget):
         self.company_label.setText(policy.company_code)
         self.market_org_label.setText(policy.servicing_market_org)
         self.issue_state_label.setText(policy.issue_state)
-        definition_of_life = policy.gpt_cvat
-        self.definition_of_life_label.setText("GP" if definition_of_life == "GPT" else definition_of_life)
+        self.definition_of_life_label.setText(policy.gpt_cvat)
         self.billing_mode_label.setText(policy.billing_mode)
         self.premium_label.setText(format_amount(policy.modal_premium))
         self.region_label.setText(policy.region)

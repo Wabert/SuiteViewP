@@ -65,13 +65,13 @@ class PolicySummary:
     company_name: str
     region: str
     system_code: str
-    insured_name: Optional[str] = None
     plancode: Optional[str] = None
     form_number: Optional[str] = None
     product_type: Optional[str] = None
-    product_line: Optional[str] = None
-    face_amount: Optional[Decimal] = None
+    db_option: Optional[str] = None
     total_death_benefit: Optional[Decimal] = None
+    # Used to find recent policies by name; deliberately not in the copied summary.
+    insured_name: Optional[str] = None
     issue_date: Optional[date] = None
     issue_age: Optional[int] = None
     attained_age: Optional[int] = None
@@ -81,7 +81,6 @@ class PolicySummary:
     status_code: Optional[str] = None
     status_description: Optional[str] = None
     chips: tuple[Chip, ...] = ()
-    notices: tuple[str, ...] = ()
     pending: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -167,12 +166,11 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
     policy_year = read.get("policy_year")
 
     chips: list[Chip] = []
-    notices: list[str] = []
 
     if region and region != PRODUCTION_REGION:
         label = REGION_LABELS.get(region, "NON-PROD")
         chips.append(Chip(
-            "region", f"{region} {label}", TEST,
+            "region", region, TEST,
             f"{region} is not production (CKPR). Values are {label.lower()} region data.",
         ))
     if system == "P":
@@ -193,10 +191,8 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
     if in_grace:
         until = f" until {_fmt_date(grace_expiry)}" if grace_expiry else ""
         chips.append(Chip("grace", f"In Grace{until}", DANGER,
-                          "Grace period indicator is set (IN_GRA_PER_IND = 1)."))
-        notices.append(
-            f"Policy is in its grace period{until}. Premium is needed to keep coverage in force."
-        )
+                          f"Policy is in its grace period{until}. Premium is needed to keep "
+                          "coverage in force.\nSource: IN_GRA_PER_IND = 1, GRA_PER_EXP_DT"))
     mec = read.get("mec_indicator")
     if mec == "1":
         chips.append(Chip("mec", "MEC", WARN,
@@ -221,8 +217,9 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
     if advanced:
         dol = str(read.get("gpt_cvat") or "").strip()
         if dol:
-            chips.append(Chip("dol", "GP" if dol == "GPT" else dol, NEUTRAL,
-                              "Definition of life insurance (guideline premium or cash value test)"))
+            chips.append(Chip("dol", dol, NEUTRAL,
+                              "Definition of life insurance: GPT = Guideline Premium Test, "
+                              "CVAT = Cash Value Accumulation Test"))
         standard_db = read.get("standard_death_benefit")
         corridor_db = read.get("corridor_death_benefit")
         if corridor_db is not None and standard_db is not None and corridor_db > standard_db:
@@ -235,10 +232,11 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
     # Traditional premium-paying policies whose paid-to has fallen behind.
     if (advanced is False and status_code and status_code.startswith("2")
             and paid_to and valuation and paid_to < valuation):
-        notices.append(
-            f"Premium paid to {_fmt_date(paid_to)} is before the valuation date "
-            f"{_fmt_date(valuation)}."
-        )
+        chips.append(Chip(
+            "paid_to", f"Paid to {_fmt_date(paid_to)}", WARN,
+            f"Premium is paid to {_fmt_date(paid_to)}, before the valuation date "
+            f"{_fmt_date(valuation)} (LH_BAS_POL.PRM_PAID_TO_DT).",
+        ))
 
     # A little delight: anniversaries, birthdays and vintage contracts.
     if issue_date and _same_month_day(issue_date, today) and issue_date < today:
@@ -253,19 +251,18 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
         chips.append(Chip("vintage", f"🏛 Vintage {issue_date.year}", FUN,
                           f"In force for {policy_year - 1}+ years. They don't make them like this anymore."))
 
-    face = read.get("base_total_face_amount")
+    db_option = read.get("db_option_description") if advanced else None
     return PolicySummary(
         policy_number=str(getattr(policy, "policy_number", "") or ""),
         company_code=company,
         company_name=str(read.get("company_name") or ""),
         region=region,
         system_code=system,
-        insured_name=read.get("primary_insured_name") or None,
         plancode=(base.plancode if base is not None else None),
         form_number=(str(getattr(base, "form_number", "") or "").strip() or None) if base else None,
         product_type=product_type,
-        product_line=read.get("product_line_description"),
-        face_amount=face if face else (base.face_amount if base is not None else None),
+        db_option=db_option or None,
+        insured_name=read.get("primary_insured_name") or None,
         total_death_benefit=read.get("total_death_benefit"),
         issue_date=issue_date,
         issue_age=(base.issue_age if base is not None else None),
@@ -276,41 +273,61 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
         status_code=status_code,
         status_description=status_desc,
         chips=tuple(chips),
-        notices=tuple(notices),
         pending=tuple(dict.fromkeys(read.pending)),
     )
 
 
-def summary_text(summary: PolicySummary) -> str:
-    """Plain-text block for emails, tickets and test evidence."""
-    lines = [f"Policy {summary.identity}"
-             + (f" ({summary.company_name})" if summary.company_name else "")]
-    if summary.insured_name:
-        lines.append(f"Insured:        {summary.insured_name}")
+def summary_rows(summary: PolicySummary) -> list[tuple[str, str]]:
+    """Label/value pairs for the copied policy summary."""
+    rows = [("Policy", summary.identity
+             + (f" ({summary.company_name})" if summary.company_name else ""))]
     plan = " / ".join(p for p in (summary.plancode, summary.form_number) if p)
     if plan:
-        product = f"  [{summary.product_type}]" if summary.product_type else ""
-        lines.append(f"Plan:           {plan}{product}")
-    if summary.face_amount is not None:
-        lines.append(f"Face amount:    {_fmt_money(summary.face_amount)}")
+        rows.append(("Plan", plan + (f"  [{summary.product_type}]" if summary.product_type else "")))
+    if summary.db_option:
+        rows.append(("DB option", summary.db_option))
     if summary.total_death_benefit is not None:
-        lines.append(f"Death benefit:  {_fmt_money(summary.total_death_benefit)}")
+        rows.append(("Death benefit", _fmt_money(summary.total_death_benefit)))
     if summary.issue_date:
         age = f" at age {summary.issue_age}" if summary.issue_age is not None else ""
-        lines.append(f"Issued:         {_fmt_date(summary.issue_date)}{age}")
+        rows.append(("Issued", f"{_fmt_date(summary.issue_date)}{age}"))
     if summary.policy_year:
-        age = f", attained age {summary.attained_age}" if summary.attained_age is not None else ""
-        lines.append(f"Policy year:    {summary.policy_year}{age}")
+        rows.append(("Policy year", str(summary.policy_year)))
+    if summary.attained_age is not None:
+        rows.append(("Attained age", str(summary.attained_age)))
     if summary.valuation_date:
-        lines.append(f"Valuation date: {_fmt_date(summary.valuation_date)}")
+        rows.append(("Valuation date", _fmt_date(summary.valuation_date)))
     if summary.paid_to_date:
-        lines.append(f"Paid to:        {_fmt_date(summary.paid_to_date)}")
-    flags = [c.text for c in summary.chips if c.tone != FUN and c.key != "product"]
+        rows.append(("Paid to", _fmt_date(summary.paid_to_date)))
+    flags = [c.text for c in summary.chips if c.tone != FUN and c.key not in ("product", "paid_to")]
     if flags:
-        lines.append(f"Flags:          {', '.join(flags)}")
-    for notice in summary.notices:
-        lines.append(f"Note:           {notice}")
-    return "\n".join(lines)
+        rows.append(("Flags", ", ".join(flags)))
+    return rows
+
+
+def summary_text(summary: PolicySummary) -> str:
+    """Aligned plain text (for monospaced targets: Notepad, tickets, logs)."""
+    rows = summary_rows(summary)
+    width = max(len(label) for label, _ in rows) + 2
+    return "\n".join(f"{label + ':':<{width}}{value}" for label, value in rows)
+
+
+def summary_html(summary: PolicySummary) -> str:
+    """Compact two-column table that pastes cleanly into Outlook, Word and Excel."""
+    from html import escape
+
+    cells = "".join(
+        "<tr>"
+        f'<td style="padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;">'
+        f"{escape(label)}</td>"
+        f'<td style="padding:1px 0;">{escape(value)}</td>'
+        "</tr>"
+        for label, value in summary_rows(summary)
+    )
+    return (
+        '<table style="border-collapse:collapse;font-family:Calibri,Segoe UI,sans-serif;'
+        f'font-size:11pt;">{cells}</table>'
+    )
 
 
 def support_tool_availability(policy) -> dict[str, ToolAvailability]:

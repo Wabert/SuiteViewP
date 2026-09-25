@@ -207,35 +207,55 @@ Regressions: `tests/test_polview_lazy_loading.py`,
 `tests/test_policy_service_cache.py`, `tests/test_policy_launcher.py`,
 `tests/test_polview_other_data.py` and `tests/test_reinstatement_ui.py`.
 
-### Usability layer (summary strip, navigation, analyst tools)
+### Usability layer (badges, command box, navigation, analyst tools)
 
 Everything below reads the progressively merged `PolicyInformation` through
 named properties under per-fact `cached_reads_only()` guards
 (`services/policy_insights.py`). A fact whose tables have not arrived yet is
 *pending* and simply not shown; it never triggers a GUI-thread query or a guess.
 
-- **Summary strip** (`ui/policy_summary_strip.py`) under the lookup bar: insured
-  name, plan/form, face, issue date/age, policy year, attained age, paid-to, then
-  status chips — non-production region (loud purple, and the window title says
-  so), pending, premium-paying status, suspense, In Grace (with expiry), MEC,
-  loan debt, reinsurance partner, product/Advanced-Traditional, GP/CVAT, corridor,
-  joint lives. A notices row (grace, traditional paid-to behind valuation) and
-  context-aware **Suggested** actions (lapse-eligible UL → reinstatement quote,
-  in-grace GP UL → GLP Exception, annuity rider). Buttons: Timeline, Compare,
-  Notes, Copy (plain-text summary). Tool buttons go icon-only below 1320px.
-  Small easter eggs: policy anniversary, insured birthday, 50+ year "vintage".
+- **Badge strip** (`ui/policy_summary_strip.py`) under the lookup bar, one row:
+  the **Tables** toggle at the far left (above where the panel opens), then
+  status badges — non-production region (just the region code, e.g. `CKAS`, in
+  loud purple; the window title also says "non-production"), pending,
+  premium-paying status, suspense, In Grace (with expiry; the explanation is in
+  its tooltip), MEC, loan debt, reinsurance partner, product/Advanced-Traditional,
+  **GPT**/CVAT (never "GP", which reads as Grace Period), corridor, joint lives,
+  and a "Paid to" badge when a traditional policy's paid-to is behind valuation.
+  On the right: context-aware **Suggested** actions (lapse-eligible UL →
+  reinstatement quote, in-grace GP UL → GLP Exception, annuity rider), then
+  Timeline, Notes and Copy. There is no text summary line. Small easter eggs:
+  policy anniversary, insured birthday, 50+ year "vintage".
+- **Copy** puts both an HTML two-column table (pastes neatly into Outlook, Word,
+  Excel) and label-aligned plain text on the clipboard. It lists policy, plan,
+  DB option (advanced products only), death benefit, issue date/age, policy year,
+  attained age, valuation and paid-to dates and flags — never the insured name
+  or face amount.
+- **Title bar:** a VS Code-style **command box** (`ui/command_palette.py`,
+  Ctrl+Shift+P) centred in the header lists every action with its shortcut —
+  policy actions, tabs, Policy Support tools, recent policies, apps, help — and
+  hides ones that do not apply yet. It takes focus only on click/shortcut. A
+  **⌨ Shortcuts** button opens the shortcut list (same as F1). Commands never go
+  through the policy-number box.
 - **Tabs never move.** All pages keep a fixed order; Dividends/Loans without
   rows and Account Values (formerly AdvProdValues) on traditional policies are
   greyed in place with the reason as the tab tooltip.
 - **Lookup bar:** smart paste of `CKPR - 01 - U0613620`, `01_13034048`
   (support-folder names) or a `TCH_POL_ID` fills region/company/policy
   (`core/policy_reference.py`); recent policies (profile
-  `settings/polview_recent.json`) complete by number *or insured name*; `/help`,
-  `/recent`, `/stats`, `/about` commands (never sent to DB2). The bar is shared
-  with RERUN, which ignores commands.
-- **Shortcuts:** Ctrl+L, Ctrl+1–9, Alt+←/→ (policy history), F5 (reload fresh),
-  Ctrl+F (field finder across every tab), Ctrl+Shift+C (copy summary), Ctrl+N
-  (notes), Ctrl+D (timeline), Ctrl+Shift+D (compare), Ctrl+T (Tables panel), F1.
+  `settings/polview_recent.json`) complete by number *or insured name*. The bar
+  is shared with RERUN. Tables/List toggles show checked as solid green with gold
+  text (never a pale yellow wash).
+- **Shortcuts:** Ctrl+Shift+P (command box), Ctrl+L, Ctrl+1–9, Alt+←/→ (policy
+  history), F5 (reload fresh), Ctrl+F (field finder across every tab),
+  Ctrl+Shift+C (copy summary), Ctrl+N (notes), Ctrl+D (timeline), Ctrl+T
+  (Tables panel), F1.
+- **Tooltips** over PolView windows get their own light style
+  (`ui/tooltip_style.py`). Qt styles a tooltip with the showing widget's style
+  sheets, and PolView's `background: transparent` label rules made them dark
+  text on black. The fix sets bare declarations on the tip itself (a `QLabel {}`
+  selector rule is *not* enough; verified natively). Other SuiteView apps'
+  tooltips are unchanged. Check: `tools/app/verify_polview_tooltips.py`.
 - **Notes** are private, timestamped, per company+policy in the local profile
   (`data/notes/polview_notes.json`, atomic writes) — never CyberLife.
 - **Grids** (`FixedHeaderTableWidget`): visible selection with an Excel-style
@@ -245,24 +265,24 @@ named properties under per-fact `cached_reads_only()` guards
 - **Field lineage:** `StyledInfoTableGroup.set_field_sources()` documents each
   value's DB2 source (Policy and Coverages tabs); hover shows it and right-click
   offers "Show TABLE rows in Raw Table". Labels auto-widen and never truncate.
-- **Activity:** code descriptions inline, Reversal/Reversed spelled out and
-  dimmed, a clickable transaction-type index with counts, totals footer.
+- **Activity:** the transaction-type index (code, description, count) is the
+  key; the transactions grid has no description column (the code cell's tooltip
+  has it). Reversal/Reversed spelled out and dimmed, totals footer.
 - **Coverages:** coverage status as words (code in tooltip), benefit names,
   double-click any coverage/benefit for a record card of interpreted + raw fields.
+  Closed cards delete themselves; check `sip.isdeleted` before touching a kept
+  card reference (touching a dead wrapper in a slot aborted the app).
 - **Timeline** (`services/policy_timeline.py`): every key date with source and
   relative time; sentinel 9999/0001 dates omitted.
-- **Compare** (`services/policy_compare.py`): diffs `PolicyInformation.cached_tables()`
-  of two policies loaded in the window (e.g. CKPR vs a test region), pairing
-  rows by key columns; unequal row counts list whole extra/missing rows; identity
-  columns and FH history optional.
 - **Tables panel** is filled by a background `tables` loader stage using
   PolicyData's verified keys (FH tables without `CK_SYS_CD`), not GUI-thread
   f-string SQL; unreadable tables remain explicit errors.
 
 Regressions: `tests/test_polview_ux.py` (plus the updated lazy-loading and
 tree-panel tests). Native live verification: `tools/app/tour_polview.py
---policy <p[:co]> [--policy ...] [--panels] [--dialogs] --output-dir <dir>`
-screenshots every tab (and panels/dialogs) with an isolated profile.
+--policy <p[:co]> [--policy ...] [--panels] [--dialogs] [--palette TEXT]
+--output-dir <dir>` screenshots every tab (and panels/dialogs/command box) with
+an isolated profile.
 
 ### Other Data
 

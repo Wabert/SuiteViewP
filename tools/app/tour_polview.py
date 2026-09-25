@@ -35,7 +35,9 @@ def main() -> int:
     parser.add_argument("--panels", action="store_true",
                         help="Also open the Tables & Rates panel's Tables view")
     parser.add_argument("--dialogs", action="store_true",
-                        help="After the last policy, open Timeline and Compare (vs earlier policies)")
+                        help="After the last policy, open the Timeline dialog")
+    parser.add_argument("--palette", default="",
+                        help="After the last policy, type this into the command box and capture it")
     args = parser.parse_args()
     width, height = (int(v) for v in args.size.lower().split("x"))
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -133,21 +135,33 @@ def main() -> int:
                     ]
                     window._toggle_tree_panel()
                 report["policies"].append(entry)
+            if args.palette:
+                window.command_box.open_palette()
+                window.command_box.setText(args.palette)
+                window.command_box._refresh(args.palette)
+                pump(500)
+                popup = window.command_box._completer.popup()
+                shot = args.output_dir / "command_palette.png"
+                window.grab().save(str(args.output_dir / "command_palette_window.png"), "PNG")
+                popup.grab().save(str(shot), "PNG")
+                report["palette"] = {"text": args.palette, "screenshot": str(shot),
+                                     "commands": window.command_box.visible_command_keys()}
+            if args.panels:
+                window._toggle_tree_panel()
+                pump(300)
+                window.grab().save(str(args.output_dir / "tables_toggle_checked.png"), "PNG")
+                window._toggle_tree_panel()
             if args.dialogs:
-                from suiteview.polview.ui.polview_dialogs import CompareDialog, TimelineDialog
+                from suiteview.polview.ui.polview_dialogs import TimelineDialog
 
                 window._open_timeline()
-                window._open_compare()
                 pump(600)
                 for dialog in window._dialogs:
-                    kind = "timeline" if isinstance(dialog, TimelineDialog) else (
-                        "compare" if isinstance(dialog, CompareDialog) else "dialog")
+                    kind = "timeline" if isinstance(dialog, TimelineDialog) else "dialog"
                     shot = args.output_dir / f"dialog_{kind}.png"
                     dialog.grab().save(str(shot), "PNG")
-                    info = {"kind": kind, "screenshot": str(shot), "rows": dialog.table.rowCount()}
-                    if kind == "compare":
-                        info["summary"] = dialog.summary.text()
-                    report.setdefault("dialogs", []).append(info)
+                    report.setdefault("dialogs", []).append(
+                        {"kind": kind, "screenshot": str(shot), "rows": dialog.table.rowCount()})
             window.close()
             pump(200)
             window._loader.shutdown()

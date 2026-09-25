@@ -43,11 +43,14 @@ from .tree_panel import PolicyRecordTreePanel
 from .loading_overlay import TabLoadingOverlay
 from .policy_load_controller import PolicyLoadController
 from .policy_summary_strip import PolicySummaryStrip
+from .command_palette import Command, CommandPaletteBox
+from .tooltip_style import use_readable_tooltips
 from .tabs.reinstatement_tab import ReinstatementTab
 from .tabs.other_data_tab import OtherDataTab
 from ..services.reinstatement import is_ul_policy
 from ..services.policy_insights import (
-    build_policy_summary, suggested_actions, summary_text, support_tool_availability,
+    build_policy_summary, suggested_actions, summary_html, summary_text,
+    support_tool_availability,
 )
 from ..services.policy_notes import PolicyNotesStore, RecentPoliciesStore
 from .tabs import (
@@ -223,6 +226,13 @@ class GetPolicyWindow(FramelessWindowBase):
         self.open_record_btn.setEnabled(False)
         self.open_record_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
+        self.shortcuts_btn = QPushButton("⌨ Shortcuts")
+        self.shortcuts_btn.setToolTip("Keyboard shortcuts and tips (F1)")
+        self.shortcuts_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
+
+        # VS Code-style command box, centred in the title bar.
+        self.command_box = CommandPaletteBox(self.palette_commands)
+
         super().__init__(
             title="SuiteView:  PolView",
             default_size=(1200, 780),
@@ -234,8 +244,12 @@ class GetPolicyWindow(FramelessWindowBase):
                 else POLVIEW_DUPLICATE_HEADER_COLORS
             ),
             border_color=POLVIEW_BORDER_COLOR,
-            header_widgets=[self.open_record_btn, self.open_illustrator_btn],
+            header_widgets=[self.shortcuts_btn, self.open_record_btn, self.open_illustrator_btn],
         )
+        header_layout = self.header_bar.layout()
+        header_layout.insertWidget(2, self.command_box)
+        header_layout.insertStretch(3)
+        self.shortcuts_btn.clicked.connect(self._show_help)
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
         self.open_record_btn.clicked.connect(self._open_policy_record)
         self._loader = PolicyLoadController()
@@ -246,8 +260,10 @@ class GetPolicyWindow(FramelessWindowBase):
         self.destroyed.connect(self._loader.dispose)
         self._install_shortcuts()
         self._refresh_recent_completer()
-        # Easter-egg listener: only the policy box, never an app-wide filter.
+        use_readable_tooltips(self)
+        # Easter-egg listener: only the typing boxes, never an app-wide filter.
         self.lookup_bar.policy_input.installEventFilter(self)
+        self.command_box.installEventFilter(self)
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar).
         if initial_policy:
@@ -273,31 +289,37 @@ class GetPolicyWindow(FramelessWindowBase):
         self.lookup_bar = PolicyLookupBar()
         self.lookup_bar.policy_requested.connect(self._on_get_policy)  # (policy, region, company)
         self.lookup_bar.company_chosen.connect(self._on_get_policy)    # (policy, region, company)
-        self.lookup_bar.command_requested.connect(self._run_command)
+        # Checked = solid green with gold text so the label stays readable.
         toggle_style = """
             QPushButton {
-                background: transparent;
+                background: #FFFFFF;
                 border: 1px solid #D4A017;
                 border-radius: 3px;
                 min-height: 24px; max-height: 24px;
                 font-size: 11px; font-weight: bold;
-                color: #D4A017;
-                padding: 0 6px;
+                color: #0A3D0A;
+                padding: 0 8px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-                color: #FFD700;
+                background-color: #FFF3D0;
+                color: #0A3D0A;
             }
             QPushButton:checked {
-                background-color: rgba(212, 160, 23, 0.3);
-                color: #FFD700;
+                background-color: #1B5E20;
+                border-color: #0A3D0A;
+                color: #FFD54F;
+            }
+            QPushButton:checked:hover {
+                background-color: #2E7D32;
+                color: #FFFFFF;
             }
             QPushButton:disabled {
-                color: rgba(212, 160, 23, 0.4);
+                background: transparent;
+                color: rgba(10, 61, 10, 0.35);
                 border-color: rgba(212, 160, 23, 0.4);
             }
         """
-        # Tables & Rates panel toggle lives with the other lookup controls.
+        # Tables & Rates panel toggle sits at the left, next to where the panel opens.
         self._tree_toggle_btn = QPushButton("⊞ Tables")
         self._tree_toggle_btn.setToolTip("Show the Tables & Rates panel (Ctrl+T)")
         self._tree_toggle_btn.setCheckable(True)
@@ -305,7 +327,6 @@ class GetPolicyWindow(FramelessWindowBase):
         self._tree_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._tree_toggle_btn.setStyleSheet(toggle_style)
         self._tree_toggle_btn.clicked.connect(self._toggle_tree_panel)
-        self.lookup_bar.layout().addWidget(self._tree_toggle_btn)
         if self._enable_policy_list:
             # Add "☰ List" toggle button to the lookup bar, right after Get button
             self.list_toggle_btn = QPushButton("☰ List")
@@ -316,18 +337,19 @@ class GetPolicyWindow(FramelessWindowBase):
             self.lookup_bar.layout().addWidget(self.list_toggle_btn)
         main_layout.addWidget(self.lookup_bar)
 
-        # At-a-glance policy summary strip
+        # Status badges and quick actions
         strip_host = QWidget()
         strip_host.setStyleSheet(f"background-color: {self._window_bg};")
         strip_layout = QHBoxLayout(strip_host)
         strip_layout.setContentsMargins(10, 0, 10, 0)
+        strip_layout.setSpacing(6)
+        strip_layout.addWidget(self._tree_toggle_btn)
         self.summary_strip = PolicySummaryStrip()
         self.summary_strip.suggestion_clicked.connect(self._on_suggestion_clicked)
         self.summary_strip.copy_requested.connect(self._copy_policy_summary)
         self.summary_strip.notes_requested.connect(self._open_policy_notes)
         self.summary_strip.timeline_requested.connect(self._open_timeline)
-        self.summary_strip.compare_requested.connect(self._open_compare)
-        strip_layout.addWidget(self.summary_strip)
+        strip_layout.addWidget(self.summary_strip, 1)
         main_layout.addWidget(strip_host)
 
         # Main content area
@@ -547,7 +569,12 @@ class GetPolicyWindow(FramelessWindowBase):
         if summary is None:
             self._show_status("Load a policy to copy its summary")
             return
-        QApplication.clipboard().setText(summary_text(summary))
+        from PyQt6.QtCore import QMimeData
+
+        mime = QMimeData()
+        mime.setText(summary_text(summary))
+        mime.setHtml(summary_html(summary))
+        QApplication.clipboard().setMimeData(mime)
         self._show_status(f"Copied {summary.policy_number} summary to the clipboard 📋")
 
     @pyqtSlot()
@@ -582,24 +609,6 @@ class GetPolicyWindow(FramelessWindowBase):
             f"Timeline · {policy.company_code} - {policy.policy_number}",
             build_policy_timeline(policy), _date.today(), self,
         )
-        self._keep_dialog(dialog)
-        dialog.show()
-
-    @pyqtSlot()
-    def _open_compare(self):
-        if self._policy is None or not self._policy.exists:
-            self._show_status("Load a policy to compare it")
-            return
-        from .polview_dialogs import CompareDialog
-
-        current_key = self._current_aux_key()
-        label = lambda key: f"{key[1]} - {key[2]} - {key[0]}"
-        choices = [
-            (label(key), entry["policy"].cached_tables())
-            for key, entry in self._policy_cache.items()
-            if key != current_key and entry["policy"].exists
-        ]
-        dialog = CompareDialog((label(current_key), self._policy.cached_tables()), choices, self)
         self._keep_dialog(dialog)
         dialog.show()
 
@@ -677,9 +686,9 @@ class GetPolicyWindow(FramelessWindowBase):
             bind("Ctrl+Shift+C", self._copy_policy_summary),
             bind("Ctrl+N", self._open_policy_notes),
             bind("Ctrl+D", self._open_timeline),
-            bind("Ctrl+Shift+D", self._open_compare),
             bind("Ctrl+F", self._open_field_finder),
             bind("Ctrl+T", self._shortcut_toggle_tree),
+            bind("Ctrl+Shift+P", self.command_box.open_palette),
             bind("F1", self._show_help),
         ]
         for number in range(1, 10):
@@ -765,57 +774,121 @@ class GetPolicyWindow(FramelessWindowBase):
         flash_widget(widget)
         self._show_status(f"Found “{label}”")
 
-    # == Commands & easter eggs =============================================
+    # == Command box & easter eggs =========================================
 
-    @pyqtSlot(str)
-    def _run_command(self, command: str):
+    def _policy_loaded(self) -> bool:
+        return self._policy is not None and self._policy.exists
+
+    def palette_commands(self) -> list:
+        """Everything the title-bar command box can run (availability re-checked on open)."""
+        loaded = self._policy_loaded
+        commands = [
+            Command("shortcuts", "Show keyboard shortcuts", self._show_help, "F1", "Help",
+                    "keys hotkeys tips"),
+            Command("focus_policy", "Go to the policy number box", self._focus_policy_input,
+                    "Ctrl+L", "Policy", "lookup get search"),
+            Command("reload", "Reload this policy fresh from DB2", self.reload_current_policy,
+                    "F5", "Policy", "refresh", available=loaded),
+            Command("back", "Back to the previous policy", self._go_back, "Alt+←", "Policy",
+                    "history", available=lambda: self._nav_index > 0),
+            Command("forward", "Forward to the next policy", self._go_forward, "Alt+→", "Policy",
+                    "history", available=lambda: self._nav_index < len(self._nav_history) - 1),
+            Command("copy_summary", "Copy policy summary", self._copy_policy_summary,
+                    "Ctrl+Shift+C", "Policy", "clipboard email ticket", available=loaded),
+            Command("notes", "Open my notes for this policy", self._open_policy_notes, "Ctrl+N",
+                    "Policy", available=loaded),
+            Command("timeline", "Show the policy timeline", self._open_timeline, "Ctrl+D",
+                    "Policy", "dates history", available=loaded),
+            Command("find_field", "Find a field…", self._open_field_finder, "Ctrl+F", "Policy",
+                    "search label column", available=loaded),
+            Command("tables_panel", "Show / hide the Tables & Rates panel",
+                    self._shortcut_toggle_tree, "Ctrl+T", "View", "db2 raw rates",
+                    available=self._tree_toggle_btn.isEnabled),
+            Command("open_rerun", "Open this policy in RERUN", self._open_in_illustrator, "",
+                    "Apps", "illustration", available=loaded),
+            Command("open_record", "Open the CyberLife policy record", self._open_policy_record, "",
+                    "Apps", "green screen segments", available=loaded),
+        ]
+        if self._enable_policy_list:
+            commands.append(Command("policy_list", "Show / hide the Policy List",
+                                    self._toggle_policy_list, "", "View", "history list"))
+        for index in range(self.tabs.count()):
+            title = self._stage_title(self.tabs.widget(index)) or self.tabs.tabText(index)
+            title = title.replace("&&", "&")
+            shortcut = f"Ctrl+{index + 1}" if index < 9 else ""
+            commands.append(Command(
+                f"tab_{index}", title, self._tab_selector(index), shortcut, "Go to tab",
+                available=lambda i=index: self.tabs.isTabEnabled(i)))
+        for key, label in (("glp_exception", "GLP Exception"), ("forecast", "Forecast"),
+                           ("abr", "ABR"), ("annuity_rider", "Annuity Rider"),
+                           ("reinstatement", "UL Reinstatement")):
+            commands.append(Command(
+                f"support_{key}", label, self._support_opener(key), "", "Policy Support",
+                available=self._support_available(key)))
+        for entry in self._recent_store.entries()[:10]:
+            name = f" · {entry['insured']}" if entry.get("insured") else ""
+            commands.append(Command(
+                f"recent_{entry['region']}_{entry['company']}_{entry['policy']}",
+                f"{entry['policy']} {entry['company']} {entry['region']}{name}",
+                self._recent_opener(entry), "", "Open recent"))
+        commands += [
+            Command("stats", "My PolView session statistics", self._show_session_stats, "",
+                    "Help", "fun"),
+            Command("about", "About PolView", self._show_about, "", "Help", "version"),
+            Command("coffee", "Take a coffee break ☕", self._coffee_break, "", "Help", "tea fun"),
+        ]
+        return commands
+
+    def _stage_title(self, tab) -> str:
+        return next((title for page, title in self._stage_tabs.values() if page is tab), "")
+
+    def _tab_selector(self, index: int):
+        return lambda: self.tabs.setCurrentIndex(index)
+
+    def _support_opener(self, key: str):
+        return lambda: self._on_suggestion_clicked(key)
+
+    def _support_available(self, key: str):
+        def available():
+            if not self._policy_loaded():
+                return False
+            tool = support_tool_availability(self._policy).get(key)
+            return bool(tool and tool.available)
+        return available
+
+    def _recent_opener(self, entry: dict):
+        return lambda: self.load_policy(entry["policy"], region=entry.get("region") or "CKPR",
+                                        company_code=entry.get("company", ""))
+
+    def _show_session_stats(self):
         from .polview_dialogs import show_message_dialog
 
-        self.lookup_bar.policy_input.clear()
-        if command in ("", "help", "?", "shortcuts", "keys"):
-            self._show_help()
-        elif command == "recent":
-            rows = self._recent_store.entries()[:15]
-            html = "<br>".join(
-                f"<b>{r['policy']}</b> {r.get('company', '')} {r.get('region', '')}"
-                f" · {r.get('insured', '')} · <i>{r.get('viewed', '')}</i>" for r in rows
-            ) or "<i>No policies viewed yet.</i>"
-            self._keep_dialog(show_message_dialog(self, "Recently viewed policies", html))
-        elif command == "stats":
-            stats = self._session_stats
-            fastest = (f"{stats['fastest'][1]} in {stats['fastest'][0]:.2f}s"
-                       if stats["fastest"] else "—")
-            self._keep_dialog(show_message_dialog(self, "Your PolView session", (
-                f"Policy loads this session: <b>{stats['loads']}</b><br>"
-                f"Distinct policies: <b>{len(stats['policies'])}</b><br>"
-                f"Fastest Coverages load: <b>{fastest}</b><br>"
-                f"Notes saved across all policies: "
-                f"<b>{self._notes_store_total()}</b>")))
-        elif command == "about":
-            from suiteview import __version__
-            self._keep_dialog(show_message_dialog(self, "About PolView", (
-                f"<b>PolView</b> · SuiteView {__version__}<br><br>"
-                "One authoritative view of every policy — CyberLife data, "
-                "translated, explained and ready to support.<br><br>"
-                "<i>Built for the Business Analysts, Life Administration, analysts and "
-                "IT testers who keep the policies right.</i>")))
-        elif command in ("coffee", "tea"):
-            self._show_status("☕ Brewing… PolView runs on DB2 and caffeine. Take five, the policies will wait.")
-        elif command in ("actuary", "konami"):
-            self._activate_actuary_mode()
-        else:
-            self._show_status(f"Unknown command /{command} — type /help")
+        stats = self._session_stats
+        fastest = (f"{stats['fastest'][1]} in {stats['fastest'][0]:.2f}s"
+                   if stats["fastest"] else "—")
+        self._keep_dialog(show_message_dialog(self, "Your PolView session", (
+            f"Policy loads this session: <b>{stats['loads']}</b><br>"
+            f"Distinct policies: <b>{len(stats['policies'])}</b><br>"
+            f"Fastest Coverages load: <b>{fastest}</b><br>"
+            f"Notes saved across all policies: <b>{self._notes_store.total()}</b>")))
 
-    def _notes_store_total(self) -> int:
-        try:
-            from suiteview.core.json_store import read_json
-            data = read_json(self._notes_store._store.path, {})
-            return sum(len(v) for v in data.values() if isinstance(v, list))
-        except (OSError, AttributeError):
-            return 0
+    def _show_about(self):
+        from suiteview import __version__
+        from .polview_dialogs import show_message_dialog
+
+        self._keep_dialog(show_message_dialog(self, "About PolView", (
+            f"<b>PolView</b> · SuiteView {__version__}<br><br>"
+            "One authoritative view of every policy — CyberLife data, "
+            "translated, explained and ready to support.<br><br>"
+            "<i>Built for the Business Analysts, Life Administration, analysts and "
+            "IT testers who keep the policies right.</i>")))
+
+    def _coffee_break(self):
+        self._show_status("☕ Brewing… PolView runs on DB2 and caffeine. Take five, the policies will wait.")
 
     def eventFilter(self, obj, event):
-        if obj is self.lookup_bar.policy_input and event.type() == QEvent.Type.KeyPress:
+        if (obj in (self.lookup_bar.policy_input, self.command_box)
+                and event.type() == QEvent.Type.KeyPress):
             self._key_trail = (self._key_trail + [event.key()])[-len(_KONAMI):]
             if tuple(self._key_trail) == _KONAMI:
                 self._key_trail = []

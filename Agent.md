@@ -1317,20 +1317,31 @@ records or changing the original file or the user's saved sources.
 
 ## PolView usability layer
 
-A **summary strip** under the lookup bar shows insured, plan, face, key dates
-and status chips (non-production region, grace, MEC, loan, reinsurance,
-product, joint), notices and context-aware suggested support actions. It is
-built from named `PolicyInformation` properties read under per-fact
-`cached_reads_only()` guards (`polview/services/policy_insights.py`): facts not
-yet prefetched stay pending, never a GUI-thread query or a guess. Optional tabs
-keep a fixed position and grey out with the reason instead of disappearing.
-The lookup bar (shared with RERUN) accepts pasted references and completes
-recent policies by number or insured name; `/help`-style commands never reach
-DB2. Shortcuts, private per-policy notes (local profile only), a field finder,
-Timeline and Compare (diff of two loaded policies' cached DB2 rows) complete
-the toolkit. Grids gain selection totals, column choosers and empty-state notes;
+A **badge strip** under the lookup bar shows status badges (non-production
+region code, grace, MEC, loan, reinsurance, product, GPT/CVAT, joint) and
+context-aware suggested support actions — no text summary. It is built from
+named `PolicyInformation` properties read under per-fact `cached_reads_only()`
+guards (`polview/services/policy_insights.py`): facts not yet prefetched stay
+pending, never a GUI-thread query or a guess. Show the definition of life as
+**GPT**, never "GP" (reads as Grace Period). Optional tabs keep a fixed
+position and grey out with the reason instead of disappearing. The lookup bar
+(shared with RERUN) accepts pasted references and completes recent policies by
+number or insured name; it never runs commands. Commands live in a VS Code-style
+**command box** in the title bar (Ctrl+Shift+P) beside a **Shortcuts** button.
+Private per-policy notes (local profile only), a field finder, Timeline and a
+Copy summary (HTML table + aligned text; no insured name or face) complete the
+toolkit. Grids gain selection totals, column choosers and empty-state notes;
 `StyledInfoTableGroup.set_field_sources()` documents field lineage. The Tables
 panel is filled by a background loader stage with PolicyData's verified keys.
+
+**Tooltips:** Qt styles a tooltip with the showing widget's style sheets, so
+`background: transparent` label rules made PolView tooltips dark-on-black.
+`polview/ui/tooltip_style.py` restyles tips shown over registered windows with
+*bare* declarations on the tip itself (a `QLabel { }` rule does not win).
+Native check: `tools/app/verify_polview_tooltips.py --output-dir <dir>`.
+**Dialog references:** dialogs with `WA_DeleteOnClose` must be checked with
+`sip.isdeleted()` before reuse; calling a method on a deleted wrapper inside a
+slot aborts the process.
 See `docs/POLVIEW_CLAUDE.md` § "Usability layer"; regression
 `tests/test_polview_ux.py`; native live check `tools/app/tour_polview.py`.
 

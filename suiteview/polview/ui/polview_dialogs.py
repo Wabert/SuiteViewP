@@ -136,6 +136,7 @@ class PolicyNotesDialog(FramelessDialog):
 # =============================================================================
 
 SHORTCUTS = (
+    ("Ctrl+Shift+P", "Command box — search and run any PolView action"),
     ("Ctrl+L", "Jump to the policy number box"),
     ("Enter", "Get the typed policy"),
     ("Ctrl+1 … Ctrl+9", "Switch to tab 1–9"),
@@ -143,10 +144,9 @@ SHORTCUTS = (
     ("Alt+← / Alt+→", "Back / forward through viewed policies"),
     ("F5", "Reload the current policy fresh from DB2"),
     ("Ctrl+F", "Find a field anywhere in PolView"),
-    ("Ctrl+Shift+C", "Copy the policy summary as text"),
+    ("Ctrl+Shift+C", "Copy the policy summary"),
     ("Ctrl+N", "Open your notes for this policy"),
     ("Ctrl+D", "Timeline of every key policy date"),
-    ("Ctrl+Shift+D", "Compare this policy's DB2 rows with another loaded policy"),
     ("Ctrl+T", "Show / hide the Tables & Rates panel"),
     ("F1", "This help"),
     ("", ""),
@@ -155,11 +155,6 @@ SHORTCUTS = (
     ("Tables", "Select cells to see Σ / Avg / Min / Max; right-click a header to hide columns"),
     ("Double-click", "A coverage or benefit row shows every field, interpreted and raw"),
     ("Right-click", "A sourced value (hover shows “Source:”) jumps to its DB2 rows"),
-    ("", ""),
-    ("/help", "Type in the policy box: this help"),
-    ("/recent", "List recently viewed policies"),
-    ("/stats", "Your PolView session statistics"),
-    ("/about", "About PolView"),
 )
 
 
@@ -408,99 +403,3 @@ class TimelineDialog(FramelessDialog):
         self.table.autoFitAllColumns()
         self.body_layout.addWidget(self.table, 1)
         self.today_row = rows.index(None)
-
-
-# =============================================================================
-# Compare two loaded policies
-# =============================================================================
-
-class CompareDialog(FramelessDialog):
-    """Diff the current policy's loaded DB2 rows against another loaded policy.
-
-    *choices* is ``[(label, tables_map), ...]`` for the other policies in this
-    PolView session; *current* is ``(label, tables_map)``.
-    """
-
-    def __init__(self, current, choices, parent=None):
-        from PyQt6.QtWidgets import QCheckBox, QComboBox
-        from .widgets import FixedHeaderTableWidget
-
-        super().__init__("Compare policies", parent, header_colors=POLVIEW_HEADER_COLORS,
-                         border_color=POLVIEW_BORDER_COLOR)
-        self.setModal(False)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.resize(900, 600)
-        self._current = current
-        self._choices = choices
-        row = QHBoxLayout()
-        caption = QLabel(f"<b>{current[0]}</b> &nbsp;vs&nbsp;")
-        caption.setStyleSheet(f"font-size: 11px; color: {GREEN_DARK};")
-        row.addWidget(caption)
-        self.other = QComboBox()
-        self.other.setStyleSheet("font-size: 11px;")
-        for label, _tables in choices:
-            self.other.addItem(label)
-        self.other.currentIndexChanged.connect(self._run)
-        row.addWidget(self.other, 1)
-        self.ignore_identity = QCheckBox("Ignore policy identity columns")
-        self.ignore_identity.setChecked(True)
-        self.ignore_identity.setToolTip("CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, CK_POLICY_NBR")
-        self.ignore_identity.toggled.connect(self._run)
-        row.addWidget(self.ignore_identity)
-        self.include_history = QCheckBox("Include financial history (FH_*)")
-        self.include_history.setChecked(True)
-        self.include_history.toggled.connect(self._run)
-        row.addWidget(self.include_history)
-        self.body_layout.addLayout(row)
-        self.summary = QLabel("")
-        self.summary.setWordWrap(True)
-        self.summary.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
-        self.body_layout.addWidget(self.summary)
-        self.table = FixedHeaderTableWidget(filterable=True)
-        headers = ["Table", "Row", "Column", "This policy", "Other policy"]
-        self.table.setColumnCount(len(headers))
-        self.table.setHorizontalHeaderLabels(headers)
-        self.table.align_headers_left(set(headers))
-        self.table.set_empty_message("No differences in the tables loaded for both policies. 🎉")
-        self.body_layout.addWidget(self.table, 1)
-        if not choices:
-            self.summary.setText("Load another policy in this window first (for example the same "
-                                 "policy in a test region), then compare.")
-            self.other.setEnabled(False)
-        else:
-            self._run()
-
-    @pyqtSlot()
-    def _run(self, *_args):
-        from PyQt6.QtWidgets import QTableWidgetItem
-        from PyQt6.QtGui import QColor
-        from ..services.policy_compare import compare_policies, only_in
-
-        index = self.other.currentIndex()
-        if index < 0:
-            return
-        mine, theirs = self._current[1], self._choices[index][1]
-        if not self.include_history.isChecked():
-            mine = {k: v for k, v in mine.items() if not k.startswith("FH_")}
-            theirs = {k: v for k, v in theirs.items() if not k.startswith("FH_")}
-        differences = compare_policies(mine, theirs, ignore_identity=self.ignore_identity.isChecked())
-        left = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        self.table.clear_filters()
-        self.table.setRowCount(len(differences))
-        highlight = QColor("#FFF3D0")
-        for r, diff in enumerate(differences):
-            for c, value in enumerate((diff.table, diff.row, diff.column, diff.first, diff.second)):
-                item = QTableWidgetItem(value)
-                if c >= 3:
-                    item.setBackground(highlight)
-                self.table.setItem(r, c, item, alignment=left)
-        self.table.autoFitAllColumns()
-        compared = len(set(mine) & set(theirs))
-        only_mine, only_theirs = only_in(mine, theirs)
-        tables_with_diffs = len({d.table for d in differences})
-        note = (f"{len(differences)} difference(s) in {tables_with_diffs} of {compared} tables "
-                "loaded for both policies.")
-        if only_mine or only_theirs:
-            note += ("  Loaded for only one policy (not compared): "
-                     + ", ".join(only_mine + only_theirs) + ".")
-        self.summary.setText(note)

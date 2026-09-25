@@ -1,27 +1,24 @@
-"""PolicySummaryStrip -- the at-a-glance band under the PolView lookup bar.
+"""PolicySummaryStrip -- the badge band under the PolView lookup bar.
 
-Row 1: insured name, plan, face and key dates on the left; status chips,
-notes and copy buttons on the right.  Row 2 (only when there is something to
-say): notices and context-aware suggested next steps.
+One compact row: status badges on the left (they appear as their data
+arrives from the background loader), then context-aware suggested next steps
+and the Timeline / Notes / Copy buttons on the right.
 
 The strip is fed a ``PolicySummary`` from ``services.policy_insights`` after
-every background stage, so chips appear as their data arrives.
+every background stage.
 """
 
 from __future__ import annotations
 
-from html import escape
 from typing import Iterable, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
-)
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from ..services.policy_insights import (
     DANGER, FUN, INFO, NEUTRAL, OK, TEST, WARN, Chip, PolicySummary, Suggestion,
 )
-from .styles import GOLD_DARK, GOLD_PRIMARY, GRAY_DARK, GRAY_TEXT, GREEN_DARK, GREEN_PRIMARY
+from .styles import GOLD_PRIMARY, GRAY_TEXT, GREEN_DARK, GREEN_PRIMARY
 from .widgets import CopyableLabel
 
 CHIP_COLORS = {
@@ -58,8 +55,12 @@ _TOOL_BUTTON_STYLE = f"""
         padding: 0px 7px; min-height: 16px; max-height: 16px;
     }}
     QPushButton:hover {{ background: #E8F5E9; border-color: {GREEN_PRIMARY}; }}
-    QPushButton:checked {{ background: #FFF3D0; border-color: {GOLD_PRIMARY}; }}
+    QPushButton:disabled {{ color: #A0AEC0; border-color: #E2E8F0; }}
 """
+
+_NOTES_WITH_COUNT_STYLE = _TOOL_BUTTON_STYLE + (
+    f"QPushButton {{ background: #FFF3D0; border-color: {GOLD_PRIMARY}; }}"
+)
 
 _SUGGESTION_STYLE = f"""
     QPushButton {{
@@ -72,13 +73,12 @@ _SUGGESTION_STYLE = f"""
 
 
 class PolicySummaryStrip(QWidget):
-    """Dense at-a-glance summary of the loaded policy."""
+    """Status badges and quick actions for the loaded policy."""
 
     suggestion_clicked = pyqtSignal(str)
     copy_requested = pyqtSignal()
     notes_requested = pyqtSignal()
     timeline_requested = pyqtSignal()
-    compare_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -87,27 +87,17 @@ class PolicySummaryStrip(QWidget):
         self.setStyleSheet(_STRIP_STYLE)
         self._summary: Optional[PolicySummary] = None
         self._chip_labels: dict[str, QLabel] = {}
+        self._notes_count = 0
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 3, 6, 3)
-        outer.setSpacing(2)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 3, 6, 3)
+        row.setSpacing(4)
 
-        row = QHBoxLayout()
-        row.setSpacing(6)
-        self.name_label = CopyableLabel("")
-        self.name_label.setStyleSheet(
-            f"font-size: 13px; font-weight: bold; color: {GREEN_DARK}; background: transparent;"
+        self.message_label = QLabel("")
+        self.message_label.setStyleSheet(
+            f"font-size: 11px; color: {GRAY_TEXT}; font-style: italic; background: transparent;"
         )
-        row.addWidget(self.name_label)
-        self.facts_label = CopyableLabel("")
-        self.facts_label.setTextFormat(Qt.TextFormat.RichText)
-        self.facts_label.setStyleSheet(
-            f"font-size: 11px; color: {GRAY_DARK}; background: transparent;"
-        )
-        # Facts give way first when space is short; chips and buttons never squash.
-        self.facts_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.facts_label.setMinimumWidth(60)
-        row.addWidget(self.facts_label, 1)
+        row.addWidget(self.message_label)
 
         self._chips_host = QWidget()
         self._chips_host.setStyleSheet("background: transparent;")
@@ -115,87 +105,42 @@ class PolicySummaryStrip(QWidget):
         self._chips_layout.setContentsMargins(0, 0, 0, 0)
         self._chips_layout.setSpacing(4)
         row.addWidget(self._chips_host)
+        row.addStretch(1)
 
-        self.timeline_button = QPushButton("🗓 Timeline")
-        self.timeline_button.setToolTip("Every key policy date in order, with today marked (Ctrl+D)")
-        self.timeline_button.setStyleSheet(_TOOL_BUTTON_STYLE)
-        self.timeline_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.timeline_button.clicked.connect(self.timeline_requested.emit)
-        row.addWidget(self.timeline_button)
-
-        self.compare_button = QPushButton("⇄ Compare")
-        self.compare_button.setToolTip(
-            "Diff this policy's DB2 rows against another policy loaded in this window — "
-            "e.g. production vs. a test region (Ctrl+Shift+D)"
-        )
-        self.compare_button.setStyleSheet(_TOOL_BUTTON_STYLE)
-        self.compare_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.compare_button.clicked.connect(self.compare_requested.emit)
-        row.addWidget(self.compare_button)
-
-        self.notes_button = QPushButton("📝 Notes")
-        self.notes_button.setToolTip("Your private notes for this policy (Ctrl+N)")
-        self.notes_button.setStyleSheet(_TOOL_BUTTON_STYLE)
-        self.notes_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.notes_button.clicked.connect(self.notes_requested.emit)
-        row.addWidget(self.notes_button)
-
-        self.copy_button = QPushButton("⧉ Copy")
-        self.copy_button.setToolTip(
-            "Copy a plain-text policy summary for email, tickets or test evidence (Ctrl+Shift+C)"
-        )
-        self.copy_button.setStyleSheet(_TOOL_BUTTON_STYLE)
-        self.copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.copy_button.clicked.connect(self.copy_requested.emit)
-        row.addWidget(self.copy_button)
-        outer.addLayout(row)
-
-        self._detail_row = QWidget()
-        self._detail_row.setStyleSheet("background: transparent;")
-        detail = QHBoxLayout(self._detail_row)
-        detail.setContentsMargins(0, 0, 0, 0)
-        detail.setSpacing(6)
-        self.notice_label = QLabel("")
-        self.notice_label.setWordWrap(False)
-        self.notice_label.setStyleSheet(
-            f"font-size: 10px; color: #8A5300; background: transparent;"
-        )
-        detail.addWidget(self.notice_label, 1)
         self._suggest_caption = QLabel("Suggested:")
         self._suggest_caption.setStyleSheet(
             f"font-size: 10px; color: {GRAY_TEXT}; font-style: italic; background: transparent;"
         )
-        detail.addWidget(self._suggest_caption)
+        row.addWidget(self._suggest_caption)
         self._suggest_host = QWidget()
         self._suggest_host.setStyleSheet("background: transparent;")
         self._suggest_layout = QHBoxLayout(self._suggest_host)
-        self._suggest_layout.setContentsMargins(0, 0, 0, 0)
+        self._suggest_layout.setContentsMargins(0, 0, 8, 0)
         self._suggest_layout.setSpacing(4)
-        detail.addWidget(self._suggest_host)
-        outer.addWidget(self._detail_row)
-        self._detail_row.setVisible(False)
+        row.addWidget(self._suggest_host)
 
-        self._notes_count = 0
-        self._compact = False
-        self._tool_labels = {
-            self.timeline_button: ("🗓 Timeline", "🗓"),
-            self.compare_button: ("⇄ Compare", "⇄"),
-            self.copy_button: ("⧉ Copy", "⧉"),
-        }
-        self.set_notes_count(0)
-        self.clear("Enter a policy number to begin  ·  press F1 for shortcuts")
+        self.timeline_button = self._tool_button(
+            "🗓 Timeline", "Every key policy date in order, with today marked (Ctrl+D)",
+            self.timeline_requested)
+        self.notes_button = self._tool_button(
+            "📝 Notes", "Your private notes for this policy (Ctrl+N)", self.notes_requested)
+        self.copy_button = self._tool_button(
+            "⧉ Copy",
+            "Copy a policy summary for email, tickets or test evidence (Ctrl+Shift+C).\n"
+            "Pastes as a neat table in Outlook/Word/Excel and as aligned text elsewhere.",
+            self.copy_requested)
+        for button in (self.timeline_button, self.notes_button, self.copy_button):
+            row.addWidget(button)
 
-    # Below this width the tool buttons show icons only (tooltips keep the names).
-    COMPACT_WIDTH = 1320
+        self.clear("Enter a policy number to begin")
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        compact = self.width() < self.COMPACT_WIDTH
-        if compact != self._compact:
-            self._compact = compact
-            for button, (full, icon) in self._tool_labels.items():
-                button.setText(icon if compact else full)
-            self.set_notes_count(self._notes_count)
+    def _tool_button(self, text: str, tooltip: str, signal) -> QPushButton:
+        button = QPushButton(text)
+        button.setToolTip(tooltip)
+        button.setStyleSheet(_TOOL_BUTTON_STYLE)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(signal.emit)
+        return button
 
     # -- public API -------------------------------------------------------
 
@@ -208,70 +153,35 @@ class PolicySummaryStrip(QWidget):
 
     def clear(self, message: str = ""):
         self._summary = None
-        self.name_label.setText("")
-        self.facts_label.setText(
-            f'<span style="color:{GRAY_TEXT}; font-style:italic;">{escape(message)}</span>'
-        )
+        self.message_label.setText(message)
+        self.message_label.setVisible(bool(message))
         self._set_chips(())
-        self._set_detail((), ())
-        self.copy_button.setEnabled(False)
-        self.notes_button.setEnabled(False)
-        self.timeline_button.setEnabled(False)
-        self.compare_button.setEnabled(False)
+        self._set_suggestions(())
+        for button in (self.copy_button, self.notes_button, self.timeline_button):
+            button.setEnabled(False)
 
     def set_summary(self, summary: PolicySummary, suggestions: Iterable[Suggestion] = ()):
         self._summary = summary
-        self.name_label.setText(summary.insured_name or "")
-        self.name_label.setVisible(bool(summary.insured_name))
-        self.facts_label.setText(self._facts_html(summary))
-        from ..services.policy_insights import summary_text
-        self.facts_label.setToolTip(summary_text(summary))
+        self.message_label.setVisible(False)
         self._set_chips(summary.chips)
-        self._set_detail(summary.notices, tuple(suggestions))
-        self.copy_button.setEnabled(True)
-        self.notes_button.setEnabled(True)
-        self.timeline_button.setEnabled(True)
-        self.compare_button.setEnabled(True)
+        self._set_suggestions(tuple(suggestions))
+        for button in (self.copy_button, self.notes_button, self.timeline_button):
+            button.setEnabled(True)
 
     def set_notes_count(self, count: int):
         self._notes_count = count
-        base = "📝" if getattr(self, "_compact", False) else "📝 Notes"
-        self.notes_button.setText(f"{base} ({count})" if count else base)
-        self.notes_button.setStyleSheet(
-            _TOOL_BUTTON_STYLE + (
-                f"QPushButton {{ background: #FFF3D0; border-color: {GOLD_PRIMARY}; }}"
-                if count else ""
-            )
-        )
+        self.notes_button.setText(f"📝 Notes ({count})" if count else "📝 Notes")
+        self.notes_button.setStyleSheet(_NOTES_WITH_COUNT_STYLE if count else _TOOL_BUTTON_STYLE)
+
+    def suggestion_keys(self) -> list[str]:
+        keys = []
+        for index in range(self._suggest_layout.count()):
+            widget = self._suggest_layout.itemAt(index).widget()
+            if widget is not None:
+                keys.append(widget.objectName().removeprefix("suggest_"))
+        return keys
 
     # -- helpers ----------------------------------------------------------
-
-    @staticmethod
-    def _facts_html(summary: PolicySummary) -> str:
-        sep = f' <span style="color:{GOLD_DARK};">·</span> '
-        parts = []
-        plan = summary.plancode or ""
-        if summary.form_number:
-            plan = f"{plan} ({summary.form_number})" if plan else summary.form_number
-        if plan:
-            parts.append(f"<b>{escape(plan)}</b>")
-        if summary.face_amount is not None:
-            parts.append(f"Face <b>${float(summary.face_amount):,.0f}</b>")
-        if summary.issue_date:
-            d = summary.issue_date
-            age = f" (age {summary.issue_age})" if summary.issue_age is not None else ""
-            parts.append(f"Issued {d.month}/{d.day:02d}/{d.year}{age}")
-        if summary.policy_year:
-            parts.append(f"Yr {summary.policy_year}")
-        if summary.attained_age is not None:
-            parts.append(f"Att age {summary.attained_age}")
-        if summary.paid_to_date:
-            d = summary.paid_to_date
-            parts.append(f"Paid to {d.month}/{d.day:02d}/{d.year}")
-        if not parts:
-            return (f'<span style="color:{GRAY_TEXT}; font-style:italic;">'
-                    "Loading policy summary…</span>")
-        return sep.join(parts)
 
     def _set_chips(self, chips: Iterable[Chip]):
         while self._chips_layout.count():
@@ -289,13 +199,11 @@ class PolicySummaryStrip(QWidget):
             self._chips_layout.addWidget(label)
             self._chip_labels[chip.key] = label
 
-    def _set_detail(self, notices, suggestions):
+    def _set_suggestions(self, suggestions):
         while self._suggest_layout.count():
             item = self._suggest_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        self.notice_label.setText("   ".join(f"⚠ {n}" for n in notices))
-        self.notice_label.setToolTip("\n".join(notices))
         for suggestion in suggestions:
             button = QPushButton(f"{suggestion.text} ▸")
             button.setObjectName(f"suggest_{suggestion.key}")
@@ -307,12 +215,4 @@ class PolicySummaryStrip(QWidget):
             )
             self._suggest_layout.addWidget(button)
         self._suggest_caption.setVisible(bool(suggestions))
-        self._detail_row.setVisible(bool(notices or suggestions))
-
-    def suggestion_keys(self) -> list[str]:
-        keys = []
-        for index in range(self._suggest_layout.count()):
-            widget = self._suggest_layout.itemAt(index).widget()
-            if widget is not None:
-                keys.append(widget.objectName().removeprefix("suggest_"))
-        return keys
+        self._suggest_host.setVisible(bool(suggestions))

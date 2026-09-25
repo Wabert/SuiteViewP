@@ -1590,7 +1590,6 @@ class PolicyLookupBar(QWidget):
     
     policy_requested = pyqtSignal(str, str, str)  # policy_number, region, company_code
     company_chosen = pyqtSignal(str, str, str)     # policy_number, region, company_code
-    command_requested = pyqtSignal(str)            # "/help" style commands typed in the policy box
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1711,10 +1710,6 @@ class PolicyLookupBar(QWidget):
     
     def _on_get_policy(self):
         self.hide_company_chooser()
-        typed = self.policy_input.text().strip()
-        if typed.startswith("/"):
-            self.command_requested.emit(typed[1:].strip().lower())
-            return
         self.apply_policy_reference(self.policy_input.text())
         policy = self.policy_input.text().strip().upper()
         region = self.region_input.text().strip().upper() or "CKPR"

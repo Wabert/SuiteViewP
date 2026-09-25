@@ -2,9 +2,9 @@
 Activity tab – transaction types on this policy and the Policy Transactions table.
 
 The left panel lists the transaction codes that actually occur on the policy
-(with counts); clicking one filters the transactions to that code. Reversal
-indicators are spelled out and reversed/reversing entries are dimmed so the
-net activity stands out. A footer totals the rows currently shown.
+(with counts and descriptions); clicking one filters the transactions to that
+code. Reversal indicators are spelled out and reversed/reversing entries are
+dimmed so the net activity stands out. A footer totals the rows currently shown.
 """
 
 from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QTableWidgetItem, QWidget
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 LEFT_ALIGN = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 TRANSACTION_COLUMNS = [
-    "Eff Date", "SeqNo", "Code", "Description", "Gross Amt", "Net Amt",
+    "Eff Date", "SeqNo", "Code", "Gross Amt", "Net Amt",
     "Fund", "Phs", "Int Rate", "Reversal", "Entry Date", "Origin",
 ]
 CODE_COLUMN = TRANSACTION_COLUMNS.index("Code")
@@ -87,7 +87,6 @@ class ActivityTab(QWidget):
         table = self.transactions_group.table
         table.setColumnCount(len(TRANSACTION_COLUMNS))
         table.setHorizontalHeaderLabels(TRANSACTION_COLUMNS)
-        table.align_headers_left({"Description"})
         table.set_empty_message("No transactions found for this policy.")
         table.set_column_settings_key("polview.activity")
         table.filters_changed.connect(self._update_footer)
@@ -109,7 +108,6 @@ class ActivityTab(QWidget):
             format_date(data.get("ASOF_DT")),
             str(data.get("SEQ_NO", "")),
             code,
-            transaction_description(code),
             format_currency(data.get("GROSS_AMT")),
             format_currency(data.get("NET_AMT")),
             "" if fund_id is None or str(fund_id).strip().lower() == "null" else str(fund_id).strip(),
@@ -119,6 +117,7 @@ class ActivityTab(QWidget):
             format_date(data.get("ENTRY_DT")),
             str(data.get("ORIGIN_OF_TRANS", "")).strip(),
         ]
+        description = transaction_description(code)
         for col, value in enumerate(values):
             item = QTableWidgetItem(value)
             if reversal:
@@ -127,8 +126,9 @@ class ActivityTab(QWidget):
                 font.setItalic(True)
                 item.setFont(font)
                 item.setToolTip("Reversed or reversing entry (FCB0_REV_IND / FCB2_REV_APPL_IND)")
-            table.setItem(row_idx, col, item,
-                          alignment=LEFT_ALIGN if col == TRANSACTION_COLUMNS.index("Description") else None)
+            if col == CODE_COLUMN and description:
+                item.setToolTip(f"{code} - {description}")
+            table.setItem(row_idx, col, item)
 
     @pyqtSlot()
     def _rebuild_index(self, *_args):

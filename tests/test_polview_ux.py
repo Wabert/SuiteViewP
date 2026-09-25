@@ -74,6 +74,7 @@ def summary_policy(**overrides):
         total_death_benefit=Decimal("100000"), attained_age=55,
         def_of_life_ins_code="2", def_of_life_ins_description="DEFRA Guideline Premium",
         last_entry_code="C", terminate_date=None, issue_date=date(2009, 10, 19), pending=set(),
+        db_option_description="Level Death Benefit (Option A)",
     )
     values.update(overrides)
     return SummaryPolicy(**values)
@@ -97,13 +98,14 @@ def test_summary_chips_reflect_policy_situation():
                 "dol", "corridor", "joint"):
         assert key in keys
     texts = {chip.key: chip.text for chip in summary.chips}
-    assert texts["region"] == "CKAS ACCEPTANCE"
+    assert texts["region"] == "CKAS"
     assert texts["grace"] == "In Grace until 10/15/2026"
     assert texts["loan"] == "Loan $1,084.89"
-    assert texts["dol"] == "GP"
-    assert any("grace period" in n for n in summary.notices)
+    assert texts["dol"] == "GPT"
+    grace = next(chip for chip in summary.chips if chip.key == "grace")
+    assert "grace period" in grace.tooltip
     assert summary.insured_name == "Angela Huecker"
-    assert summary.face_amount == Decimal("100000")
+    assert summary.db_option == "Level Death Benefit (Option A)"
 
 
 def test_summary_leaves_unprefetched_facts_pending_rather_than_guessing():
@@ -121,11 +123,14 @@ def test_status_tones():
     assert insights.status_tone("97") == insights.WARN
 
 
-def test_traditional_paid_to_behind_valuation_is_noted():
+def test_traditional_paid_to_behind_valuation_is_a_badge():
     policy = summary_policy(is_advanced_product=False, product_type="WL",
                             paid_to_date=date(2026, 6, 15))
     summary = insights.build_policy_summary(policy, today=date(2026, 9, 24))
-    assert any("before the valuation date" in n for n in summary.notices)
+    chip = next(chip for chip in summary.chips if chip.key == "paid_to")
+    assert chip.text == "Paid to 6/15/2026"
+    assert "before the valuation date" in chip.tooltip
+    assert summary.db_option is None
 
 
 def test_anniversary_and_vintage_easter_eggs():
@@ -136,13 +141,20 @@ def test_anniversary_and_vintage_easter_eggs():
     assert {"anniversary", "birthday", "vintage"} <= set(keys)
 
 
-def test_summary_text_is_plain_and_complete():
+def test_copied_summary_is_aligned_text_and_an_html_table_without_name_or_face():
     policy = summary_policy(in_grace=True, mec_indicator="1")
-    text = insights.summary_text(insights.build_policy_summary(policy, today=date(2026, 9, 24)))
-    assert text.splitlines()[0] == "Policy CKPR - 01 - U0613620 (ANICO)"
-    assert "Insured:        Angela Huecker" in text
-    assert "Plan:           1U143900 / EXEC-UL  [UL]" in text
-    assert "In Grace" in text and "MEC" in text
+    summary = insights.build_policy_summary(policy, today=date(2026, 9, 24))
+    text = insights.summary_text(summary)
+    lines = text.splitlines()
+    assert lines[0] == "Policy:         CKPR - 01 - U0613620 (ANICO)"
+    assert "Plan:           1U143900 / EXEC-UL  [UL]" in lines
+    assert "DB option:      Level Death Benefit (Option A)" in lines
+    assert len({line.index(line.split(":", 1)[1].strip()) for line in lines}) == 1
+    assert "Angela" not in text and "Face" not in text and "100,000" in text
+    assert "In Grace" in text and "MEC" in text and "GPT" in text
+    html = insights.summary_html(summary)
+    assert html.startswith("<table") and html.count("<tr>") == len(lines)
+    assert "Angela" not in html
 
 
 def test_tool_availability_explains_why_tools_do_not_apply():
@@ -274,10 +286,13 @@ def test_activity_translates_codes_filters_by_type_and_totals(qtbot):
     tab.load_data_from_policy(SimpleNamespace(fetch_table=lambda _name: rows))
     table = tab.transactions_group.table
     cells = {table._original_headers[c]: table.item(0, c).text() for c in range(table.columnCount())}
-    assert cells["Description"] == "Regular (scheduled) premium payment"
+    assert "Description" not in cells
+    assert table.item(0, table._original_headers.index("Code")).toolTip() == (
+        "PR - Regular (scheduled) premium payment")
     assert cells["Reversal"] == "Reversal"
     index = tab.index_group.table
     assert [index.item(r, 0).text() for r in range(index.rowCount())] == ["All", "CD", "PR"]
+    assert index.item(2, 1).text() == "Regular (scheduled) premium payment"
     assert index.item(2, 2).text() == "2"
     tab.filter_code("PR")
     assert table.visible_row_indexes() == [0, 2]
@@ -291,22 +306,19 @@ def test_activity_translates_codes_filters_by_type_and_totals(qtbot):
 
 # ── lookup bar ───────────────────────────────────────────────────────────────
 
-def test_lookup_bar_smart_paste_and_commands(qtbot):
+def test_lookup_bar_smart_paste_and_recents(qtbot):
     from suiteview.polview.ui.widgets import PolicyLookupBar
 
     bar = PolicyLookupBar()
     qtbot.addWidget(bar)
-    requested, commands = [], []
+    requested = []
     bar.policy_requested.connect(lambda *a: requested.append(a))
-    bar.command_requested.connect(commands.append)
+    assert not hasattr(bar, "command_requested")
     bar.policy_input.textEdited.emit("CKAS - 26 - 000226237")
     assert (bar.region_input.text(), bar.company_input.text(), bar.policy_input.text()) == (
         "CKAS", "26", "000226237")
     bar.get_button.click()
     assert requested == [("000226237", "CKAS", "26")]
-    bar.policy_input.setText("/HELP")
-    bar.get_button.click()
-    assert commands == ["help"] and len(requested) == 1
     bar.set_recent_entries([{"policy": "U0613620", "company": "01", "region": "CKPR",
                              "insured": "Angela Huecker", "viewed": "2026-09-24"}])
     assert bar._recent_model.rowCount() == 1
@@ -352,7 +364,7 @@ def test_background_table_presence_reports_errors_and_stays_retryable():
     assert session._policy._data.cleared
 
 
-# ── timeline, compare, record card ──────────────────────────────────────────
+# ── timeline, record card ───────────────────────────────────────────────────
 
 def test_timeline_orders_events_names_sources_and_skips_sentinels():
     from suiteview.polview.services.policy_timeline import build_policy_timeline, relative_text
@@ -387,35 +399,6 @@ def test_timeline_orders_events_names_sources_and_skips_sentinels():
     assert relative_text(date(2020, 9, 24), date(2026, 9, 24)) == "6.0 years ago"
 
 
-def test_compare_pairs_rows_by_key_and_reports_extras():
-    from suiteview.polview.services.policy_compare import compare_policies, only_in
-
-    first = {
-        "LH_BAS_POL": {"columns": ["TCH_POL_ID", "PRM_PAY_STA_REA_CD", "POL_PRM_AMT"],
-                       "rows": [("A  X", "22", 33.02)]},
-        "LH_COV_PHA": {"columns": ["TCH_POL_ID", "COV_PHA_NBR", "COV_UNT_QTY"],
-                       "rows": [("A  X", 2, 140), ("A  X", 1, 100)]},
-        "LH_SPM_BNF": {"columns": ["SPM_BNF_TYP_CD"], "rows": [("3",), ("1",)]},
-        "FH_FIXED": {"columns": ["SEQ_NO"], "rows": [(1,)]},
-    }
-    second = {
-        "LH_BAS_POL": {"columns": ["TCH_POL_ID", "PRM_PAY_STA_REA_CD", "POL_PRM_AMT"],
-                       "rows": [("B  Y", "22", 40.00)]},
-        "LH_COV_PHA": {"columns": ["TCH_POL_ID", "COV_PHA_NBR", "COV_UNT_QTY"],
-                       "rows": [("B  Y", 1, 100), ("B  Y", 2, 150)]},
-        "LH_SPM_BNF": {"columns": ["SPM_BNF_TYP_CD"], "rows": [("3",)]},
-    }
-    diffs = compare_policies(first, second)
-    found = {(d.table, d.row, d.column, d.first, d.second) for d in diffs}
-    assert ("LH_BAS_POL", "row 1", "POL_PRM_AMT", "33.02", "40.0") in found
-    assert ("LH_COV_PHA", "COV_PHA_NBR=2", "COV_UNT_QTY", "140", "150") in found
-    assert not any(d.column == "TCH_POL_ID" for d in diffs)
-    assert ("LH_SPM_BNF", "(row count)", "rows", "2", "1") in found
-    assert ("LH_SPM_BNF", "SPM_BNF_TYP_CD=1", "(whole row)", "present", "missing") in found
-    assert any(d.column == "TCH_POL_ID" for d in compare_policies(first, second, ignore_identity=False))
-    assert only_in(first, second) == (["FH_FIXED"], [])
-
-
 def test_record_card_lists_interpreted_and_raw_fields(qtbot):
     from dataclasses import dataclass, field
 
@@ -436,6 +419,38 @@ def test_record_card_lists_interpreted_and_raw_fields(qtbot):
     dialog = RecordCardDialog("Coverage 1", card)
     qtbot.addWidget(dialog)
     assert dialog.table.rowCount() == 4
+
+
+def test_second_record_card_after_closing_the_first_does_not_crash(qtbot):
+    from PyQt6.QtWidgets import QTableWidgetItem
+    from suiteview.polview.ui.polview_dialogs import RecordCardDialog
+    from suiteview.polview.ui.tabs.coverages_tab import CoveragesTab
+
+    tab = CoveragesTab()
+    qtbot.addWidget(tab)
+    cov = SimpleNamespace(cov_pha_nbr=1, plancode="1U143900", raw_data={"A": 1})
+    bnf = SimpleNamespace(benefit_code="39", cov_pha_nbr=1, raw_data={"B": 2})
+    tab._cov_data = [cov, cov]
+    tab._bnf_data = [bnf]
+    item = QTableWidgetItem("x")
+    tab.cov_table.setColumnCount(1)
+    tab.cov_table.setRowCount(2)
+    tab.cov_table.setItem(0, 0, item)
+    tab._on_coverage_double_clicked(item)
+    first = tab._record_cards[-1]
+    assert isinstance(first, RecordCardDialog)
+    first.close()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert sip.isdeleted(first)
+    tab.bnf_table.setColumnCount(1)
+    tab.bnf_table.setRowCount(1)
+    bnf_item = QTableWidgetItem("y")
+    tab.bnf_table.setItem(0, 0, bnf_item)
+    tab._on_benefit_double_clicked(bnf_item)
+    tab._on_coverage_double_clicked(item)
+    assert len(tab._record_cards) == 2
+    for card in tab._record_cards:
+        card.close()
 
 
 # ── main window ──────────────────────────────────────────────────────────────
@@ -503,16 +518,19 @@ def settle(qtbot, win):
     qtbot.waitUntil(lambda: not win._loader.busy, timeout=5000)
 
 
-def test_window_summary_strip_copy_history_and_commands(window, qtbot):
+def test_window_badges_copy_history_and_command_box(window, qtbot):
     window.test_policies["GRACE1"] = window.test_make("GRACE1", in_grace=True, region="CKPR")
     window.load_policy("GRACE1")
     settle(qtbot, window)
     strip = window.summary_strip
-    assert strip.name_label.text() == "Angela Huecker"
+    assert not hasattr(strip, "name_label") and not hasattr(strip, "compare_button")
     assert any("In Grace" in text for text in strip.chip_texts())
     assert "glp_exception" in strip.suggestion_keys()
     window._copy_policy_summary()
-    assert QApplication.clipboard().text().startswith("Policy CKPR - 01 - GRACE1")
+    mime = QApplication.clipboard().mimeData()
+    assert mime.text().startswith("Policy:")
+    assert "GRACE1" in mime.text() and "Angela" not in mime.text()
+    assert "<table" in mime.html()
 
     window.load_policy("SECOND")
     settle(qtbot, window)
@@ -527,17 +545,52 @@ def test_window_summary_strip_copy_history_and_commands(window, qtbot):
 
     # Recent policies feed the completer and persist.
     assert window.lookup_bar._recent_model.rowCount() == 2
-    window._run_command("coffee")
-    assert "☕" in window._status_label.text()
+
+    # The command box lists available commands and runs the chosen one.
+    box = window.command_box
+    assert window.header_bar.layout().indexOf(box) >= 0
+    box._refresh("timeline")
+    assert box.visible_command_keys() == ["timeline"]
+    box._refresh("")
+    keys = box.visible_command_keys()
+    assert {"shortcuts", "reload", "copy_summary", "notes", "about", "coffee"} <= set(keys)
+    assert "back" in keys and "forward" not in keys
+    assert any(key.startswith("recent_") for key in keys)
+    assert "tab_0" in keys
+    box.run("coffee")
+    qtbot.waitUntil(lambda: "☕" in window._status_label.text(), timeout=2000)
+    box.run("tab_2")
+    qtbot.waitUntil(lambda: window.tabs.currentIndex() == 2, timeout=2000)
     window._activate_actuary_mode()
     assert window._header_colors[0] == "#6A1B9A"
+
+
+def test_command_box_hides_commands_that_need_a_policy(window, qtbot):
+    box = window.command_box
+    box._refresh("")
+    keys = set(box.visible_command_keys())
+    assert "shortcuts" in keys and "focus_policy" in keys
+    assert not keys & {"reload", "copy_summary", "notes", "timeline", "open_rerun"}
+
+
+def test_shortcuts_button_and_toggle_placement(window, qtbot):
+    from suiteview.polview.ui.polview_dialogs import show_message_dialog  # noqa: F401
+
+    header = window.header_bar.layout()
+    assert header.indexOf(window.shortcuts_btn) >= 0
+    window.shortcuts_btn.click()
+    assert any(d.isVisible() for d in window._dialogs)
+    strip_row = window.summary_strip.parentWidget().layout()
+    assert strip_row.indexOf(window._tree_toggle_btn) == 0
+    assert "checked" in window._tree_toggle_btn.styleSheet()
+    assert "#1B5E20" in window._tree_toggle_btn.styleSheet()
 
 
 def test_non_production_region_is_loud(window, qtbot):
     window.test_policies["TESTPOL"] = window.test_make("TESTPOL", region="CKAS")
     window.load_policy("TESTPOL", region="CKAS")
     settle(qtbot, window)
-    assert any(text.startswith("CKAS") for text in window.summary_strip.chip_texts())
+    assert "CKAS" in window.summary_strip.chip_texts()
     assert "non-production" in window._window_title_text
 
 
@@ -550,25 +603,27 @@ def test_field_finder_indexes_fields_across_tabs(window, qtbot):
     assert any(label.endswith("(column)") for label in labels)
 
 
-def test_timeline_and_compare_dialogs_open_from_the_window(window, qtbot):
-    from suiteview.polview.ui.polview_dialogs import CompareDialog, TimelineDialog
+def test_timeline_dialog_opens_from_the_window(window, qtbot):
+    from suiteview.polview.ui.polview_dialogs import TimelineDialog
 
     window.load_policy("ONE1")
     settle(qtbot, window)
     window._policy.data_item = lambda table, field, index=0: None
     window._policy.get_benefits = lambda: []
-    window._policy.cached_tables = lambda: {"LH_BAS_POL": {"columns": ["A"], "rows": [(1,)]}}
     window._open_timeline()
     assert any(isinstance(d, TimelineDialog) for d in window._dialogs)
-    window._open_compare()
-    compare = next(d for d in window._dialogs if isinstance(d, CompareDialog))
-    assert not compare.other.isEnabled()
-    first = window._policy
-    window.load_policy("TWO2")
-    settle(qtbot, window)
-    window._policy.cached_tables = lambda: {"LH_BAS_POL": {"columns": ["A"], "rows": [(2,)]}}
-    window._open_compare()
-    compare = [d for d in window._dialogs if isinstance(d, CompareDialog)][-1]
-    assert compare.other.count() == 1
-    assert compare.table.rowCount() == 1
-    assert first.policy_number == "ONE1"
+
+
+def test_tooltips_in_polview_get_their_own_light_style(window, qtbot):
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtWidgets import QToolTip
+    from suiteview.polview.ui.tooltip_style import TOOLTIP_STYLE
+
+    target = window.lookup_bar.policy_input
+    QToolTip.showText(target.mapToGlobal(QPoint(2, 2)), "hello", target)
+    tip = next((w for w in QApplication.topLevelWidgets()
+                if w.objectName() == "qtooltip_label"), None)
+    if tip is None or not tip.isVisible():
+        pytest.skip("platform does not show tooltips")
+    assert tip.styleSheet() == TOOLTIP_STYLE
+    QToolTip.hideText()

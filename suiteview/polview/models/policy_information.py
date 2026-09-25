@@ -218,17 +218,6 @@ class PolicyInformation:
     def table_error(self, table_name: str) -> str:
         """Return the DB2 load error for a table, if one occurred."""
         return self._data.table_error(table_name)
-
-    def cached_tables(self) -> Dict[str, Dict[str, Any]]:
-        """Already-loaded tables as ``{table: {"columns": [...], "rows": [...]}}``.
-
-        Never queries; failed loads are excluded so they cannot pass for empty.
-        """
-        return {
-            table: {"columns": list(data["columns"]), "rows": [tuple(r) for r in data["rows"]]}
-            for table, data in self._data._table_cache.items()
-            if table not in self._data._table_errors
-        }
     
     def if_empty(self, value: Any, default: Any = "") -> Any:
         """Return default if value is None or empty string."""

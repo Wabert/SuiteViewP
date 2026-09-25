@@ -653,7 +653,7 @@ class TargetsAccumulatorsTab(QWidget):
 
                 gpt_cvat = policy.gpt_cvat
                 tefra_defra = policy.tefra_defra
-                gpt_cvat_display = "GP" if gpt_cvat == "GPT" else gpt_cvat
+                gpt_cvat_display = gpt_cvat
 
                 if gpt_cvat in ("GP", "GPT"):
                     try:
