@@ -25,13 +25,13 @@ from suiteview.core.profile_paths import profile_path
 
 import dataclasses
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
+from suiteview.core.json_store import write_json
 
 from suiteview import __version__ as _APP_VERSION
 from suiteview.illustration.models.policy_data import (
@@ -160,7 +160,7 @@ def save_case(
             if policy_snapshot is not None else None),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(path, payload)
+    write_json(path, payload, ensure_ascii=True)
     return _case_from_payload(payload, path)
 
 
@@ -250,7 +250,7 @@ def copy_case(
     payload["name"] = str(new_name).strip()
     payload["saved_at"] = datetime.now().isoformat(timespec="seconds")
     payload["app_version"] = _APP_VERSION
-    _atomic_write_json(new_path, payload)
+    write_json(new_path, payload, ensure_ascii=True)
     return _case_from_payload(payload, new_path)
 
 
@@ -275,21 +275,13 @@ def rename_case(
             f"A saved case named '{existing.name}' already exists.")
     payload = json.loads(case.path.read_text(encoding="utf-8"))
     payload["name"] = str(new_name).strip()
-    _atomic_write_json(new_path, payload)
+    write_json(new_path, payload, ensure_ascii=True)
     if new_path != case.path:
         case.path.unlink()
     return _case_from_payload(payload, new_path)
 
 
 # ── internals ────────────────────────────────────────────────────────
-
-
-def _atomic_write_json(path: Path, payload: dict) -> None:
-    """Write-temp-then-replace so a crash never leaves a half-written case."""
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
-
 
 def _read_case_file(path: Path) -> SavedCase:
     try:

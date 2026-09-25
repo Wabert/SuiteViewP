@@ -5,10 +5,10 @@ from __future__ import annotations
 from suiteview.core.profile_paths import profile_path
 
 import json
-import os
 from pathlib import Path
 from typing import Iterable
 
+from suiteview.core.json_store import write_json
 from .models import AgentConversation
 
 
@@ -42,18 +42,9 @@ class ConversationStore:
             "version": 1,
             "conversations": [item.to_dict() for item in conversations],
         }
-        temporary = self.path.with_suffix(".tmp")
         try:
-            temporary.write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            os.replace(temporary, self.path)
+            write_json(self.path, payload)
         except OSError as exc:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
             raise ConversationStoreError(
                 f"Could not save agent chat history to {self.path}: {exc}"
             ) from exc

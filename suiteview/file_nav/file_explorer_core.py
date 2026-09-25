@@ -4,6 +4,7 @@ Shows Quick Access shortcuts (OneDrive) alongside system drives
 """
 
 from suiteview.core.profile_paths import profile_path
+from suiteview.core.json_store import write_json
 
 import os
 import sys
@@ -4703,8 +4704,7 @@ class FileExplorerCore(QWidget):
         try:
             # Ensure directory exists
             self.hidden_onedrive_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.hidden_onedrive_file, 'w') as f:
-                json.dump(list(self.hidden_onedrive_paths), f, indent=2)
+            write_json(self.hidden_onedrive_file, list(self.hidden_onedrive_paths), ensure_ascii=True)
         except Exception as e:
             logger.error(f"Failed to save hidden OneDrive paths: {e}")
     
@@ -4733,8 +4733,7 @@ class FileExplorerCore(QWidget):
         try:
             # Ensure directory exists
             self.pinned_folders_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.pinned_folders_file, 'w') as f:
-                json.dump(self.pinned_folders, f, indent=2)
+            write_json(self.pinned_folders_file, self.pinned_folders, ensure_ascii=True)
         except Exception as e:
             logger.error(f"Failed to save pinned folders: {e}")
     
@@ -4783,8 +4782,7 @@ class FileExplorerCore(QWidget):
         """Save SharePoint libraries to JSON file"""
         try:
             self.sharepoint_libraries_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.sharepoint_libraries_file, 'w') as f:
-                json.dump(self.sharepoint_libraries, f, indent=2)
+            write_json(self.sharepoint_libraries_file, self.sharepoint_libraries, ensure_ascii=True)
         except Exception as e:
             logger.error(f"Failed to save SharePoint libraries: {e}")
     
@@ -5339,8 +5337,7 @@ class FileExplorerCore(QWidget):
         try:
             # Ensure directory exists
             self.column_widths_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.column_widths_file, 'w') as f:
-                json.dump(self.column_widths, f, indent=2)
+            write_json(self.column_widths_file, self.column_widths, ensure_ascii=True)
         except Exception as e:
             logger.error(f"Failed to save column widths: {e}")
     
@@ -5372,8 +5369,7 @@ class FileExplorerCore(QWidget):
         try:
             # Ensure directory exists
             self.panel_widths_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.panel_widths_file, 'w') as f:
-                json.dump(self.panel_widths, f, indent=2)
+            write_json(self.panel_widths_file, self.panel_widths, ensure_ascii=True)
         except Exception as e:
             logger.error(f"Failed to save panel widths: {e}")
     

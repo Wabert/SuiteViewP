@@ -9,7 +9,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -27,6 +26,7 @@ from suiteview.illustration.models.case_store import (
     decode_saved_case,
     encode_saved_case,
 )
+from suiteview.core.json_store import write_file_atomic
 
 SUITE_KIND = "suiteview.illustration.regression_suite"
 RESULT_KIND = "suiteview.illustration.regression_result"
@@ -213,20 +213,15 @@ def save_suite(suite: RegressionSuite, path: Path | str | None = None) -> Regres
         target = target.with_suffix(SUITE_SUFFIX)
     target.parent.mkdir(parents=True, exist_ok=True)
     members = _build_members(suite)
-    temporary = target.with_name(target.name + ".tmp")
-    try:
+    def write_archive(temporary: Path) -> None:
         with zipfile.ZipFile(
             temporary, "w", compression=zipfile.ZIP_DEFLATED,
             compresslevel=9,
         ) as archive:
             for name, data in sorted(members.items()):
                 archive.writestr(name, data)
-        os.replace(temporary, target)
-    except Exception:
-        try:
-            temporary.unlink(missing_ok=True)
-        finally:
-            raise
+
+    write_file_atomic(target, write_archive)
     suite.path = target
     return suite
 
@@ -450,18 +445,13 @@ def save_run_result(
     }
     members["manifest.json"] = _json_bytes(manifest)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(target.name + ".tmp")
-    try:
+    def write_archive(temporary: Path) -> None:
         with zipfile.ZipFile(
             temporary, "w", compression=zipfile.ZIP_DEFLATED,
             compresslevel=9,
         ) as archive:
             for name, data in sorted(members.items()):
                 archive.writestr(name, data)
-        os.replace(temporary, target)
-    except Exception:
-        try:
-            temporary.unlink(missing_ok=True)
-        finally:
-            raise
+
+    write_file_atomic(target, write_archive)
     return target

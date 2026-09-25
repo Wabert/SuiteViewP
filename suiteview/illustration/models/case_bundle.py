@@ -22,7 +22,6 @@ accept it anyway. Writes are atomic (temp file + ``os.replace``).
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +34,7 @@ from suiteview.illustration.models.case_store import (
     decode_saved_case,
     encode_saved_case,
 )
+from suiteview.core.json_store import write_json
 
 BUNDLE_KIND = "suiteview.illustration.case_bundle"
 BUNDLE_SCHEMA_VERSION = 1
@@ -119,9 +119,7 @@ def write_bundle(
         target = target.with_name(stem + BUNDLE_SUFFIX)
     payload = encode_bundle(cases, name=name)
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(target.name + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    os.replace(tmp, target)
+    write_json(target, payload, ensure_ascii=True)
     return target
 
 

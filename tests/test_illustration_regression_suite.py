@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from suiteview.core import json_store
 from suiteview.illustration.core.summary_results import ALL_COLUMNS
 from suiteview.illustration.core.regression_runner import (
     BasisResult,
@@ -137,8 +138,7 @@ def test_failed_atomic_replace_leaves_original_suite(tmp_path, monkeypatch):
     def fail_replace(source, target):
         raise OSError("replace failed")
 
-    monkeypatch.setattr(
-        "suiteview.illustration.models.regression_suite.os.replace", fail_replace)
+    monkeypatch.setattr(json_store.os, "replace", fail_replace)
     with pytest.raises(OSError, match="replace failed"):
         update_baseline(suite, _actual(suite.cases[0].case_id, 10.0))
     assert path.read_bytes() == original

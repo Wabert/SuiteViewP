@@ -3,6 +3,7 @@ Mainframe Navigation Screen - File explorer interface for browsing mainframe dat
 """
 
 from suiteview.core.profile_paths import profile_path
+from suiteview.core.json_store import write_json
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLineEdit, QPushButton,
@@ -1962,9 +1963,6 @@ class MainframeNavScreen(QWidget):
     def save_splitter_sizes(self):
         """Save splitter sizes to file for persistence"""
         try:
-            import json
-            from pathlib import Path
-            
             # Save to app config directory
             config_file = profile_path("mainframe_nav_splitter.json")
             config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1972,8 +1970,7 @@ class MainframeNavScreen(QWidget):
             # Get splitter sizes
             sizes = self.main_splitter.sizes()
             
-            with open(config_file, 'w') as f:
-                json.dump({'sizes': sizes}, f, indent=2)
+            write_json(config_file, {'sizes': sizes}, ensure_ascii=True)
             
             logger.debug(f"Saved splitter sizes: {sizes}")
         except Exception as e:
@@ -2003,9 +2000,6 @@ class MainframeNavScreen(QWidget):
     def save_column_widths(self):
         """Save column widths to file for persistence"""
         try:
-            import json
-            from pathlib import Path
-            
             # Save to app config directory
             config_file = profile_path("mainframe_nav_columns.json")
             config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -2017,8 +2011,7 @@ class MainframeNavScreen(QWidget):
                 if header:
                     widths[header.text()] = self.members_table.columnWidth(i)
             
-            with open(config_file, 'w') as f:
-                json.dump(widths, f, indent=2)
+            write_json(config_file, widths, ensure_ascii=True)
             
             logger.debug(f"Saved column widths: {widths}")
         except Exception as e:

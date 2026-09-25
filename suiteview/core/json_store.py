@@ -25,13 +25,26 @@ import copy
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Callable, Union
 
 logger = logging.getLogger(__name__)
 
 PathLike = Union[str, os.PathLike]
+
+
+def ensure_dir(path: PathLike) -> Path:
+    """Create ``path`` as a directory and return it as a ``Path``."""
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def safe_filename(name: str) -> str:
+    """Convert a SuiteView user label to the legacy safe filename form."""
+    return re.sub(r'[<>:"/\\|?*]', "_", name)
 
 
 def read_json(path: PathLike, default: Any = None) -> Any:
@@ -52,29 +65,58 @@ def read_json(path: PathLike, default: Any = None) -> Any:
         return default
 
 
-def write_json(path: PathLike, data: Any, *, indent: int = 2) -> None:
+def write_file_atomic(path: PathLike, write_to_temp: Callable[[Path], None]) -> None:
+    """Run ``write_to_temp`` against a same-directory temp file, then replace."""
+    p = Path(path)
+    ensure_dir(p.parent)
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(p.parent), prefix=f".{p.name}.", suffix=".tmp")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        write_to_temp(tmp)
+        with tmp.open("r+b") as fh:
+            os.fsync(fh.fileno())
+        os.replace(tmp, p)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def write_text_atomic(
+    path: PathLike,
+    text: str,
+    *,
+    encoding: str = "utf-8",
+) -> None:
+    """Atomically write text to ``path``."""
+    write_file_atomic(path, lambda tmp: tmp.write_text(text, encoding=encoding))
+
+
+def write_json(
+    path: PathLike,
+    data: Any,
+    *,
+    indent: int = 2,
+    ensure_ascii: bool = False,
+) -> None:
     """Atomically write ``data`` as JSON to ``path``.
 
     Creates parent directories if needed. Writes to a temp file in the same
     directory and ``os.replace``s it into place, so a crash mid-write leaves
     the previous file intact rather than a truncated one.
     """
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-
-    fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=f".{p.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=indent, ensure_ascii=False)
+    def write_to_temp(tmp: Path) -> None:
+        with tmp.open("w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=indent, ensure_ascii=ensure_ascii)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, p)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+
+    write_file_atomic(path, write_to_temp)
 
 
 class JsonStore:
