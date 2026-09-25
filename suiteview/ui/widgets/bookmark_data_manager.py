@@ -44,6 +44,7 @@ Usage:
 """
 
 from suiteview.core.profile_paths import profile_path
+from suiteview.core.json_store import write_json
 
 import json
 import logging
@@ -683,20 +684,18 @@ class BookmarkDataManager:
     def save(self):
         """Save all data to the JSON file"""
         try:
-            self.DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write to temp file first, then rename (atomic)
-            temp_file = self.DATA_FILE.with_suffix('.json.tmp')
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-            
-            temp_file.replace(self.DATA_FILE)
+            write_json(self.DATA_FILE, self._data)
             logger.debug(f"Saved bookmark data to {self.DATA_FILE}")
             
             self._notify_callbacks()
             
         except Exception as e:
-            logger.error(f"Failed to save bookmark data: {e}")
+            logger.exception("Failed to save bookmark data")
+            try:
+                from suiteview.ui.widgets.bookmark_widgets import update_footer_status
+                update_footer_status(f"Failed to save bookmarks: {e}")
+            except Exception:
+                logger.debug("Bookmark save error could not be sent to footer", exc_info=True)
     
     def _load(self):
         """Load data from file or initialize with defaults"""

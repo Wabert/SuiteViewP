@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.core import json_store
 from suiteview.illustration.models import case_store
 from suiteview.illustration.models.case_store import (
     CaseExistsError,
@@ -102,7 +103,7 @@ def test_atomic_write_preserves_original_when_replace_fails(tmp_path, monkeypatc
     def _boom(src, dst):
         raise OSError("simulated crash mid-replace")
 
-    monkeypatch.setattr(case_store.os, "replace", _boom)
+    monkeypatch.setattr(json_store.os, "replace", _boom)
     with pytest.raises(OSError):
         case_store.save_case("A", policy_number="P1", region="CKPR",
                              inputs=_inputs("clobbered"), overwrite=True,

@@ -9,11 +9,10 @@ from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
-import re
 from pathlib import Path
 
 from suiteview.audit.saved_query import SavedQuery
-from suiteview.core.json_store import write_json
+from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +20,7 @@ _QUERIES_DIR = profile_path('saved_queries')
 
 
 def _ensure_dir() -> Path:
-    _QUERIES_DIR.mkdir(parents=True, exist_ok=True)
-    return _QUERIES_DIR
-
-
-def _safe_filename(name: str) -> str:
-    """Convert a query name to a safe filename."""
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+    return ensure_dir(_QUERIES_DIR)
 
 
 def list_queries() -> list[SavedQuery]:

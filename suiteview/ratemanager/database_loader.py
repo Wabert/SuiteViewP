@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 import pyodbc
 
 from suiteview.core.build_env import guard_data_writable
+from suiteview.core.json_store import write_json
 
 
 class RateDatabaseError(RuntimeError):
@@ -1414,8 +1415,7 @@ def write_backup(
             "rows": len(rows),
             "file": path.name,
         }
-    with (folder / "manifest.json").open("w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
+    write_json(folder / "manifest.json", manifest, ensure_ascii=True)
     return folder
 
 

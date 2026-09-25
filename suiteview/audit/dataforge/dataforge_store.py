@@ -12,11 +12,10 @@ from suiteview.core.profile_paths import profile_path
 
 import json
 import logging
-import re
 import shutil
 from pathlib import Path
 
-from suiteview.core.json_store import write_json
+from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 from .dataforge_model import DataForge
 
@@ -26,12 +25,7 @@ _FORGES_DIR = profile_path('saved_dataforges')
 
 
 def _ensure_dir() -> Path:
-    _FORGES_DIR.mkdir(parents=True, exist_ok=True)
-    return _FORGES_DIR
-
-
-def _safe_filename(name: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+    return ensure_dir(_FORGES_DIR)
 
 
 def list_forges() -> list[DataForge]:

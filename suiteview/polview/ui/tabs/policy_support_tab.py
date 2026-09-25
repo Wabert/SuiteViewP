@@ -35,6 +35,7 @@ from ..styles import (
     GOLD_PRIMARY, GOLD_TEXT, GOLD_DARK, GOLD_LIGHT,
     POLICY_INFO_FRAME_STYLE,
 )
+from suiteview.core.json_store import write_json
 from ..widgets import CopyableLabel, FixedHeaderTableWidget
 from suiteview.ui.widgets.mini_explorer import (
     DoubleClickablePathLabel, DraggableToolsList, MiniExplorer, TightItemDelegate, icon_for_ext,
@@ -166,8 +167,7 @@ def _load_user_tasks() -> List[str]:
 
 def _save_user_tasks(tasks: List[str]):
     path = _get_user_tasks_path()
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(sorted(set(tasks)), f, indent=2)
+    write_json(path, sorted(set(tasks)), ensure_ascii=True)
 
 
 def _safe_anniversary(issue_date: date, year: int) -> date:

@@ -13,12 +13,11 @@ from suiteview.core.profile_paths import profile_path
 
 import logging
 import os
-import re
 from pathlib import Path
 from uuid import uuid4
 
 from suiteview.audit.data_source import RegisteredDataSource
-from suiteview.core.json_store import read_json, write_json
+from suiteview.core.json_store import ensure_dir, read_json, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +30,7 @@ def _sources_dir() -> Path:
 
 
 def _ensure_dir() -> Path:
-    directory = _sources_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
-def _safe_filename(name: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]', "_", name)
+    return ensure_dir(_sources_dir())
 
 
 def source_path(source: RegisteredDataSource) -> Path:

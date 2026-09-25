@@ -22,7 +22,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from suiteview.audit.file_source import FileDataSource
-from suiteview.core.json_store import read_json, write_json
+from suiteview.core.json_store import ensure_dir, read_json, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,7 @@ def _sources_dir() -> Path:
 
 
 def _ensure_dir() -> Path:
-    directory = _sources_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
-def _safe_filename(name: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]', "_", name)
+    return ensure_dir(_sources_dir())
 
 
 def source_path(file_source: FileDataSource) -> Path:

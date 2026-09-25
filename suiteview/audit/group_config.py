@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from suiteview.core.profile_paths import profile_path
+from suiteview.core.json_store import ensure_dir, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,7 @@ _SETTINGS_FILE = profile_path("audit_ui_settings.json")
 
 
 def _ensure_dir():
-    _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(_SETTINGS_FILE.parent)
 
 
 def load_ui_settings() -> dict:
@@ -31,6 +32,4 @@ def load_ui_settings() -> dict:
 def save_ui_settings(settings: dict):
     """Save window-level UI settings."""
     _ensure_dir()
-    path = _SETTINGS_FILE
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
+    write_json(_SETTINGS_FILE, settings, ensure_ascii=True)
