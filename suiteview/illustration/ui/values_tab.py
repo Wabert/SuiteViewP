@@ -1316,10 +1316,8 @@ class IllustrationValuesTab(QWidget):
     def _setup_ui(self):
         from PyQt6.QtWidgets import (
             QButtonGroup,
-            QHBoxLayout,
             QLineEdit,
             QPushButton,
-            QSplitter,
             QTreeWidget,
         )
 

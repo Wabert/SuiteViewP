@@ -518,10 +518,6 @@ class BookmarkDataManager:
         """Set a category's color"""
         return self.update_category(item_id, color=color)
     
-    def rename_category(self, item_id: int, new_name: str) -> bool:
-        """Rename a category"""
-        return self.update_category(item_id, name=new_name)
-    
     # =========================================================================
     # Item Removal
     # =========================================================================
