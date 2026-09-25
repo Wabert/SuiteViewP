@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QAbstractItemView, QPushButton, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QSplitter,
-    QGroupBox, QInputDialog,
+    QGroupBox, QInputDialog, QSpinBox,
     QStyledItemDelegate, QWidget,
 )
 
@@ -645,55 +645,119 @@ class _AddTableDialog(QDialog):
         return self._selected
 
 
+DEFAULT_TABLE_VIEW_ROWS = 1000
+
+
+def _table_view_sql(table_name: str, dialect: str, row_limit: int) -> str:
+    table = _quote_qualified_table_name(table_name, dialect)
+    limit = max(1, int(row_limit))
+    if dialect == "DB2":
+        return f"SELECT * FROM {table} FETCH FIRST {limit} ROWS ONLY"
+    return f"SELECT TOP {limit} * FROM {table}"
+
+
 class _PreviewLoaderThread(QThread):
-    """Background thread to fetch preview rows from a table."""
+    """Background thread fetching up to ``row_limit`` rows of one table.
+
+    Reads a database table through ``dsn``, or a File Source member when
+    ``source_token`` is a ``file:`` token.
+    """
     data_loaded = pyqtSignal(object)   # pandas DataFrame
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, dsn: str, table_name: str, dialect: str, parent=None):
+    def __init__(self, dsn: str, table_name: str, dialect: str, parent=None, *,
+                 row_limit: int = DEFAULT_TABLE_VIEW_ROWS, source_token: str = ""):
         super().__init__(parent)
         self.dsn = dsn
         self.table_name = table_name
         self.dialect = dialect
+        self.row_limit = max(1, int(row_limit))
+        self.source_token = source_token
 
     def run(self):
         try:
+            if self.source_token:
+                from suiteview.audit.federated_query import load_file_table
+                df = load_file_table(self.source_token, self.table_name)
+                self.data_loaded.emit(df.head(self.row_limit).reset_index(drop=True))
+                return
             conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=30)
-            cursor = conn.cursor()
-            table_name = _quote_qualified_table_name(self.table_name, self.dialect)
-            if self.dialect == "DB2":
-                sql = f'SELECT * FROM {table_name} FETCH FIRST 1000 ROWS ONLY'
-            else:
-                sql = f'SELECT TOP 1000 * FROM {table_name}'
-            cursor.execute(sql)
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            conn.close()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(_table_view_sql(self.table_name, self.dialect, self.row_limit))
+                columns = [desc[0] for desc in cursor.description]
+                rows = cursor.fetchall()
+            finally:
+                conn.close()
             df = pd.DataFrame([list(r) for r in rows], columns=columns)
             self.data_loaded.emit(df)
         except Exception as exc:
             self.error_occurred.emit(str(exc))
 
 
-class _TablePreviewDialog(QDialog):
-    """Non-modal dialog showing the first 1000 rows of a table."""
+# Open table views; top-level windows need a reference to stay alive.
+_OPEN_TABLE_VIEWS: set = set()
 
-    def __init__(self, dsn: str, table_name: str, parent=None):
+
+def open_table_view(dsn: str, table_name: str, *, source_token: str = "",
+                    inline_data: dict | None = None) -> "_TablePreviewDialog":
+    """Show ``table_name`` in its own window (first 1000 rows; adjustable)."""
+    dlg = _TablePreviewDialog(dsn, table_name, None,
+                              source_token=source_token, inline_data=inline_data)
+    _OPEN_TABLE_VIEWS.add(dlg)
+    dlg.destroyed.connect(lambda *_a, d=dlg: _OPEN_TABLE_VIEWS.discard(d))
+    dlg.show()
+    dlg.raise_()
+    dlg.activateWindow()
+    return dlg
+
+
+class _TablePreviewDialog(QDialog):
+    """Non-modal table view: the first N rows (default 1000) of a table.
+
+    Shows a database table (via ``dsn``), a File Source member
+    (``source_token``) or a pasted list (``inline_data``).
+    """
+
+    def __init__(self, dsn: str, table_name: str, parent=None, *,
+                 source_token: str = "", inline_data: dict | None = None,
+                 row_limit: int = DEFAULT_TABLE_VIEW_ROWS):
         super().__init__(parent)
-        self.setWindowTitle(f"Preview — {table_name}")
+        self.setWindowTitle(f"Table View \u2014 {table_name}")
         self.setWindowFlags(
-            Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+            Qt.WindowType.Window | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint | Qt.WindowType.WindowCloseButtonHint)
         self.resize(1000, 600)
         self.setFont(_FONT)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._dsn = dsn
         self._table_name = table_name
+        self._source_token = source_token
+        self._inline_data = inline_data
         self._loader: _PreviewLoaderThread | None = None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(4)
+
+        bar = QHBoxLayout()
+        bar.addWidget(QLabel("Rows:"))
+        self.spn_rows = QSpinBox()
+        self.spn_rows.setRange(1, 10_000_000)
+        self.spn_rows.setSingleStep(1000)
+        self.spn_rows.setGroupSeparatorShown(True)
+        self.spn_rows.setValue(max(1, int(row_limit)))
+        self.spn_rows.setFixedWidth(110)
+        self.spn_rows.setToolTip("How many rows to show. Press Enter or Reload to apply.")
+        self.spn_rows.editingFinished.connect(self._reload_if_changed)
+        bar.addWidget(self.spn_rows)
+        self.btn_reload = QPushButton("Reload")
+        self.btn_reload.setStyleSheet(_BTN_SMALL_STYLE)
+        self.btn_reload.clicked.connect(self._load_data)
+        bar.addWidget(self.btn_reload)
+        bar.addStretch(1)
+        lay.addLayout(bar)
 
         from suiteview.ui.widgets.filter_table_view import FilterTableView
         self.table = FilterTableView(self)
@@ -733,28 +797,64 @@ class _TablePreviewDialog(QDialog):
         self.lbl_status.setStyleSheet("color: #666;")
         lay.addWidget(self.lbl_status)
 
+        self._loaded_limit = 0
         self._load_data()
 
+    def row_limit(self) -> int:
+        return self.spn_rows.value()
+
+    def _reload_if_changed(self):
+        if self.spn_rows.value() != self._loaded_limit:
+            self._load_data()
+
     def _load_data(self):
+        if self._loader is not None and self._loader.isRunning():
+            return
+        limit = self.spn_rows.value()
+        self._loaded_limit = limit
+        self._t0 = time.time()
+        self.lbl_status.setText("Loading...")
+        if self._inline_data is not None:
+            from suiteview.audit.federated_query import inline_dataframe
+            self._on_data_loaded(inline_dataframe(self._inline_data).head(limit))
+            return
         from suiteview.core.odbc_utils import detect_dialect
-        dialect = detect_dialect(self._dsn)
+        dialect = "" if self._source_token else detect_dialect(self._dsn)
+        self.btn_reload.setEnabled(False)
         self._loader = _PreviewLoaderThread(
-            self._dsn, self._table_name, dialect, self)
+            self._dsn, self._table_name, dialect, self,
+            row_limit=limit, source_token=self._source_token)
         self._loader.data_loaded.connect(self._on_data_loaded)
         self._loader.error_occurred.connect(self._on_error)
         self._loader.start()
 
     def _on_data_loaded(self, df):
-        t0 = time.time()
+        self.btn_reload.setEnabled(True)
         self.table.set_dataframe(df, limit_rows=False)
-        elapsed = time.time() - t0
+        elapsed = time.time() - self._t0
         self.lbl_status.setText(
-            f"{len(df)} rows  |  {len(df.columns)} columns  |  "
+            f"{len(df):,} rows  |  {len(df.columns)} columns  |  "
             f"loaded in {elapsed:.1f}s")
         self._loader = None
 
     def _on_error(self, msg: str):
+        self.btn_reload.setEnabled(True)
         self.lbl_status.setText("Error loading data")
-        QMessageBox.warning(self, "Preview Error",
+        QMessageBox.warning(self, "Table View Error",
                             f"Failed to load data:\n\n{msg}")
         self._loader = None
+
+    def closeEvent(self, event):
+        if self._loader is not None and self._loader.isRunning():
+            # Let the query finish off-window rather than destroying a running thread.
+            loader = self._loader
+            loader.setParent(None)
+            _OPEN_TABLE_VIEWS.add(loader)
+            loader.finished.connect(lambda *_a, l=loader: _OPEN_TABLE_VIEWS.discard(l))
+            for signal in (loader.data_loaded, loader.error_occurred):
+                try:
+                    signal.disconnect()
+                except TypeError:
+                    pass
+            self._loader = None
+        super().closeEvent(event)

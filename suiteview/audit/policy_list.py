@@ -1,21 +1,22 @@
 """
-Policy lists pasted from the clipboard — the most common query starting point.
+Lists pasted from the clipboard — a common query starting point.
 
-A user copies policy numbers (usually with company codes) from a spreadsheet and
-wants more data about them. This module turns the pasted text into a small
-in-query table (a "policy list") whose columns join straight onto
-``LH_BAS_POL``: ``PolicyNumber`` → ``CK_POLICY_NBR``, ``CompanyCode`` →
-``CK_CMP_CD`` and ``SystemCode`` → ``CK_SYS_CD``. Any other pasted columns come
-along unchanged so they appear beside the looked-up data.
-
-Values are normalized the way DB2 stores them, and anything that could silently
-lose a match is reported rather than guessed:
+A user copies rows from a spreadsheet and wants to use them in a query. The
+pasted text becomes a small in-query table (a "pasted list") that shows the data
+exactly as pasted. Columns get generic names (``C1``, ``C2`` …) or the pasted
+header row's names, which the user can rename. Only a column that is clearly a
+policy number or company code is recognized: it is named ``PolicyNumber`` /
+``CompanyCode`` (so join suggestions can match ``CK_POLICY_NBR`` /
+``CK_CMP_CD``) and normalized the way DB2 stores it:
 
 * policy numbers are trimmed and upper-cased;
 * one-digit company codes regain their leading zero (Excel turns ``01`` into
-  ``1``); unknown company codes are reported;
-* all-digit policy numbers of different lengths are reported, because Excel
-  also drops their leading zeros. Padding them is an explicit user choice.
+  ``1``).
+
+Nothing else is assumed: no system code, no automatic join, no de-duplication.
+
+:func:`build_policy_list` is the older policy-list normalizer, still used when a
+caller explicitly builds a policy list joined to ``LH_BAS_POL``.
 
 Pure Python — no Qt — so the parsing rules are unit-testable.
 """
@@ -30,7 +31,7 @@ POLICY_COLUMN = "PolicyNumber"
 COMPANY_COLUMN = "CompanyCode"
 SYSTEM_COLUMN = "SystemCode"
 KNOWN_COMPANY_CODES = ("01", "04", "06", "08", "26")
-DEFAULT_LIST_NAME = "PolicyList"
+DEFAULT_LIST_NAME = "PastedList"
 
 # Normalized header names recognized for each role (see normalize_name).
 POLICY_ALIASES = frozenset({
@@ -45,6 +46,10 @@ COMPANY_ALIASES = frozenset({
 SYSTEM_ALIASES = frozenset({"system", "systemcode", "syscd", "syscode", "cksyscd"})
 
 _POLICY_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-]{3,14}$")
+# A policy number's shape: an optional short letter prefix, then digits.
+# Plan codes such as B11SP500 or 1A130E29 do not fit.
+_POLICY_SHAPE = re.compile(r"^[A-Z]{0,3}[0-9]{5,10}$")
+_PREFIXED_POLICY = re.compile(r"^[A-Z]{1,3}[0-9]{5,10}$")
 
 
 def normalize_name(name: str) -> str:
@@ -271,3 +276,85 @@ def safe_table_name(name: str, taken: set[str]) -> str:
     if clean[0].isdigit():
         clean = f"L_{clean}"
     return _unique(clean, {t.upper() for t in taken})
+
+
+# ── Generic pasted lists ─────────────────────────────────────────────────
+
+def clean_column_name(name: str) -> str:
+    return re.sub(r"\s+", " ", str(name or "")).strip()
+
+
+def identify_columns(rows: list[list[str]], has_header: bool) -> tuple[int | None, int | None]:
+    """(policy column, company column) — each ``None`` unless it is clearly one.
+
+    A header name (``Policy``, ``Company`` …) identifies a column. Without one,
+    a policy column needs every value shaped like a policy number and either
+    mostly letter-prefixed numbers or a company-code column beside it; a
+    company column is only recognized beside a policy column.
+    """
+    if not rows:
+        return None, None
+    width = len(rows[0])
+    body = rows[1:] if has_header else rows
+    policy = company = None
+    if has_header:
+        for col, name in enumerate(rows[0]):
+            role = _role(name)
+            if role == "policy" and policy is None:
+                policy = col
+            elif role == "company" and company is None:
+                company = col
+    named_company = company is not None
+    columns = [[row[col].strip().upper() for row in body if row[col].strip()]
+               for col in range(width)]
+    if company is None:
+        company = next((col for col in range(width) if col != policy and columns[col]
+                        and all(normalize_company(v) in KNOWN_COMPANY_CODES
+                                for v in columns[col])), None)
+    if policy is None:
+        for col in range(width):
+            values = columns[col]
+            if col == company or not values or not all(_POLICY_SHAPE.match(v) for v in values):
+                continue
+            prefixed = sum(bool(_PREFIXED_POLICY.match(v)) for v in values)
+            if prefixed * 2 >= len(values) or company is not None:
+                policy = col
+                break
+    if policy is None and not named_company:
+        company = None  # small numbers alone are not evidence of company codes
+    return policy, company
+
+
+def list_column_names(rows: list[list[str]], has_header: bool,
+                      policy_col: int | None, company_col: int | None) -> list[str]:
+    """PolicyNumber / CompanyCode for recognized columns, else header names or C1, C2 …"""
+    if not rows:
+        return []
+    taken: set[str] = set()
+    names: list[str] = []
+    for col in range(len(rows[0])):
+        if col == policy_col:
+            base = POLICY_COLUMN
+        elif col == company_col:
+            base = COMPANY_COLUMN
+        elif has_header and clean_column_name(rows[0][col]):
+            base = clean_column_name(rows[0][col])
+        else:
+            base = f"C{col + 1}"
+        names.append(_unique(base, taken))
+    return names
+
+
+def list_rows(rows: list[list[str]], has_header: bool,
+              policy_col: int | None, company_col: int | None) -> list[list[str]]:
+    """The pasted rows as-is, except recognized policy/company values are normalized."""
+    body = rows[1:] if has_header else rows
+    result: list[list[str]] = []
+    for row in body:
+        values = list(row)
+        if policy_col is not None:
+            values[policy_col] = values[policy_col].strip().upper()
+        if company_col is not None:
+            values[company_col] = normalize_company(values[company_col])
+        result.append(values)
+    return result

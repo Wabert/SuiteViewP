@@ -1,4 +1,4 @@
-"""Pasted policy lists, join suggestions and canvas plan badges (no database)."""
+"""Pasted lists, join suggestions, canvas plan badges and Table View (no database)."""
 from __future__ import annotations
 
 import os
@@ -12,18 +12,18 @@ import pandas as pd
 import pytest
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from suiteview.audit.dataforge.join_canvas_view import SuggestionLineItem
-from suiteview.audit.dialogs.policy_list_dialog import PolicyListDialog
+from suiteview.audit.dialogs.pasted_list_dialog import PastedListDialog
 from suiteview.audit.dynamic_group import BAS_POL_TABLE, DynamicQuery
 from suiteview.audit.federated_query import execute_federated_plan
 from suiteview.audit.join_suggestions import (
     KIND_DATABASE, KIND_FILE, KIND_LIST, suggest_canvas_joins, suggest_join_keys,
 )
 from suiteview.audit.policy_list import (
-    build_policy_list, guess_columns, looks_like_header, parse_clipboard_text,
-    safe_table_name,
+    build_policy_list, guess_columns, identify_columns, list_column_names, list_rows,
+    looks_like_header, parse_clipboard_text, safe_table_name,
 )
 from suiteview.audit.tabs.visual_joins_tab import VisualJoinsTab
 
@@ -157,27 +157,66 @@ def test_ctrl_v_on_canvas_requests_policy_paste(app):
 
 # ── Dialog + query ───────────────────────────────────────────────────────
 
-def test_dialog_previews_the_normalized_list(app):
-    dialog = PolicyListDialog(taken_names=set(), can_join_bas_pol=True, text=EXCEL)
+def test_generic_paste_only_names_clear_policy_and_company_columns():
+    grid = parse_clipboard_text(EXCEL)
+    assert identify_columns(grid, True) == (0, 1)
+    assert list_column_names(grid, True, 0, 1) == ["PolicyNumber", "CompanyCode", "Note"]
+    # Every pasted row stays: no de-duplication, no system code.
+    assert list_rows(grid, True, 0, 1) == [
+        ["U0532652", "01", "check"], ["E0213651", "26", ""], ["U0532652", "01", "dup"]]
+
+    plancodes = parse_clipboard_text("B11SP500\nB11SP400\n1A130E29\n")
+    assert identify_columns(plancodes, False) == (None, None)
+    assert list_column_names(plancodes, False, None, None) == ["C1"]
+
+    headerless = parse_clipboard_text("26 000226237\n8 1234567\n")
+    assert identify_columns(headerless, False) == (1, 0)
+    assert list_rows(headerless, False, 1, 0) == [["26", "000226237"], ["08", "1234567"]]
+
+    numbers = parse_clipboard_text("1\t2.5\n4\t3.1\n")
+    assert identify_columns(numbers, False) == (None, None)
+    assert list_column_names(numbers, False, None, None) == ["C1", "C2"]
+    assert list_rows(numbers, False, None, None) == [["1", "2.5"], ["4", "3.1"]]
+
+
+def test_dialog_shows_the_pasted_data_and_renames_columns(app):
+    dialog = PastedListDialog(taken_names=set(), text=EXCEL)
     try:
         assert dialog.chk_header.isChecked()
-        assert dialog.cmb_policy.currentData() == 0 and dialog.cmb_company.currentData() == 1
-        assert dialog.result_list().policy_count == 2
-        assert dialog.lbl_summary.text().startswith("2 policies")
-        assert dialog.btn_add.isEnabled() and dialog.join_to_bas_pol()
-        dialog.cmb_system.setCurrentIndex(2)  # don't match on system
-        assert "SystemCode" not in dialog.result_list().columns
+        assert dialog.txt_name.text() == "PastedList"
+        assert dialog.column_names() == ["PolicyNumber", "CompanyCode", "Note"]
+        assert dialog.table.rowCount() == 3 and dialog.lbl_count.text() == "3 rows"
+        assert dialog.table.item(0, 1).text() == "01"
+        assert dialog.rename_column(2, "  Agent   note ")
+        assert dialog.table.horizontalHeaderItem(2).text() == "Agent note"
+        with patch("suiteview.audit.dialogs.pasted_list_dialog.QMessageBox.warning") as warn:
+            assert not dialog.rename_column(0, "companycode")
+        assert warn.called
+        assert dialog.result_data() == {
+            "columns": ["PolicyNumber", "CompanyCode", "Agent note"],
+            "rows": [["U0532652", "01", "check"], ["E0213651", "26", ""],
+                     ["U0532652", "01", "dup"]],
+        }
+        dialog.chk_header.setChecked(False)
+        assert dialog.column_names() == ["C1", "C2", "C3"]
+        assert dialog.table.rowCount() == 4
         dialog.set_text("")
-        assert not dialog.btn_add.isEnabled()
-        assert "Clipboard is empty" in dialog.lbl_summary.text()
+        assert not dialog.btn_add.isEnabled() and dialog.result_data() is None
     finally:
         dialog.close()
 
-    no_db = PolicyListDialog(taken_names=set(), can_join_bas_pol=False, text=EXCEL)
+    existing = {"columns": ["PolicyNumber", "C2"], "rows": [["U1", "x"]]}
+    edit = PastedListDialog(taken_names=set(), existing=existing, name="L",
+                            locked_columns={"C2"})
     try:
-        assert not no_db.join_to_bas_pol()
+        assert edit.txt_name.isReadOnly() and edit.chk_header.isHidden()
+        assert edit.btn_add.text() == "Save"
+        with patch("suiteview.audit.dialogs.pasted_list_dialog.QMessageBox.information"):
+            assert not edit.rename_column(1, "Other")
+        assert edit.rename_column(0, "Policy")
+        assert edit.column_names() == ["Policy", "C2"]
     finally:
-        no_db.close()
+        edit.close()
 
 
 def _pasted_query():
@@ -297,16 +336,96 @@ def test_accepted_suggestion_extends_an_outer_chain_and_ambiguity_is_refused(app
         group.close()
 
 
-def test_paste_policy_list_uses_dialog_result(app):
+def test_paste_list_uses_dialog_result_without_assuming_policies(app):
     group = DynamicQuery("\u25b8 P", "NEON_DSN", [])
     try:
-        with patch("suiteview.audit.dialogs.policy_list_dialog.PolicyListDialog.exec",
+        with patch("suiteview.audit.dialogs.pasted_list_dialog.PastedListDialog.exec",
                    return_value=1):
             name = group.paste_policy_list(EXCEL)
-        assert name == "PolicyList"
-        assert BAS_POL_TABLE in group.pinned_tables
-        with patch("suiteview.audit.dialogs.policy_list_dialog.PolicyListDialog.exec",
+        assert name == "PastedList"
+        assert BAS_POL_TABLE not in group.pinned_tables
+        assert group.joins_tab.canvas_tables() == [name]
+        assert group.joins_tab.get_join_infos() == []
+        assert group.inline_tables[name]["columns"] == ["PolicyNumber", "CompanyCode", "Note"]
+        with patch("suiteview.audit.dialogs.pasted_list_dialog.PastedListDialog.exec",
                    return_value=1):
-            assert group.paste_policy_list(EXCEL) == "PolicyList_2"
+            assert group.paste_policy_list(EXCEL) == "PastedList_2"
     finally:
         group.close()
+
+
+def test_list_box_double_click_edit_rename_and_delete(app):
+    group, name = _pasted_query()
+    canvas = group.joins_tab
+    try:
+        edits, views = [], []
+        canvas.list_edit_requested.connect(edits.append)
+        canvas.table_view_requested.connect(views.append)
+        with patch("suiteview.audit.dialogs.pasted_list_dialog.PastedListDialog.exec",
+                   return_value=0) as exec_:
+            canvas.scene.box_double_clicked.emit(name)
+            canvas.scene.box_double_clicked.emit(BAS_POL_TABLE)
+        assert edits == [name] and exec_.call_count == 1
+
+        from suiteview.audit.dialogs import tables_dialog
+        from suiteview.audit.query_builder_menu import query_builder_menu
+        menu = query_builder_menu(canvas.view)
+        canvas._extend_source_menu(menu, name)
+        labels = [a.text() for a in menu.actions() if a.text()]
+        assert labels == ["Open Table View\u2026", "Edit Pasted List\u2026"]
+        next(a for a in menu.actions() if a.text().startswith("Open")).trigger()
+        assert views == [name]
+        for window in list(tables_dialog._OPEN_TABLE_VIEWS):
+            window.close()
+
+        # Renamed columns follow into the joins; columns on Display are locked.
+        group.select_tab.add_field(f"{name}.Note", "Note")
+        assert group._list_columns_in_use(name) == {"Note"}
+        assert group.rename_list_columns(name, ["Policy", "CompanyCode", "SystemCode", "Note"])
+        assert group.inline_tables[name]["columns"][0] == "Policy"
+        [info] = canvas.get_join_infos()
+        assert info["on_pairs"][0] == ("Policy", "CK_POLICY_NBR")
+        assert "Policy" in canvas.model.get_source(name).field_names()
+
+        # Selecting the list box and pressing Delete removes the list from the query.
+        canvas.scene.box_items[name].setSelected(True)
+        with patch("suiteview.audit.dynamic_group.QMessageBox.question",
+                   return_value=QMessageBox.StandardButton.Yes):
+            canvas.view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+                                                Qt.KeyboardModifier.NoModifier))
+        assert name not in group.inline_tables and name not in group.table_sources
+        assert name not in group.tables and name not in group.pinned_tables
+        assert canvas.canvas_tables() == [BAS_POL_TABLE]
+
+        # A database box is only taken off the canvas.
+        canvas.scene.box_items[BAS_POL_TABLE].setSelected(True)
+        canvas.view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+                                            Qt.KeyboardModifier.NoModifier))
+        assert canvas.canvas_tables() == [] and BAS_POL_TABLE in group.tables
+    finally:
+        group.close()
+
+
+def test_table_view_window_shows_a_pasted_list_with_adjustable_rows(app):
+    from suiteview.audit.dialogs import tables_dialog
+
+    group, name = _pasted_query()
+    try:
+        view = group.open_table_view(name)
+        try:
+            assert view.isWindow() and view.parent() is None
+            assert view in tables_dialog._OPEN_TABLE_VIEWS
+            assert view.row_limit() == 1000
+            assert len(view.table.df) == 2
+            view.spn_rows.setValue(1)
+            view._reload_if_changed()
+            assert len(view.table.df) == 1
+            assert view.lbl_status.text().startswith("1 rows")
+        finally:
+            view.close()
+    finally:
+        group.close()
+    assert tables_dialog._table_view_sql("DB2TAB.LH_BAS_POL", "DB2", 250) == (
+        'SELECT * FROM "DB2TAB"."LH_BAS_POL" FETCH FIRST 250 ROWS ONLY')
+    assert tables_dialog._table_view_sql("dbo.T", "SQLSERVER", 5) == (
+        "SELECT TOP 5 * FROM [dbo].[T]")

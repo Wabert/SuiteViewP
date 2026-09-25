@@ -1118,27 +1118,30 @@ class FieldPickerPanel(QWidget):
     # ── Table context menu / buttons ─────────────────────────────
 
     def _show_table_context_menu(self, pos):
-        """Right-click a table → pin/unpin or show field details."""
-        if self._local_mode and not self._multi_source:
-            return  # file-backed tables aren't ODBC-removable / previewable here
+        """Right-click a table → Table View window, or remove it."""
         item = self.list_tables.itemAt(pos)
         if item is None:
             return
         table = item.data(Qt.ItemDataRole.UserRole) or item.text()
         if table == "__separator__":
             return
+        view_only = self._local_mode and not self._multi_source
 
         menu = query_builder_menu(self)
         is_common = table in self._common_table_cols
-        is_file = table in self._table_sources
-        if not is_common:
+        if view_only:
+            act_view = menu.addAction("Open Table View\u2026")
+            act_remove_table = act_remove_common = None
+        elif not is_common:
+            act_view = menu.addAction("Open Table View\u2026")
+            act_view.setToolTip("Show this table's rows in a separate window (1000 rows by default).")
+            menu.addSeparator()
             act_remove_table = menu.addAction("Remove Table")
             act_remove_common = None
-            act_preview = None if is_file else menu.addAction("View Top 1000 Rows")
         else:
+            act_view = None
             act_remove_table = None
             act_remove_common = menu.addAction("Remove Common Table")
-            act_preview = None
 
         chosen = menu.exec(self.list_tables.mapToGlobal(pos))
         if chosen is None:
@@ -1156,15 +1159,21 @@ class FieldPickerPanel(QWidget):
         if act_remove_common is not None and chosen is act_remove_common:
             self.common_table_remove_requested.emit(table)
             return
-        if act_preview is not None and chosen is act_preview:
+        if act_view is not None and chosen is act_view:
             self._preview_table(table)
 
     def _preview_table(self, table: str):
-        if not self._dsn:
-            return
-        from suiteview.audit.dialogs.tables_dialog import _TablePreviewDialog
-        dlg = _TablePreviewDialog(self._dsn, table, self)
-        dlg.show()
+        """Open ``table`` (database, file dataset or pasted list) in a Table View window."""
+        from suiteview.audit.dialogs.tables_dialog import open_table_view
+        token = self._table_sources.get(table, "")
+        if is_list_token(token):
+            open_table_view("", table, inline_data=self._inline_tables.get(table, {}))
+        elif is_file_token(token):
+            open_table_view("", table, source_token=token)
+        elif self._dsn and not is_local_token(self._dsn):
+            open_table_view(self._dsn, table)
+        elif is_file_token(self._dsn):
+            open_table_view("", table, source_token=self._dsn)
 
     def _show_common_table_dialog(self):
         from suiteview.audit import common_table_store
@@ -1299,13 +1308,10 @@ class FieldPickerPanel(QWidget):
             + "\n".join(tables))
 
     def _on_view_table(self):
-        """Preview first 1000 rows of the selected table."""
+        """Open the selected table in a Table View window."""
         current = self.list_tables.currentItem()
         if current is None:
             return
-        if not self._dsn:
-            return
         table = current.data(Qt.ItemDataRole.UserRole) or current.text()
-        from .dialogs.tables_dialog import _TablePreviewDialog
-        dlg = _TablePreviewDialog(self._dsn, table, self)
-        dlg.show()
+        if table and table != "__separator__":
+            self._preview_table(table)

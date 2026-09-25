@@ -29,7 +29,7 @@ COV_COLS = ["CK_SYS_CD", "CK_CMP_CD", "TCH_POL_ID", "COV_PHA_NBR", "PLN_DES_SER_
 CLIPBOARD = ("Policy\tCo\tAgent note\n"
              "U0532652\t1\tcall back\n"
              "E0213651\t1\t\n"
-             "226237\t26\tleading zeros lost\n"
+             "000226237\t26\t\n"
              "U0532652\t01\tduplicate\n")
 
 
@@ -70,7 +70,8 @@ def main() -> int:
 
     import pandas as pd
 
-    from suiteview.audit.dialogs.policy_list_dialog import PolicyListDialog
+    from suiteview.audit.dialogs import tables_dialog
+    from suiteview.audit.dialogs.pasted_list_dialog import PastedListDialog
     from suiteview.audit.dynamic_group import DynamicQuery
     from suiteview.audit.federated_query import execute_federated_plan
 
@@ -90,49 +91,57 @@ def main() -> int:
     group.show()
     app.processEvents()
 
-    original_exec = PolicyListDialog.exec
+    original_exec = PastedListDialog.exec
 
     def exec_and_capture(dialog):
-        dialog.resize(760, 480)
+        dialog.resize(640, 420)
         dialog.show()
         app.processEvents()
-        report["dialog_summary"] = dialog.lbl_summary.text()
-        report["dialog_warnings"] = dialog.lbl_warnings.text()
+        report["dialog_columns"] = dialog.column_names()
+        report["dialog_count"] = dialog.lbl_count.text()
         if out:
             dialog.grab().save(str(out / "paste_dialog.png"))
-        dialog.chk_pad.setChecked(True)  # restore the dropped leading zeros
-        report["dialog_summary_padded"] = dialog.lbl_summary.text()
-        report["dialog_warnings_padded"] = dialog.lbl_warnings.text()
+        dialog.rename_column(2, "Note")
+        report["dialog_columns_renamed"] = dialog.column_names()
         QTimer.singleShot(0, dialog.accept)
         return original_exec(dialog)
 
-    with patch.object(PolicyListDialog, "exec", exec_and_capture):
+    with patch.object(PastedListDialog, "exec", exec_and_capture):
         group.joins_tab.btn_paste_list.click()
     clipboard.setText(previous_clipboard)
 
-    name = "PolicyList"
-    group.joins_tab.set_table_columns(POL, POL_COLS)
-    report["inline_rows"] = group.inline_tables.get(name, {}).get("rows")
-    report["join"] = group.joins_tab.get_join_infos()
-    group.refresh_plan_badges()
-    app.processEvents()
-    report["badges_after_paste"] = group.joins_tab.box_status()
-    if out:
-        group.grab().save(str(out / "after_paste.png"))
+    name = "PastedList"
+    report["inline"] = group.inline_tables.get(name)
+    report["joins_after_paste"] = group.joins_tab.get_join_infos()
 
-    group.set_pinned_tables([*group.pinned_tables, COV])
-    group.joins_tab.set_table_columns(COV, COV_COLS)
-    group.joins_tab.ensure_on_canvas(COV)
+    view = group.open_table_view(name)
     app.processEvents()
-    report["suggestion_banner"] = group.joins_tab.lbl_suggestion.text()
-    report["suggested_keys"] = len(group.joins_tab.scene.suggestion_items)
+    report["table_view_rows"] = len(view.table.df)
+    report["table_view_limit"] = view.row_limit()
     if out:
-        group.grab().save(str(out / "suggestion.png"))
-    group.joins_tab.accept_all_suggestions()
+        view.grab().save(str(out / "table_view.png"))
+    view.close()
+
+    for table, cols in ((POL, POL_COLS), (COV, COV_COLS)):
+        group.set_pinned_tables([*group.pinned_tables, table])
+        group.joins_tab.set_table_columns(table, cols)
+        group.joins_tab.ensure_on_canvas(table)
+        app.processEvents()
+        report.setdefault("suggested", []).append(group.joins_tab.lbl_suggestion.text())
+        group.joins_tab.accept_all_suggestions()
+        if table == POL:
+            # Every pasted row stays in the result, found or not.
+            join = group.joins_tab.model.find_join(name, POL)
+            group.joins_tab.model.set_how(
+                name, POL, "left" if join is not None and join.left_source == name else "right")
+            group.joins_tab.scene.rebuild()
+    report["join"] = group.joins_tab.get_join_infos()
+    if out:
+        group.grab().save(str(out / "after_joins.png"))
 
     tab = group._criteria_tabs[0]
     group.select_tab.add_field(f"{name}.PolicyNumber", "PolicyNumber")
-    group.select_tab.add_field(f"{name}.Agent note", "Agent note")
+    group.select_tab.add_field(f"{name}.Note", "Note")
     group.select_tab.add_field(f"{POL}.TCH_POL_ID", "TCH_POL_ID")
     group.select_tab.add_field(f"{COV}.PLN_DES_SER_CD", "PLN_DES_SER_CD")
     tab.add_field_auto(COV, "COV_PHA_NBR", "SMALLINT", "COV_PHA_NBR")
@@ -165,22 +174,29 @@ def main() -> int:
         (out / "sql.txt").write_text(prepared.sql, encoding="utf-8")
     group.close()
 
-    by_policy = {r["PolicyNumber"]: r for r in report["result"]}
+    by_policy = {}
+    for r in report["result"]:
+        by_policy.setdefault(r["PolicyNumber"], r)
+    pol_join = next((j for j in report["join"]
+                     if {j["left_table"], j["right_table"]} == {name, POL}), {})
     report["all_ok"] = bool(
-        "leading zeros" in report["dialog_warnings"]
-        and report["dialog_warnings_padded"] == ""
-        and report["inline_rows"] and [r[0] for r in report["inline_rows"]]
-        == ["U0532652", "E0213651", "000226237"]
-        and report["join"] and report["join"][0]["join_type"] == "LEFT OUTER JOIN"
-        and report["badges_after_paste"].get(name) == ("info", "3 pasted rows")
-        and report["badges_after_paste"].get(POL, ("",))[0] == "ok"
-        and report["suggested_keys"] == 3
+        report["dialog_columns"] == ["PolicyNumber", "CompanyCode", "Agent note"]
+        and report["dialog_columns_renamed"] == ["PolicyNumber", "CompanyCode", "Note"]
+        and report["dialog_count"] == "4 rows"
+        and report["inline"]["columns"] == ["PolicyNumber", "CompanyCode", "Note"]
+        and [r[:2] for r in report["inline"]["rows"]] == [
+            ["U0532652", "01"], ["E0213651", "01"], ["000226237", "26"], ["U0532652", "01"]]
+        and report["joins_after_paste"] == []
+        and report["table_view_rows"] == 4 and report["table_view_limit"] == 1000
+        and sorted(tuple(sorted(pair)) for pair in pol_join.get("on_pairs", [])) == [
+            ("CK_CMP_CD", "CompanyCode"), ("CK_POLICY_NBR", "PolicyNumber")]
+        and (pol_join.get("join_type") == "LEFT OUTER JOIN") == (pol_join.get("left_table") == name)
         and "TCH_POL_ID" in report["badges_final"].get(COV, ("", "", ""))[2]
-        and "IN ('U0532652', 'E0213651', '000226237')" in report["staging_sql"][0]
-        and "IN ('U0532652  QA', '000226237 QB')" in report["staging_sql"][1]
+        and len(report["staging_sql"]) == 2
+        and len(report["result"]) == 3  # COV_PHA_NBR = 1 drops E0213651 (no coverage)
         and by_policy["U0532652"]["PLN_DES_SER_CD"] == "1U143900"
         and by_policy["000226237"]["PLN_DES_SER_CD"] == "NU1F3H00"
-        and len(report["result"]) == 2  # COV_PHA_NBR = 1 on the right side filters E0213651
+        and not tables_dialog._OPEN_TABLE_VIEWS
     )
     print(json.dumps(report, indent=2, default=str))
     return 0 if report["all_ok"] else 1

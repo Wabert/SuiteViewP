@@ -151,6 +151,7 @@ class SourceBoxItem(QGraphicsObject):
         self._resize_start_width = self.width
         self._resize_start_rows = self.visible_rows
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
                      True)
         self.setAcceptHoverEvents(True)
@@ -311,6 +312,10 @@ class SourceBoxItem(QGraphicsObject):
                      handle.topRight() + QPointF(-2, 3))
             painter.drawLine(handle.bottomLeft() + QPointF(7, -2),
                      handle.topRight() + QPointF(-2, 7))
+        if self.isSelected():
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(self.theme.line_selected, 2))
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 4, 4)
 
     # -- events --
     def itemChange(self, change, value):
@@ -861,6 +866,7 @@ class JoinCanvasScene(QGraphicsScene):
     query_dropped_on_append = pyqtSignal(str, str)
     line_activated = pyqtSignal(object, object)  # JoinLineItem, global QPoint
     suggestion_accepted = pyqtSignal(str, str)   # left alias, right alias
+    box_double_clicked = pyqtSignal(str)         # Source box alias
 
     def __init__(self, model: JoinCanvasModel, parent=None, *,
                  theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
@@ -1196,6 +1202,15 @@ class JoinCanvasScene(QGraphicsScene):
             return
         super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        item = self.itemAt(event.scenePos(), self._view_transform())  # type: ignore[arg-type]
+        if isinstance(item, SourceBoxItem) and event.button() == Qt.MouseButton.LeftButton \
+                and not item.is_resize_handle(item.mapFromScene(event.scenePos())):
+            self.box_double_clicked.emit(item.alias)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def _begin_link(self, box: SourceBoxItem, field: str, scene_pos):
         self._link_from = (box, field)
         self._temp_line = QGraphicsPathItem()
@@ -1302,6 +1317,7 @@ class JoinCanvasView(QWidget):
         self.scene.warning_requested.connect(self._show_canvas_warning)
         self.scene.query_dropped_on_append.connect(self._add_query_to_append)
         self.scene.line_activated.connect(self._on_line_activated)
+        self.scene.box_double_clicked.connect(self._on_box_double_clicked)
         self._allow_appends = allow_appends
 
         self.view = _CanvasGraphicsView(self.scene, self)
@@ -1546,6 +1562,13 @@ class JoinCanvasView(QWidget):
             act = add_menu.addAction("No available queries")
             act.setEnabled(False)
 
+    def _extend_source_menu(self, menu, alias: str) -> None:
+        """Add subclass actions to a Source box's right-click menu."""
+        return None
+
+    def _on_box_double_clicked(self, alias: str) -> None:
+        return None
+
     # ── Join properties ──────────────────────────────────────────────────
 
     def join_type_choices(self, line: JoinLineItem) -> list[tuple[str, str]]:
@@ -1640,6 +1663,7 @@ class JoinCanvasView(QWidget):
                 act_fewer = menu.addAction("Show Fewer Rows")
                 act_fewer.setEnabled(item.visible_rows > _MIN_VISIBLE_ROWS)
                 act_fewer.triggered.connect(lambda: item.resize_rows(-5))
+            self._extend_source_menu(menu, item.alias)
             menu.addSeparator()
             act_delete = menu.addAction("Delete Table")
             act_delete.triggered.connect(
@@ -1661,5 +1685,11 @@ class JoinCanvasView(QWidget):
             line = self._selected_line()
             if line is not None:
                 self.scene.remove_line(line)
+                return
+            boxes = [item.alias for item in self.scene.selectedItems()
+                     if isinstance(item, SourceBoxItem)]
+            if boxes:
+                for alias in boxes:
+                    self._remove_query_table(alias)
                 return
         QGraphicsView.keyPressEvent(self.view, event)

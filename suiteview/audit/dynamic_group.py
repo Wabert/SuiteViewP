@@ -312,6 +312,9 @@ class DynamicQuery(QWidget):
         self.joins_tab.state_changed.connect(self._schedule_plan_refresh)
         self.joins_tab.add_tables_requested.connect(self.add_tables_requested)
         self.joins_tab.paste_policy_list_requested.connect(self.paste_policy_list)
+        self.joins_tab.list_edit_requested.connect(self.edit_list_table)
+        self.joins_tab.list_remove_requested.connect(self.remove_list_table)
+        self.joins_tab.table_view_requested.connect(self.open_table_view)
         self.common_tables_tab.state_changed.connect(self._schedule_save)
         self.common_tables_tab.state_changed.connect(self._sync_common_tables_to_joins)
         self.select_tab.state_changed.connect(self._schedule_save)
@@ -382,22 +385,126 @@ class DynamicQuery(QWidget):
         self._schedule_plan_refresh()
         self._schedule_save()
 
-    # ── Pasted policy lists ──────────────────────────────────────────
+    # ── Pasted lists ─────────────────────────────────────────────────
 
     def paste_policy_list(self, text: str | None = None) -> str:
-        """Paste a policy list from the clipboard (or ``text``); returns its table name."""
-        from .dialogs.policy_list_dialog import PolicyListDialog
+        """Paste a list from the clipboard (or ``text``); returns its table name."""
+        from .dialogs.pasted_list_dialog import PastedListDialog
 
-        dialog = PolicyListDialog(
+        dialog = PastedListDialog(
             taken_names=set(self._known_tables()) | self._common_table_names(),
-            can_join_bas_pol=self._can_join_bas_pol(),
             text=text,
             parent=self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_list() is None:
+        data = dialog.result_data() if dialog.exec() == QDialog.DialogCode.Accepted else None
+        if data is None:
             return ""
-        return self.add_policy_list(dialog.table_name(), dialog.result_list(),
-                                    join_to_bas_pol=dialog.join_to_bas_pol())
+        return self.add_list_table(dialog.table_name(), data)
+
+    def add_list_table(self, name: str, data: dict) -> str:
+        """Add pasted rows (``{"columns": [...], "rows": [...]}``) as a list table."""
+        self.inline_tables[name] = {
+            "columns": list(data.get("columns", [])),
+            "rows": [list(row) for row in data.get("rows", [])],
+        }
+        self.table_sources[name] = list_token(name)
+        if name not in self.tables:
+            self.tables.append(name)
+        if name not in self.pinned_tables:
+            self.pinned_tables.append(name)
+        self._push_local_tables()
+        self._sync_tables_to_joins()
+        self.joins_tab.ensure_on_canvas(name)
+        self.sources_changed.emit()
+        self.tab_widget.setCurrentWidget(self.joins_tab)
+        self._schedule_plan_refresh()
+        self._schedule_save()
+        return name
+
+    def _list_columns_in_use(self, table: str) -> set[str]:
+        """Columns of ``table`` placed on a Filter tab or Display."""
+        known = self._known_tables()
+        keys = [row.field_key for tab in self._criteria_tabs for row in tab.grid._rows]
+        keys.extend(sc.get("field_key", "") for sc in self.select_tab.get_select_columns())
+        used: set[str] = set()
+        for key in keys:
+            key_table, column = split_field_key(key, known)
+            if key_table == table and column:
+                used.add(column)
+        return used
+
+    def edit_list_table(self, name: str) -> bool:
+        """Reopen a pasted list to review its rows and rename columns."""
+        from .dialogs.pasted_list_dialog import PastedListDialog
+
+        data = self.inline_tables.get(name)
+        if data is None:
+            return False
+        dialog = PastedListDialog(
+            taken_names=set(), existing=data, name=name,
+            locked_columns=self._list_columns_in_use(name), parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        return self.rename_list_columns(name, dialog.column_names())
+
+    def rename_list_columns(self, name: str, columns: list[str]) -> bool:
+        """Give list ``name`` new column names (same order); joins follow."""
+        data = self.inline_tables.get(name)
+        old = list(data.get("columns", [])) if data else []
+        if data is None or len(columns) != len(old) or columns == old:
+            return False
+        renames = {o: n for o, n in zip(old, columns) if o != n}
+        data["columns"] = list(columns)
+        self._push_local_tables()
+        self.joins_tab.rename_table_columns(name, renames)
+        self.sources_changed.emit()
+        self._schedule_plan_refresh()
+        self._schedule_save()
+        return True
+
+    def remove_list_table(self, name: str, *, confirm: bool = True) -> bool:
+        """Remove a pasted list (its box, joins and data) from this query."""
+        if name not in self.inline_tables and name not in self.table_sources:
+            return False
+        if confirm:
+            reply = QMessageBox.question(
+                self, "Remove Pasted List",
+                f"Remove the pasted list {name} from this query?\n"
+                "Its rows are discarded; paste them again to get them back.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return False
+        self.inline_tables.pop(name, None)
+        self.table_sources.pop(name, None)
+        self.tables = [t for t in self.tables if t != name]
+        self.pinned_tables = [t for t in self.pinned_tables if t != name]
+        self.joins_tab.scene.remove_source(name)
+        self._push_local_tables()
+        self._sync_tables_to_joins()
+        self.sources_changed.emit()
+        self._schedule_plan_refresh()
+        self._schedule_save()
+        return True
+
+    def open_table_view(self, table: str):
+        """Show ``table`` in a separate Table View window (1000 rows by default)."""
+        from .dialogs.tables_dialog import open_table_view
+
+        token = self.source_for(table)
+        if is_list_token(token):
+            return open_table_view("", table, inline_data=self.inline_tables.get(table, {}))
+        if is_file_token(token):
+            return open_table_view("", table, source_token=token)
+        if table in self._common_table_names():
+            QMessageBox.information(
+                self, "Table View", f"{table} is a Common Table; it has no stored rows to show.")
+            return None
+        if not token:
+            QMessageBox.information(self, "Table View", "Choose a connection in SQL Assist first.")
+            return None
+        return open_table_view(token, table)
+
+    # ── Policy lists joined to LH_BAS_POL (programmatic) ─────────────
 
     def _can_join_bas_pol(self) -> bool:
         # UNKNOWN: the DSN isn't registered on this machine; a wrong guess fails
@@ -408,20 +515,13 @@ class DynamicQuery(QWidget):
     def add_policy_list(self, name: str, policy_list: PolicyList, *,
                         join_to_bas_pol: bool) -> str:
         """Add a normalized policy list as a table, optionally joined to LH_BAS_POL."""
-        self.inline_tables[name] = {
-            "columns": list(policy_list.columns),
-            "rows": [list(row) for row in policy_list.rows],
-        }
-        self.table_sources[name] = list_token(name)
-        for table in ([name, BAS_POL_TABLE] if join_to_bas_pol else [name]):
-            if table not in self.tables:
-                self.tables.append(table)
-            if table not in self.pinned_tables:
-                self.pinned_tables.append(table)
-        self._push_local_tables()
-        self._sync_tables_to_joins()
-        self.joins_tab.ensure_on_canvas(name)
+        self.add_list_table(name, {"columns": policy_list.columns, "rows": policy_list.rows})
         if join_to_bas_pol:
+            if BAS_POL_TABLE not in self.tables:
+                self.tables.append(BAS_POL_TABLE)
+            if BAS_POL_TABLE not in self.pinned_tables:
+                self.pinned_tables.append(BAS_POL_TABLE)
+            self._sync_tables_to_joins()
             self.joins_tab.ensure_on_canvas(BAS_POL_TABLE)
             self._place_right_of(BAS_POL_TABLE, name)
             keys = [(POLICY_COLUMN, "CK_POLICY_NBR")]
@@ -435,10 +535,8 @@ class DynamicQuery(QWidget):
             self.joins_tab.model.set_how(name, BAS_POL_TABLE, "left")
             self.joins_tab.scene.rebuild()
             self.joins_tab._update_suggestions()
-        self.sources_changed.emit()
-        self.tab_widget.setCurrentWidget(self.joins_tab)
-        self._schedule_plan_refresh()
-        self._schedule_save()
+            self.sources_changed.emit()
+            self._schedule_save()
         return name
 
     def _place_right_of(self, table: str, anchor: str):

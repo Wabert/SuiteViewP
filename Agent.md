@@ -1139,17 +1139,25 @@ Regression: `tests/test_visual_query_federated.py`,
 reader + DuckDB, stand-in DB2 fetch): `tools/app/verify_visual_query_joins.py
 --screenshot <dir>`. Live DB2 verification is tracked in WORK_LAPTOP_SPEC.md.
 
-**Paste Policy List** (Joins toolbar, Add Table menu, or Ctrl+V on the canvas)
-turns rows copied from Excel into an in-query table (`list:<name>` in
-`table_sources`; its data in config `inline_tables`), left-joined to
-`DB2TAB.LH_BAS_POL` on `PolicyNumber`/`CompanyCode`/`SystemCode` →
-`CK_POLICY_NBR`/`CK_CMP_CD`/`CK_SYS_CD`, so every pasted row stays in the
-result. `policy_list.py` owns parsing (tab/comma/semicolon/space, header and
-column guessing): policies trimmed/upper-cased, one-digit companies regain the
-leading zero, other pasted columns are kept. Unknown/blank companies, missing
-company column and possible Excel-dropped policy leading zeros are warned;
-padding all-digit policies is an explicit choice (default off, 9 digits),
-never a guess. Pasted lists run federated like file datasets.
+**Paste List** (Joins toolbar, Add Table menu, or Ctrl+V on the canvas) turns
+rows copied from Excel into an in-query table (`list:<name>` in `table_sources`;
+its data in config `inline_tables`). The dialog only shows the pasted data: columns
+are `C1`, `C2` … (or the pasted header names); a column that is clearly a policy
+number or company code (header alias, or policy-shaped values) is named
+`PolicyNumber`/`CompanyCode` and normalized (trim/upper; one-digit companies regain
+the leading zero). Nothing else is assumed — no system code, no automatic join, no
+de-duplication; use Suggest Joins. Double-click a heading to rename a column.
+Double-click the list's canvas box (or right-click › Edit Pasted List) to reopen it
+and rename columns (joins follow; columns on Display/Filter are locked). Deleting
+the box (right-click › Delete Table, or select + Delete) removes the list from the
+query. `policy_list.py` owns parsing; `add_policy_list` remains for programmatic
+lists left-joined to `DB2TAB.LH_BAS_POL`. Pasted lists run federated like file
+datasets.
+
+**Table View**: right-click a table in SQL Assist or a box on the canvas ›
+**Open Table View…** opens a separate window (`tables_dialog.open_table_view`) with
+the first 1000 rows; change **Rows** and Reload. Works for database tables, file
+datasets and pasted lists.
 
 **Join suggestions** (`join_suggestions.py`): each canvas table not yet joined
 gets one best partner, drawn as dashed gold `+ JOIN?` lines with a banner

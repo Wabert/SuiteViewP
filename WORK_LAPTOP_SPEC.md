@@ -516,12 +516,15 @@ real CSV reader and DuckDB with a stand-in DB2 fetch). **Verify live, read-only:
   "Download Whole Table?" — answer No.
 - Save, reopen: SQL Assist shows both tables (file icon), the canvas restores
   boxes, badge and join type; Run again gives the same rows.
-- **Paste Policy List:** copy ~20 policies + company codes from Excel (include a
+- **Paste List:** copy ~20 policies + company codes from Excel (include a
   company-26 numeric policy and a one-digit company like `1`), Ctrl+V on the
-  Joins tab. Confirm company `1` → `01`; tick "Restore leading zeros" only if the
-  real `CK_POLICY_NBR` length is 9 (verify the actual company-26 length first).
-  Run with no fields: every pasted row returns, unknown policies with blank
-  LH_BAS_POL columns; the SQL tab shows `CK_POLICY_NBR IN (...)`.
+  Joins tab. Confirm the dialog shows only the data, company `1` → `01`, and
+  other columns are named `C1`…; rename one by double-clicking its heading.
+  Paste plan codes alone and confirm nothing is called PolicyNumber. Add
+  LH_BAS_POL, accept the suggested join, set it to keep all list rows, then run
+  with no fields: every pasted row returns, unknown policies with blank
+  LH_BAS_POL columns; the SQL tab shows `CK_POLICY_NBR IN (...)`. Right-click a
+  table › Open Table View: 1000 rows by default; change Rows and Reload.
 - Add `LH_COV_PHA`: a dashed suggestion for the full policy key appears; accept
   it and confirm the badge reads "Only rows matching LH_BAS_POL" and the staged
   SQL is `TCH_POL_ID IN (...)`. Close the query while columns are still loading —

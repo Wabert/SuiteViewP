@@ -57,7 +57,7 @@ _SQL_TO_HOW.update({"LEFT JOIN": "left", "RIGHT JOIN": "right", "FULL JOIN": "ou
 _EMPTY_TEXT = (
     "Drag tables or file datasets here from SQL Assist\n"
     "(or right-click  \u203a  Add Table)\n\n"
-    "Have a list of policies in Excel? Copy it and press Ctrl+V here.\n\n"
+    "Have data in Excel? Copy it and press Ctrl+V here.\n\n"
     "Then drag a field onto a field in another table to join them."
 )
 
@@ -87,6 +87,9 @@ class VisualJoinsTab(JoinCanvasView):
     state_changed = pyqtSignal()
     add_tables_requested = pyqtSignal(str)  # ADD_KIND_ODBC / ADD_KIND_FILES
     paste_policy_list_requested = pyqtSignal()
+    list_edit_requested = pyqtSignal(str)    # pasted list box double-clicked
+    list_remove_requested = pyqtSignal(str)  # pasted list box deleted
+    table_view_requested = pyqtSignal(str)   # "Open Table View" on a box
 
     def __init__(self, tables: list[str] | None = None,
                  dsn: str = "", parent=None):
@@ -120,10 +123,10 @@ class VisualJoinsTab(JoinCanvasView):
         row = QHBoxLayout(bar)
         row.setContentsMargins(4, 3, 4, 1)
         row.setSpacing(4)
-        self.btn_paste_list = QPushButton("\U0001F4CB Paste Policy List")
+        self.btn_paste_list = QPushButton("\U0001F4CB Paste List")
         self.btn_paste_list.setToolTip(
-            "Paste policy numbers (and company codes) copied from Excel. They become a\n"
-            "list table joined to LH_BAS_POL, so you can pull more data about them. (Ctrl+V)")
+            "Paste rows copied from Excel as a list table. (Ctrl+V)\n"
+            "Double-click its box later to review the rows or rename columns.")
         self.btn_paste_list.clicked.connect(self.paste_policy_list_requested)
         self.btn_suggest = QPushButton("\u2728 Suggest Joins")
         self.btn_suggest.setToolTip(
@@ -498,8 +501,46 @@ class VisualJoinsTab(JoinCanvasView):
         act_db.triggered.connect(lambda: self.add_tables_requested.emit(ADD_KIND_ODBC))
         act_files = add_menu.addAction("Browse file datasets\u2026")
         act_files.triggered.connect(lambda: self.add_tables_requested.emit(ADD_KIND_FILES))
-        act_paste = add_menu.addAction("Paste policy list from clipboard\u2026")
+        act_paste = add_menu.addAction("Paste list from clipboard\u2026")
         act_paste.triggered.connect(self.paste_policy_list_requested)
+
+    # ── Box actions (Table View, pasted-list edit/remove) ────────────────
+
+    def is_list_table(self, table: str) -> bool:
+        return is_list_token(self._local_tables.get(table, ""))
+
+    def _extend_source_menu(self, menu, alias: str) -> None:
+        menu.addSeparator()
+        act_view = menu.addAction("Open Table View\u2026")
+        act_view.triggered.connect(lambda _=False, a=alias: self.table_view_requested.emit(a))
+        if self.is_list_table(alias):
+            act_edit = menu.addAction("Edit Pasted List\u2026")
+            act_edit.triggered.connect(lambda _=False, a=alias: self.list_edit_requested.emit(a))
+
+    def _on_box_double_clicked(self, alias: str) -> None:
+        if self.is_list_table(alias):
+            self.list_edit_requested.emit(alias)
+
+    def _remove_query_table(self, alias: str):
+        # A pasted list lives only in this query: deleting its box removes the list.
+        if self.is_list_table(alias):
+            self.list_remove_requested.emit(alias)
+            return
+        super()._remove_query_table(alias)
+
+    def rename_table_columns(self, table: str, renames: dict[str, str]) -> None:
+        """Follow renamed columns of ``table`` in its joins and on its box."""
+        if not renames:
+            return
+        for join in self.model.joins:
+            for key in join.keys:
+                if join.left_source == table and key.left_field in renames:
+                    key.left_field = renames[key.left_field]
+                if join.right_source == table and key.right_field in renames:
+                    key.right_field = renames[key.right_field]
+        self.scene.rebuild()
+        self._update_suggestions()
+        self.state_changed.emit()
 
     # ── SQL adapter ──────────────────────────────────────────────────────
 
