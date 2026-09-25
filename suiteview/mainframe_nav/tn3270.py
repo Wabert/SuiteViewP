@@ -34,18 +34,6 @@ class TelnetOpt(IntEnum):
     TN3270E = 40
 
 
-# 3270 Commands
-class Cmd3270(IntEnum):
-    W = 0x01      # Write
-    EW = 0x05     # Erase/Write
-    EWA = 0x0D    # Erase/Write Alternate
-    RB = 0x02     # Read Buffer
-    RM = 0x06     # Read Modified
-    RMA = 0x0E    # Read Modified All
-    EAU = 0x0F    # Erase All Unprotected
-    WSF = 0x11    # Write Structured Field
-
-
 # 3270 Orders
 class Order3270(IntEnum):
     SF = 0x1D     # Start Field

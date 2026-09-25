@@ -361,59 +361,6 @@ class TransactionInfo:
 
 
 # =============================================================================
-# RECORDS 89, 90 — PERSONS
-# =============================================================================
-
-@dataclass
-class PersonInfo:
-    """Person information from LH_CTT_CLIENT / VH_POL_HAS_LOC_CLT."""
-    person_code: str                    # PRS_CD
-    person_seq: int                     # PRS_SEQ_NBR
-    person_desc: str                    # Translated person code
-    first_name: str                     # CK_FST_NM
-    last_name: str                      # CK_LST_NM
-    birth_date: Optional[date]          # BIR_DT
-    gender_code: str                    # GENDER_CD
-    gender_desc: str                    # Translated gender
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class AddressInfo:
-    """Address information from LH_LOC_CLT_ADR."""
-    address_line_1: str                 # ADR_LIN_1
-    address_line_2: str                 # ADR_LIN_2
-    city: str                           # CIT_TXT
-    state_code: str                     # CK_ST_CD
-    zip_code: str                       # ZIP_CD
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-# =============================================================================
-# RECORDS 58, 59 — TARGETS
-# =============================================================================
-
-@dataclass
-class PolicyTargetInfo:
-    """Policy-level target from LH_POL_TARGET / LH_COM_TARGET."""
-    target_type_cd: str                 # TAR_TYP_CD
-    target_type_desc: str               # Translated description
-    target_premium: Optional[Decimal]   # TAR_PRM_AMT
-    target_date: Optional[date]         # TAR_DT
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class GuidelinePremiumInfo:
-    """Guideline premium from LH_COV_INS_GDL_PRM."""
-    coverage_phase: int                 # COV_PHA_NBR
-    rate_type_cd: str                   # PRM_RT_TYP_CD — A=GLP, S=GSP
-    rate_type_desc: str
-    guideline_premium: Optional[Decimal]  # GDL_PRM_AMT
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-# =============================================================================
 # RECORDS 60, 62-64, 75 — TOTALS / MONTHLIVERSARY VALUES
 # =============================================================================
 
@@ -439,50 +386,6 @@ class ActivityInfo:
     activity_type_cd: str
     activity_desc: str
     amount: Optional[Decimal]
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-# =============================================================================
-# RECORD 52 — USER FIELDS
-# =============================================================================
-
-@dataclass
-class UserFieldInfo:
-    """User generic fields from TH_USER_GENERIC."""
-    initial_pay_duration: Optional[int]   # Short pay duration
-    initial_mode: Optional[str]           # Short pay mode
-    dial_to_premium_age: Optional[int]    # DB dial-to-premium age
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-# =============================================================================
-# RECORDS 32, 33, 35 — BILLING
-# =============================================================================
-
-@dataclass
-class BillingInfo:
-    """Billing information from LH_BAS_POL billing fields."""
-    payment_frequency: int              # PMT_FQY_PER
-    billing_mode_desc: str              # Translated billing mode
-    non_standard_mode_cd: str           # NSD_MD_CD
-    bill_day: int                       # BL_DAY_NBR
-    bill_form_cd: str                   # BIL_FRM_CD
-    billing_form_desc: str              # Translated billing form
-    raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-# =============================================================================
-# RECORDS 05-08, 68 — CHANGES
-# =============================================================================
-
-@dataclass
-class PolicyChangeInfo:
-    """Policy change history record."""
-    change_date: Optional[date]
-    change_type: str
-    change_desc: str
-    original_entry_cd: str              # OGN_ETR_CD
-    last_entry_cd: str                  # LST_ETR_CD
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 
