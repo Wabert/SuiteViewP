@@ -43,10 +43,7 @@ def main():
     window.show()
 
     if args.policy:
-        window.lookup_bar.policy_input.setText(args.policy)
-        if args.region:
-            window.lookup_bar.region_combo.setCurrentText(args.region)
-        window.lookup_bar._on_get_policy()
+        window.load_policy(args.policy, region=args.region)
 
     sys.exit(app.exec())
 
