@@ -15,6 +15,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
 
+# Left column width: fits all ten Monthliversary columns with seven-digit
+# values and a vertical scrollbar, so no horizontal scrollbar by default.
+LEFT_COLUMN_WIDTH = 668
+FUND_BOX_SPACING = 4
+FUND_BOX_WIDTH = (LEFT_COLUMN_WIDTH - 2 * FUND_BOX_SPACING) // 3
+
 
 class AdvProdValuesTab(QWidget):
     """Tab for Advanced Product Values - matches VBA SuiteView layout."""
@@ -33,13 +39,13 @@ class AdvProdValuesTab(QWidget):
         left_column.setSpacing(4)
 
         self.policy_info = StyledInfoTableGroup("Policy Info", columns=2, show_table=False)
-        self.policy_info.setFixedSize(595, 190)
+        self.policy_info.setFixedSize(LEFT_COLUMN_WIDTH, 190)
         self._setup_policy_info_fields()
         left_column.addWidget(self.policy_info)
 
         self.surrender_notice = QLabel()
         self.surrender_notice.setWordWrap(True)
-        self.surrender_notice.setFixedWidth(595)
+        self.surrender_notice.setFixedWidth(LEFT_COLUMN_WIDTH)
         self.surrender_notice.setStyleSheet(
             "background: #F0F0F0; color: #555555; font-style: italic; padding: 4px;"
         )
@@ -47,21 +53,21 @@ class AdvProdValuesTab(QWidget):
         left_column.addWidget(self.surrender_notice)
 
         fund_values_row = QHBoxLayout()
-        fund_values_row.setSpacing(4)
+        fund_values_row.setSpacing(FUND_BOX_SPACING)
 
         self.unimpaired_values = StyledInfoTableGroup("Unimpaired Fund Values", show_info=False)
         self.unimpaired_values.setup_table(["FundID", "Amount"])
-        self.unimpaired_values.setFixedSize(195, 156)
+        self.unimpaired_values.setFixedSize(FUND_BOX_WIDTH, 156)
         fund_values_row.addWidget(self.unimpaired_values)
 
         self.impaired_values = StyledInfoTableGroup("Impaired Fund Values", show_info=False)
         self.impaired_values.setup_table(["FundID", "Amount"])
-        self.impaired_values.setFixedSize(195, 156)
+        self.impaired_values.setFixedSize(FUND_BOX_WIDTH, 156)
         fund_values_row.addWidget(self.impaired_values)
 
         self.allocation_percent = StyledInfoTableGroup("Allocation Percent", show_info=False)
         self.allocation_percent.setup_table(["FundID", "Percent"])
-        self.allocation_percent.setFixedSize(195, 156)
+        self.allocation_percent.setFixedSize(FUND_BOX_WIDTH, 156)
         fund_values_row.addWidget(self.allocation_percent)
 
         left_column.addLayout(fund_values_row)
@@ -71,7 +77,7 @@ class AdvProdValuesTab(QWidget):
             ["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg",
              "OtherChrg", "Expenses", "NAR", "MD"]
         )
-        self.mv_values.setFixedWidth(595)
+        self.mv_values.setFixedWidth(LEFT_COLUMN_WIDTH)
         self.mv_values.setMinimumHeight(120)
         self.mv_values.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         left_column.addWidget(self.mv_values, 1)
