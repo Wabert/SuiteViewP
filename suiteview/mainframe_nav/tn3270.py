@@ -453,14 +453,14 @@ class TN3270Client:
         if self.ssl_socket:
             try:
                 self.ssl_socket.close()
-            except:
-                pass
+            except OSError:
+                logger.debug("Ignoring SSL socket close failure during TN3270 disconnect", exc_info=True)
             self.ssl_socket = None
         if self.socket:
             try:
                 self.socket.close()
-            except:
-                pass
+            except OSError:
+                logger.debug("Ignoring socket close failure during TN3270 disconnect", exc_info=True)
         self.socket = None
         self.connected = False
         logger.info("Disconnected")
