@@ -59,9 +59,9 @@ class TermReferenceData:
 
 
 def _connect(dsn: str):
-    import pyodbc
+    from suiteview.core.odbc_utils import connect_dsn
 
-    return pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=10)
+    return connect_dsn(dsn, autocommit=True, timeout=10, readonly=False)
 
 
 def _base_index_of(index_value: str) -> Optional[int]:

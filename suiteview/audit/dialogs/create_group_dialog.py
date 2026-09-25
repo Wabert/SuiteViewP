@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from .tables_dialog import _clean_odbc_identifier
 from ..tabs._styles import TightItemDelegate
+from suiteview.core.odbc_utils import connect_dsn
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ class _TableLoaderThread(QThread):
 
     def run(self):
         try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=15)
+            conn = connect_dsn(
+                self.dsn, autocommit=True, timeout=15, readonly=False,
+            )
             cursor = conn.cursor()
             tables = []
             try:

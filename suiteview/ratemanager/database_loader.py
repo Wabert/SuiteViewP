@@ -18,6 +18,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 import pyodbc
 
+from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.build_env import guard_data_writable
 from suiteview.core.json_store import write_json
 
@@ -1003,8 +1004,8 @@ class ULRatesRepository:
 
     def connect(self) -> pyodbc.Connection:
         if self._connection is None:
-            self._connection = pyodbc.connect(
-                f"DSN={self.dsn}", autocommit=False, timeout=10
+            self._connection = connect_dsn(
+                self.dsn, autocommit=False, timeout=10, readonly=False,
             )
         return self._connection
 

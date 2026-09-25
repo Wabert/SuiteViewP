@@ -28,6 +28,7 @@ This module provides full read access.  Schema is managed externally
 in SQL Server.
 """
 
+from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.profile_paths import profile_path
 
 import logging
@@ -91,8 +92,9 @@ class ABROdbcDatabase:
     def connect(self) -> pyodbc.Connection:
         """Open (or return cached) ODBC connection."""
         if self._conn is None:
-            self._conn = pyodbc.connect(f"DSN={self._dsn}")
-            self._conn.autocommit = False
+            self._conn = connect_dsn(
+                self._dsn, autocommit=False, timeout=None, readonly=False,
+            )
         return self._conn
 
     def close(self):

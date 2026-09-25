@@ -18,9 +18,13 @@ from suiteview.polview.ui.tabs.other_data_tab import OtherDataTab
 @pytest.fixture
 def sources(monkeypatch, tmp_path):
     monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path / "profile"))
-    for module in (cyberlife_pdf_tab, orion_pcr_tab, tai_fd_tab):
-        monkeypatch.setattr(module, "_ul_rates_available", lambda: True)
-    monkeypatch.setattr(sap_tab, "_vrd_prod_available", lambda: True)
+    for cls in (
+        cyberlife_pdf_tab.CyberlifePdfTab,
+        orion_pcr_tab.OrionPcrTab,
+        tai_fd_tab.TaiFdTab,
+        sap_tab.SapTab,
+    ):
+        monkeypatch.setattr(cls, "_dsn_available", lambda self: True)
     claims = Mock(return_value=pd.DataFrame({
         "Policy_Number": ["SYNTHETIC", "SECOND"],
         "Claim_number": ["DEMO-1", "DEMO-2"],
@@ -29,14 +33,22 @@ def sources(monkeypatch, tmp_path):
         "FieldName": ["UserID", "Demo field"], "DEMO": ["TEST", "123"],
     }))
     monkeypatch.setattr(claims_tab.ClaimsTab, "_read_claims_file", claims)
-    monkeypatch.setattr(cyberlife_pdf_tab.CyberlifePdfTab, "_run_query", pdf)
+    monkeypatch.setattr(
+        cyberlife_pdf_tab.CyberlifePdfTab,
+        "_run_query_for_request",
+        lambda self, request: pdf(request),
+    )
     calls = {"CLAIMSFILE": claims, "CYBERLIFE_PDF": pdf}
     for title, cls in (
         ("SAP", sap_tab.SapTab), ("TAICyberTAIFd", tai_fd_tab.TaiFdTab),
         ("orion_pcr3_r", orion_pcr_tab.OrionPcrTab),
     ):
         calls[title] = Mock(return_value=pd.DataFrame({"Demo": ["result"]}))
-        monkeypatch.setattr(cls, "_run_query", calls[title])
+        monkeypatch.setattr(
+            cls,
+            "_run_query_for_request",
+            lambda self, request, call=calls[title]: call(request),
+        )
     return calls
 
 

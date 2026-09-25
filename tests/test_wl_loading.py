@@ -82,7 +82,7 @@ def analysis_for(source, changed=0):
 
 def test_read_only_blocks_ddl_and_writes_before_connect(monkeypatch):
     monkeypatch.setattr(access_control, "get_access", lambda **_: SimpleNamespace(can_update_database=False))
-    with patch("suiteview.ratemanager.database_loader.pyodbc.connect") as connect:
+    with patch("suiteview.ratemanager.database_loader.connect_dsn") as connect:
         with WholeLifeRepository() as repository:
             with pytest.raises(ReadOnlyDataError):
                 repository.create_tables()

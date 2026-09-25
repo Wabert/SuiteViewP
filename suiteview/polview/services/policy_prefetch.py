@@ -16,6 +16,7 @@ from threading import get_ident
 import pyodbc
 
 from suiteview.core import policy_service
+from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.rates import owned_rate_connections
 from suiteview.polview.models.policy_data import connection_provider_scope
 from suiteview.polview.models.policy_information import PolicyInformation
@@ -127,9 +128,9 @@ def _open_connection(region):
         return connect_local_policy_database(region)
     if region not in REGION_DSN_MAP:
         raise ValueError(f"Unknown DB2 region: {region}")
-    connection = pyodbc.connect(
-        f"DSN={REGION_DSN_MAP[region]}", autocommit=True,
-        timeout=CONNECTION_TIMEOUT_SECONDS,
+    connection = connect_dsn(
+        REGION_DSN_MAP[region], autocommit=True,
+        timeout=CONNECTION_TIMEOUT_SECONDS, readonly=False,
     )
     try:
         driver = ntpath.basename(connection.getinfo(pyodbc.SQL_DRIVER_NAME)).lower()

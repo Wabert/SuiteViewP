@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import pyodbc
 from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
@@ -31,6 +30,7 @@ from suiteview.audit import query_object_store
 from suiteview.audit import saved_query_store
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.tabs._styles import TightItemDelegate
+from suiteview.core.odbc_utils import connect_dsn
 
 if TYPE_CHECKING:
     pass
@@ -132,7 +132,9 @@ class _QueryFieldLoaderThread(QThread):
 
     def run(self):
         try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=15)
+            conn = connect_dsn(
+                self.dsn, autocommit=True, timeout=15, readonly=False,
+            )
             cursor = conn.cursor()
 
             columns = []
