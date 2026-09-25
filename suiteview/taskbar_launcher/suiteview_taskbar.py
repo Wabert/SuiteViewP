@@ -2442,37 +2442,45 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         # Preserve Administrator's unsaved-change cancellation before exiting.
         if self.administrator_window is not None and not self.administrator_window.close():
             return
-        
+
+        # Ask every other window to close BEFORE touching the tray or launcher.
+        # A window that stays visible cancels the quit; SuiteView must then
+        # remain reachable instead of running on with no window or tray icon.
+        blocker = self._close_windows_for_quit()
+        if blocker is not None:
+            logger.info("Quit cancelled: %s is still open", blocker.windowTitle())
+            self._bring_to_front(blocker)
+            return
+
         try:
-            # Unregister AppBar to restore desktop work area (compact mode)
             self._unregister_appbar(force=True)
-            
-            # Close all child windows
-            for window in [self.mainframe_window, self.email_attachments_window,
-                           self.screenshot_window, self.polview_window, self.ratemanager_window,
-                           self.abrquote_window, self.illustration_window, self.file_nav_window]:
-                if window:
-                    try:
-                        window.close()
-                    except:
-                        pass
-            
-            # Hide tray icon
-            try:
-                self.tray_icon.hide()
-            except:
-                pass
-            
-            # Close main window
-            self.close()
-            
-            # Force quit the application
-            QApplication.quit()
-            
         except Exception as e:
-            logger.error(f"Error during quit: {e}")
-            # Force quit anyway
-            QApplication.quit()
+            logger.error(f"Error releasing the AppBar during quit: {e}")
+        try:
+            self.tray_icon.hide()
+        except Exception:
+            pass
+        self.close()
+
+        # QApplication.quit() re-asks every window to close and Qt cancels it
+        # if any refuses, which left an invisible process holding the
+        # single-instance lock. The windows were already asked above.
+        QApplication.exit(0)
+
+    def _close_windows_for_quit(self):
+        """Close other visible top-level windows; return one that stays open."""
+        from PyQt6 import sip
+
+        for window in list(QApplication.topLevelWidgets()):
+            try:
+                if window is self or sip.isdeleted(window) or not window.isVisible():
+                    continue
+                window.close()
+                if not sip.isdeleted(window) and window.isVisible():
+                    return window
+            except RuntimeError:
+                continue
+        return None
 
     @requires_app_access("SCREENSHOT")
     def _take_quick_screenshot(self):

@@ -531,6 +531,14 @@ The system-tray context menu contains only **Quit SuiteView**. Single- and
 double-clicking the tray icon still restore the launcher; app shortcuts remain
 in the launcher, not the tray menu. Regression: `tests/test_taskbar_tray_menu.py`.
 
+**Quit** first closes the other visible windows. If one stays open (e.g. a busy
+or unsaved-change guard), the quit is cancelled with the tray icon and launcher
+intact and that window brought forward. Only then does it hide the tray and call
+`QApplication.exit(0)` — never `QApplication.quit()`, which Qt 6 cancels when a
+window rejects its close event, leaving an invisible process that holds the
+single-instance mutex so the SuiteView shortcut silently does nothing.
+Regression: `tests/test_taskbar_quit.py`.
+
 The Win32 dance lives in
 [`suiteview/taskbar_launcher/appbar.py`](suiteview/taskbar_launcher/appbar.py).
 Never re-declare `APPBARDATA` / `SHAppBarMessage` calls elsewhere.
