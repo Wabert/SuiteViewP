@@ -114,6 +114,8 @@ def _project_with_supported_kwargs(
 ) -> list[MonthlyState]:
     """Call ``project`` with public kwargs, tolerating narrow test doubles."""
     parameters = inspect.signature(runner.project).parameters
+    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return runner.project(policy, **kwargs)
     accepted = {
         name: value for name, value in kwargs.items()
         if name in parameters
