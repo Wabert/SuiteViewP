@@ -115,15 +115,6 @@ class WorkerController(QObject):
         """Return whether the backing thread is still active."""
         return self._running and not self._thread_finished and self.thread.isRunning()
 
-    def _run_worker(self) -> None:
-        try:
-            self.worker.run()  # type: ignore[attr-defined]
-        except Exception as exc:
-            logger.exception("Unhandled worker error")
-            signals: WorkerSignals = getattr(self.worker, "signals")
-            signals.error.emit(str(exc))
-            signals.finished.emit()
-
     def _on_thread_finished(self) -> None:
         self._running = False
         self._thread_finished = True

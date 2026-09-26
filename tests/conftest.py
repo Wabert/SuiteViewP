@@ -3,9 +3,10 @@ from pathlib import Path
 import pytest
 
 
-# Module-level singletons bound to the profile directory that was active when
-# they were first created. Reset per test so one test's profile (database,
-# encryption key, repositories) cannot leak into the next.
+# Module-level singletons bound to the profile directory (or a live connection)
+# that was active when they were first created. Reset per test so one test's
+# profile (database, encryption key, repositories) or cached connection cannot
+# leak into the next.
 _PROFILE_BOUND_SINGLETONS = (
     ("suiteview.data.database", "_db_instance"),
     ("suiteview.data.repositories", "_connection_repo"),
@@ -13,6 +14,7 @@ _PROFILE_BOUND_SINGLETONS = (
     ("suiteview.data.repositories", "_email_repo"),
     ("suiteview.core.credential_manager", "_credential_manager"),
     ("suiteview.core.connection_manager", "_connection_manager"),
+    ("suiteview.core.rates", "_rates_instance"),
 )
 
 
@@ -33,6 +35,7 @@ def _isolated_profile(tmp_path_factory, monkeypatch):
 
 
 _LIVE_MARKERS = ("live_db2", "integration", "outlook")
+_UL_RATES_RECORDED: dict = {}
 
 
 @pytest.fixture(autouse=True)
@@ -45,21 +48,42 @@ def _no_live_odbc(request, monkeypatch):
     source carry one of the live markers (deselected by default in pytest.ini).
     Tests that fake connections monkeypatch pyodbc.connect or the
     core.odbc_utils factory themselves, which overrides this guard.
+
+    UL_Rates is the one exception: its queries are answered from a recorded
+    replay (tests/ul_rates_replay.py) so rate-dependent tests stay hermetic.
     """
     if any(request.node.get_closest_marker(name) for name in _LIVE_MARKERS):
         yield
         return
     import pyodbc
 
-    def _blocked(connection_string, *args, **kwargs):
+    from tests import ul_rates_replay
+
+    real_connect = pyodbc.connect
+    replay = ul_rates_replay.load_replay()
+
+    def _guarded(connection_string, *args, **kwargs):
+        if str(connection_string).strip().upper() == "DSN=UL_RATES":
+            if ul_rates_replay.recording_enabled():
+                return ul_rates_replay.ReplayConnection(
+                    replay, _UL_RATES_RECORDED, real_connect(connection_string, *args, **kwargs))
+            return ul_rates_replay.ReplayConnection(replay)
         raise pyodbc.InterfaceError(
             "IM002",
             f"Live ODBC connection blocked in a unit test ({connection_string!r}); "
             "fake the connection or mark the test live_db2/integration.",
         )
 
-    monkeypatch.setattr(pyodbc, "connect", _blocked)
+    monkeypatch.setattr(pyodbc, "connect", _guarded)
     yield
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Persist UL_Rates results captured in record mode."""
+    from tests import ul_rates_replay
+
+    if ul_rates_replay.recording_enabled() and _UL_RATES_RECORDED:
+        ul_rates_replay.save_replay(_UL_RATES_RECORDED)
 
 
 _INTEGRATION_MODULES = {
@@ -102,18 +126,24 @@ _PERFORMANCE_TESTS = {
     "test_illustration_max_level_solve.py::test_real_engine_guideline_drop_lowers_max_level",
 }
 
+# Individual tests that read real policies from live DB2 (not just recorded rates).
+_LIVE_DB2_TESTS = {
+    "test_illustration_md_check.py::test_premium_waiver_rider_basis_checks_within_cent",
+}
+
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Apply suite tiers by test module so legacy diagnostics stay isolated."""
     for item in items:
         module_name = Path(str(item.path)).name
+        test_id = f"{module_name}::{item.name}"
         if module_name in _INTEGRATION_MODULES:
             item.add_marker(pytest.mark.integration)
-        if module_name in _LIVE_DB2_MODULES:
+        if module_name in _LIVE_DB2_MODULES or test_id in _LIVE_DB2_TESTS:
             item.add_marker(pytest.mark.live_db2)
+            item.add_marker(pytest.mark.integration)
         if module_name in _OUTLOOK_MODULES:
             item.add_marker(pytest.mark.outlook)
-        test_id = f"{module_name}::{item.name}"
         if module_name in _PERFORMANCE_MODULES or test_id in _PERFORMANCE_TESTS:
             item.add_marker(pytest.mark.performance)
             item.add_marker(pytest.mark.integration)
