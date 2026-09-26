@@ -195,6 +195,115 @@ class MonthWork:
     adv_pref_ln_int: float = 0.0
 
 
+def prepare_run_policy(
+    policy: IllustrationPolicyData, options: IllustrationOptions
+) -> tuple[IllustrationPolicyData, PlancodeConfig, bool]:
+    """Copy the policy and resolve plancode/run-level starting flags."""
+    if policy.rollback_requires_shadow_value:
+        raise ValueError(
+            "Historical shadow account value is unavailable. Enter a verified "
+            "historical shadow amount before projecting Value Rollback."
+        )
+    starting_exception_period = (
+        options.recognize_inforce_exception_period
+        and policy.in_exception_period
+        and not options.guaranteed_assumption
+    )
+    config = load_plancode(policy.plancode)
+    charge_overrides = {
+        config_field: getattr(policy, policy_field)
+        for policy_field, config_field in (
+            ("regular_loan_charge_rate", "loan_charge_rate_guar"),
+            ("preferred_loan_charge_rate", "pref_loan_charge_rate_guar"),
+        )
+        if policy_field in policy.starting_record_fields
+    }
+    if charge_overrides:
+        config = replace(config, **charge_overrides)
+    policy = copy.deepcopy(policy)
+    if policy.run_from_issue:
+        policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
+    return policy, config, starting_exception_period
+
+
+def validate_projection_timing(
+    timing: ProjectionTiming, future_inputs: Optional[IllustrationInputSet]
+) -> None:
+    """Reject unsupported input combinations for a timing convention."""
+    if (
+        timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY
+        and future_inputs is not None
+        and future_inputs.policy_changes
+    ):
+        raise ValueError(
+            "ProjectionTiming.CYBERLIFE_MONTHLIVERSARY does not support "
+            "policy changes; policy changes are not supported on the "
+            "CyberLife-monthliversary path."
+        )
+
+
+def initialize_run_from_issue_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    options: IllustrationOptions,
+) -> None:
+    """Recompute targets/regulatory premiums for issue-mode projections."""
+    if not policy.run_from_issue:
+        return
+    targets = compute_target_premiums(policy, config, as_of=policy.issue_date)
+    policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
+    policy.ctp = targets.ctp_annual
+    guideline = _solve_guideline_state(
+        policy,
+        config,
+        policy.issue_age,
+        policy.issue_date,
+        options,
+        starting_av=0.0,
+        active_as_of=policy.issue_date,
+    )
+    policy.glp = floor_monthly_cent(guideline.glp)
+    policy.gsp = floor_monthly_cent(guideline.gsp)
+    policy.tamra_7pay_level = floor_monthly_cent(guideline.seven_pay)
+
+
+def resolve_bonus_config(
+    policy: IllustrationPolicyData, bonus_override: Optional[BonusConfig]
+) -> BonusConfig:
+    """Load or override the plan interest-bonus configuration."""
+    if bonus_override is not None:
+        return bonus_override
+    val_date = (
+        policy.illustration_date
+        if policy.run_from_issue and policy.illustration_date
+        else policy.valuation_date or policy.issue_date
+    )
+    return load_bonus_config(policy.plancode, val_date)
+
+
+def projection_month_count(policy: IllustrationPolicyData, months: Optional[int]) -> int:
+    """Number of projected months, capped at the maturity month."""
+    remaining_years = policy.maturity_age - policy.attained_age
+    remaining_months = max(remaining_years * 12 - policy.policy_month + 1, 0)
+    return remaining_months if months is None else min(months, remaining_months)
+
+
+def compile_policy_changes_by_duration(
+    policy: IllustrationPolicyData, future_inputs: Optional[IllustrationInputSet]
+) -> Dict[int, list]:
+    """Compile policy changes keyed by projection duration."""
+    if future_inputs is not None and not future_inputs.is_empty():
+        return _compile_policy_changes(policy, future_inputs.policy_changes)
+    return {}
+
+
+def timing_convention(timing: ProjectionTiming) -> TimingConvention:
+    """Map public projection timing to the month-pipeline convention."""
+    if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
+        return CYBERLIFE_MONTHLIVERSARY_TIMING
+    return ILLUSTRATION_TIMING
+
+
 def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
     """Run one month under the selected timing convention."""
     if convention == CYBERLIFE_MONTHLIVERSARY_TIMING:
@@ -2034,86 +2143,16 @@ class IllustrationEngine:
         Returns:
             List of MonthlyState, one per projected month.
         """
-        if policy.rollback_requires_shadow_value:
-            raise ValueError(
-                "Historical shadow account value is unavailable. Enter a verified "
-                "historical shadow amount before projecting Value Rollback.")
         if options is None:
             options = IllustrationOptions()
-        if (
-            timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY
-            and future_inputs is not None
-            and future_inputs.policy_changes
-        ):
-            raise ValueError(
-                "ProjectionTiming.CYBERLIFE_MONTHLIVERSARY does not support "
-                "policy changes; policy changes are not supported on the "
-                "CyberLife-monthliversary path."
-            )
-        starting_exception_period = (
-            options.recognize_inforce_exception_period
-            and policy.in_exception_period and not options.guaranteed_assumption)
-        config = load_plancode(policy.plancode)
-        charge_overrides = {
-            config_field: getattr(policy, policy_field)
-            for policy_field, config_field in (
-                ("regular_loan_charge_rate", "loan_charge_rate_guar"),
-                ("preferred_loan_charge_rate", "pref_loan_charge_rate_guar"),
-            )
-            if policy_field in policy.starting_record_fields
-        }
-        if charge_overrides:
-            # The *_curr fields are collateral CREDIT rates, not loan charges.
-            config = replace(config, **charge_overrides)
-
-        # Coverage changes, from-issue setup, and permanent MEC detection mutate
-        # only this run's basis.
-        policy = copy.deepcopy(policy)
-        if policy.run_from_issue:
-            policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
+        validate_projection_timing(timing, future_inputs)
+        policy, config, starting_exception_period = prepare_run_policy(policy, options)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
-        # IUL crediting context (None on declared-rate plans): resolved AG49
-        # index, asset-charge rate, loan credit spread, WAIR inputs.
         iul_ctx = build_iul_context(policy, options)
-
-        if policy.run_from_issue:
-            targets = compute_target_premiums(
-                policy, config, as_of=policy.issue_date)
-            policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
-            policy.ctp = targets.ctp_annual
-            guideline = _solve_guideline_state(
-                policy, config, policy.issue_age, policy.issue_date, options,
-                starting_av=0.0, active_as_of=policy.issue_date)
-            policy.glp = floor_monthly_cent(guideline.glp)
-            policy.gsp = floor_monthly_cent(guideline.gsp)
-            policy.tamra_7pay_level = floor_monthly_cent(guideline.seven_pay)
-
-        # Load bonus config from tRates_IntBonus based on valuation date
-        if bonus_override is not None:
-            bonus = bonus_override
-        else:
-            val_date = (
-                policy.illustration_date
-                if policy.run_from_issue and policy.illustration_date
-                else policy.valuation_date or policy.issue_date
-            )
-            bonus = load_bonus_config(policy.plancode, val_date)
-
-        # Months to maturity always caps the projection — an explicit `months`
-        # can only shorten it. The final row is the maturity month itself
-        # (starts on the maturity anniversary; no premium or deduction is
-        # taken there). RERUN has no such row — its INPUT Year list ends at
-        # age 121, so its sheet shows #N/A past maturity; the comparison
-        # tooling treats those cells as missing data.
-        remaining_years = policy.maturity_age - policy.attained_age
-        remaining_months = max(remaining_years * 12 - policy.policy_month + 1, 0)
-        total_months = (
-            remaining_months if months is None else min(months, remaining_months)
-        )
-
-        changes_by_duration: Dict[int, list] = {}
-        if future_inputs is not None and not future_inputs.is_empty():
-            changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
+        initialize_run_from_issue_targets(policy, config, options)
+        bonus = resolve_bonus_config(policy, bonus_override)
+        total_months = projection_month_count(policy, months)
+        changes_by_duration = compile_policy_changes_by_duration(policy, future_inputs)
 
         inforce = build_inforce_state(
             policy, config, rates, bonus, options, iul_ctx, timing,
@@ -2124,21 +2163,17 @@ class IllustrationEngine:
 
         results: List[MonthlyState] = [inforce]
         state = inforce
+        convention = timing_convention(timing)
         for _ in range(total_months):
             month_inputs = compiled_inputs.get(state.duration + 1)
-            if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
-                state = run_month(MonthContext(
-                    state=state, policy=policy, config=config, rates=rates,
-                    bonus=bonus, month_inputs=month_inputs, options=options,
-                    iul_ctx=iul_ctx,
-                ), CYBERLIFE_MONTHLIVERSARY_TIMING)
-            else:
-                state = run_month(MonthContext(
-                    state=state, policy=policy, config=config, rates=rates,
-                    bonus=bonus, month_inputs=month_inputs, options=options,
-                    policy_changes=changes_by_duration.get(state.duration + 1),
-                    iul_ctx=iul_ctx,
-                ), ILLUSTRATION_TIMING)
+            policy_changes = None
+            if convention.supports_policy_changes:
+                policy_changes = changes_by_duration.get(state.duration + 1)
+            state = run_month(MonthContext(
+                state=state, policy=policy, config=config, rates=rates,
+                bonus=bonus, month_inputs=month_inputs, options=options,
+                policy_changes=policy_changes, iul_ctx=iul_ctx,
+            ), convention)
             state = _apply_mec_status(policy, results, state)
             results.append(state)
             if stop_on_lapse and state.lapsed:
