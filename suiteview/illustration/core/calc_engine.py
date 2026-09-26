@@ -201,6 +201,68 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
         return _run_cyberlife_monthliversary(ctx)
     return _run_illustration_month(ctx)
 
+
+def advance_counters(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Advance date, policy counters and attained age for the next month."""
+    state = ctx.state
+    policy = ctx.policy
+    if convention.counter_timing == "monthliversary" and not policy.run_from_issue:
+        prior_date = state.date or policy.valuation_date or policy.issue_date
+        work.month_date = prior_date + relativedelta(months=1)
+        work.next_year, work.next_month, work.duration = _policy_counters_for_date(
+            policy, work.month_date
+        )
+    else:
+        work.next_year, work.next_month = _advance_month(
+            state.policy_year, state.policy_month
+        )
+        work.duration = state.duration + 1
+        work.month_date = policy.issue_date + relativedelta(months=work.duration - 1)
+    work.lapse_value = lapse_value_for_month(policy, ctx.config, work.duration)
+    work.attained_age = policy.issue_age + (work.duration - 1) // 12
+    work.is_anniversary = work.next_month == 1
+    work.rate_year = work.next_year
+
+
+def carry_begin_values(ctx: MonthContext, work: MonthWork) -> None:
+    """Carry beginning-of-month premium, basis and account-value values."""
+    state = ctx.state
+    work.premiums_ytd = (
+        0.0 if work.is_anniversary else state.premiums_ytd_after_exception
+    )
+    work.premiums_to_date = state.premiums_to_date_after_exception
+    work.cost_basis = state.cost_basis_after_exception
+    work.withdrawals_to_date = state.withdrawals_to_date
+    work.av = state.av_end_of_month
+
+
+def capitalize_loans_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Capitalize loan interest at anniversaries and carry loan display factors."""
+    state = ctx.state
+    days_to_next_anniv = _days_to_next_anniversary(
+        ctx.policy.issue_date, work.month_date
+    )
+    work.adv_reg_factor, work.adv_pref_factor = _advance_loan_factors(
+        ctx.config, days_to_next_anniv
+    )
+    work.cap_loan = capitalize_loans(
+        state.end_rg_loan_princ,
+        state.end_rg_loan_accrued,
+        state.end_pf_loan_princ,
+        state.end_pf_loan_accrued,
+        state.end_vbl_loan_princ,
+        state.end_vbl_loan_accrued,
+        work.is_anniversary,
+        config=ctx.config,
+        adv_reg_factor=work.adv_reg_factor,
+        adv_pref_factor=work.adv_pref_factor,
+    )
+    work.adv_reg_ln_int = work.cap_loan.adv_reg_int
+    work.adv_pref_ln_int = work.cap_loan.adv_pref_int
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -217,42 +279,27 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     if options is None:
         options = IllustrationOptions()
 
-    # ── 1. Update date/year/month/attained age ────────────
-    next_year, next_month = _advance_month(
-        state.policy_year, state.policy_month
-    )
-    duration = state.duration + 1
-    lapse_value = lapse_value_for_month(policy, config, duration)
-    attained_age = policy.issue_age + (duration - 1) // 12
-    month_date = policy.issue_date + relativedelta(months=duration - 1)
-    is_anniversary = next_month == 1
-
-    # ── 2. Gather beginning values ────────────────────────
-    premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd_after_exception
-    premiums_to_date = state.premiums_to_date_after_exception
-    cost_basis = state.cost_basis_after_exception
-    av = state.av_end_of_month
-    rate_year = next_year
-
-    # ── 2b. Loan capitalization (within-bucket at anniversary) ─
-    # Advance loans gross the next year's prepaid interest onto the principal
-    # at the anniversary, and repayments are grossed up by the same factor.
-    days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
-    adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
-    cap_loan = capitalize_loans(
-        state.end_rg_loan_princ, state.end_rg_loan_accrued,
-        state.end_pf_loan_princ, state.end_pf_loan_accrued,
-        state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
-        is_anniversary,
-        config=config,
-        adv_reg_factor=adv_reg_factor,
-        adv_pref_factor=adv_pref_factor,
-    )
-    # Interest-in-advance folded into principal this month (vAdvRegLNInt /
-    # vPrefRegLNInt display). Zero for arrears loans. Captured before the
-    # loan buckets are transformed by repay / new-loan / accrual.
-    adv_reg_ln_int = cap_loan.adv_reg_int
-    adv_pref_ln_int = cap_loan.adv_pref_int
+    work = MonthWork()
+    advance_counters(ctx, ILLUSTRATION_TIMING, work)
+    carry_begin_values(ctx, work)
+    capitalize_loans_step(ctx, work)
+    next_year = work.next_year
+    next_month = work.next_month
+    duration = work.duration
+    lapse_value = work.lapse_value
+    attained_age = work.attained_age
+    month_date = work.month_date
+    is_anniversary = work.is_anniversary
+    premiums_ytd = work.premiums_ytd
+    premiums_to_date = work.premiums_to_date
+    cost_basis = work.cost_basis
+    av = work.av
+    rate_year = work.rate_year
+    cap_loan = work.cap_loan
+    adv_reg_factor = work.adv_reg_factor
+    adv_pref_factor = work.adv_pref_factor
+    adv_reg_ln_int = work.adv_reg_ln_int
+    adv_pref_ln_int = work.adv_pref_ln_int
 
     # ── 2c. Withdrawal (CalcEngine AX..BU — before the dated changes) ─
     wd = _process_withdrawal(WithdrawalInput(
@@ -1078,23 +1125,26 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
 
     if options is None:
         options = IllustrationOptions()
-    if policy.run_from_issue:
-        # Anchor to issue, not the prior clipped month (Mar 31 -> Feb 28
-        # -> Mar 28). Keep counters aligned with compiled monthly inputs.
-        duration = state.duration + 1
-        month_date = policy.issue_date + relativedelta(months=duration - 1)
-        next_year, next_month = _advance_month(state.policy_year, state.policy_month)
-    else:
-        prior_date = state.date or policy.valuation_date or policy.issue_date
-        month_date = prior_date + relativedelta(months=1)
-        next_year, next_month, duration = _policy_counters_for_date(policy, month_date)
-    attained_age = policy.issue_age + (duration - 1) // 12
-    is_anniversary = next_month == 1
-    rate_year = next_year
 
-    premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd_after_exception
-    premiums_to_date = state.premiums_to_date_after_exception
-    cost_basis = state.cost_basis_after_exception
+    work = MonthWork()
+    advance_counters(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    carry_begin_values(ctx, work)
+    capitalize_loans_step(ctx, work)
+    next_year = work.next_year
+    next_month = work.next_month
+    duration = work.duration
+    attained_age = work.attained_age
+    month_date = work.month_date
+    is_anniversary = work.is_anniversary
+    rate_year = work.rate_year
+    premiums_ytd = work.premiums_ytd
+    premiums_to_date = work.premiums_to_date
+    cost_basis = work.cost_basis
+    cap_loan = work.cap_loan
+    adv_reg_factor = work.adv_reg_factor
+    adv_pref_factor = work.adv_pref_factor
+    adv_reg_ln_int = work.adv_reg_ln_int
+    adv_pref_ln_int = work.adv_pref_ln_int
 
     if policy.map_cease_date is not None:
         within_snet = month_date <= policy.map_cease_date
@@ -1102,22 +1152,6 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
         within_snet = next_year <= config.snet_period
     past_snet = not within_snet
     prior_exception_mode = state.gp_exception_mode
-
-    days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
-    adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
-    cap_loan = capitalize_loans(
-        state.end_rg_loan_princ, state.end_rg_loan_accrued,
-        state.end_pf_loan_princ, state.end_pf_loan_accrued,
-        state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
-        is_anniversary,
-        config=config,
-        adv_reg_factor=adv_reg_factor,
-        adv_pref_factor=adv_pref_factor,
-    )
-    # Interest-in-advance folded into principal this month (vAdvRegLNInt /
-    # vPrefRegLNInt display). Zero for arrears loans.
-    adv_reg_ln_int = cap_loan.adv_reg_int
-    adv_pref_ln_int = cap_loan.adv_pref_int
 
     intr = credit_interest(
         state.av_end_of_month,
