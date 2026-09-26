@@ -44,6 +44,7 @@ from suiteview.illustration.models.input_set import (
 )
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
+from suiteview.illustration.core.report_specs import ReportFacts, ReportSectionSpec, RequestLineSpec
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     MARKET_INDEX_BY_FUND,
@@ -599,7 +600,7 @@ def _expense_rows(
 _INTERVAL_MODE_LABELS = {1: "MONTHLY", 3: "QUARTERLY", 6: "SEMI-ANNUAL", 12: "ANNUAL"}
 
 
-def _request_lines(
+def _request_lines_from_specs(
     policy: IllustrationPolicyData,
     results: List[MonthlyState],
     future_inputs: Optional[IllustrationInputSet],
@@ -847,6 +848,20 @@ def _request_lines(
     return lines
 
 
+def _request_lines(
+    policy: IllustrationPolicyData,
+    results: List[MonthlyState],
+    future_inputs: Optional[IllustrationInputSet],
+) -> List[str]:
+    """Interpret request-line specs without changing report text."""
+
+    spec = RequestLineSpec(
+        collect=lambda p, r, f: _request_lines_from_specs(p, r, f),
+        group="requested_activity",
+    )
+    return spec.render(policy, results, future_inputs)
+
+
 # ── Policy change sections ──────────────────────────────────────────────────
 
 def _change_sections(
@@ -961,7 +976,7 @@ def _normalized_report_allocations(raw: Dict[str, float]) -> Dict[str, float]:
     return allocations
 
 
-def _build_iul_sections(
+def _build_iul_sections_from_specs(
     report: IllustrationReport,
     policy: IllustrationPolicyData,
 ) -> None:
@@ -1134,9 +1149,21 @@ def _build_iul_sections(
         ))
 
 
+def _build_iul_sections(
+    report: IllustrationReport,
+    policy: IllustrationPolicyData,
+) -> None:
+    """Interpret the IUL section spec."""
+    ReportSectionSpec(
+        name="iul_sections",
+        collect=_build_iul_sections_from_specs,
+    ).render(report, policy)
+
+
+
 # ── Main entry ──────────────────────────────────────────────────────────────
 
-def build_ul_report(
+def _build_ul_report_from_facts(
     policy: IllustrationPolicyData,
     results: List[MonthlyState],
     options: Optional[IllustrationOptions] = None,
@@ -1458,3 +1485,22 @@ def build_ul_report(
     if report.is_iul:
         _build_iul_sections(report, policy)
     return report
+
+
+def build_ul_report(
+    policy: IllustrationPolicyData,
+    results: List[MonthlyState],
+    options: Optional[IllustrationOptions] = None,
+    future_inputs: Optional[IllustrationInputSet] = None,
+    run_date: Optional[date] = None,
+    guaranteed_results: Optional[List[MonthlyState]] = None,
+) -> IllustrationReport:
+    """Interpret ``ReportFacts`` into the byte-identical UL report."""
+    return ReportFacts(
+        policy=policy,
+        results=results,
+        options=options,
+        future_inputs=future_inputs,
+        run_date=run_date,
+        guaranteed_results=guaranteed_results,
+    ).interpret(_build_ul_report_from_facts)

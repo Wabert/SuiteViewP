@@ -18,7 +18,7 @@ import logging
 from typing import List, Optional, Tuple
 
 import pandas as pd
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -39,6 +39,7 @@ from suiteview.illustration.core.batch_runner import (
     results_dataframe,
     run_batch,
 )
+from suiteview.ui.workers import WorkerController, WorkerSignals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .styles import (
@@ -77,7 +78,7 @@ _PROGRESS_STYLE = (
 )
 
 
-class _BatchWorker(QThread):
+class _BatchWorker(QObject):
     """Runs one batch off the UI thread through ``batch_runner.run_batch``."""
 
     progress = pyqtSignal(int, int, str)   # index (1-based), total, policy
@@ -87,6 +88,7 @@ class _BatchWorker(QThread):
     def __init__(self, entries: List[Tuple[Optional[str], str]], forecast_key: str,
                  region: str, company: Optional[str], runner=run_batch, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self._entries = entries
         self._forecast_key = forecast_key
         self._region = region
@@ -105,13 +107,23 @@ class _BatchWorker(QThread):
                 self._forecast_key,
                 region=self._region,
                 default_company=self._company,
-                progress=lambda i, n, p: self.progress.emit(i, n, p),
+                progress=self._emit_progress,
                 should_cancel=lambda: self._cancelled,
             )
-            self.finished_results.emit(list(results))
+            result_list = list(results)
+            self.finished_results.emit(result_list)
+            self.signals.result.emit(result_list)
         except Exception as exc:  # defensive — run_batch isolates per policy
             logger.error("Batch run failed: %s", exc, exc_info=True)
-            self.failed.emit(str(exc))
+            message = str(exc)
+            self.failed.emit(message)
+            self.signals.error.emit(message)
+        finally:
+            self.signals.finished.emit()
+
+    def _emit_progress(self, index: int, total: int, policy: str) -> None:
+        self.progress.emit(index, total, policy)
+        self.signals.progress.emit((index, total, policy))
 
 
 class IllustrationBatchTab(QWidget):
@@ -121,7 +133,7 @@ class IllustrationBatchTab(QWidget):
         super().__init__(parent)
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         self._runner = runner
-        self._worker: Optional[_BatchWorker] = None
+        self._worker: Optional[WorkerController] = None
         self._results: List[PolicyResult] = []
         self._results_df: Optional[pd.DataFrame] = None
         self._build_ui()
@@ -239,7 +251,7 @@ class IllustrationBatchTab(QWidget):
                 self, "Batch Forecast",
                 "Paste at least one policy number (one per line).")
             return
-        if self._worker is not None and self._worker.isRunning():
+        if self._worker is not None and self._worker.is_running():
             return
 
         forecast_key = self.forecast_combo.currentData()
@@ -260,15 +272,17 @@ class IllustrationBatchTab(QWidget):
             f"Starting batch — {len(entries)} "
             f"{'policy' if len(entries) == 1 else 'policies'}...")
 
-        self._worker = _BatchWorker(
-            entries, forecast_key, region, company, runner=self._runner, parent=self)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.finished_results.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
+        worker = _BatchWorker(
+            entries, forecast_key, region, company, runner=self._runner)
+        self._worker = WorkerController(self, worker)
+        self._worker.progress.connect(lambda payload: self._on_progress(*payload))
+        self._worker.result.connect(self._on_finished)
+        self._worker.error.connect(self._on_failed)
+        self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
     def _on_cancel(self):
-        if self._worker is not None and self._worker.isRunning():
+        if self._worker is not None and self._worker.is_running():
             self._worker.cancel()
             self.cancel_btn.setEnabled(False)
             self.progress_label.setText(

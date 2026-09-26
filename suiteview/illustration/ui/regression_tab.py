@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -39,6 +39,7 @@ from suiteview.illustration.models.regression_suite import (
     undo_baseline_update,
     update_baseline,
 )
+from suiteview.ui.workers import WorkerController, WorkerSignals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .saved_case_scenario import materialize_saved_case
@@ -62,13 +63,14 @@ _SECONDARY_BUTTON_STYLE = (
 )
 
 
-class _RegressionWorker(QThread):
+class _RegressionWorker(QObject):
     progress = pyqtSignal(int, int, str)
     finished_run = pyqtSignal(object)
     failed = pyqtSignal(str)
 
     def __init__(self, prepared, baseline, *, runner=run_regression, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self._prepared = prepared
         self._baseline = baseline
         self._runner = runner
@@ -82,14 +84,22 @@ class _RegressionWorker(QThread):
             result = self._runner(
                 self._prepared,
                 self._baseline,
-                progress=lambda index, total, name:
-                    self.progress.emit(index, total, name),
+                progress=self._emit_progress,
                 should_cancel=lambda: self._cancelled,
             )
             self.finished_run.emit(result)
+            self.signals.result.emit(result)
         except Exception as exc:
             logger.error("Regression run failed: %s", exc, exc_info=True)
-            self.failed.emit(str(exc) or type(exc).__name__)
+            message = str(exc) or type(exc).__name__
+            self.failed.emit(message)
+            self.signals.error.emit(message)
+        finally:
+            self.signals.finished.emit()
+
+    def _emit_progress(self, index: int, total: int, name: str) -> None:
+        self.progress.emit(index, total, name)
+        self.signals.progress.emit((index, total, name))
 
 
 class IllustrationRegressionTab(QWidget):
@@ -102,7 +112,7 @@ class IllustrationRegressionTab(QWidget):
         self._suite: Optional[RegressionSuite] = None
         self._run: Optional[RegressionRun] = None
         self._audit_run: Optional[RegressionRun] = None
-        self._worker: Optional[_RegressionWorker] = None
+        self._worker: Optional[WorkerController] = None
         self._build_ui()
         self._sync_actions()
 
@@ -182,7 +192,7 @@ class IllustrationRegressionTab(QWidget):
         layout.addWidget(splitter, 1)
 
     def _sync_actions(self):
-        running = self._worker is not None and self._worker.isRunning()
+        running = self._worker is not None and self._worker.is_running()
         has_suite = self._suite is not None
         has_run = self._run is not None
         has_candidate = bool(self._run and self._run.candidate_rows)
@@ -311,11 +321,13 @@ class IllustrationRegressionTab(QWidget):
         self.progress.setRange(0, len(prepared))
         self.progress.setValue(0)
         self.progress_label.setText(f"Starting {len(prepared)} cases...")
-        self._worker = _RegressionWorker(
-            prepared, self._suite.active, runner=self._runner, parent=self)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.finished_run.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
+        worker = _RegressionWorker(
+            prepared, self._suite.active, runner=self._runner)
+        self._worker = WorkerController(self, worker)
+        self._worker.progress.connect(lambda payload: self._on_progress(*payload))
+        self._worker.result.connect(self._on_finished)
+        self._worker.error.connect(self._on_failed)
+        self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
         self._sync_actions()
 

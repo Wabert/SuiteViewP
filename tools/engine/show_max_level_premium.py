@@ -13,10 +13,6 @@ Usage:
 """
 from __future__ import annotations
 
-def _load_policy_data(*args, **kwargs):
-    from suiteview.illustration.api import load_policy_data
-
-    return load_policy_data(*args, **kwargs)
 import argparse
 import json
 import os
@@ -34,7 +30,13 @@ if os.environ.get("SUITEVIEW_LOCAL_DATA") != "1":
 
 from suiteview.core.policy_service import clear_cache, get_policy_info
 from suiteview.illustration.core.target_premium import floor_monthly_cent
-from suiteview.illustration.ui.inputs_dynamic import context_from_policy
+from suiteview.illustration.core.input_context import build_policy_context
+
+
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 
 
 def _first_float(source, *names: str) -> float:
@@ -79,7 +81,7 @@ def main() -> None:
     if policy is None or not getattr(policy, "exists", False):
         raise SystemExit(f"Policy not found: {policy_number}")
 
-    ctx = context_from_policy(policy)
+    ctx = build_policy_context(policy)
     attained_age = int(getattr(policy, "attained_age", 0) or 0)
     maturity_age = int(getattr(policy, "maturity_age", None) or getattr(policy, "age_at_maturity", None) or 0)
     max_level_end_age = min(maturity_age, 100)

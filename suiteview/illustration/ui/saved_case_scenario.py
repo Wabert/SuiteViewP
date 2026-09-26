@@ -4,32 +4,35 @@ from __future__ import annotations
 from copy import deepcopy
 
 from suiteview.illustration.core.compare_runner import ScenarioSpec
+from suiteview.illustration.core.run_input_compiler import compile_input_set, compile_options
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.models.case_store import CaseStoreError, SavedCase
+from suiteview.ui.signals import muted_signals
 
 
 def build_spec_from_tab(label: str, inputs_tab, policy_data) -> ScenarioSpec:
     """Read the same complete input surface used by Run Values."""
+    draft = inputs_tab.read_draft()
     scenario = build_illustration_scenario(
         policy_data,
-        inforce_overrides=inputs_tab.export_inforce_overrides(),
-        future_inputs=inputs_tab.export_input_set(),
-        run_from_issue=inputs_tab.run_from_issue_enabled(),
-        issue_overrides=inputs_tab.export_issue_overrides(),
-        rollback_overrides=inputs_tab.export_rollback_overrides(),
+        inforce_overrides=draft.inforce_overrides,
+        future_inputs=compile_input_set(draft),
+        run_from_issue=draft.controls.run_from_issue,
+        issue_overrides=draft.issue_overrides,
+        rollback_overrides=draft.rollback_overrides,
     )
     return ScenarioSpec(
         label=label,
         scenario=scenario,
         months=inputs_tab.projection_months(scenario.projectable_policy),
-        options=inputs_tab.export_options(),
-        stop_on_lapse=inputs_tab.stop_on_lapse_enabled(),
-        lumpsum_to_next=inputs_tab.lumpsum_to_next_enabled(),
-        max_level=inputs_tab.max_level_request(),
-        min_level=inputs_tab.min_level_request(),
-        shadow_level=inputs_tab.shadow_level_request(),
-        payoff_requests=inputs_tab.loan_payoff_requests(),
+        options=compile_options(draft),
+        stop_on_lapse=draft.controls.stop_on_lapse,
+        lumpsum_to_next=draft.lumpsum_to_next,
+        max_level=draft.max_level,
+        min_level=draft.min_level,
+        shadow_level=draft.shadow_level,
+        payoff_requests=list(draft.loan_payoffs),
     )
 
 
@@ -54,10 +57,10 @@ def materialize_saved_case(
 
     settings = get_illustration_settings()
     previous_setting = settings.additional_premium_types
-    previously_blocked = settings.blockSignals(True)
     tab = None
     try:
-        settings.set_additional_premium_types(True)
+        with muted_signals(settings):
+            settings.set_additional_premium_types(True)
         tab = IllustrationInputsTab()
         snapshot = deepcopy(case.policy_snapshot)
         tab.load_data_from_policy(
@@ -79,5 +82,5 @@ def materialize_saved_case(
     finally:
         if tab is not None:
             tab.deleteLater()
-        settings.set_additional_premium_types(previous_setting)
-        settings.blockSignals(previously_blocked)
+        with muted_signals(settings):
+            settings.set_additional_premium_types(previous_setting)

@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.polview.ui.widgets import StyledInfoTableGroup
+from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 from .styles import GROUP_STYLE, VALUE_BUTTON_STYLE
@@ -76,8 +77,7 @@ class ValueRollbackControls(QWidget):
         self._enabled = enabled
         choices = ([current_date] if current_date is not None else []) + [
             when for when in dates if when != current_date]
-        self.dates.blockSignals(True)
-        try:
+        with muted_signals(self.dates):
             self.dates.clear()
             for when in choices:
                 self.dates.addItem(when.strftime("%m/%d/%Y"), when)
@@ -85,8 +85,6 @@ class ValueRollbackControls(QWidget):
                 self.dates.setCurrentIndex(
                     choices.index(self._applied_date) if self._applied_date in choices else -1)
             self.state_label.setToolTip(reason)
-        finally:
-            self.dates.blockSignals(False)
         self._refresh()
         if reason:
             self.state_label.setText(reason)

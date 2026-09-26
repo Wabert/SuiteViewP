@@ -38,7 +38,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -64,6 +64,8 @@ from suiteview.illustration.core.compare_runner import (
 )
 from suiteview.illustration.models import case_store
 from suiteview.illustration.models.case_store import CaseStoreError, SavedCase
+from suiteview.ui.signals import muted_signals
+from suiteview.ui.workers import WorkerController, WorkerSignals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .saved_cases_panel import SAVED_CASE_MIME
@@ -149,14 +151,13 @@ class _ScenarioComboBox(QComboBox):
         """(Re)build the fixed entries, preserving the current selection and
         any dropped case. Order: Current Inputs, [dropped case], (none)."""
         prior = self.currentData()
-        self.blockSignals(True)
-        self.clear()
-        self.addItem(CURRENT_INPUTS_LABEL, None)
-        if self._dropped_case is not None:
-            self.addItem(self._dropped_case.name, self._dropped_case)
-        self.addItem(NO_SCENARIO_LABEL, _NO_SCENARIO)
-        self.setCurrentIndex(self._index_for(prior))
-        self.blockSignals(False)
+        with muted_signals(self):
+            self.clear()
+            self.addItem(CURRENT_INPUTS_LABEL, None)
+            if self._dropped_case is not None:
+                self.addItem(self._dropped_case.name, self._dropped_case)
+            self.addItem(NO_SCENARIO_LABEL, _NO_SCENARIO)
+            self.setCurrentIndex(self._index_for(prior))
 
     def _index_for(self, data) -> int:
         if isinstance(data, SavedCase) and self._dropped_case is not None:
@@ -221,7 +222,7 @@ class _ScenarioComboBox(QComboBox):
         style.polish(self)
 
 
-class _CompareWorker(QThread):
+class _CompareWorker(QObject):
     """Runs one comparison off the UI thread through compare_runner."""
 
     finished_result = pyqtSignal(object)   # ComparisonResult
@@ -229,15 +230,22 @@ class _CompareWorker(QThread):
 
     def __init__(self, specs: list, runner=run_comparison, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self._specs = list(specs)
         self._runner = runner
 
     def run(self):  # pragma: no cover - thread body exercised synchronously in tests
         try:
-            self.finished_result.emit(self._runner(self._specs))
+            result = self._runner(self._specs)
+            self.finished_result.emit(result)
+            self.signals.result.emit(result)
         except Exception as exc:  # defensive — run_comparison isolates per side
             logger.error("Comparison run failed: %s", exc, exc_info=True)
-            self.failed.emit(str(exc))
+            message = str(exc)
+            self.failed.emit(message)
+            self.signals.error.emit(message)
+        finally:
+            self.signals.finished.emit()
 
 
 class IllustrationCompareTab(QWidget):
@@ -251,7 +259,7 @@ class IllustrationCompareTab(QWidget):
         self._window = window
         self._runner = runner
         self._case_directory = case_directory
-        self._worker: Optional[_CompareWorker] = None
+        self._worker: Optional[WorkerController] = None
         self._result: Optional[ComparisonResult] = None
         self._build_ui()
 
@@ -379,7 +387,7 @@ class IllustrationCompareTab(QWidget):
     def _on_run(self):
         window = self._window
         key = getattr(window, "_current_key", None) if window else None
-        if self._worker is not None and self._worker.isRunning():
+        if self._worker is not None and self._worker.is_running():
             return
 
         active = [combo for combo in self.scenario_combos
@@ -441,9 +449,11 @@ class IllustrationCompareTab(QWidget):
         self.run_btn.setEnabled(False)
         self.excel_btn.setEnabled(False)
 
-        self._worker = _CompareWorker(specs, runner=self._runner, parent=self)
-        self._worker.finished_result.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
+        worker = _CompareWorker(specs, runner=self._runner)
+        self._worker = WorkerController(self, worker)
+        self._worker.result.connect(self._on_finished)
+        self._worker.error.connect(self._on_failed)
+        self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
     def _build_spec(self, case: Optional[SavedCase], key: tuple,

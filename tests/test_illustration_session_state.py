@@ -158,7 +158,7 @@ def _make_window(monkeypatch) -> IllustrationWindow:
             _StubPolicy(policy_number, company_code),
     )
     monkeypatch.setattr("suiteview.illustration.ui.main_window.DB2Connection", _StubDB)
-    monkeypatch.setattr("suiteview.illustration.ui.main_window.IllustrationEngine", _EngineBomb)
+    monkeypatch.setattr("suiteview.illustration.core.run_service.IllustrationEngine", _EngineBomb)
     monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", _fake_policy_load_checks)
     window = IllustrationWindow()
     # The Policy tab render needs the full PolicyInformation surface — out of
@@ -231,7 +231,7 @@ def test_switching_policies_preserves_inputs_and_values_per_policy(monkeypatch):
     key_a = ("POLA", "CKPR", "01")
     assert window._current_key == key_a
     tab_a = window.inputs_tab
-    assert window._session_states[key_a]["inputs"] is tab_a
+    assert window._session_states[key_a].input_draft is not None
 
     # Non-trivial inputs: premium row amount, a control toggle, grid cells,
     # and a face-change row on the dynamic panel.
@@ -260,17 +260,19 @@ def test_switching_policies_preserves_inputs_and_values_per_policy(monkeypatch):
     assert window.values_tab._current_view is None
     assert window.report_tab.current_report() is None
 
-    # Back to POLA: the exact inputs widget returns, values re-render from
-    # the snapshot (the engine bomb proves no recalculation), and the status
-    # banner comes back.
+    # Back to POLA: a fresh inputs widget renders the plain draft, values
+    # re-render from the snapshot (the engine bomb proves no recalculation),
+    # and the status banner comes back.
     window._on_get_policy("POLA", "CKPR", "01")
-    assert window.inputs_tab is tab_a
-    assert premium_row.amount_edit.text() == "250.00"
-    assert tab_a.exact_days_check.isChecked() is True
-    assert tab_a.unscheduled_premium_table.item(0, 0).text() == "06/15/2027"
-    assert tab_a.unscheduled_premium_table.item(0, 1).text() == "1,000"
-    assert face_row.year_edit.text() == "18"
-    assert face_row.amount_edit.text() == "50000"
+    restored = window.inputs_tab
+    assert restored is not tab_a
+    assert restored.dynamic_panel.premium_section.rows()[0].amount_edit.text() == "250.00"
+    assert restored.exact_days_check.isChecked() is True
+    assert restored.unscheduled_premium_table.item(0, 0).text() == "06/15/2027"
+    assert restored.unscheduled_premium_table.item(0, 1).text() == "1,000"
+    restored_face = restored.dynamic_panel.face_section.rows()[0]
+    assert restored_face.year_edit.text() == "18"
+    assert restored_face.amount_edit.text() == "50000"
     assert len(window.values_tab._results) == 1
     report = window.report_tab.current_report()
     assert report is not None and report.policy_number == "POLA"
@@ -290,8 +292,8 @@ def test_revisit_without_a_run_restores_inputs_and_empty_values(monkeypatch):
     window._on_get_policy("POLB", "CKPR", "01")
     window._on_get_policy("POLA", "CKPR", "01")
 
-    assert window.inputs_tab is tab_a
-    assert tab_a.dynamic_panel.premium_section.rows()[0].amount_edit.text() == "777.00"
+    assert window.inputs_tab is not tab_a
+    assert window.inputs_tab.dynamic_panel.premium_section.rows()[0].amount_edit.text() == "777.00"
     # Never ran → values stay empty, no phantom projection.
     assert window.values_tab._current_view is None
     assert window.report_tab.current_report() is None

@@ -22,15 +22,30 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.build_env import is_distribution_build
 from suiteview.ui.access_control import requires_app_access
+from suiteview.ui.signals import muted_signals
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
 from suiteview.illustration.api import project_policy
-from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
     coverage_segment_data_warnings,
 )
 from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
+from suiteview.illustration.core.run_service import (
+    PolicyBasis,
+    RunControls,
+    RunFlowError,
+    RunRequest,
+    RunResult,
+    SolveRequestSet,
+    SolvedInputs,
+    execute_run,
+)
+from suiteview.illustration.core.run_input_compiler import (
+    clear_rollback_draft,
+    compile_input_set,
+    compile_options,
+)
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.input_set import RollbackOverrideSet
@@ -47,6 +62,7 @@ from .case_controls import CasesController
 from .imported_case_controls import ImportedCasesController
 from .inputs_tab import IllustrationInputsTab
 from .policy_list import IllustrationPolicyListWindow
+from .presenter import IllustrationPresenter, IllustrationSessionState
 from .policy_tab import IllustrationPolicyTab
 from .compare_tab import IllustrationCompareTab
 from .report_tab import IllustrationReportTab
@@ -101,14 +117,13 @@ class IllustrationWindow(FramelessWindowBase):
         self._rollback_projection_blocked = False
         self._record_drafts_pending = False
         # Per-policy session state, keyed like _policy_cache by
-        # (policy_number, region, company_code). Each entry keeps the policy's
-        # live IllustrationInputsTab widget (the inputs ARE the widget state —
-        # dynamic rows, grids, control toggles, solved amounts) plus snapshots
-        # of the last computed values/report/status, so policy-list switching
-        # restores everything without re-entering or re-running. Clicking Get
-        # deliberately replaces that state with fresh policy defaults.
-        # Session-only: never persisted to disk.
-        self._session_states: dict[tuple, dict] = {}
+        # (policy_number, region, company_code). Each entry stores plain input
+        # drafts plus values/report/status snapshots, so policy-list switching
+        # restores everything without retaining live widgets or re-running.
+        # Clicking Get deliberately replaces that state with fresh policy
+        # defaults. Session-only: never persisted to disk.
+        self._session_states: dict[tuple, IllustrationSessionState] = {}
+        self._presenter = IllustrationPresenter()
         self._current_key: tuple | None = None
         self._default_inputs_on_next_get = False
         # Set while a saved case's FROZEN policy snapshot is loaded instead of
@@ -228,19 +243,26 @@ class IllustrationWindow(FramelessWindowBase):
         self.options_btn.setMenu(menu)
 
     def _on_rollback_option_changed(self, enabled: bool):
-        self._rollback_action.blockSignals(True)
-        self._rollback_action.setChecked(enabled)
-        self._rollback_action.blockSignals(False)
+        with muted_signals(self._rollback_action):
+            self._rollback_action.setChecked(enabled)
         if not enabled:
-            tabs = {self.inputs_tab, *[
-                entry["inputs"] for entry in self._session_states.values()
-            ]}
-            for tab in tabs:
-                if tab.export_rollback_overrides() is not None:
-                    tab.set_value_rollback(None)
+            if self.inputs_tab.export_rollback_overrides() is not None:
+                self.inputs_tab.set_value_rollback(None)
+            self._clear_rollback_session_states()
         self._refresh_policy_basis()
         self._on_run_from_issue_changed(self.inputs_tab.run_from_issue_enabled())
         self._refresh_rollback_controls()
+
+    def _clear_rollback_session_states(self) -> None:
+        """Remove inactive Edit Record drafts and invalidate their outputs."""
+
+        for session in self._session_states.values():
+            if session.input_draft is not None:
+                session.input_draft = clear_rollback_draft(session.input_draft)
+            session.values = None
+            session.report = None
+            session.status = None
+            session.scenario = None
 
     def _on_additional_premium_types_toggled(self, checked: bool):
         """Flip the app-wide Additional Premium Types option. Every open
@@ -482,19 +504,11 @@ class IllustrationWindow(FramelessWindowBase):
     # ── Per-policy session state (inputs + computed values) ──────────
 
     def _drop_session_state(self, key: tuple):
-        """Forget a policy's session inputs/values. The active inputs widget
-        stays on screen until the next switch (then it is unregistered and
-        cleaned up by _set_active_inputs_tab)."""
-        entry = self._session_states.pop(key, None)
-        if entry is None:
-            return
-        inputs_tab = entry["inputs"]
-        if inputs_tab is not self.inputs_tab:
-            self._inputs_stack.removeWidget(inputs_tab)
-            inputs_tab.deleteLater()
+        """Forget a policy's session inputs/values."""
+        self._session_states.pop(key, None)
 
     def _registered_inputs_tabs(self) -> set:
-        return {entry["inputs"] for entry in self._session_states.values()}
+        return {self.inputs_tab}
 
     def _set_active_inputs_tab(self, inputs_tab):
         """Front the given inputs widget; delete the outgoing one if no
@@ -502,12 +516,15 @@ class IllustrationWindow(FramelessWindowBase):
         previous = self.inputs_tab
         if not inputs_tab.property("issueModeSignalConnected"):
             inputs_tab.run_from_issue_changed.connect(
-                self._on_run_from_issue_changed)
-            inputs_tab.issue_conditions_changed.connect(self._invalidate_issue_results)
-            inputs_tab.rollback_changed.connect(self._on_rollback_changed)
+                lambda enabled, tab=inputs_tab: self._on_run_from_issue_changed(
+                    enabled, tab, invalidate=True))
+            inputs_tab.issue_conditions_changed.connect(
+                lambda tab=inputs_tab: self._invalidate_issue_results(tab))
+            inputs_tab.rollback_changed.connect(
+                lambda tab=inputs_tab: self._on_rollback_changed(tab))
             inputs_tab.setProperty("issueModeSignalConnected", True)
         if inputs_tab is previous:
-            self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled())
+            self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled(), inputs_tab)
             self._refresh_rollback_controls()
             return
         if self._inputs_stack.indexOf(inputs_tab) == -1:
@@ -517,11 +534,10 @@ class IllustrationWindow(FramelessWindowBase):
         if previous is not None and previous not in self._registered_inputs_tabs():
             self._inputs_stack.removeWidget(previous)
             previous.deleteLater()
-        self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled())
+        self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled(), inputs_tab)
 
-    def _on_run_from_issue_changed(self, enabled: bool):
-        sender = self.sender()
-        if isinstance(sender, IllustrationInputsTab) and sender is not self.inputs_tab:
+    def _on_run_from_issue_changed(self, enabled: bool, source_tab=None, *, invalidate: bool = False):
+        if not self._presenter.is_active_inputs_event(self.inputs_tab, source_tab):
             return
         self.tabs_container.setStyleSheet(
             f"background-color: {ISSUE_BLUE_BG if enabled else PURPLE_BG};")
@@ -537,7 +553,7 @@ class IllustrationWindow(FramelessWindowBase):
             ("color: white; background: #205B78;" if enabled else
              "color: #2A1458; background: #EDE7F6;")
             + " padding: 5px 12px; font-weight: bold;")
-        if isinstance(sender, IllustrationInputsTab):
+        if invalidate:
             self._invalidate_issue_results()
         self._refresh_rollback_controls()
         self._refresh_rollback_notice()
@@ -709,15 +725,11 @@ class IllustrationWindow(FramelessWindowBase):
             self._show_status("Record values ready - review inputs, then Run Values.")
         self._apply_illustration_gate()
 
-    def _on_rollback_changed(self):
-        if self.sender() is not self.inputs_tab:
-            for entry in self._session_states.values():
-                if entry["inputs"] is self.sender():
-                    for key in ("values", "report", "status", "scenario"):
-                        entry[key] = None
+    def _on_rollback_changed(self, source_tab=None):
+        if not self._presenter.is_active_inputs_event(self.inputs_tab, source_tab):
             return
         self._refresh_policy_basis()
-        self._on_run_from_issue_changed(self.inputs_tab.run_from_issue_enabled())
+        self._on_run_from_issue_changed(self.inputs_tab.run_from_issue_enabled(), self.inputs_tab)
         self._apply_illustration_gate()
 
     def _refresh_policy_basis(self):
@@ -780,9 +792,8 @@ class IllustrationWindow(FramelessWindowBase):
             self._illustration_data is not None and not self._rollback_projection_blocked)
         self._on_record_drafts_changed(self.policy_tab.has_pending_record_changes())
 
-    def _invalidate_issue_results(self):
-        sender = self.sender()
-        if isinstance(sender, IllustrationInputsTab) and sender is not self.inputs_tab:
+    def _invalidate_issue_results(self, source_tab=None):
+        if not self._presenter.is_active_inputs_event(self.inputs_tab, source_tab):
             return
         self.values_tab.clear_results(
             "Illustration basis changed. Click Run Values to calculate this scenario.")
@@ -793,15 +804,15 @@ class IllustrationWindow(FramelessWindowBase):
 
     def _snapshot_active_session(self):
         """Capture the displayed values/report/status for the current policy
-        before switching away. The inputs need no capture — each policy owns
-        its live inputs widget in the stack."""
+        before switching away."""
         entry = self._session_states.get(self._current_key) if self._current_key else None
         if entry is None:
             return
-        entry["values"] = self.values_tab.capture_session_state()
-        entry["report"] = self.report_tab.capture_session_state()
-        entry["status"] = self._status_label.text()
-        entry["scenario"] = self._last_scenario
+        entry.input_draft = self.inputs_tab.read_draft()
+        entry.values = self.values_tab.capture_session_state()
+        entry.report = self.report_tab.capture_session_state()
+        entry.status = self._status_label.text()
+        entry.scenario = self._last_scenario
 
     def _show_status(self, message: str):
         self._status_label.setText(message)
@@ -990,37 +1001,34 @@ class IllustrationWindow(FramelessWindowBase):
             # input state.
             self._drop_session_state(key)
             session = None
+        inputs_tab = IllustrationInputsTab()
+        self._set_active_inputs_tab(inputs_tab)
+        inputs_policy = self._illustration_data or self._policy
+        inputs_tab.load_data_from_policy(
+            inputs_policy,
+            has_shadow=bool(getattr(self._illustration_data, "has_shadow_account", False)),
+            shadow_ceased=bool(getattr(self._illustration_data, "ccv_ceased", False)))
         if session is None:
             # First visit this session: fresh inputs from the policy, empty values.
-            inputs_tab = IllustrationInputsTab()
-            self._session_states[key] = {
-                "inputs": inputs_tab,
-                "values": None,
-                "report": None,
-                "status": None,
-                "scenario": None,
-                "policy_data": self._illustration_data,
-            }
-            self._set_active_inputs_tab(inputs_tab)
-            inputs_policy = self._illustration_data or self._policy
-            inputs_tab.load_data_from_policy(
-                inputs_policy,
-                has_shadow=bool(getattr(self._illustration_data, "has_shadow_account", False)),
-                shadow_ceased=bool(getattr(self._illustration_data, "ccv_ceased", False)))
+            self._session_states[key] = IllustrationSessionState(
+                input_draft=inputs_tab.read_draft(),
+                policy_data=self._illustration_data,
+            )
             self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
             self.report_tab.clear()
         else:
-            # Revisit: the policy's own inputs widget comes back untouched and
-            # the last computed values/report re-render from the snapshot —
-            # no engine run.
-            self._set_active_inputs_tab(session["inputs"])
+            # Revisit: render the plain input draft into a fresh widget and
+            # re-render values/report from snapshots — no engine run.
+            if session.input_draft is not None:
+                with muted_signals(inputs_tab):
+                    inputs_tab.render_draft(session.input_draft)
             if self.inputs_tab.export_rollback_overrides() is not None:
-                self._illustration_data = session["policy_data"]
-            if not self.values_tab.restore_session_state(session.get("values")):
+                self._illustration_data = session.policy_data
+            if not self.values_tab.restore_session_state(session.values):
                 self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
-            if not self.report_tab.restore_session_state(session.get("report")):
+            if not self.report_tab.restore_session_state(session.report):
                 self.report_tab.clear()
-            self._last_scenario = session.get("scenario")
+            self._last_scenario = session.scenario
 
         # Live data on screen — no as-of strip on this policy's inputs tab.
         self.inputs_tab.set_snapshot_notice(None)
@@ -1038,8 +1046,8 @@ class IllustrationWindow(FramelessWindowBase):
             self._refresh_policy_basis()
         self.run_values_btn.setEnabled(True)
         self.save_case_btn.setEnabled(True)
-        if session is not None and session.get("status"):
-            self._show_status(session["status"])
+        if session is not None and session.status:
+            self._show_status(session.status)
         else:
             cache_note = " (cached)" if cached else ""
             self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
@@ -1140,23 +1148,16 @@ class IllustrationWindow(FramelessWindowBase):
                 policy_number, snapshot.form_number)
 
         session = self._session_states.get(key)
-        if session is None:
-            inputs_tab = IllustrationInputsTab()
-            self._session_states[key] = {
-                "inputs": inputs_tab,
-                "values": None,
-                "report": None,
-                "status": None,
-                "scenario": None,
-            }
-            self._set_active_inputs_tab(inputs_tab)
-        else:
-            self._set_active_inputs_tab(session["inputs"])
+        inputs_tab = IllustrationInputsTab()
+        self._set_active_inputs_tab(inputs_tab)
         self.inputs_tab.load_data_from_policy(
             snapshot,
             has_shadow=bool(snapshot.has_shadow_account),
             shadow_ceased=bool(snapshot.ccv_ceased))
-        self._session_states[key]["policy_data"] = snapshot
+        if session is None:
+            session = IllustrationSessionState()
+            self._session_states[key] = session
+        session.policy_data = snapshot
         # A different policy invalidates any rendered comparison — clear it so
         # the old policy's results can never sit under the new pickers.
         if self._current_key != key:
@@ -1164,6 +1165,7 @@ class IllustrationWindow(FramelessWindowBase):
         self._current_key = key
 
         warnings = self.inputs_tab.apply_case_inputs(case.inputs)
+        session.input_draft = self.inputs_tab.read_draft()
         self._refresh_rollback_controls()
         self._refresh_policy_basis()
         self._refresh_rollback_notice()
@@ -1375,657 +1377,35 @@ class IllustrationWindow(FramelessWindowBase):
                 self, "Unapplied Record Values",
                 "Apply or Reset the pending fund/allocation values before running the illustration.")
             return
-        snapshot_case = self._snapshot_case
-        if snapshot_case is not None:
-            # Saved-case view: project the FROZEN snapshot — no DB2.
-            policy_number = snapshot_case.policy_number
-            region = snapshot_case.region or self._current_region or "CKPR"
-            company_code = snapshot_case.company_code
-        elif not self._policy or not self._policy.exists:
-            QMessageBox.information(self, "Run Values", "Load a policy before running illustrated values.")
+        try:
+            request = self._read_run_request()
+        except RunFlowError as exc:
+            QMessageBox.information(self, exc.title, exc.message)
+            self._show_status(exc.message)
             return
-        else:
-            policy_number = self._policy_info.get("PolicyNumber", self._policy.policy_number)
-            region = self._policy_info.get("Region", self._current_region or "CKPR")
-            company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
 
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         self.run_values_btn.setEnabled(False)
-        self._show_status(f"Running illustration values for {policy_number}...")
+        self._show_status(f"Running illustration values for {request.basis.policy_number}...")
         QApplication.processEvents()
 
         try:
-            if snapshot_case is not None:
-                # Each run projects a fresh copy — the engine/scenario must
-                # never mutate the case's stored snapshot.
-                policy_data = copy.deepcopy(snapshot_case.policy_snapshot)
-            elif self.inputs_tab.export_rollback_overrides() is not None:
-                policy_data = copy.deepcopy(self._illustration_data)
-            else:
-                policy_data = project_policy(
-                    policy_number, region=region, company_code=company_code,
-                    months=0).policy
-            scenario_args = {
-                "inforce_overrides": self.inputs_tab.export_inforce_overrides(),
-                "future_inputs": self.inputs_tab.export_input_set(),
-            }
-            if self.inputs_tab.run_from_issue_enabled():
-                scenario_args["run_from_issue"] = True
-                scenario_args["issue_overrides"] = self.inputs_tab.export_issue_overrides()
-            rollback = self.inputs_tab.export_rollback_overrides()
-            if rollback is not None:
-                scenario_args["rollback_overrides"] = rollback
-            scenario = build_illustration_scenario(policy_data, **scenario_args)
-            projection_months = self.inputs_tab.projection_months(scenario.projectable_policy)
-            duration_label = self.inputs_tab.projection_duration_label(scenario.projectable_policy)
-            self._show_status(f"Running illustration values for {policy_number} {duration_label}...")
-            QApplication.processEvents()
-
-            self._last_scenario = scenario
-
-            future_inputs = scenario.future_inputs
-            run_options = self.inputs_tab.export_options()
-            engine = IllustrationEngine()
-
-            # "ABR Quote" (Illustration Control): its own run path — solve the
-            # theoretical annual level premium to maturity under the entered
-            # ABR rate (TEFRA/TAMRA off, lapse test disabled, annual mode,
-            # loan retired, Option B -> A) and explain the solve on the Report
-            # tab. Premium rows and the other solves do not apply.
-            if self.inputs_tab.abr_quote_enabled():
-                from suiteview.illustration.core.abr_quote import run_abr_quote
-                from suiteview.illustration.core.solve_premium_to_target import (
-                    PremiumTargetError,
-                )
-                from .report_tab import format_abr_quote_pages
-                try:
-                    minimum_face_amount = self.inputs_tab.abr_minimum_face_amount()
-                    if minimum_face_amount is None:
-                        raise ValueError(
-                            "Enter the Minimum Face Amount Allowed on the "
-                            "Illustration Control tab."
-                        )
-                    abr = run_abr_quote(
-                        scenario.projectable_policy,
-                        minimum_face_amount=minimum_face_amount,
-                        base_options=run_options,
-                        engine=engine)
-                except (PremiumTargetError, ValueError) as exc:
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    QMessageBox.information(self, "ABR Quote", str(exc))
-                    self._show_status(str(exc))
-                    return
-                self.values_tab.display_projection(
-                    abr.policy,
-                    abr.results,
-                    months=max(len(abr.results) - 1, 0),
-                    injected_first_row_columns=self._first_row_injected_columns(scenario),
-                )
-                self.report_tab.display_abr_quote(
-                    format_abr_quote_pages(abr, abr.policy))
-                self.tabs.setCurrentWidget(self.report_tab)
-                status = (
-                    f"ABR Quote for {policy_number}: solved annual premium "
-                    f"{abr.premium:,.2f} at {abr.illustrated_rate * 100.0:.3f}% "
-                    f"using the lower {abr.premium_basis} account solve; next "
-                    f"monthly deduction at the minimum face is "
-                    f"${abr.max_partial.monthly_deduction:,.2f} on "
-                    f"{abr.max_partial.monthly_deduction_date:%m/%d/%Y} — see "
-                    f"the Report tab for details.")
-                if snapshot_case is not None:
-                    status += (
-                        f"  ·  Saved case '{snapshot_case.name}' — policy data "
-                        f"as of {format_saved_stamp(snapshot_case.saved_at)}")
-                self._show_status(status)
-                return
-
-            # "Lumpsum to Next Premium": solve FIRST so every later solve (e.g.
-            # Prem to Maturity) sees the bridging lumpsum already funding the early
-            # months. If the policy would lapse before its next modal premium,
-            # solve a bridging lumpsum and layer it in as an unscheduled premium
-            # on the forecast date.
-            lumpsum_result = None
-            if self.inputs_tab.lumpsum_to_next_enabled():
-                from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
-                    solve_lumpsum_to_next_premium,
-                )
-                from suiteview.illustration.models.input_set import (
-                    DatedTransaction, IllustrationInputSet, ScheduledTransaction,
-                    TransactionKind,
-                )
-                # A level premium type (Prem to Maturity / Max Level / Prem to
-                # Shadow Maturity) selected alongside the bridge REPLACES the
-                # policy's regular billing from its start year on — so during the
-                # bridge window the policy collects the level cadence ($0 until the
-                # level premium's own next mode date), not the modal premium. Tell
-                # the bridge which level premium follows so it sizes against that
-                # suppressed billing and targets the level premium's next payment;
-                # otherwise it measures the regular billing, finds no gap, and the
-                # later level solve lapses before its first premium lands.
-                follow_on_premium = None
-                level_req = (self.inputs_tab.min_level_request()
-                             or self.inputs_tab.max_level_request()
-                             or self.inputs_tab.shadow_level_request())
-                if level_req is not None:
-                    follow_on_premium = ScheduledTransaction(
-                        kind=TransactionKind.PREMIUM,
-                        policy_year=int(level_req["start_year"]),
-                        amount=0.0, mode=level_req.get("mode") or "")
-                lumpsum_result = solve_lumpsum_to_next_premium(
-                    scenario.projectable_policy,
-                    base_future_inputs=future_inputs,
-                    base_options=run_options,
-                    engine=engine,
-                    follow_on_premium=follow_on_premium,
-                )
-                if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
-                    dated = list(future_inputs.dated_transactions)
-                    dated.append(DatedTransaction(
-                        kind=TransactionKind.PREMIUM,
-                        effective_date=lumpsum_result.forecast_date,
-                        amount=lumpsum_result.lumpsum,
-                        subtype="lumpsum_to_next_premium"))
-                    future_inputs = IllustrationInputSet(
-                        scheduled_transactions=list(future_inputs.scheduled_transactions),
-                        dated_transactions=dated,
-                        policy_changes=list(future_inputs.policy_changes))
-                    self.inputs_tab.set_lumpsum_amount(lumpsum_result.lumpsum)
-                    # A Billable-to-MD run must not hand off to Monthly
-                    # Deduction premiums before the bridge reaches the next
-                    # billable premium — the point is to fund the policy up to
-                    # that premium and measure how long it then sustains it.
-                    if run_options.billable_to_md_windows:
-                        from dataclasses import replace as _replace
-                        run_options = _replace(
-                            run_options,
-                            billable_to_md_no_latch_before=lumpsum_result.next_premium_date)
-                else:
-                    # No bridge was needed — show 0 so the disabled field reads
-                    # as "solved, nothing required" rather than blank.
-                    self.inputs_tab.set_lumpsum_amount(0.0)
-
-            # "Max Level" premium type: solve the largest level premium
-            # the guideline acceptance chain never caps, on the real projection —
-            # so a Face Amount or DB Option change's effect on the guideline
-            # premiums (GLP/GSP recalc, AccumGLP stream) is reflected, including
-            # the final GSP/AccumGLP at age 100 and any tighter mid-projection
-            # point a guideline drop creates. The row's instant closed-form
-            # estimate is replaced by the solved amount, and the premium is
-            # layered in from its start year under the same guideline basis the
-            # solver used (or the premium won't behave as solved).
-            max_level = self.inputs_tab.max_level_request()
-            if max_level is not None:
-                from suiteview.illustration.core.solve_level_to_exception import (
-                    level_to_exception_options,
-                )
-                from suiteview.illustration.core.solve_max_level_allowed import (
-                    MaxLevelAllowedError, solve_max_level_allowed,
-                )
-                from suiteview.illustration.models.input_set import (
-                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
-                )
-                allow_exceptions = bool(run_options.allow_exception_prems)
-                try:
-                    mla = solve_max_level_allowed(
-                        scenario.projectable_policy,
-                        mode=max_level["mode"],
-                        start_policy_year=max_level["start_year"],
-                        base_future_inputs=future_inputs,
-                        allow_exceptions=allow_exceptions,
-                        base_options=run_options,
-                        engine=engine)
-                except MaxLevelAllowedError as exc:
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    self.inputs_tab.set_max_level_amount(None)
-                    QMessageBox.information(self, "Max Level", str(exc))
-                    self._show_status(str(exc))
-                    return
-                sched = list(future_inputs.scheduled_transactions)
-                sched.append(ScheduledTransaction(
-                    kind=TransactionKind.PREMIUM,
-                    policy_year=int(max_level["start_year"]),
-                    amount=mla.premium, mode=mla.mode))
-                # Premiums stop at age 100 — AccumGLP freezes there, so any
-                # later payment would always be capped (mirrors the solver's
-                # own schedule).
-                policy_for_stop = scenario.projectable_policy
-                if policy_for_stop.maturity_age > 100:
-                    sched.append(ScheduledTransaction(
-                        kind=TransactionKind.PREMIUM,
-                        policy_year=100 - int(policy_for_stop.issue_age or 0) + 1,
-                        amount=0.0, mode="A"))
-                future_inputs = IllustrationInputSet(
-                    scheduled_transactions=sched,
-                    dated_transactions=list(future_inputs.dated_transactions),
-                    policy_changes=list(future_inputs.policy_changes))
-                run_options = level_to_exception_options(run_options, allow_exceptions)
-                self.inputs_tab.set_max_level_amount(mla.premium)
-
-            # "Prem to Maturity" premium type: solve the minimum level
-            # premium that keeps the policy in force to maturity, honoring the
-            # prior premium rows AND any lumpsum already merged into future_inputs
-            # above, then layer it on top from its start year under the same
-            # guideline + exception basis the solver used (or the premium won't
-            # behave as solved). Other modes run as the user configured them.
-            min_level = self.inputs_tab.min_level_request()
-            if min_level is not None:
-                from suiteview.illustration.core.solve_level_to_exception import (
-                    LevelToExceptionError, level_to_exception_options,
-                    solve_level_to_exception,
-                )
-                from suiteview.illustration.models.input_set import (
-                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
-                )
-                # On GPT policies Prem to Maturity ALWAYS allows GP exception
-                # premiums — the solve rides the GLP exception period when the
-                # guideline caps further funding, regardless of the Allow GP
-                # Exception Premium checkbox (which still governs INPUT-premium
-                # runs and Max Level). CVAT policies have no guideline cap or
-                # exception machinery, so they solve (and display) with
-                # exceptions off. The displayed run below inherits the same
-                # basis via level_to_exception_options, or the solved premium
-                # wouldn't behave as solved.
-                allow_exceptions = not scenario.projectable_policy.is_cvat
-                try:
-                    lte = solve_level_to_exception(
-                        scenario.projectable_policy,
-                        mode=min_level["mode"],
-                        start_policy_year=min_level["start_year"],
-                        base_future_inputs=future_inputs,
-                        allow_exceptions=allow_exceptions,
-                        base_options=run_options)
-                except LevelToExceptionError as exc:
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    self.inputs_tab.set_min_level_amount(None)
-                    QMessageBox.information(self, "Prem to Maturity", str(exc))
-                    self._show_status(str(exc))
-                    return
-                sched = list(future_inputs.scheduled_transactions)
-                sched.append(ScheduledTransaction(
-                    kind=TransactionKind.PREMIUM,
-                    policy_year=int(min_level["start_year"]),
-                    amount=lte.premium, mode=lte.mode))
-                future_inputs = IllustrationInputSet(
-                    scheduled_transactions=sched,
-                    dated_transactions=list(future_inputs.dated_transactions),
-                    policy_changes=list(future_inputs.policy_changes))
-                # CVAT solves with TAMRA conformance off (the CVAT TAMRA cap
-                # rides on the unmodeled NPT premium) — the displayed run must
-                # match the solve's basis.
-                run_options = level_to_exception_options(
-                    run_options, allow_exceptions,
-                    conform_to_tamra=not scenario.projectable_policy.is_cvat)
-                self.inputs_tab.set_min_level_amount(lte.premium)
-
-            # "Prem to Shadow Maturity" premium type: solve the minimum level
-            # premium that keeps the SHADOW account in force to maturity — the
-            # shadow account governs lapse once past the safety-net period, so
-            # the regular account value may run negative while the policy stays
-            # in force. The shadow account blocks GP exception premiums, so the
-            # solve (and its displayed run) uses exceptions off.
-            shadow_level = self.inputs_tab.shadow_level_request()
-            if shadow_level is not None:
-                from suiteview.illustration.core.solve_level_to_exception import (
-                    LevelToExceptionError, level_to_exception_options,
-                    solve_level_to_exception,
-                )
-                from suiteview.illustration.models.input_set import (
-                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
-                )
-                shadow_policy = scenario.projectable_policy
-                if not shadow_policy.has_shadow_account:
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    self.inputs_tab.set_shadow_level_amount(None)
-                    if getattr(shadow_policy, "ccv_ceased", False):
-                        msg = ("Prem to Shadow Maturity cannot run: this policy's "
-                               "shadow account benefit (type A) has ceased, so the "
-                               "shadow account no longer governs lapse.")
-                    else:
-                        msg = ("Prem to Shadow Maturity cannot run: this policy has "
-                               "no shadow account benefit (type A).")
-                    QMessageBox.information(self, "Prem to Shadow Maturity", msg)
-                    self._show_status(msg)
-                    return
-                allow_exceptions = False
-                try:
-                    slte = solve_level_to_exception(
-                        shadow_policy,
-                        mode=shadow_level["mode"],
-                        start_policy_year=shadow_level["start_year"],
-                        base_future_inputs=future_inputs,
-                        allow_exceptions=allow_exceptions,
-                        base_options=run_options)
-                except LevelToExceptionError:
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    self.inputs_tab.set_shadow_level_amount(None)
-                    msg = ("No level premium keeps the shadow account in force "
-                           "to maturity (the guideline premium cap limits what "
-                           "can be paid in).")
-                    QMessageBox.information(self, "Prem to Shadow Maturity", msg)
-                    self._show_status(msg)
-                    return
-                sched = list(future_inputs.scheduled_transactions)
-                sched.append(ScheduledTransaction(
-                    kind=TransactionKind.PREMIUM,
-                    policy_year=int(shadow_level["start_year"]),
-                    amount=slte.premium, mode=slte.mode))
-                future_inputs = IllustrationInputSet(
-                    scheduled_transactions=sched,
-                    dated_transactions=list(future_inputs.dated_transactions),
-                    policy_changes=list(future_inputs.policy_changes))
-                # Same basis note as Prem to Maturity: CVAT solves with TAMRA
-                # conformance off, and the displayed run must match the solve.
-                run_options = level_to_exception_options(
-                    run_options, allow_exceptions,
-                    conform_to_tamra=not shadow_policy.is_cvat)
-                self.inputs_tab.set_shadow_level_amount(slte.premium)
-
-            # "Solve" premium type: solve the minimum level premium that
-            # carries the chosen value (Account / Surrender / Shadow Account
-            # Value) to the target amount at the target age (beginning-of-year
-            # age → the prior year's month-12 ending value). Solved under the
-            # SAME run options as the displayed run, honoring the prior
-            # premium rows / lumpsum / policy changes already merged into
-            # future_inputs. An unreachable target reports instead of running.
-            solve_req = self.inputs_tab.solve_request()
-            if solve_req is not None:
-                from suiteview.illustration.core.solve_premium_to_target import (
-                    PremiumTargetError, TARGET_FIELDS, solve_premium_to_target,
-                )
-                from suiteview.illustration.models.input_set import (
-                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
-                )
-
-                def _solve_stop(message: str):
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    self.inputs_tab.set_solve_amount(None)
-                    QMessageBox.information(self, "Premium Solve", message)
-                    self._show_status(message)
-
-                if solve_req["amount"] is None or solve_req["at_age"] is None:
-                    _solve_stop(
-                        "Enter the Premium Solve criteria first — the target "
-                        "Amount and the At Age (beginning-of-year age) in the "
-                        "Solve group under the Premiums section.")
-                    return
-                try:
-                    pts = solve_premium_to_target(
-                        scenario.projectable_policy,
-                        target=solve_req["target"],
-                        amount=solve_req["amount"],
-                        at_age=solve_req["at_age"],
-                        mode=solve_req["mode"],
-                        start_policy_year=solve_req["start_year"],
-                        end_policy_year=solve_req["end_year"],
-                        base_future_inputs=future_inputs,
-                        base_options=run_options,
-                        engine=engine)
-                except PremiumTargetError as exc:
-                    _solve_stop(str(exc))
-                    return
-                sched = list(future_inputs.scheduled_transactions)
-                sched.append(ScheduledTransaction(
-                    kind=TransactionKind.PREMIUM,
-                    policy_year=int(solve_req["start_year"]),
-                    amount=pts.premium, mode=pts.mode))
-                if solve_req["end_year"] is not None:
-                    sched.append(ScheduledTransaction(
-                        kind=TransactionKind.PREMIUM,
-                        policy_year=int(solve_req["end_year"]) + 1,
-                        amount=0.0, mode="A"))
-                future_inputs = IllustrationInputSet(
-                    scheduled_transactions=sched,
-                    dated_transactions=list(future_inputs.dated_transactions),
-                    policy_changes=list(future_inputs.policy_changes))
-                self.inputs_tab.set_solve_amount(pts.premium)
-                target_label = TARGET_FIELDS[pts.target][1]
+            result = execute_run(request)
+            if result.duration_label:
                 self._show_status(
-                    f"Premium Solve: {pts.premium:,.2f}/{pts.mode} reaches "
-                    f"{target_label} {pts.achieved_value:,.2f} at age "
-                    f"{pts.at_age}.")
-
-            # Keep the entered premium/mode fixed and solve the payment span in
-            # whole years. If maturity still misses, run the maturity duration.
-            duration_req = self.inputs_tab.solve_duration_request()
-            if duration_req is not None:
-                from suiteview.illustration.core.solve_premium_duration import (
-                    solve_premium_duration,
-                )
-                from suiteview.illustration.core.solve_premium_to_target import (
-                    PremiumTargetError, TARGET_FIELDS,
-                )
-                from suiteview.illustration.models.input_set import (
-                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
-                )
-
-                def _duration_stop(message: str):
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    QMessageBox.information(self, "Solve for Duration", message)
-                    self._show_status(message)
-
-                if (
-                    duration_req["premium"] is None
-                    or duration_req["amount"] is None
-                    or duration_req["at_age"] is None
-                ):
-                    _duration_stop(
-                        "Enter the Solve for Duration premium and criteria first - "
-                        "Premium, target Amount, and At Age are required.")
-                    return
-                try:
-                    duration = solve_premium_duration(
-                        scenario.projectable_policy,
-                        premium=duration_req["premium"],
-                        mode=duration_req["mode"],
-                        target=duration_req["target"],
-                        amount=duration_req["amount"],
-                        at_age=duration_req["at_age"],
-                        start_policy_year=duration_req["start_year"],
-                        base_future_inputs=future_inputs,
-                        base_options=run_options,
-                        engine=engine,
-                    )
-                except PremiumTargetError as exc:
-                    _duration_stop(str(exc))
-                    return
-
-                sched = list(future_inputs.scheduled_transactions)
-                sched.append(ScheduledTransaction(
-                    kind=TransactionKind.PREMIUM,
-                    policy_year=duration_req["start_year"],
-                    amount=duration.premium,
-                    mode=duration.mode,
-                ))
-                maturity_year = max(
-                    1,
-                    int(scenario.projectable_policy.maturity_age)
-                    - int(scenario.projectable_policy.issue_age),
-                )
-                if duration.end_policy_year < maturity_year:
-                    sched.append(ScheduledTransaction(
-                        kind=TransactionKind.PREMIUM,
-                        policy_year=duration.end_policy_year + 1,
-                        amount=0.0,
-                        mode="A",
-                    ))
-                future_inputs = IllustrationInputSet(
-                    scheduled_transactions=sched,
-                    dated_transactions=list(future_inputs.dated_transactions),
-                    policy_changes=list(future_inputs.policy_changes),
-                )
-                self.inputs_tab.set_solve_duration(duration.duration_years)
-                target_label = TARGET_FIELDS[duration.target][1]
-                achieved = (
-                    f"{duration.achieved_value:,.2f}"
-                    if duration.achieved_value is not None
-                    else "no target-age value"
-                )
-                if duration.reached_target:
-                    message = (
-                        f"Solve for Duration: {duration.premium:,.2f}/"
-                        f"{duration.mode} for {duration.duration_years} years "
-                        f"reaches {target_label} {achieved} at age "
-                        f"{duration.at_age}.")
-                else:
-                    message = (
-                        "Solve for Duration: target not reached; premium set "
-                        f"through maturity ({duration.duration_years} years), "
-                        f"producing {target_label} {achieved} at age "
-                        f"{duration.at_age}.")
+                    f"Running illustration values for {request.basis.policy_number} "
+                    f"{result.duration_label}...")
+                QApplication.processEvents()
+            for message in result.messages[:-1]:
                 self._show_status(message)
-
-            # "Pay-off" loan repayment rows: solve the level modal repayment
-            # that zeroes the loan by the end of each row's window. Repayments
-            # apply before new loans in the month order, so the balance is zero
-            # just before any new loan that follows a window. Solved
-            # chronologically — a later payoff window sees the earlier one's
-            # repayments (and any loans borrowed between them) already layered
-            # into the inputs.
-            payoff_requests = self.inputs_tab.loan_payoff_requests()
-            if payoff_requests:
-                from suiteview.illustration.core.solve_loan_payoff import (
-                    PAYOFF_SUBTYPE, LoanPayoffError, solve_loan_payoff,
-                )
-                from suiteview.illustration.models.input_set import (
-                    DatedTransaction, IllustrationInputSet, TransactionKind,
-                )
-                solved_amounts = []
-                try:
-                    for request in payoff_requests:
-                        payoff = solve_loan_payoff(
-                            scenario.projectable_policy,
-                            repayment_dates=request["dates"],
-                            check_date=request["check_date"],
-                            base_future_inputs=future_inputs,
-                            base_options=run_options,
-                            engine=engine)
-                        solved_amounts.append(payoff.repayment)
-                        if payoff.repayment > 0:
-                            dated = list(future_inputs.dated_transactions)
-                            dated.extend(DatedTransaction(
-                                kind=TransactionKind.LOAN_REPAYMENT,
-                                effective_date=when, amount=payoff.repayment,
-                                subtype=PAYOFF_SUBTYPE)
-                                for when in request["dates"])
-                            future_inputs = IllustrationInputSet(
-                                scheduled_transactions=list(future_inputs.scheduled_transactions),
-                                dated_transactions=dated,
-                                policy_changes=list(future_inputs.policy_changes))
-                except LoanPayoffError as exc:
-                    QApplication.restoreOverrideCursor()
-                    self.run_values_btn.setEnabled(True)
-                    self.inputs_tab.set_loan_payoff_amounts(
-                        [None] * len(payoff_requests))
-                    QMessageBox.information(self, "Loan Pay-off", str(exc))
-                    self._show_status(str(exc))
-                    return
-                self.inputs_tab.set_loan_payoff_amounts(solved_amounts)
-
-            results = project_policy(
-                scenario.projectable_policy,
-                months=projection_months,
-                inputs=future_inputs,
-                options=run_options,
-                stop_on_lapse=self.inputs_tab.stop_on_lapse_enabled(),
-                engine=engine,
-            ).states
-
-            # Guaranteed side (RERUN LockValues): re-project with guaranteed
-            # COIs / interest using the current run's applied cash flows locked
-            # in. Non-fatal, but never silent — a failure raises a warning
-            # banner on the Values and Report tabs and is logged with its
-            # traceback.
-            guaranteed_results = None
-            guaranteed_error = None
-            try:
-                from suiteview.illustration.core.guaranteed_projection import (
-                    run_guaranteed_projection,
-                )
-                guaranteed_results = run_guaranteed_projection(
-                    scenario.projectable_policy,
-                    results,
-                    base_options=run_options,
-                    base_future_inputs=future_inputs,
-                    engine=engine,
-                )
-            except Exception as exc:
-                guaranteed_error = str(exc) or type(exc).__name__
-                logger.error(
-                    "Guaranteed projection failed for %s: %s",
-                    policy_number, guaranteed_error, exc_info=True)
-
-            self.values_tab.display_projection(
-                scenario.projectable_policy,
-                results,
-                months=max(len(results) - 1, 0),
-                injected_first_row_columns=self._first_row_injected_columns(scenario),
-            )
-            if guaranteed_results:
-                self.values_tab.set_guaranteed_results(
-                    scenario.projectable_policy, guaranteed_results)
-            elif guaranteed_error:
-                self.values_tab.set_guaranteed_failure(guaranteed_error)
-            from datetime import date as _date
-
-            from suiteview.illustration.core.report_builder import build_ul_report
-
-            self.report_tab.display_report(build_ul_report(
-                scenario.projectable_policy,
-                results,
-                options=run_options,
-                future_inputs=future_inputs,
-                run_date=_date.today(),
-                guaranteed_results=guaranteed_results,
-            ), guaranteed_error=guaranteed_error)
-            self.tabs.setCurrentWidget(self.values_tab)
-            if getattr(scenario, "run_from_issue", False):
-                status = (
-                    f"Values ready for {policy_number} - issue opening plus "
-                    f"{max(len(results) - 1, 0)} projected months from policy issue"
-                )
-            else:
-                status = (
-                    f"Values ready for {policy_number} - valuation snapshot plus "
-                    f"{max(len(results) - 1, 0)} projected months"
-                )
-            if snapshot_case is not None:
-                status += (
-                    f"  ·  Saved case '{snapshot_case.name}' — policy data "
-                    f"as of {format_saved_stamp(snapshot_case.saved_at)}")
-            if self._is_historical_selection(rollback):
-                status += f"  |  ROLLBACK as of {rollback.valuation_date:%m/%d/%Y}"
-            elif rollback is not None:
-                status += "  |  Edited current-valuation assumptions"
-            if guaranteed_error:
-                status += f"  ·  Guaranteed values unavailable: {guaranteed_error}"
-            if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
-                from suiteview.polview.ui.formatting import format_amount, format_date
-                reason = {"SV": "surrender-value", "AV": "account-value-less-loans",
-                          "SNET": "safety-net"}.get(
-                              lumpsum_result.binding_reason, lumpsum_result.binding_reason)
-                status += (
-                    f"  ·  Applied a {format_amount(lumpsum_result.lumpsum)} lumpsum on "
-                    f"{format_date(lumpsum_result.forecast_date)} to carry the policy to its "
-                    f"next premium on {format_date(lumpsum_result.next_premium_date)} "
-                    f"(sized by the {reason} shortfall)."
-                )
-                if lumpsum_result.guideline_limited:
-                    QMessageBox.warning(
-                        self, "Lumpsum to Next Premium",
-                        f"The 7702 guideline limited the bridging premium to "
-                        f"{format_amount(lumpsum_result.applied)}, which cannot carry the "
-                        f"policy to its next premium on "
-                        f"{format_date(lumpsum_result.next_premium_date)} on premium alone.\n\n"
-                        f"Enable Allow GP Exception Premium to bridge the remaining gap."
-                    )
-            self._show_status(status)
+                QApplication.processEvents()
+            self._last_scenario = result.scenario
+            self._apply_solved_inputs(result.solved_inputs)
+            self._render_run_result(result)
+        except RunFlowError as exc:
+            self._clear_solved_field(exc.clear_field)
+            QMessageBox.information(self, exc.title, exc.message)
+            self._show_status(exc.message)
         except RateLookupError as exc:
             logger.error("Run Values rate lookup failed: %s", exc, exc_info=True)
             QMessageBox.warning(self, "Missing Illustration Rate", str(exc))
@@ -2037,6 +1417,133 @@ class IllustrationWindow(FramelessWindowBase):
         finally:
             self.run_values_btn.setEnabled(True)
             QApplication.restoreOverrideCursor()
+
+    def _read_run_request(self) -> RunRequest:
+        draft = self.inputs_tab.read_draft()
+        snapshot_case = self._snapshot_case
+        rollback = draft.rollback_overrides
+        snapshot_status = ""
+        policy_data = None
+        if snapshot_case is not None:
+            policy_number = snapshot_case.policy_number
+            region = snapshot_case.region or self._current_region or "CKPR"
+            company_code = snapshot_case.company_code
+            policy_data = snapshot_case.policy_snapshot
+            snapshot_status = (
+                f"Saved case '{snapshot_case.name}' — policy data as of "
+                f"{format_saved_stamp(snapshot_case.saved_at)}")
+        elif not self._policy or not self._policy.exists:
+            raise RunFlowError(
+                "Run Values", "Load a policy before running illustrated values.")
+        else:
+            policy_number = self._policy_info.get("PolicyNumber", self._policy.policy_number)
+            region = self._policy_info.get("Region", self._current_region or "CKPR")
+            company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
+            if rollback is not None:
+                policy_data = self._illustration_data
+
+        rollback_status = ""
+        if self._is_historical_selection(rollback):
+            rollback_status = f"ROLLBACK as of {rollback.valuation_date:%m/%d/%Y}"
+        elif rollback is not None:
+            rollback_status = "Edited current-valuation assumptions"
+
+        return RunRequest(
+            basis=PolicyBasis(
+                policy_number=policy_number,
+                region=region,
+                company_code=company_code,
+                policy_data=policy_data,
+                snapshot_status=snapshot_status,
+            ),
+            inputs=compile_input_set(draft),
+            controls=RunControls(
+                options=compile_options(draft),
+                projection_months=None,
+                duration_label=None,
+                projection_months_for_policy=self.inputs_tab.projection_months,
+                duration_label_for_policy=self.inputs_tab.projection_duration_label,
+                stop_on_lapse=draft.controls.stop_on_lapse,
+                run_from_issue=draft.controls.run_from_issue,
+                abr_quote=draft.controls.abr_quote,
+                abr_minimum_face_amount=draft.controls.abr_minimum_face_amount,
+                rollback_status=rollback_status,
+            ),
+            solves=SolveRequestSet(
+                lumpsum_to_next=draft.lumpsum_to_next,
+                max_level=draft.max_level,
+                min_level=draft.min_level,
+                shadow_level=draft.shadow_level,
+                target_premium=draft.target_premium,
+                duration=draft.duration,
+                loan_payoffs=draft.loan_payoffs,
+            ),
+            inforce_overrides=draft.inforce_overrides,
+            issue_overrides=draft.issue_overrides,
+            rollback_overrides=rollback,
+        )
+
+    def _apply_solved_inputs(self, solved: SolvedInputs):
+        if solved.lumpsum_amount is not None:
+            self.inputs_tab.set_lumpsum_amount(solved.lumpsum_amount)
+        if solved.max_level_amount is not None:
+            self.inputs_tab.set_max_level_amount(solved.max_level_amount)
+        if solved.min_level_amount is not None:
+            self.inputs_tab.set_min_level_amount(solved.min_level_amount)
+        if solved.shadow_level_amount is not None:
+            self.inputs_tab.set_shadow_level_amount(solved.shadow_level_amount)
+        if solved.target_amount is not None:
+            self.inputs_tab.set_solve_amount(solved.target_amount)
+        if solved.duration_years is not None:
+            self.inputs_tab.set_solve_duration(solved.duration_years)
+        if solved.loan_payoff_amounts is not None:
+            self.inputs_tab.set_loan_payoff_amounts(solved.loan_payoff_amounts)
+
+    def _clear_solved_field(self, field_name: str | None):
+        if field_name == "max_level":
+            self.inputs_tab.set_max_level_amount(None)
+        elif field_name == "min_level":
+            self.inputs_tab.set_min_level_amount(None)
+        elif field_name == "shadow_level":
+            self.inputs_tab.set_shadow_level_amount(None)
+        elif field_name == "target":
+            self.inputs_tab.set_solve_amount(None)
+        elif field_name == "loan_payoff":
+            self.inputs_tab.set_loan_payoff_amounts(
+                [None] * len(self.inputs_tab.loan_payoff_requests()))
+
+    def _render_run_result(self, result: RunResult):
+        if result.abr_quote is not None:
+            from .report_tab import format_abr_quote_pages
+            self.values_tab.display_projection(
+                result.policy,
+                result.current,
+                months=max(len(result.current) - 1, 0),
+                injected_first_row_columns=self._first_row_injected_columns(result.scenario),
+            )
+            self.report_tab.display_abr_quote(
+                format_abr_quote_pages(result.abr_quote, result.policy))
+            self.tabs.setCurrentWidget(self.report_tab)
+            self._show_status(result.status)
+            return
+
+        scenario = result.scenario
+        self.values_tab.display_projection(
+            result.policy,
+            result.current,
+            months=max(len(result.current) - 1, 0),
+            injected_first_row_columns=self._first_row_injected_columns(scenario),
+        )
+        if result.guaranteed:
+            self.values_tab.set_guaranteed_results(result.policy, result.guaranteed)
+        elif result.report.guaranteed_error:
+            self.values_tab.set_guaranteed_failure(result.report.guaranteed_error)
+        self.report_tab.display_report(
+            result.report.report,
+            guaranteed_error=result.report.guaranteed_error,
+        )
+        self.tabs.setCurrentWidget(self.values_tab)
+        self._show_status(result.status)
 
     @staticmethod
     def _first_row_injected_columns(scenario) -> set[str]:

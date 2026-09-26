@@ -34,7 +34,13 @@ from PyQt6.QtWidgets import (
 
 from ..models.rider_config import load_rider_config
 from ..models.app_settings import get_illustration_settings
-from .styles import PURPLE_BG, PURPLE_DARK
+from ..core.ledger_specs import (
+    LedgerCellInput,
+    ledger_cells_from_input,
+    ledger_columns,
+    numeric_ledger_indexes,
+)
+from .styles import PURPLE_BG
 
 CHART_BG = QColor("#FFFFFF")
 GRID_COLOR = QColor("#EDE7F6")
@@ -336,17 +342,8 @@ class _KpiChip(QWidget):
 
 
 # Ledger layout: locators (frozen) | rollups | value waterfall | spacer | the
-# individual cash-flow columns the rollups summarize. Shadow EAV is only shown
-# for shadow-account products (the column is hidden otherwise — see display()).
-LEDGER_COLUMNS = [
-    "Year", "Month", "Age", "Age EOY", "Date",
-    "Distributions", "Contributions",
-    "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
-    "Death Benefit", "Status",
-    "",  # spacer — visual break before the relocated cash-flow detail
-    "GLP", "GSP", "TotalGP", "SubjectPayments",
-    "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
-]
+# individual cash-flow columns the rollups summarize.
+LEDGER_COLUMNS = ledger_columns()
 # Year | Month | Age | Date stay put while the value columns scroll.
 FROZEN_LEDGER_COLUMN_COUNT = LEDGER_COLUMNS.index("Date") + 1
 SPACER_COLUMN = LEDGER_COLUMNS.index("")
@@ -357,9 +354,7 @@ SIMPLE_LEDGER_COLUMNS = {"Distributions", "Contributions", "ESV", "Death Benefit
 # beginning-of-year month (expanded); the tree swaps between them on expand.
 _ROLE_COLLAPSED_CELLS = Qt.ItemDataRole.UserRole + 1
 _ROLE_EXPANDED_CELLS = Qt.ItemDataRole.UserRole + 2
-NUMERIC_LEDGER = {
-    index for index, name in enumerate(LEDGER_COLUMNS) if name not in ("Status", "")
-}
+NUMERIC_LEDGER = numeric_ledger_indexes()
 # Solid fill for the spacer column so the division between the value waterfall
 # and the cash-flow detail reads at a glance.
 SPACER_BRUSH = QBrush(QColor("#B79CDE"))
@@ -369,51 +364,18 @@ def _fmt_date(when) -> str:
     return f"{when:%m/%d/%Y}" if when else ""
 
 
-def _ledger_cells(
-    year, month, age, age_eoy, when, *,
-    withdrawals, forceouts, loan_repay, premium, monthly_deduction,
-    exception_prem, av, sv, interest, eav, sc, new_loan, loan_balance,
-    esv, shadow_eav, death_benefit, status,
-    glp, gsp, total_gp, subject_payments,
-) -> list[str]:
-    """One ledger row in LEDGER_COLUMNS order (annual and monthly share it).
+def _ledger_cells(data: LedgerCellInput) -> list[str]:
+    """One ledger row in ``LEDGER_COLUMNS`` order."""
 
-    ``age`` is the attained age during the period (age at the anniversary that
-    began the policy year); ``age_eoy`` is the age reached at the end of the
-    policy year (age + 1) — the same EOY age the printed illustration shows.
-
-    Contributions rolls up the money-in columns (Loan Repay + Prem + Exception
-    Prem); Distributions the money-out columns (Withdrawals + ForceOuts + New
-    Loan). Both keep the source columns' display signs.
-
-    SubjectPayments is the amount tested against the total-GP limit: accumulated
-    premiums paid less accumulated withdrawals.
-    """
-    contributions = loan_repay + premium + exception_prem
-    distributions = withdrawals + forceouts + new_loan
-    return [
-        str(year), str(month), str(age), str(age_eoy), _fmt_date(when),
-        _fmt_money(distributions, 2), _fmt_money(contributions, 2),
-        _fmt_money(monthly_deduction, 2), _fmt_money(av, 2), _fmt_money(sv, 2),
-        _fmt_money(interest, 2), _fmt_money(eav, 2), _fmt_money(sc, 2),
-        _fmt_money(loan_balance, 2), _fmt_money(esv, 2),
-        _fmt_money(shadow_eav, 2),
-        _fmt_money(death_benefit, 0), status,
-        "",
-        _fmt_money(glp, 2), _fmt_money(gsp, 2),
-        _fmt_money(total_gp, 2), _fmt_money(subject_payments, 2),
-        _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
-        _fmt_money(loan_repay, 2), _fmt_money(premium, 2),
-        _fmt_money(exception_prem, 2), _fmt_money(new_loan, 2),
-    ]
+    return ledger_cells_from_input(data)
 
 
 def monthly_ledger_cells(state, previous_withdrawals: float) -> list[str]:
     """Canonical monthly mapping, also used by Policy Support's target forecasts."""
     av = state.av_after_exception
-    return _ledger_cells(
-        state.policy_year, state.policy_month, state.attained_age,
-        state.attained_age + 1, state.date,
+    return _ledger_cells(LedgerCellInput(
+        year=state.policy_year, month=state.policy_month,
+        age=state.attained_age, age_eoy=state.attained_age + 1, when=state.date,
         withdrawals=(
             state.withdrawals_to_date - previous_withdrawals - state.guideline_forceout),
         forceouts=state.guideline_forceout,
@@ -430,7 +392,7 @@ def monthly_ledger_cells(state, previous_withdrawals: float) -> list[str]:
         status=_status_text(state),
         glp=state.glp, gsp=state.gsp, total_gp=state.guideline_limit,
         subject_payments=state.premiums_to_date_after_exception - state.withdrawals_to_date,
-    )
+    ))
 
 
 class ValuesOverview(QWidget):
@@ -838,8 +800,9 @@ class ValuesOverview(QWidget):
             # loans and the surrender charge out of that AV.
             av_pre_interest = eoy.av_after_exception
             sv_pre_interest = av_pre_interest - eoy.policy_debt - eoy.surrender_charge
-            annual_cells = _ledger_cells(
-                year, boy_month, eoy.attained_age, eoy.attained_age + 1, boy_date,
+            annual_cells = _ledger_cells(LedgerCellInput(
+                year=year, month=boy_month, age=eoy.attained_age,
+                age_eoy=eoy.attained_age + 1, when=boy_date,
                 withdrawals=withdrawals, forceouts=forceouts,
                 loan_repay=loan_repay, premium=premium,
                 monthly_deduction=monthly_deduction, exception_prem=exception_prem,
@@ -851,7 +814,7 @@ class ValuesOverview(QWidget):
                 status=_status_text(eoy),
                 glp=eoy.glp, gsp=eoy.gsp, total_gp=eoy.guideline_limit,
                 subject_payments=eoy.premiums_to_date_after_exception - eoy.withdrawals_to_date,
-            )
+            ))
             # Expanded, the year row shrinks to just its beginning-of-year month
             # (the valuation snapshot for the first year), so the drill-down
             # reads one month at a time instead of a year's worth of totals.

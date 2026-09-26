@@ -426,6 +426,7 @@ def test_rollback_option_restores_normal_view_and_clears_inactive_basis(rollback
     from suiteview.illustration.models.app_settings import IllustrationSettings
     from suiteview.illustration.models.input_set import RollbackOverrideSet
     from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
+    from suiteview.illustration.ui.presenter import IllustrationSessionState
 
     assert IllustrationSettings().rollback_enabled is False
     window, source, dates = rollback_window
@@ -434,14 +435,21 @@ def test_rollback_option_restores_normal_view_and_clears_inactive_basis(rollback
     inactive.load_data_from_policy(source)
     inactive.rollback_changed.connect(window._on_rollback_changed)
     inactive.set_value_rollback(RollbackOverrideSet(dates[1]))
-    entry = {"inputs": inactive, "values": "old values", "report": "old report",
-             "status": "old status", "scenario": "old scenario"}
-    window._session_states["inactive"] = entry
+    entry = IllustrationSessionState(
+        input_draft=inactive.read_draft(),
+        values={"old": "values"},
+        report={"old": "report"},
+        status="old status",
+        scenario="old scenario",
+    )
+    window._session_states[("inactive", "CKPR", "01")] = entry
     window._rollback_action.trigger()
     assert not window.rollback_controls.isVisibleTo(window)
     assert window.inputs_tab.export_rollback_overrides() is None
     assert inactive.export_rollback_overrides() is None
-    assert all(entry[key] is None for key in ("values", "report", "status", "scenario"))
+    assert entry.input_draft.rollback_overrides is None
+    assert entry.input_draft.case_inputs["value_rollback"] is None
+    assert all(getattr(entry, key) is None for key in ("values", "report", "status", "scenario"))
     tab = window.policy_tab
     assert not tab.account_value_input.isVisibleTo(tab)
     assert not tab.shadow_value_input.isVisibleTo(tab)

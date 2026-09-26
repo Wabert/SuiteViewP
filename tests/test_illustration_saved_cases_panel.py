@@ -664,10 +664,10 @@ def test_run_values_in_snapshot_mode_projects_frozen_data(monkeypatch, tmp_path)
         raise _StopRun("stop after policy resolution")
 
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.project_policy",
+        "suiteview.illustration.core.run_service.project_policy",
         _db2_bomb)
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.build_illustration_scenario",
+        "suiteview.illustration.core.run_service.build_illustration_scenario",
         _capture_scenario)
     window._on_run_values()
 

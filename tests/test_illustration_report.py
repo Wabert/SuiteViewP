@@ -1347,7 +1347,8 @@ def test_expense_checkbox_rerenders_held_report(tmp_path, monkeypatch):
     from PyQt6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])  # noqa: F841
-    monkeypatch.setattr(report_tab_module, "_SETTINGS_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(
+        report_tab_module, "_settings_file", lambda: tmp_path / "settings.json")
 
     tab = IllustrationReportTab()
     assert not tab.expense_report_check.isChecked()     # off by default

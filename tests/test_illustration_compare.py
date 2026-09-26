@@ -42,6 +42,7 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.models.case_store import CaseStoreError
 from suiteview.illustration.ui.saved_case_scenario import materialize_saved_case
+from suiteview.ui.workers import WorkerController
 from suiteview.illustration.ui.compare_tab import (
     CURRENT_INPUTS_LABEL,
     NO_SCENARIO_LABEL,
@@ -621,7 +622,7 @@ def test_run_two_dropped_cases_needs_no_loaded_policy(monkeypatch):
 
     monkeypatch.setattr(IllustrationCompareTab, "_build_spec", fake_build_spec)
     # Run the worker body synchronously so the result lands in-test.
-    monkeypatch.setattr(_CompareWorker, "start", lambda self: self.run())
+    monkeypatch.setattr(WorkerController, "start", lambda self: self.worker.run())
 
     tab.scenario_a_combo.set_dropped_case(_made_case("Case One"))
     tab.scenario_b_combo.set_dropped_case(_made_case("Case Two"))

@@ -24,6 +24,7 @@ from suiteview.illustration.core.illustration_policy_service import coverage_or_
 from suiteview.polview.ui.formatting import format_amount, format_currency, format_date
 from suiteview.polview.ui.widgets import FixedHeaderTableWidget, StyledInfoTableGroup
 from suiteview.polview.models.cl_polrec.policy_translations import PREMIUM_PAY_STATUS_CODES
+from suiteview.ui.signals import muted_signals
 
 from .record_editing import FundValueDelegate, RecordDateInput
 
@@ -429,8 +430,7 @@ class IllustrationPolicyTab(QWidget):
             values = dict(getattr(self._record_snapshot, name))
             values.update(self._fund_drafts.get(name, {}))
             inner = table._data_table
-            inner.blockSignals(True)
-            try:
+            with muted_signals(inner):
                 table.setRowCount(len(values))
                 for row, (fund, value) in enumerate(sorted(values.items())):
                     self._set_table_item(table, row, 0, fund)
@@ -438,8 +438,6 @@ class IllustrationPolicyTab(QWidget):
                     self._set_table_item(table, row, 1, f"{number:,.2f}" + (
                         "%" if name == "premium_allocations" else ""))
                     table.item(row, 1).setData(Qt.ItemDataRole.UserRole, number)
-            finally:
-                inner.blockSignals(False)
             self._fit_fund_table(table)
         self._equalize_fund_tables()
         self._set_fund_editability()
@@ -448,8 +446,7 @@ class IllustrationPolicyTab(QWidget):
     def _set_fund_editability(self):
         for table in self._fund_tables.values():
             inner = table._data_table
-            inner.blockSignals(True)
-            try:
+            with muted_signals(inner):
                 inner.setEditTriggers(
                     QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed
                     if self._rollback_editing else QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -458,8 +455,6 @@ class IllustrationPolicyTab(QWidget):
                     if item is not None:
                         flags = item.flags() & ~Qt.ItemFlag.ItemIsEditable
                         item.setFlags(flags | Qt.ItemFlag.ItemIsEditable if self._rollback_editing else flags)
-            finally:
-                inner.blockSignals(False)
 
     def _fund_cell_changed(self, name, row, column):
         if not self._rollback_editing or column != 1 or self._record_snapshot is None:
