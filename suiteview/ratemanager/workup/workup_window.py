@@ -36,8 +36,10 @@ from suiteview.ratemanager.ui_helpers import (
 from suiteview.ratemanager.workup.builder import (
     WorkupAnalysis, WorkupResult, analyze, benefit_start_index, build,
 )
-from suiteview.ratemanager.workup.base import BaseWorkupPanel, WorkerRunner
+from suiteview.ratemanager.workup.base import BaseWorkupPanel
 from suiteview.ratemanager.workup.spec import BenefitSelection, WorkupSpec
+from suiteview.ratemanager.worker_helpers import start_workup_worker
+from suiteview.ui.workers import WorkerController
 
 
 # ---------------------------------------------------------------------------
@@ -144,8 +146,8 @@ class RateWorkupPanel(BaseWorkupPanel):
         guard_app_access("RATEMANAGER")
         super().__init__(parent)
         self._analysis: WorkupAnalysis | None = None
-        self._analyze_worker: WorkerRunner | None = None
-        self._build_worker: WorkerRunner | None = None
+        self._analyze_worker: WorkerController | None = None
+        self._build_worker: WorkerController | None = None
         self._output_path = ""
         self._state_map_cache: dict = {}   # (scr_path, plan) → confirmed map
         self.setObjectName("RateManagerBody")
@@ -421,11 +423,14 @@ class RateWorkupPanel(BaseWorkupPanel):
         self.btn_analyze.setEnabled(False)
         self.btn_build.setEnabled(False)
         self.space_lbl.setText("Analyzing…")
-        self._analyze_worker = WorkerRunner(analyze, spec)
-        self._analyze_worker.progress.connect(self._on_progress)
-        self._analyze_worker.finished.connect(self._on_analyzed)
-        self._analyze_worker.error.connect(self._on_error)
-        self._analyze_worker.start()
+        self._analyze_worker = start_workup_worker(
+            self,
+            analyze,
+            (spec,),
+            on_progress=self._on_progress,
+            on_result=self._on_analyzed,
+            on_error=self._on_error,
+        )
 
     def _on_analyzed(self, ana: WorkupAnalysis):
         self._analysis = ana
@@ -729,11 +734,14 @@ class RateWorkupPanel(BaseWorkupPanel):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._build_worker = WorkerRunner(build, spec, self._analysis)
-        self._build_worker.progress.connect(self._on_progress)
-        self._build_worker.finished.connect(self._on_built)
-        self._build_worker.error.connect(self._on_error)
-        self._build_worker.start()
+        self._build_worker = start_workup_worker(
+            self,
+            build,
+            (spec, self._analysis),
+            on_progress=self._on_progress,
+            on_result=self._on_built,
+            on_error=self._on_error,
+        )
 
     def _on_build(self):
         if self._analysis is None:

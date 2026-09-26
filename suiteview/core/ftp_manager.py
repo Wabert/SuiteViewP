@@ -137,6 +137,60 @@ _MVS_LISTING_FORMATS = (
 )
 
 
+def _looks_like_dataset_attributes(parts: List[str]) -> bool:
+    has_device = any(dev in parts for dev in ['3390', '3380', '3350', 'Tape'])
+    has_dsorg = any(org in parts for org in ['PO', 'PS', 'DA', 'IS', 'VS', 'GDG'])
+    return has_device or has_dsorg or 'Migrated' in parts
+
+
+def _dataset_attribute_fields(parts: List[str], dsname: str) -> Dict[str, str]:
+    attrs = {
+        'volume': '', 'unit': '', 'referred': '', 'ext': '', 'used': '',
+        'recfm': '', 'lrecl': '', 'blksz': '', 'dsorg': '',
+    }
+    if len(parts) >= 10:
+        attrs.update({
+            'volume': parts[0],
+            'unit': parts[1],
+            'referred': parts[2] if '/' in parts[2] else '',
+            'ext': parts[3] if parts[3].isdigit() else '',
+            'used': parts[4] if parts[4].isdigit() else '',
+            'recfm': parts[5],
+            'lrecl': parts[6] if parts[6].isdigit() else '',
+            'blksz': parts[7] if parts[7].isdigit() else '',
+            'dsorg': parts[8],
+        })
+    elif len(parts) == 2:
+        _dataset_two_part_fields(attrs, parts, dsname)
+    else:
+        _dataset_partial_fields(attrs, parts)
+    return attrs
+
+
+def _dataset_two_part_fields(attrs: Dict[str, str], parts: List[str], dsname: str) -> None:
+    if parts[0] == 'GDG':
+        attrs['dsorg'] = 'GDG'
+    elif parts[0] == 'Migrated':
+        attrs['volume'] = 'Migrated'
+        if '.G' in dsname and 'V00' in dsname:
+            attrs['dsorg'] = 'GDG'
+
+
+def _dataset_partial_fields(attrs: Dict[str, str], parts: List[str]) -> None:
+    if 'GDG' in parts:
+        attrs['dsorg'] = 'GDG'
+    if 'Migrated' in parts:
+        attrs['volume'] = 'Migrated'
+    for dev in ['3390', '3380', '3350', 'Tape']:
+        if dev in parts:
+            attrs['unit'] = dev
+            break
+    attrs['referred'] = next(
+        (part for part in parts if '/' in part and len(part) == 10),
+        attrs['referred'],
+    )
+
+
 class MainframeFTPManager:
     """Manages FTP connections to mainframe systems for dataset access"""
     
@@ -360,88 +414,78 @@ class MainframeFTPManager:
             return []
         
         try:
-            # Ensure connection is alive (auto-reconnect if needed)
             if not self._ensure_connected():
                 logger.error("Cannot list datasets - connection unavailable")
                 return []
-            
-            # Navigate to path if specified
-            original_path = None
-            if path:
-                try:
-                    original_path = self.ftp.pwd()
-                    # Mainframe datasets need quotes around path
-                    self.ftp.cwd(f"'{path}'")
-                    logger.debug(f"Changed to path: {path}")
-                except Exception as e:
-                    logger.error(f"Failed to change to path {path}: {e}")
-                    return []
-            
-            # Get directory listing
-            items = []
-            lines = []
-            try:
-                self.ftp.retrlines('LIST', lines.append)
-                logger.debug(f"Raw FTP listing returned {len(lines)} lines")
-            except ftplib.error_perm as e:
-                error_msg = str(e)
-                # FTP success codes (200, 226, 250) are sometimes returned as exceptions
-                if any(code in error_msg for code in ['200', '226', '250']):
-                    logger.debug(f"FTP success message: {error_msg}")
-                    # Data was transferred successfully, continue
-                else:
-                    logger.error(f"Permission error during LIST: {error_msg}")
-                    if original_path:
-                        try:
-                            self.ftp.cwd(original_path)
-                        except ftplib.all_errors:
-                            logger.debug("Could not restore FTP path after LIST permission error", exc_info=True)
-                    return []
-            except (EOFError, OSError, ConnectionError) as e:
-                logger.error(f"Connection lost during LIST: {e}")
-                self.connected = False
-                if original_path:
-                    try:
-                        self.ftp.cwd(original_path)
-                    except ftplib.all_errors:
-                        logger.debug("Could not restore FTP path after LIST connection loss", exc_info=True)
+            original_path = self._change_ftp_path(path)
+            if path and original_path is None:
                 return []
-            except Exception as e:
-                logger.error(f"Error during LIST command: {e}")
-                if original_path:
-                    try:
-                        self.ftp.cwd(original_path)
-                    except ftplib.all_errors:
-                        logger.debug("Could not restore FTP path after LIST error", exc_info=True)
+            lines = self._list_current_ftp_path(original_path)
+            if lines is None:
                 return []
-            
-            # Parse all lines - they could be dataset attributes OR members
-            for line in lines:
-                # Try to parse as dataset attribute line first
-                dataset_attr = self._parse_dataset_attributes(line)
-                if dataset_attr:
-                    # This is a dataset attribute line
-                    items.append(dataset_attr)
-                else:
-                    # Try to parse as member
-                    item = self._parse_mvs_listing(line)
-                    if item:
-                        items.append(item)
-            
-            # Return to original path if we changed
-            if original_path:
-                try:
-                    self.ftp.cwd(original_path)
-                    logger.debug(f"Returned to original path: {original_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to return to original path: {e}")
-            
+            items = self._parse_listing_lines(lines)
+            self._restore_ftp_path(original_path, "Returned to original path")
             logger.info(f"Listed {len(items)} items at path: {path or 'current directory'} (from {len(lines)} raw lines)")
             return items
             
         except Exception as e:
             logger.error(f"Failed to list datasets at {path}: {e}")
             return []
+
+    def _change_ftp_path(self, path: str) -> Optional[str]:
+        if not path:
+            return None
+        try:
+            original_path = self.ftp.pwd()
+            self.ftp.cwd(f"'{path}'")
+            logger.debug(f"Changed to path: {path}")
+            return original_path
+        except Exception as e:
+            logger.error(f"Failed to change to path {path}: {e}")
+            return None
+
+    def _list_current_ftp_path(self, original_path: Optional[str]) -> Optional[List[str]]:
+        lines: List[str] = []
+        try:
+            self.ftp.retrlines('LIST', lines.append)
+            logger.debug(f"Raw FTP listing returned {len(lines)} lines")
+            return lines
+        except ftplib.error_perm as e:
+            if self._ftp_success_exception(e):
+                return lines
+            logger.error(f"Permission error during LIST: {e}")
+        except (EOFError, OSError, ConnectionError) as e:
+            logger.error(f"Connection lost during LIST: {e}")
+            self.connected = False
+        except Exception as e:
+            logger.error(f"Error during LIST command: {e}")
+        self._restore_ftp_path(original_path, "Could not restore FTP path after LIST error")
+        return None
+
+    @staticmethod
+    def _ftp_success_exception(error: Exception) -> bool:
+        error_msg = str(error)
+        if any(code in error_msg for code in ['200', '226', '250']):
+            logger.debug(f"FTP success message: {error_msg}")
+            return True
+        return False
+
+    def _parse_listing_lines(self, lines: List[str]) -> List[Dict[str, any]]:
+        items = []
+        for line in lines:
+            item = self._parse_dataset_attributes(line) or self._parse_mvs_listing(line)
+            if item:
+                items.append(item)
+        return items
+
+    def _restore_ftp_path(self, original_path: Optional[str], message: str) -> None:
+        if not original_path:
+            return
+        try:
+            self.ftp.cwd(original_path)
+            logger.debug(f"{message}: {original_path}")
+        except Exception as e:
+            logger.warning(f"Failed to restore FTP path: {e}")
     
     def _parse_dataset_attributes(self, line: str) -> Optional[Dict[str, any]]:
         """
@@ -464,81 +508,16 @@ class MainframeFTPManager:
         parts = line.split()
         if len(parts) < 2:
             return None
-        
-        # The dataset name is ALWAYS the last field on the line
         dsname = parts[-1]
-        
-        # Check if this looks like a dataset attribute line
-        # Must have device type (3390, 3380, etc.) or Dsorg (PO, PS, GDG, etc.) or "Migrated"
-        has_device = any(dev in parts for dev in ['3390', '3380', '3350', 'Tape'])
-        has_dsorg = any(org in parts for org in ['PO', 'PS', 'DA', 'IS', 'VS', 'GDG'])
-        has_migrated = 'Migrated' in parts
-        
-        if not (has_device or has_dsorg or has_migrated):
+        if not _looks_like_dataset_attributes(parts):
             return None
         
         try:
-            # Initialize all fields with defaults
-            volume = ''
-            unit = ''
-            referred = ''
-            ext = ''
-            used = ''
-            recfm = ''
-            lrecl = ''
-            blksz = ''
-            dsorg = ''
-            
-            # If we have 10+ parts, it's a full dataset attribute line
-            if len(parts) >= 10:
-                volume = parts[0]
-                unit = parts[1]
-                referred = parts[2] if '/' in parts[2] else ''
-                ext = parts[3] if parts[3].isdigit() else ''
-                used = parts[4] if parts[4].isdigit() else ''
-                recfm = parts[5]
-                lrecl = parts[6] if parts[6].isdigit() else ''
-                blksz = parts[7] if parts[7].isdigit() else ''
-                dsorg = parts[8]
-            # If we have 2 parts, it's likely "GDG DSNAME" or "Migrated DSNAME"
-            elif len(parts) == 2:
-                if parts[0] == 'GDG':
-                    dsorg = 'GDG'
-                elif parts[0] == 'Migrated':
-                    volume = 'Migrated'
-                    # Try to determine dsorg from dataset name pattern
-                    if '.G' in dsname and 'V00' in dsname:
-                        dsorg = 'GDG'  # GDG generation
-            # If we have more than 2 but less than 10, try to extract what we can
-            elif len(parts) > 2:
-                # Check for common patterns
-                if 'GDG' in parts:
-                    dsorg = 'GDG'
-                if 'Migrated' in parts:
-                    volume = 'Migrated'
-                # Look for device types
-                for dev in ['3390', '3380', '3350', 'Tape']:
-                    if dev in parts:
-                        unit = dev
-                        break
-                # Look for date pattern
-                for part in parts:
-                    if '/' in part and len(part) == 10:
-                        referred = part
-                        break
-            
+            attrs = _dataset_attribute_fields(parts, dsname)
             return {
                 'name': dsname,
                 'type': 'dataset',
-                'volume': volume,
-                'unit': unit,
-                'referred': referred,
-                'ext': ext,
-                'used': used,
-                'recfm': recfm,
-                'lrecl': lrecl,
-                'blksz': blksz,
-                'dsorg': dsorg,
+                **attrs,
                 'is_dataset': True
             }
         except Exception as e:
@@ -613,120 +592,76 @@ class MainframeFTPManager:
             logger.error("Not connected to FTP server")
             return "", 0
         
-        # Save current directory to restore later
-        original_dir = None
-        try:
-            original_dir = self.ftp.pwd()
-            logger.debug(f"Saved current directory: {original_dir}")
-        except Exception as e:
-            logger.warning(f"Could not get current directory: {e}")
+        original_dir = self._save_current_ftp_dir()
         
         try:
-            # Ensure connection is alive (auto-reconnect if needed)
             if not self._ensure_connected():
                 logger.error("Cannot read dataset - connection unavailable")
                 return "", 0
-            
-            # Read all lines - use retrlines which handles EBCDIC→ASCII conversion properly
-            lines = []
-            
-            def collect_line(line):
-                """Callback to collect lines"""
-                lines.append(line)
-            
-            # Download dataset using retrlines
-            try:
-                # Log current directory for debugging
-                try:
-                    current_dir = self.ftp.pwd()
-                    logger.debug(f"Current FTP directory: {current_dir}")
-                except ftplib.all_errors:
-                    logger.debug("Could not read current FTP directory before RETR", exc_info=True)
-                
-                logger.info(f"Attempting to read dataset: {dataset_name}")
-                
-                # Capture the response from the RETR command
-                ftp_response = []
-                original_callback = self.ftp.lastresp if hasattr(self.ftp, 'lastresp') else None
-                
-                self.ftp.retrlines(f"RETR '{dataset_name}'", collect_line)
-                
-                # Log the FTP server's response
-                if hasattr(self.ftp, 'lastresp'):
-                    logger.info(f"FTP server response: {self.ftp.lastresp}")
-                
-                logger.info(f"RETR completed: {len(lines)} lines")
-            except ftplib.error_perm as e:
-                error_msg = str(e)
-                # FTP success codes are sometimes returned as exceptions
-                if any(code in error_msg for code in ['200', '226', '250']):
-                    logger.debug(f"FTP success message: {error_msg}")
-                    # Data was transferred successfully
-                else:
-                    logger.error(f"Permission error reading {dataset_name}: {error_msg}")
-                    if '550' in error_msg or 'Not found' in error_msg:
-                        logger.warning(f"Dataset not found: {dataset_name}")
-                    
-                    # Critical: FTP state may be corrupted after failed RETR
-                    # Force reconnect to clear any pending state
-                    logger.warning("Forcing reconnect to clear FTP state after error")
-                    self._attempt_reconnect()
-                    
-                    return "", 0
-            except UnicodeDecodeError as e:
-                # This happens when retrlines() tries to decode bytes that aren't valid UTF-8
-                # The FTP connection is now in a bad state
-                logger.error(f"UTF-8 decode error reading {dataset_name}: {e}")
-                logger.warning("Dataset contains binary/non-text data - forcing reconnect")
-                
-                # Force reconnect to clear corrupted FTP state
-                self._attempt_reconnect()
-                
+            lines = self._read_dataset_lines(dataset_name)
+            if lines is None:
                 return "", 0
-            except (ftplib.error_temp, EOFError, OSError, ConnectionError) as e:
-                logger.error(f"Connection error reading {dataset_name}: {e}")
-                self.connected = False
-                return "", 0
-            except Exception as e:
-                logger.error(f"Failed to read dataset {dataset_name}: {e}")
-                return "", 0
-            
             total_lines = len(lines)
-            
-            # Log results
-            if total_lines == 0:
-                logger.warning(f"Dataset {dataset_name} returned 0 lines (may be empty)")
-            else:
-                logger.info(f"Successfully read {total_lines} lines from {dataset_name}")
-            
-            # Trim to max_lines if specified
-            if max_lines and len(lines) > max_lines:
-                lines = lines[:max_lines]
-            
-            content = '\n'.join(lines)
-            
-            # Restore original directory
-            if original_dir:
-                try:
-                    self.ftp.cwd(original_dir)
-                    logger.debug(f"Restored directory to: {original_dir}")
-                except Exception as e:
-                    logger.warning(f"Could not restore directory: {e}")
-            
-            return content, total_lines
+            self._log_dataset_read_result(dataset_name, total_lines)
+            self._restore_ftp_path(original_dir, "Restored directory to")
+            return '\n'.join(lines[:max_lines] if max_lines and len(lines) > max_lines else lines), total_lines
             
         except Exception as e:
             logger.error(f"Unexpected error reading dataset {dataset_name}: {e}")
-            
-            # Try to restore directory even on error
-            if original_dir:
-                try:
-                    self.ftp.cwd(original_dir)
-                    logger.debug(f"Restored directory after error to: {original_dir}")
-                except ftplib.all_errors:
-                    logger.debug("Could not restore FTP directory after read failure", exc_info=True)
-            
+            self._restore_ftp_path(original_dir, "Restored directory after error to")
             return "", 0
+
+    def _save_current_ftp_dir(self) -> Optional[str]:
+        try:
+            original_dir = self.ftp.pwd()
+            logger.debug(f"Saved current directory: {original_dir}")
+            return original_dir
+        except Exception as e:
+            logger.warning(f"Could not get current directory: {e}")
+            return None
+
+    def _read_dataset_lines(self, dataset_name: str) -> Optional[List[str]]:
+        lines: List[str] = []
+        try:
+            self._log_current_ftp_dir_before_retr()
+            logger.info(f"Attempting to read dataset: {dataset_name}")
+            self.ftp.retrlines(f"RETR '{dataset_name}'", lines.append)
+            if hasattr(self.ftp, 'lastresp'):
+                logger.info(f"FTP server response: {self.ftp.lastresp}")
+            logger.info(f"RETR completed: {len(lines)} lines")
+            return lines
+        except ftplib.error_perm as e:
+            if self._ftp_success_exception(e):
+                return lines
+            logger.error(f"Permission error reading {dataset_name}: {e}")
+            if '550' in str(e) or 'Not found' in str(e):
+                logger.warning(f"Dataset not found: {dataset_name}")
+            logger.warning("Forcing reconnect to clear FTP state after error")
+            self._attempt_reconnect()
+        except UnicodeDecodeError as e:
+            logger.error(f"UTF-8 decode error reading {dataset_name}: {e}")
+            logger.warning("Dataset contains binary/non-text data - forcing reconnect")
+            self._attempt_reconnect()
+        except (ftplib.error_temp, EOFError, OSError, ConnectionError) as e:
+            logger.error(f"Connection error reading {dataset_name}: {e}")
+            self.connected = False
+        except Exception as e:
+            logger.error(f"Failed to read dataset {dataset_name}: {e}")
+        return None
+
+    def _log_current_ftp_dir_before_retr(self) -> None:
+        try:
+            current_dir = self.ftp.pwd()
+            logger.debug(f"Current FTP directory: {current_dir}")
+        except ftplib.all_errors:
+            logger.debug("Could not read current FTP directory before RETR", exc_info=True)
+
+    @staticmethod
+    def _log_dataset_read_result(dataset_name: str, total_lines: int) -> None:
+        if total_lines == 0:
+            logger.warning(f"Dataset {dataset_name} returned 0 lines (may be empty)")
+        else:
+            logger.info(f"Successfully read {total_lines} lines from {dataset_name}")
     def get_dataset_info(self, dataset_name: str) -> Optional[Dict[str, any]]:
         """
         Get information about a specific dataset

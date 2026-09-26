@@ -180,6 +180,146 @@ def _as_date(value) -> Optional[date]:
     return date.fromisoformat(str(value)[:10])
 
 
+def _validate_wl_premium_args(user_code, plancode, issue_age) -> tuple[str, str]:
+    user_code = str(user_code or "").strip()
+    plancode = str(plancode or "").strip().upper()
+    if not re.fullmatch(r"[0-9]{2}", user_code):
+        raise RatesError("Fixed premiums require a two-digit CyberLife user code.")
+    if not plancode:
+        raise RatesError("Fixed premiums require a plancode.")
+    if isinstance(issue_age, bool) or not isinstance(issue_age, int) or issue_age < 0:
+        raise RatesError("Fixed premiums require a nonnegative integer issue age.")
+    return user_code, plancode
+
+
+def _wl_premium_records(rows, plancode: str) -> list[dict[str, Any]]:
+    columns = _WL_PREMIUM_COLUMNS + (
+        "SOURCE_PLANCODE", "SOURCE_IAF_VERSION", "SOURCE_EFFECTIVE_DATE",
+    )
+    records = []
+    for raw in rows:
+        record = dict(zip(columns, raw))
+        _coerce_wl_premium_record(record, plancode)
+        records.append(record)
+    return records
+
+
+def _coerce_wl_premium_record(record: dict[str, Any], plancode: str) -> None:
+    for key in ("EFFECTIVE_DATE", "SCALE_START", "SCALE_STOP", "SOURCE_EFFECTIVE_DATE"):
+        record[key] = _as_date(record[key])
+    for key in ("RATE", "VALUE_PER_UNIT"):
+        if record[key] is not None:
+            record[key] = Decimal(str(record[key]))
+    for key in (
+        "IAF_VERSION", "RATE_TYPE", "PREMIUM_IDENTIFIER", "DURATION_CODE",
+        "SEX", "RATECLASS", "BAND", "PLAN_OPTION", "SOURCE_PLANCODE",
+        "SOURCE_IAF_VERSION",
+    ):
+        record[key] = str(record[key] or "").strip()
+    if record["RATE"] is None:
+        raise RatesError(f"WL_RATE_PREM {plancode} has a NULL rate.")
+    if record["IAR_USE"] not in (0, None):
+        raise RatesError(
+            f"WL_RATE_PREM {plancode} issue-age-range use {record['IAR_USE']} is not verified."
+        )
+
+
+def _choose_wl_premium_version(versions, issue_date, plancode: str):
+    eligible = [
+        version for version in versions
+        if issue_date is None or version[0] is None or version[0] <= issue_date
+    ]
+    if len(versions) > 1 and issue_date is None:
+        raise RatesError(
+            f"WL_RATE_PREM {plancode} has several IAF versions; an issue date is required."
+        )
+    if not eligible:
+        return None
+    chosen = eligible[-1]
+    if len([version for version in eligible if version[0] == chosen[0]]) > 1:
+        raise RatesError(
+            f"WL_RATE_PREM {plancode} has several IAF versions effective {chosen[0]}."
+        )
+    return chosen
+
+
+def _normalize_rate_lookup_inputs(plancode, issue_age, band, rateclass):
+    plancode = (plancode or "").strip()
+    if issue_age is not None:
+        issue_age = int(issue_age)
+    if band is not None:
+        band = int(band)
+    if rateclass == "0":
+        rateclass = "N"
+    return plancode, issue_age, band, rateclass
+
+
+def _scr_state_for_lookup(rate_type, plancode, state, varies) -> Optional[str]:
+    if rate_type.upper() != "SCR" or local_data_enabled():
+        return None
+    requested_state = (state or "AA").strip().upper() or "AA"
+    if requested_state != "AA" and varies(plancode):
+        return requested_state
+    return "AA"
+
+
+def _fetch_rate_rows_with_state_fallback(
+    rates: "Rates",
+    rate_type,
+    plancode,
+    issue_age,
+    sex,
+    rateclass,
+    scale,
+    band,
+    benefit_type,
+    scr_state,
+):
+    sql, params = rates._create_sql(
+        rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type, scr_state,
+    )
+    rows = rates._fetch_rates(sql, params)
+    if rows is None and scr_state is not None and scr_state != "AA":
+        sql, params = rates._create_sql(
+            rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type, "AA",
+        )
+        rows = rates._fetch_rates(sql, params)
+    return rows
+
+
+def _rates_result_from_rows(
+    rows,
+    rate_type_upper,
+    plancode,
+    issue_age,
+    sex,
+    rateclass,
+    band,
+):
+    if rows is None:
+        return None
+    if rate_type_upper in {"TBL1MTP", "TBL1CTP"} and any(row[0] is None for row in rows):
+        _validate_null_target_rows(rows, rate_type_upper, plancode, issue_age, sex, rateclass, band)
+        return None
+    if rate_type_upper == "BANDSPECS":
+        return [[row[0], row[1], (row[2] if len(row) > 2 else None)] for row in rows]
+    if rate_type_upper == "COI_SCALE":
+        return rows
+    if rate_type_upper == "RATESPACE":
+        return [[row[0], row[1], row[2]] for row in rows]
+    return [None] + [float(row[0]) for row in rows]
+
+
+def _validate_null_target_rows(rows, rate_type_upper, plancode, issue_age, sex, rateclass, band):
+    if all(row[0] is None for row in rows):
+        return
+    raise RatesError(
+        f"Inconsistent NULL and numeric {rate_type_upper} rates for "
+        f"plancode {plancode}, issue age {issue_age}, sex {sex}, "
+        f"rate class {rateclass}, band {band}."
+    )
+
+
 class Rates:
     """
     Rate lookup class with caching.
@@ -459,14 +599,7 @@ class Rates:
         issue date that choice fails rather than mixing versions. No rows for
         the plan/user/age returns an empty ``rows`` list.
         """
-        user_code = str(user_code or "").strip()
-        plancode = str(plancode or "").strip().upper()
-        if not re.fullmatch(r"[0-9]{2}", user_code):
-            raise RatesError("Fixed premiums require a two-digit CyberLife user code.")
-        if not plancode:
-            raise RatesError("Fixed premiums require a plancode.")
-        if isinstance(issue_age, bool) or not isinstance(issue_age, int) or issue_age < 0:
-            raise RatesError("Fixed premiums require a nonnegative integer issue age.")
+        user_code, plancode = _validate_wl_premium_args(user_code, plancode, issue_age)
         rows = self._fetch_rates(
             "SELECT " + ", ".join(f"[{c}]" for c in _WL_PREMIUM_COLUMNS) + ", "
             "[SOURCE_PLANCODE], [SOURCE_IAF_VERSION], [SOURCE_EFFECTIVE_DATE] "
@@ -475,39 +608,15 @@ class Rates:
             "ORDER BY [EFFECTIVE_DATE], [RATE_TYPE], [PLAN_OPTION], [SCALE_START], [PREMIUM_IDENTIFIER]",
             [user_code, plancode, issue_age, issue_age],
         ) or []
-        records = []
-        for raw in rows:
-            record = dict(zip(_WL_PREMIUM_COLUMNS + (
-                "SOURCE_PLANCODE", "SOURCE_IAF_VERSION", "SOURCE_EFFECTIVE_DATE"), raw))
-            for key in ("EFFECTIVE_DATE", "SCALE_START", "SCALE_STOP", "SOURCE_EFFECTIVE_DATE"):
-                record[key] = _as_date(record[key])
-            for key in ("RATE", "VALUE_PER_UNIT"):
-                if record[key] is not None:
-                    record[key] = Decimal(str(record[key]))
-            for key in ("IAF_VERSION", "RATE_TYPE", "PREMIUM_IDENTIFIER", "DURATION_CODE",
-                        "SEX", "RATECLASS", "BAND", "PLAN_OPTION", "SOURCE_PLANCODE",
-                        "SOURCE_IAF_VERSION"):
-                record[key] = str(record[key] or "").strip()
-            if record["RATE"] is None:
-                raise RatesError(f"WL_RATE_PREM {plancode} has a NULL rate.")
-            if record["IAR_USE"] not in (0, None):
-                raise RatesError(
-                    f"WL_RATE_PREM {plancode} issue-age-range use {record['IAR_USE']} is not verified."
-                )
-            records.append(record)
+        records = _wl_premium_records(rows, plancode)
         versions = sorted({(r["EFFECTIVE_DATE"], r["IAF_VERSION"]) for r in records},
                           key=lambda v: (v[0] or date.min, v[1]))
         result = {"rows": [], "iaf_version": None, "effective_date": None, "versions": versions}
         if not versions:
             return result
-        eligible = [v for v in versions if issue_date is None or v[0] is None or v[0] <= issue_date]
-        if len(versions) > 1 and issue_date is None:
-            raise RatesError(f"WL_RATE_PREM {plancode} has several IAF versions; an issue date is required.")
-        if not eligible:
+        chosen = _choose_wl_premium_version(versions, issue_date, plancode)
+        if chosen is None:
             return result
-        chosen = eligible[-1]
-        if len([v for v in eligible if v[0] == chosen[0]]) > 1:
-            raise RatesError(f"WL_RATE_PREM {plancode} has several IAF versions effective {chosen[0]}.")
         selected = [r for r in records if (r["EFFECTIVE_DATE"], r["IAF_VERSION"]) == chosen]
         if len({(r["SOURCE_PLANCODE"], r["SOURCE_IAF_VERSION"], r["SOURCE_EFFECTIVE_DATE"])
                 for r in selected}) > 1:
@@ -792,98 +901,29 @@ class Rates:
             or None if not found. All-NULL TBL1MTP/TBL1CTP rows also mean
             unavailable, not a zero rate; callers must check applicability.
         """
-        # Normalize inputs
-        plancode = (plancode or "").strip()
-        if issue_age is not None:
-            issue_age = int(issue_age)
-        if band is not None:
-            band = int(band)
-        if rateclass == "0":
-            rateclass = "N"
+        plancode, issue_age, band, rateclass = _normalize_rate_lookup_inputs(
+            plancode, issue_age, band, rateclass,
+        )
+        scr_state = _scr_state_for_lookup(
+            rate_type, plancode, state, self._scr_plancode_varies,
+        )
 
-        # Surrender-charge rates vary by state for only a handful of plancodes
-        # (a few states such as DE, NY, NJ, MD differ); every other plancode
-        # and state uses the "AA" default schedule. Only those few plancodes pay
-        # for a state-specific lookup — all others go straight to "AA" in a single
-        # query. The local-dev Select_RATE_SCR has no State column, so state is
-        # never applied there.
-        scr_state = None
-        if rate_type.upper() == "SCR" and not local_data_enabled():
-            requested_state = (state or "AA").strip().upper() or "AA"
-            if requested_state != "AA" and self._scr_plancode_varies(plancode):
-                scr_state = requested_state
-            else:
-                scr_state = "AA"
-
-        # Generate cache key
         rate_key = self._get_rate_key(
             rate_type, plancode, issue_age, sex, rateclass, band, scale, benefit_type, scr_state
         )
-        
-        # Check cache
         if rate_key in self._cache:
             return self._cache[rate_key]
-        
-        # Fetch from database
-        sql, params = self._create_sql(
-            rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type, scr_state
+
+        rows = _fetch_rate_rows_with_state_fallback(
+            self, rate_type, plancode, issue_age, sex, rateclass, scale, band,
+            benefit_type, scr_state,
         )
-
-        rows = self._fetch_rates(sql, params)
-
-        # State fallback: a policy whose state has no plancode-specific
-        # surrender-charge schedule uses the "AA" default schedule.
-        if rows is None and scr_state is not None and scr_state != "AA":
-            sql, params = self._create_sql(
-                rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type, "AA"
-            )
-            rows = self._fetch_rates(sql, params)
-
-        if rows is None:
-            self._cache[rate_key] = None
-            return None
-        
         rate_type_upper = rate_type.upper()
-
-        if rate_type_upper in {"TBL1MTP", "TBL1CTP"} and any(
-            row[0] is None for row in rows
-        ):
-            if not all(row[0] is None for row in rows):
-                raise RatesError(
-                    f"Inconsistent NULL and numeric {rate_type_upper} rates for "
-                    f"plancode {plancode}, issue age {issue_age}, sex {sex}, "
-                    f"rate class {rateclass}, band {band}."
-                )
-            self._cache[rate_key] = None
-            return None
-        
-        # Process results based on rate type
-        if rate_type_upper == "BANDSPECS":
-            # Returns 2D array of [SpecifiedAmount, Band, Issue_Date]. Issue_Date
-            # is the effective-from date of that band set (sentinel 1900-01-01 =
-            # "from the beginning"); get_band() selects the set effective for the
-            # POLICY issue date. Tolerate a 2-column row (a mirror without the
-            # Issue_Date column) by defaulting Issue_Date to None.
-            result = [
-                [row[0], row[1], (row[2] if len(row) > 2 else None)]
-                for row in rows
-            ]
-            self._cache[rate_key] = result
-        elif rate_type_upper == "COI_SCALE":
-            # Returns raw rows
-            result = rows
-            self._cache[rate_key] = result
-        elif rate_type_upper == "RATESPACE":
-            # Returns 2D array
-            result = [[row[0], row[1], row[2]] for row in rows]
-            self._cache[rate_key] = result
-        else:
-            # Most rate types return 1D array indexed by duration
-            # Convert to 1-indexed list (index 0 is empty, duration 1 = index 1)
-            result = [None] + [float(row[0]) for row in rows]
-            self._cache[rate_key] = result
-        
-        return self._cache[rate_key]
+        result = _rates_result_from_rows(
+            rows, rate_type_upper, plancode, issue_age, sex, rateclass, band,
+        )
+        self._cache[rate_key] = result
+        return result
     
     def get_band(
         self,

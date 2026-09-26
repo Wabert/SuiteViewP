@@ -421,42 +421,8 @@ def _build_epu(
 
     Returns ``(combo_index, epu_rows, group_count)``.
     """
-    # raw[(sex, cls, band)] = {(monthdur, highage): (eff_date, charge, guar)}
-    raw: Dict[tuple, Dict[Tuple[int, int], Tuple[str, float, float]]] = defaultdict(dict)
-    eff_dates: set = set()
-    nonsentinel_max = 0
-    state_skipped = 0
-
-    for rec in ckultb01_parser.iter_records(spec.epu_path, progress_cb=progress_cb):
-        if (rec["PLAN_CODE"], rec["FREQ_TYPE"], rec["RULE_CODE"]) != (
-                spec.epu_plan, spec.epu_freq, spec.epu_rule):
-            continue
-        if rec["STATE_CODE"].strip() not in ("**", "AA", ""):
-            state_skipped += 1
-            continue
-        key = (rec["SEX_CODE"], rec["RATE_CLASS"], rec["BAND_CODE"])
-        bracket = (rec["MONTH_DUR"], rec["HIGH_AGE"])
-        eff = rec["EFFECTIVE_DATE"]
-        eff_dates.add(eff)
-        prev = raw[key].get(bracket)
-        # Multiple effective-date vintages: the most recent wins.
-        if prev is None or _mdY(eff) > _mdY(prev[0]):
-            raw[key][bracket] = (eff, rec["CHARGE"], rec["GUAR_CHARGE"])
-        if rec["MAXIMUM"] < 9_999_999.0 or rec["GUAR_MAX"] < 9_999_999.0:
-            nonsentinel_max += 1
-
-    if state_skipped:
-        warnings.append(
-            f"EPU: {state_skipped:,} CKULTB01 rows with a specific state were "
-            "ignored (only '**' all-state rows are loaded).")
-    if nonsentinel_max:
-        warnings.append(
-            f"EPU: {nonsentinel_max:,} rows carry a real MAXIMUM/GUAR MAX cap "
-            "(not 9,999,999) — caps are NOT loaded into RATE_EPU.")
-    if len(eff_dates) > 1:
-        warnings.append(
-            "EPU: multiple effective dates present "
-            f"({', '.join(sorted(eff_dates))}) — most recent kept per bracket.")
+    raw, stats = _read_epu_raw(spec, progress_cb)
+    _warn_epu_source(stats, warnings)
 
     combo_index: Dict[ComboKey, int] = {}
     groups: "OrderedDict[tuple, int]" = OrderedDict()
@@ -471,31 +437,7 @@ def _build_epu(
             missing.append("/".join(combo))
             continue
         matched_raw.add(rk)
-        brackets = [
-            (md, ha, charge, guar)
-            for (md, ha), (_eff, charge, guar) in raw[rk].items()
-        ]
-
-        # Expand brackets: year `dur` (months (dur-1)*12+1..dur*12) for issue
-        # age `ia` uses the row with the smallest MONTHDUR >= dur*12 and the
-        # smallest HIGH AGE >= ia. No covering bracket → charge 0.
-        content: List[Tuple[int, int, float, float]] = []
-        for ia in range(ia_min, ia_max + 1):
-            max_dur = max_att_age - ia + 1
-            if max_dur < 1:
-                continue
-            for dur in range(1, max_dur + 1):
-                months = dur * 12
-                best = None
-                for md, ha, charge, guar in brackets:
-                    if md >= months and ha >= ia:
-                        cand = (md, ha, charge, guar)
-                        if best is None or (cand[0], cand[1]) < (best[0], best[1]):
-                            best = cand
-                if best is None:
-                    content.append((ia, dur, 0.0, 0.0))
-                else:
-                    content.append((ia, dur, best[2], best[3]))
+        content = _epu_content(raw[rk], ia_min, ia_max, max_att_age)
 
         sig = tuple(content)
         idx = groups.get(sig)
@@ -508,6 +450,79 @@ def _build_epu(
             next_idx += 1
         combo_index[combo] = idx
 
+    _warn_unmatched_epu(raw, matched_raw, missing, warnings)
+    return combo_index, epu_rows, len(groups)
+
+
+def _read_epu_raw(spec: WorkupSpec, progress_cb: Callable[[float], None]):
+    raw: Dict[tuple, Dict[Tuple[int, int], Tuple[str, float, float]]] = defaultdict(dict)
+    stats = {"eff_dates": set(), "nonsentinel_max": 0, "state_skipped": 0}
+    for rec in ckultb01_parser.iter_records(spec.epu_path, progress_cb=progress_cb):
+        if (rec["PLAN_CODE"], rec["FREQ_TYPE"], rec["RULE_CODE"]) != (
+                spec.epu_plan, spec.epu_freq, spec.epu_rule):
+            continue
+        if rec["STATE_CODE"].strip() not in ("**", "AA", ""):
+            stats["state_skipped"] += 1
+            continue
+        _add_epu_record(raw, stats, rec)
+    return raw, stats
+
+
+def _add_epu_record(raw, stats, rec) -> None:
+    key = (rec["SEX_CODE"], rec["RATE_CLASS"], rec["BAND_CODE"])
+    bracket = (rec["MONTH_DUR"], rec["HIGH_AGE"])
+    eff = rec["EFFECTIVE_DATE"]
+    stats["eff_dates"].add(eff)
+    prev = raw[key].get(bracket)
+    if prev is None or _mdY(eff) > _mdY(prev[0]):
+        raw[key][bracket] = (eff, rec["CHARGE"], rec["GUAR_CHARGE"])
+    if rec["MAXIMUM"] < 9_999_999.0 or rec["GUAR_MAX"] < 9_999_999.0:
+        stats["nonsentinel_max"] += 1
+
+
+def _warn_epu_source(stats, warnings: List[str]) -> None:
+    if stats["state_skipped"]:
+        warnings.append(
+            f"EPU: {stats['state_skipped']:,} CKULTB01 rows with a specific state were "
+            "ignored (only '**' all-state rows are loaded).")
+    if stats["nonsentinel_max"]:
+        warnings.append(
+            f"EPU: {stats['nonsentinel_max']:,} rows carry a real MAXIMUM/GUAR MAX cap "
+            "(not 9,999,999) — caps are NOT loaded into RATE_EPU.")
+    eff_dates = stats["eff_dates"]
+    if len(eff_dates) > 1:
+        warnings.append(
+            "EPU: multiple effective dates present "
+            f"({', '.join(sorted(eff_dates))}) — most recent kept per bracket.")
+
+
+def _epu_content(raw_combo, ia_min: int, ia_max: int, max_att_age: int):
+    brackets = [
+        (md, ha, charge, guar)
+        for (md, ha), (_eff, charge, guar) in raw_combo.items()
+    ]
+    content: List[Tuple[int, int, float, float]] = []
+    for ia in range(ia_min, ia_max + 1):
+        max_dur = max_att_age - ia + 1
+        if max_dur < 1:
+            continue
+        for dur in range(1, max_dur + 1):
+            best = _best_epu_bracket(brackets, dur * 12, ia)
+            content.append((ia, dur, 0.0, 0.0) if best is None else (ia, dur, best[2], best[3]))
+    return content
+
+
+def _best_epu_bracket(brackets, months: int, issue_age: int):
+    best = None
+    for md, ha, charge, guar in brackets:
+        if md >= months and ha >= issue_age:
+            candidate = (md, ha, charge, guar)
+            if best is None or (candidate[0], candidate[1]) < (best[0], best[1]):
+                best = candidate
+    return best
+
+
+def _warn_unmatched_epu(raw, matched_raw: set, missing: List[str], warnings: List[str]) -> None:
     if missing:
         warnings.append(
             f"EPU: no CKULTB01 rates for {len(missing)} base combo(s): "
@@ -519,8 +534,6 @@ def _build_epu(
             "and were ignored: "
             + ", ".join("/".join(k) for k in unmatched[:8])
             + ("…" if len(unmatched) > 8 else ""))
-
-    return combo_index, epu_rows, len(groups)
 
 
 def _mdY(date_str: str) -> tuple:
@@ -582,86 +595,127 @@ def _build_linked_benefit(
         _target_issue_age_range,
     )
 
-    # Targets define the valid issue-age range for both rate tables.
-    if sel.cease_age is None:
-        raise ValueError(f"Benefit {sel.code}: cease age is required.")
-    if sel.cease_age is not None and sel.cease_age <= 0:
-        raise ValueError(
-            f"Benefit {sel.code}: cease age must be greater than 0.")
+    _validate_linked_benefit(sel)
     ctp = _benefit_rates_by_combo(result, sel.code, "T")
     mtp = _benefit_rates_by_combo(result, sel.code, "M")
     trg_keys = set(ctp) | set(mtp)
 
-    # ── BENCOI from the MPF premium code ────────────────────────────
-    bencoi_rows: List[list] = []
-    coi_groups: "OrderedDict[tuple, int]" = OrderedDict()
-    coi_index: Dict[ComboKey, int] = {}
+    coi_index, bencoi_rows, coi_groups, missing, pct_converted = _linked_bencoi(
+        sel, mpf_items, combos, trg_keys, ctp, mtp, start_index,
+        _map_key, _target_issue_age_range,
+    )
+    trg_index, bentrg_rows, trg_groups = _linked_bentrg(
+        combos, trg_keys, ctp, mtp, start_index, _map_key, _bentrg_rows,
+    )
+    pointer_rows = _linked_pointer_rows(
+        plancode, sel, issue_version, combos, coi_index, trg_index,
+    )
+    _warn_linked_benefit(sel, mpf_items, missing, pct_converted, warnings)
+
+    block = max(len(coi_groups), len(trg_groups))
+    return pointer_rows, bencoi_rows, bentrg_rows, block
+
+
+def _validate_linked_benefit(sel: BenefitSelection) -> None:
+    if sel.cease_age is None:
+        raise ValueError(f"Benefit {sel.code}: cease age is required.")
+    if sel.cease_age <= 0:
+        raise ValueError(f"Benefit {sel.code}: cease age must be greater than 0.")
+
+
+def _linked_bencoi(
+    sel,
+    mpf_items,
+    combos,
+    trg_keys,
+    ctp,
+    mtp,
+    start_index,
+    map_key,
+    issue_range,
+):
+    rows: List[list] = []
+    groups: "OrderedDict[tuple, int]" = OrderedDict()
+    index: Dict[ComboKey, int] = {}
     missing: List[str] = []
     pct_converted = 0
     for combo in combos:
-        rk = _match_raw(combo, mpf_items.keys())
-        if rk is None:
+        raw_key = _match_raw(combo, mpf_items.keys())
+        if raw_key is None:
             missing.append("/".join(combo))
             continue
-        # Percent premiums load as decimals (5.64% → 0.0564).
-        conv: Dict[int, float] = {}
-        for age, (val, _s, is_pct) in mpf_items[rk].items():
-            conv[age] = val / 100.0 if is_pct else val
-            pct_converted += 1 if is_pct else 0
-        conv = mpf_parser.fill_forward_age_table(conv)
-        target_key = _map_key(combo, trg_keys)
+        converted, pct_count = _linked_mpf_table(mpf_items[raw_key])
+        pct_converted += pct_count
+        target_key = map_key(combo, trg_keys)
         c_rates = ctp.get(target_key, {}) if target_key else {}
         m_rates = mtp.get(target_key, {}) if target_key else {}
-        issue_age_range = _target_issue_age_range(m_rates, c_rates)
-        sig = (
-            tuple(sorted(conv.items())),
-            sel.renewable,
-            issue_age_range,
-            sel.cease_age,
-        )
-        idx = coi_groups.get(sig)
+        issue_age_range = issue_range(m_rates, c_rates)
+        sig = (tuple(sorted(converted.items())), sel.renewable, issue_age_range, sel.cease_age)
+        idx = groups.get(sig)
         if idx is None:
-            idx = start_index + len(coi_groups)
-            coi_groups[sig] = idx
-            for scale in (0, 1):
-                for ia, dur, rate in _expand_attained_table(
-                    conv, sel.renewable, issue_age_range, sel.cease_age
-                ):
-                    bencoi_rows.append([idx, scale, ia, dur, rate])
-        coi_index[combo] = idx
+            idx = start_index + len(groups)
+            groups[sig] = idx
+            rows.extend(_linked_bencoi_rows(idx, converted, sel, issue_age_range))
+        index[combo] = idx
+    return index, rows, groups, missing, pct_converted
 
-    # ── BENTRG from the IAF benefit code ────────────────────────────
-    bentrg_rows: List[list] = []
-    trg_groups: "OrderedDict[tuple, int]" = OrderedDict()
-    trg_index: Dict[ComboKey, int] = {}
+
+def _linked_mpf_table(table) -> tuple[Dict[int, float], int]:
+    converted: Dict[int, float] = {}
+    pct_count = 0
+    for age, (value, _state, is_pct) in table.items():
+        converted[age] = value / 100.0 if is_pct else value
+        pct_count += 1 if is_pct else 0
+    return mpf_parser.fill_forward_age_table(converted), pct_count
+
+
+def _linked_bencoi_rows(idx, rates, sel, issue_age_range):
+    rows: List[list] = []
+    for scale in (0, 1):
+        for ia, dur, rate in _expand_attained_table(
+            rates, sel.renewable, issue_age_range, sel.cease_age
+        ):
+            rows.append([idx, scale, ia, dur, rate])
+    return rows
+
+
+def _linked_bentrg(combos, trg_keys, ctp, mtp, start_index, map_key, bentrg_rows):
+    rows: List[list] = []
+    groups: "OrderedDict[tuple, int]" = OrderedDict()
+    index: Dict[ComboKey, int] = {}
     for combo in combos:
-        key = _map_key(combo, trg_keys)
+        key = map_key(combo, trg_keys)
         c_rates = ctp.get(key, {}) if key else {}
         m_rates = mtp.get(key, {}) if key else {}
         if not c_rates and not m_rates:
             continue
         sig = (tuple(sorted(m_rates.items())), tuple(sorted(c_rates.items())))
-        idx = trg_groups.get(sig)
+        idx = groups.get(sig)
         if idx is None:
-            idx = start_index + len(trg_groups)
-            trg_groups[sig] = idx
-            bentrg_rows.extend(_bentrg_rows(idx, m_rates, c_rates))
-        trg_index[combo] = idx
+            idx = start_index + len(groups)
+            groups[sig] = idx
+            rows.extend(bentrg_rows(idx, m_rates, c_rates))
+        index[combo] = idx
+    return index, rows, groups
 
-    # ── Pointer rows: Benefit column carries the MPF premium code ───
-    pointer_rows: List[list] = []
+
+def _linked_pointer_rows(plancode, sel, issue_version, combos, coi_index, trg_index):
+    rows: List[list] = []
     for combo in combos:
         ci = coi_index.get(combo)
         ti = trg_index.get(combo)
         if ci is None and ti is None:
             continue
-        pointer_rows.append([
+        rows.append([
             plancode, sel.code, sel.mpf_code, issue_version,
             combo[0], combo[1], combo[2],
             ci if ci is not None else "",
             ti if ti is not None else "",
         ])
+    return rows
 
+
+def _warn_linked_benefit(sel, mpf_items, missing, pct_converted, warnings):
     if not mpf_items:
         warnings.append(
             f"Benefit {sel.code}: MPF code '{sel.mpf_code}' not found in the "
@@ -675,9 +729,6 @@ def _build_linked_benefit(
         warnings.append(
             f"Benefit {sel.code} (MPF {sel.mpf_code}): {pct_converted:,} "
             "percent premiums converted to decimals (5.64% → 0.0564).")
-
-    block = max(len(coi_groups), len(trg_groups))
-    return pointer_rows, bencoi_rows, bentrg_rows, block
 
 
 def _expand_attained_table(
@@ -728,221 +779,270 @@ def build(
     progress_cb: ProgressCB = None,
 ) -> WorkupResult:
     """Generate the full workup output set from an analyzed spec."""
-    def _p(frac: float, msg: str = "") -> None:
-        if progress_cb:
-            progress_cb(frac, msg)
-
     res = WorkupResult()
     warnings: List[str] = list(analysis.warnings)
+    progress = _progress_adapter(progress_cb)
 
     try:
-        if spec.base_index is None:
-            raise ValueError("Base Index is required before building rates.")
-        if spec.base_index <= 0:
-            raise ValueError("Base Index must be greater than 0.")
-        result = analysis.iaf_result
-        plancode = analysis.plancode
-        issue_version = analysis.issue_version or "1"
-
-        # ── 1. Base COI + targets from the IAF ─────────────────────────
-        _p(0.0, "Building base COI and target tables…")
-        reformatter = RateReformatter(
-            result,
-            starting_index=spec.base_index,
-            trg_starting_index=spec.base_index,
+        _validate_base_index(spec)
+        base = _build_base_tables(spec, analysis, warnings, progress)
+        benefit = _build_benefit_tables(spec, analysis, base, warnings, progress)
+        scr_state_index, scr_rows = _build_scr_tables(spec, base.combos, warnings, progress)
+        epu_index, epu_rows = _build_epu_tables(spec, base, warnings, progress)
+        band_map = _band_out_map(base.combos)
+        pvsrb_rows = _pvsrb_rows(
+            analysis.plancode, analysis.issue_version or "1", base, scr_state_index,
+            epu_index, band_map,
         )
-        computed = reformatter.compute()
-        combos: List[ComboKey] = computed["combos"]
-        coi_map, coi_reps = computed["coi_index"], computed["coi_reps"]
-        trg_map, trg_reps = computed["trg_index"], computed["trg_reps"]
-        ia_min, ia_max = computed["ia_min"], computed["ia_max"]
-        select_period = computed["select_period"]
-        max_att_age = reformatter.max_att_age
-
-        # Series whose first duration > 1 are IAF pre-fill artifacts for
-        # issue ages outside the product's true issue range — dropped.
-        removed: set = set()
-        coi_rows: List[list] = []
-        for idx, scale, ia, dur, rate in reformatter.filter_artifact_issue_ages(
-                reformatter.guaranteed_coi_rows(coi_reps, ia_min, ia_max),
-                removed):
-            coi_rows.append([idx, scale, ia, dur, fmt_rate(rate)])
-        for idx, scale, ia, dur, rate in reformatter.filter_artifact_issue_ages(
-                reformatter.current_coi_rows(
-                    coi_reps, select_period, ia_min, ia_max),
-                removed):
-            coi_rows.append([idx, scale, ia, dur, fmt_rate(rate)])
-        if removed:
-            dropped_ages = sorted({ia for (_i, _s, ia) in removed})
-            warnings.append(
-                f"COI: dropped {len(removed)} artifact issue-age series "
-                f"(first duration > 1) — issue ages {_condense(dropped_ages)} "
-                "lie outside the product's true issue range.")
-
-        trg_rows: List[list] = []
-        for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp, tbl4prem in reformatter.target_rows(
-                trg_reps, ia_min, ia_max):
-            trg_rows.append([
-                idx, ia, fmt_rate(mtp), fmt_rate(ctp),
-                fmt_rate(tbl4prem),
-                fmt_rate(tbl1mtp), fmt_rate(tbl1ctp),
-            ])
-        _p(0.2, f"Base: {len(coi_rows):,} COI rows, {len(trg_rows):,} target rows")
-
-        # ── 2 & 3. Benefits — IAF riders, some with MPF-linked charges ─
-        # Each benefit's index block follows the convention: base index with
-        # the 2-digit type code inserted and two zeros appended (13400 +
-        # benefit 12 → 1341200). A benefit with an mpf_code takes BENCOI
-        # from that MPF premium code and BENTRG from the IAF; otherwise
-        # everything comes from the IAF.
-        point_benefit_rows: List[list] = []
-        bencoi_rows: List[list] = []
-        bentrg_rows: List[list] = []
-
-        mpf_grouped = None
-        if any(b.mpf_code for b in spec.benefits):
-            if spec.mpf_path and os.path.isfile(spec.mpf_path):
-                _p(0.2, "Reading MPF for linked benefit charges…")
-                mpf_grouped = mpf_parser.group_by_combo(
-                    mpf_parser.iter_records(
-                        spec.mpf_path,
-                        progress_cb=lambda f: _p(0.2 + f * 0.15, "")))
-            else:
-                warnings.append(
-                    "Benefits are linked to MPF codes but no MPF file was "
-                    "supplied — their BENCOI rates were NOT loaded.")
-
-        if spec.benefits:
-            _p(0.35, f"Building {len(spec.benefits)} benefit(s)…")
-        for b in spec.benefits:
-            start = b.start_index or benefit_start_index(
-                spec.base_index, b.code)
-            if not start:
-                warnings.append(
-                    f"Benefit {b.code}: no start index — the type code has "
-                    "no numeric mapping; set the index manually. Skipped.")
-                continue
-            if b.mpf_code and mpf_grouped is not None:
-                p_rows, c_rows, t_rows, _block = _build_linked_benefit(
-                    result, b,
-                    _mpf_items_for_code(mpf_grouped, b.mpf_code, b.code),
-                    combos, start, plancode, issue_version, warnings)
-            else:
-                db_spec = BenefitDBSpec(
-                    code=b.code, renewable=b.renewable, start_index=start,
-                    cease_age=b.cease_age)
-                p_rows, c_rows, t_rows, _counts = build_benefit_rows(
-                    result, [db_spec])
-            point_benefit_rows.extend(p_rows)
-            for idx, scale, ia, dur, rate in c_rows:
-                bencoi_rows.append([idx, scale, ia, dur, fmt_rate(rate)])
-            for idx, ia, mtp, ctp in t_rows:
-                bentrg_rows.append([
-                    idx, ia,
-                    fmt_rate(mtp) if mtp != "" else "",
-                    fmt_rate(ctp) if ctp != "" else "",
-                ])
-        _p(0.55, "")
-
-        # ── 4. Surrender charges (CKULTB04) ────────────────────────────
-        scr_state_index: Dict[ComboKey, Dict[str, int]] = {}
-        scr_rows: List[list] = []
-        if spec.scr_path and os.path.isfile(spec.scr_path) and spec.scr_plan:
-            _p(0.55, f"Building SCR from CKULTB04 plan '{spec.scr_plan}'…")
-            scr_state_index, raw_scr_rows, _groups = _build_scr(
-                spec, combos, warnings,
-                progress_cb=lambda f: _p(0.55 + f * 0.2, ""))
-            scr_rows = [[i, ia, dur, fmt_rate(r)] for i, ia, dur, r in raw_scr_rows]
-        _p(0.75, "")
-
-        # ── 5. Expense per unit (CKULTB01) ─────────────────────────────
-        epu_index: Dict[ComboKey, int] = {}
-        epu_rows: List[list] = []
-        if spec.epu_path and os.path.isfile(spec.epu_path) and spec.epu_plan:
-            _p(0.75, f"Building EPU from CKULTB01 plan '{spec.epu_plan}' "
-                     f"rule '{spec.epu_rule}'…")
-            epu_index, raw_epu_rows, _groups = _build_epu(
-                spec, combos, ia_min, ia_max, max_att_age, warnings,
-                progress_cb=lambda f: _p(0.75 + f * 0.15, ""))
-            epu_rows = [[i, s, ia, dur, fmt_rate(r)] for i, s, ia, dur, r in raw_epu_rows]
-        _p(0.9, "")
-
-        # ── 6. POINT_PVSRB — AA rows + SCR exception states ────────────
-        # Output code conversion: sex 1/2 → M/F (unisex codes unchanged),
-        # band letters → 1, 2, 3, … (X and Y first when present).
-        band_map = _band_out_map(combos)
-        pvsrb_rows: List[list] = []
-        for combo in combos:
-            s, c, b = combo
-            coi_idx = coi_map.get(combo, "")
-            trg_idx = trg_map.get(combo, "")
-            epu_idx = epu_index.get(combo, "")
-            state_map = scr_state_index.get(combo, {"AA": ""})
-            states = ["AA"] + sorted(st for st in state_map if st != "AA")
-            for state in states:
-                scr_idx = state_map.get(state, "")
-                pvsrb_rows.append([
-                    plancode, issue_version,
-                    _sex_out(s), c, band_map.get(b, b), state,
-                    "",            # Index(PREMLOAD)
-                    trg_idx if trg_idx != "" else "",
-                    "",            # Index(MFEE)
-                    scr_idx,
-                    coi_idx,
-                    epu_idx,
-                    "", "", "", "",   # Index(GLP), MORTID, Index(SHDINT), Index(TRAD_CV)
-                ])
-
-        # POINT_BENEFIT rows carry the same converted codes.
-        for row in point_benefit_rows:
-            row[4] = _sex_out(row[4])
-            row[6] = band_map.get(row[6], row[6])
-
-        # ── 7. Write output ────────────────────────────────────────────
-        tables = OrderedDict([
-            ("POINT_PVSRB", (PVSRB_HEADERS, pvsrb_rows)),
-            ("RATE_COI", (COI_HEADERS, coi_rows)),
-            ("RATE_TRGPREM", (TRGPREM_HEADERS, trg_rows)),
-            ("RATE_SCR", (SCR_HEADERS, scr_rows)),
-            ("RATE_EPU", (EPU_HEADERS, epu_rows)),
-            ("POINT_BENEFIT", (POINT_BENEFIT_HEADERS, point_benefit_rows)),
-            ("RATE_BENCOI", (BENCOI_HEADERS, bencoi_rows)),
-            ("RATE_BENTRG", (BENTRG_HEADERS, bentrg_rows)),
-        ])
-
-        for name, (_h, rows) in tables.items():
-            res.table_counts[name] = len(rows)
-
-        res.index_ranges = _index_ranges(spec, tables)
-
-        summary_lines = _summary_lines(spec, analysis, res, warnings)
-
-        _p(0.9, "Writing output…")
-        if spec.fmt == "excel":
-            ensure_dir(spec.output_dir)
-            out_path = os.path.join(
-                spec.output_dir, f"{plancode} - Workup DB.xlsx")
-            sheets = OrderedDict(tables)
-            sheets["WORKUP_SUMMARY"] = (["Summary"], [[l] for l in summary_lines])
-            write_workbook(out_path, sheets)
-            res.output_path = out_path
-        else:
-            out_dir = ensure_dir(os.path.join(
-                spec.output_dir, f"{plancode}_Workup"))
-            for name, (headers, rows) in tables.items():
-                write_csv(os.path.join(out_dir, f"{name}.csv"), headers, rows)
-            write_summary(
-                os.path.join(out_dir, "WORKUP_SUMMARY.txt"), summary_lines)
-            res.output_path = out_dir
+        _convert_point_benefit_rows(benefit.point_rows, band_map)
+        tables = _workup_tables(base, benefit, pvsrb_rows, scr_rows, epu_rows)
+        _finalize_workup_result(spec, analysis, res, warnings, tables, progress)
 
         res.warnings = warnings
-        _p(1.0, "Workup complete.")
+        progress(1.0, "Workup complete.")
 
     except Exception as exc:      # surface, never swallow
         import traceback
         res.error = f"{exc}\n{traceback.format_exc()}"
 
     return res
+
+
+@dataclass
+class _BaseBuild:
+    result: ParseResult
+    plancode: str
+    issue_version: str
+    combos: List[ComboKey]
+    coi_map: Dict[ComboKey, int]
+    trg_map: Dict[ComboKey, int]
+    ia_min: int
+    ia_max: int
+    max_att_age: int
+    coi_rows: List[list]
+    trg_rows: List[list]
+
+
+@dataclass
+class _BenefitBuild:
+    point_rows: List[list]
+    bencoi_rows: List[list]
+    bentrg_rows: List[list]
+
+
+def _progress_adapter(progress_cb: ProgressCB):
+    def progress(frac: float, msg: str = "") -> None:
+        if progress_cb:
+            progress_cb(frac, msg)
+    return progress
+
+
+def _validate_base_index(spec: WorkupSpec) -> None:
+    if spec.base_index is None:
+        raise ValueError("Base Index is required before building rates.")
+    if spec.base_index <= 0:
+        raise ValueError("Base Index must be greater than 0.")
+
+
+def _build_base_tables(
+    spec: WorkupSpec,
+    analysis: WorkupAnalysis,
+    warnings: List[str],
+    progress,
+) -> _BaseBuild:
+    result = analysis.iaf_result
+    progress(0.0, "Building base COI and target tables…")
+    reformatter = RateReformatter(
+        result, starting_index=spec.base_index, trg_starting_index=spec.base_index,
+    )
+    computed = reformatter.compute()
+    coi_rows = _coi_rows(reformatter, computed, warnings)
+    trg_rows = _target_rows(reformatter, computed)
+    progress(0.2, f"Base: {len(coi_rows):,} COI rows, {len(trg_rows):,} target rows")
+    return _BaseBuild(
+        result, analysis.plancode, analysis.issue_version or "1",
+        computed["combos"], computed["coi_index"], computed["trg_index"],
+        computed["ia_min"], computed["ia_max"], reformatter.max_att_age,
+        coi_rows, trg_rows,
+    )
+
+
+def _coi_rows(reformatter: RateReformatter, computed, warnings: List[str]) -> List[list]:
+    removed: set = set()
+    rows: List[list] = []
+    ia_min, ia_max = computed["ia_min"], computed["ia_max"]
+    guaranteed = reformatter.guaranteed_coi_rows(computed["coi_reps"], ia_min, ia_max)
+    current = reformatter.current_coi_rows(
+        computed["coi_reps"], computed["select_period"], ia_min, ia_max,
+    )
+    for idx, scale, ia, dur, rate in reformatter.filter_artifact_issue_ages(guaranteed, removed):
+        rows.append([idx, scale, ia, dur, fmt_rate(rate)])
+    for idx, scale, ia, dur, rate in reformatter.filter_artifact_issue_ages(current, removed):
+        rows.append([idx, scale, ia, dur, fmt_rate(rate)])
+    if removed:
+        dropped_ages = sorted({ia for (_i, _s, ia) in removed})
+        warnings.append(
+            f"COI: dropped {len(removed)} artifact issue-age series "
+            f"(first duration > 1) — issue ages {_condense(dropped_ages)} "
+            "lie outside the product's true issue range.")
+    return rows
+
+
+def _target_rows(reformatter: RateReformatter, computed) -> List[list]:
+    rows: List[list] = []
+    for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp, tbl4prem in reformatter.target_rows(
+            computed["trg_reps"], computed["ia_min"], computed["ia_max"]):
+        rows.append([
+            idx, ia, fmt_rate(mtp), fmt_rate(ctp), fmt_rate(tbl4prem),
+            fmt_rate(tbl1mtp), fmt_rate(tbl1ctp),
+        ])
+    return rows
+
+
+def _build_benefit_tables(
+    spec: WorkupSpec,
+    analysis: WorkupAnalysis,
+    base: _BaseBuild,
+    warnings: List[str],
+    progress,
+) -> _BenefitBuild:
+    grouped = _linked_mpf_groups(spec, warnings, progress)
+    if spec.benefits:
+        progress(0.35, f"Building {len(spec.benefits)} benefit(s)…")
+    point_rows: List[list] = []
+    bencoi_rows: List[list] = []
+    bentrg_rows: List[list] = []
+    for benefit in spec.benefits:
+        built = _build_one_workup_benefit(spec, base, benefit, grouped, warnings)
+        point_rows.extend(built[0])
+        bencoi_rows.extend(_fmt_bencoi_rows(built[1]))
+        bentrg_rows.extend(_fmt_bentrg_rows(built[2]))
+    progress(0.55, "")
+    return _BenefitBuild(point_rows, bencoi_rows, bentrg_rows)
+
+
+def _linked_mpf_groups(spec: WorkupSpec, warnings: List[str], progress):
+    if not any(benefit.mpf_code for benefit in spec.benefits):
+        return None
+    if spec.mpf_path and os.path.isfile(spec.mpf_path):
+        progress(0.2, "Reading MPF for linked benefit charges…")
+        return mpf_parser.group_by_combo(
+            mpf_parser.iter_records(
+                spec.mpf_path, progress_cb=lambda frac: progress(0.2 + frac * 0.15, ""))
+        )
+    warnings.append(
+        "Benefits are linked to MPF codes but no MPF file was supplied — "
+        "their BENCOI rates were NOT loaded.")
+    return None
+
+
+def _build_one_workup_benefit(spec, base, benefit, grouped, warnings):
+    start = benefit.start_index or benefit_start_index(spec.base_index, benefit.code)
+    if not start:
+        warnings.append(
+            f"Benefit {benefit.code}: no start index — the type code has "
+            "no numeric mapping; set the index manually. Skipped.")
+        return [], [], []
+    if benefit.mpf_code and grouped is not None:
+        return _build_linked_benefit(
+            base.result, benefit,
+            _mpf_items_for_code(grouped, benefit.mpf_code, benefit.code),
+            base.combos, start, base.plancode, base.issue_version, warnings)
+    db_spec = BenefitDBSpec(
+        code=benefit.code, renewable=benefit.renewable,
+        start_index=start, cease_age=benefit.cease_age,
+    )
+    point, coi, trg, _counts = build_benefit_rows(base.result, [db_spec])
+    return point, coi, trg, 0
+
+
+def _fmt_bencoi_rows(rows) -> List[list]:
+    return [[idx, scale, ia, dur, fmt_rate(rate)] for idx, scale, ia, dur, rate in rows]
+
+
+def _fmt_bentrg_rows(rows) -> List[list]:
+    return [
+        [idx, ia, fmt_rate(mtp) if mtp != "" else "", fmt_rate(ctp) if ctp != "" else ""]
+        for idx, ia, mtp, ctp in rows
+    ]
+
+
+def _build_scr_tables(spec, combos, warnings, progress):
+    if not (spec.scr_path and os.path.isfile(spec.scr_path) and spec.scr_plan):
+        progress(0.75, "")
+        return {}, []
+    progress(0.55, f"Building SCR from CKULTB04 plan '{spec.scr_plan}'…")
+    state_index, raw_rows, _groups = _build_scr(
+        spec, combos, warnings, progress_cb=lambda frac: progress(0.55 + frac * 0.2, ""))
+    progress(0.75, "")
+    return state_index, [[i, ia, dur, fmt_rate(rate)] for i, ia, dur, rate in raw_rows]
+
+
+def _build_epu_tables(spec, base, warnings, progress):
+    if not (spec.epu_path and os.path.isfile(spec.epu_path) and spec.epu_plan):
+        progress(0.9, "")
+        return {}, []
+    progress(0.75, f"Building EPU from CKULTB01 plan '{spec.epu_plan}' rule '{spec.epu_rule}'…")
+    epu_index, raw_rows, _groups = _build_epu(
+        spec, base.combos, base.ia_min, base.ia_max, base.max_att_age, warnings,
+        progress_cb=lambda frac: progress(0.75 + frac * 0.15, ""))
+    progress(0.9, "")
+    return epu_index, [[i, s, ia, dur, fmt_rate(rate)] for i, s, ia, dur, rate in raw_rows]
+
+
+def _pvsrb_rows(plancode, issue_version, base, scr_state_index, epu_index, band_map):
+    rows: List[list] = []
+    for combo in base.combos:
+        sex, rate_class, band = combo
+        state_map = scr_state_index.get(combo, {"AA": ""})
+        for state in ["AA"] + sorted(st for st in state_map if st != "AA"):
+            rows.append([
+                plancode, issue_version, _sex_out(sex), rate_class,
+                band_map.get(band, band), state, "", base.trg_map.get(combo, ""),
+                "", state_map.get(state, ""), base.coi_map.get(combo, ""),
+                epu_index.get(combo, ""), "", "", "", "",
+            ])
+    return rows
+
+
+def _convert_point_benefit_rows(point_benefit_rows, band_map) -> None:
+    for row in point_benefit_rows:
+        row[4] = _sex_out(row[4])
+        row[6] = band_map.get(row[6], row[6])
+
+
+def _workup_tables(base, benefit, pvsrb_rows, scr_rows, epu_rows):
+    return OrderedDict([
+        ("POINT_PVSRB", (PVSRB_HEADERS, pvsrb_rows)),
+        ("RATE_COI", (COI_HEADERS, base.coi_rows)),
+        ("RATE_TRGPREM", (TRGPREM_HEADERS, base.trg_rows)),
+        ("RATE_SCR", (SCR_HEADERS, scr_rows)),
+        ("RATE_EPU", (EPU_HEADERS, epu_rows)),
+        ("POINT_BENEFIT", (POINT_BENEFIT_HEADERS, benefit.point_rows)),
+        ("RATE_BENCOI", (BENCOI_HEADERS, benefit.bencoi_rows)),
+        ("RATE_BENTRG", (BENTRG_HEADERS, benefit.bentrg_rows)),
+    ])
+
+
+def _finalize_workup_result(spec, analysis, res, warnings, tables, progress) -> None:
+    for name, (_headers, rows) in tables.items():
+        res.table_counts[name] = len(rows)
+    res.index_ranges = _index_ranges(spec, tables)
+    summary_lines = _summary_lines(spec, analysis, res, warnings)
+    progress(0.9, "Writing output…")
+    if spec.fmt == "excel":
+        ensure_dir(spec.output_dir)
+        out_path = os.path.join(spec.output_dir, f"{analysis.plancode} - Workup DB.xlsx")
+        sheets = OrderedDict(tables)
+        sheets["WORKUP_SUMMARY"] = (["Summary"], [[line] for line in summary_lines])
+        write_workbook(out_path, sheets)
+        res.output_path = out_path
+        return
+    out_dir = ensure_dir(os.path.join(spec.output_dir, f"{analysis.plancode}_Workup"))
+    for name, (headers, rows) in tables.items():
+        write_csv(os.path.join(out_dir, f"{name}.csv"), headers, rows)
+    write_summary(os.path.join(out_dir, "WORKUP_SUMMARY.txt"), summary_lines)
+    res.output_path = out_dir
 
 
 def _index_ranges(spec: WorkupSpec, tables) -> "OrderedDict[str, str]":
@@ -990,25 +1090,43 @@ def _summary_lines(
         "",
         "Benefits included:",
     ]
+    lines.extend(_summary_benefit_lines(spec))
+    lines.extend(["", "Tables written:"])
+    lines.extend(_summary_table_lines(res))
+    lines.extend(_summary_warning_lines(warnings))
+    return lines
+
+
+def _summary_benefit_lines(spec: WorkupSpec) -> List[str]:
     if spec.benefits:
-        for b in spec.benefits:
-            src = f"COI from MPF {b.mpf_code}" if b.mpf_code else "IAF"
-            start = b.start_index or benefit_start_index(
-                spec.base_index, b.code)
-            lines.append(
+        return [
+            (
                 f"  {b.code:<4} ({src})  "
                 f"{'renewable' if b.renewable else 'level':<10}  "
                 f"start index {start if start else '—'}"
                 + (f"  cease age {b.cease_age}"
-                   if b.cease_age is not None else ""))
-    else:
-        lines.append("  (none)")
-    lines += ["", "Tables written:"]
+                   if b.cease_age is not None else "")
+            )
+            for b in spec.benefits
+            for src, start in [(
+                f"COI from MPF {b.mpf_code}" if b.mpf_code else "IAF",
+                b.start_index or benefit_start_index(spec.base_index, b.code),
+            )]
+        ]
+    return ["  (none)"]
+
+
+def _summary_table_lines(res: WorkupResult) -> List[str]:
+    lines: List[str] = []
     for name, count in res.table_counts.items():
         rng = res.index_ranges.get(name, "")
         lines.append(f"  {name:<15} {count:>10,} rows"
                      + (f"   indexes {rng}" if rng and rng != '—' else ""))
-    lines += ["", f"Warnings ({len(warnings)}):"]
+    return lines
+
+
+def _summary_warning_lines(warnings: List[str]) -> List[str]:
+    lines = ["", f"Warnings ({len(warnings)}):"]
     if warnings:
         lines.extend(f"  ⚠ {w}" for w in warnings)
     else:

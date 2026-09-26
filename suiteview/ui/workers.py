@@ -16,6 +16,23 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 logger = logging.getLogger(__name__)
 
 
+class _WorkerInvoker(QObject):
+    """Run a worker from inside the worker thread and report uncaught errors."""
+
+    def __init__(self, worker: QObject) -> None:
+        super().__init__()
+        self.worker = worker
+
+    def run(self) -> None:
+        try:
+            self.worker.run()  # type: ignore[attr-defined]
+        except Exception as exc:
+            logger.exception("Unhandled worker error")
+            signals: WorkerSignals = getattr(self.worker, "signals")
+            signals.error.emit(str(exc))
+            signals.finished.emit()
+
+
 class WorkerSignals(QObject):
     """Standard signal surface for SuiteView background workers."""
 
@@ -57,12 +74,14 @@ class WorkerController(QObject):
 
         self.worker = worker
         self.thread = QThread(owner)
+        self._invoker = _WorkerInvoker(worker)
         self._cancel = cancel
         self._running = False
         self._thread_finished = False
 
         self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self._run_worker)
+        self._invoker.moveToThread(self.thread)
+        self.thread.started.connect(self._invoker.run)
         signals.progress.connect(self.progress.emit)
         signals.result.connect(self.result.emit)
         signals.error.connect(self.error.emit)
@@ -70,6 +89,7 @@ class WorkerController(QObject):
         signals.finished.connect(self.thread.quit)
         signals.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self._on_thread_finished)
+        self.thread.finished.connect(self._invoker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         if owner is not None:
             owner.destroyed.connect(self.cancel)

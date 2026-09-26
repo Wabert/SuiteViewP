@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QLineEdit, QTextEdit, QProgressBar,
@@ -31,6 +31,10 @@ from suiteview.ratemanager.rate_reformatter import RateReformatter
 from suiteview.ratemanager.ui_helpers import (
     set_expanding_panel_visible, update_cease_age_field,
 )
+from suiteview.ratemanager.worker_helpers import (
+    RateManagerWorker, connect_pair_progress,
+)
+from suiteview.ui.workers import WorkerController
 
 
 # Shared RateManager palette + stylesheet (also used by the Workup window).
@@ -44,31 +48,28 @@ from suiteview.ratemanager.rm_styles import (
 # Background worker
 # ---------------------------------------------------------------------------
 
-class ConversionWorker(QThread):
+class ConversionWorker(RateManagerWorker):
     """Run parsing + export in a background thread."""
-    progress = pyqtSignal(float, str)      # (0-1, message)
-    finished = pyqtSignal(str)             # output_path on success
-    error = pyqtSignal(str)                # error message
 
     def __init__(self, input_path: str, output_dir: str):
         super().__init__()
         self.input_path = input_path
         self.output_dir = output_dir
 
-    def run(self):
+    def _run(self):
         try:
             # Parse
-            self.progress.emit(0.0, "Parsing IAF file…")
+            self.emit_progress(0.0, "Parsing IAF file…")
             parser = IAFParser()
             result = parser.parse(
                 self.input_path,
-                progress_cb=lambda p: self.progress.emit(p * 0.5, f"Parsing… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p * 0.5, f"Parsing… {p:.0%}"),
             )
             if result.error:
-                self.error.emit(result.error)
+                self.emit_error(result.error)
                 return
 
-            self.progress.emit(0.5, f"Parsed {result.line_count:,} lines  —  "
+            self.emit_progress(0.5, f"Parsed {result.line_count:,} lines  —  "
                                f"{len(result.products)} products, "
                                f"{len(result.rates):,} rates")
 
@@ -77,24 +78,21 @@ class ConversionWorker(QThread):
             out_path = os.path.join(self.output_dir, fname)
 
             # Export
-            self.progress.emit(0.55, "Building workbook…")
+            self.emit_progress(0.55, "Building workbook…")
             IAFExporter.export(
                 result, out_path,
-                progress_cb=lambda p: self.progress.emit(0.5 + p * 0.5,
+                progress_cb=lambda p: self.emit_progress(0.5 + p * 0.5,
                                                          f"Exporting… {p:.0%}"),
             )
-            self.progress.emit(1.0, f"Saved → {out_path}")
-            self.finished.emit(out_path)
+            self.emit_progress(1.0, f"Saved → {out_path}")
+            self.emit_result(out_path)
 
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class ReformatDBWorker(QThread):
+class ReformatDBWorker(RateManagerWorker):
     """Run parsing + DB reformat in a background thread."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(str)             # output directory
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str, output_dir: str, starting_index: int):
         super().__init__()
@@ -102,20 +100,20 @@ class ReformatDBWorker(QThread):
         self.output_dir = output_dir
         self.starting_index = starting_index
 
-    def run(self):
+    def _run(self):
         try:
             # Parse
-            self.progress.emit(0.0, "Parsing IAF file…")
+            self.emit_progress(0.0, "Parsing IAF file…")
             parser = IAFParser()
             result = parser.parse(
                 self.input_path,
-                progress_cb=lambda p: self.progress.emit(p * 0.3, f"Parsing… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p * 0.3, f"Parsing… {p:.0%}"),
             )
             if result.error:
-                self.error.emit(result.error)
+                self.emit_error(result.error)
                 return
 
-            self.progress.emit(0.3, f"Parsed {len(result.rates):,} rates")
+            self.emit_progress(0.3, f"Parsed {len(result.rates):,} rates")
 
             # Create output subdirectory named for the plancode
             plancode = result.products[0].plancode.strip() if result.products else "output"
@@ -123,13 +121,13 @@ class ReformatDBWorker(QThread):
             os.makedirs(db_dir, exist_ok=True)
 
             # Reformat
-            self.progress.emit(0.35, f"Reformatting to DB format (index start={self.starting_index})…")
+            self.emit_progress(0.35, f"Reformatting to DB format (index start={self.starting_index})…")
 
             def _reformat_progress(step, total):
                 pct = 0.35 + (step / total) * 0.60
                 labels = ["POINTER", "Current COI", "Guaranteed COI", "Target Premiums"]
                 label = labels[step - 1] if step <= len(labels) else f"Step {step}"
-                self.progress.emit(pct, f"  ✓ {label} complete")
+                self.emit_progress(pct, f"  ✓ {label} complete")
 
             reformatter = RateReformatter(
                 result,
@@ -139,38 +137,35 @@ class ReformatDBWorker(QThread):
             res = reformatter.reformat(db_dir)
 
             if res.error:
-                self.error.emit(res.error)
+                self.emit_error(res.error)
                 return
 
-            self.progress.emit(0.95, "")
-            self.progress.emit(0.95, f"── DB Reformat Summary ──")
-            self.progress.emit(0.96, f"  Plancode:       {reformatter.plancode}")
-            self.progress.emit(0.96, f"  Combos:         {res.combo_count}")
+            self.emit_progress(0.95, "")
+            self.emit_progress(0.95, f"── DB Reformat Summary ──")
+            self.emit_progress(0.96, f"  Plancode:       {reformatter.plancode}")
+            self.emit_progress(0.96, f"  Combos:         {res.combo_count}")
             coi_hi = self.starting_index + max(res.coi_index_count - 1, 0)
             trg_hi = self.starting_index + max(res.trg_index_count - 1, 0)
-            self.progress.emit(0.97, f"  Index(COI):     {self.starting_index}–{coi_hi}  ({res.coi_index_count} tables)")
-            self.progress.emit(0.97, f"  Index(TRGPREM): {self.starting_index}–{trg_hi}  ({res.trg_index_count} tables)")
-            self.progress.emit(0.97, f"  Current COI:    {res.current_coi_rows:,} rows")
+            self.emit_progress(0.97, f"  Index(COI):     {self.starting_index}–{coi_hi}  ({res.coi_index_count} tables)")
+            self.emit_progress(0.97, f"  Index(TRGPREM): {self.starting_index}–{trg_hi}  ({res.trg_index_count} tables)")
+            self.emit_progress(0.97, f"  Current COI:    {res.current_coi_rows:,} rows")
             # Display current COI scales and their dates
             if res.current_scales:
-                self.progress.emit(0.97, f"  Current COI Scales:")
+                self.emit_progress(0.97, f"  Current COI Scales:")
                 for scale_num, date_str in res.current_scales:
                     label = " (most recent)" if scale_num == 1 else ""
-                    self.progress.emit(0.97, f"    Scale {scale_num}: {date_str}{label}")
-            self.progress.emit(0.98, f"  Guaranteed COI: {res.guaranteed_coi_rows:,} rows  (Scale 0)")
-            self.progress.emit(0.98, f"  Target rows:    {res.target_rows:,} rows")
-            self.progress.emit(1.0, f"\n✓  Saved to → {db_dir}")
-            self.finished.emit(db_dir)
+                    self.emit_progress(0.97, f"    Scale {scale_num}: {date_str}{label}")
+            self.emit_progress(0.98, f"  Guaranteed COI: {res.guaranteed_coi_rows:,} rows  (Scale 0)")
+            self.emit_progress(0.98, f"  Target rows:    {res.target_rows:,} rows")
+            self.emit_progress(1.0, f"\n✓  Saved to → {db_dir}")
+            self.emit_result(db_dir)
 
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class CKULTB04Worker(QThread):
+class CKULTB04Worker(RateManagerWorker):
     """Parse a CKULTB04 report and export it to Excel in a background thread."""
-    progress = pyqtSignal(float, str)      # (0-1, message)
-    finished = pyqtSignal(str)             # output_path on success
-    error = pyqtSignal(str)                # error message
 
     def __init__(self, input_path: str, output_path: str, table_kind: str,
                  plan_codes: list | None = None):
@@ -180,59 +175,53 @@ class CKULTB04Worker(QThread):
         self.table_kind = table_kind       # "raw" or "table"
         self.plan_codes = plan_codes       # None/empty = all plan codes
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.ckultb04_exporter import (
                 export_raw, export_table,
             )
 
             label = "Excel Raw" if self.table_kind == "raw" else "Excel Table"
-            self.progress.emit(0.0, f"Parsing CKULTB04 report → {label}…")
+            self.emit_progress(0.0, f"Parsing CKULTB04 report → {label}…")
 
             def _cb(frac: float) -> None:
-                self.progress.emit(frac, f"Processing… {frac:.0%}")
+                self.emit_progress(frac, f"Processing… {frac:.0%}")
 
             exporter = export_raw if self.table_kind == "raw" else export_table
             rows = exporter(self.input_path, self.output_path,
                             progress_cb=_cb, plan_codes=self.plan_codes)
 
-            self.progress.emit(1.0, f"Wrote {rows:,} rows → {self.output_path}")
-            self.finished.emit(self.output_path)
+            self.emit_progress(1.0, f"Wrote {rows:,} rows → {self.output_path}")
+            self.emit_result(self.output_path)
 
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class CKULTB04ListWorker(QThread):
+class CKULTB04ListWorker(RateManagerWorker):
     """Scan a CKULTB04 report and list the distinct plan codes it contains."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(list)            # list of (plan_code, record_count)
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str):
         super().__init__()
         self.input_path = input_path
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.ckultb04_parser import list_plan_codes
 
-            self.progress.emit(0.0, "Scanning CKULTB04 for plan codes…")
+            self.emit_progress(0.0, "Scanning CKULTB04 for plan codes…")
             summary = list_plan_codes(
                 self.input_path,
-                progress_cb=lambda p: self.progress.emit(p, f"Scanning… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p, f"Scanning… {p:.0%}"),
             )
-            self.progress.emit(1.0, f"Found {len(summary)} plan code(s).")
-            self.finished.emit(summary)
+            self.emit_progress(1.0, f"Found {len(summary)} plan code(s).")
+            self.emit_result(summary)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class CKULTB04DBWorker(QThread):
+class CKULTB04DBWorker(RateManagerWorker):
     """Build the CKULTB04 DB Format (SCR POINTER + RATE_SCR) in a thread."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(str)             # output_path on success
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str, output_path: str, specs: list):
         super().__init__()
@@ -240,62 +229,56 @@ class CKULTB04DBWorker(QThread):
         self.output_path = output_path
         self.specs = specs
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.ckultb04_db import build_ckultb04_db
 
-            self.progress.emit(0.0, "Building CKULTB04 DB Format (RATE_SCR)…")
+            self.emit_progress(0.0, "Building CKULTB04 DB Format (RATE_SCR)…")
 
             def _cb(frac: float) -> None:
-                self.progress.emit(frac, f"Processing… {frac:.0%}")
+                self.emit_progress(frac, f"Processing… {frac:.0%}")
 
             counts = build_ckultb04_db(
                 self.input_path, self.specs, self.output_path, progress_cb=_cb)
             totals = counts.get("_totals", {})
-            self.progress.emit(
+            self.emit_progress(
                 1.0,
                 f"Wrote {totals.get('pointer', 0):,} pointer rows and "
                 f"{totals.get('scr', 0):,} RATE_SCR rows → {self.output_path}")
-            self.finished.emit(self.output_path)
+            self.emit_result(self.output_path)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class BenefitListWorker(QThread):
+class BenefitListWorker(RateManagerWorker):
     """Parse an IAF and list the benefit codes it contains."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(list)            # list of (code, coi_count, trg_count)
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str):
         super().__init__()
         self.input_path = input_path
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.parser import IAFParser
             from suiteview.ratemanager.benefit_exporter import benefit_summary
 
-            self.progress.emit(0.0, "Scanning IAF for benefits…")
+            self.emit_progress(0.0, "Scanning IAF for benefits…")
             result = IAFParser().parse(
                 self.input_path,
-                progress_cb=lambda p: self.progress.emit(p, f"Scanning… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p, f"Scanning… {p:.0%}"),
             )
             if result.error:
-                self.error.emit(result.error)
+                self.emit_error(result.error)
                 return
             summary = benefit_summary(result)
-            self.progress.emit(1.0, f"Found {len(summary)} benefit code(s).")
-            self.finished.emit(summary)
+            self.emit_progress(1.0, f"Found {len(summary)} benefit code(s).")
+            self.emit_result(summary)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class BenefitTableWorker(QThread):
+class BenefitTableWorker(RateManagerWorker):
     """Parse an IAF and export the selected benefits to an Excel Table workbook."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(str)             # output_path
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str, output_path: str, codes: list):
         super().__init__()
@@ -303,28 +286,25 @@ class BenefitTableWorker(QThread):
         self.output_path = output_path
         self.codes = codes
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.benefit_exporter import export_benefit_table
 
-            self.progress.emit(0.0, f"Building benefit Excel Table ({len(self.codes)} selected)…")
+            self.emit_progress(0.0, f"Building benefit Excel Table ({len(self.codes)} selected)…")
             counts = export_benefit_table(
                 self.input_path, self.output_path, self.codes,
-                progress_cb=lambda p: self.progress.emit(p, f"Processing… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p, f"Processing… {p:.0%}"),
             )
             for code, (coi, trg) in sorted(counts.items()):
-                self.progress.emit(1.0, f"  {code}:  {coi:,} COI rows,  {trg:,} target rows")
-            self.progress.emit(1.0, f"Saved → {self.output_path}")
-            self.finished.emit(self.output_path)
+                self.emit_progress(1.0, f"  {code}:  {coi:,} COI rows,  {trg:,} target rows")
+            self.emit_progress(1.0, f"Saved → {self.output_path}")
+            self.emit_result(self.output_path)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class BenefitDBWorker(QThread):
+class BenefitDBWorker(RateManagerWorker):
     """Parse an IAF and build the combined benefit DB Format workbook."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(str)             # output_path
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str, output_path: str, specs: list):
         super().__init__()
@@ -332,61 +312,55 @@ class BenefitDBWorker(QThread):
         self.output_path = output_path
         self.specs = specs
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.benefit_db import export_benefit_db
 
-            self.progress.emit(0.0, f"Building benefit DB Format ({len(self.specs)} selected)…")
+            self.emit_progress(0.0, f"Building benefit DB Format ({len(self.specs)} selected)…")
             counts = export_benefit_db(
                 self.input_path, self.output_path, self.specs,
-                progress_cb=lambda p: self.progress.emit(p, f"Processing… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p, f"Processing… {p:.0%}"),
             )
             for code, c in sorted(k for k in counts.items() if k[0] != "_totals"):
-                self.progress.emit(
+                self.emit_progress(
                     1.0,
                     f"  {code}:  {c['bencoi_groups']} COI index(es), "
                     f"{c['bentrg_groups']} target index(es)")
             tot = counts.get("_totals", {})
-            self.progress.emit(
+            self.emit_progress(
                 1.0,
                 f"Totals: {tot.get('pointer', 0):,} pointer rows, "
                 f"{tot.get('bencoi', 0):,} BENCOI rows, {tot.get('bentrg', 0):,} BENTRG rows")
-            self.progress.emit(1.0, f"Saved → {self.output_path}")
-            self.finished.emit(self.output_path)
+            self.emit_progress(1.0, f"Saved → {self.output_path}")
+            self.emit_result(self.output_path)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class MPFListWorker(QThread):
+class MPFListWorker(RateManagerWorker):
     """Parse an MPF and list its type-2 (Supplemental) premium codes."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(list)            # list of (premcode, benefit, combos, rows)
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str):
         super().__init__()
         self.input_path = input_path
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager.mpf_exporter import summarize
 
-            self.progress.emit(0.0, "Scanning MPF for supplemental premium codes…")
+            self.emit_progress(0.0, "Scanning MPF for supplemental premium codes…")
             summary = summarize(
                 self.input_path,
-                progress_cb=lambda p: self.progress.emit(p, f"Scanning… {p:.0%}"),
+                progress_cb=lambda p: self.emit_progress(p, f"Scanning… {p:.0%}"),
             )
-            self.progress.emit(1.0, f"Found {len(summary)} premium code(s).")
-            self.finished.emit(summary)
+            self.emit_progress(1.0, f"Found {len(summary)} premium code(s).")
+            self.emit_result(summary)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
-class MPFExportWorker(QThread):
+class MPFExportWorker(RateManagerWorker):
     """Export MPF supplemental data: raw dump, expanded table, or DB workbook."""
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(str)             # output_path
-    error = pyqtSignal(str)
 
     def __init__(self, input_path: str, output_path: str, mode: str, specs: list):
         super().__init__()
@@ -395,39 +369,39 @@ class MPFExportWorker(QThread):
         self.mode = mode                   # "raw" | "table" | "db"
         self.specs = specs
 
-    def run(self):
+    def _run(self):
         try:
             from suiteview.ratemanager import mpf_exporter as mx
 
-            cb = lambda p: self.progress.emit(p, f"Processing… {p:.0%}")
+            cb = lambda p: self.emit_progress(p, f"Processing… {p:.0%}")
             if self.mode == "raw":
                 codes = [s[0] for s in self.specs]
-                self.progress.emit(0.0, f"Building Excel Raw ({len(codes)} premium codes)…")
+                self.emit_progress(0.0, f"Building Excel Raw ({len(codes)} premium codes)…")
                 rows = mx.export_raw(self.input_path, self.output_path, codes, progress_cb=cb)
-                self.progress.emit(1.0, f"Wrote {rows:,} rows.")
+                self.emit_progress(1.0, f"Wrote {rows:,} rows.")
             elif self.mode == "table":
                 table_specs = [(s[0], s[1], s[2]) for s in self.specs]
-                self.progress.emit(
+                self.emit_progress(
                     0.0,
                     f"Building Excel Table ({len(table_specs)} premium codes)…")
                 counts = mx.export_table(
                     self.input_path, self.output_path, table_specs,
                     progress_cb=cb)
                 for pc, n in sorted(counts.items()):
-                    self.progress.emit(1.0, f"  {pc}:  {n:,} rows")
+                    self.emit_progress(1.0, f"  {pc}:  {n:,} rows")
             else:  # db
-                self.progress.emit(0.0, f"Building DB Reformat ({len(self.specs)} premium codes)…")
+                self.emit_progress(0.0, f"Building DB Reformat ({len(self.specs)} premium codes)…")
                 counts = mx.build_db(self.input_path, self.output_path, self.specs, progress_cb=cb)
                 for pc, c in sorted(k for k in counts.items() if k[0] != "_totals"):
-                    self.progress.emit(1.0, f"  {pc}:  {c['combos']} combo(s), {c['indexes']} index(es)")
+                    self.emit_progress(1.0, f"  {pc}:  {c['combos']} combo(s), {c['indexes']} index(es)")
                 tot = counts.get("_totals", {})
-                self.progress.emit(
+                self.emit_progress(
                     1.0,
                     f"Totals: {tot.get('pointer', 0):,} pointer rows, {tot.get('coi', 0):,} COI rows")
-            self.progress.emit(1.0, f"Saved → {self.output_path}")
-            self.finished.emit(self.output_path)
+            self.emit_progress(1.0, f"Saved → {self.output_path}")
+            self.emit_result(self.output_path)
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.emit_error(str(exc))
 
 
 
@@ -456,15 +430,15 @@ class _ConverterPanel(QWidget):
         self.select_mode = select_mode
         self.select_kind = select_kind   # "benefit" or "mpf"
         self._output_path: str = ""
-        self._worker: ConversionWorker | None = None
-        self._reformat_worker: ReformatDBWorker | None = None
-        self._ckultb04_worker: CKULTB04Worker | None = None
-        self._ckultb04_db_worker: CKULTB04DBWorker | None = None
-        self._benefit_list_worker: BenefitListWorker | None = None
-        self._benefit_table_worker: BenefitTableWorker | None = None
-        self._benefit_db_worker: BenefitDBWorker | None = None
-        self._list_worker: QThread | None = None
-        self._export_worker: QThread | None = None
+        self._worker: WorkerController | None = None
+        self._reformat_worker: WorkerController | None = None
+        self._ckultb04_worker: WorkerController | None = None
+        self._ckultb04_db_worker: WorkerController | None = None
+        self._benefit_list_worker: WorkerController | None = None
+        self._benefit_table_worker: WorkerController | None = None
+        self._benefit_db_worker: WorkerController | None = None
+        self._list_worker: WorkerController | None = None
+        self._export_worker: WorkerController | None = None
         self._benefit_rows: list = []
         self._mode_radios: dict[str, QRadioButton] = {}
         self._mode_previews: dict[str, QLabel] = {}
@@ -699,6 +673,20 @@ class _ConverterPanel(QWidget):
         else:
             self.btn_run.setText("  Convert  ")
 
+    def _start_worker_controller(
+        self,
+        worker: RateManagerWorker,
+        on_result,
+        on_error=None,
+    ) -> WorkerController:
+        """Run a RateManager worker with the standard thread controller."""
+        controller = WorkerController(self, worker)
+        connect_pair_progress(controller, self._on_progress)
+        controller.result.connect(on_result)
+        controller.error.connect(on_error or self._on_error)
+        controller.start()
+        return controller
+
     def _on_run_clicked(self):
         mode = self._selected_mode()
         if self._dispatch_select_mode(mode):
@@ -793,10 +781,11 @@ class _ConverterPanel(QWidget):
             self._list_worker = CKULTB04ListWorker(input_path)
         else:
             self._list_worker = BenefitListWorker(input_path)
-        self._list_worker.progress.connect(self._on_progress)
-        self._list_worker.finished.connect(self._on_items_listed)
-        self._list_worker.error.connect(self._on_benefit_error)
-        self._list_worker.start()
+        self._list_worker = self._start_worker_controller(
+            self._list_worker,
+            self._on_items_listed,
+            self._on_benefit_error,
+        )
 
     def _make_check_cell(self, checked: bool, tooltip: str = "") -> tuple:
         """A centered, high-visibility checkbox wrapped in a table cell widget."""
@@ -1015,11 +1004,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._export_worker = MPFExportWorker(input_path, out_path, mode, specs)
-        self._export_worker.progress.connect(self._on_progress)
-        self._export_worker.finished.connect(self._on_finished)
-        self._export_worker.error.connect(self._on_benefit_error)
-        self._export_worker.start()
+        self._export_worker = self._start_worker_controller(
+            MPFExportWorker(input_path, out_path, mode, specs),
+            self._on_finished,
+            self._on_benefit_error,
+        )
 
     def _start_benefit_table(self):
         input_path = self.input_edit.text().strip()
@@ -1049,11 +1038,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._benefit_table_worker = BenefitTableWorker(input_path, out_path, codes)
-        self._benefit_table_worker.progress.connect(self._on_progress)
-        self._benefit_table_worker.finished.connect(self._on_finished)
-        self._benefit_table_worker.error.connect(self._on_benefit_error)
-        self._benefit_table_worker.start()
+        self._benefit_table_worker = self._start_worker_controller(
+            BenefitTableWorker(input_path, out_path, codes),
+            self._on_finished,
+            self._on_benefit_error,
+        )
 
     def _start_benefit_db(self):
         from suiteview.ratemanager.benefit_db import BenefitDBSpec
@@ -1108,11 +1097,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._benefit_db_worker = BenefitDBWorker(input_path, out_path, specs)
-        self._benefit_db_worker.progress.connect(self._on_progress)
-        self._benefit_db_worker.finished.connect(self._on_finished)
-        self._benefit_db_worker.error.connect(self._on_benefit_error)
-        self._benefit_db_worker.start()
+        self._benefit_db_worker = self._start_worker_controller(
+            BenefitDBWorker(input_path, out_path, specs),
+            self._on_finished,
+            self._on_benefit_error,
+        )
 
 
     # -- IAF: Excel conversion --
@@ -1135,11 +1124,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._worker = ConversionWorker(input_path, output_dir)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
-        self._worker.start()
+        self._worker = self._start_worker_controller(
+            ConversionWorker(input_path, output_dir),
+            self._on_finished,
+            self._on_error,
+        )
 
     def _on_progress(self, pct: float, msg: str):
         self.progress_bar.setValue(int(pct * 1000))
@@ -1189,11 +1178,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._reformat_worker = ReformatDBWorker(input_path, output_dir, starting_index)
-        self._reformat_worker.progress.connect(self._on_progress)
-        self._reformat_worker.finished.connect(self._on_reformat_finished)
-        self._reformat_worker.error.connect(self._on_error)
-        self._reformat_worker.start()
+        self._reformat_worker = self._start_worker_controller(
+            ReformatDBWorker(input_path, output_dir, starting_index),
+            self._on_reformat_finished,
+            self._on_error,
+        )
 
     def _on_reformat_finished(self, output_dir: str):
         self._output_path = output_dir
@@ -1238,12 +1227,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._ckultb04_worker = CKULTB04Worker(
-            input_path, out_path, table_kind, plan_codes)
-        self._ckultb04_worker.progress.connect(self._on_progress)
-        self._ckultb04_worker.finished.connect(self._on_finished)
-        self._ckultb04_worker.error.connect(self._on_benefit_error)
-        self._ckultb04_worker.start()
+        self._ckultb04_worker = self._start_worker_controller(
+            CKULTB04Worker(input_path, out_path, table_kind, plan_codes),
+            self._on_finished,
+            self._on_benefit_error,
+        )
 
     def _start_ckultb04_db(self):
         from suiteview.ratemanager.ckultb04_db import CKULTB04DBSpec
@@ -1300,11 +1288,11 @@ class _ConverterPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._ckultb04_db_worker = CKULTB04DBWorker(input_path, out_path, specs)
-        self._ckultb04_db_worker.progress.connect(self._on_progress)
-        self._ckultb04_db_worker.finished.connect(self._on_finished)
-        self._ckultb04_db_worker.error.connect(self._on_benefit_error)
-        self._ckultb04_db_worker.start()
+        self._ckultb04_db_worker = self._start_worker_controller(
+            CKULTB04DBWorker(input_path, out_path, specs),
+            self._on_finished,
+            self._on_benefit_error,
+        )
 
     def _open_output(self):
         path = self._output_path

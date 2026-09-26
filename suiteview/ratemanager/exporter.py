@@ -250,96 +250,82 @@ class IAFExporter:
         if not result.rates:
             return
 
-        # Organise rates into two buckets
-        #   attained: {sheet_name: {group_name: [(age, rate), ...]}}
-        #   select:   {sheet_name: {group_name: {(duration, attained_age): rate}}}
-        attained_sheets: OrderedDict = OrderedDict()
-        select_sheets: OrderedDict = OrderedDict()
-
-        for r in result.rates:
-            plan_opt = _clean_plan_option(r.plan_option)
-            is_select = r.duration != 0
-            date_part = _format_date_for_tab(r.scale_start)
-
-            if is_select:
-                sheet_name = f"{r.rate_type} - {date_part} {plan_opt} Select"
-            else:
-                sheet_name = f"{r.rate_type} - {date_part} {plan_opt}"
-            sheet_name = sheet_name[:31]
-
-            group_name = f"{r.gender} {r.rate_class} {r.band}"
-
-            if not is_select:
-                if sheet_name not in attained_sheets:
-                    attained_sheets[sheet_name] = OrderedDict()
-                grp = attained_sheets[sheet_name]
-                if group_name not in grp:
-                    grp[group_name] = []
-                grp[group_name].append((r.attained_age, r.rate))
-            else:
-                if sheet_name not in select_sheets:
-                    select_sheets[sheet_name] = OrderedDict()
-                grp = select_sheets[sheet_name]
-                if group_name not in grp:
-                    grp[group_name] = {}
-                grp[group_name][(r.duration, r.attained_age)] = r.rate
-
+        attained_sheets, select_sheets = _rate_sheet_groups(result)
         total_sheets = len(attained_sheets) + len(select_sheets)
         done = 0
 
-        # --- Attained-age sheets ---
         for sname, groups in attained_sheets.items():
-            ws = wb.create_sheet(sname)
-            col = 1
-            for gname, age_rates in groups.items():
-                ws.cell(1, col, gname).font = _HEADER_FONT
-                age_rates.sort(key=lambda x: x[0])
-                row = 2
-                for age, rate in age_rates:
-                    ws.cell(row, col, age)
-                    ws.cell(row, col + 1, rate)
-                    row += 1
-                col += 3   # 3-column spacing
-
+            _add_attained_rate_sheet(wb.create_sheet(sname), groups)
             done += 1
-            if progress_cb and total_sheets:
-                progress_cb(0.2 + 0.8 * done / total_sheets)
+            _emit_rate_progress(progress_cb, done, total_sheets)
 
-        # --- Select sheets ---
         for sname, groups in select_sheets.items():
-            ws = wb.create_sheet(sname)
-            group_start_row = 1
-
-            for gname, dur_age_rates in groups.items():
-                durations = sorted(set(d for d, _ in dur_age_rates))
-                ages = sorted(set(a for _, a in dur_age_rates))
-
-                # Group header + duration column headers
-                ws.cell(group_start_row, 1, gname).font = _HEADER_FONT
-                dur_col = {}
-                for ci, dur in enumerate(durations, start=2):
-                    ws.cell(group_start_row, ci, dur)
-                    dur_col[dur] = ci
-
-                # Age rows
-                age_row = {}
-                for ri, age in enumerate(ages, start=group_start_row + 1):
-                    ws.cell(ri, 1, age)
-                    age_row[age] = ri
-
-                # Fill rates
-                for (dur, age), rate in dur_age_rates.items():
-                    r_pos = age_row.get(age)
-                    c_pos = dur_col.get(dur)
-                    if r_pos and c_pos:
-                        ws.cell(r_pos, c_pos, rate)
-
-                # VBA uses 122-row block spacing between groups
-                group_start_row += 122
-
+            _add_select_rate_sheet(wb.create_sheet(sname), groups)
             done += 1
-            if progress_cb and total_sheets:
-                progress_cb(0.2 + 0.8 * done / total_sheets)
+            _emit_rate_progress(progress_cb, done, total_sheets)
+
+
+def _rate_sheet_groups(result: ParseResult) -> tuple[OrderedDict, OrderedDict]:
+    attained_sheets: OrderedDict = OrderedDict()
+    select_sheets: OrderedDict = OrderedDict()
+    for rate in result.rates:
+        sheet_name = _rate_sheet_name(rate)
+        group_name = f"{rate.gender} {rate.rate_class} {rate.band}"
+        if rate.duration == 0:
+            group = attained_sheets.setdefault(sheet_name, OrderedDict())
+            group.setdefault(group_name, []).append((rate.attained_age, rate.rate))
+        else:
+            group = select_sheets.setdefault(sheet_name, OrderedDict())
+            group.setdefault(group_name, {})[(rate.duration, rate.attained_age)] = rate.rate
+    return attained_sheets, select_sheets
+
+
+def _rate_sheet_name(rate) -> str:
+    plan_opt = _clean_plan_option(rate.plan_option)
+    date_part = _format_date_for_tab(rate.scale_start)
+    if rate.duration != 0:
+        return f"{rate.rate_type} - {date_part} {plan_opt} Select"[:31]
+    return f"{rate.rate_type} - {date_part} {plan_opt}"[:31]
+
+
+def _add_attained_rate_sheet(ws, groups: OrderedDict) -> None:
+    col = 1
+    for group_name, age_rates in groups.items():
+        ws.cell(1, col, group_name).font = _HEADER_FONT
+        age_rates.sort(key=lambda item: item[0])
+        for row, (age, rate) in enumerate(age_rates, start=2):
+            ws.cell(row, col, age)
+            ws.cell(row, col + 1, rate)
+        col += 3
+
+
+def _add_select_rate_sheet(ws, groups: OrderedDict) -> None:
+    group_start_row = 1
+    for group_name, dur_age_rates in groups.items():
+        _add_select_rate_group(ws, group_start_row, group_name, dur_age_rates)
+        group_start_row += 122
+
+
+def _add_select_rate_group(ws, group_start_row: int, group_name: str, dur_age_rates) -> None:
+    durations = sorted(set(duration for duration, _age in dur_age_rates))
+    ages = sorted(set(age for _duration, age in dur_age_rates))
+    ws.cell(group_start_row, 1, group_name).font = _HEADER_FONT
+    dur_col = {duration: column for column, duration in enumerate(durations, start=2)}
+    for duration, column in dur_col.items():
+        ws.cell(group_start_row, column, duration)
+    age_row = {age: row for row, age in enumerate(ages, start=group_start_row + 1)}
+    for age, row in age_row.items():
+        ws.cell(row, 1, age)
+    for (duration, age), rate in dur_age_rates.items():
+        r_pos = age_row.get(age)
+        c_pos = dur_col.get(duration)
+        if r_pos and c_pos:
+            ws.cell(r_pos, c_pos, rate)
+
+
+def _emit_rate_progress(progress_cb, done: int, total_sheets: int) -> None:
+    if progress_cb and total_sheets:
+        progress_cb(0.2 + 0.8 * done / total_sheets)
 
 
 # ---------------------------------------------------------------------------
@@ -382,4 +368,3 @@ def extract_region_from_filename(filepath: str) -> str:
         region = after.split()[0] if after else ""
         return region
     return ""
-

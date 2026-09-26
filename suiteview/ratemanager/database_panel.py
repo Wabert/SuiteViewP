@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import Any, Callable, Optional
 
 import pandas as pd
-from PyQt6.QtCore import QThread, Qt, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIntValidator
 from suiteview.core.build_env import is_data_read_only
 from suiteview.core.data_sources import UL_RATES_DSN
@@ -55,7 +55,9 @@ from suiteview.ratemanager.rm_styles import (
     TEXT_MID,
     body_stylesheet,
 )
+from suiteview.ratemanager.worker_helpers import RateManagerWorker
 from suiteview.ui.widgets.filter_table_view import FilterTableView
+from suiteview.ui.workers import WorkerController
 
 
 _STATUS_OK = "#8ED081"
@@ -63,10 +65,8 @@ _STATUS_WARN = "#FFD166"
 _STATUS_BAD = "#FF7B7B"
 
 
-class _FunctionWorker(QThread):
-    result_ready = pyqtSignal(object)
-    failed = pyqtSignal(str)
-    progress = pyqtSignal(str)
+class _FunctionWorker(RateManagerWorker):
+    """Run a callable through the standard worker controller."""
 
     def __init__(self, function: Callable, *args, with_progress: bool = False):
         super().__init__()
@@ -74,14 +74,11 @@ class _FunctionWorker(QThread):
         self._args = args
         self._with_progress = with_progress
 
-    def run(self) -> None:
-        try:
-            args = self._args
-            if self._with_progress:
-                args = (*args, self.progress.emit)
-            self.result_ready.emit(self._function(*args))
-        except Exception as exc:
-            self.failed.emit(str(exc))
+    def _run(self) -> None:
+        args = self._args
+        if self._with_progress:
+            args = (*args, self.signals.progress.emit)
+        self.emit_result(self._function(*args))
 
 
 def _analyze_job(folder: str, dsn: str, schema: RateSchema = UL_SCHEMA):
@@ -172,7 +169,7 @@ class WorkupDatabaseLoadTab(QWidget):
         self._package: Optional[WorkupPackage] = None
         self._analysis: Optional[PackageAnalysis] = None
         self._plan = None
-        self._workers: set[_FunctionWorker] = set()
+        self._workers: set[WorkerController] = set()
         self._controls: dict[str, _TableLoadControl] = {}
         self._build_ui()
 
@@ -573,15 +570,16 @@ class WorkupDatabaseLoadTab(QWidget):
         show_progress: bool = False,
     ) -> None:
         worker = _FunctionWorker(function, *args, with_progress=show_progress)
-        self._workers.add(worker)
-        worker.result_ready.connect(on_result)
-        worker.failed.connect(self._on_error)
+        controller = WorkerController(self, worker)
+        self._workers.add(controller)
+        controller.result.connect(on_result)
+        controller.error.connect(self._on_error)
         if show_progress:
-            worker.progress.connect(self.log.setPlainText)
-        worker.finished.connect(
-            lambda worker=worker: self._workers.discard(worker)
+            controller.progress.connect(self.log.setPlainText)
+        controller.finished.connect(
+            lambda controller=controller: self._workers.discard(controller)
         )
-        worker.start()
+        controller.start()
 
 
 class _PointerEditDialog(QDialog):
@@ -616,7 +614,7 @@ class ManageExistingTab(QWidget):
     def __init__(self, parent=None, schema: RateSchema = UL_SCHEMA):
         super().__init__(parent)
         self.schema = schema
-        self._workers: set[_FunctionWorker] = set()
+        self._workers: set[WorkerController] = set()
         self._pointer_data: Optional[TableData] = None
         self._rate_data: Optional[TableData] = None
         self._build_ui()
@@ -913,13 +911,14 @@ class ManageExistingTab(QWidget):
         self, function: Callable, args: tuple, on_result: Callable
     ) -> None:
         worker = _FunctionWorker(function, *args)
-        self._workers.add(worker)
-        worker.result_ready.connect(on_result)
-        worker.failed.connect(self._on_error)
-        worker.finished.connect(
-            lambda worker=worker: self._workers.discard(worker)
+        controller = WorkerController(self, worker)
+        self._workers.add(controller)
+        controller.result.connect(on_result)
+        controller.error.connect(self._on_error)
+        controller.finished.connect(
+            lambda controller=controller: self._workers.discard(controller)
         )
-        worker.start()
+        controller.start()
 
 
 class RateDatabasePanel(QWidget):
