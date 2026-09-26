@@ -14,8 +14,8 @@ from decimal import Decimal
 from pathlib import Path
 import re
 
-from suiteview.ratemanager.database_loader import PackageValidationError
 from suiteview.ratemanager.layouts import Field, LineRule, RepeatedGroup, ensure_padding_is_blank
+from suiteview.ratemanager.schema import PackageValidationError
 
 
 CV_COLUMNS = (

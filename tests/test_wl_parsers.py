@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from suiteview.ratemanager.database_loader import PackageValidationError
+from suiteview.ratemanager.schema import PackageValidationError
 from suiteview.ratemanager.whole_life.parsers import (
     CV_COLUMNS, IAF_COLUMNS, PUI_COLUMNS, parse_cvf, parse_iaf, parse_nsp, parse_pui,
 )

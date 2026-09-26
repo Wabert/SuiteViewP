@@ -26,9 +26,13 @@ from suiteview.core.build_env import guard_data_writable
 from suiteview.core.data_sources import UL_RATES_DSN
 from suiteview.core.json_store import write_json
 from suiteview.core.sql_identifiers import IdentifierCatalog, quote_identifier, qualified_name
-from suiteview.ratemanager.database_loader import (
-    PackageValidationError, RateDatabaseError, StaleAnalysisError, TableData,
-    ULRatesRepository, UnsafeOperationError, _chunks, _rows_digest,
+from suiteview.ratemanager.package import TableData, _rows_digest
+from suiteview.ratemanager.repository import ULRatesRepository, _chunks
+from suiteview.ratemanager.schema import (
+    PackageValidationError,
+    RateDatabaseError,
+    StaleAnalysisError,
+    UnsafeOperationError,
 )
 from suiteview.ratemanager.whole_life.schema import PDF_COLUMNS, TABLES, WholeLifeTable
 

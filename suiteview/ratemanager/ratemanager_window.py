@@ -1479,8 +1479,8 @@ class RateManagerWindow(FramelessWindowBase):
         super().closeEvent(event)
 
     def build_content(self) -> QWidget:
-        from suiteview.ratemanager.database_loader import TERM_SCHEMA
         from suiteview.ratemanager.database_panel import RateDatabasePanel
+        from suiteview.ratemanager.schema import TERM_SCHEMA
         from suiteview.ratemanager.workup.term_window import TermWorkupPanel
         from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
         from suiteview.ratemanager.whole_life.panel import (

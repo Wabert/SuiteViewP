@@ -6,10 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from suiteview.ratemanager.database_loader import (
-    PackageValidationError,
-    UnsafeOperationError,
-)
+from suiteview.ratemanager.schema import PackageValidationError, UnsafeOperationError
 from suiteview.ratemanager.whole_life import service
 from suiteview.ratemanager.whole_life.dividend import DividendValidationError
 from suiteview.ratemanager.whole_life.schema import TABLES
@@ -71,7 +68,7 @@ def _statements(cursor):
 @pytest.fixture(autouse=True)
 def prohibit_live_database(monkeypatch):
     with patch(
-        "suiteview.ratemanager.database_loader.connection_factory.connect_dsn",
+        "suiteview.ratemanager.repository.connection_factory.connect_dsn",
         side_effect=AssertionError("Dividend integration tests must never access a live database"),
     ):
         yield

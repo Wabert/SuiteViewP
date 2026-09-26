@@ -14,7 +14,8 @@ from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox, QVBoxLayout, QWidget
 
-from suiteview.ratemanager.database_loader import TableData, TableSpec
+from suiteview.ratemanager.package import TableData
+from suiteview.ratemanager.schema import TableSpec
 from suiteview.ratemanager.product_chooser import (
     TERM_LINE, UL_LINE, WL_LINE, _ProductCard,
 )
