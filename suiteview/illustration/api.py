@@ -27,8 +27,8 @@ class ProjectionRun:
     """A completed projection plus the loaded basis used to run it."""
 
     policy: IllustrationPolicyData
-    config: PlancodeConfig
-    rates: IllustrationRates
+    config: PlancodeConfig | None
+    rates: IllustrationRates | None
     states: list[MonthlyState]
     inputs: IllustrationInputSet | None
     options: IllustrationOptions
@@ -69,10 +69,20 @@ def project_policy(
         illustration_date=illustration_date,
         reinstatement_date=reinstatement_date,
     )
-    run_config = config if config is not None else load_plancode(policy.plancode)
-    run_rates = rates if rates is not None else load_rates(policy, run_config)
-    run_options = options if options is not None else IllustrationOptions()
     runner = engine or IllustrationEngine()
+    project_parameters = inspect.signature(runner.project).parameters
+    should_load_rates = engine is None or rates is not None or config is not None
+    run_config = (
+        config if config is not None
+        else load_plancode(policy.plancode) if should_load_rates
+        else None
+    )
+    run_rates = (
+        rates if rates is not None
+        else load_rates(policy, run_config) if should_load_rates and run_config is not None
+        else None
+    )
+    run_options = options if options is not None else IllustrationOptions()
     states = _project_with_supported_kwargs(
         runner,
         policy,
@@ -131,10 +141,7 @@ def _coerce_policy(
         )
     policy_number = getattr(policy_or_number_or_pi, "policy_number", None)
     if not policy_number:
-        raise TypeError(
-            "project_policy expects an IllustrationPolicyData, policy number, "
-            "or PolicyInformation-like object with policy_number."
-        )
+        return policy_or_number_or_pi
     return build_illustration_data(
         str(policy_number),
         region=getattr(policy_or_number_or_pi, "region", region) or region,

@@ -21,6 +21,7 @@ from suiteview.core.db2_connection import DB2ConnectionError
 from suiteview.core.rates import RatesError
 from suiteview.illustration.api import project_policy
 from suiteview.illustration.core import calc_engine
+from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
     _coverage_is_terminated, build_illustration_data,
 )
@@ -236,6 +237,7 @@ def project_home_office_reinstatement(
     options = IllustrationOptions(no_lapse=True)
     bonus = calc_engine.load_bonus_config(p.plancode, p.valuation_date)
     receipts = {}
+    engine = IllustrationEngine()
 
     def project(cents):
         inputs = IllustrationInputSet(
@@ -256,7 +258,7 @@ def project_home_office_reinstatement(
             states = project_policy(
                 copy.deepcopy(p), months=months, inputs=inputs,
                 options=options, rates=rates, config=config,
-                bonus_override=bonus, stop_on_lapse=False,
+                bonus_override=bonus, stop_on_lapse=False, engine=engine,
             ).states
         receipts[cents] = receipt
         if len(states) != months + 1 or states[-1].date != target:
