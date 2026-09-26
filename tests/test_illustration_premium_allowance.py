@@ -3,13 +3,23 @@
 Pure-function tests for ``compute_premium_allowances`` — no rates database or
 projection needed.
 """
+from datetime import date
+from types import SimpleNamespace
+
 import pytest
 
+from suiteview.illustration.core import calc_engine
+from suiteview.illustration.core.bonus_rates import BonusConfig
+from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.core.premium_allowance import (
     INF,
     PremiumAllowanceInput,
     compute_premium_allowances,
 )
+from suiteview.illustration.models.calc_state import MonthlyState
+from suiteview.illustration.models.input_set import IllustrationOptions
+from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 
 def _alw(**overrides):
@@ -585,6 +595,65 @@ def test_premium_allowances_respects_levelizing_option():
     off = _engine_alw(IllustrationOptions(levelizing_premium=False), policy, **common)
     assert off.apply_levelized is False
     assert off.applied_scheduled_premium == pytest.approx(500.0)  # dollar-for-dollar
+
+
+def test_engine_allowance_step_propagates_transition_year_option():
+    policy = IllustrationPolicyData(
+        def_of_life_ins="GPT",
+        issue_date=date(2026, 1, 1),
+        billing_frequency=1,
+        tamra_7pay_level=0.0,
+    )
+    state = MonthlyState(
+        date=date(2026, 12, 1),
+        policy_year=1,
+        policy_month=12,
+        payment_count_policy_year=0,
+        payment_count_tamra_year=0,
+        scheduled_prem_cap=0.0,
+        scheduled_cap_by_guideline=False,
+        scheduled_cap_by_tamra=False,
+        guideline_limit_reached=False,
+        transition_year_active=False,
+    )
+    ctx = calc_engine.MonthContext(
+        state=state,
+        policy=policy,
+        config=PlancodeConfig(),
+        rates=IllustrationRates(),
+        bonus=BonusConfig(),
+        month_inputs=None,
+        options=IllustrationOptions(
+            conform_to_tefra=True,
+            levelizing_premium=True,
+            dollar_for_dollar_in_transition_year=True,
+        ),
+    )
+    work = SimpleNamespace(
+        accumulated_7pay_base=0.0,
+        guideline_limit=10_000.0,
+        premiums_to_date=9_400.0,
+        withdrawals_before_forceout=0.0,
+        guideline_forceout=0.0,
+        next_month=1,
+        month_date=date(2027, 1, 1),
+        requested_scheduled=500.0,
+        requested_lumpsum=0.0,
+        cash_flows=SimpleNamespace(
+            loan_repay_from_lumpsum=0.0,
+            loan_repay_from_scheduled=0.0,
+            ln_repay_left_over=0.0,
+        ),
+        has_loan_balance=False,
+        is_anniversary=True,
+        tamra_reset=False,
+    )
+
+    calc_engine.compute_allowances(ctx, work)
+
+    assert work.allowances.in_transition_year is True
+    assert work.allowances.apply_levelized is False
+    assert work.allowances.applied_scheduled_premium == pytest.approx(500.0)
 
 
 @pytest.mark.parametrize("payments", [12, 4, 2, 1])
