@@ -10,6 +10,12 @@ There is no historical target-change ledger here. For unchanged, single-base
 UL/IUL policies, target balances can be derived by reversing the established
 RERUN accumulation mechanics. That basis is disclosed, and observed changes
 block it; TAR_DT is never treated as an archived balance timestamp.
+
+Copy/mutation rule: `apply_value_rollback` returns a deep-copied policy basis.
+The loaded current policy and its captured snapshots are never mutated. Snapshot
+source limits are explicit: recorded monthliversary values are post-deduction;
+current totals/targets are reversed only for verified ordinary premium activity;
+IUL historical fund buckets are not reconstructed from current allocations.
 """
 from __future__ import annotations
 

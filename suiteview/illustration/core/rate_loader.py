@@ -1,3 +1,16 @@
+"""Load projection rate schedules for an IllustrationPolicyData basis.
+
+Rate loading is intentionally a copy/read boundary:
+
+* `load_rates` does not project; it resolves the rate schedules the engine will
+  read for the supplied policy/config basis.
+* Band initialization is the only policy mutation here. Issue and rollback
+  scenarios need their edited starting bands resolved before schedule lookup.
+* Current, guaranteed and guideline runs differ only by the explicit COI and
+  expense scale arguments documented on `load_rates`.
+* Missing required COI/shadow schedules raise `RateLookupError`; optional
+  rider/benefit schedules remain empty so the validation layer can report them.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,3 +1,19 @@
+"""Build projectable illustration scenarios from loaded policy data.
+
+Copy/mutation rules:
+
+* `build_illustration_scenario` always deep-copies the loaded baseline before
+  applying inforce, issue or rollback assumptions.
+* Rollback overrides edit only the selected starting basis. They do not
+  reconstruct future events, mutate the source `PolicyInformation`, or change
+  shared plancode/rate data.
+* Fund edits must retain exactly the captured fund IDs. Aggregate account value
+  and individual fund balances are separate assumptions unless the caller edits
+  both explicitly.
+* Coverage, benefit and record edits are recorded in
+  `starting_basis_assumptions`/`starting_record_fields` so reports can disclose
+  what was manually supplied.
+"""
 from __future__ import annotations
 
 from copy import deepcopy
