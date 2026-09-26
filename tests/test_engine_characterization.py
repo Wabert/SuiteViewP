@@ -35,8 +35,10 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
-
+from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "engine"
 UPDATE_GOLDENS = os.environ.get("SV_UPDATE_ENGINE_GOLDENS") == "1"
@@ -300,6 +302,92 @@ def _mec_inputs(_timing: ProjectionTiming) -> IllustrationInputSet:
     )
 
 
+def _exception_policy() -> IllustrationPolicyData:
+    return IllustrationPolicyData(
+        policy_number="CHAR-EXC",
+        plancode="CHAREXC",
+        def_of_life_ins="GPT",
+        issue_date=date(2015, 1, 15),
+        valuation_date=date(2026, 1, 15),
+        issue_age=45,
+        attained_age=56,
+        maturity_age=121,
+        policy_year=12,
+        policy_month=1,
+        duration=133,
+        face_amount=100_000.0,
+        units=100.0,
+        db_option="A",
+        account_value=20.0,
+        glp=0.0,
+        gsp=1_000.0,
+        accumulated_glp=1_000.0,
+        premiums_paid_to_date=1_000.0,
+        current_interest_rate=0.0,
+        segments=[_coverage(face=100_000.0, issue_age=45)],
+    )
+
+
+def _lapse_policy() -> IllustrationPolicyData:
+    return IllustrationPolicyData(
+        policy_number="CHAR-LAPSE",
+        plancode="CHARLAPSE",
+        def_of_life_ins="GPT",
+        issue_date=date(2016, 9, 15),
+        valuation_date=date(2026, 9, 15),
+        issue_age=50,
+        attained_age=60,
+        maturity_age=121,
+        policy_year=11,
+        policy_month=1,
+        duration=121,
+        face_amount=150_000.0,
+        units=150.0,
+        db_option="A",
+        account_value=50.0,
+        current_interest_rate=0.0,
+        glp=10_000.0,
+        gsp=10_000.0,
+        accumulated_glp=10_000.0,
+        premiums_paid_to_date=10_000.0,
+        segments=[_coverage(face=150_000.0, issue_age=50)],
+    )
+
+
+def _shadow_corridor_policy() -> IllustrationPolicyData:
+    return IllustrationPolicyData(
+        policy_number="CHAR-SHADOW",
+        plancode="CHARSHD",
+        def_of_life_ins="GPT",
+        issue_date=date(2016, 4, 15),
+        valuation_date=date(2026, 4, 15),
+        issue_age=45,
+        attained_age=55,
+        maturity_age=121,
+        policy_year=11,
+        policy_month=1,
+        duration=121,
+        face_amount=100_000.0,
+        units=100.0,
+        db_option="A",
+        account_value=90_000.0,
+        current_interest_rate=0.04,
+        ccv_active=True,
+        ccv_units=100.0,
+        shadow_account_value=2_500.0,
+        glp=1_200.0,
+        gsp=15_000.0,
+        accumulated_glp=12_000.0,
+        mtp=40.0,
+        ctp=700.0,
+        segments=[_coverage(face=100_000.0, issue_age=45)],
+    )
+
+
+def _no_inputs(_timing: ProjectionTiming) -> None:
+    return None
+
+
 CASES = [
     EngineCase(
         "gpt_cashflows_policy_change",
@@ -340,6 +428,69 @@ CASES = [
         12,
         _mec_inputs,
         IllustrationOptions(conform_to_tamra=False, conform_to_tefra=False),
+    ),
+    EngineCase(
+        "exception_premium",
+        _exception_policy,
+        _config("CHAREXC"),
+        _rates(coi=8.0, epu=0.0, scr=0.0),
+        2,
+        _no_inputs,
+        IllustrationOptions(allow_exception_prems=True),
+    ),
+    EngineCase(
+        "lapse_corridor",
+        _lapse_policy,
+        _config("CHARLAPSE"),
+        _rates(coi=12.0, epu=0.0, scr=0.0),
+        2,
+        _no_inputs,
+        IllustrationOptions(),
+    ),
+    EngineCase(
+        "shadow_corridor",
+        _shadow_corridor_policy,
+        PlancodeConfig(
+            plancode="CHARSHD",
+            premium_load="0.05",
+            epu_code="0",
+            mfee="5",
+            poav_code="0",
+            corridor_code=1,
+            gint=0.02,
+            dbd=0.0,
+            snet_period=0,
+            lapse_value="SV",
+            interest_method="MonthlyCompounding",
+            shadow_target="Table",
+            shadow_prem_load_code="0.04",
+            shadow_epu_code="Table",
+            shadow_mfee=3.0,
+            shadow_dbd_rate="Table",
+            shadow_int_rate_code="Table",
+        ),
+        IllustrationRates(
+            coi=[0.0] + [2.0] * 180,
+            segment_coi={1: [0.0] + [2.0] * 180},
+            epu=[0.0] + [0.2] * 180,
+            segment_epu={1: [0.0] + [0.2] * 180},
+            scr=[0.0] + [2.0] * 180,
+            segment_scr={1: [0.0] + [2.0] * 180},
+            mfee=[0.0] + [5.0] * 180,
+            tpp=[0.0] + [0.05] * 180,
+            epp=[0.0] + [0.03] * 180,
+            shadow_coi=[0.0] + [1.5] * 180,
+            shadow_epu=[0.0] + [0.1] * 180,
+            shadow_tpp=[0.0] + [0.05] * 180,
+            shadow_epp=[0.0] + [0.03] * 180,
+            shadow_tpr=[0.0] + [3.0] * 180,
+            shadow_tpr_tbl1=[0.0] * 181,
+            shadow_int=[0.0] + [0.04] * 180,
+            shadow_dbd=[0.0] * 181,
+        ),
+        2,
+        _no_inputs,
+        IllustrationOptions(),
     ),
 ]
 
