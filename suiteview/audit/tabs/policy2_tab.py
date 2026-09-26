@@ -36,7 +36,7 @@ _CTRL_H = 22
 _V_SPACING = 2
 _H_SPACING = 4
 _RANGE_W = 70
-_LABEL_W = 195       # slightly wider for longer labels on this tab
+_LABEL_W = 370       # fits native-font termination labels on this tab
 
 
 def _connect_checkbox_widgets(chk: QCheckBox, widgets: list[QWidget]):
