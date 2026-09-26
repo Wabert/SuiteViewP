@@ -9,8 +9,6 @@ fill the page width.
 """
 from __future__ import annotations
 
-from suiteview.core.profile_paths import profile_path
-
 import re
 from datetime import datetime
 from html import escape
@@ -36,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.json_store import read_json, write_json
+from suiteview.core.profile_paths import profile_path
 from suiteview.illustration.core.abr_quote import ABR_TARGET_SV
 from suiteview.illustration.core.report_specs import PageSpec
 from suiteview.illustration.core.report_builder import (
@@ -47,8 +46,12 @@ from suiteview.illustration.core.report_builder import (
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT, apply_input_checkbox_style
 
 # Persisted illustration UI settings (output folder for printed PDFs and the
-# Add Expense Report toggle).
-_SETTINGS_FILE = profile_path('illustration_settings.json')
+# Add Expense Report toggle). Resolve the profile at call time; tests and
+# isolated profiles can change the profile root after this module imports.
+def _settings_file():
+    return profile_path("illustration_settings.json")
+
+
 _OUTPUT_FOLDER_KEY = "report_output_folder"
 _EXPENSE_PAGE_KEY = "report_add_expense_page"
 
@@ -996,14 +999,14 @@ class IllustrationReportTab(QWidget):
 
     @staticmethod
     def _load_expense_page_setting() -> bool:
-        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        settings = read_json(_settings_file(), default={}) or {}
         return bool(settings.get(_EXPENSE_PAGE_KEY, False))
 
     def _on_expense_report_toggled(self, checked: bool) -> None:
-        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        settings = read_json(_settings_file(), default={}) or {}
         settings[_EXPENSE_PAGE_KEY] = bool(checked)
         try:
-            write_json(_SETTINGS_FILE, settings)
+            write_json(_settings_file(), settings)
         except OSError:
             pass  # cosmetic preference — never block the toggle on disk errors
         # Re-render the held report with/without the supplemental page; no
@@ -1015,15 +1018,15 @@ class IllustrationReportTab(QWidget):
 
     @staticmethod
     def _load_output_folder() -> str:
-        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        settings = read_json(_settings_file(), default={}) or {}
         folder = settings.get(_OUTPUT_FOLDER_KEY, "")
         return folder if isinstance(folder, str) else ""
 
     def _save_output_folder(self, folder: str) -> None:
-        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        settings = read_json(_settings_file(), default={}) or {}
         settings[_OUTPUT_FOLDER_KEY] = folder
         try:
-            write_json(_SETTINGS_FILE, settings)
+            write_json(_settings_file(), settings)
         except OSError as exc:
             QMessageBox.warning(
                 self, "Output folder",
