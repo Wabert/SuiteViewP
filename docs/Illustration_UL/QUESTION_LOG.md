@@ -167,7 +167,8 @@ and the policy-change AV/segment/MD machinery is validatable vs RERUN regardless
 **STATUS — machinery IMPLEMENTED (2026-06-08 late).** `calc_engine` now consumes
 `IllustrationInputSet.policy_changes`: `project()` deep-copies the policy when changes
 exist (base cases untouched — verified byte-for-byte), compiles changes by duration,
-and `process_month` applies them at step 3-7 (`_apply_policy_change`). `run_engine_case.py`
+and `run_month(ctx, convention)` applies them through `apply_policy_changes`.
+`run_engine_case.py`
 takes a `"changes":[{"kind":"face_amount"|"db_option","date":...,"value":...}]` arg.
 - **Face DECREASE — validated** on U0688012 (100k→75k at the year-9 anniversary):
   reduces segment face + units, and deducts the decreased coverage's surrender charge
@@ -214,13 +215,13 @@ but keep `original_face_amount` (surrender charge basis); increase → append a 
 segment. The `CoverageSegment` model already carries both `face_amount` and
 `original_face_amount`.
 
-**Engine hook (mapped):** `calc_engine.process_month()` **step 3–7 (line ~405–408)**
-is the designated, currently-no-op spot for "policy changes / coverage after change".
-Cleanest wiring: in `project()`, if `future_inputs.policy_changes` is non-empty,
-`deepcopy` the policy (so the projection mutates a private copy, never the caller's),
-compile changes by duration like `compile_month_inputs`, and at the change month
-mutate the copied policy's segments / `db_option`. Base cases (no changes) are
-unaffected and stay on the fast path (no copy).
+**Engine hook (mapped):** policy changes now flow through
+`calc_engine.run_month(ctx, convention)` via `apply_policy_changes`. In
+`project()`, `future_inputs.policy_changes` are compiled by duration like
+`compile_month_inputs`; the projected policy is a private copy so the caller's
+loaded snapshot is never mutated. At the change month the copied policy's
+segments / `db_option` are updated. Base cases (no changes) remain on the
+fast path.
 
 **Reproduce a scenario:** `rerun_com.py` run-mode now takes
 `"overrides":[{"target":"INPUT!J14:J126","value":150000}]` (J6:J126 =
@@ -228,9 +229,10 @@ unaffected and stay on the fast path (no copy).
 DBO change = override `vINPUT_DBO` (CalcEngine input) similarly.
 
 **Engine implementation plan:**
-1. Consume `IllustrationInputSet.policy_changes` in `calc_engine.process_month()` at
-   the change date. (Per the RERUN reference, recalc guideline at the *anniversary*
-   of the change year; apply the segment change the following month — confirm Q4.)
+1. Consume `IllustrationInputSet.policy_changes` in
+   `calc_engine.run_month(ctx, convention)` at the change date. (Per the RERUN
+   reference, recalc guideline at the *anniversary* of the change year; apply
+   the segment change the following month — confirm Q4.)
 2. **Face increase** → append a `CoverageSegment` for the increase amount, issue
    age = attained age at change, and **load its COI/EPU/SCR rates** at that issue age
    (needs `rate_loader` to load rates for a mid-projection segment — today it loads

@@ -93,12 +93,12 @@ tools/_backups/
 
 # --- Heavy reference/harness binaries moved to ..\SuiteViewP_archived_docs (2026-08) ---
 # Raw mainframe rate extracts (rate-workup dev input)
-docs/RateManager/CKULTB01/
-docs/RateManager/CKULTB04/
-docs/RateManager/MPF/
-docs/RateManager/IAF/
-docs/RateManager/*_DB/
-docs/RateManager/1U1F4N00.txt
+docs/ratemanager/CKULTB01/
+docs/ratemanager/CKULTB04/
+docs/ratemanager/MPF/
+docs/ratemanager/IAF/
+docs/ratemanager/*_DB/
+docs/ratemanager/1U1F4N00.txt
 # Validation-harness workbooks and regenerable batch outputs
 docs/**/*.xlsm
 docs/**/*.jsonl
