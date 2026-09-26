@@ -352,71 +352,124 @@ class QueryOrganizer:
         # query's id while its name stays the same; without re-linking, the
         # stale ref would be pruned below and the query re-appended to Commons,
         # silently emptying the user's groups on every such upgrade.
-        organized_now = {ref.get("query_id") for ref in self._all_query_refs()
-                         if ref.get("query_id") in known_ids}
-        unclaimed_by_name: dict[str, list[str]] = {}
-        for obj in organizable:
-            if obj.id not in organized_now:
-                unclaimed_by_name.setdefault(obj.name, []).append(obj.id)
+        unclaimed_by_name = self._unclaimed_query_ids_by_name(organizable, known_ids)
 
         # Ids of every query whose file is still physically on disk, derived
         # from filenames alone. A ref whose object failed to load THIS pass
         # (cloud-sync dehydration, a file lock, a transient parse error) must
         # not be pruned while its file still exists, or the user's groups empty
         # out and everything lands in Commons on the next refresh.
-        try:
-            on_disk_id8s = query_object_store.existing_object_id8s()
-        except Exception:  # pragma: no cover - never let a scan failure prune
-            on_disk_id8s = set()
-
-        def _resolve(ref: dict) -> bool:
-            """True if ``ref`` points at a live query — re-linking by name when
-            the stored id went stale. False means the ref is truly orphaned."""
-            nonlocal changed
-            if ref.get("query_id") in known_ids:
-                return True
-            candidates = unclaimed_by_name.get(ref.get("name") or "")
-            if candidates:
-                ref["query_id"] = candidates.pop(0)
-                changed = True
-                return True
-            # The object didn't load this pass, but if its file is still on
-            # disk keep the membership intact — it will re-link cleanly once the
-            # file is readable again rather than being dumped into Commons.
-            qid = ref.get("query_id") or ""
-            if qid[:8] in on_disk_id8s:
-                return True
-            return False
-
-        # Prune dead refs (after attempting to re-link them by name).
-        for item in list(self.items):
-            kind = item.get("type")
-            if kind == ITEM_QUERY:
-                if not _resolve(item):
-                    self.items.remove(item)
-                    changed = True
-            elif kind == ITEM_FORGE and item.get("name") not in forge_set:
-                self.items.remove(item)
-                changed = True
-            elif kind == ITEM_GROUP:
-                for child in list(item.get("items", [])):
-                    if not _resolve(child):
-                        item["items"].remove(child)
-                        changed = True
+        on_disk_id8s = self._safe_existing_object_id8s()
+        changed = self._prune_missing_refs(
+            known_ids, forge_set, unclaimed_by_name, on_disk_id8s) or changed
 
         # Denormalize the current name onto every surviving ref so a future id
         # churn can re-link by name (refs created before this carry no name).
-        for ref in self._all_query_refs():
-            obj = by_id.get(ref.get("query_id"))
-            if obj is not None and ref.get("name") != obj.name:
-                ref["name"] = obj.name
-                changed = True
+        changed = self._sync_ref_names(by_id) or changed
 
         # Append anything on disk that still isn't organized yet. A query that
         # was previously filed in a group — and has since vanished and
         # reappeared (genuine re-create, an id migration, or a transient read
         # failure that briefly hid it) — returns to that remembered group
         # instead of being dumped into Commons.
+        changed = self._append_new_query_and_forge_refs(organizable, forge_names) or changed
+
+        return changed
+
+    def _unclaimed_query_ids_by_name(
+        self,
+        organizable: list[QueryObject],
+        known_ids: set[str],
+    ) -> dict[str, list[str]]:
+        organized_now = {ref.get("query_id") for ref in self._all_query_refs()
+                         if ref.get("query_id") in known_ids}
+        unclaimed_by_name: dict[str, list[str]] = {}
+        for obj in organizable:
+            if obj.id not in organized_now:
+                unclaimed_by_name.setdefault(obj.name, []).append(obj.id)
+        return unclaimed_by_name
+
+    @staticmethod
+    def _safe_existing_object_id8s() -> set[str]:
+        try:
+            return query_object_store.existing_object_id8s()
+        except Exception:  # pragma: no cover - never let a scan failure prune
+            return set()
+
+    @staticmethod
+    def _resolve_query_ref(
+        ref: dict,
+        known_ids: set[str],
+        unclaimed_by_name: dict[str, list[str]],
+        on_disk_id8s: set[str],
+    ) -> tuple[bool, bool]:
+        """Return (is_live, changed) for a query ref, re-linking by name."""
+        if ref.get("query_id") in known_ids:
+            return True, False
+        candidates = unclaimed_by_name.get(ref.get("name") or "")
+        if candidates:
+            ref["query_id"] = candidates.pop(0)
+            return True, True
+        qid = ref.get("query_id") or ""
+        return qid[:8] in on_disk_id8s, False
+
+    def _prune_missing_refs(
+        self,
+        known_ids: set[str],
+        forge_set: set[str],
+        unclaimed_by_name: dict[str, list[str]],
+        on_disk_id8s: set[str],
+    ) -> bool:
+        changed = False
+        for item in list(self.items):
+            kind = item.get("type")
+            if kind == ITEM_QUERY:
+                live, relinked = self._resolve_query_ref(
+                    item, known_ids, unclaimed_by_name, on_disk_id8s)
+                changed = relinked or changed
+                if not live:
+                    self.items.remove(item)
+                    changed = True
+            elif kind == ITEM_FORGE and item.get("name") not in forge_set:
+                self.items.remove(item)
+                changed = True
+            elif kind == ITEM_GROUP:
+                changed = self._prune_group_query_refs(
+                    item, known_ids, unclaimed_by_name, on_disk_id8s) or changed
+        return changed
+
+    def _prune_group_query_refs(
+        self,
+        item: dict,
+        known_ids: set[str],
+        unclaimed_by_name: dict[str, list[str]],
+        on_disk_id8s: set[str],
+    ) -> bool:
+        changed = False
+        for child in list(item.get("items", [])):
+            live, relinked = self._resolve_query_ref(
+                child, known_ids, unclaimed_by_name, on_disk_id8s)
+            changed = relinked or changed
+            if not live:
+                item["items"].remove(child)
+                changed = True
+        return changed
+
+    def _sync_ref_names(self, by_id: dict[str, QueryObject]) -> bool:
+        changed = False
+        for ref in self._all_query_refs():
+            obj = by_id.get(ref.get("query_id"))
+            if obj is not None and ref.get("name") != obj.name:
+                ref["name"] = obj.name
+                changed = True
+        return changed
+
+    def _append_new_query_and_forge_refs(
+        self,
+        organizable: list[QueryObject],
+        forge_names: list[str],
+    ) -> bool:
+        changed = False
         organized = {ref.get("query_id") for ref in self._all_query_refs()}
         for obj in organizable:
             if obj.id in organized:
@@ -431,7 +484,6 @@ class QueryOrganizer:
             if forge_name not in listed_forges:
                 self.items.append({"type": ITEM_FORGE, "name": forge_name, "expanded": True})
                 changed = True
-
         return changed
 
     def _ensure_commons(self) -> bool:
@@ -440,67 +492,87 @@ class QueryOrganizer:
             self.load()
 
         changed = False
-        commons = None
+        commons = self._find_commons_group()
+        if commons is None:
+            commons = self._create_commons_group()
+            changed = True
+        else:
+            changed = self._normalize_commons_group(commons) or changed
+
+        changed = self._move_loose_queries_to_commons(commons) or changed
+        changed = self._normalize_non_commons_items() or changed
+        return changed
+
+    def _find_commons_group(self) -> dict | None:
         for item in self.items:
             if (item.get("type") == ITEM_GROUP
                     and (item.get("id") == COMMONS_GROUP_ID
                          or item.get("name") == COMMONS_GROUP_NAME
                          or item.get("system") == "commons")):
-                commons = item
-                break
+                return item
+        return None
 
-        if commons is None:
-            commons = {
-                "type": ITEM_GROUP,
-                "id": COMMONS_GROUP_ID,
-                "name": COMMONS_GROUP_NAME,
-                "system": "commons",
-                "color": COMMONS_GROUP_COLOR,
-                "expanded": True,
-                "items": [],
-            }
-            self.items.insert(0, commons)
-            changed = True
-        else:
-            expected = {
-                "id": COMMONS_GROUP_ID,
-                "name": COMMONS_GROUP_NAME,
-                "system": "commons",
-                "color": COMMONS_GROUP_COLOR,
-            }
-            for key, value in expected.items():
-                if commons.get(key) != value:
-                    commons[key] = value
-                    changed = True
-            if "items" not in commons:
-                commons["items"] = []
-                changed = True
-            if "expanded" not in commons:
-                commons["expanded"] = True
-                changed = True
+    def _create_commons_group(self) -> dict:
+        commons = {
+            "type": ITEM_GROUP,
+            "id": COMMONS_GROUP_ID,
+            "name": COMMONS_GROUP_NAME,
+            "system": "commons",
+            "color": COMMONS_GROUP_COLOR,
+            "expanded": True,
+            "items": [],
+        }
+        self.items.insert(0, commons)
+        return commons
 
+    @staticmethod
+    def _normalize_commons_group(commons: dict) -> bool:
+        changed = False
+        expected = {
+            "id": COMMONS_GROUP_ID,
+            "name": COMMONS_GROUP_NAME,
+            "system": "commons",
+            "color": COMMONS_GROUP_COLOR,
+        }
+        for key, value in expected.items():
+            if commons.get(key) != value:
+                commons[key] = value
+                changed = True
+        for key, value in {"items": [], "expanded": True}.items():
+            if key not in commons:
+                commons[key] = value
+                changed = True
+        return changed
+
+    def _move_loose_queries_to_commons(self, commons: dict) -> bool:
         loose_refs = [item for item in list(self.items)
                       if item.get("type") == ITEM_QUERY]
-        if loose_refs:
-            for ref in loose_refs:
-                self.items.remove(ref)
-                commons["items"].append(ref)
-            changed = True
+        for ref in loose_refs:
+            self.items.remove(ref)
+            commons["items"].append(ref)
+        return bool(loose_refs)
 
+    def _normalize_non_commons_items(self) -> bool:
+        changed = False
         for item in self.items:
             if item.get("type") == ITEM_GROUP and not self.is_commons_group(item):
-                for key, value in {
-                    "color": DEFAULT_GROUP_COLOR,
-                    "expanded": True,
-                    "items": [],
-                }.items():
-                    if key not in item:
-                        item[key] = value
-                        changed = True
-            elif item.get("type") == ITEM_FORGE:
-                if "expanded" not in item:
-                    item["expanded"] = True
-                    changed = True
+                changed = self._ensure_default_group_fields(item) or changed
+            elif item.get("type") == ITEM_FORGE and "expanded" not in item:
+                item["expanded"] = True
+                changed = True
+        return changed
+
+    @staticmethod
+    def _ensure_default_group_fields(item: dict) -> bool:
+        changed = False
+        for key, value in {
+            "color": DEFAULT_GROUP_COLOR,
+            "expanded": True,
+            "items": [],
+        }.items():
+            if key not in item:
+                item[key] = value
+                changed = True
         return changed
 
     def _all_query_refs(self) -> list[dict]:

@@ -412,57 +412,90 @@ def validate_forge(forge: DataForge) -> list[ForgeIssue]:
     issues: list[ForgeIssue] = []
     aliases = [s.effective_alias() for s in sources]
 
-    # Duplicate handles make joins/outputs ambiguous.
-    for a in sorted({x for x in aliases if aliases.count(x) > 1}):
-        issues.append(ForgeIssue(
-            "error", f"Two Sources share the handle '{a}'.",
-            "Give each Source a unique alias."))
-
-    # Each Source needs data (a Snapshot) before the Forge can run.
-    for s in sources:
-        a = s.effective_alias()
-        if not s.snapshot.exists:
-            issues.append(ForgeIssue(
-                "error", f"Source '{a}' has no data yet.",
-                f"Right-click '{a}' and Refresh to pull its data."))
-        elif s.snapshot.stale:
-            issues.append(ForgeIssue(
-                "warning", f"Source '{a}' has unapplied filter changes.",
-                "Refresh it to apply them before running."))
+    issues.extend(_source_identity_issues(sources, aliases))
 
     # Manual mode: the SQL replaces the visual joins entirely — skip the
     # join checks, but an empty editor can't run anything.
     if is_manual_mode(forge.config):
-        if not str(forge.config.get("manual_sql", "")).strip():
-            issues.append(ForgeIssue(
-                "error", "Manual mode is on but the SQL editor is empty.",
-                "Type SQL in the SQL tab, or switch Manual mode off."))
+        issues.extend(_manual_sql_issues(forge))
         return issues
 
     # Append Tables: members are represented by their append alias in the
     # join graph (the append consumes them — design §9).
+    member_to_append, append_aliases, append_issues = _append_validation_context(forge)
+    issues.extend(append_issues)
+
+    # Joins: parse, check endpoints, check connectivity.
+    valid_edges, join_issues = _join_validation_edges(forge, set(aliases) | set(append_aliases))
+    issues.extend(join_issues)
+
+    # Connectivity: every surviving node (Sources not consumed by an append,
+    # plus the Append Tables) must connect to the first.
+    nodes = [a for a in aliases if a not in member_to_append] + append_aliases
+    issues.extend(_connectivity_issues(nodes, valid_edges, member_to_append))
+
+    return issues
+
+
+def _source_identity_issues(
+    sources: list[DataForgeSource],
+    aliases: list[str],
+) -> list[ForgeIssue]:
+    issues: list[ForgeIssue] = []
+    for alias in sorted({x for x in aliases if aliases.count(x) > 1}):
+        issues.append(ForgeIssue(
+            "error", f"Two Sources share the handle '{alias}'.",
+            "Give each Source a unique alias."))
+    for source in sources:
+        alias = source.effective_alias()
+        if not source.snapshot.exists:
+            issues.append(ForgeIssue(
+                "error", f"Source '{alias}' has no data yet.",
+                f"Right-click '{alias}' and Refresh to pull its data."))
+        elif source.snapshot.stale:
+            issues.append(ForgeIssue(
+                "warning", f"Source '{alias}' has unapplied filter changes.",
+                "Refresh it to apply them before running."))
+    return issues
+
+
+def _manual_sql_issues(forge: DataForge) -> list[ForgeIssue]:
+    if str(forge.config.get("manual_sql", "")).strip():
+        return []
+    return [ForgeIssue(
+        "error", "Manual mode is on but the SQL editor is empty.",
+        "Type SQL in the SQL tab, or switch Manual mode off.")]
+
+
+def _append_validation_context(
+    forge: DataForge,
+) -> tuple[dict[str, str], list[str], list[ForgeIssue]]:
     member_to_append: dict[str, str] = {}
     append_aliases: list[str] = []
+    issues: list[ForgeIssue] = []
     try:
         for ap in appends_from_config(forge.config):
             append_aliases.append(ap.alias)
-            for m in ap.members:
-                member_to_append[m] = ap.alias
+            for member in ap.members:
+                member_to_append[member] = ap.alias
     except Exception as exc:
         issues.append(ForgeIssue(
             "error", f"An Append Table is malformed: {exc}",
             "Re-create the Append Table on the Joins canvas."))
+    return member_to_append, append_aliases, issues
 
-    # Joins: parse, check endpoints, check connectivity.
-    alias_set = set(aliases) | set(append_aliases)
+
+def _join_validation_edges(
+    forge: DataForge,
+    alias_set: set[str],
+) -> tuple[list[tuple[str, str]], list[ForgeIssue]]:
+    issues: list[ForgeIssue] = []
     try:
         specs = joins_from_config(forge.config)
     except Exception as exc:  # malformed join (e.g. mismatched key counts)
-        issues.append(ForgeIssue(
+        return [], [ForgeIssue(
             "error", f"A join is malformed: {exc}",
-            "Re-draw the join so each side has matching keys."))
-        specs = []
-
+            "Re-draw the join so each side has matching keys.")]
     valid_edges: list[tuple[str, str]] = []
     for spec in specs:
         missing = [s for s in (spec.left_source, spec.right_source)
@@ -475,35 +508,47 @@ def validate_forge(forge: DataForge) -> list[ForgeIssue]:
                 "Remove that join or add the missing Source."))
         else:
             valid_edges.append((spec.left_source, spec.right_source))
+    return valid_edges, issues
 
-    # Connectivity: every surviving node (Sources not consumed by an append,
-    # plus the Append Tables) must connect to the first.
-    nodes = [a for a in aliases if a not in member_to_append] + append_aliases
-    if len(nodes) > 1:
-        adj: dict[str, set[str]] = {a: set() for a in nodes}
-        for left, right in valid_edges:
-            left = member_to_append.get(left, left)
-            right = member_to_append.get(right, right)
-            if left in adj and right in adj:
-                adj[left].add(right)
-                adj[right].add(left)
-        seen: set[str] = set()
-        stack = [nodes[0]]
-        while stack:
-            cur = stack.pop()
-            if cur in seen:
-                continue
-            seen.add(cur)
-            stack.extend(adj[cur] - seen)
-        unreached = [a for a in nodes if a not in seen]
-        if unreached:
-            issues.append(ForgeIssue(
-                "error",
-                f"These Sources aren't joined to the rest: "
-                f"{', '.join(unreached)}.",
-                "Draw a join line to connect them, or remove unused Sources."))
 
-    return issues
+def _connectivity_issues(
+    nodes: list[str],
+    valid_edges: list[tuple[str, str]],
+    member_to_append: dict[str, str],
+) -> list[ForgeIssue]:
+    if len(nodes) <= 1:
+        return []
+    adj = _connectivity_graph(nodes, valid_edges, member_to_append)
+    seen: set[str] = set()
+    stack = [nodes[0]]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(adj[cur] - seen)
+    unreached = [a for a in nodes if a not in seen]
+    if not unreached:
+        return []
+    return [ForgeIssue(
+        "error",
+        f"These Sources aren't joined to the rest: {', '.join(unreached)}.",
+        "Draw a join line to connect them, or remove unused Sources.")]
+
+
+def _connectivity_graph(
+    nodes: list[str],
+    valid_edges: list[tuple[str, str]],
+    member_to_append: dict[str, str],
+) -> dict[str, set[str]]:
+    adj: dict[str, set[str]] = {a: set() for a in nodes}
+    for left, right in valid_edges:
+        left = member_to_append.get(left, left)
+        right = member_to_append.get(right, right)
+        if left in adj and right in adj:
+            adj[left].add(right)
+            adj[right].add(left)
+    return adj
 
 
 def preview_saved_forge(forge: DataForge,

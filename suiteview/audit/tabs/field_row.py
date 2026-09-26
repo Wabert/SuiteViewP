@@ -1972,38 +1972,19 @@ class FieldGrid(QWidget):
         act_find,
         act_delete,
     ) -> None:
-        # Mode change
-        for idx, _mode_name in enumerate(_MODES):
-            if chosen is mode_actions[f"mode:{idx}"]:
-                for r in self._selection:
-                    r._show_descriptions = False
-                    r.set_mode_idx(idx)
-                return
-
-        if chosen is mode_actions["mode:list_descriptions"]:
-            idx = _MODES.index("list")
-            for r in self._selection:
-                r._show_descriptions = True
-                r.set_mode_idx(idx)
+        if self._apply_bulk_mode_choice(chosen, mode_actions):
             return
-
-        if chosen is act_dn_toggle:
-            # Tri-state: mixed or all-on → turn all OFF; all-off → turn all ON
-            target = False if len(dn_vals) > 1 or dn_vals == {True} else True
-            for r in self._selection:
-                if r._display_name_shown != target:
-                    r._toggle_display_name_mode()
-        elif chosen is act_fmt_toggle:
-            target = False if len(fmt_vals) > 1 or fmt_vals == {True} else True
-            for r in self._selection:
-                if r._format_hidden != target:
-                    r._toggle_format_display()
-        elif chosen is act_border_toggle:
-            target = False if len(bdr_vals) > 1 or bdr_vals == {True} else True
-            for r in self._selection:
-                if r._border_hidden != target:
-                    r._toggle_border()
-        elif chosen is act_align_left:
+        if self._apply_bulk_toggle_choice(
+            chosen,
+            dn_vals=dn_vals,
+            fmt_vals=fmt_vals,
+            bdr_vals=bdr_vals,
+            act_dn_toggle=act_dn_toggle,
+            act_fmt_toggle=act_fmt_toggle,
+            act_border_toggle=act_border_toggle,
+        ):
+            return
+        if chosen is act_align_left:
             self._align_left()
         elif chosen is act_align_top:
             self._align_top()
@@ -2024,6 +2005,49 @@ class FieldGrid(QWidget):
                     for r in self._selection:
                         r._set_label_width(width)
                     return
+
+    def _apply_bulk_mode_choice(self, chosen, mode_actions: dict[str, object]) -> bool:
+        for idx, _mode_name in enumerate(_MODES):
+            if chosen is mode_actions[f"mode:{idx}"]:
+                for row in self._selection:
+                    row._show_descriptions = False
+                    row.set_mode_idx(idx)
+                return True
+        if chosen is mode_actions["mode:list_descriptions"]:
+            idx = _MODES.index("list")
+            for row in self._selection:
+                row._show_descriptions = True
+                row.set_mode_idx(idx)
+            return True
+        return False
+
+    def _apply_bulk_toggle_choice(
+        self,
+        chosen,
+        *,
+        dn_vals: set[bool],
+        fmt_vals: set[bool],
+        bdr_vals: set[bool],
+        act_dn_toggle,
+        act_fmt_toggle,
+        act_border_toggle,
+    ) -> bool:
+        if chosen is act_dn_toggle:
+            self._bulk_toggle_attr(dn_vals, "_display_name_shown", "_toggle_display_name_mode")
+            return True
+        if chosen is act_fmt_toggle:
+            self._bulk_toggle_attr(fmt_vals, "_format_hidden", "_toggle_format_display")
+            return True
+        if chosen is act_border_toggle:
+            self._bulk_toggle_attr(bdr_vals, "_border_hidden", "_toggle_border")
+            return True
+        return False
+
+    def _bulk_toggle_attr(self, values: set[bool], attr_name: str, toggle_name: str) -> None:
+        target = False if len(values) > 1 or values == {True} else True
+        for row in self._selection:
+            if getattr(row, attr_name) != target:
+                getattr(row, toggle_name)()
 
     def _bulk_find_and_register(self):
         """Run Find & Register Unique Values for each selected field that has registry info."""

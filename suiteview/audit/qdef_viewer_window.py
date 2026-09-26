@@ -545,11 +545,40 @@ class QDefViewerWindow(FramelessWindowBase):
 
     def _copy_or_move_qdef(self, name: str, src_forge: str, move: bool = False):
         """Copy or move a QDefinition to another forge/Commons."""
-        from PyQt6.QtWidgets import QDialog, QComboBox, QVBoxLayout, QHBoxLayout, QLabel
-
         action = "Move" if move else "Copy"
+        targets = self._qdef_destination_targets(src_forge)
+        if not targets:
+            QMessageBox.information(
+                self, f"No Destinations",
+                "No other DataForges or Commons to move to.")
+            return
 
-        # Build list of target destinations
+        dst_forge = self._choose_qdef_destination(name, action, targets)
+        if not dst_forge:
+            return
+
+        if qdef_store.qdef_exists(name, forge_name=dst_forge):
+            QMessageBox.warning(
+                self, "Name Exists",
+                f"A QDefinition named '{name}' already exists in "
+                f"'{'Commons' if dst_forge == qdef_store.COMMONS_NAME else dst_forge}'.")
+            return
+
+        ok = (
+            qdef_store.move_qdef(name, src_forge, dst_forge)
+            if move
+            else qdef_store.copy_qdef(name, src_forge, dst_forge)
+        )
+
+        if ok:
+            self._load_tree()
+            self._clear_detail()
+        else:
+            QMessageBox.warning(self, "Error",
+                                f"Failed to {action.lower()} '{name}'.")
+
+    def _qdef_destination_targets(self, src_forge: str) -> list[str]:
+        """Return destination forge names available for a copy/move."""
         targets: list[str] = []
         if src_forge != qdef_store.COMMONS_NAME:
             targets.append(qdef_store.COMMONS_NAME)
@@ -564,13 +593,16 @@ class QDefViewerWindow(FramelessWindowBase):
                     targets.append(f.name)
         except Exception:
             pass
+        return targets
 
-        if not targets:
-            QMessageBox.information(
-                self, f"No Destinations",
-                "No other DataForges or Commons to move to.")
-            return
-
+    def _choose_qdef_destination(
+        self,
+        name: str,
+        action: str,
+        targets: list[str],
+    ) -> str:
+        """Prompt for a QDefinition destination and return its store name."""
+        from PyQt6.QtWidgets import QDialog, QComboBox, QVBoxLayout, QHBoxLayout, QLabel
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{action} '{name}'")
         dlg.setFixedSize(350, 120)
@@ -606,7 +638,7 @@ class QDefViewerWindow(FramelessWindowBase):
         lay.addLayout(btn_row)
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+            return ""
 
         # Resolve target: use userData if available, else the typed text
         idx = cmb.currentIndex()
@@ -615,24 +647,4 @@ class QDefViewerWindow(FramelessWindowBase):
         else:
             typed = cmb.currentText().strip()
             dst_forge = qdef_store.COMMONS_NAME if typed.lower() == "commons" else typed
-        if not dst_forge:
-            return
-
-        if qdef_store.qdef_exists(name, forge_name=dst_forge):
-            QMessageBox.warning(
-                self, "Name Exists",
-                f"A QDefinition named '{name}' already exists in "
-                f"'{'Commons' if dst_forge == qdef_store.COMMONS_NAME else dst_forge}'.")
-            return
-
-        if move:
-            ok = qdef_store.move_qdef(name, src_forge, dst_forge)
-        else:
-            ok = qdef_store.copy_qdef(name, src_forge, dst_forge)
-
-        if ok:
-            self._load_tree()
-            self._clear_detail()
-        else:
-            QMessageBox.warning(self, "Error",
-                                f"Failed to {action.lower()} '{name}'.")
+        return dst_forge
