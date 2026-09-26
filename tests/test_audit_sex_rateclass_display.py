@@ -11,7 +11,7 @@ from suiteview.audit.tabs.display_tab import DisplayTab
 from suiteview.audit.tabs.plancode_tab import PlancodeTab
 from suiteview.audit.tabs.policy2_tab import Policy2Tab
 from suiteview.audit.tabs.policy_tab import PolicyTab
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from tests.audit_criteria_helpers import collect_audit_criteria
 
 def _build(display, coverages, coverage_level=False):
     return build_cyberlife_sql(collect_audit_criteria('DB2TAB', 'I', '25', policy_tab=PolicyTab(), display_tab=display, policy2_tab=Policy2Tab(), adv_tab=AdvTab(), coverages_tab=coverages, plancode_tab=PlancodeTab(), benefits_tab=BenefitsTab(), coverage_level=coverage_level))

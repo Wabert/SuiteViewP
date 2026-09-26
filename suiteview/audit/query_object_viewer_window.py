@@ -13,6 +13,7 @@ from suiteview.audit.query_object_viewer.common import (
     _BORDER_COLOR,
     _HEADER_COLORS,
 )
+from suiteview.audit.query_object_viewer.contracts import BrowserServices
 from suiteview.audit.query_object_viewer.context_menus import (
     QueryObjectViewerOrganizerActionsMixin,
 )
@@ -66,6 +67,11 @@ class QueryObjectViewerWindow(
         self._file_source_is_new = False  # editing an unsaved (new) File Source
         self._embedded_common_tables = None
         self._embedded_registry = None
+        self.browser_services = BrowserServices(
+            audit_parent=parent,
+            dataforge_builder_windows=self._dataforge_builder_windows,
+            audit_builder_windows=self._audit_builder_windows,
+        )
         super().__init__(
             title="Object Browser",
             default_size=(1120, 620),

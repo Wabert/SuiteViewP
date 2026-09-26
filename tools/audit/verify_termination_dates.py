@@ -16,7 +16,7 @@ from suiteview.audit.tabs.plancode_tab import PlancodeTab
 from suiteview.audit.tabs.policy2_tab import Policy2Tab
 from suiteview.audit.tabs.policy_tab import PolicyTab
 from suiteview.audit.tabs.transaction_tab import TransactionTab
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from suiteview.audit.cyberlife_tab_collect import collect_cyberlife_tabs
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -31,7 +31,7 @@ def main():
     tab = Policy2Tab()
     tab.txt_term_date_both_lo.setText('2025-01-01')
     tab.txt_term_date_both_hi.setText('2025-12-31')
-    sql = build_cyberlife_sql(collect_audit_criteria('DB2TAB', 'I', '25', policy_tab=PolicyTab(), policy2_tab=tab, display_tab=DisplayTab(), adv_tab=AdvTab(), coverages_tab=CoveragesTab(), plancode_tab=PlancodeTab(), benefits_tab=BenefitsTab(), transaction_tab=TransactionTab()))
+    sql = build_cyberlife_sql(collect_cyberlife_tabs('DB2TAB', 'I', '25', dict(policy_tab=PolicyTab(), policy2_tab=tab, display_tab=DisplayTab(), adv_tab=AdvTab(), coverages_tab=CoveragesTab(), plancode_tab=PlancodeTab(), benefits_tab=BenefitsTab(), transaction_tab=TransactionTab())))
     (args.output_dir / 'both-query-preview.sql').write_text(sql, encoding='utf-8')
     if args.policy:
         policy_sql = sql.rsplit('\nFETCH FIRST', 1)[0] + f"\nAND POLICY1.CK_POLICY_NBR = '{esc(args.policy)}'" + f"\nAND POLICY1.CK_CMP_CD = '{esc(args.company)}'" + '\nFETCH FIRST 25 ROWS ONLY\nWITH UR\n'

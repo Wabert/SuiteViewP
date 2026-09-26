@@ -31,7 +31,7 @@ def add_policy_year_and_grace_ctes(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'   PMT_FQY_PER, NSD_MD_CD')
         parts.sql_parts.append(f'   FROM {ctx.schema}.LH_BAS_POL)')
     if ctx.needs_covsummary:
-        ctx._apb_cond = " OR TEMPCOVALL.PLN_DES_SER_CD = '1U144A00'" if ctx.adv_apb_rider else ''
+        apb_cond = " OR TEMPCOVALL.PLN_DES_SER_CD = '1U144A00'" if ctx.adv_apb_rider else ''
         parts.sql_parts.append(f', ALL_BASE_COVS AS (')
         parts.sql_parts.append(f'  SELECT TEMPCOV1.CK_SYS_CD, TEMPCOV1.TCH_POL_ID, TEMPCOV1.CK_CMP_CD')
         parts.sql_parts.append(f'    , TEMPCOVALL.COV_PHA_NBR')
@@ -46,7 +46,7 @@ def add_policy_year_and_grace_ctes(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'      AND TEMPCOV1.CK_SYS_CD = TEMPCOVALL.CK_SYS_CD')
         parts.sql_parts.append(f'      AND TEMPCOV1.CK_CMP_CD = TEMPCOVALL.CK_CMP_CD')
         parts.sql_parts.append(f'      AND TEMPCOV1.TCH_POL_ID = TEMPCOVALL.TCH_POL_ID')
-        parts.sql_parts.append(f'      AND (TEMPCOVALL.PLN_DES_SER_CD = TEMPCOV1.PLN_DES_SER_CD{ctx._apb_cond}))')
+        parts.sql_parts.append(f'      AND (TEMPCOVALL.PLN_DES_SER_CD = TEMPCOV1.PLN_DES_SER_CD{apb_cond}))')
         parts.sql_parts.append(f', COVSUMMARY AS (')
         parts.sql_parts.append(f'  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID')
         parts.sql_parts.append(f'    , SUM(ALL_BASE_COVS.SPECAMT) TOTAL_SA')
@@ -203,13 +203,13 @@ def add_target_and_value_ctes(ctx: QueryContext, parts: SqlParts) -> None:
 
 def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_prem_alloc:
-        ctx.fund_items = [item.text().split(' - ')[0].strip() for item in ctx.at.list_prem_alloc.selectedItems()]
-        if ctx.fund_items:
-            ctx.parts = []
-            for ctx.fid in ctx.fund_items:
-                ctx.parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID FROM {ctx.schema}.LH_FND_ALC WHERE FND_ID_CD = '{esc(ctx.fid)}' AND FND_ALC_PCT > 0 AND FND_ALC_TYP_CD = 'P'")
+        fund_items = [item.split(' - ')[0].strip() for item in ctx.at.list_prem_alloc]
+        if fund_items:
+            allocation_selects = []
+            for fund_id in fund_items:
+                allocation_selects.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID FROM {ctx.schema}.LH_FND_ALC WHERE FND_ID_CD = '{esc(fund_id)}' AND FND_ALC_PCT > 0 AND FND_ALC_TYP_CD = 'P'")
             parts.sql_parts.append(f', ALLOCATION_FUNDS AS (')
-            parts.sql_parts.append('\n  INTERSECT\n'.join(ctx.parts))
+            parts.sql_parts.append('\n  INTERSECT\n'.join(allocation_selects))
             parts.sql_parts.append(f')')
     parts.sql_parts.append('')
     parts.sql_parts.append('SELECT DISTINCT')
@@ -226,22 +226,22 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.append('  , POLICY1.SUS_CD SuspenseCode')
     parts.sql_parts.append('  , SUBSTR(POLICY1.SVC_AGC_NBR, 1, 1) AgentCode')
     parts.sql_parts.append("  , CASE WHEN POLICY1.POL_ISS_ST_CD = '01' THEN 'AL'")
-    for ctx.code, ctx.st in _ISS_STATE_MAP:
-        parts.sql_parts.append(f"    WHEN POLICY1.POL_ISS_ST_CD = '{ctx.code}' THEN '{ctx.st}'")
+    for code, state_abbrev in _ISS_STATE_MAP:
+        parts.sql_parts.append(f"    WHEN POLICY1.POL_ISS_ST_CD = '{code}' THEN '{state_abbrev}'")
     parts.sql_parts.append('    ELSE POLICY1.POL_ISS_ST_CD END IssueState')
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.PLN_DES_SER_CD Plancode')
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.POL_FRM_NBR FormNumber')
     parts.sql_parts.append(f"  , VARCHAR_FORMAT({ctx.result_cov_alias}.ISSUE_DT, 'MM/DD/YYYY') IssueDt")
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INS_ISS_AGE IssueAge')
     parts.sql_parts.append('  , USERGEN.FUZGREIN_IND RGA_Ind')
-    ctx.duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
+    duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
     if ctx.has_current_age:
-        parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.duration_expr}) CurrentAge')
+        parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {duration_expr}) CurrentAge')
     if ctx.has_val_age:
-        ctx.val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
-        parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.val_duration_expr}) ValAttainedAge')
+        val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
+        parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {val_duration_expr}) ValAttainedAge')
     if ctx.has_pol_year:
-        parts.sql_parts.append(f'  , INTEGER({ctx.duration_expr} + 1) PolicyYear')
+        parts.sql_parts.append(f'  , INTEGER({duration_expr} + 1) PolicyYear')
     if ctx.has_issue_month:
         parts.sql_parts.append(f'  , MONTH({ctx.result_cov_alias}.ISSUE_DT) IssueMonth')
     if ctx.has_issue_day:
@@ -259,11 +259,11 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_bill_to:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.PRM_BILL_TO_DT, 'MM/DD/YYYY') BillToDate")
     if ctx.disp_duration or ctx.disp_attained_age:
-        ctx.disp_val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
+        disp_val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
     if ctx.disp_duration:
-        parts.sql_parts.append(f'  , INTEGER({ctx.disp_val_duration_expr}) ValDuration')
+        parts.sql_parts.append(f'  , INTEGER({disp_val_duration_expr}) ValDuration')
     if ctx.disp_attained_age:
-        parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.disp_val_duration_expr}) ValAttainedAge_Disp')
+        parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {disp_val_duration_expr}) ValAttainedAge_Disp')
     if ctx.disp_last_acct:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.LST_ACT_TRS_DT, 'MM/DD/YYYY') LastAcctDate")
     if ctx.disp_last_fin:
@@ -346,12 +346,12 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.SBQ_RNL_PER')
     if ctx.disp_commission_target:
         parts.sql_parts.append('  , COMMTARGET.TAR_PRM_AMT CTP')
-    if ctx.p2t.chk_participating.isChecked() or (ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type.isChecked()):
+    if ctx.p2t.chk_participating or (ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type):
         parts.sql_parts.append('  , COVERAGE1.DIV_PTP_TYP_CD ParticipationCode')
         parts.sql_parts.append(f'  , {participation_description()} Participation')
-    if ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type.isChecked():
-        ctx.cases = [f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) = '{esc(code)}' THEN '{esc(description)}'" for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()]
-        parts.sql_parts.append('  , (CASE ' + ' '.join(ctx.cases) + " ELSE 'Unknown' END) ParticipationType")
+    if ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type:
+        cases = [f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) = '{esc(code)}' THEN '{esc(description)}'" for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()]
+        parts.sql_parts.append('  , (CASE ' + ' '.join(cases) + " ELSE 'Unknown' END) ParticipationType")
     if ctx.disp_monthly_mtp:
         parts.sql_parts.append('  , MTP.TAR_PRM_AMT MonthlyMTP')
     if ctx.disp_accum_mtp:
@@ -364,4 +364,3 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , SHADOWAV.TAR_PRM_AMT ShadowAV')
     if ctx.disp_db_option:
         parts.sql_parts.append('  , NONTRAD.DTH_BNF_PLN_OPT_CD DBOpt')
-

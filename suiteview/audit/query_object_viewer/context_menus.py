@@ -18,6 +18,8 @@ from suiteview.ui.widgets.bookmark_widgets import ColorPickerPopup
 
 
 class QueryObjectViewerOrganizerActionsMixin:
+    """Requires BrowserState organizer/tree attributes; provides context actions."""
+
     def _selected_group_payload(self) -> dict:
         payload = _payload(self.tree.currentItem())
         return payload if payload.get("type") == "group" else {}
@@ -553,66 +555,82 @@ class QueryObjectViewerOrganizerActionsMixin:
         organizer = get_query_organizer()
 
         if src["type"] == "query" and not src.get("forge"):
-            obj = query_object_store.load_object_by_id(src["id"])
-            if obj is None:
-                return
-            if on_item and dst.get("type") == "forge":
-                self._drop_query_on_forge(obj, dst["name"])
-            elif on_item and dst.get("type") == "group":
-                organizer.move_query(obj.id, dst["group_id"])
-                organizer.set_group_expanded(dst["group_id"], True)
-            elif on_item and dst.get("type") == "query" and dst.get("forge"):
-                self._drop_query_on_forge(obj, dst["forge"])
-            else:
-                group_id, index = self._drop_position(target, indicator)
-                organizer.move_query(obj.id, group_id, index)
-                if group_id is not None:
-                    organizer.set_group_expanded(group_id, True)
-            organizer.save()
-            self.refresh()
+            self._handle_standalone_query_drop(
+                src, dst, target, indicator, on_item, organizer)
             return
 
         if src["type"] == "query" and src.get("forge"):
-            # Dragging a Source out of a Forge: ask copy vs move.
-            obj = query_object_store.load_object_by_id(src["id"])
-            if obj is None:
-                return
-            box = QMessageBox(self)
-            box.setWindowTitle("Out of DataForge")
-            box.setText(f"Take \"{obj.name}\" out of \"{src['forge']}\"?")
-            copy_btn = box.addButton("Copy out", QMessageBox.ButtonRole.AcceptRole)
-            move_btn = box.addButton("Move out", QMessageBox.ButtonRole.DestructiveRole)
-            box.addButton(QMessageBox.StandardButton.Cancel)
-            box.exec()
-            if box.clickedButton() not in (copy_btn, move_btn):
-                return
-            group_id = dst.get("group_id") if dst.get("type") == "group" else None
-            out = organizer.extract_query_from_forge(
-                src["forge"], obj.name, group_id,
-                remove_source=(box.clickedButton() is move_btn))
-            if out is not None and box.clickedButton() is move_btn:
-                self._delete_forge_source_records(src["forge"], obj)
-            if out is not None and group_id is not None:
-                organizer.set_group_expanded(group_id, True)
-            organizer.save()
-            self.refresh()
+            self._handle_forge_source_drop(src, dst, organizer)
             return
 
         if src["type"] in ("group", "forge"):
-            # Root-level reordering only.
-            entry = (organizer.find_group(src.get("group_id"))
-                     if src["type"] == "group"
-                     else organizer.forge_ref(src.get("name", "")))
-            if entry is None:
-                return
-            _, index = self._drop_position(target, indicator, root_only=True)
-            if src["type"] == "group":
-                organizer.set_group_expanded(src.get("group_id"), False)
-            else:
-                organizer.set_forge_expanded(src.get("name", ""), False)
-            organizer.move_root_item(entry, index)
-            organizer.save()
-            self.refresh()
+            self._handle_root_item_drop(src, target, indicator, organizer)
+
+    def _handle_standalone_query_drop(
+        self,
+        src: dict,
+        dst: dict,
+        target,
+        indicator,
+        on_item: bool,
+        organizer,
+    ) -> None:
+        obj = query_object_store.load_object_by_id(src["id"])
+        if obj is None:
+            return
+        if on_item and dst.get("type") == "forge":
+            self._drop_query_on_forge(obj, dst["name"])
+        elif on_item and dst.get("type") == "group":
+            organizer.move_query(obj.id, dst["group_id"])
+            organizer.set_group_expanded(dst["group_id"], True)
+        elif on_item and dst.get("type") == "query" and dst.get("forge"):
+            self._drop_query_on_forge(obj, dst["forge"])
+        else:
+            group_id, index = self._drop_position(target, indicator)
+            organizer.move_query(obj.id, group_id, index)
+            if group_id is not None:
+                organizer.set_group_expanded(group_id, True)
+        organizer.save()
+        self.refresh()
+
+    def _handle_forge_source_drop(self, src: dict, dst: dict, organizer) -> None:
+        obj = query_object_store.load_object_by_id(src["id"])
+        if obj is None:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Out of DataForge")
+        box.setText(f"Take \"{obj.name}\" out of \"{src['forge']}\"?")
+        copy_btn = box.addButton("Copy out", QMessageBox.ButtonRole.AcceptRole)
+        move_btn = box.addButton("Move out", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() not in (copy_btn, move_btn):
+            return
+        group_id = dst.get("group_id") if dst.get("type") == "group" else None
+        out = organizer.extract_query_from_forge(
+            src["forge"], obj.name, group_id,
+            remove_source=(box.clickedButton() is move_btn))
+        if out is not None and box.clickedButton() is move_btn:
+            self._delete_forge_source_records(src["forge"], obj)
+        if out is not None and group_id is not None:
+            organizer.set_group_expanded(group_id, True)
+        organizer.save()
+        self.refresh()
+
+    def _handle_root_item_drop(self, src: dict, target, indicator, organizer) -> None:
+        entry = (organizer.find_group(src.get("group_id"))
+                 if src["type"] == "group"
+                 else organizer.forge_ref(src.get("name", "")))
+        if entry is None:
+            return
+        _, index = self._drop_position(target, indicator, root_only=True)
+        if src["type"] == "group":
+            organizer.set_group_expanded(src.get("group_id"), False)
+        else:
+            organizer.set_forge_expanded(src.get("name", ""), False)
+        organizer.move_root_item(entry, index)
+        organizer.save()
+        self.refresh()
 
     def _drop_query_on_forge(self, obj: QueryObject, forge_name: str):
         """A query dropped onto a Forge: ask whether to move or copy it in."""
@@ -656,4 +674,3 @@ class QueryObjectViewerOrganizerActionsMixin:
             index = parent.indexOfChild(target) + (1 if below else 0)
             return parent_payload["group_id"], index
         return None, None
-

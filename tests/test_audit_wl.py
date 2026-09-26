@@ -16,7 +16,7 @@ from suiteview.audit.tabs.plancode_tab import PlancodeTab
 from suiteview.audit.tabs.policy2_tab import Policy2Tab
 from suiteview.audit.tabs.policy_tab import PolicyTab
 from suiteview.audit.tabs.wl_tab import WlTab
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from tests.audit_criteria_helpers import collect_audit_criteria
 
 @pytest.fixture
 def tab(qtbot):

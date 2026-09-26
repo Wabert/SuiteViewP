@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_DSN_MAP, REGION_SCHEMA_MAP
 from suiteview.core.local_dev import local_data_enabled
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from suiteview.audit.cyberlife_tab_collect import collect_cyberlife_tabs
 
 def verify_results(db: DB2Connection, schema: str, sources: list[tuple]) -> dict:
     from PyQt6.QtWidgets import QApplication
@@ -30,9 +30,9 @@ def verify_results(db: DB2Connection, schema: str, sources: list[tuple]) -> dict
             index = next((index for index in range(combo.count()) if combo.itemText(index).split(' - ')[0] == company.strip()))
             combo.setCurrentIndex(index)
             tabs['display_tab'].chk_post_conversion.setChecked(False)
-            baseline_columns, baseline = db.execute_query_with_headers(build_cyberlife_sql(collect_audit_criteria(schema, system, '', **tabs)))
+            baseline_columns, baseline = db.execute_query_with_headers(build_cyberlife_sql(collect_cyberlife_tabs(schema, system, '', tabs)))
             tabs['display_tab'].chk_post_conversion.setChecked(True)
-            columns, rows = db.execute_query_with_headers(build_cyberlife_sql(collect_audit_criteria(schema, system, '', **tabs)))
+            columns, rows = db.execute_query_with_headers(build_cyberlife_sql(collect_cyberlife_tabs(schema, system, '', tabs)))
             checks[f'sample_{number}_base_rows_preserved'] = bool(baseline) and {tuple((row[columns.index(column)] for column in baseline_columns)) for row in rows} == {tuple(row) for row in baseline}
             company_column = columns.index('POST_CONV_COMPANY')
             policy_column = columns.index('POST_CONV_POLICY')

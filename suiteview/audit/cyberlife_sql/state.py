@@ -1,8 +1,8 @@
-"""Explicit SQL context and accumulator for CyberLife query assembly."""
+"""Explicit SQL state objects for CyberLife query assembly."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 from ..cyberlife_criteria import AuditCriteria
 
@@ -15,305 +15,43 @@ class SqlParts:
     result: str = ""
 
 
-@dataclass(slots=True)
-class QueryContext:
+@dataclass(frozen=True, slots=True)
+class SqlFragment:
+    """Immutable SQL lines produced by one assembly section."""
+
+    ctes: tuple[str, ...] = ()
+    selects: tuple[str, ...] = ()
+    joins: tuple[str, ...] = ()
+    wheres: tuple[str, ...] = ()
+    order: tuple[str, ...] = ()
+    result: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedAuditContext:
+    """Frozen criteria-derived facts shared by CyberLife SQL fragments."""
+
     criteria: AuditCriteria
-    abbrevs: Any = None
-    adv_accum_gt_prem: Any = None
-    adv_apb_rider: Any = None
-    adv_cirf_match: Any = None
-    adv_cirf_val: Any = None
-    adv_cv_corr: Any = None
-    adv_db_option: Any = None
-    adv_fund_hi: Any = None
-    adv_fund_id: Any = None
-    adv_fund_lo: Any = None
-    adv_gcv_gt_cv: Any = None
-    adv_gcv_lt_cv: Any = None
-    adv_glp_neg: Any = None
-    adv_grace_rule: Any = None
-    adv_orig_entry: Any = None
-    adv_prem_alloc: Any = None
-    adv_prem_wd_gt_face: Any = None
-    adv_sa_gt_orig: Any = None
-    adv_sa_lt_orig: Any = None
-    alias: Any = None
-    at: Any = None
-    ben_code: Any = None
-    ben_type: Any = None
-    benefits_tab: Any = None
-    branch: Any = None
-    bt: Any = None
-    cases: Any = None
-    cease_hi: Any = None
-    cease_lo: Any = None
-    cease_status: Any = None
-    checkbox: Any = None
-    checks: Any = None
-    co_code: Any = None
-    co_codes: Any = None
-    code: Any = None
-    codes: Any = None
-    column: Any = None
-    company: Any = None
-    conds: Any = None
-    cov1_plancode_match_only: Any = None
-    cov_base_active_flat03: Any = None
-    cov_base_cease_code: Any = None
-    cov_base_change_hi: Any = None
-    cov_base_change_lo: Any = None
-    cov_base_change_set: Any = None
-    cov_base_change_type: Any = None
-    cov_base_cola_ind: Any = None
-    cov_base_flat03: Any = None
-    cov_base_form_number: Any = None
-    cov_base_gio_fio: Any = None
-    cov_base_issue_hi: Any = None
-    cov_base_issue_lo: Any = None
-    cov_base_lives_cov: Any = None
-    cov_base_person: Any = None
-    cov_base_plancode: Any = None
-    cov_base_prod_ind: Any = None
-    cov_base_prod_line: Any = None
-    cov_base_rateclass: Any = None
-    cov_base_sex02: Any = None
-    cov_base_sex67: Any = None
-    cov_base_specamt_set: Any = None
-    cov_base_table03: Any = None
-    cov_base_vpu_set: Any = None
-    cov_cola: Any = None
-    cov_cv_rate: Any = None
-    cov_eti_mort: Any = None
-    cov_filter_alias: Any = None
-    cov_gcv_gt_cv: Any = None
-    cov_gcv_lt_cv: Any = None
-    cov_gio: Any = None
-    cov_has_spec_amt: Any = None
-    cov_init_term: Any = None
-    cov_multi_base: Any = None
-    cov_needs_covsummary: Any = None
-    cov_needs_iswl_gcv: Any = None
-    cov_needs_modcov1: Any = None
-    cov_needs_modcovsall: Any = None
-    cov_needs_mvval: Any = None
-    cov_needs_renewals: Any = None
-    cov_nfo_rate: Any = None
-    cov_non_trad: Any = None
-    cov_rpu_mort: Any = None
-    cov_skipped_rein: Any = None
-    cov_spec_amt_hi: Any = None
-    cov_spec_amt_lo: Any = None
-    cov_val_base: Any = None
-    cov_val_class: Any = None
-    cov_val_class_ne: Any = None
-    cov_val_classes: Any = None
-    cov_val_mort: Any = None
-    cov_val_sub: Any = None
-    coverage_level: Any = None
-    coverage_scope: Any = None
-    covt: Any = None
-    cs_code: Any = None
-    custom_display_tab: Any = None
-    custom_join_lines: Any = None
-    custom_select_lines: Any = None
-    custom_where_lines: Any = None
-    disp_account_value: Any = None
-    disp_accum_glp: Any = None
-    disp_accum_mtp: Any = None
-    disp_accum_value: Any = None
-    disp_accum_wd: Any = None
-    disp_active_benefits: Any = None
-    disp_active_riders: Any = None
-    disp_app_date: Any = None
-    disp_attained_age: Any = None
-    disp_bill_ctrl_num: Any = None
-    disp_bill_form: Any = None
-    disp_bill_mode: Any = None
-    disp_bill_prem: Any = None
-    disp_bill_to: Any = None
-    disp_cirf_key: Any = None
-    disp_commission_target: Any = None
-    disp_conv_credit: Any = None
-    disp_conv_period: Any = None
-    disp_conversion_dates: Any = None
-    disp_converted_pol: Any = None
-    disp_cost_basis: Any = None
-    disp_db_option: Any = None
-    disp_def_life_ins: Any = None
-    disp_duration: Any = None
-    disp_glp: Any = None
-    disp_gpe_date: Any = None
-    disp_gsp: Any = None
-    disp_init_term: Any = None
-    disp_insured1_info: Any = None
-    disp_last_acct: Any = None
-    disp_last_entry: Any = None
-    disp_last_fin: Any = None
-    disp_mec_status: Any = None
-    disp_mkt_org: Any = None
-    disp_mod_indicator: Any = None
-    disp_monthly_deduction: Any = None
-    disp_monthly_mtp: Any = None
-    disp_next_change: Any = None
-    disp_next_notif: Any = None
-    disp_next_stmt: Any = None
-    disp_next_year_end: Any = None
-    disp_nsp: Any = None
-    disp_orig_entry: Any = None
-    disp_orig_face_rpu: Any = None
-    disp_paid_to: Any = None
-    disp_policy_debt: Any = None
-    disp_post_conversion: Any = None
-    disp_prem_calc_rules: Any = None
-    disp_prem_ptd: Any = None
-    disp_prem_ytd: Any = None
-    disp_prod_line: Any = None
-    disp_reinsured: Any = None
-    disp_replacement_pol: Any = None
-    disp_sex_02: Any = None
-    disp_sex_rateclass: Any = None
-    disp_shadow_av: Any = None
-    disp_short_pay: Any = None
-    disp_slr_bill_form: Any = None
-    disp_spec_amt: Any = None
-    disp_subseries: Any = None
-    disp_substandard: Any = None
-    disp_tamra: Any = None
-    disp_tch_pol_id: Any = None
-    disp_term_date: Any = None
-    disp_trad_cv_cov1: Any = None
-    disp_trad_overloan: Any = None
-    disp_trad_rates: Any = None
-    disp_val_duration_expr: Any = None
-    disp_within_conv: Any = None
-    dt: Any = None
-    duration_expr: Any = None
-    fid: Any = None
-    first_transaction: Any = None
-    form_num: Any = None
-    fund_items: Any = None
-    grace_indicator: Any = None
-    has_52r: Any = None
-    has_77_segment: Any = None
-    has_accum_glp_range: Any = None
-    has_accum_mtp: Any = None
-    has_accum_val: Any = None
-    has_app_date: Any = None
-    has_billing_prem: Any = None
-    has_change_seq: Any = None
-    has_curr_spec_amt: Any = None
-    has_current_age: Any = None
-    has_fund_values: Any = None
-    has_glp_range: Any = None
-    has_gpe_date: Any = None
-    has_gsp_range: Any = None
-    has_issue_day: Any = None
-    has_issue_month: Any = None
-    has_modcovsall: Any = None
-    has_nontrad: Any = None
-    has_overloan: Any = None
-    has_paid_to: Any = None
-    has_person_info: Any = None
-    has_pol_totals: Any = None
-    has_pol_year: Any = None
-    has_preferred_loan: Any = None
-    has_shadow_av: Any = None
-    has_skipped_rein: Any = None
-    has_slr: Any = None
-    has_tamra: Any = None
-    has_term_both: Any = None
-    has_term_entry: Any = None
-    has_term_fin: Any = None
-    has_type_p: Any = None
-    has_type_v: Any = None
-    has_val_age: Any = None
-    i: Any = None
-    in_conversion: Any = None
-    is_mdo: Any = None
-    item: Any = None
-    known: Any = None
-    label: Any = None
-    listbox: Any = None
-    loan_rate: Any = None
-    market_org: Any = None
-    max_count_text: Any = None
-    mode_clause: Any = None
-    modes: Any = None
-    multi_base_covs: Any = None
-    needs_covsall: Any = None
-    needs_covsummary: Any = None
-    needs_grace_table: Any = None
-    needs_interpolation: Any = None
-    needs_iswl_gcv: Any = None
-    needs_mvval: Any = None
-    needs_pol_yr_tot: Any = None
-    needs_premwd_face: Any = None
-    op: Any = None
-    p2t: Any = None
-    person_name_conds: Any = None
-    plancode: Any = None
-    plancode_list: Any = None
-    plancode_tab: Any = None
-    policy_has_product_indicator: Any = None
-    policy_list: Any = None
-    policy_product_indicator_codes: Any = None
-    polnum: Any = None
-    post_issue: Any = None
-    ppl: Any = None
-    pt: Any = None
-    result_cov_alias: Any = None
-    result_flat_alias: Any = None
-    result_rnw_alias: Any = None
-    result_table_alias: Any = None
-    rider1_info: Any = None
-    rider2_info: Any = None
-    rider_match_aliases: Any = None
-    rule_preds: Any = None
-    schema: Any = None
-    second_transaction: Any = None
-    segment52_select_lines: Any = None
-    segment52_tab: Any = None
-    segment52_where_lines: Any = None
-    st: Any = None
-    st_codes: Any = None
-    sub_type: Any = None
-    sys_code: Any = None
-    term_both_date: Any = None
-    term_both_predicates: Any = None
-    term_fin_date: Any = None
-    term_fin_predicates: Any = None
-    transaction_tab: Any = None
-    val_duration_expr: Any = None
-    w: Any = None
-    wl_tab: Any = None
-    _52r_join: Any = None
-    _any_cov_plancode: Any = None
-    _any_cov_product_line: Any = None
-    _apb_cond: Any = None
-    _att_age: Any = None
-    _bw: Any = None
-    _cease_ops: Any = None
-    _cease_pred: Any = None
-    _cirf: Any = None
-    _cirf_col: Any = None
-    _cirf_pred: Any = None
-    _cond: Any = None
-    _cov_join: Any = None
-    _debt_join: Any = None
-    _dur: Any = None
-    _emit_rider_joins: Any = None
-    _fid: Any = None
-    _glp_join: Any = None
-    _gsp_join: Any = None
-    _loan_join: Any = None
-    _mkt_company_map: Any = None
-    _mkt_org_map: Any = None
-    _person_first_name: Any = None
-    _person_last_name: Any = None
-    _rider_info: Any = None
-    _rider_select_lines: Any = None
-    _td_join: Any = None
-    _term_hi: Any = None
-    _term_lo: Any = None
-    _today: Any = None
-    _tw: Any = None
+    values: Mapping[str, Any]
+    initial_ctes: tuple[str, ...] = ()
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self.values[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
+class QueryContext:
+    """Compatibility view over :class:`DerivedAuditContext` for legacy helpers."""
+
+    __slots__ = ("derived", "__dict__")
+
+    def __init__(self, source: AuditCriteria | DerivedAuditContext) -> None:
+        if isinstance(source, DerivedAuditContext):
+            self.derived = source
+            self.criteria = source.criteria
+            self.__dict__.update(source.values)
+        else:
+            self.derived = None
+            self.criteria = source

@@ -40,6 +40,8 @@ from .dialogs import _RegisterAccessDialog, _RegisterOdbcDialog
 
 
 class QueryObjectViewerSourceActionsMixin:
+    """Requires BrowserState source attrs; provides data-source actions."""
+
     def _on_source_test(self) -> None:
         """Re-evaluate the selected source's health (re-render its detail).
 

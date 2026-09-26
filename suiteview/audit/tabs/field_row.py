@@ -11,6 +11,7 @@ FieldGrid: a free-form canvas with absolute positioning — fields can be
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 
 from PyQt6.QtCore import Qt, QPoint, QSize, QRect, QEvent, QElapsedTimer, QMimeData, pyqtSignal
@@ -78,6 +79,62 @@ _GRIP_STYLE = (
     " background: transparent; }"
     "QLabel:hover { color: #1E5BA8; }"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class MenuAction:
+    key: str
+    text: str
+    checkable: bool = False
+    checked: bool = False
+    enabled: bool = True
+
+
+def _add_menu_actions(menu: QMenu, specs: list[MenuAction]) -> dict[str, object]:
+    actions = {}
+    for spec in specs:
+        action = menu.addAction(spec.text)
+        action.setEnabled(spec.enabled)
+        if spec.checkable:
+            action.setCheckable(True)
+            action.setChecked(spec.checked)
+        actions[spec.key] = action
+    return actions
+
+
+def _mode_action_specs(
+    *,
+    current_idx: int | None = None,
+    descriptions_checked: bool = False,
+) -> list[MenuAction]:
+    specs = [
+        MenuAction(
+            key=f"mode:{index}",
+            text=mode_name,
+            checkable=current_idx is not None,
+            checked=current_idx == index and not descriptions_checked,
+        )
+        for index, mode_name in enumerate(_MODES)
+    ]
+    specs.append(MenuAction(
+        key="mode:list_descriptions",
+        text="list (descriptions)",
+        checkable=current_idx is not None,
+        checked=descriptions_checked,
+    ))
+    return specs
+
+
+def _width_action_specs(current_width: int | None = None) -> list[MenuAction]:
+    return [
+        MenuAction(
+            key=f"width:{width}",
+            text=f"{width} px",
+            checkable=current_width is not None,
+            checked=current_width == width,
+        )
+        for width in (25, 50, 75, 100, 150, 200, 250, 300)
+    ]
 
 _PINNED_LIST_STYLE = (
     "QListWidget { border: 1px solid #1E5BA8; font-size: 8pt; outline: none; }"
@@ -1081,18 +1138,13 @@ class FieldRow(QWidget):
             header.setEnabled(False)
             menu.addSeparator()
 
-        # Mode actions — checkmark on current
-        mode_actions = []
-        for i, mode_name in enumerate(_MODES):
-            act = menu.addAction(mode_name)
-            act.setCheckable(True)
-            act.setChecked(i == self._mode_idx and not self._show_descriptions)
-            mode_actions.append((act, i))
-
-        # "list (descriptions)" — list mode with registry descriptions shown
-        act_list_desc = menu.addAction("list (descriptions)")
-        act_list_desc.setCheckable(True)
-        act_list_desc.setChecked(self.mode == "list" and self._show_descriptions)
+        mode_actions = _add_menu_actions(
+            menu,
+            _mode_action_specs(
+                current_idx=self._mode_idx,
+                descriptions_checked=self.mode == "list" and self._show_descriptions,
+            ),
+        )
 
         menu.addSeparator()
 
@@ -1120,13 +1172,11 @@ class FieldRow(QWidget):
         # Field Name Width submenu (top-level)
         width_menu = menu.addMenu("Field Name Width")
         width_menu.setStyleSheet(self._MENU_STYLE)
-        width_actions = []
         cur_lbl_w = self._lbl.width()
-        for w in (25, 50, 75, 100, 150, 200, 250, 300):
-            act = width_menu.addAction(f"{w} px")
-            act.setCheckable(True)
-            act.setChecked(cur_lbl_w == w)
-            width_actions.append((act, w))
+        width_actions = _add_menu_actions(
+            width_menu,
+            _width_action_specs(cur_lbl_w),
+        )
 
         menu.addSeparator()
 
@@ -1171,14 +1221,44 @@ class FieldRow(QWidget):
         if chosen is None:
             return
 
-        # Check mode actions
-        for act, idx in mode_actions:
-            if chosen is act:
+        self._handle_label_menu_choice(
+            chosen=chosen,
+            mode_actions=mode_actions,
+            width_actions=width_actions,
+            act_display_name=act_display_name,
+            act_delete=act_delete,
+            act_dn_toggle=act_dn_toggle,
+            act_fmt_toggle=act_fmt_toggle,
+            act_border_toggle=act_border_toggle,
+            act_find=act_find,
+            act_open=act_open,
+            act_forge_scan=act_forge_scan,
+            act_regex=act_regex,
+        )
+
+    def _handle_label_menu_choice(
+        self,
+        *,
+        chosen,
+        mode_actions: dict[str, object],
+        width_actions: dict[str, object],
+        act_display_name,
+        act_delete,
+        act_dn_toggle,
+        act_fmt_toggle,
+        act_border_toggle,
+        act_find,
+        act_open,
+        act_forge_scan,
+        act_regex,
+    ) -> None:
+        for idx, _mode_name in enumerate(_MODES):
+            if chosen is mode_actions[f"mode:{idx}"]:
                 self._show_descriptions = False
                 self.set_mode_idx(idx)
                 return
 
-        if chosen is act_list_desc:
+        if chosen is mode_actions["mode:list_descriptions"]:
             self._show_descriptions = True
             self.set_mode_idx(_MODES.index("list"))
             return
@@ -1202,9 +1282,9 @@ class FieldRow(QWidget):
         elif chosen is act_regex:
             self._show_regex_help()
         else:
-            for act, w in width_actions:
-                if chosen is act:
-                    self._set_label_width(w)
+            for key, action in width_actions.items():
+                if chosen is action:
+                    self._set_label_width(int(key.split(":", 1)[1]))
                     return
 
     def _edit_display_name(self):
@@ -1792,13 +1872,7 @@ class FieldGrid(QWidget):
         header.setEnabled(False)
         menu.addSeparator()
 
-        # Mode actions
-        mode_actions = []
-        for mode_name in _MODES:
-            act = menu.addAction(mode_name)
-            mode_actions.append((act, mode_name))
-
-        act_list_desc = menu.addAction("list (descriptions)")
+        mode_actions = _add_menu_actions(menu, _mode_action_specs())
 
         menu.addSeparator()
 
@@ -1842,10 +1916,7 @@ class FieldGrid(QWidget):
         # Field Name Width submenu (bulk)
         width_menu = menu.addMenu("Field Name Width")
         width_menu.setStyleSheet(FieldRow._MENU_STYLE)
-        width_actions = []
-        for w in (25, 50, 75, 100, 150, 200, 250, 300):
-            act = width_menu.addAction(f"{w} px")
-            width_actions.append((act, w))
+        width_actions = _add_menu_actions(width_menu, _width_action_specs())
 
         menu.addSeparator()
 
@@ -1866,16 +1937,50 @@ class FieldGrid(QWidget):
         if chosen is None:
             return
 
+        self._handle_bulk_menu_choice(
+            chosen=chosen,
+            mode_actions=mode_actions,
+            width_actions=width_actions,
+            space_actions=space_actions,
+            dn_vals=dn_vals,
+            fmt_vals=fmt_vals,
+            bdr_vals=bdr_vals,
+            act_dn_toggle=act_dn_toggle,
+            act_fmt_toggle=act_fmt_toggle,
+            act_border_toggle=act_border_toggle,
+            act_align_left=act_align_left,
+            act_align_top=act_align_top,
+            act_find=act_find,
+            act_delete=act_delete,
+        )
+
+    def _handle_bulk_menu_choice(
+        self,
+        *,
+        chosen,
+        mode_actions: dict[str, object],
+        width_actions: dict[str, object],
+        space_actions: list[tuple[object, int]],
+        dn_vals: set[bool],
+        fmt_vals: set[bool],
+        bdr_vals: set[bool],
+        act_dn_toggle,
+        act_fmt_toggle,
+        act_border_toggle,
+        act_align_left,
+        act_align_top,
+        act_find,
+        act_delete,
+    ) -> None:
         # Mode change
-        for act, mode_name in mode_actions:
-            if chosen is act:
-                idx = _MODES.index(mode_name)
+        for idx, _mode_name in enumerate(_MODES):
+            if chosen is mode_actions[f"mode:{idx}"]:
                 for r in self._selection:
                     r._show_descriptions = False
                     r.set_mode_idx(idx)
                 return
 
-        if chosen is act_list_desc:
+        if chosen is mode_actions["mode:list_descriptions"]:
             idx = _MODES.index("list")
             for r in self._selection:
                 r._show_descriptions = True
@@ -1913,10 +2018,11 @@ class FieldGrid(QWidget):
                     self._space_between(gap)
                     return
             # Check width actions
-            for act, w in width_actions:
-                if chosen is act:
+            for key, action in width_actions.items():
+                if chosen is action:
+                    width = int(key.split(":", 1)[1])
                     for r in self._selection:
-                        r._set_label_width(w)
+                        r._set_label_width(width)
                     return
 
     def _bulk_find_and_register(self):

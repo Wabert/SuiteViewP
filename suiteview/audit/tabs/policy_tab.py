@@ -27,6 +27,11 @@ from ..constants import (
     POLICYNUMBER_CRITERIA_DEFAULT,
 )
 from ._styles import style_combo as _style_combo, make_checkbox as _make_checkbox
+from suiteview.audit.criteria_specs import (
+    POLICY_TAB_STATE_SPEC,
+    apply_tab_state,
+    tab_state,
+)
 from suiteview.ui.widgets.uppercase_input import force_uppercase
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
@@ -388,118 +393,9 @@ class PolicyTab(QWidget):
 
     # ── Profile save/load ────────────────────────────────────────────
     def get_state(self) -> dict:
-        from ..profile_manager import (
-            get_lineedit_text as _t, get_checkbox_checked as _c,
-            get_combo_text as _cmb, get_listbox_selected as _sel,
-        )
-        return {
-            "txt_plancode": _t(self.txt_plancode),
-            "chk_rga": _c(self.chk_rga),
-            "cmb_company": _cmb(self.cmb_company),
-            "cmb_market": _cmb(self.cmb_market),
-            "txt_form_number": _t(self.txt_form_number),
-            "txt_branch": _t(self.txt_branch),
-            "cmb_polnum_criteria": _cmb(self.cmb_polnum_criteria),
-            "txt_polnum_value": _t(self.txt_polnum_value),
-            "txt_issue_age_lo": _t(self.txt_issue_age_lo),
-            "txt_issue_age_hi": _t(self.txt_issue_age_hi),
-            "txt_current_age_lo": _t(self.txt_current_age_lo),
-            "txt_current_age_hi": _t(self.txt_current_age_hi),
-            "txt_val_age_lo": _t(self.txt_val_age_lo),
-            "txt_val_age_hi": _t(self.txt_val_age_hi),
-            "txt_pol_year_lo": _t(self.txt_pol_year_lo),
-            "txt_pol_year_hi": _t(self.txt_pol_year_hi),
-            "txt_issue_month_lo": _t(self.txt_issue_month_lo),
-            "txt_issue_month_hi": _t(self.txt_issue_month_hi),
-            "txt_issue_day_lo": _t(self.txt_issue_day_lo),
-            "txt_issue_day_hi": _t(self.txt_issue_day_hi),
-            "txt_issued_date_lo": _t(self.txt_issued_date_lo),
-            "txt_issued_date_hi": _t(self.txt_issued_date_hi),
-            "txt_paid_to_lo": _t(self.txt_paid_to_lo),
-            "txt_paid_to_hi": _t(self.txt_paid_to_hi),
-            "txt_gpe_date_lo": _t(self.txt_gpe_date_lo),
-            "txt_gpe_date_hi": _t(self.txt_gpe_date_hi),
-            "txt_app_date_lo": _t(self.txt_app_date_lo),
-            "txt_app_date_hi": _t(self.txt_app_date_hi),
-            "txt_billing_prem_lo": _t(self.txt_billing_prem_lo),
-            "txt_billing_prem_hi": _t(self.txt_billing_prem_hi),
-            "chk_is_mdo": _c(self.chk_is_mdo),
-            "chk_multiple_base_covs": _c(self.chk_multiple_base_covs),
-            "chk_in_conversion": _c(self.chk_in_conversion),
-            "chk_status_code": _c(self.chk_status_code),
-            "list_status": _sel(self.list_status),
-            "chk_product_line": _c(self.chk_product_line),
-            "list_product_line": _sel(self.list_product_line),
-            "chk_product_indicator": _c(self.chk_product_indicator),
-            "list_product_indicator": _sel(self.list_product_indicator),
-            "chk_state": _c(self.chk_state),
-            "list_state": _sel(self.list_state),
-            "chk_last_entry": _c(self.chk_last_entry),
-            "list_last_entry": _sel(self.list_last_entry),
-            "chk_suspense": _c(self.chk_suspense),
-            "list_suspense": _sel(self.list_suspense),
-            "chk_grace_indicator": _c(self.chk_grace_indicator),
-            "list_grace_indicator": _sel(self.list_grace_indicator),
-            "chk_bill_mode": _c(self.chk_bill_mode),
-            "list_bill_mode": _sel(self.list_bill_mode),
-            "chk_billing_form": _c(self.chk_billing_form),
-            "list_billing_form": _sel(self.list_billing_form),
-        }
+        return tab_state(self, POLICY_TAB_STATE_SPEC)
 
     def set_state(self, state: dict):
-        from ..profile_manager import (
-            set_lineedit_text as _t, set_checkbox_checked as _c,
-            set_combo_text as _cmb, set_listbox_selected as _sel,
-        )
-        _t(self.txt_plancode, state.get("txt_plancode", ""))
-        _c(self.chk_rga, state.get("chk_rga", False))
-        _cmb(self.cmb_company, state.get("cmb_company", ""))
-        _cmb(self.cmb_market, state.get("cmb_market", ""))
-        _t(self.txt_form_number, state.get("txt_form_number", ""))
-        _t(self.txt_branch, state.get("txt_branch", ""))
-        _cmb(self.cmb_polnum_criteria,
-             state.get("cmb_polnum_criteria", POLICYNUMBER_CRITERIA_DEFAULT))
-        _t(self.txt_polnum_value, state.get("txt_polnum_value", ""))
-        _t(self.txt_issue_age_lo, state.get("txt_issue_age_lo", ""))
-        _t(self.txt_issue_age_hi, state.get("txt_issue_age_hi", ""))
-        _t(self.txt_current_age_lo, state.get("txt_current_age_lo", ""))
-        _t(self.txt_current_age_hi, state.get("txt_current_age_hi", ""))
-        _t(self.txt_val_age_lo, state.get("txt_val_age_lo", ""))
-        _t(self.txt_val_age_hi, state.get("txt_val_age_hi", ""))
-        _t(self.txt_pol_year_lo, state.get("txt_pol_year_lo", ""))
-        _t(self.txt_pol_year_hi, state.get("txt_pol_year_hi", ""))
-        _t(self.txt_issue_month_lo, state.get("txt_issue_month_lo", ""))
-        _t(self.txt_issue_month_hi, state.get("txt_issue_month_hi", ""))
-        _t(self.txt_issue_day_lo, state.get("txt_issue_day_lo", ""))
-        _t(self.txt_issue_day_hi, state.get("txt_issue_day_hi", ""))
-        _t(self.txt_issued_date_lo, state.get("txt_issued_date_lo", ""))
-        _t(self.txt_issued_date_hi, state.get("txt_issued_date_hi", ""))
-        _t(self.txt_paid_to_lo, state.get("txt_paid_to_lo", ""))
-        _t(self.txt_paid_to_hi, state.get("txt_paid_to_hi", ""))
-        _t(self.txt_gpe_date_lo, state.get("txt_gpe_date_lo", ""))
-        _t(self.txt_gpe_date_hi, state.get("txt_gpe_date_hi", ""))
-        _t(self.txt_app_date_lo, state.get("txt_app_date_lo", ""))
-        _t(self.txt_app_date_hi, state.get("txt_app_date_hi", ""))
-        _t(self.txt_billing_prem_lo, state.get("txt_billing_prem_lo", ""))
-        _t(self.txt_billing_prem_hi, state.get("txt_billing_prem_hi", ""))
-        _c(self.chk_is_mdo, state.get("chk_is_mdo", False))
-        _c(self.chk_multiple_base_covs, state.get("chk_multiple_base_covs", False))
-        _c(self.chk_in_conversion, state.get("chk_in_conversion", False))
-        _c(self.chk_status_code, state.get("chk_status_code", False))
-        _sel(self.list_status, state.get("list_status", []))
-        _c(self.chk_product_line, state.get("chk_product_line", False))
-        _sel(self.list_product_line, state.get("list_product_line", []))
-        _c(self.chk_product_indicator, state.get("chk_product_indicator", False))
-        _sel(self.list_product_indicator, state.get("list_product_indicator", []))
-        _c(self.chk_state, state.get("chk_state", False))
-        _sel(self.list_state, state.get("list_state", []))
-        _c(self.chk_last_entry, state.get("chk_last_entry", False))
-        _sel(self.list_last_entry, state.get("list_last_entry", []))
-        _c(self.chk_suspense, state.get("chk_suspense", False))
-        _sel(self.list_suspense, state.get("list_suspense", []))
-        _c(self.chk_grace_indicator, state.get("chk_grace_indicator", False))
-        _sel(self.list_grace_indicator, state.get("list_grace_indicator", []))
-        _c(self.chk_bill_mode, state.get("chk_bill_mode", False))
-        _sel(self.list_bill_mode, state.get("list_bill_mode", []))
-        _c(self.chk_billing_form, state.get("chk_billing_form", False))
-        _sel(self.list_billing_form, state.get("list_billing_form", []))
+        apply_tab_state(self, POLICY_TAB_STATE_SPEC, state)
+        if "cmb_polnum_criteria" not in state:
+            self.cmb_polnum_criteria.setCurrentText(POLICYNUMBER_CRITERIA_DEFAULT)

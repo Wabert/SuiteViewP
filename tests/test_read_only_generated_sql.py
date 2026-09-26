@@ -10,7 +10,7 @@ from suiteview.core.rates import Rates
 from suiteview.core.sql_permissions import guard_query_sql
 from suiteview.polview.models import policy_data
 from suiteview.polview.models.policy_information import PolicyInformation
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from tests.audit_criteria_helpers import collect_audit_criteria
 
 @pytest.fixture(autouse=True)
 def restricted(monkeypatch):

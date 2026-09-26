@@ -103,7 +103,7 @@ def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
-    if ctx.disp_converted_pol or ctx.p2t.chk_has_converted.isChecked():
+    if ctx.disp_converted_pol or ctx.p2t.chk_has_converted:
         parts.sql_parts.append('  , USERGEN.SOURCE_CMP_CODE SOURCE_CMP_CODE')
     if ctx.disp_converted_pol:
         parts.sql_parts.append('  , USERGEN.EXCH_POL_NUMBER EXCHANGE_POL')
@@ -120,13 +120,13 @@ def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , UPDF.CONV_CREDIT_RULE CN_CRED_RULE')
         parts.sql_parts.append('  , UPDF.CONV_CREDIT_PERIOD CN_CRED_PERIOD')
     if ctx.disp_within_conv:
-        ctx._today = ctx.criteria.as_of_sql
-        ctx._dur = f"TRUNCATE(MONTHS_BETWEEN('{ctx._today}', COVERAGE1.ISSUE_DT) / 12, 0)"
-        ctx._att_age = f'(COVERAGE1.INS_ISS_AGE + {ctx._dur})'
+        as_of_sql = ctx.criteria.as_of_sql
+        duration_expr = f"TRUNCATE(MONTHS_BETWEEN('{as_of_sql}', COVERAGE1.ISSUE_DT) / 12, 0)"
+        attained_age_expr = f'(COVERAGE1.INS_ISS_AGE + {duration_expr})'
         parts.sql_parts.append('  , (CASE')
-        parts.sql_parts.append(f'      WHEN (UPDF.CONVERSION_PERIOD = 0 AND {ctx._att_age} < UPDF.CONVERSION_AGE)')
-        parts.sql_parts.append(f'        OR (UPDF.CONVERSION_PERIOD > 0 AND {ctx._dur} < UPDF.CONVERSION_PERIOD')
-        parts.sql_parts.append(f'            AND {ctx._att_age} < UPDF.CONVERSION_AGE)')
+        parts.sql_parts.append(f'      WHEN (UPDF.CONVERSION_PERIOD = 0 AND {attained_age_expr} < UPDF.CONVERSION_AGE)')
+        parts.sql_parts.append(f'        OR (UPDF.CONVERSION_PERIOD > 0 AND {duration_expr} < UPDF.CONVERSION_PERIOD')
+        parts.sql_parts.append(f'            AND {attained_age_expr} < UPDF.CONVERSION_AGE)')
         parts.sql_parts.append("      THEN 'TRUE' ELSE 'FALSE'")
         parts.sql_parts.append('      END) AS WITHIN_CONV_PERIOD')
     if ctx.disp_conv_period:
@@ -196,10 +196,15 @@ def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('                    AND RIDER.NXT_CHG_DT > CURRENT DATE))')
         parts.sql_parts.append('       ) DISTINCT_RIDERS')
         parts.sql_parts.append('      ) ActiveRiders')
-    ctx.disp_trad_rates = ctx.dt.Checkbox_DisplayTradRates.isChecked()
 
 
 def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_coverage_value_selects(ctx, parts)
+    _add_coverage_flag_selects(ctx, parts)
+    _add_base_coverage_selects(ctx, parts)
+
+
+def _add_coverage_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_trad_rates:
         parts.sql_parts.append('  , FXD_PRM.POL_FEE_AMT PolFee')
         parts.sql_parts.append('  , FXD_PRM.SAN_MD_FCT SemiAnnModalFactor')
@@ -207,9 +212,6 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , FXD_PRM.MO_MD_FCT MoModalFactor')
         parts.sql_parts.append('  , COVERAGE1.ANN_PRM_UNT_AMT PremRate')
         parts.sql_parts.append('  , POLICY1.POL_PRM_AMT PolPremium')
-    ctx.cov_base_change_set = bool(ctx.cov_base_change_lo or ctx.cov_base_change_hi)
-    ctx.cov_base_vpu_set = bool(ctx._bw['vpu_lo'].text().strip() or ctx._bw['vpu_hi'].text().strip())
-    ctx.cov_base_specamt_set = bool(ctx._bw['spec_amt_lo'].text().strip() or ctx._bw['spec_amt_hi'].text().strip())
     if ctx.cov_val_classes or ctx.cov_val_class:
         parts.sql_parts.append('  , COVERAGE1.INS_CLS_CD ValClass')
     if ctx.cov_val_base:
@@ -230,6 +232,9 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , COVSUMMARY.TOTAL_SA CurrSpecAmt')
     if ctx.cov_init_term and (not ctx.disp_init_term):
         parts.sql_parts.append('  , COVERAGE1.INT_RNL_PER InitTermPeriod')
+
+
+def _add_coverage_flag_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_val_class_ne:
         if not (ctx.cov_val_classes or ctx.cov_val_class):
             parts.sql_parts.append('  , COVERAGE1.INS_CLS_CD ValClass')
@@ -244,6 +249,15 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv:
         parts.sql_parts.append('  , ISWL_INTERPOLATED_GCV.ISWL_GCV GCV')
         parts.sql_parts.append('  , MVVAL.CSV_AMT CurrentCV')
+
+
+def _add_base_coverage_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_base_identity_selects(ctx, parts)
+    _add_base_mod_selects(ctx, parts)
+    _add_base_rating_selects(ctx, parts)
+
+
+def _add_base_identity_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_prod_line and (not ctx.disp_prod_line):
         parts.sql_parts.append('  , COVERAGE1.PRD_LIN_TYP_CD ProdLine')
     if ctx.cov_base_sex02 and (not ctx.disp_sex_02):
@@ -256,12 +270,18 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , COVERAGE1.NXT_CHG_TYP_CD ChangeType')
     if ctx.cov_base_change_set and (not ctx.disp_next_change):
         parts.sql_parts.append("  , VARCHAR_FORMAT(COVERAGE1.NXT_CHG_DT, 'MM/DD/YYYY') ChangeDate")
+
+
+def _add_base_mod_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_prod_ind:
         parts.sql_parts.append('  , MODCOV1.AN_PRD_ID ProdInd')
     if ctx.cov_base_cola_ind:
         parts.sql_parts.append('  , MODCOV1.COLA_INCR_IND ColaInd')
     if ctx.cov_base_gio_fio:
         parts.sql_parts.append('  , MODCOV1.OPT_EXER_IND GioFio')
+
+
+def _add_base_rating_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_rateclass and (not ctx.disp_sex_rateclass):
         parts.sql_parts.append('  , COV1_RENEWALS.RT_CLS_CD RateClass')
     if ctx.cov_base_sex67 and (not ctx.disp_sex_rateclass):
@@ -274,4 +294,3 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , TABLE_RATING1.SST_XTR_RT_TBL_CD TableRating')
     if (ctx.cov_base_flat03 or ctx.cov_base_active_flat03) and (not ctx.disp_substandard):
         parts.sql_parts.append('  , FLAT_EXTRA1.SST_XTR_UNT_AMT FlatExtra')
-

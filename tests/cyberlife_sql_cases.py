@@ -69,6 +69,11 @@ def _select_first(listbox) -> None:
         listbox.item(0).setSelected(True)
 
 
+def _select_first_enabled(checkbox, listbox) -> None:
+    checkbox.setChecked(True)
+    _select_first(listbox)
+
+
 def _policy_ranges(tabs: dict[str, object]) -> None:
     policy = tabs["policy_tab"]
     policy.txt_current_age_lo.setText("35")
@@ -176,6 +181,64 @@ def _whole_life(tabs: dict[str, object]) -> None:
     _select_first(wl.list_pri_div)
 
 
+def _criteria_flag_families(tabs: dict[str, object]) -> None:
+    policy = tabs["policy_tab"]
+    policy.txt_branch.setText("123")
+    policy.chk_is_mdo.setChecked(True)
+    policy.chk_multiple_base_covs.setChecked(True)
+    policy.chk_in_conversion.setChecked(True)
+    _select_first_enabled(policy.chk_status_code, policy.list_status)
+    _select_first_enabled(policy.chk_product_line, policy.list_product_line)
+    _select_first_enabled(policy.chk_product_indicator, policy.list_product_indicator)
+    _select_first_enabled(policy.chk_state, policy.list_state)
+    _select_first_enabled(policy.chk_last_entry, policy.list_last_entry)
+    _select_first_enabled(policy.chk_suspense, policy.list_suspense)
+    _select_first_enabled(policy.chk_bill_mode, policy.list_bill_mode)
+    _select_first_enabled(policy.chk_billing_form, policy.list_billing_form)
+
+    policy2 = tabs["policy2_tab"]
+    policy2.chk_1035_amt.setChecked(True)
+    policy2.chk_mec.setChecked(True)
+    policy2.chk_failed_guideline.setChecked(True)
+    policy2.chk_has_loan.setChecked(True)
+    policy2.chk_has_preferred_loan.setChecked(True)
+    _select_first_enabled(policy2.chk_participating, policy2.list_participating)
+    _select_first_enabled(policy2.chk_loan_type, policy2.list_loan_type)
+    _select_first_enabled(policy2.chk_trad_overloan, policy2.list_trad_overloan)
+    _select_first_enabled(policy2.chk_non_trad, policy2.list_non_trad)
+    _select_first_enabled(policy2.chk_std_loan_payment, policy2.list_std_loan_payment)
+    _select_first_enabled(policy2.chk_def_life, policy2.list_def_life)
+    _select_first_enabled(policy2.chk_reinsurance, policy2.list_reinsurance)
+    _select_first_enabled(policy2.chk_change_seq, policy2.list_change_seq)
+
+    adv = tabs["adv_tab"]
+    adv.chk_prem_wd_gt_face.setChecked(True)
+    adv.chk_glp_neg.setChecked(True)
+    adv.chk_sa_lt_orig.setChecked(True)
+    adv.chk_sa_gt_orig.setChecked(True)
+    adv.chk_apb_rider.setChecked(True)
+    adv.chk_gcv_gt_cv.setChecked(True)
+    adv.chk_gcv_lt_cv.setChecked(True)
+    _select_first_enabled(adv.chk_grace_rule, adv.list_grace_rule)
+    _select_first_enabled(adv.chk_db_option, adv.list_db_option)
+    _select_first_enabled(adv.chk_decr_chrg_rule, adv.list_decr_chrg_rule)
+    _select_first_enabled(adv.chk_orig_entry, adv.list_orig_entry)
+    adv.cbo_cirf_match.setCurrentText("Exact")
+    adv.txt_cirf.setText("CIRF001")
+    adv.txt_fund_id.setText("F01")
+    adv.txt_fund_lo.setText("10")
+    adv.txt_fund_hi.setText("250")
+    adv.rng_type_p[0].setText("1")
+    adv.rng_type_v[1].setText("3")
+
+    coverages = tabs["coverages_tab"]
+    _select_first_enabled(coverages.chk_non_trad, coverages.list_non_trad)
+    _select_first_enabled(coverages.chk_init_term, coverages.list_init_term)
+    coverages.rider1_widgets["plancode"].setText("1U535A00")
+    coverages.rider1_widgets["post_issue"].setChecked(True)
+    coverages.rider2_widgets["prod_line"].setCurrentIndex(1)
+
+
 CASES = [
     CyberlifeSqlCase("baseline"),
     CyberlifeSqlCase("policy_ranges_unit", schema="UNIT", configure=_policy_ranges),
@@ -192,4 +255,9 @@ CASES = [
     CyberlifeSqlCase("people_names", configure=_people_names),
     CyberlifeSqlCase("segment52", configure=_segment52),
     CyberlifeSqlCase("whole_life", configure=_whole_life),
+    CyberlifeSqlCase(
+        "criteria_flag_families",
+        coverage_level=True,
+        configure=_criteria_flag_families,
+    ),
 ]

@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_DSN_MAP, REGION_SCHEMA_MAP
 from suiteview.core.local_dev import local_data_enabled
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from suiteview.audit.cyberlife_tab_collect import collect_cyberlife_tabs
 _SELECTIONS = {'0': [0], '1': [1], 'Blank': [2]}
 
 def _matches(selection: str, value) -> bool:
@@ -55,7 +55,7 @@ def main() -> int:
             adv.chk_decr_chrg_rule.setChecked(True)
             for row in rows:
                 adv.list_decr_chrg_rule.item(row).setSelected(True)
-            sql = build_cyberlife_sql(collect_audit_criteria(schema, 'I', args.max_count, **tabs))
+            sql = build_cyberlife_sql(collect_cyberlife_tabs(schema, 'I', args.max_count, tabs))
             columns, results = db.execute_query_with_headers(sql)
             upper = [c.upper() for c in columns]
             pol_col = next((i for i, c in enumerate(upper) if c in ('POLICYNUMBER', 'CK_POLICY_NBR', 'POLICY')))
