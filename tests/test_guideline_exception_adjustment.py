@@ -109,6 +109,7 @@ def _rich_states(start: date, count: int, outlay: float, target: date, target_ou
             av_end_of_month=100.0 - i,
             glp=1000.0,
             accumulated_glp=8000.0,
+            applied_lumpsum=0.0,
             premiums_to_date_after_exception=outlay * (i + 1),
             withdrawals_to_date=0.0,
             policy_debt=0.0,
@@ -124,6 +125,7 @@ def _rich_states(start: date, count: int, outlay: float, target: date, target_ou
         av_end_of_month=50.0,
         glp=1000.0,
         accumulated_glp=8000.0,
+        applied_lumpsum=0.0,
         premiums_to_date_after_exception=outlay * count + target_outlay,
         withdrawals_to_date=0.0,
         policy_debt=0.0,
@@ -210,6 +212,7 @@ def _solve_states(start, count, target, *, monthly_outlay=0.0, lump=0.0,
             date=when, premium_outlay=outlay, policy_year=7, policy_month=i + 1,
             interest_credited=0.0, total_deduction=40.0, av_end_of_month=1.0,
             glp=100.0, accumulated_glp=accum_glp,
+            applied_lumpsum=lump if i == 0 else 0.0,
             premiums_to_date_after_exception=prem_td,
             withdrawals_to_date=withdrawals, policy_debt=0.0))
         when = when + relativedelta(months=1)
@@ -217,6 +220,7 @@ def _solve_states(start, count, target, *, monthly_outlay=0.0, lump=0.0,
         date=target, premium_outlay=9_999.0, policy_year=8, policy_month=1,
         interest_credited=0.0, total_deduction=40.0, av_end_of_month=1.0,
         glp=100.0, accumulated_glp=accum_glp,
+        applied_lumpsum=0.0,
         premiums_to_date_after_exception=prem_td + 9_999.0,
         withdrawals_to_date=withdrawals, policy_debt=0.0))
     return states

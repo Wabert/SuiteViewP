@@ -69,7 +69,10 @@ def test_db2_connection_does_not_use_local_policy_database_for_truthy_text(monke
 
 
 def test_rates_connection_does_not_use_local_rates_database_for_truthy_text(monkeypatch):
-    fake_connection = object()
+    class FakeConnection:
+        timeout = None
+
+    fake_connection = FakeConnection()
     monkeypatch.setenv(local_dev.LOCAL_DATA_ENV, "yes")
     monkeypatch.setattr(
         rates,

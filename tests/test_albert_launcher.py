@@ -18,7 +18,10 @@ def app(monkeypatch):
     application.processEvents()
 
 
-def test_launch_uses_shared_bridge_without_capture_or_shell(monkeypatch):
+def test_launch_uses_shared_bridge_without_capture_or_shell(tmp_path, monkeypatch):
+    bridge = tmp_path / "bridge.py"
+    bridge.write_text("# synthetic Albert bridge\n", encoding="utf-8")
+    monkeypatch.setattr(albert_launcher, "BRIDGE", bridge)
     calls = []
     monkeypatch.setattr(albert_launcher.subprocess, "Popen",
                         lambda *args, **kwargs: calls.append((args, kwargs)) or "process")
