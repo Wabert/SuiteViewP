@@ -3,7 +3,6 @@ Targets & Accumulators tab – Definition of Life Insurance, Accumulators,
 TAMRA Values, Commission Target Premium, and Minimum Premium widgets.
 """
 
-import logging
 from typing import TYPE_CHECKING, Dict, List, Any
 
 from PyQt6.QtWidgets import (
@@ -17,11 +16,10 @@ from ..styles import (
     BLUE_BG, GRAY_TEXT, GRAY_MID, WHITE,
     BLUE_PRIMARY, BLUE_DARK, GOLD_TEXT
 )
+from ...services.targets_view_model import build_targets_view_model
 
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
-
-logger = logging.getLogger(__name__)
 
 
 # ─── N/A interior background style ───────────────────────────────────────────
@@ -619,164 +617,33 @@ class TargetsAccumulatorsTab(QWidget):
             widget.setMinimumHeight(200)
             self._grid.setAlignment(widget, Qt.AlignmentFlag(0))
 
-    @staticmethod
-    def _guaranteed_cash_value(policy: 'PolicyInformation') -> Dict[str, Any]:
-        try:
-            return policy.guaranteed_cash_value()
-        except (ValueError, TypeError, ArithmeticError) as exc:
-            logger.warning("Guaranteed cash value not calculated for %s: %s",
-                           policy.policy_number, exc, exc_info=True)
-            return {"value": None, "details": [], "reason": f"Not calculated: {exc}"}
-
     def load_data_from_policy(self, policy: 'PolicyInformation'):
         """Load all data for this tab using PolicyInformation."""
         try:
-            is_advanced = policy.is_advanced_product
+            view_model = build_targets_view_model(policy)
+            self.doli_widget.load_data(view_model.doli_data)
+            self.accum_widget.load_data(view_model.accum_data)
+            self.tamra_widget.load_data(view_model.tamra_period, view_model.tamra_years)
+            self.commission_widget.set_not_applicable(not view_model.is_advanced)
+            self.min_prem_widget.set_not_applicable(not view_model.is_advanced)
 
-            # ── Definition of Life Insurance ──────────────────────────────
-            if is_advanced:
-                gsp_val = policy.gsp
-                glp_val = policy.glp
-                accum_glp_val = policy.accumulated_glp_target
-
-                corr_pct = policy.corridor_percent
-                corr_pct_display = ""
-                if corr_pct is not None:
-                    try:
-                        corr_pct_display = f"{float(corr_pct) / 100:.2f}"
-                    except Exception:
-                        corr_pct_display = str(corr_pct)
-
-                prem_pay_years = ""
-                max_annual = None
-                min_qual_glp = None
-
-                gpt_cvat = policy.gpt_cvat
-                tefra_defra = policy.tefra_defra
-                gpt_cvat_display = gpt_cvat
-
-                if gpt_cvat in ("GP", "GPT"):
-                    try:
-                        status_code = int(policy.status_code or "99")
-                        val_date = policy.valuation_date
-                        if (status_code < 97 and val_date is not None
-                                and accum_glp_val is not None and glp_val is not None
-                                and str(accum_glp_val) != "Null" and str(glp_val) != "Null"):
-                            age_at_mat = policy.age_at_maturity
-                            att_age = policy.attained_age
-                            if age_at_mat is not None and att_age is not None:
-                                ins_def_mat_age = min(100, age_at_mat)
-                                prem_pay_yrs = max(0, ins_def_mat_age - att_age - 1)
-                                prem_pay_years = str(prem_pay_yrs)
-                                accum_glp_at_mat = (float(glp_val) * prem_pay_yrs
-                                                    + float(accum_glp_val))
-                                premium_td_f = float(policy.premium_td)
-                                accum_wds_f = float(policy.total_withdrawals)
-                                if prem_pay_yrs > 0:
-                                    max_annual = (accum_glp_at_mat
-                                                  - (premium_td_f - accum_wds_f)) / prem_pay_yrs
-                                    min_qual = -(float(accum_glp_val)
-                                                 - (premium_td_f - accum_wds_f)) / prem_pay_yrs
-                                    if min_qual < 0:
-                                        min_qual_glp = min_qual
-                                else:
-                                    max_annual = 0
-                    except Exception:
-                        pass
-
-                doli_data = {
-                    "is_advanced": True,
-                    "tefra_defra": tefra_defra,
-                    "gpt_cvat": gpt_cvat_display,
-                    "gsp": gsp_val,
-                    "glp": glp_val,
-                    "accum_glp": accum_glp_val,
-                    "corr_pct": corr_pct_display,
-                    "prem_pay_years": prem_pay_years,
-                    "max_annual_level_qual_prem": max_annual,
-                    "min_qualifying_glp": min_qual_glp,
-                    "base_nsp": policy.nsp_base,
-                    "other_nsp": policy.nsp_other,
-                }
-            else:
-                doli_data = {"is_advanced": False}
-
-            self.doli_widget.load_data(doli_data)
-
-            # ── Accumulators ──────────────────────────────────────────────
-            reg_prem = float(policy.total_regular_premium or 0)
-            add_prem = float(policy.total_additional_premium or 0)
-            prem_ytd = float(policy.premium_ytd or 0)
-            cost_basis_val = (float(policy.cost_basis or 0)
-                              if policy.policy_totals_count > 0 else None)
-            accum_wds_val = (float(policy.total_withdrawals or 0)
-                             if policy.policy_totals_count > 0 else None)
-
-            # Prem Allowed by GPT — the guideline premium limit is the greater of
-            # the GSP or the accumulated GLP, so:
-            #   max(0, max(GSP, AccumGLP) - PremiumTD + AccumWD).
-            # N/A for CVAT policies (traditional products and advanced CVAT).
-            is_cvat = (not is_advanced) or str(policy.gpt_cvat).upper() not in ("GP", "GPT")
-            if is_cvat:
-                prem_allowed_gpt = "N/A"
-            else:
-                try:
-                    gsp_f = float(policy.gsp or 0)
-                    accum_glp_f = float(policy.accumulated_glp_target or 0)
-                    premium_td_f = float(policy.premium_td or 0)
-                    accum_wd_f = float(policy.total_withdrawals or 0)
-                    guideline_limit = max(gsp_f, accum_glp_f)
-                    prem_allowed_gpt = max(0.0, guideline_limit - premium_td_f + accum_wd_f)
-                except Exception:
-                    prem_allowed_gpt = "N/A"
-
-            accum_data = {
-                "premiums_paid": reg_prem + add_prem,
-                "reg_prem": reg_prem,
-                "additional_prem": add_prem,
-                "prem_ytd": prem_ytd,
-                "cost_basis": cost_basis_val,
-                "accum_wds": accum_wds_val,
-                "prem_allowed_gpt": prem_allowed_gpt,
-                "gcv": self._guaranteed_cash_value(policy),
-            }
-            self.accum_widget.load_data(accum_data)
-
-            # ── TAMRA Values ──────────────────────────────────────────────
-            tamra_per_rows = policy.fetch_table("LH_TAMRA_7_PY_PER")
-            tamra_per = tamra_per_rows[0] if tamra_per_rows else {}
-            tamra_yr_list = policy.fetch_table("LH_TAMRA_7_PY_YR")
-            self.tamra_widget.load_data(tamra_per, tamra_yr_list)
-
-            # ── Commission Target & Minimum Premium ───────────────────────
-            # Traditional products: show sections as N/A (green bg, single label)
-            self.commission_widget.set_not_applicable(not is_advanced)
-            self.min_prem_widget.set_not_applicable(not is_advanced)
-
-            cov_data = policy.fetch_table("LH_COV_PHA")
-            rnl_data = policy.fetch_table("LH_COV_INS_RNL_RT")
-            com_targets = policy.fetch_table("LH_COM_TARGET")
-            pol_targets = policy.fetch_table("LH_POL_TARGET")
-
-            if is_advanced:
-                # Advanced product but no target rows found in DB2 tables
-                # → show greyed-out 'Data not available' instead of empty tables
-                com_data_unavailable = len(com_targets) == 0
-                pol_data_unavailable = len(pol_targets) == 0
-                self.commission_widget.set_data_unavailable(com_data_unavailable)
-                self.min_prem_widget.set_data_unavailable(pol_data_unavailable)
+            if view_model.is_advanced:
+                self.commission_widget.set_data_unavailable(view_model.commission_unavailable)
+                self.min_prem_widget.set_data_unavailable(view_model.minimum_premium_unavailable)
                 self._compact_when_empty(
-                    self.commission_widget, com_data_unavailable,
+                    self.commission_widget, view_model.commission_unavailable,
                     "No commission target rows (LH_COM_TARGET) for this policy")
                 self._compact_when_empty(
-                    self.min_prem_widget, pol_data_unavailable,
+                    self.min_prem_widget, view_model.minimum_premium_unavailable,
                     "No minimum premium target rows (LH_POL_TARGET) for this policy")
             else:
                 self._compact_when_empty(self.commission_widget, True)
                 self._compact_when_empty(self.min_prem_widget, True)
 
-            self.commission_widget.load_data(com_targets, cov_data, rnl_data)
-            self.min_prem_widget.load_data(pol_targets, cov_data, rnl_data)
+            self.commission_widget.load_data(
+                view_model.commission_targets, view_model.coverages, view_model.renewal_rates)
+            self.min_prem_widget.load_data(
+                view_model.policy_targets, view_model.coverages, view_model.renewal_rates)
 
         except Exception:
             import traceback

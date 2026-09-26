@@ -57,6 +57,7 @@ class _MatrixPolicy:
     company_code = "01"
     product_type = "UL"
     is_advanced_product = True
+    product_rules = SimpleNamespace(rate_family="UL", is_advanced=True)
     issue_state = "TX"
 
     def cov_issue_date(self, _index):
@@ -342,7 +343,7 @@ def _glp_payload():
         glp=-2000.0,
         gsp=0.0,
     )
-    return glp_exception._build_result(
+    return glp_exception._build_result(glp_exception.GlpResultInputs(
         policy,
         date(2025, 7, 1),
         13,
@@ -359,7 +360,7 @@ def _glp_payload():
         glp_exception.PremiumAdjustmentSinceValuation(gross_premium=200.0, net_premium=180.0),
         49820.0,
         8800.0,
-    )
+    ))
 
 
 def polview_characterization_payload(monkeypatch):

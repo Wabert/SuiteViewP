@@ -145,78 +145,140 @@ def _same_month_day(a: Optional[date], b: date) -> bool:
     return bool(a and (a.month, a.day) == (b.month, b.day))
 
 
-def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
-    """Summarise whatever is already known about *policy* (never queries)."""
-    today = today or date.today()
-    read = _Reader(policy)
+@dataclass(frozen=True)
+class PolicySummaryFacts:
+    region: str
+    system: str
+    status_code: Optional[str]
+    status_desc: Optional[str]
+    advanced: Optional[bool]
+    product_type: Optional[str]
+    in_grace: Optional[bool]
+    grace_expiry: Optional[date]
+    valuation: Optional[date]
+    paid_to: Optional[date]
+    issue_date: Optional[date]
+    policy_year: Optional[int]
+
+
+@dataclass(frozen=True)
+class PolicySummaryBasis:
+    company: str
+    base: Any
+    facts: PolicySummaryFacts
+
+
+def _summary_basis(policy, read: _Reader) -> PolicySummaryBasis:
     region = str(getattr(policy, "region", "") or "")
     company = str(getattr(policy, "company_code", "") or "")
     system = str(getattr(policy, "system_code", "") or "")
-
     coverages = read.get("coverages", lambda p: p.get_coverages()) or []
     base = coverages[0] if coverages else None
-    status_code = read.get("premium_pay_status_code")
-    status_desc = read.get("premium_pay_status_description")
-    advanced = read.get("is_advanced_product")
-    product_type = read.get("product_type")
+    rules = read.get("product_rules")
+    advanced = getattr(rules, "is_advanced", None)
+    if advanced is None:
+        read.pending = [name for name in read.pending if name != "product_rules"]
+        advanced = read.get("is_advanced_product")
     in_grace = read.get("in_grace")
-    grace_expiry = read.get("grace_period_expiry_date") if in_grace else None
-    valuation = read.get("valuation_date")
-    paid_to = read.get("paid_to_date")
-    issue_date = base.issue_date if base is not None else None
-    policy_year = read.get("policy_year")
+    facts = PolicySummaryFacts(
+        region=region,
+        system=system,
+        status_code=read.get("premium_pay_status_code"),
+        status_desc=read.get("premium_pay_status_description"),
+        advanced=advanced,
+        product_type=read.get("product_type"),
+        in_grace=in_grace,
+        grace_expiry=read.get("grace_period_expiry_date") if in_grace else None,
+        valuation=read.get("valuation_date"),
+        paid_to=read.get("paid_to_date"),
+        issue_date=base.issue_date if base is not None else None,
+        policy_year=read.get("policy_year"),
+    )
+    return PolicySummaryBasis(company, base, facts)
 
+
+def _summary_chips(
+    policy,
+    read: _Reader,
+    facts: PolicySummaryFacts,
+    today: date,
+) -> tuple[tuple[Chip, ...], Optional[str]]:
     chips: list[Chip] = []
-
-    if region and region != PRODUCTION_REGION:
-        label = REGION_LABELS.get(region, "NON-PROD")
+    if facts.region and facts.region != PRODUCTION_REGION:
+        label = REGION_LABELS.get(facts.region, "NON-PROD")
         chips.append(Chip(
-            "region", region, TEST,
-            f"{region} is not production (CKPR). Values are {label.lower()} region data.",
+            "region", facts.region, TEST,
+            f"{facts.region} is not production (CKPR). Values are {label.lower()} region data.",
         ))
-    if system == "P":
+    if facts.system == "P":
         chips.append(Chip("pending", "Pending", WARN,
                           "Pending policy (CK_SYS_CD = 'P'), not yet inforce."))
-    if status_code:
+    if facts.status_code:
         chips.append(Chip(
-            "status", f"{status_code} {status_desc or ''}".strip(), status_tone(status_code),
-            f"Premium paying status {status_code} - {status_desc}\n"
+            "status", f"{facts.status_code} {facts.status_desc or ''}".strip(),
+            status_tone(facts.status_code),
+            f"Premium paying status {facts.status_code} - {facts.status_desc}\n"
             "Source: LH_BAS_POL.PRM_PAY_STA_REA_CD",
         ))
+    _append_policy_condition_chips(chips, read, facts)
+    partner = _append_reinsurance_and_product_chips(chips, read, facts)
+    _append_life_and_date_chips(chips, read, facts, today)
+    return tuple(chips), partner
+
+
+def _append_policy_condition_chips(
+    chips: list[Chip],
+    read: _Reader,
+    facts: PolicySummaryFacts,
+) -> None:
     suspense = read.get("suspense_code")
     if suspense and suspense != "0":
         chips.append(Chip(
             "suspense", read.get("suspense_description") or f"Suspense {suspense}", DANGER,
             f"Suspense code {suspense} (LH_BAS_POL.SUS_CD)",
         ))
-    if in_grace:
-        until = f" until {_fmt_date(grace_expiry)}" if grace_expiry else ""
+    if facts.in_grace:
+        until = f" until {_fmt_date(facts.grace_expiry)}" if facts.grace_expiry else ""
         chips.append(Chip("grace", f"In Grace{until}", DANGER,
                           f"Policy is in its grace period{until}. Premium is needed to keep "
                           "coverage in force.\nSource: IN_GRA_PER_IND = 1, GRA_PER_EXP_DT"))
-    mec = read.get("mec_indicator")
-    if mec == "1":
+    if read.get("mec_indicator") == "1":
         chips.append(Chip("mec", "MEC", WARN,
                           "Modified Endowment Contract (LH_TAMRA_7_PY_PER.MEC_STA_CD = 1)."))
     debt = read.get("policy_debt")
     if debt:
         chips.append(Chip("loan", f"Loan {_fmt_money(debt, cents=True)}", WARN,
                           "Total policy debt: loan principal plus accrued interest."))
-    reins = read.get("reins_partner")
-    reins = str(reins or "").strip()
+
+
+def _append_reinsurance_and_product_chips(
+    chips: list[Chip],
+    read: _Reader,
+    facts: PolicySummaryFacts,
+) -> Optional[str]:
+    reins = str(read.get("reins_partner") or "").strip()
     partner = None
     if reins:
         partner = "RGA" if reins == "R" else "ANICO"
         chips.append(Chip("reins", f"Reins {partner}", INFO,
                           f"Reinsurance partner code {reins} (TH_USER_GENERIC.FUZGREIN_IND)."))
-    if product_type:
-        kind = "Advanced" if advanced else "Traditional" if advanced is not None else ""
+    if facts.product_type:
+        kind = "Advanced" if facts.advanced else "Traditional" if facts.advanced is not None else ""
         product_line = read.get("product_line_description")
         chips.append(Chip(
-            "product", " · ".join(p for p in (product_type, kind) if p), NEUTRAL,
+            "product", " · ".join(p for p in (facts.product_type, kind) if p), NEUTRAL,
             f"Product line: {product_line or 'unknown'}",
         ))
-    if advanced:
+    return partner
+
+
+def _append_life_and_date_chips(
+    chips: list[Chip],
+    read: _Reader,
+    facts: PolicySummaryFacts,
+    today: date,
+) -> None:
+    if facts.advanced:
         dol = str(read.get("gpt_cvat") or "").strip()
         if dol:
             chips.append(Chip("dol", dol, NEUTRAL,
@@ -230,52 +292,58 @@ def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
     lives = read.get("insured_lives_description")
     if lives and lives != "Single":
         chips.append(Chip("joint", lives, INFO, "Base coverage lives code (NBR_OF_LIVES_CD)."))
-
-    # Traditional premium-paying policies whose paid-to has fallen behind.
-    if (advanced is False and status_code and status_code.startswith("2")
-            and paid_to and valuation and paid_to < valuation):
+    if (facts.advanced is False and facts.status_code and facts.status_code.startswith("2")
+            and facts.paid_to and facts.valuation and facts.paid_to < facts.valuation):
         chips.append(Chip(
-            "paid_to", f"Paid to {_fmt_date(paid_to)}", WARN,
-            f"Premium is paid to {_fmt_date(paid_to)}, before the valuation date "
-            f"{_fmt_date(valuation)} (LH_BAS_POL.PRM_PAID_TO_DT).",
+            "paid_to", f"Paid to {_fmt_date(facts.paid_to)}", WARN,
+            f"Premium is paid to {_fmt_date(facts.paid_to)}, before the valuation date "
+            f"{_fmt_date(facts.valuation)} (LH_BAS_POL.PRM_PAID_TO_DT).",
         ))
-
-    # A little delight: anniversaries, birthdays and vintage contracts.
-    if issue_date and _same_month_day(issue_date, today) and issue_date < today:
-        years = today.year - issue_date.year
+    if facts.issue_date and _same_month_day(facts.issue_date, today) and facts.issue_date < today:
+        years = today.year - facts.issue_date.year
         chips.append(Chip("anniversary", f"🎂 {years}-year anniversary today", FUN,
-                          f"Issued {_fmt_date(issue_date)}. Happy policy anniversary!"))
+                          f"Issued {_fmt_date(facts.issue_date)}. Happy policy anniversary!"))
     birth = read.get("primary_insured_birth_date")
     if _same_month_day(birth, today):
         chips.append(Chip("birthday", "🎈 Insured's birthday", FUN,
                           "It's the primary insured's birthday today."))
-    if policy_year and policy_year >= 50 and issue_date:
-        chips.append(Chip("vintage", f"🏛 Vintage {issue_date.year}", FUN,
-                          f"In force for {policy_year - 1}+ years. They don't make them like this anymore."))
+    if facts.policy_year and facts.policy_year >= 50 and facts.issue_date:
+        chips.append(Chip("vintage", f"🏛 Vintage {facts.issue_date.year}", FUN,
+                          f"In force for {facts.policy_year - 1}+ years. They don't make them like this anymore."))
 
-    db_option = read.get("db_option_description") if advanced else None
+
+def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
+    """Summarise whatever is already known about *policy* (never queries)."""
+    today = today or date.today()
+    read = _Reader(policy)
+    basis = _summary_basis(policy, read)
+    facts = basis.facts
+    base = basis.base
+    chips, partner = _summary_chips(policy, read, facts, today)
+
+    db_option = read.get("db_option_description") if facts.advanced else None
     return PolicySummary(
         policy_number=str(getattr(policy, "policy_number", "") or ""),
-        company_code=company,
+        company_code=basis.company,
         company_name=str(read.get("company_name") or ""),
-        region=region,
-        system_code=system,
+        region=facts.region,
+        system_code=facts.system,
         plancode=(base.plancode if base is not None else None),
         form_number=(str(getattr(base, "form_number", "") or "").strip() or None) if base else None,
-        product_type=product_type,
+        product_type=facts.product_type,
         db_option=db_option or None,
         insured_name=read.get("primary_insured_name") or None,
         total_death_benefit=read.get("total_death_benefit"),
-        issue_date=issue_date,
+        issue_date=facts.issue_date,
         issue_age=(base.issue_age if base is not None else None),
         attained_age=read.get("attained_age"),
-        policy_year=policy_year,
-        valuation_date=valuation,
-        paid_to_date=paid_to,
-        status_code=status_code,
-        status_description=status_desc,
+        policy_year=facts.policy_year,
+        valuation_date=facts.valuation,
+        paid_to_date=facts.paid_to,
+        status_code=facts.status_code,
+        status_description=facts.status_desc,
         reins_partner=partner,
-        chips=tuple(chips),
+        chips=chips,
         pending=tuple(dict.fromkeys(read.pending)),
     )
 
@@ -333,6 +401,7 @@ def support_tool_availability(policy) -> dict[str, ToolAvailability]:
     loaded = bool(policy is not None and getattr(policy, "exists", False))
     none_loaded = "Load a policy first."
     product = read.get("product_type") if loaded else None
+    rules = read.get("product_rules") if loaded else None
     glp = bool(loaded and read.get("glp", lambda p: is_glp_exception_eligible(p)))
     doli = read.get("def_of_life_ins_description") if loaded else ""
     glp_reason = (
@@ -340,7 +409,10 @@ def support_tool_availability(policy) -> dict[str, ToolAvailability]:
         f" (this policy: {product or 'unknown'}"
         + (f", {doli}" if doli else "") + ")."
     )
-    ul = bool(loaded and read.get("ul", lambda p: is_ul_policy(p)))
+    ul = bool(loaded and (
+        getattr(rules, "supports_reinstatement", None)
+        if rules is not None else is_ul_policy(policy)
+    ))
     rider = bool(loaded and read.get("annuity", lambda p: any(
         str(getattr(c, "plancode", "")).strip().upper() == "0699830R"
         for c in p.get_coverages())))
