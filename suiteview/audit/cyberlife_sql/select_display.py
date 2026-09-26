@@ -96,6 +96,12 @@ def add_rider_selects_and_from(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_policy_joins(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_policy_core_detail_joins(ctx, parts)
+    _add_policy_modifier_joins(ctx, parts)
+    _add_policy_status_joins(ctx, parts)
+
+
+def _add_policy_core_detail_joins(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.needs_premwd_face:
         parts.sql_parts.append('  INNER JOIN PREMWD_FACE')
         parts.sql_parts.append('    ON PREMWD_FACE.CK_SYS_CD = POLICY1.CK_SYS_CD')
@@ -132,6 +138,9 @@ def add_policy_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = LH_POL_YR_TOT_at_MaxDuration.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = LH_POL_YR_TOT_at_MaxDuration.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = LH_POL_YR_TOT_at_MaxDuration.TCH_POL_ID')
+
+
+def _add_policy_modifier_joins(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.has_nontrad or ctx.disp_db_option or ctx.disp_def_life_ins or ctx.adv_prem_wd_gt_face:
         parts.sql_parts.append(f'  LEFT OUTER JOIN {ctx.schema}.LH_NON_TRD_POL NONTRAD')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = NONTRAD.CK_SYS_CD')
@@ -163,6 +172,9 @@ def add_policy_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = REINSTATEMENT.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = REINSTATEMENT.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = REINSTATEMENT.TCH_POL_ID')
+
+
+def _add_policy_status_joins(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.has_slr or ctx.disp_slr_bill_form:
         parts.sql_parts.append(f'  LEFT OUTER JOIN {ctx.schema}.LH_LN_RPY_TRM SLR_BILL_CONTROL')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = SLR_BILL_CONTROL.CK_SYS_CD')
@@ -187,6 +199,12 @@ def add_policy_joins(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_conversion_and_debt_joins(ctx, parts)
+    _add_person_and_value_joins(ctx, parts)
+    _add_target_and_allocation_joins(ctx, parts)
+
+
+def _add_conversion_and_debt_joins(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_conversion_dates:
         parts.sql_parts.append('  LEFT OUTER JOIN CONVERSION_SC SC')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = SC.CK_SYS_CD')
@@ -212,6 +230,9 @@ def add_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = POLICYDEBT.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = POLICYDEBT.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = POLICYDEBT.TCH_POL_ID')
+
+
+def _add_person_and_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.has_change_seq:
         parts.sql_parts.append('  INNER JOIN CHANGE_SEGMENT')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = CHANGE_SEGMENT.CK_SYS_CD')
@@ -255,6 +276,9 @@ def add_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    ON COVERAGE1.CK_SYS_CD = TRAD_CV.CK_SYS_CD')
         parts.sql_parts.append('    AND COVERAGE1.CK_CMP_CD = TRAD_CV.CK_CMP_CD')
         parts.sql_parts.append('    AND COVERAGE1.TCH_POL_ID = TRAD_CV.TCH_POL_ID')
+
+
+def _add_target_and_allocation_joins(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.has_fund_values:
         parts.sql_parts.append('  INNER JOIN FUND_VALUES')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = FUND_VALUES.CK_SYS_CD')

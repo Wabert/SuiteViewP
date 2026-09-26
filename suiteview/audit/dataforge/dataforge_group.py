@@ -208,7 +208,23 @@ def _series_matches_range(series: pd.Series, lo: str, hi: str, column: str = "")
 
     lo_text = str(lo).strip()
     hi_text = str(hi).strip()
+    temporal_mask = _temporal_range_mask(series, non_null, mask, lo_text, hi_text, column)
+    if temporal_mask is not None:
+        return temporal_mask
+    numeric_mask = _numeric_range_mask(series, mask, lo_text, hi_text)
+    if numeric_mask is not None:
+        return numeric_mask
+    return _text_range_mask(series, mask, lo_text, hi_text)
 
+
+def _temporal_range_mask(
+    series: pd.Series,
+    non_null: pd.Series,
+    mask: pd.Series,
+    lo_text: str,
+    hi_text: str,
+    column: str,
+) -> pd.Series | None:
     sample_values = [str(value) for value in non_null.head(10)]
     temporal_markers = ("date", "time", "dt")
     looks_temporal = (
@@ -231,7 +247,15 @@ def _series_matches_range(series: pd.Series, lo: str, hi: str, column: str = "")
             if hi_text:
                 mask &= date_values <= parsed_bounds["hi"]
             return mask & date_values.notna()
+    return None
 
+
+def _numeric_range_mask(
+    series: pd.Series,
+    mask: pd.Series,
+    lo_text: str,
+    hi_text: str,
+) -> pd.Series | None:
     numeric_values = pd.to_numeric(series, errors="coerce")
     if numeric_values.notna().any():
         if lo_text:
@@ -245,7 +269,15 @@ def _series_matches_range(series: pd.Series, lo: str, hi: str, column: str = "")
             except ValueError:
                 pass
         return mask & numeric_values.notna()
+    return None
 
+
+def _text_range_mask(
+    series: pd.Series,
+    mask: pd.Series,
+    lo_text: str,
+    hi_text: str,
+) -> pd.Series:
     text_values = series.astype(str)
     if lo_text:
         mask &= text_values >= lo_text
@@ -2512,85 +2544,11 @@ class DataForgeGroup(QWidget):
         self._loading = True
         try:
             self.txt_max_count.setText(config.get("max_count", "25"))
-
-            # Restore sources
-            source_names = [str(name) for name in config.get("sources", [])]
-            source_ids = [str(object_id) for object_id in config.get("source_ids", [])]
-            source_rename_mapping: dict[str, str] = {}
-            loaded_ids = {
-                object_id for object_id in (
-                    self._query_object_id_from_qdefinition(qd)
-                    for qd in self._sources.values()
-                ) if object_id
-            }
-            for index, object_id in enumerate(source_ids):
-                obj = query_object_store.load_object_by_id(object_id)
-                if obj is None:
-                    continue
-                sq = qdefinition_from_query_object(obj)
-                sq.forge_name = self._saved_forge_name
-                self._sources[sq.name] = sq
-                loaded_ids.add(obj.id)
-                old_name = source_names[index] if index < len(source_names) else ""
-                if old_name and old_name != sq.name:
-                    source_rename_mapping[old_name] = sq.name
-            for name in source_names:
-                if name in source_rename_mapping:
-                    continue
-                sq = qdef_store.load_qdef(name, forge_name=self._saved_forge_name)
-                if not sq:
-                    sq = qdef_store.load_qdef(name)  # fallback: search all
-                if not sq:
-                    obj = query_object_store.load_object(name)
-                    if obj:
-                        sq = qdefinition_from_query_object(obj)
-                if sq:
-                    object_id = self._query_object_id_from_qdefinition(sq)
-                    if object_id and object_id in loaded_ids:
-                        continue
-                    self._sources[name] = sq
-                    if object_id:
-                        loaded_ids.add(object_id)
-            self.joins_tab.update_queries(list(self._sources.keys()),
-                                         self._query_columns_map(),
-                                         self._query_column_types_map())
-
-            # Restore filter tabs
-            tab_states = config.get("filter_tabs", [])
-            if tab_states:
-                while len(self._filter_tabs) > 1:
-                    tab = self._filter_tabs.pop()
-                    idx = self.tab_widget.indexOf(tab)
-                    if idx >= 0:
-                        self.tab_widget.removeTab(idx)
-                    tab.deleteLater()
-                if self._filter_tabs:
-                    self._filter_tabs[0].set_state(tab_states[0])
-                    name = tab_states[0].get("tab_name", "Filter")
-                    idx = self.tab_widget.indexOf(self._filter_tabs[0])
-                    if idx >= 0:
-                        self.tab_widget.setTabText(idx, name)
-                for ts in tab_states[1:]:
-                    tab = self._add_filter_tab(ts.get("tab_name", "Filter"))
-                    tab.set_state(ts)
-
-            # Restore joins
-            joins_state = config.get("joins_tab", {})
-            if joins_state:
-                self.joins_tab.set_state(joins_state)
-
-            # Restore display
-            display_state = config.get("display_tab", {})
-            if display_state:
-                self.display_tab.set_state(display_state)
-
+            source_rename_mapping = self._restore_config_sources(config)
+            self._restore_config_filter_tabs(config.get("filter_tabs", []))
+            self._restore_config_design_tabs(config)
             if source_rename_mapping:
-                self._rename_join_sources(source_rename_mapping)
-                self._rename_filter_sources(source_rename_mapping)
-                self._rename_display_sources(source_rename_mapping)
-                self.joins_tab.update_queries(list(self._sources.keys()),
-                                             self._query_columns_map(),
-                                             self._query_column_types_map())
+                self._apply_config_source_renames(source_rename_mapping)
 
             # Restore Manual mode (after sources/joins so a compile works)
             self.sql_tab.set_manual_state(
@@ -2600,6 +2558,93 @@ class DataForgeGroup(QWidget):
         finally:
             self._loading = False
             self._dirty = False
+
+    def _restore_config_sources(self, config: dict) -> dict[str, str]:
+        source_names = [str(name) for name in config.get("sources", [])]
+        source_ids = [str(object_id) for object_id in config.get("source_ids", [])]
+        source_rename_mapping: dict[str, str] = {}
+        loaded_ids = {
+            object_id for object_id in (
+                self._query_object_id_from_qdefinition(qd)
+                for qd in self._sources.values()
+            ) if object_id
+        }
+        for index, object_id in enumerate(source_ids):
+            obj = query_object_store.load_object_by_id(object_id)
+            if obj is None:
+                continue
+            sq = qdefinition_from_query_object(obj)
+            sq.forge_name = self._saved_forge_name
+            self._sources[sq.name] = sq
+            loaded_ids.add(obj.id)
+            old_name = source_names[index] if index < len(source_names) else ""
+            if old_name and old_name != sq.name:
+                source_rename_mapping[old_name] = sq.name
+        self._restore_config_sources_by_name(source_names, source_rename_mapping, loaded_ids)
+        self._update_joins_query_list()
+        return source_rename_mapping
+
+    def _restore_config_sources_by_name(
+        self,
+        source_names: list[str],
+        source_rename_mapping: dict[str, str],
+        loaded_ids: set[str],
+    ) -> None:
+        for name in source_names:
+            if name in source_rename_mapping:
+                continue
+            sq = qdef_store.load_qdef(name, forge_name=self._saved_forge_name)
+            if not sq:
+                sq = qdef_store.load_qdef(name)  # fallback: search all
+            if not sq:
+                obj = query_object_store.load_object(name)
+                if obj:
+                    sq = qdefinition_from_query_object(obj)
+            if sq:
+                object_id = self._query_object_id_from_qdefinition(sq)
+                if object_id and object_id in loaded_ids:
+                    continue
+                self._sources[name] = sq
+                if object_id:
+                    loaded_ids.add(object_id)
+
+    def _update_joins_query_list(self) -> None:
+        self.joins_tab.update_queries(list(self._sources.keys()),
+                                      self._query_columns_map(),
+                                      self._query_column_types_map())
+
+    def _restore_config_filter_tabs(self, tab_states: list[dict]) -> None:
+        if not tab_states:
+            return
+        while len(self._filter_tabs) > 1:
+            tab = self._filter_tabs.pop()
+            idx = self.tab_widget.indexOf(tab)
+            if idx >= 0:
+                self.tab_widget.removeTab(idx)
+            tab.deleteLater()
+        if self._filter_tabs:
+            self._filter_tabs[0].set_state(tab_states[0])
+            name = tab_states[0].get("tab_name", "Filter")
+            idx = self.tab_widget.indexOf(self._filter_tabs[0])
+            if idx >= 0:
+                self.tab_widget.setTabText(idx, name)
+        for ts in tab_states[1:]:
+            tab = self._add_filter_tab(ts.get("tab_name", "Filter"))
+            tab.set_state(ts)
+
+    def _restore_config_design_tabs(self, config: dict) -> None:
+        joins_state = config.get("joins_tab", {})
+        if joins_state:
+            self.joins_tab.set_state(joins_state)
+        display_state = config.get("display_tab", {})
+        if display_state:
+            self.display_tab.set_state(display_state)
+
+    def _apply_config_source_renames(self, source_rename_mapping: dict[str, str]) -> None:
+        self._rename_join_sources(source_rename_mapping)
+        self._rename_filter_sources(source_rename_mapping)
+        self._rename_display_sources(source_rename_mapping)
+        self._update_joins_query_list()
 
 
 def _var(name: str) -> str:

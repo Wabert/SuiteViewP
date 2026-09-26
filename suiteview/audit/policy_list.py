@@ -221,7 +221,29 @@ def build_policy_list(
     width = len(grid[0])
     headers = grid[0] if has_header else [f"Column{i + 1}" for i in range(width)]
     body = grid[1:] if has_header else grid
+    columns, extras = _policy_list_columns(headers, width, policy_col, company_col, system_code)
+    result = PolicyList(columns=columns, rows=[])
+    _append_policy_list_rows(
+        result,
+        body,
+        width=width,
+        policy_col=policy_col,
+        company_col=company_col,
+        extras=extras,
+        system_code=system_code,
+        remove_duplicates=remove_duplicates,
+        pad_numeric_to=pad_numeric_to,
+    )
+    return result
 
+
+def _policy_list_columns(
+    headers: list[str],
+    width: int,
+    policy_col: int,
+    company_col: int | None,
+    system_code: str,
+) -> tuple[list[str], list[int]]:
     columns = [POLICY_COLUMN]
     if company_col is not None:
         columns.append(COMPANY_COLUMN)
@@ -231,26 +253,32 @@ def build_policy_list(
     extras = [col for col in range(width) if col not in (policy_col, company_col)]
     columns.extend(_unique(re.sub(r"\s+", " ", headers[col]).strip() or f"Column{col + 1}",
                            taken) for col in extras)
+    return columns, extras
 
-    result = PolicyList(columns=columns, rows=[])
+
+def _append_policy_list_rows(
+    result: PolicyList,
+    body: list[list[str]],
+    *,
+    width: int,
+    policy_col: int,
+    company_col: int | None,
+    extras: list[int],
+    system_code: str,
+    remove_duplicates: bool,
+    pad_numeric_to: int | None,
+) -> None:
     seen: set[tuple[str, str]] = set()
     unknown: list[str] = []
     numeric_lengths: set[int] = set()
     for row in body:
-        policy = row[policy_col].strip().upper() if policy_col < width else ""
-        if not policy:
-            result.blank_policies += 1
+        prepared = _prepare_policy_list_row(
+            result, row, width, policy_col, company_col, pad_numeric_to, unknown)
+        if prepared is None:
             continue
-        if pad_numeric_to and policy.isdigit():
-            policy = policy.zfill(pad_numeric_to)
+        policy, company = prepared
         if policy.isdigit():
             numeric_lengths.add(len(policy))
-        company = normalize_company(row[company_col]) if company_col is not None else ""
-        if company_col is not None:
-            if not company:
-                result.blank_companies += 1
-            elif company not in KNOWN_COMPANY_CODES and company not in unknown:
-                unknown.append(company)
         key = (policy, company)
         if remove_duplicates and key in seen:
             result.duplicates_removed += 1
@@ -267,7 +295,30 @@ def build_policy_list(
     longest = max((len(row[0]) for row in result.rows), default=0)
     if numeric_lengths and (len(numeric_lengths) > 1 or min(numeric_lengths) < longest):
         result.numeric_lengths = (min(numeric_lengths), max(max(numeric_lengths), longest))
-    return result
+
+
+def _prepare_policy_list_row(
+    result: PolicyList,
+    row: list[str],
+    width: int,
+    policy_col: int,
+    company_col: int | None,
+    pad_numeric_to: int | None,
+    unknown: list[str],
+) -> tuple[str, str] | None:
+    policy = row[policy_col].strip().upper() if policy_col < width else ""
+    if not policy:
+        result.blank_policies += 1
+        return None
+    if pad_numeric_to and policy.isdigit():
+        policy = policy.zfill(pad_numeric_to)
+    company = normalize_company(row[company_col]) if company_col is not None else ""
+    if company_col is not None:
+        if not company:
+            result.blank_companies += 1
+        elif company not in KNOWN_COMPANY_CODES and company not in unknown:
+            unknown.append(company)
+    return policy, company
 
 
 def safe_table_name(name: str, taken: set[str]) -> str:
@@ -296,33 +347,56 @@ def identify_columns(rows: list[list[str]], has_header: bool) -> tuple[int | Non
         return None, None
     width = len(rows[0])
     body = rows[1:] if has_header else rows
-    policy = company = None
-    if has_header:
-        for col, name in enumerate(rows[0]):
-            role = _role(name)
-            if role == "policy" and policy is None:
-                policy = col
-            elif role == "company" and company is None:
-                company = col
+    policy, company = _header_roles(rows[0], has_header)
     named_company = company is not None
     columns = [[row[col].strip().upper() for row in body if row[col].strip()]
                for col in range(width)]
-    if company is None:
-        company = next((col for col in range(width) if col != policy and columns[col]
-                        and all(normalize_company(v) in KNOWN_COMPANY_CODES
-                                for v in columns[col])), None)
-    if policy is None:
-        for col in range(width):
-            values = columns[col]
-            if col == company or not values or not all(_POLICY_SHAPE.match(v) for v in values):
-                continue
-            prefixed = sum(bool(_PREFIXED_POLICY.match(v)) for v in values)
-            if prefixed * 2 >= len(values) or company is not None:
-                policy = col
-                break
+    company = _infer_company_column(columns, policy, company)
+    policy = _infer_policy_column(columns, policy, company)
     if policy is None and not named_company:
         company = None  # small numbers alone are not evidence of company codes
     return policy, company
+
+
+def _header_roles(header: list[str], has_header: bool) -> tuple[int | None, int | None]:
+    policy = company = None
+    if not has_header:
+        return policy, company
+    for col, name in enumerate(header):
+        role = _role(name)
+        if role == "policy" and policy is None:
+            policy = col
+        elif role == "company" and company is None:
+            company = col
+    return policy, company
+
+
+def _infer_company_column(
+    columns: list[list[str]],
+    policy: int | None,
+    company: int | None,
+) -> int | None:
+    if company is not None:
+        return company
+    return next((col for col, values in enumerate(columns)
+                 if col != policy and values
+                 and all(normalize_company(v) in KNOWN_COMPANY_CODES for v in values)), None)
+
+
+def _infer_policy_column(
+    columns: list[list[str]],
+    policy: int | None,
+    company: int | None,
+) -> int | None:
+    if policy is not None:
+        return policy
+    for col, values in enumerate(columns):
+        if col == company or not values or not all(_POLICY_SHAPE.match(v) for v in values):
+            continue
+        prefixed = sum(bool(_PREFIXED_POLICY.match(v)) for v in values)
+        if prefixed * 2 >= len(values) or company is not None:
+            return col
+    return None
 
 
 def list_column_names(rows: list[list[str]], has_header: bool,

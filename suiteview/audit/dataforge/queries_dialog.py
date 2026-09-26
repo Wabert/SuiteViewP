@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QMimeData, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -31,6 +31,7 @@ from suiteview.audit import saved_query_store
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.core.odbc_utils import connect_dsn
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 if TYPE_CHECKING:
     pass
@@ -120,13 +121,12 @@ FORGE_FIELD_DRAG_MIME = "application/x-dataforge-field-drag"
 
 # ── Background field loader ─────────────────────────────────────────
 
-class _QueryFieldLoaderThread(QThread):
-    """Background thread to fetch column metadata from a saved query's DSN."""
-    columns_loaded = pyqtSignal(list)  # list of (name, type_name, size, nullable)
-    error_occurred = pyqtSignal(str)
+class _QueryFieldLoaderWorker(QObject):
+    """Fetch column metadata from a saved query's DSN on a worker thread."""
 
     def __init__(self, dsn: str, tables: list[str], parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.dsn = dsn
         self.tables = tables
 
@@ -160,9 +160,11 @@ class _QueryFieldLoaderThread(QThread):
                     columns.append((col_name, type_name, col_size, nullable))
 
             conn.close()
-            self.columns_loaded.emit(columns)
+            self.signals.result.emit(columns)
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
 # ── Draggable field tree ─────────────────────────────────────────────
@@ -240,10 +242,10 @@ class QueriesFieldsDialog(QDialog):
         self._sources: dict[str, QDefinition] = dict(source_queries)
         self._forge_name = forge_name
         self._current_query: str = ""
-        # Live field-loader threads. Kept referenced until they finish so a
+        # Live field-loader controllers. Kept referenced until they finish so a
         # superseded loader (fast query switching) isn't garbage-collected
-        # mid-run — that would crash with "QThread destroyed while running".
-        self._loaders: list[_QueryFieldLoaderThread] = []
+        # mid-run.
+        self._loaders: list[WorkerController] = []
         self._field_cache: dict[str, list[tuple]] = {}  # query_name → [(col, type, size, null)]
         self._loaded_queries: set[str] = set()  # queries with data in memory
 
@@ -629,10 +631,11 @@ class QueriesFieldsDialog(QDialog):
             self.tree_fields.clear()
             self.lbl_field_status.setText("Loading fields...")
 
-            loader = _QueryFieldLoaderThread(sq.dsn, sq.tables, self)
-            loader.columns_loaded.connect(
+            worker = _QueryFieldLoaderWorker(sq.dsn, sq.tables)
+            loader = WorkerController(self, worker)
+            loader.result.connect(
                 lambda cols, qn=query_name: self._on_fields_loaded(qn, cols))
-            loader.error_occurred.connect(
+            loader.error.connect(
                 lambda msg, qn=query_name: self._on_fields_error(qn, msg))
             loader.finished.connect(lambda ldr=loader: self._cleanup_loader(ldr))
             self._loaders.append(loader)
@@ -669,8 +672,8 @@ class QueriesFieldsDialog(QDialog):
         else:
             self.lbl_field_status.setText("No field information available")
 
-    def _cleanup_loader(self, loader: "_QueryFieldLoaderThread") -> None:
-        """Drop a finished loader thread reference (connected to finished)."""
+    def _cleanup_loader(self, loader: WorkerController) -> None:
+        """Drop a finished loader controller reference."""
         if loader in self._loaders:
             self._loaders.remove(loader)
 

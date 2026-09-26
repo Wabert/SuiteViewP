@@ -61,14 +61,31 @@ def suggest_join_keys(
     if not left_columns or not right_columns:
         return []
     left_up, right_up = _by_upper(left_columns), _by_upper(right_columns)
+    database_pairs = _database_policy_pairs(left_up, right_up, left_kind, right_kind)
+    if database_pairs:
+        return database_pairs
+    role_pairs = _role_pairs(left_columns, right_columns)
+    if role_pairs:
+        return role_pairs
+    return _matching_key_pairs(left_columns, right_columns)
 
+
+def _database_policy_pairs(
+    left_up: dict[str, str],
+    right_up: dict[str, str],
+    left_kind: str,
+    right_kind: str,
+) -> list[tuple[str, str]]:
     if left_kind == KIND_DATABASE and right_kind == KIND_DATABASE:
         if "TCH_POL_ID" in left_up and "TCH_POL_ID" in right_up:
             keys = [k for k in POLICY_KEY if k in left_up and k in right_up]
             if COVERAGE_KEY in left_up and COVERAGE_KEY in right_up:
                 keys.append(COVERAGE_KEY)
             return [(left_up[k], right_up[k]) for k in keys]
+    return []
 
+
+def _role_pairs(left_columns: list[str], right_columns: list[str]) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for role, aliases in _ROLES:
         left = _role_column(left_columns, aliases)
@@ -79,7 +96,11 @@ def suggest_join_keys(
             break  # company / system alone would match far too many rows
     if pairs:
         return pairs
+    return []
 
+
+def _matching_key_pairs(left_columns: list[str], right_columns: list[str]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
     right_norm = {normalize_name(col): col for col in right_columns}
     for col in left_columns:
         norm = normalize_name(col)

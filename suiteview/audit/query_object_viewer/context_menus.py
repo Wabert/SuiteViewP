@@ -349,37 +349,18 @@ class QueryObjectViewerOrganizerActionsMixin:
         if forge is None:
             raise ValueError(f"DataForge \"{forge_name}\" was not found.")
 
-        source = None
-        for candidate in forge.sources:
-            definition = candidate.definition or {}
-            if (candidate.query_name == old_name
-                    or candidate.effective_alias() == old_name
-                    or definition.get("id") == obj.id):
-                source = candidate
-                break
+        source = QueryObjectViewerOrganizerActionsMixin._find_forge_source(
+            forge, old_name, obj.id)
         if source is None:
             raise ValueError(
                 f"Source \"{old_name}\" was not found in \"{forge_name}\".")
 
         old_alias = source.effective_alias()
         new_alias = new_name if not source.alias or source.alias == old_name else source.alias
-        for candidate in forge.sources:
-            if candidate is source:
-                continue
-            if candidate.query_name == new_name or candidate.effective_alias() == new_alias:
-                raise ValueError(
-                    f"A Source named \"{new_name}\" already exists in \"{forge_name}\".")
-
-        obj.name = new_name
-        obj.updated_at = datetime.now()
-        obj.config = dict(obj.config or {})
-        dataforge_config = obj.config.get("dataforge", {})
-        if not isinstance(dataforge_config, dict):
-            dataforge_config = {}
-        dataforge_config["forge_name"] = forge_name
-        dataforge_config.setdefault("source_name", old_name)
-        obj.config["dataforge"] = dataforge_config
-        query_object_store.save_object(obj)
+        QueryObjectViewerOrganizerActionsMixin._ensure_forge_source_name_available(
+            forge, source, forge_name, new_name, new_alias)
+        QueryObjectViewerOrganizerActionsMixin._save_renamed_forge_object(
+            obj, forge_name, old_name, new_name)
         # Move a visual Source's name-keyed design too (no-op if none).
         saved_query_store.rename_query(old_name, new_name)
 
@@ -402,6 +383,49 @@ class QueryObjectViewerOrganizerActionsMixin:
             dict(forge.config or {}), mapping)
         dataforge_store.save_forge(forge)
         return obj
+
+    @staticmethod
+    def _find_forge_source(forge, old_name: str, object_id: str):
+        for candidate in forge.sources:
+            definition = candidate.definition or {}
+            if (candidate.query_name == old_name
+                    or candidate.effective_alias() == old_name
+                    or definition.get("id") == object_id):
+                return candidate
+        return None
+
+    @staticmethod
+    def _ensure_forge_source_name_available(
+        forge,
+        source,
+        forge_name: str,
+        new_name: str,
+        new_alias: str,
+    ) -> None:
+        for candidate in forge.sources:
+            if candidate is source:
+                continue
+            if candidate.query_name == new_name or candidate.effective_alias() == new_alias:
+                raise ValueError(
+                    f"A Source named \"{new_name}\" already exists in \"{forge_name}\".")
+
+    @staticmethod
+    def _save_renamed_forge_object(
+        obj: QueryObject,
+        forge_name: str,
+        old_name: str,
+        new_name: str,
+    ) -> None:
+        obj.name = new_name
+        obj.updated_at = datetime.now()
+        obj.config = dict(obj.config or {})
+        dataforge_config = obj.config.get("dataforge", {})
+        if not isinstance(dataforge_config, dict):
+            dataforge_config = {}
+        dataforge_config["forge_name"] = forge_name
+        dataforge_config.setdefault("source_name", old_name)
+        obj.config["dataforge"] = dataforge_config
+        query_object_store.save_object(obj)
 
     @staticmethod
     def _delete_forge_qdef_file_only(forge_name: str, qdef_name: str) -> None:

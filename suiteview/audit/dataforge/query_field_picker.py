@@ -1029,11 +1029,7 @@ class QueryFieldPicker(QWidget):
 
     def _rename_qdef(self, old_name: str):
         from PyQt6.QtWidgets import QInputDialog, QMessageBox
-        qd = self._sources.get(old_name)
-        if qd is None:
-            qd = qdef_store.load_qdef(old_name, forge_name=self._current_forge_name)
-        if qd is None:
-            qd = qdef_store.load_qdef(old_name)
+        qd = self._load_rename_qdef(old_name)
         if qd is None:
             QMessageBox.warning(
                 self, "Rename Failed",
@@ -1050,74 +1046,24 @@ class QueryFieldPicker(QWidget):
             self, "Rename Query", "Query name:", text=old_display_name)
         if not ok or not new_name.strip():
             return
-        new_display_name = _forge_copy_source_name(new_name.strip(), forge) or new_name.strip()
-        new_storage_name = self._storage_name_for_source_label(
-            new_display_name, old_storage_name, forge)
+        new_display_name, new_storage_name = self._rename_targets(
+            new_name.strip(), forge, old_storage_name)
         if new_storage_name == old_storage_name and new_display_name == old_display_name:
             return
 
-        object_id = str(config.get("query_object_id", "")).strip() or str(dataforge.get("query_object_id", "")).strip()
-        obj = query_object_store.load_object_by_id(object_id) if object_id else None
-        if obj is None:
-            obj = query_object_store.load_object(old_name)
-        if obj is not None:
-            object_id = obj.id
-
-        conflicting_source = self._sources.get(new_storage_name)
-        conflicting_qdef = qdef_store.load_qdef(new_storage_name, forge_name=forge) if new_storage_name != old_storage_name else None
-        if (new_storage_name != old_storage_name
-                and ((conflicting_source is not None
-                      and not self._qdefinition_matches_object_id(conflicting_source, object_id))
-                     or (conflicting_qdef is not None
-                         and not self._qdefinition_matches_object_id(conflicting_qdef, object_id)))):
+        object_id, obj = self._rename_object_context(config, dataforge, old_name)
+        if self._rename_conflicts(new_storage_name, old_storage_name, forge, object_id):
             QMessageBox.warning(
                 self, "Name Exists",
                 f"A query object named '{new_display_name}' already exists.")
             return
 
-        if object_id:
-            config["query_object_id"] = object_id
-        dataforge = dict(dataforge)
-        if forge:
-            dataforge["forge_name"] = forge
-        dataforge["source_name"] = new_display_name
-        if object_id:
-            dataforge["query_object_id"] = object_id
-        config["dataforge"] = dataforge
-
-        old_qdef_path = None
-        new_qdef_path = None
-        if forge:
-            forge_dir = qdef_store._forge_dir(forge)
-            old_qdef_path = forge_dir / f"{qdef_store._safe_filename(old_storage_name)}.json"
-            new_qdef_path = forge_dir / f"{qdef_store._safe_filename(new_storage_name)}.json"
-
-        qd.name = new_storage_name
-        qd.forge_name = forge
-        qd.query_object_config = config
-        qdef_store.save_qdef(qd)
-        old_snap = qdef_store.snapshot_path(old_storage_name, forge_name=forge)
-        if old_snap.exists():
-            new_snap = qdef_store.snapshot_path(new_storage_name, forge_name=forge)
-            if not new_snap.exists():
-                old_snap.rename(new_snap)
-        if old_qdef_path is not None and old_qdef_path != new_qdef_path:
-            old_qdef_path.unlink(missing_ok=True)
-        else:
-            qdef_store.delete_qdef(old_storage_name, forge_name=forge)
+        dataforge = self._rename_config(config, dataforge, forge, new_display_name, object_id)
+        self._save_renamed_qdef(qd, old_storage_name, new_storage_name, forge, config)
 
         if obj is not None:
-            obj.name = new_storage_name
-            obj.config = dict(obj.config or {})
-            obj_dataforge = obj.config.get("dataforge", {})
-            obj_dataforge = dict(obj_dataforge) if isinstance(obj_dataforge, dict) else {}
-            obj_dataforge.update(dataforge)
-            obj.config["dataforge"] = obj_dataforge
-            for field in obj.fields:
-                if field.source in {old_storage_name, old_display_name}:
-                    field.source = new_storage_name
-            obj.updated_at = datetime.now()
-            query_object_store.save_object(obj)
+            self._save_renamed_query_object(
+                obj, old_storage_name, old_display_name, new_storage_name, dataforge)
 
         # Move a visual Source's name-keyed design too (no-op if none) so the
         # rename sticks and no stale old-name design lingers to resurrect it.
@@ -1132,6 +1078,126 @@ class QueryFieldPicker(QWidget):
         self._rebuild_query_list(select_name=new_storage_name)
         self._update_query_object_button()
         self.source_refreshed.emit(old_storage_name, qd)
+
+    def _load_rename_qdef(self, old_name: str) -> QDefinition | None:
+        qd = self._sources.get(old_name)
+        if qd is None:
+            qd = qdef_store.load_qdef(old_name, forge_name=self._current_forge_name)
+        if qd is None:
+            qd = qdef_store.load_qdef(old_name)
+        return qd
+
+    def _rename_targets(
+        self,
+        requested_name: str,
+        forge: str,
+        old_storage_name: str,
+    ) -> tuple[str, str]:
+        new_display_name = _forge_copy_source_name(requested_name, forge) or requested_name
+        new_storage_name = self._storage_name_for_source_label(
+            new_display_name, old_storage_name, forge)
+        return new_display_name, new_storage_name
+
+    @staticmethod
+    def _rename_object_context(
+        config: dict,
+        dataforge: dict,
+        old_name: str,
+    ) -> tuple[str, QueryObject | None]:
+        object_id = (
+            str(config.get("query_object_id", "")).strip()
+            or str(dataforge.get("query_object_id", "")).strip()
+        )
+        obj = query_object_store.load_object_by_id(object_id) if object_id else None
+        if obj is None:
+            obj = query_object_store.load_object(old_name)
+        if obj is not None:
+            object_id = obj.id
+        return object_id, obj
+
+    def _rename_conflicts(
+        self,
+        new_storage_name: str,
+        old_storage_name: str,
+        forge: str,
+        object_id: str,
+    ) -> bool:
+        if new_storage_name == old_storage_name:
+            return False
+        conflicting_source = self._sources.get(new_storage_name)
+        conflicting_qdef = qdef_store.load_qdef(new_storage_name, forge_name=forge)
+        return (
+            (conflicting_source is not None
+             and not self._qdefinition_matches_object_id(conflicting_source, object_id))
+            or (conflicting_qdef is not None
+                and not self._qdefinition_matches_object_id(conflicting_qdef, object_id))
+        )
+
+    @staticmethod
+    def _rename_config(
+        config: dict,
+        dataforge: dict,
+        forge: str,
+        new_display_name: str,
+        object_id: str,
+    ) -> dict:
+        if object_id:
+            config["query_object_id"] = object_id
+        dataforge = dict(dataforge)
+        if forge:
+            dataforge["forge_name"] = forge
+        dataforge["source_name"] = new_display_name
+        if object_id:
+            dataforge["query_object_id"] = object_id
+        config["dataforge"] = dataforge
+        return dataforge
+
+    @staticmethod
+    def _save_renamed_qdef(
+        qd: QDefinition,
+        old_storage_name: str,
+        new_storage_name: str,
+        forge: str,
+        config: dict,
+    ) -> None:
+        old_qdef_path = new_qdef_path = None
+        if forge:
+            forge_dir = qdef_store._forge_dir(forge)
+            old_qdef_path = forge_dir / f"{qdef_store._safe_filename(old_storage_name)}.json"
+            new_qdef_path = forge_dir / f"{qdef_store._safe_filename(new_storage_name)}.json"
+        qd.name = new_storage_name
+        qd.forge_name = forge
+        qd.query_object_config = config
+        qdef_store.save_qdef(qd)
+        old_snap = qdef_store.snapshot_path(old_storage_name, forge_name=forge)
+        if old_snap.exists():
+            new_snap = qdef_store.snapshot_path(new_storage_name, forge_name=forge)
+            if not new_snap.exists():
+                old_snap.rename(new_snap)
+        if old_qdef_path is not None and old_qdef_path != new_qdef_path:
+            old_qdef_path.unlink(missing_ok=True)
+        else:
+            qdef_store.delete_qdef(old_storage_name, forge_name=forge)
+
+    @staticmethod
+    def _save_renamed_query_object(
+        obj: QueryObject,
+        old_storage_name: str,
+        old_display_name: str,
+        new_storage_name: str,
+        dataforge: dict,
+    ) -> None:
+        obj.name = new_storage_name
+        obj.config = dict(obj.config or {})
+        obj_dataforge = obj.config.get("dataforge", {})
+        obj_dataforge = dict(obj_dataforge) if isinstance(obj_dataforge, dict) else {}
+        obj_dataforge.update(dataforge)
+        obj.config["dataforge"] = obj_dataforge
+        for field in obj.fields:
+            if field.source in {old_storage_name, old_display_name}:
+                field.source = new_storage_name
+        obj.updated_at = datetime.now()
+        query_object_store.save_object(obj)
 
     def _preview_query_data(self, query_name: str):
         sq = self._sources.get(query_name)

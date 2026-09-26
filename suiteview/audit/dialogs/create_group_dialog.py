@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 import pyodbc
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from .tables_dialog import _clean_odbc_identifier
 from ..tabs._styles import TightItemDelegate
 from suiteview.core.odbc_utils import connect_dsn
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +47,12 @@ _LIST_STYLE = (
 )
 
 
-class _TableLoaderThread(QThread):
-    """Background thread to fetch table names from an ODBC DSN."""
-    tables_loaded = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
+class _TableLoaderWorker(QObject):
+    """Fetch table names from an ODBC DSN inside a WorkerController thread."""
 
     def __init__(self, dsn: str, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.dsn = dsn
 
     def run(self):
@@ -81,9 +81,11 @@ class _TableLoaderThread(QThread):
                 logger.warning("Error iterating tables for %s: %s",
                                self.dsn, exc)
             conn.close()
-            self.tables_loaded.emit(sorted(tables))
+            self.signals.result.emit(sorted(tables))
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
 class CreateQueryDialog(QDialog):
@@ -97,7 +99,7 @@ class CreateQueryDialog(QDialog):
 
         self._selected_dsn: str = ""
         self._tables: list[str] = []
-        self._loader: _TableLoaderThread | None = None
+        self._loader: WorkerController | None = None
 
         self._result_name: str = ""
         self._result_dsn: str = ""
@@ -234,9 +236,10 @@ class CreateQueryDialog(QDialog):
         self.lbl_table_status.setText("Loading tables...")
         self.list_tables.setEnabled(False)
 
-        self._loader = _TableLoaderThread(dsn, self)
-        self._loader.tables_loaded.connect(self._on_tables_loaded)
-        self._loader.error_occurred.connect(self._on_tables_error)
+        worker = _TableLoaderWorker(dsn)
+        self._loader = WorkerController(self, worker)
+        self._loader.result.connect(self._on_tables_loaded)
+        self._loader.error.connect(self._on_tables_error)
         self._loader.start()
 
     def _on_tables_loaded(self, tables: list[str]):

@@ -195,11 +195,23 @@ def add_transaction_and_people_joins(ctx: QueryContext, parts: SqlParts) -> None
 def emit_rider_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str, idx: int) -> None:
     if not info['active']:
         return
+    _emit_rider_base_join(ctx, parts, alias)
+    _emit_rider_identity_filters(parts, info, alias)
+    _emit_rider_date_amount_filters(parts, info, alias)
+    _emit_rider_mod_join(ctx, parts, info, alias)
+    _emit_rider_renewal_join(ctx, parts, info, alias)
+    _emit_rider_rating_joins(ctx, parts, info, alias)
+
+
+def _emit_rider_base_join(ctx: QueryContext, parts: SqlParts, alias: str) -> None:
     parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_PHA {alias}')
     parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {alias}.CK_SYS_CD')
     parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {alias}.CK_CMP_CD')
     parts.sql_parts.append(f'    AND POLICY1.TCH_POL_ID = {alias}.TCH_POL_ID')
     parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR > 1')
+
+
+def _emit_rider_identity_filters(parts: SqlParts, info: dict, alias: str) -> None:
     pc = info['plancode']
     if pc:
         parts.sql_parts.append(f"    AND {alias}.PLN_DES_SER_CD = '{esc(pc)}'")
@@ -217,6 +229,9 @@ def emit_rider_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str,
         parts.sql_parts.append(f"    AND {alias}.PRS_CD = '{esc(code)}'")
     if info['post_issue']:
         parts.sql_parts.append(f'    AND {alias}.ISSUE_DT > COVERAGE1.ISSUE_DT')
+
+
+def _emit_rider_date_amount_filters(parts: SqlParts, info: dict, alias: str) -> None:
     issue_lo = info['issue_date_lo']
     if issue_lo:
         parts.sql_parts.append(f"    AND {alias}.ISSUE_DT >= '{esc(issue_lo)}'")
@@ -271,6 +286,9 @@ def emit_rider_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str,
             parts.sql_parts.append(f'    AND {alias}.PLN_DES_SER_CD = COVERAGE1.PLN_DES_SER_CD')
         elif c == '2':
             parts.sql_parts.append(f'    AND {alias}.PLN_DES_SER_CD <> COVERAGE1.PLN_DES_SER_CD')
+
+
+def _emit_rider_mod_join(ctx: QueryContext, parts: SqlParts, info: dict, alias: str) -> None:
     covmod_alias = f'{alias}COVMOD'
     if info['needs_covmod']:
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.TH_COV_PHA {covmod_alias}')
@@ -291,6 +309,9 @@ def emit_rider_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str,
                 parts.sql_parts.append(f"    AND {covmod_alias}.OPT_EXER_IND = ''")
             else:
                 parts.sql_parts.append(f"    AND {covmod_alias}.OPT_EXER_IND = '{esc(gio)}'")
+
+
+def _emit_rider_renewal_join(ctx: QueryContext, parts: SqlParts, info: dict, alias: str) -> None:
     rnl_alias = f'{alias}_RENEWALS'
     if info['needs_renewals']:
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_INS_RNL_RT {rnl_alias}')
@@ -307,6 +328,9 @@ def emit_rider_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str,
         if sx67:
             code = sx67[0]
             parts.sql_parts.append(f"    AND {rnl_alias}.RT_SEX_CD = '{esc(code)}'")
+
+
+def _emit_rider_rating_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str) -> None:
     if info['table_03']:
         tr_alias = f'{alias}_TABLE_RATING'
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SST_XTR_CRG {tr_alias}')

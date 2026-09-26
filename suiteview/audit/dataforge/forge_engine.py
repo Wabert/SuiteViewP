@@ -553,14 +553,48 @@ def render_sql(
     limit: int | None = None,
 ) -> str:
     """Render the final DuckDB SQL from normalized pure-phase outputs."""
-    ctes = []
+    ctes = _source_ctes(source_names, physical_names, bound_filters)
+    ctes.extend(_append_ctes(normalized_appends, bound_filters))
+    with_clause = "WITH " + ",\n     ".join(ctes)
+
+    from_clause, residual_preds = _from_clause_and_residuals(join_graph)
+
+    select_clause = "SELECT\n  " + ",\n  ".join(outputs.select_exprs)
+    sql = f"{with_clause}\n{select_clause}\n{from_clause}"
+    if residual_preds:
+        sql += "\nWHERE " + " AND ".join(residual_preds)
+    if outputs.group_by_exprs:
+        sql += "\nGROUP BY " + ", ".join(outputs.group_by_exprs)
+
+    sql = _apply_result_filters(sql, result_filters, outputs)
+
+    if outputs.order_by_exprs:
+        sql += "\nORDER BY " + ", ".join(outputs.order_by_exprs)
+    if limit is not None and int(limit) > 0:
+        sql += f"\nLIMIT {int(limit)}"
+    return sql
+
+
+def _source_ctes(
+    source_names: list[str],
+    physical_names: dict[str, str],
+    bound_filters: BoundFilters,
+) -> list[str]:
+    ctes: list[str] = []
     for src in source_names:
         phys = _qi(physical_names[src])
         preds = [p for p in (_filter_to_sql(f, phys)
                              for f in bound_filters.by_source[src]) if p]
         where = f" WHERE {' AND '.join(preds)}" if preds else ""
         ctes.append(f"{_qi(src)} AS (SELECT * FROM {phys}{where})")
+    return ctes
 
+
+def _append_ctes(
+    normalized_appends: NormalizedAppends,
+    bound_filters: BoundFilters,
+) -> list[str]:
+    ctes: list[str] = []
     for append in normalized_appends.specs:
         shared_cols = ", ".join(_qi(c) for c in normalized_appends.schemas[append.alias])
         union = "\n  UNION ALL\n  ".join(
@@ -573,60 +607,59 @@ def render_sql(
         else:
             body = union
         ctes.append(f"{_qi(append.alias)} AS (\n  {body}\n  )")
-    with_clause = "WITH " + ",\n     ".join(ctes)
+    return ctes
 
+
+def _from_clause_and_residuals(join_graph: JoinGraph) -> tuple[str, list[str]]:
     residual_preds: list[str] = []
     if not join_graph.steps:
-        from_clause = f"FROM {_qi(join_graph.placed[0])}"
-    else:
-        first_join = join_graph.steps[0][0]
-        base = first_join.left_source
-        lines = [f"FROM {_qi(base)}"]
-        already_joined: set[str] = {base}
-        for join, new, anchor in join_graph.steps:
-            if new in already_joined:
-                if join.how not in ("inner",):
-                    raise ForgeEngineError(
-                        f"Join {join.left_source}->{join.right_source} closes a "
-                        f"join cycle (both Sources already joined) with "
-                        f"how={join.how!r}; only inner joins are supported on "
-                        f"such extra edges. Remove the redundant relationship "
-                        f"or make it inner.")
-                residual_preds.append(_join_on_clause(join))
-                continue
-            how = _swap_how(join.how) if new == join.left_source else join.how
-            kw = _JOIN_SQL[how]
-            lines.append(f"{kw} {_qi(new)} ON {_join_on_clause(join)}")
-            already_joined.add(new)
-        from_clause = "\n".join(lines)
+        return f"FROM {_qi(join_graph.placed[0])}", residual_preds
+    first_join = join_graph.steps[0][0]
+    base = first_join.left_source
+    lines = [f"FROM {_qi(base)}"]
+    already_joined: set[str] = {base}
+    for join, new, _anchor in join_graph.steps:
+        if new in already_joined:
+            _validate_residual_join(join)
+            residual_preds.append(_join_on_clause(join))
+            continue
+        how = _swap_how(join.how) if new == join.left_source else join.how
+        lines.append(f"{_JOIN_SQL[how]} {_qi(new)} ON {_join_on_clause(join)}")
+        already_joined.add(new)
+    return "\n".join(lines), residual_preds
 
-    select_clause = "SELECT\n  " + ",\n  ".join(outputs.select_exprs)
-    sql = f"{with_clause}\n{select_clause}\n{from_clause}"
-    if residual_preds:
-        sql += "\nWHERE " + " AND ".join(residual_preds)
-    if outputs.group_by_exprs:
-        sql += "\nGROUP BY " + ", ".join(outputs.group_by_exprs)
 
-    if result_filters:
-        outer = "_forge"
-        preds = []
-        for rf in result_filters:
-            if rf.column not in outputs.column_sources:
-                raise ForgeEngineError(
-                    f"Result filter references unknown output column "
-                    f"{rf.column!r}; available: {sorted(outputs.column_sources)}.")
-            pred = _filter_to_sql(rf, _qi(outer))
-            if pred:
-                preds.append(pred)
-        if preds:
-            sql = (f"SELECT * FROM (\n{sql}\n) AS {_qi(outer)}"
-                   f"\nWHERE " + " AND ".join(preds))
+def _validate_residual_join(join: JoinSpec) -> None:
+    if join.how in ("inner",):
+        return
+    raise ForgeEngineError(
+        f"Join {join.left_source}->{join.right_source} closes a "
+        f"join cycle (both Sources already joined) with "
+        f"how={join.how!r}; only inner joins are supported on "
+        f"such extra edges. Remove the redundant relationship "
+        f"or make it inner.")
 
-    if outputs.order_by_exprs:
-        sql += "\nORDER BY " + ", ".join(outputs.order_by_exprs)
-    if limit is not None and int(limit) > 0:
-        sql += f"\nLIMIT {int(limit)}"
-    return sql
+
+def _apply_result_filters(
+    sql: str,
+    result_filters: list[FilterSpec] | tuple[FilterSpec, ...],
+    outputs: ResolvedOutputs,
+) -> str:
+    if not result_filters:
+        return sql
+    outer = "_forge"
+    preds = []
+    for rf in result_filters:
+        if rf.column not in outputs.column_sources:
+            raise ForgeEngineError(
+                f"Result filter references unknown output column "
+                f"{rf.column!r}; available: {sorted(outputs.column_sources)}.")
+        pred = _filter_to_sql(rf, _qi(outer))
+        if pred:
+            preds.append(pred)
+    if not preds:
+        return sql
+    return f"SELECT * FROM (\n{sql}\n) AS {_qi(outer)}\nWHERE " + " AND ".join(preds)
 
 
 def compile_forge_sql(

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import time
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QMimeData, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.core.odbc_utils import connect_dsn
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 from ..tabs._styles import TightItemDelegate
 
@@ -97,13 +98,12 @@ class _DisplayNameOnlyDelegate(QStyledItemDelegate):
         return super().createEditor(parent, option, index)
 
 
-class _FieldLoaderThread(QThread):
-    """Background thread to fetch column metadata from ODBC."""
-    columns_loaded = pyqtSignal(list)  # list of (name, type_name, size, nullable)
-    error_occurred = pyqtSignal(str)
+class _FieldLoaderWorker(QObject):
+    """Fetch column metadata from ODBC inside a WorkerController thread."""
 
     def __init__(self, dsn: str, table_name: str, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.dsn = dsn
         self.table_name = table_name
 
@@ -136,9 +136,11 @@ class _FieldLoaderThread(QThread):
                 nullable = "Yes" if row.nullable else "No"
                 columns.append((col_name, type_name, col_size, nullable))
             conn.close()
-            self.columns_loaded.emit(columns)
+            self.signals.result.emit(columns)
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
 class DraggableFieldTree(QTreeWidget):
@@ -203,7 +205,7 @@ class TablesDialog(QDialog):
         self._tables = list(tables)
         self._display_names = display_names  # key: "table.column" → display_name
         self._current_table: str = ""
-        self._loader: _FieldLoaderThread | None = None
+        self._loader: WorkerController | None = None
         self._field_cache: dict[str, list[tuple]] = {}  # table → [(name,type,size,null)]
 
         self._build_ui()
@@ -407,10 +409,10 @@ class TablesDialog(QDialog):
         self.tree_fields.clear()
         self.lbl_field_status.setText("Loading fields...")
 
-        self._loader = _FieldLoaderThread(self._dsn, table, self)
-        self._loader.columns_loaded.connect(
-            lambda cols: self._on_fields_loaded(table, cols))
-        self._loader.error_occurred.connect(self._on_fields_error)
+        worker = _FieldLoaderWorker(self._dsn, table)
+        self._loader = WorkerController(self, worker)
+        self._loader.result.connect(lambda cols: self._on_fields_loaded(table, cols))
+        self._loader.error.connect(self._on_fields_error)
         self._loader.start()
 
     def _on_fields_loaded(self, table: str, columns: list[tuple]):
@@ -603,7 +605,7 @@ class _AddTableDialog(QDialog):
         self._load(dsn)
 
     def _load(self, dsn: str):
-        self._loader = _FieldLoaderThread.__class__.__mro__  # just need the thread
+        self._loader = None
         # Use inline loading (simpler for a secondary dialog)
         try:
             conn = connect_dsn(dsn, autocommit=True, timeout=15, readonly=False)
@@ -658,18 +660,17 @@ def _table_view_sql(table_name: str, dialect: str, row_limit: int) -> str:
     return f"SELECT TOP {limit} * FROM {table}"
 
 
-class _PreviewLoaderThread(QThread):
-    """Background thread fetching up to ``row_limit`` rows of one table.
+class _PreviewLoaderWorker(QObject):
+    """Fetch up to ``row_limit`` rows of one table on a worker thread.
 
     Reads a database table through ``dsn``, or a File Source member when
     ``source_token`` is a ``file:`` token.
     """
-    data_loaded = pyqtSignal(object)   # pandas DataFrame
-    error_occurred = pyqtSignal(str)
 
     def __init__(self, dsn: str, table_name: str, dialect: str, parent=None, *,
                  row_limit: int = DEFAULT_TABLE_VIEW_ROWS, source_token: str = ""):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.dsn = dsn
         self.table_name = table_name
         self.dialect = dialect
@@ -681,7 +682,7 @@ class _PreviewLoaderThread(QThread):
             if self.source_token:
                 from suiteview.audit.federated_query import load_file_table
                 df = load_file_table(self.source_token, self.table_name)
-                self.data_loaded.emit(df.head(self.row_limit).reset_index(drop=True))
+                self.signals.result.emit(df.head(self.row_limit).reset_index(drop=True))
                 return
             conn = connect_dsn(
                 self.dsn, autocommit=True, timeout=30, readonly=False,
@@ -694,9 +695,11 @@ class _PreviewLoaderThread(QThread):
             finally:
                 conn.close()
             df = pd.DataFrame([list(r) for r in rows], columns=columns)
-            self.data_loaded.emit(df)
+            self.signals.result.emit(df)
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
 # Open table views; top-level windows need a reference to stay alive.
@@ -739,7 +742,7 @@ class _TablePreviewDialog(QDialog):
         self._table_name = table_name
         self._source_token = source_token
         self._inline_data = inline_data
-        self._loader: _PreviewLoaderThread | None = None
+        self._loader: WorkerController | None = None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
@@ -812,7 +815,7 @@ class _TablePreviewDialog(QDialog):
             self._load_data()
 
     def _load_data(self):
-        if self._loader is not None and self._loader.isRunning():
+        if self._loader is not None and self._loader.is_running():
             return
         limit = self.spn_rows.value()
         self._loaded_limit = limit
@@ -825,11 +828,12 @@ class _TablePreviewDialog(QDialog):
         from suiteview.core.odbc_utils import detect_dialect
         dialect = "" if self._source_token else detect_dialect(self._dsn)
         self.btn_reload.setEnabled(False)
-        self._loader = _PreviewLoaderThread(
-            self._dsn, self._table_name, dialect, self,
+        worker = _PreviewLoaderWorker(
+            self._dsn, self._table_name, dialect,
             row_limit=limit, source_token=self._source_token)
-        self._loader.data_loaded.connect(self._on_data_loaded)
-        self._loader.error_occurred.connect(self._on_error)
+        self._loader = WorkerController(self, worker)
+        self._loader.result.connect(self._on_data_loaded)
+        self._loader.error.connect(self._on_error)
         self._loader.start()
 
     def _on_data_loaded(self, df):
@@ -849,13 +853,13 @@ class _TablePreviewDialog(QDialog):
         self._loader = None
 
     def closeEvent(self, event):
-        if self._loader is not None and self._loader.isRunning():
+        if self._loader is not None and self._loader.is_running():
             # Let the query finish off-window rather than destroying a running thread.
             loader = self._loader
             loader.setParent(None)
             _OPEN_TABLE_VIEWS.add(loader)
             loader.finished.connect(lambda *_a, l=loader: _OPEN_TABLE_VIEWS.discard(l))
-            for signal in (loader.data_loaded, loader.error_occurred):
+            for signal in (loader.result, loader.error):
                 try:
                     signal.disconnect()
                 except TypeError:

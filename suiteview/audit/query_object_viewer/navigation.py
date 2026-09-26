@@ -326,8 +326,19 @@ class QueryObjectViewerNavigationMixin:
         index: dict[str, dict[str, dict]] = {
             "odbc": {}, "access": {}, "files": {}, "file_sources": {}}
 
-        # Registered ODBC / Access sources are pinned — they show whether or not
-        # a query targets them yet (the whole point of "Add Data Source").
+        self._add_registered_data_sources(index)
+        self._add_saved_file_sources(index)
+
+        for obj in objects:
+            self._add_object_to_data_source_index(index, obj)
+
+        for group in index.values():
+            for entry in group.values():
+                entry["objects"].sort(key=lambda item: item.name.lower())
+        return index
+
+    @staticmethod
+    def _add_registered_data_sources(index: dict[str, dict[str, dict]]) -> None:
         for ds in data_source_store.list_data_sources():
             if ds.kind == KIND_ODBC and ds.dsn.strip():
                 index["odbc"][ds.dsn.strip().lower()] = {
@@ -352,8 +363,8 @@ class QueryObjectViewerNavigationMixin:
                     "objects": [],
                 }
 
-        # Saved File Sources are their own store entity (peer of a DSN) — show
-        # them whether or not a query targets them yet.
+    @staticmethod
+    def _add_saved_file_sources(index: dict[str, dict[str, dict]]) -> None:
         for fds in file_source_store.list_file_sources():
             index["file_sources"][fds.id] = {
                 "group": "file_sources",
@@ -364,43 +375,42 @@ class QueryObjectViewerNavigationMixin:
                 "objects": [],
             }
 
-        for obj in objects:
-            fs_id = self._file_source_id_for_object(obj)
-            if fs_id and fs_id in index["file_sources"]:
-                # A query that targets a File Source belongs under it, not ODBC.
-                entry = index["file_sources"][fs_id]
-                if all(existing.id != obj.id for existing in entry["objects"]):
-                    entry["objects"].append(obj)
-                continue
-            for dsn in self._odbc_dsns_for_object(obj):
-                entry = index["odbc"].setdefault(dsn.lower(), {
-                    "group": "odbc",
-                    "key": dsn.lower(),
-                    "label": dsn,
-                    "dsn": dsn,
-                    "objects": [],
-                })
-                if all(existing.id != obj.id for existing in entry["objects"]):
-                    entry["objects"].append(obj)
+    def _add_object_to_data_source_index(
+        self,
+        index: dict[str, dict[str, dict]],
+        obj: QueryObject,
+    ) -> None:
+        fs_id = self._file_source_id_for_object(obj)
+        if fs_id and fs_id in index["file_sources"]:
+            self._append_unique_object(index["file_sources"][fs_id], obj)
+            return
+        for dsn in self._odbc_dsns_for_object(obj):
+            entry = index["odbc"].setdefault(dsn.lower(), {
+                "group": "odbc",
+                "key": dsn.lower(),
+                "label": dsn,
+                "dsn": dsn,
+                "objects": [],
+            })
+            self._append_unique_object(entry, obj)
 
-            for file_entry in self._file_sources_for_object(obj):
-                key = file_entry["key"]
-                entry = index["files"].setdefault(key, {
-                    "group": "files",
-                    "key": key,
-                    "label": file_entry["label"],
-                    "path": file_entry["path"],
-                    "source_type": file_entry["source_type"],
-                    "metadata": file_entry["metadata"],
-                    "objects": [],
-                })
-                if all(existing.id != obj.id for existing in entry["objects"]):
-                    entry["objects"].append(obj)
+        for file_entry in self._file_sources_for_object(obj):
+            key = file_entry["key"]
+            entry = index["files"].setdefault(key, {
+                "group": "files",
+                "key": key,
+                "label": file_entry["label"],
+                "path": file_entry["path"],
+                "source_type": file_entry["source_type"],
+                "metadata": file_entry["metadata"],
+                "objects": [],
+            })
+            self._append_unique_object(entry, obj)
 
-        for group in index.values():
-            for entry in group.values():
-                entry["objects"].sort(key=lambda item: item.name.lower())
-        return index
+    @staticmethod
+    def _append_unique_object(entry: dict, obj: QueryObject) -> None:
+        if all(existing.id != obj.id for existing in entry["objects"]):
+            entry["objects"].append(obj)
 
     @staticmethod
     def _file_source_id_for_object(obj: QueryObject) -> str:

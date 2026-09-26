@@ -319,13 +319,39 @@ def build_dynamic_sql(
     Returns:
         SQL string.
     """
-    q = lambda col: _q(col, dialect)
     wheres: list[str] = []
 
     for filt in field_filters:
-        wheres.extend(filter_conditions(filt, q(filt["column"])))
+        wheres.extend(filter_conditions(filt, _q(filt["column"], dialect)))
 
-    # Build row-limit clause (dialect-specific)
+    top_clause, fetch_clause = _row_limit_clauses(max_count, dialect)
+    col_expr = _dynamic_select_expression(
+        field_filters, select_columns, display_all, dialect)
+    has_agg, plain_cols = _dynamic_group_by_columns(
+        field_filters, select_columns, display_all, dialect)
+
+    sql = (f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}"
+           f"\nFROM {_q_table(table_name, dialect)}")
+    if wheres:
+        sql += "\nWHERE " + "\n  AND ".join(wheres)
+    if has_agg and plain_cols:
+        sql += "\nGROUP BY " + ", ".join(plain_cols)
+
+    def _order_expr(sc):
+        col = sc["column"]
+        agg = sc.get("aggregate", "display")
+        if agg == "display":
+            return _q(col, dialect)
+        return _alias(_aggregate_alias(agg, col), dialect)
+
+    sql += _order_by_clause(select_columns, _order_expr)
+    sql += fetch_clause
+
+    return sql
+
+
+def _row_limit_clauses(max_count: str, dialect: str) -> tuple[str, str]:
+    """Return (TOP prefix, trailing FETCH/LIMIT) for a user row limit."""
     top_clause = ""
     fetch_clause = ""
     if max_count:
@@ -340,71 +366,61 @@ def build_dynamic_sql(
                     top_clause = f"TOP {n} "
         except ValueError:
             pass
+    return top_clause, fetch_clause
 
-    # Determine columns for SELECT
+
+def _dynamic_select_expression(
+    field_filters: list[dict],
+    select_columns: list[dict] | None,
+    display_all: bool,
+    dialect: str,
+) -> str:
+    """Render the non-join SELECT list, including filtered columns."""
     if display_all or not select_columns:
-        col_expr = "*"
-    else:
-        # Collect explicit select columns + any where-criteria columns
-        seen: set[str] = set()
-        parts: list[str] = []
-
-        # Add explicit select columns (may have aggregates)
-        for sc in (select_columns or []):
-            col = sc["column"]
-            agg = sc.get("aggregate", "display")
-            if agg == "display":
-                expr = q(col)
-            else:
-                expr = f"{agg}({q(col)}) AS {_alias(_aggregate_alias(agg, col), dialect)}"
-            if expr not in seen:
-                seen.add(expr)
-                parts.append(expr)
-
-        # Also include any where-criteria columns not already selected
-        for filt in field_filters:
-            col = filt["column"]
-            qcol = q(col)
-            if qcol not in seen:
-                seen.add(qcol)
-                parts.append(qcol)
-
-        col_expr = ", ".join(parts) if parts else "*"
-
-    # Check if we need GROUP BY (aggregates present)
-    has_agg = False
-    plain_cols: list[str] = []
-    if select_columns and not display_all:
-        for sc in select_columns:
-            agg = sc.get("aggregate", "display")
-            if agg != "display":
-                has_agg = True
-            else:
-                plain_cols.append(q(sc["column"]))
-        # Also include where-criteria plain columns for GROUP BY
-        for filt in field_filters:
-            qcol = q(filt["column"])
-            if qcol not in plain_cols:
-                plain_cols.append(qcol)
-
-    sql = (f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}"
-           f"\nFROM {_q_table(table_name, dialect)}")
-    if wheres:
-        sql += "\nWHERE " + "\n  AND ".join(wheres)
-    if has_agg and plain_cols:
-        sql += "\nGROUP BY " + ", ".join(plain_cols)
-
-    def _order_expr(sc):
+        return "*"
+    seen: set[str] = set()
+    parts: list[str] = []
+    for sc in select_columns:
         col = sc["column"]
         agg = sc.get("aggregate", "display")
-        if agg == "display":
-            return q(col)
-        return _alias(_aggregate_alias(agg, col), dialect)
+        expr = (
+            _q(col, dialect)
+            if agg == "display"
+            else f"{agg}({_q(col, dialect)}) AS {_alias(_aggregate_alias(agg, col), dialect)}"
+        )
+        if expr not in seen:
+            seen.add(expr)
+            parts.append(expr)
+    for filt in field_filters:
+        qcol = _q(filt["column"], dialect)
+        if qcol not in seen:
+            seen.add(qcol)
+            parts.append(qcol)
+    return ", ".join(parts) if parts else "*"
 
-    sql += _order_by_clause(select_columns, _order_expr)
-    sql += fetch_clause
 
-    return sql
+def _dynamic_group_by_columns(
+    field_filters: list[dict],
+    select_columns: list[dict] | None,
+    display_all: bool,
+    dialect: str,
+) -> tuple[bool, list[str]]:
+    """Return whether aggregates are selected and the required GROUP BY cols."""
+    has_agg = False
+    plain_cols: list[str] = []
+    if not select_columns or display_all:
+        return has_agg, plain_cols
+    for sc in select_columns:
+        agg = sc.get("aggregate", "display")
+        if agg != "display":
+            has_agg = True
+        else:
+            plain_cols.append(_q(sc["column"], dialect))
+    for filt in field_filters:
+        qcol = _q(filt["column"], dialect)
+        if qcol not in plain_cols:
+            plain_cols.append(qcol)
+    return has_agg, plain_cols
 
 
 def collect_field_filters(field_grid) -> list[dict]:
@@ -511,142 +527,19 @@ def build_join_sql(
         distinct: DISTINCT.
         dialect: SQL dialect.
     """
-    q = lambda col: _q(col, dialect)
     ordered_joins = order_join_infos(primary_table, join_infos)
+    alias_map, primary_alias = _join_alias_map(primary_table, join_infos)
 
-    # Build alias map: table → alias (or table short name)
-    # Track which tables appear and their aliases
-    alias_map: dict[str, str] = {}  # table_name → alias
-    tables_seen: set[str] = {primary_table}
-
-    # Primary table: check if any join references it with an alias
-    primary_alias = ""
-    for ji in join_infos:
-        if ji["left_table"] == primary_table and ji["alias_left"]:
-            primary_alias = ji["alias_left"]
-            break
-        if ji["right_table"] == primary_table and ji["alias_right"]:
-            primary_alias = ji["alias_right"]
-            break
-    alias_map[primary_table] = primary_alias
-
-    for ji in join_infos:
-        lt = ji["left_table"]
-        rt = ji["right_table"]
-        al = ji["alias_left"]
-        ar = ji["alias_right"]
-        if lt not in alias_map:
-            alias_map[lt] = al
-        if rt not in alias_map:
-            alias_map[rt] = ar
-        tables_seen.add(lt)
-        tables_seen.add(rt)
-
-    # Helper to qualify a column from a field_key
-    def _qualify(field_key: str, col: str) -> str:
-        if field_key:
-            return _resolve_field_key(field_key, alias_map, dialect)
-        # No field_key — fall back to primary table qualification
-        a = alias_map.get(primary_table, "")
-        if a:
-            return f"{a}.{q(col)}"
-        return f"{_q_table(primary_table, dialect)}.{q(col)}"
-
-    # ── WHERE clauses from field filters ─────────────────────────
-    wheres: list[str] = []
-    for filt in field_filters:
-        qcol = _qualify(filt.get("field_key", ""), filt["column"])
-        wheres.extend(filter_conditions(filt, qcol))
-
-    # ── Row limit ────────────────────────────────────────────────
-    top_clause = ""
-    fetch_clause = ""
-    if max_count:
-        try:
-            n = int(max_count)
-            if n > 0:
-                if dialect == DB2:
-                    fetch_clause = f"\nFETCH FIRST {n} ROWS ONLY"
-                elif dialect == DUCKDB:
-                    fetch_clause = f"\nLIMIT {n}"
-                else:
-                    top_clause = f"TOP {n} "
-        except ValueError:
-            pass
-
-    # ── SELECT columns ───────────────────────────────────────────
-    if display_all or not select_columns:
-        col_expr = "*"
-    else:
-        seen: set[str] = set()
-        parts: list[str] = []
-        for sc in (select_columns or []):
-            col = sc["column"]
-            fk = sc.get("field_key", "")
-            agg = sc.get("aggregate", "display")
-            qcol = _qualify(fk, col)
-            if agg == "display":
-                expr = qcol
-            else:
-                expr = f"{agg}({qcol}) AS {_alias(_aggregate_alias(agg, col), dialect)}"
-            if expr not in seen:
-                seen.add(expr)
-                parts.append(expr)
-        # Also include any where-criteria columns not already selected
-        for filt in field_filters:
-            col = filt["column"]
-            fk = filt.get("field_key", "")
-            qcol = _qualify(fk, col)
-            if qcol not in seen:
-                seen.add(qcol)
-                parts.append(qcol)
-        col_expr = ", ".join(parts) if parts else "*"
-
-    # ── GROUP BY (if aggregates) ─────────────────────────────────
-    has_agg = False
-    plain_cols: list[str] = []
-    if select_columns and not display_all:
-        for sc in select_columns:
-            agg = sc.get("aggregate", "display")
-            fk = sc.get("field_key", "")
-            col = sc["column"]
-            if agg != "display":
-                has_agg = True
-            else:
-                plain_cols.append(_qualify(fk, col))
-        for filt in field_filters:
-            fk = filt.get("field_key", "")
-            col = filt["column"]
-            qcol = _qualify(fk, col)
-            if qcol not in plain_cols:
-                plain_cols.append(qcol)
+    wheres = _join_where_clauses(field_filters, primary_table, alias_map, dialect)
+    top_clause, fetch_clause = _row_limit_clauses(max_count, dialect)
+    col_expr = _join_select_expression(
+        field_filters, select_columns, display_all, primary_table, alias_map, dialect)
+    has_agg, plain_cols = _join_group_by_columns(
+        field_filters, select_columns, display_all, primary_table, alias_map, dialect)
 
     # ── Build FROM + JOINs ───────────────────────────────────────
     from_expr = _table_alias(primary_table, primary_alias, dialect)
-
-    def _ref(table: str, col: str) -> str:
-        alias = alias_map.get(table, "")
-        return (_col_ref(alias, col, dialect) if alias
-                else f"{_q_table(table, dialect)}.{q(col)}")
-
-    join_clauses: list[str] = []
-    for ji in ordered_joins:
-        lt = ji["left_table"]
-        rt = ji["right_table"]
-        join_target = _table_alias(rt, alias_map.get(rt, ji.get("alias_right", "")),
-                                   dialect)
-        on_parts = [f"{_ref(lt, left_col)} = {_ref(rt, right_col)}"
-                    for left_col, right_col in ji["on_pairs"]]
-        on_parts.extend(
-            f"{_ref(ta, ca)} = {_ref(tb, cb)}"
-            for ta, ca, tb, cb in ji.get("cross_pairs", []))
-
-        # Extra conditions go into ON clause
-        for col, expr in ji.get("extra_conditions", []):
-            on_parts.append(f"{q(col)} {expr}")
-
-        on_clause = " AND ".join(on_parts) if on_parts else "1 = 1"
-        join_clauses.append(f"  {ji['join_type']} {join_target}\n    ON {on_clause}")
+    join_clauses = _join_clauses(ordered_joins, alias_map, dialect)
 
     # ── Assemble SQL ─────────────────────────────────────────────
     sql = f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}"
@@ -662,13 +555,153 @@ def build_join_sql(
         col = sc["column"]
         agg = sc.get("aggregate", "display")
         if agg == "display":
-            return _qualify(sc.get("field_key", ""), col)
+            return _qualify_join_column(
+                primary_table, alias_map, dialect, sc.get("field_key", ""), col)
         return _alias(_aggregate_alias(agg, col), dialect)
 
     sql += _order_by_clause(select_columns, _order_expr)
     sql += fetch_clause
 
     return sql
+
+
+def _join_alias_map(primary_table: str, join_infos: list[dict]) -> tuple[dict[str, str], str]:
+    """Map each joined table to its canvas alias and return the primary alias."""
+    primary_alias = ""
+    for ji in join_infos:
+        if ji["left_table"] == primary_table and ji["alias_left"]:
+            primary_alias = ji["alias_left"]
+            break
+        if ji["right_table"] == primary_table and ji["alias_right"]:
+            primary_alias = ji["alias_right"]
+            break
+    alias_map: dict[str, str] = {primary_table: primary_alias}
+    for ji in join_infos:
+        if ji["left_table"] not in alias_map:
+            alias_map[ji["left_table"]] = ji["alias_left"]
+        if ji["right_table"] not in alias_map:
+            alias_map[ji["right_table"]] = ji["alias_right"]
+    return alias_map, primary_alias
+
+
+def _qualify_join_column(
+    primary_table: str,
+    alias_map: dict[str, str],
+    dialect: str,
+    field_key: str,
+    col: str,
+) -> str:
+    """Qualify a join-aware column reference from its field key."""
+    if field_key:
+        return _resolve_field_key(field_key, alias_map, dialect)
+    alias = alias_map.get(primary_table, "")
+    if alias:
+        return f"{alias}.{_q(col, dialect)}"
+    return f"{_q_table(primary_table, dialect)}.{_q(col, dialect)}"
+
+
+def _join_where_clauses(
+    field_filters: list[dict],
+    primary_table: str,
+    alias_map: dict[str, str],
+    dialect: str,
+) -> list[str]:
+    wheres: list[str] = []
+    for filt in field_filters:
+        qcol = _qualify_join_column(
+            primary_table, alias_map, dialect, filt.get("field_key", ""), filt["column"])
+        wheres.extend(filter_conditions(filt, qcol))
+    return wheres
+
+
+def _join_select_expression(
+    field_filters: list[dict],
+    select_columns: list[dict] | None,
+    display_all: bool,
+    primary_table: str,
+    alias_map: dict[str, str],
+    dialect: str,
+) -> str:
+    if display_all or not select_columns:
+        return "*"
+    seen: set[str] = set()
+    parts: list[str] = []
+    for sc in select_columns:
+        col = sc["column"]
+        agg = sc.get("aggregate", "display")
+        qcol = _qualify_join_column(
+            primary_table, alias_map, dialect, sc.get("field_key", ""), col)
+        expr = qcol if agg == "display" else f"{agg}({qcol}) AS {_alias(_aggregate_alias(agg, col), dialect)}"
+        if expr not in seen:
+            seen.add(expr)
+            parts.append(expr)
+    for filt in field_filters:
+        qcol = _qualify_join_column(
+            primary_table, alias_map, dialect, filt.get("field_key", ""), filt["column"])
+        if qcol not in seen:
+            seen.add(qcol)
+            parts.append(qcol)
+    return ", ".join(parts) if parts else "*"
+
+
+def _join_group_by_columns(
+    field_filters: list[dict],
+    select_columns: list[dict] | None,
+    display_all: bool,
+    primary_table: str,
+    alias_map: dict[str, str],
+    dialect: str,
+) -> tuple[bool, list[str]]:
+    has_agg = False
+    plain_cols: list[str] = []
+    if not select_columns or display_all:
+        return has_agg, plain_cols
+    for sc in select_columns:
+        col = sc["column"]
+        if sc.get("aggregate", "display") != "display":
+            has_agg = True
+        else:
+            plain_cols.append(_qualify_join_column(
+                primary_table, alias_map, dialect, sc.get("field_key", ""), col))
+    for filt in field_filters:
+        qcol = _qualify_join_column(
+            primary_table, alias_map, dialect, filt.get("field_key", ""), filt["column"])
+        if qcol not in plain_cols:
+            plain_cols.append(qcol)
+    return has_agg, plain_cols
+
+
+def _join_ref(table: str, col: str, alias_map: dict[str, str], dialect: str) -> str:
+    alias = alias_map.get(table, "")
+    if alias:
+        return _col_ref(alias, col, dialect)
+    return f"{_q_table(table, dialect)}.{_q(col, dialect)}"
+
+
+def _join_clauses(
+    ordered_joins: list[dict],
+    alias_map: dict[str, str],
+    dialect: str,
+) -> list[str]:
+    clauses: list[str] = []
+    for ji in ordered_joins:
+        left_table = ji["left_table"]
+        right_table = ji["right_table"]
+        join_target = _table_alias(
+            right_table, alias_map.get(right_table, ji.get("alias_right", "")), dialect)
+        on_parts = [
+            f"{_join_ref(left_table, left_col, alias_map, dialect)} = "
+            f"{_join_ref(right_table, right_col, alias_map, dialect)}"
+            for left_col, right_col in ji["on_pairs"]
+        ]
+        on_parts.extend(
+            f"{_join_ref(ta, ca, alias_map, dialect)} = {_join_ref(tb, cb, alias_map, dialect)}"
+            for ta, ca, tb, cb in ji.get("cross_pairs", []))
+        for col, expr in ji.get("extra_conditions", []):
+            on_parts.append(f"{_q(col, dialect)} {expr}")
+        on_clause = " AND ".join(on_parts) if on_parts else "1 = 1"
+        clauses.append(f"  {ji['join_type']} {join_target}\n    ON {on_clause}")
+    return clauses
 
 
 # ── Common Table CTE generation ─────────────────────────────────────
