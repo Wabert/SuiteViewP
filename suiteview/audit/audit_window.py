@@ -131,6 +131,503 @@ class QueryObjectModeDialog(QDialog):
         self.accept()
 
 
+
+
+def _build_audit_window_content(self) -> QWidget:
+    body = QWidget()
+    body.setStyleSheet(
+        "QWidget { background-color: #F0F0F0; }"
+        "QLineEdit { background-color: white; border: 1px solid #888;"
+        "  border-top: 2px solid #666; border-left: 2px solid #666;"
+        "  padding: 1px 3px; }"
+        "QComboBox { background-color: white; border: 1px solid #888;"
+        "  border-top: 2px solid #666; border-left: 2px solid #666;"
+        "  padding: 1px 3px; }"
+        "QComboBox::drop-down { border-left: 1px solid #888;"
+        "  width: 16px; subcontrol-position: right center; }"
+        "QComboBox::down-arrow { image: none; border-left: 4px solid transparent;"
+        "  border-right: 4px solid transparent; border-top: 5px solid #444;"
+        "  width: 0px; height: 0px; margin-right: 3px; }"
+        "QComboBox QAbstractItemView { border: 1px solid #888;"
+        "  background-color: white; selection-background-color: #A0C4E8;"
+        "  selection-color: black; outline: none; }"
+        "QComboBox QAbstractItemView::item { padding: 0px 3px;"
+        "  min-height: 16px; max-height: 16px; }"
+    )
+    root = QVBoxLayout(body)
+    root.setContentsMargins(2, 0, 2, 2)
+    root.setSpacing(2)
+    # ── Mode tracking ─────────────────────────────────────────
+    self._current_mode = "cyberlife"
+    self._selected_build_mode = "cyberlife"
+    self._cyberlife_saved_object_name = ""
+    self._manual_sql_started = False
+    # Object/build controls — placed in the window header bar
+    # Gold trim style for all header buttons
+    _GOLD = "#D4A017"
+    _GOLD_BTN_BASE = (
+        " color: {gold}; border: 1px solid {gold}; border-radius: 3px;"
+        " padding: 2px 10px; font-size: 8pt;"
+    ).format(gold=_GOLD)
+    _HEADER_BTN_STYLE = (
+        "QPushButton { background-color: rgba(255,255,255,0.10);"
+        + _GOLD_BTN_BASE + " }"
+        "QPushButton:hover { background-color: rgba(255,255,255,0.25); }"
+    )
+    self.btn_objects = QPushButton("Objects")
+    self.btn_objects.setFont(QFont("Segoe UI", 8))
+    self.btn_objects.setFixedHeight(24)
+    self.btn_objects.setStyleSheet(_HEADER_BTN_STYLE)
+    self.btn_objects.setToolTip("Open the unified Query Object browser")
+    self.btn_objects.clicked.connect(self._open_query_object_viewer)
+    self.btn_regex_cheatsheet = QPushButton("RegEx Cheatsheet")
+    self.btn_regex_cheatsheet.setFont(QFont("Segoe UI", 8))
+    self.btn_regex_cheatsheet.setFixedHeight(24)
+    self.btn_regex_cheatsheet.setStyleSheet(_HEADER_BTN_STYLE)
+    self.btn_regex_cheatsheet.setToolTip("Show regular expressions and useful patterns")
+    self.btn_regex_cheatsheet.clicked.connect(self._show_regex_cheatsheet)
+    self.lbl_build_mode = QLabel("Build Mode")
+    self.lbl_build_mode.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self.lbl_build_mode.setStyleSheet("color: #D4A017; padding: 0 4px;")
+    self.btn_build_mode = QToolButton()
+    self.btn_build_mode.setFont(QFont("Segoe UI", 8))
+    self.btn_build_mode.setFixedSize(_BUILD_MODE_BUTTON_WIDTH, 24)
+    self.btn_build_mode.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    self.btn_build_mode.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+    self.btn_build_mode.setToolTip("Choose the Query Object build mode")
+    self.btn_build_mode.clicked.connect(self._on_build_mode_button_clicked)
+    # Each mode carries its identity color (build_mode_styles) — the
+    # same chip/color the browser shows on queries built by that mode.
+    from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
+    mode_menu = QMenu(self.btn_build_mode)
+    _build_modes = [
+        ("cyberlife", "Cyberlife"),
+        ("visual", "Visual Query"),
+        ("manual_sql", "Manual SQL"),
+        ("dataforge", "DataForge"),
+    ]
+    # No arbitrary hand-written SQL without database-write permission.
+    if is_data_read_only():
+        _build_modes = [m for m in _build_modes if m[0] != "manual_sql"]
+    for mode, label in _build_modes:
+        action = mode_menu.addAction(label)
+        action.setIcon(mode_icon(build_mode_style(mode).color))
+        action.triggered.connect(lambda checked=False, value=mode: self._on_build_mode_selected(value))
+    self.btn_build_mode.setMenu(mode_menu)
+    self._style_build_mode_button("cyberlife")
+    # Cyberlife header button (view toggle)
+    _CYB_HDR_BTN_STYLE = (
+        "QPushButton { background-color: rgba(10,42,92,0.8);"
+        + _GOLD_BTN_BASE + " }"
+        "QPushButton:hover { background-color: rgba(30,91,168,0.8); }"
+        "QPushButton:checked { background-color: #0A2A5C;"
+        " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
+    )
+    self.btn_cyberlife = QPushButton("Cyberlife")
+    self.btn_cyberlife.setFont(QFont("Segoe UI", 8))
+    self.btn_cyberlife.setFixedHeight(24)
+    self.btn_cyberlife.setCheckable(True)
+    self.btn_cyberlife.setChecked(True)
+    self.btn_cyberlife.setStyleSheet(_CYB_HDR_BTN_STYLE)
+    self.btn_cyberlife.setToolTip("Switch to the Cyberlife audit view")
+    self.btn_cyberlife.clicked.connect(self._on_cyberlife_header_clicked)
+    self.btn_cyberlife.setVisible(False)
+    _WB_BTN_STYLE = (
+        "QPushButton { background-color: rgba(124,58,237,0.7);"
+        + _GOLD_BTN_BASE + " }"
+        "QPushButton:hover { background-color: rgba(139,92,246,0.8); }"
+        "QPushButton:checked { background-color: #7C3AED;"
+        " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
+    )
+    self.btn_workbench = QPushButton("Query Studio")
+    self.btn_workbench.setFont(QFont("Segoe UI", 8))
+    self.btn_workbench.setFixedHeight(24)
+    self.btn_workbench.setCheckable(True)
+    self.btn_workbench.setStyleSheet(_WB_BTN_STYLE)
+    self.btn_workbench.setToolTip("Switch to the visual Query Object builder")
+    self.btn_workbench.clicked.connect(self._toggle_saved_queries_shelf)
+    self.btn_workbench.setVisible(False)
+    _DF_BTN_STYLE = (
+        "QPushButton { background-color: rgba(194,65,12,0.78);"
+        + _GOLD_BTN_BASE + " }"
+        "QPushButton:hover { background-color: rgba(234,88,12,0.86); }"
+        "QPushButton:checked { background-color: #C2410C;"
+        " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
+    )
+    # DataForge now lives in the Build Mode selector (not a separate header
+    # button) — kept as an invisible checkable state-holder, like
+    # btn_cyberlife / btn_workbench, so the existing checked-state bookkeeping
+    # across mode switches keeps working.
+    self.btn_dataforge = QPushButton("DataForge")
+    self.btn_dataforge.setFont(QFont("Segoe UI", 8))
+    self.btn_dataforge.setFixedHeight(24)
+    self.btn_dataforge.setCheckable(True)
+    self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
+    self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
+    self.btn_dataforge.setVisible(False)
+    # Advanced executable-definition viewer button
+    _QDEF_BTN_STYLE = (
+        "QPushButton { background-color: rgba(124,58,237,0.4);"
+        + _GOLD_BTN_BASE + " }"
+        "QPushButton:hover { background-color: rgba(124,58,237,0.6); }"
+    )
+    self.btn_qdef = QPushButton("Advanced")
+    self.btn_qdef.setFont(QFont("Segoe UI", 8))
+    self.btn_qdef.setFixedHeight(24)
+    self.btn_qdef.setStyleSheet(_QDEF_BTN_STYLE)
+    self.btn_qdef.setToolTip("Open the technical QDefinition viewer")
+    self.btn_qdef.clicked.connect(self._open_qdef_viewer)
+    self.btn_qdef.setVisible(False)
+    _SAVE_OBJECT_BTN_STYLE = (
+        "QPushButton { background-color: #0A2A5C; color: #D4AF37;"
+        " border: 2px solid #D4AF37; border-radius: 3px;"
+        " padding: 1px 4px; font-size: 8pt; font-weight: bold; }"
+        "QPushButton:hover { background-color: #123C69; color: #F4D03F; }"
+        "QPushButton:disabled { background-color: #6B7A90; color: #E6D8A6;"
+        " border-color: #C9B46B; }"
+    )
+    self.btn_save_cyberlife = QPushButton("Save")
+    self.btn_save_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self.btn_save_cyberlife.setFixedSize(56, 17)
+    self.btn_save_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+    self.btn_save_cyberlife.setToolTip("Update the current Cyberlife Query Object")
+    self.btn_save_cyberlife.clicked.connect(self._save_cyberlife_query_object_update)
+    self.btn_save_cyberlife.setVisible(False)
+    self.btn_save_object = QPushButton("Save As")
+    self.btn_save_object.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self.btn_save_object.setFixedSize(56, 17)
+    self.btn_save_object.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+    self.btn_save_object.setToolTip(
+        "Save the current Cyberlife builder output as a new Query Object")
+    self.btn_save_object.clicked.connect(self._save_cyberlife_query_object_as)
+    self.btn_new_cyberlife = QPushButton("New")
+    self.btn_new_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self.btn_new_cyberlife.setFixedSize(44, 36)
+    self.btn_new_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+    self.btn_new_cyberlife.setToolTip("Start a new Cyberlife Query Object")
+    self.btn_new_cyberlife.clicked.connect(self._new_cyberlife_query_object)
+    # Insert into header bar layout before window control buttons
+    # Group 1: object tools — then spacer — Build Mode selector
+    from PyQt6.QtWidgets import QSpacerItem, QSizePolicy
+    header_layout = self.header_bar.layout()
+    insert_pos = header_layout.count() - 3  # before min/max/close
+    header_layout.insertWidget(insert_pos, self.btn_objects)
+    header_layout.insertItem(insert_pos + 1,
+        QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
+    header_layout.insertWidget(insert_pos + 2, self.lbl_build_mode)
+    header_layout.insertWidget(insert_pos + 3, self.btn_build_mode)
+    header_layout.insertWidget(insert_pos + 4, self.btn_regex_cheatsheet)
+    # Dynamic query storage
+    self._dynamic_queries: dict[str, DynamicQuery] = {}
+    # Track which unpinned query is currently active
+    self._active_unpinned: str | None = None
+    # Track last active query/forge mode for restoring on space switch
+    self._last_query_mode: str | None = None
+    self._last_forge_mode: str | None = None
+    self._active_unpinned_forge: str | None = None
+    # ── Main content area (tabs + bottom bars + dynamic queries) ──
+    self._content_left = QWidget()
+    self._content_left.setMinimumWidth(400)
+    _left_lay = QVBoxLayout(self._content_left)
+    _left_lay.setContentsMargins(0, 0, 0, 0)
+    _left_lay.setSpacing(2)
+    # ── Tab widget ──────────────────────────────────────────────
+    self.tabs = QTabWidget()
+    self.tabs.setFont(_FONT)
+    self.tabs.setStyleSheet(self._CYB_TAB_STYLE)
+    # Policy tab (fully built)
+    self.policy_tab = PolicyTab()
+    self.tabs.addTab(self.policy_tab, "Policy")
+    # Policy (2) tab
+    self.policy2_tab = Policy2Tab()
+    self.tabs.addTab(self.policy2_tab, "Policy (2)")
+    # People tab
+    self.people_tab = PeopleTab()
+    self.tabs.addTab(self.people_tab, "People")
+    # Coverages tab
+    self.coverages_tab = CoveragesTab()
+    self.tabs.addTab(self.coverages_tab, "Coverages")
+    # ADV tab
+    self.adv_tab = AdvTab()
+    self.tabs.addTab(self.adv_tab, "ADV")
+    # WL tab
+    self.wl_tab = WlTab()
+    self.tabs.addTab(self.wl_tab, "WL")
+    # DI tab
+    self.di_tab = DiTab()
+    self.tabs.addTab(self.di_tab, "DI")
+    # Benefits tab
+    self.benefits_tab = BenefitsTab()
+    self.tabs.addTab(self.benefits_tab, "Benefits")
+    self.segment52_tab = Segment52Tab()
+    self.tabs.addTab(self.segment52_tab, "52 Segment")
+    # Transaction tab
+    self.transaction_tab = TransactionTab()
+    self.tabs.addTab(self.transaction_tab, "Transaction")
+    self.other_queries_tab = OtherQueriesTab(lambda: self.cmb_region.currentText())
+    self.tabs.addTab(self.other_queries_tab, "Other Queries")
+    self.other_queries_tab.sql_requested.connect(self._show_other_query_sql)
+    # Display tab
+    self.display_tab = DisplayTab()
+    self.tabs.addTab(self.display_tab, "Display")
+    # Custom Display tab
+    self.custom_display_tab = CustomDisplayTab()
+    self.tabs.addTab(self.custom_display_tab, "Custom Display")
+    # Results tab
+    self.results_tab = ResultsTab()
+    self.tabs.addTab(self.results_tab, "Results")
+    self.results_tab.policy_double_clicked.connect(
+        self._open_polview_with_policy)
+    self.results_tab.open_in_rerun.connect(self._open_rerun_with_policy)
+    self.results_tab.set_ul_checker(self._is_policy_ul)
+    self._polview_window = None
+    self._polview_owner = False  # True if we created the window ourselves
+    self._polview_provider = None  # callback → shared PolView window
+    self._illustration_window = None
+    self._illustration_owner = False  # True if we created the window ourselves
+    self._illustration_launcher = None  # callback → shared RERUN window
+    # Plans and Policies tab
+    self.plancode_tab = PlancodeTab()
+    self.tabs.addTab(self.plancode_tab, "Plans and Policies")
+    # SQL tab
+    self.sql_tab = SqlTab()
+    self.tabs.addTab(self.sql_tab, "SQL")
+    # Build SQL tab (hidden until "Move to Build" is clicked)
+    self.build_sql_tab = BuildSqlTab()
+    self._build_sql_tab_index = -1
+    # Build SQL Results tab (hidden until build query is run)
+    self.build_sql_results_tab = BuildSqlResultsTab()
+    self._build_sql_results_tab_index = -1
+    # Manual SQL Object editor screen (hidden until New Object chooses it)
+    self.manual_sql_object_tab = ManualSqlObjectEditor()
+    self.csv_excel_object_tab = CsvExcelObjectEditor()
+    # Right-click on tab bar → close transient SQL/object tabs
+    self.tabs.tabBar().setContextMenuPolicy(
+        Qt.ContextMenuPolicy.CustomContextMenu)
+    self.tabs.tabBar().customContextMenuRequested.connect(
+        self._on_tab_context_menu)
+    _left_lay.addWidget(self.tabs, 1)  # stretch=1 so tabs fill
+    # ── Cyberlife bottom bar ─────────────────────────────────────
+    self.cyberlife_bottom_bar = AuditBottomBar(
+        bg_color=FOOTER_BG, run_label="Run")
+    # Convenience aliases for existing code
+    self.btn_all = self.cyberlife_bottom_bar.btn_all
+    self.txt_max_count = self.cyberlife_bottom_bar.txt_max_count
+    self.lbl_result_count = self.cyberlife_bottom_bar.lbl_result_count
+    self.lbl_query_time = self.cyberlife_bottom_bar.lbl_query_time
+    self.lbl_print_time = self.cyberlife_bottom_bar.lbl_print_time
+    self.lbl_total_time = self.cyberlife_bottom_bar.lbl_total_time
+    self.btn_run = self.cyberlife_bottom_bar.btn_run
+    self.chk_coverage_level = QCheckBox("Coverage Level")
+    self.chk_coverage_level.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self.chk_coverage_level.setToolTip(
+        "Return one row per matching coverage and show coverage-level values")
+    _ensure_checkmark()
+    _cov_check_icon = _CHECKMARK_PATH.replace("\\", "/")
+    self.chk_coverage_level.setStyleSheet(
+        "QCheckBox::indicator { border: 1px solid #1E5BA8; width: 12px;"
+        " height: 12px; background-color: white; }"
+        "QCheckBox::indicator:checked {"
+        "  background-color: #1E5BA8; border: 1px solid #14407A;"
+        f"  image: url({_cov_check_icon});"
+        "}")
+    # Coverage scope combo — only active when Coverage Level is checked.
+    self.cmb_coverage_scope = QComboBox()
+    self.cmb_coverage_scope.setFont(QFont("Segoe UI", 8))
+    self.cmb_coverage_scope.addItems(["All Covs", "Cov 1 only", "Covs 2+ only"])
+    self.cmb_coverage_scope.setFixedHeight(18)
+    self.cmb_coverage_scope.setToolTip(
+        "Which coverages to return (only used when Coverage Level is checked)")
+    self.cmb_coverage_scope.setStyleSheet(
+        "QComboBox { background-color: white; border: 1px solid #1E5BA8;"
+        " padding: 0px 3px; }"
+        "QComboBox:disabled { background-color: #E4E4E4; color: #999;"
+        " border: 1px solid #AAB; }"
+        "QComboBox::drop-down { border-left: 1px solid #1E5BA8; width: 14px; }")
+    self.chk_coverage_level.toggled.connect(
+        self.cmb_coverage_scope.setEnabled)
+    self.cmb_coverage_scope.setEnabled(self.chk_coverage_level.isChecked())
+    # Stack the checkbox above the scope combo.
+    _cov_stack = QVBoxLayout()
+    _cov_stack.setSpacing(2)
+    _cov_stack.setContentsMargins(0, 0, 0, 0)
+    _cov_stack.addWidget(self.chk_coverage_level)
+    _cov_stack.addWidget(self.cmb_coverage_scope)
+    self.cyberlife_bottom_bar.action_layout.addLayout(_cov_stack)
+    # New sits full-height; Save As / Save stack vertically beside it.
+    self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_new_cyberlife)
+    _save_stack = QVBoxLayout()
+    _save_stack.setSpacing(2)
+    _save_stack.setContentsMargins(0, 0, 0, 0)
+    _save_stack.addWidget(self.btn_save_object)
+    _save_stack.addWidget(self.btn_save_cyberlife)
+    self.cyberlife_bottom_bar.center_action_layout.addLayout(_save_stack)
+    # Left side: Region/SysCode
+    # Region + System Code stacked
+    region_sys_stack = QVBoxLayout()
+    region_sys_stack.setSpacing(2)
+    region_sys_stack.setContentsMargins(0, 0, 0, 0)
+    region_row = QHBoxLayout()
+    region_row.setSpacing(3)
+    region_row.setContentsMargins(0, 0, 0, 0)
+    self.lbl_region = QLabel("Region:")
+    self.lbl_region.setFont(QFont("Segoe UI", 8))
+    self.cmb_region = QComboBox()
+    self.cmb_region.setFont(_FONT)
+    self.cmb_region.addItems(REGION_ITEMS)
+    self.cmb_region.setFixedHeight(18)
+    self.cmb_region.setFixedWidth(70)
+    _style_combo(self.cmb_region)
+    region_row.addWidget(self.lbl_region)
+    region_row.addWidget(self.cmb_region)
+    region_row.addStretch()
+    region_sys_stack.addLayout(region_row)
+    sys_row = QHBoxLayout()
+    sys_row.setSpacing(3)
+    sys_row.setContentsMargins(0, 0, 0, 0)
+    self.lbl_sys = QLabel("Sys Code:")
+    self.lbl_sys.setFont(QFont("Segoe UI", 8))
+    self.cmb_system = QComboBox()
+    self.cmb_system.setFont(_FONT)
+    self.cmb_system.addItems(SYSTEM_CODE_ITEMS)
+    self.cmb_system.setFixedHeight(18)
+    self.cmb_system.setFixedWidth(45)
+    _style_combo(self.cmb_system)
+    sys_row.addWidget(self.lbl_sys)
+    sys_row.addWidget(self.cmb_system)
+    sys_row.addStretch()
+    region_sys_stack.addLayout(sys_row)
+    self.cyberlife_bottom_bar.left_layout.addLayout(region_sys_stack)
+    # Query name — the single most-missed piece of context in the footer, so
+    # it reads as a badge rather than another small grey label.
+    self.cyberlife_bottom_bar.left_layout.addSpacing(10)
+    self.lbl_cyberlife_query_name = QLabel("")
+    self.lbl_cyberlife_query_name.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+    self.lbl_cyberlife_query_name.setStyleSheet(
+        "QLabel {"
+        " color: #FFFFFF; background-color: #0A2A5C;"
+        " border: 1px solid #D4A017; border-radius: 4px;"
+        " padding: 3px 12px;"
+        "}")
+    self.lbl_cyberlife_query_name.setToolTip("Currently open Cyberlife query object")
+    self.lbl_cyberlife_query_name.setVisible(False)
+    self.cyberlife_bottom_bar.left_layout.addWidget(self.lbl_cyberlife_query_name)
+    _left_lay.addWidget(self.cyberlife_bottom_bar)
+    # ── Dynamic query container (placeholder — queries added dynamically) ──
+    self._dynamic_query_container = QVBoxLayout()
+    self._dynamic_query_container.setSpacing(0)
+    self._dynamic_query_container.setContentsMargins(0, 0, 0, 0)
+    _left_lay.addLayout(self._dynamic_query_container)
+    # ── Forge blank placeholder (shown when DataForge space has no active forge) ──
+    self._forge_blank = QWidget()
+    self._forge_blank.setStyleSheet("QWidget { background-color: #FFF3E8; }")
+    self._forge_blank.setVisible(False)
+    self._dynamic_query_container.addWidget(self._forge_blank)
+    # ── Query blank placeholder (shown when Queries space has no active query) ──
+    self._query_blank = QWidget()
+    self._query_blank.setStyleSheet("QWidget { background-color: #EDE9FE; }")
+    query_blank_layout = QVBoxLayout(self._query_blank)
+    query_blank_layout.setContentsMargins(0, 0, 0, 0)
+    query_blank_layout.setSpacing(0)
+    query_blank_layout.addStretch()
+    self._query_blank_footer = AuditBottomBar(
+        bg_color=FOOTER_BG, run_label="Run")
+    self._query_blank_footer.btn_all.setVisible(False)
+    self._query_blank_footer.txt_max_count.setVisible(False)
+    self._query_blank_footer.lbl_max_count.setVisible(False)
+    self._btn_query_blank_new = QPushButton("New Query")
+    self._btn_query_blank_new.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self._btn_query_blank_new.setFixedSize(78, 36)
+    self._btn_query_blank_new.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+    self._btn_query_blank_new.setToolTip("Start a new Visual Query Object")
+    self._btn_query_blank_new.clicked.connect(self._start_visual_query_object)
+    self._query_blank_footer.action_layout.addWidget(self._btn_query_blank_new)
+    self._btn_query_blank_save_as = QPushButton("Save As")
+    self._btn_query_blank_save_as.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+    self._btn_query_blank_save_as.setFixedSize(60, 36)
+    self._btn_query_blank_save_as.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+    self._btn_query_blank_save_as.setToolTip("Create and save a new Visual Query Object")
+    self._btn_query_blank_save_as.clicked.connect(self._start_visual_query_object)
+    self._query_blank_footer.action_layout.addWidget(self._btn_query_blank_save_as)
+    self._query_blank_footer.btn_run.clicked.connect(self._start_visual_query_object)
+    query_blank_layout.addWidget(self._query_blank_footer)
+    self._query_blank.setVisible(False)
+    self._dynamic_query_container.addWidget(self._query_blank)
+    self.manual_sql_object_tab.setVisible(False)
+    self._dynamic_query_container.addWidget(self.manual_sql_object_tab)
+    self.csv_excel_object_tab.setVisible(False)
+    self._dynamic_query_container.addWidget(self.csv_excel_object_tab)
+    # DataForge group storage
+    self._dataforge_groups: dict[str, DataForgeGroup] = {}
+    # ── Left picker panel (embedded) ───────────────────────────
+    from suiteview.audit.dataforge.query_field_picker import QueryFieldPicker
+    from PyQt6.QtWidgets import QStackedWidget
+    self._field_picker = FieldPickerPanel(multi_source=True)
+    self._field_picker.field_requested.connect(self._on_picker_field_requested)
+    self._field_picker.query_clicked.connect(self._on_picker_query_clicked)
+    self._field_picker.new_query_requested.connect(self._start_visual_query_object)
+    self._field_picker.table_sources_changed.connect(self._on_picker_table_sources_changed)
+    self._field_picker.table_requested.connect(self._on_picker_table_requested)
+    self._field_picker.pinned_tables_changed.connect(self._on_picker_pinned_tables_changed)
+    self._field_picker.common_table_requested.connect(self._on_picker_common_table_requested)
+    self._field_picker.common_table_remove_requested.connect(self._on_picker_common_table_remove_requested)
+    self._field_picker.tables_changed.connect(self._on_picker_tables_changed)
+    self._field_picker.splitter_changed.connect(self._schedule_save_ui)
+    self._forge_field_picker = QueryFieldPicker()
+    self._forge_field_picker.field_requested.connect(
+        self._on_forge_picker_field_requested)
+    self._forge_field_picker.forge_clicked.connect(
+        self._on_picker_forge_clicked)
+    self._forge_field_picker.new_forge_requested.connect(
+        self._on_new_dataforge)
+    self._forge_field_picker.sources_changed.connect(
+        self._on_forge_picker_sources_changed)
+    self._forge_field_picker.source_refreshed.connect(
+        self._on_forge_picker_source_refreshed)
+    self._forge_field_picker.query_table_requested.connect(
+        self._on_forge_picker_query_table_requested)
+    self._forge_field_picker.splitter_changed.connect(self._schedule_save_ui)
+    self._picker_stack = QStackedWidget()
+    self._picker_stack.addWidget(self._field_picker)
+    self._picker_stack.addWidget(self._forge_field_picker)
+    # Picker container — always visible in query/forge modes
+    self._picker_container = QWidget()
+    _pc_lay = QVBoxLayout(self._picker_container)
+    _pc_lay.setContentsMargins(0, 0, 0, 0)
+    _pc_lay.setSpacing(0)
+    _pc_lay.addWidget(self._picker_stack, 1)
+    self._picker_container.setVisible(False)
+    self._picker_width = 380
+    self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
+    self._content_splitter.setChildrenCollapsible(False)
+    self._content_splitter.setHandleWidth(6)
+    self._content_splitter.setStyleSheet(
+        "QSplitter::handle { background: #FED7AA; }"
+        "QSplitter::handle:hover { background: #EA580C; }")
+    self._content_splitter.addWidget(self._picker_container)
+    self._content_splitter.addWidget(self._content_left)
+    self._content_splitter.setStretchFactor(0, 0)
+    self._content_splitter.setStretchFactor(1, 1)
+    self._content_splitter.setSizes([0, 900])
+    self._content_splitter.splitterMoved.connect(self._on_content_splitter_moved)
+    root.addWidget(self._content_splitter, 1)
+    self._mode_footer_host = QWidget()
+    self._mode_footer_host.setVisible(False)
+    self._mode_footer_layout = QVBoxLayout(self._mode_footer_host)
+    self._mode_footer_layout.setContentsMargins(0, 0, 0, 0)
+    self._mode_footer_layout.setSpacing(0)
+    self._active_mode_footer = None
+    root.addWidget(self._mode_footer_host)
+    self._manual_sql_connections = ManualSqlConnectionService()
+    self._mode_controller = AuditModeController(self)
+    self._cyberlife_run_controller = CyberlifeRunController(self)
+    self._query_object_persistence = QueryObjectPersistenceController(self)
+    self._visual_query_controller = VisualQueryController(self)
+    self._picker_binding_controller = PickerBindingController(self)
+    self._apply_initial_state()
+    self._connect_signals()
+    self._restore_ui_settings()
+    return body
 class AuditWindow(FramelessWindowBase):
     """Top-level audit window, replicating VBA frmAudit layout."""
     query_object_saved = pyqtSignal(str)
@@ -157,500 +654,7 @@ class AuditWindow(FramelessWindowBase):
 
     # ── UI construction ──────────────────────────────────────────────
     def build_content(self) -> QWidget:
-        body = QWidget()
-        body.setStyleSheet(
-            "QWidget { background-color: #F0F0F0; }"
-            "QLineEdit { background-color: white; border: 1px solid #888;"
-            "  border-top: 2px solid #666; border-left: 2px solid #666;"
-            "  padding: 1px 3px; }"
-            "QComboBox { background-color: white; border: 1px solid #888;"
-            "  border-top: 2px solid #666; border-left: 2px solid #666;"
-            "  padding: 1px 3px; }"
-            "QComboBox::drop-down { border-left: 1px solid #888;"
-            "  width: 16px; subcontrol-position: right center; }"
-            "QComboBox::down-arrow { image: none; border-left: 4px solid transparent;"
-            "  border-right: 4px solid transparent; border-top: 5px solid #444;"
-            "  width: 0px; height: 0px; margin-right: 3px; }"
-            "QComboBox QAbstractItemView { border: 1px solid #888;"
-            "  background-color: white; selection-background-color: #A0C4E8;"
-            "  selection-color: black; outline: none; }"
-            "QComboBox QAbstractItemView::item { padding: 0px 3px;"
-            "  min-height: 16px; max-height: 16px; }"
-        )
-        root = QVBoxLayout(body)
-        root.setContentsMargins(2, 0, 2, 2)
-        root.setSpacing(2)
-        # ── Mode tracking ─────────────────────────────────────────
-        self._current_mode = "cyberlife"
-        self._selected_build_mode = "cyberlife"
-        self._cyberlife_saved_object_name = ""
-        self._manual_sql_started = False
-        # Object/build controls — placed in the window header bar
-        # Gold trim style for all header buttons
-        _GOLD = "#D4A017"
-        _GOLD_BTN_BASE = (
-            " color: {gold}; border: 1px solid {gold}; border-radius: 3px;"
-            " padding: 2px 10px; font-size: 8pt;"
-        ).format(gold=_GOLD)
-        _HEADER_BTN_STYLE = (
-            "QPushButton { background-color: rgba(255,255,255,0.10);"
-            + _GOLD_BTN_BASE + " }"
-            "QPushButton:hover { background-color: rgba(255,255,255,0.25); }"
-        )
-        self.btn_objects = QPushButton("Objects")
-        self.btn_objects.setFont(QFont("Segoe UI", 8))
-        self.btn_objects.setFixedHeight(24)
-        self.btn_objects.setStyleSheet(_HEADER_BTN_STYLE)
-        self.btn_objects.setToolTip("Open the unified Query Object browser")
-        self.btn_objects.clicked.connect(self._open_query_object_viewer)
-        self.btn_regex_cheatsheet = QPushButton("RegEx Cheatsheet")
-        self.btn_regex_cheatsheet.setFont(QFont("Segoe UI", 8))
-        self.btn_regex_cheatsheet.setFixedHeight(24)
-        self.btn_regex_cheatsheet.setStyleSheet(_HEADER_BTN_STYLE)
-        self.btn_regex_cheatsheet.setToolTip("Show regular expressions and useful patterns")
-        self.btn_regex_cheatsheet.clicked.connect(self._show_regex_cheatsheet)
-        self.lbl_build_mode = QLabel("Build Mode")
-        self.lbl_build_mode.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.lbl_build_mode.setStyleSheet("color: #D4A017; padding: 0 4px;")
-        self.btn_build_mode = QToolButton()
-        self.btn_build_mode.setFont(QFont("Segoe UI", 8))
-        self.btn_build_mode.setFixedSize(_BUILD_MODE_BUTTON_WIDTH, 24)
-        self.btn_build_mode.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_build_mode.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self.btn_build_mode.setToolTip("Choose the Query Object build mode")
-        self.btn_build_mode.clicked.connect(self._on_build_mode_button_clicked)
-        # Each mode carries its identity color (build_mode_styles) — the
-        # same chip/color the browser shows on queries built by that mode.
-        from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
-        mode_menu = QMenu(self.btn_build_mode)
-        _build_modes = [
-            ("cyberlife", "Cyberlife"),
-            ("visual", "Visual Query"),
-            ("manual_sql", "Manual SQL"),
-            ("dataforge", "DataForge"),
-        ]
-        # No arbitrary hand-written SQL without database-write permission.
-        if is_data_read_only():
-            _build_modes = [m for m in _build_modes if m[0] != "manual_sql"]
-        for mode, label in _build_modes:
-            action = mode_menu.addAction(label)
-            action.setIcon(mode_icon(build_mode_style(mode).color))
-            action.triggered.connect(lambda checked=False, value=mode: self._on_build_mode_selected(value))
-        self.btn_build_mode.setMenu(mode_menu)
-        self._style_build_mode_button("cyberlife")
-        # Cyberlife header button (view toggle)
-        _CYB_HDR_BTN_STYLE = (
-            "QPushButton { background-color: rgba(10,42,92,0.8);"
-            + _GOLD_BTN_BASE + " }"
-            "QPushButton:hover { background-color: rgba(30,91,168,0.8); }"
-            "QPushButton:checked { background-color: #0A2A5C;"
-            " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
-        )
-        self.btn_cyberlife = QPushButton("Cyberlife")
-        self.btn_cyberlife.setFont(QFont("Segoe UI", 8))
-        self.btn_cyberlife.setFixedHeight(24)
-        self.btn_cyberlife.setCheckable(True)
-        self.btn_cyberlife.setChecked(True)
-        self.btn_cyberlife.setStyleSheet(_CYB_HDR_BTN_STYLE)
-        self.btn_cyberlife.setToolTip("Switch to the Cyberlife audit view")
-        self.btn_cyberlife.clicked.connect(self._on_cyberlife_header_clicked)
-        self.btn_cyberlife.setVisible(False)
-        _WB_BTN_STYLE = (
-            "QPushButton { background-color: rgba(124,58,237,0.7);"
-            + _GOLD_BTN_BASE + " }"
-            "QPushButton:hover { background-color: rgba(139,92,246,0.8); }"
-            "QPushButton:checked { background-color: #7C3AED;"
-            " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
-        )
-        self.btn_workbench = QPushButton("Query Studio")
-        self.btn_workbench.setFont(QFont("Segoe UI", 8))
-        self.btn_workbench.setFixedHeight(24)
-        self.btn_workbench.setCheckable(True)
-        self.btn_workbench.setStyleSheet(_WB_BTN_STYLE)
-        self.btn_workbench.setToolTip("Switch to the visual Query Object builder")
-        self.btn_workbench.clicked.connect(self._toggle_saved_queries_shelf)
-        self.btn_workbench.setVisible(False)
-        _DF_BTN_STYLE = (
-            "QPushButton { background-color: rgba(194,65,12,0.78);"
-            + _GOLD_BTN_BASE + " }"
-            "QPushButton:hover { background-color: rgba(234,88,12,0.86); }"
-            "QPushButton:checked { background-color: #C2410C;"
-            " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
-        )
-        # DataForge now lives in the Build Mode selector (not a separate header
-        # button) — kept as an invisible checkable state-holder, like
-        # btn_cyberlife / btn_workbench, so the existing checked-state bookkeeping
-        # across mode switches keeps working.
-        self.btn_dataforge = QPushButton("DataForge")
-        self.btn_dataforge.setFont(QFont("Segoe UI", 8))
-        self.btn_dataforge.setFixedHeight(24)
-        self.btn_dataforge.setCheckable(True)
-        self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
-        self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
-        self.btn_dataforge.setVisible(False)
-        # Advanced executable-definition viewer button
-        _QDEF_BTN_STYLE = (
-            "QPushButton { background-color: rgba(124,58,237,0.4);"
-            + _GOLD_BTN_BASE + " }"
-            "QPushButton:hover { background-color: rgba(124,58,237,0.6); }"
-        )
-        self.btn_qdef = QPushButton("Advanced")
-        self.btn_qdef.setFont(QFont("Segoe UI", 8))
-        self.btn_qdef.setFixedHeight(24)
-        self.btn_qdef.setStyleSheet(_QDEF_BTN_STYLE)
-        self.btn_qdef.setToolTip("Open the technical QDefinition viewer")
-        self.btn_qdef.clicked.connect(self._open_qdef_viewer)
-        self.btn_qdef.setVisible(False)
-        _SAVE_OBJECT_BTN_STYLE = (
-            "QPushButton { background-color: #0A2A5C; color: #D4AF37;"
-            " border: 2px solid #D4AF37; border-radius: 3px;"
-            " padding: 1px 4px; font-size: 8pt; font-weight: bold; }"
-            "QPushButton:hover { background-color: #123C69; color: #F4D03F; }"
-            "QPushButton:disabled { background-color: #6B7A90; color: #E6D8A6;"
-            " border-color: #C9B46B; }"
-        )
-        self.btn_save_cyberlife = QPushButton("Save")
-        self.btn_save_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.btn_save_cyberlife.setFixedSize(56, 17)
-        self.btn_save_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
-        self.btn_save_cyberlife.setToolTip("Update the current Cyberlife Query Object")
-        self.btn_save_cyberlife.clicked.connect(self._save_cyberlife_query_object_update)
-        self.btn_save_cyberlife.setVisible(False)
-        self.btn_save_object = QPushButton("Save As")
-        self.btn_save_object.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.btn_save_object.setFixedSize(56, 17)
-        self.btn_save_object.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
-        self.btn_save_object.setToolTip(
-            "Save the current Cyberlife builder output as a new Query Object")
-        self.btn_save_object.clicked.connect(self._save_cyberlife_query_object_as)
-        self.btn_new_cyberlife = QPushButton("New")
-        self.btn_new_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.btn_new_cyberlife.setFixedSize(44, 36)
-        self.btn_new_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
-        self.btn_new_cyberlife.setToolTip("Start a new Cyberlife Query Object")
-        self.btn_new_cyberlife.clicked.connect(self._new_cyberlife_query_object)
-        # Insert into header bar layout before window control buttons
-        # Group 1: object tools — then spacer — Build Mode selector
-        from PyQt6.QtWidgets import QSpacerItem, QSizePolicy
-        header_layout = self.header_bar.layout()
-        insert_pos = header_layout.count() - 3  # before min/max/close
-        header_layout.insertWidget(insert_pos, self.btn_objects)
-        header_layout.insertItem(insert_pos + 1,
-            QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
-        header_layout.insertWidget(insert_pos + 2, self.lbl_build_mode)
-        header_layout.insertWidget(insert_pos + 3, self.btn_build_mode)
-        header_layout.insertWidget(insert_pos + 4, self.btn_regex_cheatsheet)
-        # Dynamic query storage
-        self._dynamic_queries: dict[str, DynamicQuery] = {}
-        # Track which unpinned query is currently active
-        self._active_unpinned: str | None = None
-        # Track last active query/forge mode for restoring on space switch
-        self._last_query_mode: str | None = None
-        self._last_forge_mode: str | None = None
-        self._active_unpinned_forge: str | None = None
-        # ── Main content area (tabs + bottom bars + dynamic queries) ──
-        self._content_left = QWidget()
-        self._content_left.setMinimumWidth(400)
-        _left_lay = QVBoxLayout(self._content_left)
-        _left_lay.setContentsMargins(0, 0, 0, 0)
-        _left_lay.setSpacing(2)
-        # ── Tab widget ──────────────────────────────────────────────
-        self.tabs = QTabWidget()
-        self.tabs.setFont(_FONT)
-        self.tabs.setStyleSheet(self._CYB_TAB_STYLE)
-        # Policy tab (fully built)
-        self.policy_tab = PolicyTab()
-        self.tabs.addTab(self.policy_tab, "Policy")
-        # Policy (2) tab
-        self.policy2_tab = Policy2Tab()
-        self.tabs.addTab(self.policy2_tab, "Policy (2)")
-        # People tab
-        self.people_tab = PeopleTab()
-        self.tabs.addTab(self.people_tab, "People")
-        # Coverages tab
-        self.coverages_tab = CoveragesTab()
-        self.tabs.addTab(self.coverages_tab, "Coverages")
-        # ADV tab
-        self.adv_tab = AdvTab()
-        self.tabs.addTab(self.adv_tab, "ADV")
-        # WL tab
-        self.wl_tab = WlTab()
-        self.tabs.addTab(self.wl_tab, "WL")
-        # DI tab
-        self.di_tab = DiTab()
-        self.tabs.addTab(self.di_tab, "DI")
-        # Benefits tab
-        self.benefits_tab = BenefitsTab()
-        self.tabs.addTab(self.benefits_tab, "Benefits")
-        self.segment52_tab = Segment52Tab()
-        self.tabs.addTab(self.segment52_tab, "52 Segment")
-        # Transaction tab
-        self.transaction_tab = TransactionTab()
-        self.tabs.addTab(self.transaction_tab, "Transaction")
-        self.other_queries_tab = OtherQueriesTab(lambda: self.cmb_region.currentText())
-        self.tabs.addTab(self.other_queries_tab, "Other Queries")
-        self.other_queries_tab.sql_requested.connect(self._show_other_query_sql)
-        # Display tab
-        self.display_tab = DisplayTab()
-        self.tabs.addTab(self.display_tab, "Display")
-        # Custom Display tab
-        self.custom_display_tab = CustomDisplayTab()
-        self.tabs.addTab(self.custom_display_tab, "Custom Display")
-        # Results tab
-        self.results_tab = ResultsTab()
-        self.tabs.addTab(self.results_tab, "Results")
-        self.results_tab.policy_double_clicked.connect(
-            self._open_polview_with_policy)
-        self.results_tab.open_in_rerun.connect(self._open_rerun_with_policy)
-        self.results_tab.set_ul_checker(self._is_policy_ul)
-        self._polview_window = None
-        self._polview_owner = False  # True if we created the window ourselves
-        self._polview_provider = None  # callback → shared PolView window
-        self._illustration_window = None
-        self._illustration_owner = False  # True if we created the window ourselves
-        self._illustration_launcher = None  # callback → shared RERUN window
-        # Plans and Policies tab
-        self.plancode_tab = PlancodeTab()
-        self.tabs.addTab(self.plancode_tab, "Plans and Policies")
-        # SQL tab
-        self.sql_tab = SqlTab()
-        self.tabs.addTab(self.sql_tab, "SQL")
-        # Build SQL tab (hidden until "Move to Build" is clicked)
-        self.build_sql_tab = BuildSqlTab()
-        self._build_sql_tab_index = -1
-        # Build SQL Results tab (hidden until build query is run)
-        self.build_sql_results_tab = BuildSqlResultsTab()
-        self._build_sql_results_tab_index = -1
-        # Manual SQL Object editor screen (hidden until New Object chooses it)
-        self.manual_sql_object_tab = ManualSqlObjectEditor()
-        self.csv_excel_object_tab = CsvExcelObjectEditor()
-        # Right-click on tab bar → close transient SQL/object tabs
-        self.tabs.tabBar().setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tabs.tabBar().customContextMenuRequested.connect(
-            self._on_tab_context_menu)
-        _left_lay.addWidget(self.tabs, 1)  # stretch=1 so tabs fill
-        # ── Cyberlife bottom bar ─────────────────────────────────────
-        self.cyberlife_bottom_bar = AuditBottomBar(
-            bg_color=FOOTER_BG, run_label="Run")
-        # Convenience aliases for existing code
-        self.btn_all = self.cyberlife_bottom_bar.btn_all
-        self.txt_max_count = self.cyberlife_bottom_bar.txt_max_count
-        self.lbl_result_count = self.cyberlife_bottom_bar.lbl_result_count
-        self.lbl_query_time = self.cyberlife_bottom_bar.lbl_query_time
-        self.lbl_print_time = self.cyberlife_bottom_bar.lbl_print_time
-        self.lbl_total_time = self.cyberlife_bottom_bar.lbl_total_time
-        self.btn_run = self.cyberlife_bottom_bar.btn_run
-        self.chk_coverage_level = QCheckBox("Coverage Level")
-        self.chk_coverage_level.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.chk_coverage_level.setToolTip(
-            "Return one row per matching coverage and show coverage-level values")
-        _ensure_checkmark()
-        _cov_check_icon = _CHECKMARK_PATH.replace("\\", "/")
-        self.chk_coverage_level.setStyleSheet(
-            "QCheckBox::indicator { border: 1px solid #1E5BA8; width: 12px;"
-            " height: 12px; background-color: white; }"
-            "QCheckBox::indicator:checked {"
-            "  background-color: #1E5BA8; border: 1px solid #14407A;"
-            f"  image: url({_cov_check_icon});"
-            "}")
-        # Coverage scope combo — only active when Coverage Level is checked.
-        self.cmb_coverage_scope = QComboBox()
-        self.cmb_coverage_scope.setFont(QFont("Segoe UI", 8))
-        self.cmb_coverage_scope.addItems(["All Covs", "Cov 1 only", "Covs 2+ only"])
-        self.cmb_coverage_scope.setFixedHeight(18)
-        self.cmb_coverage_scope.setToolTip(
-            "Which coverages to return (only used when Coverage Level is checked)")
-        self.cmb_coverage_scope.setStyleSheet(
-            "QComboBox { background-color: white; border: 1px solid #1E5BA8;"
-            " padding: 0px 3px; }"
-            "QComboBox:disabled { background-color: #E4E4E4; color: #999;"
-            " border: 1px solid #AAB; }"
-            "QComboBox::drop-down { border-left: 1px solid #1E5BA8; width: 14px; }")
-        self.chk_coverage_level.toggled.connect(
-            self.cmb_coverage_scope.setEnabled)
-        self.cmb_coverage_scope.setEnabled(self.chk_coverage_level.isChecked())
-        # Stack the checkbox above the scope combo.
-        _cov_stack = QVBoxLayout()
-        _cov_stack.setSpacing(2)
-        _cov_stack.setContentsMargins(0, 0, 0, 0)
-        _cov_stack.addWidget(self.chk_coverage_level)
-        _cov_stack.addWidget(self.cmb_coverage_scope)
-        self.cyberlife_bottom_bar.action_layout.addLayout(_cov_stack)
-        # New sits full-height; Save As / Save stack vertically beside it.
-        self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_new_cyberlife)
-        _save_stack = QVBoxLayout()
-        _save_stack.setSpacing(2)
-        _save_stack.setContentsMargins(0, 0, 0, 0)
-        _save_stack.addWidget(self.btn_save_object)
-        _save_stack.addWidget(self.btn_save_cyberlife)
-        self.cyberlife_bottom_bar.center_action_layout.addLayout(_save_stack)
-        # Left side: Region/SysCode
-        # Region + System Code stacked
-        region_sys_stack = QVBoxLayout()
-        region_sys_stack.setSpacing(2)
-        region_sys_stack.setContentsMargins(0, 0, 0, 0)
-        region_row = QHBoxLayout()
-        region_row.setSpacing(3)
-        region_row.setContentsMargins(0, 0, 0, 0)
-        self.lbl_region = QLabel("Region:")
-        self.lbl_region.setFont(QFont("Segoe UI", 8))
-        self.cmb_region = QComboBox()
-        self.cmb_region.setFont(_FONT)
-        self.cmb_region.addItems(REGION_ITEMS)
-        self.cmb_region.setFixedHeight(18)
-        self.cmb_region.setFixedWidth(70)
-        _style_combo(self.cmb_region)
-        region_row.addWidget(self.lbl_region)
-        region_row.addWidget(self.cmb_region)
-        region_row.addStretch()
-        region_sys_stack.addLayout(region_row)
-        sys_row = QHBoxLayout()
-        sys_row.setSpacing(3)
-        sys_row.setContentsMargins(0, 0, 0, 0)
-        self.lbl_sys = QLabel("Sys Code:")
-        self.lbl_sys.setFont(QFont("Segoe UI", 8))
-        self.cmb_system = QComboBox()
-        self.cmb_system.setFont(_FONT)
-        self.cmb_system.addItems(SYSTEM_CODE_ITEMS)
-        self.cmb_system.setFixedHeight(18)
-        self.cmb_system.setFixedWidth(45)
-        _style_combo(self.cmb_system)
-        sys_row.addWidget(self.lbl_sys)
-        sys_row.addWidget(self.cmb_system)
-        sys_row.addStretch()
-        region_sys_stack.addLayout(sys_row)
-        self.cyberlife_bottom_bar.left_layout.addLayout(region_sys_stack)
-        # Query name — the single most-missed piece of context in the footer, so
-        # it reads as a badge rather than another small grey label.
-        self.cyberlife_bottom_bar.left_layout.addSpacing(10)
-        self.lbl_cyberlife_query_name = QLabel("")
-        self.lbl_cyberlife_query_name.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
-        self.lbl_cyberlife_query_name.setStyleSheet(
-            "QLabel {"
-            " color: #FFFFFF; background-color: #0A2A5C;"
-            " border: 1px solid #D4A017; border-radius: 4px;"
-            " padding: 3px 12px;"
-            "}")
-        self.lbl_cyberlife_query_name.setToolTip("Currently open Cyberlife query object")
-        self.lbl_cyberlife_query_name.setVisible(False)
-        self.cyberlife_bottom_bar.left_layout.addWidget(self.lbl_cyberlife_query_name)
-        _left_lay.addWidget(self.cyberlife_bottom_bar)
-        # ── Dynamic query container (placeholder — queries added dynamically) ──
-        self._dynamic_query_container = QVBoxLayout()
-        self._dynamic_query_container.setSpacing(0)
-        self._dynamic_query_container.setContentsMargins(0, 0, 0, 0)
-        _left_lay.addLayout(self._dynamic_query_container)
-        # ── Forge blank placeholder (shown when DataForge space has no active forge) ──
-        self._forge_blank = QWidget()
-        self._forge_blank.setStyleSheet("QWidget { background-color: #FFF3E8; }")
-        self._forge_blank.setVisible(False)
-        self._dynamic_query_container.addWidget(self._forge_blank)
-        # ── Query blank placeholder (shown when Queries space has no active query) ──
-        self._query_blank = QWidget()
-        self._query_blank.setStyleSheet("QWidget { background-color: #EDE9FE; }")
-        query_blank_layout = QVBoxLayout(self._query_blank)
-        query_blank_layout.setContentsMargins(0, 0, 0, 0)
-        query_blank_layout.setSpacing(0)
-        query_blank_layout.addStretch()
-        self._query_blank_footer = AuditBottomBar(
-            bg_color=FOOTER_BG, run_label="Run")
-        self._query_blank_footer.btn_all.setVisible(False)
-        self._query_blank_footer.txt_max_count.setVisible(False)
-        self._query_blank_footer.lbl_max_count.setVisible(False)
-        self._btn_query_blank_new = QPushButton("New Query")
-        self._btn_query_blank_new.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self._btn_query_blank_new.setFixedSize(78, 36)
-        self._btn_query_blank_new.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
-        self._btn_query_blank_new.setToolTip("Start a new Visual Query Object")
-        self._btn_query_blank_new.clicked.connect(self._start_visual_query_object)
-        self._query_blank_footer.action_layout.addWidget(self._btn_query_blank_new)
-        self._btn_query_blank_save_as = QPushButton("Save As")
-        self._btn_query_blank_save_as.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self._btn_query_blank_save_as.setFixedSize(60, 36)
-        self._btn_query_blank_save_as.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
-        self._btn_query_blank_save_as.setToolTip("Create and save a new Visual Query Object")
-        self._btn_query_blank_save_as.clicked.connect(self._start_visual_query_object)
-        self._query_blank_footer.action_layout.addWidget(self._btn_query_blank_save_as)
-        self._query_blank_footer.btn_run.clicked.connect(self._start_visual_query_object)
-        query_blank_layout.addWidget(self._query_blank_footer)
-        self._query_blank.setVisible(False)
-        self._dynamic_query_container.addWidget(self._query_blank)
-        self.manual_sql_object_tab.setVisible(False)
-        self._dynamic_query_container.addWidget(self.manual_sql_object_tab)
-        self.csv_excel_object_tab.setVisible(False)
-        self._dynamic_query_container.addWidget(self.csv_excel_object_tab)
-        # DataForge group storage
-        self._dataforge_groups: dict[str, DataForgeGroup] = {}
-        # ── Left picker panel (embedded) ───────────────────────────
-        from suiteview.audit.dataforge.query_field_picker import QueryFieldPicker
-        from PyQt6.QtWidgets import QStackedWidget
-        self._field_picker = FieldPickerPanel(multi_source=True)
-        self._field_picker.field_requested.connect(self._on_picker_field_requested)
-        self._field_picker.query_clicked.connect(self._on_picker_query_clicked)
-        self._field_picker.new_query_requested.connect(self._start_visual_query_object)
-        self._field_picker.table_sources_changed.connect(self._on_picker_table_sources_changed)
-        self._field_picker.table_requested.connect(self._on_picker_table_requested)
-        self._field_picker.pinned_tables_changed.connect(self._on_picker_pinned_tables_changed)
-        self._field_picker.common_table_requested.connect(self._on_picker_common_table_requested)
-        self._field_picker.common_table_remove_requested.connect(self._on_picker_common_table_remove_requested)
-        self._field_picker.tables_changed.connect(self._on_picker_tables_changed)
-        self._field_picker.splitter_changed.connect(self._schedule_save_ui)
-        self._forge_field_picker = QueryFieldPicker()
-        self._forge_field_picker.field_requested.connect(
-            self._on_forge_picker_field_requested)
-        self._forge_field_picker.forge_clicked.connect(
-            self._on_picker_forge_clicked)
-        self._forge_field_picker.new_forge_requested.connect(
-            self._on_new_dataforge)
-        self._forge_field_picker.sources_changed.connect(
-            self._on_forge_picker_sources_changed)
-        self._forge_field_picker.source_refreshed.connect(
-            self._on_forge_picker_source_refreshed)
-        self._forge_field_picker.query_table_requested.connect(
-            self._on_forge_picker_query_table_requested)
-        self._forge_field_picker.splitter_changed.connect(self._schedule_save_ui)
-        self._picker_stack = QStackedWidget()
-        self._picker_stack.addWidget(self._field_picker)
-        self._picker_stack.addWidget(self._forge_field_picker)
-        # Picker container — always visible in query/forge modes
-        self._picker_container = QWidget()
-        _pc_lay = QVBoxLayout(self._picker_container)
-        _pc_lay.setContentsMargins(0, 0, 0, 0)
-        _pc_lay.setSpacing(0)
-        _pc_lay.addWidget(self._picker_stack, 1)
-        self._picker_container.setVisible(False)
-        self._picker_width = 380
-        self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._content_splitter.setChildrenCollapsible(False)
-        self._content_splitter.setHandleWidth(6)
-        self._content_splitter.setStyleSheet(
-            "QSplitter::handle { background: #FED7AA; }"
-            "QSplitter::handle:hover { background: #EA580C; }")
-        self._content_splitter.addWidget(self._picker_container)
-        self._content_splitter.addWidget(self._content_left)
-        self._content_splitter.setStretchFactor(0, 0)
-        self._content_splitter.setStretchFactor(1, 1)
-        self._content_splitter.setSizes([0, 900])
-        self._content_splitter.splitterMoved.connect(self._on_content_splitter_moved)
-        root.addWidget(self._content_splitter, 1)
-        self._mode_footer_host = QWidget()
-        self._mode_footer_host.setVisible(False)
-        self._mode_footer_layout = QVBoxLayout(self._mode_footer_host)
-        self._mode_footer_layout.setContentsMargins(0, 0, 0, 0)
-        self._mode_footer_layout.setSpacing(0)
-        self._active_mode_footer = None
-        root.addWidget(self._mode_footer_host)
-        self._manual_sql_connections = ManualSqlConnectionService()
-        self._mode_controller = AuditModeController(self)
-        self._cyberlife_run_controller = CyberlifeRunController(self)
-        self._query_object_persistence = QueryObjectPersistenceController(self)
-        self._visual_query_controller = VisualQueryController(self)
-        self._picker_binding_controller = PickerBindingController(self)
-        self._apply_initial_state()
-        self._connect_signals()
-        self._restore_ui_settings()
-        return body
+        return _build_audit_window_content(self)
     # ── Initial state ────────────────────────────────────────────────
     def _apply_initial_state(self):
         idx = self.cmb_region.findText(self._region)
