@@ -283,11 +283,18 @@ def _coverage_rider(cov, sex: str, base_rate_class: str) -> tuple[RiderInfo | No
     return rider, fallback
 
 
-def extract_riders_and_layers(policy_num: str, pi, identity: PolicyIdentity) -> RidersAndLayers:
+def extract_riders_and_layers(
+    policy_num: str,
+    pi,
+    identity: PolicyIdentity,
+    as_of_date: date,
+) -> RidersAndLayers:
     """Extract premium riders, benefits and primary-insured death-benefit layers.
 
     Sources: PolicyInformation ``get_coverages()``, ``get_benefits()`` and
     ``primary_insured_db_layers`` (LH_COV_PHA/LH_SPM_BNF-derived records).
+    Benefit cease-date filtering is evaluated at the boundary-supplied
+    ``as_of_date`` so tests and quote retrieval are clock-independent.
     """
     try:
         coverages = pi.get_coverages()
@@ -297,7 +304,6 @@ def extract_riders_and_layers(policy_num: str, pi, identity: PolicyIdentity) -> 
             f"Coverage/benefit lookup failed for {policy_num}"
         ) from exc
     issue_date = identity.issue_date or (coverages[0].issue_date if coverages else None)
-    today = date.today()
     riders: List[RiderInfo] = []
     rider_annual = 0.0
     for cov in coverages:
@@ -310,7 +316,7 @@ def extract_riders_and_layers(policy_num: str, pi, identity: PolicyIdentity) -> 
         if cov_rc == "0" and cov.is_base:
             cov_rc = identity.rate_class
         for benefit in (b for b in all_benefits if b.cov_pha_nbr == cov.cov_pha_nbr):
-            if benefit.cease_date and benefit.cease_date < today:
+            if benefit.cease_date and benefit.cease_date < as_of_date:
                 continue
             if (benefit.benefit_type_cd or "").strip() == "#":
                 continue
@@ -460,6 +466,7 @@ def build_abr_policy(
     company_code: Optional[str] = None,
     *,
     use_cache: bool = True,
+    as_of_date: date,
 ) -> Tuple[Optional[ABRPolicyData], Optional[object]]:
     """Fetch CyberLife policy data and assemble an ABRPolicyData object."""
     pi = get_policy_info(
@@ -472,7 +479,7 @@ def build_abr_policy(
         raise ABRPolicyLookupError(f"Policy {policy_num} not found in {region}")
     identity = extract_policy_identity(policy_num, region, pi)
     substandard = extract_policy_substandard(policy_num, pi)
-    riders = extract_riders_and_layers(policy_num, pi, identity)
+    riders = extract_riders_and_layers(policy_num, pi, identity, as_of_date)
     values = extract_policy_values(policy_num, pi)
     policy = ABRPolicyData(
         policy_number=identity.policy_number,

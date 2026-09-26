@@ -484,11 +484,16 @@ class PolicyPanel(QWidget):
 
             company_display = f"{company_code} - {COMPANY_CODES.get(company_code, company_code)}"
 
-            policy, policy_info = build_abr_policy(policy_num, region, company_code=company_code)
+            quote_dt = self.get_quote_date()
+            policy, policy_info = build_abr_policy(
+                policy_num,
+                region,
+                company_code=company_code,
+                as_of_date=quote_dt,
+            )
             if policy:
                 policy.company = company_display
                 # Fetch reinsurer list from TAICession
-                quote_dt = self.get_quote_date()
                 policy.reinsurers = fetch_reinsurer_list(
                     policy_num, company_code, quote_dt
                 )
@@ -654,9 +659,9 @@ class PolicyPanel(QWidget):
                 f"{p.valuation_date.month}/{p.valuation_date.day}/{p.valuation_date.year}"
             )
         else:
-            today = date.today()
+            today = self.get_quote_date()
             labels["valuation_date"].setText(
-                f"{today.month}/{today.day}/{today.year}  (as of today)"
+                f"{today.month}/{today.day}/{today.year}  (quote date)"
             )
         labels["valuation_date"].setStyleSheet(
             f"color: {CRIMSON_DARK}; font-size: 11px; font-style: italic;"

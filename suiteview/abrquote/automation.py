@@ -426,7 +426,9 @@ def quote_abr(request: QuoteRequest | dict) -> dict:
     with reject_lookup_warnings("suiteview.polview.models"):
         with reject_lookup_warnings("suiteview.abrquote.core.abr_policy_service"):
             p, pi = build_abr_policy(req.policy_number, req.region,
-                                     company_code=req.company_code, use_cache=False)
+                                     company_code=req.company_code,
+                                     use_cache=False,
+                                     as_of_date=req.quote_date)
     if pi is None or p is None:
         raise QuoteError("Live policy retrieval failed; manual/default policy is forbidden")
     activity = policy_activity(pi)

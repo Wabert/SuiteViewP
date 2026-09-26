@@ -35,7 +35,13 @@ def inspect(policy_number, region, quote_date, assessment_request):
         raise QuoteError(f"Unique canonical company not resolved: {companies}")
     company = companies[0]
     with capture_lookup_warnings("suiteview.polview.models") as policy_diagnostics:
-        policy, pi = build_abr_policy(policy_number, region, company_code=company, use_cache=False)
+        policy, pi = build_abr_policy(
+            policy_number,
+            region,
+            company_code=company,
+            use_cache=False,
+            as_of_date=quote_date,
+        )
     if not policy or pi is None:
         raise QuoteError("Canonical policy retrieval failed")
     actual_company = str(pi.data_item("LH_BAS_POL", "CK_CMP_CD") or "").strip()
