@@ -1,8 +1,38 @@
-"""UL Illustration projection engine — orchestrates the monthly pipeline.
+"""UL Illustration projection engine and canonical monthly pipeline.
 
-Public API:
+Public API::
+
     engine = IllustrationEngine()
-    results = engine.project(policy, months=12)  # → List[MonthlyState]
+    results = engine.project(policy, months=12)  # -> list[MonthlyState]
+
+Canonical projected-month step order:
+
+1. advance counters and carry beginning values;
+2. capitalize loan interest and, for CyberLife monthliversary timing only,
+   credit interest before withdrawal;
+3. process withdrawal;
+4. apply dated policy changes and refresh target/guideline details when the
+   timing convention permits them;
+5. apply guideline force-out, resolve requested premiums and loan cash flows;
+6. compute premium allowances, apply accepted premium, deduct monthly charges
+   and any GP/monthly-deduction exception premium;
+7. apply new loans, credit post-deduction interest for illustration timing,
+   accrue loan interest, calculate shadow account values and evaluate lapse;
+8. build the ``MonthlyState`` ledger row.
+
+Timing conventions preserve the known source-system differences:
+
+========================  ======================  ==========================
+Step                      ILLUSTRATION            CYBERLIFE_MONTHLIVERSARY
+========================  ======================  ==========================
+Counters                  issue-anchored          calendar monthliversary
+Interest timing           post-deduction          pre-withdrawal
+Policy changes            yes                     rejected/skipped
+Target refresh/recalc      yes                     carry prior details
+WAIR/shadow               yes                     skipped
+Lapse                     full protection stack   simple AV <= 0 test
+7-pay withdrawals          premium minus gross WD  premiums only
+========================  ======================  ==========================
 """
 from __future__ import annotations
 
@@ -14,7 +44,7 @@ from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import date
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from dateutil.relativedelta import relativedelta
 
@@ -113,6 +143,2001 @@ class ProjectionTiming(str, Enum):
     CYBERLIFE_MONTHLIVERSARY = "cyberlife_monthliversary"
 
 
+@dataclass(frozen=True)
+class TimingConvention:
+    """Controls the few actuarial timing differences between month pipelines."""
+
+    name: str
+    counter_timing: Literal["issue_anchored", "monthliversary"]
+    interest_timing: Literal["pre_withdrawal", "post_deduction"]
+    supports_policy_changes: bool
+    refresh_targets: bool
+    guideline_recalc: bool
+    full_lapse_protection: bool
+    shadow_enabled: bool
+    wair_enabled: bool
+    withdrawal_reduces_7pay: bool
+
+
+ILLUSTRATION_TIMING = TimingConvention(
+    name="illustration",
+    counter_timing="issue_anchored",
+    interest_timing="post_deduction",
+    supports_policy_changes=True,
+    refresh_targets=True,
+    guideline_recalc=True,
+    full_lapse_protection=True,
+    shadow_enabled=True,
+    wair_enabled=True,
+    withdrawal_reduces_7pay=True,
+)
+
+CYBERLIFE_MONTHLIVERSARY_TIMING = TimingConvention(
+    name="cyberlife_monthliversary",
+    counter_timing="monthliversary",
+    interest_timing="pre_withdrawal",
+    supports_policy_changes=False,
+    refresh_targets=False,
+    guideline_recalc=False,
+    full_lapse_protection=False,
+    shadow_enabled=False,
+    wair_enabled=False,
+    withdrawal_reduces_7pay=False,
+)
+
+
+@dataclass(frozen=True)
+class MonthContext:
+    """Immutable inputs for one projected month."""
+
+    state: MonthlyState
+    policy: IllustrationPolicyData
+    config: PlancodeConfig
+    rates: IllustrationRates
+    bonus: BonusConfig
+    month_inputs: object | None
+    options: IllustrationOptions
+    policy_changes: object | None = None
+    iul_ctx: Optional[IULCreditingContext] = None
+
+
+@dataclass
+class MonthWork:
+    """Mutable working state passed between named month-pipeline steps."""
+
+    next_year: int = 0
+    next_month: int = 0
+    duration: int = 0
+    attained_age: int = 0
+    month_date: Optional[date] = None
+    is_anniversary: bool = False
+    rate_year: int = 0
+    lapse_value: str = LAPSE_BASIS_SURRENDER_VALUE
+    premiums_ytd: float = 0.0
+    premiums_to_date: float = 0.0
+    cost_basis: float = 0.0
+    withdrawals_to_date: float = 0.0
+    av: float = 0.0
+    bo_av: float = 0.0
+    adv_reg_factor: float = 1.0
+    adv_pref_factor: float = 1.0
+    adv_reg_ln_int: float = 0.0
+    adv_pref_ln_int: float = 0.0
+
+
+def prepare_run_policy(
+    policy: IllustrationPolicyData, options: IllustrationOptions
+) -> tuple[IllustrationPolicyData, PlancodeConfig, bool]:
+    """Copy the policy and resolve plancode/run-level starting flags."""
+    if policy.rollback_requires_shadow_value:
+        raise ValueError(
+            "Historical shadow account value is unavailable. Enter a verified "
+            "historical shadow amount before projecting Value Rollback."
+        )
+    starting_exception_period = (
+        options.recognize_inforce_exception_period
+        and policy.in_exception_period
+        and not options.guaranteed_assumption
+    )
+    config = load_plancode(policy.plancode)
+    charge_overrides = {
+        config_field: getattr(policy, policy_field)
+        for policy_field, config_field in (
+            ("regular_loan_charge_rate", "loan_charge_rate_guar"),
+            ("preferred_loan_charge_rate", "pref_loan_charge_rate_guar"),
+        )
+        if policy_field in policy.starting_record_fields
+    }
+    if charge_overrides:
+        config = replace(config, **charge_overrides)
+    policy = copy.deepcopy(policy)
+    if policy.run_from_issue:
+        policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
+    return policy, config, starting_exception_period
+
+
+def validate_projection_timing(
+    timing: ProjectionTiming, future_inputs: Optional[IllustrationInputSet]
+) -> None:
+    """Reject unsupported input combinations for a timing convention."""
+    if (
+        timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY
+        and future_inputs is not None
+        and future_inputs.policy_changes
+    ):
+        raise ValueError(
+            "ProjectionTiming.CYBERLIFE_MONTHLIVERSARY does not support "
+            "policy changes; policy changes are not supported on the "
+            "CyberLife-monthliversary path."
+        )
+
+
+def initialize_run_from_issue_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    options: IllustrationOptions,
+) -> None:
+    """Recompute targets/regulatory premiums for issue-mode projections."""
+    if not policy.run_from_issue:
+        return
+    targets = compute_target_premiums(policy, config, as_of=policy.issue_date)
+    policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
+    policy.ctp = targets.ctp_annual
+    guideline = _solve_guideline_state(
+        policy,
+        config,
+        policy.issue_age,
+        policy.issue_date,
+        options,
+        starting_av=0.0,
+        active_as_of=policy.issue_date,
+    )
+    policy.glp = floor_monthly_cent(guideline.glp)
+    policy.gsp = floor_monthly_cent(guideline.gsp)
+    policy.tamra_7pay_level = floor_monthly_cent(guideline.seven_pay)
+
+
+def resolve_bonus_config(
+    policy: IllustrationPolicyData, bonus_override: Optional[BonusConfig]
+) -> BonusConfig:
+    """Load or override the plan interest-bonus configuration."""
+    if bonus_override is not None:
+        return bonus_override
+    val_date = (
+        policy.illustration_date
+        if policy.run_from_issue and policy.illustration_date
+        else policy.valuation_date or policy.issue_date
+    )
+    return load_bonus_config(policy.plancode, val_date)
+
+
+def projection_month_count(policy: IllustrationPolicyData, months: Optional[int]) -> int:
+    """Number of projected months, capped at the maturity month."""
+    remaining_years = policy.maturity_age - policy.attained_age
+    remaining_months = max(remaining_years * 12 - policy.policy_month + 1, 0)
+    return remaining_months if months is None else min(months, remaining_months)
+
+
+def compile_policy_changes_by_duration(
+    policy: IllustrationPolicyData, future_inputs: Optional[IllustrationInputSet]
+) -> Dict[int, list]:
+    """Compile policy changes keyed by projection duration."""
+    if future_inputs is not None and not future_inputs.is_empty():
+        return _compile_policy_changes(policy, future_inputs.policy_changes)
+    return {}
+
+
+def timing_convention(timing: ProjectionTiming) -> TimingConvention:
+    """Map public projection timing to the month-pipeline convention."""
+    if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
+        return CYBERLIFE_MONTHLIVERSARY_TIMING
+    return ILLUSTRATION_TIMING
+
+
+def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
+    """Run one month under the selected timing convention."""
+    if convention == CYBERLIFE_MONTHLIVERSARY_TIMING:
+        return _run_cyberlife_monthliversary(ctx)
+    return _run_illustration_month(ctx)
+
+
+def advance_counters(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Advance date, policy counters and attained age for the next month."""
+    state = ctx.state
+    policy = ctx.policy
+    if convention.counter_timing == "monthliversary" and not policy.run_from_issue:
+        prior_date = state.date or policy.valuation_date or policy.issue_date
+        work.month_date = prior_date + relativedelta(months=1)
+        work.next_year, work.next_month, work.duration = _policy_counters_for_date(
+            policy, work.month_date
+        )
+    else:
+        work.next_year, work.next_month = _advance_month(
+            state.policy_year, state.policy_month
+        )
+        work.duration = state.duration + 1
+        work.month_date = policy.issue_date + relativedelta(months=work.duration - 1)
+    work.lapse_value = lapse_value_for_month(policy, ctx.config, work.duration)
+    work.attained_age = policy.issue_age + (work.duration - 1) // 12
+    work.is_anniversary = work.next_month == 1
+    work.rate_year = work.next_year
+
+
+def carry_begin_values(ctx: MonthContext, work: MonthWork) -> None:
+    """Carry beginning-of-month premium, basis and account-value values."""
+    state = ctx.state
+    work.premiums_ytd = (
+        0.0 if work.is_anniversary else state.premiums_ytd_after_exception
+    )
+    work.premiums_to_date = state.premiums_to_date_after_exception
+    work.cost_basis = state.cost_basis_after_exception
+    work.withdrawals_to_date = state.withdrawals_to_date
+    work.av = state.av_end_of_month
+
+
+def capitalize_loans_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Capitalize loan interest at anniversaries and carry loan display factors."""
+    state = ctx.state
+    days_to_next_anniv = _days_to_next_anniversary(
+        ctx.policy.issue_date, work.month_date
+    )
+    work.adv_reg_factor, work.adv_pref_factor = _advance_loan_factors(
+        ctx.config, days_to_next_anniv
+    )
+    work.cap_loan = capitalize_loans(
+        state.end_rg_loan_princ,
+        state.end_rg_loan_accrued,
+        state.end_pf_loan_princ,
+        state.end_pf_loan_accrued,
+        state.end_vbl_loan_princ,
+        state.end_vbl_loan_accrued,
+        work.is_anniversary,
+        config=ctx.config,
+        adv_reg_factor=work.adv_reg_factor,
+        adv_pref_factor=work.adv_pref_factor,
+    )
+    work.adv_reg_ln_int = work.cap_loan.adv_reg_int
+    work.adv_pref_ln_int = work.cap_loan.adv_pref_int
+
+
+def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
+    """Credit interest before withdrawal for CyberLife monthliversary timing."""
+    work.intr = credit_interest(
+        ctx.state.av_end_of_month,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        ctx.bonus,
+        work.rate_year,
+        work.attained_age,
+        work.month_date,
+        reg_loan_balance=work.cap_loan.rg_loan_princ,
+        pref_loan_balance=work.cap_loan.pf_loan_princ,
+        exact_days_interest=ctx.options.exact_days_interest,
+    )
+    work.av = work.intr.av_end_of_month
+
+
+def process_withdrawal_step(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Apply requested withdrawal and update AV, cost basis and withdrawal totals."""
+    work.wd = _process_withdrawal(WithdrawalInput(
+        state=ctx.state,
+        policy=ctx.policy,
+        config=ctx.config,
+        rates=ctx.rates,
+        rate_year=work.rate_year,
+        attained_age=work.attained_age,
+        month_date=work.month_date,
+        av=work.av,
+        cost_basis=work.cost_basis,
+        month_inputs=ctx.month_inputs,
+        cap_loan=work.cap_loan,
+        is_anniversary=work.is_anniversary,
+        options=ctx.options,
+        defer_guideline_recalc=(
+            convention.guideline_recalc and bool(ctx.policy_changes)
+        ),
+    ))
+    work.av = work.wd.av_post_withdrawal
+    work.bo_av = work.av
+    work.cost_basis = work.wd.cost_basis_after_wd
+    work.withdrawals_to_date = work.wd.withdrawals_to_date
+
+
+def apply_policy_changes(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Apply dated policy changes and capture coverage/guideline recalc detail."""
+    state = ctx.state
+    policy = ctx.policy
+    work.tamra_reset = False
+    work.policy_change_av_reduction = work.wd.gross_withdrawal
+    work.dbo_change_detail = {}
+    work.face_change_detail = {}
+    work.guideline_recalc = dict(work.wd.guideline_recalc)
+    if not convention.supports_policy_changes:
+        work.cov_after_change = _coverage_after_change_snapshot(
+            policy,
+            ctx.config,
+            work.month_date,
+            work.wd.gross_withdrawal,
+            state.coverage_after_change,
+        )
+        return
+
+    guideline_before = work.wd.guideline_before
+    guideline_before_pv_detail = work.wd.guideline_before_pv_detail
+    guideline_changes = 1 if work.wd.face_decrease > MONEY_EPSILON else 0
+    recalc_change = (
+        PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT,
+            effective_date=work.month_date,
+            value=policy.total_face,
+        )
+        if guideline_changes
+        else None
+    )
+    if ctx.policy_changes:
+        for change in sorted(
+            ctx.policy_changes,
+            key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
+        ):
+            outcome = _apply_policy_change(
+                policy,
+                ctx.config,
+                change,
+                work.attained_age,
+                work.month_date,
+                ctx.rates,
+                work.rate_year,
+                work.av,
+                options=ctx.options,
+                defer_guideline_recalc=True,
+                capture_guideline_before=guideline_before is None,
+            )
+            work.av += outcome.av_adjustment
+            work.policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
+            work.tamra_reset = work.tamra_reset or outcome.material_change
+            work.dbo_change_detail.update(outcome.dbo_detail)
+            work.face_change_detail.update(outcome.face_detail)
+            if outcome.coverage_changed:
+                guideline_changes += 1
+                if recalc_change is None:
+                    recalc_change = change
+            if guideline_before is None and outcome.guideline_before is not None:
+                guideline_before = outcome.guideline_before
+                guideline_before_pv_detail = outcome.guideline_before_pv_detail
+
+        if guideline_changes and recalc_change is not None:
+            if guideline_changes > 1:
+                recalc_change = PolicyChangeEvent(
+                    kind=recalc_change.kind,
+                    effective_date=work.month_date,
+                    value=recalc_change.value,
+                    metadata={"change_label": "Combined Policy Changes"},
+                )
+            work.guideline_recalc = _recalc_guideline_on_change(
+                policy,
+                ctx.config,
+                recalc_change,
+                work.attained_age,
+                change_date=work.month_date,
+                before=guideline_before,
+                av=work.av,
+                material_change=work.tamra_reset,
+                options=ctx.options,
+                before_pv_detail=guideline_before_pv_detail,
+            )
+
+    if work.tamra_reset:
+        policy.tamra_7pay_start_date = work.month_date
+
+    work.cov_after_change = _coverage_after_change_snapshot(
+        policy,
+        ctx.config,
+        work.month_date,
+        work.policy_change_av_reduction,
+        state.coverage_after_change,
+    )
+
+
+def refresh_targets(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:
+    """Refresh target-premium details and carry safety-net timing flags."""
+    state = ctx.state
+    policy = ctx.policy
+    if (
+        convention.refresh_targets
+        and (
+            not state.mtp_detail
+            or ctx.policy_changes
+            or work.wd.face_decrease > MONEY_EPSILON
+            or target_actives_signature(policy, work.month_date)
+            != target_actives_signature(policy, state.date)
+        )
+    ):
+        work.mtp_detail, work.ctp_detail = build_target_detail_snapshots(
+            policy, compute_target_premiums(policy, ctx.config, as_of=work.month_date)
+        )
+    else:
+        work.mtp_detail = state.mtp_detail
+        work.ctp_detail = state.ctp_detail
+
+    work.monthly_mtp = truncate_monthly_mtp(policy.mtp)
+    work.pw_monthly_mtp = _round_near(policy.mtp, 2)
+    work.accumulated_mtp = state.accumulated_mtp + work.monthly_mtp
+    if policy.map_cease_date is not None:
+        work.within_snet = work.month_date <= policy.map_cease_date
+    else:
+        work.within_snet = work.next_year <= ctx.config.snet_period
+    work.past_snet = not work.within_snet
+    work.prior_exception_mode = state.gp_exception_mode
+
+
+def apply_guideline_forceout(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Accumulate guideline premium and apply any required force-out."""
+    state = ctx.state
+    policy = ctx.policy
+    work.accum_glp_prior_amount = state.accumulated_glp
+    work.gsp_floored = floor_monthly_cent(policy.gsp)
+    work.accumulated_glp = _accumulate_guideline_premium(
+        state, policy, work.is_anniversary, work.attained_age
+    )
+    if convention.guideline_recalc and work.attained_age < 100:
+        work.accumulated_glp += float(
+            work.guideline_recalc.get("accum_glp_adjustment", 0.0) or 0.0
+        )
+    if convention.guideline_recalc and work.guideline_recalc:
+        _record_accum_glp_recalc_detail(
+            work.guideline_recalc,
+            prior_amount=work.accum_glp_prior_amount,
+            new_amount=work.accumulated_glp,
+            policy_month=work.next_month,
+        )
+    work.guideline_limit = max(work.gsp_floored, work.accumulated_glp)
+    work.withdrawals_before_forceout = work.withdrawals_to_date
+    (
+        work.guideline_forceout,
+        work.withdrawals_to_date,
+        work.av,
+    ) = _apply_guideline_forceout(
+        work.gsp_floored,
+        work.accumulated_glp,
+        work.premiums_to_date,
+        work.withdrawals_to_date,
+        work.av,
+        enabled=ctx.options.force_out_enabled,
+        has_guideline_limit=policy.is_gpt,
+        prior_exception_mode=work.prior_exception_mode,
+    )
+
+
+def resolve_requested_premium(ctx: MonthContext, work: MonthWork) -> None:
+    """Resolve scheduled and lump-sum premiums before loan repayment."""
+    state = ctx.state
+    work.requested_scheduled, work.requested_lumpsum = _split_requested_premium(
+        ctx.policy,
+        ctx.config,
+        ctx.month_inputs,
+        work.attained_age,
+        exception_period=state.inforce_exception_period,
+    )
+    work.b2md_active = _billable_to_md_active(ctx.options, work.next_year)
+    if work.b2md_active and state.billable_md_switched:
+        work.requested_scheduled = 0.0
+        if ctx.month_inputs is not None:
+            work.requested_lumpsum = max(
+                0.0,
+                work.requested_lumpsum - ctx.month_inputs.billable_to_md_premium,
+            )
+    work.has_loan_balance = _loan_balance_for_levelizing(work.cap_loan)
+    work.boy_loan = work.cap_loan
+
+
+def apply_cashflows(ctx: MonthContext, work: MonthWork) -> None:
+    """Apply loan repayments, loan-to-premium remainders and premium diversion."""
+    work.cash_flows = apply_cash_flow_inputs(
+        work.av,
+        work.cap_loan,
+        ctx.month_inputs,
+        config=ctx.config,
+        adv_reg_factor=work.adv_reg_factor,
+        adv_pref_factor=work.adv_pref_factor,
+        apply_prem_to_loan=ctx.options.apply_prem_to_loan,
+        excess_repayment_to_premium=(
+            ctx.options.apply_excess_repayment_as_premium
+            and not ctx.state.inforce_exception_period
+        ),
+        requested_lumpsum=work.requested_lumpsum,
+        requested_scheduled=work.requested_scheduled,
+    )
+    work.av = work.cash_flows.av
+    work.cap_loan = work.cash_flows.loan_state
+    work.loan_cap_repay_detail = work.cash_flows.loan_cap_repay
+
+
+def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
+    """Compute TEFRA/TAMRA premium allowances for this month."""
+    state = ctx.state
+    policy = ctx.policy
+    work.accumulated_7pay_base = (
+        0.0 if getattr(work, "tamra_reset", False) else state.accumulated_7pay
+    )
+    work.tamra_year = _tamra_year(policy, work.month_date)
+    work.tamra_moy = _tamra_month_of_year(policy, work.month_date)
+    work.pc_policy, work.pc_tamra, work.payment_mode = _payment_counts(
+        state, policy, work.month_date, work.next_month, ctx.month_inputs
+    )
+    work.beginning_of_year = (
+        work.is_anniversary or state.payment_count_policy_year == 0
+    )
+    work.allowances = compute_premium_allowances(PremiumAllowanceInput(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=ctx.options.guideline_cap_enabled,
+        tamra_force=_tamra_force(ctx.options, policy),
+        mec_bypass=policy.is_mec,
+        guideline_limit=work.guideline_limit,
+        prem_less_wd=work.premiums_to_date - work.withdrawals_before_forceout,
+        force_out=work.guideline_forceout,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
+        amount_in_7pay=work.accumulated_7pay_base,
+        tamra_year=work.tamra_year,
+        tamra_month_of_year=work.tamra_moy,
+        policy_month=work.next_month,
+        npt_premium=0.0,
+        tamra_reset=getattr(work, "tamra_reset", False),
+        requested_scheduled=work.requested_scheduled,
+        requested_lumpsum=work.requested_lumpsum,
+        payment_count_policy_year=work.pc_policy,
+        payment_count_tamra_year=work.pc_tamra,
+        has_loan_balance=work.has_loan_balance,
+        levelizing_premium=ctx.options.levelizing_premium,
+        beginning_of_year=work.beginning_of_year,
+        policy_anniversary=work.is_anniversary,
+        prior_scheduled_prem_cap=state.scheduled_prem_cap,
+        prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
+        prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
+        loan_repay_from_lumpsum=work.cash_flows.loan_repay_from_lumpsum,
+        loan_repay_from_scheduled=work.cash_flows.loan_repay_from_scheduled,
+        ln_repay_left_over=work.cash_flows.ln_repay_left_over,
+        prior_guideline_limit_reached=state.guideline_limit_reached,
+        prior_transition_year_active=state.transition_year_active,
+    ))
+
+
+def apply_premium_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Apply the accepted premium and expose pre-deduction AV."""
+    work.prem = apply_premium(
+        work.av,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        work.rate_year,
+        work.premiums_ytd,
+        work.premiums_to_date,
+        work.cost_basis,
+        gross_premium_override=work.allowances.applied_total_premium,
+        premium_cap=None,
+    )
+    work.av = work.prem.av_after_premium
+    work.av_before_deduction = work.av
+
+
+def deduct_monthly_charges(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Deduct monthly charges and IUL asset charge."""
+    monthly_mtp = (
+        work.pw_monthly_mtp
+        if convention == ILLUSTRATION_TIMING
+        else work.monthly_mtp
+    )
+    work.ded = calculate_deduction(
+        work.av_before_deduction,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        work.rate_year,
+        work.attained_age,
+        work.prem.premiums_to_date,
+        monthly_mtp=monthly_mtp,
+        projection_date=work.month_date,
+    )
+    work.asset_charge = monthly_asset_charge(
+        ctx.iul_ctx,
+        work.av_before_deduction,
+        work.cap_loan.rg_loan_princ,
+        work.cap_loan.rg_loan_accrued,
+    )
+    work.av_after_charge = work.ded.av_after_deduction - work.asset_charge
+
+
+def _exception_input(
+    ctx: MonthContext, work: MonthWork, md_premium_active: bool
+) -> ExceptionPremiumInput:
+    return ExceptionPremiumInput(
+        options=ctx.options,
+        policy=ctx.policy,
+        config=ctx.config,
+        rates=ctx.rates,
+        rate_year=work.rate_year,
+        av_after_charge=work.av_after_charge,
+        coi_rate=work.ded.coi_rate,
+        guideline_limit_reached=work.guideline_limit_reached,
+        past_snet=work.past_snet,
+        prior_exception_mode=work.prior_exception_mode,
+        prior_lapsed=ctx.state.lapsed,
+        attained_age=work.attained_age,
+        md_premium_active=md_premium_active,
+        total_deduction=work.ded.total_deduction,
+        guideline_limit=work.guideline_limit,
+        premiums_to_date=work.prem.premiums_to_date,
+        withdrawals_to_date=work.withdrawals_to_date,
+        guideline_cap_enabled=ctx.options.guideline_cap_enabled and ctx.policy.is_gpt,
+    )
+
+
+def _update_billable_to_md(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    work.b2md_switched = ctx.state.billable_md_switched
+    if not (
+        work.b2md_active
+        and not work.b2md_switched
+        and not ctx.state.lapsed
+        and _b2md_latch_allowed(ctx.options, work.month_date)
+    ):
+        return
+    if convention.full_lapse_protection:
+        _, sc_probe, _, _ = _calculate_surrender_charge(
+            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+        )
+        probe_debt = work.cap_loan.policy_debt
+        snet_probe = (
+            (work.prem.premiums_to_date - work.withdrawals_to_date - probe_debt)
+            - work.accumulated_mtp >= 0 and work.within_snet
+        )
+        shadow_probe = (
+            ctx.policy.has_shadow_account
+            and work.past_snet
+            and ctx.state.shadow_eav_less_debt > 0
+        )
+        sv_probe = (
+            work.lapse_value == LAPSE_BASIS_SURRENDER_VALUE
+            and work.av_after_charge - sc_probe - probe_debt > 0
+        )
+        av_probe = (
+            work.lapse_value == LAPSE_BASIS_ACCOUNT_VALUE
+            and work.av_after_charge - probe_debt > 0
+        )
+        work.b2md_switched = not (
+            snet_probe or shadow_probe or sv_probe or av_probe
+        )
+    else:
+        work.b2md_switched = work.av_after_charge <= 0.0
+
+
+def apply_exception_premium(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Compute monthly-deduction and GP exception premiums."""
+    work.guideline_limit_reached = _guideline_limit_reached(
+        ctx.config,
+        work.allowances,
+        attained_age=work.attained_age,
+        beginning_of_year=work.beginning_of_year,
+        prior_limit_reached=ctx.state.guideline_limit_reached,
+    )
+    _update_billable_to_md(ctx, convention, work)
+    md_premium_active = (
+        _monthly_deduction_premium_active(ctx.options, work.next_year)
+        or (work.b2md_active and work.b2md_switched)
+    ) and not ctx.state.inforce_exception_period
+    work.exception = _compute_exception_premium(
+        _exception_input(ctx, work, md_premium_active)
+    )
+    if work.exception.requires_option_a:
+        ctx.policy.db_option = DB_OPTION_LEVEL
+        deduct_monthly_charges(ctx, convention, work)
+        work.exception = _compute_exception_premium(
+            _exception_input(ctx, work, md_premium_active)
+        )
+    work.av = work.exception.av_after_exception
+
+
+def apply_new_loans(ctx: MonthContext, work: MonthWork) -> None:
+    """Apply new fixed loans after deduction/exception premium processing."""
+    loan_cap = None
+    if ctx.options.restrict_loans_to_sv:
+        _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
+            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+        )
+        loan_cap = (
+            work.av
+            - full_sc_for_loan
+            - work.cap_loan.policy_debt
+            - ctx.config.md_holdback * work.ded.total_deduction
+        )
+    work.fixed_loan_state = apply_new_fixed_loan(LoanStepInput(
+        loan=work.cap_loan,
+        requested_amount=(
+            ctx.month_inputs.regular_loan if ctx.month_inputs is not None else 0.0
+        ),
+        account_value=work.av,
+        premiums_to_date=work.prem.premiums_to_date,
+        withdrawals_to_date=work.withdrawals_to_date,
+        max_loan=loan_cap,
+    ))
+    work.applied_regular_loan = max(
+        0.0, work.fixed_loan_state.rg_loan_princ - work.cap_loan.rg_loan_princ
+    )
+    work.applied_preferred_loan = max(
+        0.0, work.fixed_loan_state.pf_loan_princ - work.cap_loan.pf_loan_princ
+    )
+
+
+def credit_interest_post_deduction(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Credit post-deduction interest and optional WAIR interest."""
+    if convention.interest_timing != "post_deduction":
+        return
+    work.intr = credit_interest(
+        work.av,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        ctx.bonus,
+        work.rate_year,
+        work.attained_age,
+        work.month_date,
+        reg_loan_balance=work.fixed_loan_state.rg_loan_princ,
+        pref_loan_balance=work.fixed_loan_state.pf_loan_princ,
+        exact_days_interest=ctx.options.exact_days_interest,
+    )
+    work.wair_tav = work.wair_swam = work.wair_held = work.wair_rate = 0.0
+    if ctx.iul_ctx is not None and ctx.iul_ctx.wair_enabled:
+        _apply_wair_interest(ctx, work)
+    work.av = work.intr.av_end_of_month
+
+
+def _apply_wair_interest(ctx: MonthContext, work: MonthWork) -> None:
+    iul_ctx = ctx.iul_ctx
+    uk = iul_ctx.declared_rate + work.intr.bonus_interest_rate
+    up = work.intr.effective_annual_rate
+    if work.beginning_of_year:
+        tavp = project_tav(TavInput(
+            begin_av=work.bo_av,
+            planned_premium=work.requested_scheduled,
+            payments_per_year=work.pc_policy,
+            lumpsum=work.requested_lumpsum,
+            policy_month=work.next_month,
+            fixed_ln_principal=(
+                work.boy_loan.rg_loan_princ + work.boy_loan.pf_loan_princ
+            ),
+            fixed_ln_accrued=(
+                work.boy_loan.rg_loan_accrued + work.boy_loan.pf_loan_accrued
+            ),
+            vbl_ln_principal=work.boy_loan.vbl_loan_princ,
+            vbl_ln_accrued=work.boy_loan.vbl_loan_accrued,
+            reg_loan_charge_rate=ctx.config.loan_charge_rate_guar,
+            vbl_loan_rate=variable_loan_accrual_rate(
+                iul_ctx,
+                ctx.policy.variable_loan_charge_rate,
+                ctx.policy.current_interest_rate,
+            ),
+            apply_prem_to_loan=ctx.options.apply_prem_to_loan,
+            is_cvat=ctx.policy.is_cvat,
+            annual_cap=work.allowances.annual_cap_1,
+            premium_load=work.prem.tpp_rate,
+        ))
+        work.wair_tav = tavp.tav_display
+        work.wair_swam = work.ded.total_deduction * MONTHS_PER_YEAR
+        work.wair_held = weighted_average_rate(
+            av=tavp.tav,
+            swam=work.wair_swam,
+            reg_ln_principal=work.fixed_loan_state.rg_loan_princ,
+            reg_ln_accrued=work.fixed_loan_state.rg_loan_accrued,
+            pref_ln_principal=work.fixed_loan_state.pf_loan_princ,
+            pref_ln_accrued=work.fixed_loan_state.pf_loan_accrued,
+            reg_loan_credit_rate=work.intr.reg_loan_credit_rate,
+            pref_loan_credit_rate=work.intr.pref_loan_credit_rate,
+            declared_plus_bonus=uk,
+            blend_plus_bonus=up,
+        )
+    else:
+        work.wair_tav = ctx.state.wair_tav
+        work.wair_swam = ctx.state.wair_swam
+        work.wair_held = ctx.state.wair_held
+    work.wair_rate = cap_wair(iul_ctx, work.wair_held, uk)
+    vl = wair_interest(work.av, work.wair_rate, work.intr.days_in_month)
+    work.intr = replace(
+        work.intr,
+        effective_annual_rate=work.wair_rate,
+        monthly_interest_rate=(
+            (1.0 + work.wair_rate) ** (work.intr.days_in_month / DAYS_PER_YEAR)
+            - 1.0
+        ),
+        reg_impaired_int=0.0,
+        pref_impaired_int=0.0,
+        unimpaired_int=vl,
+        interest_credited=vl,
+        av_end_of_month=work.av + vl,
+    )
+
+
+def accrue_loans(ctx: MonthContext, work: MonthWork) -> None:
+    """Accrue loan interest after new loans and interest crediting."""
+    work.accrual_loan = accrue_loan_interest(
+        work.fixed_loan_state,
+        ctx.config,
+        work.intr.days_in_month,
+        variable_loan_accrual_rate(
+            ctx.iul_ctx,
+            ctx.policy.variable_loan_charge_rate,
+            ctx.policy.current_interest_rate,
+        ),
+    )
+
+
+def calculate_shadow_step(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Run shadow account processing when the timing convention supports it."""
+    if not convention.shadow_enabled:
+        work.shd = None
+        return
+    work.shd = calculate_shadow(ShadowInput(
+        prev_shadow_eav=ctx.state.shadow_eav,
+        gross_premium=work.prem.gross_premium,
+        premiums_ytd=work.prem.premiums_ytd,
+        policy=ctx.policy,
+        config=ctx.config,
+        rates=ctx.rates,
+        rate_year=work.rate_year,
+        attained_age=work.attained_age,
+        days_in_month=work.intr.actual_days_in_month,
+        policy_debt=work.accrual_loan.policy_debt,
+        shadow_rider_charges=_shadow_rider_charges_from_deduction(
+            ctx.policy, work.ded
+        ),
+        projection_date=work.month_date,
+        display_days_in_month=work.intr.days_in_month,
+    ))
+
+
+def evaluate_lapse(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:
+    """Evaluate lapse, protection flags, surrender value and terminal rollups."""
+    if convention.full_lapse_protection:
+        _evaluate_illustration_lapse(ctx, work)
+    else:
+        _evaluate_cyberlife_lapse(ctx, work)
+
+
+def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
+    policy = ctx.policy
+    work.accum_mtp_less_prem = (
+        work.prem.premiums_to_date - work.withdrawals_to_date
+        - work.accrual_loan.policy_debt
+    ) - work.accumulated_mtp
+    work.snet_active = work.accum_mtp_less_prem >= 0 and work.within_snet
+    work.shadow_protection = (
+        policy.has_shadow_account
+        and work.past_snet
+        and work.shd.shadow_eav_less_debt > 0
+    )
+    (
+        work.scr_rate,
+        work.surrender_charge,
+        work.scr_rates_by_coverage,
+        work.surrender_charges_by_coverage,
+    ) = _calculate_surrender_charge(
+        policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+    )
+    lapse_check_av = work.exception.av_after_exception
+    lapse_check_debt = work.cap_loan.policy_debt
+    work.surrender_value = lapse_check_av - work.surrender_charge - lapse_check_debt
+    work.ending_db = _ending_death_benefit(ctx, work)
+    work.ending_sv = work.av - work.surrender_charge - work.accrual_loan.policy_debt
+    work.positive_sv = (
+        work.lapse_value == LAPSE_BASIS_SURRENDER_VALUE
+        and work.surrender_value > 0
+    )
+    work.av_less_loans = lapse_check_av - lapse_check_debt
+    av_loans_test = (
+        work.lapse_value == LAPSE_BASIS_ACCOUNT_VALUE and work.av_less_loans > 0
+    )
+    work.exception_protection = (
+        work.exception.mode and work.surrender_value > -0.0001
+    )
+    protected = _illustration_lapse_protected(work, av_loans_test)
+    work.lapsed = ctx.state.lapsed or not protected
+    if ctx.options is not None and ctx.options.no_lapse:
+        work.lapsed = False
+    work.accumulated_7pay = work.accumulated_7pay_base + (
+        work.prem.gross_premium - work.wd.gross_withdrawal
+        if work.tamra_year <= 7
+        else 0.0
+    )
+
+
+def _ending_death_benefit(ctx: MonthContext, work: MonthWork) -> float:
+    policy = ctx.policy
+    edb_wo_corr = policy.total_face
+    if policy.db_option == DB_OPTION_INCREASING:
+        edb_wo_corr += max(0.0, work.av)
+    elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
+        edb_wo_corr += max(
+            0.0, work.prem.premiums_to_date - work.withdrawals_to_date
+        )
+    edb_corr = (
+        max(0.0, math.floor(work.av * work.ded.corridor_rate + 1e-6) - edb_wo_corr)
+        if work.ded.corridor_rate > 0
+        else 0.0
+    )
+    return (
+        edb_wo_corr + edb_corr - work.accrual_loan.policy_debt
+        + _primary_insured_rider_face(policy, work.month_date)
+    )
+
+
+def _illustration_lapse_protected(work: MonthWork, av_loans_test: bool) -> bool:
+    return (
+        work.snet_active or work.shadow_protection or work.positive_sv
+        or av_loans_test or work.exception_protection
+    )
+
+
+def _evaluate_cyberlife_lapse(ctx: MonthContext, work: MonthWork) -> None:
+    work.monthly_mtp = truncate_monthly_mtp(ctx.policy.mtp)
+    work.accumulated_mtp = ctx.state.accumulated_mtp + work.monthly_mtp
+    work.accum_mtp_less_prem = (
+        work.prem.premiums_to_date - work.withdrawals_to_date
+        - work.accrual_loan.policy_debt
+    ) - work.accumulated_mtp
+    work.av_less_loans = work.av - work.accrual_loan.policy_debt
+    work.accumulated_7pay = ctx.state.accumulated_7pay + (
+        work.prem.gross_premium if work.tamra_year <= 7 else 0.0
+    )
+    work.exception_protection = work.exception.mode and work.av_less_loans > -0.0001
+    work.lapsed = ctx.state.lapsed or (work.av <= 0.0 and not work.exception.mode)
+    if ctx.options is not None and ctx.options.no_lapse:
+        work.lapsed = False
+
+
+def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
+    """Run one illustration-timing month through the current month pipeline."""
+
+    state = ctx.state
+    policy = ctx.policy
+    config = ctx.config
+    rates = ctx.rates
+    bonus = ctx.bonus
+    month_inputs = ctx.month_inputs
+    options = ctx.options
+    policy_changes = ctx.policy_changes
+    iul_ctx = ctx.iul_ctx
+
+    if options is None:
+        options = IllustrationOptions()
+
+    work = MonthWork()
+    advance_counters(ctx, ILLUSTRATION_TIMING, work)
+    carry_begin_values(ctx, work)
+    capitalize_loans_step(ctx, work)
+    next_year = work.next_year
+    next_month = work.next_month
+    duration = work.duration
+    lapse_value = work.lapse_value
+    attained_age = work.attained_age
+    month_date = work.month_date
+    is_anniversary = work.is_anniversary
+    premiums_ytd = work.premiums_ytd
+    premiums_to_date = work.premiums_to_date
+    cost_basis = work.cost_basis
+    av = work.av
+    rate_year = work.rate_year
+    cap_loan = work.cap_loan
+    adv_reg_factor = work.adv_reg_factor
+    adv_pref_factor = work.adv_pref_factor
+    adv_reg_ln_int = work.adv_reg_ln_int
+    adv_pref_ln_int = work.adv_pref_ln_int
+
+    process_withdrawal_step(ctx, ILLUSTRATION_TIMING, work)
+    wd = work.wd
+    av = work.av
+    bo_av = work.bo_av
+    cost_basis = work.cost_basis
+    withdrawals_to_date = work.withdrawals_to_date
+
+    apply_policy_changes(ctx, ILLUSTRATION_TIMING, work)
+    av = work.av
+    tamra_reset = work.tamra_reset
+    dbo_change_detail = work.dbo_change_detail
+    face_change_detail = work.face_change_detail
+    guideline_recalc = work.guideline_recalc
+    cov_after_change = work.cov_after_change
+
+    refresh_targets(ctx, ILLUSTRATION_TIMING, work)
+    mtp_detail = work.mtp_detail
+    ctp_detail = work.ctp_detail
+    monthly_mtp = work.monthly_mtp
+    pw_monthly_mtp = work.pw_monthly_mtp
+    accumulated_mtp = work.accumulated_mtp
+    within_snet = work.within_snet
+    past_snet = work.past_snet
+    prior_exception_mode = work.prior_exception_mode
+
+    # ── 9. Commission Target Premium (split handled in apply_premium) ─
+
+    apply_guideline_forceout(ctx, ILLUSTRATION_TIMING, work)
+    gsp_floored = work.gsp_floored
+    accumulated_glp = work.accumulated_glp
+    guideline_limit = work.guideline_limit
+    withdrawals_before_forceout = work.withdrawals_before_forceout
+    guideline_forceout = work.guideline_forceout
+    withdrawals_to_date = work.withdrawals_to_date
+    av = work.av
+
+    resolve_requested_premium(ctx, work)
+    apply_cashflows(ctx, work)
+    compute_allowances(ctx, work)
+    apply_premium_step(ctx, work)
+    requested_scheduled = work.requested_scheduled
+    requested_lumpsum = work.requested_lumpsum
+    b2md_active = work.b2md_active
+    boy_loan = work.boy_loan
+    cash_flows = work.cash_flows
+    cap_loan = work.cap_loan
+    loan_cap_repay_detail = work.loan_cap_repay_detail
+    accumulated_7pay_base = work.accumulated_7pay_base
+    tamra_year = work.tamra_year
+    pc_policy = work.pc_policy
+    beginning_of_year = work.beginning_of_year
+    allowances = work.allowances
+    prem = work.prem
+    av = work.av
+    av_before_deduction = work.av_before_deduction
+
+    deduct_monthly_charges(ctx, ILLUSTRATION_TIMING, work)
+    apply_exception_premium(ctx, ILLUSTRATION_TIMING, work)
+    ded = work.ded
+    asset_charge = work.asset_charge
+    guideline_limit_reached = work.guideline_limit_reached
+    b2md_switched = work.b2md_switched
+    exception = work.exception
+    av = work.av
+
+    apply_new_loans(ctx, work)
+    credit_interest_post_deduction(ctx, ILLUSTRATION_TIMING, work)
+    accrue_loans(ctx, work)
+    fixed_loan_state = work.fixed_loan_state
+    applied_regular_loan = work.applied_regular_loan
+    applied_preferred_loan = work.applied_preferred_loan
+    intr = work.intr
+    wair_tav = work.wair_tav
+    wair_swam = work.wair_swam
+    wair_held = work.wair_held
+    wair_rate = work.wair_rate
+    av = work.av
+    accrual_loan = work.accrual_loan
+
+    calculate_shadow_step(ctx, ILLUSTRATION_TIMING, work)
+    evaluate_lapse(ctx, ILLUSTRATION_TIMING, work)
+    shd = work.shd
+    accum_mtp_less_prem = work.accum_mtp_less_prem
+    snet_active = work.snet_active
+    shadow_protection = work.shadow_protection
+    scr_rate = work.scr_rate
+    scr_rates_by_coverage = work.scr_rates_by_coverage
+    surrender_charge = work.surrender_charge
+    surrender_charges_by_coverage = work.surrender_charges_by_coverage
+    surrender_value = work.surrender_value
+    ending_db = work.ending_db
+    ending_sv = work.ending_sv
+    positive_sv = work.positive_sv
+    av_less_loans = work.av_less_loans
+    exception_protection = work.exception_protection
+    lapsed = work.lapsed
+    accumulated_7pay = work.accumulated_7pay
+
+    # ── 19. Deemed cash value ─────────────────────────────
+    # Not yet implemented.
+
+    # Cumulative tracking
+    cumulative_interest = state.cumulative_interest + intr.interest_credited
+    cumulative_charges = state.cumulative_charges + ded.total_deduction
+
+    tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
+
+    return MonthlyState(
+        # Counters
+        date=month_date,
+        policy_year=next_year,
+        policy_month=next_month,
+        duration=duration,
+        attained_age=attained_age,
+        matured=attained_age >= config.maturity_age,
+        is_anniversary=is_anniversary,
+        db_option=str(policy.db_option or "").upper(),
+        coverage_after_change=cov_after_change,
+        guideline_recalc=guideline_recalc,
+        # Withdrawal (AX..BU)
+        **_withdrawal_state_fields(wd),
+        # DBO / specified face change details (BW..CU / CW..DO)
+        dbo_change_detail=dbo_change_detail,
+        face_change_detail=face_change_detail,
+        # MTP / CTP detail (HO..JG / JI..KQ)
+        mtp_detail=mtp_detail,
+        ctp_detail=ctp_detail,
+        mtp_annual=policy.mtp * MONTHS_PER_YEAR,
+        # Set 1: Loan cap/repay (beginning of month)
+        rg_loan_princ=cap_loan.rg_loan_princ,
+        rg_loan_accrued=cap_loan.rg_loan_accrued,
+        pf_loan_princ=cap_loan.pf_loan_princ,
+        pf_loan_accrued=cap_loan.pf_loan_accrued,
+        vbl_loan_princ=cap_loan.vbl_loan_princ,
+        vbl_loan_accrued=cap_loan.vbl_loan_accrued,
+        applied_loan_repayment=cash_flows.applied_loan_repayment,
+        loan_repay_from_prem=(
+            cash_flows.loan_repay_from_lumpsum + cash_flows.loan_repay_from_scheduled
+        ),
+        applied_regular_loan=applied_regular_loan,
+        applied_preferred_loan=applied_preferred_loan,
+        applied_variable_loan=cash_flows.applied_variable_loan,
+        loan_cap_repay=loan_cap_repay_detail,
+        # Premium
+        gross_premium=prem.gross_premium,
+        prem_under_target=prem.prem_under_target,
+        prem_over_target=prem.prem_over_target,
+        tpp_rate=prem.tpp_rate,
+        epp_rate=prem.epp_rate,
+        target_load=prem.target_load + exception.percentage_load,
+        excess_load=prem.excess_load,
+        flat_load=prem.flat_load + exception.flat_load,
+        total_premium_load=(
+            prem.total_premium_load
+            + exception.percentage_load
+            + exception.flat_load
+        ),
+        net_premium=prem.net_premium,
+        av_after_premium=prem.av_after_premium,
+        **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
+        **tamra_disp,
+        glp=floor_monthly_cent(policy.glp),
+        gsp=gsp_floored,
+        accumulated_glp=accumulated_glp,
+        guideline_limit=guideline_limit,
+        guideline_forceout=guideline_forceout,
+        guideline_av_before_monthly_deduction=av_before_deduction,
+        accumulated_7pay=accumulated_7pay,
+        amount_in_7pay=accumulated_7pay_base,
+        tamra_year=tamra_year,
+        tamra_7pay_level=policy.tamra_7pay_level,
+        is_mec=policy.is_mec,
+        mec_year=state.mec_year,
+        guideline_limit_reached=guideline_limit_reached,
+        md_premium_mode=exception.md_premium_mode,
+        billable_md_switched=b2md_switched,
+        md_premium=exception.md_prem,
+        md_premium_gross=exception.md_prem_gross,
+        md_premium_capped=exception.md_prem_capped,
+        md_premium_discount=exception.md_discount,
+        exception_prem_mode=exception.mode,
+        gp_exception_mode=exception.is_gp_exception,
+        inforce_exception_period=state.inforce_exception_period,
+        gp_exception_prem_gross=exception.gross,
+        gp_exception_prem=exception.prem,
+        gp_exception_prem_discount=exception.discount,
+        gp_exception_percentage_load=exception.gp_percentage_load,
+        gp_exception_flat_load=exception.gp_flat_load,
+        exception_protection=exception_protection,
+        # Deduction
+        nar_av=ded.nar_av,
+        standard_db=ded.standard_db,
+        corridor_rate=ded.corridor_rate,
+        gross_db=ded.gross_db,
+        corr_amount=ded.corr_amount,
+        db_by_coverage=ded.db_by_coverage,
+        discounted_db_by_coverage=ded.discounted_db_by_coverage,
+        discounted_db_cov1=ded.discounted_db_cov1,
+        discounted_db_corr=ded.discounted_db_corr,
+        discounted_db=ded.discounted_db,
+        total_db=ded.total_db,
+        total_discounted_db=ded.total_discounted_db,
+        nar_by_coverage=ded.nar_by_coverage,
+        nar_cov1=ded.nar_cov1,
+        nar_corr=ded.nar_corr,
+        nar=ded.nar,
+        total_nar=ded.total_nar,
+        coi_rates_by_coverage=ded.coi_rates_by_coverage,
+        coi_charges_by_coverage=ded.coi_charges_by_coverage,
+        coi_rate=ded.coi_rate,
+        coi_rate_corr=ded.coi_rate_corr,
+        coi_charge_cov1=ded.coi_charge_cov1,
+        coi_charge_corr=ded.coi_charge_corr,
+        coi_charge=ded.coi_charge,
+        total_coi_charge=ded.total_coi_charge,
+        ratchet_active=ded.ratchet_active,
+        band_break=ded.band_break,
+        coi_band1_nar_by_coverage=ded.coi_band1_nar_by_coverage,
+        coi_band2_nar_by_coverage=ded.coi_band2_nar_by_coverage,
+        coi_band1_rates_by_coverage=ded.coi_band1_rates_by_coverage,
+        coi_band2_rates_by_coverage=ded.coi_band2_rates_by_coverage,
+        epu_rate=ded.epu_rate,
+        epu_charge=ded.epu_charge,
+        epu_rates_by_coverage=ded.epu_rates_by_coverage,
+        epu_charges_by_coverage=ded.epu_charges_by_coverage,
+        mfee_charge=ded.mfee_charge,
+        av_charge=ded.av_charge,
+        pw_charge=ded.pw_charge,
+        benefit_charges=ded.benefit_charges,
+        benefit_amounts=ded.benefit_amounts,
+        benefit_rates=ded.benefit_rates,
+        benefit_charge_detail=ded.benefit_charge_detail,
+        rider_charges=ded.rider_charges,
+        rider_amounts=ded.rider_amounts,
+        rider_rates=ded.rider_rates,
+        rider_charge_detail=ded.rider_charge_detail,
+        total_deduction=ded.total_deduction,
+        # vAV_AfterCharge (RERUN SX): AV less the monthly deduction AND the
+        # IUL asset charge (zero on non-IUL plans / regimes 3-4).
+        av_after_deduction=ded.av_after_deduction - asset_charge,
+        av_after_exception=exception.av_after_exception,
+        # IUL asset charge (SS..SX)
+        asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+        asset_charge=asset_charge,
+        # IUL WAIR (US..VL)
+        wair_tav=wair_tav,
+        wair_swam=wair_swam,
+        wair_held=wair_held,
+        wair_rate=wair_rate,
+        # Interest
+        days_in_month=intr.days_in_month,
+        annual_interest_rate=intr.annual_interest_rate,
+        bonus_interest_rate=intr.bonus_interest_rate,
+        effective_annual_rate=intr.effective_annual_rate,
+        monthly_interest_rate=intr.monthly_interest_rate,
+        reg_loan_credit_rate=intr.reg_loan_credit_rate,
+        pref_loan_credit_rate=intr.pref_loan_credit_rate,
+        reg_impaired_int=intr.reg_impaired_int,
+        pref_impaired_int=intr.pref_impaired_int,
+        unimpaired_int=intr.unimpaired_int,
+        interest_credited=intr.interest_credited,
+        av_end_of_month=av,
+        # Set 2: Loan accrual (end of month)
+        reg_loan_charge=accrual_loan.reg_loan_charge,
+        pref_loan_charge=accrual_loan.pref_loan_charge,
+        vbl_loan_charge=accrual_loan.vbl_loan_charge,
+        adv_reg_ln_int=adv_reg_ln_int,
+        adv_pref_ln_int=adv_pref_ln_int,
+        end_rg_loan_princ=accrual_loan.rg_loan_princ,
+        end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
+        end_pf_loan_princ=accrual_loan.pf_loan_princ,
+        end_pf_loan_accrued=accrual_loan.pf_loan_accrued,
+        end_vbl_loan_princ=accrual_loan.vbl_loan_princ,
+        end_vbl_loan_accrued=accrual_loan.vbl_loan_accrued,
+        policy_debt=accrual_loan.policy_debt,
+        # End-of-month
+        scr_rate=scr_rate,
+        scr_rates_by_coverage=scr_rates_by_coverage,
+        surrender_charge=surrender_charge,
+        surrender_charges_by_coverage=surrender_charges_by_coverage,
+        surrender_value=surrender_value,
+        ending_sv=ending_sv,
+        ending_db=ending_db,
+        # Tracking
+        premiums_ytd=prem.premiums_ytd,
+        premiums_to_date=prem.premiums_to_date,
+        withdrawals_to_date=withdrawals_to_date,
+        cost_basis=prem.cost_basis,
+        premiums_ytd_after_exception=prem.premiums_ytd + exception.total_prem,
+        premiums_to_date_after_exception=prem.premiums_to_date + exception.total_prem,
+        cost_basis_after_exception=prem.cost_basis + exception.total_prem,
+        cumulative_interest=cumulative_interest,
+        cumulative_charges=cumulative_charges,
+        # Shadow
+        shadow_bav=shd.shadow_bav,
+        shadow_wd_charges=shd.shadow_wd_charges,
+        shadow_sa=shd.shadow_sa,
+        shadow_target_prem=shd.shadow_target_prem,
+        shadow_prem_under_target=shd.shadow_prem_under_target,
+        shadow_prem_over_target=shd.shadow_prem_over_target,
+        shadow_target_load=shd.shadow_target_load,
+        shadow_excess_load=shd.shadow_excess_load,
+        shadow_prem_load=shd.shadow_prem_load,
+        shadow_net_prem=shd.shadow_net_prem,
+        shadow_nar_av=shd.shadow_nar_av,
+        shadow_db=shd.shadow_db,
+        shadow_coi_rate=shd.shadow_coi_rate,
+        shadow_coi=shd.shadow_coi,
+        shadow_dbd_rate=shd.shadow_dbd_rate,
+        shadow_nar=shd.shadow_nar,
+        shadow_epu_rate=shd.shadow_epu_rate,
+        shadow_epu=shd.shadow_epu,
+        shadow_mfee=shd.shadow_mfee,
+        shadow_rider_charges=shd.shadow_rider_charges,
+        shadow_md=shd.shadow_md,
+        shadow_av=shd.shadow_av,
+        shadow_days=shd.shadow_days,
+        shadow_int_rate=shd.shadow_int_rate,
+        shadow_eff_rate=shd.shadow_eff_rate,
+        shadow_interest=shd.shadow_interest,
+        shadow_eav=shd.shadow_eav,
+        shadow_eav_less_debt=shd.shadow_eav_less_debt,
+        # Safety Net / Lapse Protection
+        monthly_mtp=monthly_mtp,
+        ctp=policy.ctp,
+        accumulated_mtp=accumulated_mtp,
+        accum_mtp_less_prem=accum_mtp_less_prem,
+        snet_active=snet_active,
+        shadow_protection=shadow_protection,
+        positive_sv=positive_sv,
+        av_less_loans=av_less_loans,
+        # Status
+        lapsed=lapsed,
+    )
+
+def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
+    """Run one CyberLife monthliversary month through the current month pipeline."""
+
+    state = ctx.state
+    policy = ctx.policy
+    config = ctx.config
+    rates = ctx.rates
+    bonus = ctx.bonus
+    month_inputs = ctx.month_inputs
+    options = ctx.options
+    iul_ctx = ctx.iul_ctx
+
+    if options is None:
+        options = IllustrationOptions()
+
+    work = MonthWork()
+    advance_counters(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    carry_begin_values(ctx, work)
+    capitalize_loans_step(ctx, work)
+    next_year = work.next_year
+    next_month = work.next_month
+    duration = work.duration
+    attained_age = work.attained_age
+    month_date = work.month_date
+    is_anniversary = work.is_anniversary
+    rate_year = work.rate_year
+    premiums_ytd = work.premiums_ytd
+    premiums_to_date = work.premiums_to_date
+    cost_basis = work.cost_basis
+    cap_loan = work.cap_loan
+    adv_reg_factor = work.adv_reg_factor
+    adv_pref_factor = work.adv_pref_factor
+    adv_reg_ln_int = work.adv_reg_ln_int
+    adv_pref_ln_int = work.adv_pref_ln_int
+
+    credit_interest_pre_withdrawal(ctx, work)
+    intr = work.intr
+    process_withdrawal_step(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    wd = work.wd
+    cost_basis = work.cost_basis
+    refresh_targets(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    past_snet = work.past_snet
+    prior_exception_mode = work.prior_exception_mode
+
+    apply_guideline_forceout(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    gsp_floored = work.gsp_floored
+    accumulated_glp = work.accumulated_glp
+    guideline_limit = work.guideline_limit
+    withdrawals_before_forceout = work.withdrawals_before_forceout
+    guideline_forceout = work.guideline_forceout
+    withdrawals_to_date = work.withdrawals_to_date
+    av_after_guideline = work.av
+
+    resolve_requested_premium(ctx, work)
+    apply_cashflows(ctx, work)
+    compute_allowances(ctx, work)
+    apply_premium_step(ctx, work)
+    requested_scheduled = work.requested_scheduled
+    requested_lumpsum = work.requested_lumpsum
+    b2md_active = work.b2md_active
+    cash_flows = work.cash_flows
+    cap_loan = work.cap_loan
+    loan_cap_repay_detail = work.loan_cap_repay_detail
+    tamra_year = work.tamra_year
+    beginning_of_year = work.beginning_of_year
+    allowances = work.allowances
+    prem = work.prem
+    av_before_deduction = work.av_before_deduction
+
+    deduct_monthly_charges(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    apply_exception_premium(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    ded = work.ded
+    asset_charge = work.asset_charge
+    guideline_limit_reached = work.guideline_limit_reached
+    b2md_switched = work.b2md_switched
+    exception = work.exception
+    av_end = work.av
+
+    apply_new_loans(ctx, work)
+    credit_interest_post_deduction(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    accrue_loans(ctx, work)
+    fixed_loan_state = work.fixed_loan_state
+    applied_regular_loan = work.applied_regular_loan
+    applied_preferred_loan = work.applied_preferred_loan
+    accrual_loan = work.accrual_loan
+    calculate_shadow_step(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    evaluate_lapse(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    monthly_mtp = work.monthly_mtp
+    accumulated_mtp = work.accumulated_mtp
+    accum_mtp_less_prem = work.accum_mtp_less_prem
+    av_less_loans = work.av_less_loans
+    accumulated_7pay = work.accumulated_7pay
+    exception_protection = work.exception_protection
+    lapsed = work.lapsed
+
+    tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
+
+    return MonthlyState(
+        date=month_date,
+        policy_year=next_year,
+        policy_month=next_month,
+        duration=duration,
+        attained_age=attained_age,
+        matured=attained_age >= config.maturity_age,
+        is_anniversary=is_anniversary,
+        db_option=str(policy.db_option or "").upper(),
+        coverage_after_change=_coverage_after_change_snapshot(
+            policy, config, month_date, wd.gross_withdrawal,
+            state.coverage_after_change,
+        ),
+        **_withdrawal_state_fields(wd),
+        mtp_detail=state.mtp_detail,
+        ctp_detail=state.ctp_detail,
+        mtp_annual=policy.mtp * MONTHS_PER_YEAR,
+        rg_loan_princ=cap_loan.rg_loan_princ,
+        rg_loan_accrued=cap_loan.rg_loan_accrued,
+        pf_loan_princ=cap_loan.pf_loan_princ,
+        pf_loan_accrued=cap_loan.pf_loan_accrued,
+        vbl_loan_princ=cap_loan.vbl_loan_princ,
+        vbl_loan_accrued=cap_loan.vbl_loan_accrued,
+        applied_loan_repayment=cash_flows.applied_loan_repayment,
+        loan_repay_from_prem=(
+            cash_flows.loan_repay_from_lumpsum + cash_flows.loan_repay_from_scheduled
+        ),
+        applied_regular_loan=applied_regular_loan,
+        applied_preferred_loan=applied_preferred_loan,
+        applied_variable_loan=cash_flows.applied_variable_loan,
+        loan_cap_repay=loan_cap_repay_detail,
+        gross_premium=prem.gross_premium,
+        prem_under_target=prem.prem_under_target,
+        prem_over_target=prem.prem_over_target,
+        tpp_rate=prem.tpp_rate,
+        epp_rate=prem.epp_rate,
+        target_load=prem.target_load + exception.percentage_load,
+        excess_load=prem.excess_load,
+        flat_load=prem.flat_load + exception.flat_load,
+        total_premium_load=(
+            prem.total_premium_load
+            + exception.percentage_load
+            + exception.flat_load
+        ),
+        net_premium=prem.net_premium,
+        av_after_premium=prem.av_after_premium,
+        **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
+        **tamra_disp,
+        glp=floor_monthly_cent(policy.glp),
+        gsp=gsp_floored,
+        accumulated_glp=accumulated_glp,
+        guideline_limit=guideline_limit,
+        guideline_forceout=guideline_forceout,
+        guideline_av_before_monthly_deduction=av_before_deduction,
+        accumulated_7pay=accumulated_7pay,
+        amount_in_7pay=state.accumulated_7pay,
+        tamra_year=tamra_year,
+        tamra_7pay_level=policy.tamra_7pay_level,
+        guideline_limit_reached=guideline_limit_reached,
+        md_premium_mode=exception.md_premium_mode,
+        billable_md_switched=b2md_switched,
+        md_premium=exception.md_prem,
+        md_premium_gross=exception.md_prem_gross,
+        md_premium_capped=exception.md_prem_capped,
+        md_premium_discount=exception.md_discount,
+        exception_prem_mode=exception.mode,
+        gp_exception_mode=exception.is_gp_exception,
+        inforce_exception_period=state.inforce_exception_period,
+        gp_exception_prem_gross=exception.gross,
+        gp_exception_prem=exception.prem,
+        gp_exception_prem_discount=exception.discount,
+        gp_exception_percentage_load=exception.gp_percentage_load,
+        gp_exception_flat_load=exception.gp_flat_load,
+        exception_protection=exception_protection,
+        nar_av=ded.nar_av,
+        standard_db=ded.standard_db,
+        corridor_rate=ded.corridor_rate,
+        gross_db=ded.gross_db,
+        corr_amount=ded.corr_amount,
+        db_by_coverage=ded.db_by_coverage,
+        discounted_db_by_coverage=ded.discounted_db_by_coverage,
+        discounted_db_cov1=ded.discounted_db_cov1,
+        discounted_db_corr=ded.discounted_db_corr,
+        discounted_db=ded.discounted_db,
+        total_db=ded.total_db,
+        total_discounted_db=ded.total_discounted_db,
+        nar_by_coverage=ded.nar_by_coverage,
+        nar_cov1=ded.nar_cov1,
+        nar_corr=ded.nar_corr,
+        nar=ded.nar,
+        total_nar=ded.total_nar,
+        coi_rates_by_coverage=ded.coi_rates_by_coverage,
+        coi_charges_by_coverage=ded.coi_charges_by_coverage,
+        coi_rate=ded.coi_rate,
+        coi_rate_corr=ded.coi_rate_corr,
+        coi_charge_cov1=ded.coi_charge_cov1,
+        coi_charge_corr=ded.coi_charge_corr,
+        coi_charge=ded.coi_charge,
+        total_coi_charge=ded.total_coi_charge,
+        ratchet_active=ded.ratchet_active,
+        band_break=ded.band_break,
+        coi_band1_nar_by_coverage=ded.coi_band1_nar_by_coverage,
+        coi_band2_nar_by_coverage=ded.coi_band2_nar_by_coverage,
+        coi_band1_rates_by_coverage=ded.coi_band1_rates_by_coverage,
+        coi_band2_rates_by_coverage=ded.coi_band2_rates_by_coverage,
+        epu_rate=ded.epu_rate,
+        epu_charge=ded.epu_charge,
+        epu_rates_by_coverage=ded.epu_rates_by_coverage,
+        epu_charges_by_coverage=ded.epu_charges_by_coverage,
+        mfee_charge=ded.mfee_charge,
+        av_charge=ded.av_charge,
+        pw_charge=ded.pw_charge,
+        benefit_charges=ded.benefit_charges,
+        benefit_amounts=ded.benefit_amounts,
+        benefit_rates=ded.benefit_rates,
+        benefit_charge_detail=ded.benefit_charge_detail,
+        rider_charges=ded.rider_charges,
+        rider_amounts=ded.rider_amounts,
+        rider_rates=ded.rider_rates,
+        rider_charge_detail=ded.rider_charge_detail,
+        total_deduction=ded.total_deduction,
+        av_after_deduction=ded.av_after_deduction - asset_charge,
+        av_after_exception=exception.av_after_exception,
+        asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+        asset_charge=asset_charge,
+        days_in_month=intr.days_in_month,
+        annual_interest_rate=intr.annual_interest_rate,
+        bonus_interest_rate=intr.bonus_interest_rate,
+        effective_annual_rate=intr.effective_annual_rate,
+        monthly_interest_rate=intr.monthly_interest_rate,
+        reg_loan_credit_rate=intr.reg_loan_credit_rate,
+        pref_loan_credit_rate=intr.pref_loan_credit_rate,
+        reg_impaired_int=intr.reg_impaired_int,
+        pref_impaired_int=intr.pref_impaired_int,
+        unimpaired_int=intr.unimpaired_int,
+        interest_credited=intr.interest_credited,
+        av_end_of_month=av_end,
+        reg_loan_charge=accrual_loan.reg_loan_charge,
+        pref_loan_charge=accrual_loan.pref_loan_charge,
+        vbl_loan_charge=accrual_loan.vbl_loan_charge,
+        adv_reg_ln_int=adv_reg_ln_int,
+        adv_pref_ln_int=adv_pref_ln_int,
+        end_rg_loan_princ=accrual_loan.rg_loan_princ,
+        end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
+        end_pf_loan_princ=accrual_loan.pf_loan_princ,
+        end_pf_loan_accrued=accrual_loan.pf_loan_accrued,
+        end_vbl_loan_princ=accrual_loan.vbl_loan_princ,
+        end_vbl_loan_accrued=accrual_loan.vbl_loan_accrued,
+        policy_debt=accrual_loan.policy_debt,
+        premiums_ytd=prem.premiums_ytd,
+        premiums_to_date=prem.premiums_to_date,
+        withdrawals_to_date=withdrawals_to_date,
+        cost_basis=prem.cost_basis,
+        premiums_ytd_after_exception=prem.premiums_ytd + exception.total_prem,
+        premiums_to_date_after_exception=prem.premiums_to_date + exception.total_prem,
+        cost_basis_after_exception=prem.cost_basis + exception.total_prem,
+        cumulative_interest=state.cumulative_interest + intr.interest_credited,
+        cumulative_charges=state.cumulative_charges + ded.total_deduction,
+        monthly_mtp=monthly_mtp,
+        ctp=policy.ctp,
+        accumulated_mtp=accumulated_mtp,
+        accum_mtp_less_prem=accum_mtp_less_prem,
+        av_less_loans=av_less_loans,
+        lapsed=lapsed,
+    )
+
+def build_inforce_state(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    bonus: BonusConfig,
+    options: IllustrationOptions,
+    iul_ctx: Optional[IULCreditingContext],
+    timing: ProjectionTiming,
+    starting_exception_period: bool,
+) -> MonthlyState:
+    """Build the month-zero inforce state that seeds a projection."""
+    # Inforce snapshot (month 0) — AV from CyberLife is after-deduction.
+    # We must credit interest to roll AV to end-of-month before projecting.
+    rate_year_inforce = policy.policy_year
+    month_date_inforce = (
+        policy.valuation_date
+        if policy.valuation_date
+        else policy.issue_date + relativedelta(months=policy.duration)
+    )
+    monthly_mtp_0 = truncate_monthly_mtp(policy.mtp)
+    # MTP/CTP per-component detail (display) — computed from rates for the
+    # inforce coverage state; the headline vMTP/vCTP stay the loaded values.
+    mtp_detail_0, ctp_detail_0 = build_target_detail_snapshots(
+        policy, compute_target_premiums(policy, config, as_of=month_date_inforce)
+    )
+    md_check_av_before_deduction = policy.account_value + policy.system_monthly_deduction
+    ded0 = calculate_deduction(
+        md_check_av_before_deduction,
+        policy,
+        config,
+        rates,
+        rate_year_inforce,
+        policy.attained_age,
+        policy.premiums_paid_to_date,
+        monthly_mtp=monthly_mtp_0,
+        projection_date=month_date_inforce,
+        bln_round_charge=True,
+    )
+    intr0 = credit_interest(
+        policy.account_value, policy, config, rates, bonus,
+        rate_year_inforce, policy.attained_age, month_date_inforce,
+        reg_loan_balance=policy.regular_loan_principal,
+        pref_loan_balance=policy.preferred_loan_principal,
+        exact_days_interest=options.exact_days_interest,
+    )
+
+    # WAIR crediting for the inforce row (RERUN VI — the valuation-date
+    # WAIR from the policy's actual AV/SWAM/loan inputs). VL replaces the
+    # blended-rate interest credit; there is no separate impaired interest.
+    wair_held_0 = wair_rate_0 = 0.0
+    wair_swam_0 = wair_tav_0 = 0.0
+    if iul_ctx is not None and iul_ctx.wair_enabled:
+        uk0 = iul_ctx.declared_rate + intr0.bonus_interest_rate
+        wair_swam_0 = float(policy.sweep_account_min or 0.0)
+        wair_held_0 = weighted_average_rate(
+            av=policy.account_value,
+            swam=wair_swam_0,
+            reg_ln_principal=policy.regular_loan_principal,
+            reg_ln_accrued=policy.regular_loan_accrued,
+            pref_ln_principal=policy.preferred_loan_principal,
+            pref_ln_accrued=policy.preferred_loan_accrued,
+            reg_loan_credit_rate=intr0.reg_loan_credit_rate,
+            pref_loan_credit_rate=intr0.pref_loan_credit_rate,
+            declared_plus_bonus=uk0,
+            blend_plus_bonus=intr0.effective_annual_rate,
+        )
+        wair_rate_0 = cap_wair(iul_ctx, wair_held_0, uk0)
+        vl0 = wair_interest(policy.account_value, wair_rate_0, intr0.days_in_month)
+        intr0 = replace(
+            intr0,
+            effective_annual_rate=wair_rate_0,
+            monthly_interest_rate=(1.0 + wair_rate_0) ** (intr0.days_in_month / DAYS_PER_YEAR) - 1.0,
+            reg_impaired_int=0.0,
+            pref_impaired_int=0.0,
+            unimpaired_int=vl0,
+            interest_credited=vl0,
+            av_end_of_month=policy.account_value + vl0,
+        )
+
+    # Loan interest accrual for inforce month. RERUN does the same on its
+    # valuation row (VR/VT/VV add one month's accrual to the seeded
+    # accrued); its Debug File "Loan Balance" only LOOKS raw because that
+    # column is vPolicyDebtDisplay = SUM(MS:MX) — the post-capitalize/
+    # repay, PRE-accrual balance. Keep the accrual; map displays to the
+    # BOM buckets instead (tools/rerun/rerun_debug_map.py).
+    loan0 = LoanState(
+        rg_loan_princ=policy.regular_loan_principal,
+        rg_loan_accrued=policy.regular_loan_accrued,
+        pf_loan_princ=policy.preferred_loan_principal,
+        pf_loan_accrued=policy.preferred_loan_accrued,
+        vbl_loan_princ=policy.variable_loan_principal,
+        vbl_loan_accrued=policy.variable_loan_accrued,
+    )
+    loan0 = accrue_loan_interest(
+        loan0,
+        config,
+        intr0.days_in_month,
+        variable_loan_accrual_rate(
+            iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
+    )
+
+    # Loan Capitalize and Repay display detail for the inforce row: the
+    # seeded loan with payoffs computed (no capitalization/repay at valuation).
+    inforce_days_to_next = _days_to_next_anniversary(policy.issue_date, month_date_inforce)
+    inforce_adv_reg_factor, inforce_adv_pref_factor = _advance_loan_factors(
+        config, inforce_days_to_next)
+    inforce_loan_cap_repay = repay_loan(LoanStepInput(
+        loan=LoanState(
+            rg_loan_princ=policy.regular_loan_principal,
+            rg_loan_accrued=policy.regular_loan_accrued,
+            pf_loan_princ=policy.preferred_loan_principal,
+            pf_loan_accrued=policy.preferred_loan_accrued,
+            vbl_loan_princ=policy.variable_loan_principal,
+            vbl_loan_accrued=policy.variable_loan_accrued,
+        ),
+        config=config,
+        adv_reg_factor=inforce_adv_reg_factor,
+        adv_pref_factor=inforce_adv_pref_factor,
+    )).detail
+
+    # Shadow account for inforce month — seed from the policy's current
+    # shadow account value (RERUN injects sInput_CurrentShadowAV at the
+    # valuation date), mirroring how the regular AV is seeded from
+    # policy.account_value.  Was hardcoded 0.0.
+    shd0 = calculate_shadow(ShadowInput(
+        prev_shadow_eav=policy.shadow_account_value,
+        gross_premium=0.0,
+        premiums_ytd=policy.premiums_ytd,
+        policy=policy,
+        config=config,
+        rates=rates,
+        rate_year=rate_year_inforce,
+        attained_age=policy.attained_age,
+        days_in_month=intr0.actual_days_in_month,
+        policy_debt=loan0.policy_debt,
+        is_inforce=True,
+        shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded0),
+        projection_date=month_date_inforce,
+        display_days_in_month=intr0.days_in_month,
+    ))
+
+    # Safety Net / Lapse Protection for inforce month
+    accumulated_mtp_0 = policy.accumulated_mtp
+    accum_mtp_less_prem_0 = (
+        policy.premiums_paid_to_date - policy.withdrawals_to_date
+        - loan0.policy_debt
+    ) - accumulated_mtp_0
+
+    if policy.map_cease_date is not None:
+        within_snet_0 = month_date_inforce <= policy.map_cease_date
+    else:
+        within_snet_0 = policy.policy_year <= config.snet_period
+    snet_active_0 = accum_mtp_less_prem_0 >= 0 and within_snet_0
+
+    past_snet_0 = not within_snet_0
+    shadow_protection_0 = (
+        policy.has_shadow_account
+        and past_snet_0
+        and shd0.shadow_eav_less_debt > 0
+    )
+
+    scr_rate_0, surrender_charge_0, scr_rates_by_coverage_0, surrender_charges_by_coverage_0 = _calculate_surrender_charge(
+        policy, rates, rate_year_inforce, month_date_inforce, config
+    )
+    lapse_check_debt_0 = loan0.policy_debt
+    surrender_value_0 = policy.account_value - surrender_charge_0 - lapse_check_debt_0
+    # Ending SV (vESV): end-of-month AV less surrender charge and debt.
+    ending_sv_0 = intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt
+    positive_sv_0 = config.lapse_value == LAPSE_BASIS_SURRENDER_VALUE and surrender_value_0 > 0
+    av_less_loans_0 = policy.account_value - lapse_check_debt_0
+
+    inforce = MonthlyState(
+        date=policy.valuation_date,
+        policy_year=policy.policy_year,
+        policy_month=policy.policy_month,
+        duration=policy.duration,
+        attained_age=policy.attained_age,
+        db_option=str(policy.db_option or "").upper(),
+        coverage_after_change=_coverage_after_change_snapshot(
+            policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
+        ),
+        mtp_detail=mtp_detail_0,
+        ctp_detail=ctp_detail_0,
+        mtp_annual=policy.mtp * MONTHS_PER_YEAR,
+        av_after_premium=md_check_av_before_deduction,
+        glp=floor_monthly_cent(policy.glp),
+        gsp=floor_monthly_cent(policy.gsp),
+        accumulated_glp=policy.accumulated_glp,
+        guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
+        guideline_forceout=0.0,
+        gp_exception_mode=starting_exception_period,
+        inforce_exception_period=starting_exception_period,
+        exception_prem_mode=starting_exception_period,
+        guideline_av_before_monthly_deduction=md_check_av_before_deduction,
+        accumulated_7pay=sum(policy.tamra_7year_contributions or []),
+        amount_in_7pay=sum(policy.tamra_7year_contributions or []),
+        tamra_7pay_level=policy.tamra_7pay_level,
+        tamra_7pay_start_date=policy.tamra_7pay_start_date,
+        is_mec=policy.is_mec,
+        tamra_year=_tamra_year(policy, month_date_inforce),
+        tamra_month_of_year=_tamra_month_of_year(policy, month_date_inforce),
+        lowest_7yr_face=_tamra_starting_lowest_face(policy),
+        planned_premium_mode=_billing_mode(policy),
+        # Deduction check
+        nar_av=ded0.nar_av,
+        standard_db=ded0.standard_db,
+        corridor_rate=ded0.corridor_rate,
+        gross_db=ded0.gross_db,
+        corr_amount=ded0.corr_amount,
+        db_by_coverage=ded0.db_by_coverage,
+        discounted_db_by_coverage=ded0.discounted_db_by_coverage,
+        discounted_db_cov1=ded0.discounted_db_cov1,
+        discounted_db_corr=ded0.discounted_db_corr,
+        discounted_db=ded0.discounted_db,
+        total_db=ded0.total_db,
+        total_discounted_db=ded0.total_discounted_db,
+        nar_by_coverage=ded0.nar_by_coverage,
+        nar_cov1=ded0.nar_cov1,
+        nar_corr=ded0.nar_corr,
+        nar=ded0.nar,
+        total_nar=ded0.total_nar,
+        coi_rates_by_coverage=ded0.coi_rates_by_coverage,
+        coi_charges_by_coverage=ded0.coi_charges_by_coverage,
+        coi_rate=ded0.coi_rate,
+        coi_rate_corr=ded0.coi_rate_corr,
+        coi_charge_cov1=ded0.coi_charge_cov1,
+        coi_charge_corr=ded0.coi_charge_corr,
+        coi_charge=ded0.coi_charge,
+        total_coi_charge=ded0.total_coi_charge,
+        ratchet_active=ded0.ratchet_active,
+        band_break=ded0.band_break,
+        coi_band1_nar_by_coverage=ded0.coi_band1_nar_by_coverage,
+        coi_band2_nar_by_coverage=ded0.coi_band2_nar_by_coverage,
+        coi_band1_rates_by_coverage=ded0.coi_band1_rates_by_coverage,
+        coi_band2_rates_by_coverage=ded0.coi_band2_rates_by_coverage,
+        epu_rate=ded0.epu_rate,
+        epu_charge=ded0.epu_charge,
+        epu_rates_by_coverage=ded0.epu_rates_by_coverage,
+        epu_charges_by_coverage=ded0.epu_charges_by_coverage,
+        mfee_charge=ded0.mfee_charge,
+        av_charge=ded0.av_charge,
+        pw_charge=ded0.pw_charge,
+        benefit_charges=ded0.benefit_charges,
+        benefit_amounts=ded0.benefit_amounts,
+        benefit_rates=ded0.benefit_rates,
+        benefit_charge_detail=ded0.benefit_charge_detail,
+        rider_charges=ded0.rider_charges,
+        rider_amounts=ded0.rider_amounts,
+        rider_rates=ded0.rider_rates,
+        rider_charge_detail=ded0.rider_charge_detail,
+        total_deduction=ded0.total_deduction,
+        av_after_deduction=policy.account_value,
+        av_after_exception=policy.account_value,
+        system_coi_charge=policy.system_coi_charge,
+        system_expense_charge=policy.system_expense_charge,
+        system_other_charge=policy.system_other_charge,
+        system_monthly_deduction=policy.system_monthly_deduction,
+        md_check_av_before_deduction=md_check_av_before_deduction,
+        md_check_calculated_deduction=ded0.total_deduction,
+        md_check_deduction_variance=ded0.total_deduction - policy.system_monthly_deduction,
+        md_check_calculated_av_after_deduction=ded0.av_after_deduction,
+        md_check_av_variance=ded0.av_after_deduction - policy.account_value,
+        # Set 1: Loan cap/repay (beginning of month — from policy inputs)
+        rg_loan_princ=policy.regular_loan_principal,
+        rg_loan_accrued=policy.regular_loan_accrued,
+        pf_loan_princ=policy.preferred_loan_principal,
+        pf_loan_accrued=policy.preferred_loan_accrued,
+        vbl_loan_princ=policy.variable_loan_principal,
+        vbl_loan_accrued=policy.variable_loan_accrued,
+        loan_cap_repay=inforce_loan_cap_repay,
+        # IUL crediting — no asset charge on the valuation row (RERUN SX
+        # takes sInput_CurrentAV verbatim); WAIR seeds from VI.
+        asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+        asset_charge=0.0,
+        wair_tav=wair_tav_0,
+        wair_swam=wair_swam_0,
+        wair_held=wair_held_0,
+        wair_rate=wair_rate_0,
+        # Interest
+        days_in_month=intr0.days_in_month,
+        annual_interest_rate=intr0.annual_interest_rate,
+        bonus_interest_rate=intr0.bonus_interest_rate,
+        effective_annual_rate=intr0.effective_annual_rate,
+        monthly_interest_rate=intr0.monthly_interest_rate,
+        reg_loan_credit_rate=intr0.reg_loan_credit_rate,
+        pref_loan_credit_rate=intr0.pref_loan_credit_rate,
+        reg_impaired_int=intr0.reg_impaired_int,
+        pref_impaired_int=intr0.pref_impaired_int,
+        unimpaired_int=intr0.unimpaired_int,
+        interest_credited=intr0.interest_credited,
+        av_end_of_month=intr0.av_end_of_month,
+        # Set 2: Loan accrual (end of month — after accrual)
+        reg_loan_charge=loan0.reg_loan_charge,
+        pref_loan_charge=loan0.pref_loan_charge,
+        vbl_loan_charge=loan0.vbl_loan_charge,
+        end_rg_loan_princ=loan0.rg_loan_princ,
+        end_rg_loan_accrued=loan0.rg_loan_accrued,
+        end_pf_loan_princ=loan0.pf_loan_princ,
+        end_pf_loan_accrued=loan0.pf_loan_accrued,
+        end_vbl_loan_princ=loan0.vbl_loan_princ,
+        end_vbl_loan_accrued=loan0.vbl_loan_accrued,
+        policy_debt=loan0.policy_debt,
+        # Tracking
+        premiums_ytd=policy.premiums_ytd,
+        premiums_to_date=policy.premiums_paid_to_date,
+        withdrawals_to_date=policy.withdrawals_to_date,
+        cost_basis=policy.cost_basis,
+        # Seed the after-exception set from the same inforce values — no
+        # exception premium has been applied yet, so month 1 carries these
+        # forward unchanged.
+        premiums_ytd_after_exception=policy.premiums_ytd,
+        premiums_to_date_after_exception=policy.premiums_paid_to_date,
+        cost_basis_after_exception=policy.cost_basis,
+        cumulative_interest=intr0.interest_credited,
+        # Shadow
+        shadow_bav=shd0.shadow_bav,
+        shadow_wd_charges=shd0.shadow_wd_charges,
+        shadow_sa=shd0.shadow_sa,
+        shadow_target_prem=shd0.shadow_target_prem,
+        shadow_prem_under_target=shd0.shadow_prem_under_target,
+        shadow_prem_over_target=shd0.shadow_prem_over_target,
+        shadow_target_load=shd0.shadow_target_load,
+        shadow_excess_load=shd0.shadow_excess_load,
+        shadow_prem_load=shd0.shadow_prem_load,
+        shadow_net_prem=shd0.shadow_net_prem,
+        shadow_nar_av=shd0.shadow_nar_av,
+        shadow_db=shd0.shadow_db,
+        shadow_coi_rate=shd0.shadow_coi_rate,
+        shadow_coi=shd0.shadow_coi,
+        shadow_dbd_rate=shd0.shadow_dbd_rate,
+        shadow_nar=shd0.shadow_nar,
+        shadow_epu_rate=shd0.shadow_epu_rate,
+        shadow_epu=shd0.shadow_epu,
+        shadow_mfee=shd0.shadow_mfee,
+        shadow_rider_charges=shd0.shadow_rider_charges,
+        shadow_md=shd0.shadow_md,
+        shadow_av=shd0.shadow_av,
+        shadow_days=shd0.shadow_days,
+        shadow_int_rate=shd0.shadow_int_rate,
+        shadow_eff_rate=shd0.shadow_eff_rate,
+        shadow_interest=shd0.shadow_interest,
+        shadow_eav=shd0.shadow_eav,
+        shadow_eav_less_debt=shd0.shadow_eav_less_debt,
+        # Safety Net / Lapse Protection
+        monthly_mtp=monthly_mtp_0,
+        ctp=policy.ctp,
+        accumulated_mtp=accumulated_mtp_0,
+        accum_mtp_less_prem=accum_mtp_less_prem_0,
+        snet_active=snet_active_0,
+        shadow_protection=shadow_protection_0,
+        positive_sv=positive_sv_0,
+        av_less_loans=av_less_loans_0,
+        # End-of-month values
+        scr_rate=scr_rate_0,
+        scr_rates_by_coverage=scr_rates_by_coverage_0,
+        surrender_charge=surrender_charge_0,
+        surrender_charges_by_coverage=surrender_charges_by_coverage_0,
+        surrender_value=surrender_value_0,
+        ending_sv=ending_sv_0,
+    )
+
+    if policy.run_from_issue:
+        # Keep the established results contract ([0] is the opening row),
+        # but place that row immediately before issue so the normal monthly
+        # pipeline executes policy month 1 on the issue date.
+        inforce = replace(
+            inforce,
+            date=policy.issue_date - relativedelta(months=1),
+            policy_year=0,
+            policy_month=12,
+            duration=0,
+            attained_age=policy.issue_age,
+            is_anniversary=False,
+        )
+
+    if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
+        inforce = replace(
+            inforce,
+            av_after_deduction=policy.account_value,
+            av_end_of_month=policy.account_value,
+            # EOM AV collapses to the inforce AV, so ending SV matches the
+            # lapse-check SV (same AV, same charge, same debt).
+            ending_sv=surrender_value_0,
+            unimpaired_int=0.0,
+            interest_credited=0.0,
+            cumulative_interest=0.0,
+        )
+
+    return inforce
+
 class IllustrationEngine:
     """UL illustration projection engine.
 
@@ -148,483 +2173,37 @@ class IllustrationEngine:
         Returns:
             List of MonthlyState, one per projected month.
         """
-        if policy.rollback_requires_shadow_value:
-            raise ValueError(
-                "Historical shadow account value is unavailable. Enter a verified "
-                "historical shadow amount before projecting Value Rollback.")
         if options is None:
             options = IllustrationOptions()
-        if (
-            timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY
-            and future_inputs is not None
-            and future_inputs.policy_changes
-        ):
-            raise ValueError(
-                "ProjectionTiming.CYBERLIFE_MONTHLIVERSARY does not support "
-                "policy changes; policy changes are not supported on the "
-                "CyberLife-monthliversary path."
-            )
-        starting_exception_period = (
-            options.recognize_inforce_exception_period
-            and policy.in_exception_period and not options.guaranteed_assumption)
-        config = load_plancode(policy.plancode)
-        charge_overrides = {
-            config_field: getattr(policy, policy_field)
-            for policy_field, config_field in (
-                ("regular_loan_charge_rate", "loan_charge_rate_guar"),
-                ("preferred_loan_charge_rate", "pref_loan_charge_rate_guar"),
-            )
-            if policy_field in policy.starting_record_fields
-        }
-        if charge_overrides:
-            # The *_curr fields are collateral CREDIT rates, not loan charges.
-            config = replace(config, **charge_overrides)
-
-        # Coverage changes, from-issue setup, and permanent MEC detection mutate
-        # only this run's basis.
-        policy = copy.deepcopy(policy)
-        if policy.run_from_issue:
-            policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
+        validate_projection_timing(timing, future_inputs)
+        policy, config, starting_exception_period = prepare_run_policy(policy, options)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
-        # IUL crediting context (None on declared-rate plans): resolved AG49
-        # index, asset-charge rate, loan credit spread, WAIR inputs.
         iul_ctx = build_iul_context(policy, options)
+        initialize_run_from_issue_targets(policy, config, options)
+        bonus = resolve_bonus_config(policy, bonus_override)
+        total_months = projection_month_count(policy, months)
+        changes_by_duration = compile_policy_changes_by_duration(policy, future_inputs)
 
-        if policy.run_from_issue:
-            targets = compute_target_premiums(
-                policy, config, as_of=policy.issue_date)
-            policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
-            policy.ctp = targets.ctp_annual
-            guideline = _solve_guideline_state(
-                policy, config, policy.issue_age, policy.issue_date, options,
-                starting_av=0.0, active_as_of=policy.issue_date)
-            policy.glp = floor_monthly_cent(guideline.glp)
-            policy.gsp = floor_monthly_cent(guideline.gsp)
-            policy.tamra_7pay_level = floor_monthly_cent(guideline.seven_pay)
-
-        # Load bonus config from tRates_IntBonus based on valuation date
-        if bonus_override is not None:
-            bonus = bonus_override
-        else:
-            val_date = (
-                policy.illustration_date
-                if policy.run_from_issue and policy.illustration_date
-                else policy.valuation_date or policy.issue_date
-            )
-            bonus = load_bonus_config(policy.plancode, val_date)
-
-        # Months to maturity always caps the projection — an explicit `months`
-        # can only shorten it. The final row is the maturity month itself
-        # (starts on the maturity anniversary; no premium or deduction is
-        # taken there). RERUN has no such row — its INPUT Year list ends at
-        # age 121, so its sheet shows #N/A past maturity; the comparison
-        # tooling treats those cells as missing data.
-        remaining_years = policy.maturity_age - policy.attained_age
-        remaining_months = max(remaining_years * 12 - policy.policy_month + 1, 0)
-        total_months = (
-            remaining_months if months is None else min(months, remaining_months)
+        inforce = build_inforce_state(
+            policy, config, rates, bonus, options, iul_ctx, timing,
+            starting_exception_period,
         )
-
-        changes_by_duration: Dict[int, list] = {}
-        if future_inputs is not None and not future_inputs.is_empty():
-            changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
-
-        # Inforce snapshot (month 0) — AV from CyberLife is after-deduction.
-        # We must credit interest to roll AV to end-of-month before projecting.
-        rate_year_inforce = policy.policy_year
-        month_date_inforce = (
-            policy.valuation_date
-            if policy.valuation_date
-            else policy.issue_date + relativedelta(months=policy.duration)
-        )
-        monthly_mtp_0 = truncate_monthly_mtp(policy.mtp)
-        # MTP/CTP per-component detail (display) — computed from rates for the
-        # inforce coverage state; the headline vMTP/vCTP stay the loaded values.
-        mtp_detail_0, ctp_detail_0 = build_target_detail_snapshots(
-            policy, compute_target_premiums(policy, config, as_of=month_date_inforce)
-        )
-        md_check_av_before_deduction = policy.account_value + policy.system_monthly_deduction
-        ded0 = calculate_deduction(
-            md_check_av_before_deduction,
-            policy,
-            config,
-            rates,
-            rate_year_inforce,
-            policy.attained_age,
-            policy.premiums_paid_to_date,
-            monthly_mtp=monthly_mtp_0,
-            projection_date=month_date_inforce,
-            bln_round_charge=True,
-        )
-        intr0 = credit_interest(
-            policy.account_value, policy, config, rates, bonus,
-            rate_year_inforce, policy.attained_age, month_date_inforce,
-            reg_loan_balance=policy.regular_loan_principal,
-            pref_loan_balance=policy.preferred_loan_principal,
-            exact_days_interest=options.exact_days_interest,
-        )
-
-        # WAIR crediting for the inforce row (RERUN VI — the valuation-date
-        # WAIR from the policy's actual AV/SWAM/loan inputs). VL replaces the
-        # blended-rate interest credit; there is no separate impaired interest.
-        wair_held_0 = wair_rate_0 = 0.0
-        wair_swam_0 = wair_tav_0 = 0.0
-        if iul_ctx is not None and iul_ctx.wair_enabled:
-            uk0 = iul_ctx.declared_rate + intr0.bonus_interest_rate
-            wair_swam_0 = float(policy.sweep_account_min or 0.0)
-            wair_held_0 = weighted_average_rate(
-                av=policy.account_value,
-                swam=wair_swam_0,
-                reg_ln_principal=policy.regular_loan_principal,
-                reg_ln_accrued=policy.regular_loan_accrued,
-                pref_ln_principal=policy.preferred_loan_principal,
-                pref_ln_accrued=policy.preferred_loan_accrued,
-                reg_loan_credit_rate=intr0.reg_loan_credit_rate,
-                pref_loan_credit_rate=intr0.pref_loan_credit_rate,
-                declared_plus_bonus=uk0,
-                blend_plus_bonus=intr0.effective_annual_rate,
-            )
-            wair_rate_0 = cap_wair(iul_ctx, wair_held_0, uk0)
-            vl0 = wair_interest(policy.account_value, wair_rate_0, intr0.days_in_month)
-            intr0 = replace(
-                intr0,
-                effective_annual_rate=wair_rate_0,
-                monthly_interest_rate=(1.0 + wair_rate_0) ** (intr0.days_in_month / DAYS_PER_YEAR) - 1.0,
-                reg_impaired_int=0.0,
-                pref_impaired_int=0.0,
-                unimpaired_int=vl0,
-                interest_credited=vl0,
-                av_end_of_month=policy.account_value + vl0,
-            )
-
-        # Loan interest accrual for inforce month. RERUN does the same on its
-        # valuation row (VR/VT/VV add one month's accrual to the seeded
-        # accrued); its Debug File "Loan Balance" only LOOKS raw because that
-        # column is vPolicyDebtDisplay = SUM(MS:MX) — the post-capitalize/
-        # repay, PRE-accrual balance. Keep the accrual; map displays to the
-        # BOM buckets instead (tools/rerun/rerun_debug_map.py).
-        loan0 = LoanState(
-            rg_loan_princ=policy.regular_loan_principal,
-            rg_loan_accrued=policy.regular_loan_accrued,
-            pf_loan_princ=policy.preferred_loan_principal,
-            pf_loan_accrued=policy.preferred_loan_accrued,
-            vbl_loan_princ=policy.variable_loan_principal,
-            vbl_loan_accrued=policy.variable_loan_accrued,
-        )
-        loan0 = accrue_loan_interest(
-            loan0,
-            config,
-            intr0.days_in_month,
-            variable_loan_accrual_rate(
-                iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
-        )
-
-        # Loan Capitalize and Repay display detail for the inforce row: the
-        # seeded loan with payoffs computed (no capitalization/repay at valuation).
-        inforce_days_to_next = _days_to_next_anniversary(policy.issue_date, month_date_inforce)
-        inforce_adv_reg_factor, inforce_adv_pref_factor = _advance_loan_factors(
-            config, inforce_days_to_next)
-        inforce_loan_cap_repay = repay_loan(LoanStepInput(
-            loan=LoanState(
-                rg_loan_princ=policy.regular_loan_principal,
-                rg_loan_accrued=policy.regular_loan_accrued,
-                pf_loan_princ=policy.preferred_loan_principal,
-                pf_loan_accrued=policy.preferred_loan_accrued,
-                vbl_loan_princ=policy.variable_loan_principal,
-                vbl_loan_accrued=policy.variable_loan_accrued,
-            ),
-            config=config,
-            adv_reg_factor=inforce_adv_reg_factor,
-            adv_pref_factor=inforce_adv_pref_factor,
-        )).detail
-
-        # Shadow account for inforce month — seed from the policy's current
-        # shadow account value (RERUN injects sInput_CurrentShadowAV at the
-        # valuation date), mirroring how the regular AV is seeded from
-        # policy.account_value.  Was hardcoded 0.0.
-        shd0 = calculate_shadow(ShadowInput(
-            prev_shadow_eav=policy.shadow_account_value,
-            gross_premium=0.0,
-            premiums_ytd=policy.premiums_ytd,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year_inforce,
-            attained_age=policy.attained_age,
-            days_in_month=intr0.actual_days_in_month,
-            policy_debt=loan0.policy_debt,
-            is_inforce=True,
-            shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded0),
-            projection_date=month_date_inforce,
-            display_days_in_month=intr0.days_in_month,
-        ))
-
-        # Safety Net / Lapse Protection for inforce month
-        accumulated_mtp_0 = policy.accumulated_mtp
-        accum_mtp_less_prem_0 = (
-            policy.premiums_paid_to_date - policy.withdrawals_to_date
-            - loan0.policy_debt
-        ) - accumulated_mtp_0
-
-        if policy.map_cease_date is not None:
-            within_snet_0 = month_date_inforce <= policy.map_cease_date
-        else:
-            within_snet_0 = policy.policy_year <= config.snet_period
-        snet_active_0 = accum_mtp_less_prem_0 >= 0 and within_snet_0
-
-        past_snet_0 = not within_snet_0
-        shadow_protection_0 = (
-            policy.has_shadow_account
-            and past_snet_0
-            and shd0.shadow_eav_less_debt > 0
-        )
-
-        scr_rate_0, surrender_charge_0, scr_rates_by_coverage_0, surrender_charges_by_coverage_0 = _calculate_surrender_charge(
-            policy, rates, rate_year_inforce, month_date_inforce, config
-        )
-        lapse_check_debt_0 = loan0.policy_debt
-        surrender_value_0 = policy.account_value - surrender_charge_0 - lapse_check_debt_0
-        # Ending SV (vESV): end-of-month AV less surrender charge and debt.
-        ending_sv_0 = intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt
-        positive_sv_0 = config.lapse_value == LAPSE_BASIS_SURRENDER_VALUE and surrender_value_0 > 0
-        av_less_loans_0 = policy.account_value - lapse_check_debt_0
-
-        inforce = MonthlyState(
-            date=policy.valuation_date,
-            policy_year=policy.policy_year,
-            policy_month=policy.policy_month,
-            duration=policy.duration,
-            attained_age=policy.attained_age,
-            db_option=str(policy.db_option or "").upper(),
-            coverage_after_change=_coverage_after_change_snapshot(
-                policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
-            ),
-            mtp_detail=mtp_detail_0,
-            ctp_detail=ctp_detail_0,
-            mtp_annual=policy.mtp * MONTHS_PER_YEAR,
-            av_after_premium=md_check_av_before_deduction,
-            glp=floor_monthly_cent(policy.glp),
-            gsp=floor_monthly_cent(policy.gsp),
-            accumulated_glp=policy.accumulated_glp,
-            guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
-            guideline_forceout=0.0,
-            gp_exception_mode=starting_exception_period,
-            inforce_exception_period=starting_exception_period,
-            exception_prem_mode=starting_exception_period,
-            guideline_av_before_monthly_deduction=md_check_av_before_deduction,
-            accumulated_7pay=sum(policy.tamra_7year_contributions or []),
-            amount_in_7pay=sum(policy.tamra_7year_contributions or []),
-            tamra_7pay_level=policy.tamra_7pay_level,
-            tamra_7pay_start_date=policy.tamra_7pay_start_date,
-            is_mec=policy.is_mec,
-            tamra_year=_tamra_year(policy, month_date_inforce),
-            tamra_month_of_year=_tamra_month_of_year(policy, month_date_inforce),
-            lowest_7yr_face=_tamra_starting_lowest_face(policy),
-            planned_premium_mode=_billing_mode(policy),
-            # Deduction check
-            nar_av=ded0.nar_av,
-            standard_db=ded0.standard_db,
-            corridor_rate=ded0.corridor_rate,
-            gross_db=ded0.gross_db,
-            corr_amount=ded0.corr_amount,
-            db_by_coverage=ded0.db_by_coverage,
-            discounted_db_by_coverage=ded0.discounted_db_by_coverage,
-            discounted_db_cov1=ded0.discounted_db_cov1,
-            discounted_db_corr=ded0.discounted_db_corr,
-            discounted_db=ded0.discounted_db,
-            total_db=ded0.total_db,
-            total_discounted_db=ded0.total_discounted_db,
-            nar_by_coverage=ded0.nar_by_coverage,
-            nar_cov1=ded0.nar_cov1,
-            nar_corr=ded0.nar_corr,
-            nar=ded0.nar,
-            total_nar=ded0.total_nar,
-            coi_rates_by_coverage=ded0.coi_rates_by_coverage,
-            coi_charges_by_coverage=ded0.coi_charges_by_coverage,
-            coi_rate=ded0.coi_rate,
-            coi_rate_corr=ded0.coi_rate_corr,
-            coi_charge_cov1=ded0.coi_charge_cov1,
-            coi_charge_corr=ded0.coi_charge_corr,
-            coi_charge=ded0.coi_charge,
-            total_coi_charge=ded0.total_coi_charge,
-            ratchet_active=ded0.ratchet_active,
-            band_break=ded0.band_break,
-            coi_band1_nar_by_coverage=ded0.coi_band1_nar_by_coverage,
-            coi_band2_nar_by_coverage=ded0.coi_band2_nar_by_coverage,
-            coi_band1_rates_by_coverage=ded0.coi_band1_rates_by_coverage,
-            coi_band2_rates_by_coverage=ded0.coi_band2_rates_by_coverage,
-            epu_rate=ded0.epu_rate,
-            epu_charge=ded0.epu_charge,
-            epu_rates_by_coverage=ded0.epu_rates_by_coverage,
-            epu_charges_by_coverage=ded0.epu_charges_by_coverage,
-            mfee_charge=ded0.mfee_charge,
-            av_charge=ded0.av_charge,
-            pw_charge=ded0.pw_charge,
-            benefit_charges=ded0.benefit_charges,
-            benefit_amounts=ded0.benefit_amounts,
-            benefit_rates=ded0.benefit_rates,
-            benefit_charge_detail=ded0.benefit_charge_detail,
-            rider_charges=ded0.rider_charges,
-            rider_amounts=ded0.rider_amounts,
-            rider_rates=ded0.rider_rates,
-            rider_charge_detail=ded0.rider_charge_detail,
-            total_deduction=ded0.total_deduction,
-            av_after_deduction=policy.account_value,
-            av_after_exception=policy.account_value,
-            system_coi_charge=policy.system_coi_charge,
-            system_expense_charge=policy.system_expense_charge,
-            system_other_charge=policy.system_other_charge,
-            system_monthly_deduction=policy.system_monthly_deduction,
-            md_check_av_before_deduction=md_check_av_before_deduction,
-            md_check_calculated_deduction=ded0.total_deduction,
-            md_check_deduction_variance=ded0.total_deduction - policy.system_monthly_deduction,
-            md_check_calculated_av_after_deduction=ded0.av_after_deduction,
-            md_check_av_variance=ded0.av_after_deduction - policy.account_value,
-            # Set 1: Loan cap/repay (beginning of month — from policy inputs)
-            rg_loan_princ=policy.regular_loan_principal,
-            rg_loan_accrued=policy.regular_loan_accrued,
-            pf_loan_princ=policy.preferred_loan_principal,
-            pf_loan_accrued=policy.preferred_loan_accrued,
-            vbl_loan_princ=policy.variable_loan_principal,
-            vbl_loan_accrued=policy.variable_loan_accrued,
-            loan_cap_repay=inforce_loan_cap_repay,
-            # IUL crediting — no asset charge on the valuation row (RERUN SX
-            # takes sInput_CurrentAV verbatim); WAIR seeds from VI.
-            asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
-            asset_charge=0.0,
-            wair_tav=wair_tav_0,
-            wair_swam=wair_swam_0,
-            wair_held=wair_held_0,
-            wair_rate=wair_rate_0,
-            # Interest
-            days_in_month=intr0.days_in_month,
-            annual_interest_rate=intr0.annual_interest_rate,
-            bonus_interest_rate=intr0.bonus_interest_rate,
-            effective_annual_rate=intr0.effective_annual_rate,
-            monthly_interest_rate=intr0.monthly_interest_rate,
-            reg_loan_credit_rate=intr0.reg_loan_credit_rate,
-            pref_loan_credit_rate=intr0.pref_loan_credit_rate,
-            reg_impaired_int=intr0.reg_impaired_int,
-            pref_impaired_int=intr0.pref_impaired_int,
-            unimpaired_int=intr0.unimpaired_int,
-            interest_credited=intr0.interest_credited,
-            av_end_of_month=intr0.av_end_of_month,
-            # Set 2: Loan accrual (end of month — after accrual)
-            reg_loan_charge=loan0.reg_loan_charge,
-            pref_loan_charge=loan0.pref_loan_charge,
-            vbl_loan_charge=loan0.vbl_loan_charge,
-            end_rg_loan_princ=loan0.rg_loan_princ,
-            end_rg_loan_accrued=loan0.rg_loan_accrued,
-            end_pf_loan_princ=loan0.pf_loan_princ,
-            end_pf_loan_accrued=loan0.pf_loan_accrued,
-            end_vbl_loan_princ=loan0.vbl_loan_princ,
-            end_vbl_loan_accrued=loan0.vbl_loan_accrued,
-            policy_debt=loan0.policy_debt,
-            # Tracking
-            premiums_ytd=policy.premiums_ytd,
-            premiums_to_date=policy.premiums_paid_to_date,
-            withdrawals_to_date=policy.withdrawals_to_date,
-            cost_basis=policy.cost_basis,
-            # Seed the after-exception set from the same inforce values — no
-            # exception premium has been applied yet, so month 1 carries these
-            # forward unchanged.
-            premiums_ytd_after_exception=policy.premiums_ytd,
-            premiums_to_date_after_exception=policy.premiums_paid_to_date,
-            cost_basis_after_exception=policy.cost_basis,
-            cumulative_interest=intr0.interest_credited,
-            # Shadow
-            shadow_bav=shd0.shadow_bav,
-            shadow_wd_charges=shd0.shadow_wd_charges,
-            shadow_sa=shd0.shadow_sa,
-            shadow_target_prem=shd0.shadow_target_prem,
-            shadow_prem_under_target=shd0.shadow_prem_under_target,
-            shadow_prem_over_target=shd0.shadow_prem_over_target,
-            shadow_target_load=shd0.shadow_target_load,
-            shadow_excess_load=shd0.shadow_excess_load,
-            shadow_prem_load=shd0.shadow_prem_load,
-            shadow_net_prem=shd0.shadow_net_prem,
-            shadow_nar_av=shd0.shadow_nar_av,
-            shadow_db=shd0.shadow_db,
-            shadow_coi_rate=shd0.shadow_coi_rate,
-            shadow_coi=shd0.shadow_coi,
-            shadow_dbd_rate=shd0.shadow_dbd_rate,
-            shadow_nar=shd0.shadow_nar,
-            shadow_epu_rate=shd0.shadow_epu_rate,
-            shadow_epu=shd0.shadow_epu,
-            shadow_mfee=shd0.shadow_mfee,
-            shadow_rider_charges=shd0.shadow_rider_charges,
-            shadow_md=shd0.shadow_md,
-            shadow_av=shd0.shadow_av,
-            shadow_days=shd0.shadow_days,
-            shadow_int_rate=shd0.shadow_int_rate,
-            shadow_eff_rate=shd0.shadow_eff_rate,
-            shadow_interest=shd0.shadow_interest,
-            shadow_eav=shd0.shadow_eav,
-            shadow_eav_less_debt=shd0.shadow_eav_less_debt,
-            # Safety Net / Lapse Protection
-            monthly_mtp=monthly_mtp_0,
-            ctp=policy.ctp,
-            accumulated_mtp=accumulated_mtp_0,
-            accum_mtp_less_prem=accum_mtp_less_prem_0,
-            snet_active=snet_active_0,
-            shadow_protection=shadow_protection_0,
-            positive_sv=positive_sv_0,
-            av_less_loans=av_less_loans_0,
-            # End-of-month values
-            scr_rate=scr_rate_0,
-            scr_rates_by_coverage=scr_rates_by_coverage_0,
-            surrender_charge=surrender_charge_0,
-            surrender_charges_by_coverage=surrender_charges_by_coverage_0,
-            surrender_value=surrender_value_0,
-            ending_sv=ending_sv_0,
-        )
-
-        if policy.run_from_issue:
-            # Keep the established results contract ([0] is the opening row),
-            # but place that row immediately before issue so the normal monthly
-            # pipeline executes policy month 1 on the issue date.
-            inforce = replace(
-                inforce,
-                date=policy.issue_date - relativedelta(months=1),
-                policy_year=0,
-                policy_month=12,
-                duration=0,
-                attained_age=policy.issue_age,
-                is_anniversary=False,
-            )
-
-        if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
-            inforce = replace(
-                inforce,
-                av_after_deduction=policy.account_value,
-                av_end_of_month=policy.account_value,
-                # EOM AV collapses to the inforce AV, so ending SV matches the
-                # lapse-check SV (same AV, same charge, same debt).
-                ending_sv=surrender_value_0,
-                unimpaired_int=0.0,
-                interest_credited=0.0,
-                cumulative_interest=0.0,
-            )
 
         compiled_inputs = compile_month_inputs(policy, future_inputs, total_months)
 
         results: List[MonthlyState] = [inforce]
         state = inforce
+        convention = timing_convention(timing)
         for _ in range(total_months):
             month_inputs = compiled_inputs.get(state.duration + 1)
-            if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
-                state = self.process_cyberlife_monthliversary(
-                    state, policy, config, rates, bonus,
-                    month_inputs=month_inputs, options=options,
-                    iul_ctx=iul_ctx,
-                )
-            else:
-                state = self.process_month(
-                    state, policy, config, rates, bonus,
-                    month_inputs=month_inputs, options=options,
-                    policy_changes=changes_by_duration.get(state.duration + 1),
-                    iul_ctx=iul_ctx,
-                )
+            policy_changes = None
+            if convention.supports_policy_changes:
+                policy_changes = changes_by_duration.get(state.duration + 1)
+            state = run_month(MonthContext(
+                state=state, policy=policy, config=config, rates=rates,
+                bonus=bonus, month_inputs=month_inputs, options=options,
+                policy_changes=policy_changes, iul_ctx=iul_ctx,
+            ), convention)
             state = _apply_mec_status(policy, results, state)
             results.append(state)
             if stop_on_lapse and state.lapsed:
@@ -632,1375 +2211,7 @@ class IllustrationEngine:
 
         return results
 
-    def process_month(
-        self,
-        state: MonthlyState,
-        policy: IllustrationPolicyData,
-        config: PlancodeConfig,
-        rates: IllustrationRates,
-        bonus: BonusConfig,
-        month_inputs=None,
-        options: Optional[IllustrationOptions] = None,
-        policy_changes=None,
-        iul_ctx: Optional[IULCreditingContext] = None,
-    ) -> MonthlyState:
-        """Process a single month of the calculation pipeline.
 
-        Takes the previous month's state, produces the next. ``policy_changes`` are
-        applied to ``policy`` (a private copy made in project()) at their effective
-        month, before coverage/deduction reads the segments. ``iul_ctx`` (built
-        once per run in project()) turns on the IUL asset charge, variable-loan
-        spread, and WAIR crediting.
-        """
-        if options is None:
-            options = IllustrationOptions()
-
-        # ── 1. Update date/year/month/attained age ────────────
-        next_year, next_month = _advance_month(
-            state.policy_year, state.policy_month
-        )
-        duration = state.duration + 1
-        lapse_value = lapse_value_for_month(policy, config, duration)
-        attained_age = policy.issue_age + (duration - 1) // 12
-        month_date = policy.issue_date + relativedelta(months=duration - 1)
-        is_anniversary = next_month == 1
-
-        # ── 2. Gather beginning values ────────────────────────
-        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd_after_exception
-        premiums_to_date = state.premiums_to_date_after_exception
-        cost_basis = state.cost_basis_after_exception
-        av = state.av_end_of_month
-        rate_year = next_year
-
-        # ── 2b. Loan capitalization (within-bucket at anniversary) ─
-        # Advance loans gross the next year's prepaid interest onto the principal
-        # at the anniversary, and repayments are grossed up by the same factor.
-        days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
-        adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
-        cap_loan = capitalize_loans(
-            state.end_rg_loan_princ, state.end_rg_loan_accrued,
-            state.end_pf_loan_princ, state.end_pf_loan_accrued,
-            state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
-            is_anniversary,
-            config=config,
-            adv_reg_factor=adv_reg_factor,
-            adv_pref_factor=adv_pref_factor,
-        )
-        # Interest-in-advance folded into principal this month (vAdvRegLNInt /
-        # vPrefRegLNInt display). Zero for arrears loans. Captured before the
-        # loan buckets are transformed by repay / new-loan / accrual.
-        adv_reg_ln_int = cap_loan.adv_reg_int
-        adv_pref_ln_int = cap_loan.adv_pref_int
-
-        # ── 2c. Withdrawal (CalcEngine AX..BU — before the dated changes) ─
-        wd = _process_withdrawal(WithdrawalInput(
-            state=state,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            attained_age=attained_age,
-            month_date=month_date,
-            av=av,
-            cost_basis=cost_basis,
-            month_inputs=month_inputs,
-            cap_loan=cap_loan,
-            is_anniversary=is_anniversary,
-            options=options,
-            defer_guideline_recalc=bool(policy_changes),
-        ))
-        av = wd.av_post_withdrawal
-        # BO (AV post withdrawal) — the begin AV of the WAIR one-year TAV
-        # projection on beginning-of-year rows.
-        bo_av = av
-        cost_basis = wd.cost_basis_after_wd
-        withdrawals_to_date = wd.withdrawals_to_date
-
-        # ── 3-7. Policy changes / coverage after change ───────
-        # Apply any dated policy change effective this month (mutates the private
-        # policy copy) before coverage/deduction reads the segments. Targets are
-        # refreshed as each change is applied; GLP/GSP are recalculated once from
-        # the policy state before the withdrawal through the final changed state.
-        # A material change (face increase, B→A) also restarts the 7-pay period.
-        tamra_reset = False
-        # FQ vPolicyChangeAVReduction = gross WD + change partial SCs.
-        policy_change_av_reduction = wd.gross_withdrawal
-        dbo_change_detail: Dict[str, object] = {}
-        face_change_detail: Dict[str, object] = {}
-        guideline_recalc: Dict[str, object] = dict(wd.guideline_recalc)
-        guideline_before = wd.guideline_before
-        guideline_before_pv_detail = wd.guideline_before_pv_detail
-        guideline_changes = 1 if wd.face_decrease > MONEY_EPSILON else 0
-        recalc_change = (
-            PolicyChangeEvent(
-                kind=PolicyChangeKind.FACE_AMOUNT,
-                effective_date=month_date,
-                value=policy.total_face,
-            )
-            if guideline_changes
-            else None
-        )
-        if policy_changes:
-            for change in sorted(
-                policy_changes,
-                key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
-            ):
-                outcome = _apply_policy_change(
-                    policy, config, change, attained_age, month_date,
-                    rates, rate_year, av, options=options,
-                    defer_guideline_recalc=True,
-                    capture_guideline_before=guideline_before is None,
-                )
-                av += outcome.av_adjustment
-                policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
-                tamra_reset = tamra_reset or outcome.material_change
-                dbo_change_detail.update(outcome.dbo_detail)
-                face_change_detail.update(outcome.face_detail)
-                if outcome.coverage_changed:
-                    guideline_changes += 1
-                    if recalc_change is None:
-                        recalc_change = change
-                if guideline_before is None and outcome.guideline_before is not None:
-                    guideline_before = outcome.guideline_before
-                    guideline_before_pv_detail = outcome.guideline_before_pv_detail
-
-            if guideline_changes and recalc_change is not None:
-                if guideline_changes > 1:
-                    recalc_change = PolicyChangeEvent(
-                        kind=recalc_change.kind,
-                        effective_date=month_date,
-                        value=recalc_change.value,
-                        metadata={"change_label": "Combined Policy Changes"},
-                    )
-                guideline_recalc = _recalc_guideline_on_change(
-                    policy, config, recalc_change, attained_age,
-                    change_date=month_date,
-                    before=guideline_before,
-                    av=av,
-                    material_change=tamra_reset,
-                    options=options,
-                    before_pv_detail=guideline_before_pv_detail,
-                )
-
-        # A material change restarts the 7-pay period at the change date, so the
-        # TAMRA year/month and 7-pay accumulation count from here.
-        if tamra_reset:
-            policy.tamra_7pay_start_date = month_date
-
-        cov_after_change = _coverage_after_change_snapshot(
-            policy, config, month_date, policy_change_av_reduction,
-            state.coverage_after_change,
-        )
-
-        # ── 7b. MTP/CTP detail snapshots (HO..JG / JI..KQ) ────
-        # Recomputed when a change or SA-reducing withdrawal moved the coverage
-        # this month (vPolicyChangeIndicator), or when a date-gated component
-        # (rider/benefit/table/flat) crosses its cease date — RERUN recomputes
-        # vMTP monthly, so ceased riders drop out of its displayed target.
-        # Carried forward otherwise.
-        if (
-            not state.mtp_detail
-            or policy_changes
-            or wd.face_decrease > MONEY_EPSILON
-            or target_actives_signature(policy, month_date)
-            != target_actives_signature(policy, state.date)
-        ):
-            mtp_detail, ctp_detail = build_target_detail_snapshots(
-                policy, compute_target_premiums(policy, config, as_of=month_date)
-            )
-        else:
-            mtp_detail = state.mtp_detail
-            ctp_detail = state.ctp_detail
-
-        # ── 8. Minimum Target Premium calculation/accumulation ─
-        # Accumulation uses vMonthlyMTP = TRUNC(vMTP/12, 2) (JE/JF); the PW
-        # waive basis uses ROUND(vMTP/12, 2) (SL) — they differ by a cent when
-        # the recomputed annual MTP is not an even multiple of 12 cents.
-        monthly_mtp = truncate_monthly_mtp(policy.mtp)
-        pw_monthly_mtp = _round_near(policy.mtp, 2)
-        accumulated_mtp = state.accumulated_mtp + monthly_mtp
-
-        # Safety-net window — needed before exception-premium eligibility.
-        if policy.map_cease_date is not None:
-            within_snet = month_date <= policy.map_cease_date
-        else:
-            within_snet = next_year <= config.snet_period
-        past_snet = not within_snet
-        prior_exception_mode = state.gp_exception_mode
-
-        # ── 9. Commission Target Premium (split handled in apply_premium) ─
-
-        # ── 10. 7702 — GLP accumulation, guideline limit, force-out ─
-        # GLP and GSP are both normalized to a monthly-cent annual value so the
-        # annual amount is an exact 12x its monthly twelfth.
-        accum_glp_prior_amount = state.accumulated_glp
-        gsp_floored = floor_monthly_cent(policy.gsp)
-        accumulated_glp = _accumulate_guideline_premium(
-            state, policy, is_anniversary, attained_age
-        )
-        # Mid-year guideline recalc trues up AccumGLP pro-rata for the rest of
-        # the policy year (see _recalc_guideline_on_change); one-time add that
-        # persists via the state carry-forward. Frozen with the accrual at 100.
-        if attained_age < 100:
-            accumulated_glp += float(
-                guideline_recalc.get("accum_glp_adjustment", 0.0) or 0.0)
-        if guideline_recalc:
-            _record_accum_glp_recalc_detail(
-                guideline_recalc,
-                prior_amount=accum_glp_prior_amount,
-                new_amount=accumulated_glp,
-                policy_month=next_month,
-            )
-        guideline_limit = max(gsp_floored, accumulated_glp)
-
-        # Force-out: limit is the GREATER of GSP and AccumGLP, capped by
-        # available AV, gated by TEFRA conformance, disabled once exception
-        # mode is on (KX checks the prior month's exception flag). KW (Prem−WD)
-        # uses the withdrawals-to-date BEFORE the force-out; the allowance chain
-        # then adds the force-out back as new guideline room.
-        withdrawals_before_forceout = withdrawals_to_date
-        guideline_forceout, withdrawals_to_date, av = _apply_guideline_forceout(
-            gsp_floored,
-            accumulated_glp,
-            premiums_to_date,
-            withdrawals_to_date,
-            av,
-            enabled=options.force_out_enabled,
-            has_guideline_limit=policy.is_gpt,
-            prior_exception_mode=prior_exception_mode,
-        )
-
-        # Requested premium (LS scheduled, vLumpsum unscheduled) is needed before
-        # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
-        requested_scheduled, requested_lumpsum = _split_requested_premium(
-            policy, config, month_inputs, attained_age,
-            exception_period=state.inforce_exception_period,
-        )
-        # Billable-to-MD: once the hand-off has latched, the row's billable
-        # premium stops — the scheduled premium (the row owns the schedule
-        # within its window) and its dated billable payments this year. Other
-        # lumpsums in the same month still pay.
-        b2md_active = _billable_to_md_active(options, next_year)
-        if b2md_active and state.billable_md_switched:
-            requested_scheduled = 0.0
-            if month_inputs is not None:
-                requested_lumpsum = max(
-                    0.0, requested_lumpsum - month_inputs.billable_to_md_premium)
-        # Levelizing is gated on the loan that exists BEFORE the repayment (RERUN's
-        # NX uses LX..MC, post-capitalization/pre-repay). Capturing it after the
-        # repay would let the month that finally clears the loan flip levelizing on
-        # and apply the full scheduled premium instead of the small post-repay
-        # remainder (NY).
-        has_loan_balance = _loan_balance_for_levelizing(cap_loan)
-        # Post-capitalization, pre-repay buckets (RERUN LX..MC) — the begin
-        # loan balances of the WAIR TAV projection.
-        boy_loan = cap_loan
-        cash_flows = apply_cash_flow_inputs(
-            av,
-            cap_loan,
-            month_inputs,
-            config=config,
-            adv_reg_factor=adv_reg_factor,
-            adv_pref_factor=adv_pref_factor,
-            apply_prem_to_loan=options.apply_prem_to_loan,
-            excess_repayment_to_premium=(
-                options.apply_excess_repayment_as_premium and not state.inforce_exception_period),
-            requested_lumpsum=requested_lumpsum,
-            requested_scheduled=requested_scheduled,
-        )
-        av = cash_flows.av
-        cap_loan = cash_flows.loan_state
-        loan_cap_repay_detail = cash_flows.loan_cap_repay
-
-        # ── 12. Apply premium (CalcEngine NC..NZ acceptance chain) ───
-        # A material change restarted the 7-pay period: the prior window's
-        # contributions no longer count (LE = 0 in month 1 of a new period).
-        accumulated_7pay_base = 0.0 if tamra_reset else state.accumulated_7pay
-        tamra_year = _tamra_year(policy, month_date)
-        tamra_moy = _tamra_month_of_year(policy, month_date)
-        pc_policy, pc_tamra, _payment_mode = _payment_counts(
-            state, policy, month_date, next_month, month_inputs
-        )
-        beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
-        allowances = compute_premium_allowances(PremiumAllowanceInput(
-            is_cvat=policy.is_cvat,
-            is_gpt=policy.is_gpt,
-            tefra_force=options.guideline_cap_enabled,
-            tamra_force=_tamra_force(options, policy),
-            mec_bypass=policy.is_mec,
-            guideline_limit=guideline_limit,
-            prem_less_wd=premiums_to_date - withdrawals_before_forceout,
-            force_out=guideline_forceout,
-            loan_repay_from_forceout=0.0,
-            seven_pay_level=policy.tamra_7pay_level,
-            amount_in_7pay=accumulated_7pay_base,
-            tamra_year=tamra_year,
-            tamra_month_of_year=tamra_moy,
-            policy_month=next_month,
-            npt_premium=0.0,
-            tamra_reset=tamra_reset,
-            requested_scheduled=requested_scheduled,
-            requested_lumpsum=requested_lumpsum,
-            payment_count_policy_year=pc_policy,
-            payment_count_tamra_year=pc_tamra,
-            has_loan_balance=has_loan_balance,
-            levelizing_premium=options.levelizing_premium,
-            beginning_of_year=beginning_of_year,
-            policy_anniversary=is_anniversary,
-            prior_scheduled_prem_cap=state.scheduled_prem_cap,
-            prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
-            prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
-            loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
-            loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
-            ln_repay_left_over=cash_flows.ln_repay_left_over,
-            prior_guideline_limit_reached=state.guideline_limit_reached,
-            prior_transition_year_active=state.transition_year_active,
-        ))
-        prem = apply_premium(
-            av, policy, config, rates, rate_year,
-            premiums_ytd, premiums_to_date, cost_basis,
-            gross_premium_override=allowances.applied_total_premium,
-            premium_cap=None,
-        )
-        av = prem.av_after_premium
-        av_before_deduction = av
-
-        # ── 13. Monthly deduction ─────────────────────────────
-        ded = calculate_deduction(
-            av, policy, config, rates, rate_year,
-            attained_age, prem.premiums_to_date,
-            monthly_mtp=pw_monthly_mtp,
-            projection_date=month_date,
-        )
-        # 13b. IUL asset charge (RERUN SV/SX): MAX(0, SU/12 × (OO − MS − MT))
-        # on the unloaned AV (post-repay regular loan buckets), deducted from
-        # AV alongside the monthly deduction under AG49 regimes 1-2 only.
-        asset_charge = monthly_asset_charge(
-            iul_ctx, av_before_deduction,
-            cap_loan.rg_loan_princ, cap_loan.rg_loan_accrued,
-        )
-        av_after_charge = ded.av_after_deduction - asset_charge
-
-        # ── 14. GP Exception premium ──────────────────────────
-        guideline_limit_reached = _guideline_limit_reached(
-            config, allowances,
-            attained_age=attained_age,
-            beginning_of_year=beginning_of_year,
-            prior_limit_reached=state.guideline_limit_reached,
-        )
-        # Billable-to-MD hand-off: within the window, the FIRST month the
-        # post-deduction values would fail the lapse test in stage 18 (absent
-        # any MD/exception help) latches the switch — the Monthly Deduction
-        # premium pays from THIS month on, so the policy survives the month
-        # the billable premium stopped carrying it. The probe mirrors the
-        # stage-18 protections on the pre-help account value: safety net,
-        # shadow account (prior month's EAV-less-debt — this month's shadow
-        # runs at stage 17), and the plancode's SV/AV lapse basis.
-        b2md_switched = state.billable_md_switched
-        if (b2md_active and not b2md_switched and not state.lapsed
-                and _b2md_latch_allowed(options, month_date)):
-            _, sc_probe, _, _ = _calculate_surrender_charge(
-                policy, rates, rate_year, month_date, config)
-            probe_debt = cap_loan.policy_debt
-            snet_probe = (
-                (prem.premiums_to_date - withdrawals_to_date - probe_debt)
-                - accumulated_mtp >= 0 and within_snet)
-            shadow_probe = (
-                policy.has_shadow_account and past_snet
-                and state.shadow_eav_less_debt > 0)
-            sv_probe = (lapse_value == LAPSE_BASIS_SURRENDER_VALUE
-                        and av_after_charge - sc_probe - probe_debt > 0)
-            av_probe = (lapse_value == LAPSE_BASIS_ACCOUNT_VALUE
-                        and av_after_charge - probe_debt > 0)
-            if not (snet_probe or shadow_probe or sv_probe or av_probe):
-                b2md_switched = True
-        md_premium_active = (
-            _monthly_deduction_premium_active(options, next_year)
-            or (b2md_active and b2md_switched)) and not state.inforce_exception_period
-        exception = _compute_exception_premium(ExceptionPremiumInput(
-            options=options,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            av_after_charge=av_after_charge,
-            coi_rate=ded.coi_rate,
-            guideline_limit_reached=guideline_limit_reached,
-            past_snet=past_snet,
-            prior_exception_mode=prior_exception_mode,
-            prior_lapsed=state.lapsed,
-            attained_age=attained_age,
-            md_premium_active=md_premium_active,
-            total_deduction=ded.total_deduction,
-            guideline_limit=guideline_limit,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-        ))
-        if exception.requires_option_a:
-            policy.db_option = DB_OPTION_LEVEL
-            ded = calculate_deduction(
-                av_before_deduction,
-                policy,
-                config,
-                rates,
-                rate_year,
-                attained_age,
-                prem.premiums_to_date,
-                monthly_mtp=pw_monthly_mtp,
-                projection_date=month_date,
-            )
-            asset_charge = monthly_asset_charge(
-                iul_ctx, av_before_deduction,
-                cap_loan.rg_loan_princ, cap_loan.rg_loan_accrued,
-            )
-            av_after_charge = ded.av_after_deduction - asset_charge
-            exception = _compute_exception_premium(ExceptionPremiumInput(
-                options=options,
-                policy=policy,
-                config=config,
-                rates=rates,
-                rate_year=rate_year,
-                av_after_charge=av_after_charge,
-                coi_rate=ded.coi_rate,
-                guideline_limit_reached=guideline_limit_reached,
-                past_snet=past_snet,
-                prior_exception_mode=prior_exception_mode,
-                prior_lapsed=state.lapsed,
-                attained_age=attained_age,
-                md_premium_active=md_premium_active,
-                total_deduction=ded.total_deduction,
-                guideline_limit=guideline_limit,
-                premiums_to_date=prem.premiums_to_date,
-                withdrawals_to_date=withdrawals_to_date,
-                guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-            ))
-        av = exception.av_after_exception
-
-        # ── 15. Policy values / new fixed loans (gain → preferred) ─
-        # The applied loan is capped at the lapse SV (TQ vAppliedLoan with
-        # sInput_RestrictLoansToSV): AV − full SC − existing debt − MD holdback.
-        loan_cap = None
-        if options.restrict_loans_to_sv:
-            _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-                policy, rates, rate_year, month_date, config)
-            loan_cap = (
-                av - full_sc_for_loan - cap_loan.policy_debt
-                - config.md_holdback * ded.total_deduction
-            )
-        fixed_loan_state = apply_new_fixed_loan(LoanStepInput(
-            loan=cap_loan,
-            requested_amount=month_inputs.regular_loan if month_inputs is not None else 0.0,
-            account_value=av,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            max_loan=loan_cap,
-        ))
-        applied_regular_loan = max(0.0, fixed_loan_state.rg_loan_princ - cap_loan.rg_loan_princ)
-        applied_preferred_loan = max(0.0, fixed_loan_state.pf_loan_princ - cap_loan.pf_loan_princ)
-
-        # ── 16. Accumulation: interest crediting ──────────────
-        intr = credit_interest(
-            av, policy, config, rates, bonus, rate_year,
-            attained_age, month_date,
-            reg_loan_balance=fixed_loan_state.rg_loan_princ,
-            pref_loan_balance=fixed_loan_state.pf_loan_princ,
-            exact_days_interest=options.exact_days_interest,
-        )
-
-        # 16a. WAIR crediting (RERUN US..VL): when the run uses the Weighted
-        # Average Interest Rate, VL replaces the blended-rate credit entirely
-        # (VO CHOOSE method 3 — the loaned/unloaned split lives inside the
-        # WAIR weighting, so no separate impaired interest). The WAIR is
-        # recomputed on beginning-of-year rows from the one-year TAV
-        # projection and held through the policy year (VJ carry-forward).
-        wair_tav = wair_swam = wair_held = wair_rate = 0.0
-        if iul_ctx is not None and iul_ctx.wair_enabled:
-            uk = iul_ctx.declared_rate + intr.bonus_interest_rate      # UK
-            up = intr.effective_annual_rate                            # UP = UO + bonus
-            if beginning_of_year:
-                tavp = project_tav(TavInput(
-                    begin_av=bo_av,
-                    planned_premium=requested_scheduled,
-                    payments_per_year=pc_policy,
-                    lumpsum=requested_lumpsum,
-                    policy_month=next_month,
-                    fixed_ln_principal=boy_loan.rg_loan_princ + boy_loan.pf_loan_princ,
-                    fixed_ln_accrued=boy_loan.rg_loan_accrued + boy_loan.pf_loan_accrued,
-                    vbl_ln_principal=boy_loan.vbl_loan_princ,
-                    vbl_ln_accrued=boy_loan.vbl_loan_accrued,
-                    reg_loan_charge_rate=config.loan_charge_rate_guar,
-                    vbl_loan_rate=variable_loan_accrual_rate(
-                        iul_ctx, policy.variable_loan_charge_rate,
-                        policy.current_interest_rate),
-                    apply_prem_to_loan=options.apply_prem_to_loan,
-                    is_cvat=policy.is_cvat,
-                    annual_cap=allowances.annual_cap_1,
-                    premium_load=prem.tpp_rate,
-                ))
-                wair_tav = tavp.tav_display                            # VG
-                # VH: input SWAM on the valuation row (handled at month 0);
-                # projected rows proxy it as this month's deduction × 12.
-                wair_swam = ded.total_deduction * MONTHS_PER_YEAR
-                wair_held = weighted_average_rate(                     # VJ
-                    av=tavp.tav,
-                    swam=wair_swam,
-                    reg_ln_principal=fixed_loan_state.rg_loan_princ,   # TY
-                    reg_ln_accrued=fixed_loan_state.rg_loan_accrued,   # MT
-                    pref_ln_principal=fixed_loan_state.pf_loan_princ,
-                    pref_ln_accrued=fixed_loan_state.pf_loan_accrued,
-                    reg_loan_credit_rate=intr.reg_loan_credit_rate,
-                    pref_loan_credit_rate=intr.pref_loan_credit_rate,
-                    declared_plus_bonus=uk,
-                    blend_plus_bonus=up,
-                )
-            else:
-                wair_tav = state.wair_tav
-                wair_swam = state.wair_swam
-                wair_held = state.wair_held
-            wair_rate = cap_wair(iul_ctx, wair_held, uk)               # VK
-            vl = wair_interest(av, wair_rate, intr.days_in_month)      # VL
-            intr = replace(
-                intr,
-                effective_annual_rate=wair_rate,
-                monthly_interest_rate=(1.0 + wair_rate) ** (intr.days_in_month / DAYS_PER_YEAR) - 1.0,
-                reg_impaired_int=0.0,
-                pref_impaired_int=0.0,
-                unimpaired_int=vl,
-                interest_credited=vl,
-                av_end_of_month=av + vl,
-            )
-        av = intr.av_end_of_month
-
-        # ── 16b. Accumulation: loan interest charges ──────────
-        accrual_loan = accrue_loan_interest(
-            fixed_loan_state,
-            config,
-            intr.days_in_month,
-            variable_loan_accrual_rate(
-                iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
-        )
-
-        # ── 17. Shadow account processing ─────────────────────
-        shd = calculate_shadow(ShadowInput(
-            prev_shadow_eav=state.shadow_eav,
-            gross_premium=prem.gross_premium,
-            premiums_ytd=prem.premiums_ytd,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            attained_age=attained_age,
-            days_in_month=intr.actual_days_in_month,
-            policy_debt=accrual_loan.policy_debt,
-            shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded),
-            projection_date=month_date,
-            display_days_in_month=intr.days_in_month,
-        ))
-
-        # ── 18. Testing: SNET, shadow, exception, and lapse ───
-        accum_mtp_less_prem = (
-            prem.premiums_to_date - withdrawals_to_date
-            - accrual_loan.policy_debt
-        ) - accumulated_mtp
-        snet_active = accum_mtp_less_prem >= 0 and within_snet
-
-        shadow_protection = (
-            policy.has_shadow_account
-            and past_snet
-            and shd.shadow_eav_less_debt > 0
-        )
-
-        scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
-            policy, rates, rate_year, month_date, config
-        )
-        lapse_check_av = exception.av_after_exception
-        lapse_check_debt = cap_loan.policy_debt
-        surrender_value = lapse_check_av - surrender_charge - lapse_check_debt
-
-        # Ending death benefit (CalcEngine VY/VZ/WB): recomputed from the
-        # END-of-month AV — DBO B adds EOM AV, the corridor tests EOM AV, and
-        # outstanding policy debt is subtracted.
-        edb_wo_corr = policy.total_face
-        if policy.db_option == DB_OPTION_INCREASING:
-            edb_wo_corr += max(0.0, av)
-        elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
-            edb_wo_corr += max(0.0, prem.premiums_to_date - withdrawals_to_date)
-        # Corridor DB truncated to a whole dollar — same CyberLife rule as the
-        # deduction-time Gross DB (diverges from RERUN VZ, which doesn't truncate).
-        edb_corr = (max(0.0, math.floor(av * ded.corridor_rate + 1e-6) - edb_wo_corr)
-                    if ded.corridor_rate > 0 else 0.0)
-        # RERUN vIllustratedDB = base policy DB + face of riders on the primary
-        # insured (e.g. Signature Term Riders), each active until its maturity.
-        ending_db = (edb_wo_corr + edb_corr - accrual_loan.policy_debt
-                     + _primary_insured_rider_face(policy, month_date))
-
-        # Ending surrender value (CalcEngine VZ vESV = vEAV − FullSC − vELN):
-        # END-of-month AV less the full surrender charge and the END-of-month
-        # loan balance. Distinct from surrender_value above (RERUN vLapseSV),
-        # which nets the PRE-interest lapse-check AV and pre-accrual debt.
-        ending_sv = av - surrender_charge - accrual_loan.policy_debt
-
-        positive_sv = lapse_value == LAPSE_BASIS_SURRENDER_VALUE and surrender_value > 0
-        av_less_loans = lapse_check_av - lapse_check_debt
-        av_loans_test = lapse_value == LAPSE_BASIS_ACCOUNT_VALUE and av_less_loans > 0
-        exception_protection = (
-            exception.mode
-            and surrender_value > -0.0001
-        )
-        any_protection = (
-            snet_active or shadow_protection or positive_sv
-            or av_loans_test or exception_protection
-        )
-        lapsed = state.lapsed or not any_protection
-        if options is not None and options.no_lapse:
-            # Lapse test disabled (ABR Quote): values may run negative and
-            # the projection always reaches maturity.
-            lapsed = False
-
-        # 7-pay contributions accumulate while inside the 7-pay window —
-        # premiums in, GROSS withdrawals out (XZ..YF add
-        # vAppliedTotalPremium − vGrossWD to the year's bucket).
-        accumulated_7pay = accumulated_7pay_base + (
-            prem.gross_premium - wd.gross_withdrawal if tamra_year <= 7 else 0.0
-        )
-
-        # ── 19. Deemed cash value ─────────────────────────────
-        # Not yet implemented.
-
-        # Cumulative tracking
-        cumulative_interest = state.cumulative_interest + intr.interest_credited
-        cumulative_charges = state.cumulative_charges + ded.total_deduction
-
-        tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
-
-        return MonthlyState(
-            # Counters
-            date=month_date,
-            policy_year=next_year,
-            policy_month=next_month,
-            duration=duration,
-            attained_age=attained_age,
-            matured=attained_age >= config.maturity_age,
-            is_anniversary=is_anniversary,
-            db_option=str(policy.db_option or "").upper(),
-            coverage_after_change=cov_after_change,
-            guideline_recalc=guideline_recalc,
-            # Withdrawal (AX..BU)
-            **_withdrawal_state_fields(wd),
-            # DBO / specified face change details (BW..CU / CW..DO)
-            dbo_change_detail=dbo_change_detail,
-            face_change_detail=face_change_detail,
-            # MTP / CTP detail (HO..JG / JI..KQ)
-            mtp_detail=mtp_detail,
-            ctp_detail=ctp_detail,
-            mtp_annual=policy.mtp * MONTHS_PER_YEAR,
-            # Set 1: Loan cap/repay (beginning of month)
-            rg_loan_princ=cap_loan.rg_loan_princ,
-            rg_loan_accrued=cap_loan.rg_loan_accrued,
-            pf_loan_princ=cap_loan.pf_loan_princ,
-            pf_loan_accrued=cap_loan.pf_loan_accrued,
-            vbl_loan_princ=cap_loan.vbl_loan_princ,
-            vbl_loan_accrued=cap_loan.vbl_loan_accrued,
-            applied_loan_repayment=cash_flows.applied_loan_repayment,
-            loan_repay_from_prem=(
-                cash_flows.loan_repay_from_lumpsum + cash_flows.loan_repay_from_scheduled
-            ),
-            applied_regular_loan=applied_regular_loan,
-            applied_preferred_loan=applied_preferred_loan,
-            applied_variable_loan=cash_flows.applied_variable_loan,
-            loan_cap_repay=loan_cap_repay_detail,
-            # Premium
-            gross_premium=prem.gross_premium,
-            prem_under_target=prem.prem_under_target,
-            prem_over_target=prem.prem_over_target,
-            tpp_rate=prem.tpp_rate,
-            epp_rate=prem.epp_rate,
-            target_load=prem.target_load + exception.percentage_load,
-            excess_load=prem.excess_load,
-            flat_load=prem.flat_load + exception.flat_load,
-            total_premium_load=(
-                prem.total_premium_load
-                + exception.percentage_load
-                + exception.flat_load
-            ),
-            net_premium=prem.net_premium,
-            av_after_premium=prem.av_after_premium,
-            **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
-            **tamra_disp,
-            glp=floor_monthly_cent(policy.glp),
-            gsp=gsp_floored,
-            accumulated_glp=accumulated_glp,
-            guideline_limit=guideline_limit,
-            guideline_forceout=guideline_forceout,
-            guideline_av_before_monthly_deduction=av_before_deduction,
-            accumulated_7pay=accumulated_7pay,
-            amount_in_7pay=accumulated_7pay_base,
-            tamra_year=tamra_year,
-            tamra_7pay_level=policy.tamra_7pay_level,
-            is_mec=policy.is_mec,
-            mec_year=state.mec_year,
-            guideline_limit_reached=guideline_limit_reached,
-            md_premium_mode=exception.md_premium_mode,
-            billable_md_switched=b2md_switched,
-            md_premium=exception.md_prem,
-            md_premium_gross=exception.md_prem_gross,
-            md_premium_capped=exception.md_prem_capped,
-            md_premium_discount=exception.md_discount,
-            exception_prem_mode=exception.mode,
-            gp_exception_mode=exception.is_gp_exception,
-            inforce_exception_period=state.inforce_exception_period,
-            gp_exception_prem_gross=exception.gross,
-            gp_exception_prem=exception.prem,
-            gp_exception_prem_discount=exception.discount,
-            gp_exception_percentage_load=exception.gp_percentage_load,
-            gp_exception_flat_load=exception.gp_flat_load,
-            exception_protection=exception_protection,
-            # Deduction
-            nar_av=ded.nar_av,
-            standard_db=ded.standard_db,
-            corridor_rate=ded.corridor_rate,
-            gross_db=ded.gross_db,
-            corr_amount=ded.corr_amount,
-            db_by_coverage=ded.db_by_coverage,
-            discounted_db_by_coverage=ded.discounted_db_by_coverage,
-            discounted_db_cov1=ded.discounted_db_cov1,
-            discounted_db_corr=ded.discounted_db_corr,
-            discounted_db=ded.discounted_db,
-            total_db=ded.total_db,
-            total_discounted_db=ded.total_discounted_db,
-            nar_by_coverage=ded.nar_by_coverage,
-            nar_cov1=ded.nar_cov1,
-            nar_corr=ded.nar_corr,
-            nar=ded.nar,
-            total_nar=ded.total_nar,
-            coi_rates_by_coverage=ded.coi_rates_by_coverage,
-            coi_charges_by_coverage=ded.coi_charges_by_coverage,
-            coi_rate=ded.coi_rate,
-            coi_rate_corr=ded.coi_rate_corr,
-            coi_charge_cov1=ded.coi_charge_cov1,
-            coi_charge_corr=ded.coi_charge_corr,
-            coi_charge=ded.coi_charge,
-            total_coi_charge=ded.total_coi_charge,
-            ratchet_active=ded.ratchet_active,
-            band_break=ded.band_break,
-            coi_band1_nar_by_coverage=ded.coi_band1_nar_by_coverage,
-            coi_band2_nar_by_coverage=ded.coi_band2_nar_by_coverage,
-            coi_band1_rates_by_coverage=ded.coi_band1_rates_by_coverage,
-            coi_band2_rates_by_coverage=ded.coi_band2_rates_by_coverage,
-            epu_rate=ded.epu_rate,
-            epu_charge=ded.epu_charge,
-            epu_rates_by_coverage=ded.epu_rates_by_coverage,
-            epu_charges_by_coverage=ded.epu_charges_by_coverage,
-            mfee_charge=ded.mfee_charge,
-            av_charge=ded.av_charge,
-            pw_charge=ded.pw_charge,
-            benefit_charges=ded.benefit_charges,
-            benefit_amounts=ded.benefit_amounts,
-            benefit_rates=ded.benefit_rates,
-            benefit_charge_detail=ded.benefit_charge_detail,
-            rider_charges=ded.rider_charges,
-            rider_amounts=ded.rider_amounts,
-            rider_rates=ded.rider_rates,
-            rider_charge_detail=ded.rider_charge_detail,
-            total_deduction=ded.total_deduction,
-            # vAV_AfterCharge (RERUN SX): AV less the monthly deduction AND the
-            # IUL asset charge (zero on non-IUL plans / regimes 3-4).
-            av_after_deduction=ded.av_after_deduction - asset_charge,
-            av_after_exception=exception.av_after_exception,
-            # IUL asset charge (SS..SX)
-            asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
-            asset_charge=asset_charge,
-            # IUL WAIR (US..VL)
-            wair_tav=wair_tav,
-            wair_swam=wair_swam,
-            wair_held=wair_held,
-            wair_rate=wair_rate,
-            # Interest
-            days_in_month=intr.days_in_month,
-            annual_interest_rate=intr.annual_interest_rate,
-            bonus_interest_rate=intr.bonus_interest_rate,
-            effective_annual_rate=intr.effective_annual_rate,
-            monthly_interest_rate=intr.monthly_interest_rate,
-            reg_loan_credit_rate=intr.reg_loan_credit_rate,
-            pref_loan_credit_rate=intr.pref_loan_credit_rate,
-            reg_impaired_int=intr.reg_impaired_int,
-            pref_impaired_int=intr.pref_impaired_int,
-            unimpaired_int=intr.unimpaired_int,
-            interest_credited=intr.interest_credited,
-            av_end_of_month=av,
-            # Set 2: Loan accrual (end of month)
-            reg_loan_charge=accrual_loan.reg_loan_charge,
-            pref_loan_charge=accrual_loan.pref_loan_charge,
-            vbl_loan_charge=accrual_loan.vbl_loan_charge,
-            adv_reg_ln_int=adv_reg_ln_int,
-            adv_pref_ln_int=adv_pref_ln_int,
-            end_rg_loan_princ=accrual_loan.rg_loan_princ,
-            end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
-            end_pf_loan_princ=accrual_loan.pf_loan_princ,
-            end_pf_loan_accrued=accrual_loan.pf_loan_accrued,
-            end_vbl_loan_princ=accrual_loan.vbl_loan_princ,
-            end_vbl_loan_accrued=accrual_loan.vbl_loan_accrued,
-            policy_debt=accrual_loan.policy_debt,
-            # End-of-month
-            scr_rate=scr_rate,
-            scr_rates_by_coverage=scr_rates_by_coverage,
-            surrender_charge=surrender_charge,
-            surrender_charges_by_coverage=surrender_charges_by_coverage,
-            surrender_value=surrender_value,
-            ending_sv=ending_sv,
-            ending_db=ending_db,
-            # Tracking
-            premiums_ytd=prem.premiums_ytd,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            cost_basis=prem.cost_basis,
-            premiums_ytd_after_exception=prem.premiums_ytd + exception.total_prem,
-            premiums_to_date_after_exception=prem.premiums_to_date + exception.total_prem,
-            cost_basis_after_exception=prem.cost_basis + exception.total_prem,
-            cumulative_interest=cumulative_interest,
-            cumulative_charges=cumulative_charges,
-            # Shadow
-            shadow_bav=shd.shadow_bav,
-            shadow_wd_charges=shd.shadow_wd_charges,
-            shadow_sa=shd.shadow_sa,
-            shadow_target_prem=shd.shadow_target_prem,
-            shadow_prem_under_target=shd.shadow_prem_under_target,
-            shadow_prem_over_target=shd.shadow_prem_over_target,
-            shadow_target_load=shd.shadow_target_load,
-            shadow_excess_load=shd.shadow_excess_load,
-            shadow_prem_load=shd.shadow_prem_load,
-            shadow_net_prem=shd.shadow_net_prem,
-            shadow_nar_av=shd.shadow_nar_av,
-            shadow_db=shd.shadow_db,
-            shadow_coi_rate=shd.shadow_coi_rate,
-            shadow_coi=shd.shadow_coi,
-            shadow_dbd_rate=shd.shadow_dbd_rate,
-            shadow_nar=shd.shadow_nar,
-            shadow_epu_rate=shd.shadow_epu_rate,
-            shadow_epu=shd.shadow_epu,
-            shadow_mfee=shd.shadow_mfee,
-            shadow_rider_charges=shd.shadow_rider_charges,
-            shadow_md=shd.shadow_md,
-            shadow_av=shd.shadow_av,
-            shadow_days=shd.shadow_days,
-            shadow_int_rate=shd.shadow_int_rate,
-            shadow_eff_rate=shd.shadow_eff_rate,
-            shadow_interest=shd.shadow_interest,
-            shadow_eav=shd.shadow_eav,
-            shadow_eav_less_debt=shd.shadow_eav_less_debt,
-            # Safety Net / Lapse Protection
-            monthly_mtp=monthly_mtp,
-            ctp=policy.ctp,
-            accumulated_mtp=accumulated_mtp,
-            accum_mtp_less_prem=accum_mtp_less_prem,
-            snet_active=snet_active,
-            shadow_protection=shadow_protection,
-            positive_sv=positive_sv,
-            av_less_loans=av_less_loans,
-            # Status
-            lapsed=lapsed,
-        )
-
-    def process_cyberlife_monthliversary(
-        self,
-        state: MonthlyState,
-        policy: IllustrationPolicyData,
-        config: PlancodeConfig,
-        rates: IllustrationRates,
-        bonus: BonusConfig,
-        month_inputs=None,
-        options: Optional[IllustrationOptions] = None,
-        iul_ctx: Optional[IULCreditingContext] = None,
-    ) -> MonthlyState:
-        if options is None:
-            options = IllustrationOptions()
-        if policy.run_from_issue:
-            # Anchor to issue, not the prior clipped month (Mar 31 -> Feb 28
-            # -> Mar 28). Keep counters aligned with compiled monthly inputs.
-            duration = state.duration + 1
-            month_date = policy.issue_date + relativedelta(months=duration - 1)
-            next_year, next_month = _advance_month(state.policy_year, state.policy_month)
-        else:
-            prior_date = state.date or policy.valuation_date or policy.issue_date
-            month_date = prior_date + relativedelta(months=1)
-            next_year, next_month, duration = _policy_counters_for_date(policy, month_date)
-        attained_age = policy.issue_age + (duration - 1) // 12
-        is_anniversary = next_month == 1
-        rate_year = next_year
-
-        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd_after_exception
-        premiums_to_date = state.premiums_to_date_after_exception
-        cost_basis = state.cost_basis_after_exception
-
-        if policy.map_cease_date is not None:
-            within_snet = month_date <= policy.map_cease_date
-        else:
-            within_snet = next_year <= config.snet_period
-        past_snet = not within_snet
-        prior_exception_mode = state.gp_exception_mode
-
-        days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
-        adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
-        cap_loan = capitalize_loans(
-            state.end_rg_loan_princ, state.end_rg_loan_accrued,
-            state.end_pf_loan_princ, state.end_pf_loan_accrued,
-            state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
-            is_anniversary,
-            config=config,
-            adv_reg_factor=adv_reg_factor,
-            adv_pref_factor=adv_pref_factor,
-        )
-        # Interest-in-advance folded into principal this month (vAdvRegLNInt /
-        # vPrefRegLNInt display). Zero for arrears loans.
-        adv_reg_ln_int = cap_loan.adv_reg_int
-        adv_pref_ln_int = cap_loan.adv_pref_int
-
-        intr = credit_interest(
-            state.av_end_of_month,
-            policy,
-            config,
-            rates,
-            bonus,
-            rate_year,
-            attained_age,
-            month_date,
-            reg_loan_balance=cap_loan.rg_loan_princ,
-            pref_loan_balance=cap_loan.pf_loan_princ,
-            exact_days_interest=options.exact_days_interest,
-        )
-
-        # Withdrawal (CalcEngine AX..BU) — before the guideline force-out so the
-        # month's net withdrawal is already in withdrawals-to-date.
-        wd = _process_withdrawal(WithdrawalInput(
-            state=state,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            attained_age=attained_age,
-            month_date=month_date,
-            av=intr.av_end_of_month,
-            cost_basis=cost_basis,
-            month_inputs=month_inputs,
-            cap_loan=cap_loan,
-            is_anniversary=is_anniversary,
-            options=options,
-        ))
-        cost_basis = wd.cost_basis_after_wd
-
-        gsp_floored = floor_monthly_cent(policy.gsp)
-        accumulated_glp = _accumulate_guideline_premium(
-            state, policy, is_anniversary, attained_age
-        )
-        guideline_limit = max(gsp_floored, accumulated_glp)
-        withdrawals_before_forceout = wd.withdrawals_to_date
-        guideline_forceout, withdrawals_to_date, av_after_guideline = _apply_guideline_forceout(
-            gsp_floored,
-            accumulated_glp,
-            premiums_to_date,
-            wd.withdrawals_to_date,
-            wd.av_post_withdrawal,
-            enabled=options.force_out_enabled,
-            has_guideline_limit=policy.is_gpt,
-            prior_exception_mode=prior_exception_mode,
-        )
-
-        # Requested premium (LS scheduled, vLumpsum unscheduled) — needed before
-        # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
-        requested_scheduled, requested_lumpsum = _split_requested_premium(
-            policy, config, month_inputs, attained_age,
-            exception_period=state.inforce_exception_period,
-        )
-        # Billable-to-MD: once the hand-off has latched, the row's billable
-        # premium stops (see process_month).
-        b2md_active = _billable_to_md_active(options, next_year)
-        if b2md_active and state.billable_md_switched:
-            requested_scheduled = 0.0
-            if month_inputs is not None:
-                requested_lumpsum = max(
-                    0.0, requested_lumpsum - month_inputs.billable_to_md_premium)
-        # Levelizing is gated on the pre-repay loan (RERUN NX uses LX..MC) — see
-        # process_month.
-        has_loan_balance = _loan_balance_for_levelizing(cap_loan)
-        cash_flows = apply_cash_flow_inputs(
-            av_after_guideline,
-            cap_loan,
-            month_inputs,
-            config=config,
-            adv_reg_factor=adv_reg_factor,
-            adv_pref_factor=adv_pref_factor,
-            apply_prem_to_loan=options.apply_prem_to_loan,
-            excess_repayment_to_premium=(
-                options.apply_excess_repayment_as_premium and not state.inforce_exception_period),
-            requested_lumpsum=requested_lumpsum,
-            requested_scheduled=requested_scheduled,
-        )
-        cap_loan = cash_flows.loan_state
-        loan_cap_repay_detail = cash_flows.loan_cap_repay
-
-        # ── Apply premium (CalcEngine NC..NZ acceptance chain) ──
-        tamra_year = _tamra_year(policy, month_date)
-        tamra_moy = _tamra_month_of_year(policy, month_date)
-        pc_policy, pc_tamra, _payment_mode = _payment_counts(
-            state, policy, month_date, next_month, month_inputs
-        )
-        beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
-        allowances = compute_premium_allowances(PremiumAllowanceInput(
-            is_cvat=policy.is_cvat,
-            is_gpt=policy.is_gpt,
-            tefra_force=options.guideline_cap_enabled,
-            tamra_force=_tamra_force(options, policy),
-            mec_bypass=policy.is_mec,
-            guideline_limit=guideline_limit,
-            prem_less_wd=premiums_to_date - withdrawals_before_forceout,
-            force_out=guideline_forceout,
-            loan_repay_from_forceout=0.0,
-            seven_pay_level=policy.tamra_7pay_level,
-            amount_in_7pay=state.accumulated_7pay,
-            tamra_year=tamra_year,
-            tamra_month_of_year=tamra_moy,
-            policy_month=next_month,
-            npt_premium=0.0,
-            tamra_reset=False,
-            requested_scheduled=requested_scheduled,
-            requested_lumpsum=requested_lumpsum,
-            payment_count_policy_year=pc_policy,
-            payment_count_tamra_year=pc_tamra,
-            has_loan_balance=has_loan_balance,
-            levelizing_premium=options.levelizing_premium,
-            beginning_of_year=beginning_of_year,
-            policy_anniversary=is_anniversary,
-            prior_scheduled_prem_cap=state.scheduled_prem_cap,
-            prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
-            prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
-            loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
-            loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
-            ln_repay_left_over=cash_flows.ln_repay_left_over,
-            prior_guideline_limit_reached=state.guideline_limit_reached,
-            prior_transition_year_active=state.transition_year_active,
-        ))
-        prem = apply_premium(
-            cash_flows.av,
-            policy,
-            config,
-            rates,
-            rate_year,
-            premiums_ytd,
-            premiums_to_date,
-            cost_basis,
-            gross_premium_override=allowances.applied_total_premium,
-            premium_cap=None,
-        )
-        av_before_deduction = prem.av_after_premium
-
-        ded = calculate_deduction(
-            av_before_deduction,
-            policy,
-            config,
-            rates,
-            rate_year,
-            attained_age,
-            prem.premiums_to_date,
-            monthly_mtp=truncate_monthly_mtp(policy.mtp),
-            projection_date=month_date,
-        )
-
-        # IUL asset charge (RERUN SV/SX) — same deduction-time charge as the
-        # illustration path; WAIR crediting is not modeled in this CyberLife-
-        # monthliversary timing mode (blended-rate credit only).
-        asset_charge = monthly_asset_charge(
-            iul_ctx, av_before_deduction,
-            cash_flows.loan_state.rg_loan_princ, cash_flows.loan_state.rg_loan_accrued,
-        )
-
-        guideline_limit_reached = _guideline_limit_reached(
-            config, allowances,
-            attained_age=attained_age,
-            beginning_of_year=beginning_of_year,
-            prior_limit_reached=state.guideline_limit_reached,
-        )
-        # Billable-to-MD hand-off — this timing mode's lapse test is simply
-        # av_end <= 0, so the probe latches the switch the first month the
-        # post-deduction AV would go negative without help (see process_month
-        # for the full-protection probe on the illustration timing).
-        b2md_switched = state.billable_md_switched
-        if (b2md_active and not b2md_switched and not state.lapsed
-                and _b2md_latch_allowed(options, month_date)
-                and ded.av_after_deduction - asset_charge <= 0.0):
-            b2md_switched = True
-        exception = _compute_exception_premium(ExceptionPremiumInput(
-            options=options,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            av_after_charge=ded.av_after_deduction - asset_charge,
-            coi_rate=ded.coi_rate,
-            guideline_limit_reached=guideline_limit_reached,
-            past_snet=past_snet,
-            prior_exception_mode=prior_exception_mode,
-            prior_lapsed=state.lapsed,
-            attained_age=attained_age,
-            md_premium_active=(
-                _monthly_deduction_premium_active(options, next_year)
-                or (b2md_active and b2md_switched)) and not state.inforce_exception_period,
-            total_deduction=ded.total_deduction,
-            guideline_limit=guideline_limit,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-        ))
-        if exception.requires_option_a:
-            policy.db_option = DB_OPTION_LEVEL
-            ded = calculate_deduction(
-                av_before_deduction,
-                policy,
-                config,
-                rates,
-                rate_year,
-                attained_age,
-                prem.premiums_to_date,
-                monthly_mtp=truncate_monthly_mtp(policy.mtp),
-                projection_date=month_date,
-            )
-            asset_charge = monthly_asset_charge(
-                iul_ctx, av_before_deduction,
-                cash_flows.loan_state.rg_loan_princ, cash_flows.loan_state.rg_loan_accrued,
-            )
-            exception = _compute_exception_premium(ExceptionPremiumInput(
-                options=options,
-                policy=policy,
-                config=config,
-                rates=rates,
-                rate_year=rate_year,
-                av_after_charge=ded.av_after_deduction - asset_charge,
-                coi_rate=ded.coi_rate,
-                guideline_limit_reached=guideline_limit_reached,
-                past_snet=past_snet,
-                prior_exception_mode=prior_exception_mode,
-                prior_lapsed=state.lapsed,
-                attained_age=attained_age,
-                md_premium_active=(
-                    _monthly_deduction_premium_active(options, next_year)
-                    or (b2md_active and b2md_switched)) and not state.inforce_exception_period,
-                total_deduction=ded.total_deduction,
-                guideline_limit=guideline_limit,
-                premiums_to_date=prem.premiums_to_date,
-                withdrawals_to_date=withdrawals_to_date,
-                guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-            ))
-        av_end = exception.av_after_exception
-
-        loan_cap = None
-        if options.restrict_loans_to_sv:
-            _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-                policy, rates, rate_year, month_date, config)
-            loan_cap = (
-                av_end - full_sc_for_loan - cap_loan.policy_debt
-                - config.md_holdback * ded.total_deduction
-            )
-        fixed_loan_state = apply_new_fixed_loan(LoanStepInput(
-            loan=cap_loan,
-            requested_amount=month_inputs.regular_loan if month_inputs is not None else 0.0,
-            account_value=av_end,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            max_loan=loan_cap,
-        ))
-        applied_regular_loan = max(0.0, fixed_loan_state.rg_loan_princ - cap_loan.rg_loan_princ)
-        applied_preferred_loan = max(0.0, fixed_loan_state.pf_loan_princ - cap_loan.pf_loan_princ)
-        accrual_loan = accrue_loan_interest(
-            fixed_loan_state,
-            config,
-            intr.days_in_month,
-            variable_loan_accrual_rate(
-                iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
-        )
-        monthly_mtp = truncate_monthly_mtp(policy.mtp)
-        accumulated_mtp = state.accumulated_mtp + monthly_mtp
-        accum_mtp_less_prem = (
-            prem.premiums_to_date - withdrawals_to_date
-            - accrual_loan.policy_debt
-        ) - accumulated_mtp
-        av_less_loans = av_end - accrual_loan.policy_debt
-        accumulated_7pay = state.accumulated_7pay + (
-            prem.gross_premium if tamra_year <= 7 else 0.0
-        )
-        exception_protection = exception.mode and av_less_loans > -0.0001
-        lapsed = state.lapsed or (av_end <= 0.0 and not exception.mode)
-        if options is not None and options.no_lapse:
-            # Lapse test disabled (ABR Quote): values may run negative and
-            # the projection always reaches maturity.
-            lapsed = False
-
-        tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
-
-        return MonthlyState(
-            date=month_date,
-            policy_year=next_year,
-            policy_month=next_month,
-            duration=duration,
-            attained_age=attained_age,
-            matured=attained_age >= config.maturity_age,
-            is_anniversary=is_anniversary,
-            db_option=str(policy.db_option or "").upper(),
-            coverage_after_change=_coverage_after_change_snapshot(
-                policy, config, month_date, wd.gross_withdrawal,
-                state.coverage_after_change,
-            ),
-            **_withdrawal_state_fields(wd),
-            mtp_detail=state.mtp_detail,
-            ctp_detail=state.ctp_detail,
-            mtp_annual=policy.mtp * MONTHS_PER_YEAR,
-            rg_loan_princ=cap_loan.rg_loan_princ,
-            rg_loan_accrued=cap_loan.rg_loan_accrued,
-            pf_loan_princ=cap_loan.pf_loan_princ,
-            pf_loan_accrued=cap_loan.pf_loan_accrued,
-            vbl_loan_princ=cap_loan.vbl_loan_princ,
-            vbl_loan_accrued=cap_loan.vbl_loan_accrued,
-            applied_loan_repayment=cash_flows.applied_loan_repayment,
-            loan_repay_from_prem=(
-                cash_flows.loan_repay_from_lumpsum + cash_flows.loan_repay_from_scheduled
-            ),
-            applied_regular_loan=applied_regular_loan,
-            applied_preferred_loan=applied_preferred_loan,
-            applied_variable_loan=cash_flows.applied_variable_loan,
-            loan_cap_repay=loan_cap_repay_detail,
-            gross_premium=prem.gross_premium,
-            prem_under_target=prem.prem_under_target,
-            prem_over_target=prem.prem_over_target,
-            tpp_rate=prem.tpp_rate,
-            epp_rate=prem.epp_rate,
-            target_load=prem.target_load + exception.percentage_load,
-            excess_load=prem.excess_load,
-            flat_load=prem.flat_load + exception.flat_load,
-            total_premium_load=(
-                prem.total_premium_load
-                + exception.percentage_load
-                + exception.flat_load
-            ),
-            net_premium=prem.net_premium,
-            av_after_premium=prem.av_after_premium,
-            **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
-            **tamra_disp,
-            glp=floor_monthly_cent(policy.glp),
-            gsp=gsp_floored,
-            accumulated_glp=accumulated_glp,
-            guideline_limit=guideline_limit,
-            guideline_forceout=guideline_forceout,
-            guideline_av_before_monthly_deduction=av_before_deduction,
-            accumulated_7pay=accumulated_7pay,
-            amount_in_7pay=state.accumulated_7pay,
-            tamra_year=tamra_year,
-            tamra_7pay_level=policy.tamra_7pay_level,
-            guideline_limit_reached=guideline_limit_reached,
-            md_premium_mode=exception.md_premium_mode,
-            billable_md_switched=b2md_switched,
-            md_premium=exception.md_prem,
-            md_premium_gross=exception.md_prem_gross,
-            md_premium_capped=exception.md_prem_capped,
-            md_premium_discount=exception.md_discount,
-            exception_prem_mode=exception.mode,
-            gp_exception_mode=exception.is_gp_exception,
-            inforce_exception_period=state.inforce_exception_period,
-            gp_exception_prem_gross=exception.gross,
-            gp_exception_prem=exception.prem,
-            gp_exception_prem_discount=exception.discount,
-            gp_exception_percentage_load=exception.gp_percentage_load,
-            gp_exception_flat_load=exception.gp_flat_load,
-            exception_protection=exception_protection,
-            nar_av=ded.nar_av,
-            standard_db=ded.standard_db,
-            corridor_rate=ded.corridor_rate,
-            gross_db=ded.gross_db,
-            corr_amount=ded.corr_amount,
-            db_by_coverage=ded.db_by_coverage,
-            discounted_db_by_coverage=ded.discounted_db_by_coverage,
-            discounted_db_cov1=ded.discounted_db_cov1,
-            discounted_db_corr=ded.discounted_db_corr,
-            discounted_db=ded.discounted_db,
-            total_db=ded.total_db,
-            total_discounted_db=ded.total_discounted_db,
-            nar_by_coverage=ded.nar_by_coverage,
-            nar_cov1=ded.nar_cov1,
-            nar_corr=ded.nar_corr,
-            nar=ded.nar,
-            total_nar=ded.total_nar,
-            coi_rates_by_coverage=ded.coi_rates_by_coverage,
-            coi_charges_by_coverage=ded.coi_charges_by_coverage,
-            coi_rate=ded.coi_rate,
-            coi_rate_corr=ded.coi_rate_corr,
-            coi_charge_cov1=ded.coi_charge_cov1,
-            coi_charge_corr=ded.coi_charge_corr,
-            coi_charge=ded.coi_charge,
-            total_coi_charge=ded.total_coi_charge,
-            ratchet_active=ded.ratchet_active,
-            band_break=ded.band_break,
-            coi_band1_nar_by_coverage=ded.coi_band1_nar_by_coverage,
-            coi_band2_nar_by_coverage=ded.coi_band2_nar_by_coverage,
-            coi_band1_rates_by_coverage=ded.coi_band1_rates_by_coverage,
-            coi_band2_rates_by_coverage=ded.coi_band2_rates_by_coverage,
-            epu_rate=ded.epu_rate,
-            epu_charge=ded.epu_charge,
-            epu_rates_by_coverage=ded.epu_rates_by_coverage,
-            epu_charges_by_coverage=ded.epu_charges_by_coverage,
-            mfee_charge=ded.mfee_charge,
-            av_charge=ded.av_charge,
-            pw_charge=ded.pw_charge,
-            benefit_charges=ded.benefit_charges,
-            benefit_amounts=ded.benefit_amounts,
-            benefit_rates=ded.benefit_rates,
-            benefit_charge_detail=ded.benefit_charge_detail,
-            rider_charges=ded.rider_charges,
-            rider_amounts=ded.rider_amounts,
-            rider_rates=ded.rider_rates,
-            rider_charge_detail=ded.rider_charge_detail,
-            total_deduction=ded.total_deduction,
-            av_after_deduction=ded.av_after_deduction - asset_charge,
-            av_after_exception=exception.av_after_exception,
-            asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
-            asset_charge=asset_charge,
-            days_in_month=intr.days_in_month,
-            annual_interest_rate=intr.annual_interest_rate,
-            bonus_interest_rate=intr.bonus_interest_rate,
-            effective_annual_rate=intr.effective_annual_rate,
-            monthly_interest_rate=intr.monthly_interest_rate,
-            reg_loan_credit_rate=intr.reg_loan_credit_rate,
-            pref_loan_credit_rate=intr.pref_loan_credit_rate,
-            reg_impaired_int=intr.reg_impaired_int,
-            pref_impaired_int=intr.pref_impaired_int,
-            unimpaired_int=intr.unimpaired_int,
-            interest_credited=intr.interest_credited,
-            av_end_of_month=av_end,
-            reg_loan_charge=accrual_loan.reg_loan_charge,
-            pref_loan_charge=accrual_loan.pref_loan_charge,
-            vbl_loan_charge=accrual_loan.vbl_loan_charge,
-            adv_reg_ln_int=adv_reg_ln_int,
-            adv_pref_ln_int=adv_pref_ln_int,
-            end_rg_loan_princ=accrual_loan.rg_loan_princ,
-            end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
-            end_pf_loan_princ=accrual_loan.pf_loan_princ,
-            end_pf_loan_accrued=accrual_loan.pf_loan_accrued,
-            end_vbl_loan_princ=accrual_loan.vbl_loan_princ,
-            end_vbl_loan_accrued=accrual_loan.vbl_loan_accrued,
-            policy_debt=accrual_loan.policy_debt,
-            premiums_ytd=prem.premiums_ytd,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            cost_basis=prem.cost_basis,
-            premiums_ytd_after_exception=prem.premiums_ytd + exception.total_prem,
-            premiums_to_date_after_exception=prem.premiums_to_date + exception.total_prem,
-            cost_basis_after_exception=prem.cost_basis + exception.total_prem,
-            cumulative_interest=state.cumulative_interest + intr.interest_credited,
-            cumulative_charges=state.cumulative_charges + ded.total_deduction,
-            monthly_mtp=monthly_mtp,
-            ctp=policy.ctp,
-            accumulated_mtp=accumulated_mtp,
-            accum_mtp_less_prem=accum_mtp_less_prem,
-            av_less_loans=av_less_loans,
-            lapsed=lapsed,
-        )
 
     def _load_rates(
         self,

@@ -5,6 +5,12 @@ This is the "Apply Premium" cap chain. Given the 7702 guideline limit, the
 premium the policy will actually accept and how that splits between a one-off
 deposit (lumpsum / unscheduled premium) and the scheduled modal premium.
 
+All money inputs/outputs are dollars. ``INF`` is the internal unbounded-room
+sentinel for disabled caps; it is never a payable premium. Guideline room is
+tested by policy year, while 7-pay room is tested by TAMRA year/month from the
+active material-change start date. Values are floored to payable whole cents at
+the same hand-off points as RERUN.
+
 The chain mirrors the workbook column-for-column so the Values tab can show the
 same intermediate allowances RERUN does:
 

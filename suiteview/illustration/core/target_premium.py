@@ -3,6 +3,13 @@
 Computes the annual target premiums from rates, exactly as RERUN does when
 ``vPolicyChangeIndicator`` fires (and as admin does at issue):
 
+All returned headline premiums are annual dollars. Coverage, rider and benefit
+rates are annual target rates per 1,000 or per unit according to the source
+rate table; the monthly MTP used by the engine is ``TRUNC(annual / 12, 2)``.
+Table-rating target rates are required when a table rating is active; ``None``
+means unavailable, not zero. Waiver target rates 39/3# are stored as
+percentages and converted to multipliers only in the calculation.
+
     per coverage segment (HW..HZ / JQ..JT):
         ROUND(SA·rate/1000, 2)
       + ROUND(tableRating·tblRate·SA/1000, 2)        (CTP caps tblRate at 6)
@@ -202,6 +209,39 @@ class TargetPremiumResult:
         return truncate_monthly_mtp(self.mtp_annual / MONTHS_PER_YEAR)
 
 
+@dataclass
+class CoverageTargetTotals:
+    """Coverage target totals and the current specified-amount band."""
+
+    mtp_sum: float = 0.0
+    ctp_sum: float = 0.0
+    current_band: int = 0
+
+
+@dataclass
+class BenefitTargetWork:
+    """Intermediate benefit and waiver target components."""
+
+    pw_rate: float = 0.0
+    pw_multiplier: float = 0.0
+    pwst_rate: float = 0.0
+    pwst_ctp_rate: float = 0.0
+    pwst_units: float = 0.0
+    pwst_key: str = ""
+    mtp_generic: float = 0.0
+    ctp_generic: float = 0.0
+    mtp_ccv: float = 0.0
+    ctp_ccv: float = 0.0
+
+
+@dataclass
+class RiderTargetTotals:
+    """Rider target totals."""
+
+    mtp_sum: float = 0.0
+    ctp_sum: float = 0.0
+
+
 def _segment_target(
     sa: float,
     rate: float,
@@ -289,6 +329,336 @@ def _ffl_monthly_fee(
         return 0.0
 
 
+def _current_target_band(policy: IllustrationPolicyData, rates_db) -> int:
+    base = policy.base_segment
+    current_band = rates_db.get_band(
+        policy.plancode,
+        policy.band_specified_amount,
+        issue_date=policy.issue_date,
+    )
+    return int(current_band) if current_band is not None else base.band
+
+
+def _add_coverage_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    as_of: Optional[date],
+) -> CoverageTargetTotals:
+    from suiteview.illustration.core.rate_loader import RateLookupError
+
+    totals = CoverageTargetTotals(current_band=_current_target_band(policy, rates_db))
+    result.target_band = totals.current_band
+    for seg in policy.segments:
+        if seg.face_amount <= 0:
+            continue
+        mtp_band = (
+            seg.original_band if config.sa_basis == SA_BASIS_ORIGINAL
+            else totals.current_band
+        )
+        sa = (
+            seg.original_face_amount if config.sa_basis == SA_BASIS_ORIGINAL
+            else seg.face_amount
+        )
+        table = (
+            seg.table_rating
+            if seg.table_rating > 0 and _active(seg.table_cease_date, as_of)
+            else 0
+        )
+        flat = (
+            seg.flat_extra
+            if seg.flat_extra and seg.flat_extra > 0
+            and _active(seg.flat_cease_date, as_of)
+            else 0.0
+        )
+        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
+        mtp_rate = rates_db.get_mtp(*args, mtp_band) or 0.0
+        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band)
+        ctp_rate = rates_db.get_ctp(*args, totals.current_band) or 0.0
+        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, totals.current_band)
+        _require_table_target_rates(
+            policy, seg, table, mtp_tbl_rate, ctp_tbl_rate, mtp_band,
+            totals.current_band, RateLookupError,
+        )
+        mtp_tbl_rate = mtp_tbl_rate if mtp_tbl_rate is not None else 0.0
+        ctp_tbl_rate = ctp_tbl_rate if ctp_tbl_rate is not None else 0.0
+        mtp_val = _segment_target(
+            sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
+        )
+        ctp_val = _segment_target(
+            sa, ctp_rate, ctp_tbl_rate, table, flat, cap_tbl_rate=True,
+        )
+        phase = seg.coverage_phase
+        result.mtp_rates_by_coverage[phase] = mtp_rate
+        result.mtp_tbl_rates_by_coverage[phase] = mtp_tbl_rate
+        result.ctp_rates_by_coverage[phase] = ctp_rate
+        result.ctp_tbl_rates_by_coverage[phase] = ctp_tbl_rate
+        result.mtp_by_coverage[phase] = mtp_val
+        result.ctp_by_coverage[phase] = ctp_val
+        totals.mtp_sum += mtp_val
+        totals.ctp_sum += ctp_val
+    return totals
+
+
+def _require_table_target_rates(
+    policy: IllustrationPolicyData,
+    seg,
+    table: int,
+    mtp_tbl_rate: Optional[float],
+    ctp_tbl_rate: Optional[float],
+    mtp_band: int,
+    current_band: int,
+    error_type,
+) -> None:
+    for name, value, band in (
+        ("TBL1MTP", mtp_tbl_rate, mtp_band),
+        ("TBL1CTP", ctp_tbl_rate, current_band),
+    ):
+        if table > 0 and value is None:
+            raise error_type(
+                f"Required {name} rate is unavailable for plancode "
+                f"{policy.plancode}, coverage phase {seg.coverage_phase}, "
+                f"issue age {seg.issue_age}, sex {seg.rate_sex}, "
+                f"rate class {seg.rate_class}, band {band}, table rating {table}."
+            )
+
+
+def _add_benefit_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    current_band: int,
+    as_of: Optional[date],
+) -> BenefitTargetWork:
+    base = policy.base_segment
+    total_face = policy.total_face
+    ben_band = base.original_band if config.sa_basis == SA_BASIS_ORIGINAL else current_band
+    work = BenefitTargetWork()
+    for ben in policy.benefits:
+        ben_type = ben.benefit_type or ""
+        if not _benefit_counts_for_target(ben, ben_type, as_of):
+            continue
+        ben_key = ben_type + (ben.benefit_subtype or "")
+        ben_args = (
+            policy.plancode, policy.issue_age, base.rate_sex, base.rate_class,
+        )
+        ben_mtp_rate = rates_db.get_ben_mtp(*ben_args, ben_band, ben_key) or 0.0
+        ben_ctp_rate = rates_db.get_ben_ctp(*ben_args, current_band, ben_key) or 0.0
+        if ben_type == "3":
+            work.pw_rate = ben_mtp_rate
+            work.pw_multiplier = (
+                ben_mtp_rate / 100.0 if ben_key in ("39", "3#") else ben_mtp_rate
+            )
+            continue
+        if ben_type == "4":
+            work.pwst_rate = ben_mtp_rate
+            work.pwst_ctp_rate = ben_ctp_rate
+            work.pwst_units = ben.units or 0.0
+            work.pwst_key = ben_key
+            continue
+        _add_nonwaiver_benefit_target(
+            work, result, ben, ben_type, ben_key, ben_mtp_rate,
+            ben_ctp_rate, total_face,
+        )
+    return work
+
+
+def _benefit_counts_for_target(ben, ben_type: str, as_of: Optional[date]) -> bool:
+    if not ben.is_active or ben_type.startswith("#"):
+        return False
+    return not (
+        ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date
+    )
+
+
+def _add_nonwaiver_benefit_target(
+    work: BenefitTargetWork,
+    result: TargetPremiumResult,
+    ben,
+    ben_type: str,
+    ben_key: str,
+    ben_mtp_rate: float,
+    ben_ctp_rate: float,
+    total_face: float,
+) -> None:
+    if ben_type == "A":
+        mtp_val = ben_mtp_rate * total_face / PER_THOUSAND
+        ctp_val = ben_ctp_rate * total_face / PER_THOUSAND
+        work.mtp_ccv += mtp_val
+        work.ctp_ccv += ctp_val
+    else:
+        mtp_val = (ben.units or 0.0) * ben_mtp_rate
+        ctp_val = (ben.units or 0.0) * ben_ctp_rate
+        work.mtp_generic += mtp_val
+        work.ctp_generic += ctp_val
+    result.mtp_benefits[ben_key] = mtp_val
+    result.ctp_benefits[ben_key] = ctp_val
+
+
+def _add_rider_targets(
+    policy: IllustrationPolicyData,
+    rates_db,
+    result: TargetPremiumResult,
+    current_band: int,
+    as_of: Optional[date],
+) -> RiderTargetTotals:
+    totals = RiderTargetTotals()
+    for rider in policy.riders:
+        if not rider.is_active or not rider.plancode:
+            continue
+        if not rider_active_on(rider, policy, as_of):
+            continue
+        units = rider.units or 0.0
+        if (rider.cov_type or "").upper() == "CTR":
+            mtp_rate_r = (
+                0.0 if policy.plancode in CTR_MTP_ZERO_PLANCODES else CTR_TARGET_RATE
+            )
+            ctp_rate_r = CTR_TARGET_RATE
+        else:
+            if rider_bands_as_base(rider.plancode):
+                r_band = int(current_band)
+            else:
+                r_band = rates_db.get_band(rider.plancode, rider.face_amount)
+                r_band = int(r_band) if r_band is not None else rider.band
+            r_args = (
+                rider.plancode, rider.issue_age, rider.rate_sex,
+                rider.rate_class, r_band,
+            )
+            mtp_rate_r = rates_db.get_mtp(*r_args) or 0.0
+            ctp_rate_r = rates_db.get_ctp(*r_args) or 0.0
+        mtp_val = units * mtp_rate_r
+        ctp_val = units * ctp_rate_r
+        if not mtp_val and not ctp_val:
+            continue
+        result.mtp_riders[rider.export_key] = mtp_val
+        result.ctp_riders[rider.export_key] = ctp_val
+        totals.mtp_sum += mtp_val
+        totals.ctp_sum += ctp_val
+    return totals
+
+
+def _finish_waiver_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    coverage: CoverageTargetTotals,
+    benefits: BenefitTargetWork,
+    riders: RiderTargetTotals,
+    as_of: Optional[date],
+) -> None:
+    base = policy.base_segment
+    total_face = policy.total_face
+    base_table = (
+        base.table_rating
+        if base.table_rating > 0 and _active(base.table_cease_date, as_of)
+        else 0
+    )
+    factor = config.table_rating_factor
+    pwst_active = bool(benefits.pwst_key)
+    pw_component = 0.0
+    pwst_component = 0.0
+    pwst_ctp_component = 0.0
+
+    if config.is_ffl:
+        pw_component, pwst_component = _finish_ffl_waivers(
+            policy, config, rates_db, result, coverage.current_band, benefits,
+            riders, base_table, total_face, as_of,
+        )
+    elif pwst_active:
+        pwst_component = (
+            benefits.pwst_units * benefits.pwst_rate * (1.0 + factor * base_table)
+        )
+        pwst_ctp_component = (
+            benefits.pwst_units * benefits.pwst_ctp_rate
+            * (1.0 + factor * base_table)
+        )
+
+    mtp_wo_pw = (
+        coverage.mtp_sum + benefits.mtp_generic + benefits.mtp_ccv
+        + riders.mtp_sum + pwst_component
+    )
+    if not config.is_ffl and benefits.pw_rate > 0.0:
+        pw_component = benefits.pw_multiplier * mtp_wo_pw * (1.0 + factor * base_table)
+    result.mtp_annual = mtp_wo_pw + pw_component
+    if config.is_ffl and pwst_active:
+        pwst_ctp_component = result.ffl_pwot_factor * result.mtp_annual
+    ctp_wo_pw = (
+        coverage.ctp_sum + benefits.ctp_generic + benefits.ctp_ccv
+        + riders.ctp_sum + pwst_ctp_component
+    )
+    if benefits.pw_rate > 0.0:
+        result.mtp_benefits["39"] = pw_component
+        result.ctp_benefits["39"] = _round2(pw_component)
+    if pwst_active:
+        result.mtp_benefits[benefits.pwst_key] = pwst_component
+        result.ctp_benefits[benefits.pwst_key] = pwst_ctp_component
+
+    result.pw_rate = benefits.pw_rate
+    result.pwst_rate = benefits.pwst_rate
+    result.pwst_ctp_rate = benefits.pwst_ctp_rate
+    result.pwst_component = pwst_component
+    result.pwst_ctp_component = pwst_ctp_component
+    result.mtp_wo_pw = mtp_wo_pw
+    result.ctp_wo_pw = ctp_wo_pw
+    result.pw_component = pw_component
+    result.ctp_annual = ctp_wo_pw + _round2(pw_component)
+
+
+def _finish_ffl_waivers(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    current_band: int,
+    benefits: BenefitTargetWork,
+    riders: RiderTargetTotals,
+    base_table: int,
+    total_face: float,
+    as_of: Optional[date],
+) -> tuple[float, float]:
+    base = policy.base_segment
+    factor = config.table_rating_factor
+    iw, ix = _ffl_min_base(policy, config, rates_db, current_band, as_of)
+    base_flat = (
+        base.flat_extra
+        if base.flat_extra and base.flat_extra > 0
+        and _active(base.flat_cease_date, as_of)
+        else 0.0
+    )
+    iy = total_face * base_flat
+    mfee_monthly = _ffl_monthly_fee(policy, config, rates_db, current_band, as_of)
+    pwoc_basis = (
+        (benefits.mtp_generic + riders.mtp_sum) / MONTHS_PER_YEAR
+        + iw + ix + iy + mfee_monthly
+    )
+    pw_component = 0.0
+    if benefits.pw_rate > 0.0:
+        pw_component = _trunc2(
+            benefits.pw_multiplier * pwoc_basis * (1.0 + factor * base_table)
+        )
+    pwot_basis = (
+        sum(result.mtp_by_coverage.values())
+        + benefits.mtp_generic + riders.mtp_sum + pw_component
+    )
+    pwot_factor = 0.0
+    pwst_component = 0.0
+    if benefits.pwst_key:
+        x = benefits.pwst_rate / 100.0 * (1.0 + base_table * factor)
+        if x < 1.0:
+            pwot_factor = _trunc5(x / (1.0 - x))
+        pwst_component = _trunc2(pwot_basis * pwot_factor)
+    result.ffl_min_base = iw
+    result.ffl_min_base_table = ix
+    result.ffl_min_base_flat = iy
+    result.ffl_pwoc_basis = pwoc_basis
+    result.ffl_pwot_basis = pwot_basis
+    result.ffl_pwot_factor = pwot_factor
+    return pw_component, pwst_component
+
+
 def compute_target_premiums(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -302,271 +672,21 @@ def compute_target_premiums(
     SUITEVIEW_LOCAL_DATA.
     """
     from suiteview.core.rates import Rates
-    from suiteview.illustration.core.rate_loader import RateLookupError
 
     rates_db = Rates()
     result = TargetPremiumResult()
     if not policy.segments:
         return result
 
-    base = policy.base_segment
-    total_face = policy.total_face
-
-    # CTP and unlocked MTP rates use the current total-SA band. The
-    # band face includes any rider that bands as base coverage (core.band_rules).
-    # issue_date feeds the Rates_Control-CZ issue-date band boundary.
-    current_band = rates_db.get_band(
-        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
-    current_band = int(current_band) if current_band is not None else base.band
-    result.target_band = current_band
-
-    mtp_cov_sum = 0.0
-    ctp_cov_sum = 0.0
-    # policy.segments holds only active base coverages (same convention as the
-    # deduction path — no status filtering here).
-    for seg in policy.segments:
-        if seg.face_amount <= 0:
-            continue
-        mtp_band = seg.original_band if config.sa_basis == SA_BASIS_ORIGINAL else current_band
-        # SA_Basis drives the MTP/CTP specified-amount basis: OriginalSA
-        # plans use the coverage's ORIGINAL SA (i.e. original units); every
-        # other plan uses the current specified amount.
-        sa = (
-            seg.original_face_amount
-            if config.sa_basis == SA_BASIS_ORIGINAL
-            else seg.face_amount
-        )
-        table = (
-            seg.table_rating
-            if seg.table_rating > 0 and _active(seg.table_cease_date, as_of)
-            else 0
-        )
-        flat = (
-            seg.flat_extra
-            if seg.flat_extra and seg.flat_extra > 0 and _active(seg.flat_cease_date, as_of)
-            else 0.0
-        )
-        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
-        mtp_rate = rates_db.get_mtp(*args, mtp_band) or 0.0
-        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band)
-        ctp_rate = rates_db.get_ctp(*args, current_band) or 0.0
-        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, current_band)
-        for name, value, band in (
-            ("TBL1MTP", mtp_tbl_rate, mtp_band),
-            ("TBL1CTP", ctp_tbl_rate, current_band),
-        ):
-            if table > 0 and value is None:
-                raise RateLookupError(
-                    f"Required {name} rate is unavailable for plancode "
-                    f"{policy.plancode}, coverage phase {seg.coverage_phase}, "
-                    f"issue age {seg.issue_age}, sex {seg.rate_sex}, "
-                    f"rate class {seg.rate_class}, band {band}, table rating {table}."
-                )
-        mtp_tbl_rate = mtp_tbl_rate if mtp_tbl_rate is not None else 0.0
-        ctp_tbl_rate = ctp_tbl_rate if ctp_tbl_rate is not None else 0.0
-        mtp_val = _segment_target(
-            sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
-        )
-        ctp_val = _segment_target(
-            sa, ctp_rate, ctp_tbl_rate, table, flat, cap_tbl_rate=True,
-        )
-        result.mtp_rates_by_coverage[seg.coverage_phase] = mtp_rate
-        result.mtp_tbl_rates_by_coverage[seg.coverage_phase] = mtp_tbl_rate
-        result.ctp_rates_by_coverage[seg.coverage_phase] = ctp_rate
-        result.ctp_tbl_rates_by_coverage[seg.coverage_phase] = ctp_tbl_rate
-        result.mtp_by_coverage[seg.coverage_phase] = mtp_val
-        result.ctp_by_coverage[seg.coverage_phase] = ctp_val
-        mtp_cov_sum += mtp_val
-        ctp_cov_sum += ctp_val
-
-    # Benefit targets — looked up at the POLICY issue age (RERUN
-    # tRates_Benefit_Targets key uses sINPUT_Issue_Age), base sex/rateclass and
-    # the target band. PW is applied last against the MTP-without-PW total.
-    ben_band = base.original_band if config.sa_basis == SA_BASIS_ORIGINAL else current_band
-    pw_rate = 0.0
-    pw_multiplier = 0.0
-    pwst_rate = 0.0
-    pwst_ctp_rate = 0.0
-    pwst_units = 0.0
-    pwst_key = ""
-    mtp_ben_generic = 0.0   # IO/IQ/IS analog — units x rate benefits
-    ctp_ben_generic = 0.0
-    mtp_ben_ccv = 0.0       # IM
-    ctp_ben_ccv = 0.0
-    for ben in policy.benefits:
-        ben_type = ben.benefit_type or ""
-        if not ben.is_active or ben_type.startswith("#"):
-            continue
-        # Benefits contribute no target from their payup/cease anniversary on —
-        # STRICT, matching the deduction loop's vPW_Active gate (attained age <
-        # payup age). Segment table/flat cease stays inclusive (_active).
-        if ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date:
-            continue
-        ben_key = ben_type + (ben.benefit_subtype or "")
-        ben_args = (
-            policy.plancode, policy.issue_age, base.rate_sex, base.rate_class,
-        )
-        ben_mtp_rate = rates_db.get_ben_mtp(*ben_args, ben_band, ben_key) or 0.0
-        ben_ctp_rate = rates_db.get_ben_ctp(*ben_args, current_band, ben_key) or 0.0
-        if ben_type == "3":
-            # Premium Waiver of Charges (PWoC) — applied last against the
-            # MTP-without-PW total (IV), or the FFL PWoC basis (JB).
-            pw_rate = ben_mtp_rate
-            # UL_Rates stores 39/3# as percent; RERUN's target table
-            # already converted these to fractions before CalcEngine.
-            pw_multiplier = ben_mtp_rate / 100.0 if ben_key in ("39", "3#") else ben_mtp_rate
-            continue
-        if ben_type == "4":
-            # Stipulated Premium Waiver (PWoT/PWSTP) — applied last (IK);
-            # RERUN gates on vPWST_Units > 0 (an illustration input); the
-            # presence of an active, un-ceased type-4 benefit is our analog.
-            pwst_rate = ben_mtp_rate
-            pwst_ctp_rate = ben_ctp_rate
-            pwst_units = ben.units or 0.0
-            pwst_key = ben_key
-            continue
-        if ben_type == "A":
-            # CCV (IM/KG): rate x current total SA / 1000.
-            mtp_val = ben_mtp_rate * total_face / PER_THOUSAND
-            ctp_val = ben_ctp_rate * total_face / PER_THOUSAND
-            mtp_ben_ccv += mtp_val
-            ctp_ben_ccv += ctp_val
-        else:
-            # ADB/CTR/GIO etc. (IO/IQ/IS): units x rate.
-            mtp_val = (ben.units or 0.0) * ben_mtp_rate
-            ctp_val = (ben.units or 0.0) * ben_ctp_rate
-            mtp_ben_generic += mtp_val
-            ctp_ben_generic += ctp_val
-        result.mtp_benefits[ben_key] = mtp_val
-        result.ctp_benefits[ben_key] = ctp_val
-
-    # ── Rider targets (verified vs RERUN on U0356726 DBO recalc) ──
-    # * CTR (child term): RERUN Rates_Control hardcodes 7.80/unit/yr — "the
-    #   CTR rate structure is very simple and does not need to be queried from
-    #   the database" (mdl_GetRates). The MTP side is zeroed for a small
-    #   legacy plancode list ("Uses CTR with MTP=0", GZ19:GZ34); CTP is
-    #   always 7.80.
-    # * Other term riders (spouse STR etc.): annual rate/unit from the MTP/CTP
-    #   tables keyed by the RIDER's plancode/issue-age/sex/class (band from
-    #   the rider's own BANDSPECS, same convention as its COI load).
-    mtp_rider_sum = 0.0
-    ctp_rider_sum = 0.0
-    for rider in policy.riders:
-        if not rider.is_active or not rider.plancode:
-            continue
-        if not rider_active_on(rider, policy, as_of):
-            continue
-        units = rider.units or 0.0
-        if (rider.cov_type or "").upper() == "CTR":
-            mtp_rate_r = 0.0 if policy.plancode in CTR_MTP_ZERO_PLANCODES else CTR_TARGET_RATE
-            ctp_rate_r = CTR_TARGET_RATE
-        else:
-            if rider_bands_as_base(rider.plancode):
-                # Base-banding rider (e.g. 1U144A00): use the policy's combined
-                # band, not its own face-based band. See core.band_rules.
-                r_band = int(current_band)
-            else:
-                r_band = rates_db.get_band(rider.plancode, rider.face_amount)
-                r_band = int(r_band) if r_band is not None else rider.band
-            r_args = (rider.plancode, rider.issue_age, rider.rate_sex,
-                      rider.rate_class, r_band)
-            mtp_rate_r = rates_db.get_mtp(*r_args) or 0.0
-            ctp_rate_r = rates_db.get_ctp(*r_args) or 0.0
-        mtp_val = units * mtp_rate_r
-        ctp_val = units * ctp_rate_r
-        if not mtp_val and not ctp_val:
-            continue
-        result.mtp_riders[rider.export_key] = mtp_val
-        result.ctp_riders[rider.export_key] = ctp_val
-        mtp_rider_sum += mtp_val
-        ctp_rider_sum += ctp_val
-
-    base_table = (
-        base.table_rating
-        if base.table_rating > 0 and _active(base.table_cease_date, as_of)
-        else 0
+    coverage = _add_coverage_targets(policy, config, rates_db, result, as_of)
+    current_band = coverage.current_band
+    benefits = _add_benefit_targets(
+        policy, config, rates_db, result, current_band, as_of
     )
-    factor = config.table_rating_factor
-    pwst_active = bool(pwst_key)
-    pw_component = 0.0        # IV
-    pwst_component = 0.0      # IK
-    pwst_ctp_component = 0.0  # KE
-
-    if config.is_ffl:
-        # FFL Premium Waivers (CalcEngine IW..JD) — both waiver targets come
-        # from cost bases instead of units x rate.
-        iw, ix = _ffl_min_base(policy, config, rates_db, current_band, as_of)
-        base_flat = (
-            base.flat_extra
-            if base.flat_extra and base.flat_extra > 0
-            and _active(base.flat_cease_date, as_of)
-            else 0.0
-        )
-        # IY = TotalSA x vFlat1, replicated EXACTLY as RERUN computes it —
-        # the workbook applies neither /1000 nor /12 to this term (suspected
-        # workbook bug; keep in lockstep for comparison runs).
-        iy = total_face * base_flat
-        mfee_monthly = _ffl_monthly_fee(policy, config, rates_db, current_band, as_of)
-        # IZ — PWoC min basis: monthly benefit AND rider targets + current base
-        # COI on SA + its table extra + flat term + monthly expense fee. Rider
-        # targets (e.g. a spouse/child term rider MTP) are part of the monthly
-        # target sum, same as the generic benefit targets.
-        pwoc_basis = (
-            (mtp_ben_generic + mtp_rider_sum) / MONTHS_PER_YEAR
-            + iw + ix + iy + mfee_monthly
-        )
-        if pw_rate > 0.0:
-            # JB — PWoC_MTP.
-            pw_component = _trunc2(pw_multiplier * pwoc_basis * (1.0 + factor * base_table))
-        # JA — PWoT min basis: coverage + benefit + rider targets + the PWoC
-        # target (excludes CCV and the PWoT target itself).
-        pwot_basis = mtp_cov_sum + mtp_ben_generic + mtp_rider_sum + pw_component
-        pwot_factor = 0.0
-        if pwst_active:
-            x = pwst_rate / 100.0 * (1.0 + base_table * factor)
-            if x < 1.0:
-                pwot_factor = _trunc5(x / (1.0 - x))   # JC
-            pwst_component = _trunc2(pwot_basis * pwot_factor)  # IK = JD
-        result.ffl_min_base = iw
-        result.ffl_min_base_table = ix
-        result.ffl_min_base_flat = iy
-        result.ffl_pwoc_basis = pwoc_basis
-        result.ffl_pwot_basis = pwot_basis
-        result.ffl_pwot_factor = pwot_factor
-    elif pwst_active:
-        # IK / KE non-FFL: units x rate x (1 + factor x base table rating).
-        pwst_component = pwst_units * pwst_rate * (1.0 + factor * base_table)
-        pwst_ctp_component = pwst_units * pwst_ctp_rate * (1.0 + factor * base_table)
-
-    # IT — MTP w/o PW (includes CCV, riders and the PWoT target).
-    mtp_wo_pw = mtp_cov_sum + mtp_ben_generic + mtp_ben_ccv + mtp_rider_sum + pwst_component
-
-    if not config.is_ffl and pw_rate > 0.0:
-        # IV — PW (PWoC): pwRate x (MTP w/o PW) x (1 + factor x table).
-        pw_component = pw_multiplier * mtp_wo_pw * (1.0 + factor * base_table)
-
-    result.mtp_annual = mtp_wo_pw + pw_component   # JG
-    if config.is_ffl and pwst_active:
-        # KE — FFL PWoT CTP = JC x vMTP (the full annual MTP, not JA).
-        pwst_ctp_component = result.ffl_pwot_factor * result.mtp_annual
-    ctp_wo_pw = ctp_cov_sum + ctp_ben_generic + ctp_ben_ccv + ctp_rider_sum + pwst_ctp_component
-
-    if pw_rate > 0.0:
-        result.mtp_benefits["39"] = pw_component
-        result.ctp_benefits["39"] = _round2(pw_component)
-    if pwst_active:
-        result.mtp_benefits[pwst_key] = pwst_component
-        result.ctp_benefits[pwst_key] = pwst_ctp_component
-
-    result.pw_rate = pw_rate
-    result.pwst_rate = pwst_rate
-    result.pwst_ctp_rate = pwst_ctp_rate
-    result.pwst_component = pwst_component
-    result.pwst_ctp_component = pwst_ctp_component
-    result.mtp_wo_pw = mtp_wo_pw
-    result.ctp_wo_pw = ctp_wo_pw
-    result.pw_component = pw_component
-    result.ctp_annual = ctp_wo_pw + _round2(pw_component)
+    riders = _add_rider_targets(policy, rates_db, result, current_band, as_of)
+    _finish_waiver_targets(
+        policy, config, rates_db, result, coverage, benefits, riders, as_of
+    )
     return result
 
 

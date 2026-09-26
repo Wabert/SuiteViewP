@@ -510,26 +510,30 @@ def test_same_month_withdrawal_and_changes_use_one_complete_guideline_recalc(mon
         ),
     ]
 
-    result = IllustrationEngine().process_month(
-        state,
-        policy,
-        PlancodeConfig(
-            plancode="TEST",
-            gint=0.0,
-            dbd=0.0,
-            premium_load="0",
-            prem_flat_load=0.0,
-            epu_code="0",
-            mfee="0",
-            poav_code="0",
-            bonus="0",
-            corridor_code=None,
-            snet_period=0,
+    result = calc_engine.run_month(
+        calc_engine.MonthContext(
+            state=state,
+            policy=policy,
+            config=PlancodeConfig(
+                plancode="TEST",
+                gint=0.0,
+                dbd=0.0,
+                premium_load="0",
+                prem_flat_load=0.0,
+                epu_code="0",
+                mfee="0",
+                poav_code="0",
+                bonus="0",
+                corridor_code=None,
+                snet_period=0,
+            ),
+            rates=IllustrationRates(),
+            bonus=BonusConfig(),
+            month_inputs=CompiledMonthInputs(withdrawal=1_000.0),
+            options=calc_engine.IllustrationOptions(),
+            policy_changes=changes,
         ),
-        IllustrationRates(),
-        BonusConfig(),
-        month_inputs=CompiledMonthInputs(withdrawal=1_000.0),
-        policy_changes=changes,
+        calc_engine.ILLUSTRATION_TIMING,
     )
 
     assert solve_bases == [
@@ -631,26 +635,30 @@ def test_same_month_withdrawal_and_face_decrease_recalc_reflects_final_face(monk
         PolicyChangeEvent(PolicyChangeKind.FACE_AMOUNT, date(2026, 2, 1), 40_000.0),
     ]
 
-    result = IllustrationEngine().process_month(
-        state,
-        policy,
-        PlancodeConfig(
-            plancode="TEST",
-            gint=0.0,
-            dbd=0.0,
-            premium_load="0",
-            prem_flat_load=0.0,
-            epu_code="0",
-            mfee="0",
-            poav_code="0",
-            bonus="0",
-            corridor_code=None,
-            snet_period=0,
+    result = calc_engine.run_month(
+        calc_engine.MonthContext(
+            state=state,
+            policy=policy,
+            config=PlancodeConfig(
+                plancode="TEST",
+                gint=0.0,
+                dbd=0.0,
+                premium_load="0",
+                prem_flat_load=0.0,
+                epu_code="0",
+                mfee="0",
+                poav_code="0",
+                bonus="0",
+                corridor_code=None,
+                snet_period=0,
+            ),
+            rates=IllustrationRates(),
+            bonus=BonusConfig(),
+            month_inputs=CompiledMonthInputs(withdrawal=1_000.0),
+            options=calc_engine.IllustrationOptions(),
+            policy_changes=changes,
         ),
-        IllustrationRates(),
-        BonusConfig(),
-        month_inputs=CompiledMonthInputs(withdrawal=1_000.0),
-        policy_changes=changes,
+        calc_engine.ILLUSTRATION_TIMING,
     )
 
     # Exactly one combined recalc, from the pre-withdrawal face (51,936) to the

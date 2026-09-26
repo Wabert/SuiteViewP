@@ -5,7 +5,12 @@ import pytest
 
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
-from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.calc_engine import (
+    IllustrationEngine,
+    ILLUSTRATION_TIMING,
+    MonthContext,
+    run_month,
+)
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -225,12 +230,17 @@ def test_lapse_check_uses_policy_values_av_and_loan_cap_debt():
         end_vbl_loan_princ=110.0,
     )
 
-    result = IllustrationEngine().process_month(
-        state,
-        policy,
-        config,
-        IllustrationRates(),
-        BonusConfig(),
+    result = run_month(
+        MonthContext(
+            state=state,
+            policy=policy,
+            config=config,
+            rates=IllustrationRates(),
+            bonus=BonusConfig(),
+            month_inputs=None,
+            options=calc_engine.IllustrationOptions(),
+        ),
+        ILLUSTRATION_TIMING,
     )
 
     assert result.av_after_exception == 100.0

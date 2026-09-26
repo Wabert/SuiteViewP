@@ -13,8 +13,11 @@ from datetime import date
 
 from suiteview.illustration.core.calc_engine import (
     IllustrationEngine,
+    ILLUSTRATION_TIMING,
+    MonthContext,
     _tamra_month_of_year,
     _tamra_year,
+    run_month,
 )
 from suiteview.illustration.core.input_compiler import CompiledMonthInputs
 from suiteview.illustration.core.interest_calc import credit_interest
@@ -140,9 +143,17 @@ def project_receipt(
         increment = shadow_after - shadow_without
         state.shadow_interest += increment
         state.shadow_eav = round(state.shadow_eav + shd.shadow_net_prem + increment, 2)
-    final = engine.process_month(
-        state, p, config, rates, bonus, options=options,
-        month_inputs=CompiledMonthInputs(scheduled_premium=0.0),
+    final = run_month(
+        MonthContext(
+            state=state,
+            policy=p,
+            config=config,
+            rates=rates,
+            bonus=bonus,
+            options=options,
+            month_inputs=CompiledMonthInputs(scheduled_premium=0.0),
+        ),
+        ILLUSTRATION_TIMING,
     )
     states.append(final)
     return states, ReceiptAmounts(receipt_date, prem.gross_premium, prem.total_premium_load, shadow_load)
