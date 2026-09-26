@@ -114,125 +114,119 @@ class TerminalWidget(QTextEdit):
         """Handle keyboard input"""
         key = event.key()
         modifiers = event.modifiers()
-        
-        # Ctrl+V - paste from clipboard
-        if key == Qt.Key.Key_V and modifiers & Qt.KeyboardModifier.ControlModifier:
-            self._paste_from_clipboard()
+
+        if self._handle_clipboard_shortcut(key, modifiers):
             return
-        
-        # Function keys F1-F12
-        if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
-            pf_num = key - Qt.Key.Key_F1 + 1
-            self.pf_key_pressed.emit(pf_num)
+        if self._handle_pf_key(key):
             return
-        
-        # F13-F24 via Shift+F1-F12
-        if modifiers & Qt.KeyboardModifier.ShiftModifier:
-            if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
-                pf_num = key - Qt.Key.Key_F1 + 13
-                self.pf_key_pressed.emit(pf_num)
-                return
-        
-        # Enter key
+        if self._handle_shift_pf_key(key, modifiers):
+            return
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.enter_pressed.emit()
             return
-        
-        # Escape = Clear
         if key == Qt.Key.Key_Escape:
             self.clear_pressed.emit()
             return
-        
-        # Tab - move to next input field
+        if self._handle_tab_key(key, modifiers):
+            return
+        if key == Qt.Key.Key_Insert:
+            self.overwrite_mode = not self.overwrite_mode
+            logger.info(f"Overwrite mode: {self.overwrite_mode}")
+            return
+        if self._handle_delete_key(key):
+            return
+        if self._handle_backspace_key(key):
+            return
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
+                   Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+            super().keyPressEvent(event)
+            return
+        if self._handle_printable_text(event.text()):
+            return
+        self.key_pressed.emit(event)
+
+    def _handle_clipboard_shortcut(self, key, modifiers) -> bool:
+        if key == Qt.Key.Key_V and modifiers & Qt.KeyboardModifier.ControlModifier:
+            self._paste_from_clipboard()
+            return True
+        return False
+
+    def _handle_pf_key(self, key) -> bool:
+        if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
+            self.pf_key_pressed.emit(key - Qt.Key.Key_F1 + 1)
+            return True
+        return False
+
+    def _handle_shift_pf_key(self, key, modifiers) -> bool:
+        if modifiers & Qt.KeyboardModifier.ShiftModifier and Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
+            self.pf_key_pressed.emit(key - Qt.Key.Key_F1 + 13)
+            return True
+        return False
+
+    def _handle_tab_key(self, key, modifiers) -> bool:
         if key == Qt.Key.Key_Tab:
             if modifiers & Qt.KeyboardModifier.ShiftModifier:
                 self._tab_to_prev_field()
             else:
                 self._tab_to_next_field()
-            return
-        
-        # Backtab (Shift+Tab handled above)
+            return True
         if key == Qt.Key.Key_Backtab:
             self._tab_to_prev_field()
-            return
-        
-        # Insert key - toggle overwrite mode (but 3270 is typically always overwrite)
-        if key == Qt.Key.Key_Insert:
-            self.overwrite_mode = not self.overwrite_mode
-            logger.info(f"Overwrite mode: {self.overwrite_mode}")
-            return
-        
-        # Delete key - delete character at cursor
-        if key == Qt.Key.Key_Delete:
-            current_addr = self.get_cursor_address()
-            if current_addr in self.typed_chars:
-                del self.typed_chars[current_addr]
-            # Replace with space in display
-            cursor = self.textCursor()
-            if not cursor.atEnd():
-                cursor.deleteChar()
-                cursor.insertText(' ')
-                cursor.movePosition(QTextCursor.MoveOperation.Left)
-                self.setTextCursor(cursor)
-            return
-        
-        # Backspace - move back and clear character
-        if key == Qt.Key.Key_Backspace:
-            current_addr = self.get_cursor_address()
-            if current_addr > 0:
-                prev_addr = current_addr - 1
-                # Remove from typed_chars
-                if prev_addr in self.typed_chars:
-                    del self.typed_chars[prev_addr]
-                # Move cursor back and replace with space
-                cursor = self.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.Left)
-                cursor.deleteChar()
-                cursor.insertText(' ')
-                cursor.movePosition(QTextCursor.MoveOperation.Left)
-                self.setTextCursor(cursor)
-            return
-        
-        # Arrow keys - allow navigation
-        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
-                   Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
-            super().keyPressEvent(event)
-            return
-        
-        # Regular printable characters - always overwrite mode
-        text = event.text()
-        if text and text.isprintable():
-            current_addr = self.get_cursor_address()
-            
-            # Store the actual character typed
-            self.typed_chars[current_addr] = text
-            
-            # Check if this is a password field - show blank instead
-            is_pwd = self._in_password_field()
-            if is_pwd:
-                display_char = ' '
-                logger.info(f"Typing in password field at {current_addr}")
-            else:
-                display_char = text
-                logger.info(f"Typing '{text}' at {current_addr}")
-            
-            # Always overwrite: delete current char, insert new one
-            cursor = self.textCursor()
-            
-            # Force color to green for typing if not in password field
-            if not is_pwd:
-                fmt = QTextCharFormat()
-                fmt.setForeground(QColor("#00FF00"))
-                cursor.setCharFormat(fmt)
-            
-            if not cursor.atEnd():
-                cursor.deleteChar()
-            cursor.insertText(display_char)
+            return True
+        return False
+
+    def _handle_delete_key(self, key) -> bool:
+        if key != Qt.Key.Key_Delete:
+            return False
+        current_addr = self.get_cursor_address()
+        if current_addr in self.typed_chars:
+            del self.typed_chars[current_addr]
+        cursor = self.textCursor()
+        if not cursor.atEnd():
+            cursor.deleteChar()
+            cursor.insertText(' ')
+            cursor.movePosition(QTextCursor.MoveOperation.Left)
             self.setTextCursor(cursor)
-            return
-        
-        # Pass other keys to parent
-        self.key_pressed.emit(event)
+        return True
+
+    def _handle_backspace_key(self, key) -> bool:
+        if key != Qt.Key.Key_Backspace:
+            return False
+        current_addr = self.get_cursor_address()
+        if current_addr > 0:
+            prev_addr = current_addr - 1
+            if prev_addr in self.typed_chars:
+                del self.typed_chars[prev_addr]
+            cursor = self.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Left)
+            cursor.deleteChar()
+            cursor.insertText(' ')
+            cursor.movePosition(QTextCursor.MoveOperation.Left)
+            self.setTextCursor(cursor)
+        return True
+
+    def _handle_printable_text(self, text: str) -> bool:
+        if not text or not text.isprintable():
+            return False
+        current_addr = self.get_cursor_address()
+        self.typed_chars[current_addr] = text
+        is_pwd = self._in_password_field()
+        display_char = ' ' if is_pwd else text
+        if is_pwd:
+            logger.info(f"Typing in password field at {current_addr}")
+        else:
+            logger.info(f"Typing '{text}' at {current_addr}")
+
+        cursor = self.textCursor()
+        if not is_pwd:
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor("#00FF00"))
+            cursor.setCharFormat(fmt)
+        if not cursor.atEnd():
+            cursor.deleteChar()
+        cursor.insertText(display_char)
+        self.setTextCursor(cursor)
+        return True
     
     def _tab_to_next_field(self):
         """Move cursor to next input field"""
@@ -1079,7 +1073,6 @@ class MainframeTerminalScreen(QWidget):
         self.current_input_address = 0
         
         # Settings file for persistence
-        from pathlib import Path
         self.settings_file = profile_path('terminal_settings.json')
         
         # Connection settings (stored for settings dialog)
@@ -2245,175 +2238,169 @@ class MainframeTerminalScreen(QWidget):
         self.automation_status.setText(f"✅ {region_name} (1992) {elapsed:.1f}s")
 
     def start_cics_sequence(self, region_name: str, region_option: str):
-        """Start the CICS auto-login sequence for any region.
-        
-        Args:
-            region_name: Display name (CKAS, CKMO, CKPR)
-            region_option: The option number to select on VTAM screen (1, 5, 7) - legacy, not used
-        
-        Sequence: Connect → Login → (from PRIMARY APP MENU) → type CICSCKAS/CICSCKMO/CICSCKPR → Enter → 0000 → F2 → F2 → F2
-        """
-        if not self.conn_userid or not self.conn_password:
-            QMessageBox.warning(self, "Credentials Required", 
-                f"Please set your User ID and Password in Settings before using {region_name} auto-login.")
+        """Start the CICS auto-login sequence for any region."""
+        if not self._ensure_cics_credentials(region_name):
             return
-        
+
+        start_time = self._prepare_cics_sequence(region_name)
+        self._connect_login_for_sequence()
+        if self._handle_login_interstitials(region_name):
+            return
+
+        if not self._navigate_to_cics_region(region_name, region_option):
+            return
+        self._finish_cics_sequence(region_name, start_time)
+
+    def _ensure_cics_credentials(self, region_name: str) -> bool:
+        if self.conn_userid and self.conn_password:
+            return True
+        QMessageBox.warning(
+            self,
+            "Credentials Required",
+            f"Please set your User ID and Password in Settings before using {region_name} auto-login."
+        )
+        return False
+
+    def _prepare_cics_sequence(self, region_name: str) -> float:
         start_time = time.time()
         self._sequence_start_time = start_time
         self.automation_status.setText(f"🔄 {region_name}...")
-        
-        # Disconnect if already connected (switching regions)
         if self.client and self.client.connected:
             self.disconnect_from_mainframe()
-            self._wait(200)  # Brief pause after disconnect
-        
-        # Reset state before starting - skip auto-fill since we handle credentials ourselves
+            self._wait(200)
         self._screen_update_count = 0
         self.pending_autofill = False
-        self._skip_autofill = True  # Tell connect() not to auto-fill
+        self._skip_autofill = True
         self.terminal.typed_chars = {}
-        
-        # Connect and wait for login screen (capture count before connect)
+        return start_time
+
+    def _connect_login_for_sequence(self):
         count = self._capture_screen_count()
         self.connect_to_mainframe()
         self._wait_for_screen_from(count, timeout_ms=3000)
-        
-        # Clear skip flag for future manual connects
         self._skip_autofill = False
-        
-        # Manually fill credentials and send Enter (this waits for response)
         self._fill_credentials_and_enter()
-        
-        # Wait for the response screen after login attempt
         self._wait(300)
-        
-        # Check if we got the "MULTIPLE LOGON" screen (userid already logged in elsewhere)
-        # This is the key screen for dual terminal - press PF6 to create new logon session
+
+    def _handle_login_interstitials(self, region_name: str) -> bool:
         if self._check_multiple_logon_screen():
             self.automation_status.setText(f"🔄 {region_name} (creating new logon)...")
             logger.info("MULTIPLE LOGON screen detected - pressing PF6 for new session")
             self._handle_multiple_logon_screen()
-            # Wait for the post-PF6 screen
             self._wait(300)
-        
-        # Check if we got the "session already active" reconnect screen (USER ON TERM)
+
         if self._check_reconnect_screen():
             self.automation_status.setText(f"🔄 {region_name} (reconnecting)...")
             self._handle_reconnect_screen()
             self._wait(300)
-        
-        # Check for Port 1992 sequence (only for configured regions)
+
         if self.client and self.client.port == 1992:
             if region_name.upper() in {"CKAS", "CKMO", "CKPR", "CKSR"}:
                 self._handle_1992_sequence(region_name)
-                return
+                return True
+        return False
 
-        # Wait a moment for the post-login screen to arrive
+    def _navigate_to_cics_region(self, region_name: str, region_option: str) -> bool:
         self._wait(200)
-        
-        # Log what screen we're seeing for debugging - full screen
-        if self.terminal.last_screen:
-            screen_text = ''.join(self.terminal.last_screen.buffer)
-            logger.info(f"=== POST-LOGIN SCREEN (full) ===")
-            for row in range(24):
-                line = screen_text[row*80:(row+1)*80].rstrip()
-                if line.strip():
-                    logger.info(f"Row {row:2d}: {line}")
-            logger.info(f"=== END POST-LOGIN SCREEN ===")
-        
-        # Check what screen we're at and navigate accordingly
+        self._log_post_login_screen()
         if self._check_primary_app_menu():
-            # PRIMARY APPLICATION SELECTION MENU - type CICS region name directly
-            cics_applid = self._get_cics_applid(region_name)  # e.g., CICSCKAS, CICSCKMO, CICSCKPR
-            if cics_applid:
-                self.automation_status.setText(f"🔄 {region_name} (typing {cics_applid})...")
-                logger.info(f"Typing {cics_applid} to navigate to {region_name}")
-                self._type_and_enter(cics_applid)
-            else:
-                logger.warning(f"No CICS APPLID for {region_name}")
-                
+            self._navigate_from_primary_menu(region_name)
+            return True
         elif self._check_vtam_switch_menu():
-            # VTAM/Switch Session Selection menu
+            return self._navigate_from_vtam_switch_menu(region_name, region_option)
+        self._navigate_legacy_cics(region_option)
+        return True
 
-            applid = self._get_cics_applid(region_name)
-            
-            # If this is a secondary session, use OPEN with APPLID to create new session
-            if self.use_open_for_new_session:
-                if applid:
-                    self.automation_status.setText(f"🔄 {region_name} (OPEN {applid})...")
-                    logger.info(f"Using OPEN {applid} to start new session for dual terminal")
-                    self._open_application(applid)
-                    self._wait(500)
-                    # After OPEN applid, we should go directly to that CICS region
-                    # Skip the normal navigation - go straight to MENU screen
-                else:
-                    # No APPLID known, try OPEN then navigate
-                    self.automation_status.setText(f"🔄 {region_name} (OPEN new session)...")
-                    logger.info("Using OPEN command (no APPLID) for dual terminal")
-                    self._type_and_enter("OPEN")
-                    self._wait(300)
-                    # Then navigate normally
-                    self._type_and_enter("3")
-                    self._wait(200)
-                    self._type_and_enter(region_option)
-                    self._send_enter_and_wait()
-            else:
-                # Normal single session
-                if applid:
-                    # If APPLID is known, OPEN it (no region option needed)
-                    self.automation_status.setText(f"🔄 {region_name} (OPEN {applid})...")
-                    logger.info(f"Using OPEN {applid} to start session")
-                    self._open_application(applid)
-                    self._wait(500)
-                else:
-                    # Navigate: 3 (CICS) → region option
-                    if not region_option:
-                        logger.error(f"No region option configured for {region_name}")
-                        self.automation_status.setText(f"❌ No region option for {region_name}")
-                        return
+    def _log_post_login_screen(self):
+        if not self.terminal.last_screen:
+            return
+        screen_text = ''.join(self.terminal.last_screen.buffer)
+        logger.info("=== POST-LOGIN SCREEN (full) ===")
+        for row in range(24):
+            line = screen_text[row * 80:(row + 1) * 80].rstrip()
+            if line.strip():
+                logger.info(f"Row {row:2d}: {line}")
+        logger.info("=== END POST-LOGIN SCREEN ===")
 
-                    self.automation_status.setText(f"🔄 {region_name} (VTAM menu)...")
-                    logger.info("At VTAM/Switch menu - selecting CICS (option 3)")
-                    self._type_and_enter("3")  # Select CICS
-                    
-                    # Now we should be at CICS regions menu - select the specific region
-                    self._wait(200)
-                    logger.info(f"Selecting CICS region option {region_option}")
-                    self._type_and_enter(region_option)
-                    
-                    # Confirm screen - just Enter
-                    self._send_enter_and_wait()
+    def _navigate_from_primary_menu(self, region_name: str):
+        cics_applid = self._get_cics_applid(region_name)
+        if cics_applid:
+            self.automation_status.setText(f"🔄 {region_name} (typing {cics_applid})...")
+            logger.info(f"Typing {cics_applid} to navigate to {region_name}")
+            self._type_and_enter(cics_applid)
         else:
-            # Unknown menu - try legacy navigation
-            logger.info("Unknown menu - using legacy navigation (3 → 4 → region)")
-            self._type_and_enter("3")
-            self._type_and_enter("4")
-            self._type_and_enter(region_option)
-            self._send_enter_and_wait()
-        
-        # MENU screen - need extra time for this screen to load
-        self._wait(100)  # Give screen time to fully arrive
-        
-        # MENU screen - type 0000
+            logger.warning(f"No CICS APPLID for {region_name}")
+
+    def _navigate_from_vtam_switch_menu(self, region_name: str, region_option: str) -> bool:
+        applid = self._get_cics_applid(region_name)
+        if self.use_open_for_new_session:
+            return self._open_for_secondary_session(region_name, region_option, applid)
+        return self._open_for_single_session(region_name, region_option, applid)
+
+    def _open_for_secondary_session(self, region_name: str, region_option: str, applid: str | None) -> bool:
+        if applid:
+            self.automation_status.setText(f"🔄 {region_name} (OPEN {applid})...")
+            logger.info(f"Using OPEN {applid} to start new session for dual terminal")
+            self._open_application(applid)
+            self._wait(500)
+            return True
+
+        self.automation_status.setText(f"🔄 {region_name} (OPEN new session)...")
+        logger.info("Using OPEN command (no APPLID) for dual terminal")
+        self._type_and_enter("OPEN")
+        self._wait(300)
+        self._type_and_enter("3")
+        self._wait(200)
+        self._type_and_enter(region_option)
+        self._send_enter_and_wait()
+        return True
+
+    def _open_for_single_session(self, region_name: str, region_option: str, applid: str | None) -> bool:
+        if applid:
+            self.automation_status.setText(f"🔄 {region_name} (OPEN {applid})...")
+            logger.info(f"Using OPEN {applid} to start session")
+            self._open_application(applid)
+            self._wait(500)
+            return True
+
+        if not region_option:
+            logger.error(f"No region option configured for {region_name}")
+            self.automation_status.setText(f"❌ No region option for {region_name}")
+            return False
+
+        self.automation_status.setText(f"🔄 {region_name} (VTAM menu)...")
+        logger.info("At VTAM/Switch menu - selecting CICS (option 3)")
+        self._type_and_enter("3")
+        self._wait(200)
+        logger.info(f"Selecting CICS region option {region_option}")
+        self._type_and_enter(region_option)
+        self._send_enter_and_wait()
+        return True
+
+    def _navigate_legacy_cics(self, region_option: str):
+        logger.info("Unknown menu - using legacy navigation (3 → 4 → region)")
+        self._type_and_enter("3")
+        self._type_and_enter("4")
+        self._type_and_enter(region_option)
+        self._send_enter_and_wait()
+
+    def _finish_cics_sequence(self, region_name: str, start_time: float):
+        self._wait(100)
         self._type_and_enter("0000", use_menu_field=True)
-        
-        # F2 three times
-        self._send_pf_and_wait(2)
-        self._send_pf_and_wait(2)
-        self._send_pf_and_wait(2)
-        
-        # If policy number is provided, send policy lookup command
-        policy_number = self.policy_input.text().strip().upper()
-        if policy_number:
-            company = self.company_combo.currentText()
-            # Build the command: 62D2,AA000604  ;newco=01;.
-            policy_cmd = f"62D2,{policy_number}  ;newco={company};."
-            self.automation_status.setText(f"🔄 Looking up {policy_number}...")
-            self._type_and_enter(policy_cmd)
-        
-        # Done!
+        for _ in range(3):
+            self._send_pf_and_wait(2)
+        self._send_policy_lookup_if_requested()
         elapsed = time.time() - start_time
         self.automation_status.setText(f"✅ {region_name} {elapsed:.1f}s")
+
+    def _send_policy_lookup_if_requested(self):
+        policy_number = self.policy_input.text().strip().upper()
+        if not policy_number:
+            return
+        company = self.company_combo.currentText()
+        policy_cmd = f"62D2,{policy_number}  ;newco={company};."
+        self.automation_status.setText(f"🔄 Looking up {policy_number}...")
+        self._type_and_enter(policy_cmd)
 
     def _auto_type_credentials_and_enter(self):
         """Type userid and password into first two fields and send Enter"""

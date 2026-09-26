@@ -1,12 +1,29 @@
-"""
-TN3270 Terminal Emulator Core
-Implements the TN3270 protocol for mainframe connectivity
+"""TN3270 Terminal Emulator Core.
+
+The byte pipeline is intentionally split into four small stages:
+
+``TelnetFrameDecoder``
+    Walks telnet IAC framing, emits negotiation frames, and yields complete
+    3270 records when an EOR is reached.
+``TN3270CommandDecoder``
+    Classifies a 3270 record into Write, Erase/Write, Erase/Write Alternate,
+    Read Buffer, Read Modified, Write Structured Field, or raw write payload.
+``ScreenApplier``
+    Parses write-order dataclasses and mutates the screen buffer through a
+    handler table keyed by 3270 order byte.
+``TN3270Client``
+    Owns sockets, replies to telnet negotiation, and sends outbound AID/read
+    modified records.
+
+Supported inbound commands are W, EW, EWA, RB, RM and WSF. Supported write
+orders are SBA, SF, SFE, SA, MF, IC, PT, RA, EUA and GE. Known gaps are listed
+in ``docs/TN3270.md``.
 """
 
 import socket
 import ssl
 import logging
-from typing import Optional, Tuple, List, Callable
+from typing import Optional, Tuple, List, Callable, Dict
 from enum import IntEnum
 from dataclasses import dataclass, field
 
@@ -163,6 +180,193 @@ def encode_buffer_address(addr: int) -> bytes:
         0xF8, 0xF9, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
     ]
     return bytes([table[(addr >> 6) & 0x3F], table[addr & 0x3F]])
+
+
+@dataclass(frozen=True)
+class TelnetFrame:
+    """A telnet negotiation frame extracted from an IAC stream."""
+
+    command: int
+    option: Optional[int] = None
+    payload: bytes = b""
+
+
+@dataclass(frozen=True)
+class TelnetDecodeBatch:
+    """Frames and complete 3270 records decoded from one byte chunk."""
+
+    frames: Tuple[TelnetFrame, ...]
+    records: Tuple[bytes, ...]
+
+
+class TelnetFrameDecoder:
+    """Decode telnet IAC frames while preserving 3270 record bytes."""
+
+    def __init__(self):
+        self._record = bytearray()
+
+    def decode(self, data: bytes) -> TelnetDecodeBatch:
+        """Decode one chunk into negotiation frames and EOR-delimited records."""
+        frames: List[TelnetFrame] = []
+        records: List[bytes] = []
+        i = 0
+
+        while i < len(data):
+            if data[i] != TelnetCmd.IAC:
+                self._record.append(data[i])
+                i += 1
+                continue
+
+            if i + 1 >= len(data):
+                break
+
+            cmd = data[i + 1]
+            if cmd in (TelnetCmd.DO, TelnetCmd.DONT, TelnetCmd.WILL, TelnetCmd.WONT):
+                if i + 2 >= len(data):
+                    break
+                frames.append(TelnetFrame(command=cmd, option=data[i + 2]))
+                i += 3
+            elif cmd == TelnetCmd.SB:
+                se_pos = data.find(bytes([TelnetCmd.IAC, TelnetCmd.SE]), i)
+                if se_pos > 0:
+                    frames.append(
+                        TelnetFrame(
+                            command=cmd,
+                            payload=data[i + 2:se_pos],
+                        )
+                    )
+                    i = se_pos + 2
+                else:
+                    i += 2
+            elif cmd == TelnetCmd.EOR:
+                records.append(bytes(self._record))
+                self._record.clear()
+                i += 2
+            elif cmd == TelnetCmd.IAC:
+                self._record.append(TelnetCmd.IAC)
+                i += 2
+            else:
+                frames.append(TelnetFrame(command=cmd))
+                i += 2
+
+        return TelnetDecodeBatch(frames=tuple(frames), records=tuple(records))
+
+    def flush_record(self) -> bytes:
+        """Return and clear any data received without a final EOR."""
+        record = bytes(self._record)
+        self._record.clear()
+        return record
+
+    @staticmethod
+    def extract_payload(data: bytes) -> bytes:
+        """Strip telnet commands from one already-buffered record."""
+        decoder = TelnetFrameDecoder()
+        batch = decoder.decode(data)
+        payload = decoder.flush_record()
+        if batch.records:
+            payload = b"".join(batch.records) + payload
+        return payload
+
+
+@dataclass(frozen=True)
+class TN3270Command:
+    """A decoded 3270 command and the payload relevant to the command."""
+
+    name: str
+    command_byte: int
+    payload: bytes
+    wcc: Optional[int] = None
+    clear_screen: bool = False
+    is_write: bool = False
+    is_structured_field: bool = False
+    is_read: bool = False
+    is_raw_write: bool = False
+
+
+class TN3270CommandDecoder:
+    """Classify 3270 records into command objects."""
+
+    WRITE_COMMANDS: Dict[int, Tuple[str, bool]] = {
+        0x01: ("Write", False),
+        0xF1: ("Write", False),
+        0x05: ("Erase/Write", True),
+        0xF5: ("Erase/Write", True),
+        0x0D: ("Erase/Write Alternate", True),
+        0x7E: ("Erase/Write Alternate", True),
+    }
+    STRUCTURED_FIELD_COMMANDS = {0x11, 0xF3}
+    READ_MODIFIED_COMMANDS = {0x06, 0xF6}
+    READ_BUFFER_COMMANDS = {0x02, 0xF2}
+
+    def decode(self, data: bytes) -> Optional[TN3270Command]:
+        """Decode a record; returns ``None`` for empty input."""
+        if not data:
+            return None
+
+        command_byte = data[0]
+        if command_byte in self.WRITE_COMMANDS:
+            name, clear_screen = self.WRITE_COMMANDS[command_byte]
+            wcc = data[1] if len(data) > 1 else None
+            payload = data[2:] if len(data) > 1 else b""
+            return TN3270Command(
+                name=name,
+                command_byte=command_byte,
+                payload=payload,
+                wcc=wcc,
+                clear_screen=clear_screen,
+                is_write=True,
+            )
+        if command_byte in self.STRUCTURED_FIELD_COMMANDS:
+            return TN3270Command(
+                name="Write Structured Field",
+                command_byte=command_byte,
+                payload=data[1:],
+                is_structured_field=True,
+            )
+        if command_byte in self.READ_MODIFIED_COMMANDS:
+            return TN3270Command(
+                name="Read Modified",
+                command_byte=command_byte,
+                payload=data[1:],
+                is_read=True,
+            )
+        if command_byte in self.READ_BUFFER_COMMANDS:
+            return TN3270Command(
+                name="Read Buffer",
+                command_byte=command_byte,
+                payload=data[1:],
+                is_read=True,
+            )
+        return TN3270Command(
+            name=f"Raw Write ({hex(command_byte)})",
+            command_byte=command_byte,
+            payload=data,
+            is_write=True,
+            is_raw_write=True,
+        )
+
+
+@dataclass(frozen=True)
+class WriteOrder:
+    """One decoded write-order or data-character operation."""
+
+    code: Optional[int]
+    name: str
+    raw: bytes
+    address: Optional[int] = None
+    end_address: Optional[int] = None
+    attribute: Optional[int] = None
+    attribute_pairs: Tuple[Tuple[int, int], ...] = ()
+    char: Optional[str] = None
+    count: int = 0
+
+
+@dataclass(frozen=True)
+class WriteApplyStats:
+    """Summary of write-order application for logging and tests."""
+
+    chars_written: int = 0
+    orders_processed: int = 0
 
 
 @dataclass
@@ -372,6 +576,245 @@ class Screen:
         return ' '
 
 
+class ScreenApplier:
+    """Apply 3270 write orders to a :class:`Screen` through order handlers."""
+
+    def __init__(self, screen: Screen):
+        self.screen = screen
+        self._size = screen.rows * screen.cols
+        self._handlers = {
+            Order3270.SBA: self._handle_sba,
+            Order3270.SF: self._handle_sf,
+            Order3270.SFE: self._handle_sfe,
+            Order3270.SA: self._handle_noop,
+            Order3270.MF: self._handle_noop,
+            Order3270.IC: self._handle_ic,
+            Order3270.PT: self._handle_noop,
+            Order3270.RA: self._handle_ra,
+            Order3270.EUA: self._handle_eua,
+            Order3270.GE: self._handle_ge,
+        }
+
+    def apply(self, data: bytes) -> WriteApplyStats:
+        """Parse and apply write data, preserving the historical cursor rule."""
+        index = 0
+        current_address = self.screen.cursor_address
+        chars_written = 0
+        orders_processed = 0
+
+        while index < len(data):
+            order, index = self._read_order(data, index)
+            if order.code is None:
+                current_address = self._handle_text(order, current_address)
+                chars_written += 1
+                continue
+
+            handler = self._handlers.get(Order3270(order.code), self._handle_noop)
+            current_address, processed = handler(order, current_address)
+            orders_processed += processed
+
+        self.screen.cursor_address = current_address
+        return WriteApplyStats(chars_written=chars_written, orders_processed=orders_processed)
+
+    def _read_order(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        byte = data[index]
+        if byte == Order3270.SBA:
+            return self._read_sba(data, index)
+        if byte == Order3270.SF:
+            return self._read_sf(data, index)
+        if byte == Order3270.SFE:
+            return self._read_sfe(data, index)
+        if byte == Order3270.SA:
+            next_index = index + 3 if index + 2 < len(data) else index + 1
+            return WriteOrder(code=byte, name="SA", raw=data[index:next_index]), next_index
+        if byte == Order3270.MF:
+            if index + 1 < len(data):
+                count = data[index + 1]
+                next_index = index + 2 + (count * 2)
+                return (
+                    WriteOrder(code=byte, name="MF", raw=data[index:next_index], count=count),
+                    next_index,
+                )
+            return WriteOrder(code=byte, name="MF", raw=data[index:index + 1]), index + 1
+        if byte == Order3270.IC:
+            return WriteOrder(code=byte, name="IC", raw=data[index:index + 1]), index + 1
+        if byte == Order3270.PT:
+            return WriteOrder(code=byte, name="PT", raw=data[index:index + 1]), index + 1
+        if byte == Order3270.RA:
+            return self._read_ra(data, index)
+        if byte == Order3270.EUA:
+            return self._read_eua(data, index)
+        if byte == Order3270.GE:
+            return self._read_ge(data, index)
+        return (
+            WriteOrder(
+                code=None,
+                name="DATA",
+                raw=data[index:index + 1],
+                char=ebcdic_to_ascii(byte),
+            ),
+            index + 1,
+        )
+
+    def _read_sba(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        if index + 2 < len(data):
+            address = decode_buffer_address(data[index + 1], data[index + 2])
+            return (
+                WriteOrder(
+                    code=Order3270.SBA,
+                    name="SBA",
+                    raw=data[index:index + 3],
+                    address=address,
+                ),
+                index + 3,
+            )
+        return WriteOrder(code=Order3270.SBA, name="SBA", raw=data[index:index + 1]), index + 1
+
+    def _read_sf(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        if index + 1 < len(data):
+            attr = data[index + 1]
+            return (
+                WriteOrder(
+                    code=Order3270.SF,
+                    name="SF",
+                    raw=data[index:index + 2],
+                    attribute=attr,
+                ),
+                index + 2,
+            )
+        return WriteOrder(code=Order3270.SF, name="SF", raw=data[index:index + 1]), index + 1
+
+    def _read_sfe(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        if index + 1 >= len(data):
+            return WriteOrder(code=Order3270.SFE, name="SFE", raw=data[index:index + 1]), index + 1
+
+        count = data[index + 1]
+        pairs = []
+        for pair_index in range(count):
+            pair_offset = index + 2 + (pair_index * 2)
+            if pair_offset + 1 < len(data):
+                pairs.append((data[pair_offset], data[pair_offset + 1]))
+        next_index = index + 2 + (count * 2)
+        return (
+            WriteOrder(
+                code=Order3270.SFE,
+                name="SFE",
+                raw=data[index:next_index],
+                attribute_pairs=tuple(pairs),
+                count=count,
+            ),
+            next_index,
+        )
+
+    def _read_ra(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        if index + 3 < len(data):
+            end_address = decode_buffer_address(data[index + 1], data[index + 2])
+            return (
+                WriteOrder(
+                    code=Order3270.RA,
+                    name="RA",
+                    raw=data[index:index + 4],
+                    end_address=end_address,
+                    char=ebcdic_to_ascii(data[index + 3]),
+                ),
+                index + 4,
+            )
+        return WriteOrder(code=Order3270.RA, name="RA", raw=data[index:index + 1]), index + 1
+
+    def _read_eua(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        if index + 2 < len(data):
+            end_address = decode_buffer_address(data[index + 1], data[index + 2])
+            return (
+                WriteOrder(
+                    code=Order3270.EUA,
+                    name="EUA",
+                    raw=data[index:index + 3],
+                    end_address=end_address,
+                ),
+                index + 3,
+            )
+        return WriteOrder(code=Order3270.EUA, name="EUA", raw=data[index:index + 1]), index + 1
+
+    def _read_ge(self, data: bytes, index: int) -> Tuple[WriteOrder, int]:
+        if index + 1 < len(data):
+            return (
+                WriteOrder(
+                    code=Order3270.GE,
+                    name="GE",
+                    raw=data[index:index + 2],
+                    char=ebcdic_to_ascii(data[index + 1]),
+                ),
+                index + 2,
+            )
+        return WriteOrder(code=Order3270.GE, name="GE", raw=data[index:index + 1]), index + 1
+
+    def _handle_sba(self, order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        if order.address is None:
+            return current_address, 0
+        return order.address, 1
+
+    def _handle_sf(self, order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        if order.attribute is None:
+            return current_address, 0
+        self._start_field(current_address, order.attribute)
+        return (current_address + 1) % self._size, 1
+
+    def _handle_sfe(self, order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        attr = 0x00
+        for attr_type, attr_value in order.attribute_pairs:
+            if attr_type == 0xC0:
+                attr = attr_value
+        self._start_field(current_address, attr)
+        return (current_address + 1) % self._size, 1
+
+    def _handle_ic(self, _order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        self.screen.cursor_address = current_address
+        logger.info(
+            "IC order: cursor_address set to %s (row=%s, col=%s)",
+            current_address,
+            current_address // 80,
+            current_address % 80,
+        )
+        return current_address, 0
+
+    def _handle_ra(self, order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        if order.end_address is None or order.char is None:
+            return current_address, 0
+        while current_address != order.end_address:
+            self.screen.set_char(current_address, order.char)
+            current_address = (current_address + 1) % self._size
+        return current_address, 0
+
+    def _handle_eua(self, order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        if order.end_address is None:
+            return current_address, 0
+        while current_address != order.end_address:
+            self.screen.set_char(current_address, ' ')
+            current_address = (current_address + 1) % self._size
+        return current_address, 0
+
+    def _handle_ge(self, order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        if order.char is None:
+            return current_address, 0
+        self.screen.set_char(current_address, order.char)
+        return (current_address + 1) % self._size, 0
+
+    def _handle_text(self, order: WriteOrder, current_address: int) -> int:
+        if order.char is not None:
+            self.screen.set_char(current_address, order.char)
+            return (current_address + 1) % self._size
+        return current_address
+
+    def _handle_noop(self, _order: WriteOrder, current_address: int) -> Tuple[int, int]:
+        return current_address, 0
+
+    def _start_field(self, address: int, attribute: int):
+        self.screen.set_char(address, ' ')
+        if 0 <= address < len(self.screen.attributes):
+            self.screen.attributes[address] = attribute
+        self.screen.add_field(address, attribute)
+
+
 class TN3270Client:
     """TN3270 Terminal Client"""
     
@@ -391,6 +834,7 @@ class TN3270Client:
         self.assigned_lu_name = ""  # LU name assigned by server via TN3270E CONNECT
         self._on_screen_update: Optional[Callable] = None
         self._receive_buffer = b''
+        self._command_decoder = TN3270CommandDecoder()
         
     def set_screen_update_callback(self, callback: Callable):
         """Set callback for screen updates"""
@@ -505,72 +949,30 @@ class TN3270Client:
     def _negotiate(self):
         """Handle telnet negotiation"""
         logger.info("Starting telnet negotiation")
-        # Receive initial negotiation
+        decoder = TelnetFrameDecoder()
         data = self._recv(timeout=10)
-        
-        all_screen_data = bytearray()
         negotiation_rounds = 0
-        
+
         while data:
             negotiation_rounds += 1
             logger.info(f"Negotiation round {negotiation_rounds}: received {len(data)} bytes")
             logger.debug(f"Raw data: {data[:100].hex()}...")
-            i = 0
-            
-            while i < len(data):
-                if data[i] == TelnetCmd.IAC:
-                    if i + 1 >= len(data):
-                        break
-                    cmd = data[i + 1]
-                    
-                    if cmd == TelnetCmd.DO:
-                        if i + 2 >= len(data):
-                            break
-                        opt = data[i + 2]
-                        self._handle_do(opt)
-                        i += 3
-                    elif cmd == TelnetCmd.WILL:
-                        if i + 2 >= len(data):
-                            break
-                        opt = data[i + 2]
-                        self._handle_will(opt)
-                        i += 3
-                    elif cmd == TelnetCmd.SB:
-                        # Find SE
-                        se_pos = data.find(bytes([TelnetCmd.IAC, TelnetCmd.SE]), i)
-                        if se_pos > 0:
-                            subneg = data[i+2:se_pos]
-                            self._handle_subnegotiation(subneg)
-                            i = se_pos + 2
-                        else:
-                            i += 2
-                    elif cmd == TelnetCmd.EOR:
-                        # End of record - we have complete 3270 data
-                        logger.info(f"EOR received - processing {len(all_screen_data)} bytes of screen data")
-                        if all_screen_data:
-                            self._process_3270_data(bytes(all_screen_data))
-                            all_screen_data = bytearray()
-                        i += 2
-                    elif cmd == TelnetCmd.IAC:
-                        # Escaped IAC - add to screen data
-                        all_screen_data.append(TelnetCmd.IAC)
-                        i += 2
-                    else:
-                        logger.debug(f"Unknown telnet cmd: {cmd}")
-                        i += 2
-                else:
-                    # Non-telnet data - screen data
-                    all_screen_data.append(data[i])
-                    i += 1
-            
-            # Check for more data with short timeout
+
+            batch = decoder.decode(data)
+            for frame in batch.frames:
+                self._handle_telnet_frame(frame)
+            for record in batch.records:
+                logger.info(f"EOR received - processing {len(record)} bytes of screen data")
+                if record:
+                    self._process_3270_data(record)
+
             data = self._recv(timeout=2)
-        
-        # Process any remaining screen data
-        if all_screen_data:
-            logger.info(f"Processing remaining {len(all_screen_data)} bytes of screen data")
-            self._process_3270_data(bytes(all_screen_data))
-        
+
+        remaining = decoder.flush_record()
+        if remaining:
+            logger.info(f"Processing remaining {len(remaining)} bytes of screen data")
+            self._process_3270_data(remaining)
+
         logger.info(f"Telnet negotiation complete after {negotiation_rounds} rounds")
         logger.info(f"Screen buffer sample: '{self.screen.get_text()[:200]}'")
         
@@ -592,6 +994,17 @@ class TN3270Client:
                     # If we timed out but are still connected, keep trying
                     if not self.connected:
                         break
+
+    def _handle_telnet_frame(self, frame: TelnetFrame):
+        """Route one decoded telnet frame to the existing negotiation handlers."""
+        if frame.command == TelnetCmd.DO and frame.option is not None:
+            self._handle_do(frame.option)
+        elif frame.command == TelnetCmd.WILL and frame.option is not None:
+            self._handle_will(frame.option)
+        elif frame.command == TelnetCmd.SB:
+            self._handle_subnegotiation(frame.payload)
+        else:
+            logger.debug(f"Unknown telnet cmd: {frame.command}")
 
     
     def _handle_do(self, opt: int):
@@ -796,40 +1209,7 @@ class TN3270Client:
     
     def _extract_3270_data(self, data: bytes) -> bytes:
         """Extract 3270 data from telnet stream"""
-        result = bytearray()
-        i = 0
-        
-        while i < len(data):
-            if data[i] == TelnetCmd.IAC:
-                if i + 1 < len(data):
-                    cmd = data[i + 1]
-                    if cmd == TelnetCmd.EOR:
-                        # End of record - we have a complete 3270 message
-                        i += 2
-                        continue
-                    elif cmd == TelnetCmd.IAC:
-                        # Escaped IAC
-                        result.append(TelnetCmd.IAC)
-                        i += 2
-                        continue
-                    elif cmd in (TelnetCmd.DO, TelnetCmd.DONT, TelnetCmd.WILL, TelnetCmd.WONT):
-                        # Skip option negotiation
-                        i += 3
-                        continue
-                    elif cmd == TelnetCmd.SB:
-                        # Skip to SE
-                        se_pos = data.find(bytes([TelnetCmd.IAC, TelnetCmd.SE]), i)
-                        if se_pos > 0:
-                            i = se_pos + 2
-                        else:
-                            i += 2
-                        continue
-                i += 1
-            else:
-                result.append(data[i])
-                i += 1
-        
-        return bytes(result)
+        return TelnetFrameDecoder.extract_payload(data)
 
     def _extract_3270_payload(self, data: bytes) -> bytes:
         """Strip TN3270E header if in TN3270E mode"""
@@ -857,162 +1237,38 @@ class TN3270Client:
         # Log the first few bytes for debugging
         logger.info(f"Processing 3270 data: {len(data)} bytes, first 20: {data[:20].hex()}")
         
-        # Check for WCC (Write Control Character) 
-        cmd = data[0]
-        logger.info(f"3270 command byte: {hex(cmd)}")
-        
-        # Command codes - both standard and SNA variants
-        # Standard: W=0x01, EW=0x05, EWA=0x0D, WSF=0x11
-        # SNA/Alternate: W=0xF1, EW=0xF5, EWA=0x7E, WSF=0xF3
-        
-        if cmd in (0x01, 0xF1):  # Write
-            logger.info("Write command")
-            if len(data) > 1:
-                wcc = data[1]
-                logger.debug(f"WCC: {hex(wcc)}")
-                self._process_write_data(data[2:])
-        elif cmd in (0x05, 0xF5):  # Erase/Write
-            logger.info("Erase/Write command")
+        command = self._command_decoder.decode(data)
+        if command is None:
+            return
+
+        logger.info(f"3270 command byte: {hex(command.command_byte)}")
+        logger.info(f"{command.name} command")
+        if command.wcc is not None:
+            logger.debug(f"WCC: {hex(command.wcc)}")
+
+        if command.clear_screen:
             self.screen.clear()
-            if len(data) > 1:
-                wcc = data[1]
-                logger.debug(f"WCC: {hex(wcc)}")
-                self._process_write_data(data[2:])
-        elif cmd in (0x0D, 0x7E):  # Erase/Write Alternate
-            logger.info("Erase/Write Alternate command")
-            self.screen.clear()
-            if len(data) > 1:
-                wcc = data[1]
-                logger.debug(f"WCC: {hex(wcc)}")
-                self._process_write_data(data[2:])
-        elif cmd in (0x11, 0xF3):  # Write Structured Field
-            logger.info("Write Structured Field command")
-            # WSF has different format - parse structured fields
-            self._process_wsf(data[1:])
-        elif cmd == 0x06 or cmd == 0xF6:  # Read Modified
-            logger.debug("Read Modified command - no screen update")
-        elif cmd == 0x02 or cmd == 0xF2:  # Read Buffer
-            logger.debug("Read Buffer command - no screen update")
-        else:
-            # Might be raw data without command byte
-            logger.info(f"Unknown cmd {hex(cmd)} - processing as raw write data")
-            self._process_write_data(data)
+        if command.is_structured_field:
+            self._process_wsf(command.payload)
+        elif command.is_read:
+            logger.debug(f"{command.name} command - no screen update")
+        elif command.is_write:
+            if command.is_raw_write:
+                logger.info(
+                    "Unknown cmd %s - processing as raw write data",
+                    hex(command.command_byte),
+                )
+            self._process_write_data(command.payload)
     
     def _process_write_data(self, data: bytes):
         """Process write data (orders and characters)"""
-        i = 0
-        current_address = self.screen.cursor_address
-        chars_written = 0
-        orders_processed = 0
-        
         logger.debug(f"Processing write data: {len(data)} bytes")
-        
-        while i < len(data):
-            byte = data[i]
-            
-            if byte == Order3270.SBA:  # 0x11
-                # Set Buffer Address
-                if i + 2 < len(data):
-                    current_address = decode_buffer_address(data[i + 1], data[i + 2])
-                    orders_processed += 1
-                    i += 3
-                else:
-                    i += 1
-            elif byte == Order3270.SF:  # 0x1D
-                # Start Field
-                if i + 1 < len(data):
-                    attr = data[i + 1]
-                    self.screen.set_char(current_address, ' ')
-                    if 0 <= current_address < len(self.screen.attributes):
-                        self.screen.attributes[current_address] = attr
-                    # Track this field
-                    self.screen.add_field(current_address, attr)
-                    current_address = (current_address + 1) % (self.screen.rows * self.screen.cols)
-                    orders_processed += 1
-                    i += 2
-                else:
-                    i += 1
-            elif byte == Order3270.SFE:  # 0x29
-                # Start Field Extended - parse attribute pairs
-                if i + 1 < len(data):
-                    count = data[i + 1]
-                    # Default attribute
-                    attr = 0x00
-                    # Parse type-value pairs
-                    for p in range(count):
-                        pair_idx = i + 2 + (p * 2)
-                        if pair_idx + 1 < len(data):
-                            attr_type = data[pair_idx]
-                            attr_value = data[pair_idx + 1]
-                            if attr_type == 0xC0:  # Basic 3270 field attribute
-                                attr = attr_value
-                    self.screen.set_char(current_address, ' ')
-                    if 0 <= current_address < len(self.screen.attributes):
-                        self.screen.attributes[current_address] = attr
-                    self.screen.add_field(current_address, attr)
-                    current_address = (current_address + 1) % (self.screen.rows * self.screen.cols)
-                    orders_processed += 1
-                    i += 2 + (count * 2)
-                else:
-                    i += 1
-            elif byte == Order3270.SA:
-                # Set Attribute - skip
-                i += 3 if i + 2 < len(data) else 1
-            elif byte == Order3270.IC:
-                # Insert Cursor - sets where cursor should be positioned
-                self.screen.cursor_address = current_address
-                logger.info(f"IC order: cursor_address set to {current_address} (row={current_address // 80}, col={current_address % 80})")
-                i += 1
-            elif byte == Order3270.RA:
-                # Repeat to Address
-                if i + 3 < len(data):
-                    end_addr = decode_buffer_address(data[i + 1], data[i + 2])
-                    char = ebcdic_to_ascii(data[i + 3])
-                    while current_address != end_addr:
-                        self.screen.set_char(current_address, char)
-                        current_address = (current_address + 1) % (self.screen.rows * self.screen.cols)
-                    i += 4
-                else:
-                    i += 1
-            elif byte == Order3270.EUA:
-                # Erase Unprotected to Address
-                if i + 2 < len(data):
-                    end_addr = decode_buffer_address(data[i + 1], data[i + 2])
-                    while current_address != end_addr:
-                        self.screen.set_char(current_address, ' ')
-                        current_address = (current_address + 1) % (self.screen.rows * self.screen.cols)
-                    i += 3
-                else:
-                    i += 1
-            elif byte == Order3270.PT:
-                # Program Tab - skip
-                i += 1
-            elif byte == Order3270.GE:
-                # Graphic Escape
-                if i + 1 < len(data):
-                    char = ebcdic_to_ascii(data[i + 1])
-                    self.screen.set_char(current_address, char)
-                    current_address = (current_address + 1) % (self.screen.rows * self.screen.cols)
-                    i += 2
-                else:
-                    i += 1
-            elif byte == Order3270.MF:
-                # Modify Field - skip
-                if i + 1 < len(data):
-                    count = data[i + 1]
-                    i += 2 + (count * 2)
-                else:
-                    i += 1
-            else:
-                # Regular character
-                char = ebcdic_to_ascii(byte)
-                self.screen.set_char(current_address, char)
-                current_address = (current_address + 1) % (self.screen.rows * self.screen.cols)
-                chars_written += 1
-                i += 1
-        
-        self.screen.cursor_address = current_address
-        logger.info(f"Write data complete: {chars_written} chars written, {orders_processed} orders processed")
+        stats = ScreenApplier(self.screen).apply(data)
+        logger.info(
+            "Write data complete: %s chars written, %s orders processed",
+            stats.chars_written,
+            stats.orders_processed,
+        )
     
     def _process_wsf(self, data: bytes):
         """Process Write Structured Field command"""
