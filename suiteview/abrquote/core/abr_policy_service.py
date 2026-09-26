@@ -416,6 +416,8 @@ def premium_schedule_for_quote(
     policy: ABRPolicyData,
     quote_date: date,
     level_annual_premium: float | None = None,
+    *,
+    use_arithmetic_modal_rounding: bool = False,
 ) -> PremiumScheduleResult:
     """Build the APV premium schedule for a quote date."""
     from .premium_calc import PremiumCalculator, arithmetic_round
@@ -455,7 +457,12 @@ def premium_schedule_for_quote(
         premium_schedule[year_index] if year_index < len(premium_schedule) else 0.0
     )
     if not is_ul and year_index < len(premium_schedule) and remaining_payments < payments_per_year:
-        modal_total = arithmetic_round(premium_schedule[year_index] * modal_factor, 2)
+        modal_amount = premium_schedule[year_index] * modal_factor
+        modal_total = (
+            arithmetic_round(modal_amount, 2)
+            if use_arithmetic_modal_rounding
+            else round(modal_amount, 2)
+        )
         premium_schedule[year_index] = modal_total * remaining_payments
     return PremiumScheduleResult(
         start_year=start_year,

@@ -1059,7 +1059,11 @@ class PolicyPanel(QWidget):
 
             db = get_abr_database()
             db.reset_query_stats()
-            schedule = premium_schedule_for_quote(p, self.get_quote_date())
+            schedule = premium_schedule_for_quote(
+                p,
+                self.get_quote_date(),
+                use_arithmetic_modal_rounding=True,
+            )
             if not schedule.premium_schedule:
                 self._detail_labels["calc_premium"].setText("(none)")
                 return

@@ -769,7 +769,11 @@ class RateViewerDialog(FramelessWindowBase):
         rate = RateViewerDialog._parse_float(self, values, "rate", "Moody Ave Yield")
         if rate is None:
             return
-        iul_rate = RateViewerDialog._parse_float(self, values, "iul_rate", "ABR Rate", default=None) if values["iul_rate"] else None
+        iul_rate = None
+        if values["iul_rate"]:
+            iul_rate = RateViewerDialog._parse_float(self, values, "iul_rate", "ABR Rate")
+            if iul_rate is None:
+                return
         RateViewerDialog._upsert_rate_row(self, 
             "save interest rate data",
             "DELETE FROM [SV_ABR_INTEREST_RATES] WHERE effective_date = ?",
@@ -836,7 +840,11 @@ class RateViewerDialog(FramelessWindowBase):
         if not values["state_abbr"]:
             RateViewerDialog._warn_required(self, "State Abbreviation")
             return
-        cl_code = RateViewerDialog._parse_int(self, values, "cl_state_code", "CL State Code", default=None) if values["cl_state_code"] else None
+        cl_code = None
+        if values["cl_state_code"]:
+            cl_code = RateViewerDialog._parse_int(self, values, "cl_state_code", "CL State Code")
+            if cl_code is None:
+                return
         admin_fee = RateViewerDialog._parse_float(self, values, "admin_fee", "Admin Fee", default=250.0)
         if admin_fee is None:
             return
