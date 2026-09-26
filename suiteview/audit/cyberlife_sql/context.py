@@ -221,6 +221,15 @@ def _collect_people_and_adv_flags(ctx: QueryContext) -> None:
 
 def collect_advanced_coverage_context(ctx: QueryContext) -> None:
     """Derive ADV and coverage flags before SQL fragments are assembled."""
+    _collect_advanced_search_context(ctx)
+    _collect_coverage_value_context(ctx)
+    _collect_base_coverage_context(ctx)
+    _collect_rider_coverage_context(ctx)
+    _collect_coverage_dependency_flags(ctx)
+
+
+def _collect_advanced_search_context(ctx: QueryContext) -> None:
+    """Collect ADV tab filter and display dependencies."""
     ctx.adv_gcv_lt_cv = ctx.at.chk_gcv_lt_cv
     ctx.adv_prem_wd_gt_face = ctx.at.chk_prem_wd_gt_face
     ctx.adv_grace_rule = bool(ctx.at.chk_grace_rule and ctx.at.list_grace_rule)
@@ -245,6 +254,10 @@ def collect_advanced_coverage_context(ctx: QueryContext) -> None:
     ctx.multi_base_covs = ctx.pt.chk_multiple_base_covs
     ctx.is_mdo = ctx.pt.chk_is_mdo
     ctx.in_conversion = ctx.pt.chk_in_conversion
+
+
+def _collect_coverage_value_context(ctx: QueryContext) -> None:
+    """Collect coverage tab values that become WHERE predicates."""
     ctx.cov_val_classes = ctx.covt.val_class.selected
     ctx.cov_val_class = ctx.covt.val_class.value.strip()
     ctx.cov_val_base = ctx.covt.val_base.strip()
@@ -267,6 +280,10 @@ def collect_advanced_coverage_context(ctx: QueryContext) -> None:
     ctx.cov_has_spec_amt = bool(ctx.cov_spec_amt_lo or ctx.cov_spec_amt_hi)
     ctx.cov_init_term = bool(ctx.covt.chk_init_term and ctx.covt.list_init_term)
     ctx._bw = ctx.covt.base_cov_widgets
+
+
+def _collect_base_coverage_context(ctx: QueryContext) -> None:
+    """Collect base coverage widget values and their direct dependencies."""
     ctx.cov_base_plancode = ctx._bw["plancode"].strip()
     ctx.cov_base_prod_line = ctx._bw["prod_line"].strip()
     ctx.cov_base_prod_ind = ctx._bw["prod_ind"].strip()
@@ -289,24 +306,58 @@ def collect_advanced_coverage_context(ctx: QueryContext) -> None:
     ctx.cov_base_change_hi = normalize_date(ctx._bw["change_date_hi"]) or ""
     ctx.cov_needs_modcov1 = bool(ctx.cov_base_prod_ind or ctx.cov_base_cola_ind or ctx.cov_base_gio_fio)
     ctx.cov_needs_renewals = bool(ctx.cov_base_rateclass or ctx.cov_base_sex67)
+
+
+def _collect_rider_coverage_context(ctx: QueryContext) -> None:
+    """Collect rider coverage specs shared by join and display builders."""
     ctx.rider1_info = _rider_info(ctx.covt.rider1_widgets)
     ctx.rider2_info = _rider_info(ctx.covt.rider2_widgets)
     ctx.cov_needs_modcovsall = bool(ctx.cov_gio or ctx.cov_cola)
     ctx.has_modcovsall = ctx.has_modcovsall or ctx.cov_needs_modcovsall
     ctx.has_skipped_rein = ctx.has_skipped_rein or ctx.cov_skipped_rein
     ctx.multi_base_covs = ctx.multi_base_covs or ctx.cov_multi_base
-    ctx.cov_needs_covsummary = bool(ctx.cov_has_spec_amt or ctx.cov_multi_base)
-    ctx.cov_needs_iswl_gcv = bool(ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv)
-    ctx.cov_needs_mvval = bool(ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv)
-    ctx.needs_mvval = ctx.adv_cv_corr or ctx.adv_accum_gt_prem or ctx.has_accum_val or ctx.adv_gcv_gt_cv or ctx.adv_gcv_lt_cv or ctx.cov_needs_mvval or ctx.disp_accum_value or ctx.disp_prem_ptd or ctx.disp_account_value or ctx.adv_prem_wd_gt_face
-    ctx.needs_iswl_gcv = ctx.adv_gcv_gt_cv or ctx.adv_gcv_lt_cv or ctx.cov_needs_iswl_gcv
-    ctx.needs_interpolation = ctx.needs_iswl_gcv or ctx.disp_trad_cv_cov1 or ctx.disp_account_value
-    ctx.needs_covsummary = ctx.disp_spec_amt or ctx.multi_base_covs or ctx.adv_cv_corr or ctx.adv_sa_lt_orig or ctx.adv_sa_gt_orig or ctx.has_curr_spec_amt or ctx.needs_iswl_gcv or ctx.cov_needs_covsummary
+
+
+def _collect_coverage_dependency_flags(ctx: QueryContext) -> None:
+    """Resolve cross-tab CTE/join dependencies after raw flags are collected."""
+    ctx.cov_needs_covsummary = any((ctx.cov_has_spec_amt, ctx.cov_multi_base))
+    ctx.cov_needs_iswl_gcv = any((ctx.cov_gcv_gt_cv, ctx.cov_gcv_lt_cv))
+    ctx.cov_needs_mvval = any((ctx.cov_gcv_gt_cv, ctx.cov_gcv_lt_cv))
+    ctx.needs_mvval = any((
+        ctx.adv_cv_corr,
+        ctx.adv_accum_gt_prem,
+        ctx.has_accum_val,
+        ctx.adv_gcv_gt_cv,
+        ctx.adv_gcv_lt_cv,
+        ctx.cov_needs_mvval,
+        ctx.disp_accum_value,
+        ctx.disp_prem_ptd,
+        ctx.disp_account_value,
+        ctx.adv_prem_wd_gt_face,
+    ))
+    ctx.needs_iswl_gcv = any((ctx.adv_gcv_gt_cv, ctx.adv_gcv_lt_cv, ctx.cov_needs_iswl_gcv))
+    ctx.needs_interpolation = any((ctx.needs_iswl_gcv, ctx.disp_trad_cv_cov1, ctx.disp_account_value))
+    ctx.needs_covsummary = any((
+        ctx.disp_spec_amt,
+        ctx.multi_base_covs,
+        ctx.adv_cv_corr,
+        ctx.adv_sa_lt_orig,
+        ctx.adv_sa_gt_orig,
+        ctx.has_curr_spec_amt,
+        ctx.needs_iswl_gcv,
+        ctx.cov_needs_covsummary,
+    ))
     ctx.needs_premwd_face = ctx.adv_prem_wd_gt_face
     ctx.cov1_plancode_match_only = ctx.plancode_tab.cov1_only
-    ctx._any_cov_plancode = bool((ctx.pt.txt_plancode.strip() or ctx.plancode_tab.plancodes) and (not ctx.cov1_plancode_match_only))
+    ctx._any_cov_plancode = bool(
+        any((ctx.pt.txt_plancode.strip(), ctx.plancode_tab.plancodes))
+        and not ctx.cov1_plancode_match_only
+    )
     ctx._any_cov_product_line = bool(ctx.pt.chk_product_line and selected_codes(ctx.pt.list_product_line))
-    ctx.needs_covsall = ctx.has_modcovsall or (not ctx.coverage_level and (ctx._any_cov_plancode or ctx._any_cov_product_line))
+    ctx.needs_covsall = any((
+        ctx.has_modcovsall,
+        not ctx.coverage_level and any((ctx._any_cov_plancode, ctx._any_cov_product_line)),
+    ))
     ctx.disp_trad_rates = ctx.dt.Checkbox_DisplayTradRates
     ctx.cov_base_change_set = bool(ctx.cov_base_change_lo or ctx.cov_base_change_hi)
     ctx.cov_base_vpu_set = bool(ctx._bw["vpu_lo"].strip() or ctx._bw["vpu_hi"].strip())

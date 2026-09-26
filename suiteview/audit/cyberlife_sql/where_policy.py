@@ -125,6 +125,12 @@ def _add_policy_code_where(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_bill_mode_and_age_where(ctx, parts)
+    _add_policy2_totals_where(ctx, parts)
+    _add_participation_where(ctx, parts)
+
+
+def _add_bill_mode_and_age_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.pt.chk_bill_mode:
         modes = [item for item in ctx.pt.list_bill_mode]
         if modes:
@@ -150,6 +156,9 @@ def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
         if codes:
             grace_conditions = ' OR '.join((f"SUBSTR(GRACE_TABLE.IN_GRA_PER_IND,1,1) = '{esc(c)}'" for c in codes))
             parts.wheres.append(f'({grace_conditions})')
+
+
+def _add_policy2_totals_where(ctx: QueryContext, parts: SqlParts) -> None:
     add_decimal_range(parts.wheres, 'TAMRA.SVPY_LVL_PRM_AMT', ctx.p2t.txt_tamra_7pay_prem_lo, ctx.p2t.txt_tamra_7pay_prem_hi)
     add_decimal_range(parts.wheres, 'TAMRA.SVPY_BEG_CSV_AMT', ctx.p2t.txt_tamra_7pay_av_lo, ctx.p2t.txt_tamra_7pay_av_hi)
     if ctx.p2t.chk_1035_amt:
@@ -165,6 +174,9 @@ def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.append("NONTRAD.BIL_STA_CD = '1'")
     if ctx.p2t.chk_failed_guideline:
         parts.wheres.append("NONTRAD.PR_LIMIT_EXC_ONL = '1'")
+
+
+def _add_participation_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.p2t.chk_participating:
         codes = []
         for item in ctx.p2t.list_participating:
@@ -187,6 +199,14 @@ def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_policy2_identity_where(ctx, parts)
+    _add_policy2_loan_where(ctx, parts)
+    _add_policy2_code_where(ctx, parts)
+    _add_advanced_boolean_where(ctx, parts)
+    _add_advanced_rule_where(ctx, parts)
+
+
+def _add_policy2_identity_where(ctx: QueryContext, parts: SqlParts) -> None:
     add_date_range(parts.wheres, 'POLICY1.LST_FIN_DT', ctx.p2t.txt_last_fin_date_lo, ctx.p2t.txt_last_fin_date_hi)
     parts.wheres.extend(ctx.term_fin_predicates)
     parts.wheres.extend(ctx.term_both_predicates)
@@ -198,6 +218,9 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.append("MODCOVSALL.OPT_EXER_IND = 'Y'")
     if ctx.p2t.chk_cov_cola:
         parts.wheres.append("MODCOVSALL.COLA_INCR_IND = '1'")
+
+
+def _add_policy2_loan_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.p2t.chk_loan_type:
         codes = selected_codes(ctx.p2t.list_loan_type)
         if codes:
@@ -214,6 +237,9 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
         codes = selected_codes(ctx.p2t.list_trad_overloan)
         if codes:
             parts.wheres.append(f'POLICY1_MOD.OVERLOAN_IND IN ({in_list(codes)})')
+
+
+def _add_policy2_code_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.p2t.chk_non_trad:
         codes = selected_codes(ctx.p2t.list_non_trad)
         if codes:
@@ -234,6 +260,9 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
         codes = selected_codes(ctx.p2t.list_change_seq)
         if codes:
             parts.wheres.append(f'CHANGE_SEGMENT.CHG_TYP_CD IN ({in_list(codes)})')
+
+
+def _add_advanced_boolean_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_cv_corr:
         parts.wheres.append('(MVVAL.DB > COVSUMMARY.TOTAL_SA + MVVAL.OPTDB)')
     if ctx.adv_accum_gt_prem:
@@ -250,6 +279,9 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.append('(ISWL_INTERPOLATED_GCV.ISWL_GCV <= MVVAL.CSV_AMT)')
     if ctx.adv_prem_wd_gt_face:
         parts.wheres.append('((POLICY_TOTALS.TOT_REG_PRM_AMT + POLICY_TOTALS.TOT_ADD_PRM_AMT - POLICY_TOTALS.TOT_WTD_AMT) > PREMWD_FACE.TOTAL_FACE)')
+
+
+def _add_advanced_rule_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_grace_rule:
         codes = selected_codes(ctx.at.list_grace_rule)
         if codes:

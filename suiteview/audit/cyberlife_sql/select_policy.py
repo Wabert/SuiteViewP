@@ -5,6 +5,13 @@ from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 
 
 def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_life_definition_selects(ctx, parts)
+    _add_policy_value_summary_selects(ctx, parts)
+    _add_loan_and_rating_selects(ctx, parts)
+    _add_policy_indicator_selects(ctx, parts)
+
+
+def _add_life_definition_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_def_life_ins:
         parts.sql_parts.append('  , (CASE')
         parts.sql_parts.append("      WHEN NONTRAD.TFDF_CD = '1' THEN '1 - GPT TEFRA'")
@@ -29,6 +36,9 @@ def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_conversion_dates:
         parts.sql_parts.append("  , VARCHAR_FORMAT(SC.CONV_SC_ENTRY_DT, 'MM/DD/YYYY') CONV_SC_ENTRY_DT")
         parts.sql_parts.append("  , VARCHAR_FORMAT(SC.CONV_SC_EFFECTIVE_DT, 'MM/DD/YYYY') CONV_SC_EFFECTIVE_DT")
+
+
+def _add_policy_value_summary_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_accum_wd:
         parts.sql_parts.append('  , POLICY_TOTALS.TOT_WTD_AMT')
     if ctx.disp_cost_basis:
@@ -47,6 +57,9 @@ def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , POLICYDEBT.REG_LOAN_ACCRUED')
         parts.sql_parts.append('  , POLICYDEBT.PREF_LOAN_PRINCIPLE')
         parts.sql_parts.append('  , POLICYDEBT.PREF_LOAN_ACCRUED')
+
+
+def _add_loan_and_rating_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_policy_debt:
         if not ctx.has_preferred_loan:
             parts.sql_parts.append('  , POLICYDEBT.LOAN_PRINCIPLE')
@@ -84,6 +97,9 @@ def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , GLP.GLP_VALUE')
     elif ctx.has_glp_range:
         parts.sql_parts.append('  , GLP.GLP_VALUE')
+
+
+def _add_policy_indicator_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_bill_ctrl_num:
         parts.sql_parts.append('  , BILL_CONTROL.BIL_CTL_NBR BillControl')
     if ctx.disp_slr_bill_form:

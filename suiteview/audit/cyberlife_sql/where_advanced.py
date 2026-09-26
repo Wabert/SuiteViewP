@@ -16,6 +16,13 @@ from suiteview.audit.sql_helpers import (
 
 
 def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_advanced_value_where(ctx, parts)
+    _add_advanced_policy_flags_where(ctx, parts)
+    _add_coverage_value_where(ctx, parts)
+    _add_coverage_flag_where(ctx, parts)
+
+
+def _add_advanced_value_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_orig_entry:
         codes = selected_codes(ctx.at.list_orig_entry)
         if codes:
@@ -47,6 +54,9 @@ def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
         else:
             cirf_pred = f"{cirf_col} LIKE '%{cirf}%'"
         parts.wheres.append(f'EXISTS (SELECT 1 FROM {ctx.schema}.LH_COV_FXD_FND_CTL FFC_SRCH WHERE FFC_SRCH.CK_SYS_CD = POLICY1.CK_SYS_CD AND FFC_SRCH.CK_CMP_CD = POLICY1.CK_CMP_CD AND FFC_SRCH.TCH_POL_ID = POLICY1.TCH_POL_ID AND {cirf_pred})')
+
+
+def _add_advanced_policy_flags_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.multi_base_covs:
         parts.wheres.append('(COVSUMMARY.BASECOVCOUNT > 1)')
     if ctx.is_mdo:
@@ -56,6 +66,9 @@ def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
         duration_expr = f"TRUNCATE(MONTHS_BETWEEN('{as_of_sql}', COVERAGE1.ISSUE_DT) / 12, 0)"
         attained_age_expr = f'(COVERAGE1.INS_ISS_AGE + {duration_expr})'
         parts.wheres.append(f"(CASE WHEN (UPDF.CONVERSION_PERIOD = 0 AND {attained_age_expr} < UPDF.CONVERSION_AGE) OR (UPDF.CONVERSION_PERIOD > 0 AND {duration_expr} < UPDF.CONVERSION_PERIOD AND {attained_age_expr} < UPDF.CONVERSION_AGE) THEN 'TRUE' ELSE 'FALSE' END) = 'TRUE'")
+
+
+def _add_coverage_value_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_val_classes:
         parts.wheres.append(f'COVERAGE1.INS_CLS_CD IN ({in_list(ctx.cov_val_classes)})')
     elif ctx.cov_val_class:
@@ -77,6 +90,9 @@ def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
             pass
     if ctx.cov_val_class_ne:
         parts.wheres.append('COVERAGE1.INS_CLS_CD <> SUBSTR(COVERAGE1.PLN_DES_SER_CD,3,1)')
+
+
+def _add_coverage_flag_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_cv_rate:
         parts.wheres.append('(COVERAGE1.LOW_DUR_1_CSV_AMT > 0 OR COVERAGE1.LOW_DUR_2_CSV_AMT > 0)')
     if ctx.cov_gcv_gt_cv:
@@ -94,6 +110,12 @@ def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def assemble_sql(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_base_coverage_where(ctx, parts)
+    _add_coverage_scope_where(ctx, parts)
+    _finish_sql(ctx, parts)
+
+
+def _add_base_coverage_where(ctx: QueryContext, parts: SqlParts) -> None:
     add_decimal_range(parts.wheres, 'COVSUMMARY.TOTAL_SA', ctx.covt.txt_spec_amt_lo, ctx.covt.txt_spec_amt_hi)
     if ctx.cov_init_term:
         codes = selected_codes(ctx.covt.list_init_term)
@@ -141,6 +163,9 @@ def assemble_sql(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.append(f"COV1_RENEWALS.RT_SEX_CD = '{esc(code)}'")
     add_decimal_range(parts.wheres, 'COVERAGE1.COV_VPU_AMT', ctx._bw['vpu_lo'], ctx._bw['vpu_hi'])
     add_decimal_range(parts.wheres, '(REAL(COVERAGE1.COV_UNT_QTY) * REAL(COVERAGE1.COV_VPU_AMT))', ctx._bw['spec_amt_lo'], ctx._bw['spec_amt_hi'])
+
+
+def _add_coverage_scope_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.coverage_level:
         if ctx.coverage_scope == 'Cov 1 only':
             parts.wheres.append('RESULTCOV.COV_PHA_NBR = 1')
@@ -154,6 +179,9 @@ def assemble_sql(ctx: QueryContext, parts: SqlParts) -> None:
         if rider_match_aliases:
             checks = [f'RESULTCOV.COV_PHA_NBR = {alias}.COV_PHA_NBR' for alias in rider_match_aliases]
             parts.wheres.append('(' + ' OR '.join(checks) + ')')
+
+
+def _finish_sql(ctx: QueryContext, parts: SqlParts) -> None:
     if parts.wheres:
         parts.sql_parts.append('WHERE ' + parts.wheres[0])
         for where_clause in parts.wheres[1:]:

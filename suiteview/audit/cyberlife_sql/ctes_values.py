@@ -202,6 +202,12 @@ def add_target_and_value_ctes(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_allocation_funds_cte(ctx, parts)
+    _add_standard_select_header(ctx, parts)
+    _add_policy_age_and_date_selects(ctx, parts)
+
+
+def _add_allocation_funds_cte(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_prem_alloc:
         fund_items = [item.split(' - ')[0].strip() for item in ctx.at.list_prem_alloc]
         if fund_items:
@@ -211,6 +217,9 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
             parts.sql_parts.append(f', ALLOCATION_FUNDS AS (')
             parts.sql_parts.append('\n  INTERSECT\n'.join(allocation_selects))
             parts.sql_parts.append(f')')
+
+
+def _add_standard_select_header(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.append('')
     parts.sql_parts.append('SELECT DISTINCT')
     parts.sql_parts.append('  CURRENT_DATE RunDate')
@@ -234,6 +243,15 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.append(f"  , VARCHAR_FORMAT({ctx.result_cov_alias}.ISSUE_DT, 'MM/DD/YYYY') IssueDt")
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INS_ISS_AGE IssueAge')
     parts.sql_parts.append('  , USERGEN.FUZGREIN_IND RGA_Ind')
+
+
+def _add_policy_age_and_date_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_policy_age_selects(ctx, parts)
+    _add_policy_date_selects(ctx, parts)
+    _add_display_date_selects(ctx, parts)
+
+
+def _add_policy_age_selects(ctx: QueryContext, parts: SqlParts) -> None:
     duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
     if ctx.has_current_age:
         parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {duration_expr}) CurrentAge')
@@ -246,6 +264,9 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'  , MONTH({ctx.result_cov_alias}.ISSUE_DT) IssueMonth')
     if ctx.has_issue_day:
         parts.sql_parts.append(f'  , DAY({ctx.result_cov_alias}.ISSUE_DT) IssueDay')
+
+
+def _add_policy_date_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.has_paid_to:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.PRM_PAID_TO_DT, 'MM/DD/YYYY') PaidToDate")
     if ctx.has_gpe_date:
@@ -254,6 +275,9 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.APP_WRT_DT, 'MM/DD/YYYY') AppDate")
     if ctx.has_billing_prem:
         parts.sql_parts.append('  , POLICY1.POL_PRM_AMT BillingPrem')
+
+
+def _add_display_date_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_paid_to:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.PRM_PAID_TO_DT, 'MM/DD/YYYY') PaidToDate_Disp")
     if ctx.disp_bill_to:
@@ -279,6 +303,14 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_initial_billing_selects(ctx, parts)
+    _add_initial_policy_status_selects(ctx, parts)
+    _add_initial_face_and_identifiers(ctx, parts)
+    _add_initial_mec_and_schedule_selects(ctx, parts)
+    _add_initial_target_selects(ctx, parts)
+
+
+def _add_initial_billing_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_bill_mode:
         parts.sql_parts.append('  , (CASE BILLMODE_POOL.PMT_FQY_PER')
         parts.sql_parts.append('      WHEN 1 THEN (CASE BILLMODE_POOL.NSD_MD_CD')
@@ -293,6 +325,9 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append("      ELSE ' ' END) BillMode")
     if ctx.disp_bill_form:
         parts.sql_parts.append('  , POLICY1.BIL_FRM_CD BillForm')
+
+
+def _add_initial_policy_status_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_mkt_org:
         parts.sql_parts.append('  , SUBSTR(POLICY1.SVC_AGC_NBR, 1, 1) MarkOrg')
     if ctx.disp_reinsured:
@@ -302,6 +337,9 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.LST_FIN_DT, 'MM/DD/YYYY') LastFinDate_Entry")
     if ctx.disp_orig_entry:
         parts.sql_parts.append('  , POLICY1.OGN_ETR_CD OrigEntryCode')
+
+
+def _add_initial_face_and_identifiers(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_spec_amt or ctx.multi_base_covs:
         parts.sql_parts.append('  , COVSUMMARY.TOTAL_SA TotalFace')
         parts.sql_parts.append('  , COVSUMMARY.TOTAL_ORIGINAL_SA TotalOriginalFace')
@@ -322,6 +360,9 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INS_SEX_CD SEX_CD')
     if ctx.disp_subseries:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.LIF_PLN_SUB_SRE_CD SUBSERIES')
+
+
+def _add_initial_mec_and_schedule_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_mec_status:
         parts.sql_parts.append('  , (CASE')
         parts.sql_parts.append("      WHEN POLICY1.MEC_STATUS_CD = '0' THEN '0 - NO'")
@@ -344,6 +385,9 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INT_RNL_PER')
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.SBQ_RNL_STR_DUR')
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.SBQ_RNL_PER')
+
+
+def _add_initial_target_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_commission_target:
         parts.sql_parts.append('  , COMMTARGET.TAR_PRM_AMT CTP')
     if ctx.p2t.chk_participating or (ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type):
