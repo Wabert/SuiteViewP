@@ -127,15 +127,13 @@ def test_billable_prem_type_available_and_fills_amount_and_mode():
     assert row.mode() == "M"
 
 
-def test_spl87_zeroes_billable_and_default_input_premium():
+def test_spl87_zeroes_billable_premium():
     _app()
     panel = DynamicInputsPanel()
     panel.load_from_policy(_Spl87Policy())       # modal 500 → billable 0
 
     row = panel.premium_section.rows()[0]
-    # Default INPUT premium is 0 on SPL87 (not the 500 modal premium).
-    assert row.premium_type() == "INPUT"
-    assert abs(row.amount() - 0.0) < 0.005
+    assert row.premium_type() == "Prem to Maturity"
     # Billable Prem also fills 0 for these plans.
     row.type_combo.setCurrentText("Billable Prem")
     assert abs(row.amount() - 0.0) < 0.005
@@ -187,12 +185,13 @@ def test_input_to_md_type_editable_and_drives_b2md_window():
     panel = _panel()
     row = panel.premium_section.rows()[0]
     # Valuation 2026-05-09 -> forecast 2026-06-09 = policy year 7 (issue 2019-11-09).
+    assert row.premium_type() == "Prem to Maturity"
     assert row.year() == 7
     assert row.age_edit.value() == 56          # 50 + 7 - 1
     assert row.mode() == "M"
     assert row.for_years_edit.value() == 65    # years 7..71
     assert row.to_age_edit.value() == 121
-    assert abs(row.amount() - 153.56) < 0.005
+    assert row.amount() is None
 
 
 def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
@@ -692,6 +691,8 @@ def test_premium_overlap_auto_adjusts_prior_span_and_gap_emits_zero_schedule():
     panel = _panel()
     section = panel.premium_section
     first = section.rows()[0]
+    first.type_combo.setCurrentText("INPUT")
+    first.amount_edit.set_value(153.56, decimals=2)
     first.year_edit.setText("7")
     first._year_edited()
     first.for_years_edit.setText("3")          # years 7-9
@@ -834,6 +835,8 @@ def test_annual_premium_current_year_not_applied_on_forecast_date():
     anniversary (handled by the year schedule, not a dated transaction)."""
     panel = _panel()
     row = panel.premium_section.rows()[0]
+    row.type_combo.setCurrentText("INPUT")
+    row.amount_edit.set_value(153.56, decimals=2)
     row.mode_combo.setCurrentText("A")         # annual mode
 
     input_set = IllustrationInputSet()
