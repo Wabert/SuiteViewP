@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 
 from suiteview.ratemanager.database_loader import PackageValidationError
+from suiteview.ratemanager.layouts import Field, LineRule, RepeatedGroup, ensure_padding_is_blank
 
 
 CV_COLUMNS = (
@@ -126,6 +127,38 @@ def _date(token, path, line, *, optional=False):
         return datetime.strptime(token, fmt).date()
     except ValueError:
         _fail(path, line, f"Invalid calendar date {token!r}.")
+
+
+def _ctx_path(context):
+    return context["path"], context["line"]
+
+
+def _text(token, _context):
+    return token.strip()
+
+
+def _ctx_integer(maximum=999):
+    def convert(token, context):
+        path, line = _ctx_path(context)
+        return _integer(token, path, line, maximum=maximum)
+
+    return convert
+
+
+def _ctx_decimal(scale=None):
+    def convert(token, context):
+        path, line = _ctx_path(context)
+        return _decimal(token, path, line, scale=scale)
+
+    return convert
+
+
+def _ctx_date(optional=False):
+    def convert(token, context):
+        path, line = _ctx_path(context)
+        return _date(token, path, line, optional=optional)
+
+    return convert
 
 
 class _Rows:
@@ -381,11 +414,20 @@ def parse_nsp(path) -> list[dict[str, object]]:
 
 
 def _check_spaces(line, spans, path, number):
-    remaining = list(line)
-    for start, stop in spans:
-        remaining[start:stop] = " " * len(remaining[start:stop])
-    if "".join(remaining).strip():
+    if not ensure_padding_is_blank(line, spans):
         _fail(path, number, "Unexpected data outside documented fixed-width fields.")
+
+
+_PUI_ROW_RULE = LineRule("pui-row", (
+    Field("PLANCODE", 11, 22, _text),
+    Field("SEX", 23, 31, _text),
+    Field("RATECLASS", 32, 40, _text),
+    Field("ATTAINED_AGE", 41, 49, _ctx_integer()),
+    Field("TABLE_RATING", 50, 58, _text),
+    Field("RATE", 59, 73, _ctx_decimal(scale=6)),
+    Field("AUDIT_NUMBER", 74, 80, _text),
+    Field("CHANGED_DATE", 81, 91, _ctx_date()),
+))
 
 
 def parse_pui(path) -> list[dict[str, object]]:
@@ -406,8 +448,6 @@ def parse_pui(path) -> list[dict[str, object]]:
         "ATT AGE PLAN ATTAINED AGE NUM 3, 0 N1",
         "TAB RATE PLAN TABLE RATING CHAR 2 C4",
     }
-    spans = [(11, 22), (23, 31), (32, 40), (41, 49), (50, 58),
-             (59, 73), (74, 80), (81, 91)]
     line_number = 1
     for line_number, line in _lines(path):
         stripped = line.strip()
@@ -477,16 +517,19 @@ def parse_pui(path) -> list[dict[str, object]]:
             _fail(path, line_number, f"Unsupported PUI section or missing headers: {words[:100]!r}.")
         if definitions and definitions != definition_lines:
             _fail(path, line_number, "Incomplete or unsupported CJUDTPUI argument definitions.")
-        _check_spaces(line, spans, path, line_number)
-        fields = [line[start:stop].strip() for start, stop in spans]
-        plan, sex, rateclass, age, table_rating, rate, audit, changed = fields
+        _check_spaces(line, _PUI_ROW_RULE.spans, path, line_number)
+        row = _PUI_ROW_RULE.parse(line, {"path": path, "line": line_number})
+        plan = row["PLANCODE"]
+        sex = row["SEX"]
+        rateclass = row["RATECLASS"]
+        table_rating = row["TABLE_RATING"]
         if not plan or len(sex) > 1 or len(rateclass) > 1 or len(table_rating) > 2:
             _fail(path, line_number, "Malformed PUI source key.")
         result.add({
             "USER_CODE": user, "PLANCODE": plan, "SEX": sex, "RATECLASS": rateclass,
-            "ATTAINED_AGE": _integer(age, path, line_number),
-            "TABLE_RATING": table_rating, "RATE": _decimal(rate, path, line_number, scale=6),
-            "AUDIT_NUMBER": audit, "CHANGED_DATE": _date(changed, path, line_number),
+            "ATTAINED_AGE": row["ATTAINED_AGE"], "TABLE_RATING": table_rating,
+            "RATE": row["RATE"], "AUDIT_NUMBER": row["AUDIT_NUMBER"],
+            "CHANGED_DATE": row["CHANGED_DATE"],
         }, line_number)
         section_pending = False
     if section_pending:
@@ -503,36 +546,46 @@ _IAF_PLAN_LABELS = (
 _IAF_RATE_LABELS = (
     "**PREMIUM RATES- TYP START STOP IDENT RATE IDENT RATE IDENT RATE IDENT RATE"
 )
-_IAF_PRODUCT_SPANS = (
-    (2, 13), (13, 16), (16, 24), (25, 28), (29, 32), (34, 35),
-    (41, 44), (46, 47), (53, 56), (58, 59), (60, 74), (75, 89),
-    (91, 92), (93, 97), (100, 101), (102, 117), (118, 119),
-    (120, 122), (123, 133),
-)
+_IAF_PRODUCT_RULE = LineRule("whole-life-iaf-product", (
+    Field("SOURCE_PLANCODE", 2, 13, _text),
+    Field("SOURCE_IAF_VERSION", 13, 16, _text),
+    Field("SOURCE_EFFECTIVE_DATE", 16, 24, _ctx_date()),
+    Field("FIRST_AGE", 25, 28, _ctx_integer()),
+    Field("LAST_AGE", 29, 32, _ctx_integer()),
+    Field("IAR_USE", 34, 35, _ctx_integer(maximum=1)),
+    Field("PAY_AGE", 41, 44, _ctx_integer()),
+    Field("PAY_AGE_USE", 46, 47, _ctx_integer(maximum=1)),
+    Field("ME_AGE", 53, 56, _ctx_integer()),
+    Field("ME_AGE_USE", 58, 59, _ctx_integer(maximum=1)),
+    Field("VALUE_PER_UNIT", 60, 74, _ctx_decimal()),
+    Field("PRODUCTION_CREDIT", 75, 89, _ctx_decimal()),
+    Field("PRODUCTION_CREDIT_USE", 91, 92, _ctx_integer()),
+    Field("MDRT", 93, 97, _text),
+    Field("DEFICIENT", 100, 101, _ctx_integer()),
+    Field("SPECIAL_BENEFITS", 102, 117, _text),
+    Field("R", 118, 119, _text),
+    Field("LV", 120, 122, _text),
+    Field("DUR", 123, 133, _text),
+))
+
+_IAF_RATE_HEADER_RULE = LineRule("whole-life-iaf-rate-header", (
+    Field("RATE_TYPE", 19, 20, _text),
+    Field("SCALE_START", 23, 31, _ctx_date()),
+    Field("SCALE_STOP", 33, 41, _ctx_date(optional=True)),
+))
+
+_IAF_RATE_CELL_GROUP = RepeatedGroup("whole-life-iaf-rate-cells", (43, 65, 87, 109), (
+    Field("PREMIUM_IDENTIFIER", 0, 7, _text),
+    Field("RATE", 8, 20, _ctx_decimal()),
+), required_field="PREMIUM_IDENTIFIER")
 
 
 def _iaf_product(line, path, number):
-    _check_spaces(line, _IAF_PRODUCT_SPANS, path, number)
-    fields = [line[start:stop].strip() for start, stop in _IAF_PRODUCT_SPANS]
-    (plan, version, effective, first, last, use, pay, pay_use, mature,
-     mature_use, unit, credit, credit_use, mdrt, deficient, benefits, r, lv, dur) = fields
+    _check_spaces(line, _IAF_PRODUCT_RULE.spans, path, number)
+    row = _IAF_PRODUCT_RULE.parse(line, {"path": path, "line": number})
+    plan = row["SOURCE_PLANCODE"]
     if not re.fullmatch(r"\S{1,11}", plan):
         _fail(path, number, "Invalid IAF source plancode.")
-    row = {
-        "SOURCE_PLANCODE": plan, "SOURCE_IAF_VERSION": version,
-        "SOURCE_EFFECTIVE_DATE": _date(effective, path, number),
-        "FIRST_AGE": _integer(first, path, number), "LAST_AGE": _integer(last, path, number),
-        "IAR_USE": _integer(use, path, number, maximum=1),
-        "PAY_AGE": _integer(pay, path, number),
-        "PAY_AGE_USE": _integer(pay_use, path, number, maximum=1),
-        "ME_AGE": _integer(mature, path, number),
-        "ME_AGE_USE": _integer(mature_use, path, number, maximum=1),
-        "VALUE_PER_UNIT": _decimal(unit, path, number),
-        "PRODUCTION_CREDIT": _decimal(credit, path, number),
-        "PRODUCTION_CREDIT_USE": _integer(credit_use, path, number),
-        "MDRT": mdrt, "DEFICIENT": _integer(deficient, path, number),
-        "SPECIAL_BENEFITS": benefits, "R": r, "LV": lv, "DUR": dur,
-    }
     if row["FIRST_AGE"] > row["LAST_AGE"]:
         _fail(path, number, "IAF first age exceeds last age.")
     return row
@@ -649,32 +702,33 @@ def parse_iaf(path, user_code) -> list[dict[str, object]]:
         if new_scale:
             if scale is not None and scale_count == 0:
                 _fail(path, line_number, "Previous premium scale has no rate cells.")
-            rate_type = line[19]
+            scale = _IAF_RATE_HEADER_RULE.parse(
+                line, {"path": path, "line": line_number},
+            )
+            rate_type = scale["RATE_TYPE"]
             if rate_type not in "0ABCFGLMNSTWXY":
                 _fail(path, line_number, f"Unknown IAF premium rate type {rate_type!r}.")
-            start = _date(line[23:31], path, line_number)
-            stop = _date(line[33:41], path, line_number, optional=True)
+            start = scale["SCALE_START"]
+            stop = scale["SCALE_STOP"]
             if stop is not None and stop < start:
                 _fail(path, line_number, "Premium scale stop date precedes start date.")
-            scale = {"RATE_TYPE": rate_type, "SCALE_START": start, "SCALE_STOP": stop}
             scale_count = 0
             pending_rate = True
         elif scale is None:
             _fail(path, line_number, "Premium cells have no rate type/start date.")
-        spans = [(19, 20), (23, 31), (33, 41)] if new_scale else []
+        spans = list(_IAF_RATE_HEADER_RULE.spans) if new_scale else []
+        spans.extend(_IAF_RATE_CELL_GROUP.spans)
         count = 0
-        for offset in (43, 65, 87, 109):
-            spans.extend([(offset, offset + 7), (offset + 8, offset + 20)])
-            ident = line[offset:offset + 7]
-            value = line[offset + 8:offset + 20]
-            if not ident.strip() and not value.strip():
-                continue
+        for cell in _IAF_RATE_CELL_GROUP.parse(
+            line, {"path": path, "line": line_number},
+        ):
+            ident = cell["PREMIUM_IDENTIFIER"]
             if not re.fullmatch(r"\d{2}\S{5}", ident):
                 _fail(path, line_number, f"Malformed premium identifier {ident!r}.")
             rate = {
                 **scale, "PREMIUM_IDENTIFIER": ident, "DURATION_CODE": ident[:2],
                 "SEX": ident[2], "RATECLASS": ident[3], "BAND": ident[4],
-                "PLAN_OPTION": ident[5:], "RATE": _decimal(value, path, line_number),
+                "PLAN_OPTION": ident[5:], "RATE": cell["RATE"],
             }
             rates.append((rate, line_number))
             count += 1

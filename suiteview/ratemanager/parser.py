@@ -5,8 +5,10 @@ Parses Cyberlife mainframe IAF fixed-width text files into structured data.
 Ported from the legacy converter VBA ProgressBar.frm Analyze()/storeRate() (retired from docs/, see git history).
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import List, Optional, Callable
+
+from suiteview.ratemanager.layouts import Field, LineRule, RepeatedGroup
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +130,29 @@ def _safe_float(val: str, default: float = 0.0) -> float:
         return default
 
 
+def _field_strip(raw: str, _context) -> str:
+    return _strip(raw)
+
+
+def _field_int(raw: str, _context) -> int:
+    return _safe_int(raw)
+
+
+def _field_float(raw: str, _context) -> float:
+    return _safe_float(raw)
+
+
+def _field_date(raw: str, _context) -> str:
+    raw = raw.ljust(8)
+    return f"{raw[0:2]}/{raw[2:4]}/{raw[4:8]}"
+
+
+def _field_stop_date(raw: str, _context) -> str:
+    if raw.strip():
+        return _field_date(raw, _context)
+    return "12/31/9999"
+
+
 # ---------------------------------------------------------------------------
 # Skip-line detection (header/blank lines in the mainframe print)
 # ---------------------------------------------------------------------------
@@ -135,6 +160,68 @@ def _safe_float(val: str, default: float = 0.0) -> float:
 _PLAN_HEADER = "   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       "
 _BLANK_LINE  = " " * 133
 _ADV_HEADER  = "*** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD"
+
+_PRODUCT_RULE = LineRule("iaf-product", (
+    Field("plancode", 2, 12, _field_strip),
+    Field("version", 13, 16, _field_strip),
+    Field("eff_date", 16, 24, _field_date),
+    Field("first", 25, 28, _field_int),
+    Field("last", 29, 32, _field_int),
+    Field("iar_use", 34, 35, _field_int),
+    Field("pay_age", 41, 44, _field_int),
+    Field("pay_age_use", 46, 47, _field_int),
+    Field("me_age", 53, 56, _field_int),
+    Field("me_age_use", 58, 59, _field_int),
+    Field("val_per_unit", 60, 74, _field_float),
+    Field("prod_cred_amt", 75, 89, _field_float),
+    Field("prod_cred_use", 91, 92, _field_int),
+    Field("mdrt", 93, 97, _field_strip),
+    Field("deficient", 100, 101, _field_int),
+    Field("spec_benefits", 102, 117, _field_strip),
+    Field("r", 118, 119, _field_strip),
+    Field("lv", 120, 122, _field_strip),
+    Field("dur", 123, 133, _field_strip),
+))
+
+_ADV_RULE = LineRule("iaf-advanced-control", (
+    Field("init_prem_min", 28, 37, _field_strip),
+    Field("init_prem_max", 39, 48, _field_strip),
+    Field("rule_code", 49, 50, _field_strip),
+    Field("per_prem_min", 61, 70, _field_strip),
+    Field("per_prem_max", 72, 81, _field_strip),
+    Field("fy_prem", 82, 92, _field_strip),
+    Field("corr_rule", 96, 97, _field_strip),
+    Field("corr_pct", 102, 110, _field_strip),
+    Field("corr_amt", 111, 121, _field_strip),
+    Field("map_period", 126, 130, _field_strip),
+))
+
+_RATE_HEADER_RULE = LineRule("iaf-rate-header", (
+    Field("rate_type", 19, 20, _field_strip),
+    Field("scale_start", 23, 31, _field_date),
+    Field("scale_stop", 33, 41, _field_stop_date),
+))
+
+_RATE_CELL_GROUP = RepeatedGroup("iaf-rate-cells", (43, 65, 87, 109), (
+    Field("duration", 0, 2, _field_int),
+    Field("gender", 2, 3, _field_strip),
+    Field("rate_class", 3, 4, _field_strip),
+    Field("band", 4, 5, _field_strip),
+    Field("plan_option", 5, 7, _field_strip),
+    Field("rate", 8, 20, _field_float),
+), required_field="duration")
+
+
+@dataclass
+class _IAFParseState:
+    """Mutable line-state for the simple IAF layout interpreter."""
+
+    product: ProductInfo = field(default_factory=ProductInfo)
+    adv_control_pending: bool = False
+    adv: dict[str, str] = field(default_factory=dict)
+    rate_type: str = ""
+    rate_start: str = ""
+    rate_stop: str = ""
 
 
 def _should_skip(line: str) -> bool:
@@ -170,44 +257,7 @@ class IAFParser:
         self._reset()
 
     def _reset(self):
-        # Current plan-level state (set on plan header lines)
-        self._plancode = ""
-        self._version = ""
-        self._eff_date = ""
-        self._first = 0
-        self._last = 0
-        self._iar_use = 0
-        self._pay_age = 0
-        self._pay_age_use = 0
-        self._me_age = 0
-        self._me_age_use = 0
-        self._val_per_unit = 0.0
-        self._prod_cred_amt = 0.0
-        self._prod_cred_use = 0
-        self._mdrt = ""
-        self._def = 0
-        self._spec_benefits = ""
-        self._r = ""
-        self._lv = ""
-        self._dur = ""
-
-        # ADV product control state
-        self._adv_control_pending = False
-        self._adv_init_min = ""
-        self._adv_init_max = ""
-        self._adv_rule = ""
-        self._adv_per_min = ""
-        self._adv_per_max = ""
-        self._adv_fy = ""
-        self._adv_corr_rule = ""
-        self._adv_corr_pct = ""
-        self._adv_corr_amt = ""
-        self._adv_map = ""
-
-        # Current rate type state
-        self._rate_type = ""
-        self._rate_start = ""
-        self._rate_stop = ""
+        self._state = _IAFParseState()
 
         # Collections
         self._products: List[ProductInfo] = []
@@ -276,77 +326,41 @@ class IAFParser:
         # --- Plan header line ---
         # VBA: Mid(Line,2,1)=" " AND Mid(Line,3,1)<>" "
         if line[1] == " " and line[2] != " ":
-            self._plancode     = _strip(line[2:12])
-            self._version      = _strip(line[13:16])
-            self._eff_date     = f"{line[16:18]}/{line[18:20]}/{line[20:24]}"
-            self._first        = _safe_int(line[25:28])
-            self._last         = _safe_int(line[29:32])
-            self._iar_use      = _safe_int(line[34:35])
-            self._pay_age      = _safe_int(line[41:44])
-            self._pay_age_use  = _safe_int(line[46:47])
-            self._me_age       = _safe_int(line[53:56])
-            self._me_age_use   = _safe_int(line[58:59])
-            self._val_per_unit = _safe_float(line[60:74])
-            self._prod_cred_amt = _safe_float(line[75:89])
-            self._prod_cred_use = _safe_int(line[91:92])
-            self._mdrt         = _strip(line[93:97])
-            self._def          = _safe_int(line[100:101])
-            self._spec_benefits = _strip(line[102:117])
-            self._r            = _strip(line[118:119])
-            self._lv           = _strip(line[120:122])
-            self._dur          = _strip(line[123:133])
+            self._state.product = ProductInfo(**_PRODUCT_RULE.parse(line))
             return
 
         # --- ADV product control header ---
         if len(line) >= 131 and line[1:131] == _ADV_HEADER:
-            self._adv_control_pending = True
+            self._state.adv_control_pending = True
             return
 
         # --- ADV product control data line ---
-        if self._adv_control_pending:
+        if self._state.adv_control_pending:
             # VBA: sometimes a stray "*" header appears on page break
             if len(line) > 1 and line[1] == "*":
-                self._adv_control_pending = False
+                self._state.adv_control_pending = False
                 return
 
-            self._adv_init_min  = _strip(line[28:37])
-            self._adv_init_max  = _strip(line[39:48])
-            self._adv_rule      = _strip(line[49:50])
-            self._adv_per_min   = _strip(line[61:70])
-            self._adv_per_max   = _strip(line[72:81])
-            self._adv_fy        = _strip(line[82:92])
-            self._adv_corr_rule = _strip(line[96:97])
-            self._adv_corr_pct  = _strip(line[102:110])
-            self._adv_corr_amt  = _strip(line[111:121])
-            self._adv_map       = _strip(line[126:130])
-
-            self._adv_control_pending = False
+            self._state.adv = _ADV_RULE.parse(line)
+            self._state.adv_control_pending = False
             return
 
         # --- Rate type header line ---
         # VBA: first 19 chars are spaces AND char 20 is not space
         if line[0:19] == " " * 19 and line[19] != " ":
-            self._rate_type  = line[19]
-            self._rate_start = f"{line[23:25]}/{line[25:27]}/{line[27:31]}"
-            if line[33:35].strip():
-                self._rate_stop = f"{line[33:35]}/{line[35:37]}/{line[37:41]}"
-            else:
-                self._rate_stop = "12/31/9999"
+            header = _RATE_HEADER_RULE.parse(line)
+            self._state.rate_type = header["rate_type"]
+            self._state.rate_start = header["scale_start"]
+            self._state.rate_stop = header["scale_stop"]
             # Fall through - this line may also contain IDENT/rate data below
 
         # --- Rate data extraction (4 IDENT/rate pairs) ---
         if line[0:19] == " " * 19:
-            # VBA col positions (1-based to 0-based):  44->43, 66->65, 88->87, 110->109
-            for ident_start, rate_start in [(43, 51), (65, 73), (87, 95), (109, 117)]:
-                if line[ident_start] != " ":
-                    duration    = _safe_int(line[ident_start:ident_start + 2])
-                    gender      = _strip(line[ident_start + 2:ident_start + 3])
-                    rate_class  = _strip(line[ident_start + 3:ident_start + 4])
-                    band        = _strip(line[ident_start + 4:ident_start + 5])
-                    plan_option = _strip(line[ident_start + 5:ident_start + 7])
-                    rate_value  = _safe_float(line[rate_start:rate_start + 12])
-                    self._store_rate(duration, gender, rate_class, band,
-                                     plan_option, rate_value)
+            for rate in _RATE_CELL_GROUP.parse(line):
+                self._store_rate(
+                    rate["duration"], rate["gender"], rate["rate_class"],
+                    rate["band"], rate["plan_option"], rate["rate"],
+                )
 
     # ------------------------------------------------------------------
     # Store a parsed rate  (ports VBA storeRate sub)
@@ -357,27 +371,7 @@ class IAFParser:
         """Deduplicate product/adv, then append the rate record."""
 
         # --- Deduplicate product ---
-        prod = ProductInfo(
-            plancode=self._plancode,
-            version=self._version,
-            eff_date=self._eff_date,
-            first=self._first,
-            last=self._last,
-            iar_use=self._iar_use,
-            pay_age=self._pay_age,
-            pay_age_use=self._pay_age_use,
-            me_age=self._me_age,
-            me_age_use=self._me_age_use,
-            val_per_unit=self._val_per_unit,
-            prod_cred_amt=self._prod_cred_amt,
-            prod_cred_use=self._prod_cred_use,
-            mdrt=self._mdrt,
-            deficient=self._def,
-            spec_benefits=self._spec_benefits,
-            r=self._r,
-            lv=self._lv,
-            dur=self._dur,
-        )
+        prod = replace(self._state.product, ref=0)
         pkey = prod.key()
         if pkey not in self._product_keys:
             prod.ref = len(self._products) + 1   # 1-based like VBA
@@ -386,26 +380,22 @@ class IAFParser:
         product_ref = self._product_keys[pkey]
 
         # --- Deduplicate advanced product ---
-        has_adv = any([
-            self._adv_init_min, self._adv_init_max, self._adv_rule,
-            self._adv_per_min, self._adv_per_max, self._adv_fy,
-            self._adv_corr_rule, self._adv_corr_pct, self._adv_corr_amt,
-            self._adv_map,
-        ])
+        has_adv = any(self._state.adv.values())
         if has_adv:
+            adv_state = self._state.adv
             adv = AdvProductInfo(
                 product_ref=product_ref,
-                issue_age=self._first,
-                init_prem_min=self._adv_init_min,
-                init_prem_max=self._adv_init_max,
-                rule_code=self._adv_rule,
-                per_prem_min=self._adv_per_min,
-                per_prem_max=self._adv_per_max,
-                fy_prem=self._adv_fy,
-                corr_rule=self._adv_corr_rule,
-                corr_pct=self._adv_corr_pct,
-                corr_amt=self._adv_corr_amt,
-                map_period=self._adv_map,
+                issue_age=self._state.product.first,
+                init_prem_min=adv_state["init_prem_min"],
+                init_prem_max=adv_state["init_prem_max"],
+                rule_code=adv_state["rule_code"],
+                per_prem_min=adv_state["per_prem_min"],
+                per_prem_max=adv_state["per_prem_max"],
+                fy_prem=adv_state["fy_prem"],
+                corr_rule=adv_state["corr_rule"],
+                corr_pct=adv_state["corr_pct"],
+                corr_amt=adv_state["corr_amt"],
+                map_period=adv_state["map_period"],
             )
             akey = adv.key()
             if akey not in self._adv_keys:
@@ -415,12 +405,12 @@ class IAFParser:
         # --- Always append rate ---
         self._rates.append(RateRecord(
             product_ref=product_ref,
-            rate_type=self._rate_type,
-            scale_start=self._rate_start,
-            scale_stop=self._rate_stop,
-            attained_age=self._first,
+            rate_type=self._state.rate_type,
+            scale_start=self._state.rate_start,
+            scale_stop=self._state.rate_stop,
+            attained_age=self._state.product.first,
             duration=duration,
-            issue_age=self._first - duration,
+            issue_age=self._state.product.first - duration,
             gender=gender,
             rate_class=rate_class,
             band=band,
