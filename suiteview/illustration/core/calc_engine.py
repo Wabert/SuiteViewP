@@ -905,22 +905,7 @@ def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
     lapse_check_av = work.exception.av_after_exception
     lapse_check_debt = work.cap_loan.policy_debt
     work.surrender_value = lapse_check_av - work.surrender_charge - lapse_check_debt
-    edb_wo_corr = policy.total_face
-    if policy.db_option == DB_OPTION_INCREASING:
-        edb_wo_corr += max(0.0, work.av)
-    elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
-        edb_wo_corr += max(
-            0.0, work.prem.premiums_to_date - work.withdrawals_to_date
-        )
-    edb_corr = (
-        max(0.0, math.floor(work.av * work.ded.corridor_rate + 1e-6) - edb_wo_corr)
-        if work.ded.corridor_rate > 0
-        else 0.0
-    )
-    work.ending_db = (
-        edb_wo_corr + edb_corr - work.accrual_loan.policy_debt
-        + _primary_insured_rider_face(policy, work.month_date)
-    )
+    work.ending_db = _ending_death_benefit(ctx, work)
     work.ending_sv = work.av - work.surrender_charge - work.accrual_loan.policy_debt
     work.positive_sv = (
         work.lapse_value == LAPSE_BASIS_SURRENDER_VALUE
@@ -933,10 +918,7 @@ def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
     work.exception_protection = (
         work.exception.mode and work.surrender_value > -0.0001
     )
-    protected = (
-        work.snet_active or work.shadow_protection or work.positive_sv
-        or av_loans_test or work.exception_protection
-    )
+    protected = _illustration_lapse_protected(work, av_loans_test)
     work.lapsed = ctx.state.lapsed or not protected
     if ctx.options is not None and ctx.options.no_lapse:
         work.lapsed = False
@@ -944,6 +926,33 @@ def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
         work.prem.gross_premium - work.wd.gross_withdrawal
         if work.tamra_year <= 7
         else 0.0
+    )
+
+
+def _ending_death_benefit(ctx: MonthContext, work: MonthWork) -> float:
+    policy = ctx.policy
+    edb_wo_corr = policy.total_face
+    if policy.db_option == DB_OPTION_INCREASING:
+        edb_wo_corr += max(0.0, work.av)
+    elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
+        edb_wo_corr += max(
+            0.0, work.prem.premiums_to_date - work.withdrawals_to_date
+        )
+    edb_corr = (
+        max(0.0, math.floor(work.av * work.ded.corridor_rate + 1e-6) - edb_wo_corr)
+        if work.ded.corridor_rate > 0
+        else 0.0
+    )
+    return (
+        edb_wo_corr + edb_corr - work.accrual_loan.policy_debt
+        + _primary_insured_rider_face(policy, work.month_date)
+    )
+
+
+def _illustration_lapse_protected(work: MonthWork, av_loans_test: bool) -> bool:
+    return (
+        work.snet_active or work.shadow_protection or work.positive_sv
+        or av_loans_test or work.exception_protection
     )
 
 
