@@ -8,6 +8,8 @@ import pytest
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox
 
 from suiteview.administrator import launcher
+from suiteview.taskbar_launcher.collaborators import TaskbarState
+from suiteview.taskbar_launcher.taskbar_system import AppLauncher, SystemTray
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +77,6 @@ def test_source_menu_is_visible_without_database_probe(app, monkeypatch):
 
 def test_taskbar_reuses_window_but_rechecks_admin(monkeypatch):
     from suiteview.administrator import service
-    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     window = Mock()
     factory = Mock(return_value=window)
@@ -83,42 +84,45 @@ def test_taskbar_reuses_window_but_rechecks_admin(monkeypatch):
                         SimpleNamespace(AdministratorWindow=factory))
     authorize = Mock()
     monkeypatch.setattr(service.AccessRepository, "load", authorize)
-    bar = SimpleNamespace(
-        administrator_window=None, _build_suiteview_icon=Mock(),
-        _administrator_menu_access=SimpleNamespace(refresh=Mock()),
-        _bring_to_front=Mock(), _refresh_permissions=Mock(),
+    state = TaskbarState(administrator_window=None)
+    chrome = SimpleNamespace(_administrator_menu_access=SimpleNamespace(refresh=Mock()))
+    callbacks = SimpleNamespace(
+        _bring_to_front=Mock(),
+        _refresh_permissions=Mock(),
     )
-    SuiteViewTaskbar._open_administrator(bar)
-    SuiteViewTaskbar._open_administrator(bar)
+    bar = AppLauncher(SimpleNamespace(), state, chrome=chrome, callbacks=callbacks)
+    bar._build_suiteview_icon = Mock()
+    bar._open_administrator()
+    bar._open_administrator()
     assert authorize.call_count == 2
     factory.assert_called_once()
-    assert bar.administrator_window is window
-    assert bar._bring_to_front.call_count == 2
-    window.permissions_changed.connect.assert_any_call(bar._administrator_menu_access.refresh)
-    window.permissions_changed.connect.assert_any_call(bar._refresh_permissions)
+    assert state.administrator_window is window
+    assert callbacks._bring_to_front.call_count == 2
+    window.permissions_changed.connect.assert_any_call(chrome._administrator_menu_access.refresh)
+    window.permissions_changed.connect.assert_any_call(callbacks._refresh_permissions)
     # The taskbar must not replace the editor's dirty-close guard.
     assert "closeEvent" not in window.__dict__
 
 
 def test_taskbar_denial_hides_existing_window_and_reports(monkeypatch):
     from suiteview.administrator import service
-    from suiteview.taskbar_launcher import taskbar_window as taskbar
 
     monkeypatch.setattr(service.AccessRepository, "load",
                         Mock(side_effect=PermissionError("ADMIN access revoked")))
     warning = Mock()
     monkeypatch.setattr(QMessageBox, "warning", warning)
-    bar = SimpleNamespace(administrator_window=Mock(), _bring_to_front=Mock())
-    taskbar.SuiteViewTaskbar._open_administrator(bar)
-    bar.administrator_window.hide.assert_called_once()
-    bar._bring_to_front.assert_not_called()
+    state = TaskbarState(administrator_window=Mock())
+    callbacks = SimpleNamespace(_bring_to_front=Mock())
+    bar = AppLauncher(SimpleNamespace(), state, callbacks=callbacks)
+    bar._open_administrator()
+    state.administrator_window.hide.assert_called_once()
+    callbacks._bring_to_front.assert_not_called()
     assert "ADMIN access revoked" in warning.call_args.args[2]
 
 
 def test_taskbar_quit_respects_cancelled_admin_close():
-    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
-
-    bar = SimpleNamespace(administrator_window=Mock())
-    bar.administrator_window.close.return_value = False
-    SuiteViewTaskbar._quit_application(bar)
-    bar.administrator_window.close.assert_called_once()
+    state = TaskbarState(administrator_window=Mock())
+    state.administrator_window.close.return_value = False
+    bar = SystemTray(SimpleNamespace(close=Mock()), state, callbacks=SimpleNamespace(_bring_to_front=Mock()))
+    bar._quit_application()
+    state.administrator_window.close.assert_called_once()

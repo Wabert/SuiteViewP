@@ -41,11 +41,11 @@ class NavigationController(FileExplorerController):
         """Replace parent's QTreeView instances with NavigableTreeView"""
         
         # Get the parent's splitter that contains the views
-        splitter = self.findChild(QWidget.__class__, "")  # Find splitter
+        splitter = self.tab.findChild(QWidget.__class__, "")  # Find splitter
         
         # Store old views' properties
-        old_tree = self.tree_view
-        old_details = self.details_view
+        old_tree = self.tab.tree_view
+        old_details = self.tab.details_view
         
         # Get the parent widgets (they're in a splitter)
         tree_parent = old_tree.parent()
@@ -108,38 +108,39 @@ class NavigationController(FileExplorerController):
         # Update references
         self.tree_view = new_tree
         self.details_view = new_details
+        self.tab.replace_navigation_views(new_tree, new_details)
         
         # Reconnect signals that were on the old views
         # Note: We don't need to disconnect old signals because old_tree and old_details are being deleted
-        self.tree_view.expanded.connect(self.on_item_expanded)
-        self.tree_view.clicked.connect(self.on_tree_item_clicked)
-        self.tree_view.customContextMenuRequested.connect(self.show_tree_context_menu)
+        self.tab.tree_view.expanded.connect(self.tab.on_item_expanded)
+        self.tab.tree_view.clicked.connect(self.on_tree_item_clicked)
+        self.tab.tree_view.customContextMenuRequested.connect(self.tab.show_tree_context_menu)
         
         # IMPORTANT: Connect to our overridden method for history tracking
-        self.details_view.doubleClicked.connect(self.on_details_item_double_clicked)
-        self.details_view.customContextMenuRequested.connect(self.show_details_context_menu)
+        self.tab.details_view.doubleClicked.connect(self.on_details_item_double_clicked)
+        self.tab.details_view.customContextMenuRequested.connect(self.tab.show_details_context_menu)
         
         # Connect navigation signals
-        self.tree_view.back_button_clicked.connect(self.navigate_back)
-        self.tree_view.forward_button_clicked.connect(self.navigate_forward)
-        self.details_view.back_button_clicked.connect(self.navigate_back)
-        self.details_view.forward_button_clicked.connect(self.navigate_forward)
+        self.tab.tree_view.back_button_clicked.connect(self.navigate_back)
+        self.tab.tree_view.forward_button_clicked.connect(self.navigate_forward)
+        self.tab.details_view.back_button_clicked.connect(self.navigate_back)
+        self.tab.details_view.forward_button_clicked.connect(self.navigate_forward)
         
         # Connect drag/drop signals for tree view (left panel)
-        self.tree_view.set_file_explorer(self.tab)
-        self.tree_view.files_dropped.connect(self.handle_dropped_files)
+        self.tab.tree_view.set_file_explorer(self.tab)
+        self.tab.tree_view.files_dropped.connect(self.tab.handle_dropped_files)
         
         # Connect drag/drop signals for details view (middle panel)
-        self.details_view.set_file_explorer(self.tab)
-        self.details_view.files_dropped.connect(self.handle_dropped_files)
+        self.tab.details_view.set_file_explorer(self.tab)
+        self.tab.details_view.files_dropped.connect(self.tab.handle_dropped_files)
         
         # Reinstall event filter for keyboard shortcuts (F2, Delete, Ctrl+C/V/X)
-        self.details_view.installEventFilter(self.tab)
+        self.tab.details_view.installEventFilter(self.tab)
     
     def insert_breadcrumb_bar(self):
         """Insert breadcrumb navigation bar above the tree"""
         # Get the main layout
-        main_layout = self.layout()
+        main_layout = self.tab.layout()
         
         # Create breadcrumb widget with fixed height
         self.breadcrumb_frame = QFrame()
@@ -162,18 +163,18 @@ class NavigationController(FileExplorerController):
         breadcrumb_layout.setSpacing(4)
 
         # Back button - go to last visited folder
-        back_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
-        self.back_btn = self._create_nav_button(back_icon, "Go Back (Alt+Left)", self.navigate_back)
+        back_icon = self.tab.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
+        self.back_btn = self.tab._create_nav_button(back_icon, "Go Back (Alt+Left)", self.navigate_back)
         breadcrumb_layout.addWidget(self.back_btn)
         
         # Up button - go up one level
-        up_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)
-        self.up_btn = self._create_nav_button(up_icon, "Go Up One Level", self.go_up_one_level)
+        up_icon = self.tab.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)
+        self.up_btn = self.tab._create_nav_button(up_icon, "Go Up One Level", self.go_up_one_level)
         breadcrumb_layout.addWidget(self.up_btn)
         
         # Refresh button
-        refresh_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        self.refresh_btn = self._create_nav_button(refresh_icon, "Refresh Folder (F5)", self.refresh_current_folder)
+        refresh_icon = self.tab.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        self.refresh_btn = self.tab._create_nav_button(refresh_icon, "Refresh Folder (F5)", self.refresh_current_folder)
         breadcrumb_layout.addWidget(self.refresh_btn)
         
         # Clickable breadcrumb widget
@@ -185,7 +186,7 @@ class NavigationController(FileExplorerController):
         self.explorer_btn = QPushButton()
         self.explorer_btn.setToolTip("Open in Windows Explorer")
         self.explorer_btn.setFixedSize(26, 26)
-        folder_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
+        folder_icon = self.tab.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
         self.explorer_btn.setIcon(folder_icon)
         self.explorer_btn.setIconSize(QSize(16, 16))
         self.explorer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -206,7 +207,7 @@ class NavigationController(FileExplorerController):
                     stop:0 #1E5BA8, stop:1 #082B5C);
             }
         """)
-        self.explorer_btn.clicked.connect(self.open_in_explorer)
+        self.explorer_btn.clicked.connect(self.tab.open_in_explorer)
         breadcrumb_layout.addWidget(self.explorer_btn)
         
         # Bookmarks sidebar toggle button - show/hide the Quick Links / Bookmarks panel
@@ -239,7 +240,7 @@ class NavigationController(FileExplorerController):
                     stop:0 #1E5BA8, stop:1 #082B5C);
             }
         """)
-        self.bookmarks_toggle_btn.clicked.connect(self.toggle_dual_pane)
+        self.bookmarks_toggle_btn.clicked.connect(self.tab.toggle_dual_pane)
         breadcrumb_layout.addWidget(self.bookmarks_toggle_btn)
         
         # Connect history button from Folders header
@@ -252,19 +253,19 @@ class NavigationController(FileExplorerController):
         
         # Set initial state of bookmarks sidebar toggle button
         if hasattr(self, 'dual_pane_active'):
-            self.bookmarks_toggle_btn.setChecked(self.dual_pane_active)
+            self.bookmarks_toggle_btn.setChecked(getattr(self.tab.quick_links, 'dual_pane_active', False))
         
         # Update initial breadcrumb
-        self.update_breadcrumb(self.current_directory)
+        self.update_breadcrumb(self.state.current_directory)
     
     def update_breadcrumb(self, path):
         """Update breadcrumb display"""
         # SharePoint virtual folders show their display name as a single segment
         if is_sp_path(path):
-            name = self._sp_display_names.get(path, "SharePoint")
+            name = self.state.sp_display_names.get(path, "SharePoint")
             self.breadcrumb_widget.set_path(f"🌐 {name}")
-            self.current_directory = path
-            self.path_changed.emit(name)  # Tab title shows the folder name
+            self.state.current_directory = path
+            self.tab.path_changed.emit(name)  # Tab title shows the folder name
             return
         
         try:
@@ -275,8 +276,8 @@ class NavigationController(FileExplorerController):
             # Update the clickable breadcrumb widget
             self.breadcrumb_widget.set_path(str(path_obj))
             
-            self.current_directory = str(path_obj)
-            self.path_changed.emit(str(path_obj))
+            self.state.current_directory = str(path_obj)
+            self.tab.path_changed.emit(str(path_obj))
             
         except Exception as e:
             logger.error(f"Failed to update breadcrumb: {e}")
@@ -339,10 +340,10 @@ class NavigationController(FileExplorerController):
     def go_to_onedrive_home(self):
         """Navigate to the starting path (OneDrive folder where app opened)"""
         if hasattr(self, 'starting_path'):
-            self.navigate_to_path(self.starting_path)
+            self.navigate_to_path(self.state.starting_path)
         else:
             # Fallback: try to find OneDrive
-            onedrive_paths = self.get_onedrive_paths()
+            onedrive_paths = self.tab.get_onedrive_paths()
             if onedrive_paths:
                 self.navigate_to_path(str(onedrive_paths[0]))
             else:
@@ -357,7 +358,7 @@ class NavigationController(FileExplorerController):
                     self._record_navigation(path)
                 self.update_breadcrumb(path)
                 self._update_nav_button_states()
-                display_name = self._sp_display_names.get(path, "SharePoint")
+                display_name = self.state.sp_display_names.get(path, "SharePoint")
                 # Call the core implementation directly (our override funnels here).
                 FileExplorerCore.load_sharepoint_contents_in_details(
                     self.tab, path, display_name)
@@ -383,7 +384,7 @@ class NavigationController(FileExplorerController):
             self._update_nav_button_states()
             
             # Load in the details pane (right side) instead of tree
-            self.load_folder_contents_in_details(path_obj)
+            self.tab.load_folder_contents_in_details(path_obj)
             
         except Exception as e:
             logger.error(f"Failed to navigate to {path}: {e}")
@@ -392,24 +393,24 @@ class NavigationController(FileExplorerController):
         """Append a path to both navigation histories (browser-style truncation)"""
         # Current Path History - browser-style with truncation
         # If we're not at the end, truncate everything after current position
-        if self.current_path_index < len(self.current_path_history) - 1:
-            self.current_path_history = self.current_path_history[:self.current_path_index + 1]
+        if self.state.current_path_index < len(self.state.current_path_history) - 1:
+            self.state.current_path_history = self.state.current_path_history[:self.state.current_path_index + 1]
         
         # Add new path if different from current
-        if not self.current_path_history or self.current_path_history[-1] != path_str:
-            self.current_path_history.append(path_str)
-            self.current_path_index = len(self.current_path_history) - 1
+        if not self.state.current_path_history or self.state.current_path_history[-1] != path_str:
+            self.state.current_path_history.append(path_str)
+            self.state.current_path_index = len(self.state.current_path_history) - 1
         
         # Full History - always append, never truncate
-        if not self.full_history or self.full_history[-1] != path_str:
-            self.full_history.append(path_str)
+        if not self.state.full_history or self.state.full_history[-1] != path_str:
+            self.state.full_history.append(path_str)
     
     def _update_nav_button_states(self):
         """Update enabled/disabled state of back/forward buttons based on current path history"""
         if hasattr(self, 'back_btn'):
-            self.back_btn.setEnabled(self.current_path_index > 0)
+            self.back_btn.setEnabled(self.state.current_path_index > 0)
         if hasattr(self, 'forward_btn'):
-            self.forward_btn.setEnabled(self.current_path_index < len(self.current_path_history) - 1)
+            self.forward_btn.setEnabled(self.state.current_path_index < len(self.state.current_path_history) - 1)
         # Update history panel if visible
         if hasattr(self, 'history_panel') and self.history_panel.isVisible():
             self._update_history_panel()
@@ -509,11 +510,11 @@ class NavigationController(FileExplorerController):
         self.current_path_btn.clicked.connect(lambda: self._set_history_view("current_path"))
         toggle_layout.addWidget(self.current_path_btn)
         
-        self.full_history_btn = QPushButton("Full History")
-        self.full_history_btn.setCheckable(True)
-        self.full_history_btn.setStyleSheet(toggle_btn_style)
-        self.full_history_btn.clicked.connect(lambda: self._set_history_view("full_history"))
-        toggle_layout.addWidget(self.full_history_btn)
+        self.state.full_history_btn = QPushButton("Full History")
+        self.state.full_history_btn.setCheckable(True)
+        self.state.full_history_btn.setStyleSheet(toggle_btn_style)
+        self.state.full_history_btn.clicked.connect(lambda: self._set_history_view("full_history"))
+        toggle_layout.addWidget(self.state.full_history_btn)
         
         panel_layout.addLayout(toggle_layout)
         
@@ -565,7 +566,7 @@ class NavigationController(FileExplorerController):
         self.history_panel.hide()
         
         # Insert into main layout at the left
-        main_layout = self.layout()
+        main_layout = self.tab.layout()
         # Find the splitter and insert panel before it
         for i in range(main_layout.count()):
             widget = main_layout.itemAt(i).widget()
@@ -589,11 +590,11 @@ class NavigationController(FileExplorerController):
     
     def _set_history_view(self, mode):
         """Switch between current path and full history views"""
-        self.history_view_mode = mode
+        self.state.history_view_mode = mode
         
         # Update button states
         self.current_path_btn.setChecked(mode == "current_path")
-        self.full_history_btn.setChecked(mode == "full_history")
+        self.state.full_history_btn.setChecked(mode == "full_history")
         
         # Refresh the list
         self._update_history_panel()
@@ -606,12 +607,12 @@ class NavigationController(FileExplorerController):
         self.history_list.clear()
         
         # Choose which history to display
-        if self.history_view_mode == "current_path":
-            history = self.current_path_history
-            current_index = self.current_path_index
+        if self.state.history_view_mode == "current_path":
+            history = self.state.current_path_history
+            current_index = self.state.current_path_index
         else:
-            history = self.full_history
-            current_index = len(self.full_history) - 1 if self.full_history else -1
+            history = self.state.full_history
+            current_index = len(self.state.full_history) - 1 if self.state.full_history else -1
         
         if not history:
             item = QListWidgetItem("No history yet")
@@ -631,7 +632,7 @@ class NavigationController(FileExplorerController):
                 display_name = str(path_obj)
             
             # Mark current position (only for current path view)
-            if self.history_view_mode == "current_path" and actual_index == current_index:
+            if self.state.history_view_mode == "current_path" and actual_index == current_index:
                 display_name = f"● {display_name}"
             
             item = QListWidgetItem(display_name)
@@ -645,72 +646,72 @@ class NavigationController(FileExplorerController):
         if index is None:
             return
         
-        if self.history_view_mode == "current_path":
+        if self.state.history_view_mode == "current_path":
             # Current Path view: jump to that position (like back/forward)
-            if 0 <= index < len(self.current_path_history):
-                self.current_path_index = index
-                path = self.current_path_history[index]
+            if 0 <= index < len(self.state.current_path_history):
+                self.state.current_path_index = index
+                path = self.state.current_path_history[index]
                 # Also add to full history
-                if not self.full_history or self.full_history[-1] != path:
-                    self.full_history.append(path)
+                if not self.state.full_history or self.state.full_history[-1] != path:
+                    self.state.full_history.append(path)
                 self.navigate_to_path(path, add_to_history=False)
         else:
             # Full History view: navigate there as a new entry
-            if 0 <= index < len(self.full_history):
-                path = self.full_history[index]
+            if 0 <= index < len(self.state.full_history):
+                path = self.state.full_history[index]
                 self.navigate_to_path(path, add_to_history=True)
                 
     def _jump_to_history_index(self, index):
         """Jump to a specific index in the current path history"""
-        if 0 <= index < len(self.current_path_history):
-            self.current_path_index = index
-            path = self.current_path_history[index]
+        if 0 <= index < len(self.state.current_path_history):
+            self.state.current_path_index = index
+            path = self.state.current_path_history[index]
             self.navigate_to_path(path, add_to_history=False)
     
     def _clear_history(self):
         """Clear navigation history based on current view mode"""
-        if self.history_view_mode == "current_path":
+        if self.state.history_view_mode == "current_path":
             # Clear current path, keep only current location
-            if self.current_path_history and 0 <= self.current_path_index < len(self.current_path_history):
-                current = self.current_path_history[self.current_path_index]
-                self.current_path_history = [current]
-                self.current_path_index = 0
+            if self.state.current_path_history and 0 <= self.state.current_path_index < len(self.state.current_path_history):
+                current = self.state.current_path_history[self.state.current_path_index]
+                self.state.current_path_history = [current]
+                self.state.current_path_index = 0
             else:
-                self.current_path_history = []
-                self.current_path_index = -1
+                self.state.current_path_history = []
+                self.state.current_path_index = -1
         else:
             # Clear full history, keep only current location
-            if self.current_path_history and 0 <= self.current_path_index < len(self.current_path_history):
-                current = self.current_path_history[self.current_path_index]
-                self.full_history = [current]
+            if self.state.current_path_history and 0 <= self.state.current_path_index < len(self.state.current_path_history):
+                current = self.state.current_path_history[self.state.current_path_index]
+                self.state.full_history = [current]
             else:
-                self.full_history = []
+                self.state.full_history = []
         self._update_nav_button_states()
     
     def navigate_back(self):
         """Navigate to previous folder in current path history"""
-        logger.debug(f"navigate_back called: index={self.current_path_index}, history={self.current_path_history}")
-        if self.current_path_index > 0:
-            self.current_path_index -= 1
-            path = self.current_path_history[self.current_path_index]
+        logger.debug(f"navigate_back called: index={self.state.current_path_index}, history={self.state.current_path_history}")
+        if self.state.current_path_index > 0:
+            self.state.current_path_index -= 1
+            path = self.state.current_path_history[self.state.current_path_index]
             logger.debug(f"Going back to: {path}")
             # Also add to full history
-            if not self.full_history or self.full_history[-1] != path:
-                self.full_history.append(path)
+            if not self.state.full_history or self.state.full_history[-1] != path:
+                self.state.full_history.append(path)
             self.navigate_to_path(path, add_to_history=False)
         else:
             logger.debug("Already at beginning of history")
     
     def navigate_forward(self):
         """Navigate to next folder in current path history"""
-        logger.debug(f"navigate_forward called: index={self.current_path_index}, history={self.current_path_history}")
-        if self.current_path_index < len(self.current_path_history) - 1:
-            self.current_path_index += 1
-            path = self.current_path_history[self.current_path_index]
+        logger.debug(f"navigate_forward called: index={self.state.current_path_index}, history={self.state.current_path_history}")
+        if self.state.current_path_index < len(self.state.current_path_history) - 1:
+            self.state.current_path_index += 1
+            path = self.state.current_path_history[self.state.current_path_index]
             logger.debug(f"Going forward to: {path}")
             # Also add to full history
-            if not self.full_history or self.full_history[-1] != path:
-                self.full_history.append(path)
+            if not self.state.full_history or self.state.full_history[-1] != path:
+                self.state.full_history.append(path)
             self.navigate_to_path(path, add_to_history=False)
         else:
             logger.debug("Already at end of history")
@@ -721,14 +722,14 @@ class NavigationController(FileExplorerController):
         logger.debug(f"Proxy Index: row={index.row()}, col={index.column()}")
         
         # Get the data directly from the proxy model (which handles sorting)
-        path = self.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
+        path = self.tab.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
         
         # If this column doesn't have the path data, get it from column 0 of the same row
         if not path:
             col0_index = index.sibling(index.row(), 0)
-            col0_text = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole)
+            col0_text = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole)
             logger.debug(f"Column 0 text for this row: {col0_text}")
-            path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+            path = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
         
         if not path:
             logger.debug("No path data found")
@@ -740,20 +741,20 @@ class NavigationController(FileExplorerController):
         # SharePoint virtual items: navigate folders, download-and-open files
         if is_sp_path(path):
             col0_index = index.sibling(index.row(), 0)
-            kind = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
-            name = (self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
-                    or self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
+            kind = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
+            name = (self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
+                    or self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
             if kind == "folder":
                 self.load_sharepoint_contents_in_details(path, name)
             else:
-                self.open_sharepoint_file(path, name)
+                self.tab.open_sharepoint_file(path, name)
             return
         
         path_obj = Path(path)
         
         # Handle .lnk shortcut files - resolve target and navigate if it's a folder
         if path_obj.suffix.lower() == '.lnk' and path_obj.is_file():
-            target_path = self._resolve_shortcut(str(path_obj))
+            target_path = self.tab._resolve_shortcut(str(path_obj))
             if target_path:
                 target_obj = Path(target_path)
                 if target_obj.exists() and target_obj.is_dir():
@@ -766,7 +767,7 @@ class NavigationController(FileExplorerController):
                     logger.debug(f"Shortcut resolves to file: {target_obj}")
                     try:
                         if os.name == 'nt':
-                            self._safe_startfile(str(target_obj))
+                            self.tab._safe_startfile(str(target_obj))
                         elif sys.platform == 'darwin':
                             subprocess.run(['open', str(target_obj)])
                         else:
@@ -790,7 +791,7 @@ class NavigationController(FileExplorerController):
             # which happens with long paths (>260 chars) on Windows with LongPathsEnabled=0
             try:
                 if os.name == 'nt':
-                    self._safe_startfile(str(path_obj))
+                    self.tab._safe_startfile(str(path_obj))
                 elif sys.platform == 'darwin':
                     subprocess.run(['open', str(path_obj)])
                 else:
@@ -811,9 +812,9 @@ class NavigationController(FileExplorerController):
             for item in items:
                 try:
                     if item.is_dir():
-                        row_items = self.create_folder_item(item)
+                        row_items = self.tab.create_folder_item(item)
                     else:
-                        row_items = self.create_file_item(item)
+                        row_items = self.tab.create_file_item(item)
                     
                     self.model.appendRow(row_items)
                 except (PermissionError, OSError):
@@ -825,10 +826,10 @@ class NavigationController(FileExplorerController):
     def go_up_one_level(self):
         """Go up one directory level - operates on details view"""
         # Use the current details folder, not the tree selection
-        if hasattr(self, 'current_details_folder') and self.current_details_folder:
-            current = Path(self.current_details_folder)
+        if hasattr(self, 'current_details_folder') and self.tab.current_details_folder:
+            current = Path(self.tab.current_details_folder)
         else:
-            current = Path(self.current_directory)
+            current = Path(self.state.current_directory)
         
         if current.parent != current:  # Not at root
             parent_path = str(current.parent)
@@ -837,15 +838,15 @@ class NavigationController(FileExplorerController):
     
     def refresh_current_folder(self):
         """Refresh the current folder contents"""
-        if hasattr(self, 'current_details_folder') and self.current_details_folder:
+        if hasattr(self, 'current_details_folder') and self.tab.current_details_folder:
             # Refresh without adding to history
-            self.load_folder_contents_in_details(Path(self.current_details_folder))
+            self.tab.load_folder_contents_in_details(Path(self.tab.current_details_folder))
     
     def load_sharepoint_contents_in_details(self, sp_path, display_name=None):
         """Override: route SharePoint loads through navigate_to_path so
         breadcrumb, tab title, and back/forward history stay in sync."""
         if display_name:
-            self._sp_display_names[sp_path] = display_name
+            self.state.sp_display_names[sp_path] = display_name
         self.navigate_to_path(sp_path)
     
     def on_tree_item_clicked(self, index):
@@ -858,7 +859,7 @@ class NavigationController(FileExplorerController):
         path = item.data(Qt.ItemDataRole.UserRole)
         if is_sp_path(path):
             # Remember the display name for the breadcrumb/tab title
-            self._sp_display_names[path] = (item.data(Qt.ItemDataRole.UserRole + 5)
+            self.state.sp_display_names[path] = (item.data(Qt.ItemDataRole.UserRole + 5)
                                             or item.text())
             self.navigate_to_path(path)
             return
@@ -882,7 +883,7 @@ class NavigationController(FileExplorerController):
             return
         
         if is_sp_path(path):
-            self._sp_display_names[path] = (item.data(Qt.ItemDataRole.UserRole + 5)
+            self.state.sp_display_names[path] = (item.data(Qt.ItemDataRole.UserRole + 5)
                                             or item.text())
             self.navigate_to_path(path)
             return

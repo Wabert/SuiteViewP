@@ -129,27 +129,40 @@ def test_mixin_requires_provides_contracts_are_documented_and_satisfied():
 
 def _is_collaborator(node: ast.ClassDef) -> bool:
     explicit = {
-        "TaskbarChrome",
-        "TaskbarModes",
-        "TaskbarTabs",
         "SystemTray",
-        "AppLauncher",
-        "NavigationController",
-        "QuickLinksController",
     }
+    suffixes = ("Controller", "Collaborator", "Chrome", "Tabs", "Modes", "Tray", "Launcher")
     return (
         node.name in explicit
-        or node.name.endswith("Controller")
-        or node.name.endswith("Collaborator")
+        or node.name.endswith(suffixes)
     )
 
 
 def test_collaborators_do_not_hide_host_state_behind_forwarding():
-    classes = _class_nodes(
-        [path for root in OWNED_ROOTS for path in _python_files(root)]
-    )
+    paths = [path for root in OWNED_ROOTS for path in _python_files(root)]
+    classes = _class_nodes(paths)
     offenders: list[str] = []
-    host_writes: list[str] = []
+    window_writes: list[str] = []
+    generated_forwarders: list[str] = []
+
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if path.name == "collaborators.py":
+            for child in ast.walk(tree):
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    if child.func.id in {"property", "setattr"}:
+                        generated_forwarders.append(f"{child.func.id}() in {path}:{child.lineno}")
+        for child in ast.walk(tree):
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == "setattr"
+                and child.args
+                and isinstance(child.args[0], ast.Name)
+                and child.args[0].id.endswith(("Class", "Controller", "Chrome", "Tabs", "Modes", "Tray", "Launcher"))
+            ):
+                generated_forwarders.append(f"setattr({child.args[0].id}, ...) in {path}:{child.lineno}")
+
     for path, node in classes.values():
         if not _is_collaborator(node):
             continue
@@ -161,13 +174,15 @@ def test_collaborators_do_not_hide_host_state_behind_forwarding():
                 isinstance(child, ast.Attribute)
                 and isinstance(child.ctx, (ast.Store, ast.Del))
                 and isinstance(child.value, ast.Attribute)
-                and child.value.attr == "host"
+                and child.value.attr in {"window", "tab"}
                 and isinstance(child.value.value, ast.Name)
                 and child.value.value.id == "self"
             ):
-                host_writes.append(f"{node.name}.self.host.{child.attr} in {path}")
+                window_writes.append(f"{node.name}.self.{child.value.attr}.{child.attr} in {path}")
 
     if offenders:
         pytest.fail("Collaborator forwarding methods are forbidden:\n" + "\n".join(offenders))
-    if host_writes:
-        pytest.fail("Collaborators must not assign host attributes:\n" + "\n".join(host_writes))
+    if generated_forwarders:
+        pytest.fail("Generated collaborator forwarders are forbidden:\n" + "\n".join(generated_forwarders))
+    if window_writes:
+        pytest.fail("Collaborators must not assign window/tab attributes:\n" + "\n".join(window_writes))

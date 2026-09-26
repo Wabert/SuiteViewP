@@ -52,18 +52,14 @@ from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
 
 
 def _host_widget(controller_or_widget):
-    return getattr(
-        controller_or_widget,
-        "window",
-        getattr(controller_or_widget, "host", controller_or_widget),
-    )
+    return getattr(controller_or_widget, "window", controller_or_widget)
 
 
 class SystemTray(TaskbarCollaborator):
     """Owns tray integration, permissions, app launchers, and child windows."""
 
     def _apply_permissions(self, access):
-        self._launcher_access = access
+        self.state.launcher_access = access
         floating_only_hidden = {
             "scratchpad_window_btn", "file_history_btn", "quick_screenshot_btn",
         }
@@ -76,25 +72,25 @@ class SystemTray(TaskbarCollaborator):
             ("ADMINISTRATOR", "administrator_action"),
         )
         for code, name in controls:
-            control = getattr(self, name, None)
+            control = getattr(self.chrome, name, None)
             if control is not None:
                 allowed = access is not None and access.allows_app(code)
                 control.setEnabled(allowed)
                 control.setVisible(allowed and not (
-                    getattr(self, "_is_floating_mode", False) and name in floating_only_hidden
+                    self.state.is_floating_mode and name in floating_only_hidden
                 ))
-        for code, action in self._permission_actions:
+        for code, action in self.chrome._permission_actions:
             allowed = access is not None and access.allows_app(code)
             action.setEnabled(allowed)
             action.setVisible(allowed)
         file_access = access is not None and access.allows_app("FILENAV")
         for name in ("tab_widget", "sidebar_container"):
-            control = getattr(self, name, None)
+            control = getattr(self.chrome, name, None)
             if control is not None:
                 control.setEnabled(file_access)
-        if getattr(self, "_is_floating_mode", False):
-            self.layout().activate()
-            self.resize(self.layout().sizeHint().width(), self.height())
+        if self.state.is_floating_mode:
+            self.window.layout().activate()
+            self.window.resize(self.window.layout().sizeHint().width(), self.window.height())
 
     def _refresh_permissions(self):
         try:
@@ -159,9 +155,9 @@ class SystemTray(TaskbarCollaborator):
     
     def _setup_system_tray(self):
         """Setup system tray icon and menu"""
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(self._build_suiteview_icon(64))
-        self.tray_icon.setToolTip("SuiteView - Click to show")
+        self.state.tray_icon = QSystemTrayIcon(self)
+        self.state.tray_icon.setIcon(self._build_suiteview_icon(64))
+        self.state.tray_icon.setToolTip("SuiteView - Click to show")
         
         # Create tray menu
         tray_menu = QMenu()
@@ -185,17 +181,17 @@ class SystemTray(TaskbarCollaborator):
         
         # Store as instance variable to prevent garbage collection
         self._quit_action = QAction("Quit SuiteView", self)
-        self._quit_action.triggered.connect(self._quit_application)
+        self._quit_action.triggered.connect(self.callbacks._quit_application)
         tray_menu.addAction(self._quit_action)
         
         # Store tray menu as instance variable too
         self._tray_menu = tray_menu
-        self.tray_icon.setContextMenu(self._tray_menu)
-        self.tray_icon.activated.connect(self._on_tray_activated)
-        self.tray_icon.show()
+        self.state.tray_icon.setContextMenu(self._tray_menu)
+        self.state.tray_icon.activated.connect(self._on_tray_activated)
+        self.state.tray_icon.show()
         
         # Also set the window icon
-        self.setWindowIcon(self._build_suiteview_icon(64))
+        self.window.setWindowIcon(self._build_suiteview_icon(64))
 
     def _connect_screen_change_handlers(self):
         """Refresh the compact AppBar when Windows monitor geometry changes."""
@@ -211,57 +207,57 @@ class SystemTray(TaskbarCollaborator):
             self._connect_screen_signals(screen)
 
     def _connect_screen_signals(self, screen):
-        if screen is None or screen in self._screen_signal_refs:
+        if screen is None or screen in self.state.screen_signal_refs:
             return
         screen.geometryChanged.connect(self._schedule_bar_refresh)
         screen.availableGeometryChanged.connect(self._schedule_bar_refresh)
-        self._screen_signal_refs.append(screen)
+        self.state.screen_signal_refs.append(screen)
 
     def _on_screen_added(self, screen):
         self._connect_screen_signals(screen)
         self._schedule_bar_refresh()
 
     def _schedule_bar_refresh(self, *_args):
-        if time.monotonic() < self._ignore_screen_events_until:
+        if time.monotonic() < self.state.ignore_screen_events_until:
             return
-        if self._bar_refresh_pending:
+        if self.state.bar_refresh_pending:
             return
-        self._bar_refresh_pending = True
+        self.state.bar_refresh_pending = True
         QTimer.singleShot(750, self._run_scheduled_bar_refresh)
 
     def _run_scheduled_bar_refresh(self):
-        self._bar_refresh_pending = False
-        if self._is_compact_mode or self._is_floating_mode:
+        self.state.bar_refresh_pending = False
+        if self.state.is_compact_mode or self.state.is_floating_mode:
             self._refresh_bar_position()
 
     def _refresh_bar_position(self):
         """Recompute the mini-bar geometry against the current primary screen."""
-        if getattr(self, '_is_floating_mode', False):
+        if self.state.is_floating_mode:
             self._move_floating_bar_to_current_screen()
             return
 
-        if not self._is_compact_mode:
+        if not self.state.is_compact_mode:
             return
 
-        self._unregister_appbar(force=True)
-        self._enter_compact_mode(initial=True)
+        self.callbacks._unregister_appbar(force=True)
+        self.callbacks._enter_compact_mode(initial=True)
 
     def _move_floating_bar_to_current_screen(self):
         screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         if screen is None:
             return
         avail = screen.availableGeometry()
-        bar_h = self.height() or 42
-        bar_w = min(max(self.width() or 320, 320), avail.width())
+        bar_h = self.window.height() or 42
+        bar_w = min(max(self.window.width() or 320, 320), avail.width())
         bar_x = avail.x() + (avail.width() - bar_w) // 2
         bar_y = avail.bottom() - bar_h - 10
-        self.setGeometry(bar_x, bar_y, bar_w, bar_h)
+        self.window.setGeometry(bar_x, bar_y, bar_w, bar_h)
     
     def _on_tray_activated(self, reason):
         """Handle tray icon clicks"""
         if reason in (QSystemTrayIcon.ActivationReason.Trigger,
                       QSystemTrayIcon.ActivationReason.DoubleClick):
-            self._show_from_tray()
+            self.callbacks._show_from_tray()
     
     def _show_from_tray(self):
         """Show and activate the main window.
@@ -270,44 +266,44 @@ class SystemTray(TaskbarCollaborator):
         gave back in :meth:`_hide_to_tray` — otherwise the bar reappears
         floating on top of maximised windows instead of docked beside them.
         """
-        self._hidden_to_tray = False
+        self.state.hidden_to_tray = False
         self.restore_window()
 
-        if self._is_compact_mode:
+        if self.state.is_compact_mode:
             # Re-apply WS_EX_TOOLWINDOW so the bar stays out of the taskbar
             self._apply_toolwindow_style()
             # Re-dock once Qt has finished mapping the window, so the AppBar
             # rectangle is negotiated against a window that really is on screen.
             QTimer.singleShot(0, self._redock_appbar)
-        elif self._is_floating_mode:
+        elif self.state.is_floating_mode:
             self._apply_toolwindow_style()
 
     def nativeEvent(self, event_type, message):
         if sys.platform == "win32":
 
             msg = wintypes.MSG.from_address(int(message))
-            if msg.message == getattr(self, "_restore_message", 0):
-                self._restore_requested.emit()
+            if msg.message == self.state.restore_message:
+                self.window._restore_requested.emit()
                 return True, 0
             # Windows can also show/restore us without changing Qt's hidden
             # flag. Reconcile on the UI thread, not inside a Win32 callback.
-            if getattr(self, "_hidden_to_tray", False):
+            if self.state.hidden_to_tray:
                 if ((msg.message == 0x0018 and msg.wParam)  # WM_SHOWWINDOW
                         or (msg.message == 0x0112
                             and msg.wParam & 0xFFF0 == 0xF120)):  # SC_RESTORE
-                    self._restore_requested.emit()
+                    self.window._restore_requested.emit()
         return False, 0
 
     def _redock_appbar(self):
         """Re-establish the AppBar reservation for the compact mini-bar."""
-        if not self._is_compact_mode or self._hidden_to_tray or not self.isVisible():
+        if not self.state.is_compact_mode or self.state.hidden_to_tray or not self.window.isVisible():
             return
-        self._register_appbar(self.height() or 42)
+        self.callbacks._register_appbar(self.window.height() or 42)
 
     def _apply_toolwindow_style(self):
         """Keep the mini-bar out of the Windows taskbar (WS_EX_TOOLWINDOW)."""
         try:
-            hwnd = int(self.winId())
+            hwnd = int(self.window.winId())
             GWL_EXSTYLE = -20
             WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_APPWINDOW  = 0x00040000
@@ -320,11 +316,11 @@ class SystemTray(TaskbarCollaborator):
 
     def _hide_to_tray(self):
         """Hide to system tray"""
-        self._hidden_to_tray = True
+        self.state.hidden_to_tray = True
         # Give the desktop its full work area back while we're invisible
-        self._unregister_appbar(force=True)
-        self.hide()
-        self.tray_icon.showMessage(
+        self.callbacks._unregister_appbar(force=True)
+        self.window.hide()
+        self.state.tray_icon.showMessage(
             "SuiteView",
             "SuiteView is still running. Click the tray icon to restore.",
             QSystemTrayIcon.MessageIcon.Information,
@@ -337,7 +333,7 @@ class SystemTray(TaskbarCollaborator):
         logger.info("Quit requested from system tray")
 
         # Preserve Administrator's unsaved-change cancellation before exiting.
-        if self.administrator_window is not None and not self.administrator_window.close():
+        if self.state.administrator_window is not None and not self.state.administrator_window.close():
             return
 
         # Ask every other window to close BEFORE touching the tray or launcher.
@@ -346,18 +342,18 @@ class SystemTray(TaskbarCollaborator):
         blocker = self._close_windows_for_quit()
         if blocker is not None:
             logger.info("Quit cancelled: %s is still open", blocker.windowTitle())
-            self._bring_to_front(blocker)
+            self.callbacks._bring_to_front(blocker)
             return
 
         try:
-            self._unregister_appbar(force=True)
+            self.callbacks._unregister_appbar(force=True)
         except Exception as e:
             logger.error(f"Error releasing the AppBar during quit: {e}")
         try:
-            self.tray_icon.hide()
+            self.state.tray_icon.hide()
         except Exception:
             logger.debug("Could not hide tray icon during quit", exc_info=True)
-        self.close()
+        self.window.close()
 
         # QApplication.quit() re-asks every window to close and Qt cancels it
         # if any refuses, which left an invisible process holding the
@@ -369,7 +365,7 @@ class SystemTray(TaskbarCollaborator):
 
         for window in list(QApplication.topLevelWidgets()):
             try:
-                if window is self or sip.isdeleted(window) or not window.isVisible():
+                if window is self.window or sip.isdeleted(window) or not window.isVisible():
                     continue
                 window.close()
                 if not sip.isdeleted(window) and window.isVisible():
@@ -403,14 +399,14 @@ class SystemTray(TaskbarCollaborator):
                 pixmap.save(str(filepath), 'PNG')
                 
                 # Notify Screenshot Manager if it's open
-                if self.screenshot_window is not None and self.screenshot_window.isVisible():
+                if self.state.screenshot_window is not None and self.state.screenshot_window.isVisible():
                     try:
-                        self.screenshot_window.add_screenshot_from_file(filepath)
+                        self.state.screenshot_window.add_screenshot_from_file(filepath)
                     except Exception as e:
                         logger.warning(f"Failed to notify Screenshot Manager: {e}")
                 
                 # Show notification
-                self.tray_icon.showMessage(
+                self.state.tray_icon.showMessage(
                     "Screenshot Saved",
                     f"Saved to: {filename}",
                     QSystemTrayIcon.MessageIcon.Information,
@@ -419,7 +415,7 @@ class SystemTray(TaskbarCollaborator):
                 
         except Exception as e:
             logger.error(f"Failed to take screenshot: {e}")
-            self.tray_icon.showMessage(
+            self.state.tray_icon.showMessage(
                 "Screenshot Failed",
                 str(e),
                 QSystemTrayIcon.MessageIcon.Warning,
@@ -435,14 +431,14 @@ class SystemTray(TaskbarCollaborator):
             windows_to_restore = []
             
             # Hide SuiteView main window
-            if self.isVisible():
-                self.hide()
+            if self.window.isVisible():
+                self.window.hide()
                 windows_to_restore.append(self.window)
             
             # Hide Screenshot Manager if open
-            if self.screenshot_window is not None and self.screenshot_window.isVisible():
-                self.screenshot_window.hide()
-                windows_to_restore.append(self.screenshot_window)
+            if self.state.screenshot_window is not None and self.state.screenshot_window.isVisible():
+                self.state.screenshot_window.hide()
+                windows_to_restore.append(self.state.screenshot_window)
             
             # Process events and wait for windows to hide
             QApplication.processEvents()
@@ -453,7 +449,7 @@ class SystemTray(TaskbarCollaborator):
                 
         except Exception as e:
             logger.error(f"Failed to capture screen: {e}")
-            self.tray_icon.showMessage(
+            self.state.tray_icon.showMessage(
                 "Capture Failed",
                 str(e),
                 QSystemTrayIcon.MessageIcon.Warning,
@@ -480,7 +476,7 @@ class SystemTray(TaskbarCollaborator):
                 pixmap.save(str(filepath), 'PNG')
                 
                 # Show notification
-                self.tray_icon.showMessage(
+                self.state.tray_icon.showMessage(
                     "Screen Captured",
                     f"Saved to: {filename}",
                     QSystemTrayIcon.MessageIcon.Information,
@@ -494,9 +490,9 @@ class SystemTray(TaskbarCollaborator):
                 window.raise_()
             
             # Notify Screenshot Manager to reload if it was restored
-            if self.screenshot_window is not None and self.screenshot_window in windows_to_restore:
+            if self.state.screenshot_window is not None and self.state.screenshot_window in windows_to_restore:
                 try:
-                    self.screenshot_window._load_existing_screenshots()
+                    self.state.screenshot_window._load_existing_screenshots()
                 except Exception as e:
                     logger.warning(f"Failed to notify Screenshot Manager: {e}")
                     
@@ -509,17 +505,17 @@ class SystemTray(TaskbarCollaborator):
     @requires_app_access("ALBERT")
     def _open_agent_chat(self):
         """Open or reuse the folder-scoped Copilot Agent window."""
-        if self.agent_chat_window is not None:
+        if self.state.agent_chat_window is not None:
             try:
-                _ = self.agent_chat_window.isVisible()
+                _ = self.state.agent_chat_window.isVisible()
             except RuntimeError:
-                self.agent_chat_window = None
+                self.state.agent_chat_window = None
 
-        if self.agent_chat_window is None:
+        if self.state.agent_chat_window is None:
             try:
                 from suiteview.agent_chat import AgentChatWindow
-                self.agent_chat_window = AgentChatWindow()
-                self._setup_child_window(self.agent_chat_window, "LLM Agent")
+                self.state.agent_chat_window = AgentChatWindow()
+                self.callbacks._setup_child_window(self.state.agent_chat_window, "LLM Agent")
             except Exception as exc:
                 logger.error("Failed to open LLM Agent: %s", exc, exc_info=True)
                 QMessageBox.critical(
@@ -527,71 +523,71 @@ class SystemTray(TaskbarCollaborator):
                     "LLM Agent Error",
                     f"Failed to open the LLM Agent:\n\n{exc}",
                 )
-                self.agent_chat_window = None
+                self.state.agent_chat_window = None
                 return
-        self._bring_to_front(self.agent_chat_window)
+        self.callbacks._bring_to_front(self.state.agent_chat_window)
 
     @requires_app_access("MAINFRAMENAV")
     def _open_mainframe(self):
         """Open the Mainframe Navigator window"""
-        if self.mainframe_window is None:
+        if self.state.mainframe_window is None:
             try:
                 from suiteview.mainframe_nav.mainframe_window import MainframeWindow
-                self.mainframe_window = MainframeWindow()
-                self._setup_child_window(self.mainframe_window, "Mainframe Navigator")
+                self.state.mainframe_window = MainframeWindow()
+                self.callbacks._setup_child_window(self.state.mainframe_window, "Mainframe Navigator")
             except Exception as e:
                 logger.error(f"Failed to open Mainframe Navigator: {e}")
                 QMessageBox.warning(_host_widget(self), "Mainframe Navigator", str(e))
                 return
-        self._bring_to_front(self.mainframe_window)
+        self.callbacks._bring_to_front(self.state.mainframe_window)
     
     @requires_app_access("SCREENSHOT")
     def _open_screenshot(self):
         """Open the Screenshot Manager window"""
-        if self.screenshot_window is None:
+        if self.state.screenshot_window is None:
             try:
                 from suiteview.screenshot_manager.screenshot_manager_window import (
                     ScreenShotManagerWindow,
                 )
-                self.screenshot_window = ScreenShotManagerWindow()
-                self._setup_child_window(self.screenshot_window, "Screenshot Manager")
+                self.state.screenshot_window = ScreenShotManagerWindow()
+                self.callbacks._setup_child_window(self.state.screenshot_window, "Screenshot Manager")
             except Exception as e:
                 logger.error(f"Failed to open Screenshot Manager: {e}")
                 QMessageBox.warning(_host_widget(self), "Screenshot Manager", str(e))
                 return
         else:
             # Reload screenshots to show any new ones taken while window was hidden
-            self.screenshot_window._load_existing_screenshots()
-        self._bring_to_front(self.screenshot_window)
+            self.state.screenshot_window._load_existing_screenshots()
+        self.callbacks._bring_to_front(self.state.screenshot_window)
     
     @requires_app_access("EMAILATTACHMENTS")
     def _open_email_attachments(self):
         """Open the Email Attachments window"""
-        if self.email_attachments_window is None:
+        if self.state.email_attachments_window is None:
             try:
                 from suiteview.ui.email_attachments_window import EmailAttachmentsWindow
-                self.email_attachments_window = EmailAttachmentsWindow()
-                self.email_attachments_window.setWindowIcon(self._build_suiteview_icon(32))
+                self.state.email_attachments_window = EmailAttachmentsWindow()
+                self.state.email_attachments_window.setWindowIcon(self._build_suiteview_icon(32))
             except Exception as e:
                 logger.error(f"Failed to open Email Attachments: {e}")
                 QMessageBox.warning(_host_widget(self), "Email Attachments", str(e))
                 return
-        self._bring_to_front(self.email_attachments_window)
+        self.callbacks._bring_to_front(self.state.email_attachments_window)
     
     @requires_app_access("POLVIEW")
     def _open_polview(self):
         """Open the PolView - Policy Viewer window"""
-        if self.polview_window is None:
+        if self.state.polview_window is None:
             try:
                 from suiteview.polview.ui.main_window import GetPolicyWindow
-                self.polview_window = GetPolicyWindow()
-                self._setup_child_window(self.polview_window, "PolView")
-                self._wire_polview_illustrator(self.polview_window)
+                self.state.polview_window = GetPolicyWindow()
+                self.callbacks._setup_child_window(self.state.polview_window, "PolView")
+                self._wire_polview_illustrator(self.state.polview_window)
             except Exception as e:
                 logger.error(f"Failed to open PolView: {e}")
                 QMessageBox.warning(_host_widget(self), "PolView", str(e))
                 return
-        self._bring_to_front(self.polview_window)
+        self.callbacks._bring_to_front(self.state.polview_window)
 
     def _wire_polview_illustrator(self, window):
         """Route PolView's RERUN button through the shared RERUN window."""
@@ -610,39 +606,39 @@ class SystemTray(TaskbarCollaborator):
         Creates the window lazily if requested before the taskbar opened it,
         but does NOT show it — the caller decides when to show.
         """
-        if self.polview_window is None:
+        if self.state.polview_window is None:
             try:
                 from suiteview.polview.ui.main_window import GetPolicyWindow
-                self.polview_window = GetPolicyWindow()
-                self._setup_child_window(self.polview_window, "PolView")
-                self._wire_polview_illustrator(self.polview_window)
+                self.state.polview_window = GetPolicyWindow()
+                self.callbacks._setup_child_window(self.state.polview_window, "PolView")
+                self._wire_polview_illustrator(self.state.polview_window)
             except ImportError:
                 logger.info("PolView package not available")
             except Exception as e:
                 logger.error(f"Failed to create PolView: {e}")
                 QMessageBox.warning(_host_widget(self), "PolView", str(e))
-        return self.polview_window
+        return self.state.polview_window
 
     def _polview_btn_clicked(self):
         """Handle [P] button click — open with policy if input has text, else just open."""
-        if (self._is_compact_mode
-                and hasattr(self, 'compact_policy_input')
-                and self.compact_policy_input.text().strip()):
+        if (self.state.is_compact_mode
+                and hasattr(self.chrome, 'compact_policy_input')
+                and self.chrome.compact_policy_input.text().strip()):
             self._open_polview_with_policy()
         else:
             self._open_polview()
 
     def _compact_policy(self):
         """Return the policy number typed in the compact bar, or '' if none."""
-        if (self._is_compact_mode
-                and hasattr(self, 'compact_policy_input')):
-            return self.compact_policy_input.text().strip().upper()
+        if (self.state.is_compact_mode
+                and hasattr(self.chrome, 'compact_policy_input')):
+            return self.chrome.compact_policy_input.text().strip().upper()
         return ""
 
     def _compact_region(self):
         """Return the region chosen in the compact bar (default CKPR)."""
-        if hasattr(self, 'compact_region_combo'):
-            return self.compact_region_combo.currentText() or "CKPR"
+        if hasattr(self.chrome, 'compact_region_combo'):
+            return self.chrome.compact_region_combo.currentText() or "CKPR"
         return "CKPR"
 
     def _clear_compact_policy(self):
@@ -652,8 +648,8 @@ class SystemTray(TaskbarCollaborator):
         it lingering in the taskbar input, or it would keep re-pulling that same
         policy every time the app is reopened.
         """
-        if hasattr(self, 'compact_policy_input'):
-            self.compact_policy_input.clear()
+        if hasattr(self.chrome, 'compact_policy_input'):
+            self.chrome.compact_policy_input.clear()
 
     def _open_polview_with_policy(self):
         """Open PolView and load the policy specified in the compact bar inputs."""
@@ -675,7 +671,7 @@ class SystemTray(TaskbarCollaborator):
                               and window.has_policy_loaded(policy))
             if not already_loaded:
                 window.load_policy(policy, region=self._compact_region(), company_code="")
-            self._bring_to_front(window)
+            self.callbacks._bring_to_front(window)
         finally:
             # Always clear the handed-off policy so reopening PolView later
             # doesn't keep re-pulling it — even if the load raised.
@@ -707,107 +703,107 @@ class SystemTray(TaskbarCollaborator):
         Shared by the taskbar RERUN button and PolView's RERUN header button.
         """
         self._open_illustration()
-        win = self.illustration_window
+        win = self.state.illustration_window
         if win is not None and hasattr(win, 'load_policy'):
             win.load_policy(policy_number, region=region, company_code=company_code)
-        self._bring_to_front(win)
+        self.callbacks._bring_to_front(win)
 
     @requires_app_access("POLVIEW")
     def _launch_polview_with_policy(self, policy_number, region="CKPR",
                                     company_code=""):
         """Open (or reuse) PolView and load *policy_number*."""
         self._open_polview()
-        win = self.polview_window
+        win = self.state.polview_window
         if win is not None and hasattr(win, 'load_policy'):
             win.load_policy(policy_number, region=region, company_code=company_code)
-        self._bring_to_front(win)
+        self.callbacks._bring_to_front(win)
 
     @requires_app_access("QUERY")
     def _open_audit(self):
         """Open the Audit Tool window"""
-        if self.audit_window is None:
+        if self.state.audit_window is None:
             try:
                 from suiteview.audit import launch_audit
-                self.audit_window = launch_audit()
-                self._setup_child_window(self.audit_window, "Audit Tool")
+                self.state.audit_window = launch_audit()
+                self.callbacks._setup_child_window(self.state.audit_window, "Audit Tool")
             except Exception as e:
                 logger.error(f"Failed to open Audit Tool: {e}\n{traceback.format_exc()}")
                 QMessageBox.warning(_host_widget(self), "Audit Tool Error",
                                     f"Failed to open Audit Tool:\n\n{e}")
                 return
         # Share PolView so policies opened from Audit use the same window
-        if hasattr(self.audit_window, 'set_polview_provider'):
-            self.audit_window.set_polview_provider(self._get_polview_window)
+        if hasattr(self.state.audit_window, 'set_polview_provider'):
+            self.state.audit_window.set_polview_provider(self._get_polview_window)
         # Share RERUN so "Open in Rerun" from Audit reuses the same window
-        if hasattr(self.audit_window, 'set_illustration_launcher'):
-            self.audit_window.set_illustration_launcher(
+        if hasattr(self.state.audit_window, 'set_illustration_launcher'):
+            self.state.audit_window.set_illustration_launcher(
                 self._launch_illustration_with_policy)
-        self._bring_to_front(self.audit_window)
+        self.callbacks._bring_to_front(self.state.audit_window)
 
     @requires_app_access("ABR")
     def _open_abrquote(self):
         """Open the ABR Quote Tool window"""
         # Guard: if the stored window was destroyed (e.g. C++ object deleted),
         # reset so we recreate it cleanly.
-        if self.abrquote_window is not None:
+        if self.state.abrquote_window is not None:
             try:
                 # Accessing any Qt property on a deleted C++ object raises RuntimeError
-                _ = self.abrquote_window.isVisible()
+                _ = self.state.abrquote_window.isVisible()
             except RuntimeError:
-                self.abrquote_window = None
+                self.state.abrquote_window = None
 
-        if self.abrquote_window is None:
+        if self.state.abrquote_window is None:
             try:
                 from suiteview.abrquote import launch_abrquote
-                self.abrquote_window = launch_abrquote()
-                self._setup_child_window(self.abrquote_window, "ABR Quote")
+                self.state.abrquote_window = launch_abrquote()
+                self.callbacks._setup_child_window(self.state.abrquote_window, "ABR Quote")
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open ABR Quote: {e}\n{tb}")
                 QMessageBox.critical(_host_widget(self), "ABR Quote Error",
                                      f"Failed to open ABR Quote:\n\n{e}\n\n{tb}")
-                self.abrquote_window = None  # reset so retry works
+                self.state.abrquote_window = None  # reset so retry works
                 return
-        self._bring_to_front(self.abrquote_window)
+        self.callbacks._bring_to_front(self.state.abrquote_window)
 
     @requires_app_access("RERUN")
     def _open_illustration(self):
         """Open the RERUN app window."""
-        if self.illustration_window is not None:
+        if self.state.illustration_window is not None:
             try:
-                _ = self.illustration_window.isVisible()
+                _ = self.state.illustration_window.isVisible()
             except RuntimeError:
-                self.illustration_window = None
+                self.state.illustration_window = None
 
-        if self.illustration_window is None:
+        if self.state.illustration_window is None:
             try:
                 from suiteview.illustration import launch_illustration
-                self.illustration_window = launch_illustration()
-                self._setup_child_window(self.illustration_window, "RERUN")
-                self._wire_illustration_polview(self.illustration_window)
+                self.state.illustration_window = launch_illustration()
+                self.callbacks._setup_child_window(self.state.illustration_window, "RERUN")
+                self._wire_illustration_polview(self.state.illustration_window)
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open RERUN: {e}\n{tb}")
                 QMessageBox.critical(_host_widget(self), "RERUN Error",
                                      f"Failed to open RERUN:\n\n{e}\n\n{tb}")
-                self.illustration_window = None
+                self.state.illustration_window = None
                 return
-        self._bring_to_front(self.illustration_window)
+        self.callbacks._bring_to_front(self.state.illustration_window)
 
 
     @requires_app_access("RATEMANAGER")
     def _open_rate_manager(self):
         """Open the Rate Manager window."""
-        if self.ratemanager_window is None:
+        if self.state.ratemanager_window is None:
             try:
                 from suiteview.ratemanager.ratemanager_window import RateManagerWindow
-                self.ratemanager_window = RateManagerWindow()
-                self._setup_child_window(self.ratemanager_window, "Rate Manager")
+                self.state.ratemanager_window = RateManagerWindow()
+                self.callbacks._setup_child_window(self.state.ratemanager_window, "Rate Manager")
             except Exception as e:
                 logger.error(f"Failed to open Rate Manager: {e}")
                 QMessageBox.warning(_host_widget(self), "Rate Manager", str(e))
                 return
-        self._bring_to_front(self.ratemanager_window)
+        self.callbacks._bring_to_front(self.state.ratemanager_window)
 
     def _open_administrator(self):
         """Recheck ADMIN membership even when reopening an existing window."""
@@ -816,29 +812,29 @@ class SystemTray(TaskbarCollaborator):
         try:
             repository = AccessRepository()
             repository.load()
-            if self.administrator_window is None:
+            if self.state.administrator_window is None:
                 from suiteview.administrator.window import AdministratorWindow
-                self.administrator_window = AdministratorWindow(repository=repository)
-                self.administrator_window.setWindowIcon(self._build_suiteview_icon(32))
-                self.administrator_window.permissions_changed.connect(
-                    self._administrator_menu_access.refresh)
-                self.administrator_window.permissions_changed.connect(self._refresh_permissions)
-            self._bring_to_front(self.administrator_window)
+                self.state.administrator_window = AdministratorWindow(repository=repository)
+                self.state.administrator_window.setWindowIcon(self._build_suiteview_icon(32))
+                self.state.administrator_window.permissions_changed.connect(
+                    self.chrome._administrator_menu_access.refresh)
+                self.state.administrator_window.permissions_changed.connect(self.callbacks._refresh_permissions)
+            self.callbacks._bring_to_front(self.state.administrator_window)
         except Exception as exc:
             logger.exception("Failed to open Administrator")
-            if self.administrator_window is not None:
-                self.administrator_window.hide()
+            if self.state.administrator_window is not None:
+                self.state.administrator_window.hide()
             QMessageBox.warning(_host_widget(self), "Administrator", f"Cannot open Administrator:\n\n{exc}")
 
     @requires_app_access("ADMINISTRATOR")
     def _open_db2_table_check(self):
         """Open the CKPR DB2 Table Check window."""
-        if self.db2_check_window is None:
+        if self.state.db2_check_window is None:
             try:
                 from suiteview.ui.db2_table_check_window import DB2TableCheckWindow
-                self.db2_check_window = DB2TableCheckWindow(region="CKPR")
-                self._setup_child_window(
-                    self.db2_check_window, "DB2 Table Check")
+                self.state.db2_check_window = DB2TableCheckWindow(region="CKPR")
+                self.callbacks._setup_child_window(
+                    self.state.db2_check_window, "DB2 Table Check")
             except Exception as e:
                 logger.error(
                     "Failed to open DB2 Table Check: %s", e, exc_info=True)
@@ -847,30 +843,30 @@ class SystemTray(TaskbarCollaborator):
                     "DB2 Table Check Error",
                     f"Failed to open DB2 Table Check:\n\n{e}",
                 )
-                self.db2_check_window = None
+                self.state.db2_check_window = None
                 return
-        self._bring_to_front(self.db2_check_window)
+        self.callbacks._bring_to_front(self.state.db2_check_window)
 
     @requires_app_access("FILENAV")
     def _open_file_nav(self):
         """Open the File Navigator as a separate window."""
         # Guard: if the stored window was destroyed, reset it
-        if self.file_nav_window is not None:
+        if self.state.file_nav_window is not None:
             try:
-                _ = self.file_nav_window.isVisible()
+                _ = self.state.file_nav_window.isVisible()
             except RuntimeError:
-                self.file_nav_window = None
+                self.state.file_nav_window = None
 
-        if self.file_nav_window is None:
+        if self.state.file_nav_window is None:
             try:
-                self.file_nav_window = FileNavWindow(parent_bar=self.window)
-                self._setup_child_window(self.file_nav_window, "FileNav")
+                self.state.file_nav_window = FileNavWindow(parent_bar=self.window)
+                self.callbacks._setup_child_window(self.state.file_nav_window, "FileNav")
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open File Navigator: {e}\n{tb}")
-                self.file_nav_window = None
+                self.state.file_nav_window = None
                 return
-        self._bring_to_front(self.file_nav_window)
+        self.callbacks._bring_to_front(self.state.file_nav_window)
 
     @requires_app_access("FILENAV")
     def _open_app_data_location(self):
@@ -887,43 +883,43 @@ class SystemTray(TaskbarCollaborator):
     def _toggle_scratchpad_window(self):
         """Toggle the ScratchPad window visibility."""
         # Guard: if the stored window was destroyed, reset it
-        if self.scratchpad_window is not None:
+        if self.state.scratchpad_window is not None:
             try:
-                _ = self.scratchpad_window.isVisible()
+                _ = self.state.scratchpad_window.isVisible()
             except RuntimeError:
-                self.scratchpad_window = None
+                self.state.scratchpad_window = None
 
-        if self.scratchpad_window is None:
+        if self.state.scratchpad_window is None:
             try:
                 from suiteview.scratchpad.scratchpad_panel import ScratchPadWindow
-                self.scratchpad_window = ScratchPadWindow.open(parent_bar=self)
-                self._setup_child_window(self.scratchpad_window, "ScratchPad")
+                self.state.scratchpad_window = ScratchPadWindow.open(parent_bar=self)
+                self.callbacks._setup_child_window(self.state.scratchpad_window, "ScratchPad")
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open ScratchPad window: {e}\n{tb}")
                 QMessageBox.warning(_host_widget(self), "ScratchPad", str(e))
-                self.scratchpad_window = None
+                self.state.scratchpad_window = None
                 return
 
-        if self.scratchpad_window.isVisible():
-            self.scratchpad_window.hide()
+        if self.state.scratchpad_window.isVisible():
+            self.state.scratchpad_window.hide()
         else:
-            self._bring_to_front(self.scratchpad_window)
+            self.callbacks._bring_to_front(self.state.scratchpad_window)
 
     @requires_app_access("HISTORY")
     def _toggle_file_open_history(self):
         """Toggle the File Open History popup panel."""
-        if not hasattr(self, '_file_open_history_panel') or self._file_open_history_panel is None:
-            self._file_open_history_panel = FileOpenHistoryPanel(self.window)
+        if not self.state.file_open_history_panel is not None or self.state.file_open_history_panel is None:
+            self.state.file_open_history_panel = FileOpenHistoryPanel(self.window)
 
-        panel = self._file_open_history_panel
+        panel = self.state.file_open_history_panel
         if panel.isVisible():
             panel.hide()
         elif panel.was_recently_hidden():
             # Popup auto-closed because user clicked the H button — treat as "close" toggle
             pass
         else:
-            panel.show_under(self.file_history_btn)
+            panel.show_under(self.chrome.file_history_btn)
 
     
     def _bring_to_front(self, window):
@@ -977,7 +973,7 @@ class SystemTray(TaskbarCollaborator):
         """)
         
         # Create edge resize widgets
-        self._resize_widgets = []
+        self.state.resize_widgets = []
         
         # Edge widget class for resize
         class ResizeEdge(QFrame):
@@ -997,7 +993,8 @@ class SystemTray(TaskbarCollaborator):
                 
             def mousePressEvent(self, event):
                 # Block resize when docked compact or floating
-                if getattr(self.parent_window, '_is_compact_mode', False) or getattr(self.parent_window, '_is_floating_mode', False):
+                state = getattr(self.parent_window, "state", None)
+                if state is not None and (state.is_compact_mode or state.is_floating_mode):
                     event.ignore()
                     return
                 if event.button() == Qt.MouseButton.LeftButton:
@@ -1007,7 +1004,8 @@ class SystemTray(TaskbarCollaborator):
                     event.accept()
                     
             def mouseMoveEvent(self, event):
-                if getattr(self.parent_window, '_is_compact_mode', False) or getattr(self.parent_window, '_is_floating_mode', False):
+                state = getattr(self.parent_window, "state", None)
+                if state is not None and (state.is_compact_mode or state.is_floating_mode):
                     event.ignore()
                     return
                 if self._dragging and self._start_geometry:
@@ -1026,34 +1024,34 @@ class SystemTray(TaskbarCollaborator):
                 self._start_geometry = None
         
         for edge in ALL_RESIZE_EDGES:
-            self._resize_widgets.append((edge, ResizeEdge(self.window, edge)))
+            self.state.resize_widgets.append((edge, ResizeEdge(self.window, edge)))
         
     def resizeEvent(self, event):
         """Position the resize widgets on resize and collapse/expand UI elements"""
         QWidget.resizeEvent(_host_widget(self), event)
         margin = 6
-        w, h = self.width(), self.height()
+        w, h = self.window.width(), self.window.height()
         
         # Collapse/expand UI elements based on window height
         # Header bar is ~38px, footer is ~24px, tab bar is ~30px
-        if hasattr(self, 'footer_bar') and hasattr(self, 'tab_widget'):
+        if hasattr(self.chrome, 'footer_bar') and hasattr(self.chrome, 'tab_widget'):
             # Hide footer and tab content when window is very small (just header)
             if h < 70:
-                self.footer_bar.hide()
-                self.tab_widget.hide()
+                self.chrome.footer_bar.hide()
+                self.chrome.tab_widget.hide()
             elif h < 100:
-                self.footer_bar.hide()
-                self.tab_widget.show()
+                self.chrome.footer_bar.hide()
+                self.chrome.tab_widget.show()
             else:
-                self.footer_bar.show()
-                self.tab_widget.show()
+                self.chrome.footer_bar.show()
+                self.chrome.tab_widget.show()
         
         if hasattr(self, 'size_grip'):
             self.size_grip.move(w - 16, h - 16)
             self.size_grip.raise_()
         
-        if hasattr(self, '_resize_widgets'):
-            for edge_name, widget in self._resize_widgets:
+        if bool(self.state.resize_widgets):
+            for edge_name, widget in self.state.resize_widgets:
                 if edge_name == 'top':
                     widget.setGeometry(margin, 0, w - 2*margin, margin)
                 elif edge_name == 'bottom':
@@ -1082,38 +1080,98 @@ class AppLauncher(TaskbarCollaborator):
     """
 
 
-for _name in (
-    "_take_quick_screenshot",
-    "_capture_active_window",
-    "_do_capture_excluding_suiteview",
-    "_open_agent_chat",
-    "_open_mainframe",
-    "_open_screenshot",
-    "_open_email_attachments",
-    "_open_polview",
-    "_wire_polview_illustrator",
-    "_wire_illustration_polview",
-    "_get_polview_window",
-    "_polview_btn_clicked",
-    "_compact_policy",
-    "_compact_region",
-    "_clear_compact_policy",
-    "_open_polview_with_policy",
-    "_abrquote_btn_clicked",
-    "_illustration_btn_clicked",
-    "_launch_illustration_with_policy",
-    "_launch_polview_with_policy",
-    "_open_audit",
-    "_open_abrquote",
-    "_open_illustration",
-    "_open_rate_manager",
-    "_open_administrator",
-    "_open_db2_table_check",
-    "_open_file_nav",
-    "_open_app_data_location",
-    "_toggle_scratchpad_window",
-    "_toggle_file_open_history",
-    "_bring_to_front",
-    "_setup_child_window",
-):
-    setattr(AppLauncher, _name, getattr(SystemTray, _name))
+    def _take_quick_screenshot(self, *args, **kwargs):
+        return SystemTray._take_quick_screenshot(self, *args, **kwargs)
+
+    def _capture_active_window(self, *args, **kwargs):
+        return SystemTray._capture_active_window(self, *args, **kwargs)
+
+    def _do_capture_excluding_suiteview(self, *args, **kwargs):
+        return SystemTray._do_capture_excluding_suiteview(self, *args, **kwargs)
+
+    def _open_agent_chat(self, *args, **kwargs):
+        return SystemTray._open_agent_chat(self, *args, **kwargs)
+
+    def _open_mainframe(self, *args, **kwargs):
+        return SystemTray._open_mainframe(self, *args, **kwargs)
+
+    def _open_screenshot(self, *args, **kwargs):
+        return SystemTray._open_screenshot(self, *args, **kwargs)
+
+    def _open_email_attachments(self, *args, **kwargs):
+        return SystemTray._open_email_attachments(self, *args, **kwargs)
+
+    def _open_polview(self, *args, **kwargs):
+        return SystemTray._open_polview(self, *args, **kwargs)
+
+    def _wire_polview_illustrator(self, *args, **kwargs):
+        return SystemTray._wire_polview_illustrator(self, *args, **kwargs)
+
+    def _wire_illustration_polview(self, *args, **kwargs):
+        return SystemTray._wire_illustration_polview(self, *args, **kwargs)
+
+    def _get_polview_window(self, *args, **kwargs):
+        return SystemTray._get_polview_window(self, *args, **kwargs)
+
+    def _polview_btn_clicked(self, *args, **kwargs):
+        return SystemTray._polview_btn_clicked(self, *args, **kwargs)
+
+    def _compact_policy(self, *args, **kwargs):
+        return SystemTray._compact_policy(self, *args, **kwargs)
+
+    def _compact_region(self, *args, **kwargs):
+        return SystemTray._compact_region(self, *args, **kwargs)
+
+    def _clear_compact_policy(self, *args, **kwargs):
+        return SystemTray._clear_compact_policy(self, *args, **kwargs)
+
+    def _open_polview_with_policy(self, *args, **kwargs):
+        return SystemTray._open_polview_with_policy(self, *args, **kwargs)
+
+    def _abrquote_btn_clicked(self, *args, **kwargs):
+        return SystemTray._abrquote_btn_clicked(self, *args, **kwargs)
+
+    def _illustration_btn_clicked(self, *args, **kwargs):
+        return SystemTray._illustration_btn_clicked(self, *args, **kwargs)
+
+    def _launch_illustration_with_policy(self, *args, **kwargs):
+        return SystemTray._launch_illustration_with_policy(self, *args, **kwargs)
+
+    def _launch_polview_with_policy(self, *args, **kwargs):
+        return SystemTray._launch_polview_with_policy(self, *args, **kwargs)
+
+    def _open_audit(self, *args, **kwargs):
+        return SystemTray._open_audit(self, *args, **kwargs)
+
+    def _open_abrquote(self, *args, **kwargs):
+        return SystemTray._open_abrquote(self, *args, **kwargs)
+
+    def _open_illustration(self, *args, **kwargs):
+        return SystemTray._open_illustration(self, *args, **kwargs)
+
+    def _open_rate_manager(self, *args, **kwargs):
+        return SystemTray._open_rate_manager(self, *args, **kwargs)
+
+    def _open_administrator(self, *args, **kwargs):
+        return SystemTray._open_administrator(self, *args, **kwargs)
+
+    def _open_db2_table_check(self, *args, **kwargs):
+        return SystemTray._open_db2_table_check(self, *args, **kwargs)
+
+    def _open_file_nav(self, *args, **kwargs):
+        return SystemTray._open_file_nav(self, *args, **kwargs)
+
+    def _open_app_data_location(self, *args, **kwargs):
+        return SystemTray._open_app_data_location(self, *args, **kwargs)
+
+    def _toggle_scratchpad_window(self, *args, **kwargs):
+        return SystemTray._toggle_scratchpad_window(self, *args, **kwargs)
+
+    def _toggle_file_open_history(self, *args, **kwargs):
+        return SystemTray._toggle_file_open_history(self, *args, **kwargs)
+
+    def _bring_to_front(self, *args, **kwargs):
+        return SystemTray._bring_to_front(self, *args, **kwargs)
+
+    def _setup_child_window(self, *args, **kwargs):
+        return SystemTray._setup_child_window(self, *args, **kwargs)

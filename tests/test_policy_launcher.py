@@ -7,6 +7,7 @@ the compact-bar policy. PolView and RERUN header buttons pass the current policy
 between the two apps and remain inert until a policy is loaded.
 """
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -15,7 +16,8 @@ from PyQt6.QtWidgets import QApplication
 from suiteview.abrquote.ui.abr_window import ABRQuoteWindow
 from suiteview.illustration.ui.main_window import IllustrationWindow
 from suiteview.polview.ui.main_window import GetPolicyWindow
-from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
+from suiteview.taskbar_launcher.collaborators import TaskbarState
+from suiteview.taskbar_launcher.taskbar_system import AppLauncher
 
 _QT_APP = None
 
@@ -215,12 +217,14 @@ class _FakeWindow:
 def _bare_taskbar(policy="", region="CKPR"):
     """A SuiteViewTaskbar with only the compact-bar surface the launch
     handlers touch — built via __new__ to skip the heavy Win32/UI __init__."""
-    bar = SuiteViewTaskbar.__new__(SuiteViewTaskbar)
-    bar._is_compact_mode = True
-    bar.compact_policy_input = _FakeInput(policy)
-    bar.compact_region_combo = _FakeCombo(region)
-    bar.abrquote_window = None
-    bar.illustration_window = None
+    state = TaskbarState(is_compact_mode=True)
+    chrome = SimpleNamespace(
+        compact_policy_input=_FakeInput(policy),
+        compact_region_combo=_FakeCombo(region),
+    )
+    callbacks = SimpleNamespace(_bring_to_front=lambda w: None)
+    bar = AppLauncher(SimpleNamespace(), state, chrome=chrome, callbacks=callbacks)
+    bar.state = state
     bar._bring_to_front = lambda w: None
     return bar
 
@@ -231,7 +235,7 @@ def test_taskbar_illustration_button_passes_typed_policy():
     win = _FakeWindow()
 
     def _open():
-        bar.illustration_window = win
+        bar.state.illustration_window = win
 
     bar._open_illustration = _open
     bar._illustration_btn_clicked()
@@ -246,7 +250,7 @@ def test_taskbar_illustration_button_empty_policy_is_plain_open():
 
     def _open():
         opened.append(True)
-        bar.illustration_window = win
+        bar.state.illustration_window = win
 
     bar._open_illustration = _open
     bar._illustration_btn_clicked()
@@ -262,7 +266,7 @@ def test_taskbar_abr_button_ignores_typed_policy():
 
     def _open():
         opened.append(True)
-        bar.abrquote_window = win
+        bar.state.abrquote_window = win
 
     bar._open_abrquote = _open
     bar._abrquote_btn_clicked()
@@ -278,7 +282,7 @@ def test_taskbar_abr_button_empty_policy_is_plain_open():
 
     def _open():
         opened.append(True)
-        bar.abrquote_window = win
+        bar.state.abrquote_window = win
 
     bar._open_abrquote = _open
     bar._abrquote_btn_clicked()
@@ -312,7 +316,7 @@ def test_taskbar_launch_illustration_with_policy_reuses_window():
     win = _FakeWindow()
 
     def _open():
-        bar.illustration_window = win
+        bar.state.illustration_window = win
 
     bar._open_illustration = _open
     bar._launch_illustration_with_policy("E0213651", region="CKMO",

@@ -53,13 +53,15 @@ def test_packaged_launch_is_blocked_before_permissions_or_subprocess(monkeypatch
 ])
 def test_packaged_badge_stays_hidden_after_refresh(app, monkeypatch, role, all_apps, apps):
     from types import SimpleNamespace
-    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.collaborators import TaskbarState
+    from suiteview.taskbar_launcher.taskbar_system import SystemTray
 
     monkeypatch.setattr(build_env.sys, "frozen", True, raising=False)
     button = albert_launcher.AlbertButton()
-    bar = SimpleNamespace(albert_btn=button, _permission_actions=[])
+    chrome = SimpleNamespace(albert_btn=button, _permission_actions=[])
+    bar = SystemTray(SimpleNamespace(layout=lambda: SimpleNamespace(activate=lambda: None)), TaskbarState(), chrome=chrome)
     rights = access_control.EffectiveAccess("PERSON", role, all_apps, True, True, apps)
-    SuiteViewTaskbar._apply_permissions(bar, rights)
+    bar._apply_permissions(rights)
     assert not button.isEnabled()
     assert button.isHidden()
     assert "not available in the packaged EXE" in button.toolTip()
@@ -128,5 +130,5 @@ def test_shortcut_is_wired_in_header_and_preserved_in_floating_mode():
     assert "control.setVisible(" in methods["_apply_permissions"]
     assert "self.albert_btn = AlbertButton(self.window)" in methods["_build_primary_app_buttons"]
     assert "header_layout.addWidget(self.albert_btn)" in methods["_build_primary_app_buttons"]
-    assert "self._apply_permissions(self._launcher_access)" in methods["_enter_floating_mode"]
-    assert "bar_w = self.layout().sizeHint().width()" in methods["_enter_floating_mode"]
+    assert "self.callbacks._apply_permissions(self.state.launcher_access)" in methods["_enter_floating_mode"]
+    assert "bar_w = self.window.layout().sizeHint().width()" in methods["_enter_floating_mode"]

@@ -62,7 +62,7 @@ class TaskbarChrome(TaskbarCollaborator):
 
     def _apply_global_scrollbar_style(self):
         # ====== GLOBAL SCROLLBAR STYLING (light blue for contrast) ======
-        self.setStyleSheet("""
+        self.window.setStyleSheet("""
             QScrollBar:vertical {
                 background: #E8F0F8;
                 width: 12px;
@@ -139,7 +139,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.title_label.mouseDoubleClickEvent = lambda event: self._toggle_compact_mode()
+        self.title_label.mouseDoubleClickEvent = lambda event: self.callbacks._toggle_compact_mode()
         header_layout.addWidget(self.title_label)
         return header_layout
 
@@ -173,7 +173,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: rgba(212, 160, 23, 0.4);
             }
         """)
-        self.quick_screenshot_btn.clicked.connect(self._take_quick_screenshot)
+        self.quick_screenshot_btn.clicked.connect(self.callbacks._take_quick_screenshot)
         header_layout.addWidget(self.quick_screenshot_btn)
         
         # ====== COMPACT MODE: Region combo + Policy input ======
@@ -249,7 +249,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.compact_policy_input.setToolTip("Policy Number")
-        self.compact_policy_input.returnPressed.connect(self._open_polview_with_policy)
+        self.compact_policy_input.returnPressed.connect(self.callbacks._open_polview_with_policy)
         self.compact_policy_input.hide()
         force_uppercase(self.compact_policy_input)
         header_layout.addWidget(self.compact_policy_input)
@@ -282,7 +282,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #1B5E20;
             }
         """)
-        self.polview_btn.clicked.connect(self._polview_btn_clicked)
+        self.polview_btn.clicked.connect(self.callbacks._polview_btn_clicked)
         header_layout.addWidget(self.polview_btn)
 
         # ====== FILE NAV BUTTON (gold "F" with blue trim) ======
@@ -311,7 +311,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 border-color: #FFD700;
             }
         """)
-        self.filenav_btn.clicked.connect(self._open_file_nav)
+        self.filenav_btn.clicked.connect(self.callbacks._open_file_nav)
         header_layout.addWidget(self.filenav_btn)
 
         # ====== ABR QUOTE BUTTON (crimson "A" with slate-blue trim) ======
@@ -341,7 +341,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 border-color: #2E4F85;
             }
         """)
-        self.abrquote_btn.clicked.connect(self._abrquote_btn_clicked)
+        self.abrquote_btn.clicked.connect(self.callbacks._abrquote_btn_clicked)
         header_layout.addWidget(self.abrquote_btn)
 
         # ====== RERUN BUTTON (gold "R" on purple) ======
@@ -369,7 +369,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #2A1458;
             }
         """)
-        self.illustration_btn.clicked.connect(self._illustration_btn_clicked)
+        self.illustration_btn.clicked.connect(self.callbacks._illustration_btn_clicked)
         header_layout.addWidget(self.illustration_btn)
         
         # ====== AUDIT BUTTON ("Q" — silver & blue) ======
@@ -397,7 +397,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #909090;
             }
         """)
-        self.audit_btn.clicked.connect(self._open_audit)
+        self.audit_btn.clicked.connect(self.callbacks._open_audit)
         header_layout.addWidget(self.audit_btn)
         self.albert_btn = AlbertButton(self.window)
         header_layout.addWidget(self.albert_btn)
@@ -459,7 +459,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 border-color: #C8A84B;
             }
         """)
-        self.scratchpad_window_btn.clicked.connect(self._toggle_scratchpad_window)
+        self.scratchpad_window_btn.clicked.connect(self.callbacks._toggle_scratchpad_window)
         header_layout.addWidget(self.scratchpad_window_btn)
 
         # ====== FILE OPEN HISTORY BUTTON (teal "H" with gold trim) ======
@@ -487,7 +487,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #0D4A3F;
             }
         """)
-        self.file_history_btn.clicked.connect(self._toggle_file_open_history)
+        self.file_history_btn.clicked.connect(self.callbacks._toggle_file_open_history)
         header_layout.addWidget(self.file_history_btn)
 
     def _build_tools_menu(self, header_layout):
@@ -530,22 +530,22 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self._permission_actions.append((
-            "SCREENSHOT", self.tools_menu.addAction("View Screenshots", self._open_screenshot)))
+            "SCREENSHOT", self.tools_menu.addAction("View Screenshots", self.callbacks._open_screenshot)))
         self.administrator_action = self.tools_menu.addAction(
-            "Administrator", self._open_administrator)
+            "Administrator", self.callbacks._open_administrator)
         self._administrator_menu_access = AdministratorMenuAccess(
             self.tools_menu, self.administrator_action)
         for code, title, callback in (
-            ("MAINFRAMENAV", "Mainframe Navigator", self._open_mainframe),
-            ("RATEMANAGER", "Rate Manager", self._open_rate_manager),
-            ("ADMINISTRATOR", "DB2 Table Check", self._open_db2_table_check),
-            ("EMAILATTACHMENTS", "Email Attachments", self._open_email_attachments),
+            ("MAINFRAMENAV", "Mainframe Navigator", self.callbacks._open_mainframe),
+            ("RATEMANAGER", "Rate Manager", self.callbacks._open_rate_manager),
+            ("ADMINISTRATOR", "DB2 Table Check", self.callbacks._open_db2_table_check),
+            ("EMAILATTACHMENTS", "Email Attachments", self.callbacks._open_email_attachments),
         ):
             self._permission_actions.append((code, self.tools_menu.addAction(title, callback)))
-        self.tools_menu.addAction("Refresh Permissions", self._refresh_permissions)
+        self.tools_menu.addAction("Refresh Permissions", self.callbacks._refresh_permissions)
         self.tools_menu.addSeparator()
         self._permission_actions.append((
-            "FILENAV", self.tools_menu.addAction("📁 App Data Location", self._open_app_data_location)))
+            "FILENAV", self.tools_menu.addAction("📁 App Data Location", self.callbacks._open_app_data_location)))
         self.tools_menu_btn.setMenu(self.tools_menu)
         header_layout.addWidget(self.tools_menu_btn)
 
@@ -585,7 +585,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.minimize_btn.setToolTip("Minimize")
-        self.minimize_btn.clicked.connect(self.showMinimized)
+        self.minimize_btn.clicked.connect(self.callbacks.showMinimized)
         header_layout.addWidget(self.minimize_btn)
         
         # Maximize/Restore button - gold text
@@ -600,7 +600,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.maximize_btn.setToolTip("Maximize")
-        self.maximize_btn.clicked.connect(self._toggle_maximize)
+        self.maximize_btn.clicked.connect(self.callbacks._toggle_maximize)
         header_layout.addWidget(self.maximize_btn)
         
         # Close button - gold text
@@ -615,7 +615,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.close_btn.setToolTip("Close to tray")
-        self.close_btn.clicked.connect(self._hide_to_tray)
+        self.close_btn.clicked.connect(self.callbacks._hide_to_tray)
         header_layout.addWidget(self.close_btn)
 
     def _build_tab_widget(self, layout):
@@ -664,10 +664,10 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.tab_widget.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tab_widget.tabBar().customContextMenuRequested.connect(self.show_tab_bar_context_menu)
+        self.tab_widget.tabBar().customContextMenuRequested.connect(self.callbacks.show_tab_bar_context_menu)
         
         # Tab bar controls
-        self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        self.tab_widget.tabCloseRequested.connect(self.callbacks.close_tab)
         
         layout.addWidget(self.tab_widget)
 
