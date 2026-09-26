@@ -486,15 +486,22 @@ def apply_policy_changes(
     work.face_change_detail = {}
     work.guideline_recalc = dict(work.wd.guideline_recalc)
     if not convention.supports_policy_changes:
-        work.cov_after_change = _coverage_after_change_snapshot(
-            policy,
-            ctx.config,
-            work.month_date,
-            work.wd.gross_withdrawal,
-            state.coverage_after_change,
-        )
+        _capture_coverage_after_change(ctx, work)
         return
 
+    guideline_changes, recalc_change, before, before_pv = _apply_policy_change_loop(
+        ctx, work
+    )
+    _recalc_policy_change_guidelines(
+        ctx, work, guideline_changes, recalc_change, before, before_pv
+    )
+    if work.tamra_reset:
+        policy.tamra_7pay_start_date = work.month_date
+    _capture_coverage_after_change(ctx, work)
+
+
+def _apply_policy_change_loop(ctx: MonthContext, work: MonthWork) -> tuple:
+    policy = ctx.policy
     guideline_before = work.wd.guideline_before
     guideline_before_pv_detail = work.wd.guideline_before_pv_detail
     guideline_changes = 1 if work.wd.face_decrease > MONEY_EPSILON else 0
@@ -507,67 +514,68 @@ def apply_policy_changes(
         if guideline_changes
         else None
     )
-    if ctx.policy_changes:
-        for change in sorted(
-            ctx.policy_changes,
-            key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
-        ):
-            outcome = _apply_policy_change(
-                policy,
-                ctx.config,
-                change,
-                work.attained_age,
-                work.month_date,
-                ctx.rates,
-                work.rate_year,
-                work.av,
-                options=ctx.options,
-                defer_guideline_recalc=True,
-                capture_guideline_before=guideline_before is None,
-            )
-            work.av += outcome.av_adjustment
-            work.policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
-            work.tamra_reset = work.tamra_reset or outcome.material_change
-            work.dbo_change_detail.update(outcome.dbo_detail)
-            work.face_change_detail.update(outcome.face_detail)
-            if outcome.coverage_changed:
-                guideline_changes += 1
-                if recalc_change is None:
-                    recalc_change = change
-            if guideline_before is None and outcome.guideline_before is not None:
-                guideline_before = outcome.guideline_before
-                guideline_before_pv_detail = outcome.guideline_before_pv_detail
+    for change in sorted(
+        ctx.policy_changes or [],
+        key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
+    ):
+        outcome = _apply_policy_change(
+            policy, ctx.config, change, work.attained_age, work.month_date,
+            ctx.rates, work.rate_year, work.av, options=ctx.options,
+            defer_guideline_recalc=True,
+            capture_guideline_before=guideline_before is None,
+        )
+        work.av += outcome.av_adjustment
+        work.policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
+        work.tamra_reset = work.tamra_reset or outcome.material_change
+        work.dbo_change_detail.update(outcome.dbo_detail)
+        work.face_change_detail.update(outcome.face_detail)
+        if outcome.coverage_changed:
+            guideline_changes += 1
+            recalc_change = recalc_change or change
+        if guideline_before is None and outcome.guideline_before is not None:
+            guideline_before = outcome.guideline_before
+            guideline_before_pv_detail = outcome.guideline_before_pv_detail
+    return guideline_changes, recalc_change, guideline_before, guideline_before_pv_detail
 
-        if guideline_changes and recalc_change is not None:
-            if guideline_changes > 1:
-                recalc_change = PolicyChangeEvent(
-                    kind=recalc_change.kind,
-                    effective_date=work.month_date,
-                    value=recalc_change.value,
-                    metadata={"change_label": "Combined Policy Changes"},
-                )
-            work.guideline_recalc = _recalc_guideline_on_change(
-                policy,
-                ctx.config,
-                recalc_change,
-                work.attained_age,
-                change_date=work.month_date,
-                before=guideline_before,
-                av=work.av,
-                material_change=work.tamra_reset,
-                options=ctx.options,
-                before_pv_detail=guideline_before_pv_detail,
-            )
 
-    if work.tamra_reset:
-        policy.tamra_7pay_start_date = work.month_date
+def _recalc_policy_change_guidelines(
+    ctx: MonthContext, work: MonthWork, guideline_changes: int,
+    recalc_change, guideline_before, guideline_before_pv_detail,
+) -> None:
+    if not (guideline_changes and recalc_change is not None):
+        return
+    if guideline_changes > 1:
+        recalc_change = PolicyChangeEvent(
+            kind=recalc_change.kind,
+            effective_date=work.month_date,
+            value=recalc_change.value,
+            metadata={"change_label": "Combined Policy Changes"},
+        )
+    prior_recalc = dict(work.guideline_recalc)
+    work.guideline_recalc = _recalc_guideline_on_change(
+        ctx.policy, ctx.config, recalc_change, work.attained_age,
+        change_date=work.month_date, before=guideline_before, av=work.av,
+        material_change=work.tamra_reset, options=ctx.options,
+        before_pv_detail=guideline_before_pv_detail,
+    )
+    _preserve_same_month_seven_pay_context(work.guideline_recalc, prior_recalc)
 
+
+def _preserve_same_month_seven_pay_context(recalc_detail: dict, prior_recalc: dict) -> None:
+    if not recalc_detail or not prior_recalc:
+        return
+    for key in ("seven_pay_prior", "seven_pay_before"):
+        if prior_recalc.get(key) is not None:
+            recalc_detail[key] = prior_recalc[key]
+
+
+def _capture_coverage_after_change(ctx: MonthContext, work: MonthWork) -> None:
     work.cov_after_change = _coverage_after_change_snapshot(
-        policy,
+        ctx.policy,
         ctx.config,
         work.month_date,
         work.policy_change_av_reduction,
-        state.coverage_after_change,
+        ctx.state.coverage_after_change,
     )
 
 
@@ -1467,7 +1475,10 @@ def _lapse_fields(
 
 
 def _shadow_fields(work: MonthWork) -> dict:
-    shd = work.shd
+    return _shadow_fields_from_result(work.shd)
+
+
+def _shadow_fields_from_result(shd) -> dict:
     return {
         "shadow_bav": shd.shadow_bav,
         "shadow_wd_charges": shd.shadow_wd_charges,
@@ -1708,6 +1719,178 @@ def _set_inforce_lapse_fields(
     work.av_less_loans = policy.account_value - work.loan.policy_debt
 
 
+def _inforce_identity_fields(policy, config, work: InforceWork) -> dict:
+    return {
+        "date": policy.valuation_date,
+        "policy_year": policy.policy_year,
+        "policy_month": policy.policy_month,
+        "duration": policy.duration,
+        "attained_age": policy.attained_age,
+        "db_option": str(policy.db_option or "").upper(),
+        "coverage_after_change": _coverage_after_change_snapshot(
+            policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
+        ),
+        "mtp_detail": work.mtp_detail,
+        "ctp_detail": work.ctp_detail,
+        "mtp_annual": policy.mtp * MONTHS_PER_YEAR,
+        "av_after_premium": work.md_check_av_before_deduction,
+    }
+
+
+def _inforce_guideline_fields(policy, starting_exception_period: bool, work: InforceWork) -> dict:
+    tamra_total = sum(policy.tamra_7year_contributions or [])
+    return {
+        "glp": floor_monthly_cent(policy.glp),
+        "gsp": floor_monthly_cent(policy.gsp),
+        "accumulated_glp": policy.accumulated_glp,
+        "guideline_limit": max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
+        "guideline_forceout": 0.0,
+        "gp_exception_mode": starting_exception_period,
+        "inforce_exception_period": starting_exception_period,
+        "exception_prem_mode": starting_exception_period,
+        "guideline_av_before_monthly_deduction": work.md_check_av_before_deduction,
+        "accumulated_7pay": tamra_total,
+        "amount_in_7pay": tamra_total,
+        "tamra_7pay_level": policy.tamra_7pay_level,
+        "tamra_7pay_start_date": policy.tamra_7pay_start_date,
+        "is_mec": policy.is_mec,
+        "tamra_year": _tamra_year(policy, work.month_date),
+        "tamra_month_of_year": _tamra_month_of_year(policy, work.month_date),
+        "lowest_7yr_face": _tamra_starting_lowest_face(policy),
+        "planned_premium_mode": _billing_mode(policy),
+    }
+
+
+def _inforce_deduction_fields(policy, work: InforceWork) -> dict:
+    ded = work.ded
+    return {
+        "nar_av": ded.nar_av,
+        "standard_db": ded.standard_db,
+        "corridor_rate": ded.corridor_rate,
+        "gross_db": ded.gross_db,
+        "corr_amount": ded.corr_amount,
+        "db_by_coverage": ded.db_by_coverage,
+        "discounted_db_by_coverage": ded.discounted_db_by_coverage,
+        "discounted_db_cov1": ded.discounted_db_cov1,
+        "discounted_db_corr": ded.discounted_db_corr,
+        "discounted_db": ded.discounted_db,
+        "total_db": ded.total_db,
+        "total_discounted_db": ded.total_discounted_db,
+        "nar_by_coverage": ded.nar_by_coverage,
+        "nar_cov1": ded.nar_cov1,
+        "nar_corr": ded.nar_corr,
+        "nar": ded.nar,
+        "total_nar": ded.total_nar,
+        **_coi_deduction_fields(ded),
+        **_inforce_expense_fields(policy, ded, work),
+    }
+
+
+def _inforce_expense_fields(policy, ded, work: InforceWork) -> dict:
+    return {
+        "epu_rate": ded.epu_rate,
+        "epu_charge": ded.epu_charge,
+        "epu_rates_by_coverage": ded.epu_rates_by_coverage,
+        "epu_charges_by_coverage": ded.epu_charges_by_coverage,
+        "mfee_charge": ded.mfee_charge,
+        "av_charge": ded.av_charge,
+        "pw_charge": ded.pw_charge,
+        "benefit_charges": ded.benefit_charges,
+        "benefit_amounts": ded.benefit_amounts,
+        "benefit_rates": ded.benefit_rates,
+        "benefit_charge_detail": ded.benefit_charge_detail,
+        "rider_charges": ded.rider_charges,
+        "rider_amounts": ded.rider_amounts,
+        "rider_rates": ded.rider_rates,
+        "rider_charge_detail": ded.rider_charge_detail,
+        "total_deduction": ded.total_deduction,
+        "av_after_deduction": policy.account_value,
+        "av_after_exception": policy.account_value,
+        "system_coi_charge": policy.system_coi_charge,
+        "system_expense_charge": policy.system_expense_charge,
+        "system_other_charge": policy.system_other_charge,
+        "system_monthly_deduction": policy.system_monthly_deduction,
+        "md_check_av_before_deduction": work.md_check_av_before_deduction,
+        "md_check_calculated_deduction": ded.total_deduction,
+        "md_check_deduction_variance": ded.total_deduction - policy.system_monthly_deduction,
+        "md_check_calculated_av_after_deduction": ded.av_after_deduction,
+        "md_check_av_variance": ded.av_after_deduction - policy.account_value,
+    }
+
+
+def _inforce_loan_interest_fields(policy, iul_ctx, work: InforceWork) -> dict:
+    return {
+        "rg_loan_princ": policy.regular_loan_principal,
+        "rg_loan_accrued": policy.regular_loan_accrued,
+        "pf_loan_princ": policy.preferred_loan_principal,
+        "pf_loan_accrued": policy.preferred_loan_accrued,
+        "vbl_loan_princ": policy.variable_loan_principal,
+        "vbl_loan_accrued": policy.variable_loan_accrued,
+        "loan_cap_repay": work.loan_cap_repay,
+        "asset_charge_rate": iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+        "asset_charge": 0.0,
+        "wair_tav": work.wair_tav,
+        "wair_swam": work.wair_swam,
+        "wair_held": work.wair_held,
+        "wair_rate": work.wair_rate,
+        "days_in_month": work.intr.days_in_month,
+        "annual_interest_rate": work.intr.annual_interest_rate,
+        "bonus_interest_rate": work.intr.bonus_interest_rate,
+        "effective_annual_rate": work.intr.effective_annual_rate,
+        "monthly_interest_rate": work.intr.monthly_interest_rate,
+        "reg_loan_credit_rate": work.intr.reg_loan_credit_rate,
+        "pref_loan_credit_rate": work.intr.pref_loan_credit_rate,
+        "reg_impaired_int": work.intr.reg_impaired_int,
+        "pref_impaired_int": work.intr.pref_impaired_int,
+        "unimpaired_int": work.intr.unimpaired_int,
+        "interest_credited": work.intr.interest_credited,
+        "av_end_of_month": work.intr.av_end_of_month,
+        **_inforce_loan_end_fields(work),
+    }
+
+
+def _inforce_loan_end_fields(work: InforceWork) -> dict:
+    return {
+        "reg_loan_charge": work.loan.reg_loan_charge,
+        "pref_loan_charge": work.loan.pref_loan_charge,
+        "vbl_loan_charge": work.loan.vbl_loan_charge,
+        "end_rg_loan_princ": work.loan.rg_loan_princ,
+        "end_rg_loan_accrued": work.loan.rg_loan_accrued,
+        "end_pf_loan_princ": work.loan.pf_loan_princ,
+        "end_pf_loan_accrued": work.loan.pf_loan_accrued,
+        "end_vbl_loan_princ": work.loan.vbl_loan_princ,
+        "end_vbl_loan_accrued": work.loan.vbl_loan_accrued,
+        "policy_debt": work.loan.policy_debt,
+    }
+
+
+def _inforce_tracking_fields(policy, work: InforceWork) -> dict:
+    return {
+        "premiums_ytd": policy.premiums_ytd,
+        "premiums_to_date": policy.premiums_paid_to_date,
+        "withdrawals_to_date": policy.withdrawals_to_date,
+        "cost_basis": policy.cost_basis,
+        "premiums_ytd_after_exception": policy.premiums_ytd,
+        "premiums_to_date_after_exception": policy.premiums_paid_to_date,
+        "cost_basis_after_exception": policy.cost_basis,
+        "cumulative_interest": work.intr.interest_credited,
+        "monthly_mtp": work.monthly_mtp,
+        "ctp": policy.ctp,
+        "accumulated_mtp": work.accumulated_mtp,
+        "accum_mtp_less_prem": work.accum_mtp_less_prem,
+        "snet_active": work.snet_active,
+        "shadow_protection": work.shadow_protection,
+        "positive_sv": work.positive_sv,
+        "av_less_loans": work.av_less_loans,
+        "scr_rate": work.scr_rate,
+        "scr_rates_by_coverage": work.scr_rates_by_coverage,
+        "surrender_charge": work.surrender_charge,
+        "surrender_charges_by_coverage": work.surrender_charges_by_coverage,
+        "surrender_value": work.surrender_value,
+        "ending_sv": work.ending_sv,
+    }
+
+
 def _build_inforce_row(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -1715,195 +1898,17 @@ def _build_inforce_row(
     starting_exception_period: bool,
     work: InforceWork,
 ) -> MonthlyState:
-    return MonthlyState(
-        date=policy.valuation_date,
-        policy_year=policy.policy_year,
-        policy_month=policy.policy_month,
-        duration=policy.duration,
-        attained_age=policy.attained_age,
-        db_option=str(policy.db_option or "").upper(),
-        coverage_after_change=_coverage_after_change_snapshot(
-            policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
-        ),
-        mtp_detail=work.mtp_detail,
-        ctp_detail=work.ctp_detail,
-        mtp_annual=policy.mtp * MONTHS_PER_YEAR,
-        av_after_premium=work.md_check_av_before_deduction,
-        glp=floor_monthly_cent(policy.glp),
-        gsp=floor_monthly_cent(policy.gsp),
-        accumulated_glp=policy.accumulated_glp,
-        guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
-        guideline_forceout=0.0,
-        gp_exception_mode=starting_exception_period,
-        inforce_exception_period=starting_exception_period,
-        exception_prem_mode=starting_exception_period,
-        guideline_av_before_monthly_deduction=work.md_check_av_before_deduction,
-        accumulated_7pay=sum(policy.tamra_7year_contributions or []),
-        amount_in_7pay=sum(policy.tamra_7year_contributions or []),
-        tamra_7pay_level=policy.tamra_7pay_level,
-        tamra_7pay_start_date=policy.tamra_7pay_start_date,
-        is_mec=policy.is_mec,
-        tamra_year=_tamra_year(policy, work.month_date),
-        tamra_month_of_year=_tamra_month_of_year(policy, work.month_date),
-        lowest_7yr_face=_tamra_starting_lowest_face(policy),
-        planned_premium_mode=_billing_mode(policy),
-        # Deduction check
-        nar_av=work.ded.nar_av,
-        standard_db=work.ded.standard_db,
-        corridor_rate=work.ded.corridor_rate,
-        gross_db=work.ded.gross_db,
-        corr_amount=work.ded.corr_amount,
-        db_by_coverage=work.ded.db_by_coverage,
-        discounted_db_by_coverage=work.ded.discounted_db_by_coverage,
-        discounted_db_cov1=work.ded.discounted_db_cov1,
-        discounted_db_corr=work.ded.discounted_db_corr,
-        discounted_db=work.ded.discounted_db,
-        total_db=work.ded.total_db,
-        total_discounted_db=work.ded.total_discounted_db,
-        nar_by_coverage=work.ded.nar_by_coverage,
-        nar_cov1=work.ded.nar_cov1,
-        nar_corr=work.ded.nar_corr,
-        nar=work.ded.nar,
-        total_nar=work.ded.total_nar,
-        coi_rates_by_coverage=work.ded.coi_rates_by_coverage,
-        coi_charges_by_coverage=work.ded.coi_charges_by_coverage,
-        coi_rate=work.ded.coi_rate,
-        coi_rate_corr=work.ded.coi_rate_corr,
-        coi_charge_cov1=work.ded.coi_charge_cov1,
-        coi_charge_corr=work.ded.coi_charge_corr,
-        coi_charge=work.ded.coi_charge,
-        total_coi_charge=work.ded.total_coi_charge,
-        ratchet_active=work.ded.ratchet_active,
-        band_break=work.ded.band_break,
-        coi_band1_nar_by_coverage=work.ded.coi_band1_nar_by_coverage,
-        coi_band2_nar_by_coverage=work.ded.coi_band2_nar_by_coverage,
-        coi_band1_rates_by_coverage=work.ded.coi_band1_rates_by_coverage,
-        coi_band2_rates_by_coverage=work.ded.coi_band2_rates_by_coverage,
-        epu_rate=work.ded.epu_rate,
-        epu_charge=work.ded.epu_charge,
-        epu_rates_by_coverage=work.ded.epu_rates_by_coverage,
-        epu_charges_by_coverage=work.ded.epu_charges_by_coverage,
-        mfee_charge=work.ded.mfee_charge,
-        av_charge=work.ded.av_charge,
-        pw_charge=work.ded.pw_charge,
-        benefit_charges=work.ded.benefit_charges,
-        benefit_amounts=work.ded.benefit_amounts,
-        benefit_rates=work.ded.benefit_rates,
-        benefit_charge_detail=work.ded.benefit_charge_detail,
-        rider_charges=work.ded.rider_charges,
-        rider_amounts=work.ded.rider_amounts,
-        rider_rates=work.ded.rider_rates,
-        rider_charge_detail=work.ded.rider_charge_detail,
-        total_deduction=work.ded.total_deduction,
-        av_after_deduction=policy.account_value,
-        av_after_exception=policy.account_value,
-        system_coi_charge=policy.system_coi_charge,
-        system_expense_charge=policy.system_expense_charge,
-        system_other_charge=policy.system_other_charge,
-        system_monthly_deduction=policy.system_monthly_deduction,
-        md_check_av_before_deduction=work.md_check_av_before_deduction,
-        md_check_calculated_deduction=work.ded.total_deduction,
-        md_check_deduction_variance=work.ded.total_deduction - policy.system_monthly_deduction,
-        md_check_calculated_av_after_deduction=work.ded.av_after_deduction,
-        md_check_av_variance=work.ded.av_after_deduction - policy.account_value,
-        # Set 1: Loan cap/repay (beginning of month — from policy inputs)
-        rg_loan_princ=policy.regular_loan_principal,
-        rg_loan_accrued=policy.regular_loan_accrued,
-        pf_loan_princ=policy.preferred_loan_principal,
-        pf_loan_accrued=policy.preferred_loan_accrued,
-        vbl_loan_princ=policy.variable_loan_principal,
-        vbl_loan_accrued=policy.variable_loan_accrued,
-        loan_cap_repay=work.loan_cap_repay,
-        # IUL crediting — no asset charge on the valuation row (RERUN SX
-        # takes sInput_CurrentAV verbatim); WAIR seeds from VI.
-        asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
-        asset_charge=0.0,
-        wair_tav=work.wair_tav,
-        wair_swam=work.wair_swam,
-        wair_held=work.wair_held,
-        wair_rate=work.wair_rate,
-        # Interest
-        days_in_month=work.intr.days_in_month,
-        annual_interest_rate=work.intr.annual_interest_rate,
-        bonus_interest_rate=work.intr.bonus_interest_rate,
-        effective_annual_rate=work.intr.effective_annual_rate,
-        monthly_interest_rate=work.intr.monthly_interest_rate,
-        reg_loan_credit_rate=work.intr.reg_loan_credit_rate,
-        pref_loan_credit_rate=work.intr.pref_loan_credit_rate,
-        reg_impaired_int=work.intr.reg_impaired_int,
-        pref_impaired_int=work.intr.pref_impaired_int,
-        unimpaired_int=work.intr.unimpaired_int,
-        interest_credited=work.intr.interest_credited,
-        av_end_of_month=work.intr.av_end_of_month,
-        # Set 2: Loan accrual (end of month — after accrual)
-        reg_loan_charge=work.loan.reg_loan_charge,
-        pref_loan_charge=work.loan.pref_loan_charge,
-        vbl_loan_charge=work.loan.vbl_loan_charge,
-        end_rg_loan_princ=work.loan.rg_loan_princ,
-        end_rg_loan_accrued=work.loan.rg_loan_accrued,
-        end_pf_loan_princ=work.loan.pf_loan_princ,
-        end_pf_loan_accrued=work.loan.pf_loan_accrued,
-        end_vbl_loan_princ=work.loan.vbl_loan_princ,
-        end_vbl_loan_accrued=work.loan.vbl_loan_accrued,
-        policy_debt=work.loan.policy_debt,
-        # Tracking
-        premiums_ytd=policy.premiums_ytd,
-        premiums_to_date=policy.premiums_paid_to_date,
-        withdrawals_to_date=policy.withdrawals_to_date,
-        cost_basis=policy.cost_basis,
-        # Seed the after-exception set from the same inforce values — no
-        # exception premium has been applied yet, so month 1 carries these
-        # forward unchanged.
-        premiums_ytd_after_exception=policy.premiums_ytd,
-        premiums_to_date_after_exception=policy.premiums_paid_to_date,
-        cost_basis_after_exception=policy.cost_basis,
-        cumulative_interest=work.intr.interest_credited,
-        # Shadow
-        shadow_bav=work.shd.shadow_bav,
-        shadow_wd_charges=work.shd.shadow_wd_charges,
-        shadow_sa=work.shd.shadow_sa,
-        shadow_target_prem=work.shd.shadow_target_prem,
-        shadow_prem_under_target=work.shd.shadow_prem_under_target,
-        shadow_prem_over_target=work.shd.shadow_prem_over_target,
-        shadow_target_load=work.shd.shadow_target_load,
-        shadow_excess_load=work.shd.shadow_excess_load,
-        shadow_prem_load=work.shd.shadow_prem_load,
-        shadow_net_prem=work.shd.shadow_net_prem,
-        shadow_nar_av=work.shd.shadow_nar_av,
-        shadow_db=work.shd.shadow_db,
-        shadow_coi_rate=work.shd.shadow_coi_rate,
-        shadow_coi=work.shd.shadow_coi,
-        shadow_dbd_rate=work.shd.shadow_dbd_rate,
-        shadow_nar=work.shd.shadow_nar,
-        shadow_epu_rate=work.shd.shadow_epu_rate,
-        shadow_epu=work.shd.shadow_epu,
-        shadow_mfee=work.shd.shadow_mfee,
-        shadow_rider_charges=work.shd.shadow_rider_charges,
-        shadow_md=work.shd.shadow_md,
-        shadow_av=work.shd.shadow_av,
-        shadow_days=work.shd.shadow_days,
-        shadow_int_rate=work.shd.shadow_int_rate,
-        shadow_eff_rate=work.shd.shadow_eff_rate,
-        shadow_interest=work.shd.shadow_interest,
-        shadow_eav=work.shd.shadow_eav,
-        shadow_eav_less_debt=work.shd.shadow_eav_less_debt,
-        # Safety Net / Lapse Protection
-        monthly_mtp=work.monthly_mtp,
-        ctp=policy.ctp,
-        accumulated_mtp=work.accumulated_mtp,
-        accum_mtp_less_prem=work.accum_mtp_less_prem,
-        snet_active=work.snet_active,
-        shadow_protection=work.shadow_protection,
-        positive_sv=work.positive_sv,
-        av_less_loans=work.av_less_loans,
-        # End-of-month values
-        scr_rate=work.scr_rate,
-        scr_rates_by_coverage=work.scr_rates_by_coverage,
-        surrender_charge=work.surrender_charge,
-        surrender_charges_by_coverage=work.surrender_charges_by_coverage,
-        surrender_value=work.surrender_value,
-        ending_sv=work.ending_sv,
-    )
+    fields = {}
+    for part in (
+        _inforce_identity_fields(policy, config, work),
+        _inforce_guideline_fields(policy, starting_exception_period, work),
+        _inforce_deduction_fields(policy, work),
+        _inforce_loan_interest_fields(policy, iul_ctx, work),
+        _inforce_tracking_fields(policy, work),
+        _shadow_fields_from_result(work.shd),
+    ):
+        fields.update(part)
+    return MonthlyState(**fields)
 
 def _adjust_inforce_for_timing(
     policy: IllustrationPolicyData,
@@ -2525,94 +2530,101 @@ class WithdrawalInput:
 
 
 def _process_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
-    """Compute and APPLY one month's withdrawal (CalcEngine AX..BU).
+    """Compute and apply one month's withdrawal (CalcEngine AX..BU)."""
+    wd = _compute_month_withdrawal(inputs)
+    if wd.face_decrease > MONEY_EPSILON:
+        _apply_withdrawal_face_decrease(inputs, wd)
+    return wd
 
-    Runs BEFORE the dated policy changes (the workbook pipeline order). A
-    withdrawal that reduces the specified amount is processed like a face
-    decrease — newest coverage first, no extra SCR charge (the partial
-    surrender charge is already inside the gross) — and fires the same
-    target/guideline/7-pay recompute as any coverage change.
-    """
+
+def _compute_month_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
     state = inputs.state
     policy = inputs.policy
     config = inputs.config
-    rates = inputs.rates
-    rate_year = inputs.rate_year
-    attained_age = inputs.attained_age
-    month_date = inputs.month_date
-    av = inputs.av
-    cost_basis = inputs.cost_basis
     month_inputs = inputs.month_inputs
-    cap_loan = inputs.cap_loan
-    is_anniversary = inputs.is_anniversary
-    options = inputs.options
-    defer_guideline_recalc = inputs.defer_guideline_recalc
-
     request = month_inputs.withdrawal if month_inputs is not None else 0.0
     gross_request = month_inputs.withdrawal_gross if month_inputs is not None else 0.0
     scr_rates = {
         seg.coverage_phase: _segment_surrender_rate(
-            policy, seg, rates, rate_year, month_date, config,
+            policy, seg, inputs.rates, inputs.rate_year, inputs.month_date, config,
         )
         for seg in policy.segments
     }
-    debt = (
-        cap_loan.rg_loan_princ + cap_loan.rg_loan_accrued
-        + cap_loan.pf_loan_princ + cap_loan.pf_loan_accrued
-        + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
-    )
-    wd = compute_withdrawal(
-        av, policy, config, scr_rates, request,
+    debt = _loan_state_debt(inputs.cap_loan)
+    return compute_withdrawal(
+        inputs.av, policy, config, scr_rates, request,
         gross_request=gross_request,
         corridor_rate=get_corridor_factor(
-            policy.plancode, attained_age, config.corridor_code),
+            policy.plancode, inputs.attained_age, config.corridor_code),
         prior_total_md=state.total_deduction,
         policy_debt=debt,
-        cost_basis=cost_basis,
+        cost_basis=inputs.cost_basis,
         withdrawals_to_date=state.withdrawals_to_date,
         withdrawals_ytd=state.withdrawals_ytd,
-        is_anniversary=is_anniversary,
+        is_anniversary=inputs.is_anniversary,
     )
-    if wd.face_decrease > MONEY_EPSILON:
-        before = _solve_guideline_state(
-            policy, config, attained_age, month_date, options)
-        seven_pay_before = None
-        if not defer_guideline_recalc:
-            seven_pay_start = policy.tamra_7pay_start_date or month_date
-            seven_pay_before = _solve_guideline_state(
-                policy, config, _attained_age_at(policy, seven_pay_start),
-                seven_pay_start, options,
-                starting_av=policy.tamra_7pay_start_av,
-                active_as_of=month_date,
-            ).seven_pay
-        before_pv_detail = _safe_guideline_pv_recalc_detail(
-            policy, config, attained_age, month_date)
-        wd.guideline_before = before
-        wd.guideline_before_pv_detail = before_pv_detail
-        _reduce_base_face(
-            policy, wd.face_decrease, rates, month_date, rate_year,
-            charge_scr=False, config=config)
-        _reload_policy_band_rates(rates, policy, config)
-        targets = compute_target_premiums(policy, config, as_of=month_date)
-        policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
-        policy.ctp = targets.ctp_annual
-        if not defer_guideline_recalc:
-            wd.guideline_recalc = _recalc_guideline_on_change(
-                policy, config,
-                PolicyChangeEvent(
-                    kind=PolicyChangeKind.FACE_AMOUNT,
-                    effective_date=month_date,
-                    value=policy.total_face),
-                attained_age,
-                change_date=month_date,
-                before=before,
-                av=wd.av_post_withdrawal,
-                material_change=False,
-                options=options,
-                before_pv_detail=before_pv_detail,
-                seven_pay_before=seven_pay_before,
-            )
-    return wd
+
+
+def _loan_state_debt(loan: LoanState) -> float:
+    return (
+        loan.rg_loan_princ + loan.rg_loan_accrued
+        + loan.pf_loan_princ + loan.pf_loan_accrued
+        + loan.vbl_loan_princ + loan.vbl_loan_accrued
+    )
+
+
+def _apply_withdrawal_face_decrease(inputs: WithdrawalInput, wd: WithdrawalResult) -> None:
+    before = _solve_guideline_state(
+        inputs.policy, inputs.config, inputs.attained_age, inputs.month_date,
+        inputs.options)
+    seven_pay_before = _withdrawal_seven_pay_before(inputs)
+    before_pv_detail = _safe_guideline_pv_recalc_detail(
+        inputs.policy, inputs.config, inputs.attained_age, inputs.month_date)
+    wd.guideline_before = before
+    wd.guideline_before_pv_detail = before_pv_detail
+    _reduce_base_face(
+        inputs.policy, wd.face_decrease, inputs.rates, inputs.month_date,
+        inputs.rate_year, charge_scr=False, config=inputs.config)
+    _reload_policy_band_rates(inputs.rates, inputs.policy, inputs.config)
+    targets = compute_target_premiums(inputs.policy, inputs.config, as_of=inputs.month_date)
+    inputs.policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
+    inputs.policy.ctp = targets.ctp_annual
+    if not inputs.defer_guideline_recalc:
+        wd.guideline_recalc = _withdrawal_guideline_recalc(
+            inputs, wd, before, before_pv_detail, seven_pay_before)
+
+
+def _withdrawal_seven_pay_before(inputs: WithdrawalInput) -> Optional[float]:
+    if inputs.defer_guideline_recalc:
+        return None
+    seven_pay_start = inputs.policy.tamra_7pay_start_date or inputs.month_date
+    return _solve_guideline_state(
+        inputs.policy, inputs.config, _attained_age_at(inputs.policy, seven_pay_start),
+        seven_pay_start, inputs.options,
+        starting_av=inputs.policy.tamra_7pay_start_av,
+        active_as_of=inputs.month_date,
+    ).seven_pay
+
+
+def _withdrawal_guideline_recalc(
+    inputs: WithdrawalInput, wd: WithdrawalResult, before,
+    before_pv_detail: Dict[str, object], seven_pay_before: Optional[float],
+) -> Dict[str, object]:
+    return _recalc_guideline_on_change(
+        inputs.policy, inputs.config,
+        PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT,
+            effective_date=inputs.month_date,
+            value=inputs.policy.total_face),
+        inputs.attained_age,
+        change_date=inputs.month_date,
+        before=before,
+        av=wd.av_post_withdrawal,
+        material_change=False,
+        options=inputs.options,
+        before_pv_detail=before_pv_detail,
+        seven_pay_before=seven_pay_before,
+    )
 
 
 def _withdrawal_state_fields(wd: WithdrawalResult) -> Dict[str, object]:
@@ -3124,47 +3136,59 @@ def _recalc_guideline_on_change(
     before_pv_detail: Optional[Dict[str, object]] = None,
     seven_pay_before: Optional[float] = None,
 ) -> Dict[str, object]:
-    """Recalculate GLP/GSP/7-pay at a policy change.
-
-    RERUN (Guideline_Premiums rows 5..10): the new guideline premiums are the
-    attained-age delta — new = prior + (after − before) — floored to a
-    monthly-divisible cent (TRUNC(x/12,2)·12). The 7-pay level is fully
-    recomputed at the after-change state (offset by the account value at the
-    change); a MATERIAL change also restarts the 7-pay period. Unlike the
-    workbook, recalcs are unlimited.
-
-    ``change.metadata`` may inject reference values (``new_glp`` / ``new_gsp``
-    / ``new_7pay``) so AV/segment/target mechanics can be validated
-    independently of the guideline calculator.
-    """
+    """Recalculate GLP/GSP/7-pay at a policy change."""
     md = change.metadata or {}
-    new_glp = md.get("new_glp")
-    new_gsp = md.get("new_gsp")
-    new_7pay = md.get("new_7pay")
+    context = _prepare_guideline_change_context(
+        policy, change_date, material_change, av
+    )
+    after = _solve_guideline_after_change(
+        policy, config, attained_age, change_date, options, before,
+        md.get("new_glp"), md.get("new_gsp"),
+    )
+    glp_prior, gsp_prior = _apply_guideline_premium_delta(
+        policy, before, after, md.get("new_glp"), md.get("new_gsp")
+    )
+    adjustment, months_remaining = _accum_glp_adjustment(
+        policy, change_date, glp_prior
+    )
+    recalc_detail = _guideline_recalc_detail(
+        policy, config, change, attained_age, change_date, before, after,
+        before_pv_detail, glp_prior, gsp_prior,
+    )
+    seven_pay_after = _apply_seven_pay_recalc(
+        policy, config, change_date, options, before, md.get("new_7pay")
+    )
+    _update_tamra_recalc_detail(
+        policy, config, change_date, material_change, recalc_detail, context,
+        seven_pay_before, seven_pay_after,
+    )
+    _add_accum_glp_recalc_detail(recalc_detail, adjustment, months_remaining)
+    return recalc_detail
 
-    # TAMRA context BEFORE any reset: the change's position in the current
-    # 7-pay window decides which TAMRA sheet the Values tab shows —
-    # no recalc needed (outside the window, no new period), a recalc inside
-    # the window (back-tested for MEC), or a brand-new 7-pay period.
-    tamra_year_at_change = _tamra_year(policy, change_date)
-    seven_pay_prior = policy.tamra_7pay_level
-    seven_pay_prior_start = policy.tamra_7pay_start_date
 
-    # A MATERIAL change restarts the 7-pay period at the change date with the
-    # current account value as the period's starting AV (CH24 "Starting AV").
+def _prepare_guideline_change_context(policy, change_date, material_change: bool, av: float) -> dict:
+    context = {
+        "tamra_year_at_change": _tamra_year(policy, change_date),
+        "seven_pay_prior": policy.tamra_7pay_level,
+        "seven_pay_prior_start": policy.tamra_7pay_start_date,
+    }
     if material_change and not policy.is_mec:
         policy.tamra_7pay_start_date = change_date
         policy.tamra_7pay_start_av = max(av, 0.0)
+    return context
 
-    after = None
+
+def _solve_guideline_after_change(
+    policy, config, attained_age: int, change_date, options, before, new_glp, new_gsp
+):
     if (new_glp is None or new_gsp is None) and before is not None:
-        after = _solve_guideline_state(
-            policy, config, attained_age, change_date, options)
+        return _solve_guideline_state(policy, config, attained_age, change_date, options)
+    return None
 
-    # Prior (pre-recalc) values feed both the delta formula and the recalc detail.
+
+def _apply_guideline_premium_delta(policy, before, after, new_glp, new_gsp) -> tuple[float, float]:
     glp_prior = floor_monthly_cent(policy.glp)
     gsp_prior = floor_monthly_cent(policy.gsp)
-
     if new_glp is not None:
         policy.glp = floor_monthly_cent(float(new_glp))
     elif after is not None:
@@ -3173,108 +3197,106 @@ def _recalc_guideline_on_change(
         policy.gsp = floor_monthly_cent(float(new_gsp))
     elif after is not None:
         policy.gsp = floor_monthly_cent(gsp_prior + after.gsp - before.gsp)
+    return glp_prior, gsp_prior
 
-    # Mid-year recalc: the anniversary already banked a FULL year of the prior
-    # GLP into AccumGLP, so true it up pro-rata for the months remaining in the
-    # policy year — change at BOM m keeps (m-1)/12 of the old GLP and accrues
-    # (13-m)/12 at the new one. An anniversary-month change (m=1) needs no
-    # adjustment: the accumulation later this month reads the already-updated
-    # policy.glp (same net effect as RERUN's KT->KU ordering). RERUN's annual
-    # input vectors cannot express a mid-year change, so this rule is spec'd by
-    # Robert (2026-07-17), not the workbook.
-    accum_glp_adjustment = 0.0
-    accum_glp_months_remaining = 0
-    if policy.issue_date is not None:
-        month_in_year = ((change_date.year - policy.issue_date.year) * 12
-                         + (change_date.month - policy.issue_date.month)) % 12 + 1
-        if month_in_year > 1 and abs(policy.glp - glp_prior) > MONEY_EPSILON:
-            accum_glp_months_remaining = 13 - month_in_year
-            accum_glp_adjustment = round(
-                accum_glp_months_remaining / MONTHS_PER_YEAR * (policy.glp - glp_prior), 2)
 
-    # Expose the before/after solve so the Values tab can explain the recalc.
-    # Only the genuine attained-age delta path (a before AND after solve) has
-    # calc detail to show; a fully-injected recalc has no before/after solve.
-    recalc_detail: Dict[str, object] = {}
-    if before is not None and after is not None:
-        after_pv_detail = _safe_guideline_pv_recalc_detail(
-            policy, config, attained_age, change_date)
-        recalc_detail = {
-            "change_kind": md.get("change_label") or _CHANGE_KIND_LABELS.get(
-                change.kind, change.kind.name.replace("_", " ").title()),
-            "change_date": change_date,
-            "glp_before": before.glp,
-            "glp_after": after.glp,
-            "gsp_before": before.gsp,
-            "gsp_after": after.gsp,
-            "glp_prior": glp_prior,
-            "glp_new": policy.glp,
-            "gsp_prior": gsp_prior,
-            "gsp_new": policy.gsp,
-            "monthly_pv_recalc": {
-                "before": before_pv_detail or {},
-                "after": after_pv_detail,
-            },
-            "monthly_pv": (after_pv_detail or {}).get("glp", {}),
-        }
+def _accum_glp_adjustment(policy, change_date, glp_prior: float) -> tuple[float, int]:
+    if policy.issue_date is None:
+        return 0.0, 0
+    month_in_year = (
+        (change_date.year - policy.issue_date.year) * 12
+        + (change_date.month - policy.issue_date.month)
+    ) % 12 + 1
+    if month_in_year <= 1 or abs(policy.glp - glp_prior) <= MONEY_EPSILON:
+        return 0.0, 0
+    months_remaining = 13 - month_in_year
+    adjustment = round(
+        months_remaining / MONTHS_PER_YEAR * (policy.glp - glp_prior), 2
+    )
+    return adjustment, months_remaining
 
-    # The 7-pay LEVEL recalculates on ANY coverage change (KY fires on the
-    # policy-change indicator), solved from the CURRENT 7-pay period start —
-    # the change date after a material change, otherwise the original start
-    # date — with that period's starting account value.
-    seven_pay_after = None
+
+def _guideline_recalc_detail(
+    policy, config, change, attained_age: int, change_date, before, after,
+    before_pv_detail, glp_prior: float, gsp_prior: float,
+) -> Dict[str, object]:
+    if before is None or after is None:
+        return {}
+    md = change.metadata or {}
+    after_pv_detail = _safe_guideline_pv_recalc_detail(
+        policy, config, attained_age, change_date
+    )
+    return {
+        "change_kind": md.get("change_label") or _CHANGE_KIND_LABELS.get(
+            change.kind, change.kind.name.replace("_", " ").title()
+        ),
+        "change_date": change_date,
+        "glp_before": before.glp,
+        "glp_after": after.glp,
+        "gsp_before": before.gsp,
+        "gsp_after": after.gsp,
+        "glp_prior": glp_prior,
+        "glp_new": policy.glp,
+        "gsp_prior": gsp_prior,
+        "gsp_new": policy.gsp,
+        "monthly_pv_recalc": {
+            "before": before_pv_detail or {},
+            "after": after_pv_detail,
+        },
+        "monthly_pv": (after_pv_detail or {}).get("glp", {}),
+    }
+
+
+def _apply_seven_pay_recalc(policy, config, change_date, options, before, new_7pay) -> Optional[float]:
     if new_7pay is not None:
         policy.tamra_7pay_level = floor_monthly_cent(float(new_7pay))
-        seven_pay_after = float(new_7pay)
-    elif before is not None:
-        start = policy.tamra_7pay_start_date or change_date
-        start_age = _attained_age_at(policy, start)
-        seven_solve = _solve_guideline_state(
-            policy, config, start_age, start, options,
-            starting_av=policy.tamra_7pay_start_av,
-            # Benefit active flags come from the CHANGE row even when the
-            # solve is dated at the original period start (FR159..FR165 all
-            # INDEX at FM158) — a since-ceased PW is excluded entirely.
-            active_as_of=change_date,
+        return float(new_7pay)
+    if before is None:
+        return None
+    start = policy.tamra_7pay_start_date or change_date
+    seven_solve = _solve_guideline_state(
+        policy, config, _attained_age_at(policy, start), start, options,
+        starting_av=policy.tamra_7pay_start_av, active_as_of=change_date,
+    )
+    policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
+    return seven_solve.seven_pay
+
+
+def _update_tamra_recalc_detail(
+    policy, config, change_date, material_change: bool, recalc_detail: dict,
+    context: dict, seven_pay_before: Optional[float], seven_pay_after: Optional[float],
+) -> None:
+    if not recalc_detail:
+        return
+    if policy.is_mec:
+        tamra_case = "no_recalc"
+    elif material_change:
+        tamra_case = "new_period"
+    elif context["tamra_year_at_change"] <= 7:
+        tamra_case = "within_period"
+    else:
+        tamra_case = "no_recalc"
+    recalc_detail.update({
+        "tamra_case": tamra_case,
+        "tamra_year_at_change": context["tamra_year_at_change"],
+        "seven_pay_prior": context["seven_pay_prior"],
+        "seven_pay_before": seven_pay_before,
+        "seven_pay_after": seven_pay_after,
+        "seven_pay_new": policy.tamra_7pay_level,
+        "seven_pay_prior_start": context["seven_pay_prior_start"],
+        "seven_pay_window_start": policy.tamra_7pay_start_date or change_date,
+        "seven_pay_start_av": policy.tamra_7pay_start_av,
+    })
+    if tamra_case != "no_recalc":
+        recalc_detail["seven_pay_pv"] = _safe_seven_pay_pv_detail(
+            policy, config, change_date
         )
-        policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
-        seven_pay_after = seven_solve.seven_pay
 
-    # TAMRA sheet detail: classify the change against the 7-pay window and
-    # (when the recalc matters) attach the 7-pay PV breakdown. Only recalcs
-    # with a genuine before/after solve carry drill-down detail.
-    if recalc_detail:
-        if policy.is_mec:
-            tamra_case = "no_recalc"
-        elif material_change:
-            tamra_case = "new_period"
-        elif tamra_year_at_change <= 7:
-            tamra_case = "within_period"
-        else:
-            tamra_case = "no_recalc"
-        recalc_detail.update({
-            "tamra_case": tamra_case,
-            "tamra_year_at_change": tamra_year_at_change,
-            "seven_pay_prior": seven_pay_prior,
-            "seven_pay_before": seven_pay_before,
-            "seven_pay_after": seven_pay_after,
-            "seven_pay_new": policy.tamra_7pay_level,
-            "seven_pay_prior_start": seven_pay_prior_start,
-            "seven_pay_window_start": policy.tamra_7pay_start_date or change_date,
-            "seven_pay_start_av": policy.tamra_7pay_start_av,
-        })
-        if tamra_case != "no_recalc":
-            recalc_detail["seven_pay_pv"] = _safe_seven_pay_pv_detail(
-                policy, config, change_date)
 
-    # Carried even on the injected-values path (empty recalc_detail): the
-    # accumulation step in process_month reads it via .get(); the Values-tab
-    # recalc summary shows the amount with its months-remaining factor.
-    if accum_glp_adjustment:
-        recalc_detail["accum_glp_adjustment"] = accum_glp_adjustment
-        recalc_detail["accum_glp_months_remaining"] = accum_glp_months_remaining
-
-    return recalc_detail
+def _add_accum_glp_recalc_detail(recalc_detail: dict, adjustment: float, months: int) -> None:
+    if adjustment:
+        recalc_detail["accum_glp_adjustment"] = adjustment
+        recalc_detail["accum_glp_months_remaining"] = months
 
 
 def _attained_age_at(policy, as_of) -> int:
