@@ -31,8 +31,9 @@ def list_tables() -> list[CommonTable]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 tables.append(CommonTable.from_dict(json.load(fh)))
-        except Exception:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             logger.exception("Failed to load common table: %s", f)
+            raise RuntimeError(f"Failed to load common table: {f}") from exc
     tables.sort(key=lambda t: t.name.lower())
     return tables
 
@@ -45,9 +46,9 @@ def load_table(name: str) -> CommonTable | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return CommonTable.from_dict(json.load(f))
-    except Exception:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         logger.exception("Failed to load common table: %s", name)
-        return None
+        raise RuntimeError(f"Failed to load common table: {name}") from exc
 
 
 def save_table(ct: CommonTable) -> None:
