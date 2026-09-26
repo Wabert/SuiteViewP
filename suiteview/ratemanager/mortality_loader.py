@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+import logging
 from pathlib import Path
 from typing import Iterable
 
 from openpyxl import load_workbook
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_WORKBOOK = Path(
@@ -112,7 +115,8 @@ def _read_source_rows(path: str | Path) -> tuple[tuple[object, ...], ...]:
         target = str(Path(path).resolve()).lower()
         try:
             excel_workbook = win32com.client.GetObject(str(Path(path).resolve()))
-        except Exception:
+        except (OSError, RuntimeError):
+            logger.debug("Workbook was not available through GetObject", exc_info=True)
             excel_workbook = None
             try:
                 excel = win32com.client.GetActiveObject("Excel.Application")
@@ -121,8 +125,10 @@ def _read_source_rows(path: str | Path) -> tuple[tuple[object, ...], ...]:
                     if str(candidate.FullName).lower() == target:
                         excel_workbook = candidate
                         break
-            except Exception:
-                pass
+            except (OSError, RuntimeError):
+                logger.debug(
+                    "Could not inspect active Excel workbooks", exc_info=True
+                )
             if excel_workbook is not None:
                 values = excel_workbook.Worksheets("Rates").Range("E3:DY67").Value2
                 return tuple(tuple(row) for row in values)

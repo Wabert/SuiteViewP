@@ -115,8 +115,8 @@ def _apply_line2(record: Dict, parts: List[str]) -> None:
     try:
         record["FREE_PCT"] = float(parts[0])
         record["MONTHS_FREE"] = int(parts[1])
-    except (ValueError, IndexError):
-        pass
+    except (ValueError, IndexError) as exc:
+        raise ValueError("Invalid CKULTB04 continuation free-withdrawal fields") from exc
     if len(parts) >= 3:
         record["AUDIT_NUM"] = parts[2]
     if len(parts) >= 4:
