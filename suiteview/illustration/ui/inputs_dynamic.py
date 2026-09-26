@@ -2038,7 +2038,7 @@ class DynamicInputsPanel(QWidget):
         # Loans, Withdrawals next to Loan Repayments below — so each gets room
         # for its entry fields.
         self.premium_section = DynamicSection(SectionSpec(
-            "Premiums", default_first_row=True, default_first_type=_TYPE_MIN_LEVEL,
+            "Premiums", default_first_row=True,
             default_span_to_maturity=True,
             auto_adjust_prior_span=True, allow_max_level_premium=True, type_width=150))
         # Lump sum controls live at the top of the Premiums group.
