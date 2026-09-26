@@ -55,7 +55,7 @@ if __name__ == '__main__':
         from suiteview.utils.logger import setup_logging
         setup_logging(log_level="INFO")
         
-        from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+        from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
         app = QApplication(sys.argv)
         

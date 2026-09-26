@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QApplication
 from suiteview.abrquote.ui.abr_window import ABRQuoteWindow
 from suiteview.illustration.ui.main_window import IllustrationWindow
 from suiteview.polview.ui.main_window import GetPolicyWindow
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 _QT_APP = None
 

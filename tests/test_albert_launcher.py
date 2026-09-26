@@ -53,7 +53,7 @@ def test_packaged_launch_is_blocked_before_permissions_or_subprocess(monkeypatch
 ])
 def test_packaged_badge_stays_hidden_after_refresh(app, monkeypatch, role, all_apps, apps):
     from types import SimpleNamespace
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     monkeypatch.setattr(build_env.sys, "frozen", True, raising=False)
     button = albert_launcher.AlbertButton()
@@ -101,17 +101,32 @@ def test_launch_error_is_visible_and_logged(app, monkeypatch, caplog):
 
 
 def test_shortcut_is_wired_in_header_and_preserved_in_floating_mode():
-    source = Path(albert_launcher.__file__).with_name("suiteview_taskbar.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    bar = next(node for node in tree.body if isinstance(node, ast.ClassDef)
-               and node.name == "SuiteViewTaskbar")
-    methods = {node.name: ast.unparse(node) for node in bar.body if isinstance(node, ast.FunctionDef)}
-    assert "DEV_MODE" not in methods["init_ui"]
-    assert "LIGHT_MODE" not in methods["init_ui"]
+    launcher_dir = Path(albert_launcher.__file__).parent
+    sources = {
+        path.stem: ast.parse(path.read_text(encoding="utf-8"))
+        for path in (
+            launcher_dir / "taskbar_ui.py",
+            launcher_dir / "taskbar_system.py",
+            launcher_dir / "taskbar_modes.py",
+        )
+    }
+
+    methods = {}
+    for tree in sources.values():
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                methods.update({
+                    child.name: ast.unparse(child)
+                    for child in node.body
+                    if isinstance(child, ast.FunctionDef)
+                })
+
+    assert "DEV_MODE" not in methods["_build_primary_app_buttons"]
+    assert "LIGHT_MODE" not in methods["_build_primary_app_buttons"]
     assert "('ALBERT', 'albert_btn')" in methods["_apply_permissions"]
     assert "control.setEnabled(allowed)" in methods["_apply_permissions"]
     assert "control.setVisible(" in methods["_apply_permissions"]
-    assert "self.albert_btn = AlbertButton(self)" in methods["init_ui"]
-    assert "header_layout.addWidget(self.albert_btn)" in methods["init_ui"]
+    assert "self.albert_btn = AlbertButton(self)" in methods["_build_primary_app_buttons"]
+    assert "header_layout.addWidget(self.albert_btn)" in methods["_build_primary_app_buttons"]
     assert "self._apply_permissions(self._launcher_access)" in methods["_enter_floating_mode"]
     assert "bar_w = self.layout().sizeHint().width()" in methods["_enter_floating_mode"]

@@ -75,7 +75,7 @@ def test_source_menu_is_visible_without_database_probe(app, monkeypatch):
 
 def test_taskbar_reuses_window_but_rechecks_admin(monkeypatch):
     from suiteview.administrator import service
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     window = Mock()
     factory = Mock(return_value=window)
@@ -102,7 +102,7 @@ def test_taskbar_reuses_window_but_rechecks_admin(monkeypatch):
 
 def test_taskbar_denial_hides_existing_window_and_reports(monkeypatch):
     from suiteview.administrator import service
-    from suiteview.taskbar_launcher import suiteview_taskbar as taskbar
+    from suiteview.taskbar_launcher import taskbar_window as taskbar
 
     monkeypatch.setattr(service.AccessRepository, "load",
                         Mock(side_effect=PermissionError("ADMIN access revoked")))
@@ -116,7 +116,7 @@ def test_taskbar_denial_hides_existing_window_and_reports(monkeypatch):
 
 
 def test_taskbar_quit_respects_cancelled_admin_close():
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     bar = SimpleNamespace(administrator_window=Mock())
     bar.administrator_window.close.return_value = False

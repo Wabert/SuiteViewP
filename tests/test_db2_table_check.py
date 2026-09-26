@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 
 def test_full_distribution_tools_menu_includes_db2_table_check():
@@ -10,7 +10,7 @@ def test_full_distribution_tools_menu_includes_db2_table_check():
         Path(__file__).parents[1]
         / "suiteview"
         / "taskbar_launcher"
-        / "suiteview_taskbar.py"
+        / "taskbar_ui.py"
     ).read_text(encoding="utf-8")
 
     tools_menu_block = source.split(

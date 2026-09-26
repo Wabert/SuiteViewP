@@ -48,7 +48,7 @@ def _render_png_frames(border=None):
     # A QApplication is required for QPixmap rendering. No window is shown.
     app = QApplication.instance() or QApplication(sys.argv)
 
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     frames = []
     for size in ICON_SIZES:

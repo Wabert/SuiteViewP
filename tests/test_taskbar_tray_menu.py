@@ -10,7 +10,7 @@ import pytest
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QWidget
 
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 
 @pytest.fixture

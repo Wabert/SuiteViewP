@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from suiteview.core import access_control as access
 from suiteview.core import build_env
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 
 def main():

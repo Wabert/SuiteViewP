@@ -5,8 +5,8 @@ from unittest.mock import Mock
 
 from PyQt6.QtWidgets import QWidget
 
-from suiteview.taskbar_launcher import suiteview_taskbar as taskbar
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher import taskbar_system
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 
 class _Vetoing(QWidget):
@@ -27,7 +27,7 @@ def _bar(blocker=None):
 
 def test_quit_exits_the_event_loop_without_a_cancellable_quit(monkeypatch):
     app = Mock()
-    monkeypatch.setattr(taskbar, "QApplication", app)
+    monkeypatch.setattr(taskbar_system, "QApplication", app)
     bar = _bar()
     SuiteViewTaskbar._quit_application(bar)
     bar.tray_icon.hide.assert_called_once()
@@ -38,7 +38,7 @@ def test_quit_exits_the_event_loop_without_a_cancellable_quit(monkeypatch):
 
 def test_window_that_stays_open_cancels_quit_but_keeps_tray_and_launcher(monkeypatch):
     app = Mock()
-    monkeypatch.setattr(taskbar, "QApplication", app)
+    monkeypatch.setattr(taskbar_system, "QApplication", app)
     blocker = Mock()
     bar = _bar(blocker)
     SuiteViewTaskbar._quit_application(bar)
