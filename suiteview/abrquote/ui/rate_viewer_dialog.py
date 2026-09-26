@@ -10,6 +10,7 @@ Accessible from the ABR Quote header menu button. Lets users:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from typing import Optional
 
@@ -33,6 +34,17 @@ from ..models.abr_database import get_abr_database
 from ...core.build_env import ReadOnlyDataError, guard_data_writable, is_data_read_only
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EditFieldSpec:
+    """Field metadata for generic rate edit dialogs."""
+
+    label: str
+    key: str
+    placeholder: str = ""
+    existing_index: int | None = None
+    default: str = ""
 
 
 # ── Rate type definitions ──────────────────────────────────────────────────
@@ -608,903 +620,382 @@ class RateViewerDialog(FramelessWindowBase):
             logger.error(f"Error deleting row: {e}")
             QMessageBox.critical(self, "Error", f"Failed to delete: {e}")
 
+    # ── Generic edit dialogs ─────────────────────────────────────────
+
+    def _run_edit_dialog(
+        self,
+        *,
+        add_title: str,
+        edit_title: str,
+        fields: list[EditFieldSpec],
+        existing: Optional[list],
+        width: int = 360,
+    ) -> dict[str, str] | None:
+        """Show a generic line-edit dialog and return stripped field values."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(add_title if existing is None else edit_title)
+        dlg.setMinimumWidth(width)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
+        inputs = self._add_edit_fields(grid, fields, existing)
+        layout.addLayout(grid)
+        self._add_edit_buttons(layout, dlg)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return {key: widget.text().strip() for key, widget in inputs.items()}
+
+    def _add_edit_fields(self, grid: QGridLayout, fields: list[EditFieldSpec], existing):
+        label_style = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
+        input_style = (
+            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
+            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
+            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        )
+        inputs = {}
+        for row, spec in enumerate(fields):
+            label = QLabel(spec.label)
+            label.setStyleSheet(label_style)
+            grid.addWidget(label, row, 0)
+            widget = QLineEdit()
+            widget.setStyleSheet(input_style)
+            widget.setPlaceholderText(spec.placeholder)
+            if existing and spec.existing_index is not None:
+                widget.setText(str(existing[spec.existing_index] or "").replace("$", "").replace(",", ""))
+            elif spec.default:
+                widget.setText(spec.default)
+            inputs[spec.key] = widget
+            grid.addWidget(widget, row, 1)
+        return inputs
+
+    def _add_edit_buttons(self, layout: QVBoxLayout, dlg: QDialog) -> None:
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(cancel_btn)
+        save_btn = QPushButton("Save")
+        save_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
+            f"  border: none; border-radius: 4px;"
+            f"  font-size: 12px; font-weight: bold;"
+            f"  padding: 6px 20px;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"  background-color: {CRIMSON_DARK};"
+            f"}}"
+        )
+        save_btn.setDefault(True)
+        save_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
+
+    def _upsert_rate_row(
+        self,
+        action: str,
+        delete_sql: str,
+        delete_params: tuple,
+        insert_sql: str,
+        insert_params: tuple,
+        status: str,
+        *,
+        old_delete: tuple[str, tuple] | None = None,
+    ) -> None:
+        try:
+            guard_data_writable(action)
+            db = get_abr_database()
+            conn = db.connect()
+            cursor = conn.cursor()
+            if old_delete:
+                cursor.execute(old_delete[0], old_delete[1])
+            cursor.execute(delete_sql, delete_params)
+            cursor.execute(insert_sql, insert_params)
+            conn.commit()
+            cursor.close()
+            self._status_label.setText(status)
+            self._on_type_changed(self._type_combo.currentIndex())
+        except Exception as e:
+            logger.error(f"Error saving rate data: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
+
+    def _warn_required(self, label: str) -> None:
+        QMessageBox.warning(self, "Validation", f"{label} is required.")
+
+    def _parse_float(self, values: dict[str, str], key: str, label: str, default=None):
+        text = values.get(key, "")
+        if text == "" and default is not None:
+            return default
+        try:
+            return float(text)
+        except ValueError:
+            QMessageBox.warning(self, "Validation", f"{label} must be a number.")
+            return None
+
+    def _parse_int(self, values: dict[str, str], key: str, label: str, default=None):
+        text = values.get(key, "")
+        if text == "" and default is not None:
+            return default
+        try:
+            return int(text)
+        except ValueError:
+            QMessageBox.warning(self, "Validation", f"{label} must be an integer.")
+            return None
+
     # ── Interest Rate edit dialog ──────────────────────────────────────
 
     def _edit_interest_rate_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit an interest rate entry.
-
-        existing: [date_str, rate_str, iul_rate_str] or None for new.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Interest Rate" if is_new else "Edit Interest Rate")
-        dlg.setMinimumWidth(360)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit an interest rate entry."""
+        values = self._run_edit_dialog(
+            add_title="Add Interest Rate",
+            edit_title="Edit Interest Rate",
+            existing=existing,
+            fields=[
+                EditFieldSpec("Date (YYYY-MM):", "date", "e.g. 2026-01", 0),
+                EditFieldSpec("Moody Ave Yield (%):", "rate", "e.g. 5.63", 1),
+                EditFieldSpec("ABR Rate (%):", "iul_rate", "e.g. 5.60", 2),
+            ],
         )
-
-        # Date (YYYY-MM)
-        lbl_date = QLabel("Date (YYYY-MM):")
-        lbl_date.setStyleSheet(LBL)
-        grid.addWidget(lbl_date, 0, 0)
-        inp_date = QLineEdit()
-        inp_date.setStyleSheet(INPUT)
-        inp_date.setPlaceholderText("e.g. 2026-01")
-        if existing:
-            inp_date.setText(existing[0])
-        grid.addWidget(inp_date, 0, 1)
-
-        # Moody Ave Yield
-        lbl_rate = QLabel("Moody Ave Yield (%):")
-        lbl_rate.setStyleSheet(LBL)
-        grid.addWidget(lbl_rate, 1, 0)
-        inp_rate = QLineEdit()
-        inp_rate.setStyleSheet(INPUT)
-        inp_rate.setPlaceholderText("e.g. 5.63")
-        if existing:
-            inp_rate.setText(existing[1].replace(",", ""))
-        grid.addWidget(inp_rate, 1, 1)
-
-        # ABR Rate
-        lbl_iul = QLabel("ABR Rate (%):")
-        lbl_iul.setStyleSheet(LBL)
-        grid.addWidget(lbl_iul, 2, 0)
-        inp_iul = QLineEdit()
-        inp_iul.setStyleSheet(INPUT)
-        inp_iul.setPlaceholderText("e.g. 5.60")
-        if existing and existing[2]:
-            inp_iul.setText(existing[2].replace(",", ""))
-        grid.addWidget(inp_iul, 2, 1)
-
-        layout.addLayout(grid)
-
-        # Buttons
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
-        )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if values is None:
             return
-
-        # Validate & save
-        dt = inp_date.text().strip()
+        dt = values["date"]
         if not dt:
-            QMessageBox.warning(self, "Validation", "Date is required.")
+            self._warn_required("Date")
             return
-        try:
-            rate = float(inp_rate.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Moody Ave Yield must be a number.")
+        rate = self._parse_float(values, "rate", "Moody Ave Yield")
+        if rate is None:
             return
-        iul_text = inp_iul.text().strip()
-        iul_rate = float(iul_text) if iul_text else None
-
-        try:
-            guard_data_writable("save interest rate data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-            # Delete old row if editing with changed PK, or upsert
-            if existing and dt != existing[0]:
-                cursor.execute(
-                    "DELETE FROM [SV_ABR_INTEREST_RATES] WHERE effective_date = ?",
-                    (existing[0],)
-                )
-            cursor.execute(
-                "DELETE FROM [SV_ABR_INTEREST_RATES] WHERE effective_date = ?", (dt,)
-            )
-            cursor.execute(
-                "INSERT INTO [SV_ABR_INTEREST_RATES] "
-                "(effective_date, rate, iul_var_loan_rate) VALUES (?, ?, ?)",
-                (dt, rate, iul_rate)
-            )
-            conn.commit()
-            cursor.close()
-            self._status_label.setText(f"{'Added' if is_new else 'Updated'} interest rate for {dt}.")
-            self._on_type_changed(self._type_combo.currentIndex())
-        except Exception as e:
-            logger.error(f"Error saving interest rate: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
-
-    # ── Per Diem edit dialog ───────────────────────────────────────────
+        iul_rate = self._parse_float(values, "iul_rate", "ABR Rate", default=None) if values["iul_rate"] else None
+        self._upsert_rate_row(
+            "save interest rate data",
+            "DELETE FROM [SV_ABR_INTEREST_RATES] WHERE effective_date = ?",
+            (dt,),
+            "INSERT INTO [SV_ABR_INTEREST_RATES] (effective_date, rate, iul_var_loan_rate) VALUES (?, ?, ?)",
+            (dt, rate, iul_rate),
+            f"{'Added' if existing is None else 'Updated'} interest rate for {dt}.",
+            old_delete=("DELETE FROM [SV_ABR_INTEREST_RATES] WHERE effective_date = ?", (existing[0],))
+            if existing and dt != existing[0] else None,
+        )
 
     def _edit_per_diem_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit a per diem entry.
-
-        existing: [year_str, daily_str, annual_str] or None for new.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Per Diem" if is_new else "Edit Per Diem")
-        dlg.setMinimumWidth(360)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit a per diem entry."""
+        values = self._run_edit_dialog(
+            add_title="Add Per Diem",
+            edit_title="Edit Per Diem",
+            existing=existing,
+            fields=[
+                EditFieldSpec("Year:", "year", "e.g. 2026", 0),
+                EditFieldSpec("Daily Limit ($):", "daily", "e.g. 430", 1),
+                EditFieldSpec("Annual Limit ($):", "annual", "e.g. 156950", 2),
+            ],
         )
-
-        # Year
-        lbl_year = QLabel("Year:")
-        lbl_year.setStyleSheet(LBL)
-        grid.addWidget(lbl_year, 0, 0)
-        inp_year = QLineEdit()
-        inp_year.setStyleSheet(INPUT)
-        inp_year.setPlaceholderText("e.g. 2026")
-        if existing:
-            inp_year.setText(existing[0].replace(",", ""))
-        grid.addWidget(inp_year, 0, 1)
-
-        # Daily Limit
-        lbl_daily = QLabel("Daily Limit ($):")
-        lbl_daily.setStyleSheet(LBL)
-        grid.addWidget(lbl_daily, 1, 0)
-        inp_daily = QLineEdit()
-        inp_daily.setStyleSheet(INPUT)
-        inp_daily.setPlaceholderText("e.g. 430")
-        if existing:
-            inp_daily.setText(existing[1].replace(",", "").replace("$", ""))
-        grid.addWidget(inp_daily, 1, 1)
-
-        # Annual Limit
-        lbl_annual = QLabel("Annual Limit ($):")
-        lbl_annual.setStyleSheet(LBL)
-        grid.addWidget(lbl_annual, 2, 0)
-        inp_annual = QLineEdit()
-        inp_annual.setStyleSheet(INPUT)
-        inp_annual.setPlaceholderText("e.g. 156950")
-        if existing:
-            inp_annual.setText(existing[2].replace(",", "").replace("$", ""))
-        grid.addWidget(inp_annual, 2, 1)
-
-        layout.addLayout(grid)
-
-        # Buttons
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
+        if values is None:
+            return
+        year = self._parse_int(values, "year", "Year")
+        daily = self._parse_float(values, "daily", "Daily Limit")
+        annual = self._parse_float(values, "annual", "Annual Limit")
+        if None in (year, daily, annual):
+            return
+        old_year = int(existing[0].replace(",", "")) if existing else None
+        self._upsert_rate_row(
+            "save per diem data",
+            "DELETE FROM [SV_ABR_PER_DIEM] WHERE year = ?",
+            (year,),
+            "INSERT INTO [SV_ABR_PER_DIEM] (year, daily_limit, annual_limit) VALUES (?, ?, ?)",
+            (year, daily, annual),
+            f"{'Added' if existing is None else 'Updated'} per diem for {year}.",
+            old_delete=("DELETE FROM [SV_ABR_PER_DIEM] WHERE year = ?", (old_year,))
+            if old_year is not None and year != old_year else None,
         )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        # Validate & save
-        try:
-            year = int(inp_year.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Year must be an integer.")
-            return
-        try:
-            daily = float(inp_daily.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Daily Limit must be a number.")
-            return
-        try:
-            annual = float(inp_annual.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Annual Limit must be a number.")
-            return
-
-        try:
-            guard_data_writable("save per diem data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-            if existing:
-                old_year = int(existing[0].replace(",", ""))
-                if year != old_year:
-                    cursor.execute(
-                        "DELETE FROM [SV_ABR_PER_DIEM] WHERE year = ?", (old_year,)
-                    )
-            cursor.execute("DELETE FROM [SV_ABR_PER_DIEM] WHERE year = ?", (year,))
-            cursor.execute(
-                "INSERT INTO [SV_ABR_PER_DIEM] (year, daily_limit, annual_limit) "
-                "VALUES (?, ?, ?)", (year, daily, annual)
-            )
-            conn.commit()
-            cursor.close()
-            self._status_label.setText(f"{'Added' if is_new else 'Updated'} per diem for {year}.")
-            self._on_type_changed(self._type_combo.currentIndex())
-        except Exception as e:
-            logger.error(f"Error saving per diem: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
-
-    # ── State Variations edit dialog ─────────────────────────────────────
 
     def _edit_state_variation_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit a state variation entry.
-        
-        Args:
-            existing: List of values in order of table columns:
-                      [cl_code, abbr, name, group, admin_fee, elect, crit, chron, term]
-                      or None for new.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add State Variation" if is_new else "Edit State Variation")
-        dlg.setMinimumWidth(500)
-        
-        # Main layout
-        layout = QVBoxLayout(dlg)
-        
-        content_widget = QWidget()
-        grid = QGridLayout(content_widget)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit a state variation entry."""
+        values = self._run_edit_dialog(
+            add_title="Add State Variation",
+            edit_title="Edit State Variation",
+            existing=existing,
+            width=500,
+            fields=[
+                EditFieldSpec("CL State Code:", "cl_state_code", "", 0),
+                EditFieldSpec("State Abbr:", "state_abbr", "", 1),
+                EditFieldSpec("State Name:", "state_name", "", 2),
+                EditFieldSpec("State Group:", "state_group", "", 3),
+                EditFieldSpec("Admin Fee ($):", "admin_fee", "", 4, "250.0"),
+                EditFieldSpec("Election Form:", "election_form", "", 5),
+                EditFieldSpec("Disclosure Critical:", "disclosure_form_critical", "", 6),
+                EditFieldSpec("Disclosure Chronic:", "disclosure_form_chronic", "", 7),
+                EditFieldSpec("Disclosure Terminal:", "disclosure_form_terminal", "", 8),
+            ],
         )
-
-        entries = {}
-        
-        # Note: existing is [code, abbr, state, group, admin_fee, elec, crit, chron, term]
-        fields = [
-            ("CL State Code:", "cl_state_code", existing[0] if existing else ""),
-            ("State Abbr:", "state_abbr", existing[1] if existing else ""),
-            ("State Name:", "state_name", existing[2] if existing else ""),
-            ("State Group:", "state_group", existing[3] if existing else ""),
-            ("Admin Fee ($):", "admin_fee", existing[4] if existing else "250.0"),
-            ("Election Form:", "election_form", existing[5] if existing else ""),
-            ("Disclosure Critical:", "disclosure_form_critical", existing[6] if existing else ""),
-            ("Disclosure Chronic:", "disclosure_form_chronic", existing[7] if existing else ""),
-            ("Disclosure Terminal:", "disclosure_form_terminal", existing[8] if existing else ""),
-        ]
-
-        for i, (label_text, key, val) in enumerate(fields):
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(LBL)
-            grid.addWidget(lbl, i, 0)
-            
-            inp = QLineEdit()
-            inp.setStyleSheet(INPUT)
-            inp.setText(str(val) if val is not None else "")
-            entries[key] = inp
-            grid.addWidget(inp, i, 1)
-
-        layout.addWidget(content_widget)
-
-        # Buttons
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
+        if values is None:
+            return
+        if not values["state_abbr"]:
+            self._warn_required("State Abbreviation")
+            return
+        cl_code = self._parse_int(values, "cl_state_code", "CL State Code", default=None) if values["cl_state_code"] else None
+        admin_fee = self._parse_float(values, "admin_fee", "Admin Fee", default=250.0)
+        if admin_fee is None:
+            return
+        new_abbr = values["state_abbr"]
+        self._upsert_rate_row(
+            "save state variation data",
+            "DELETE FROM [SV_ABR_STATE_VARIATIONS] WHERE state_abbr = ?",
+            (new_abbr,),
+            "INSERT INTO [SV_ABR_STATE_VARIATIONS] (state_abbr, cl_state_code, state_name, state_group, admin_fee, election_form, disclosure_form_critical, disclosure_form_chronic, disclosure_form_terminal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (new_abbr, cl_code, values["state_name"], values["state_group"], admin_fee,
+             values["election_form"], values["disclosure_form_critical"],
+             values["disclosure_form_chronic"], values["disclosure_form_terminal"]),
+            f"{'Added' if existing is None else 'Updated'} state variation for {new_abbr}.",
+            old_delete=("DELETE FROM [SV_ABR_STATE_VARIATIONS] WHERE state_abbr = ?", (existing[1],))
+            if existing and new_abbr != existing[1] else None,
         )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        # Gather data
-        data = {k: v.text().strip() for k, v in entries.items()}
-        
-        # Validate
-        if not data["state_abbr"]:
-             QMessageBox.warning(self, "Validation", "State Abbreviation is required.")
-             return
-             
-        try:
-            cl_code = int(data["cl_state_code"]) if data["cl_state_code"] else None
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "CL State Code must be an integer.")
-            return
-
-        try:
-            admin_fee = float(data["admin_fee"]) if data["admin_fee"] else 250.0
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Admin Fee must be a number.")
-            return
-
-        try:
-            guard_data_writable("save state variation data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-
-            new_abbr = data["state_abbr"]
-            if existing:
-                old_abbr = existing[1]
-                if new_abbr != old_abbr:
-                    cursor.execute(
-                        "DELETE FROM [SV_ABR_STATE_VARIATIONS] WHERE state_abbr = ?",
-                        (old_abbr,)
-                    )
-            cursor.execute(
-                "DELETE FROM [SV_ABR_STATE_VARIATIONS] WHERE state_abbr = ?",
-                (new_abbr,)
-            )
-            cursor.execute(
-                "INSERT INTO [SV_ABR_STATE_VARIATIONS] ("
-                "    state_abbr, cl_state_code, state_name, state_group,"
-                "    admin_fee, election_form, disclosure_form_critical,"
-                "    disclosure_form_chronic, disclosure_form_terminal"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    new_abbr, cl_code, data["state_name"], data["state_group"],
-                    admin_fee,
-                    data["election_form"], data["disclosure_form_critical"],
-                    data["disclosure_form_chronic"], data["disclosure_form_terminal"]
-                )
-            )
-            conn.commit()
-            cursor.close()
-
-            self._status_label.setText(f"{'Added' if is_new else 'Updated'} state variation for {new_abbr}.")
-            self._on_type_changed(self._type_combo.currentIndex())
-
-        except Exception as e:
-            logger.error(f"Error saving state variation: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
-
-    # ── Min Face edit dialog ───────────────────────────────────────────
 
     def _edit_min_face_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit a min face entry.
-        
-        existing: [plancode, min_face_amt_str] or None for new.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Min Face" if is_new else "Edit Min Face")
-        dlg.setMinimumWidth(360)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit a min face entry."""
+        values = self._run_edit_dialog(
+            add_title="Add Min Face",
+            edit_title="Edit Min Face",
+            existing=existing,
+            fields=[
+                EditFieldSpec("Plancode:", "plancode", "e.g. B75TL400", 0),
+                EditFieldSpec("Min Face Amount ($):", "amount", "e.g. 50000", 1),
+            ],
         )
-
-        lbl_pc = QLabel("Plancode:")
-        lbl_pc.setStyleSheet(LBL)
-        grid.addWidget(lbl_pc, 0, 0)
-        inp_pc = QLineEdit()
-        inp_pc.setStyleSheet(INPUT)
-        inp_pc.setPlaceholderText("e.g. B75TL400")
-        if existing:
-            inp_pc.setText(existing[0])
-        grid.addWidget(inp_pc, 0, 1)
-
-        lbl_amt = QLabel("Min Face Amount ($):")
-        lbl_amt.setStyleSheet(LBL)
-        grid.addWidget(lbl_amt, 1, 0)
-        inp_amt = QLineEdit()
-        inp_amt.setStyleSheet(INPUT)
-        inp_amt.setPlaceholderText("e.g. 50000")
-        if existing:
-            inp_amt.setText(existing[1].replace(",", ""))
-        grid.addWidget(inp_amt, 1, 1)
-
-        layout.addLayout(grid)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
-        )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if values is None:
             return
-
-        plancode = inp_pc.text().strip().upper()
+        plancode = values["plancode"].upper()
         if not plancode:
-            QMessageBox.warning(self, "Validation", "Plancode is required.")
+            self._warn_required("Plancode")
             return
-        try:
-            amt = float(inp_amt.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Min Face Amount must be a number.")
+        amount = self._parse_float(values, "amount", "Min Face Amount")
+        if amount is None:
             return
-
-        try:
-            guard_data_writable("save minimum face data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-            if existing and plancode != existing[0].upper():
-                cursor.execute(
-                    "DELETE FROM [SV_ABR_MIN_FACE] WHERE plancode = ?", (existing[0],)
-                )
-            cursor.execute("DELETE FROM [SV_ABR_MIN_FACE] WHERE plancode = ?", (plancode,))
-            cursor.execute(
-                "INSERT INTO [SV_ABR_MIN_FACE] (plancode, min_face_amt) VALUES (?, ?)",
-                (plancode, amt),
-            )
-            conn.commit()
-            cursor.close()
-            self._status_label.setText(f"{'Added' if is_new else 'Updated'} min face for {plancode}.")
-            self._on_type_changed(self._type_combo.currentIndex())
-        except Exception as e:
-            logger.error(f"Error saving min face: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
-
-    # ── Modal Factor edit dialog ───────────────────────────────────────
+        self._upsert_rate_row(
+            "save min face data",
+            "DELETE FROM [SV_ABR_MIN_FACE] WHERE plancode = ?",
+            (plancode,),
+            "INSERT INTO [SV_ABR_MIN_FACE] (plancode, min_face_amt) VALUES (?, ?)",
+            (plancode, amount),
+            f"{'Added' if existing is None else 'Updated'} min face for {plancode}.",
+            old_delete=("DELETE FROM [SV_ABR_MIN_FACE] WHERE plancode = ?", (existing[0],))
+            if existing and plancode != existing[0].upper() else None,
+        )
 
     def _edit_modal_factor_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit a modal factor entry.
-        
-        existing: [plancode, mode_code_str, mode_label, factor_str] or None.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Modal Factor" if is_new else "Edit Modal Factor")
-        dlg.setMinimumWidth(400)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit a modal factor entry."""
+        values = self._run_edit_dialog(
+            add_title="Add Modal Factor",
+            edit_title="Edit Modal Factor",
+            existing=existing,
+            width=400,
+            fields=[
+                EditFieldSpec("Plancode:", "plancode", "e.g. B75TL400", 0),
+                EditFieldSpec("Mode Code:", "mode_code", "1=Ann, 2=Semi, 3=Qtr, 4=Mon, 5=PAC, 6=BiWk", 1),
+                EditFieldSpec("Mode Label:", "mode_label", "e.g. Annual", 2),
+                EditFieldSpec("Factor:", "factor", "e.g. 0.0930", 3),
+            ],
         )
-
-        # Plancode
-        lbl_pc = QLabel("Plancode:")
-        lbl_pc.setStyleSheet(LBL)
-        grid.addWidget(lbl_pc, 0, 0)
-        inp_pc = QLineEdit()
-        inp_pc.setStyleSheet(INPUT)
-        inp_pc.setPlaceholderText("e.g. B75TL400")
-        if existing:
-            inp_pc.setText(existing[0])
-        grid.addWidget(inp_pc, 0, 1)
-
-        # Mode Code
-        lbl_mode = QLabel("Mode Code:")
-        lbl_mode.setStyleSheet(LBL)
-        grid.addWidget(lbl_mode, 1, 0)
-        inp_mode = QLineEdit()
-        inp_mode.setStyleSheet(INPUT)
-        inp_mode.setPlaceholderText("1=Ann, 2=Semi, 3=Qtr, 4=Mon, 5=PAC, 6=BiWk")
-        if existing:
-            inp_mode.setText(existing[1])
-        grid.addWidget(inp_mode, 1, 1)
-
-        # Mode Label
-        lbl_label = QLabel("Mode Label:")
-        lbl_label.setStyleSheet(LBL)
-        grid.addWidget(lbl_label, 2, 0)
-        inp_label = QLineEdit()
-        inp_label.setStyleSheet(INPUT)
-        inp_label.setPlaceholderText("e.g. Annual")
-        if existing:
-            inp_label.setText(existing[2])
-        grid.addWidget(inp_label, 2, 1)
-
-        # Factor
-        lbl_factor = QLabel("Factor:")
-        lbl_factor.setStyleSheet(LBL)
-        grid.addWidget(lbl_factor, 3, 0)
-        inp_factor = QLineEdit()
-        inp_factor.setStyleSheet(INPUT)
-        inp_factor.setPlaceholderText("e.g. 0.0930")
-        if existing:
-            inp_factor.setText(existing[3].replace(",", ""))
-        grid.addWidget(inp_factor, 3, 1)
-
-        layout.addLayout(grid)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
-        )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if values is None:
             return
-
-        plancode = inp_pc.text().strip().upper()
+        plancode = values["plancode"].upper()
         if not plancode:
-            QMessageBox.warning(self, "Validation", "Plancode is required.")
+            self._warn_required("Plancode")
             return
-        try:
-            mode_code = int(inp_mode.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Mode Code must be an integer.")
+        mode_code = self._parse_int(values, "mode_code", "Mode Code")
+        factor = self._parse_float(values, "factor", "Factor")
+        if mode_code is None or factor is None:
             return
-        mode_label = inp_label.text().strip() or f"Mode {mode_code}"
-        try:
-            factor = float(inp_factor.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Factor must be a number.")
-            return
-
-        try:
-            guard_data_writable("save modal factor data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-            if existing:
-                old_pc = existing[0].upper()
-                old_mode = int(existing[1])
-                if plancode != old_pc or mode_code != old_mode:
-                    cursor.execute(
-                        "DELETE FROM [SV_ABR_MODAL_FACTORS] "
-                        "WHERE plancode = ? AND mode_code = ?",
-                        (old_pc, old_mode),
-                    )
-            cursor.execute(
-                "DELETE FROM [SV_ABR_MODAL_FACTORS] "
-                "WHERE plancode = ? AND mode_code = ?",
-                (plancode, mode_code),
-            )
-            cursor.execute(
-                "INSERT INTO [SV_ABR_MODAL_FACTORS] "
-                "(plancode, mode_code, mode_label, factor) VALUES (?, ?, ?, ?)",
-                (plancode, mode_code, mode_label, factor),
-            )
-            conn.commit()
-            cursor.close()
-            self._status_label.setText(
-                f"{'Added' if is_new else 'Updated'} modal factor for {plancode} mode {mode_code}."
-            )
-            self._on_type_changed(self._type_combo.currentIndex())
-        except Exception as e:
-            logger.error(f"Error saving modal factor: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
-
-    # ── Band Amount edit dialog ────────────────────────────────────────
+        mode_label = values["mode_label"] or f"Mode {mode_code}"
+        old_delete = None
+        if existing:
+            old_pc, old_mode = existing[0].upper(), int(existing[1])
+            if plancode != old_pc or mode_code != old_mode:
+                old_delete = (
+                    "DELETE FROM [SV_ABR_MODAL_FACTORS] WHERE plancode = ? AND mode_code = ?",
+                    (old_pc, old_mode),
+                )
+        self._upsert_rate_row(
+            "save modal factor data",
+            "DELETE FROM [SV_ABR_MODAL_FACTORS] WHERE plancode = ? AND mode_code = ?",
+            (plancode, mode_code),
+            "INSERT INTO [SV_ABR_MODAL_FACTORS] (plancode, mode_code, mode_label, factor) VALUES (?, ?, ?, ?)",
+            (plancode, mode_code, mode_label, factor),
+            f"{'Added' if existing is None else 'Updated'} modal factor for {plancode} mode {mode_code}.",
+            old_delete=old_delete,
+        )
 
     def _edit_band_amount_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit a band amount entry.
-        
-        existing: [plancode, band_str, min_face_amt_str] or None.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Band Amount" if is_new else "Edit Band Amount")
-        dlg.setMinimumWidth(380)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit a band amount entry."""
+        values = self._run_edit_dialog(
+            add_title="Add Band Amount",
+            edit_title="Edit Band Amount",
+            existing=existing,
+            width=380,
+            fields=[
+                EditFieldSpec("Plancode:", "plancode", "e.g. B75TL400", 0),
+                EditFieldSpec("Band:", "band", "e.g. 1", 1),
+                EditFieldSpec("Min Face Amount ($):", "amount", "e.g. 50000", 2),
+            ],
         )
-
-        # Plancode
-        lbl_pc = QLabel("Plancode:")
-        lbl_pc.setStyleSheet(LBL)
-        grid.addWidget(lbl_pc, 0, 0)
-        inp_pc = QLineEdit()
-        inp_pc.setStyleSheet(INPUT)
-        inp_pc.setPlaceholderText("e.g. B75TL400")
-        if existing:
-            inp_pc.setText(existing[0])
-        grid.addWidget(inp_pc, 0, 1)
-
-        # Band
-        lbl_band = QLabel("Band:")
-        lbl_band.setStyleSheet(LBL)
-        grid.addWidget(lbl_band, 1, 0)
-        inp_band = QLineEdit()
-        inp_band.setStyleSheet(INPUT)
-        inp_band.setPlaceholderText("1-5")
-        if existing:
-            inp_band.setText(existing[1])
-        grid.addWidget(inp_band, 1, 1)
-
-        # Min Face Amount
-        lbl_amt = QLabel("Min Face Amount ($):")
-        lbl_amt.setStyleSheet(LBL)
-        grid.addWidget(lbl_amt, 2, 0)
-        inp_amt = QLineEdit()
-        inp_amt.setStyleSheet(INPUT)
-        inp_amt.setPlaceholderText("e.g. 100000")
-        if existing:
-            inp_amt.setText(existing[2].replace(",", ""))
-        grid.addWidget(inp_amt, 2, 1)
-
-        layout.addLayout(grid)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
-        )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if values is None:
             return
-
-        plancode = inp_pc.text().strip().upper()
+        plancode = values["plancode"].upper()
         if not plancode:
-            QMessageBox.warning(self, "Validation", "Plancode is required.")
+            self._warn_required("Plancode")
             return
-        try:
-            band = int(inp_band.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Band must be an integer.")
+        band = self._parse_int(values, "band", "Band")
+        amount = self._parse_float(values, "amount", "Min Face Amount")
+        if band is None or amount is None:
             return
-        try:
-            amt = float(inp_amt.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Min Face Amount must be a number.")
-            return
-
-        try:
-            guard_data_writable("save band amount data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-            if existing:
-                old_pc = existing[0].upper()
-                old_band = int(existing[1])
-                if plancode != old_pc or band != old_band:
-                    cursor.execute(
-                        "DELETE FROM [SV_ABR_BAND_AMOUNTS] "
-                        "WHERE plancode = ? AND band = ?",
-                        (old_pc, old_band),
-                    )
-            cursor.execute(
-                "DELETE FROM [SV_ABR_BAND_AMOUNTS] WHERE plancode = ? AND band = ?",
-                (plancode, band),
-            )
-            cursor.execute(
-                "INSERT INTO [SV_ABR_BAND_AMOUNTS] "
-                "(plancode, band, min_face_amt) VALUES (?, ?, ?)",
-                (plancode, band, amt),
-            )
-            conn.commit()
-            cursor.close()
-            self._status_label.setText(
-                f"{'Added' if is_new else 'Updated'} band amount for {plancode} band {band}."
-            )
-            self._on_type_changed(self._type_combo.currentIndex())
-        except Exception as e:
-            logger.error(f"Error saving band amount: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
-
-    # ── Policy Fee edit dialog ─────────────────────────────────────────
+        old_delete = None
+        if existing:
+            old_pc, old_band = existing[0].upper(), int(existing[1])
+            if plancode != old_pc or band != old_band:
+                old_delete = (
+                    "DELETE FROM [SV_ABR_BAND_AMOUNTS] WHERE plancode = ? AND band = ?",
+                    (old_pc, old_band),
+                )
+        self._upsert_rate_row(
+            "save band amount data",
+            "DELETE FROM [SV_ABR_BAND_AMOUNTS] WHERE plancode = ? AND band = ?",
+            (plancode, band),
+            "INSERT INTO [SV_ABR_BAND_AMOUNTS] (plancode, band, min_face_amt) VALUES (?, ?, ?)",
+            (plancode, band, amount),
+            f"{'Added' if existing is None else 'Updated'} band amount for {plancode} band {band}.",
+            old_delete=old_delete,
+        )
 
     def _edit_policy_fee_dialog(self, existing: Optional[list]):
-        """Open a dialog to add or edit a policy fee entry.
-
-        existing: [plancode, annual_fee_str] or None for new.
-        """
-        is_new = existing is None
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Policy Fee" if is_new else "Edit Policy Fee")
-        dlg.setMinimumWidth(360)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
-
-        LBL = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;"
-        INPUT = (
-            f"QLineEdit {{ border: 2px solid {CRIMSON_PRIMARY}; border-radius: 4px;"
-            f" padding: 6px 8px; font-size: 12px; color: {GRAY_DARK}; }}"
-            f"QLineEdit:focus {{ border-color: {SLATE_PRIMARY}; background: #FFFEF5; }}"
+        """Open a dialog to add or edit a policy fee entry."""
+        values = self._run_edit_dialog(
+            add_title="Add Policy Fee",
+            edit_title="Edit Policy Fee",
+            existing=existing,
+            fields=[
+                EditFieldSpec("Plancode:", "plancode", "e.g. B75TL400", 0),
+                EditFieldSpec("Annual Fee ($):", "fee", "e.g. 60.0", 1),
+            ],
         )
-
-        lbl_pc = QLabel("Plancode:")
-        lbl_pc.setStyleSheet(LBL)
-        grid.addWidget(lbl_pc, 0, 0)
-        inp_pc = QLineEdit()
-        inp_pc.setStyleSheet(INPUT)
-        inp_pc.setPlaceholderText("e.g. B75TL400")
-        if existing:
-            inp_pc.setText(existing[0])
-        grid.addWidget(inp_pc, 0, 1)
-
-        lbl_fee = QLabel("Annual Fee ($):")
-        lbl_fee.setStyleSheet(LBL)
-        grid.addWidget(lbl_fee, 1, 0)
-        inp_fee = QLineEdit()
-        inp_fee.setStyleSheet(INPUT)
-        inp_fee.setPlaceholderText("e.g. 60.0")
-        if existing:
-            inp_fee.setText(existing[1].replace(",", ""))
-        grid.addWidget(inp_fee, 1, 1)
-
-        layout.addLayout(grid)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(_ACTION_BTN_STYLE)
-        cancel_btn.clicked.connect(dlg.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(
-            f"QPushButton {{"
-            f"  background-color: {CRIMSON_PRIMARY}; color: {WHITE};"
-            f"  border: none; border-radius: 4px;"
-            f"  font-size: 12px; font-weight: bold;"
-            f"  padding: 6px 20px;"
-            f"}}"
-            f"QPushButton:hover {{"
-            f"  background-color: {CRIMSON_DARK};"
-            f"}}"
-        )
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if values is None:
             return
-
-        plancode = inp_pc.text().strip().upper()
+        plancode = values["plancode"].upper()
         if not plancode:
-            QMessageBox.warning(self, "Validation", "Plancode is required.")
+            self._warn_required("Plancode")
             return
-        try:
-            fee = float(inp_fee.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Validation", "Annual Fee must be a number.")
+        fee = self._parse_float(values, "fee", "Annual Fee")
+        if fee is None:
             return
-
-        try:
-            guard_data_writable("save policy fee data")
-            db = get_abr_database()
-            conn = db.connect()
-            cursor = conn.cursor()
-            if existing and plancode != existing[0].upper():
-                cursor.execute(
-                    "DELETE FROM [SV_ABR_POLICY_FEES] WHERE plancode = ?", (existing[0],)
-                )
-            cursor.execute("DELETE FROM [SV_ABR_POLICY_FEES] WHERE plancode = ?", (plancode,))
-            cursor.execute(
-                "INSERT INTO [SV_ABR_POLICY_FEES] (plancode, annual_fee) VALUES (?, ?)",
-                (plancode, fee),
-            )
-            conn.commit()
-            cursor.close()
-            self._status_label.setText(f"{'Added' if is_new else 'Updated'} policy fee for {plancode}.")
-            self._on_type_changed(self._type_combo.currentIndex())
-        except Exception as e:
-            logger.error(f"Error saving policy fee: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save: {e}")
+        self._upsert_rate_row(
+            "save policy fee data",
+            "DELETE FROM [SV_ABR_POLICY_FEES] WHERE plancode = ?",
+            (plancode,),
+            "INSERT INTO [SV_ABR_POLICY_FEES] (plancode, annual_fee) VALUES (?, ?)",
+            (plancode, fee),
+            f"{'Added' if existing is None else 'Updated'} policy fee for {plancode}.",
+            old_delete=("DELETE FROM [SV_ABR_POLICY_FEES] WHERE plancode = ?", (existing[0],))
+            if existing and plancode != existing[0].upper() else None,
+        )
