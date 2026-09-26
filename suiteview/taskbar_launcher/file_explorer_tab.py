@@ -9,14 +9,14 @@ from suiteview.file_nav.file_explorer_core import FileExplorerCore
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_explorer_navigation import (
-    FileExplorerNavigationMixin,
+    NavigationController,
 )
 from suiteview.taskbar_launcher.file_explorer_quick_links import (
-    FileExplorerQuickLinksMixin,
+    QuickLinksController,
 )
 
 
-class FileExplorerTab(FileExplorerQuickLinksMixin, FileExplorerNavigationMixin, FileExplorerCore):
+class FileExplorerTab(FileExplorerCore):
     """
     Extended FileExplorer with breadcrumb navigation and current path tracking
     """
@@ -25,6 +25,9 @@ class FileExplorerTab(FileExplorerQuickLinksMixin, FileExplorerNavigationMixin, 
     
     def __init__(self, initial_path=None):
         super().__init__()
+        self.navigation = NavigationController(self)
+        self.quick_links = QuickLinksController(self)
+        self._collaborators = (self.navigation, self.quick_links)
         
         # Allow tab content to shrink so window can collapse to just header bar
         self.setMinimumSize(0, 0)
@@ -54,13 +57,13 @@ class FileExplorerTab(FileExplorerQuickLinksMixin, FileExplorerNavigationMixin, 
         
         # Replace the parent's tree views with our custom NavigableTreeView
         # to catch mouse button events
-        self._replace_views_with_navigable()
+        self.navigation._replace_views_with_navigable()
         
         # Set up dual pane feature
-        self._setup_dual_pane()
+        self.quick_links._setup_dual_pane()
         
         # Add breadcrumb bar at the top
-        self.insert_breadcrumb_bar()
+        self.navigation.insert_breadcrumb_bar()
         
         # Only navigate if initial path is explicitly provided
         # Otherwise, navigate to OneDrive by default
@@ -77,6 +80,12 @@ class FileExplorerTab(FileExplorerQuickLinksMixin, FileExplorerNavigationMixin, 
         
         # Set up keyboard shortcuts
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def __getattr__(self, name: str):
+        for collaborator in self._collaborators:
+            if any(name in cls.__dict__ for cls in type(collaborator).__mro__):
+                return getattr(collaborator, name)
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
     
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts for navigation"""

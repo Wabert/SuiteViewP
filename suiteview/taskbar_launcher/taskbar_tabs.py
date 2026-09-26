@@ -17,12 +17,15 @@ from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.bookmark_widgets import (
     BookmarkContainerRegistry,
 )
+from suiteview.taskbar_launcher.collaborators import WindowCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_explorer_tab import FileExplorerTab
 
 
-class TaskbarTabsMixin:
+class TaskbarTabs(WindowCollaborator):
+    """Owns FileNav tab creation, synchronization, and tab actions."""
+
     def show_tab_bar_context_menu(self, pos):
         """Show context menu for the tab bar.
 

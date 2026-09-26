@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSystemTrayIcon,
+    QWidget,
 )
 
 from suiteview.ui.access_control import requires_app_access
@@ -30,13 +31,20 @@ from suiteview.ui.widgets.frame_geometry import (
     resize_geometry_for_edge,
     update_cursor_for_resize_edge,
 )
+from suiteview.taskbar_launcher.collaborators import WindowCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.bookmark_bars_popup import BookmarkBarsPopup
 from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
 
 
-class TaskbarModesMixin:
+def _host_widget(controller_or_widget):
+    return getattr(controller_or_widget, "host", controller_or_widget)
+
+
+class TaskbarModes(WindowCollaborator):
+    """Owns compact/floating mode transitions and AppBar geometry."""
+
     def _toggle_maximize(self):
         """Toggle between maximized and normal window state"""
         if self._is_maximized:
@@ -415,7 +423,7 @@ class TaskbarModesMixin:
 
         # Docked compact bar is not movable or resizable
         if self._is_compact_mode:
-            super().mousePressEvent(event)
+            QWidget.mousePressEvent(_host_widget(self), event)
             return
         
         if event.button() == Qt.MouseButton.LeftButton:
@@ -438,14 +446,14 @@ class TaskbarModesMixin:
                 # Don't drag if clicking on buttons
                 widget_at = self.childAt(pos)
                 if isinstance(widget_at, QPushButton):
-                    super().mousePressEvent(event)
+                    QWidget.mousePressEvent(_host_widget(self), event)
                     return
                 
                 self._drag_pos = event.globalPosition().toPoint()
                 event.accept()
                 return
         
-        super().mousePressEvent(event)
+        QWidget.mousePressEvent(_host_widget(self), event)
 
     def _show_bookmark_bars_popup(self, global_pos):
         """Show a floating popup with all bookmark bars as vertical panels."""
@@ -556,7 +564,7 @@ class TaskbarModesMixin:
         """Handle mouse move for dragging and resizing"""
         # Docked compact bar is not movable or resizable — just pass through
         if self._is_compact_mode:
-            super().mouseMoveEvent(event)
+            QWidget.mouseMoveEvent(_host_widget(self), event)
             return
         
         pos = event.pos()
@@ -565,7 +573,7 @@ class TaskbarModesMixin:
         if not event.buttons():
             edge = resize_edge_at(pos, self.rect(), self._resize_margin)
             update_cursor_for_resize_edge(self, edge)
-            super().mouseMoveEvent(event)
+            QWidget.mouseMoveEvent(_host_widget(self), event)
             return
         
         if event.buttons() == Qt.MouseButton.LeftButton:
@@ -602,7 +610,7 @@ class TaskbarModesMixin:
                 event.accept()
                 return
         
-        super().mouseMoveEvent(event)
+        QWidget.mouseMoveEvent(_host_widget(self), event)
     
     def mouseReleaseEvent(self, event):
         """Handle mouse release"""
@@ -610,7 +618,7 @@ class TaskbarModesMixin:
         self._resizing = False
         self._resize_edge = None
         self._resize_start_pos = None
-        super().mouseReleaseEvent(event)
+        QWidget.mouseReleaseEvent(_host_widget(self), event)
     
     def mouseDoubleClickEvent(self, event):
         """Handle double-click on title bar.
@@ -628,7 +636,7 @@ class TaskbarModesMixin:
                     self._toggle_maximize()
                     event.accept()
                     return
-        super().mouseDoubleClickEvent(event)
+        QWidget.mouseDoubleClickEvent(_host_widget(self), event)
     
     def paintEvent(self, event):
         """Paint a gold border around the frameless window.
@@ -636,7 +644,7 @@ class TaskbarModesMixin:
         In compact mode the bottom border is the most visible element —
         draw it slightly thicker for emphasis.
         """
-        super().paintEvent(event)
+        QWidget.paintEvent(_host_widget(self), event)
         painter = QPainter(self)
         r = self.rect().adjusted(1, 1, -1, -1)
         # Draw the full gold border (all four sides)

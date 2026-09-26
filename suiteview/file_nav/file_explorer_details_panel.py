@@ -198,6 +198,10 @@ QLabel {
 
 
 class FileExplorerDetailsPanelMixin:
+    """Requires: details model/proxy state, icon helpers, and persisted widths.
+    Provides: details widgets, search controls, footer, and view styling.
+    """
+
     def create_details_panel(self):
         """Create the details view panel (right side) for folder contents."""
         widget = QWidget()

@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSizeGrip,
     QSystemTrayIcon,
+    QWidget,
 )
 
 from suiteview.core.access_control import (
@@ -44,12 +45,19 @@ from suiteview.ui.widgets.frame_geometry import (
     cursor_for_resize_edge,
     resize_geometry_for_edge,
 )
+from suiteview.taskbar_launcher.collaborators import WindowCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
 
 
-class TaskbarSystemMixin:
+def _host_widget(controller_or_widget):
+    return getattr(controller_or_widget, "host", controller_or_widget)
+
+
+class SystemTray(WindowCollaborator):
+    """Owns tray integration, permissions, app launchers, and child windows."""
+
     def _apply_permissions(self, access):
         self._launcher_access = access
         floating_only_hidden = {
@@ -1018,7 +1026,7 @@ class TaskbarSystemMixin:
         
     def resizeEvent(self, event):
         """Position the resize widgets on resize and collapse/expand UI elements"""
-        super().resizeEvent(event)
+        QWidget.resizeEvent(_host_widget(self), event)
         margin = 6
         w, h = self.width(), self.height()
         
@@ -1059,3 +1067,12 @@ class TaskbarSystemMixin:
                 elif edge_name == 'bottom-right':
                     widget.setGeometry(w - margin, h - margin, margin, margin)
                 widget.raise_()
+
+
+class AppLauncher(SystemTray):
+    """Named app-launching collaborator for the shell window.
+
+    Launch/open methods currently share permission checks, tray state and
+    child-window setup with ``SystemTray``. The separate collaborator instance
+    keeps the ownership explicit and gives a future split a clear seam.
+    """

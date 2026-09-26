@@ -40,6 +40,7 @@ from suiteview.file_nav.file_explorer_details_search import (
 from suiteview.file_nav.file_explorer_export import FileExplorerExportMixin
 from suiteview.file_nav.file_explorer_file_ops import FileExplorerFileOpsMixin
 from suiteview.file_nav.file_explorer_layout import FileExplorerLayoutMixin
+from suiteview.file_nav.layout_store import LayoutStore
 from suiteview.file_nav.file_explorer_sharepoint import FileExplorerSharePointMixin
 from suiteview.file_nav.file_explorer_tree import FileExplorerTreeMixin
 from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
@@ -132,17 +133,21 @@ class FileExplorerCore(FileExplorerTreeMixin, FileExplorerDetailsPanelMixin, Fil
         # SharePoint document libraries (browsed live via Graph API - no OneDrive sync)
         self.sharepoint_libraries_file = profile_path('sharepoint_libraries.json')
         self.sharepoint_libraries = self.load_sharepoint_libraries()
-        self._sp_workers = []             # keep refs so QThreads aren't GC'd mid-run
+        self._sp_workers = []             # keep worker controllers alive mid-run
         self._sp_pending_tree = set()     # sp paths with an in-flight tree listing
         self._sp_details_generation = 0   # ignore stale async details results
         self._sp_current_name = None      # display name of current SP folder in details
         
         # Column width settings file
         self.column_widths_file = profile_path('column_widths.json')
+        self.layout_store = LayoutStore(
+            self.column_widths_file,
+            profile_path('file_explorer_panel_widths.json'),
+        )
         self.column_widths = self.load_column_widths()
         
         # Panel widths persistence
-        self.panel_widths_file = profile_path('file_explorer_panel_widths.json')
+        self.panel_widths_file = self.layout_store.panel_widths_file
         self.panel_widths = self.load_panel_widths()
         
         # Debounce timers for performance - avoid disk writes on every pixel

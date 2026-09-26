@@ -31,10 +31,14 @@ from suiteview.ui.widgets.bookmark_widgets import (
     set_footer_status_callback,
 )
 from suiteview.ui.widgets.uppercase_input import force_uppercase
+from suiteview.taskbar_launcher.collaborators import WindowCollaborator
 
 logger = logging.getLogger(__name__)
 
-class TaskbarUiMixin:
+
+class TaskbarChrome(WindowCollaborator):
+    """Builds taskbar widgets and wires user-facing controls."""
+
     def init_ui(self):
         """Initialize the UI."""
         layout = QVBoxLayout(self)

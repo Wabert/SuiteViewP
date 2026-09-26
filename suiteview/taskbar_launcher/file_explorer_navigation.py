@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.file_nav.file_explorer_widgets import NoFocusDelegate
+from suiteview.file_nav.file_explorer_core import FileExplorerCore
 from suiteview.file_nav.sharepoint_client import is_sp_path
 
 logger = logging.getLogger(__name__)
@@ -30,9 +31,12 @@ from suiteview.taskbar_launcher.file_explorer_widgets import (
     ClickableBreadcrumb,
     NavigableTreeView,
 )
+from suiteview.taskbar_launcher.collaborators import WindowCollaborator
 
 
-class FileExplorerNavigationMixin:
+class NavigationController(WindowCollaborator):
+    """Owns breadcrumb navigation, history, and keyboard routing for a tab."""
+
     def _replace_views_with_navigable(self):
         """Replace parent's QTreeView instances with NavigableTreeView"""
         
@@ -122,15 +126,15 @@ class FileExplorerNavigationMixin:
         self.details_view.forward_button_clicked.connect(self.navigate_forward)
         
         # Connect drag/drop signals for tree view (left panel)
-        self.tree_view.set_file_explorer(self)
+        self.tree_view.set_file_explorer(self.host)
         self.tree_view.files_dropped.connect(self.handle_dropped_files)
         
         # Connect drag/drop signals for details view (middle panel)
-        self.details_view.set_file_explorer(self)
+        self.details_view.set_file_explorer(self.host)
         self.details_view.files_dropped.connect(self.handle_dropped_files)
         
         # Reinstall event filter for keyboard shortcuts (F2, Delete, Ctrl+C/V/X)
-        self.details_view.installEventFilter(self)
+        self.details_view.installEventFilter(self.host)
     
     def insert_breadcrumb_bar(self):
         """Insert breadcrumb navigation bar above the tree"""
@@ -283,8 +287,8 @@ class FileExplorerNavigationMixin:
         if not hasattr(self, 'breadcrumb_frame'):
             return
         
-        # Also call parent method to apply red border to splitter
-        super()._apply_depth_search_locked_style(locked)
+        # Also call FileExplorerCore's implementation to apply red border to splitter.
+        FileExplorerCore._apply_depth_search_locked_style(self.host, locked)
         
         if locked:
             # Red background when depth search is locked
@@ -354,8 +358,9 @@ class FileExplorerNavigationMixin:
                 self.update_breadcrumb(path)
                 self._update_nav_button_states()
                 display_name = self._sp_display_names.get(path, "SharePoint")
-                # Call the parent implementation directly (our override funnels here)
-                super().load_sharepoint_contents_in_details(path, display_name)
+                # Call the core implementation directly (our override funnels here).
+                FileExplorerCore.load_sharepoint_contents_in_details(
+                    self.host, path, display_name)
                 return
             
             path_obj = Path(path)

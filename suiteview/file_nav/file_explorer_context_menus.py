@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 class FileExplorerContextMenuMixin:
+    """Requires: tree/details views, selection helpers, and file/share actions.
+    Provides: tree, details, SharePoint, and background context menus.
+    """
+
     def show_tree_context_menu(self, position):
         """Show context menu for tree view"""
         index = self.tree_view.indexAt(position)
@@ -297,4 +301,3 @@ class FileExplorerContextMenuMixin:
                 "Error",
                 f"Failed to open batch rename dialog:\n{str(e)}"
             )
-

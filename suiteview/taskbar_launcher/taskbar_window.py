@@ -12,16 +12,17 @@ from suiteview.core.access_control import (
 )
 from suiteview.core.single_instance import activation_message
 from suiteview.taskbar_launcher.app_launchers import register_default_launchers
+from suiteview.taskbar_launcher.collaborators import TaskbarState
 from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 
 logger = logging.getLogger(__name__)
-from suiteview.taskbar_launcher.taskbar_modes import TaskbarModesMixin
-from suiteview.taskbar_launcher.taskbar_system import TaskbarSystemMixin
-from suiteview.taskbar_launcher.taskbar_tabs import TaskbarTabsMixin
-from suiteview.taskbar_launcher.taskbar_ui import TaskbarUiMixin
+from suiteview.taskbar_launcher.taskbar_modes import TaskbarModes
+from suiteview.taskbar_launcher.taskbar_system import AppLauncher, SystemTray
+from suiteview.taskbar_launcher.taskbar_tabs import TaskbarTabs
+from suiteview.taskbar_launcher.taskbar_ui import TaskbarChrome
 
 
-class SuiteViewTaskbar(TaskbarSystemMixin, TaskbarUiMixin, TaskbarTabsMixin, TaskbarModesMixin, NativeMinimizeMixin, QWidget):
+class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
     """
     SuiteView main application window and tool launcher.
     Features:
@@ -37,6 +38,19 @@ class SuiteViewTaskbar(TaskbarSystemMixin, TaskbarUiMixin, TaskbarTabsMixin, Tas
         access = get_access(refresh=True)
         register_default_launchers()
         super().__init__()
+        self.state = TaskbarState()
+        self.chrome = TaskbarChrome(self)
+        self.modes = TaskbarModes(self)
+        self.tabs = TaskbarTabs(self)
+        self.system_tray = SystemTray(self)
+        self.app_launcher = AppLauncher(self)
+        self._collaborators = (
+            self.chrome,
+            self.modes,
+            self.tabs,
+            self.system_tray,
+            self.app_launcher,
+        )
         self._permission_actions = []
         self._launcher_access = access
         self._restore_message = activation_message()
@@ -118,3 +132,39 @@ class SuiteViewTaskbar(TaskbarSystemMixin, TaskbarUiMixin, TaskbarTabsMixin, Tas
         # Start in compact mini-bar mode at bottom-right corner
         self._enter_compact_mode(initial=True)
         self._apply_permissions(access)
+
+    def __getattr__(self, name: str):
+        try:
+            collaborators = object.__getattribute__(self, "_collaborators")
+        except AttributeError as exc:
+            raise AttributeError(
+                f"{type(self).__name__!s} object has no attribute {name!r}"
+            ) from exc
+        for collaborator in collaborators:
+            if any(name in cls.__dict__ for cls in type(collaborator).__mro__):
+                return getattr(collaborator, name)
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+
+
+for _collaborator_type in (TaskbarChrome, TaskbarTabs, TaskbarModes, SystemTray, AppLauncher):
+    for _name, _member in _collaborator_type.__dict__.items():
+        if (
+            callable(_member)
+            and not _name.startswith("__")
+            and not hasattr(SuiteViewTaskbar, _name)
+        ):
+            setattr(SuiteViewTaskbar, _name, _member)
+
+for _name in (
+    "_apply_permissions", "_build_suiteview_icon", "_create_icon_pixmap",
+    "_setup_system_tray", "_on_tray_activated", "nativeEvent",
+    "_redock_appbar", "_quit_application", "_close_windows_for_quit",
+    "_open_administrator", "_bring_to_front", "_setup_child_window",
+    "_register_appbar", "_unregister_appbar", "mousePressEvent",
+    "mouseMoveEvent", "mouseReleaseEvent", "mouseDoubleClickEvent",
+    "paintEvent", "resizeEvent",
+):
+    for _collaborator_type in (SystemTray, TaskbarModes):
+        if hasattr(_collaborator_type, _name):
+            setattr(SuiteViewTaskbar, _name, getattr(_collaborator_type, _name))
+            break

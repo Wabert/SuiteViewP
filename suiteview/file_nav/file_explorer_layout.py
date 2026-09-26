@@ -1,37 +1,27 @@
 """File Explorer Layout."""
 from __future__ import annotations
 
-import json
 import logging
 
 from PyQt6.QtCore import (
     QTimer,
 )
 
-from suiteview.core.json_store import write_json
-
 logger = logging.getLogger(__name__)
 
 
 class FileExplorerLayoutMixin:
+    """Requires: layout_store, column_widths, panel_widths, main_splitter.
+    Provides: persisted column widths, panel widths, and details footer text.
+    """
+
     def load_column_widths(self):
         """Load column widths from JSON file"""
-        try:
-            if self.column_widths_file.exists():
-                with open(self.column_widths_file, 'r') as f:
-                    return json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to load column widths: {e}")
-        return {}
+        return self.layout_store.load_column_widths()
 
     def save_column_widths(self):
         """Save column widths to JSON file"""
-        try:
-            # Ensure directory exists
-            self.column_widths_file.parent.mkdir(parents=True, exist_ok=True)
-            write_json(self.column_widths_file, self.column_widths, ensure_ascii=True)
-        except OSError as e:
-            logger.error(f"Failed to save column widths: {e}")
+        self.layout_store.save_column_widths(self.column_widths)
 
     def on_column_resized(self, logical_index, old_size, new_size):
         """Handle column resize event - debounced save (avoids disk write on every pixel)"""
@@ -48,22 +38,11 @@ class FileExplorerLayoutMixin:
 
     def load_panel_widths(self):
         """Load panel widths from JSON file"""
-        try:
-            if self.panel_widths_file.exists():
-                with open(self.panel_widths_file, 'r') as f:
-                    return json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to load panel widths: {e}")
-        return {}
+        return self.layout_store.load_panel_widths()
 
     def save_panel_widths(self):
         """Save panel widths to JSON file"""
-        try:
-            # Ensure directory exists
-            self.panel_widths_file.parent.mkdir(parents=True, exist_ok=True)
-            write_json(self.panel_widths_file, self.panel_widths, ensure_ascii=True)
-        except OSError as e:
-            logger.error(f"Failed to save panel widths: {e}")
+        self.layout_store.save_panel_widths(self.panel_widths)
 
     def on_splitter_moved(self, pos, index):
         """Handle splitter moved event - debounced save (avoids disk write on every pixel)"""
