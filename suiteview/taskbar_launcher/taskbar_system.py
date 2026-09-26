@@ -45,17 +45,21 @@ from suiteview.ui.widgets.frame_geometry import (
     cursor_for_resize_edge,
     resize_geometry_for_edge,
 )
-from suiteview.taskbar_launcher.collaborators import WindowCollaborator
+from suiteview.taskbar_launcher.collaborators import TaskbarCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
 
 
 def _host_widget(controller_or_widget):
-    return getattr(controller_or_widget, "host", controller_or_widget)
+    return getattr(
+        controller_or_widget,
+        "window",
+        getattr(controller_or_widget, "host", controller_or_widget),
+    )
 
 
-class SystemTray(WindowCollaborator):
+class SystemTray(TaskbarCollaborator):
     """Owns tray integration, permissions, app launchers, and child windows."""
 
     def _apply_permissions(self, access):
@@ -98,7 +102,7 @@ class SystemTray(WindowCollaborator):
         except (AccessDeniedError, AccessUnavailableError) as error:
             logger.warning("Cannot refresh SuiteView permissions: %s", error)
             self._apply_permissions(None)
-            QMessageBox.warning(self, "SuiteView Access", str(error))
+            QMessageBox.warning(_host_widget(self), "SuiteView Access", str(error))
             return
         self._apply_permissions(access)
     
@@ -433,7 +437,7 @@ class SystemTray(WindowCollaborator):
             # Hide SuiteView main window
             if self.isVisible():
                 self.hide()
-                windows_to_restore.append(self)
+                windows_to_restore.append(self.window)
             
             # Hide Screenshot Manager if open
             if self.screenshot_window is not None and self.screenshot_window.isVisible():
@@ -519,7 +523,7 @@ class SystemTray(WindowCollaborator):
             except Exception as exc:
                 logger.error("Failed to open LLM Agent: %s", exc, exc_info=True)
                 QMessageBox.critical(
-                    self,
+                    self.window,
                     "LLM Agent Error",
                     f"Failed to open the LLM Agent:\n\n{exc}",
                 )
@@ -537,7 +541,7 @@ class SystemTray(WindowCollaborator):
                 self._setup_child_window(self.mainframe_window, "Mainframe Navigator")
             except Exception as e:
                 logger.error(f"Failed to open Mainframe Navigator: {e}")
-                QMessageBox.warning(self, "Mainframe Navigator", str(e))
+                QMessageBox.warning(_host_widget(self), "Mainframe Navigator", str(e))
                 return
         self._bring_to_front(self.mainframe_window)
     
@@ -553,7 +557,7 @@ class SystemTray(WindowCollaborator):
                 self._setup_child_window(self.screenshot_window, "Screenshot Manager")
             except Exception as e:
                 logger.error(f"Failed to open Screenshot Manager: {e}")
-                QMessageBox.warning(self, "Screenshot Manager", str(e))
+                QMessageBox.warning(_host_widget(self), "Screenshot Manager", str(e))
                 return
         else:
             # Reload screenshots to show any new ones taken while window was hidden
@@ -570,7 +574,7 @@ class SystemTray(WindowCollaborator):
                 self.email_attachments_window.setWindowIcon(self._build_suiteview_icon(32))
             except Exception as e:
                 logger.error(f"Failed to open Email Attachments: {e}")
-                QMessageBox.warning(self, "Email Attachments", str(e))
+                QMessageBox.warning(_host_widget(self), "Email Attachments", str(e))
                 return
         self._bring_to_front(self.email_attachments_window)
     
@@ -585,7 +589,7 @@ class SystemTray(WindowCollaborator):
                 self._wire_polview_illustrator(self.polview_window)
             except Exception as e:
                 logger.error(f"Failed to open PolView: {e}")
-                QMessageBox.warning(self, "PolView", str(e))
+                QMessageBox.warning(_host_widget(self), "PolView", str(e))
                 return
         self._bring_to_front(self.polview_window)
 
@@ -616,7 +620,7 @@ class SystemTray(WindowCollaborator):
                 logger.info("PolView package not available")
             except Exception as e:
                 logger.error(f"Failed to create PolView: {e}")
-                QMessageBox.warning(self, "PolView", str(e))
+                QMessageBox.warning(_host_widget(self), "PolView", str(e))
         return self.polview_window
 
     def _polview_btn_clicked(self):
@@ -728,7 +732,7 @@ class SystemTray(WindowCollaborator):
                 self._setup_child_window(self.audit_window, "Audit Tool")
             except Exception as e:
                 logger.error(f"Failed to open Audit Tool: {e}\n{traceback.format_exc()}")
-                QMessageBox.warning(self, "Audit Tool Error",
+                QMessageBox.warning(_host_widget(self), "Audit Tool Error",
                                     f"Failed to open Audit Tool:\n\n{e}")
                 return
         # Share PolView so policies opened from Audit use the same window
@@ -760,7 +764,7 @@ class SystemTray(WindowCollaborator):
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open ABR Quote: {e}\n{tb}")
-                QMessageBox.critical(self, "ABR Quote Error",
+                QMessageBox.critical(_host_widget(self), "ABR Quote Error",
                                      f"Failed to open ABR Quote:\n\n{e}\n\n{tb}")
                 self.abrquote_window = None  # reset so retry works
                 return
@@ -784,7 +788,7 @@ class SystemTray(WindowCollaborator):
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open RERUN: {e}\n{tb}")
-                QMessageBox.critical(self, "RERUN Error",
+                QMessageBox.critical(_host_widget(self), "RERUN Error",
                                      f"Failed to open RERUN:\n\n{e}\n\n{tb}")
                 self.illustration_window = None
                 return
@@ -801,7 +805,7 @@ class SystemTray(WindowCollaborator):
                 self._setup_child_window(self.ratemanager_window, "Rate Manager")
             except Exception as e:
                 logger.error(f"Failed to open Rate Manager: {e}")
-                QMessageBox.warning(self, "Rate Manager", str(e))
+                QMessageBox.warning(_host_widget(self), "Rate Manager", str(e))
                 return
         self._bring_to_front(self.ratemanager_window)
 
@@ -824,7 +828,7 @@ class SystemTray(WindowCollaborator):
             logger.exception("Failed to open Administrator")
             if self.administrator_window is not None:
                 self.administrator_window.hide()
-            QMessageBox.warning(self, "Administrator", f"Cannot open Administrator:\n\n{exc}")
+            QMessageBox.warning(_host_widget(self), "Administrator", f"Cannot open Administrator:\n\n{exc}")
 
     @requires_app_access("ADMINISTRATOR")
     def _open_db2_table_check(self):
@@ -839,7 +843,7 @@ class SystemTray(WindowCollaborator):
                 logger.error(
                     "Failed to open DB2 Table Check: %s", e, exc_info=True)
                 QMessageBox.warning(
-                    self,
+                    self.window,
                     "DB2 Table Check Error",
                     f"Failed to open DB2 Table Check:\n\n{e}",
                 )
@@ -859,7 +863,7 @@ class SystemTray(WindowCollaborator):
 
         if self.file_nav_window is None:
             try:
-                self.file_nav_window = FileNavWindow(parent_bar=self)
+                self.file_nav_window = FileNavWindow(parent_bar=self.window)
                 self._setup_child_window(self.file_nav_window, "FileNav")
             except Exception as e:
                 tb = traceback.format_exc()
@@ -897,7 +901,7 @@ class SystemTray(WindowCollaborator):
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open ScratchPad window: {e}\n{tb}")
-                QMessageBox.warning(self, "ScratchPad", str(e))
+                QMessageBox.warning(_host_widget(self), "ScratchPad", str(e))
                 self.scratchpad_window = None
                 return
 
@@ -910,7 +914,7 @@ class SystemTray(WindowCollaborator):
     def _toggle_file_open_history(self):
         """Toggle the File Open History popup panel."""
         if not hasattr(self, '_file_open_history_panel') or self._file_open_history_panel is None:
-            self._file_open_history_panel = FileOpenHistoryPanel(self)
+            self._file_open_history_panel = FileOpenHistoryPanel(self.window)
 
         panel = self._file_open_history_panel
         if panel.isVisible():
@@ -963,7 +967,7 @@ class SystemTray(WindowCollaborator):
         """Add resize grips to all edges and corners for easier resizing"""
         
         # Bottom-right grip (visible, standard Qt grip)
-        self.size_grip = QSizeGrip(self)
+        self.size_grip = QSizeGrip(self.window)
         self.size_grip.setStyleSheet("""
             QSizeGrip {
                 background-color: transparent;
@@ -1022,7 +1026,7 @@ class SystemTray(WindowCollaborator):
                 self._start_geometry = None
         
         for edge in ALL_RESIZE_EDGES:
-            self._resize_widgets.append((edge, ResizeEdge(self, edge)))
+            self._resize_widgets.append((edge, ResizeEdge(self.window, edge)))
         
     def resizeEvent(self, event):
         """Position the resize widgets on resize and collapse/expand UI elements"""
@@ -1069,10 +1073,47 @@ class SystemTray(WindowCollaborator):
                 widget.raise_()
 
 
-class AppLauncher(SystemTray):
+class AppLauncher(TaskbarCollaborator):
     """Named app-launching collaborator for the shell window.
 
     Launch/open methods currently share permission checks, tray state and
     child-window setup with ``SystemTray``. The separate collaborator instance
     keeps the ownership explicit and gives a future split a clear seam.
     """
+
+
+for _name in (
+    "_take_quick_screenshot",
+    "_capture_active_window",
+    "_do_capture_excluding_suiteview",
+    "_open_agent_chat",
+    "_open_mainframe",
+    "_open_screenshot",
+    "_open_email_attachments",
+    "_open_polview",
+    "_wire_polview_illustrator",
+    "_wire_illustration_polview",
+    "_get_polview_window",
+    "_polview_btn_clicked",
+    "_compact_policy",
+    "_compact_region",
+    "_clear_compact_policy",
+    "_open_polview_with_policy",
+    "_abrquote_btn_clicked",
+    "_illustration_btn_clicked",
+    "_launch_illustration_with_policy",
+    "_launch_polview_with_policy",
+    "_open_audit",
+    "_open_abrquote",
+    "_open_illustration",
+    "_open_rate_manager",
+    "_open_administrator",
+    "_open_db2_table_check",
+    "_open_file_nav",
+    "_open_app_data_location",
+    "_toggle_scratchpad_window",
+    "_toggle_file_open_history",
+    "_bring_to_front",
+    "_setup_child_window",
+):
+    setattr(AppLauncher, _name, getattr(SystemTray, _name))

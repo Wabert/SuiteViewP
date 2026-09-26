@@ -31,7 +31,7 @@ from suiteview.ui.widgets.frame_geometry import (
     resize_geometry_for_edge,
     update_cursor_for_resize_edge,
 )
-from suiteview.taskbar_launcher.collaborators import WindowCollaborator
+from suiteview.taskbar_launcher.collaborators import TaskbarCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.bookmark_bars_popup import BookmarkBarsPopup
@@ -39,10 +39,14 @@ from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
 
 
 def _host_widget(controller_or_widget):
-    return getattr(controller_or_widget, "host", controller_or_widget)
+    return getattr(
+        controller_or_widget,
+        "window",
+        getattr(controller_or_widget, "host", controller_or_widget),
+    )
 
 
-class TaskbarModes(WindowCollaborator):
+class TaskbarModes(TaskbarCollaborator):
     """Owns compact/floating mode transitions and AppBar geometry."""
 
     def _toggle_maximize(self):
@@ -257,7 +261,7 @@ class TaskbarModes(WindowCollaborator):
         # While we're minimised to the tray there is no bar on screen, so the
         # desktop keeps its full work area until _show_from_tray re-docks us.
         if not self._hidden_to_tray:
-            self._register_appbar(bar_h)
+            self.callbacks._register_appbar(bar_h)
 
     # ------------------------------------------------------------------
     #  Windows AppBar API – proper desktop space reservation
@@ -541,7 +545,7 @@ class TaskbarModes(WindowCollaborator):
 
         if self.file_nav_window is None:
             try:
-                self.file_nav_window = FileNavWindow(parent_bar=self)
+                self.file_nav_window = FileNavWindow(parent_bar=_host_widget(self))
                 self._setup_child_window(self.file_nav_window, "FileNav")
             except Exception as e:
                 logger.error(f"Failed to open File Navigator: {e}\n{traceback.format_exc()}")
@@ -645,7 +649,7 @@ class TaskbarModes(WindowCollaborator):
         draw it slightly thicker for emphasis.
         """
         QWidget.paintEvent(_host_widget(self), event)
-        painter = QPainter(self)
+        painter = QPainter(_host_widget(self))
         r = self.rect().adjusted(1, 1, -1, -1)
         # Draw the full gold border (all four sides)
         painter.setPen(QPen(QColor("#D4A017"), 2))

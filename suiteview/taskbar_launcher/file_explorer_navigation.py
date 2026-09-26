@@ -31,10 +31,10 @@ from suiteview.taskbar_launcher.file_explorer_widgets import (
     ClickableBreadcrumb,
     NavigableTreeView,
 )
-from suiteview.taskbar_launcher.collaborators import WindowCollaborator
+from suiteview.taskbar_launcher.collaborators import FileExplorerController
 
 
-class NavigationController(WindowCollaborator):
+class NavigationController(FileExplorerController):
     """Owns breadcrumb navigation, history, and keyboard routing for a tab."""
 
     def _replace_views_with_navigable(self):
@@ -126,15 +126,15 @@ class NavigationController(WindowCollaborator):
         self.details_view.forward_button_clicked.connect(self.navigate_forward)
         
         # Connect drag/drop signals for tree view (left panel)
-        self.tree_view.set_file_explorer(self.host)
+        self.tree_view.set_file_explorer(self.tab)
         self.tree_view.files_dropped.connect(self.handle_dropped_files)
         
         # Connect drag/drop signals for details view (middle panel)
-        self.details_view.set_file_explorer(self.host)
+        self.details_view.set_file_explorer(self.tab)
         self.details_view.files_dropped.connect(self.handle_dropped_files)
         
         # Reinstall event filter for keyboard shortcuts (F2, Delete, Ctrl+C/V/X)
-        self.details_view.installEventFilter(self.host)
+        self.details_view.installEventFilter(self.tab)
     
     def insert_breadcrumb_bar(self):
         """Insert breadcrumb navigation bar above the tree"""
@@ -288,7 +288,7 @@ class NavigationController(WindowCollaborator):
             return
         
         # Also call FileExplorerCore's implementation to apply red border to splitter.
-        FileExplorerCore._apply_depth_search_locked_style(self.host, locked)
+        FileExplorerCore._apply_depth_search_locked_style(self.tab, locked)
         
         if locked:
             # Red background when depth search is locked
@@ -360,7 +360,7 @@ class NavigationController(WindowCollaborator):
                 display_name = self._sp_display_names.get(path, "SharePoint")
                 # Call the core implementation directly (our override funnels here).
                 FileExplorerCore.load_sharepoint_contents_in_details(
-                    self.host, path, display_name)
+                    self.tab, path, display_name)
                 return
             
             path_obj = Path(path)

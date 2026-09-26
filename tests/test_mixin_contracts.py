@@ -125,3 +125,49 @@ def test_mixin_requires_provides_contracts_are_documented_and_satisfied():
 
     if missing:
         pytest.fail("Mixin reads without a provider:\n" + "\n".join(missing))
+
+
+def _is_collaborator(node: ast.ClassDef) -> bool:
+    explicit = {
+        "TaskbarChrome",
+        "TaskbarModes",
+        "TaskbarTabs",
+        "SystemTray",
+        "AppLauncher",
+        "NavigationController",
+        "QuickLinksController",
+    }
+    return (
+        node.name in explicit
+        or node.name.endswith("Controller")
+        or node.name.endswith("Collaborator")
+    )
+
+
+def test_collaborators_do_not_hide_host_state_behind_forwarding():
+    classes = _class_nodes(
+        [path for root in OWNED_ROOTS for path in _python_files(root)]
+    )
+    offenders: list[str] = []
+    host_writes: list[str] = []
+    for path, node in classes.values():
+        if not _is_collaborator(node):
+            continue
+        for child in node.body:
+            if isinstance(child, ast.FunctionDef) and child.name in {"__getattr__", "__setattr__"}:
+                offenders.append(f"{node.name}.{child.name} in {path}")
+        for child in ast.walk(node):
+            if (
+                isinstance(child, ast.Attribute)
+                and isinstance(child.ctx, (ast.Store, ast.Del))
+                and isinstance(child.value, ast.Attribute)
+                and child.value.attr == "host"
+                and isinstance(child.value.value, ast.Name)
+                and child.value.value.id == "self"
+            ):
+                host_writes.append(f"{node.name}.self.host.{child.attr} in {path}")
+
+    if offenders:
+        pytest.fail("Collaborator forwarding methods are forbidden:\n" + "\n".join(offenders))
+    if host_writes:
+        pytest.fail("Collaborators must not assign host attributes:\n" + "\n".join(host_writes))

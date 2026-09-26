@@ -27,6 +27,8 @@ then `finished` when they leave `run()`.
 - local FileNav depth scans
 - SharePoint resolve/list/discover/depth/download workers
 - Copilot Agent Chat model loading and agent runs
+- DB2 table-access scan
+- Mainframe upload dialog
 
 Other apps should migrate to this controller in later waves rather than adding
 new `QThread` subclasses.

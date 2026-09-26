@@ -27,7 +27,6 @@ class FileExplorerTab(FileExplorerCore):
         super().__init__()
         self.navigation = NavigationController(self)
         self.quick_links = QuickLinksController(self)
-        self._collaborators = (self.navigation, self.quick_links)
         
         # Allow tab content to shrink so window can collapse to just header bar
         self.setMinimumSize(0, 0)
@@ -81,12 +80,6 @@ class FileExplorerTab(FileExplorerCore):
         # Set up keyboard shortcuts
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def __getattr__(self, name: str):
-        for collaborator in self._collaborators:
-            if any(name in cls.__dict__ for cls in type(collaborator).__mro__):
-                return getattr(collaborator, name)
-        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
-    
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts for navigation"""
         modifiers = event.modifiers()
@@ -117,3 +110,80 @@ class FileExplorerTab(FileExplorerCore):
             return
         
         super().keyPressEvent(event)
+
+
+def _delegate(collaborator_name: str, method_name: str):
+    def wrapper(self, *args, **kwargs):
+        collaborator = getattr(self, collaborator_name)
+        return getattr(collaborator, method_name)(*args, **kwargs)
+
+    wrapper.__name__ = method_name
+    return wrapper
+
+
+for _name in {
+    "_replace_views_with_navigable",
+    "insert_breadcrumb_bar",
+    "update_breadcrumb",
+    "_apply_depth_search_locked_style",
+    "go_to_onedrive_home",
+    "navigate_to_path",
+    "_record_navigation",
+    "_update_nav_button_states",
+    "toggle_history_panel",
+    "_create_history_panel",
+    "_set_history_view",
+    "_update_history_panel",
+    "_on_history_item_clicked",
+    "_jump_to_history_index",
+    "_clear_history",
+    "navigate_back",
+    "navigate_forward",
+    "on_details_item_double_clicked",
+    "load_directory_contents_at_root",
+    "go_up_one_level",
+    "refresh_current_folder",
+    "load_sharepoint_contents_in_details",
+    "on_tree_item_clicked",
+    "navigate_to_bookmark_folder",
+    "on_item_double_clicked",
+}:
+    setattr(FileExplorerTab, _name, _delegate("navigation", _name))
+
+for _name in {
+    "_setup_dual_pane",
+    "show_quick_links_context_menu",
+    "open_quick_link_path",
+    "open_path_in_explorer",
+    "refresh_quick_links_list",
+    "_update_sidebar_footer",
+    "_on_bookmark_clicked",
+    "_on_bookmark_double_clicked",
+    "_show_bookmark_context_menu",
+    "_open_folder_location",
+    "_show_category_context_menu",
+    "_rename_category_in_quick_links",
+    "_remove_category_with_confirmation",
+    "_show_quick_links_panel_context_menu",
+    "_create_new_category",
+    "_add_bookmark_to_sidebar",
+    "_remove_bookmark_from_quick_links",
+    "on_quick_link_item_dropped",
+    "_on_category_item_clicked",
+    "_on_category_item_double_clicked",
+    "_on_bookmark_dropped_to_category",
+    "_on_category_moved_out",
+    "refresh_quick_links",
+    "on_quick_links_reordered",
+    "on_bookmark_dropped_to_quick_links",
+    "on_file_dropped_to_quick_links",
+    "on_category_dropped_to_quick_links",
+    "_remove_category_from_bookmark_bar",
+    "on_quick_link_clicked",
+    "on_quick_link_double_clicked",
+    "toggle_dual_pane",
+    "_create_scratchpad_panel",
+    "toggle_scratchpad_panel",
+    "_on_scratchpad_fullscreen",
+}:
+    setattr(FileExplorerTab, _name, _delegate("quick_links", _name))

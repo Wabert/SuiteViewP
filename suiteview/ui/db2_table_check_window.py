@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QApplication,
     QProgressBar, QMessageBox,
@@ -21,6 +21,7 @@ from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.core.db2_table_access import scan_table_access
 from suiteview.core.access_control import guard_app_access
 from suiteview.ui.access_control import requires_app_access
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
@@ -28,29 +29,28 @@ _NO_ACCESS = "❌ NO ACCESS"
 _OK = "✅ OK"
 
 
-class _ScanWorker(QThread):
+class _ScanWorker(QObject):
     """Runs the DB2 table-access scan off the UI thread."""
-
-    progressed = pyqtSignal(int, int, str)   # done, total, table
-    finished_ok = pyqtSignal(dict)
-    failed = pyqtSignal(str)
 
     def __init__(self, region: str, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self._region = region
 
     def run(self):
         try:
             result = scan_table_access(
                 self._region,
-                progress=lambda done, total, table: self.progressed.emit(
-                    done, total, table
+                progress=lambda done, total, table: self.signals.progress.emit(
+                    (done, total, table)
                 ),
             )
-            self.finished_ok.emit(result)
+            self.signals.result.emit(result)
         except Exception as exc:  # noqa: BLE001 - surfaced to the UI
             logger.error("DB2 table check failed: %s", exc, exc_info=True)
-            self.failed.emit(str(exc).split("\x00", 1)[0].strip())
+            self.signals.error.emit(str(exc).split("\x00", 1)[0].strip())
+        finally:
+            self.signals.finished.emit()
 
 
 class DB2TableCheckWindow(FramelessWindowBase):
@@ -61,6 +61,7 @@ class DB2TableCheckWindow(FramelessWindowBase):
         self._region = region.upper()
         self._result: dict | None = None
         self._worker: _ScanWorker | None = None
+        self._worker_controller: WorkerController | None = None
         super().__init__(
             title=f"SuiteView:  DB2 Table Check ({self._region})",
             default_size=(760, 720),
@@ -135,7 +136,7 @@ class DB2TableCheckWindow(FramelessWindowBase):
 
     @requires_app_access("ADMINISTRATOR")
     def _start_scan(self):
-        if self._worker is not None and self._worker.isRunning():
+        if self._worker_controller is not None and self._worker_controller.is_running():
             return
         self._copy_btn.setEnabled(False)
         self._rescan_btn.setEnabled(False)
@@ -146,11 +147,19 @@ class DB2TableCheckWindow(FramelessWindowBase):
         self._progress.setRange(0, 0)
         self._progress.setFormat("Connecting…")
 
-        self._worker = _ScanWorker(self._region, self)
-        self._worker.progressed.connect(self._on_progress)
-        self._worker.finished_ok.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.start()
+        self._worker = _ScanWorker(self._region)
+        self._worker_controller = WorkerController(self, self._worker)
+        self._worker_controller.progress.connect(
+            lambda payload: self._on_progress(payload[0], payload[1], payload[2])
+        )
+        self._worker_controller.result.connect(self._on_finished)
+        self._worker_controller.error.connect(lambda message: self._on_failed(str(message)))
+        self._worker_controller.finished.connect(self._on_worker_finished)
+        self._worker_controller.start()
+
+    def _on_worker_finished(self):
+        self._worker = None
+        self._worker_controller = None
 
     def _on_progress(self, done: int, total: int, table: str):
         if self._progress.maximum() != total:
@@ -261,6 +270,6 @@ class DB2TableCheckWindow(FramelessWindowBase):
     # ── Cleanup ───────────────────────────────────────────────────────
 
     def closeEvent(self, event):
-        if self._worker is not None and self._worker.isRunning():
-            self._worker.wait(2000)
+        if self._worker_controller is not None and self._worker_controller.is_running():
+            self._worker_controller.cancel()
         super().closeEvent(event)

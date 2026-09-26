@@ -126,7 +126,7 @@ def test_shortcut_is_wired_in_header_and_preserved_in_floating_mode():
     assert "('ALBERT', 'albert_btn')" in methods["_apply_permissions"]
     assert "control.setEnabled(allowed)" in methods["_apply_permissions"]
     assert "control.setVisible(" in methods["_apply_permissions"]
-    assert "self.albert_btn = AlbertButton(self)" in methods["_build_primary_app_buttons"]
+    assert "self.albert_btn = AlbertButton(self.window)" in methods["_build_primary_app_buttons"]
     assert "header_layout.addWidget(self.albert_btn)" in methods["_build_primary_app_buttons"]
     assert "self._apply_permissions(self._launcher_access)" in methods["_enter_floating_mode"]
     assert "bar_w = self.layout().sizeHint().width()" in methods["_enter_floating_mode"]

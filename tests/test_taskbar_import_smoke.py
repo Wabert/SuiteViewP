@@ -25,8 +25,8 @@ def test_split_taskbar_imports_and_constructs_main_window(monkeypatch):
     app = QApplication.instance() or QApplication([])
     window = SuiteViewTaskbar()
     try:
-        assert window.title_label.text().startswith("SuiteView (")
-        assert window.tab_widget.count() == 0
+        assert window.chrome.title_label.text().startswith("SuiteView (")
+        assert window.chrome.tab_widget.count() == 0
     finally:
         window.close()
         app.processEvents()

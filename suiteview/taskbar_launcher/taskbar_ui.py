@@ -31,17 +31,21 @@ from suiteview.ui.widgets.bookmark_widgets import (
     set_footer_status_callback,
 )
 from suiteview.ui.widgets.uppercase_input import force_uppercase
-from suiteview.taskbar_launcher.collaborators import WindowCollaborator
+from suiteview.taskbar_launcher.collaborators import TaskbarCollaborator
 
 logger = logging.getLogger(__name__)
 
 
-class TaskbarChrome(WindowCollaborator):
+class TaskbarChrome(TaskbarCollaborator):
     """Builds taskbar widgets and wires user-facing controls."""
+
+    def __init__(self, window, state, callbacks):
+        super().__init__(window, state, callbacks=callbacks)
+        self._permission_actions = []
 
     def init_ui(self):
         """Initialize the UI."""
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self.window)
         layout.setContentsMargins(2, 2, 2, 2)  # Small margin for resize handles
         layout.setSpacing(0)
 
@@ -395,7 +399,7 @@ class TaskbarChrome(WindowCollaborator):
         """)
         self.audit_btn.clicked.connect(self._open_audit)
         header_layout.addWidget(self.audit_btn)
-        self.albert_btn = AlbertButton(self)
+        self.albert_btn = AlbertButton(self.window)
         header_layout.addWidget(self.albert_btn)
         
 
@@ -507,7 +511,7 @@ class TaskbarChrome(WindowCollaborator):
         """)
         
         # Create Tools menu
-        self.tools_menu = QMenu(self)
+        self.tools_menu = QMenu(self.window)
         self.tools_menu.setStyleSheet("""
             QMenu {
                 background-color: #1E5BA8;

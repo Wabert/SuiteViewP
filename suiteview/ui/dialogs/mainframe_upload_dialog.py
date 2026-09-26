@@ -7,19 +7,20 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel,
                               QComboBox, QLineEdit, QRadioButton,
                               QButtonGroup, QDialogButtonBox, QMessageBox,
                               QProgressDialog, QFrame)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QObject
 
 import logging
+from suiteview.ui.workers import WorkerController, WorkerSignals
+
 logger = logging.getLogger(__name__)
 
 
-class MainframeUploadThread(QThread):
-    """Background thread for uploading files to mainframe"""
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)
+class MainframeUploadWorker(QObject):
+    """Worker for uploading files to mainframe."""
     
     def __init__(self, file_path, connection_details, dataset_name, upload_mode):
         super().__init__()
+        self.signals = WorkerSignals(self)
         self.file_path = file_path
         self.connection_details = connection_details
         self.dataset_name = dataset_name
@@ -30,7 +31,7 @@ class MainframeUploadThread(QThread):
         try:
             from suiteview.core.ftp_manager import MainframeFTPManager
             
-            self.progress.emit("Connecting to mainframe...")
+            self.signals.progress.emit("Connecting to mainframe...")
             
             # Create FTP manager
             ftp_mgr = MainframeFTPManager(
@@ -43,7 +44,7 @@ class MainframeUploadThread(QThread):
             # Connect
             ftp_mgr.connect()
             
-            self.progress.emit(f"Uploading {Path(self.file_path).name}...")
+            self.signals.progress.emit(f"Uploading {Path(self.file_path).name}...")
             
             # Upload based on mode
             if self.upload_mode == 'text':
@@ -55,13 +56,15 @@ class MainframeUploadThread(QThread):
             ftp_mgr.disconnect()
             
             if success:
-                self.finished.emit(True, message)
+                self.signals.result.emit((True, message))
             else:
-                self.finished.emit(False, f"Upload failed: {message}")
+                self.signals.result.emit((False, f"Upload failed: {message}"))
                 
         except Exception as e:
             logger.error(f"Upload failed: {e}")
-            self.finished.emit(False, f"Upload error: {str(e)}")
+            self.signals.error.emit(f"Upload error: {str(e)}")
+        finally:
+            self.signals.finished.emit()
 
 
 class MainframeUploadDialog(QDialog):
@@ -72,6 +75,8 @@ class MainframeUploadDialog(QDialog):
         self.file_path = Path(file_path)
         self.connections = []
         self.selected_connection = None
+        self._upload_worker = None
+        self._upload_controller = None
         
         self.setWindowTitle("Upload to Mainframe")
         self.setModal(True)
@@ -243,8 +248,8 @@ class MainframeUploadDialog(QDialog):
         progress.setMinimumDuration(0)
         progress.setCancelButton(None)  # Can't cancel upload mid-stream
         
-        # Create upload thread
-        upload_thread = MainframeUploadThread(
+        # Create upload worker
+        upload_worker = MainframeUploadWorker(
             str(self.file_path),
             {
                 'host': connection.host,
@@ -255,11 +260,16 @@ class MainframeUploadDialog(QDialog):
             details['dataset_name'],
             details['upload_mode']
         )
+        self._upload_worker = upload_worker
+        self._upload_controller = WorkerController(self, upload_worker)
+        result_state = {"success": False}
         
         # Connect signals
-        upload_thread.progress.connect(lambda msg: progress.setLabelText(msg))
+        self._upload_controller.progress.connect(lambda msg: progress.setLabelText(str(msg)))
         
-        def on_finished(success, message):
+        def on_finished(payload):
+            success, message = payload
+            result_state["success"] = bool(success)
             progress.close()
             if success:
                 QMessageBox.information(
@@ -274,15 +284,25 @@ class MainframeUploadDialog(QDialog):
                     "Upload Failed",
                     f"❌ {message}"
                 )
-                return False
+
+        def on_error(message):
+            result_state["success"] = False
+            progress.close()
+            QMessageBox.critical(
+                self,
+                "Upload Failed",
+                f"❌ {message}",
+            )
+
+        def on_worker_finished():
+            self._upload_worker = None
+            self._upload_controller = None
         
-        upload_thread.finished.connect(on_finished)
+        self._upload_controller.result.connect(on_finished)
+        self._upload_controller.error.connect(lambda message: on_error(str(message)))
+        self._upload_controller.finished.connect(on_worker_finished)
         
         # Start upload
-        upload_thread.start()
+        self._upload_controller.start()
         progress.exec()
-        
-        # Wait for thread to finish
-        upload_thread.wait()
-        
-        return True
+        return result_state["success"]

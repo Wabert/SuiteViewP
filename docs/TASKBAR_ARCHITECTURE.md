@@ -1,8 +1,7 @@
 # Taskbar architecture
 
-`SuiteViewTaskbar` is the shell window. It owns the Qt window, top-level child
-window references and a small `TaskbarState`; behavior is grouped into explicit
-collaborators:
+`SuiteViewTaskbar` is the shell window. It owns the Qt window and a
+`TaskbarState`; behavior is grouped into explicit collaborators:
 
 | Collaborator | Responsibility |
 | --- | --- |
@@ -12,9 +11,16 @@ collaborators:
 | `SystemTray` | Tray menu, activation, permissions and child-window setup. |
 | `AppLauncher` | Named app-launching collaborator sharing the tray/window setup seam. |
 
+Collaborators receive the window, `TaskbarState`, `TaskbarChrome` widgets and a
+typed callback surface explicitly. They do not use `__getattr__`/`__setattr__`
+forwarding and do not write attributes onto the window. Shared mutable shell
+state, including child-window references, lives in `TaskbarState`; widgets built
+by the chrome live on `TaskbarChrome`.
+
 The shell still exposes the public method names used by tests, shortcuts and
-launcher scripts, but new code should add behavior to the collaborator that owns
-the concern instead of adding more state to the window.
+launcher scripts through named delegates, but new code should add behavior to
+the collaborator that owns the concern instead of adding more state to the
+window.
 
 ## AppBar exception
 

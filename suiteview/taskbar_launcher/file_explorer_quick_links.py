@@ -34,12 +34,12 @@ from suiteview.ui.widgets.bookmark_widgets import (
     CATEGORY_CONTEXT_MENU_STYLE,
     BookmarkContainer,
 )
-from suiteview.taskbar_launcher.collaborators import WindowCollaborator
+from suiteview.taskbar_launcher.collaborators import FileExplorerController
 
 logger = logging.getLogger(__name__)
 
 
-class QuickLinksController(WindowCollaborator):
+class QuickLinksController(FileExplorerController):
     """Owns the bookmark/sidebar/scratchpad panels for a File Explorer tab."""
 
     def _setup_dual_pane(self):

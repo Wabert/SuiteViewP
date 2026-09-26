@@ -30,7 +30,8 @@ and owns:
 
 The tab keeps public navigation method names through the collaborators so
 existing callers can still use `navigate_to_path`, `toggle_dual_pane` and the
-folder-history helpers.
+folder-history helpers. The controllers use explicit tab dependencies and named
+delegates; they do not rely on `__getattr__` forwarding.
 
 ## Worker ownership
 

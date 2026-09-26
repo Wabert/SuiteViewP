@@ -17,13 +17,13 @@ from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.bookmark_widgets import (
     BookmarkContainerRegistry,
 )
-from suiteview.taskbar_launcher.collaborators import WindowCollaborator
+from suiteview.taskbar_launcher.collaborators import TaskbarCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_explorer_tab import FileExplorerTab
 
 
-class TaskbarTabs(WindowCollaborator):
+class TaskbarTabs(TaskbarCollaborator):
     """Owns FileNav tab creation, synchronization, and tab actions."""
 
     def show_tab_bar_context_menu(self, pos):
@@ -35,13 +35,13 @@ class TaskbarTabs(WindowCollaborator):
         tab_bar = self.tab_widget.tabBar()
         tab_index = tab_bar.tabAt(pos)
 
-        menu = QMenu(self)
+        menu = QMenu(self.window)
         if tab_index >= 0:
-            duplicate_action = QAction("Duplicate", self)
+            duplicate_action = QAction("Duplicate", self.window)
             duplicate_action.triggered.connect(lambda _: self.duplicate_tab(tab_index))
             menu.addAction(duplicate_action)
         else:
-            new_tab_action = QAction("New Tab", self)
+            new_tab_action = QAction("New Tab", self.window)
             new_tab_action.triggered.connect(lambda _: self.add_new_tab())
             menu.addAction(new_tab_action)
 
