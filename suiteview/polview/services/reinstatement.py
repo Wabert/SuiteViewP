@@ -32,7 +32,7 @@ from suiteview.illustration.models.input_set import (
     DatedTransaction, IllustrationInputSet, IllustrationOptions,
     ScheduledTransaction, TransactionKind,
 )
-from suiteview.illustration.models.plancode_config import load_plancode
+from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData, benefit_rate_keys
 from suiteview.polview.models.cl_polrec.policy_translations import LAST_ENTRY_CODES
 from .reinstatement_receipt import project_receipt
@@ -66,10 +66,29 @@ class ReinstatementResult:
     states: tuple[MonthlyState, ...]
 
 
+@dataclass(frozen=True)
+class ReinstatementProjectionContext:
+    policy: IllustrationPolicyData
+    summary: ReinstatementSummary
+    target: date
+    months: int
+    config: PlancodeConfig
+    rates: IllustrationRates
+    basis: str
+    shadow_active: bool
+    options: IllustrationOptions
+    bonus: object
+    engine: IllustrationEngine
+    limit_cents: int
+
+
 def is_ul_policy(policy) -> bool:
-    return bool(policy is not None and getattr(policy, "exists", False)
-                and str(getattr(policy, "product_type", "")).strip().upper()
-                in {"UL", "IUL", "SGUL"})
+    if not bool(policy is not None and getattr(policy, "exists", False)):
+        return False
+    rules = getattr(policy, "product_rules", None)
+    if rules is not None:
+        return bool(getattr(rules, "supports_reinstatement", False))
+    return str(getattr(policy, "product_type", "")).strip().upper() in {"UL", "IUL", "SGUL"}
 
 
 def _months(start: date, end: date) -> int:
@@ -182,6 +201,17 @@ def project_home_office_reinstatement(
     coverage disables only the absorbing lapse flag, not premium limits,
     deductions, interest, forceouts, or maturity. No historical cash is inserted.
     """
+    context = _build_reinstatement_context(policy, summary, rates, max_premium)
+    premium, states, receipt, accepted = _solve_reinstatement_premium(context)
+    return _summarize_reinstatement(context, premium, states, receipt, accepted)
+
+
+def _build_reinstatement_context(
+    policy: IllustrationPolicyData,
+    summary: ReinstatementSummary,
+    rates: IllustrationRates | None,
+    max_premium: Decimal,
+) -> ReinstatementProjectionContext:
     if not summary.eligible:
         raise ReinstatementError(summary.message)
     p = copy.deepcopy(policy)
@@ -234,86 +264,115 @@ def project_home_office_reinstatement(
             b.is_active and (b.cease_date is None or b.cease_date >= target)
             for b in ccv_benefits)
     basis = "Safety net" if in_safety_net else "Shadow account" if shadow_active else "Surrender value"
-    options = IllustrationOptions(no_lapse=True)
-    bonus = calc_engine.load_bonus_config(p.plancode, p.valuation_date)
-    receipts = {}
-    engine = IllustrationEngine()
-
-    def project(cents):
-        inputs = IllustrationInputSet(
-            scheduled_transactions=[ScheduledTransaction(
-                TransactionKind.PREMIUM, p.policy_year, 0.0, "M")],
-            dated_transactions=[DatedTransaction(
-                TransactionKind.PREMIUM, summary.current_date, cents / 100.0)],
-        )
-        # An explicit zero schedule is mandatory: empty inputs restore billing.
-        p.modal_premium = p.annual_premium = 0.0
-        receipt = None
-        if summary.current_date != summary.quote_pay_to_date or p.valuation_date == summary.current_date:
-            states, receipt = project_receipt(
-                p, config, rates, bonus, options, summary.current_date,
-                summary.quote_pay_to_date, target, months - 1, cents / 100.0,
-            )
-        else:
-            states = project_policy(
-                copy.deepcopy(p), months=months, inputs=inputs,
-                options=options, rates=rates, config=config,
-                bonus_override=bonus, stop_on_lapse=False, engine=engine,
-            ).states
-        receipts[cents] = receipt
-        if len(states) != months + 1 or states[-1].date != target:
-            raise ReinstatementError("Projection did not reach the next monthly deduction.")
-        end = states[-1]
-        debt = _debt_at_deduction(end)
-        if basis == "Safety net":
-            margin = (end.premiums_to_date_after_exception - end.withdrawals_to_date
-                      - debt - end.accumulated_mtp)
-        elif basis == "Shadow account":
-            margin = end.shadow_av - debt
-        else:
-            margin = end.av_after_deduction - end.surrender_charge - debt
-        _number(margin, "Reinstatement funding margin")
-        success = margin >= -1e-8 if in_safety_net else margin > 1e-8
-        accepted = sum(row.gross_premium for row in states[1:]) + (receipt.gross if receipt else 0.0)
-        if any(row.gp_exception_prem for row in states):
-            raise ReinstatementError(
-                "Regulatory acceptance caps generated an unquoted exception premium.")
-        return success, states, accepted
-
     limit_amount = _number(max_premium, "Premium search bound")
     if limit_amount <= 0 or limit_amount > 10000000:
         raise ReinstatementError("The premium search bound must be positive and at most 10,000,000.")
     limit = int(Decimal(str(max_premium)) * 100)
     if limit < 1:
         raise ReinstatementError("The premium search bound must be positive.")
-    zero_ok, states, accepted = project(0)
+
+    return ReinstatementProjectionContext(
+        p, summary, target, months, config, rates, basis,
+        shadow_active,
+        IllustrationOptions(no_lapse=True),
+        calc_engine.load_bonus_config(p.plancode, p.valuation_date),
+        IllustrationEngine(), limit,
+    )
+
+
+def _project_reinstatement_cents(
+    context: ReinstatementProjectionContext,
+    cents: int,
+    receipts: dict[int, object],
+):
+    p = context.policy
+    summary = context.summary
+    inputs = IllustrationInputSet(
+        scheduled_transactions=[ScheduledTransaction(
+            TransactionKind.PREMIUM, p.policy_year, 0.0, "M")],
+        dated_transactions=[DatedTransaction(
+            TransactionKind.PREMIUM, summary.current_date, cents / 100.0)],
+    )
+    # An explicit zero schedule is mandatory: empty inputs restore billing.
+    p.modal_premium = p.annual_premium = 0.0
+    receipt = None
+    if summary.current_date != summary.quote_pay_to_date or p.valuation_date == summary.current_date:
+        states, receipt = project_receipt(
+            p, context.config, context.rates, context.bonus, context.options,
+            summary.current_date, summary.quote_pay_to_date, context.target,
+            context.months - 1, cents / 100.0,
+        )
+    else:
+        states = project_policy(
+            copy.deepcopy(p), months=context.months, inputs=inputs,
+            options=context.options, rates=context.rates, config=context.config,
+            bonus_override=context.bonus, stop_on_lapse=False, engine=context.engine,
+        ).states
+    receipts[cents] = receipt
+    if len(states) != context.months + 1 or states[-1].date != context.target:
+        raise ReinstatementError("Projection did not reach the next monthly deduction.")
+    end = states[-1]
+    debt = _debt_at_deduction(end)
+    if context.basis == "Safety net":
+        margin = end.premiums_to_date_after_exception - end.withdrawals_to_date - debt - end.accumulated_mtp
+        success = margin >= -1e-8
+    elif context.basis == "Shadow account":
+        margin = end.shadow_av - debt
+        success = margin > 1e-8
+    else:
+        margin = end.av_after_deduction - end.surrender_charge - debt
+        success = margin > 1e-8
+    _number(margin, "Reinstatement funding margin")
+    accepted = sum(row.gross_premium for row in states[1:]) + (receipt.gross if receipt else 0.0)
+    if any(row.gp_exception_prem for row in states):
+        raise ReinstatementError(
+            "Regulatory acceptance caps generated an unquoted exception premium.")
+    return success, states, accepted
+
+
+def _solve_reinstatement_premium(context: ReinstatementProjectionContext):
+    receipts = {}
+    zero_ok, states, accepted = _project_reinstatement_cents(context, 0, receipts)
     low = high = 0
     if not zero_ok:
-        high = min(10000, limit)
+        high = min(10000, context.limit_cents)
         while True:
-            ok, states, accepted = project(high)
+            ok, states, accepted = _project_reinstatement_cents(context, high, receipts)
             if ok:
                 break
-            if high == limit:
+            if high == context.limit_cents:
                 raise ReinstatementError(
                     "No fundable premium within the bounded search. "
                     "Regulatory acceptance caps or the supplied coverage basis prevent this quote.")
-            low, high = high, min(high * 2, limit)
+            low, high = high, min(high * 2, context.limit_cents)
         while high - low > 1:
             middle = (low + high) // 2
-            ok, _, _ = project(middle)
+            ok, _, _ = _project_reinstatement_cents(context, middle, receipts)
             if ok:
                 high = middle
             else:
                 low = middle
-        ok, states, accepted = project(high)
-        if not ok or project(high - 1)[0]:
+        ok, states, accepted = _project_reinstatement_cents(context, high, receipts)
+        if not ok or _project_reinstatement_cents(context, high - 1, receipts)[0]:
             raise ReinstatementError("Exact-cent minimum could not be verified.")
     premium = Decimal(high) / 100
+    receipt = receipts[high]
     if abs(accepted - float(premium)) > 0.005:
         raise ReinstatementError("Requested premium was not fully accepted under regulatory limits.")
+    return premium, states, receipt, accepted
+
+
+def _summarize_reinstatement(
+    context: ReinstatementProjectionContext,
+    premium: Decimal,
+    states: list[MonthlyState],
+    receipt,
+    accepted: float,
+) -> ReinstatementResult:
+    p = context.policy
+    config = context.config
+    basis = context.basis
     end = states[-1]
-    receipt = receipts[high]
     deductions = sum(row.total_deduction for row in states[1:])
     loads = sum(row.total_premium_load for row in states[1:]) + (receipt.loads if receipt else 0.0)
     interest = sum(row.interest_credited for row in states[:-1])
@@ -321,7 +380,7 @@ def project_home_office_reinstatement(
     reconciliation = p.account_value + accepted - loads + interest - deductions - forceouts
     if abs(reconciliation - end.av_after_deduction) > 0.02:
         raise ReinstatementError("Projected account-value movements do not reconcile.")
-    if shadow_active:
+    if context.shadow_active:
         shadow_reconciled = (
             p.shadow_account_value + accepted
             - sum(s.shadow_prem_load + s.shadow_md for s in states[1:])
@@ -375,10 +434,10 @@ def project_home_office_reinstatement(
         ),
     }[basis]
     return ReinstatementResult(
-        summary, premium, basis, tuple((label, f"{value:,.2f}") for label, value in rows),
+        context.summary, premium, basis, tuple((label, f"{value:,.2f}") for label, value in rows),
         f"{equation}\n"
         f"Continuous coverage from the verified post-deduction snapshot {p.valuation_date:%Y-%m-%d}. "
-        f"One premium is posted on {summary.current_date:%Y-%m-%d}; no historical receipts are backdated. "
+        f"One premium is posted on {context.summary.current_date:%Y-%m-%d}; no historical receipts are backdated. "
         f"Canonical illustration crediting basis: {p.current_interest_rate:.4%}, "
         f"{config.interest_method}; a between-deduction receipt earns only its remaining-period interest. "
         "The next monthliversary deduction is included; interest after that deduction is excluded. "

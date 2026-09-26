@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from suiteview.illustration.core import illustration_policy_service
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.polview.services import glp_exception
@@ -229,20 +228,11 @@ def test_glp_result_reports_no_glp_adjustment_when_pre_calc_not_needed():
         gsp=0.0,
     )
 
-    result = glp_exception._build_result(
-        policy,
-        date(2025, 7, 1),
-        13,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        [],
-        glp_exception.PremiumAdjustmentSinceValuation(),
-        policy.account_value,
+    result = glp_exception._build_result(glp_exception.GlpResultInputs(
+        policy, date(2025, 7, 1), 13, 0.0, 0.0, 0.0, 0.0, 0.0, [],
+        glp_exception.PremiumAdjustmentSinceValuation(), policy.account_value,
         policy.premiums_paid_to_date,
-    )
+    ))
 
     assert result.adjustment_to_accum_glp_pre_calc == 0.0
     assert result.new_glp is None
@@ -264,20 +254,11 @@ def test_glp_result_uses_premiums_less_accum_withdrawals_for_target_test():
         gsp=0.0,
     )
 
-    result = glp_exception._build_result(
-        policy,
-        date(2025, 7, 1),
-        13,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        [],
-        glp_exception.PremiumAdjustmentSinceValuation(),
-        policy.account_value,
+    result = glp_exception._build_result(glp_exception.GlpResultInputs(
+        policy, date(2025, 7, 1), 13, 0.0, 0.0, 0.0, 0.0, 0.0, [],
+        glp_exception.PremiumAdjustmentSinceValuation(), policy.account_value,
         policy.premiums_paid_to_date,
-    )
+    ))
 
     assert result.accumulated_glp_prior_to_target == 8_000.0
     assert result.premium_td_on_target_date == 8_000.0
@@ -299,20 +280,11 @@ def test_glp_result_with_premium_needed_recalculates_adjustment_with_zero_glp():
         gsp=0.0,
     )
 
-    result = glp_exception._build_result(
-        policy,
-        date(2025, 7, 1),
-        13,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        3_000.0,
-        [],
-        glp_exception.PremiumAdjustmentSinceValuation(),
-        policy.account_value,
+    result = glp_exception._build_result(glp_exception.GlpResultInputs(
+        policy, date(2025, 7, 1), 13, 0.0, 0.0, 0.0, 0.0, 3_000.0, [],
+        glp_exception.PremiumAdjustmentSinceValuation(), policy.account_value,
         policy.premiums_paid_to_date,
-    )
+    ))
 
     assert result.accumulated_glp_prior_to_target == 8_000.0
     assert result.premium_td_on_target_date == 12_000.0
@@ -334,20 +306,11 @@ def test_glp_result_new_accum_glp_equals_target_premium_basis_when_adjustment_ne
         gsp=0.0,
     )
 
-    result = glp_exception._build_result(
-        policy,
-        date(2025, 7, 1),
-        13,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        4_000.0,
-        [],
-        glp_exception.PremiumAdjustmentSinceValuation(),
-        policy.account_value,
+    result = glp_exception._build_result(glp_exception.GlpResultInputs(
+        policy, date(2025, 7, 1), 13, 0.0, 0.0, 0.0, 0.0, 4_000.0, [],
+        glp_exception.PremiumAdjustmentSinceValuation(), policy.account_value,
         policy.premiums_paid_to_date,
-    )
+    ))
 
     assert result.accumulated_glp_prior_to_target == 8_000.0
     assert result.premium_td_on_target_date == 13_000.0

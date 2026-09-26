@@ -52,6 +52,7 @@ from ..services.policy_insights import (
     support_tool_availability,
 )
 from ..services.policy_notes import PolicyNotesStore, RecentPoliciesStore
+from ..services.rate_selection import build_rate_selection, missing_rate_diagnostic
 from ..services.table_search import search_policy_tables
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
@@ -1182,7 +1183,9 @@ class GetPolicyWindow(FramelessWindowBase):
         with QSignalBlocker(self.tabs):
             for index in range(self.tabs.count()):
                 self.tabs.setTabEnabled(index, True)
-            if not self._policy.is_advanced_product:
+            rules = getattr(self._policy, "product_rules", None)
+            advanced = rules.is_advanced if rules is not None else self._policy.is_advanced_product
+            if not advanced:
                 self._mark_tab_unavailable("advprod")
             if not self.tabs.isTabEnabled(self.tabs.indexOf(selected)):
                 self.tabs.setCurrentWidget(self.coverages_tab)
@@ -1385,43 +1388,13 @@ class GetPolicyWindow(FramelessWindowBase):
         self.raw_table_tab.show_message(f"Loading rates for {label}...", table_name=label)
 
         try:
-            matrix = None
-            display_title = ""
-
-            if category == "Coverages":
-                if (not self._policy.is_advanced_product
-                        and self._policy.product_type == "WL"
-                        and self._policy.premium_pay_status_code.strip() in ("44", "45")):
-                    message = "Cash value file is not available for policies on ETI or RPU."
-                    self.raw_table_tab.show_message(
-                        message, table_name=f"Whole Life Cash Value Rates - Coverage {index}"
-                    )
-                    self._show_status(message)
-                    return
-                matrix = self._policy.build_coverage_rate_matrix(index)
-                display_title = f"Rates for Coverage {index}"
-                if matrix and "CV" in matrix[0]:
-                    display_title = f"Whole Life Cash Value Rates - Coverage {index}"
-            elif category == "Cash Values":
-                display_title = f"Cash Value Rates - Coverage {index}"
-                if self._policy.premium_pay_status_code.strip() in ("44", "45"):
-                    message = "Cash value file is not available for policies on ETI or RPU."
-                    self.raw_table_tab.show_message(message, table_name=display_title)
-                    self._show_status(message)
-                    return
-                matrix = self._policy.build_whole_life_coverage_rate_matrix(index)
-            elif category == "Premium Rates":
-                display_title = f"Premium Rates - Coverage {index}"
-                matrix = self._policy.build_premium_rate_matrix(index)
-            elif category == "Modal Premium":
-                display_title = "Modal Premium"
-                matrix = self._policy.build_modal_premium_matrix()
-            elif category == "Benefits":
-                matrix = self._policy.build_benefit_rate_matrix(index)
-                display_title = f"Rates for Benefit {index}"
-            elif category == "Policy":
-                matrix = self._policy.build_policy_rate_matrix()
-                display_title = "Policy Level Rates"
+            selection = build_rate_selection(self._policy, category, index)
+            if selection.message:
+                self.raw_table_tab.show_message(selection.message, table_name=selection.display_title)
+                self._show_status(selection.message)
+                return
+            matrix = selection.matrix
+            display_title = selection.display_title
 
             if matrix is not None and len(matrix) > 1:
                 self.tabs.setCurrentWidget(self.raw_table_tab)
@@ -1455,40 +1428,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
                 self._show_status(diag_msg)
             else:
-                diag = ""
-                if matrix is None:
-                    ok = 'OK'
-                    miss = 'MISSING'
-                    def wl_cv():
-                        return (
-                            f" (WL_RATE_CV: user={self._policy.cyberlife_rate_user_code} "
-                            f"(company {self._policy.company_code}), "
-                            f"key={self._policy.cov_cash_value_key(index)!r}, "
-                            f"issue_age={self._policy.cov_issue_age(index)}, user_defined=blank)"
-                        )
-                    if category == "Cash Values":
-                        diag = wl_cv()
-                    elif category == "Coverages":
-                        if not self._policy.is_advanced_product and self._policy.product_type == "WL":
-                            diag = wl_cv()
-                        else:
-                            iss_dt = self._policy.cov_issue_date(index)
-                            iss_age = self._policy.cov_issue_age(index)
-                            band = self._policy.cov_band(index)
-                            miss_rates = 'MISSING -- check UL_Rates connection'
-                            diag = (
-                                f" (issue_date={ok if iss_dt else miss}"
-                                f", issue_age={ok if iss_age is not None else miss}"
-                                f", band={ok if band is not None else miss_rates})"
-                            )
-                    elif category == "Benefits":
-                        iss_dt = self._policy.cov_issue_date(1)
-                        benefits = self._policy.get_benefits()
-                        ben_age = benefits[index - 1].issue_age if index <= len(benefits) else None
-                        diag = (
-                            f" (cov1_date={ok if iss_dt else miss}"
-                            f", ben_age={ok if ben_age is not None else miss})"
-                        )
+                diag = missing_rate_diagnostic(self._policy, category, index) if matrix is None else ""
                 message = f"No rate data available for {label}{diag}"
                 self.raw_table_tab.show_message(message, table_name=display_title or label)
                 self._show_status(message)

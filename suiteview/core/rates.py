@@ -119,6 +119,36 @@ WL_PREMIUM_RATE_TYPES = {
     "G": "Guaranteed COI (IAF)",
 }
 
+RATE_KEY_SPECS: dict[str, tuple[str, ...]] = {
+    "EPP": ("sex", "rateclass", "band", "scale"),
+    "TPP": ("sex", "rateclass", "band", "scale"),
+    "FLATP": ("sex", "rateclass", "band", "scale"),
+    "DBD": (),
+    "GINT": (),
+    "CORR": ("issue_age",),
+    "BONUSAV": ("scale",),
+    "BONUSDUR": ("scale",),
+    "MTP": ("issue_age", "sex", "rateclass", "band"),
+    "CTP": ("issue_age", "sex", "rateclass", "band"),
+    "TBL1CTP": ("issue_age", "sex", "rateclass", "band"),
+    "TBL1MTP": ("issue_age", "sex", "rateclass", "band"),
+    "MFEE": ("issue_age", "sex", "rateclass", "band", "scale"),
+    "EPU": ("issue_age", "sex", "rateclass", "band", "scale"),
+    "COI": ("issue_age", "sex", "rateclass", "band", "scale"),
+    "SCR": ("issue_age", "sex", "rateclass", "band", "state"),
+    "BENMTP": ("issue_age", "sex", "rateclass", "band", "benefit_type"),
+    "BENCTP": ("issue_age", "sex", "rateclass", "band", "benefit_type"),
+    "BENCOI": ("issue_age", "sex", "rateclass", "band", "benefit_type", "scale"),
+    "BANDSPECS": (),
+    "PLNCRD": (),
+    "PLNCRG": (),
+    "RLNCRD": (),
+    "RLNCRG": (),
+    "SNETPERIOD": ("issue_age",),
+    "RATESPACE": (),
+    "COI_SCALE": (),
+}
+
 _WL_PREMIUM_COLUMNS = (
     "IAF_VERSION", "EFFECTIVE_DATE", "FIRST_AGE", "LAST_AGE", "IAR_USE", "PAY_AGE",
     "PAY_AGE_USE", "ME_AGE", "ME_AGE_USE", "VALUE_PER_UNIT", "RATE_TYPE",
@@ -260,37 +290,18 @@ class Rates:
         if rateclass == "0":
             rateclass = "N"
         
-        key_parts = [rate_type, plancode]
-        
         rate_type = rate_type.upper()
-        
-        if rate_type in ("EPP", "TPP", "FLATP"):
-            key_parts.extend([sex, rateclass, band, scale])
-        elif rate_type in ("DBD", "GINT"):
-            pass  # Just rate_type and plancode
-        elif rate_type in ("CORR",):
-            key_parts.append(issue_age)
-        elif rate_type in ("BONUSAV", "BONUSDUR"):
-            key_parts.append(scale)
-        elif rate_type in ("MTP", "CTP", "TBL1CTP", "TBL1MTP"):
-            key_parts.extend([issue_age, sex, rateclass, band])
-        elif rate_type in ("MFEE",):
-            key_parts.extend([issue_age, sex, rateclass, band, scale])
-        elif rate_type in ("EPU", "COI"):
-            key_parts.extend([issue_age, sex, rateclass, band, scale])
-        elif rate_type in ("SCR",):
-            key_parts.extend([issue_age, sex, rateclass, band, state])
-        elif rate_type in ("BENMTP", "BENCTP"):
-            key_parts.extend([issue_age, sex, rateclass, band, benefit_type])
-        elif rate_type in ("BENCOI",):
-            key_parts.extend([issue_age, sex, rateclass, band, benefit_type, scale])
-        elif rate_type in ("BANDSPECS", "PLNCRD", "PLNCRG", "RLNCRD", "RLNCRG"):
-            pass  # Just rate_type and plancode
-        elif rate_type in ("SNETPERIOD",):
-            key_parts.append(issue_age)
-        elif rate_type in ("RATESPACE", "COI_SCALE"):
-            pass  # Just rate_type and plancode
-        
+        values = {
+            "issue_age": issue_age,
+            "sex": sex,
+            "rateclass": rateclass,
+            "band": band,
+            "scale": scale,
+            "benefit_type": benefit_type,
+            "state": state,
+        }
+        key_parts = [rate_type, plancode]
+        key_parts.extend(values[name] for name in RATE_KEY_SPECS.get(rate_type, ()))
         return "_".join(str(p) for p in key_parts if p is not None)
     
     def _create_sql(

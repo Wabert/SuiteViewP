@@ -33,6 +33,19 @@ if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
 
 
+def _registered_field(policy, name: str, default=""):
+    """Read a FieldSpec-backed value, tolerating lightweight UI test doubles."""
+    reader = getattr(policy, "field_value", None)
+    if reader is not None:
+        try:
+            value = reader(name)
+        except (AttributeError, KeyError):
+            value = default
+        return default if value is None else value
+    value = getattr(policy, name, default)
+    return default if value is None else value
+
+
 class PolicyTab(QWidget):
     """
     Tab for Policy information - matches VBA Excel SuiteView layout.
@@ -257,40 +270,40 @@ class PolicyTab(QWidget):
         c.set_value("pol_number", policy_info.get("PolicyNumber", policy.policy_number))
         c.set_value("company", translate_company_code(str(policy.company_code)))
         c.set_value("plancode", policy.base_plancode)
-        c.set_value("maj_lob", str(policy.data_item("LH_COV_PHA", "MAJ_LIN_OF_BUS_CD") or ""))
+        c.set_value("maj_lob", _registered_field(policy, "major_line_of_business"))
         prod_line = policy.product_line_code
         c.set_value("prod_line", f"{prod_line} - {translate_product_line_code(prod_line)}")
-        c.set_value("an_prd_id", str(policy.data_item("TH_COV_PHA", "AN_PRD_ID") or ""))
-        c.set_value("non_trd_ind", str(policy.data_item("LH_BAS_POL", "NON_TRD_POL_IND") or ""))
+        c.set_value("an_prd_id", str(_registered_field(policy, "annuity_product_id")))
+        c.set_value("non_trd_ind", str(_registered_field(policy, "non_traditional_indicator")))
 
         state_code = str(policy.issue_state_code or "")
         try:
             c.set_value("issue_state", translate_state_code(int(state_code)) if state_code else "")
         except (ValueError, TypeError):
             c.set_value("issue_state", state_code)
-        c.set_value("prm_pay_sta", str(policy.data_item("LH_BAS_POL", "PRM_PAY_STA_REA_CD") or ""))
-        c.set_value("sus_cd", str(policy.data_item("LH_BAS_POL", "SUS_CD") or ""))
+        c.set_value("prm_pay_sta", _registered_field(policy, "premium_pay_status_code"))
+        c.set_value("sus_cd", _registered_field(policy, "suspense_code", "0"))
         if policy.is_advanced_product:
-            grace_val = str(policy.data_item("LH_NON_TRD_POL", "IN_GRA_PER_IND") or "0")
+            grace_val = str(_registered_field(policy, "advanced_grace_indicator", "0") or "0")
         else:
-            grace_val = str(policy.data_item("LH_TRD_POL", "IN_GRA_PER_IND") or "0")
+            grace_val = str(_registered_field(policy, "traditional_grace_indicator", "0") or "0")
         c.set_value("in_grace", f"{grace_val} - {translate_grace_indicator(grace_val)}")
         c.set_value("gpe_date", format_date(policy.grace_period_expiry_date, US_DATE_FMT))
 
         c.set_value("prm_paid_to", format_date(policy.paid_to_date, US_DATE_FMT))
-        c.set_value("prm_bill_to", format_date(policy.data_item("LH_BAS_POL", "PRM_BILL_TO_DT"), US_DATE_FMT))
-        c.set_value("app_wrt_dt", format_date(policy.data_item("LH_BAS_POL", "APP_WRT_DT"), US_DATE_FMT))
+        c.set_value("prm_bill_to", format_date(_registered_field(policy, "premium_paid_to_date", None), US_DATE_FMT))
+        c.set_value("app_wrt_dt", format_date(_registered_field(policy, "application_written_date", None), US_DATE_FMT))
         c.set_value("lst_anv_dt", format_date(policy.last_anniversary, US_DATE_FMT))
         c.set_value("nxt_bil_dt", format_date(policy.next_bill_date, US_DATE_FMT))
-        c.set_value("nxt_sch_not", format_date(policy.data_item("LH_BAS_POL", "NXT_SCH_NOT_DT"), US_DATE_FMT))
-        c.set_value("nxt_sch_stt", format_date(policy.data_item("LH_BAS_POL", "NXT_SCH_STT_DT"), US_DATE_FMT))
-        c.set_value("nxt_mvry_prc", format_date(policy.data_item("LH_BAS_POL", "NXT_MVRY_PRC_DT"), US_DATE_FMT))
-        c.set_value("nxt_yr_end", format_date(policy.data_item("LH_BAS_POL", "NXT_YR_END_PRC_DT"), US_DATE_FMT))
-        c.set_value("lst_fin_dt2", format_date(policy.data_item("LH_BAS_POL", "LST_FIN_DT"), US_DATE_FMT))
+        c.set_value("nxt_sch_not", format_date(_registered_field(policy, "next_schedule_notice_date", None), US_DATE_FMT))
+        c.set_value("nxt_sch_stt", format_date(_registered_field(policy, "next_schedule_start_date", None), US_DATE_FMT))
+        c.set_value("nxt_mvry_prc", format_date(_registered_field(policy, "next_monthliversary_date", None), US_DATE_FMT))
+        c.set_value("nxt_yr_end", format_date(_registered_field(policy, "next_anniversary_date", None), US_DATE_FMT))
+        c.set_value("lst_fin_dt2", format_date(_registered_field(policy, "last_financial_date", None), US_DATE_FMT))
 
-        c.set_value("pol_1035", str(policy.data_item("LH_BAS_POL", "POL_1035_XCG_IND") or ""))
-        c.set_value("idt_prm_ind", str(policy.data_item("LH_BAS_POL", "IDT_PRM_IND") or ""))
-        tfdf = str(policy.data_item("LH_BAS_POL", "TFDF_GDL_IND") or "")
+        c.set_value("pol_1035", str(_registered_field(policy, "policy_1035_indicator")))
+        c.set_value("idt_prm_ind", str(_registered_field(policy, "identified_premium_indicator")))
+        tfdf = str(_registered_field(policy, "tefra_defra_guideline_indicator"))
         c.set_value("tfdf_gdl", f"{tfdf} - {translate_tefra_defra_ind(tfdf)}" if tfdf else "")
         decr_rule = policy.decrease_charge_rule
         c.set_value(
@@ -298,31 +311,31 @@ class PolicyTab(QWidget):
             f"{decr_rule} - {translate_decrease_charge_rule(decr_rule)}" if decr_rule else "",
         )
         c.set_field_visible("decr_chrg_rule", bool(decr_rule))
-        c.set_value("int_mlv_nbr", str(policy.data_item("LH_BAS_POL", "INT_MLV_NBR") or ""))
-        rein_cd = str(policy.data_item("LH_BAS_POL", "REINSURED_CD") or "").strip()
+        c.set_value("int_mlv_nbr", str(_registered_field(policy, "interest_monthliversary_number")))
+        rein_cd = str(_registered_field(policy, "reinsured_code")).strip()
         c.set_value("reinsured", translate_reinsurance_code(rein_cd))
 
     def _populate_column2_from_policy(self, policy):
         c = self.col2
         prm_mode = translate_bill_mode_from_frequency(
-            str(policy.data_item("LH_BAS_POL", "PMT_FQY_PER") or ""),
-            str(policy.data_item("LH_BAS_POL", "NSD_MD_CD") or ""),
+            str(policy.billing_frequency or ""),
+            str(policy.non_standard_mode_code or ""),
         )
         c.set_value("prm_mode", prm_mode)
-        c.set_value("modal_prm", format_currency(policy.data_item("LH_BAS_POL", "POL_PRM_AMT"), "$"))
+        c.set_value("modal_prm", format_currency(policy.modal_premium, "$"))
 
-        bil_form = str(policy.data_item("LH_BAS_POL", "BIL_FRM_CD") or "")
+        bil_form = str(policy.field_value("bill_form_code") or "")
         c.set_value("bil_form", translate_bill_form_code(bil_form))
-        c.set_value("bil_ctl_nbr", str(policy.data_item("LH_BIL_FRM_CTL", "BIL_CTL_NBR") or ""))
-        c.set_value("replaced_pol", str(policy.data_item("TH_USER_REPLACEMENT", "REPLACED_POLICY") or ""))
+        c.set_value("bil_ctl_nbr", str(policy.field_value("billing_control_number") or ""))
+        c.set_value("replaced_pol", str(policy.field_value("replaced_policy_number") or ""))
 
-        ogn = str(policy.data_item("LH_BAS_POL", "OGN_ETR_CD") or "")
+        ogn = str(policy.field_value("original_entry_code") or "")
         c.set_value("ogn_etr_cd", f"{ogn} - {translate_entry_code(ogn)}")
-        c.set_value("conv_pol", str(policy.data_item("TH_USER_GENERIC", "EXCH_POL_NUMBER") or "Null").strip())
-        lst = str(policy.data_item("LH_BAS_POL", "LST_ETR_CD") or "")
+        c.set_value("conv_pol", str(policy.field_value("converted_policy_number") or "Null").strip())
+        lst = str(policy.field_value("last_entry_code") or "")
         c.set_value("lst_etr_cd", f"{lst} - {translate_last_entry_code(lst)}")
 
-        usr_res = str(policy.data_item("LH_BAS_POL", "USR_RES_CD") or "")
+        usr_res = str(policy.field_value("mdo_code") or "")
         c.set_value("mdo", usr_res[:1] if usr_res else "")
         c.set_value("bypass_lapse", usr_res[-1:] if len(usr_res) > 1 else "")
         c.set_value("mec_status", translate_mec_indicator(policy.mec_indicator))
@@ -335,23 +348,23 @@ class PolicyTab(QWidget):
 
         pri_div = str(policy.div_option_code or "").strip()
         c.set_value("pri_div_opt", f"{pri_div} - {policy.div_option_description}" if pri_div else "")
-        div_2nd = str(policy.data_item("LH_BAS_POL", "DIV_2ND_OPT_CD") or "").strip()
+        div_2nd = str(policy.field_value("second_dividend_option") or "").strip()
         c.set_value("div_2nd_opt", f"{div_2nd} - {translate_div_option_code(div_2nd)}" if div_2nd else "")
 
-        mtl_tbl_cd = str(policy.data_item("LH_COV_PHA", "MTL_FCT_TBL_CD") or "").strip()
+        mtl_tbl_cd = str(policy.field_value("mortality_factor_table") or "").strip()
         c.set_value("mtl_tbl", mtl_tbl_cd)
         c.set_value("mtl_desc", translate_mortality_table_code(mtl_tbl_cd))
-        res_rt = policy.data_item("LH_COV_PHA", "RES_ITS_RT")
+        res_rt = policy.field_value("reserve_interest_rate")
         c.set_value("res_its_rt", format_rate(res_rt, decimals=2, suffix="%"))
-        c.set_value("mtl_fun_cd", str(policy.data_item("LH_COV_PHA", "MTL_FUN_CD") or ""))
+        c.set_value("mtl_fun_cd", str(policy.field_value("mortality_fund_code") or ""))
 
-        nsp_ei_cd = str(policy.data_item("LH_COV_PHA", "NSP_EI_TBL_CD") or "").strip()
+        nsp_ei_cd = str(policy.field_value("nsp_extended_insurance_table") or "").strip()
         c.set_value("nsp_ei_tbl", nsp_ei_cd)
         c.set_value("nsp_ei_desc", translate_mortality_table_code(nsp_ei_cd))
-        nsp_rpu_cd = str(policy.data_item("LH_COV_PHA", "NSP_RPU_TBL_CD") or "").strip()
+        nsp_rpu_cd = str(policy.field_value("nsp_reduced_paid_up_table") or "").strip()
         c.set_value("nsp_rpu_tbl", nsp_rpu_cd)
         c.set_value("nsp_rpu_desc", translate_mortality_table_code(nsp_rpu_cd))
-        nsp_rt = policy.data_item("LH_COV_PHA", "NSP_ITS_RT")
+        nsp_rt = policy.field_value("nsp_interest_rate")
         if nsp_rt and str(nsp_rt) != "Null":
             c.set_value("nsp_its_rt", format_rate(nsp_rt, decimals=2, suffix="%"))
         else:

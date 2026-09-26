@@ -99,14 +99,30 @@ def source(monkeypatch):
         "LH_BAS_POL": [{
             "NON_TRD_POL_IND": "1", "PRD_LIN_TYP_CD": "U",
             "NXT_MVRY_PRC_DT": date(2026, 10, 15), "PRM_PAY_STA_REA_CD": "01",
+            "SVC_AGC_NBR": "", "POL_ISS_ST_CD": "", "NSD_MD_CD": "",
+            "PMT_FQY_PER": 1, "POL_PRM_AMT": 0, "SUS_CD": "0",
+            "POL_STS_CD": "10",
+            "PRM_PAID_TO_DT": None, "LST_ANV_DT": date(2026, 1, 15),
+            "PRM_BILL_TO_DT": None, "NXT_BIL_DT": None,
+            "NXT_YR_END_PRC_DT": date(2027, 1, 15), "LST_FIN_DT": None,
+            "NFO_OPT_TYP_CD": "0", "PRI_DIV_OPT_CD": "0",
+            "POL_1035_XCG_IND": "", "LN_PLN_ITS_RT": 0, "BIL_FRM_CD": "0",
+            "OGN_ETR_CD": "", "LST_ETR_CD": "", "USR_RES_CD": "",
+            "SVC_AGT_NBR": "", "LN_TYP_CD": "",
         }],
         "LH_COV_PHA": [{
             "COV_PHA_NBR": 1, "PLN_DES_SER_CD": "SYNTH",
             "ISSUE_DT": date(2020, 1, 15), "COV_MT_EXP_DT": date(2100, 1, 15),
             "COV_UNT_QTY": 100, "COV_VPU_AMT": 1000, "INS_ISS_AGE": 30,
-            "NBR_OF_LIVES_CD": "1",
+            "NBR_OF_LIVES_CD": "1", "PRD_LIN_TYP_CD": "U",
+            "INS_CLS_CD": "N", "PLN_BSE_SRE_CD": "SYN", "LIF_PLN_SUB_SRE_CD": "TH",
         }],
-        "LH_NON_TRD_POL": [{"TFDF_CD": "2", "CDR_PCT": 250}],
+        "LH_NON_TRD_POL": [{
+            "TFDF_CD": "2", "CDR_PCT": 250,
+            "IN_GRA_PER_IND": "0", "DTH_BNF_PLN_OPT_CD": "1",
+            "POL_GUA_ITS_RT": 0, "GRA_THD_RLE_CD": "", "GRA_PER_EXP_DT": None,
+            "PRF_LN_ITS_CRG_RT": 0, "PRF_LN_OPT_CD": "",
+        }],
         "LH_POL_MVRY_VAL": [{"MVRY_DT": date(2026, 9, 15), "CSV_AMT": 200}],
     }
     connections = []
@@ -251,9 +267,9 @@ def test_failed_fetch_is_not_empty_success_and_retry_clears_error(source):
 
 @pytest.mark.parametrize("rows,expected", [
     ([], None),
-    ([{"CSV_AMT": None}], None),
-    ([{"CSV_AMT": 0}], 0),
-    ([{"CSV_AMT": 125}], 125),
+    ([{"MVRY_DT": date(2026, 9, 15), "CSV_AMT": None}], None),
+    ([{"MVRY_DT": date(2026, 9, 15), "CSV_AMT": 0}], 0),
+    ([{"MVRY_DT": date(2026, 9, 15), "CSV_AMT": 125}], 125),
 ])
 def test_missing_monthliversary_value_never_probes_an_invented_table(source, qtbot, rows, expected):
     from suiteview.polview.ui.tabs.coverages_tab import CoveragesTab
@@ -280,7 +296,9 @@ def test_missing_monthliversary_value_never_probes_an_invented_table(source, qtb
 
 
 def test_net_amount_at_risk_reads_recorded_monthliversary_nar(source):
-    source.tables["LH_POL_MVRY_VAL"] = [{"CSV_AMT": 125, "NAR_AMT": 99875}]
+    source.tables["LH_POL_MVRY_VAL"] = [{
+        "MVRY_DT": date(2026, 9, 15), "CSV_AMT": 125, "NAR_AMT": 99875,
+    }]
     session = prefetch.PolicyLoadSession("TEST")
     try:
         session.load_initial()
@@ -309,7 +327,7 @@ def test_single_joint_uses_number_of_lives_in_both_policy_displays(
     from suiteview.polview.ui.tabs.coverages_tab import CoveragesTab
 
     source.tables["LH_CTT_CLIENT"] = [
-        {"PRS_CD": role, "PRS_SEQ_NBR": 1} for role in roles
+        {"PRS_CD": role, "PRS_SEQ_NBR": 1, "BIR_DT": None} for role in roles
     ]
     source.tables["LH_COV_PHA"][0]["LIVES_COV_CD"] = lives_code
     source.tables["LH_COV_PHA"][0]["NBR_OF_LIVES_CD"] = number_of_lives

@@ -96,8 +96,27 @@ class GlpExceptionResult:
     forecast_rows: list[GlpForecastRow]
 
 
+@dataclass(frozen=True)
+class GlpResultInputs:
+    policy: IllustrationPolicyData
+    target_date: date
+    months_to_target: int
+    total_md: float
+    before_load: float
+    premium_load_percent: float
+    flat_fee: float
+    after_load: float
+    forecast_rows: list[GlpForecastRow]
+    premium_adjustment: PremiumAdjustmentSinceValuation
+    original_account_value: float
+    original_premiums_paid_to_date: float
+
+
 def is_glp_exception_eligible(policy) -> bool:
     if not policy or not getattr(policy, "exists", False):
+        return False
+    rules = getattr(policy, "product_rules", None)
+    if rules is not None and not getattr(rules, "supports_glp_exception", False):
         return False
     product_type = str(getattr(policy, "product_type", "") or "").upper()
     if product_type not in {"UL", "IUL", "ISWL", "SGUL", "VUL"}:
@@ -183,9 +202,11 @@ def calculate_glp_exception(policy, target_date: date) -> GlpExceptionResult:
 
     if len(baseline) == months_to_target + 1 and target_state and not target_state.lapsed and target_av_before_md > 0.0:
         return _build_result(
-            ill_policy, target_date, months_to_target, total_md,
-            0.0, 0.0, 0.0, 0.0, _forecast_rows_from_projection(ill_policy, baseline), premium_adjustment,
-            original_account_value, original_premiums_paid_to_date,
+            GlpResultInputs(
+                ill_policy, target_date, months_to_target, total_md,
+                0.0, 0.0, 0.0, 0.0, _forecast_rows_from_projection(ill_policy, baseline),
+                premium_adjustment, original_account_value, original_premiums_paid_to_date,
+            )
         )
 
     level_premium = _solve_level_premium(ill_policy, months_to_target, engine)
@@ -205,9 +226,11 @@ def calculate_glp_exception(policy, target_date: date) -> GlpExceptionResult:
     forecast_rows = _forecast_rows_from_projection(ill_policy, solved)
 
     return _build_result(
-        ill_policy, target_date, months_to_target, total_md,
-        before_load, premium_load_percent, flat_fee, after_load, forecast_rows, premium_adjustment,
-        original_account_value, original_premiums_paid_to_date,
+        GlpResultInputs(
+            ill_policy, target_date, months_to_target, total_md,
+            before_load, premium_load_percent, flat_fee, after_load, forecast_rows,
+            premium_adjustment, original_account_value, original_premiums_paid_to_date,
+        )
     )
 
 
@@ -253,20 +276,19 @@ def calculate_policy_support_forecast(
     )
 
 
-def _build_result(
-    policy: IllustrationPolicyData,
-    target_date: date,
-    months_to_target: int,
-    total_md: float,
-    before_load: float,
-    premium_load_percent: float,
-    flat_fee: float,
-    after_load: float,
-    forecast_rows: list[GlpForecastRow],
-    premium_adjustment: PremiumAdjustmentSinceValuation,
-    original_account_value: float,
-    original_premiums_paid_to_date: float,
-) -> GlpExceptionResult:
+def _build_result(inputs: GlpResultInputs) -> GlpExceptionResult:
+    policy = inputs.policy
+    target_date = inputs.target_date
+    months_to_target = inputs.months_to_target
+    total_md = inputs.total_md
+    before_load = inputs.before_load
+    premium_load_percent = inputs.premium_load_percent
+    flat_fee = inputs.flat_fee
+    after_load = inputs.after_load
+    forecast_rows = inputs.forecast_rows
+    premium_adjustment = inputs.premium_adjustment
+    original_account_value = inputs.original_account_value
+    original_premiums_paid_to_date = inputs.original_premiums_paid_to_date
     current_accumulated_glp = policy.accumulated_glp or 0.0
     accumulated_glp_prior_to_target = _accumulated_glp_to_target(policy, target_date)
     premium_td_on_target_date = policy.premiums_paid_to_date + after_load - (policy.withdrawals_to_date or 0.0)

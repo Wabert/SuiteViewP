@@ -609,11 +609,16 @@ fields** and a convenience property:
 |-------|--------|----------|
 | `premium_rate` | `LH_COV_PHA.ANN_PRM_UNT_AMT` | Traditional products — annual premium rate per unit |
 | `coi_rate` | `LH_COV_INS_RNL_RT.RNL_RT` (type "C", ÷ divisor) | Advanced products — cost-of-insurance rate |
-| `rate` (property) | Returns `coi_rate` if `is_advanced_product`, else `premium_rate` | Display — automatically picks the right value |
+| `rate` (property) | Returns `coi_rate` when populated, otherwise `premium_rate` | Display — matches the built coverage's available rate |
 
 **Rate divisor for Advanced products:**
 - Product line `"I"` (Interest Sensitive Life): divide `RNL_RT` by **100**
 - All other product lines: divide `RNL_RT` by **100,000**
+
+The product-family strategy and FieldSpec registry are documented in
+[`docs/polview/POLVIEW_REFACTOR_CONTRACTS.md`](polview/POLVIEW_REFACTOR_CONTRACTS.md).
+The generated scalar field reference is
+[`docs/polview/POLICY_FIELDS.md`](polview/POLICY_FIELDS.md).
 
 **VBA equivalent:**
 ```vba
