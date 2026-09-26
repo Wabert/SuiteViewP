@@ -23,6 +23,11 @@ from ..constants import (
     CHANGE_SEQ_68_ITEMS, PARTICIPATION_CODES,
 )
 from ._styles import make_checkbox as _make_checkbox, make_listbox as _make_listbox, connect_checkbox_listbox as _connect_checkbox_listbox
+from suiteview.audit.criteria_specs import (
+    POLICY2_TAB_STATE_SPEC,
+    apply_tab_state,
+    tab_state,
+)
 
 # ── Compact sizing helpers (same as policy_tab) ────────────────────────
 _FONT = QFont("Segoe UI", 9)
@@ -386,125 +391,7 @@ class Policy2Tab(QWidget):
 
     # ── Profile save/load ────────────────────────────────────────────
     def get_state(self) -> dict:
-        from ..profile_manager import (
-            get_lineedit_text as _t, get_checkbox_checked as _c,
-            get_listbox_selected as _sel,
-        )
-        return {
-            "txt_tamra_7pay_prem_lo": _t(self.txt_tamra_7pay_prem_lo),
-            "txt_tamra_7pay_prem_hi": _t(self.txt_tamra_7pay_prem_hi),
-            "txt_tamra_7pay_av_lo": _t(self.txt_tamra_7pay_av_lo),
-            "txt_tamra_7pay_av_hi": _t(self.txt_tamra_7pay_av_hi),
-            "txt_total_addl_prem_lo": _t(self.txt_total_addl_prem_lo),
-            "txt_total_addl_prem_hi": _t(self.txt_total_addl_prem_hi),
-            "txt_total_prem_addl_reg_lo": _t(self.txt_total_prem_addl_reg_lo),
-            "txt_total_prem_addl_reg_hi": _t(self.txt_total_prem_addl_reg_hi),
-            "txt_accum_wd_lo": _t(self.txt_accum_wd_lo),
-            "txt_accum_wd_hi": _t(self.txt_accum_wd_hi),
-            "txt_prem_ytd_lo": _t(self.txt_prem_ytd_lo),
-            "txt_prem_ytd_hi": _t(self.txt_prem_ytd_hi),
-            "txt_term_entry_date_lo": _t(self.txt_term_entry_date_lo),
-            "txt_term_entry_date_hi": _t(self.txt_term_entry_date_hi),
-            "txt_bil_commence_dt_lo": _t(self.txt_bil_commence_dt_lo),
-            "txt_bil_commence_dt_hi": _t(self.txt_bil_commence_dt_hi),
-            "chk_billing_suspended": _c(self.chk_billing_suspended),
-            "txt_last_fin_date_lo": _t(self.txt_last_fin_date_lo),
-            "txt_last_fin_date_hi": _t(self.txt_last_fin_date_hi),
-            "txt_term_last_fin_date_lo": _t(self.txt_term_last_fin_date_lo),
-            "txt_term_last_fin_date_hi": _t(self.txt_term_last_fin_date_hi),
-            "txt_term_date_both_lo": _t(self.txt_term_date_both_lo),
-            "txt_term_date_both_hi": _t(self.txt_term_date_both_hi),
-            "chk_has_converted": _c(self.chk_has_converted),
-            "chk_is_replacement": _c(self.chk_is_replacement),
-            "chk_has_replacement_pol": _c(self.chk_has_replacement_pol),
-            "chk_cov_gio": _c(self.chk_cov_gio),
-            "chk_cov_cola": _c(self.chk_cov_cola),
-            "chk_skipped_cov_rein": _c(self.chk_skipped_cov_rein),
-            "chk_1035_amt": _c(self.chk_1035_amt),
-            "chk_mec": _c(self.chk_mec),
-            "chk_failed_guideline": _c(self.chk_failed_guideline),
-            "chk_participating": _c(self.chk_participating),
-            "list_participating": _sel(self.list_participating),
-            "chk_loan_type": _c(self.chk_loan_type),
-            "list_loan_type": _sel(self.list_loan_type),
-            "txt_loan_charge_rate": _t(self.txt_loan_charge_rate),
-            "chk_has_loan": _c(self.chk_has_loan),
-            "chk_has_preferred_loan": _c(self.chk_has_preferred_loan),
-            "txt_total_loan_prin_lo": _t(self.txt_total_loan_prin_lo),
-            "txt_total_loan_prin_hi": _t(self.txt_total_loan_prin_hi),
-            "txt_total_accured_lint_lo": _t(self.txt_total_accured_lint_lo),
-            "txt_total_accured_lint_hi": _t(self.txt_total_accured_lint_hi),
-            "chk_trad_overloan": _c(self.chk_trad_overloan),
-            "list_trad_overloan": _sel(self.list_trad_overloan),
-            "chk_non_trad": _c(self.chk_non_trad),
-            "list_non_trad": _sel(self.list_non_trad),
-            "chk_std_loan_payment": _c(self.chk_std_loan_payment),
-            "list_std_loan_payment": _sel(self.list_std_loan_payment),
-            "chk_def_life": _c(self.chk_def_life),
-            "list_def_life": _sel(self.list_def_life),
-            "chk_reinsurance": _c(self.chk_reinsurance),
-            "list_reinsurance": _sel(self.list_reinsurance),
-            "chk_change_seq": _c(self.chk_change_seq),
-            "list_change_seq": _sel(self.list_change_seq),
-        }
+        return tab_state(self, POLICY2_TAB_STATE_SPEC)
 
     def set_state(self, state: dict):
-        from ..profile_manager import (
-            set_lineedit_text as _t, set_checkbox_checked as _c,
-            set_listbox_selected as _sel,
-        )
-        _t(self.txt_tamra_7pay_prem_lo, state.get("txt_tamra_7pay_prem_lo", ""))
-        _t(self.txt_tamra_7pay_prem_hi, state.get("txt_tamra_7pay_prem_hi", ""))
-        _t(self.txt_tamra_7pay_av_lo, state.get("txt_tamra_7pay_av_lo", ""))
-        _t(self.txt_tamra_7pay_av_hi, state.get("txt_tamra_7pay_av_hi", ""))
-        _t(self.txt_total_addl_prem_lo, state.get("txt_total_addl_prem_lo", ""))
-        _t(self.txt_total_addl_prem_hi, state.get("txt_total_addl_prem_hi", ""))
-        _t(self.txt_total_prem_addl_reg_lo, state.get("txt_total_prem_addl_reg_lo", ""))
-        _t(self.txt_total_prem_addl_reg_hi, state.get("txt_total_prem_addl_reg_hi", ""))
-        _t(self.txt_accum_wd_lo, state.get("txt_accum_wd_lo", ""))
-        _t(self.txt_accum_wd_hi, state.get("txt_accum_wd_hi", ""))
-        _t(self.txt_prem_ytd_lo, state.get("txt_prem_ytd_lo", ""))
-        _t(self.txt_prem_ytd_hi, state.get("txt_prem_ytd_hi", ""))
-        _t(self.txt_term_entry_date_lo, state.get("txt_term_entry_date_lo", ""))
-        _t(self.txt_term_entry_date_hi, state.get("txt_term_entry_date_hi", ""))
-        _t(self.txt_bil_commence_dt_lo, state.get("txt_bil_commence_dt_lo", ""))
-        _t(self.txt_bil_commence_dt_hi, state.get("txt_bil_commence_dt_hi", ""))
-        _c(self.chk_billing_suspended, state.get("chk_billing_suspended", False))
-        _t(self.txt_last_fin_date_lo, state.get("txt_last_fin_date_lo", ""))
-        _t(self.txt_last_fin_date_hi, state.get("txt_last_fin_date_hi", ""))
-        _t(self.txt_term_last_fin_date_lo, state.get("txt_term_last_fin_date_lo", ""))
-        _t(self.txt_term_last_fin_date_hi, state.get("txt_term_last_fin_date_hi", ""))
-        _t(self.txt_term_date_both_lo, state.get("txt_term_date_both_lo", ""))
-        _t(self.txt_term_date_both_hi, state.get("txt_term_date_both_hi", ""))
-        _c(self.chk_has_converted, state.get("chk_has_converted", False))
-        _c(self.chk_is_replacement, state.get("chk_is_replacement", False))
-        _c(self.chk_has_replacement_pol, state.get("chk_has_replacement_pol", False))
-        _c(self.chk_cov_gio, state.get("chk_cov_gio", False))
-        _c(self.chk_cov_cola, state.get("chk_cov_cola", False))
-        _c(self.chk_skipped_cov_rein, state.get("chk_skipped_cov_rein", False))
-        _c(self.chk_1035_amt, state.get("chk_1035_amt", False))
-        _c(self.chk_mec, state.get("chk_mec", False))
-        _c(self.chk_failed_guideline, state.get("chk_failed_guideline", False))
-        _c(self.chk_participating, state.get("chk_participating", False))
-        _sel(self.list_participating, state.get("list_participating", []))
-        _c(self.chk_loan_type, state.get("chk_loan_type", False))
-        _sel(self.list_loan_type, state.get("list_loan_type", []))
-        _t(self.txt_loan_charge_rate, state.get("txt_loan_charge_rate", ""))
-        _c(self.chk_has_loan, state.get("chk_has_loan", False))
-        _c(self.chk_has_preferred_loan, state.get("chk_has_preferred_loan", False))
-        _t(self.txt_total_loan_prin_lo, state.get("txt_total_loan_prin_lo", ""))
-        _t(self.txt_total_loan_prin_hi, state.get("txt_total_loan_prin_hi", ""))
-        _t(self.txt_total_accured_lint_lo, state.get("txt_total_accured_lint_lo", ""))
-        _t(self.txt_total_accured_lint_hi, state.get("txt_total_accured_lint_hi", ""))
-        _c(self.chk_trad_overloan, state.get("chk_trad_overloan", False))
-        _sel(self.list_trad_overloan, state.get("list_trad_overloan", []))
-        _c(self.chk_non_trad, state.get("chk_non_trad", False))
-        _sel(self.list_non_trad, state.get("list_non_trad", []))
-        _c(self.chk_std_loan_payment, state.get("chk_std_loan_payment", False))
-        _sel(self.list_std_loan_payment, state.get("list_std_loan_payment", []))
-        _c(self.chk_def_life, state.get("chk_def_life", False))
-        _sel(self.list_def_life, state.get("list_def_life", []))
-        _c(self.chk_reinsurance, state.get("chk_reinsurance", False))
-        _sel(self.list_reinsurance, state.get("list_reinsurance", []))
-        _c(self.chk_change_seq, state.get("chk_change_seq", False))
-        _sel(self.list_change_seq, state.get("list_change_seq", []))
+        apply_tab_state(self, POLICY2_TAB_STATE_SPEC, state)

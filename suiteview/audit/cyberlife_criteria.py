@@ -196,6 +196,49 @@ class AuditCriteria:
         return self.as_of.strftime("%Y-%m-%d")
 
 
+@dataclass(frozen=True)
+class AuditCriteriaBundle:
+    """Registered criteria tabs and shared CyberLife query controls."""
+
+    schema: str
+    sys_code: str
+    max_count_text: str
+    tabs: Mapping[str, Any]
+    coverage_level: bool = False
+    coverage_scope: str = "All Covs"
+    as_of: date | None = None
+
+
+class CriteriaCollector:
+    """Collect immutable CyberLife criteria from registered tab objects."""
+
+    def __init__(self, bundle: AuditCriteriaBundle) -> None:
+        self.bundle = bundle
+
+    def collect(self) -> AuditCriteria:
+        tabs = self.bundle.tabs
+        return collect_audit_criteria(
+            schema=self.bundle.schema,
+            sys_code=self.bundle.sys_code,
+            max_count_text=self.bundle.max_count_text,
+            policy_tab=tabs["policy"],
+            display_tab=tabs["display"],
+            policy2_tab=tabs["policy2"],
+            adv_tab=tabs["adv"],
+            coverages_tab=tabs["coverages"],
+            plancode_tab=tabs["plancode"],
+            benefits_tab=tabs["benefits"],
+            transaction_tab=tabs.get("transaction"),
+            coverage_level=self.bundle.coverage_level,
+            coverage_scope=self.bundle.coverage_scope,
+            custom_display_tab=tabs.get("custom_display"),
+            people_tab=tabs.get("people"),
+            segment52_tab=tabs.get("segment52"),
+            wl_tab=tabs.get("wl"),
+            as_of=self.bundle.as_of,
+        )
+
+
 def _freeze_listbox(widget: QListWidget) -> ListCriteria:
     selected = []
     for item in widget.selectedItems():

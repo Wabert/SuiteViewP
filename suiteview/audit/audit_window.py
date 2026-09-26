@@ -49,7 +49,7 @@ from .tabs._styles import style_combo as _style_combo, _ensure_checkmark, _CHECK
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
 from .cyberlife_query import build_cyberlife_sql
-from .cyberlife_criteria import collect_audit_criteria
+from .cyberlife_criteria import AuditCriteriaBundle, CriteriaCollector
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
 from .field_picker_panel import FieldPickerPanel
@@ -1628,25 +1628,27 @@ class AuditWindow(FramelessWindowBase):
         """Build the CyberLife audit SQL — delegates to cyberlife_query module."""
         region = self.cmb_region.currentText()
         schema = REGION_SCHEMA_MAP.get(region, DEFAULT_SCHEMA)
-        criteria = collect_audit_criteria(
+        criteria = CriteriaCollector(AuditCriteriaBundle(
             schema=schema,
             sys_code=self.cmb_system.currentText().strip(),
             max_count_text=self.txt_max_count.text().strip(),
             coverage_level=self.chk_coverage_level.isChecked(),
             coverage_scope=self.cmb_coverage_scope.currentText(),
-            policy_tab=self.policy_tab,
-            display_tab=self.display_tab,
-            custom_display_tab=self.custom_display_tab,
-            policy2_tab=self.policy2_tab,
-            people_tab=self.people_tab,
-            adv_tab=self.adv_tab,
-            coverages_tab=self.coverages_tab,
-            plancode_tab=self.plancode_tab,
-            benefits_tab=self.benefits_tab,
-            transaction_tab=self.transaction_tab,
-            segment52_tab=self.segment52_tab,
-            wl_tab=self.wl_tab,
-        )
+            tabs={
+                "policy": self.policy_tab,
+                "display": self.display_tab,
+                "custom_display": self.custom_display_tab,
+                "policy2": self.policy2_tab,
+                "people": self.people_tab,
+                "adv": self.adv_tab,
+                "coverages": self.coverages_tab,
+                "plancode": self.plancode_tab,
+                "benefits": self.benefits_tab,
+                "transaction": self.transaction_tab,
+                "segment52": self.segment52_tab,
+                "wl": self.wl_tab,
+            },
+        )).collect()
         sql = build_cyberlife_sql(criteria)
 
         return sql
