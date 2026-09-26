@@ -18,7 +18,6 @@ from suiteview.illustration.models.policy_data import (
     RiderInfo,
 )
 
-
 ISSUE = date(2010, 5, 15)
 LATER = date(2015, 5, 15)
 
@@ -293,8 +292,11 @@ def test_engine_recalculates_targets_and_guidelines_on_edited_issue_basis(monkey
         rates_override=rate_loader.IllustrationRates(), bonus_override=BonusConfig(),
     )
     assert seen[:2] == ["targets", "guidelines"]
-    assert policy.mtp == 10 and policy.ctp == 240
-    assert policy.glp == 1_200 and policy.gsp == 2_400 and policy.tamra_7pay_level == 3_600
+    assert policy.mtp == 0 and policy.ctp == 0
+    assert policy.glp == 0 and policy.gsp == 0 and policy.tamra_7pay_level == 0
+    assert states[1].monthly_mtp == 10 and states[1].ctp == 240
+    assert states[1].glp == 1_200 and states[1].gsp == 2_400
+    assert states[1].tamra_7pay_level == 3_600
     assert states[1].date == ISSUE and states[1].duration == 1
 
 
@@ -304,11 +306,14 @@ def test_month_end_issue_projection_remains_anchored_to_original_issue_date(
     monkeypatch, issue_date, cyberlife_timing,
 ):
     from dateutil.relativedelta import relativedelta
+
     from suiteview.illustration.core import calc_engine
     from suiteview.illustration.core.bonus_rates import BonusConfig
     from suiteview.illustration.core.target_premium import TargetPremiumResult
     from suiteview.illustration.models.input_set import (
-        DatedTransaction, IllustrationInputSet, TransactionKind,
+        DatedTransaction,
+        IllustrationInputSet,
+        TransactionKind,
     )
 
     base = IllustrationPolicyData(

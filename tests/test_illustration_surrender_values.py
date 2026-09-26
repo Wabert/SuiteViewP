@@ -9,7 +9,10 @@ from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 
 
 @pytest.mark.parametrize("company,subsidiary,cola,exempt", [
@@ -110,11 +113,21 @@ def test_withdrawal_receives_effective_cola_surrender_rates(monkeypatch):
         rg_loan_princ=0.0, rg_loan_accrued=0.0, pf_loan_princ=0.0,
         pf_loan_accrued=0.0, vbl_loan_princ=0.0, vbl_loan_accrued=0.0,
     )
-    calc_engine._process_withdrawal(
-        MonthlyState(), policy, PlancodeConfig(company_sub="FFL"),
-        IllustrationRates(scr=[0.0, 2.0]), 1, 45, date(2026, 1, 1),
-        100_000.0, 0.0, None, loan, True, None,
-    )
+    calc_engine._process_withdrawal(calc_engine.WithdrawalInput(
+        state=MonthlyState(),
+        policy=policy,
+        config=PlancodeConfig(company_sub="FFL"),
+        rates=IllustrationRates(scr=[0.0, 2.0]),
+        rate_year=1,
+        attained_age=45,
+        month_date=date(2026, 1, 1),
+        av=100_000.0,
+        cost_basis=0.0,
+        month_inputs=None,
+        cap_loan=loan,
+        is_anniversary=True,
+        options=calc_engine.IllustrationOptions(),
+    ))
     assert seen == [{1: 2.0, 4: 0.0}]
 
 
