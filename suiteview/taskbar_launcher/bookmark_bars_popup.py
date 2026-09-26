@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+from suiteview.ui.widgets import bookmark_data_manager
 from suiteview.ui.widgets.bookmark_widgets import (
     CategoryButton,
     StandaloneBookmarkButton,
@@ -76,7 +76,7 @@ class BookmarkBarsPopup(QWidget):
         read-only panels using StandaloneBookmarkButton and CategoryButton directly.
         """
 
-        manager = get_bookmark_manager()
+        manager = bookmark_data_manager.get_bookmark_manager()
         bar_ids = manager.get_all_bar_ids()
 
         # ── Outer styling ────────────────────────────────────────────────────

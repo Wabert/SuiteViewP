@@ -219,6 +219,57 @@ class FileExplorerFileOpsMixin:
         # Check Windows clipboard for files
         return len(self.get_clipboard_files()) > 0
 
+    def _paste_destination_path(self) -> str | None:
+        dest_path = self.get_selected_path()
+        if dest_path and os.path.isfile(dest_path):
+            dest_path = str(Path(dest_path).parent)
+        if dest_path and os.path.isdir(dest_path):
+            return dest_path
+        if hasattr(self, 'current_details_folder') and self.current_details_folder:
+            return self.current_details_folder
+        QMessageBox.warning(self, "Paste", "No destination folder available")
+        return None
+
+    def _paste_one_source(self, source: Path, dest_path: str, operation: str | None) -> None:
+        dest = Path(dest_path) / source.name
+        if dest.exists():
+            dest = self._get_unique_dest_path(dest)
+        if operation == "cut":
+            guard_support_file_paths(source, dest, action="move policy support files or folders")
+            shutil.move(str(source), str(dest))
+            return
+        guard_support_file_paths(dest, action="copy policy support files or folders")
+        if source.is_dir():
+            shutil.copytree(str(source), str(dest))
+        else:
+            shutil.copy2(str(source), str(dest))
+
+    def _paste_sources(self, sources: list[str], dest_path: str, operation: str | None) -> tuple[int, list[str]]:
+        success_count = 0
+        errors = []
+        for source_path in sources:
+            source = Path(source_path)
+            try:
+                FileExplorerFileOpsMixin._paste_one_source(self, source, dest_path, operation)
+                success_count += 1
+                logger.info(f"Pasted {source.name} to {dest_path}")
+            except Exception as e:
+                errors.append(f"{source.name}: {e}")
+                logger.error(f"Failed to paste {source.name}: {e}")
+        return success_count, errors
+
+    def _refresh_current_details_folder(self) -> None:
+        if hasattr(self, 'current_details_folder') and self.current_details_folder:
+            self.load_folder_contents_in_details(Path(self.current_details_folder))
+
+    def _warn_transfer_errors(self, title: str, verb: str, success_count: int, errors: list[str]) -> None:
+        if errors:
+            QMessageBox.warning(
+                self, title,
+                f"{verb} {success_count} item(s).\n{len(errors)} item(s) failed.\n"
+                + "\n".join(errors[:5])
+            )
+
     def paste_file(self):
         """Paste cut/copied file/folder from internal clipboard or Windows clipboard"""
         if is_sp_path(self.current_details_folder):
@@ -226,110 +277,31 @@ class FileExplorerFileOpsMixin:
                 "SharePoint libraries are read-only in FileNav.\n"
                 "Use 'Open in Browser' to make changes in SharePoint.")
             return
-        
-        # Determine destination folder
-        dest_path = self.get_selected_path()
-        
-        # If selected item is a file, use its parent folder
-        if dest_path and os.path.isfile(dest_path):
-            dest_path = str(Path(dest_path).parent)
-        
-        # If no selection or invalid, use current details folder
-        if not dest_path or not os.path.isdir(dest_path):
-            if hasattr(self, 'current_details_folder') and self.current_details_folder:
-                dest_path = self.current_details_folder
-            else:
-                QMessageBox.warning(self, "Paste", "No destination folder available")
-                return
-        
-        # Check internal clipboard first
-        if self.clipboard.get("paths"):
-            success_count = 0
-            error_count = 0
-            errors = []
-            
-            for source_path in self.clipboard["paths"]:
-                source = Path(source_path)
-                dest = Path(dest_path) / source.name
-                
-                try:
-                    # Handle existing file/folder
-                    if dest.exists():
-                        dest = self._get_unique_dest_path(dest)
-                    
-                    if self.clipboard["operation"] == "cut":
-                        guard_support_file_paths(source, dest, action="move policy support files or folders")
-                        shutil.move(str(source), str(dest))
-                    else:
-                        guard_support_file_paths(dest, action="copy policy support files or folders")
-                        if source.is_dir():
-                            shutil.copytree(str(source), str(dest))
-                        else:
-                            shutil.copy2(str(source), str(dest))
-                    success_count += 1
-                    logger.info(f"Pasted {source.name} to {dest_path}")
-                except Exception as e:
-                    error_count += 1
-                    errors.append(f"{source.name}: {e}")
-                    logger.error(f"Failed to paste {source.name}: {e}")
-            
-            # Clear clipboard after cut operation
-            if self.clipboard["operation"] == "cut":
-                self.clipboard = {"paths": [], "operation": None}
-            
-            # Refresh the details view
-            if hasattr(self, 'current_details_folder') and self.current_details_folder:
-                self.load_folder_contents_in_details(Path(self.current_details_folder))
-            
-            if error_count > 0:
-                QMessageBox.warning(
-                    self, "Paste Results",
-                    f"Pasted {success_count} item(s).\n{error_count} item(s) failed.\n"
-                    + "\n".join(errors[:5])
-                )
+
+        dest_path = FileExplorerFileOpsMixin._paste_destination_path(self)
+        if not dest_path:
             return
-        
-        # Check Windows clipboard for files
+
+        if self.clipboard.get("paths"):
+            operation = self.clipboard["operation"]
+            success_count, errors = FileExplorerFileOpsMixin._paste_sources(
+                self, self.clipboard["paths"], dest_path, operation)
+            if operation == "cut":
+                self.clipboard = {"paths": [], "operation": None}
+            FileExplorerFileOpsMixin._refresh_current_details_folder(self)
+            FileExplorerFileOpsMixin._warn_transfer_errors(
+                self, "Paste Results", "Pasted", success_count, errors)
+            return
+
         clipboard_files = self.get_clipboard_files()
         if clipboard_files:
-            success_count = 0
-            error_count = 0
-            errors = []
-            
-            for file_path in clipboard_files:
-                source = Path(file_path)
-                dest = Path(dest_path) / source.name
-                
-                try:
-                    # Handle existing file/folder
-                    if dest.exists():
-                        dest = self._get_unique_dest_path(dest)
-                    
-                    guard_support_file_paths(dest, action="copy policy support files or folders")
-                    if source.is_dir():
-                        shutil.copytree(str(source), str(dest))
-                    else:
-                        shutil.copy2(str(source), str(dest))
-                    success_count += 1
-                    logger.info(f"Pasted {source.name} to {dest_path}")
-                except Exception as e:
-                    error_count += 1
-                    errors.append(f"{source.name}: {e}")
-                    logger.error(f"Failed to paste {source.name}: {e}")
-            
-            # Refresh the details view
-            if hasattr(self, 'current_details_folder') and self.current_details_folder:
-                self.load_folder_contents_in_details(Path(self.current_details_folder))
-            
-            if error_count > 0:
-                QMessageBox.warning(
-                    self, "Paste Results", 
-                    f"Pasted {success_count} file(s).\n{error_count} file(s) failed.\n"
-                    + "\n".join(errors[:5])
-                )
+            success_count, errors = FileExplorerFileOpsMixin._paste_sources(
+                self, clipboard_files, dest_path, "copy")
+            FileExplorerFileOpsMixin._refresh_current_details_folder(self)
+            FileExplorerFileOpsMixin._warn_transfer_errors(
+                self, "Paste Results", "Pasted", success_count, errors)
             return
-        
-        # No content to paste
+
         QMessageBox.information(self, "Paste", "No files in clipboard to paste")
 
     def _get_unique_dest_path(self, dest: Path) -> Path:
@@ -349,27 +321,12 @@ class FileExplorerFileOpsMixin:
                 return new_dest
             counter += 1
 
-    def handle_dropped_files(self, file_paths: list, dest_folder: str):
-        """Handle files dropped from external sources (Windows Explorer, desktop, etc.)"""
-        if not file_paths or not dest_folder:
-            return
-        
-        # Check if all files are from the same folder as the destination
-        # If so, ignore the operation (don't create copies)
-        all_from_same_folder = True
-        for file_path in file_paths:
-            source = Path(file_path)
-            source_parent = str(source.parent)
-            if source_parent != dest_folder:
-                all_from_same_folder = False
-                break
-        
-        if all_from_same_folder:
-            # All files are being dropped in their own folder - ignore operation
-            logger.info(f"Ignored drop operation - files dropped in same folder")
-            return
-        
-        # Check if any folders are being moved and ask for confirmation
+    @staticmethod
+    def _all_sources_from_destination(file_paths: list, dest_folder: str) -> bool:
+        return all(str(Path(file_path).parent) == dest_folder for file_path in file_paths)
+
+    @staticmethod
+    def _split_drop_sources(file_paths: list) -> tuple[list[Path], list[Path]]:
         folders_to_move = []
         files_to_copy = []
         for file_path in file_paths:
@@ -378,48 +335,43 @@ class FileExplorerFileOpsMixin:
                 folders_to_move.append(source)
             else:
                 files_to_copy.append(source)
-        
-        # If folders are being moved, ask for confirmation
-        if folders_to_move:
-            dest_name = Path(dest_folder).name
-            if len(folders_to_move) == 1:
-                folder_name = folders_to_move[0].name
-                confirm_msg = f"Move folder '{folder_name}' into '{dest_name}'?"
-            else:
-                folder_names = ", ".join([f.name for f in folders_to_move[:3]])
-                if len(folders_to_move) > 3:
-                    folder_names += f", ... ({len(folders_to_move)} folders total)"
-                confirm_msg = f"Move folders {folder_names} into '{dest_name}'?"
-            
-            reply = QMessageBox.question(
-                self, "Confirm Folder Move",
-                confirm_msg,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply != QMessageBox.StandardButton.Yes:
-                logger.info("User cancelled folder move operation")
-                return
-        
+        return folders_to_move, files_to_copy
+
+    def _confirm_folder_drop(self, folders_to_move: list[Path], dest_folder: str) -> bool:
+        if not folders_to_move:
+            return True
+        dest_name = Path(dest_folder).name
+        if len(folders_to_move) == 1:
+            folder_name = folders_to_move[0].name
+            confirm_msg = f"Move folder '{folder_name}' into '{dest_name}'?"
+        else:
+            folder_names = ", ".join([f.name for f in folders_to_move[:3]])
+            if len(folders_to_move) > 3:
+                folder_names += f", ... ({len(folders_to_move)} folders total)"
+            confirm_msg = f"Move folders {folder_names} into '{dest_name}'?"
+
+        reply = QMessageBox.question(
+            self, "Confirm Folder Move",
+            confirm_msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            logger.info("User cancelled folder move operation")
+            return False
+        return True
+
+    def _copy_drop_sources(self, file_paths: list, dest_folder: str) -> tuple[int, list[str]]:
         success_count = 0
-        error_count = 0
         errors = []
-        
         for file_path in file_paths:
             source = Path(file_path)
-            
-            # Skip if source and destination are the same
             if str(source.parent) == dest_folder:
                 logger.info(f"Skipping {source.name} - already in destination folder")
                 continue
-            
             dest = Path(dest_folder) / source.name
-            
             try:
-                # Handle existing file/folder
                 if dest.exists():
                     dest = self._get_unique_dest_path(dest)
-                
                 guard_support_file_paths(dest, action="copy policy support files or folders")
                 if source.is_dir():
                     shutil.copytree(str(source), str(dest))
@@ -428,19 +380,29 @@ class FileExplorerFileOpsMixin:
                 success_count += 1
                 logger.info(f"Copied {source.name} to {dest_folder}")
             except Exception as e:
-                error_count += 1
                 errors.append(f"{source.name}: {e}")
                 logger.error(f"Failed to copy {source.name}: {e}")
-        
-        # Refresh the details view
-        if hasattr(self, 'current_details_folder') and self.current_details_folder:
-            self.load_folder_contents_in_details(Path(self.current_details_folder))
-        
-        # Show result message for multiple files or errors
-        if error_count > 0:
+        return success_count, errors
+
+    def handle_dropped_files(self, file_paths: list, dest_folder: str):
+        """Handle files dropped from external sources (Windows Explorer, desktop, etc.)"""
+        if not file_paths or not dest_folder:
+            return
+
+        if FileExplorerFileOpsMixin._all_sources_from_destination(file_paths, dest_folder):
+            logger.info(f"Ignored drop operation - files dropped in same folder")
+            return
+
+        folders_to_move, _files_to_copy = FileExplorerFileOpsMixin._split_drop_sources(file_paths)
+        if not FileExplorerFileOpsMixin._confirm_folder_drop(self, folders_to_move, dest_folder):
+            return
+
+        success_count, errors = FileExplorerFileOpsMixin._copy_drop_sources(self, file_paths, dest_folder)
+        FileExplorerFileOpsMixin._refresh_current_details_folder(self)
+        if errors:
             QMessageBox.warning(
                 self, "Copy Results", 
-                f"Copied {success_count} file(s).\n{error_count} file(s) failed.\n"
+                f"Copied {success_count} file(s).\n{len(errors)} file(s) failed.\n"
                 + "\n".join(errors[:5])
             )
         elif success_count > 1:

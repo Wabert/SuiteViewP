@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from suiteview.mainframe_nav.content_search import ContentSearchThread
+from suiteview.mainframe_nav.content_search import ContentSearchWorker
 from suiteview.mainframe_nav.styles import (
     MAINFRAME_BORDER_COLOR,
     MAINFRAME_HEADER_COLORS,
@@ -34,6 +34,7 @@ from suiteview.mainframe_nav.styles import (
 )
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.ui.workers import WorkerController
 
 logger = logging.getLogger(__name__)
 
@@ -314,7 +315,7 @@ class SearchContentWindow(FramelessWindowBase):
 
         case_sensitive = self.case_sensitive_cbs[0].isChecked() if self.case_sensitive_cbs else False
         progress_dialog, progress_label = self._build_progress_dialog()
-        self.search_thread = ContentSearchThread(
+        worker = ContentSearchWorker(
             self.ftp_manager,
             self.datasets_to_search,
             search_strings,
@@ -322,14 +323,16 @@ class SearchContentWindow(FramelessWindowBase):
             False,
             "",
         )
+        self.search_thread = WorkerController(self, worker, cancel=worker.cancel)
         cancel_btn = progress_dialog.findChild(QPushButton, "cancelSearchButton")
         cancel_btn.clicked.connect(self.search_thread.cancel)
         cancel_btn.clicked.connect(progress_dialog.close)
-        self.search_thread.progress_update.connect(
-            lambda msg, curr, total: progress_label.setText(f"{msg} ({curr} of {total})")
+        self.search_thread.progress.connect(
+            lambda progress: progress_label.setText(
+                f"{progress[0]} ({progress[1]} of {progress[2]})")
         )
-        self.search_thread.search_complete.connect(self.display_results)
-        self.search_thread.search_complete.connect(progress_dialog.close)
+        self.search_thread.result.connect(self.display_results)
+        self.search_thread.result.connect(progress_dialog.close)
         self.search_thread.start()
         progress_dialog.exec()
 

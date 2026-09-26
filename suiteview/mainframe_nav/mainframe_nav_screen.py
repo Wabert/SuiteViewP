@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QDialog, QDialogButtonBox, QStyle, QFileDialog, QInputDialog,
     QListWidget, QListWidgetItem, QToolButton, QApplication, QCheckBox, QTextEdit
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtGui import QFont, QGuiApplication
 import logging
 
@@ -26,17 +26,17 @@ from suiteview.mainframe_nav.styles import (
     tool_button_style,
     viewer_button_style,
 )
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
 
-class FTPConnectionThread(QThread):
+class FTPConnectionWorker(QObject):
     """Background thread for FTP connection"""
-    connection_success = pyqtSignal(object)  # Emits FTP manager object
-    connection_failed = pyqtSignal(str)  # Emits error message
-    
+
     def __init__(self, host, username, password, port, initial_path):
         super().__init__()
+        self.signals = WorkerSignals(self)
         self.host = host
         self.username = username
         self.password = password
@@ -57,11 +57,13 @@ class FTPConnectionThread(QThread):
             )
             
             ftp_manager.connect()
-            self.connection_success.emit(ftp_manager)
+            self.signals.result.emit(ftp_manager)
             
         except Exception as e:
             logger.error(f"FTP connection error: {str(e)}")
-            self.connection_failed.emit(str(e))
+            self.signals.error.emit(str(e))
+        finally:
+            self.signals.finished.emit()
 
 
 class MainframeNavScreen(QWidget):
@@ -588,20 +590,16 @@ class MainframeNavScreen(QWidget):
             self.status_label.setText("Connecting to mainframe...")
             self.status_label.setStyleSheet("color: #3498db; font-style: italic; padding: 2px; font-size: 11px;")
             
-            # Start connection in background thread
-            self.connection_thread = FTPConnectionThread(
+            worker = FTPConnectionWorker(
                 host=self.connection_settings['host'],
                 username=self.connection_settings['username'],
                 password=self.connection_settings['password'],
                 port=self.connection_settings['port'],
                 initial_path=self.connection_settings['initial_path']
             )
-            
-            # Connect signals
-            self.connection_thread.connection_success.connect(self.on_connection_success)
-            self.connection_thread.connection_failed.connect(self.on_connection_failed)
-            
-            # Start the thread
+            self.connection_thread = WorkerController(self, worker)
+            self.connection_thread.result.connect(self.on_connection_success)
+            self.connection_thread.error.connect(self.on_connection_failed)
             self.connection_thread.start()
             
         except Exception as e:
@@ -718,119 +716,109 @@ class MainframeNavScreen(QWidget):
                 else:
                     # Show all rows if search is empty
                     self.members_table.setRowHidden(row, False)
-    
-    def export_selected_datasets(self):
-        """Export selected datasets/members to a folder"""
-        if not self.ftp_manager:
-            QMessageBox.warning(self, "Not Connected", "Please connect to a mainframe first.")
-            return
-        
-        # Get selected rows (unique row numbers)
-        selected_rows = set()
-        for item in self.members_table.selectedItems():
-            selected_rows.add(item.row())
-        
-        if not selected_rows:
-            return
-        
-        # Ask user to select export folder
-        folder_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Export Folder",
-            "",
-            QFileDialog.Option.ShowDirsOnly
+
+    def _selected_member_rows(self) -> list[int]:
+        return sorted({item.row() for item in self.members_table.selectedItems()})
+
+    def _export_path_for_row(self, row: int) -> tuple[str, str] | None:
+        name_item = self.members_table.item(row, 0)
+        if not name_item:
+            return None
+        member_name = name_item.text()
+        dsorg_item = self.members_table.item(row, 9)
+        dsorg = dsorg_item.text() if dsorg_item else ''
+        item_data = name_item.data(Qt.ItemDataRole.UserRole)
+
+        if item_data and item_data.get('full_path'):
+            return member_name, item_data.get('full_path')
+        if item_data and item_data.get('is_dataset'):
+            if dsorg == 'PS':
+                full_path = f"{self.current_dataset}.{member_name}" if self.current_dataset else member_name
+            else:
+                full_path = f"{self.current_dataset}({member_name})" if self.current_dataset else member_name
+            return member_name, full_path
+
+        full_path = (
+            f"{self.current_dataset}({member_name})"
+            if '(' not in self.current_dataset
+            else f"{self.current_dataset}.{member_name}"
         )
-        
-        if not folder_path:
-            return
-        
-        # Export each selected dataset
-        success_count = 0
-        failed_items = []
-        
-        self.status_label.setText("Exporting datasets...")
-        QApplication.processEvents()
-        
-        for row in sorted(selected_rows):
-            try:
-                name_item = self.members_table.item(row, 0)
-                if not name_item:
-                    continue
-                
-                member_name = name_item.text()
-                dsorg_item = self.members_table.item(row, 9)
-                dsorg = dsorg_item.text() if dsorg_item else ''
-                
-                # Get dataset data
-                item_data = name_item.data(Qt.ItemDataRole.UserRole)
-                
-                # Build full path based on dataset type
-                if item_data and item_data.get('full_path'):
-                    # Sequential dataset with full path stored
-                    full_path = item_data.get('full_path')
-                elif item_data and item_data.get('is_dataset'):
-                    # Dataset listed with attributes
-                    if dsorg == 'PS':
-                        # Sequential dataset - use dotted notation
-                        if self.current_dataset:
-                            full_path = f"{self.current_dataset}.{member_name}"
-                        else:
-                            full_path = member_name
-                    else:
-                        # PO dataset - use parentheses notation
-                        if self.current_dataset:
-                            full_path = f"{self.current_dataset}({member_name})"
-                        else:
-                            full_path = member_name
-                else:
-                    # Regular PDS member
-                    if '(' not in self.current_dataset:
-                        full_path = f"{self.current_dataset}({member_name})"
-                    else:
-                        full_path = f"{self.current_dataset}.{member_name}"
-                
-                logger.info(f"Exporting {full_path}...")
-                self.status_label.setText(f"Exporting {member_name}...")
-                QApplication.processEvents()
-                
-                # Read dataset content
-                content, total_lines = self.ftp_manager.read_dataset(full_path, max_lines=None)
-                
-                if content or total_lines > 0:
-                    # Save to file
-                    import os
-                    safe_filename = member_name.replace('/', '_').replace('\\', '_')
-                    file_path = os.path.join(folder_path, f"{safe_filename}.txt")
-                    
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    
-                    success_count += 1
-                    logger.info(f"Exported {member_name} to {file_path}")
-                else:
-                    failed_items.append(f"{member_name} (no content)")
-                    logger.warning(f"No content found for {member_name}")
-                    
-            except Exception as e:
-                failed_items.append(f"{member_name} ({str(e)})")
-                logger.error(f"Failed to export {member_name}: {str(e)}")
-        
-        # Show summary
+        return member_name, full_path
+
+    def _export_member_to_folder(self, row: int, folder_path: str) -> tuple[bool, str | None]:
+        import os
+
+        row_info = self._export_path_for_row(row)
+        if row_info is None:
+            return False, None
+        member_name, full_path = row_info
+        try:
+            logger.info(f"Exporting {full_path}...")
+            self.status_label.setText(f"Exporting {member_name}...")
+            QApplication.processEvents()
+            content, total_lines = self.ftp_manager.read_dataset(full_path, max_lines=None)
+            if not content and total_lines <= 0:
+                logger.warning(f"No content found for {member_name}")
+                return False, f"{member_name} (no content)"
+
+            safe_filename = member_name.replace('/', '_').replace('\\', '_')
+            file_path = os.path.join(folder_path, f"{safe_filename}.txt")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            logger.info(f"Exported {member_name} to {file_path}")
+            return True, None
+        except Exception as e:
+            logger.error(f"Failed to export {member_name}: {str(e)}")
+            return False, f"{member_name} ({str(e)})"
+
+    def _show_export_summary(self, success_count: int, failed_items: list[str], folder_path: str) -> None:
         if success_count > 0:
             message = f"Successfully exported {success_count} dataset(s) to:\n{folder_path}"
             if failed_items:
                 message += f"\n\nFailed to export {len(failed_items)} item(s):\n" + "\n".join(failed_items[:5])
                 if len(failed_items) > 5:
                     message += f"\n...and {len(failed_items) - 5} more"
-            
             QMessageBox.information(self, "Export Complete", message)
             self.status_label.setText(f"✓ Exported {success_count} dataset(s)")
             self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
-        else:
-            QMessageBox.warning(self, "Export Failed", 
-                f"Failed to export datasets:\n" + "\n".join(failed_items[:10]))
-            self.status_label.setText("Export failed")
-            self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+            return
+
+        QMessageBox.warning(self, "Export Failed",
+            f"Failed to export datasets:\n" + "\n".join(failed_items[:10]))
+        self.status_label.setText("Export failed")
+        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+
+    def export_selected_datasets(self):
+        """Export selected datasets/members to a folder"""
+        if not self.ftp_manager:
+            QMessageBox.warning(self, "Not Connected", "Please connect to a mainframe first.")
+            return
+
+        selected_rows = self._selected_member_rows()
+        if not selected_rows:
+            return
+
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Export Folder",
+            "",
+            QFileDialog.Option.ShowDirsOnly
+        )
+        if not folder_path:
+            return
+
+        success_count = 0
+        failed_items = []
+        self.status_label.setText("Exporting datasets...")
+        QApplication.processEvents()
+
+        for row in selected_rows:
+            exported, error = self._export_member_to_folder(row, folder_path)
+            if exported:
+                success_count += 1
+            elif error:
+                failed_items.append(error)
+        self._show_export_summary(success_count, failed_items, folder_path)
     
     def copy_search_results_to_clipboard(self, text: str):
         """Copy search results to clipboard"""
@@ -916,212 +904,161 @@ class MainframeNavScreen(QWidget):
     def on_tree_item_clicked(self, item, column):
         """DEPRECATED - kept for compatibility but no longer used"""
         pass
-    
+
+    def _connection_is_alive(self) -> bool:
+        if self.ftp_manager and self.ftp_manager.is_alive():
+            return True
+        QApplication.restoreOverrideCursor()
+        self.status_label.setText("✗ Mainframe connection lost")
+        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+        QMessageBox.warning(
+            self,
+            "Connection Lost",
+            "The mainframe connection has been lost.\n\n"
+            "The mainframe region may be down or the connection timed out.\n\n"
+            "Please reconnect to the mainframe by selecting a connection from the list."
+        )
+        self.ftp_manager = None
+        return False
+
+    def _members_for_dataset(self, dataset_path: str) -> list[dict]:
+        if dataset_path in self.folder_cache:
+            logger.info(f"Using cached data for {dataset_path}")
+            return self.folder_cache[dataset_path]
+        logger.info(f"Fetching data from FTP for {dataset_path}")
+        members = self.ftp_manager.list_datasets(dataset_path)
+        if members:
+            self.folder_cache[dataset_path] = members
+            logger.info(f"Cached {len(members)} items for {dataset_path}")
+        return members
+
+    @staticmethod
+    def _display_item_from_member(member: dict) -> dict:
+        if member.get('is_dataset', False):
+            return {
+                'name': member.get('name', ''),
+                'volume': member.get('volume', ''),
+                'unit': member.get('unit', ''),
+                'referred': member.get('referred', ''),
+                'ext': member.get('ext', ''),
+                'used': member.get('used', ''),
+                'recfm': member.get('recfm', ''),
+                'lrecl': member.get('lrecl', ''),
+                'blksz': member.get('blksz', ''),
+                'dsorg': member.get('dsorg', ''),
+                'is_folder': False,
+                'is_dataset': True,
+                'full_path': member.get('full_path', '')
+            }
+        if member.get('type', 'member') == 'sequential_dataset':
+            return {
+                'name': member.get('name', ''),
+                'volume': '',
+                'unit': '',
+                'referred': member.get('modified', ''),
+                'ext': '',
+                'used': '',
+                'recfm': '',
+                'lrecl': '',
+                'blksz': '',
+                'dsorg': 'PS',
+                'is_folder': False,
+                'is_sequential': True,
+                'full_path': member.get('full_path', '')
+            }
+        return {
+            'name': member.get('name', ''),
+            'volume': '',
+            'unit': '',
+            'referred': member.get('modified', ''),
+            'ext': '',
+            'used': '',
+            'recfm': '',
+            'lrecl': '',
+            'blksz': '',
+            'dsorg': 'PO',
+            'is_folder': False,
+            'is_member': True
+        }
+
+    def _items_to_display(self, dataset_path: str) -> list[dict]:
+        try:
+            return [self._display_item_from_member(member)
+                    for member in self._members_for_dataset(dataset_path)]
+        except Exception as e:
+            logger.debug(f"No members found or error listing: {str(e)}")
+            return []
+
+    def _set_member_row(self, row: int, item: dict, folder_icon, file_icon) -> None:
+        name_item = QTableWidgetItem(item['name'])
+        name_item.setIcon(folder_icon if item['is_folder'] else file_icon)
+        if item.get('is_dataset') or item.get('is_sequential'):
+            item_data = {
+                'full_path': item.get('full_path', ''),
+                'is_dataset': item.get('is_dataset', False),
+                'is_sequential': item.get('is_sequential', False),
+                'dsorg': item.get('dsorg', '')
+            }
+            name_item.setData(Qt.ItemDataRole.UserRole, item_data)
+        self.members_table.setItem(row, 0, name_item)
+        for col, key in enumerate(('volume', 'unit', 'referred', 'ext', 'used', 'recfm', 'lrecl', 'blksz', 'dsorg'), 1):
+            self.members_table.setItem(row, col, QTableWidgetItem(item.get(key, '')))
+
+    def _populate_members_table(self, items_to_display: list[dict], folder_icon, file_icon) -> None:
+        self.members_table.setRowCount(len(items_to_display))
+        if len(items_to_display) > 1000:
+            self.status_label.setText(f"Loading {len(items_to_display)} items...")
+            QApplication.processEvents()
+        self.members_table.setSortingEnabled(False)
+        for row, item in enumerate(items_to_display):
+            if len(items_to_display) > 5000 and row % 5000 == 0 and row > 0:
+                self.status_label.setText(f"Loading {row}/{len(items_to_display)} items...")
+                QApplication.processEvents()
+            self._set_member_row(row, item, folder_icon, file_icon)
+        self.members_table.setSortingEnabled(True)
+
+    def _update_member_count_label(self, items_to_display: list[dict]) -> None:
+        folder_count = sum(1 for item in items_to_display if item['is_folder'])
+        dataset_count = sum(1 for item in items_to_display if item.get('is_dataset', False))
+        member_count = len(items_to_display) - folder_count - dataset_count
+        total_count = len(items_to_display)
+        if dataset_count > 0:
+            self.item_count_label.setText(f"{total_count} items ({dataset_count} dataset(s))")
+        elif member_count > 0:
+            self.item_count_label.setText(f"{total_count} items ({member_count} member(s))")
+        elif folder_count > 0:
+            self.item_count_label.setText(f"{total_count} items ({folder_count} folder(s))")
+        else:
+            self.item_count_label.setText(f"{total_count} items")
+
     def load_members(self, dataset_path):
         """Load members/files for the selected dataset"""
         try:
-            # Check if FTP connection is still alive
-            if not self.ftp_manager or not self.ftp_manager.is_alive():
-                QApplication.restoreOverrideCursor()
-                self.status_label.setText("✗ Mainframe connection lost")
-                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
-                QMessageBox.warning(
-                    self,
-                    "Connection Lost",
-                    "The mainframe connection has been lost.\n\n"
-                    "The mainframe region may be down or the connection timed out.\n\n"
-                    "Please reconnect to the mainframe by selecting a connection from the list."
-                )
-                self.ftp_manager = None
+            if not self._connection_is_alive():
                 return
-            
-            # Set wait cursor and show loading status immediately
+
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             self.status_label.setText(f"Loading {dataset_path}...")
             QApplication.processEvents()
-            
             self.members_table.setRowCount(0)
-            
-            # Update breadcrumb navigation
             self.update_breadcrumb(dataset_path)
             self.update_navigation_buttons()
-            
-            # Get icons
+
             folder_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
             file_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-            
-            items_to_display = []
-            
-            # Always try to list members (files) in the dataset from FTP
-            try:
-                # Check cache first
-                if dataset_path in self.folder_cache:
-                    logger.info(f"Using cached data for {dataset_path}")
-                    members = self.folder_cache[dataset_path]
-                else:
-                    logger.info(f"Fetching data from FTP for {dataset_path}")
-                    members = self.ftp_manager.list_datasets(dataset_path)
-                    # Store in cache
-                    if members:
-                        self.folder_cache[dataset_path] = members
-                        logger.info(f"Cached {len(members)} items for {dataset_path}")
-                
-                if members:
-                    for member in members:
-                        member_type = member.get('type', 'member')
-                        is_dataset = member.get('is_dataset', False)
-                        
-                        # Check if this is a dataset with attributes (from _parse_dataset_attributes)
-                        if is_dataset:
-                            items_to_display.append({
-                                'name': member.get('name', ''),
-                                'volume': member.get('volume', ''),
-                                'unit': member.get('unit', ''),
-                                'referred': member.get('referred', ''),
-                                'ext': member.get('ext', ''),
-                                'used': member.get('used', ''),
-                                'recfm': member.get('recfm', ''),
-                                'lrecl': member.get('lrecl', ''),
-                                'blksz': member.get('blksz', ''),
-                                'dsorg': member.get('dsorg', ''),
-                                'is_folder': False,
-                                'is_dataset': True,
-                                'full_path': member.get('full_path', '')
-                            })
-                        # Check if this is a sequential dataset (PS)
-                        elif member_type == 'sequential_dataset':
-                            items_to_display.append({
-                                'name': member.get('name', ''),
-                                'volume': '',
-                                'unit': '',
-                                'referred': member.get('modified', ''),
-                                'ext': '',
-                                'used': '',
-                                'recfm': '',
-                                'lrecl': '',
-                                'blksz': '',
-                                'dsorg': 'PS',
-                                'is_folder': False,
-                                'is_sequential': True,
-                                'full_path': member.get('full_path', '')
-                            })
-                        else:
-                            # Regular PDS member
-                            items_to_display.append({
-                                'name': member.get('name', ''),
-                                'volume': '',
-                                'unit': '',
-                                'referred': member.get('modified', ''),
-                                'ext': '',
-                                'used': '',
-                                'recfm': '',
-                                'lrecl': '',
-                                'blksz': '',
-                                'dsorg': 'PO',
-                                'is_folder': False,
-                                'is_member': True
-                            })
-            except Exception as e:
-                logger.debug(f"No members found or error listing: {str(e)}")
-            
+            items_to_display = self._items_to_display(dataset_path)
             if not items_to_display:
                 self.status_label.setText(f"No items found in {dataset_path}")
-                # Restore cursor before returning
                 QApplication.restoreOverrideCursor()
                 return
-            
-            # Populate members table with all dataset attributes
-            self.members_table.setRowCount(len(items_to_display))
-            
-            # Show loading message for large datasets
-            if len(items_to_display) > 1000:
-                self.status_label.setText(f"Loading {len(items_to_display)} items...")
-                QApplication.processEvents()  # Update UI
-            
-            # Disable sorting during bulk insert for performance
-            self.members_table.setSortingEnabled(False)
-            
-            for row, item in enumerate(items_to_display):
-                # Update progress every 5000 items
-                if len(items_to_display) > 5000 and row % 5000 == 0 and row > 0:
-                    self.status_label.setText(f"Loading {row}/{len(items_to_display)} items...")
-                    QApplication.processEvents()  # Keep UI responsive
-                # Column 0: Name with icon
-                name_item = QTableWidgetItem(item['name'])
-                if item['is_folder']:
-                    name_item.setIcon(folder_icon)
-                else:
-                    name_item.setIcon(file_icon)
-                
-                # Store dataset info and full path
-                if item.get('is_dataset') or item.get('is_sequential'):
-                    item_data = {
-                        'full_path': item.get('full_path', ''),
-                        'is_dataset': item.get('is_dataset', False),
-                        'is_sequential': item.get('is_sequential', False),
-                        'dsorg': item.get('dsorg', '')
-                    }
-                    name_item.setData(Qt.ItemDataRole.UserRole, item_data)
-                
-                self.members_table.setItem(row, 0, name_item)
-                
-                # Column 1: Volume
-                self.members_table.setItem(row, 1, QTableWidgetItem(item.get('volume', '')))
-                
-                # Column 2: Unit
-                self.members_table.setItem(row, 2, QTableWidgetItem(item.get('unit', '')))
-                
-                # Column 3: Referred (date)
-                self.members_table.setItem(row, 3, QTableWidgetItem(item.get('referred', '')))
-                
-                # Column 4: Ext
-                self.members_table.setItem(row, 4, QTableWidgetItem(item.get('ext', '')))
-                
-                # Column 5: Used
-                self.members_table.setItem(row, 5, QTableWidgetItem(item.get('used', '')))
-                
-                # Column 6: Recfm
-                self.members_table.setItem(row, 6, QTableWidgetItem(item.get('recfm', '')))
-                
-                # Column 7: Lrecl
-                self.members_table.setItem(row, 7, QTableWidgetItem(item.get('lrecl', '')))
-                
-                # Column 8: BlkSz
-                self.members_table.setItem(row, 8, QTableWidgetItem(item.get('blksz', '')))
-                
-                # Column 9: Dsorg
-                self.members_table.setItem(row, 9, QTableWidgetItem(item.get('dsorg', '')))
-            
-            # Re-enable sorting after bulk insert
-            self.members_table.setSortingEnabled(True)
-            
-            folder_count = sum(1 for item in items_to_display if item['is_folder'])
-            dataset_count = sum(1 for item in items_to_display if item.get('is_dataset', False))
-            member_count = len(items_to_display) - folder_count - dataset_count
-            total_count = len(items_to_display)
-            
-            # Show item count in the right side label
-            if dataset_count > 0:
-                self.item_count_label.setText(f"{total_count} items ({dataset_count} dataset(s))")
-            elif member_count > 0:
-                self.item_count_label.setText(f"{total_count} items ({member_count} member(s))")
-            elif folder_count > 0:
-                self.item_count_label.setText(f"{total_count} items ({folder_count} folder(s))")
-            else:
-                self.item_count_label.setText(f"{total_count} items")
-            
-            # Update status to show completion
+
+            self._populate_members_table(items_to_display, folder_icon, file_icon)
+            self._update_member_count_label(items_to_display)
             self.status_label.setText(f"Loaded {dataset_path}")
-            
-            # Restore cursor
             QApplication.restoreOverrideCursor()
-            
-            # Disable delete until a member is selected
             self.delete_member_button.setEnabled(False)
-            
         except Exception as e:
             logger.error(f"Failed to load members: {str(e)}")
-            # Restore cursor on error too
             QApplication.restoreOverrideCursor()
             self.status_label.setText(f"✗ Failed to load members")
             QMessageBox.warning(self, "Load Error", f"Failed to load members:\n{str(e)}")

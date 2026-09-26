@@ -644,73 +644,83 @@ class QuickLinksController(FileExplorerController):
         self.tab.custom_quick_links['items'] = new_items
         self.tab.save_quick_links()
         self.tab.refresh_quick_links_list()
-    
+
+    def _bookmark_already_at_top_level(self, path: str) -> bool:
+        for item in self.tab.custom_quick_links.get('items', []):
+            if item.get('type') == 'bookmark' and item.get('path') == path:
+                return True
+        return False
+
+    @staticmethod
+    def _bookmark_drop_source(bookmark: dict) -> tuple[str, str, str, bool, bool, bool]:
+        source_category = bookmark.get('_source_category', bookmark.get('source_category', ''))
+        source_location = bookmark.get('source_location', '')
+        source = bookmark.get('source', '')
+        is_from_bar = (
+            source_location == 'bar'
+            or source == 'bar_category'
+            or (source_category in ('__BAR__', '__CONTAINER__') and source_location != 'sidebar')
+        )
+        is_from_sidebar_category = (
+            source == 'quick_links_category'
+            or (
+                source_category
+                and source_category not in ('__QUICK_LINKS__', '__CONTAINER__', '__BAR__', '')
+                and source != 'bar_category'
+            )
+        )
+        is_from_bar_category = source == 'bar_category'
+        return source_category, source_location, source, is_from_bar, is_from_sidebar_category, is_from_bar_category
+
+    def _remove_bookmark_from_drop_source(
+        self,
+        path: str,
+        source_category: str,
+        is_from_bar: bool,
+        is_from_sidebar_category: bool,
+        is_from_bar_category: bool,
+    ) -> None:
+        removed_from_source = False
+        if is_from_bar and not is_from_bar_category and hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
+            bar_items = self.tab.bookmark_bar.bookmarks_data.get('bar_items', [])
+            for i, item in enumerate(bar_items):
+                if item.get('type') == 'bookmark' and item.get('path') == path:
+                    bar_items.pop(i)
+                    self.tab.bookmark_bar.save_bookmarks()
+                    self.tab.bookmark_bar.refresh_bookmarks()
+                    logger.info(f"Removed '{path}' from bookmark bar")
+                    removed_from_source = True
+                    break
+
+        if not removed_from_source and is_from_sidebar_category:
+            if self.tab._bookmark_manager.remove_bookmark_from_category_by_name(source_category, path):
+                removed_from_source = True
+                logger.info(f"Removed from Quick Links category '{source_category}'")
+
+        if not removed_from_source and is_from_bar_category and hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
+            if self.tab._bookmark_manager.remove_bookmark_from_category_by_name(source_category, path):
+                self.tab.bookmark_bar.save_bookmarks()
+                self.tab.bookmark_bar.refresh_bookmarks()
+                logger.info(f"Removed from bookmark bar category '{source_category}'")
+
     def on_bookmark_dropped_to_quick_links(self, bookmark):
         """Handle bookmark dropped into Quick Links panel"""
         path = bookmark.get('path', '')
         drop_index = bookmark.get('_drop_index', -1)  # Position to insert at
-        # Check both _source_category (set by drop handler) and source_category (fallback)
-        source_category = bookmark.get('_source_category', bookmark.get('source_category', ''))
-        source_location = bookmark.get('source_location', '')
-        source = bookmark.get('source', '')  # e.g., 'quick_links_category', 'bar_category'
-        
+        source_category, source_location, source, is_from_bar, is_from_sidebar_category, is_from_bar_category = (
+            self._bookmark_drop_source(bookmark)
+        )
         logger.debug(f"on_bookmark_dropped_to_quick_links: path={path}, source_category={source_category}, source_location={source_location}, source={source}, drop_index={drop_index}")
-        
+
         if not path:
             return
-        
-        # Check if already exists at top level (not in a category)
-        already_at_top_level = False
-        for item in self.tab.custom_quick_links.get('items', []):
-            if item.get('type') == 'bookmark':
-                item_path = item.get('path')
-                if item_path == path:
-                    already_at_top_level = True
-                    break
-        
-        # Determine the source type
-        is_from_bar = source_location == 'bar' or source == 'bar_category' or (source_category in ('__BAR__', '__CONTAINER__') and source_location != 'sidebar')
-        is_from_sidebar_category = source == 'quick_links_category' or (source_category and source_category not in ('__QUICK_LINKS__', '__CONTAINER__', '__BAR__', '') and source != 'bar_category')
-        is_from_bar_category = source == 'bar_category'
-        
-        # If coming from somewhere else and not already at top level, move it
-        if (is_from_bar or is_from_sidebar_category or is_from_bar_category) and not already_at_top_level:
-            # IMPORTANT: Remove from source FIRST (before add check)
-            # This is because is_path_in_quick_links checks categories too
-            removed_from_source = False
-            
-            # Check if from bookmark bar directly (top level, not a category)
-            if is_from_bar and not is_from_bar_category and hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
-                bar_items = self.tab.bookmark_bar.bookmarks_data.get('bar_items', [])
-                for i, item in enumerate(bar_items):
-                    if item.get('type') == 'bookmark':
-                        item_path = item.get('path')
-                        if item_path == path:
-                            bar_items.pop(i)
-                            self.tab.bookmark_bar.save_bookmarks()
-                            self.tab.bookmark_bar.refresh_bookmarks()
-                            logger.info(f"Removed '{path}' from bookmark bar")
-                            removed_from_source = True
-                            break
-            
-            # Try Quick Links categories (sidebar categories - new format)
-            if not removed_from_source and is_from_sidebar_category:
-                if self.tab._bookmark_manager.remove_bookmark_from_category_by_name(source_category, path):
-                    removed_from_source = True
-                    logger.info(f"Removed from Quick Links category '{source_category}'")
-            
-            # If from bookmark bar category (new format)
-            if not removed_from_source and is_from_bar_category and hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
-                if self.tab._bookmark_manager.remove_bookmark_from_category_by_name(source_category, path):
-                    self.tab.bookmark_bar.save_bookmarks()
-                    self.tab.bookmark_bar.refresh_bookmarks()
-                    logger.info(f"Removed from bookmark bar category '{source_category}'")
-                    removed_from_source = True
-            
-            # NOW add to sidebar at specified position (after removing from source)
+
+        moving_from_other_surface = is_from_bar or is_from_sidebar_category or is_from_bar_category
+        if moving_from_other_surface and not self._bookmark_already_at_top_level(path):
+            self._remove_bookmark_from_drop_source(
+                path, source_category, is_from_bar, is_from_sidebar_category, is_from_bar_category)
             self.tab.add_to_quick_links(path, insert_at=drop_index)
             logger.info(f"Added bookmark '{bookmark.get('name', path)}' to Quick Links sidebar at position {drop_index}")
-            
             self.tab.save_quick_links()
             self.tab.refresh_quick_links_list()
         elif not self.tab.is_path_in_quick_links(path):

@@ -175,6 +175,50 @@ def get_file_icon_placeholder(path_str):
     return DEFAULT_BOOKMARK_UI_STATE.file_icon, True
 
 
+def _cache_bookmark_icon(path_str: str, icon: QIcon, icon_type: str, save_to_db: bool) -> QIcon:
+    DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon
+    if icon_type == 'file':
+        suffix = Path(path_str).suffix.lower()
+        if suffix:
+            DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix] = icon
+    if save_to_db:
+        try:
+            save_icon_to_db(path_str, icon, icon_type)
+        except Exception:
+            logger.debug("Could not cache %s icon for %s", icon_type, path_str, exc_info=True)
+    return icon
+
+
+def _folder_bookmark_icon(path_str: str, save_to_db: bool) -> QIcon:
+    return _cache_bookmark_icon(path_str, DEFAULT_BOOKMARK_UI_STATE.folder_icon, 'folder', save_to_db)
+
+
+def _shortcut_bookmark_icon(path_str: str, provider, save_to_db: bool) -> QIcon:
+    try:
+        icon = provider.icon(QFileInfo(path_str))
+        if not icon.isNull():
+            return _cache_bookmark_icon(path_str, icon, 'lnk', save_to_db)
+    except Exception:
+        logger.debug("Could not load shortcut icon for %s", path_str, exc_info=True)
+    DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+    return DEFAULT_BOOKMARK_UI_STATE.file_icon
+
+
+def _file_bookmark_icon(path_str: str, suffix: str, provider, save_to_db: bool) -> QIcon:
+    if suffix in DEFAULT_BOOKMARK_UI_STATE.icon_cache:
+        icon = DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix]
+        return _cache_bookmark_icon(path_str, icon, 'file', save_to_db)
+    try:
+        icon = provider.icon(QFileInfo(path_str))
+        if not icon.isNull():
+            return _cache_bookmark_icon(path_str, icon, 'file', save_to_db)
+    except Exception:
+        logger.debug("Could not load file icon for %s", path_str, exc_info=True)
+    DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+    DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+    return DEFAULT_BOOKMARK_UI_STATE.file_icon
+
+
 def get_file_icon(path_str, save_to_db=True):
     """
     Get the real system icon for a file or folder path.
@@ -199,85 +243,23 @@ def get_file_icon(path_str, save_to_db=True):
     
     provider = _get_icon_provider()
     
-    # Quick check: if path has no extension and ends with slash or backslash, it's a folder
     if path_str.endswith('/') or path_str.endswith('\\'):
-        DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.folder_icon
-        if save_to_db:
-            try:
-                save_icon_to_db(path_str, DEFAULT_BOOKMARK_UI_STATE.folder_icon, 'folder')
-            except Exception:
-                logger.debug("Could not cache folder icon for %s", path_str, exc_info=True)
-        return DEFAULT_BOOKMARK_UI_STATE.folder_icon
+        return _folder_bookmark_icon(path_str, save_to_db)
     
     # Check extension - if it has one, treat it as a file
     path_obj = Path(path_str)
     suffix = path_obj.suffix.lower()
     
     if suffix:
-        # Special handling for .lnk files - they need full path caching
-        # because each shortcut can point to different file types
         if suffix == '.lnk':
-            try:
-                file_info = QFileInfo(path_str)
-                icon = provider.icon(file_info)
-                if not icon.isNull():
-                    DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon  # Cache by full path
-                    if save_to_db:
-                        try:
-                            save_icon_to_db(path_str, icon, 'lnk')
-                        except Exception:
-                            logger.debug("Could not cache shortcut icon for %s", path_str, exc_info=True)
-                    return icon
-            except Exception:
-                logger.debug("Could not load shortcut icon for %s", path_str, exc_info=True)
-            # Fallback - use generic file icon
-            DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
-            return DEFAULT_BOOKMARK_UI_STATE.file_icon
-        
-        # Regular files - check extension cache first (fast path)
-        if suffix in DEFAULT_BOOKMARK_UI_STATE.icon_cache:
-            # Also cache by full path for DB storage
-            icon = DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix]
-            DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon
-            if save_to_db:
-                try:
-                    save_icon_to_db(path_str, icon, 'file')
-                except Exception:
-                    logger.debug("Could not cache file icon for %s", path_str, exc_info=True)
-            return icon
-        
-        # Get icon for this extension (QFileInfo doesn't need the file to exist)
-        try:
-            file_info = QFileInfo(path_str)
-            icon = provider.icon(file_info)
-            if not icon.isNull():
-                DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix] = icon
-                DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon
-                if save_to_db:
-                    try:
-                        save_icon_to_db(path_str, icon, 'file')
-                    except Exception:
-                        logger.debug("Could not cache file icon for %s", path_str, exc_info=True)
-                return icon
-        except Exception:
-            logger.debug("Could not load file icon for %s", path_str, exc_info=True)
-        
-        # Fallback to generic file icon
-        DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix] = DEFAULT_BOOKMARK_UI_STATE.file_icon
-        DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
-        return DEFAULT_BOOKMARK_UI_STATE.file_icon
+            return _shortcut_bookmark_icon(path_str, provider, save_to_db)
+        return _file_bookmark_icon(path_str, suffix, provider, save_to_db)
     
     # No extension - need to check if it's a folder (this is the slow path)
     # Only do filesystem check when absolutely necessary
     try:
         if path_obj.is_dir():
-            DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.folder_icon
-            if save_to_db:
-                try:
-                    save_icon_to_db(path_str, DEFAULT_BOOKMARK_UI_STATE.folder_icon, 'folder')
-                except Exception:
-                    logger.debug("Could not cache folder icon for %s", path_str, exc_info=True)
-            return DEFAULT_BOOKMARK_UI_STATE.folder_icon
+            return _folder_bookmark_icon(path_str, save_to_db)
     except OSError:
         logger.debug("Could not check whether bookmark path is a folder: %s", path_str, exc_info=True)
     
@@ -2183,7 +2165,70 @@ class CategoryPopup(QFrame):
     def dragLeaveEvent(self, event):
         self._hide_drop_indicator()
         super().dragLeaveEvent(event)
-    
+
+    def _target_category_id(self, manager) -> int | None:
+        if self.category_id:
+            return self.category_id
+        target_category = manager.find_category_by_name(self.category_name)
+        return target_category.get('id') if target_category else None
+
+    @staticmethod
+    def _decoded_move_item(event) -> tuple[str, dict] | None:
+        item_data = json.loads(event.mimeData().data('application/x-item-move').data().decode())
+        item = item_data.get('item', {})
+        if not item:
+            return None
+        return item_data.get('type'), item
+
+    def _category_drop_allowed(self, manager, item_type: str, item: dict) -> bool:
+        if item_type != 'category':
+            return True
+        if item.get('name') == self.category_name:
+            logger.warning(f"Cannot drop category '{item.get('name')}' into itself")
+            return False
+        if manager._is_ancestor_of(item.get('name'), self.category_name):
+            logger.warning(f"Cannot make '{item.get('name')}' a subcategory of its descendant")
+            return False
+        return True
+
+    def _move_existing_popup_item(self, manager, item_type: str, item: dict, target_category_id: int, drop_idx):
+        item_id = item.get('id')
+        source_location = manager.find_item_location(item_id)
+        target_category = manager.find_item_by_id(target_category_id)
+        target_items = target_category.get('items', []) if target_category else None
+        is_same_category = source_location and target_items is not None and source_location[0] is target_items
+
+        if is_same_category and drop_idx is not None:
+            if manager.reorder_item(item_id, drop_idx):
+                manager.save()
+                logger.info(f"Reordered {item_type} within category '{self.category_name}'")
+                return True
+            logger.warning(f"reorder_item failed for {item_type} id={item_id}")
+            return False
+
+        if manager.move_item(item_id, target_category_id=target_category_id, target_index=drop_idx):
+            manager.save()
+            if self.data_manager and hasattr(self.data_manager, 'refresh'):
+                self.data_manager.refresh()
+            logger.info(f"Moved {item_type} into category '{self.category_name}'")
+            return False
+
+        logger.warning(f"move_item failed for {item_type} id={item_id}")
+        return False
+
+    def _add_new_popup_bookmark(self, manager, item_type: str, item: dict) -> None:
+        if item_type != 'bookmark':
+            logger.warning("Cannot add category without ID")
+            return
+        path = item.get('path')
+        name = item.get('name', Path(path).name if path else 'Unnamed')
+        result = manager.add_bookmark_to_category_by_name(self.category_name, name, path)
+        if result:
+            manager.save()
+            if self.data_manager and hasattr(self.data_manager, 'refresh'):
+                self.data_manager.refresh()
+            logger.info(f"Added new bookmark '{name}' to category '{self.category_name}'")
+
     def dropEvent(self, event):
         """
         Handle item drop into this category popup.
@@ -2208,92 +2253,35 @@ class CategoryPopup(QFrame):
             return
         
         try:
-            item_data = json.loads(event.mimeData().data('application/x-item-move').data().decode())
-            item_type = item_data.get('type')  # 'bookmark' or 'category'
-            item = item_data.get('item', {})
-            item_id = item.get('id')
-            
-            if not item:
+            decoded = self._decoded_move_item(event)
+            if decoded is None:
                 event.ignore()
                 return
-            
+            item_type, item = decoded
+
             from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
             manager = get_bookmark_manager()
-            
-            # Get target category ID
-            target_category_id = self.category_id
-            if not target_category_id:
-                target_category = manager.find_category_by_name(self.category_name)
-                target_category_id = target_category.get('id') if target_category else None
-            
+
+            target_category_id = self._target_category_id(manager)
             if not target_category_id:
                 logger.warning(f"Target category '{self.category_name}' not found")
                 event.ignore()
                 return
-            
-            # For categories, check for circular reference (can't make category a child of itself or its descendants)
-            if item_type == 'category':
-                if item.get('name') == self.category_name:
-                    logger.warning(f"Cannot drop category '{item.get('name')}' into itself")
-                    event.ignore()
-                    return
-                if manager._is_ancestor_of(item.get('name'), self.category_name):
-                    logger.warning(f"Cannot make '{item.get('name')}' a subcategory of its descendant")
-                    event.ignore()
-                    return
-            
+
+            if not self._category_drop_allowed(manager, item_type, item):
+                event.ignore()
+                return
+
+            item_id = item.get('id')
             logger.info(f"Drop into category '{self.category_name}': {item_type} '{item.get('name')}' (id={item_id})")
-            
-            # Track if this is a same-category reorder (popup should stay open)
-            is_same_category_reorder = False
-            
+
             if item_id:
-                # drop_idx was captured at the start of dropEvent before _hide_drop_indicator reset it
-                
-                # Check if this is a reorder within the same category
-                # move_item() removes then inserts, which shifts indices and causes wrong placement
-                # reorder_item() correctly adjusts the index after removal
-                source_location = manager.find_item_location(item_id)
-                target_category = manager.find_item_by_id(target_category_id)
-                target_items = target_category.get('items', []) if target_category else None
-                
-                is_same_category = (source_location and target_items is not None and 
-                                    source_location[0] is target_items)
-                
-                if is_same_category and drop_idx is not None:
-                    # Same category reorder - use reorder_item to handle index adjustment
-                    if manager.reorder_item(item_id, drop_idx):
-                        manager.save()
-                        is_same_category_reorder = True
-                        logger.info(f"Reordered {item_type} within category '{self.category_name}'")
-                    else:
-                        logger.warning(f"reorder_item failed for {item_type} id={item_id}")
-                elif manager.move_item(item_id, target_category_id=target_category_id, target_index=drop_idx):
-                    # Cross-category move
-                    manager.save()
-                    # Refresh parent BookmarkContainer UI to show new order immediately
-                    if self.data_manager and hasattr(self.data_manager, 'refresh'):
-                        self.data_manager.refresh()
-                    logger.info(f"Moved {item_type} into category '{self.category_name}'")
-                else:
-                    logger.warning(f"move_item failed for {item_type} id={item_id}")
+                is_same_category_reorder = self._move_existing_popup_item(
+                    manager, item_type, item, target_category_id, drop_idx)
             else:
-                # No ID - must be new bookmark (categories always have IDs)
-                if item_type == 'bookmark':
-                    path = item.get('path')
-                    name = item.get('name', Path(path).name if path else 'Unnamed')
-                    result = manager.add_bookmark_to_category_by_name(self.category_name, name, path)
-                    if result:
-                        manager.save()
-                        # Refresh parent BookmarkContainer UI to show new bookmark immediately
-                        if self.data_manager and hasattr(self.data_manager, 'refresh'):
-                            self.data_manager.refresh()
-                        logger.info(f"Added new bookmark '{name}' to category '{self.category_name}'")
-                else:
-                    logger.warning(f"Cannot add category without ID")
-            
-            # For same-category reorder, keep popup open and refresh contents
-            # For cross-category moves or new items, close the popup
+                is_same_category_reorder = False
+                self._add_new_popup_bookmark(manager, item_type, item)
+
             if is_same_category_reorder:
                 self._rebuild_contents()
             else:

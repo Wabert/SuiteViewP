@@ -333,53 +333,37 @@ class MiniExplorer(QWidget):
         if os.path.isfile(path):
             self.file_selected.emit(path)
 
-    def _on_context_menu(self, pos: QPoint):
-        menu = QMenu(self)
-        menu.setStyleSheet(_CONTEXT_MENU_STYLE)
-        
-        # Navigation actions
-        can_go_up = False
+    def _can_go_up_from_context(self) -> bool:
         if not self._at_home:
-             # Can go up if not at home. 
-             # Be nuanced: if at root_path, can go up ONLY if there is a 'Home' screen to go to.
-             if self._root_path and os.path.normpath(self._current_path) == os.path.normpath(self._root_path):
-                 can_go_up = bool(self._home_entries)
-             else:
-                 can_go_up = True
-                 
-        up_act = menu.addAction("↑  Go Up")
-        up_act.setEnabled(can_go_up)
-        
-        home_act = menu.addAction("⌂  Go Home")
-        # Can go home if not currently at home
-        home_act.setEnabled(not self._at_home)
+            if self._root_path and os.path.normpath(self._current_path) == os.path.normpath(self._root_path):
+                return bool(self._home_entries)
+            return True
+        return False
 
-        item = self._list.itemAt(pos)
+    def _add_context_entry_actions(self, menu: QMenu, item: QListWidgetItem | None):
         open_act = rename_act = delete_act = None
-        entry_name = ""
-        
-        if item:
-            path = item.data(self.PATH_ROLE) or ""
-            entry_name = os.path.basename(path)
-            if entry_name:
-                menu.addSeparator()
-                if os.path.isdir(path):
-                    open_act = menu.addAction(f"Open in Explorer")
-                else:
-                    open_act = menu.addAction(f"Open '{entry_name}'")
-                
-                # Only allow rename/delete if we are browsing a real folder, not the pinned home
-                if not self._at_home:
-                    rename_act = menu.addAction(f"Rename '{entry_name}'...")
-                    delete_act = menu.addAction(f"Delete '{entry_name}'")
-                    protected = self._support_files or is_support_file_path(path)
-                    writable = not protected or can_write_support_files()
-                    for edit_action in (rename_act, delete_act):
-                        edit_action.setEnabled(writable)
-                        if not writable:
-                            edit_action.setToolTip("Your role cannot modify policy support files.")
+        if not item:
+            return open_act, rename_act, delete_act
 
-        action = menu.exec(self._list.viewport().mapToGlobal(pos))
+        path = item.data(self.PATH_ROLE) or ""
+        entry_name = os.path.basename(path)
+        if not entry_name:
+            return open_act, rename_act, delete_act
+
+        menu.addSeparator()
+        open_act = menu.addAction("Open in Explorer" if os.path.isdir(path) else f"Open '{entry_name}'")
+        if not self._at_home:
+            rename_act = menu.addAction(f"Rename '{entry_name}'...")
+            delete_act = menu.addAction(f"Delete '{entry_name}'")
+            protected = self._support_files or is_support_file_path(path)
+            writable = not protected or can_write_support_files()
+            for edit_action in (rename_act, delete_act):
+                edit_action.setEnabled(writable)
+                if not writable:
+                    edit_action.setToolTip("Your role cannot modify policy support files.")
+        return open_act, rename_act, delete_act
+
+    def _dispatch_context_action(self, action, *, up_act, home_act, open_act, rename_act, delete_act, item) -> None:
         if action is up_act:
             self._go_up()
         elif action is home_act:
@@ -392,6 +376,30 @@ class MiniExplorer(QWidget):
             self._rename_entry(item)
         elif action is delete_act:
             self._delete_entry(item)
+
+    def _on_context_menu(self, pos: QPoint):
+        menu = QMenu(self)
+        menu.setStyleSheet(_CONTEXT_MENU_STYLE)
+
+        up_act = menu.addAction("↑  Go Up")
+        up_act.setEnabled(self._can_go_up_from_context())
+
+        home_act = menu.addAction("⌂  Go Home")
+        home_act.setEnabled(not self._at_home)
+
+        item = self._list.itemAt(pos)
+        open_act, rename_act, delete_act = self._add_context_entry_actions(menu, item)
+
+        action = menu.exec(self._list.viewport().mapToGlobal(pos))
+        self._dispatch_context_action(
+            action,
+            up_act=up_act,
+            home_act=home_act,
+            open_act=open_act,
+            rename_act=rename_act,
+            delete_act=delete_act,
+            item=item,
+        )
 
     # -- Operations --------------------------------------------------------
 

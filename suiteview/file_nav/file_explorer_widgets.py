@@ -244,90 +244,71 @@ class DropTreeView(QTreeView):
         
         event.ignore()
     
-    def dropEvent(self, event: QDropEvent):
-        """Handle drop - copy FILES ONLY to target folder (folders are blocked to prevent accidents)"""
-        if not event.mimeData().hasUrls():
-            event.ignore()
-            return
-        
-        # Get dropped file paths
+    def _local_drop_files(self, event: QDropEvent) -> list[str]:
         dropped_files = []
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 file_path = url.toLocalFile()
                 if os.path.exists(file_path):
                     dropped_files.append(file_path)
-        
-        if not dropped_files:
-            event.ignore()
-            return
-        
-        # SAFETY: Reject any folders being dropped - only files allowed
-        # This prevents accidental folder moves/copies
-        for dropped_path in dropped_files:
-            if os.path.isdir(dropped_path):
-                event.ignore()
-                return
-        
-        # SAFETY: If dropping within the same current folder view, ignore completely
-        # This prevents accidental copies/moves when dragging and dropping in details view
-        if self._current_folder:
-            current_folder_resolved = str(Path(self._current_folder).resolve()).lower()
-            
-            for dropped_path in dropped_files:
-                dropped_parent = str(Path(dropped_path).resolve().parent).lower()
-                
-                # If the dropped item came from the current folder, ignore the drop entirely
-                if dropped_parent == current_folder_resolved:
-                    event.ignore()
-                    return
-        
-        # Determine destination folder
-        dest_folder = None
+        return dropped_files
+
+    def _drop_target_folder(self, event: QDropEvent) -> str | None:
         index = self.indexAt(event.position().toPoint())
-        
         if index.isValid():
-            # Get the path from the model
             path = self.model().data(index, Qt.ItemDataRole.UserRole)
             if not path:
-                # Try column 0
                 col0_index = index.sibling(index.row(), 0)
                 path = self.model().data(col0_index, Qt.ItemDataRole.UserRole)
-            
             if path:
-                if os.path.isdir(path):
-                    dest_folder = path
-                else:
-                    # Dropped on a file - use its parent folder
-                    dest_folder = str(Path(path).parent)
-        
-        # If no folder from drop target, use current folder
-        if not dest_folder:
-            dest_folder = self._current_folder
-        
-        if dest_folder and os.path.isdir(dest_folder):
-            # Additional safety checks
-            dest_folder_resolved = str(Path(dest_folder).resolve()).lower()
-            
+                return path if os.path.isdir(path) else str(Path(path).parent)
+        return self._current_folder
+
+    def _drop_repeats_current_folder(self, dropped_files: list[str]) -> bool:
+        if self._current_folder:
+            current_folder_resolved = str(Path(self._current_folder).resolve()).lower()
             for dropped_path in dropped_files:
-                dropped_resolved = str(Path(dropped_path).resolve()).lower()
                 dropped_parent = str(Path(dropped_path).resolve().parent).lower()
-                
-                # Case 1: Dropping item onto itself
-                if dropped_resolved == dest_folder_resolved:
-                    event.ignore()
-                    return
-                
-                # Case 2: Item is already in the destination folder
-                if dropped_parent == dest_folder_resolved:
-                    event.ignore()
-                    return
-            
-            # Safe to proceed - emit signal with dropped files and destination
-            self.files_dropped.emit(dropped_files, dest_folder)
-            event.acceptProposedAction()
-        else:
+                if dropped_parent == current_folder_resolved:
+                    return True
+        return False
+
+    @staticmethod
+    def _drop_conflicts_with_destination(dropped_files: list[str], dest_folder: str) -> bool:
+        dest_folder_resolved = str(Path(dest_folder).resolve()).lower()
+        for dropped_path in dropped_files:
+            dropped_resolved = str(Path(dropped_path).resolve()).lower()
+            dropped_parent = str(Path(dropped_path).resolve().parent).lower()
+            if dropped_resolved == dest_folder_resolved or dropped_parent == dest_folder_resolved:
+                return True
+        return False
+
+    def dropEvent(self, event: QDropEvent):
+        """Handle drop - copy FILES ONLY to target folder (folders are blocked to prevent accidents)"""
+        if not event.mimeData().hasUrls():
             event.ignore()
+            return
+
+        dropped_files = self._local_drop_files(event)
+        if (
+            not dropped_files
+            or any(os.path.isdir(dropped_path) for dropped_path in dropped_files)
+            or self._drop_repeats_current_folder(dropped_files)
+        ):
+            event.ignore()
+            return
+
+        dest_folder = self._drop_target_folder(event)
+        if not dest_folder or not os.path.isdir(dest_folder):
+            event.ignore()
+            return
+
+        if self._drop_conflicts_with_destination(dropped_files, dest_folder):
+            event.ignore()
+            return
+
+        self.files_dropped.emit(dropped_files, dest_folder)
+        event.acceptProposedAction()
 
 class DropFolderTreeView(QTreeView):
     """Custom QTreeView for folder navigation that accepts file drops and folder pins"""
