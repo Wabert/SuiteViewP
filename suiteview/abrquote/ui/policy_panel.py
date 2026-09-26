@@ -7,12 +7,8 @@ Shows ABR interest rate and per diem limits.
 
 from __future__ import annotations
 
-from suiteview.core.profile_paths import profile_path
-
 import logging
-import time
 from datetime import date
-from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
@@ -26,16 +22,14 @@ from PyQt6.QtWidgets import (
     QApplication, QMessageBox,
 )
 
-from ..models.abr_data import ABRPolicyData, RiderInfo
+from ..models.abr_data import ABRPolicyData
 from ..models.abr_database import get_abr_database
 from ..models.abr_constants import (
     MODAL_LABELS, PLAN_CODE_INFO,
 )
-from ..core.premium_calc import PremiumCalculator
 from suiteview.ui.widgets.uppercase_input import force_uppercase
 
-# Benefit name mapping for TERM_POINT_BENEFIT.Benefit column
-from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES, COMPANY_CODES
+from suiteview.polview.models.cl_polrec.policy_translations import COMPANY_CODES
 from ...core.reinsurance import fetch_reinsurer_list
 from ..core.abr_policy_service import build_abr_policy, find_policy_companies
 from ...polview.ui.widgets import StyledInfoTableGroup
@@ -1008,374 +1002,84 @@ class PolicyPanel(QWidget):
         dlg.exec()
 
     def _populate_premium_schedule(self):
-        """Populate premium schedule table from current year to maturity.
-
-        Follows Signature Term Product Spec calculation order:
-            Step 1-2: per-$1000 rate (from get_premium_schedule)
-            Step 3: round(rate × face/1000, 2)
-            Step 4: + rider annual premiums
-            Step 5: + $60 policy fee
-
-        Prorates the first year based on remaining modal payments
-        until the next policy anniversary.
-        """
+        """Render the core PremiumScheduleResult for the loaded policy."""
         p = self._policy
         if not p or not p.plan_code:
             return
 
         try:
-            t_total = time.perf_counter()
+            from ..core.abr_policy_service import premium_schedule_for_quote
+            from ..core.premium_calc import PremiumCalculator
+
             db = get_abr_database()
             db.reset_query_stats()
-
-            calc = PremiumCalculator(p)
-
-            t0 = time.perf_counter()
-            rate_schedule = calc.get_premium_schedule()       # per-$1000 rates (Steps 1+2)
-            t_rate = time.perf_counter() - t0
-
-            t0 = time.perf_counter()
-            annual_schedule = calc.get_annual_premium_schedule()  # full annual $ (Steps 1-5, with riders)
-            t_annual = time.perf_counter() - t0
-
-            t0 = time.perf_counter()
-            base_annual_schedule = calc.get_base_annual_premium_schedule()  # base only (no riders/CTR)
-            t_base = time.perf_counter() - t0
-
-            if not rate_schedule or not annual_schedule:
+            schedule = premium_schedule_for_quote(p, self.get_quote_date())
+            if not schedule.premium_schedule:
                 self._detail_labels["calc_premium"].setText("(none)")
                 return
 
-            policy_fee = db.get_policy_fee(p.plan_code)
-
-            # Compute cur_yr early — needed for rider_annual proration below
-            qd = self.get_quote_date()
-            if p.issue_date:
-                _ysi = qd.year - p.issue_date.year
-                if (qd.month, qd.day) < (p.issue_date.month, p.issue_date.day):
-                    _ysi -= 1
-                cur_yr = max(_ysi + 1, 1)
-            else:
-                cur_yr = max(p.policy_year, 1)
-
-            # rider_annual is now computed per-year inside get_annual_premium_schedule
-            # For the proration below, compute rider total for the current year
-            rider_annual = calc._compute_all_riders_premium(cur_yr) if hasattr(calc, '_compute_all_riders_premium') else p.rider_annual_premium
-
-            # ── Billing mode → payments per year ────────────────────────
-            payments_per_year = {1: 1, 2: 2, 3: 4, 4: 12, 5: 12}.get(
-                p.billing_mode, 12
-            )
-            months_per_payment = 12 // payments_per_year
-
-            # ── Remaining payments in current policy year ───────────────
-            # Recompute policy_month based on the quote date so that
-            # backdating the quote date properly reduces remaining payments.
-            # policy_month = month within the current policy year (1-12).
-            qd_for_remaining = self.get_quote_date()
-            if p.issue_date:
-                # Months from the most recent anniversary to the quote date.
-                # The anniversary month/day repeats each year from issue_date.
-                anniv_month = p.issue_date.month
-                anniv_day = p.issue_date.day
-                # Which anniversary year are we in?
-                ysi = qd_for_remaining.year - p.issue_date.year
-                if (qd_for_remaining.month, qd_for_remaining.day) < (anniv_month, anniv_day):
-                    ysi -= 1
-                # Most recent anniversary
-                anniv_year = p.issue_date.year + ysi
-                # Months elapsed since that anniversary
-                months_elapsed = (
-                    (qd_for_remaining.year - anniv_year) * 12
-                    + qd_for_remaining.month - anniv_month
-                )
-                # If we haven't reached the anniversary day within this month,
-                # we're still in the previous month of the policy year.
-                if qd_for_remaining.day < anniv_day:
-                    months_elapsed -= 1
-                effective_policy_month = max(months_elapsed + 1, 1)  # 1-based
-            else:
-                effective_policy_month = p.policy_month
-
-            # A payment is due at months 1, 1+interval, 1+2*interval, ...
-            # The payment on the quote date is considered already paid,
-            # so we count it as made.
-            payments_made = (effective_policy_month - 1) // months_per_payment + 1
-            remaining_payments = max(payments_per_year - payments_made, 0)
-
-            # ── Modal factor ────────────────────────────────────────────
-            modal_factor = db.get_modal_factor(p.plan_code, p.billing_mode)
-            modal_fee_factor = db.get_modal_fee_factor(p.plan_code, p.billing_mode)
-
-            # ── Validation: compare calculated vs. CyberLife modal ──────
-            # cur_yr already computed above
-            if cur_yr - 1 < len(annual_schedule):
-                calc_annual = annual_schedule[cur_yr - 1]
-            else:
-                calc_annual = 0.0
-            # Apply single modal factor to the total annual premium
-            from ..core.premium_calc import arithmetic_round
-            calc_modal = arithmetic_round(calc_annual * modal_factor, 2)
+            calc_modal = schedule.current_modal_premium
             cyberlife_modal = p.modal_premium
-
-            # ── Display calculated premium in details grid ──────────────
             self._detail_labels["calc_premium"].setText(f"${calc_modal:,.2f}")
             self._calc_detail_btn.setVisible(True)
-
-            # ── Store coverage-centric breakdown for the detail dialog ────
-            # Build one entry per coverage (base + riders).  Each entry
-            # contains the coverage's own rate info plus any benefits.
-            pi = self._policy_info
-            cov_breakdowns = []
-            try:
-                all_coverages = pi.get_coverages() if pi else []
-                all_bens = pi.get_benefits() if pi else []
-            except Exception:
-                all_coverages = []
-                all_bens = []
-
-            for cov_idx, cov in enumerate(all_coverages):
-                pc = (cov.plancode or "").upper()
-                cov_sex = {"1": "M", "2": "F"}.get(
-                    cov.sex_code, cov.sex_code or p.sex
-                )
-                cov_rc = (cov.rate_class or "0").strip()
-                if cov_rc == "0" and cov.is_base:
-                    cov_rc = p.rate_class
-                cov_table = int(cov.table_rating or 0)
-                cov_issue_age = int(cov.issue_age or 0)
-                cov_face = float(cov.face_amount or 0)
-                cov_units = cov_face / 1000.0
-                cov_flat = 0.0
-
-                # Band lookup (needed for rate lookup and display)
-                cov_band_code = ""
-                try:
-                    cov_band_code = calc.db.get_band(pc, cov_face, p.issue_date) or ""
-                except Exception:
-                    pass
-
-                # Rate lookup
-                if cov.is_base:
-                    # Base coverage: use the pre-computed raw rate
-                    raw_schedule = calc.get_rate_schedule()
-                    cov_rate = raw_schedule[cur_yr - 1] if raw_schedule and cur_yr - 1 < len(raw_schedule) else 0.0
-                    cov_flat = p.flat_extra if (p.flat_extra > 0 and p.flat_to_age > 0 and p.attained_age < p.flat_to_age) else 0.0
-                    cov_sex = p.rate_sex or p.sex  # use rate sex for base
-                    cov_rc = p.rate_class
-                else:
-                    # Non-base: look up from TERM tables
-                    try:
-                        band = cov_band_code
-                        cov_rate = calc.db.get_term_rate(
-                            pc, cov_sex, cov_rc, band, cov_issue_age, cur_yr,
-                        )
-                        if cov_rate is None:
-                            logger.debug(
-                                f"No TERM rate for coverage {pc}: "
-                                f"sex={cov_sex} rc={cov_rc} band={band} "
-                                f"age={cov_issue_age} yr={cur_yr}"
-                            )
-                            cov_rate = 0.0
-                    except Exception as e:
-                        logger.debug(f"Error looking up TERM rate for {pc}: {e}")
-                        cov_rate = 0.0
-
-                rating_factor = 1.0 + cov_table * 0.25
-                step1 = arithmetic_round(cov_rate * rating_factor, 2)
-                step2 = step1 + cov_flat
-                cov_premium = arithmetic_round(step2 * cov_units, 2)
-
-                # ── Benefits on this coverage ─────────────────────
-                cov_benefits = [b for b in all_bens
-                                if b.cov_pha_nbr == cov.cov_pha_nbr]
-                benefit_details = []
-                # NOTE: For Term products, band is a coverage-level concept
-                # determined by the coverage face amount — NOT the individual
-                # benefit amount.  Use the same band for all benefit lookups
-                # on this coverage.
-                cov_band = calc.db.get_band(pc, cov_face, p.issue_date)
-                for ben in cov_benefits:
-                    if ben.cease_date and ben.cease_date < date.today():
-                        continue
-                    ben_type = (ben.benefit_type_cd or "").strip()
-                    ben_sub = (ben.benefit_subtype_cd or "").strip()
-
-                    # NOTE: We must skip '#' benefits (ABR) since they have no premium charge.
-                    # As discussed before, DO NOT REMOVE THIS CHECK! Including them causes
-                    # the display calculation to incorrectly fall back to the base rate and
-                    # wildly inflate the displayed coverage premium sum!
-                    if ben_type == "#":
-                        continue
-
-                    # Recreate the RiderInfo object that the PremiumEngine expects
-                    ben_face = float(ben.benefit_amount or 0) or cov_face
-                    ben_issue_age = int(ben.issue_age or cov_issue_age or 0)
-                    ben_units = ben_face / 1000.0
-                    ben_rating = float(ben.rating_factor) if ben.rating_factor else 0.0
-                    
-                    ben_rider = RiderInfo(
-                        plancode=pc,
-                        face_amount=ben_face,
-                        issue_age=ben_issue_age,
-                        sex=cov_sex,
-                        rate_class=cov_rc,
-                        table_rating=cov_table,
-                        rider_type="BENEFIT",
-                        fallback_premium=0.0,
-                        benefit_type=ben_type,
-                        benefit_subtype=ben_sub,
-                        benefit_units=float(ben.units or 0),
-                        benefit_vpu=float(ben.vpu or 0),
-                        benefit_rating_factor=ben_rating,
-                        cease_date=ben.cease_date,
-                    )
-
-                    # Use the PremiumCalculator to compute the exact rider premium
-                    ben_premium = calc.compute_rider_annual_premium(ben_rider, cur_yr)
-
-                    # For display purposes only, figure out the rate and PW factor
-                    is_pw = ben_type in ("3", "4")
-                    pw_factor = ben_rating if ben_rating > 0 else (
-                        1.50 if cov_table == 1 else (2.25 if cov_table == 2 else 1.0)
-                    )
-                    
-                    # Try to look up the base rate for display in the grid
-                    ben_rate = None
-                    try:
-                        ben_code = f"{ben_type}{ben_sub}"
-                        ben_name = BENEFIT_TYPE_CODES.get(ben_type, ben_code)
-                        ben_rate = calc.db.get_benefit_rate(
-                            pc, ben_code, ben_name,
-                            cov_sex, cov_rc, cov_band,
-                            ben_issue_age, cur_yr,
-                        )
-                    except Exception:
-                        pass
-                        
-                    # Label includes benefit code for clarity
-                    if is_pw:
-                        lbl = f"PW (Ben {ben_code})"
-                    else:
-                        lbl = f"Ben {ben_code}"
-                        
-                    benefit_details.append({
-                        "type": ben_type,
-                        "subtype": ben_sub,
-                        "label": lbl,
-                        "rate": ben_rate,
-                        "factor": pw_factor,
-                        "premium": ben_premium,
-                    })
-                    cov_premium += ben_premium
-
-                cov_breakdowns.append({
-                    "plancode": pc,
-                    "issue_age": cov_issue_age,
-                    "sex": cov_sex,
-                    "rate_class": cov_rc,
-                    "band": cov_band_code,
-                    "rate": cov_rate,
-                    "table_rating": cov_table,
-                    "rating_factor": rating_factor,
-                    "flat_extra": cov_flat,
-                    "units": cov_units,
-                    "benefits": benefit_details,
-                    "premium": cov_premium,
-                })
-
-            self._prem_breakdown = {
-                "policy_number": p.policy_number,
-                "policy_year": cur_yr,
-                "coverages": cov_breakdowns,
-                "policy_fee": policy_fee,
-                "billing_mode": p.billing_mode,
-                "modal_label": MODAL_LABELS.get(p.billing_mode, "Annual"),
-                "modal_factor": modal_factor,
-                "calc_modal": calc_modal,
-            }
-
-            # ── Show/hide mismatch warning ───────────────────────────────
-            if cyberlife_modal > 0 and abs(calc_modal - cyberlife_modal) > 0.02:
-                diff = calc_modal - cyberlife_modal
-                self.premium_warning.setText(
-                    f"⚠ Premium mismatch: Calculated ${calc_modal:,.2f} "
-                    f"vs CyberLife ${cyberlife_modal:,.2f} "
-                    f"(diff ${diff:+,.2f})"
-                )
-                self.premium_warning.setVisible(True)
-                # Also highlight the calc premium label in red
-                self._detail_labels["calc_premium"].setStyleSheet(
-                    f"color: #CC0000; font-size: 11px; font-weight: bold;"
-                )
-                logger.warning(
-                    f"Modal premium mismatch: calculated=${calc_modal:.2f} "
-                    f"vs CyberLife=${cyberlife_modal:.2f} "
-                    f"(diff=${diff:+.2f})"
-                )
-            else:
-                self.premium_warning.setVisible(False)
-                self._detail_labels["calc_premium"].setStyleSheet(
-                    f"color: {GRAY_DARK}; font-size: 11px;"
-                )
-
-            # ── Build schedule rows ─────────────────────────────────────
-            max_duration = p.maturity_age - p.issue_age
-
-            # Use the quote date to compute the policy year at that date
-            # so that backdating the quote date shifts Year & Age.
-            quote_date = self.get_quote_date()
-            current_calendar = quote_date.year
-            if p.issue_date:
-                # Compute policy year at the quote date
-                years_since_issue = quote_date.year - p.issue_date.year
-                # If we haven't reached the anniversary month/day yet, subtract one
-                if (quote_date.month, quote_date.day) < (p.issue_date.month, p.issue_date.day):
-                    years_since_issue -= 1
-                start_year = max(years_since_issue + 1, 1)
-            else:
-                start_year = max(p.policy_year, 1)
-
-            rows = []
-            for yr in range(start_year, max_duration + 1):
-                if yr - 1 >= len(base_annual_schedule):
-                    break
-                full_annual = base_annual_schedule[yr - 1]
-
-                if yr == start_year and remaining_payments < payments_per_year:
-                    # First year: only the remaining modal payments
-                    modal_prem = arithmetic_round(full_annual * modal_factor, 2)
-                    display_prem = modal_prem * remaining_payments
-                else:
-                    display_prem = full_annual
-
-                cal_year = current_calendar + (yr - start_year)
-                attained_age = p.issue_age + yr - 1
-                rows.append((cal_year, attained_age, display_prem))
-
-            self.premium_table.setRowCount(len(rows))
-            for i, (cal_year, att_age, prem) in enumerate(rows):
-                self.premium_table.setItem(i, 0, QTableWidgetItem(str(cal_year)))
-                self.premium_table.setItem(i, 1, QTableWidgetItem(str(att_age)))
-                self.premium_table.setItem(i, 2, QTableWidgetItem(f"${prem:,.2f}"))
-
-            self.premium_table.autoFitAllColumns()
-
-            t_total_elapsed = time.perf_counter() - t_total
-            # Write section timings to file
-            timing_path = profile_path('timing.log')
-            timing_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(timing_path, "a", encoding="utf-8") as f:
-                f.write(f"\n[TIMING] Policy {p.policy_number} — Section Timings:\n")
-                f.write(f"  get_premium_schedule:          {t_rate:.4f}s\n")
-                f.write(f"  get_annual_premium_schedule:    {t_annual:.4f}s\n")
-                f.write(f"  get_base_annual_premium_schedule: {t_base:.4f}s\n")
-                f.write(f"  TOTAL _populate_premium_schedule: {t_total_elapsed:.4f}s\n")
+            self._prem_breakdown = PremiumCalculator(p).build_coverage_breakdown(
+                policy_year=schedule.start_year,
+                prem_result=schedule.premium_result,
+                modal_factor=schedule.modal_factor,
+            )
+            self._render_premium_warning(calc_modal, cyberlife_modal)
+            self._render_premium_schedule_rows(schedule)
             db.dump_query_stats()
-
         except Exception as e:
             logger.error(f"Error building premium schedule: {e}", exc_info=True)
             self._detail_labels["calc_premium"].setText("(none)")
+
+    def _render_premium_warning(self, calc_modal: float, cyberlife_modal: float) -> None:
+        """Display the calculated-vs-CyberLife modal premium warning."""
+        if cyberlife_modal > 0 and abs(calc_modal - cyberlife_modal) > 0.02:
+            diff = calc_modal - cyberlife_modal
+            self.premium_warning.setText(
+                f"⚠ Premium mismatch: Calculated ${calc_modal:,.2f} "
+                f"vs CyberLife ${cyberlife_modal:,.2f} "
+                f"(diff ${diff:+,.2f})"
+            )
+            self.premium_warning.setVisible(True)
+            self._detail_labels["calc_premium"].setStyleSheet(
+                "color: #CC0000; font-size: 11px; font-weight: bold;"
+            )
+            logger.warning(
+                f"Modal premium mismatch: calculated=${calc_modal:.2f} "
+                f"vs CyberLife=${cyberlife_modal:.2f} "
+                f"(diff=${diff:+.2f})"
+            )
+            return
+        self.premium_warning.setVisible(False)
+        self._detail_labels["calc_premium"].setStyleSheet(
+            f"color: {GRAY_DARK}; font-size: 11px;"
+        )
+
+    def _render_premium_schedule_rows(self, schedule) -> None:
+        """Populate the premium schedule table from a PremiumScheduleResult."""
+        p = self._policy
+        if not p:
+            return
+        quote_date = self.get_quote_date()
+        current_calendar = quote_date.year
+        max_duration = p.maturity_age - p.issue_age
+        rows = []
+        for year in range(schedule.start_year, max_duration + 1):
+            index = year - 1
+            if index >= len(schedule.premium_schedule):
+                break
+            calendar_year = current_calendar + (year - schedule.start_year)
+            attained_age = p.issue_age + year - 1
+            rows.append((calendar_year, attained_age, schedule.premium_schedule[index]))
+        self.premium_table.setRowCount(len(rows))
+        for row_index, (calendar_year, attained_age, premium) in enumerate(rows):
+            self.premium_table.setItem(row_index, 0, QTableWidgetItem(str(calendar_year)))
+            self.premium_table.setItem(row_index, 1, QTableWidgetItem(str(attained_age)))
+            self.premium_table.setItem(row_index, 2, QTableWidgetItem(f"${premium:,.2f}"))
+        self.premium_table.autoFitAllColumns()
 
     def _show_premium_breakdown(self):
         """Show a dialog with per-coverage premium calculation breakdown."""

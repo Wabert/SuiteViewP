@@ -15,7 +15,6 @@ import json
 import math
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 from .models.abr_data import ABRPolicyData
 from .models.abr_database import using_quote_database
@@ -354,7 +353,7 @@ def calculate_quote(request: QuoteRequest | dict, policy: ABRPolicyData, *,
         raise QuoteError("UL-specific inputs supplied for a TERM product")
 
     from .core.quote_service import ABRQuoteInputs, calculate_abr_quote
-    from .ui.email_print_dialog import EmailPrintDialog
+    from .core.quote_summary import render_quote_summary
     trace = _RateTrace(database, p.product_type)
     with using_quote_database(trace):
         assessment = _assessment_port(p, request)
@@ -372,11 +371,7 @@ def calculate_quote(request: QuoteRequest | dict, policy: ABRPolicyData, *,
         trace,
     )
     results = snapshot.result
-    render = SimpleNamespace(_policy=p, _assessment=assessment,
-                             _result=results, _fmt=EmailPrintDialog._fmt)
-    sections = EmailPrintDialog._build_summary_sections(render)
-    html = EmailPrintDialog._build_clipboard_html(render, sections)
-    text = EmailPrintDialog._build_clipboard_text(render, sections)
+    _sections, html, text = render_quote_summary(p, results, assessment)
     root = Path(__file__).parent
     files = [Path(__file__), root / "automation_data.py", *sorted((root / "core").glob("*.py")),
              root / "models" / "abr_constants.py", root / "models" / "abr_data.py",

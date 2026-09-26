@@ -681,19 +681,25 @@ def test_explanation_document_text_characterization(policy):
 
 
 def test_email_summary_renderer_characterization():
+    from suiteview.abrquote.core.quote_summary import render_quote_summary
     from suiteview.abrquote.ui.email_print_dialog import EmailPrintDialog
 
+    policy = _workbook_policy()
+    result = _workbook_result()
+    assessment = _workbook_assessment()
     render = SimpleNamespace(
-        _policy=_workbook_policy(),
-        _assessment=_workbook_assessment(),
-        _result=_workbook_result(),
+        _policy=policy,
+        _assessment=assessment,
+        _result=result,
         _fmt=EmailPrintDialog._fmt,
     )
 
     sections = EmailPrintDialog._build_summary_sections(render)
     html = EmailPrintDialog._build_clipboard_html(render, sections)
     text = EmailPrintDialog._build_clipboard_text(render, sections)
+    core_sections, core_html, core_text = render_quote_summary(policy, result, assessment)
 
+    assert (core_sections, core_html, core_text) == (sections, html, text)
     assert sha256(repr(sections).encode("utf-8")).hexdigest() == (
         "92985d8311176157115b375d15f78f7b602584ae6ac39fa6b2ee08ea0bd61b82"
     )
