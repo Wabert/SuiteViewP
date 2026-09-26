@@ -82,6 +82,26 @@ def _build_policy(source, *, iul: bool = False, config: PlancodeConfig | None = 
 def policy_data_cases() -> dict[str, IllustrationPolicyData]:
     standard = _build_policy(_FakePolicyInfo())
 
+    rated_source = _FakePolicyInfo()
+    rated_table_cease = date(2030, 6, 15)
+    rated_flat_cease = date(2031, 7, 15)
+    rated_source.get_substandard_ratings = lambda: [
+        SimpleNamespace(
+            coverage_phase=1,
+            type_code="T",
+            table_rating_numeric=3,
+            flat_cease_date=rated_table_cease,
+        ),
+        SimpleNamespace(
+            coverage_phase=1,
+            type_code="F",
+            table_rating_numeric=0,
+            flat_amount=12.50,
+            flat_cease_date=rated_flat_cease,
+        ),
+    ]
+    rated = _build_policy(rated_source)
+
     iul_source = _FakePolicyInfo()
     iul_source.product_type = "IUL"
     iul_source.get_fund_buckets = lambda *, current_only: [
@@ -93,6 +113,7 @@ def policy_data_cases() -> dict[str, IllustrationPolicyData]:
     iul = _build_policy(iul_source, iul=True)
     return {
         "fake_standard_policy": standard,
+        "fake_substandard_policy": rated,
         "fake_iul_policy": iul,
     }
 

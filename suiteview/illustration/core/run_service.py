@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import platform
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Callable, Optional
@@ -68,6 +69,8 @@ from suiteview.illustration.models.input_set import (
 )
 
 logger = logging.getLogger(__name__)
+
+_STATUS_DATE_FMT = "%#m/%d/%Y" if platform.system() == "Windows" else "%-m/%d/%Y"
 
 
 @dataclass(frozen=True)
@@ -178,6 +181,7 @@ class RunResult:
     report: ReportResult
     messages: list[str]
     abr_quote: object | None = None
+    lumpsum_result: object | None = None
     duration_label: str = ""
 
     @property
@@ -240,6 +244,7 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
         solved_inputs=resolved.solved_inputs,
         report=report,
         messages=[*resolved.messages, status],
+        lumpsum_result=resolved.lumpsum_result,
         duration_label=scenario.duration_label,
     )
 
@@ -911,4 +916,4 @@ def _format_amount(value: float) -> str:
 
 
 def _format_date(value: date) -> str:
-    return f"{value:%m/%d/%Y}"
+    return value.strftime(_STATUS_DATE_FMT)

@@ -25,7 +25,7 @@ from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.signals import muted_signals
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
-from suiteview.illustration.api import project_policy
+from suiteview.illustration.api import load_policy_data, project_policy
 from suiteview.illustration.core.illustration_policy_service import (
     coverage_segment_data_warnings,
 )
@@ -51,6 +51,7 @@ from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.input_set import RollbackOverrideSet
 from suiteview.illustration.core.value_rollback import available_rollback_dates
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.ui.formatting import format_amount, format_date
 from suiteview.polview.ui.widgets import PolicyLookupBar
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
@@ -1022,6 +1023,8 @@ class IllustrationWindow(FramelessWindowBase):
             if session.input_draft is not None:
                 with muted_signals(inputs_tab):
                     inputs_tab.render_draft(session.input_draft)
+                self._on_run_from_issue_changed(
+                    inputs_tab.run_from_issue_enabled(), inputs_tab)
             if self.inputs_tab.export_rollback_overrides() is not None:
                 self._illustration_data = session.policy_data
             if not self.values_tab.restore_session_state(session.values):
@@ -1046,7 +1049,11 @@ class IllustrationWindow(FramelessWindowBase):
             self._refresh_policy_basis()
         self.run_values_btn.setEnabled(True)
         self.save_case_btn.setEnabled(True)
-        if session is not None and session.status:
+        load_error = getattr(self, "_illustration_load_error", "")
+        if load_error:
+            QMessageBox.warning(self, "Illustration Data", load_error)
+            self._show_status(load_error)
+        elif session is not None and session.status:
             self._show_status(session.status)
         else:
             cache_note = " (cached)" if cached else ""
@@ -1326,18 +1333,20 @@ class IllustrationWindow(FramelessWindowBase):
     def _policy_load_checks(self, policy_number: str, region: str, company_code: str):
         warnings: list[str] = []
         self._illustration_data = None
+        self._illustration_load_error = ""
         try:
             warnings.extend(coverage_segment_data_warnings(self._policy))
-            policy_data = project_policy(
-                policy_number, region=region, company_code=company_code,
-                months=0).policy
+            policy_data = load_policy_data(
+                policy_number, region=region, company_code=company_code)
             self._illustration_data = policy_data
             warnings.extend(self._definition_of_life_warnings(policy_data))
             config = load_plancode(policy_data.plancode)
             rates = load_rates(policy_data, config)
             warnings.extend(missing_required_rate_warnings(policy_data, rates))
         except Exception as exc:
-            warnings.append(f"Unable to validate illustration data/rates: {exc}")
+            self._illustration_load_error = (
+                f"Unable to load illustration data/rates: {exc}")
+            warnings.append(self._illustration_load_error)
             return warnings, None
 
         md_check = None
@@ -1543,7 +1552,24 @@ class IllustrationWindow(FramelessWindowBase):
             guaranteed_error=result.report.guaranteed_error,
         )
         self.tabs.setCurrentWidget(self.values_tab)
+        self._show_lumpsum_guideline_warning(result.lumpsum_result)
         self._show_status(result.status)
+
+    def _show_lumpsum_guideline_warning(self, lumpsum_result):
+        if (
+            lumpsum_result is None
+            or not getattr(lumpsum_result, "guideline_limited", False)
+        ):
+            return
+        QMessageBox.warning(
+            self,
+            "Lumpsum to Next Premium",
+            "The 7702 guideline limited the bridging premium to "
+            f"{format_amount(lumpsum_result.applied)}, which cannot carry the "
+            "policy to its next premium on "
+            f"{format_date(lumpsum_result.next_premium_date)} on premium alone.\n\n"
+            "Enable Allow GP Exception Premium to bridge the remaining gap.",
+        )
 
     @staticmethod
     def _first_row_injected_columns(scenario) -> set[str]:

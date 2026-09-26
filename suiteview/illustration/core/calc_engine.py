@@ -542,6 +542,8 @@ def _recalc_policy_change_guidelines(
     ctx: MonthContext, work: MonthWork, guideline_changes: int,
     recalc_change, guideline_before, guideline_before_pv_detail,
 ) -> None:
+    if not ctx.policy_changes:
+        return
     if not (guideline_changes and recalc_change is not None):
         return
     if guideline_changes > 1:
@@ -551,22 +553,12 @@ def _recalc_policy_change_guidelines(
             value=recalc_change.value,
             metadata={"change_label": "Combined Policy Changes"},
         )
-    prior_recalc = dict(work.guideline_recalc)
     work.guideline_recalc = _recalc_guideline_on_change(
         ctx.policy, ctx.config, recalc_change, work.attained_age,
         change_date=work.month_date, before=guideline_before, av=work.av,
         material_change=work.tamra_reset, options=ctx.options,
         before_pv_detail=guideline_before_pv_detail,
     )
-    _preserve_same_month_seven_pay_context(work.guideline_recalc, prior_recalc)
-
-
-def _preserve_same_month_seven_pay_context(recalc_detail: dict, prior_recalc: dict) -> None:
-    if not recalc_detail or not prior_recalc:
-        return
-    for key in ("seven_pay_prior", "seven_pay_before"):
-        if prior_recalc.get(key) is not None:
-            recalc_detail[key] = prior_recalc[key]
 
 
 def _capture_coverage_after_change(ctx: MonthContext, work: MonthWork) -> None:
@@ -738,6 +730,9 @@ def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
         prior_scheduled_prem_cap=state.scheduled_prem_cap,
         prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
         prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
+        dollar_for_dollar_in_transition_year=(
+            ctx.options.dollar_for_dollar_in_transition_year
+        ),
         loan_repay_from_lumpsum=work.cash_flows.loan_repay_from_lumpsum,
         loan_repay_from_scheduled=work.cash_flows.loan_repay_from_scheduled,
         ln_repay_left_over=work.cash_flows.ln_repay_left_over,

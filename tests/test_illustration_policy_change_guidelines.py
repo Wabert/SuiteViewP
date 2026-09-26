@@ -674,3 +674,151 @@ def test_same_month_withdrawal_and_face_decrease_recalc_reflects_final_face(monk
     # The applied (Overview) premiums come from that same final-state recalc.
     assert result.guideline_recalc["glp_new"] == policy.glp
     assert result.guideline_recalc["gsp_new"] == policy.gsp
+
+
+def _patch_dbo_a_withdrawal_recalc(monkeypatch, solve_faces):
+    monkeypatch.setattr(calc_engine, "_reload_policy_band_rates", lambda *_args: None)
+    monkeypatch.setattr(calc_engine, "_reband_segment", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(calc_engine, "_reband_benefits", lambda *_args: None)
+    monkeypatch.setattr(calc_engine, "_safe_guideline_pv_recalc_detail", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(calc_engine, "_safe_seven_pay_pv_detail", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        calc_engine, "build_target_detail_snapshots", lambda *_args, **_kwargs: ({}, {}))
+    monkeypatch.setattr(
+        calc_engine,
+        "compute_target_premiums",
+        lambda *_args, **_kwargs: SimpleNamespace(mtp_annual=120.0, ctp_annual=240.0),
+    )
+    monkeypatch.setattr(
+        calc_engine,
+        "compute_withdrawal",
+        lambda *_args, **_kwargs: WithdrawalResult(
+            input_withdrawal=1_000.0,
+            applied_net_withdrawal=1_000.0,
+            cost_basis_before_wd=20_000.0,
+            cost_basis_after_wd=19_000.0,
+            withdrawals_to_date=1_000.0,
+            withdrawals_ytd=1_000.0,
+            gross_withdrawal=1_000.0,
+            av_post_withdrawal=49_000.0,
+            face_decrease=10_000.0,
+        ),
+    )
+
+    def fake_solve(policy, _config, _attained_age, _change_date, _options, **_kwargs):
+        solve_faces.append(policy.total_face)
+        return GuidelineSolveResult(
+            glp=policy.total_face / 100.0 + 200.0,
+            gsp=policy.total_face / 50.0 + 400.0,
+            seven_pay=policy.total_face / 200.0,
+        )
+
+    monkeypatch.setattr(calc_engine, "_solve_guideline_state", fake_solve)
+
+
+def _dbo_a_policy_for_withdrawal_recalc() -> IllustrationPolicyData:
+    return IllustrationPolicyData(
+        plancode="TEST",
+        def_of_life_ins="GPT",
+        issue_date=date(2026, 1, 1),
+        valuation_date=date(2026, 1, 1),
+        issue_age=40,
+        attained_age=40,
+        maturity_age=121,
+        policy_year=1,
+        policy_month=1,
+        duration=1,
+        face_amount=100_000.0,
+        units=100.0,
+        db_option="A",
+        account_value=50_000.0,
+        glp=1_200.0,
+        gsp=2_400.0,
+        tamra_7pay_level=600.0,
+        segments=[
+            CoverageSegment(
+                coverage_phase=1,
+                issue_date=date(2026, 1, 1),
+                face_amount=100_000.0,
+                units=100.0,
+                vpu=1_000.0,
+            )
+        ],
+    )
+
+
+def _dbo_a_withdrawal_context(policy, *, changes=None):
+    state = MonthlyState(
+        date=date(2026, 1, 1),
+        policy_year=1,
+        policy_month=1,
+        duration=1,
+        attained_age=40,
+        av_end_of_month=50_000.0,
+        cost_basis=20_000.0,
+        cost_basis_after_exception=20_000.0,
+    )
+    return calc_engine.MonthContext(
+        state=state,
+        policy=policy,
+        config=PlancodeConfig(
+            plancode="TEST",
+            gint=0.0,
+            dbd=0.0,
+            premium_load="0",
+            prem_flat_load=0.0,
+            epu_code="0",
+            mfee="0",
+            poav_code="0",
+            bonus="0",
+            corridor_code=None,
+            snet_period=0,
+        ),
+        rates=IllustrationRates(),
+        bonus=BonusConfig(),
+        month_inputs=CompiledMonthInputs(withdrawal=1_000.0),
+        options=calc_engine.IllustrationOptions(),
+        policy_changes=changes or [],
+    )
+
+
+def test_dbo_a_withdrawal_without_policy_changes_does_not_reapply_guideline_delta(monkeypatch):
+    solve_faces = []
+    _patch_dbo_a_withdrawal_recalc(monkeypatch, solve_faces)
+    policy = _dbo_a_policy_for_withdrawal_recalc()
+
+    result = calc_engine.run_month(
+        _dbo_a_withdrawal_context(policy),
+        calc_engine.ILLUSTRATION_TIMING,
+    )
+
+    assert result.guideline_recalc["glp_before"] == 1_200.0
+    assert result.guideline_recalc["glp_after"] == 1_100.0
+    assert policy.glp == pytest.approx(1_099.92)
+    assert policy.gsp == pytest.approx(2_199.96)
+
+
+def test_dbo_a_withdrawal_with_policy_changes_keeps_single_combined_guideline_recalc(monkeypatch):
+    solve_faces = []
+    _patch_dbo_a_withdrawal_recalc(monkeypatch, solve_faces)
+    policy = _dbo_a_policy_for_withdrawal_recalc()
+
+    result = calc_engine.run_month(
+        _dbo_a_withdrawal_context(
+            policy,
+            changes=[
+                PolicyChangeEvent(
+                    PolicyChangeKind.FACE_AMOUNT,
+                    date(2026, 2, 1),
+                    80_000.0,
+                )
+            ],
+        ),
+        calc_engine.ILLUSTRATION_TIMING,
+    )
+
+    assert result.guideline_recalc["change_kind"] == "Combined Policy Changes"
+    assert result.guideline_recalc["glp_before"] == 1_200.0
+    assert result.guideline_recalc["glp_after"] == 1_000.0
+    assert policy.glp == pytest.approx(999.96)
+    assert policy.gsp == pytest.approx(1_999.92)

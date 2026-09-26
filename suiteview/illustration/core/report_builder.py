@@ -33,6 +33,7 @@ from datetime import date
 from textwrap import wrap
 from typing import Dict, List, Optional
 
+from suiteview.illustration.core.lapse import issue_no_lapse_years
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -42,6 +43,7 @@ from suiteview.illustration.models.input_set import (
     PolicyChangeKind,
     TransactionKind,
 )
+from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
 from suiteview.illustration.core.report_specs import ReportFacts, ReportSectionSpec, RequestLineSpec
@@ -197,6 +199,11 @@ def issue_output_basis(policy: IllustrationPolicyData) -> List[str]:
 
 def _issue_lapse_period_text(policy: IllustrationPolicyData) -> str:
     years = policy.issue_no_lapse_years
+    if years is None:
+        try:
+            years = issue_no_lapse_years(policy, load_plancode(policy.plancode))
+        except Exception:
+            years = None
     return f"{years:g} YEARS" if years is not None else "PLAN SAFETY-NET PERIOD (DEFAULT)"
 
 
@@ -1467,17 +1474,20 @@ def _build_ul_report_from_facts(
             f"LEVEL PREMIUM = {_money(inforce.glp)}",
             f"LEVEL ACCUMULATION = {_money(inforce.accumulated_glp)}",
         ]
-        if 1 <= inforce.tamra_year <= 7 and policy.tamra_7pay_level > 0:
+        seven_pay_level = inforce.tamra_7pay_level or policy.tamra_7pay_level
+        if 1 <= inforce.tamra_year <= 7 and seven_pay_level > 0:
             report.regulatory_lines.append(
-                f"7-PAY PREMIUM = {_money(policy.tamra_7pay_level)}")
+                f"7-PAY PREMIUM = {_money(seven_pay_level)}")
             if policy.tamra_7pay_start_date:
                 report.regulatory_lines.append(
                     f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m/%d/%Y')}")
-    elif policy.is_cvat and 1 <= inforce.tamra_year <= 7 and policy.tamra_7pay_level > 0:
+    else:
+        seven_pay_level = inforce.tamra_7pay_level or policy.tamra_7pay_level
+    if policy.is_cvat and 1 <= inforce.tamra_year <= 7 and seven_pay_level > 0:
         # CVAT policies have no GLP/GSP guideline limits, but a 7-pay premium
         # still applies while the policy is inside its 7-pay period.
         report.regulatory_lines = [
-            f"7-PAY PREMIUM = {_money(policy.tamra_7pay_level)}",
+            f"7-PAY PREMIUM = {_money(seven_pay_level)}",
         ]
         if policy.tamra_7pay_start_date:
             report.regulatory_lines.append(
