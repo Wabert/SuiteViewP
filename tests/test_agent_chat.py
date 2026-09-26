@@ -301,7 +301,11 @@ def test_agent_worker_emits_discrete_tool_activity(tmp_path):
     conversation = AgentConversation.create(folder=str(tmp_path))
     worker = AgentRunWorker(conversation, "hello")
     activity = []
-    worker.activity_added.connect(lambda kind, text: activity.append((kind, text)))
+    worker.signals.progress.connect(
+        lambda payload: activity.append((payload["activity_kind"], payload["text"]))
+        if isinstance(payload, dict) and payload.get("kind") == "activity"
+        else None
+    )
 
     worker._on_event(
         SimpleNamespace(

@@ -8,9 +8,9 @@ from pathlib import Path
 
 from PyQt6.QtCore import (
     QMimeData,
+    QObject,
     QSortFilterProxyModel,
     Qt,
-    QThread,
     QUrl,
     pyqtSignal,
 )
@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 from suiteview.file_nav.sharepoint_client import (
     is_sp_path,
 )
+from suiteview.ui.workers import WorkerSignals
 
 logger = logging.getLogger(__name__)
 
@@ -449,13 +450,12 @@ class DropFolderTreeView(QTreeView):
         else:
             event.ignore()
 
-class DepthScanWorker(QThread):
+class DepthScanWorker(QObject):
     """Background thread for scanning folders at specified depth"""
-    progress = pyqtSignal(int, str)
-    finished = pyqtSignal(list)
-    
+
     def __init__(self, root_path, depth_level):
         super().__init__()
+        self.signals = WorkerSignals(self)
         self.root_path = root_path
         self.depth_level = depth_level
         self._cancelled = False
@@ -477,8 +477,10 @@ class DepthScanWorker(QThread):
         except Exception as e:
             logger.error(f"Error during depth scan: {e}")
         
-        # Emit results
-        self.finished.emit(results)
+        if self._cancelled:
+            self.signals.cancelled.emit()
+        self.signals.result.emit(results)
+        self.signals.finished.emit()
     
     def _scan_folder(self, folder_path: Path, relative_path: str, current_depth: int, results: list):
         """Recursively scan folder up to specified depth"""
@@ -538,7 +540,7 @@ class DepthScanWorker(QThread):
                         
                         # Emit progress every 50 items
                         if len(results) % 50 == 0:
-                            self.progress.emit(len(results), f"Scanning depth {current_depth + 1}...")
+                            self.signals.progress.emit((len(results), f"Scanning depth {current_depth + 1}..."))
                         
                     except (PermissionError, OSError):
                         continue
@@ -606,4 +608,3 @@ class PrintDirectoryDialog(QDialog):
         return {
             'include_subdirs': self.include_subdirs_cb.isChecked()
         }
-

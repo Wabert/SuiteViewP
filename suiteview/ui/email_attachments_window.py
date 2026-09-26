@@ -21,11 +21,12 @@ from PyQt6.QtWidgets import (
     QMessageBox, QApplication, QComboBox, QFileIconProvider,
     QStyledItemDelegate, QStyle
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo, QUrl, QMimeData
+from PyQt6.QtCore import Qt, QObject, QFileInfo, QUrl, QMimeData
 from PyQt6.QtGui import QIcon
 
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.ui.workers import WorkerController, WorkerSignals
 from suiteview.core.outlook_manager import get_outlook_manager, close_thread_outlook_manager
 from suiteview.data.repositories import get_email_repository
 
@@ -228,303 +229,355 @@ SCAN_PERIODS = [
 ]
 
 
-class AttachmentLoaderThread(QThread):
-    """Background thread for loading attachments from Outlook"""
-    finished = pyqtSignal(list, str)  # attachments list, error message
-    progress = pyqtSignal(str)  # status message
-    attachment_found = pyqtSignal(dict)  # Individual attachment to cache
+class AttachmentLoaderWorker(QObject):
+    """Worker that traverses Outlook folders and maps visible attachments."""
     
     def __init__(self, days: int = 14, scan_from_date: datetime = None, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.days = days
         self.scan_from_date = scan_from_date  # If set, only scan from this date to now
         self._stop_requested = False  # Flag to stop scan early
     
-    def request_stop(self):
+    def cancel(self):
         """Request the scan to stop early"""
         self._stop_requested = True
+
+    def _emit_status(self, message: str) -> None:
+        self.signals.progress.emit({"kind": "status", "message": message})
+
+    def _emit_attachment(self, attachment: dict) -> None:
+        self.signals.progress.emit({"kind": "attachment", "attachment": attachment})
     
     def run(self):
-        """Load attachments in background thread"""
+        """Load attachments in the worker thread."""
         try:
-            import pywintypes
-            
-            # Use thread-local singleton (handles COM init internally)
             outlook = get_outlook_manager()
-            
             if not outlook.is_connected():
-                self.finished.emit([], "Not connected to Outlook. Please ensure Outlook is running.")
+                self.signals.error.emit(
+                    "Not connected to Outlook. Please ensure Outlook is running."
+                )
                 return
-            
-            self.progress.emit("Finding all Inbox folders...")
-            
-            # Get ALL inbox folders from ALL accounts
-            inbox_folders = []
-            try:
-                namespace = outlook.namespace
-                # Iterate through all stores (accounts)
-                for store in namespace.Stores:
-                    try:
-                        store_name = store.DisplayName
-                        self.progress.emit(f"Checking account: {store_name}...")
-                        
-                        # Try to get Inbox from this store
-                        try:
-                            # GetDefaultFolder on store's root
-                            root_folder = store.GetRootFolder()
-                            for folder in root_folder.Folders:
-                                if folder.Name.lower() in ['inbox', 'posteingang', 'boîte de réception']:
-                                    inbox_folders.append((store_name, folder))
-                                    logger.info(f"Found Inbox in: {store_name}")
-                                    break
-                        except Exception as e:
-                            logger.debug(f"Could not get inbox from store {store_name}: {e}")
-                    except Exception as e:
-                        logger.debug(f"Error accessing store: {e}")
-            except Exception as e:
-                logger.warning(f"Could not enumerate stores: {e}")
-            
-            # Fallback to default inbox if no stores found
+
+            inbox_folders = self._find_inbox_folders(outlook)
             if not inbox_folders:
-                self.progress.emit("Using default Inbox...")
-                default_inbox = outlook.get_inbox_folder()
-                if default_inbox:
-                    inbox_folders.append(("Default", default_inbox))
-            
-            if not inbox_folders:
-                self.finished.emit([], "Could not access any Inbox folder")
+                self.signals.error.emit("Could not access any Inbox folder")
                 return
-            
-            self.progress.emit(f"Scanning {len(inbox_folders)} Inbox folder(s)...")
-            
-            # Calculate the date range
-            if self.scan_from_date:
-                # Incremental scan - only get emails newer than what we have
-                start_date = self.scan_from_date
-                period_desc = "new emails"
-            else:
-                # Full scan for the period
-                start_date = datetime.now() - timedelta(days=self.days)
-                period_desc = f"last {self.days} days"
-            
-            date_filter = start_date.strftime("%m/%d/%Y %H:%M %p")
-            
-            self.progress.emit(f"Filtering to {period_desc}...")
-            
-            attachments = []
-            count = 0
-            emails_with_attachments = 0
-            max_emails_per_inbox = 5000  # Limit per inbox
-            skipped_no_attachments = 0
-            skipped_inline_only = 0
-            stopped_early = False
-            
-            # Scan ALL inbox folders
-            for store_name, inbox in inbox_folders:
-                if self._stop_requested:
-                    stopped_early = True
-                    break
-                    
-                self.progress.emit(f"Scanning: {store_name}...")
-                logger.info(f"Scanning inbox from: {store_name}")
-                
-                try:
-                    items = inbox.Items
-                    items.Sort("[ReceivedTime]", True)  # Sort by date descending (newest first)
-                except Exception as e:
-                    logger.warning(f"Could not access items in {store_name}: {e}")
-                    continue
-                
-                inbox_email_count = 0
-                emails_checked = 0
-                
-                for item in items:
-                    # Check if stop was requested
-                    if self._stop_requested:
-                        stopped_early = True
-                        break
-                    
-                    if inbox_email_count >= max_emails_per_inbox:
-                        break
-                    
-                    emails_checked += 1
-                    if emails_checked % 50 == 0:
-                        self.progress.emit(f"Checking email {emails_checked} in {store_name}... ({len(attachments)} attachments found)")
-                    
-                    try:
-                        # Only process MailItem objects
-                        if item.Class != 43:
-                            continue
-                        
-                        # Check date
-                        received_time = None
-                        try:
-                            received_time = item.ReceivedTime
-                            # Convert COM datetime to Python datetime for comparison
-                            if received_time:
-                                # pywintypes.datetime can be compared directly, but let's be safe
-                                import pywintypes
-                                if isinstance(received_time, pywintypes.TimeType):
-                                    received_time = datetime(
-                                        received_time.year, received_time.month, received_time.day,
-                                        received_time.hour, received_time.minute, received_time.second
-                                    )
-                            # Stop if email is older than our date range
-                            if received_time and received_time < start_date:
-                                break  # Since sorted by date desc, we can stop here
-                        except Exception as date_err:
-                            logger.debug(f"Error checking date: {date_err}")
-                            continue
-                        
-                        # Check for attachments
-                        try:
-                            attach_count = item.Attachments.Count
-                            if attach_count == 0:
-                                skipped_no_attachments += 1
-                                continue
-                        except OUTLOOK_COM_ERRORS:
-                            logger.debug("Could not read Outlook attachment count", exc_info=True)
-                            continue
-                        
-                        # Get sender email address directly - works for ALL senders (internal and external)
-                        sender_display = "(Unknown)"
-                        sender_full_name = ""
-                        try:
-                            # Get display name (e.g. "Lindell, Deborah")
-                            sender_full_name = item.SenderName or ""
-                        except Exception:
-                            sender_full_name = ""
-                        try:
-                            # Get the email address directly - this works for everyone
-                            sender_email = item.SenderEmailAddress
-                            
-                            if sender_email:
-                                # Check if it's an Exchange X500 address (internal users)
-                                if sender_email.startswith('/O=') or sender_email.startswith('/o='):
-                                    # Try to resolve to SMTP address for internal Exchange users
-                                    try:
-                                        sender_display = item.Sender.GetExchangeUser().PrimarySmtpAddress
-                                    except OUTLOOK_COM_ERRORS:
-                                        logger.debug("Could not resolve Exchange sender while scanning attachments", exc_info=True)
-                                        # Fallback to SenderName for internal users
-                                        sender_display = item.SenderName or sender_email
-                                else:
-                                    # External SMTP sender - use the email address directly
-                                    sender_display = sender_email
-                            else:
-                                # No email address, try SenderName as last resort
-                                sender_display = item.SenderName or "(Unknown)"
-                        except Exception as sender_err:
-                            logger.debug(f"Error getting sender: {sender_err}")
-                            # Try SenderName as absolute fallback
-                            try:
-                                sender_display = item.SenderName or "(Unknown)"
-                            except OUTLOOK_COM_ERRORS:
-                                logger.debug("Could not read Outlook SenderName fallback", exc_info=True)
-                                sender_display = "(Unknown)"
-                        
-                        # Get subject line
-                        email_subject = ""
-                        try:
-                            email_subject = item.Subject or ""
-                        except Exception:
-                            email_subject = ""
-                        
-                        email_id = None
-                        try:
-                            email_id = item.EntryID
-                        except OUTLOOK_COM_ERRORS:
-                            logger.debug("Could not read Outlook EntryID while scanning attachments", exc_info=True)
-                            continue
-                        
-                        # Process attachments
-                        found_real_attachment = False
-                        for idx, attachment in enumerate(item.Attachments, 1):
-                            try:
-                                # Get filename first
-                                filename = attachment.FileName
-                                if not filename:
-                                    continue
-                                
-                                # Check attachment type
-                                # Type 1 = olByValue (file attachment)
-                                # Type 5 = olEmbeddeditem (embedded message - .msg files)
-                                attach_type = attachment.Type
-                                # Accept type 1, and type 5 if it's a .msg file
-                                if attach_type not in [1, 5]:
-                                    continue
-                                if attach_type == 5 and not filename.lower().endswith('.msg'):
-                                    continue
-                                
-                                # Check PR_ATTACHMENT_HIDDEN - this is what Outlook uses to show the paperclip icon
-                                # If Hidden=True, attachment is inline/embedded (no paperclip)
-                                # If Hidden=False, attachment appears in attachment bar (shows paperclip)
-                                is_hidden = False
-                                try:
-                                    pr_attach_hidden = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
-                                    is_hidden = attachment.PropertyAccessor.GetProperty(pr_attach_hidden)
-                                except OUTLOOK_COM_ERRORS:
-                                    logger.debug("Could not read Outlook attachment hidden property; assuming visible", exc_info=True)
-                                
-                                # Skip hidden attachments - they don't show a paperclip in Outlook
-                                if is_hidden:
-                                    continue
-                                
-                                found_real_attachment = True
-                                attach_data = {
-                                    'sender': sender_display,
-                                    'sender_name': sender_full_name,
-                                    'email_subject': email_subject,
-                                    'date': received_time,
-                                    'attachment_name': filename,
-                                    'attachment_size': getattr(attachment, 'Size', 0),
-                                    'email_id': email_id,
-                                    'attachment_index': idx
-                                }
-                                attachments.append(attach_data)
-                                # Signal to cache this attachment
-                                self.attachment_found.emit(attach_data)
-                            except Exception as attach_err:
-                                logger.debug(f"Error processing attachment: {attach_err}")
-                                continue
-                        
-                        if found_real_attachment:
-                            emails_with_attachments += 1
-                            inbox_email_count += 1
-                        else:
-                            skipped_inline_only += 1
-                        
-                        count += 1
-                        if count % 100 == 0:
-                            self.progress.emit(f"Scanned {count} emails, found {len(attachments)} attachments...")
-                        
-                    except Exception as e:
-                        logger.debug(f"Error processing email: {e}")
-                        continue
-                
-                if stopped_early:
-                    break
-                    
-                logger.info(f"Finished scanning {store_name}: found {inbox_email_count} emails with attachments")
-            
-            if stopped_early:
-                logger.info(f"Scan stopped early: {len(attachments)} attachments from {emails_with_attachments} emails")
-                self.progress.emit(f"Stopped: Found {len(attachments)} attachments from {emails_with_attachments} emails")
-            else:
-                logger.info(f"Scan complete: {len(attachments)} attachments from {emails_with_attachments} emails. "
-                           f"Skipped: {skipped_no_attachments} no attachments, {skipped_inline_only} inline-only")
-                self.progress.emit(f"Found {len(attachments)} attachments from {emails_with_attachments} emails")
-            self.finished.emit(attachments, "")
-            
+
+            start_date, period_desc = self._scan_window()
+            self._emit_status(f"Filtering to {period_desc}...")
+            summary = self._scan_inboxes(inbox_folders, start_date)
+            self._finish_scan(summary)
         except Exception as e:
             logger.error(f"Failed to load attachments: {e}")
-            self.finished.emit([], f"Error: {str(e)}")
+            self.signals.error.emit(f"Error: {str(e)}")
         finally:
             try:
                 close_thread_outlook_manager()
             except Exception:
-                logger.debug("Ignoring Outlook cleanup failure after attachment scan", exc_info=True)
+                logger.debug(
+                    "Ignoring Outlook cleanup failure after attachment scan",
+                    exc_info=True,
+                )
+            self.signals.finished.emit()
 
+    def _find_inbox_folders(self, outlook):
+        """Find Inbox folders across Outlook stores, falling back to default."""
+        self._emit_status("Finding all Inbox folders...")
+        inbox_folders = []
+        try:
+            namespace = outlook.namespace
+            for store in namespace.Stores:
+                try:
+                    store_name = store.DisplayName
+                    self._emit_status(f"Checking account: {store_name}...")
+                    self._append_store_inbox(inbox_folders, store_name, store)
+                except Exception as e:
+                    logger.debug(f"Error accessing store: {e}")
+        except Exception as e:
+            logger.warning(f"Could not enumerate stores: {e}")
+
+        if not inbox_folders:
+            self._emit_status("Using default Inbox...")
+            default_inbox = outlook.get_inbox_folder()
+            if default_inbox:
+                inbox_folders.append(("Default", default_inbox))
+
+        if inbox_folders:
+            self._emit_status(f"Scanning {len(inbox_folders)} Inbox folder(s)...")
+        return inbox_folders
+
+    def _append_store_inbox(self, inbox_folders, store_name, store) -> None:
+        try:
+            root_folder = store.GetRootFolder()
+            for folder in root_folder.Folders:
+                if folder.Name.lower() in ["inbox", "posteingang", "boîte de réception"]:
+                    inbox_folders.append((store_name, folder))
+                    logger.info(f"Found Inbox in: {store_name}")
+                    break
+        except Exception as e:
+            logger.debug(f"Could not get inbox from store {store_name}: {e}")
+
+    def _scan_window(self):
+        if self.scan_from_date:
+            return self.scan_from_date, "new emails"
+        return datetime.now() - timedelta(days=self.days), f"last {self.days} days"
+
+    def _scan_inboxes(self, inbox_folders, start_date):
+        summary = {
+            "attachments": [],
+            "emails_with_attachments": 0,
+            "skipped_no_attachments": 0,
+            "skipped_inline_only": 0,
+            "stopped_early": False,
+            "processed_count": 0,
+        }
+        for store_name, inbox in inbox_folders:
+            if self._stop_requested:
+                summary["stopped_early"] = True
+                break
+            self._scan_one_inbox(store_name, inbox, start_date, summary)
+            if summary["stopped_early"]:
+                break
+        return summary
+
+    def _scan_one_inbox(self, store_name, inbox, start_date, summary) -> None:
+        self._emit_status(f"Scanning: {store_name}...")
+        logger.info(f"Scanning inbox from: {store_name}")
+        try:
+            items = inbox.Items
+            items.Sort("[ReceivedTime]", True)
+        except Exception as e:
+            logger.warning(f"Could not access items in {store_name}: {e}")
+            return
+
+        inbox_email_count = 0
+        emails_checked = 0
+        max_emails_per_inbox = 5000
+        for item in items:
+            if self._stop_requested:
+                summary["stopped_early"] = True
+                break
+            if inbox_email_count >= max_emails_per_inbox:
+                break
+            emails_checked += 1
+            if emails_checked % 50 == 0:
+                self._emit_status(
+                    f"Checking email {emails_checked} in {store_name}... "
+                    f"({len(summary['attachments'])} attachments found)"
+                )
+            outcome = self._scan_mail_item(item, start_date, summary)
+            if outcome == "older":
+                break
+            if outcome == "with_attachment":
+                inbox_email_count += 1
+
+        logger.info(
+            f"Finished scanning {store_name}: found "
+            f"{inbox_email_count} emails with attachments"
+        )
+
+    def _scan_mail_item(self, item, start_date, summary) -> str:
+        try:
+            if item.Class != 43:
+                return "ignored"
+            received_time = self._received_time(item)
+            if received_time and received_time < start_date:
+                return "older"
+            attach_count = item.Attachments.Count
+            if attach_count == 0:
+                summary["skipped_no_attachments"] += 1
+                return "no_attachment"
+
+            sender_display, sender_full_name = self._sender_details(item)
+            email_subject = self._email_subject(item)
+            email_id = item.EntryID
+            found_real_attachment = self._collect_attachments(
+                item,
+                received_time,
+                sender_display,
+                sender_full_name,
+                email_subject,
+                email_id,
+                summary["attachments"],
+            )
+            if found_real_attachment:
+                summary["emails_with_attachments"] += 1
+                outcome = "with_attachment"
+            else:
+                summary["skipped_inline_only"] += 1
+                outcome = "inline_only"
+            summary["processed_count"] += 1
+            if summary["processed_count"] % 100 == 0:
+                self._emit_status(
+                    f"Scanned {summary['processed_count']} emails, "
+                    f"found {len(summary['attachments'])} attachments..."
+                )
+            return outcome
+        except OUTLOOK_COM_ERRORS:
+            logger.debug("Could not process Outlook email item", exc_info=True)
+            return "error"
+        except Exception as e:
+            logger.debug(f"Error processing email: {e}")
+            return "error"
+
+    def _received_time(self, item):
+        try:
+            received_time = item.ReceivedTime
+            if received_time:
+                import pywintypes
+
+                if isinstance(received_time, pywintypes.TimeType):
+                    return datetime(
+                        received_time.year,
+                        received_time.month,
+                        received_time.day,
+                        received_time.hour,
+                        received_time.minute,
+                        received_time.second,
+                    )
+            return received_time
+        except Exception as date_err:
+            logger.debug(f"Error checking date: {date_err}")
+            return None
+
+    def _sender_details(self, item):
+        sender_full_name = ""
+        try:
+            sender_full_name = item.SenderName or ""
+        except Exception:
+            sender_full_name = ""
+        try:
+            sender_email = getattr(item, "SenderEmailAddress", None)
+            if not sender_email:
+                return item.SenderName or "(Unknown)", sender_full_name
+            if sender_email.startswith("/O=") or sender_email.startswith("/o="):
+                try:
+                    return item.Sender.GetExchangeUser().PrimarySmtpAddress, sender_full_name
+                except OUTLOOK_COM_ERRORS:
+                    logger.debug(
+                        "Could not resolve Exchange sender while scanning attachments",
+                        exc_info=True,
+                    )
+                    return item.SenderName or sender_email, sender_full_name
+            return sender_email, sender_full_name
+        except Exception as sender_err:
+            logger.debug(f"Error getting sender: {sender_err}")
+            try:
+                return item.SenderName or "(Unknown)", sender_full_name
+            except OUTLOOK_COM_ERRORS:
+                logger.debug(
+                    "Could not read Outlook SenderName fallback",
+                    exc_info=True,
+                )
+                return "(Unknown)", sender_full_name
+
+    @staticmethod
+    def _email_subject(item) -> str:
+        try:
+            return item.Subject or ""
+        except Exception:
+            return ""
+
+    def _collect_attachments(
+        self,
+        item,
+        received_time,
+        sender_display,
+        sender_full_name,
+        email_subject,
+        email_id,
+        attachments,
+    ) -> bool:
+        found_real_attachment = False
+        for idx, attachment in enumerate(item.Attachments, 1):
+            try:
+                attach_data = self._map_attachment(
+                    attachment,
+                    idx,
+                    received_time,
+                    sender_display,
+                    sender_full_name,
+                    email_subject,
+                    email_id,
+                )
+                if attach_data is None:
+                    continue
+                found_real_attachment = True
+                attachments.append(attach_data)
+                self._emit_attachment(attach_data)
+            except Exception as attach_err:
+                logger.debug(f"Error processing attachment: {attach_err}")
+        return found_real_attachment
+
+    def _map_attachment(
+        self,
+        attachment,
+        idx,
+        received_time,
+        sender_display,
+        sender_full_name,
+        email_subject,
+        email_id,
+    ):
+        filename = attachment.FileName
+        if not filename:
+            return None
+        attach_type = attachment.Type
+        if attach_type not in [1, 5]:
+            return None
+        if attach_type == 5 and not filename.lower().endswith(".msg"):
+            return None
+        if self._attachment_hidden(attachment):
+            return None
+        return {
+            "sender": sender_display,
+            "sender_name": sender_full_name,
+            "email_subject": email_subject,
+            "date": received_time,
+            "attachment_name": filename,
+            "attachment_size": getattr(attachment, "Size", 0),
+            "email_id": email_id,
+            "attachment_index": idx,
+        }
+
+    @staticmethod
+    def _attachment_hidden(attachment) -> bool:
+        try:
+            pr_attach_hidden = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
+            return bool(attachment.PropertyAccessor.GetProperty(pr_attach_hidden))
+        except OUTLOOK_COM_ERRORS:
+            logger.debug(
+                "Could not read Outlook attachment hidden property; assuming visible",
+                exc_info=True,
+            )
+            return False
+
+    def _finish_scan(self, summary) -> None:
+        attachments = summary["attachments"]
+        emails_with_attachments = summary["emails_with_attachments"]
+        if summary["stopped_early"]:
+            logger.info(
+                f"Scan stopped early: {len(attachments)} attachments from "
+                f"{emails_with_attachments} emails"
+            )
+            self._emit_status(
+                f"Stopped: Found {len(attachments)} attachments from "
+                f"{emails_with_attachments} emails"
+            )
+            self.signals.cancelled.emit()
+        else:
+            logger.info(
+                f"Scan complete: {len(attachments)} attachments from "
+                f"{emails_with_attachments} emails. Skipped: "
+                f"{summary['skipped_no_attachments']} no attachments, "
+                f"{summary['skipped_inline_only']} inline-only"
+            )
+            self._emit_status(
+                f"Found {len(attachments)} attachments from "
+                f"{emails_with_attachments} emails"
+            )
+        self.signals.result.emit(attachments)
 
 class EmailAttachmentsWindow(FramelessWindowBase):
     """Simple email attachments viewer with FilterTableView"""
@@ -545,7 +598,8 @@ class EmailAttachmentsWindow(FramelessWindowBase):
             logger.debug("Invalid saved attachment scan period %r; using default", saved_period, exc_info=True)
             self._scan_days = 14
         
-        self._loader_thread = None
+        self._loader_worker = None
+        self._loader_controller = None
 
         FramelessWindowBase.__init__(
             self,
@@ -842,9 +896,9 @@ class EmailAttachmentsWindow(FramelessWindowBase):
     
     def _on_stop_clicked(self):
         """Handle stop button click - stop the scan and show results so far"""
-        if self._loader_thread and self._loader_thread.isRunning():
+        if self._loader_controller and self._loader_controller.is_running():
             self.status_label.setText("Stopping scan...")
-            self._loader_thread.request_stop()
+            self._loader_controller.cancel()
             self.stop_btn.setEnabled(False)
     
     def load_from_cache_only(self):
@@ -921,18 +975,25 @@ class EmailAttachmentsWindow(FramelessWindowBase):
                 else:
                     self.status_label.setText(f"Loaded {len(cached_attachments)} from cache")
         
-        # Start background thread for new emails
-        self._loader_thread = AttachmentLoaderThread(
+        # Start background worker for new emails
+        self._loader_worker = AttachmentLoaderWorker(
             days=self._scan_days, 
             scan_from_date=scan_from_date,
-            parent=self
         )
-        self._loader_thread.progress.connect(self._on_load_progress)
-        self._loader_thread.attachment_found.connect(self._on_attachment_found)
-        self._loader_thread.finished.connect(
-            lambda new_attach, err: self._on_load_finished(new_attach, err, cached_attachments)
+        self._loader_controller = WorkerController(
+            self,
+            self._loader_worker,
+            cancel=self._loader_worker.cancel,
         )
-        self._loader_thread.start()
+        self._loader_controller.progress.connect(self._on_load_progress)
+        self._loader_controller.result.connect(
+            lambda new_attach: self._on_load_finished(new_attach, "", cached_attachments)
+        )
+        self._loader_controller.error.connect(
+            lambda err: self._on_load_finished([], str(err), cached_attachments)
+        )
+        self._loader_controller.finished.connect(self._on_loader_finished)
+        self._loader_controller.start()
     
     def _on_attachment_found(self, attachment):
         """Cache individual attachment as it's found"""
@@ -941,9 +1002,20 @@ class EmailAttachmentsWindow(FramelessWindowBase):
         except Exception as e:
             logger.debug(f"Failed to cache attachment: {e}")
     
-    def _on_load_progress(self, message):
+    def _on_load_progress(self, payload):
         """Update status during background load"""
+        if isinstance(payload, dict) and payload.get("kind") == "attachment":
+            self._on_attachment_found(payload["attachment"])
+            return
+        if isinstance(payload, dict):
+            message = payload.get("message", "")
+        else:
+            message = str(payload)
         self.status_label.setText(message)
+
+    def _on_loader_finished(self):
+        self._loader_worker = None
+        self._loader_controller = None
     
     @staticmethod
     def _convert_cached_attachments(cached_attachments):

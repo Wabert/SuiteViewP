@@ -6,10 +6,11 @@ import asyncio
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject
 
 from copilot import CopilotClient
 from copilot.session_events import AssistantMessageDeltaData
+from suiteview.ui.workers import WorkerSignals
 
 from .models import AgentConversation
 from .permissions import FolderPermissionPolicy
@@ -17,17 +18,20 @@ from .permissions import FolderPermissionPolicy
 logger = logging.getLogger(__name__)
 
 
-class ModelListWorker(QThread):
-    models_ready = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
+class ModelListWorker(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.signals = WorkerSignals(self)
 
     def run(self) -> None:
         try:
             models = asyncio.run(self._load_models())
-            self.models_ready.emit(models)
+            self.signals.result.emit(models)
         except Exception as exc:
             logger.error("Could not list Copilot models", exc_info=True)
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
     async def _load_models(self) -> list[dict[str, str]]:
         async with CopilotClient() as client:
@@ -41,28 +45,22 @@ class ModelListWorker(QThread):
         ]
 
 
-class AgentRunWorker(QThread):
-    session_ready = pyqtSignal()
-    token_received = pyqtSignal(str)
-    status_changed = pyqtSignal(str)
-    activity_added = pyqtSignal(str, str)
-    response_complete = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    cancelled = pyqtSignal()
-
+class AgentRunWorker(QObject):
     def __init__(self, conversation: AgentConversation, prompt: str, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.conversation = conversation
         self.prompt = prompt
         self._loop: asyncio.AbstractEventLoop | None = None
         self._session = None
+        self._cancelled = False
         self._assembled_text = ""
         self._last_assistant_message = ""
         self._active_tool = ""
         self._response_started = False
 
     def cancel(self) -> None:
-        self.requestInterruption()
+        self._cancelled = True
         if self._loop is not None and self._session is not None:
             asyncio.run_coroutine_threadsafe(self._session.abort(), self._loop)
 
@@ -71,20 +69,21 @@ class AgentRunWorker(QThread):
         asyncio.set_event_loop(self._loop)
         try:
             response = self._loop.run_until_complete(self._run_agent())
-            if self.isInterruptionRequested():
-                self.cancelled.emit()
+            if self._cancelled:
+                self.signals.cancelled.emit()
             else:
-                self.response_complete.emit(response)
+                self.signals.result.emit(response)
         except Exception as exc:
-            if self.isInterruptionRequested():
-                self.cancelled.emit()
+            if self._cancelled:
+                self.signals.cancelled.emit()
             else:
                 logger.error("Copilot agent request failed", exc_info=True)
-                self.error_occurred.emit(str(exc))
+                self.signals.error.emit(str(exc))
         finally:
             self._session = None
             self._loop.close()
             self._loop = None
+            self.signals.finished.emit()
 
     async def _run_agent(self) -> str:
         folder = Path(self.conversation.folder).resolve()
@@ -115,7 +114,7 @@ class AgentRunWorker(QThread):
                     session_id=self.conversation.sdk_session_id,
                     **session_options,
                 )
-                self.session_ready.emit()
+                self.signals.progress.emit({"kind": "session_ready"})
 
             self._session = session
             session.on(self._on_event)
@@ -145,11 +144,11 @@ class AgentRunWorker(QThread):
         return content
 
     def _report_activity(self, kind: str, text: str) -> None:
-        self.status_changed.emit(text)
-        self.activity_added.emit(kind, text)
+        self.signals.progress.emit({"kind": "status", "text": text})
+        self.signals.progress.emit({"kind": "activity", "activity_kind": kind, "text": text})
 
     def _on_event(self, event) -> None:
-        if self.isInterruptionRequested():
+        if self._cancelled:
             return
         event_type = getattr(event.type, "value", event.type)
         data = event.data
@@ -159,7 +158,7 @@ class AgentRunWorker(QThread):
                     self._response_started = True
                     self._report_activity("responding", "Writing response")
                 self._assembled_text += data.delta_content
-                self.token_received.emit(data.delta_content)
+                self.signals.progress.emit({"kind": "token", "text": data.delta_content})
         elif event_type == "assistant.message":
             content = getattr(data, "content", "")
             if content:
