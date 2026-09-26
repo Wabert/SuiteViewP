@@ -26,6 +26,7 @@ from suiteview.ratemanager.rm_styles import BG_DARK, TEXT, TEXT_MID, body_styles
 from suiteview.ratemanager.whole_life.service import (
     BROWSE_TABLES, SOURCE_KINDS, WholeLifeRepository, parse_workup,
 )
+from suiteview.ui.workers import WorkerController
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.uppercase_input import UpperCaseValidator, force_uppercase
 
@@ -146,18 +147,18 @@ class _AsyncPanel(QWidget):
         self._outcome = None
         self._on_success = on_success
         worker = _FunctionWorker(_logged_job, function, args)
-        worker.setParent(self)
-        self._worker = worker
-        worker.result_ready.connect(self._remember_result)
-        worker.failed.connect(self._remember_error)
-        worker.finished.connect(self._job_finished)
+        controller = WorkerController(self, worker)
+        self._worker = controller
+        controller.result.connect(self._remember_result)
+        controller.error.connect(self._remember_error)
+        controller.finished.connect(self._job_finished)
         self._close_host = self.window()
         if self._close_host is not self:
             self._close_host.installEventFilter(self)
         self.status.setText(message)
         self._update_controls()
         self.busy_changed.emit(True)
-        worker.start()
+        controller.start()
 
     def _remember_result(self, result):
         self._outcome = (True, result)
@@ -166,10 +167,6 @@ class _AsyncPanel(QWidget):
         self._outcome = (False, error)
 
     def _job_finished(self):
-        worker = self._worker
-        # QThread.finished can precede thread-local teardown. Keep ownership
-        # and the close veto until wait() establishes that teardown completed.
-        worker.wait()
         outcome = self._outcome
         callback = self._on_success
         self._worker = None
@@ -178,7 +175,6 @@ class _AsyncPanel(QWidget):
         if self._close_host is not self:
             self._close_host.removeEventFilter(self)
         self._close_host = None
-        worker.deleteLater()
         try:
             if outcome is None:
                 self._report_error("The background operation returned no result.")

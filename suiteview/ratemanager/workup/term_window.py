@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
@@ -26,26 +26,15 @@ from suiteview.ratemanager.workup import term_reference
 from suiteview.ratemanager.workup.term_builder import (
     TermWorkupAnalysis, TermWorkupResult, analyze, build,
 )
-from suiteview.ratemanager.workup.base import BaseWorkupPanel, WorkerRunner
+from suiteview.ratemanager.workup.base import BaseWorkupPanel
 from suiteview.ratemanager.workup.term_spec import (
     BandSpecRow, BandStructureSelection, ModeFactorSelection,
     TermBenefitSelection, TermWorkupSpec,
 )
+from suiteview.ratemanager.worker_helpers import start_workup_worker
+from suiteview.ui.workers import CallableWorker, WorkerController
 
 _NEW_ENTRY = "__new__"
-
-
-class _ReferenceWorker(QThread):
-    """Load the shared reference tables without blocking the first paint."""
-
-    finished = pyqtSignal(object)
-
-    def __init__(self, dsn: str):
-        super().__init__()
-        self._dsn = dsn
-
-    def run(self):
-        self.finished.emit(term_reference.load_reference_data(self._dsn))
 
 
 # ---------------------------------------------------------------------------
@@ -265,22 +254,28 @@ class TermWorkupPanel(BaseWorkupPanel):
         guard_app_access("RATEMANAGER")
         super().__init__(parent)
         self._analysis: TermWorkupAnalysis | None = None
-        self._analyze_worker: WorkerRunner | None = None
-        self._build_worker: WorkerRunner | None = None
-        self._reference_worker: _ReferenceWorker | None = None
+        self._analyze_worker: WorkerController | None = None
+        self._build_worker: WorkerController | None = None
+        self._reference_worker: WorkerController | None = None
         self._reference = term_reference.TermReferenceData()
         self._output_path = ""
         self._ben_rows: list = []
         self._new_modefact: ModeFactorSelection | None = None
         self._new_bandspec: BandStructureSelection | None = None
+        self._reference_load_started = False
         self.setObjectName("RateManagerBody")
         self.setStyleSheet(body_stylesheet())
         self._build_ui()
-        self._load_reference_data()
 
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._reference_load_started:
+            self._reference_load_started = True
+            self._load_reference_data()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -514,8 +509,16 @@ class TermWorkupPanel(BaseWorkupPanel):
     # ------------------------------------------------------------------
 
     def _load_reference_data(self):
-        self._reference_worker = _ReferenceWorker(term_reference.DEFAULT_DSN)
-        self._reference_worker.finished.connect(self._on_reference_loaded)
+        worker = CallableWorker(
+            lambda: term_reference.load_reference_data(term_reference.DEFAULT_DSN)
+        )
+        self._reference_worker = WorkerController(self, worker)
+        self._reference_worker.result.connect(self._on_reference_loaded)
+        self._reference_worker.error.connect(
+            lambda message: self._on_reference_loaded(
+                term_reference.TermReferenceData(error=message)
+            )
+        )
         self._reference_worker.start()
 
     def _on_reference_loaded(self, data):
@@ -608,11 +611,14 @@ class TermWorkupPanel(BaseWorkupPanel):
         self.btn_analyze.setEnabled(False)
         self.btn_build.setEnabled(False)
         self.space_lbl.setText("Analyzing…")
-        self._analyze_worker = WorkerRunner(analyze, TermWorkupSpec(iaf_path=iaf_path))
-        self._analyze_worker.progress.connect(self._on_progress)
-        self._analyze_worker.finished.connect(self._on_analyzed)
-        self._analyze_worker.error.connect(self._on_error)
-        self._analyze_worker.start()
+        self._analyze_worker = start_workup_worker(
+            self,
+            analyze,
+            (TermWorkupSpec(iaf_path=iaf_path),),
+            on_progress=self._on_progress,
+            on_result=self._on_analyzed,
+            on_error=self._on_error,
+        )
 
     def _on_analyzed(self, ana: TermWorkupAnalysis):
         self._analysis = ana
@@ -794,11 +800,14 @@ class TermWorkupPanel(BaseWorkupPanel):
         self.progress_bar.setValue(0)
         self.btn_build.setEnabled(False)
         self.btn_analyze.setEnabled(False)
-        self._build_worker = WorkerRunner(build, spec, self._analysis)
-        self._build_worker.progress.connect(self._on_progress)
-        self._build_worker.finished.connect(self._on_built)
-        self._build_worker.error.connect(self._on_error)
-        self._build_worker.start()
+        self._build_worker = start_workup_worker(
+            self,
+            build,
+            (spec, self._analysis),
+            on_progress=self._on_progress,
+            on_result=self._on_built,
+            on_error=self._on_error,
+        )
 
     def _on_built(self, res: TermWorkupResult):
         self._output_path = res.output_path

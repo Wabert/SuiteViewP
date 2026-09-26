@@ -5,41 +5,11 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import Callable
 
-from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QMessageBox, QPushButton, QWidget
 
 from suiteview.ratemanager.rm_styles import TEXT_MID
 from suiteview.ratemanager.ui_helpers import set_expanding_panel_visible
-
-
-class WorkerRunner(QThread):
-    """Run a workup operation that accepts ``progress_cb`` in a Qt thread."""
-
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-
-    def __init__(self, operation: Callable, *args):
-        super().__init__()
-        self._operation = operation
-        self._args = args
-
-    def run(self):
-        try:
-            result = self._operation(
-                *self._args,
-                progress_cb=lambda fraction, message: self.progress.emit(
-                    fraction, message,
-                ),
-            )
-            if getattr(result, "error", None):
-                self.error.emit(result.error)
-            else:
-                self.finished.emit(result)
-        except Exception as exc:
-            self.error.emit(str(exc))
 
 
 def open_output_path(path: str) -> None:
