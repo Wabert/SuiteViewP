@@ -23,6 +23,10 @@ tools/rerun/rerun_build_case_inputs.py and tools/rerun/rerun_load_local_rates.py
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -49,14 +53,13 @@ _NOT_RANGE_NAMES = {"TimeStamp", "sUID"}
 
 def _policy_mode(cmd: dict) -> tuple[Path, list[str]]:
     from rerun_build_case_inputs import build_mapping
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.core.policy_service import get_policy_info
 
     policy = cmd["policy"]
     region = cmd.get("region") or "CKPR"
     warnings: list[str] = []
 
-    data = build_illustration_data(policy, region=region, company_code=cmd.get("company"))
+    data = _load_policy_data(policy, region=region, company_code=cmd.get("company"))
     mapping = build_mapping(data, warnings, skip_benefits=bool(cmd.get("skip_benefits")))
 
     # INPUT-only fields PopulateInputSheet sets that aren't Saved Cases rows.

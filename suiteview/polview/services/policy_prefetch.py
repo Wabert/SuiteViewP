@@ -361,9 +361,8 @@ class PolicyLoadSession:
 
     def _surrender_values(self):
         from suiteview.illustration import (
-            IllustrationEngine, build_illustration_data, project_policy,
+            IllustrationEngine, load_projection_basis, project_policy,
         )
-        from suiteview.illustration.core.rate_loader import load_rates
         from suiteview.illustration.models.plancode_config import MissingPlancodeError, load_plancode
 
         policy = self._policy
@@ -378,16 +377,18 @@ class PolicyLoadSession:
             logger.warning("PolView %s: %s", policy.policy_number, reason)
             return SurrenderValuesUnavailable(reason)
         policy_service.cache_policy_info(policy)
-        # build_illustration_data requests the inforce key. A resolved pending
+        # The projection façade requests the inforce key. A resolved pending
         # session must still use its own canonical instance, not do a new lookup.
         self._cache[(self.policy_number, policy.company_code, "I", self.region)] = policy
-        basis = build_illustration_data(
-            policy.policy_number, policy.region, policy.company_code,
+        basis_data = load_projection_basis(
+            policy.policy_number, region=policy.region,
+            company_code=policy.company_code, config=config,
         )
+        basis = basis_data.policy
         policy._data.raise_table_errors()
         if basis.base_segment is None:
             raise ValueError("Surrender calculation requires a base coverage")
-        rates = load_rates(basis, config)
+        rates = basis_data.rates
         for segment in basis.segments or [basis.base_segment]:
             schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
             if not schedule:

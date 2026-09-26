@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import QApplication, QDialog
 
 from suiteview.core.policy_service import get_policy_info
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.models.case_store import decode_policy_snapshot, encode_policy_snapshot
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
@@ -34,13 +33,13 @@ def main() -> None:
         raise RuntimeError("This verification requires live data, not local fixtures.")
     app = QApplication.instance() or QApplication([])
     pi = get_policy_info(args.policy, args.region, args.company)
-    policy = build_illustration_data(args.policy, args.region, args.company)
+    policy = _load_policy_data(args.policy, args.region, args.company)
     assert len(policy.segments) == args.expected_coverages
     assert not pi.table_error("TH_COV_PHA")
     snapshot = decode_policy_snapshot(encode_policy_snapshot(policy))
     assert snapshot == policy
     config = load_plancode(policy.plancode)
-    states = IllustrationEngine().project(policy, months=1, stop_on_lapse=False)
+    states = _project_with_engine(IllustrationEngine(), policy, months=1, stop_on_lapse=False)
 
     policy_tab = IllustrationPolicyTab()
     coverage_rows = []
@@ -99,3 +98,15 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states

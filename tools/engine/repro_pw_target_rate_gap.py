@@ -13,6 +13,18 @@ Usage:
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import datetime
 import json
 import os
@@ -34,7 +46,6 @@ def run_case(patch_pw: bool) -> dict:
     from suiteview.core.policy_service import clear_cache
     from suiteview.core import rates as rates_module
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet, IllustrationOptions, PolicyChangeEvent,
         PolicyChangeKind, ScheduledTransaction, TransactionKind,
@@ -49,7 +60,7 @@ def run_case(patch_pw: bool) -> dict:
         rates_module.Rates.get_ben_mtp = patched
     try:
         clear_cache()
-        policy = build_illustration_data("U0356726", region="CKPR", company_code="01")
+        policy = _load_policy_data("U0356726", region="CKPR", company_code="01")
         inputs = IllustrationInputSet(
             scheduled_transactions=[ScheduledTransaction(
                 kind=TransactionKind.PREMIUM, policy_year=1, amount=60.0, mode="M")],
@@ -60,7 +71,7 @@ def run_case(patch_pw: bool) -> dict:
         options = IllustrationOptions(
             conform_to_tefra=True, conform_to_tamra=True,
             allow_exception_prems=False, exact_days_interest=False)
-        states = IllustrationEngine().project(
+        states = _project_with_engine(IllustrationEngine(), 
             policy, months=40, future_inputs=inputs, options=options)
         chg = next(s for s in states if s.guideline_recalc)
         return {

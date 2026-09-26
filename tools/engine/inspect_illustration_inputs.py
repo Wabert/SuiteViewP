@@ -8,6 +8,10 @@ Usage:
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -24,7 +28,6 @@ def main() -> None:
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
     from suiteview.core.policy_service import clear_cache, get_policy_info
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 
     policy = cmd["policy"]
     region = cmd.get("region", "CKPR")
@@ -49,7 +52,7 @@ def main() -> None:
         "total_loan_balance": f(getattr(pi, "total_loan_balance", None)),
     }
 
-    pd = build_illustration_data(policy, region=region, company_code=company)
+    pd = _load_policy_data(policy, region=region, company_code=company)
     derived = {
         "account_value": pd.account_value,
         "shadow_account_value": pd.shadow_account_value,

@@ -142,63 +142,17 @@ def _load_policy_source_snapshot(
 ) -> PolicySourceSnapshot:
     """Read PolicyInformation once and cache source facts shared by builders."""
     pi = get_policy_info(policy_number, region, company_code)
-    if pi is None or not pi.exists:
-        raise ValueError(f"Policy {policy_number} not found in region {region}")
-    if reinstatement_date is not None and (
-        pi.last_entry_code.strip().upper() != "Q" or pi.terminate_date != reinstatement_date
-    ):
-        raise ValueError("Coverage restoration requires the policy's confirmed lapse effective date.")
-
+    _validate_source_policy(pi, policy_number, region, reinstatement_date)
     rates_db = Rates()
     illustration_date = illustration_date or date.today()  # noqa: DTZ011
     plancode = pi.base_plancode or ""
-    plancode_config = load_plancode(plancode)
-    issue_date = pi.issue_date
-    issue_age = pi.base_issue_age if pi.base_issue_age is not None else 0
-    rate_sex = _translate_sex(pi.base_sex_code)
-    rate_class = getattr(pi, "base_rate_class", "") or ""
     valuation_date = pi.valuation_date
     as_of_date = valuation_date or date.today()  # noqa: DTZ011
-    face_amount = float(pi.base_total_face_amount) if pi.base_total_face_amount else 0.0
-    units = face_amount / 1000.0 if face_amount else 0.0
-    raw_band = rates_db.get_band(
-        plancode, float(pi.base_band_specified_amount), issue_date=issue_date)
-    band = raw_band if raw_band is not None else 1
-
-    raw_riders = [
-        restore_lapse_coverage(rider, reinstatement_date)
-        for rider in pi.get_riders()
-    ]
-    base_coverages = [
-        restore_lapse_coverage(cov, reinstatement_date)
-        for cov in pi.get_base_coverages()
-    ]
-    active_base_coverages = [
-        cov for cov in base_coverages
-        if not _coverage_is_terminated(cov, as_of_date)
-    ]
-    form_cov = (active_base_coverages or base_coverages or [None])[0]
-    form_number = (getattr(form_cov, "form_number", "") or "").strip()
-    if base_coverages:
-        face_amount = sum(float(cov.face_amount or 0.0) for cov in active_base_coverages)
-        units = sum(
-            float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
-            for cov in active_base_coverages
-        )
-        band_face = float(pi.base_band_specified_amount)
-        if reinstatement_date is not None:
-            band_face = face_amount + sum(
-                float(rider.face_amount)
-                for rider in raw_riders
-                if not _coverage_is_terminated(rider, as_of_date)
-                and rider_bands_as_base(rider.plancode)
-            )
-        raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
-        band = raw_band if raw_band is not None else 1
-
-    substandard_by_phase = {}
-    for rating in pi.get_substandard_ratings():
-        substandard_by_phase.setdefault(rating.coverage_phase, []).append(rating)
+    raw_riders, base_coverages = _restored_coverage_sources(pi, reinstatement_date)
+    active_base_coverages = _active_base_coverages(base_coverages, as_of_date)
+    face_amount, units, band = _source_face_units_band(
+        pi, rates_db, plancode, pi.issue_date, active_base_coverages,
+        base_coverages, raw_riders, as_of_date, reinstatement_date)
     return PolicySourceSnapshot(
         policy_number=policy_number,
         region=region,
@@ -207,23 +161,99 @@ def _load_policy_source_snapshot(
         illustration_date=illustration_date,
         reinstatement_date=reinstatement_date,
         plancode=plancode,
-        plancode_config=plancode_config,
-        issue_date=issue_date,
-        issue_age=issue_age,
-        rate_sex=rate_sex,
-        rate_class=rate_class,
+        plancode_config=load_plancode(plancode),
+        issue_date=pi.issue_date,
+        issue_age=pi.base_issue_age if pi.base_issue_age is not None else 0,
+        rate_sex=_translate_sex(pi.base_sex_code),
+        rate_class=getattr(pi, "base_rate_class", "") or "",
         valuation_date=valuation_date,
         as_of_date=as_of_date,
         face_amount=face_amount,
         units=units,
         band=band,
-        form_number=form_number,
+        form_number=_source_form_number(active_base_coverages, base_coverages),
         base_coverages=base_coverages,
         active_base_coverages=active_base_coverages,
-        substandard_by_phase=substandard_by_phase,
+        substandard_by_phase=_substandard_by_phase(pi),
         raw_benefits=pi.get_benefits(),
         raw_riders=raw_riders,
     )
+
+
+def _validate_source_policy(pi, policy_number: str, region: str, reinstatement_date) -> None:
+    if pi is None or not pi.exists:
+        raise ValueError(f"Policy {policy_number} not found in region {region}")
+    if reinstatement_date is not None and (
+        pi.last_entry_code.strip().upper() != "Q" or pi.terminate_date != reinstatement_date
+    ):
+        raise ValueError("Coverage restoration requires the policy's confirmed lapse effective date.")
+
+
+def _restored_coverage_sources(pi, reinstatement_date) -> tuple[list, list]:
+    raw_riders = [
+        restore_lapse_coverage(rider, reinstatement_date)
+        for rider in pi.get_riders()
+    ]
+    base_coverages = [
+        restore_lapse_coverage(cov, reinstatement_date)
+        for cov in pi.get_base_coverages()
+    ]
+    return raw_riders, base_coverages
+
+
+def _active_base_coverages(base_coverages: list, as_of_date: date) -> list:
+    return [
+        cov for cov in base_coverages
+        if not _coverage_is_terminated(cov, as_of_date)
+    ]
+
+
+def _source_form_number(active_base_coverages: list, base_coverages: list) -> str:
+    form_cov = (active_base_coverages or base_coverages or [None])[0]
+    return (getattr(form_cov, "form_number", "") or "").strip()
+
+
+def _source_face_units_band(
+    pi, rates_db: Rates, plancode: str, issue_date,
+    active_base_coverages: list, base_coverages: list, raw_riders: list,
+    as_of_date: date, reinstatement_date,
+) -> tuple[float, float, int]:
+    face_amount = float(pi.base_total_face_amount) if pi.base_total_face_amount else 0.0
+    units = face_amount / 1000.0 if face_amount else 0.0
+    band_face = float(pi.base_band_specified_amount)
+    if base_coverages:
+        face_amount, units = _base_face_units(active_base_coverages)
+        band_face = _base_band_face(
+            pi, face_amount, raw_riders, as_of_date, reinstatement_date)
+    raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
+    return face_amount, units, raw_band if raw_band is not None else 1
+
+
+def _base_face_units(active_base_coverages: list) -> tuple[float, float]:
+    face_amount = sum(float(cov.face_amount or 0.0) for cov in active_base_coverages)
+    units = sum(
+        float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
+        for cov in active_base_coverages
+    )
+    return face_amount, units
+
+
+def _base_band_face(pi, face_amount: float, raw_riders: list, as_of_date, reinstatement_date) -> float:
+    if reinstatement_date is None:
+        return float(pi.base_band_specified_amount)
+    return face_amount + sum(
+        float(rider.face_amount)
+        for rider in raw_riders
+        if not _coverage_is_terminated(rider, as_of_date)
+        and rider_bands_as_base(rider.plancode)
+    )
+
+
+def _substandard_by_phase(pi) -> dict:
+    result = {}
+    for rating in pi.get_substandard_ratings():
+        result.setdefault(rating.coverage_phase, []).append(rating)
+    return result
 
 
 def build_core_identity(source: PolicySourceSnapshot) -> dict:

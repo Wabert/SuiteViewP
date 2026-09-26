@@ -29,3 +29,18 @@ Scenario builders and solves should still prepare their own
 `IllustrationInputSet` and `IllustrationOptions`; pass those as `inputs=` and
 `options=`. Specialized projections that already loaded guaranteed/current rates
 can pass `rates=` and `config=` to keep that basis exact.
+
+Diagnostics or command-line tools that need to inspect intermediate objects can
+use lower-level façades:
+
+```python
+from suiteview.illustration import load_policy_data, load_projection_basis
+
+policy = load_policy_data("UE000576")
+basis = load_projection_basis("UE000576")
+print(basis.policy.plancode, basis.config.product_name, basis.rates.band_break)
+```
+
+Those helpers are the documented exception to `project_policy`: `load_policy_data`
+stops after the DB2/PolicyInformation mapping, while `load_projection_basis`
+also loads the plancode config and rate bundle without running the engine.

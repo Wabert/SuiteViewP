@@ -223,35 +223,53 @@ def load_rates(
     The three situations:
 
     1. Current illustration values  → ``coi_scale=1, expense_scale=1`` (default).
-    2. Guaranteed illustration values → ``coi_scale=0, expense_scale=0``. The
-       guaranteed EPU/MFEE/load schedules carry real charges to maturity,
-       whereas the current schedules zero out after their level period (~10
-       years) — so the guaranteed side must load them at scale 0 or its expense
-       charges wrongly drop off.
-    3. Guideline (7702) calculations → ``coi_scale=0, expense_scale=1``:
-       guaranteed COI but CURRENT expense rates. Build these with
-       ``coi_scale=0`` (expense_scale defaults to 1).
-
-    The active COI scale per plancode is in ``Select_SCALE_COI`` (= 1 for these
-    plancodes).
+    2. Guaranteed illustration values → ``coi_scale=0, expense_scale=0``.
+    3. Guideline (7702) calculations → ``coi_scale=0, expense_scale=1``.
     """
     rates_db = Rates()
     seg = policy.base_segment
-
     if seg is None:
         return IllustrationRates()
+    _validate_scales(coi_scale, expense_scale)
+    _initialize_dynamic_bands(policy, rates_db)
+    segment_rates = _load_base_segment_rate_maps(
+        policy, rates_db, coi_scale=coi_scale, expense_scale=expense_scale)
+    result = _base_rate_bundle(
+        policy, config, rates_db, seg, segment_rates,
+        coi_scale=coi_scale, expense_scale=expense_scale)
+    _load_ratchet_rates(result, policy, config, rates_db, coi_scale)
+    _load_poav_rates(result, config, seg, expense_scale)
+    _load_loan_rates(result, policy, rates_db)
+    _load_shadow_rates(result, policy, config, rates_db, seg)
+    _load_benefit_rates(result, policy, rates_db, seg)
+    _load_rider_rates(result, policy, rates_db)
+    return result
+
+
+def _validate_scales(coi_scale: int, expense_scale: int) -> None:
     if coi_scale not in (0, 1):
         raise ValueError(f"COI scale must be 0 or 1, got {coi_scale}")
     if expense_scale not in (0, 1):
         raise ValueError(f"Expense scale must be 0 or 1, got {expense_scale}")
+
+
+def _initialize_dynamic_bands(policy: IllustrationPolicyData, rates_db: Rates) -> None:
     if policy.run_from_issue and not getattr(policy, "_issue_bands_initialized", False):
         initialize_issue_bands(policy, rates_db)
     elif policy.rollback_date is not None or policy.starting_coverage_amounts_are_manual:
         initialize_rollback_bands(policy, rates_db)
 
-    segment_coi = {}
-    segment_epu = {}
-    segment_scr = {}
+
+def _load_base_segment_rate_maps(
+    policy: IllustrationPolicyData,
+    rates_db: Rates,
+    *,
+    coi_scale: int,
+    expense_scale: int,
+) -> dict[str, Dict[int, List]]:
+    segment_coi: Dict[int, List] = {}
+    segment_epu: Dict[int, List] = {}
+    segment_scr: Dict[int, List] = {}
     for base_seg in policy.segments:
         segment_coi[base_seg.coverage_phase] = load_coverage_coi_rates(
             rates_db,
@@ -271,14 +289,26 @@ def load_rates(
             base_seg.rate_class, scale=1, band=base_seg.band,
             state=policy.issue_state,
         ) or []
+    return {"coi": segment_coi, "epu": segment_epu, "scr": segment_scr}
 
-    result = IllustrationRates(
-        coi=segment_coi.get(seg.coverage_phase, []),
-        segment_coi=segment_coi,
-        epu=segment_epu.get(seg.coverage_phase, []),
-        segment_epu=segment_epu,
-        scr=segment_scr.get(seg.coverage_phase, []),
-        segment_scr=segment_scr,
+
+def _base_rate_bundle(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db: Rates,
+    seg,
+    segment_rates: dict[str, Dict[int, List]],
+    *,
+    coi_scale: int,
+    expense_scale: int,
+) -> IllustrationRates:
+    return IllustrationRates(
+        coi=segment_rates["coi"].get(seg.coverage_phase, []),
+        segment_coi=segment_rates["coi"],
+        epu=segment_rates["epu"].get(seg.coverage_phase, []),
+        segment_epu=segment_rates["epu"],
+        scr=segment_rates["scr"].get(seg.coverage_phase, []),
+        segment_scr=segment_rates["scr"],
         mfee=rates_db.get_rates(
             "MFEE", policy.plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class, scale=expense_scale, band=seg.band,
@@ -307,33 +337,36 @@ def load_rates(
         expense_scale=expense_scale,
     )
 
-    # Ratchet banding (RERUN PP-QX): load band-1 AND band-2 COI schedules for
-    # each base segment. The regular path loads only the segment's own band; the
-    # ratchet calc charges NAR up to the band break at band 1 and the excess at
-    # band 2, so it needs both. The band break comes from BANDSPECS.
-    if config.rachet_banding:
-        for base_seg in policy.segments:
-            result.segment_coi_band1[base_seg.coverage_phase] = load_coverage_coi_rates(
-                rates_db,
-                plancode=policy.plancode,
-                issue_age=base_seg.issue_age,
-                sex=base_seg.rate_sex,
-                rateclass=base_seg.rate_class,
-                scale=coi_scale,
-                band=1,
-            ) or []
-            result.segment_coi_band2[base_seg.coverage_phase] = load_coverage_coi_rates(
-                rates_db,
-                plancode=policy.plancode,
-                issue_age=base_seg.issue_age,
-                sex=base_seg.rate_sex,
-                rateclass=base_seg.rate_class,
-                scale=coi_scale,
-                band=2,
-            ) or []
-        result.band_break = rates_db.get_band_break(policy.plancode, band=2) or 0.0
 
-    # PoAV is a small local table keyed by the plancode's table code and band.
+def _load_ratchet_rates(
+    result: IllustrationRates,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db: Rates,
+    coi_scale: int,
+) -> None:
+    if not config.rachet_banding:
+        return
+    for base_seg in policy.segments:
+        result.segment_coi_band1[base_seg.coverage_phase] = load_coverage_coi_rates(
+            rates_db, plancode=policy.plancode, issue_age=base_seg.issue_age,
+            sex=base_seg.rate_sex, rateclass=base_seg.rate_class,
+            scale=coi_scale, band=1,
+        ) or []
+        result.segment_coi_band2[base_seg.coverage_phase] = load_coverage_coi_rates(
+            rates_db, plancode=policy.plancode, issue_age=base_seg.issue_age,
+            sex=base_seg.rate_sex, rateclass=base_seg.rate_class,
+            scale=coi_scale, band=2,
+        ) or []
+    result.band_break = rates_db.get_band_break(policy.plancode, band=2) or 0.0
+
+
+def _load_poav_rates(
+    result: IllustrationRates,
+    config: PlancodeConfig,
+    seg,
+    expense_scale: int,
+) -> None:
     if config.poav_table != "0":
         result.poav = load_poav_schedule(
             config.poav_table,
@@ -341,63 +374,71 @@ def load_rates(
             scale=expense_scale,
         )
 
-    # Load loan credit rates (plancode-only, no age/sex/band)
-    if policy.has_loans:
-        result.rlncrg = rates_db.get_rates("RLNCRG", policy.plancode) or []
-        result.rlncrd = rates_db.get_rates("RLNCRD", policy.plancode) or []
-        result.plncrg = rates_db.get_rates("PLNCRG", policy.plancode) or []
-        result.plncrd = rates_db.get_rates("PLNCRD", policy.plancode) or []
 
-    # Load shadow rates (uses CCV plancode, original band). Every series the
-    # shadow calc can be configured to look up ("Table" codes) is loaded here;
-    # flat-code plancodes simply never read the unused arrays.
-    if policy.has_shadow_account and config.shadow_plancode:
-        shp = config.shadow_plancode
-        result.shadow_coi = load_coverage_coi_rates(
-            rates_db,
-            plancode=shp,
-            issue_age=seg.issue_age,
-            sex=seg.rate_sex,
-            rateclass=seg.rate_class,
-            scale=1,
-            band=seg.original_band,
-        )
-        result.shadow_epu = rates_db.get_rates(
-            "EPU", shp, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.original_band,
-        ) or []
-        result.shadow_tpp = rates_db.get_rates(
-            "TPP", shp, issue_age=seg.issue_age, sex=seg.rate_sex,
-            rateclass=seg.rate_class, scale=1, band=seg.original_band,
-        ) or []
-        result.shadow_epp = rates_db.get_rates(
-            "EPP", shp, issue_age=seg.issue_age, sex=seg.rate_sex,
-            rateclass=seg.rate_class, scale=1, band=seg.original_band,
-        ) or []
-        shadow_mtp = rates_db.get_mtp(
-            shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band,
-        )
-        result.shadow_tpr = [None, shadow_mtp] if shadow_mtp is not None else []
-        shadow_tbl1 = rates_db.get_tbl1_mtp(
-            shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band,
-        )
-        if config.shadow_target == "Table" and seg.table_rating > 0 and shadow_tbl1 is None:
-            raise RateLookupError(
-                f"Required shadow TBL1MTP rate is unavailable for plancode {shp}, "
-                f"coverage phase {seg.coverage_phase}, issue age {seg.issue_age}, "
-                f"sex {seg.rate_sex}, rate class {seg.rate_class}, "
-                f"band {seg.original_band}, table rating {seg.table_rating}."
-            )
-        result.shadow_tpr_tbl1 = [None, shadow_tbl1] if shadow_tbl1 is not None else []
-        if config.shadow_int_rate_code == "Table":
-            result.shadow_int = rates_db.get_rates("GINT", shp) or []
-        if config.shadow_dbd_rate == "Table":
-            result.shadow_dbd = rates_db.get_rates("DBD", shp) or []
+def _load_loan_rates(result: IllustrationRates, policy: IllustrationPolicyData, rates_db: Rates) -> None:
+    if not policy.has_loans:
+        return
+    result.rlncrg = rates_db.get_rates("RLNCRG", policy.plancode) or []
+    result.rlncrd = rates_db.get_rates("RLNCRD", policy.plancode) or []
+    result.plncrg = rates_db.get_rates("PLNCRG", policy.plancode) or []
+    result.plncrd = rates_db.get_rates("PLNCRD", policy.plancode) or []
 
-    # Load benefit COI rates — keyed by a unique per-benefit schedule key so two
-    # benefits of the same type+subtype (each with its own coverage/issue age)
-    # get their own schedule instead of the later one reusing the earlier's.
-    # Benefits with type '#' are administrative/informational — skip entirely.
+
+def _load_shadow_rates(
+    result: IllustrationRates,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db: Rates,
+    seg,
+) -> None:
+    if not (policy.has_shadow_account and config.shadow_plancode):
+        return
+    shp = config.shadow_plancode
+    result.shadow_coi = load_coverage_coi_rates(
+        rates_db, plancode=shp, issue_age=seg.issue_age, sex=seg.rate_sex,
+        rateclass=seg.rate_class, scale=1, band=seg.original_band,
+    )
+    result.shadow_epu = rates_db.get_rates(
+        "EPU", shp, seg.issue_age, seg.rate_sex,
+        seg.rate_class, scale=1, band=seg.original_band,
+    ) or []
+    result.shadow_tpp = rates_db.get_rates(
+        "TPP", shp, issue_age=seg.issue_age, sex=seg.rate_sex,
+        rateclass=seg.rate_class, scale=1, band=seg.original_band,
+    ) or []
+    result.shadow_epp = rates_db.get_rates(
+        "EPP", shp, issue_age=seg.issue_age, sex=seg.rate_sex,
+        rateclass=seg.rate_class, scale=1, band=seg.original_band,
+    ) or []
+    _load_shadow_single_values(result, config, rates_db, seg, shp)
+
+
+def _load_shadow_single_values(result, config, rates_db, seg, shp: str) -> None:
+    shadow_mtp = rates_db.get_mtp(
+        shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band)
+    result.shadow_tpr = [None, shadow_mtp] if shadow_mtp is not None else []
+    shadow_tbl1 = rates_db.get_tbl1_mtp(
+        shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band)
+    if config.shadow_target == "Table" and seg.table_rating > 0 and shadow_tbl1 is None:
+        raise RateLookupError(
+            f"Required shadow TBL1MTP rate is unavailable for plancode {shp}, "
+            f"coverage phase {seg.coverage_phase}, issue age {seg.issue_age}, "
+            f"sex {seg.rate_sex}, rate class {seg.rate_class}, "
+            f"band {seg.original_band}, table rating {seg.table_rating}."
+        )
+    result.shadow_tpr_tbl1 = [None, shadow_tbl1] if shadow_tbl1 is not None else []
+    if config.shadow_int_rate_code == "Table":
+        result.shadow_int = rates_db.get_rates("GINT", shp) or []
+    if config.shadow_dbd_rate == "Table":
+        result.shadow_dbd = rates_db.get_rates("DBD", shp) or []
+
+
+def _load_benefit_rates(
+    result: IllustrationRates,
+    policy: IllustrationPolicyData,
+    rates_db: Rates,
+    seg,
+) -> None:
     rate_keys = benefit_rate_keys(policy.benefits)
     for ben in policy.benefits:
         if not ben.is_active:
@@ -411,20 +452,14 @@ def load_rates(
         if schedule_key in result.benefit_coi:
             continue
         result.benefit_coi[schedule_key] = _load_benefit_coi_rates(
-            rates_db, policy, ben, seg
-        )
+            rates_db, policy, ben, seg)
 
-    # UL riders use the same UL_Rates COI tables as base coverages.
-    # Same-plancode coverages are base segments and are intentionally not in
-    # policy.riders; they will be handled by multi-segment base logic later.
+
+def _load_rider_rates(result: IllustrationRates, policy: IllustrationPolicyData, rates_db: Rates) -> None:
     for rider in policy.riders:
         if not rider.is_active or not rider.plancode:
             continue
         result.rider_rates[rider.export_key] = _load_rider_coi_rates(rates_db, rider)
-
-    return result
-
-
 def initialize_rollback_bands(policy: IllustrationPolicyData, rates_db: Rates) -> None:
     """Resolve edited current bands without rewriting the original surrender basis."""
     band = rates_db.get_band(

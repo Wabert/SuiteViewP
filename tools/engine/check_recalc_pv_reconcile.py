@@ -20,6 +20,18 @@ Usage (single JSON arg):
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import datetime
 import json
 import os
@@ -54,14 +66,13 @@ def run(cmd: dict) -> dict:
 
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,
     )
 
     policy = cmd["policy"]
     clear_cache()
-    policy_data = build_illustration_data(
+    policy_data = _load_policy_data(
         policy, region=cmd.get("region", "CKPR"), company_code=cmd.get("company"))
 
     change = cmd["change"]
@@ -70,7 +81,7 @@ def run(cmd: dict) -> dict:
     value = float(change["value"]) if change["kind"] == "face_amount" else change["value"]
     eff = datetime.date.fromisoformat(change["date"])
 
-    states = IllustrationEngine().project(
+    states = _project_with_engine(IllustrationEngine(), 
         policy_data, months=int(cmd.get("months", 48)),
         future_inputs=IllustrationInputSet(policy_changes=[
             PolicyChangeEvent(kind=kind, effective_date=eff, value=value)]))

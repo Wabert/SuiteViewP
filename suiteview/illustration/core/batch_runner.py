@@ -320,11 +320,8 @@ def run_glp_forecast_policy(
     forecasts but keep the snapshot. Never raises — failures come back as a
     status + error string.
     """
-    from suiteview.illustration.api import project_policy
+    from suiteview.illustration.api import load_projection_basis, project_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import (
-        build_illustration_data,
-    )
     from suiteview.illustration.core.solve_level_to_exception import (
         LevelToExceptionError, solve_level_to_exception,
     )
@@ -347,8 +344,8 @@ def run_glp_forecast_policy(
     try:
         # ── Load the policy ────────────────────────────────────────────
         try:
-            policy = build_illustration_data(
-                policy_number, region=region, company_code=company)
+            policy = load_projection_basis(
+                policy_number, region=region, company_code=company).policy
         except Exception as exc:  # not found / load failure
             return result(STATUS_ERROR, str(exc))
 
@@ -587,11 +584,8 @@ def run_billable_to_md_policy(
     its regular billable premium and the run measures how long it then sustains
     it. When ``skip_loans`` is set, any policy carrying a loan is bypassed.
     """
-    from suiteview.illustration.api import project_policy
+    from suiteview.illustration.api import load_projection_basis, project_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import (
-        build_illustration_data,
-    )
 
     engine = engine or IllustrationEngine()
     values: Dict[str, object] = {}
@@ -603,8 +597,8 @@ def run_billable_to_md_policy(
 
     try:
         try:
-            policy = build_illustration_data(
-                policy_number, region=region, company_code=company)
+            policy = load_projection_basis(
+                policy_number, region=region, company_code=company).policy
         except Exception as exc:  # not found / load failure
             return result(STATUS_ERROR, str(exc))
 
@@ -809,11 +803,8 @@ def run_min_level_policy(
 
     Never raises — failures come back as a status + error string.
     """
-    from suiteview.illustration.api import project_policy
+    from suiteview.illustration.api import load_projection_basis, project_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import (
-        build_illustration_data,
-    )
     from suiteview.illustration.core.solve_level_to_exception import (
         LevelToExceptionError, _build_result, level_to_exception_options,
         solve_level_to_exception,
@@ -837,8 +828,8 @@ def run_min_level_policy(
     try:
         # ── Load the policy ────────────────────────────────────────────
         try:
-            policy = build_illustration_data(
-                policy_number, region=region, company_code=company)
+            policy = load_projection_basis(
+                policy_number, region=region, company_code=company).policy
         except Exception as exc:  # not found / load failure
             return result(STATUS_ERROR, str(exc))
 

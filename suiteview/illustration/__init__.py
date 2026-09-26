@@ -34,7 +34,13 @@ from suiteview.illustration.core.rate_loader import IllustrationRates, load_rate
 from suiteview.illustration.core.illustration_policy_service import (
     build_illustration_data,
 )
-from suiteview.illustration.api import ProjectionRun, project_policy
+from suiteview.illustration.api import (
+    ProjectionBasis,
+    ProjectionRun,
+    load_policy_data,
+    load_projection_basis,
+    project_policy,
+)
 
 
 def launch_illustration():
@@ -59,7 +65,10 @@ __all__ = [
     "load_rates",
     # Service
     "build_illustration_data",
+    "ProjectionBasis",
     "ProjectionRun",
+    "load_policy_data",
+    "load_projection_basis",
     "project_policy",
     # UI
     "launch_illustration",

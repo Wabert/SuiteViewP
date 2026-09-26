@@ -11,7 +11,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,
 )
@@ -28,7 +27,7 @@ def main():
     args = parser.parse_args()
     if os.environ.get("SUITEVIEW_LOCAL_DATA") == "1":
         raise ValueError("Live verification cannot use local policy data.")
-    policy = build_illustration_data(args.policy, args.region, args.company)
+    policy = _load_policy_data(args.policy, args.region, args.company)
     original = deepcopy(policy)
     config = load_plancode(policy.plancode)
     inputs = IllustrationInputSet(policy_changes=[PolicyChangeEvent(
@@ -38,7 +37,7 @@ def main():
         (args.date.year - policy.valuation_date.year) * 12
         + args.date.month - policy.valuation_date.month + 2
     )
-    states = IllustrationEngine().project(policy, months=months, future_inputs=inputs)
+    states = _project_with_engine(IllustrationEngine(), policy, months=months, future_inputs=inputs)
     rows = [{
         "date": state.date,
         "mtp": state.mtp_detail.get("vMTP"),
@@ -88,3 +87,15 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states

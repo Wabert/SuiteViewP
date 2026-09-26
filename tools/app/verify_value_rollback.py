@@ -11,7 +11,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.core.policy_service import get_policy_info
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.core.value_rollback import available_rollback_dates, apply_value_rollback
 
 
@@ -33,7 +32,7 @@ def main():
     if os.environ.get("SUITEVIEW_LOCAL_DATA") == "1":
         raise ValueError("Live verification cannot use local-data mode.")
     pi = get_policy_info(args.policy, args.region, args.company)
-    policy = build_illustration_data(args.policy, args.region, args.company)
+    policy = _load_policy_data(args.policy, args.region, args.company)
     if args.inspect:
         tables = {}
         for table in (
@@ -72,7 +71,7 @@ def main():
         })
         if args.project and len(results) == 1 and not historical.rollback_requires_shadow_value:
             from suiteview.illustration.core.calc_engine import IllustrationEngine
-            states = IllustrationEngine().project(historical, months=2)
+            states = _project_with_engine(IllustrationEngine(), historical, months=2)
             results[-1]["projected_dates"] = [state.date for state in states]
     if policy != original:
         raise AssertionError("Rollback mutated the loaded policy.")
@@ -369,3 +368,15 @@ def capture_ui(policy, pi, folder, *, when=None, exercise_edits=False, exercise_
 
 if __name__ == "__main__":
     raise SystemExit(main())
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states

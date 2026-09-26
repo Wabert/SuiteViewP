@@ -19,6 +19,18 @@ new borrowing begins.
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -39,7 +51,6 @@ def main() -> None:
 
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.solve_loan_payoff import (
         PAYOFF_SUBTYPE, solve_loan_payoff,
     )
@@ -54,7 +65,7 @@ def main() -> None:
     interval = _MODE_INTERVALS.get(mode, 12)
 
     clear_cache()
-    policy = build_illustration_data(policy_number, region=region,
+    policy = _load_policy_data(policy_number, region=region,
                                      company_code=cmd.get("company"))
     current_year = policy.duration // 12 + 1
     start_year = int(cmd.get("start_year") or current_year + 1)
@@ -91,7 +102,7 @@ def main() -> None:
         dated_transactions=dated)
     horizon = (check_date.year - policy.issue_date.year) * 12 \
         + (check_date.month - policy.issue_date.month) - policy.duration + 13
-    states = engine.project(policy, months=max(horizon, 1),
+    states = _project_with_engine(engine, policy, months=max(horizon, 1),
                             future_inputs=future, stop_on_lapse=False)
 
     def begin_balance(s):

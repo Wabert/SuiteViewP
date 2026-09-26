@@ -10,6 +10,10 @@ Usage:
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -26,7 +30,6 @@ def main() -> None:
 
     from suiteview.core.policy_service import clear_cache
     from suiteview.core.rates import Rates
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.target_premium import compute_target_premiums
     from suiteview.illustration.models.plancode_config import load_plancode
 
@@ -35,7 +38,7 @@ def main() -> None:
     company = cmd.get("company")
 
     clear_cache()
-    pd = build_illustration_data(policy, region=region, company_code=company)
+    pd = _load_policy_data(policy, region=region, company_code=company)
     config = load_plancode(pd.plancode)
     rates_db = Rates()
 

@@ -318,8 +318,8 @@ def test_canonical_loader_quotes_without_blanket_lapse_block(projection, monkeyp
     calls = []
     def load(*args, **kwargs):
         calls.append(kwargs)
-        return p
-    monkeypatch.setattr(rein, "build_illustration_data", load)
+        return SimpleNamespace(policy=p)
+    monkeypatch.setattr(rein, "load_projection_basis", load)
     result = rein.calculate_home_office_reinstatement(live_source(), date(2026, 2, 16))
     assert result.premium == Decimal("10.01")
     assert calls[0]["reinstatement_date"] == date(2025, 1, 15)
@@ -330,7 +330,7 @@ def test_canonical_loader_quotes_without_blanket_lapse_block(projection, monkeyp
 def test_known_data_failures_use_domain_error(monkeypatch, exception_type):
     def fail(*args, **kwargs):
         raise exception_type("Unavailable source")
-    monkeypatch.setattr(rein, "build_illustration_data", fail)
+    monkeypatch.setattr(rein, "load_projection_basis", fail)
     with pytest.raises(rein.ReinstatementError, match="Unavailable source"):
         rein.calculate_home_office_reinstatement(live_source(), date(2026, 2, 15))
 
@@ -430,7 +430,7 @@ def test_raw_missing_accumulators_are_not_silently_zero():
 
 def test_history_after_snapshot_is_not_merged(projection, monkeypatch):
     p, _, _, _, _ = projection
-    monkeypatch.setattr(rein, "build_illustration_data", lambda *a, **kw: p)
+    monkeypatch.setattr(rein, "load_projection_basis", lambda *a, **kw: SimpleNamespace(policy=p))
     policy = live_source()
     policy.get_transactions = lambda: [SimpleNamespace(trans_date=date(2026, 2, 1))]
     with pytest.raises(rein.ReinstatementError, match="Financial history extends"):

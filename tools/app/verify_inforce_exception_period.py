@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from PyQt6.QtWidgets import QApplication
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.core.solve_level_to_exception import solve_level_to_exception
 from suiteview.illustration.models.input_set import IllustrationOptions
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
@@ -23,13 +22,13 @@ def main():
     parser.add_argument("--region", default="CKPR")
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
-    policy = build_illustration_data(
+    policy = _load_policy_data(
         args.policy.strip().upper(), region=args.region.strip().upper(),
         company_code=args.company)
     original = copy.deepcopy(policy)
     assert policy.in_exception_period, "Policy is not a known GP / zero-GLP inforce basis."
     options = IllustrationOptions(allow_exception_prems=False, exact_days_interest=False)
-    states = IllustrationEngine().project(policy, options=options)
+    states = _project_with_engine(IllustrationEngine(), policy, options=options)
     solved = solve_level_to_exception(policy, base_options=options)
     app = QApplication.instance() or QApplication([])
     tab = IllustrationInputsTab()
@@ -73,3 +72,15 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states

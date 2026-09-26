@@ -9,16 +9,17 @@ and UI/report reduction.
 from __future__ import annotations
 
 import inspect
+import sys
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine, ProjectionTiming
 from suiteview.illustration.core.illustration_policy_service import build_illustration_data
-from suiteview.illustration.core.rate_loader import IllustrationRates, load_rates
+from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import IllustrationInputSet, IllustrationOptions
-from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 
@@ -35,6 +36,61 @@ class ProjectionRun:
     timing: ProjectionTiming
     months: int | None
     stop_on_lapse: bool
+
+
+@dataclass(frozen=True)
+class ProjectionBasis:
+    """Loaded policy, plancode and rates without an engine projection."""
+
+    policy: IllustrationPolicyData
+    config: PlancodeConfig
+    rates: IllustrationRates
+
+
+def load_policy_data(
+    policy_or_number_or_pi: str | IllustrationPolicyData | Any,
+    region: str = "CKPR",
+    company_code: str | None = None,
+    *,
+    illustration_date: date | None = None,
+    reinstatement_date: date | None = None,
+) -> IllustrationPolicyData:
+    """Load or coerce only IllustrationPolicyData at the façade boundary."""
+    return _coerce_policy(
+        policy_or_number_or_pi,
+        region=region,
+        company_code=company_code,
+        illustration_date=illustration_date,
+        reinstatement_date=reinstatement_date,
+    )
+
+
+def load_projection_basis(
+    policy_or_number_or_pi: str | IllustrationPolicyData | Any,
+    *,
+    rates: IllustrationRates | None = None,
+    config: PlancodeConfig | None = None,
+    region: str = "CKPR",
+    company_code: str | None = None,
+    illustration_date: date | None = None,
+    reinstatement_date: date | None = None,
+) -> ProjectionBasis:
+    """Load policy data, plancode config and rates without projecting.
+
+    Use this lower-level façade only for diagnostics/scripts that need to inspect
+    the intermediate policy/config/rate objects before deciding what to project.
+    Application projection paths should call :func:`project_policy` directly.
+    """
+    policy = load_policy_data(
+        policy_or_number_or_pi,
+        region=region,
+        company_code=company_code,
+        illustration_date=illustration_date,
+        reinstatement_date=reinstatement_date,
+    )
+    run_config = config if config is not None else _load_plancode_config(policy.plancode)
+    run_rates = rates if rates is not None else _load_policy_rates(policy, run_config)
+    return ProjectionBasis(policy=policy, config=run_config, rates=run_rates)
 
 
 def project_policy(
@@ -62,26 +118,32 @@ def project_policy(
     Passing ``rates`` or ``config`` preserves specialized callers' existing
     overrides; otherwise the standard plancode and rate loaders are used.
     """
-    policy = _coerce_policy(
-        policy_or_number_or_pi,
-        region=region,
-        company_code=company_code,
-        illustration_date=illustration_date,
-        reinstatement_date=reinstatement_date,
-    )
     runner = engine or IllustrationEngine()
     project_parameters = inspect.signature(runner.project).parameters
     should_load_rates = engine is None or rates is not None or config is not None
-    run_config = (
-        config if config is not None
-        else load_plancode(policy.plancode) if should_load_rates
-        else None
-    )
-    run_rates = (
-        rates if rates is not None
-        else load_rates(policy, run_config) if should_load_rates and run_config is not None
-        else None
-    )
+    if should_load_rates:
+        basis = load_projection_basis(
+            policy_or_number_or_pi,
+            rates=rates,
+            config=config,
+            region=region,
+            company_code=company_code,
+            illustration_date=illustration_date,
+            reinstatement_date=reinstatement_date,
+        )
+        policy = basis.policy
+        run_config = basis.config
+        run_rates = basis.rates
+    else:
+        policy = _coerce_policy(
+            policy_or_number_or_pi,
+            region=region,
+            company_code=company_code,
+            illustration_date=illustration_date,
+            reinstatement_date=reinstatement_date,
+        )
+        run_config = None
+        run_rates = None
     run_options = options if options is not None else IllustrationOptions()
     states = _project_with_supported_kwargs(
         runner,
@@ -134,7 +196,7 @@ def _coerce_policy(
     if isinstance(policy_or_number_or_pi, IllustrationPolicyData):
         return policy_or_number_or_pi
     if isinstance(policy_or_number_or_pi, str):
-        return build_illustration_data(
+        return _build_policy_data(
             policy_or_number_or_pi,
             region=region,
             company_code=company_code,
@@ -144,10 +206,44 @@ def _coerce_policy(
     policy_number = getattr(policy_or_number_or_pi, "policy_number", None)
     if not policy_number:
         return policy_or_number_or_pi
-    return build_illustration_data(
+    return _build_policy_data(
         str(policy_number),
         region=getattr(policy_or_number_or_pi, "region", region) or region,
         company_code=company_code or getattr(policy_or_number_or_pi, "company_code", None),
         illustration_date=illustration_date,
         reinstatement_date=reinstatement_date,
     )
+
+
+def _build_policy_data(*args, **kwargs) -> IllustrationPolicyData:
+    """Resolve the package-level builder so existing test doubles still work."""
+    package = sys.modules.get("suiteview.illustration")
+    package_builder = getattr(package, "build_illustration_data", build_illustration_data)
+    from suiteview.illustration.core import illustration_policy_service
+
+    core_builder = illustration_policy_service.build_illustration_data
+    builder = package_builder if package_builder is not build_illustration_data else core_builder
+    try:
+        return builder(*args, **kwargs)
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        policy_number = args[0] if args else kwargs.get("policy_number")
+        region = kwargs.get("region", args[1] if len(args) > 1 else "CKPR")
+        company = kwargs.get("company_code", args[2] if len(args) > 2 else None)
+        return builder(policy_number, region, company)
+
+
+def _load_plancode_config(plancode: str) -> PlancodeConfig:
+    from suiteview.illustration.models import plancode_config
+
+    return plancode_config.load_plancode(plancode)
+
+
+def _load_policy_rates(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+) -> IllustrationRates:
+    from suiteview.illustration.core import rate_loader
+
+    return rate_loader.load_rates(policy, config)

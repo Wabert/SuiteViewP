@@ -1,3 +1,15 @@
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 r"""Inspect live illustration premium caps for one policy.
 
 Usage:
@@ -23,7 +35,6 @@ from PyQt6.QtWidgets import QApplication
 
 from suiteview.core.policy_service import clear_cache, get_policy_info
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 
@@ -48,7 +59,7 @@ def main() -> None:
         raise SystemExit(f"Policy not found: {args.policy}")
 
     company = getattr(policy_info, "company_code", None)
-    policy_data = build_illustration_data(args.policy, region=args.region, company_code=company)
+    policy_data = _load_policy_data(args.policy, region=args.region, company_code=company)
 
     tab = IllustrationInputsTab()
     tab.load_data_from_policy(policy_info)
@@ -65,7 +76,7 @@ def main() -> None:
     months = args.months if args.months is not None else tab._months_to_maturity(scenario.projectable_policy)
     options = tab.export_options()
 
-    states = IllustrationEngine().project(
+    states = _project_with_engine(IllustrationEngine(), 
         scenario.projectable_policy,
         months=months,
         future_inputs=scenario.future_inputs,

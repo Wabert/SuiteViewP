@@ -139,25 +139,82 @@ def apply_value_rollback(
         raise ValueError("Value Rollback cannot be combined with New Business - From Issue.")
     anchor = policy.rollback_source_date or policy.valuation_date
     if rollback_date == anchor and policy.rollback_date is None:
-        result = deepcopy(policy)
-        if shadow_account_value is not None:
-            result.shadow_account_value = float(
-                _number(shadow_account_value, "Starting shadow account value"))
-        return result
+        return _current_basis_copy(policy, shadow_account_value)
+    snapshot = _snapshot_for_rollback_date(policy, rollback_date)
+    historical_shadow = (
+        shadow_account_value if shadow_account_value is not None
+        else snapshot.shadow_account_value)
+    missing_shadow = _missing_shadow_value(policy, historical_shadow)
+    contributions = _validate_snapshot_or_raise(
+        policy, snapshot, rollback_date, anchor,
+        historical_shadow=historical_shadow,
+        missing_shadow=missing_shadow,
+        allow_missing_shadow=allow_missing_shadow,
+    )
+    result, unavailable_charge_details = _copy_historical_basis(
+        policy, snapshot, rollback_date, anchor, contributions)
+    _apply_historical_shadow(
+        result, historical_shadow, shadow_account_value, missing_shadow)
+    _append_charge_limitations(result, unavailable_charge_details)
+    _set_rollback_duration(result, policy, rollback_date)
+    return result
+
+
+def _current_basis_copy(
+    policy: IllustrationPolicyData,
+    shadow_account_value: float | None,
+) -> IllustrationPolicyData:
+    result = deepcopy(policy)
+    if shadow_account_value is not None:
+        result.shadow_account_value = float(
+            _number(shadow_account_value, "Starting shadow account value"))
+    return result
+
+
+def _snapshot_for_rollback_date(policy: IllustrationPolicyData, rollback_date: date):
     if rollback_date not in available_rollback_dates(policy):
         raise ValueError("No recorded rollback snapshot within six months for the selected date.")
     matches = [s for s in policy.rollback_snapshots if s.valuation_date == rollback_date]
     if len(matches) != 1:
         raise ValueError("Multiple historical snapshots exist for the selected date.")
-    snapshot = matches[0]
+    return matches[0]
+
+
+def _missing_shadow_value(policy: IllustrationPolicyData, historical_shadow) -> bool:
+    return bool(
+        (policy.ccv_active or policy.shadow_account_value or policy.swam)
+        and historical_shadow is None)
+
+
+def _validate_snapshot_or_raise(
+    policy: IllustrationPolicyData,
+    snapshot,
+    rollback_date: date,
+    anchor: date,
+    *,
+    historical_shadow,
+    missing_shadow: bool,
+    allow_missing_shadow: bool,
+):
     errors = list(snapshot.blocking_errors)
-    anchor = policy.rollback_source_date or policy.valuation_date
     if snapshot.source_valuation_date not in (None, anchor):
         errors.append("Snapshot belongs to a different loaded valuation date.")
+    errors.extend(_required_amount_errors(snapshot))
+    contributions = _validated_tamra_contributions(snapshot, errors)
+    errors.extend(_shadow_amount_errors(historical_shadow, missing_shadow, allow_missing_shadow))
+    errors.extend(_supplemental_snapshot_errors(policy, snapshot))
+    if errors:
+        raise ValueError(
+            f"Value Rollback to {rollback_date:%Y-%m-%d} is unsafe:\n"
+            + "\n".join(f"- {error}" for error in dict.fromkeys(errors))
+        )
+    return contributions
+
+
+def _required_amount_errors(snapshot) -> list[str]:
+    errors: list[str] = []
     for name in (*_REQUIRED_AMOUNTS, "system_monthly_deduction"):
         if getattr(snapshot, name) is None and snapshot.blocking_errors:
-            # Recovery already recorded the cause; avoid reporting every dependent
-            # historical amount as though the current policy fields were missing.
             continue
         try:
             amount = _number(getattr(snapshot, name), f"Historical {name} for the selected rollback date")
@@ -165,24 +222,32 @@ def apply_value_rollback(
                 errors.append(f"{name} cannot be negative.")
         except ValueError as exc:
             errors.append(str(exc))
+    return errors
+
+
+def _validated_tamra_contributions(snapshot, errors: list[str]):
     contributions = snapshot.tamra_7year_contributions
     if contributions is None:
         if not snapshot.blocking_errors:
             errors.append("Historical TAMRA year contributions are incomplete (seven years required).")
-    elif len(contributions) != 7:
+        return contributions
+    if len(contributions) != 7:
         errors.append("Historical TAMRA year contributions are incomplete (seven years required).")
-    else:
-        for year, amount in enumerate(contributions, 1):
-            try:
-                _number(amount, f"TAMRA year {year}")
-            except ValueError as exc:
-                errors.append(str(exc))
-    historical_shadow = (
-        shadow_account_value if shadow_account_value is not None
-        else snapshot.shadow_account_value)
-    missing_shadow = bool(
-        (policy.ccv_active or policy.shadow_account_value or policy.swam)
-        and historical_shadow is None)
+        return contributions
+    for year, amount in enumerate(contributions, 1):
+        try:
+            _number(amount, f"TAMRA year {year}")
+        except ValueError as exc:
+            errors.append(str(exc))
+    return contributions
+
+
+def _shadow_amount_errors(
+    historical_shadow,
+    missing_shadow: bool,
+    allow_missing_shadow: bool,
+) -> list[str]:
+    errors: list[str] = []
     if missing_shadow and not allow_missing_shadow:
         errors.append("Historical shadow-account values are unavailable. Enter a verified historical shadow amount.")
     if historical_shadow is not None:
@@ -190,6 +255,11 @@ def apply_value_rollback(
             _number(historical_shadow, "Historical shadow account value")
         except ValueError as exc:
             errors.append(str(exc))
+    return errors
+
+
+def _supplemental_snapshot_errors(policy: IllustrationPolicyData, snapshot) -> list[str]:
+    errors: list[str] = []
     if policy.deemed_cash_value and snapshot.deemed_cash_value is None:
         errors.append("Historical deemed cash value is unavailable.")
     if snapshot.variable_loan_principal or snapshot.variable_loan_accrued:
@@ -207,36 +277,24 @@ def apply_value_rollback(
                 _number(amount, f"Historical fund {fund}")
             except ValueError as exc:
                 errors.append(str(exc))
-    if errors:
-        raise ValueError(
-            f"Value Rollback to {rollback_date:%Y-%m-%d} is unsafe:\n"
-            + "\n".join(f"- {error}" for error in dict.fromkeys(errors))
-        )
-    year, month, duration, attained_age = _duration(policy, rollback_date)
+    return errors
+
+
+def _copy_historical_basis(
+    policy: IllustrationPolicyData,
+    snapshot,
+    rollback_date: date,
+    anchor: date,
+    contributions,
+) -> tuple[IllustrationPolicyData, list[str]]:
     result = deepcopy(policy)
     for name in (*_REQUIRED_AMOUNTS, "system_monthly_deduction"):
         setattr(result, name, float(getattr(snapshot, name)))
-    unavailable_charge_details = []
-    for name in _SYSTEM_AMOUNTS[:3]:
-        amount = getattr(snapshot, name)
-        if amount is None:
-            # The sourced TOTAL deduction preserves the pre-deduction AV used
-            # for the engine's opening comparison; breakdowns are display-only.
-            setattr(result, name, 0.0)
-            unavailable_charge_details.append(name)
-        else:
-            setattr(result, name, float(_number(amount, name)))
+    unavailable_charge_details = _apply_system_charges(result, snapshot)
     result.tamra_7year_contributions = list(contributions)
-    for name in (
-        "shadow_account_value", "deemed_cash_value",
-    ):
-        value = getattr(snapshot, name)
-        if value is not None:
-            setattr(result, name, float(_number(value, name)))
+    _copy_optional_snapshot_values(result, snapshot)
     result.variable_loan_charge_rate = snapshot.variable_loan_charge_rate
     result.fund_values = deepcopy(snapshot.fund_values) if snapshot.fund_values is not None else {}
-    # No historical fund-level loan map is captured; current collateral buckets
-    # must never appear as editable historical balances.
     result.impaired_fund_values = {}
     result.rollback_date = rollback_date
     result.rollback_source_date = anchor
@@ -245,31 +303,68 @@ def apply_value_rollback(
         result.fund_values = {}
         if _IUL_TOTAL_BASIS not in result.rollback_limitations:
             result.rollback_limitations.append(_IUL_TOTAL_BASIS)
+    return result, unavailable_charge_details
+
+
+def _apply_system_charges(result: IllustrationPolicyData, snapshot) -> list[str]:
+    unavailable_charge_details = []
+    for name in _SYSTEM_AMOUNTS[:3]:
+        amount = getattr(snapshot, name)
+        if amount is None:
+            result.__setattr__(name, 0.0)
+            unavailable_charge_details.append(name)
+        else:
+            setattr(result, name, float(_number(amount, name)))
+    return unavailable_charge_details
+
+
+def _copy_optional_snapshot_values(result: IllustrationPolicyData, snapshot) -> None:
+    for name in ("shadow_account_value", "deemed_cash_value"):
+        value = getattr(snapshot, name)
+        if value is not None:
+            setattr(result, name, float(_number(value, name)))
+
+
+def _apply_historical_shadow(
+    result: IllustrationPolicyData,
+    historical_shadow,
+    manual_shadow,
+    missing_shadow: bool,
+) -> None:
     result.rollback_requires_shadow_value = missing_shadow
     if historical_shadow is not None:
         result.shadow_account_value = float(historical_shadow)
-    if shadow_account_value is not None:
+    if manual_shadow is not None:
         result.rollback_limitations.append(
             "Historical shadow account value was entered manually, not recovered from CyberLife.")
     elif missing_shadow:
         result.rollback_limitations.append(
             "Historical shadow account value is unavailable. Projection is blocked until "
             "a historical amount is explicitly entered; the loaded shadow balance is not rolled back.")
-    if unavailable_charge_details:
-        result.rollback_limitations.append(
-            "Historical charge breakdown unavailable: "
-            + ", ".join(unavailable_charge_details)
-            + ". Opening comparison shows diagnostic zero placeholders for these "
-            "components, not recovered amounts; the total deduction is sourced."
-        )
+
+
+def _append_charge_limitations(result: IllustrationPolicyData, unavailable_charge_details: list[str]) -> None:
+    if not unavailable_charge_details:
+        return
+    result.rollback_limitations.append(
+        "Historical charge breakdown unavailable: "
+        + ", ".join(unavailable_charge_details)
+        + ". Opening comparison shows diagnostic zero placeholders for these "
+        "components, not recovered amounts; the total deduction is sourced."
+    )
+
+
+def _set_rollback_duration(
+    result: IllustrationPolicyData,
+    policy: IllustrationPolicyData,
+    rollback_date: date,
+) -> None:
+    year, month, duration, attained_age = _duration(policy, rollback_date)
     result.valuation_date = rollback_date
     result.policy_year = year
     result.policy_month = month
     result.duration = duration
     result.attained_age = attained_age
-    return result
-
-
 def _transactions(rows: list[dict]) -> list[tuple[date, str, dict]]:
     result = []
     for row in rows:

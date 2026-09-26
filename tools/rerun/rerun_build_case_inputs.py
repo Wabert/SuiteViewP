@@ -2,7 +2,7 @@
 
 Offline replacement for RERUN's ``mdl_GetCyberlifePolicy.PopulateInputSheet``
 (which pulls a policy from DB2 and fills the INPUT sheet): the same field
-mapping is computed in Python from ``build_illustration_data()`` (which reads
+mapping is computed in Python from ``_load_policy_data()`` (which reads
 bundled_data/dev/policy_records.sqlite when SUITEVIEW_LOCAL_DATA=1) and written
 as a NEW column on the ``Saved Cases`` sheet, so the existing
 rerun_com/compare_rerun_vs_app pipeline can load it like any hand-saved case.
@@ -28,6 +28,10 @@ loaded separately (tools/rerun/rerun_load_local_rates.py) before running the cas
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import datetime as _dt
 import json
 import os
@@ -157,7 +161,7 @@ def build_mapping(data, warnings: list[str], skip_benefits: bool = False) -> dic
 
     plan_strat = load_index_strategies(data.plancode)
     # Overlay the illustration-date SV_INDEX_ILL_RATES / SV_INDEX_PARAMS that
-    # build_illustration_data already fetched. Without this the case gets the
+    # the policy-data loader already fetched. Without this the case gets the
     # catalog defaults, which are stale (and 0.0 for some funds, e.g. 1U148000
     # IX), so the case would illustrate a crediting rate the engine never uses.
     if plan_strat is not None:
@@ -570,15 +574,13 @@ def main():
     cmd = json.loads(sys.argv[1])
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
-
     workbook = Path(cmd.get("workbook") or DEFAULT_WORKBOOK).resolve()
     if not workbook.exists():
         print(json.dumps({"ok": False, "error": f"workbook not found: {workbook}"}))
         sys.exit(1)
 
     policy = cmd["policy"]
-    data = build_illustration_data(
+    data = _load_policy_data(
         policy, region=cmd.get("region", "CKPR"), company_code=cmd.get("company"))
 
     warnings: list[str] = []

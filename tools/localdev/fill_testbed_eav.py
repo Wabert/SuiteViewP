@@ -15,6 +15,18 @@ Usage:
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import argparse
 import os
 import sys
@@ -35,7 +47,6 @@ from suiteview.core.policy_service import get_policy_info, clear_cache
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
     active_rider_benefit_codes,
-    build_illustration_data,
 )
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
@@ -111,7 +122,7 @@ def forecast_termination(policy_number: str, *, exact_days_interest: bool):
 
     rider_benefit_codes = active_rider_benefit_codes(pi)
 
-    policy_data = build_illustration_data(policy_number, region=REGION, company_code=pi.company_code)
+    policy_data = _load_policy_data(policy_number, region=REGION, company_code=pi.company_code)
 
     tab = IllustrationInputsTab()
     tab.load_data_from_policy(pi)
@@ -126,7 +137,7 @@ def forecast_termination(policy_number: str, *, exact_days_interest: bool):
 
     engine = IllustrationEngine()
     options = tab.export_options()
-    results = engine.project(
+    results = _project_with_engine(engine, 
         scenario.projectable_policy,
         months=months,
         future_inputs=scenario.future_inputs,

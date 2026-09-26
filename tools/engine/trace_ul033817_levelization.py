@@ -1,3 +1,15 @@
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 r"""Trace the live UL033817 off-anniversary 7-Pay levelization case.
 
 Loads live policy and rates data, configures the real Illustration inputs UI
@@ -31,15 +43,12 @@ def main() -> int:
     from PyQt6.QtWidgets import QApplication
 
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import (
-        build_illustration_data,
-    )
     from suiteview.illustration.core.input_compiler import compile_month_inputs
     from suiteview.illustration.core.scenario_builder import build_illustration_scenario
     from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 
     app = QApplication.instance() or QApplication(sys.argv)
-    policy = build_illustration_data("UL033817", region="CKPR")
+    policy = _load_policy_data("UL033817", region="CKPR")
 
     inputs_tab = IllustrationInputsTab()
     inputs_tab.load_data_from_policy(policy)
@@ -70,7 +79,7 @@ def main() -> int:
         future_inputs=input_set,
     )
     compiled = compile_month_inputs(scenario.projectable_policy, input_set, 18)
-    projected = IllustrationEngine().project(
+    projected = _project_with_engine(IllustrationEngine(), 
         scenario.projectable_policy,
         months=18,
         future_inputs=input_set,

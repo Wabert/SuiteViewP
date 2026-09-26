@@ -27,7 +27,6 @@ from suiteview.core.odbc_utils import is_password_error
 from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
-    build_illustration_data,
     coverage_segment_data_warnings,
 )
 from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
@@ -1327,7 +1326,9 @@ class IllustrationWindow(FramelessWindowBase):
         self._illustration_data = None
         try:
             warnings.extend(coverage_segment_data_warnings(self._policy))
-            policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+            policy_data = project_policy(
+                policy_number, region=region, company_code=company_code,
+                months=0).policy
             self._illustration_data = policy_data
             warnings.extend(self._definition_of_life_warnings(policy_data))
             config = load_plancode(policy_data.plancode)
@@ -1401,7 +1402,9 @@ class IllustrationWindow(FramelessWindowBase):
             elif self.inputs_tab.export_rollback_overrides() is not None:
                 policy_data = copy.deepcopy(self._illustration_data)
             else:
-                policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+                policy_data = project_policy(
+                    policy_number, region=region, company_code=company_code,
+                    months=0).policy
             scenario_args = {
                 "inforce_overrides": self.inputs_tab.export_inforce_overrides(),
                 "future_inputs": self.inputs_tab.export_input_set(),
