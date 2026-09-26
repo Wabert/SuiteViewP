@@ -521,7 +521,7 @@ def _substandard_basis(source: PolicySourceSnapshot, cov) -> tuple[int, object, 
     for rating in source.substandard_by_phase.get(cov.cov_pha_nbr, []):
         if rating.type_code == "T" and rating.table_rating_numeric and rating.table_rating_numeric > 0:
             seg_table = rating.table_rating_numeric
-            seg_table_cease = rating.cease_date
+            seg_table_cease = rating.flat_cease_date
         elif rating.type_code == "F":
             if rating.flat_amount:
                 seg_flat = float(rating.flat_amount)
