@@ -848,6 +848,122 @@ def accrue_loans(ctx: MonthContext, work: MonthWork) -> None:
     )
 
 
+def calculate_shadow_step(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Run shadow account processing when the timing convention supports it."""
+    if not convention.shadow_enabled:
+        work.shd = None
+        return
+    work.shd = calculate_shadow(ShadowInput(
+        prev_shadow_eav=ctx.state.shadow_eav,
+        gross_premium=work.prem.gross_premium,
+        premiums_ytd=work.prem.premiums_ytd,
+        policy=ctx.policy,
+        config=ctx.config,
+        rates=ctx.rates,
+        rate_year=work.rate_year,
+        attained_age=work.attained_age,
+        days_in_month=work.intr.actual_days_in_month,
+        policy_debt=work.accrual_loan.policy_debt,
+        shadow_rider_charges=_shadow_rider_charges_from_deduction(
+            ctx.policy, work.ded
+        ),
+        projection_date=work.month_date,
+        display_days_in_month=work.intr.days_in_month,
+    ))
+
+
+def evaluate_lapse(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:
+    """Evaluate lapse, protection flags, surrender value and terminal rollups."""
+    if convention.full_lapse_protection:
+        _evaluate_illustration_lapse(ctx, work)
+    else:
+        _evaluate_cyberlife_lapse(ctx, work)
+
+
+def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
+    policy = ctx.policy
+    work.accum_mtp_less_prem = (
+        work.prem.premiums_to_date - work.withdrawals_to_date
+        - work.accrual_loan.policy_debt
+    ) - work.accumulated_mtp
+    work.snet_active = work.accum_mtp_less_prem >= 0 and work.within_snet
+    work.shadow_protection = (
+        policy.has_shadow_account
+        and work.past_snet
+        and work.shd.shadow_eav_less_debt > 0
+    )
+    (
+        work.scr_rate,
+        work.surrender_charge,
+        work.scr_rates_by_coverage,
+        work.surrender_charges_by_coverage,
+    ) = _calculate_surrender_charge(
+        policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+    )
+    lapse_check_av = work.exception.av_after_exception
+    lapse_check_debt = work.cap_loan.policy_debt
+    work.surrender_value = lapse_check_av - work.surrender_charge - lapse_check_debt
+    edb_wo_corr = policy.total_face
+    if policy.db_option == DB_OPTION_INCREASING:
+        edb_wo_corr += max(0.0, work.av)
+    elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
+        edb_wo_corr += max(
+            0.0, work.prem.premiums_to_date - work.withdrawals_to_date
+        )
+    edb_corr = (
+        max(0.0, math.floor(work.av * work.ded.corridor_rate + 1e-6) - edb_wo_corr)
+        if work.ded.corridor_rate > 0
+        else 0.0
+    )
+    work.ending_db = (
+        edb_wo_corr + edb_corr - work.accrual_loan.policy_debt
+        + _primary_insured_rider_face(policy, work.month_date)
+    )
+    work.ending_sv = work.av - work.surrender_charge - work.accrual_loan.policy_debt
+    work.positive_sv = (
+        work.lapse_value == LAPSE_BASIS_SURRENDER_VALUE
+        and work.surrender_value > 0
+    )
+    work.av_less_loans = lapse_check_av - lapse_check_debt
+    av_loans_test = (
+        work.lapse_value == LAPSE_BASIS_ACCOUNT_VALUE and work.av_less_loans > 0
+    )
+    work.exception_protection = (
+        work.exception.mode and work.surrender_value > -0.0001
+    )
+    protected = (
+        work.snet_active or work.shadow_protection or work.positive_sv
+        or av_loans_test or work.exception_protection
+    )
+    work.lapsed = ctx.state.lapsed or not protected
+    if ctx.options is not None and ctx.options.no_lapse:
+        work.lapsed = False
+    work.accumulated_7pay = work.accumulated_7pay_base + (
+        work.prem.gross_premium - work.wd.gross_withdrawal
+        if work.tamra_year <= 7
+        else 0.0
+    )
+
+
+def _evaluate_cyberlife_lapse(ctx: MonthContext, work: MonthWork) -> None:
+    work.monthly_mtp = truncate_monthly_mtp(ctx.policy.mtp)
+    work.accumulated_mtp = ctx.state.accumulated_mtp + work.monthly_mtp
+    work.accum_mtp_less_prem = (
+        work.prem.premiums_to_date - work.withdrawals_to_date
+        - work.accrual_loan.policy_debt
+    ) - work.accumulated_mtp
+    work.av_less_loans = work.av - work.accrual_loan.policy_debt
+    work.accumulated_7pay = ctx.state.accumulated_7pay + (
+        work.prem.gross_premium if work.tamra_year <= 7 else 0.0
+    )
+    work.exception_protection = work.exception.mode and work.av_less_loans > -0.0001
+    work.lapsed = ctx.state.lapsed or (work.av <= 0.0 and not work.exception.mode)
+    if ctx.options is not None and ctx.options.no_lapse:
+        work.lapsed = False
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -965,89 +1081,24 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     av = work.av
     accrual_loan = work.accrual_loan
 
-    # ── 17. Shadow account processing ─────────────────────
-    shd = calculate_shadow(ShadowInput(
-        prev_shadow_eav=state.shadow_eav,
-        gross_premium=prem.gross_premium,
-        premiums_ytd=prem.premiums_ytd,
-        policy=policy,
-        config=config,
-        rates=rates,
-        rate_year=rate_year,
-        attained_age=attained_age,
-        days_in_month=intr.actual_days_in_month,
-        policy_debt=accrual_loan.policy_debt,
-        shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded),
-        projection_date=month_date,
-        display_days_in_month=intr.days_in_month,
-    ))
-
-    # ── 18. Testing: SNET, shadow, exception, and lapse ───
-    accum_mtp_less_prem = (
-        prem.premiums_to_date - withdrawals_to_date
-        - accrual_loan.policy_debt
-    ) - accumulated_mtp
-    snet_active = accum_mtp_less_prem >= 0 and within_snet
-
-    shadow_protection = (
-        policy.has_shadow_account
-        and past_snet
-        and shd.shadow_eav_less_debt > 0
-    )
-
-    scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
-        policy, rates, rate_year, month_date, config
-    )
-    lapse_check_av = exception.av_after_exception
-    lapse_check_debt = cap_loan.policy_debt
-    surrender_value = lapse_check_av - surrender_charge - lapse_check_debt
-
-    # Ending death benefit (CalcEngine VY/VZ/WB): recomputed from the
-    # END-of-month AV — DBO B adds EOM AV, the corridor tests EOM AV, and
-    # outstanding policy debt is subtracted.
-    edb_wo_corr = policy.total_face
-    if policy.db_option == DB_OPTION_INCREASING:
-        edb_wo_corr += max(0.0, av)
-    elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
-        edb_wo_corr += max(0.0, prem.premiums_to_date - withdrawals_to_date)
-    # Corridor DB truncated to a whole dollar — same CyberLife rule as the
-    # deduction-time Gross DB (diverges from RERUN VZ, which doesn't truncate).
-    edb_corr = (max(0.0, math.floor(av * ded.corridor_rate + 1e-6) - edb_wo_corr)
-                if ded.corridor_rate > 0 else 0.0)
-    # RERUN vIllustratedDB = base policy DB + face of riders on the primary
-    # insured (e.g. Signature Term Riders), each active until its maturity.
-    ending_db = (edb_wo_corr + edb_corr - accrual_loan.policy_debt
-                 + _primary_insured_rider_face(policy, month_date))
-
-    # Ending surrender value (CalcEngine VZ vESV = vEAV − FullSC − vELN):
-    # END-of-month AV less the full surrender charge and the END-of-month
-    # loan balance. Distinct from surrender_value above (RERUN vLapseSV),
-    # which nets the PRE-interest lapse-check AV and pre-accrual debt.
-    ending_sv = av - surrender_charge - accrual_loan.policy_debt
-
-    positive_sv = lapse_value == LAPSE_BASIS_SURRENDER_VALUE and surrender_value > 0
-    av_less_loans = lapse_check_av - lapse_check_debt
-    av_loans_test = lapse_value == LAPSE_BASIS_ACCOUNT_VALUE and av_less_loans > 0
-    exception_protection = (
-        exception.mode
-        and surrender_value > -0.0001
-    )
-    any_protection = (
-        snet_active or shadow_protection or positive_sv
-        or av_loans_test or exception_protection
-    )
-    lapsed = state.lapsed or not any_protection
-    if options is not None and options.no_lapse:
-        # Lapse test disabled (ABR Quote): values may run negative and
-        # the projection always reaches maturity.
-        lapsed = False
-
-    # 7-pay contributions accumulate while inside the 7-pay window —
-    # premiums in, GROSS withdrawals out (XZ..YF add
-    # vAppliedTotalPremium − vGrossWD to the year's bucket).
-    accumulated_7pay = accumulated_7pay_base + (
-        prem.gross_premium - wd.gross_withdrawal if tamra_year <= 7 else 0.0
-    )
+    calculate_shadow_step(ctx, ILLUSTRATION_TIMING, work)
+    evaluate_lapse(ctx, ILLUSTRATION_TIMING, work)
+    shd = work.shd
+    accum_mtp_less_prem = work.accum_mtp_less_prem
+    snet_active = work.snet_active
+    shadow_protection = work.shadow_protection
+    scr_rate = work.scr_rate
+    scr_rates_by_coverage = work.scr_rates_by_coverage
+    surrender_charge = work.surrender_charge
+    surrender_charges_by_coverage = work.surrender_charges_by_coverage
+    surrender_value = work.surrender_value
+    ending_db = work.ending_db
+    ending_sv = work.ending_sv
+    positive_sv = work.positive_sv
+    av_less_loans = work.av_less_loans
+    exception_protection = work.exception_protection
+    lapsed = work.lapsed
+    accumulated_7pay = work.accumulated_7pay
 
     # ── 19. Deemed cash value ─────────────────────────────
     # Not yet implemented.
@@ -1371,22 +1422,15 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     applied_regular_loan = work.applied_regular_loan
     applied_preferred_loan = work.applied_preferred_loan
     accrual_loan = work.accrual_loan
-    monthly_mtp = truncate_monthly_mtp(policy.mtp)
-    accumulated_mtp = state.accumulated_mtp + monthly_mtp
-    accum_mtp_less_prem = (
-        prem.premiums_to_date - withdrawals_to_date
-        - accrual_loan.policy_debt
-    ) - accumulated_mtp
-    av_less_loans = av_end - accrual_loan.policy_debt
-    accumulated_7pay = state.accumulated_7pay + (
-        prem.gross_premium if tamra_year <= 7 else 0.0
-    )
-    exception_protection = exception.mode and av_less_loans > -0.0001
-    lapsed = state.lapsed or (av_end <= 0.0 and not exception.mode)
-    if options is not None and options.no_lapse:
-        # Lapse test disabled (ABR Quote): values may run negative and
-        # the projection always reaches maturity.
-        lapsed = False
+    calculate_shadow_step(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    evaluate_lapse(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    monthly_mtp = work.monthly_mtp
+    accumulated_mtp = work.accumulated_mtp
+    accum_mtp_less_prem = work.accum_mtp_less_prem
+    av_less_loans = work.av_less_loans
+    accumulated_7pay = work.accumulated_7pay
+    exception_protection = work.exception_protection
+    lapsed = work.lapsed
 
     tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
 
