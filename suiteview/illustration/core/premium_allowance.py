@@ -44,11 +44,9 @@ Two ideas drive the level machinery (NR..NW):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_FLOOR
+from decimal import ROUND_FLOOR, Decimal
 
-# The workbook's "no limit" sentinel. Kept identical to RERUN so MIN/MAX chains
-# behave the same and the value surfaces verbatim in the Values tab.
-INF = 999_999_999.0
+from suiteview.illustration.constants import INF, MONEY_EPSILON
 
 
 def _floor_cent(value: float) -> float:
@@ -301,10 +299,10 @@ def compute_premium_allowances(
         gp_side = a.gp_level_allowance if (is_gpt and tefra_force) else INF
         a.scheduled_prem_cap = _floor_cent(min(tamra_side, gp_side))
         a.scheduled_cap_by_guideline = (
-            gp_side < INF and gp_side <= tamra_side + 1e-9
+            gp_side < INF and gp_side <= tamra_side + MONEY_EPSILON
         )
         a.scheduled_cap_by_tamra = (
-            tamra_side < INF and tamra_side <= gp_side + 1e-9
+            tamra_side < INF and tamra_side <= gp_side + MONEY_EPSILON
         )
     else:
         a.scheduled_prem_cap = prior_scheduled_prem_cap
@@ -360,26 +358,26 @@ def compute_premium_allowances(
             else min(npt_allowance, tamra_allowance)
         )
         return (
-            gp_side < INF and gp_side <= tamra_side + 1e-9,
-            tamra_side < INF and tamra_side <= gp_side + 1e-9,
+            gp_side < INF and gp_side <= tamra_side + MONEY_EPSILON,
+            tamra_side < INF and tamra_side <= gp_side + MONEY_EPSILON,
         )
 
-    if a.applied_lumpsum < a.lumpsum_remaining - 1e-9:
+    if a.applied_lumpsum < a.lumpsum_remaining - MONEY_EPSILON:
         gp_binds, tamra_binds = annual_cap_sources(
             a.gp_allowance_1, a.npt_allowance_1, a.tamra_allowance_1)
         a.capped_by_guideline |= gp_binds
         a.capped_by_tamra |= tamra_binds
 
-    if a.applied_scheduled_premium < a.scheduled_less_loan_repay - 1e-9:
-        if a.annual_cap_2 <= min(levelized_or_full, tamra_scheduled_gate) + 1e-9:
+    if a.applied_scheduled_premium < a.scheduled_less_loan_repay - MONEY_EPSILON:
+        if a.annual_cap_2 <= min(levelized_or_full, tamra_scheduled_gate) + MONEY_EPSILON:
             gp_binds, tamra_binds = annual_cap_sources(
                 a.gp_allowance_2, a.npt_allowance_2, a.tamra_allowance_2)
             a.capped_by_guideline |= gp_binds
             a.capped_by_tamra |= tamra_binds
-        if a.apply_levelized and a.levelized_max_premium < a.scheduled_less_loan_repay - 1e-9:
+        if a.apply_levelized and a.levelized_max_premium < a.scheduled_less_loan_repay - MONEY_EPSILON:
             a.capped_by_guideline |= a.scheduled_cap_by_guideline
             a.capped_by_tamra |= a.scheduled_cap_by_tamra
-        if tamra_scheduled_gate <= min(a.annual_cap_2, levelized_or_full) + 1e-9:
+        if tamra_scheduled_gate <= min(a.annual_cap_2, levelized_or_full) + MONEY_EPSILON:
             a.capped_by_tamra = True
 
     return a

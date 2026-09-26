@@ -11,6 +11,15 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Dict
 
 from suiteview.core.benefit_rate_rules import benefit_charge_factor
+from suiteview.illustration.constants import (
+    DB_OPTION_INCREASING,
+    DB_OPTION_LEVEL,
+    DB_OPTION_RETURN_OF_PREMIUM,
+    MONTHS_PER_YEAR,
+    PER_THOUSAND,
+    RATE_CODE_TABLE,
+    SA_BASIS_ORIGINAL,
+)
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -75,7 +84,7 @@ def target_waiver_charge(
     )
     # The per-100 rate uses the base coverage rating, not the benefit rating.
     factor = 1.0 + config.table_rating_factor * table
-    amount = policy.mtp * 12.0 if config.pwot_coi_basis == 2 else policy.ctp
+    amount = policy.mtp * MONTHS_PER_YEAR if config.pwot_coi_basis == 2 else policy.ctp
     return amount, _round_near(amount * rate / 100.0 * factor, 2)
 
 
@@ -155,7 +164,9 @@ def _adjusted_coi_rate(
         else 0.0
     )
     # RERUN truncates the monthly flat extra to cents: TRUNC(flat/12, 2).
-    adjusted = raw_rate * (1.0 + config.table_rating_factor * table_rating) + _trunc2(flat_extra / 12.0)
+    adjusted = raw_rate * (1.0 + config.table_rating_factor * table_rating) + _trunc2(
+        flat_extra / MONTHS_PER_YEAR
+    )
     return _round_near(adjusted, 5) if round_5 else adjusted
 
 
@@ -278,7 +289,7 @@ def _ratchet_coi(
             b2_rate = 0.0
         b1_nar = band1_slots[index - 1]
         b2_nar = band2_slots[index - 1]
-        charge = (b1_nar / 1000.0) * b1_rate + (b2_nar / 1000.0) * b2_rate
+        charge = (b1_nar / PER_THOUSAND) * b1_rate + (b2_nar / PER_THOUSAND) * b2_rate
         if bln_round_charge:
             charge = _round_near(charge, 2)
         key = f"cov{index}"
@@ -296,7 +307,10 @@ def _ratchet_coi(
     corr_b2_rate = result.band2_rates[last_key] if last_key is not None else 0.0
     corr_b1_nar = band1_slots[-1]
     corr_b2_nar = band2_slots[-1]
-    charge_corr = (corr_b1_nar / 1000.0) * corr_b1_rate + (corr_b2_nar / 1000.0) * corr_b2_rate
+    charge_corr = (
+        (corr_b1_nar / PER_THOUSAND) * corr_b1_rate
+        + (corr_b2_nar / PER_THOUSAND) * corr_b2_rate
+    )
     if bln_round_charge:
         charge_corr = _round_near(charge_corr, 2)
 
@@ -412,11 +426,11 @@ def calculate_deduction(
     face = policy.total_face
     dbo = policy.db_option
 
-    if dbo == "A":
+    if dbo == DB_OPTION_LEVEL:
         standard_db = face
-    elif dbo == "B":
+    elif dbo == DB_OPTION_INCREASING:
         standard_db = face + nar_av
-    elif dbo == "C":
+    elif dbo == DB_OPTION_RETURN_OF_PREMIUM:
         standard_db = face + max(0.0, premiums_to_date - policy.withdrawals_to_date)
     else:
         standard_db = face
@@ -439,12 +453,20 @@ def calculate_deduction(
     corr_amount = gross_db - standard_db
 
     # ── 3.2.4 Discounted DB — per segment (cols 418-422) ────
-    discount_factor = round((1.0 + config.dbd) ** (1.0 / 12.0), 7)
+    discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
 
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]
-    prem_adj = max(0.0, premiums_to_date - policy.withdrawals_to_date) if dbo == "C" else 0.0
-    first_segment_addition = nar_av if dbo == "B" else prem_adj if dbo == "C" else 0.0
+    prem_adj = (
+        max(0.0, premiums_to_date - policy.withdrawals_to_date)
+        if dbo == DB_OPTION_RETURN_OF_PREMIUM
+        else 0.0
+    )
+    first_segment_addition = (
+        nar_av
+        if dbo == DB_OPTION_INCREASING
+        else prem_adj if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
+    )
 
     discounted_base_segments = []
     if segments:
@@ -532,7 +554,7 @@ def calculate_deduction(
             segment_raw_coi, segment, config, projection_date, round_5=(index == 1))
         if _segment_matured(segment, projection_date):
             segment_adjusted_coi = 0.0
-        segment_coi_charge = (segment_nar / 1000.0) * segment_adjusted_coi
+        segment_coi_charge = (segment_nar / PER_THOUSAND) * segment_adjusted_coi
         if bln_round_charge:
             segment_coi_charge = _round_near(segment_coi_charge, 2)
         key = f"cov{index}"
@@ -542,7 +564,7 @@ def calculate_deduction(
     coi_charge_cov1 = coi_charges_by_coverage.get("cov1", 0.0)
     corridor_key = _corridor_coverage_key(segment_nars, projection_date)
     coi_rate_corr = coi_rates_by_coverage[corridor_key] if corridor_key is not None else 0.0
-    coi_charge_corr = (nar_corr / 1000.0) * coi_rate_corr
+    coi_charge_corr = (nar_corr / PER_THOUSAND) * coi_rate_corr
     coi_charge = sum(coi_charges_by_coverage.values()) + coi_charge_corr
 
     # ── 3.2.6b Ratchet banding override (cols PP-QX) ─────────
@@ -582,7 +604,7 @@ def calculate_deduction(
 
     epu_segments = segments if segments else [None]
 
-    if config.epu_code == "Table":
+    if config.epu_code == RATE_CODE_TABLE:
         for index, segment in enumerate(epu_segments, start=1):
             segment_schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
             segment_rate_year = _coverage_year(segment, projection_date, rate_year)
@@ -592,12 +614,12 @@ def calculate_deduction(
             # SA_Basis drives the EPU specified-amount basis: OriginalSA
             # plans (SkippedCovRein family) charge on the coverage's ORIGINAL
             # specified amount; everything else uses the current specified amount.
-            if config.sa_basis == "OriginalSA":
+            if config.sa_basis == SA_BASIS_ORIGINAL:
                 segment_basis = segment.original_face_amount if segment else face
             else:
                 segment_basis = segment.face_amount if segment else face
             # RERUN rounds each coverage's EPU charge to cents (SB-SE).
-            segment_epu_charge = _round_near((segment_basis / 1000.0) * segment_epu_rate, 2)
+            segment_epu_charge = _round_near((segment_basis / PER_THOUSAND) * segment_epu_rate, 2)
             key = f"cov{index}"
             epu_rates_by_coverage[key] = segment_epu_rate
             epu_charges_by_coverage[key] = segment_epu_charge
@@ -609,8 +631,8 @@ def calculate_deduction(
         except (ValueError, TypeError):
             epu_flat = 0.0
         for index, segment in enumerate(epu_segments, start=1):
-            if segment is not None and config.sa_basis == "OriginalSA":
-                segment_units = segment.original_face_amount / 1000.0
+            if segment is not None and config.sa_basis == SA_BASIS_ORIGINAL:
+                segment_units = segment.original_face_amount / PER_THOUSAND
             else:
                 segment_units = segment.units if segment else policy.units
             key = f"cov{index}"
@@ -629,7 +651,7 @@ def calculate_deduction(
         epu_charge = _round_near(epu_charge, 2)
 
     # ── 3.2.8 Monthly fee (col 498) ──────────────────────────
-    if config.mfee == "Table":
+    if config.mfee == RATE_CODE_TABLE:
         mfee_charge = get_rate(rates, "mfee", rate_year)
     else:
         try:
@@ -680,7 +702,7 @@ def calculate_deduction(
         rider_flat = rider.flat_extra if rider.flat_extra else 0.0
         rider_rate = (
             rider_rate * (1.0 + config.table_rating_factor * rider_table)
-            + _trunc2(rider_flat / 12.0)
+            + _trunc2(rider_flat / MONTHS_PER_YEAR)
         )
 
         rider_amount = rider.face_amount
