@@ -30,7 +30,10 @@ Correctness rules (a quietly-wrong join is worse than an error):
   UI can ask before running.
 
 Pure planning/execution logic — no Qt. ODBC and file access are injectable so the
-behaviour is unit-testable without a database.
+behaviour is unit-testable without a database.  ``FederatedPlanner`` keeps the
+planner in explicit phases (``SourcePartition``, ``ColumnDemand``,
+``PushdownPlan``, ``DuckDbRewrite``) so pushdown eligibility and final DuckDB
+rewriting can be tested and maintained independently.
 """
 from __future__ import annotations
 

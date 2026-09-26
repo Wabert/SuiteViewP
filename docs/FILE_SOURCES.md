@@ -67,6 +67,26 @@ register the frame), then runs the SQL through **`forge_engine.run_manual_sql`**
 ODBC-shaped `(columns, rows, column_types)` so file queries flow through the same
 result-rendering paths as a DB2/SQL Server query.
 
+Current run paths (2026-09-26):
+
+```text
+FileDataSource member files
+  └─ adhoc_source_intake readers -> pandas DataFrames
+       └─ registered in DuckDB
+            └─ forge_engine.run_manual_sql / compiled DuckDB SQL
+                 └─ ODBC-shaped query results
+
+DataForge visual/script/runtime
+  └─ loaded Source DataFrames or Snapshots
+       └─ registered in DuckDB
+            └─ forge_engine.compile_forge_sql -> DuckDB SQL
+                 └─ one result schema shared by Run, SQL tab and generated script
+```
+
+There is no separate pandas-merge DataForge path. If a File Source query later
+becomes a DataForge Source, it is still just a DataFrame/Snapshot registered into
+the same DuckDB engine.
+
 `dynamic_query.py` gained a **`DUCKDB`** dialect: double-quote identifiers (like
 DB2) and `LIMIT n` row caps. The visual builders were already dialect-aware, so
 this was a small, additive change.

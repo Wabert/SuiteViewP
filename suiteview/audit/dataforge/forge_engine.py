@@ -10,6 +10,11 @@ DB2/SQL Server needed) and makes it the reusable core that both the Visual
 Builder (which compiles the canvas into these specs) and Manual mode (which
 hands raw SQL straight to DuckDB) sit on top of.
 
+The visual compiler is split into named pure phases:
+``normalize_appends`` → ``bind_filters`` → ``order_join_graph`` →
+``resolve_outputs`` → ``render_sql``.  Keep those phases side-effect free so
+visual Run, saved-runtime execution and generated scripts cannot drift.
+
 Vocabulary (see DATAFORGE_DESIGN.md): a **Forge** combines several **Queries**
 as **Sources**; each Source carries a **Snapshot** (the DataFrame passed here).
 """
