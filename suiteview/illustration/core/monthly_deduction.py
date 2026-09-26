@@ -709,9 +709,8 @@ def calculate_deduction(
             continue
         if (ben.benefit_type or "").startswith("#"):
             continue
-        # Benefit premiums stop at the contractual cease date or pay-up anniversary.
-        if not _charge_active(ben.cease_date, projection_date):
-            continue
+        # Benefit premiums stop at the pay-up anniversary. The contractual
+        # cease date is displayed separately and does not control charges.
         if ben.pay_up_date is not None and projection_date is not None and projection_date >= ben.pay_up_date:
             continue
         ben_type = ben.benefit_type or ""
