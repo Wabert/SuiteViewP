@@ -12,7 +12,6 @@ from suiteview.audit.cyberlife_sql.helpers import (
 from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 from suiteview.audit.sql_helpers import (
     esc,
-    today_str,
 )
 
 
@@ -235,7 +234,7 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.append(f"  , VARCHAR_FORMAT({ctx.result_cov_alias}.ISSUE_DT, 'MM/DD/YYYY') IssueDt")
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INS_ISS_AGE IssueAge')
     parts.sql_parts.append('  , USERGEN.FUZGREIN_IND RGA_Ind')
-    ctx.duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + today_str() + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
+    ctx.duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
     if ctx.has_current_age:
         parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.duration_expr}) CurrentAge')
     if ctx.has_val_age:

@@ -18,7 +18,6 @@ from suiteview.audit.sql_helpers import (
     esc,
     in_list,
     selected_codes,
-    today_str,
 )
 from suiteview.audit.transaction_filters import transaction_predicates
 
@@ -117,7 +116,7 @@ def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
             if ctx.mode_clause:
                 parts.wheres.append(f'({ctx.mode_clause})')
     add_int_range(parts.wheres, f'{ctx.result_cov_alias}.INS_ISS_AGE', ctx.pt.txt_issue_age_lo, ctx.pt.txt_issue_age_hi)
-    ctx.duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + today_str() + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
+    ctx.duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
     add_int_range(parts.wheres, f'({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.duration_expr})', ctx.pt.txt_current_age_lo, ctx.pt.txt_current_age_hi)
     ctx.val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
     add_int_range(parts.wheres, f'({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.val_duration_expr})', ctx.pt.txt_val_age_lo, ctx.pt.txt_val_age_hi)

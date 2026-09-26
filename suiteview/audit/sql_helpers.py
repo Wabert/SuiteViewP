@@ -15,11 +15,6 @@ def fmt_time(secs: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def today_str() -> str:
-    """Return today's date as yyyy-mm-dd for DB2 MONTHS_BETWEEN."""
-    return date.today().strftime("%Y-%m-%d")
-
-
 def esc(val: str) -> str:
     """Escape single quotes for SQL."""
     return val.replace("'", "''")

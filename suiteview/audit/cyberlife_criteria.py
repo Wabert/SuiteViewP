@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Mapping
 
 from PyQt6.QtCore import Qt
@@ -185,6 +186,14 @@ class AuditCriteria:
     people: PeopleCriteria | None = None
     segment52: Segment52Criteria | None = None
     wl: WlCriteria | None = None
+    # The single "today" used for every duration/age expression in one query,
+    # captured when the criteria are collected so a build is deterministic.
+    as_of: date = field(default_factory=date.today)
+
+    @property
+    def as_of_sql(self) -> str:
+        """``as_of`` as the yyyy-mm-dd literal DB2 MONTHS_BETWEEN expects."""
+        return self.as_of.strftime("%Y-%m-%d")
 
 
 def _freeze_listbox(widget: QListWidget) -> ListCriteria:
@@ -288,8 +297,12 @@ def collect_audit_criteria(
     people_tab: Any | None = None,
     segment52_tab: Any | None = None,
     wl_tab: Any | None = None,
+    as_of: date | None = None,
 ) -> AuditCriteria:
-    """Read Qt widgets once and return immutable SQL-builder criteria."""
+    """Read Qt widgets once and return immutable SQL-builder criteria.
+
+    ``as_of`` defaults to today; pass a fixed date for reproducible SQL.
+    """
     return AuditCriteria(
         schema=schema,
         sys_code=sys_code,
@@ -308,4 +321,5 @@ def collect_audit_criteria(
         people=_freeze_tab(people_tab, PeopleCriteria) if people_tab is not None else None,
         segment52=_freeze_segment52(segment52_tab),
         wl=_freeze_wl(wl_tab),
+        as_of=as_of or date.today(),
     )

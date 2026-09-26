@@ -12,7 +12,6 @@ from suiteview.audit.sql_helpers import (
     esc,
     in_list,
     selected_codes,
-    today_str,
 )
 
 
@@ -53,7 +52,7 @@ def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.is_mdo:
         parts.wheres.append("SUBSTR(POLICY1.USR_RES_CD,1,1) = 'Y'")
     if ctx.in_conversion:
-        ctx._today = today_str()
+        ctx._today = ctx.criteria.as_of_sql
         ctx._dur = f"TRUNCATE(MONTHS_BETWEEN('{ctx._today}', COVERAGE1.ISSUE_DT) / 12, 0)"
         ctx._att_age = f'(COVERAGE1.INS_ISS_AGE + {ctx._dur})'
         parts.wheres.append(f"(CASE WHEN (UPDF.CONVERSION_PERIOD = 0 AND {ctx._att_age} < UPDF.CONVERSION_AGE) OR (UPDF.CONVERSION_PERIOD > 0 AND {ctx._dur} < UPDF.CONVERSION_PERIOD AND {ctx._att_age} < UPDF.CONVERSION_AGE) THEN 'TRUE' ELSE 'FALSE' END) = 'TRUE'")

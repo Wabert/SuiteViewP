@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
-from suiteview.audit.sql_helpers import (
-    today_str,
-)
 
 
 def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
@@ -123,7 +120,7 @@ def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , UPDF.CONV_CREDIT_RULE CN_CRED_RULE')
         parts.sql_parts.append('  , UPDF.CONV_CREDIT_PERIOD CN_CRED_PERIOD')
     if ctx.disp_within_conv:
-        ctx._today = today_str()
+        ctx._today = ctx.criteria.as_of_sql
         ctx._dur = f"TRUNCATE(MONTHS_BETWEEN('{ctx._today}', COVERAGE1.ISSUE_DT) / 12, 0)"
         ctx._att_age = f'(COVERAGE1.INS_ISS_AGE + {ctx._dur})'
         parts.sql_parts.append('  , (CASE')
