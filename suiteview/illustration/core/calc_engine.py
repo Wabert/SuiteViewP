@@ -2232,6 +2232,13 @@ class _PolicyChangeOutcome:
 
 
 @dataclass
+class _PolicyChangeBefore:
+    before: object | None = None
+    seven_pay_before: Optional[float] = None
+    pv_detail: Dict[str, object] = dataclass_field(default_factory=dict)
+
+
+@dataclass
 class _FaceCutResult:
     """Per-coverage detail of a face reduction (decrease / A->B / withdrawal)."""
 
@@ -2628,227 +2635,280 @@ def _withdrawal_state_fields(wd: WithdrawalResult) -> Dict[str, object]:
     )
 
 
-def _apply_policy_change(
-    policy, config, change, attained_age, change_date, rates, rate_year, av,
-    options=None, defer_guideline_recalc=False, capture_guideline_before=True,
-) -> _PolicyChangeOutcome:
-    """Mutate the (private) policy state for one change at its effective month.
-
-    - DB_OPTION: RERUN keeps the death benefit LEVEL at the change — A->B reduces
-      the specified amount by the current account value (so DB = (face-AV)+AV) and
-      B->A adds it back. B->A is a TAMRA material change (CalcEngine KZ "BA").
-    - FACE_AMOUNT decrease: reduce existing segment(s) newest-first and DEDUCT the
-      decreased coverage's surrender charge from AV.
-    - FACE_AMOUNT increase: append a new segment at the current attained age with
-      its own COI/EPU/SCR rates; TAMRA material change.
-
-    After any specified-amount movement (vPolicyChangeIndicator) the targets
-    (vMTP/vCTP) are recomputed from rates and the guideline premiums (GLP/GSP)
-    are recalculated by the attained-age delta method; a material change also
-    restarts the 7-pay period. The before-change guideline solve runs BEFORE the
-    mutation so it sees the pre-change coverage basis.
-    """
-    outcome = _PolicyChangeOutcome()
-    face_before = sum(s.face_amount for s in policy.segments) or policy.face_amount
-
+def _capture_policy_change_before(
+    policy, config, change, face_before: float, av: float, attained_age: int,
+    change_date, options, defer_guideline_recalc: bool,
+    capture_guideline_before: bool,
+) -> _PolicyChangeBefore:
     md = change.metadata or {}
     fully_injected = {"new_glp", "new_gsp", "new_7pay"} <= md.keys()
-    before = None
-    seven_pay_before = None
-    before_pv_detail: Dict[str, object] = {}
-    if (
+    should_capture = (
         capture_guideline_before
+        and not fully_injected
         and (
             _will_alter_coverage(policy, change, face_before, av)
             or _will_alter_guideline_charge_basis(policy, change)
         )
-        and not fully_injected
-    ):
-        before = _solve_guideline_state(
-            policy, config, attained_age, change_date, options)
-        if not defer_guideline_recalc:
-            seven_pay_start = policy.tamra_7pay_start_date or change_date
-            seven_pay_before = _solve_guideline_state(
-                policy, config, _attained_age_at(policy, seven_pay_start),
-                seven_pay_start, options,
-                starting_av=policy.tamra_7pay_start_av,
-                active_as_of=change_date,
-            ).seven_pay
-        before_pv_detail = _safe_guideline_pv_recalc_detail(
-            policy, config, attained_age, change_date)
-        outcome.guideline_before = before
-        outcome.guideline_before_pv_detail = before_pv_detail
+    )
+    if not should_capture:
+        return _PolicyChangeBefore()
+    before = _solve_guideline_state(policy, config, attained_age, change_date, options)
+    seven_pay_before = None
+    if not defer_guideline_recalc:
+        seven_pay_start = policy.tamra_7pay_start_date or change_date
+        seven_pay_before = _solve_guideline_state(
+            policy, config, _attained_age_at(policy, seven_pay_start),
+            seven_pay_start, options,
+            starting_av=policy.tamra_7pay_start_av,
+            active_as_of=change_date,
+        ).seven_pay
+    return _PolicyChangeBefore(
+        before=before,
+        seven_pay_before=seven_pay_before,
+        pv_detail=_safe_guideline_pv_recalc_detail(
+            policy, config, attained_age, change_date
+        ),
+    )
+
+
+def _apply_db_option_change(
+    policy, config, change, rates, rate_year: int, av: float,
+    outcome: _PolicyChangeOutcome,
+) -> None:
+    old = str(policy.db_option or "").upper()
+    new = str(change.value or "").upper()
+    if not new or new == old:
+        return
+    av_whole = float(math.floor(max(av, 0.0)))
+    detail: Dict[str, object] = {
+        "Prev DBO": old,
+        "Input DBO": new,
+        "DBO Changed": True,
+        "Change Type": old + new,
+        "DBO Change Allowed": True,
+    }
+    if old == DB_OPTION_LEVEL and new == DB_OPTION_INCREASING:
+        _apply_option_a_to_b(
+            policy, config, rates, change.effective_date, rate_year,
+            av_whole, detail, outcome,
+        )
+    elif old == DB_OPTION_INCREASING and new == DB_OPTION_LEVEL:
+        _apply_option_b_to_a(policy, av_whole, detail, outcome)
+    policy.db_option = new
+    detail["DBO"] = new
+    detail["Total SA"] = policy.total_face
+    outcome.dbo_detail = detail
+
+
+def _apply_option_a_to_b(
+    policy, config, rates, change_date, rate_year: int, av_whole: float,
+    detail: Dict[str, object], outcome: _PolicyChangeOutcome,
+) -> None:
+    cuts = _reduce_base_face(
+        policy, av_whole, rates, change_date, rate_year,
+        charge_scr=config.partial_surrender_charge, config=config,
+    )
+    outcome.av_adjustment += cuts.av_adjustment
+    outcome.coverage_changed = True
+    detail["DBO Face Decrease"] = av_whole
+    detail["DBO Face Increase"] = 0.0
+    detail["Total PSC DBO"] = -cuts.av_adjustment
+    for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
+        detail[f"DBO Decrease Cov {i}"] = cut
+        detail[f"DBO PSC Cov {i}"] = cuts.psc_by_phase.get(phase, 0.0)
+
+
+def _apply_option_b_to_a(policy, av_whole: float, detail, outcome) -> None:
+    base = policy.base_segment
+    if base is not None and av_whole > 0.0:
+        base.face_amount += av_whole
+        base.units += av_whole / (base.vpu or PER_THOUSAND)
+        policy.face_amount = sum(s.face_amount for s in policy.segments)
+        outcome.coverage_changed = True
+    outcome.material_change = True
+    detail["DBO Face Decrease"] = 0.0
+    detail["DBO Face Increase"] = av_whole
+    detail["DBO Increase Cov 1"] = av_whole
+    detail["Total PSC DBO"] = 0.0
+
+
+def _apply_face_amount_change(
+    policy, config, change, attained_age, change_date, rates, rate_year: int,
+    face_before: float, md: dict, outcome: _PolicyChangeOutcome,
+) -> None:
+    new_total = float(change.value)
+    delta = new_total - face_before
+    detail = _face_change_detail(new_total, delta)
+    if delta < -1e-6:
+        cuts = _reduce_base_face(
+            policy, -delta, rates, change_date, rate_year,
+            charge_scr=_charge_face_decrease_surrender(policy, config, md),
+            config=config,
+        )
+        _record_face_decrease(detail, cuts, -delta, outcome)
+    elif delta > 1e-6:
+        _append_face_increase_segment(policy, rates, delta, attained_age, change_date, config)
+        outcome.coverage_changed = True
+        outcome.material_change = True
+        detail["Specified Face Increase"] = delta
+        detail[f"Spec Increase Cov {len(policy.segments)}"] = delta
+    detail["Total SA"] = policy.total_face
+    outcome.face_detail = detail
+
+
+def _face_change_detail(new_total: float, delta: float) -> Dict[str, object]:
+    return {
+        "Input Face": new_total,
+        "Change in Input Face": delta,
+        "Specified Face Decrease": 0.0,
+        "Specified Face Increase": 0.0,
+        "Total PSC Spec Dec": 0.0,
+    }
+
+
+def _charge_face_decrease_surrender(policy, config, md: dict) -> bool:
+    return (
+        config.partial_surrender_charge
+        and policy.decrease_charge_allowed is not False
+        and bool(md.get("charge_surrender", True))
+    )
+
+
+def _record_face_decrease(detail, cuts, decrease: float, outcome) -> None:
+    outcome.av_adjustment += cuts.av_adjustment
+    outcome.coverage_changed = True
+    detail["Specified Face Decrease"] = decrease
+    detail["Total PSC Spec Dec"] = -cuts.av_adjustment
+    for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
+        detail[f"Spec Decrease Cov {i}"] = cut
+        detail[f"Spec PSC Cov {i}"] = cuts.psc_by_phase.get(phase, 0.0)
+
+
+def _apply_rate_class_change(policy, config, change, rates, outcome) -> None:
+    new_class = str(change.value or "").strip().upper()
+    base = policy.base_segment
+    if not (new_class and base is not None):
+        return
+    if not any(new_class != (seg.rate_class or "").upper() for seg in policy.segments):
+        return
+    for seg in policy.segments:
+        if new_class != (seg.rate_class or "").upper():
+            seg.rate_class = new_class
+            _load_segment_rates(rates, seg, policy.plancode, config)
+    policy.rate_class = new_class
+    _reband_benefits(rates, policy)
+    outcome.coverage_changed = True
+
+
+def _apply_substandard_change(policy, config, change, change_date, outcome) -> None:
+    new_table = int(change.value or 0)
+    base = policy.base_segment
+    if base is None or new_table == base.table_rating:
+        return
+    base.table_rating = new_table
+    base.table_cease_date = change_date if new_table == 0 else None
+    for benefit in policy.benefits:
+        if benefit.benefit_type in ("3", "4"):
+            benefit.rating_factor = 1.0 + config.table_rating_factor * new_table
+    outcome.coverage_changed = True
+
+
+def _apply_rider_drop_change(policy, change, outcome) -> None:
+    target = str((change.metadata or {}).get("target", ""))
+    new_amount = float(change.value or 0.0)
+    if target.startswith("cov:"):
+        _apply_rider_amount_change(policy.riders, target, new_amount, outcome)
+    elif target.startswith("ben:"):
+        _apply_benefit_amount_change(policy.benefits, target, new_amount, outcome)
+
+
+def _apply_rider_amount_change(riders, target: str, new_amount: float, outcome) -> None:
+    phase = int(target.split(":", 1)[1])
+    for rider in riders:
+        if rider.coverage_phase == phase:
+            if new_amount <= 0.0:
+                rider.is_active = False
+            else:
+                rider.face_amount = new_amount
+                rider.units = new_amount / (rider.vpu or PER_THOUSAND)
+            outcome.coverage_changed = True
+
+
+def _apply_benefit_amount_change(benefits, target: str, new_amount: float, outcome) -> None:
+    parts = target.split(":")
+    ben_key, phase = parts[1], int(parts[2]) if len(parts) > 2 else 0
+    for ben in benefits:
+        key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        if key == ben_key and (phase == 0 or ben.coverage_phase == phase):
+            if new_amount <= 0.0:
+                ben.is_active = False
+            else:
+                ben.benefit_amount = new_amount
+            outcome.coverage_changed = True
+
+
+def _finish_policy_change(
+    policy, config, change, attained_age, change_date, rates, av, options,
+    defer_guideline_recalc: bool, before_info: _PolicyChangeBefore,
+    outcome: _PolicyChangeOutcome,
+) -> None:
+    if not outcome.coverage_changed:
+        return
+    if policy.is_mec:
+        outcome.material_change = False
+    _reload_policy_band_rates(rates, policy, config)
+    targets = compute_target_premiums(policy, config, as_of=change_date)
+    policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
+    policy.ctp = targets.ctp_annual
+    if defer_guideline_recalc:
+        return
+    outcome.guideline_recalc = _recalc_guideline_on_change(
+        policy, config, change, attained_age,
+        change_date=change_date,
+        before=before_info.before,
+        av=av,
+        material_change=outcome.material_change,
+        options=options,
+        before_pv_detail=before_info.pv_detail,
+        seven_pay_before=before_info.seven_pay_before,
+    )
+
+
+def _apply_policy_change(
+    policy, config, change, attained_age, change_date, rates, rate_year, av,
+    options=None, defer_guideline_recalc=False, capture_guideline_before=True,
+) -> _PolicyChangeOutcome:
+    """Mutate the private policy state for one effective-month change."""
+    outcome = _PolicyChangeOutcome()
+    face_before = sum(s.face_amount for s in policy.segments) or policy.face_amount
+    md = change.metadata or {}
+    before_info = _capture_policy_change_before(
+        policy, config, change, face_before, av, attained_age, change_date,
+        options, defer_guideline_recalc, capture_guideline_before,
+    )
+    outcome.guideline_before = before_info.before
+    outcome.guideline_before_pv_detail = before_info.pv_detail
 
     if change.kind == PolicyChangeKind.DB_OPTION:
-        old = str(policy.db_option or "").upper()
-        new = str(change.value or "").upper()
-        if new and new != old:
-            # The SA adjustment uses the whole-dollar AV entering the month —
-            # RERUN truncates (100,000 face − AV 7,312.75 → SA 92,688).
-            av_whole = float(math.floor(max(av, 0.0)))
-            detail: Dict[str, object] = {
-                "Prev DBO": old,                 # BW
-                "Input DBO": new,                # BY
-                "DBO Changed": True,             # BZ
-                "Change Type": old + new,        # CA — "AB" / "BA"
-                "DBO Change Allowed": True,      # CC
-            }
-            if old == DB_OPTION_LEVEL and new == DB_OPTION_INCREASING:
-                # Level-DB mechanic: shift AV out of the specified amount.
-                # The reduction is processed like a face decrease INCLUDING the
-                # decreased units' surrender charge (RERUN deducts it from AV).
-                cuts = _reduce_base_face(
-                    policy, av_whole, rates, change_date, rate_year,
-                    charge_scr=config.partial_surrender_charge,
-                    config=config,
-                )
-                outcome.av_adjustment += cuts.av_adjustment
-                outcome.coverage_changed = True
-                detail["DBO Face Decrease"] = av_whole          # CD
-                detail["DBO Face Increase"] = 0.0               # CO
-                detail["Total PSC DBO"] = -cuts.av_adjustment   # CM
-                for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
-                    detail[f"DBO Decrease Cov {i}"] = cut        # CE..CG
-                    detail[f"DBO PSC Cov {i}"] = cuts.psc_by_phase.get(phase, 0.0)  # CI..CK
-            elif old == DB_OPTION_INCREASING and new == DB_OPTION_LEVEL:
-                # Inverse: fold the AV back into the specified amount (in place,
-                # no new segment — this is not an elective face increase).
-                base = policy.base_segment
-                if base is not None and av_whole > 0.0:
-                    base.face_amount += av_whole
-                    base.units += av_whole / (base.vpu or PER_THOUSAND)
-                    policy.face_amount = sum(s.face_amount for s in policy.segments)
-                    outcome.coverage_changed = True
-                outcome.material_change = True  # KZ fires on "BA"
-                detail["DBO Face Decrease"] = 0.0
-                detail["DBO Face Increase"] = av_whole           # CO
-                detail["DBO Increase Cov 1"] = av_whole          # CP
-                detail["Total PSC DBO"] = 0.0
-            policy.db_option = new
-            detail["DBO"] = new                                  # CT
-            detail["Total SA"] = policy.total_face               # CU
-            outcome.dbo_detail = detail
+        _apply_db_option_change(policy, config, change, rates, rate_year, av, outcome)
     elif change.kind == PolicyChangeKind.FACE_AMOUNT:
-        new_total = float(change.value)
-        delta = new_total - face_before
-        detail = {
-            "Input Face": new_total,             # CW
-            "Change in Input Face": delta,       # CX
-            "Specified Face Decrease": 0.0,      # CY
-            "Specified Face Increase": 0.0,      # DJ
-            "Total PSC Spec Dec": 0.0,           # DH
-        }
-        if delta < -1e-6:
-            cuts = _reduce_base_face(
-                policy,
-                -delta,
-                rates,
-                change_date,
-                rate_year,
-                charge_scr=(
-                    config.partial_surrender_charge
-                    and policy.decrease_charge_allowed is not False
-                    and bool(md.get("charge_surrender", True))
-                ),
-                config=config,
-            )
-            outcome.av_adjustment += cuts.av_adjustment
-            outcome.coverage_changed = True
-            detail["Specified Face Decrease"] = -delta
-            detail["Total PSC Spec Dec"] = -cuts.av_adjustment
-            for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
-                detail[f"Spec Decrease Cov {i}"] = cut           # CZ..DB
-                detail[f"Spec PSC Cov {i}"] = cuts.psc_by_phase.get(phase, 0.0)  # DD..DF
-        elif delta > 1e-6:
-            _append_face_increase_segment(policy, rates, delta, attained_age, change_date, config)
-            outcome.coverage_changed = True
-            outcome.material_change = True
-            detail["Specified Face Increase"] = delta
-            detail[f"Spec Increase Cov {len(policy.segments)}"] = delta  # DK..DM
-        detail["Total SA"] = policy.total_face                   # DO
-        outcome.face_detail = detail
+        _apply_face_amount_change(
+            policy, config, change, attained_age, change_date, rates, rate_year,
+            face_before, md, outcome,
+        )
     elif change.kind == PolicyChangeKind.RATE_CLASS:
-        # Rate-class change applies to the entire base coverage: the issue
-        # segment AND every increase segment (including an increase added the
-        # same day, since FACE_AMOUNT is ordered ahead of RATE_CLASS). Reload
-        # each segment's class-keyed schedules; targets/guideline recompute via
-        # coverage_changed.
-        # TODO: validate vs RERUN (sINPUT_Rateclass_Change) on the laptop.
-        new_class = str(change.value or "").strip().upper()
-        base = policy.base_segment
-        if new_class and base is not None and any(
-            new_class != (seg.rate_class or "").upper() for seg in policy.segments
-        ):
-            for seg in policy.segments:
-                if new_class != (seg.rate_class or "").upper():
-                    seg.rate_class = new_class
-                    _load_segment_rates(rates, seg, policy.plancode, config)
-            policy.rate_class = new_class
-            _reband_benefits(rates, policy)
-            outcome.coverage_changed = True
+        _apply_rate_class_change(policy, config, change, rates, outcome)
     elif change.kind == PolicyChangeKind.SUBSTANDARD:
-        # Waivers store a multiplier, not a table number. Change their private
-        # basis before targets, deductions and guideline after-solves consume it.
-        new_table = int(change.value or 0)
-        base = policy.base_segment
-        if base is not None and new_table != base.table_rating:
-            base.table_rating = new_table
-            if new_table == 0:
-                base.table_cease_date = change_date
-            else:
-                base.table_cease_date = None
-            for benefit in policy.benefits:
-                if benefit.benefit_type in ("3", "4"):
-                    benefit.rating_factor = 1.0 + config.table_rating_factor * new_table
-            outcome.coverage_changed = True
+        _apply_substandard_change(policy, config, change, change_date, outcome)
     elif change.kind == PolicyChangeKind.RIDER_DROP:
-        # Drop/changed rider or benefit: value is the new amount (0 = drop).
-        # metadata["target"]: "cov:<phase>" or "ben:<key>:<phase>".
-        # TODO: validate vs RERUN rider-change inputs on the laptop.
-        target = str((change.metadata or {}).get("target", ""))
-        new_amount = float(change.value or 0.0)
-        if target.startswith("cov:"):
-            phase = int(target.split(":", 1)[1])
-            for rider in policy.riders:
-                if rider.coverage_phase == phase:
-                    if new_amount <= 0.0:
-                        rider.is_active = False
-                    else:
-                        rider.face_amount = new_amount
-                        rider.units = new_amount / (rider.vpu or PER_THOUSAND)
-                    outcome.coverage_changed = True
-        elif target.startswith("ben:"):
-            parts = target.split(":")
-            ben_key, phase = parts[1], int(parts[2]) if len(parts) > 2 else 0
-            for ben in policy.benefits:
-                key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
-                if key == ben_key and (phase == 0 or ben.coverage_phase == phase):
-                    if new_amount <= 0.0:
-                        ben.is_active = False
-                    else:
-                        ben.benefit_amount = new_amount
-                    outcome.coverage_changed = True
+        _apply_rider_drop_change(policy, change, outcome)
     else:
         logger.warning("Policy change kind %s is not implemented; ignored", change.kind)
 
-    if outcome.coverage_changed:
-        if policy.is_mec:
-            outcome.material_change = False
-        _reload_policy_band_rates(rates, policy, config)
-        targets = compute_target_premiums(policy, config, as_of=change_date)
-        policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
-        policy.ctp = targets.ctp_annual
-        if not defer_guideline_recalc:
-            outcome.guideline_recalc = _recalc_guideline_on_change(
-                policy, config, change, attained_age,
-                change_date=change_date,
-                before=before,
-                av=av,
-                material_change=outcome.material_change,
-                options=options,
-                before_pv_detail=before_pv_detail,
-                seven_pay_before=seven_pay_before,
-            )
+    _finish_policy_change(
+        policy, config, change, attained_age, change_date, rates, av, options,
+        defer_guideline_recalc, before_info, outcome,
+    )
     return outcome
 
 
