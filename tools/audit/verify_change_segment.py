@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from suiteview.audit.cyberlife_tab_collect import collect_cyberlife_tabs
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 def main():
@@ -44,7 +44,7 @@ def main():
                 for i in range(policy2.list_change_seq.count()):
                     item = policy2.list_change_seq.item(i)
                     item.setSelected(item.text().split(' - ', 1)[0] in codes)
-                sql = build_cyberlife_sql(collect_audit_criteria(schema, 'I', '1', policy_tab=PolicyTab(), display_tab=DisplayTab(), policy2_tab=policy2, adv_tab=AdvTab(), coverages_tab=CoveragesTab(), plancode_tab=PlancodeTab(), benefits_tab=BenefitsTab(), transaction_tab=TransactionTab()))
+                sql = build_cyberlife_sql(collect_cyberlife_tabs(schema, 'I', '1', dict(policy_tab=PolicyTab(), display_tab=DisplayTab(), policy2_tab=policy2, adv_tab=AdvTab(), coverages_tab=CoveragesTab(), plancode_tab=PlancodeTab(), benefits_tab=BenefitsTab(), transaction_tab=TransactionTab())))
                 assert '\nWHERE ' in sql
                 columns, rows = db.execute_query_with_headers(sql.replace('\nWHERE ', '\nWHERE 1 = 0 AND ', 1))
                 assert not rows
