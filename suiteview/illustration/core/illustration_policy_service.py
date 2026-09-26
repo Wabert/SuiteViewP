@@ -243,10 +243,7 @@ def build_illustration_data(
 
     # ── Build coverage segments ───────────────────────────────
     segments = []
-    try:
-        base_covs = pi.get_base_coverages()
-    except Exception:
-        base_covs = []
+    base_covs = pi.get_base_coverages()
     base_covs = [restore_lapse_coverage(cov, reinstatement_date) for cov in base_covs]
 
     active_base_covs = [
@@ -280,11 +277,8 @@ def build_illustration_data(
         band = raw_band if raw_band is not None else 1
 
     substandard_by_phase = {}
-    try:
-        for rating in pi.get_substandard_ratings():
-            substandard_by_phase.setdefault(rating.coverage_phase, []).append(rating)
-    except Exception:
-        substandard_by_phase = {}
+    for rating in pi.get_substandard_ratings():
+        substandard_by_phase.setdefault(rating.coverage_phase, []).append(rating)
 
     for cov in active_base_covs:
         seg_face = float(cov.face_amount) if cov.face_amount else 0.0
@@ -354,10 +348,7 @@ def build_illustration_data(
 
     # ── Build benefits list ───────────────────────────────────
     benefits = []
-    try:
-        raw_benefits = pi.get_benefits()
-    except Exception:
-        raw_benefits = []
+    raw_benefits = pi.get_benefits()
 
     for b in raw_benefits:
         if b.pay_up_date and b.pay_up_date < as_of_date:
@@ -382,10 +373,7 @@ def build_illustration_data(
     # ── Build rider list ──────────────────────────────────────
     riders = []
     rider_counts = {}
-    try:
-        raw_riders = pi.get_riders()
-    except Exception:
-        raw_riders = []
+    raw_riders = pi.get_riders()
 
     for rider in raw_riders:
         rider = restore_lapse_coverage(rider, reinstatement_date)
@@ -558,10 +546,7 @@ def active_rider_benefit_codes(pi) -> str:
     as_of_date = pi.valuation_date or pi.issue_date
     codes: list[str] = []
 
-    try:
-        riders = pi.get_riders()
-    except Exception:
-        riders = []
+    riders = pi.get_riders()
     for rider in riders:
         if as_of_date is not None and not _active_as_of(rider, as_of_date):
             continue
@@ -569,10 +554,7 @@ def active_rider_benefit_codes(pi) -> str:
         if code:
             codes.append(code)
 
-    try:
-        benefits = pi.get_benefits()
-    except Exception:
-        benefits = []
+    benefits = pi.get_benefits()
     for benefit in benefits:
         if as_of_date is not None and not _active_as_of(benefit, as_of_date):
             continue

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 from suiteview.illustration.core.md_check import calculate_last_monthly_deduction_checks
 
+logger = logging.getLogger(__name__)
 
 MATRIX_POLICIES = [
     "UE000576",
@@ -31,15 +33,17 @@ def main() -> None:
     policies = args.policies or MATRIX_POLICIES
     checks = calculate_last_monthly_deduction_checks(policies, region=args.region)
 
-    print(
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    logger.info(
         f"{'Policy':<10} {'Val Date':<10} {'System MD':>12} {'Calc MD':>12} "
         f"{'Variance':>12} {'Sys COI':>10} {'Sys Exp':>10} {'Sys Other':>10} "
         f"{'Calc COI':>10} {'Calc EPU':>10} {'Calc Fee':>10} "
         f"{'Calc Ben':>10} {'Calc Rid':>10}"
     )
-    print("-" * 150)
+    logger.info("-" * 150)
     for check in checks:
-        print(
+        logger.info(
             f"{check.policy_number:<10} {check.valuation_date:<10} "
             f"{check.system_md:>12,.2f} {check.calculated_md:>12,.2f} "
             f"{check.variance:>12,.2f} {check.system_coi:>10,.2f} "
