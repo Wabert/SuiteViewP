@@ -200,7 +200,7 @@ class QueryObjectViewerOrganizerActionsMixin:
             if clone_name:
                 QMessageBox.information(
                     self, "DataForge Cloned",
-                    f"Created \"{clone_name}\" â€” Sources and Snapshots "
+                    f"Created \"{clone_name}\" — Sources and Snapshots "
                     f"included, ready to run.")
         elif chosen == delete_forge:
             self._delete_dataforge(forge_name)
@@ -443,7 +443,7 @@ class QueryObjectViewerOrganizerActionsMixin:
                 return f"{new_name}{value[len(old_name):]}"
         return value
 
-    # â”€â”€ Organizer actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Organizer actions ─────────────────────────────────────────────
 
     def _container_targets(self, organizer) -> list[tuple[str, dict]]:
         """(label, target) pairs for the Move to / Copy to submenus."""
@@ -454,7 +454,7 @@ class QueryObjectViewerOrganizerActionsMixin:
                 targets.append((f"Group: {entry['name']}",
                                 {"group_id": entry["id"]}))
         for forge in dataforge_store.list_forges():
-            targets.append((f"âš™ Forge: {forge.name}", {"forge": forge.name}))
+            targets.append((f"⚙ Forge: {forge.name}", {"forge": forge.name}))
         return targets
 
     def _send_query_to(self, obj: QueryObject, target: dict, *, move: bool):
@@ -541,7 +541,7 @@ class QueryObjectViewerOrganizerActionsMixin:
                              obj.name)
         query_object_store.delete_object_by_id(obj.id)
 
-    # â”€â”€ Drag & drop (from _OrganizerTree) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Drag & drop (from _OrganizerTree) ─────────────────────────────
 
     def _handle_tree_drop(self, dragged, target, indicator):
         """Apply a tree drag-drop to the organizer, then rebuild."""

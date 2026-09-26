@@ -42,8 +42,8 @@ class FileNavWindow(FramelessWindowBase):
     breadcrumb navigation, bookmarks) in a separate window launched from
     the SuiteView compact bar's [F] button.
     
-    Color theme: Blue & Gold â€” same as the SuiteView bar
-      - Header gradient: #1E5BA8 â†’ #082B5C  (blue)
+    Color theme: Blue & Gold — same as the SuiteView bar
+      - Header gradient: #1E5BA8 → #082B5C  (blue)
       - Accent / border: #D4A017  (gold)
       - Text on headers: #D4A017  (gold on blue)
     """
@@ -155,7 +155,7 @@ class FileNavWindow(FramelessWindowBase):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Global scrollbar styling â€” blue-tinted (matching SuiteView bar)
+        # Global scrollbar styling — blue-tinted (matching SuiteView bar)
         self.setStyleSheet("""
             QScrollBar:vertical {
                 background: #E0ECFF;
@@ -201,7 +201,7 @@ class FileNavWindow(FramelessWindowBase):
             }
         """)
 
-        # ====== TAB WIDGET (Blue & Gold themed tabs â€” same as SuiteView) ======
+        # ====== TAB WIDGET (Blue & Gold themed tabs — same as SuiteView) ======
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
@@ -253,7 +253,7 @@ class FileNavWindow(FramelessWindowBase):
 
         layout.addWidget(self.tab_widget)
 
-        # ====== FOOTER BAR (Blue & Gold â€” same as SuiteView) ======
+        # ====== FOOTER BAR (Blue & Gold — same as SuiteView) ======
         self.footer_bar = QFrame()
         self.footer_bar.setMaximumHeight(24)
         self.footer_bar.setMinimumHeight(0)
@@ -387,7 +387,7 @@ class FileNavWindow(FramelessWindowBase):
             self.tab_widget.setTabToolTip(idx, str(p))
 
     def _on_tab_switched(self, index):
-        """Handle tab switch â€” wrapped in try/except for crash diagnostics."""
+        """Handle tab switch — wrapped in try/except for crash diagnostics."""
         try:
             widget = self.tab_widget.widget(index)
             if widget and hasattr(widget, 'current_details_folder'):
@@ -466,10 +466,10 @@ class FileNavWindow(FramelessWindowBase):
             self.add_new_tab(path=folder, title=title)
 
     def _style_close_button(self, index):
-        """Replace the platform-drawn close button with a QToolButton showing a subtle gold âœ•.
+        """Replace the platform-drawn close button with a QToolButton showing a subtle gold ✕.
 
         Qt's built-in QTabBar close button is rendered by the platform style engine and
-        ignores CSS color / icon overrides â€” so we swap it out entirely via setTabButton().
+        ignores CSS color / icon overrides — so we swap it out entirely via setTabButton().
 
         Uses the same approach as SuiteViewTaskbar (QToolButton + tabCloseRequested)
         which is proven to work reliably across all tabs.
@@ -478,7 +478,7 @@ class FileNavWindow(FramelessWindowBase):
 
         close_btn = QToolButton(tab_bar)
         close_btn.setAutoRaise(True)
-        close_btn.setText("âœ•")
+        close_btn.setText("✕")
         close_btn.setToolTip("Close Tab")
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet(f"""
@@ -524,4 +524,4 @@ class FileNavWindow(FramelessWindowBase):
 
         # Update footer size label
         if hasattr(self, 'footer_size'):
-            self.footer_size.setText(f"{w} Ã— {h}")
+            self.footer_size.setText(f"{w} × {h}")

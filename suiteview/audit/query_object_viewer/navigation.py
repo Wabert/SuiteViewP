@@ -43,7 +43,7 @@ class QueryObjectViewerNavigationMixin:
         """Rebuild the tree from the organizer: groups, forges, loose queries.
 
         Weight tells structure (query < Group < Forge), color tells origin
-        (build-mode chips/tints; DataForge orange) â€” design Â§8.
+        (build-mode chips/tints; DataForge orange) — design §8.
         """
         current_payload = _payload(self.tree.currentItem())
         search_text = self.edit_search.text() if hasattr(self, "edit_search") else ""
@@ -90,7 +90,7 @@ class QueryObjectViewerNavigationMixin:
             item.setFont(0, _FONT)
             item.setForeground(0, QColor(style.color))
             item.setBackground(0, QBrush(QColor(style.tint)))
-            item.setToolTip(0, f"{style.label} â€” {dsn}")
+            item.setToolTip(0, f"{style.label} — {dsn}")
             payload = {
                 "type": "query",
                 "id": obj.id,
@@ -120,7 +120,7 @@ class QueryObjectViewerNavigationMixin:
                             if self._object_matches_search(obj, search_text)]
             if search_text and not forge_matches and not children:
                 return
-            item = QTreeWidgetItem([f"âš™ {_dataforge_display_name(forge_name)} ({len(children)})"])
+            item = QTreeWidgetItem([f"⚙ {_dataforge_display_name(forge_name)} ({len(children)})"])
             item.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
             item.setForeground(0, QColor(FORGE_STYLE.color))
             item.setBackground(0, QBrush(QColor(FORGE_STYLE.tint)))
@@ -143,7 +143,7 @@ class QueryObjectViewerNavigationMixin:
                     children.append(obj)
             if search_text and not group_matches and not children:
                 return
-            prefix = "" if group.get("id") == COMMONS_GROUP_ID else "â–£ "
+            prefix = "" if group.get("id") == COMMONS_GROUP_ID else "▣ "
             item = QTreeWidgetItem([f"{prefix}{group['name']} ({len(children)})"])
             item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
             item.setForeground(0, QColor(GROUP_STYLE.color))
@@ -280,7 +280,7 @@ class QueryObjectViewerNavigationMixin:
                 if group_key == "file_sources":
                     tooltip = "Double-click to edit this File Source"
                 elif registered:
-                    tooltip = f"Registered ODBC source â€” DSN {source.get('dsn', '')}"
+                    tooltip = f"Registered ODBC source — DSN {source.get('dsn', '')}"
                 source_item.setToolTip(0, tooltip)
                 source_payload = {
                     "type": node_type,
@@ -324,7 +324,7 @@ class QueryObjectViewerNavigationMixin:
         index: dict[str, dict[str, dict]] = {
             "odbc": {}, "access": {}, "files": {}, "file_sources": {}}
 
-        # Registered ODBC / Access sources are pinned â€” they show whether or not
+        # Registered ODBC / Access sources are pinned — they show whether or not
         # a query targets them yet (the whole point of "Add Data Source").
         for ds in data_source_store.list_data_sources():
             if ds.kind == KIND_ODBC and ds.dsn.strip():
@@ -350,7 +350,7 @@ class QueryObjectViewerNavigationMixin:
                     "objects": [],
                 }
 
-        # Saved File Sources are their own store entity (peer of a DSN) â€” show
+        # Saved File Sources are their own store entity (peer of a DSN) — show
         # them whether or not a query targets them yet.
         for fds in file_source_store.list_file_sources():
             index["file_sources"][fds.id] = {
@@ -413,7 +413,7 @@ class QueryObjectViewerNavigationMixin:
         if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
             return []
         if (obj.dsn or "").strip().startswith("file:"):
-            return []  # file-backed query â€” listed under File Sources, not ODBC
+            return []  # file-backed query — listed under File Sources, not ODBC
         dsns: set[str] = set()
         if obj.dsn.strip():
             dsns.add(obj.dsn.strip())
@@ -470,7 +470,7 @@ class QueryObjectViewerNavigationMixin:
     def _offer_to_save_file_source_edits(self) -> None:
         """If a File Source has unsaved edits, offer to Save before navigating away.
 
-        Navigation guard â€” it never blocks navigation, it just asks whether to persist
+        Navigation guard — it never blocks navigation, it just asks whether to persist
         the draft first (Save) or drop it (Discard)."""
         dash = self._source_dashboard
         if self._current_source_kind != "file_data_source" or not dash.is_dirty():
@@ -530,7 +530,7 @@ class QueryObjectViewerNavigationMixin:
     def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         payload = _payload(item)
         if payload.get("type") == "file_data_source":
-            # The dashboard already IS the editor â€” single-click selects + shows it.
+            # The dashboard already IS the editor — single-click selects + shows it.
             self._route_source_selection(item)
             return
         if payload.get("type") not in {"query", "source_query"}:

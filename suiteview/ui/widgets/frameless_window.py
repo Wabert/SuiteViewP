@@ -1,5 +1,5 @@
 """
-Frameless Window Base â€” Reusable frameless window with custom title bar.
+Frameless Window Base — Reusable frameless window with custom title bar.
 
 Provides:
   - Custom title bar with gradient, title text, min/max/close buttons
@@ -164,7 +164,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
     Optionally pass *title* and *default_size* to the constructor.
     """
 
-    # â”€â”€ Construction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Construction ────────────────────────────────────────────────
 
     def __init__(self, title: str = "SuiteView", default_size=(1000, 700),
                  min_size=(500, 450), parent=None,
@@ -218,7 +218,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         self._build_root(title)
         self._add_resize_grips()
 
-    # â”€â”€ Root layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Root layout ─────────────────────────────────────────────────
 
     def _build_root(self, title: str):
         root = QVBoxLayout(self)
@@ -245,7 +245,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         self._size_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._update_size_label()
 
-    # â”€â”€ Override point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Override point ──────────────────────────────────────────────
 
     def build_content(self) -> QWidget:
         """Return the main body widget for the window.
@@ -255,7 +255,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         """
         return QWidget()
 
-    # â”€â”€ Header bar (custom title bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Header bar (custom title bar) ──────────────────────────────
 
     def _apply_header_gradient(self):
         """(Re)paint the header bar with the current 3-stop gradient."""
@@ -373,7 +373,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
 
         return bar
 
-    # â”€â”€ Maximize toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Maximize toggle ─────────────────────────────────────────────
 
     def _toggle_maximize(self):
         # Trust the real window state, not just our cached flag — the OS (or a
@@ -420,7 +420,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         self.max_btn.setText("\u274F" if maximized else "\u25A1")
         self.max_btn.setToolTip("Restore" if maximized else "Maximize")
 
-    # â”€â”€ Resize grips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Resize grips ────────────────────────────────────────────────
 
     def _add_resize_grips(self):
         """Add resize grips to all edges and corners.
@@ -462,7 +462,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         if chosen is act_grip:
             self.set_size_grip_visible(not grip_visible)
 
-    # â”€â”€ Edge detection helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Edge detection helpers ──────────────────────────────────────
 
     def _get_resize_edge(self, pos):
         return resize_edge_at(pos, self.rect(), self._resize_margin)
@@ -474,7 +474,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
     def _update_cursor_for_edge(self, edge):
         update_cursor_for_resize_edge(self, edge)
 
-    # â”€â”€ Event overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Event overrides ─────────────────────────────────────────────
 
     def _update_size_label(self):
         """Update the W × H size label text and position."""
