@@ -11,8 +11,11 @@ import pytest
 
 from suiteview.core.build_env import ReadOnlyDataError
 from suiteview.core import access_control
-from suiteview.ratemanager.database_loader import (
-    PackageValidationError, RateDatabaseError, StaleAnalysisError, UnsafeOperationError,
+from suiteview.ratemanager.schema import (
+    PackageValidationError,
+    RateDatabaseError,
+    StaleAnalysisError,
+    UnsafeOperationError,
 )
 from suiteview.ratemanager.whole_life import service
 from suiteview.ratemanager.whole_life.schema import Column, WholeLifeTable
@@ -82,7 +85,7 @@ def analysis_for(source, changed=0):
 
 def test_read_only_blocks_ddl_and_writes_before_connect(monkeypatch):
     monkeypatch.setattr(access_control, "get_access", lambda **_: SimpleNamespace(can_update_database=False))
-    with patch("suiteview.ratemanager.database_loader.connection_factory.connect_dsn") as connect:
+    with patch("suiteview.ratemanager.repository.connection_factory.connect_dsn") as connect:
         with WholeLifeRepository() as repository:
             with pytest.raises(ReadOnlyDataError):
                 repository.create_tables()

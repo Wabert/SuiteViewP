@@ -18,13 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from suiteview.ratemanager.database_loader import (  # noqa: E402
-    TERM_SCHEMA,
-    UL_SCHEMA,
-    ULRatesRepository,
-    WorkupPackage,
-    analyze_package,
-)
+from suiteview.ratemanager.analysis import analyze_package  # noqa: E402
+from suiteview.ratemanager.package import WorkupPackage  # noqa: E402
+from suiteview.ratemanager.repository import ULRatesRepository  # noqa: E402
+from suiteview.ratemanager.schema import TERM_SCHEMA, UL_SCHEMA  # noqa: E402
 
 
 def main() -> None:

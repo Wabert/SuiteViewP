@@ -34,25 +34,19 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from suiteview.ratemanager.database_loader import (
-    LoadAction,
-    PackageAnalysis,
-    RateSchema,
-    UL_SCHEMA,
-    TableAnalysis,
-    TableData,
+from suiteview.ratemanager.analysis import PackageAnalysis, TableAnalysis, analyze_package
+from suiteview.ratemanager.package import TableData, WorkupPackage, display_value
+from suiteview.ratemanager.plan import create_execution_plan
+from suiteview.ratemanager.repository import (
     ULRatesRepository,
-    WorkupPackage,
-    analyze_package,
-    create_execution_plan,
     delete_pointer_rows,
     delete_rate_index,
-    display_value,
     execute_package,
     load_pointer_rows,
     load_rate_index,
     update_pointer_row,
 )
+from suiteview.ratemanager.schema import LoadAction, RateSchema, UL_SCHEMA
 from suiteview.ratemanager.rm_styles import (
     BG_INPUT,
     BORDER,

@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from suiteview.ratemanager.database_loader import PackageValidationError, TableData
+from suiteview.ratemanager.package import TableData
+from suiteview.ratemanager.schema import PackageValidationError
 from suiteview.ratemanager.whole_life import service
 
 

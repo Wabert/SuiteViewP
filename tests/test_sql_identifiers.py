@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET_MODULES = (
     ROOT / "suiteview" / "core" / "schema_discovery.py",
     ROOT / "suiteview" / "ratemanager" / "whole_life" / "service.py",
-    ROOT / "suiteview" / "ratemanager" / "database_loader.py",
+    ROOT / "suiteview" / "ratemanager" / "repository.py",
+    ROOT / "suiteview" / "ratemanager" / "backup.py",
 )
 
 

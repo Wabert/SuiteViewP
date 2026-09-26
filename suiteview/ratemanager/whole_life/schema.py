@@ -9,9 +9,8 @@ from decimal import Decimal
 from functools import cached_property
 from typing import Any, Iterable, Mapping
 
-from suiteview.ratemanager.database_loader import (
-    PackageValidationError, TableData, TableSpec, coerce_row,
-)
+from suiteview.ratemanager.package import TableData, coerce_row
+from suiteview.ratemanager.schema import PackageValidationError, TableSpec
 
 
 @dataclass(frozen=True)

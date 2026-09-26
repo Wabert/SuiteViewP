@@ -28,7 +28,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from suiteview.core.json_store import write_json
-from suiteview.ratemanager.database_loader import TableData
+from suiteview.ratemanager.package import TableData
 from suiteview.ratemanager.whole_life.service import (
     WholeLifeRepository, parse_sources, parse_workup,
 )

@@ -13,10 +13,8 @@ per-file converter tabs are reachable from its header toggle.
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog,
@@ -33,61 +31,13 @@ from suiteview.ratemanager.rm_styles import (
     GOLD_TEXT, TEXT, TEXT_MID, body_stylesheet,
 )
 from suiteview.ratemanager.ui_helpers import (
-    set_expanding_panel_visible, update_cease_age_field,
+    update_cease_age_field,
 )
 from suiteview.ratemanager.workup.builder import (
     WorkupAnalysis, WorkupResult, analyze, benefit_start_index, build,
 )
+from suiteview.ratemanager.workup.base import BaseWorkupPanel, WorkerRunner
 from suiteview.ratemanager.workup.spec import BenefitSelection, WorkupSpec
-
-
-# ---------------------------------------------------------------------------
-# Background workers
-# ---------------------------------------------------------------------------
-
-class _AnalyzeWorker(QThread):
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(object)          # WorkupAnalysis
-    error = pyqtSignal(str)
-
-    def __init__(self, spec: WorkupSpec):
-        super().__init__()
-        self._spec = spec
-
-    def run(self):
-        try:
-            ana = analyze(
-                self._spec,
-                progress_cb=lambda f, m: self.progress.emit(f, m))
-            if ana.error:
-                self.error.emit(ana.error)
-            else:
-                self.finished.emit(ana)
-        except Exception as exc:
-            self.error.emit(str(exc))
-
-
-class _BuildWorker(QThread):
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(object)          # WorkupResult
-    error = pyqtSignal(str)
-
-    def __init__(self, spec: WorkupSpec, analysis: WorkupAnalysis):
-        super().__init__()
-        self._spec = spec
-        self._analysis = analysis
-
-    def run(self):
-        try:
-            res = build(
-                self._spec, self._analysis,
-                progress_cb=lambda f, m: self.progress.emit(f, m))
-            if res.error:
-                self.error.emit(res.error)
-            else:
-                self.finished.emit(res)
-        except Exception as exc:
-            self.error.emit(str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +132,11 @@ class _StateMapDialog(QDialog):
 # Panel
 # ---------------------------------------------------------------------------
 
-class RateWorkupPanel(QWidget):
+class RateWorkupPanel(BaseWorkupPanel):
     """Comprehensive per-plancode rate workup — all four files, one pass."""
 
     workup_built = pyqtSignal(str)
+    error_title = "Workup Error"
 
     def __init__(self, parent=None):
         from suiteview.core.access_control import guard_app_access
@@ -193,8 +144,8 @@ class RateWorkupPanel(QWidget):
         guard_app_access("RATEMANAGER")
         super().__init__(parent)
         self._analysis: WorkupAnalysis | None = None
-        self._analyze_worker: _AnalyzeWorker | None = None
-        self._build_worker: _BuildWorker | None = None
+        self._analyze_worker: WorkerRunner | None = None
+        self._build_worker: WorkerRunner | None = None
         self._output_path = ""
         self._state_map_cache: dict = {}   # (scr_path, plan) → confirmed map
         self.setObjectName("RateManagerBody")
@@ -375,22 +326,6 @@ class RateWorkupPanel(QWidget):
     # Small UI helpers
     # ------------------------------------------------------------------
 
-    def _section_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setObjectName("SectionLabel")
-        return lbl
-
-    def _dim_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {TEXT_MID}; font-size: 12px;")
-        return lbl
-
-    def _small_btn(self, text: str, slot) -> QPushButton:
-        btn = QPushButton(text)
-        btn.setObjectName("SecondaryBtn")
-        btn.clicked.connect(slot)
-        return btn
-
     def _file_row(self, root: QVBoxLayout, kind: str,
                   required: bool = False, combo_label: str = "",
                   combo_width: int = 130):
@@ -433,18 +368,6 @@ class RateWorkupPanel(QWidget):
         row.addWidget(status)
         root.addLayout(row)
         return edit, status
-
-    def _toggle_warnings(self):
-        shown = self.warn_toggle.isChecked()
-        self.warn_area.setVisible(shown)
-        self.warn_toggle.setText(
-            ("▾" if shown else "▸") + self.warn_toggle.text()[1:])
-
-    def _toggle_log(self):
-        shown = self.log_toggle.isChecked()
-        set_expanding_panel_visible(self, self.log, shown)
-        self.log_toggle.setText(
-            ("▾" if shown else "▸") + "  Processing output")
 
     # ------------------------------------------------------------------
     # Browse actions
@@ -498,7 +421,7 @@ class RateWorkupPanel(QWidget):
         self.btn_analyze.setEnabled(False)
         self.btn_build.setEnabled(False)
         self.space_lbl.setText("Analyzing…")
-        self._analyze_worker = _AnalyzeWorker(spec)
+        self._analyze_worker = WorkerRunner(analyze, spec)
         self._analyze_worker.progress.connect(self._on_progress)
         self._analyze_worker.finished.connect(self._on_analyzed)
         self._analyze_worker.error.connect(self._on_error)
@@ -555,16 +478,6 @@ class RateWorkupPanel(QWidget):
         self._show_warnings(ana.warnings)
         self.log.append("Analysis complete — review the rate space, pick "
                         "benefits and plan ids, then Build Workup.")
-
-    def _show_warnings(self, warnings: list):
-        if warnings:
-            self.warn_toggle.setText(f"▸  Warnings ({len(warnings)})")
-            self.warn_toggle.setVisible(True)
-            self.warn_area.setPlainText("\n".join(f"⚠ {w}" for w in warnings))
-        else:
-            self.warn_toggle.setVisible(False)
-            self.warn_area.setVisible(False)
-            self.warn_toggle.setChecked(False)
 
     def _add_benefit_row(self, row: int, code: str, detail: str,
                          mpf_codes: list, suggest_mpf: bool = False,
@@ -686,18 +599,9 @@ class RateWorkupPanel(QWidget):
     # Build
     # ------------------------------------------------------------------
 
-    def _on_build(self):
-        if self._analysis is None:
-            QMessageBox.warning(self, "Not Analyzed",
-                                "Click 'Analyze Files' first.")
-            return
-        spec = self._gather_paths_spec()
-        if spec is None:
-            return
-
+    def _apply_build_header_fields(self, spec: WorkupSpec) -> bool:
         spec.plancode = self._analysis.plancode
         spec.fmt = "excel" if self.fmt_excel.isChecked() else "db"
-
         try:
             spec.maturity_age = int(self.maturity_edit.text().strip())
         except ValueError:
@@ -725,7 +629,9 @@ class RateWorkupPanel(QWidget):
 
         spec.output_dir = self.output_edit.text().strip() or os.path.dirname(
             spec.iaf_path)
+        return True
 
+    def _apply_optional_source_selections(self, spec: WorkupSpec) -> bool:
         if spec.scr_path:
             data = self.scr_combo.currentData()
             if not data:
@@ -758,7 +664,9 @@ class RateWorkupPanel(QWidget):
                     "belongs to this plancode.")
                 return
             spec.epu_plan, spec.epu_freq, spec.epu_rule = data
+        return True
 
+    def _selected_benefits(self) -> list[BenefitSelection] | None:
         benefits = []
         for (
             code, chk, ren_chk, cease_edit, mpf_combo, idx_edit, has_iaf_coi
@@ -796,29 +704,24 @@ class RateWorkupPanel(QWidget):
                 cease_age=cease_age,
                 mpf_code=mpf_combo.currentData() or "",
                 start_index=start_index))
-        spec.benefits = benefits
-        if any(b.mpf_code for b in benefits) and not spec.mpf_path:
-            QMessageBox.warning(
-                self, "No MPF File",
-                "Some benefits are linked to MPF codes but no MPF file is "
-                "selected — their COI rates would be skipped.")
-            return
+        return benefits
 
-        # Confirm before overwriting an existing workup output.
+    def _confirm_output_overwrite(self, spec: WorkupSpec) -> bool:
         if spec.fmt == "excel":
             target = os.path.join(
                 spec.output_dir, f"{spec.plancode} - Workup DB.xlsx")
         else:
             target = os.path.join(spec.output_dir, f"{spec.plancode}_Workup")
-        if os.path.exists(target):
-            reply = QMessageBox.question(
-                self, "Overwrite Existing Output?",
-                f"The output already exists:\n{target}\n\nOverwrite it?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        if not os.path.exists(target):
+            return True
+        reply = QMessageBox.question(
+            self, "Overwrite Existing Output?",
+            f"The output already exists:\n{target}\n\nOverwrite it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        return reply == QMessageBox.StandardButton.Yes
 
+    def _start_build_worker(self, spec: WorkupSpec) -> None:
         self.log.clear()
         self.progress_bar.setValue(0)
         self.btn_build.setEnabled(False)
@@ -826,11 +729,36 @@ class RateWorkupPanel(QWidget):
         self.btn_open.setEnabled(False)
         self._output_path = ""
 
-        self._build_worker = _BuildWorker(spec, self._analysis)
+        self._build_worker = WorkerRunner(build, spec, self._analysis)
         self._build_worker.progress.connect(self._on_progress)
         self._build_worker.finished.connect(self._on_built)
         self._build_worker.error.connect(self._on_error)
         self._build_worker.start()
+
+    def _on_build(self):
+        if self._analysis is None:
+            QMessageBox.warning(self, "Not Analyzed",
+                                "Click 'Analyze Files' first.")
+            return
+        spec = self._gather_paths_spec()
+        if spec is None:
+            return
+        if not self._apply_build_header_fields(spec):
+            return
+        if not self._apply_optional_source_selections(spec):
+            return
+        benefits = self._selected_benefits()
+        if benefits is None:
+            return
+        spec.benefits = benefits
+        if any(b.mpf_code for b in benefits) and not spec.mpf_path:
+            QMessageBox.warning(
+                self, "No MPF File",
+                "Some benefits are linked to MPF codes but no MPF file is "
+                "selected — their COI rates would be skipped.")
+            return
+        if self._confirm_output_overwrite(spec):
+            self._start_build_worker(spec)
 
     def _on_built(self, res: WorkupResult):
         self._output_path = res.output_path
@@ -852,30 +780,3 @@ class RateWorkupPanel(QWidget):
         self.log_toggle.setChecked(True)
         self._toggle_log()
         self.workup_built.emit(res.output_path)
-
-    # ------------------------------------------------------------------
-    # Progress / error / open
-    # ------------------------------------------------------------------
-
-    def _on_progress(self, pct: float, msg: str):
-        self.progress_bar.setValue(int(pct * 1000))
-        if msg:
-            self.log.append(msg)
-
-    def _on_error(self, err: str):
-        self.btn_analyze.setEnabled(True)
-        self.btn_build.setEnabled(self._analysis is not None)
-        self.space_lbl.setText("")
-        self.log.append(f"\n✗  Error: {err}")
-        QMessageBox.critical(self, "Workup Error", err.split("\n")[0])
-
-    def _open_output(self):
-        path = self._output_path
-        if not path or not (os.path.isfile(path) or os.path.isdir(path)):
-            return
-        if sys.platform == "win32":
-            os.startfile(path)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", path])
-        else:
-            subprocess.Popen(["xdg-open", path])

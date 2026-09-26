@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from suiteview.ratemanager.database_loader import PackageValidationError
+from suiteview.ratemanager.schema import PackageValidationError
 from suiteview.ratemanager.whole_life import parsers
 from suiteview.ratemanager.whole_life.schema import TABLES
 from suiteview.ratemanager.whole_life.service import parse_sources

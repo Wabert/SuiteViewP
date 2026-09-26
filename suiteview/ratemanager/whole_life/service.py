@@ -26,9 +26,13 @@ from suiteview.core.build_env import guard_data_writable
 from suiteview.core.data_sources import UL_RATES_DSN
 from suiteview.core.json_store import write_json
 from suiteview.core.sql_identifiers import IdentifierCatalog, quote_identifier, qualified_name
-from suiteview.ratemanager.database_loader import (
-    PackageValidationError, RateDatabaseError, StaleAnalysisError, TableData,
-    ULRatesRepository, UnsafeOperationError, _chunks, _rows_digest,
+from suiteview.ratemanager.package import TableData, _rows_digest
+from suiteview.ratemanager.repository import ULRatesRepository, _chunks
+from suiteview.ratemanager.schema import (
+    PackageValidationError,
+    RateDatabaseError,
+    StaleAnalysisError,
+    UnsafeOperationError,
 )
 from suiteview.ratemanager.whole_life.schema import PDF_COLUMNS, TABLES, WholeLifeTable
 
@@ -71,6 +75,54 @@ def _before_digest(table: str, rows: tuple[tuple[Any, ...], ...]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _normalize_dividend_headers(parsed: dict[str, list[dict]]) -> None:
+    from suiteview.ratemanager.whole_life import dividend
+
+    for header in parsed["WL_DIV_HEADER"]:
+        header["MAINT_DT"] = None
+        for column in dividend.DATE_COLUMNS:
+            value = header[column]
+            if isinstance(value, date):
+                header[column] = f"{value.month:02d}/{value.day:02d}/{value.year:04d}"
+
+
+def _parse_one_source(
+    kind: str, path: Path, user_code: str, infer_cvf_negatives: bool,
+) -> tuple[dict[str, list[dict]], dict]:
+    if kind in ("Dividend", "Dividend map"):
+        from suiteview.ratemanager.whole_life import dividend
+    else:
+        from suiteview.ratemanager.whole_life import parsers
+
+    adjustments: list[dict] = []
+    if kind == "Dividend":
+        parsed = dividend.parse_dividend(path)
+        _normalize_dividend_headers(parsed)
+    elif kind == "Dividend map":
+        parsed = {"WL_DIV_PLANKEY_MAP": dividend.parse_plan_key_map(path)}
+    elif kind == "CVF":
+        parsed = {"WL_RATE_CV": parsers.parse_cvf(
+            path, infer_early_negatives=infer_cvf_negatives,
+            inference_audit=adjustments,
+        )}
+    elif kind == "NSP":
+        parsed = {"WL_RATE_NSP": parsers.parse_nsp(path)}
+    elif kind == "PUI":
+        parsed = {"WL_RATE_PUI": parsers.parse_pui(path)}
+    else:
+        parsed = {"WL_RATE_PREM": parsers.parse_iaf(path, user_code)}
+
+    inference = {}
+    if kind == "CVF":
+        inference["cvf_inference"] = {
+            "enabled": infer_cvf_negatives,
+            "rule": parsers.CVF_INFERENCE_RULE,
+            "adjusted_rows": len(adjustments),
+            "adjustments": adjustments,
+        }
+    return parsed, inference
+
+
 @dataclass(frozen=True)
 class WholeLifePackage:
     tables: OrderedDict[str, TableData]
@@ -97,48 +149,20 @@ def parse_sources(
         raise PackageValidationError("CVF sign inference must be true or false.")
     if infer_cvf_negatives and kind != "CVF":
         raise PackageValidationError("CVF sign inference requires CVF source files.")
-    if kind in ("Dividend", "Dividend map"):
-        from suiteview.ratemanager.whole_life import dividend
-    else:
-        from suiteview.ratemanager.whole_life import parsers
     records: dict[str, list[dict]] = {}
     sources = []
     for filename in paths:
         path = Path(filename).expanduser().resolve(strict=True)
         before = _source_info(path)
-        if kind == "Dividend":
-            parsed = dividend.parse_dividend(path)
-            for header in parsed["WL_DIV_HEADER"]:
-                header["MAINT_DT"] = None
-                for column in dividend.DATE_COLUMNS:
-                    value = header[column]
-                    if isinstance(value, date):
-                        header[column] = f"{value.month:02d}/{value.day:02d}/{value.year:04d}"
-        elif kind == "Dividend map":
-            parsed = {"WL_DIV_PLANKEY_MAP": dividend.parse_plan_key_map(path)}
-        elif kind == "CVF":
-            adjustments = []
-            parsed = {"WL_RATE_CV": parsers.parse_cvf(
-                path, infer_early_negatives=infer_cvf_negatives,
-                inference_audit=adjustments,
-            )}
-        elif kind == "NSP":
-            parsed = {"WL_RATE_NSP": parsers.parse_nsp(path)}
-        elif kind == "PUI":
-            parsed = {"WL_RATE_PUI": parsers.parse_pui(path)}
-        else:
-            parsed = {"WL_RATE_PREM": parsers.parse_iaf(path, user_code)}
+        parsed, extra_source = _parse_one_source(
+            kind, path, user_code, infer_cvf_negatives,
+        )
         if _source_info(path) != before:
             raise PackageValidationError(f"Source changed during parsing: {path}.")
-        source = {**before, "kind": kind, "user_code": user_code.strip().upper()}
-        if kind == "CVF":
-            source["cvf_inference"] = {
-                "enabled": infer_cvf_negatives,
-                "rule": parsers.CVF_INFERENCE_RULE,
-                "adjusted_rows": len(adjustments),
-                "adjustments": adjustments,
-            }
-        sources.append(source)
+        sources.append({
+            **before, "kind": kind, "user_code": user_code.strip().upper(),
+            **extra_source,
+        })
         for name, rows in parsed.items():
             records.setdefault(name, []).extend(rows)
     tables = OrderedDict(
@@ -548,8 +572,7 @@ class WholeLifeRepository(ULRatesRepository):
         finally:
             self.rollback()
 
-    def apply(self, analysis: WholeLifeAnalysis, replace_tables: set[str]) -> dict:
-        guard_data_writable("load Whole Life rates")
+    def _check_load_review(self, analysis: WholeLifeAnalysis, replace_tables: set[str]) -> None:
         if analysis.package.digest != analysis.package_digest:
             raise StaleAnalysisError("Source package changed. Preview and analyze it again.")
         if not replace_tables.issubset(analysis.package.tables):
@@ -562,6 +585,81 @@ class WholeLifeRepository(ULRatesRepository):
             raise UnsafeOperationError(
                 "Approve changed rows explicitly before loading: " + ", ".join(blocked)
             )
+
+    def _build_receipt(
+        self, analysis: WholeLifeAnalysis, current: tuple[TableComparison, ...],
+    ) -> dict:
+        return {
+            "status": "prepared; this is not proof of commit",
+            "database": analysis.database,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "package_sha256": analysis.package_digest,
+            "sources": list(analysis.package.sources),
+            "tables": analysis.summary_records(),
+            "before_rows": {
+                row.table: [
+                    {
+                        column: _backup_value(value)
+                        for column, value in zip(
+                            TABLES[row.table].spec.columns, before_row
+                        )
+                    }
+                    for before_row in row.before_rows
+                ]
+                for row in current if row.before_rows
+            },
+        }
+
+    def _apply_table_changes(
+        self, cursor, stages: dict[str, str], row: TableComparison,
+    ) -> None:
+        name = row.table
+        definition = TABLES[name]
+        stage = quote_identifier(stages[name])
+        target = qualified_name("dbo", name)
+        if row.changed:
+            assignments = ", ".join(
+                f"{_aliased_column('d', c.name)} = " + (
+                    "CONVERT(varchar(10), GETDATE(), 101)"
+                    if c.name == "MAINT_DT" else _aliased_column("s", c.name)
+                )
+                for c in definition.columns if c.name not in definition.keys
+            )
+            cursor.execute(
+                f"UPDATE d SET {assignments} FROM {target} d "
+                f"JOIN {stage} s ON {_join(definition)} "
+                f"WHERE {_different(definition)}"
+            )
+        if row.inserted:
+            columns = ", ".join(quote_identifier(c.name) for c in definition.columns)
+            selected = ", ".join(
+                "CONVERT(varchar(10), GETDATE(), 101)"
+                if c.name == "MAINT_DT" else _aliased_column("s", c.name)
+                for c in definition.columns
+            )
+            cursor.execute(
+                f"INSERT INTO {target} ({columns}) SELECT {selected} "
+                f"FROM {stage} s WHERE NOT EXISTS "
+                f"(SELECT 1 FROM {target} d WHERE {_join(definition)})"
+            )
+
+    def _verify_load(
+        self, analysis: WholeLifeAnalysis, stages: dict[str, str], receipt_path: Path,
+    ) -> None:
+        verified = self._compare(analysis.package, stages, locked=True)
+        if any(row.inserted or row.changed for row in verified):
+            raise RateDatabaseError("Whole Life write verification failed; rolling back.")
+        self.commit()
+        persisted = self._compare(analysis.package, stages)
+        if any(row.inserted or row.changed for row in persisted):
+            raise RateDatabaseError(
+                f"Whole Life data committed but post-commit verification failed. "
+                f"Inspect the backup receipt: {receipt_path}"
+            )
+
+    def apply(self, analysis: WholeLifeAnalysis, replace_tables: set[str]) -> dict:
+        guard_data_writable("load Whole Life rates")
+        self._check_load_review(analysis, replace_tables)
         cursor = self.connect().cursor()
         receipt_path = self.receipt_root / f"{uuid4().hex}.json"
         try:
@@ -577,68 +675,12 @@ class WholeLifeRepository(ULRatesRepository):
                 raise StaleAnalysisError(
                     "Database rows changed after analysis. Analyze and review again."
                 )
-            receipt = {
-                "status": "prepared; this is not proof of commit",
-                "database": analysis.database,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "package_sha256": analysis.package_digest,
-                "sources": list(analysis.package.sources),
-                "tables": analysis.summary_records(),
-                "before_rows": {
-                    row.table: [
-                        {
-                            column: _backup_value(value)
-                            for column, value in zip(
-                                TABLES[row.table].spec.columns, before_row
-                            )
-                        }
-                        for before_row in row.before_rows
-                    ]
-                    for row in current if row.before_rows
-                },
-            }
+            receipt = self._build_receipt(analysis, current)
             guard_data_writable("load Whole Life rates")
             write_json(receipt_path, receipt)
             for row in current:
-                name = row.table
-                definition = TABLES[name]
-                stage = quote_identifier(stages[name])
-                target = qualified_name("dbo", name)
-                if row.changed:
-                    assignments = ", ".join(
-                        f"{_aliased_column('d', c.name)} = " + (
-                            "CONVERT(varchar(10), GETDATE(), 101)"
-                            if c.name == "MAINT_DT" else _aliased_column("s", c.name)
-                        )
-                        for c in definition.columns if c.name not in definition.keys
-                    )
-                    cursor.execute(
-                        f"UPDATE d SET {assignments} FROM {target} d "
-                        f"JOIN {stage} s ON {_join(definition)} "
-                        f"WHERE {_different(definition)}"
-                    )
-                if row.inserted:
-                    columns = ", ".join(quote_identifier(c.name) for c in definition.columns)
-                    selected = ", ".join(
-                        "CONVERT(varchar(10), GETDATE(), 101)"
-                        if c.name == "MAINT_DT" else _aliased_column("s", c.name)
-                        for c in definition.columns
-                    )
-                    cursor.execute(
-                        f"INSERT INTO {target} ({columns}) SELECT {selected} "
-                        f"FROM {stage} s WHERE NOT EXISTS "
-                        f"(SELECT 1 FROM {target} d WHERE {_join(definition)})"
-                    )
-            verified = self._compare(analysis.package, stages, locked=True)
-            if any(row.inserted or row.changed for row in verified):
-                raise RateDatabaseError("Whole Life write verification failed; rolling back.")
-            self.commit()
-            persisted = self._compare(analysis.package, stages)
-            if any(row.inserted or row.changed for row in persisted):
-                raise RateDatabaseError(
-                    f"Whole Life data committed but post-commit verification failed. "
-                    f"Inspect the backup receipt: {receipt_path}"
-                )
+                self._apply_table_changes(cursor, stages, row)
+            self._verify_load(analysis, stages, receipt_path)
             receipt["status"] = "committed and verified"
             receipt["committed_at"] = datetime.now(timezone.utc).isoformat()
             try:

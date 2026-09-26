@@ -12,8 +12,6 @@ Maturity is shown read-only because it is derived from the IAF plan header.
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -23,68 +21,18 @@ from PyQt6.QtWidgets import (
     QTextEdit, QVBoxLayout, QWidget,
 )
 
-from suiteview.ratemanager.rm_styles import (
-    GOLD_TEXT, TEXT, TEXT_MID, body_stylesheet,
-)
-from suiteview.ratemanager.ui_helpers import set_expanding_panel_visible
+from suiteview.ratemanager.rm_styles import GOLD_TEXT, TEXT, body_stylesheet
 from suiteview.ratemanager.workup import term_reference
 from suiteview.ratemanager.workup.term_builder import (
     TermWorkupAnalysis, TermWorkupResult, analyze, build,
 )
+from suiteview.ratemanager.workup.base import BaseWorkupPanel, WorkerRunner
 from suiteview.ratemanager.workup.term_spec import (
     BandSpecRow, BandStructureSelection, ModeFactorSelection,
     TermBenefitSelection, TermWorkupSpec,
 )
 
 _NEW_ENTRY = "__new__"
-
-
-# ---------------------------------------------------------------------------
-# Background workers
-# ---------------------------------------------------------------------------
-
-class _AnalyzeWorker(QThread):
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-
-    def __init__(self, spec: TermWorkupSpec):
-        super().__init__()
-        self._spec = spec
-
-    def run(self):
-        try:
-            ana = analyze(
-                self._spec, progress_cb=lambda f, m: self.progress.emit(f, m))
-            if ana.error:
-                self.error.emit(ana.error)
-            else:
-                self.finished.emit(ana)
-        except Exception as exc:
-            self.error.emit(str(exc))
-
-
-class _BuildWorker(QThread):
-    progress = pyqtSignal(float, str)
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-
-    def __init__(self, spec: TermWorkupSpec, analysis: TermWorkupAnalysis):
-        super().__init__()
-        self._spec = spec
-        self._analysis = analysis
-
-    def run(self):
-        try:
-            res = build(
-                self._spec, self._analysis,
-                progress_cb=lambda f, m: self.progress.emit(f, m))
-            if res.error:
-                self.error.emit(res.error)
-            else:
-                self.finished.emit(res)
-        except Exception as exc:
-            self.error.emit(str(exc))
 
 
 class _ReferenceWorker(QThread):
@@ -303,10 +251,11 @@ class _BandStructureDialog(QDialog):
 # Panel
 # ---------------------------------------------------------------------------
 
-class TermWorkupPanel(QWidget):
+class TermWorkupPanel(BaseWorkupPanel):
     """Per-plancode Term rate workup — one IAF, seven TERM_* CSVs."""
 
     workup_built = pyqtSignal(str)
+    error_title = "Term Workup Error"
 
     _BENEFIT_COLUMNS = ("Benefit", "Renewable", "Cease Age", "Max Dur", "Detail")
 
@@ -316,8 +265,8 @@ class TermWorkupPanel(QWidget):
         guard_app_access("RATEMANAGER")
         super().__init__(parent)
         self._analysis: TermWorkupAnalysis | None = None
-        self._analyze_worker: _AnalyzeWorker | None = None
-        self._build_worker: _BuildWorker | None = None
+        self._analyze_worker: WorkerRunner | None = None
+        self._build_worker: WorkerRunner | None = None
         self._reference_worker: _ReferenceWorker | None = None
         self._reference = term_reference.TermReferenceData()
         self._output_path = ""
@@ -560,34 +509,6 @@ class TermWorkupPanel(QWidget):
     # Small UI helpers
     # ------------------------------------------------------------------
 
-    def _section_label(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("SectionLabel")
-        return label
-
-    def _dim_label(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setStyleSheet(f"color: {TEXT_MID}; font-size: 12px;")
-        return label
-
-    def _small_btn(self, text: str, slot) -> QPushButton:
-        button = QPushButton(text)
-        button.setObjectName("SecondaryBtn")
-        button.clicked.connect(slot)
-        return button
-
-    def _toggle_warnings(self):
-        shown = self.warn_toggle.isChecked()
-        self.warn_area.setVisible(shown)
-        self.warn_toggle.setText(
-            ("▾" if shown else "▸") + self.warn_toggle.text()[1:])
-
-    def _toggle_log(self):
-        shown = self.log_toggle.isChecked()
-        set_expanding_panel_visible(self, self.log, shown)
-        self.log_toggle.setText(
-            ("▾" if shown else "▸") + "  Processing output")
-
     # ------------------------------------------------------------------
     # Reference data
     # ------------------------------------------------------------------
@@ -687,7 +608,7 @@ class TermWorkupPanel(QWidget):
         self.btn_analyze.setEnabled(False)
         self.btn_build.setEnabled(False)
         self.space_lbl.setText("Analyzing…")
-        self._analyze_worker = _AnalyzeWorker(TermWorkupSpec(iaf_path=iaf_path))
+        self._analyze_worker = WorkerRunner(analyze, TermWorkupSpec(iaf_path=iaf_path))
         self._analyze_worker.progress.connect(self._on_progress)
         self._analyze_worker.finished.connect(self._on_analyzed)
         self._analyze_worker.error.connect(self._on_error)
@@ -777,16 +698,6 @@ class TermWorkupPanel(QWidget):
     def _set_all(self, checked: bool):
         for entry in self._ben_rows:
             entry["include"].setChecked(checked)
-
-    def _show_warnings(self, warnings: list):
-        if warnings:
-            self.warn_toggle.setText(f"▸  Warnings ({len(warnings)})")
-            self.warn_toggle.setVisible(True)
-            self.warn_area.setPlainText("\n".join(f"⚠ {w}" for w in warnings))
-        else:
-            self.warn_toggle.setVisible(False)
-            self.warn_area.setVisible(False)
-            self.warn_toggle.setChecked(False)
 
     # ------------------------------------------------------------------
     # Build
@@ -883,7 +794,7 @@ class TermWorkupPanel(QWidget):
         self.progress_bar.setValue(0)
         self.btn_build.setEnabled(False)
         self.btn_analyze.setEnabled(False)
-        self._build_worker = _BuildWorker(spec, self._analysis)
+        self._build_worker = WorkerRunner(build, spec, self._analysis)
         self._build_worker.progress.connect(self._on_progress)
         self._build_worker.finished.connect(self._on_built)
         self._build_worker.error.connect(self._on_error)
@@ -908,30 +819,3 @@ class TermWorkupPanel(QWidget):
         self.log_toggle.setChecked(True)
         self._toggle_log()
         self.workup_built.emit(res.output_path)
-
-    # ------------------------------------------------------------------
-    # Progress / error / open
-    # ------------------------------------------------------------------
-
-    def _on_progress(self, pct: float, msg: str):
-        self.progress_bar.setValue(int(pct * 1000))
-        if msg:
-            self.log.append(msg)
-
-    def _on_error(self, err: str):
-        self.btn_analyze.setEnabled(True)
-        self.btn_build.setEnabled(self._analysis is not None)
-        self.space_lbl.setText("")
-        self.log.append(f"\n✗  Error: {err}")
-        QMessageBox.critical(self, "Term Workup Error", err.split("\n")[0])
-
-    def _open_output(self):
-        path = self._output_path
-        if not path or not (os.path.isfile(path) or os.path.isdir(path)):
-            return
-        if sys.platform == "win32":
-            os.startfile(path)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", path])
-        else:
-            subprocess.Popen(["xdg-open", path])

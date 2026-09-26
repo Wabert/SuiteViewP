@@ -14,8 +14,10 @@ from suiteview.core.rates import Rates
 from suiteview.core.build_env import ReadOnlyDataError
 from suiteview.audit import query_runner, shared_field_registry as registry
 from suiteview.core.sql_permissions import guard_query_sql
-from suiteview.ratemanager import database_loader as loader
+from suiteview.ratemanager import repository as loader
 from suiteview.ratemanager import mortality_loader
+from suiteview.ratemanager.plan import ExecutionPlan
+from suiteview.ratemanager.schema import TERM_SCHEMA, UL_SCHEMA
 from suiteview.ratemanager.whole_life.service import WholeLifeRepository
 
 
@@ -144,8 +146,8 @@ def test_allowed_registry_write_commits_and_failure_rolls_back(rights, monkeypat
 
 
 @pytest.mark.parametrize("schema,table,index", [
-    (loader.UL_SCHEMA, "RATE_COI", 10),
-    (loader.TERM_SCHEMA, "TERM_RATE_PREM", "1001_PL"),
+    (UL_SCHEMA, "RATE_COI", 10),
+    (TERM_SCHEMA, "TERM_RATE_PREM", "1001_PL"),
 ])
 @pytest.mark.parametrize("role", ["ADMIN", "SUPPORT"])
 def test_allowed_rate_plan_executes_and_denied_role_cannot_reuse_it(
@@ -157,7 +159,7 @@ def test_allowed_rate_plan_executes_and_denied_role_cannot_reuse_it(
     connection = MagicMock()
     connection.cursor.return_value.rowcount = 2
     monkeypatch.setattr(repository, "connect", lambda: connection)
-    plan = loader.ExecutionPlan(
+    plan = ExecutionPlan(
         "PLAN", {}, {}, {}, {table: frozenset({index})}, {}, (),
     )
     assert repository.apply_plan(plan) == {table: 2}
@@ -181,7 +183,7 @@ def test_rate_load_rechecks_after_analysis_and_rolls_back_on_denial(
     monkeypatch.setattr(repository, "close", Mock())
     monkeypatch.setattr(repository, "rollback", connection.rollback)
     monkeypatch.setattr(loader, "ULRatesRepository", lambda *args: repository)
-    plan = loader.ExecutionPlan(
+    plan = ExecutionPlan(
         "PLAN", {}, {}, {}, {"RATE_COI": frozenset({10})}, {}, (),
     )
 
@@ -194,7 +196,7 @@ def test_rate_load_rechecks_after_analysis_and_rolls_back_on_denial(
     monkeypatch.setattr(loader, "write_backup", lambda *args: None)
     monkeypatch.setattr(loader, "verify_package_state", Mock())
     monkeypatch.setattr(loader, "_clear_rate_cache", Mock())
-    package = SimpleNamespace(schema=loader.UL_SCHEMA, plancode="PLAN")
+    package = SimpleNamespace(schema=UL_SCHEMA, plancode="PLAN")
     if revoked:
         with pytest.raises(ReadOnlyDataError):
             loader.execute_package(package, "UL_Rates", {}, "reviewed")

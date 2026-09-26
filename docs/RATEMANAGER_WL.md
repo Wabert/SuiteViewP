@@ -41,6 +41,9 @@ preview limit, not evidence that a source/table contains no further rows.
   Existing dividend `float` columns are preserved as they exist.
 - Exact duplicate source rows are deduplicated. Conflicting duplicate keys,
   malformed numbers, missing data and incompatible schemas stop the load.
+- Parser fixed-width spans are documented in code through
+  [`PARSER_LAYOUTS.md`](PARSER_LAYOUTS.md); add a golden-output test before
+  changing any source print layout.
 - An import inserts absent keys and updates approved changed values. It never
   deletes database rows missing from the source, and never replaces a whole
   database table. CV/dividend range contractions that would leave stale
@@ -52,6 +55,8 @@ preview limit, not evidence that a source/table contains no further rows.
   Load receipts include source paths, SHA-256 hashes, counts and commit status
   under `~/.suiteview/backups/rate_manager/whole_life/`. A **prepared** receipt
   alone is not proof of a successful commit.
+- Shared UL/Term/WL table families, natural keys and load phases are summarized
+  in [`RATEMANAGER_RATE_TABLES.md`](RATEMANAGER_RATE_TABLES.md).
 - The service verifies equality against the staged source before and after
   committing. Repeating the same import is a no-op.
 - SuiteView Light cannot create tables or load rates. There is no fallback
@@ -186,6 +191,12 @@ spaces distinctly.
 instances own one connection and should be used inside a `with` block on the
 thread performing the work. SQL identifiers are allowlisted and filter values
 are parameterized.
+
+The shared UL/Term loader is split by responsibility:
+`suiteview.ratemanager.schema`, `package`, `analysis`, `plan`, `repository` and
+`backup`. Whole Life reuses the same `TableSpec`/`TableData`, errors,
+transaction repository and SQL identifier rules rather than maintaining a second
+loader stack.
 
 For auditable batch work, use
 [`wl_rate_workup.py`](../tools/rates/wl_rate_workup.py):

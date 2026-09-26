@@ -77,6 +77,43 @@ class ReformatResult:
 ComboKey = Tuple[str, str, str]   # (gender, rate_class, band)
 
 
+@dataclass(frozen=True)
+class RateQuerySpec:
+    """Declarative destination for one IAF rate family/option."""
+
+    rate_type: str
+    plan_option: str
+    select_bucket: str = ""
+    ultimate_bucket: str = ""
+    duration_zero_bucket: str = ""
+    attained_bucket: str = ""
+    dated: bool = False
+
+    def duration_bucket(self, duration: int) -> str:
+        if duration == 99:
+            return self.ultimate_bucket
+        if duration == 0:
+            return self.duration_zero_bucket
+        return self.select_bucket
+
+
+RATE_QUERY_SPECS = (
+    RateQuerySpec(
+        "C", "**", "_coi_select_by_date", "_coi_ultimate_by_date",
+        "_coi_dur0_by_date", dated=True,
+    ),
+    RateQuerySpec("G", "**", "_guar_select", "_guar_ultimate", "_guar_dur0"),
+    RateQuerySpec("T", "**", attained_bucket="_ctp_base"),
+    RateQuerySpec("T", "E*", attained_bucket="_ctp_tbl4"),
+    RateQuerySpec("M", "**", attained_bucket="_mtp_base"),
+    RateQuerySpec("M", "E*", attained_bucket="_mtp_tbl4"),
+)
+RATE_QUERY_BY_KEY = {
+    (spec.rate_type, spec.plan_option): spec for spec in RATE_QUERY_SPECS
+}
+MAPPED_RATE_TYPES = frozenset(spec.rate_type for spec in RATE_QUERY_SPECS)
+
+
 # ---------------------------------------------------------------------------
 # Main reformatter
 # ---------------------------------------------------------------------------
@@ -184,40 +221,10 @@ class RateReformatter:
         for r in self.result.rates:
             combo: ComboKey = (r.gender, r.rate_class, r.band)
             opt = r.plan_option.strip()
-
-            if r.rate_type == 'C' and opt == '**':
-                dt = r.scale_start
-                if r.duration == 99:
-                    self._coi_ultimate_by_date[dt][combo][r.attained_age] = r.rate
-                elif r.duration == 0:
-                    self._coi_dur0_by_date[dt][combo][r.attained_age] = r.rate
-                else:
-                    self._coi_select_by_date[dt][combo][(r.issue_age, r.duration)] = r.rate
-
-            elif r.rate_type == 'G' and opt == '**':
-                # Guaranteed COI — usually ultimate (dur=99) but some plans
-                # carry a full select+ultimate guaranteed table (1U135D00)
-                # or duration-00-only rates (NU1F3B00).
-                if r.duration == 99:
-                    self._guar_ultimate[combo][r.attained_age] = r.rate
-                elif r.duration == 0:
-                    self._guar_dur0[combo][r.attained_age] = r.rate
-                else:
-                    self._guar_select[combo][(r.issue_age, r.duration)] = r.rate
-
-            elif r.rate_type == 'T':
-                if opt == '**':
-                    self._ctp_base[combo][r.attained_age] = r.rate
-                elif opt == 'E*':
-                    self._ctp_tbl4[combo][r.attained_age] = r.rate
-
-            elif r.rate_type == 'M':
-                if opt == '**':
-                    self._mtp_base[combo][r.attained_age] = r.rate
-                elif opt == 'E*':
-                    self._mtp_tbl4[combo][r.attained_age] = r.rate
-
-            elif r.rate_type not in ('C', 'G', 'T', 'M') and opt in ('**', 'E*'):
+            spec = RATE_QUERY_BY_KEY.get((r.rate_type, opt))
+            if spec is not None:
+                self._store_rate_in_bucket(spec, combo, r)
+            elif r.rate_type not in MAPPED_RATE_TYPES and opt in ('**', 'E*'):
                 unmapped_types[r.rate_type] += 1
 
         # Duration-00-only rates act as ultimate rates keyed by attained age.
@@ -282,6 +289,26 @@ class RateReformatter:
             (dur for rates in self._guar_select.values() for (_ia, dur) in rates),
             default=0,
         )
+
+    def _store_rate_in_bucket(
+        self, spec: RateQuerySpec, combo: ComboKey, rate: object,
+    ) -> None:
+        """Place one IAF cell in the bucket declared by ``RateQuerySpec``."""
+        if spec.attained_bucket:
+            getattr(self, spec.attained_bucket)[combo][rate.attained_age] = rate.rate
+            return
+        bucket_name = spec.duration_bucket(rate.duration)
+        if not bucket_name:
+            return
+        bucket = getattr(self, bucket_name)
+        if spec.dated:
+            bucket = bucket[rate.scale_start]
+        key = (
+            rate.attained_age
+            if rate.duration in (0, 99)
+            else (rate.issue_age, rate.duration)
+        )
+        bucket[combo][key] = rate.rate
 
     # ------------------------------------------------------------------
     # Determine combos & select period

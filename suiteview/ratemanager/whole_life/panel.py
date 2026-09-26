@@ -20,8 +20,8 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.build_env import guard_data_writable, is_data_read_only
-from suiteview.ratemanager.database_loader import TableData
 from suiteview.ratemanager.database_panel import _FunctionWorker
+from suiteview.ratemanager.package import TableData
 from suiteview.ratemanager.rm_styles import BG_DARK, TEXT, TEXT_MID, body_stylesheet
 from suiteview.ratemanager.whole_life.service import (
     BROWSE_TABLES, SOURCE_KINDS, WholeLifeRepository, parse_workup,

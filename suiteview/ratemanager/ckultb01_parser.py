@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
+from suiteview.ratemanager.layouts import Field, LineRule
 from suiteview.ratemanager.online_tables import DASHES_RE, DATE_RE, iter_report_lines
 
 RAW_KEYS: List[str] = [
@@ -47,6 +48,34 @@ def _num(tok: str) -> float:
 
 def _int(tok: str) -> int:
     return int(tok.replace(",", ""))
+
+
+def _text(tok: str, _context) -> str:
+    return tok.strip()
+
+
+def _layout_int(tok: str, _context) -> int:
+    return _int(tok.strip())
+
+
+def _layout_num(tok: str, _context) -> float:
+    return _num(tok.strip())
+
+
+_LINE1_RULE = LineRule("ckultb01-line1", (
+    Field("PLAN_CODE", 11, 19, _text),
+    Field("FREQ_TYPE", 20, 28, _text),
+    Field("RULE_CODE", 29, 37, _text),
+    Field("STATE_CODE", 38, 46, _text),
+    Field("SEX_CODE", 47, 55, _text),
+    Field("RATE_CLASS", 56, 64, _text),
+    Field("BAND_CODE", 65, 73, _text),
+    Field("EFFECTIVE_DATE", 74, 84, _text),
+    Field("MONTH_DUR", 87, 93, _layout_int),
+    Field("HIGH_AGE", 99, 102, _layout_int),
+    Field("CHARGE", 112, 120, _layout_num),
+    Field("_MAXIMUM_RAW", 122, 133, _text),
+))
 
 
 def is_skip_line(line: str) -> bool:
@@ -80,21 +109,27 @@ def is_data_line1(parts: List[str]) -> bool:
     return bool(DATE_RE.match(parts[7]))
 
 
-def _record_from_line1(parts: List[str]) -> Dict:
+def _record_from_line1(line: str, parts: List[str]) -> Dict:
     """Build a partial record from a parsed line-1 token list."""
+    try:
+        parsed = _LINE1_RULE.parse(line)
+    except (ValueError, IndexError):
+        parsed = {
+            "PLAN_CODE": parts[0],
+            "FREQ_TYPE": parts[1],
+            "RULE_CODE": parts[2],
+            "STATE_CODE": parts[3],
+            "SEX_CODE": parts[4],
+            "RATE_CLASS": parts[5],
+            "BAND_CODE": parts[6],
+            "EFFECTIVE_DATE": parts[7],
+            "MONTH_DUR": _int(parts[8]),
+            "HIGH_AGE": _int(parts[9]),
+            "CHARGE": _num(parts[10]),
+            "_MAXIMUM_RAW": parts[11],
+        }
     return {
-        "PLAN_CODE": parts[0],
-        "FREQ_TYPE": parts[1],
-        "RULE_CODE": parts[2],
-        "STATE_CODE": parts[3],
-        "SEX_CODE": parts[4],
-        "RATE_CLASS": parts[5],
-        "BAND_CODE": parts[6],
-        "EFFECTIVE_DATE": parts[7],
-        "MONTH_DUR": _int(parts[8]),
-        "HIGH_AGE": _int(parts[9]),
-        "CHARGE": _num(parts[10]),
-        "_MAXIMUM_RAW": parts[11],   # may be truncated; completed on line 2
+        **parsed,
         "MAXIMUM": 0.0,
         "GUAR_CHARGE": 0.0,
         "GUAR_MAX": 0.0,
@@ -149,7 +184,7 @@ def iter_records(
             if pending is not None:
                 _apply_line2(pending, [])
                 yield pending
-            pending = _record_from_line1(parts)
+            pending = _record_from_line1(line, parts)
         elif pending is not None:
             _apply_line2(pending, parts)
             yield pending
