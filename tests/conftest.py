@@ -28,6 +28,8 @@ def _isolated_profile(tmp_path_factory, monkeypatch):
     import importlib
 
     monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path_factory.mktemp("profile")))
+    monkeypatch.setenv("APPDATA", str(tmp_path_factory.mktemp("appdata")))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path_factory.mktemp("localappdata")))
     for module_name, attribute in _PROFILE_BOUND_SINGLETONS:
         module = importlib.import_module(module_name)
         monkeypatch.setattr(module, attribute, None)
