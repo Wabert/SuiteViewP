@@ -309,6 +309,103 @@ def process_withdrawal_step(
     work.withdrawals_to_date = work.wd.withdrawals_to_date
 
 
+def apply_policy_changes(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Apply dated policy changes and capture coverage/guideline recalc detail."""
+    state = ctx.state
+    policy = ctx.policy
+    work.tamra_reset = False
+    work.policy_change_av_reduction = work.wd.gross_withdrawal
+    work.dbo_change_detail = {}
+    work.face_change_detail = {}
+    work.guideline_recalc = dict(work.wd.guideline_recalc)
+    if not convention.supports_policy_changes:
+        work.cov_after_change = _coverage_after_change_snapshot(
+            policy,
+            ctx.config,
+            work.month_date,
+            work.wd.gross_withdrawal,
+            state.coverage_after_change,
+        )
+        return
+
+    guideline_before = work.wd.guideline_before
+    guideline_before_pv_detail = work.wd.guideline_before_pv_detail
+    guideline_changes = 1 if work.wd.face_decrease > MONEY_EPSILON else 0
+    recalc_change = (
+        PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT,
+            effective_date=work.month_date,
+            value=policy.total_face,
+        )
+        if guideline_changes
+        else None
+    )
+    if ctx.policy_changes:
+        for change in sorted(
+            ctx.policy_changes,
+            key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
+        ):
+            outcome = _apply_policy_change(
+                policy,
+                ctx.config,
+                change,
+                work.attained_age,
+                work.month_date,
+                ctx.rates,
+                work.rate_year,
+                work.av,
+                options=ctx.options,
+                defer_guideline_recalc=True,
+                capture_guideline_before=guideline_before is None,
+            )
+            work.av += outcome.av_adjustment
+            work.policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
+            work.tamra_reset = work.tamra_reset or outcome.material_change
+            work.dbo_change_detail.update(outcome.dbo_detail)
+            work.face_change_detail.update(outcome.face_detail)
+            if outcome.coverage_changed:
+                guideline_changes += 1
+                if recalc_change is None:
+                    recalc_change = change
+            if guideline_before is None and outcome.guideline_before is not None:
+                guideline_before = outcome.guideline_before
+                guideline_before_pv_detail = outcome.guideline_before_pv_detail
+
+        if guideline_changes and recalc_change is not None:
+            if guideline_changes > 1:
+                recalc_change = PolicyChangeEvent(
+                    kind=recalc_change.kind,
+                    effective_date=work.month_date,
+                    value=recalc_change.value,
+                    metadata={"change_label": "Combined Policy Changes"},
+                )
+            work.guideline_recalc = _recalc_guideline_on_change(
+                policy,
+                ctx.config,
+                recalc_change,
+                work.attained_age,
+                change_date=work.month_date,
+                before=guideline_before,
+                av=work.av,
+                material_change=work.tamra_reset,
+                options=ctx.options,
+                before_pv_detail=guideline_before_pv_detail,
+            )
+
+    if work.tamra_reset:
+        policy.tamra_7pay_start_date = work.month_date
+
+    work.cov_after_change = _coverage_after_change_snapshot(
+        policy,
+        ctx.config,
+        work.month_date,
+        work.policy_change_av_reduction,
+        state.coverage_after_change,
+    )
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -354,81 +451,13 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     cost_basis = work.cost_basis
     withdrawals_to_date = work.withdrawals_to_date
 
-    # ── 3-7. Policy changes / coverage after change ───────
-    # Apply any dated policy change effective this month (mutates the private
-    # policy copy) before coverage/deduction reads the segments. Targets are
-    # refreshed as each change is applied; GLP/GSP are recalculated once from
-    # the policy state before the withdrawal through the final changed state.
-    # A material change (face increase, B→A) also restarts the 7-pay period.
-    tamra_reset = False
-    # FQ vPolicyChangeAVReduction = gross WD + change partial SCs.
-    policy_change_av_reduction = wd.gross_withdrawal
-    dbo_change_detail: Dict[str, object] = {}
-    face_change_detail: Dict[str, object] = {}
-    guideline_recalc: Dict[str, object] = dict(wd.guideline_recalc)
-    guideline_before = wd.guideline_before
-    guideline_before_pv_detail = wd.guideline_before_pv_detail
-    guideline_changes = 1 if wd.face_decrease > MONEY_EPSILON else 0
-    recalc_change = (
-        PolicyChangeEvent(
-            kind=PolicyChangeKind.FACE_AMOUNT,
-            effective_date=month_date,
-            value=policy.total_face,
-        )
-        if guideline_changes
-        else None
-    )
-    if policy_changes:
-        for change in sorted(
-            policy_changes,
-            key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
-        ):
-            outcome = _apply_policy_change(
-                policy, config, change, attained_age, month_date,
-                rates, rate_year, av, options=options,
-                defer_guideline_recalc=True,
-                capture_guideline_before=guideline_before is None,
-            )
-            av += outcome.av_adjustment
-            policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
-            tamra_reset = tamra_reset or outcome.material_change
-            dbo_change_detail.update(outcome.dbo_detail)
-            face_change_detail.update(outcome.face_detail)
-            if outcome.coverage_changed:
-                guideline_changes += 1
-                if recalc_change is None:
-                    recalc_change = change
-            if guideline_before is None and outcome.guideline_before is not None:
-                guideline_before = outcome.guideline_before
-                guideline_before_pv_detail = outcome.guideline_before_pv_detail
-
-        if guideline_changes and recalc_change is not None:
-            if guideline_changes > 1:
-                recalc_change = PolicyChangeEvent(
-                    kind=recalc_change.kind,
-                    effective_date=month_date,
-                    value=recalc_change.value,
-                    metadata={"change_label": "Combined Policy Changes"},
-                )
-            guideline_recalc = _recalc_guideline_on_change(
-                policy, config, recalc_change, attained_age,
-                change_date=month_date,
-                before=guideline_before,
-                av=av,
-                material_change=tamra_reset,
-                options=options,
-                before_pv_detail=guideline_before_pv_detail,
-            )
-
-    # A material change restarts the 7-pay period at the change date, so the
-    # TAMRA year/month and 7-pay accumulation count from here.
-    if tamra_reset:
-        policy.tamra_7pay_start_date = month_date
-
-    cov_after_change = _coverage_after_change_snapshot(
-        policy, config, month_date, policy_change_av_reduction,
-        state.coverage_after_change,
-    )
+    apply_policy_changes(ctx, ILLUSTRATION_TIMING, work)
+    av = work.av
+    tamra_reset = work.tamra_reset
+    dbo_change_detail = work.dbo_change_detail
+    face_change_detail = work.face_change_detail
+    guideline_recalc = work.guideline_recalc
+    cov_after_change = work.cov_after_change
 
     # ── 7b. MTP/CTP detail snapshots (HO..JG / JI..KQ) ────
     # Recomputed when a change or SA-reducing withdrawal moved the coverage
