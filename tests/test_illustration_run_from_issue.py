@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.target_premium import TargetPremiumResult
 from suiteview.illustration.models.input_set import (
@@ -27,9 +28,7 @@ from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
     RiderInfo,
 )
-from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
-
 
 _QT_APP = None
 
@@ -264,7 +263,7 @@ def test_mode_switches_preserve_separate_inputs_and_saved_issue_conditions(tmp_p
     tab.issue_conditions._rider_checks[3].setChecked(False)
     issue_dynamic = tab.dynamic_panel.capture_state()
 
-    from suiteview.illustration.models.case_store import save_case, load_case
+    from suiteview.illustration.models.case_store import load_case, save_case
     save_case("Issue assumptions", policy_number=policy.policy_number, region="CKPR",
               inputs=tab.capture_case_inputs(), policy_snapshot=policy, directory=tmp_path)
     saved = load_case("Issue assumptions", directory=tmp_path)
@@ -300,7 +299,8 @@ def test_issue_mode_changes_window_header_notice_and_invalidates_results():
     _app()
     from suiteview.illustration.ui.main_window import IllustrationWindow
     from suiteview.illustration.ui.styles import (
-        ILLUSTRATION_HEADER_COLORS, ILLUSTRATION_ISSUE_HEADER_COLORS,
+        ILLUSTRATION_HEADER_COLORS,
+        ILLUSTRATION_ISSUE_HEADER_COLORS,
     )
     window = IllustrationWindow()
     tab = window.inputs_tab
@@ -357,6 +357,7 @@ def test_issue_projection_to_date_never_runs_past_requested_month_end_date(targe
 def test_loading_second_case_for_same_policy_rebuilds_issue_editor_from_its_snapshot(tmp_path):
     _app()
     from copy import deepcopy
+
     from suiteview.illustration.models.case_store import SavedCase
     from suiteview.illustration.ui.main_window import IllustrationWindow
 
@@ -371,7 +372,7 @@ def test_loading_second_case_for_same_policy_rebuilds_issue_editor_from_its_snap
         source.run_from_issue_btn.setChecked(True)
         case = SavedCase(
             name=f"Case {index}", policy_number=policy.policy_number,
-            region="CKPR", company_code="01", saved_at=datetime.now(),
+            region="CKPR", company_code="01", saved_at=datetime(2026, 9, 25, 12, 0),
             app_version="test", schema_version=2, inputs=source.capture_case_inputs(),
             path=tmp_path / f"case-{index}.json", policy_snapshot=policy)
         window._load_case_snapshot(case)
