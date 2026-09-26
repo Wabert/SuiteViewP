@@ -19,6 +19,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -44,6 +45,7 @@ from suiteview.audit.dataforge.forge_engine import (
     OutputColumn,
     run_forge,
 )
+from suiteview.audit.dataforge.services import run_visual_forge
 from suiteview.audit.qdefinition import QDefinition
 
 
@@ -162,34 +164,15 @@ def _filter_contains(group: DataForgeGroup, source: str, column: str, value: str
 
 def _visual_result(group: DataForgeGroup,
                    frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Mirror today's visual ``_run_forge`` pandas branch over supplied frames."""
-    datasets = {name: df.copy() for name, df in frames.items()}
-    datasets = group._apply_append_ops(datasets)
-    merge_ops = group.joins_tab.get_merge_ops()
-    if merge_ops:
-        result = None
-        for op in merge_ops:
-            left_df = result if result is not None else datasets.get(op["left"])
-            right_df = datasets.get(op["right"])
-            if left_df is None or right_df is None:
-                continue
-            result = pd.merge(
-                left_df, right_df,
-                left_on=op["left_on"], right_on=op["right_on"],
-                how=op["how"], suffixes=(f"_{op['left']}", f"_{op['right']}"),
-            )
-        if result is None:
-            result = next(iter(datasets.values()))
-    else:
-        result = datasets[group._default_result_source_name(datasets)]
-    for tab in group._filter_tabs:
-        result = group._apply_pandas_filters(result, tab)
-    if not group.display_tab.display_all:
-        result = group._apply_display_columns(result)
     max_count = group.txt_max_count.text().strip()
-    if max_count.isdigit():
-        result = result.head(int(max_count))
-    return result.reset_index(drop=True)
+    return run_visual_forge(
+        {name: df.copy() for name, df in frames.items()},
+        group._engine_joins(),
+        filters=group._engine_filter_specs(),
+        outputs=group._engine_outputs(),
+        appends=group.joins_tab.to_append_specs(),
+        limit=int(max_count) if max_count.isdigit() else None,
+    ).dataframe.reset_index(drop=True)
 
 
 def _engine_result(group: DataForgeGroup,
@@ -210,10 +193,10 @@ def _generated_script_result(group: DataForgeGroup,
     """Run the generated merge/filter body against in-memory ``df_*`` frames."""
     code = group._generate_python_code(
         {name: f"SELECT * FROM {name}" for name in frames},
-        group.joins_tab.get_merge_ops(),
-        group.txt_max_count.text().strip(),
+        group._compile_visual_sql(),
     )
     starts = [idx for idx in (
+        code.find("# ── Run DataForge SQL"),
         code.find("# ── Append Tables"),
         code.find("# ── Merge datasets"),
         re.search(r"(?m)^result = ", code).start()
@@ -224,7 +207,7 @@ def _generated_script_result(group: DataForgeGroup,
     print_index = body.find("\nprint(")
     if print_index >= 0:
         body = body[:print_index]
-    namespace = {"pd": pd}
+    namespace = {"pd": pd, "duckdb": duckdb}
     namespace.update({f"df_{_var(name)}": df.copy() for name, df in frames.items()})
     try:
         exec(body, namespace)  # noqa: S102 - exercising the generated export.
@@ -277,7 +260,7 @@ def _cases() -> list[CharacterizationCase]:
                 ]),
             ),
             visual_vs_engine="same",
-            script_vs_engine="error",
+            script_vs_engine="same",
         ),
         CharacterizationCase(
             name="left join with right-source filter",
@@ -291,24 +274,24 @@ def _cases() -> list[CharacterizationCase]:
                     {"field_key": "re.flag", "display_name": "Flag", "aggregate": 0},
                 ]),
             ),
-            visual_vs_engine="different rows",
-            script_vs_engine="different columns",
+            visual_vs_engine="same",
+            script_vs_engine="same",
         ),
         CharacterizationCase(
             name="right join display-all schema",
             frames={"pol": _policies().iloc[:2].reset_index(drop=True),
                     "re": _reins().iloc[:2].reset_index(drop=True)},
             configure=lambda g: _join(g, "pol", "re", (("policy", "policy"),), "right"),
-            visual_vs_engine="different columns",
-            script_vs_engine="different columns",
+            visual_vs_engine="same",
+            script_vs_engine="same",
         ),
         CharacterizationCase(
             name="outer join display-all schema",
             frames={"pol": _policies().iloc[:2].reset_index(drop=True),
                     "re": _reins().iloc[:2].reset_index(drop=True)},
             configure=lambda g: _join(g, "pol", "re", (("policy", "policy"),), "outer"),
-            visual_vs_engine="different columns",
-            script_vs_engine="different columns",
+            visual_vs_engine="same",
+            script_vs_engine="same",
         ),
         CharacterizationCase(
             name="append union shared columns",
@@ -328,8 +311,8 @@ def _cases() -> list[CharacterizationCase]:
                 {"field_key": "pol.company", "display_name": "Company Renamed", "aggregate": 0},
                 {"field_key": "pol.amount", "display_name": "Amount Total", "aggregate": 2},
             ]),
-            visual_vs_engine="different columns",
-            script_vs_engine="different columns",
+            visual_vs_engine="same",
+            script_vs_engine="same",
         ),
         CharacterizationCase(
             name="file-source single dataset",
@@ -356,6 +339,7 @@ def test_current_dataforge_execution_paths_are_characterized():
         for case in _cases()
     }
     assert summary == expected
+    assert all(status == ("same", "same") for status in summary.values())
 
 
 def test_snapshot_runtime_matches_engine_contract():
