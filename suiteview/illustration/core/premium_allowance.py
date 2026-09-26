@@ -49,6 +49,51 @@ from decimal import ROUND_FLOOR, Decimal
 from suiteview.illustration.constants import INF, MONEY_EPSILON
 
 
+@dataclass(frozen=True)
+class PremiumAllowanceInput:
+    """Inputs to the NC..NZ premium-acceptance chain for one projection month.
+
+    Amounts are dollars unless labelled as counts/flags.  ``policy_month`` is
+    policy-year month 1..12; TAMRA year/month are measured from the active
+    7-pay start, which can be off-anniversary.  Loan-repayment fields are the
+    RERUN MH/MI/MY hand-off from the loan step before premium is applied.
+    """
+
+    is_cvat: bool                         # CVAT policies use NPT/TAMRA room
+    is_gpt: bool                          # GPT policies use GLP/GSP room
+    tefra_force: bool                     # enforce guideline cap
+    tamra_force: bool                     # enforce 7-pay cap
+    mec_bypass: bool                      # loaded/inforce MEC bypasses 7-pay cap
+    guideline_limit: float                # KV — MAX(GSP, AccumGLP)
+    prem_less_wd: float                   # KW — PremTD − WithdrawalTD
+    force_out: float                      # KX — force-out distribution this month
+    loan_repay_from_forceout: float       # MJ — force-out used for loan repay
+    seven_pay_level: float                # KY — annual 7-pay level
+    tamra_year: int                       # LD — active 7-pay year
+    tamra_month_of_year: int              # LC — month within active TAMRA year
+    policy_month: int                     # E — month within policy year
+    amount_in_7pay: float                 # LE — cumulative 7-pay before month
+    npt_premium: float                    # CVAT necessary premium; 0 for GPT
+    tamra_reset: bool                     # KZ — new 7-pay period this month
+    requested_scheduled: float            # LS — scheduled modal premium requested
+    requested_lumpsum: float              # unscheduled/lump-sum premium requested
+    payment_count_policy_year: int        # LT — remaining policy-year payments
+    payment_count_tamra_year: int         # LU — remaining TAMRA-year payments
+    loan_repay_from_lumpsum: float        # MH — premium-to-loan from lump sum
+    loan_repay_from_scheduled: float      # MI — premium-to-loan from scheduled
+    ln_repay_left_over: float             # MY — over-repayment returned to premium
+    has_loan_balance: bool                # any fixed/variable debt before repay
+    levelizing_premium: bool              # sINPUT_LevelizingPremium
+    beginning_of_year: bool               # vBeginningOfYearCalc
+    policy_anniversary: bool              # anchors scheduled cap recalculation
+    prior_scheduled_prem_cap: float       # prior NV
+    prior_scheduled_cap_by_guideline: bool = False
+    prior_scheduled_cap_by_tamra: bool = False
+    dollar_for_dollar_in_transition_year: bool = False
+    prior_guideline_limit_reached: bool = False
+    prior_transition_year_active: bool = False
+
+
 def _floor_cent(value: float) -> float:
     """Floor a nonnegative modal premium to a payable whole-cent amount."""
     cents = (Decimal(f"{value:.10f}") * 100).to_integral_value(rounding=ROUND_FLOOR)
@@ -153,48 +198,47 @@ def _annual_cap(
     return min(gp_side, tamra_side)
 
 
-def compute_premium_allowances(
-    *,
-    is_cvat: bool,
-    is_gpt: bool,
-    tefra_force: bool,
-    tamra_force: bool,
-    mec_bypass: bool,
-    guideline_limit: float,            # KV — MAX(GSP, AccumGLP)
-    prem_less_wd: float,               # KW — PremTD − WithdrawalTD (before force-out)
-    force_out: float,                  # vForceOut this month (KX)
-    loan_repay_from_forceout: float,   # MJ
-    seven_pay_level: float,            # KY — v7PayPrem
-    tamra_year: int,                   # LD
-    tamra_month_of_year: int,          # LC
-    policy_month: int,                 # E — vMonth (1..12)
-    amount_in_7pay: float,             # LE
-    npt_premium: float,                # vNPT_Premium (CVAT only; 0 for GPT)
-    tamra_reset: bool,                 # KZ — new TAMRA period this month
-    requested_scheduled: float,        # LS — scheduled modal premium due this month
-    requested_lumpsum: float,          # vLumpsum — unscheduled deposit this month
-    payment_count_policy_year: int,    # LT
-    payment_count_tamra_year: int,     # LU
-    loan_repay_from_lumpsum: float,    # MH
-    loan_repay_from_scheduled: float,  # MI
-    ln_repay_left_over: float,         # vLNRepayLeftOver
-    has_loan_balance: bool,            # SUM(LX:LY, MB:MC) > 0
-    levelizing_premium: bool,          # sINPUT_LevelizingPremium
-    beginning_of_year: bool,           # vBeginningOfYearCalc
-    policy_anniversary: bool,          # policy month 1; anchors NV recalculation
-    prior_scheduled_prem_cap: float,   # NV (prior month) — for the carry-forward
-    prior_scheduled_cap_by_guideline: bool = False,
-    prior_scheduled_cap_by_tamra: bool = False,
-    dollar_for_dollar_in_transition_year: bool = False,
-    prior_guideline_limit_reached: bool = False,
-    prior_transition_year_active: bool = False,
-) -> PremiumAllowances:
+def compute_premium_allowances(inputs: PremiumAllowanceInput) -> PremiumAllowances:
     """Compute the NC..NZ "Apply Premium" chain for one month.
 
     Returns a :class:`PremiumAllowances` whose ``applied_total_premium`` is the
     gross premium the policy accepts this month (the value the AV pipeline then
     splits into target/excess and loads).
     """
+    is_cvat = inputs.is_cvat
+    is_gpt = inputs.is_gpt
+    tefra_force = inputs.tefra_force
+    tamra_force = inputs.tamra_force
+    mec_bypass = inputs.mec_bypass
+    guideline_limit = inputs.guideline_limit
+    prem_less_wd = inputs.prem_less_wd
+    force_out = inputs.force_out
+    loan_repay_from_forceout = inputs.loan_repay_from_forceout
+    seven_pay_level = inputs.seven_pay_level
+    tamra_year = inputs.tamra_year
+    tamra_month_of_year = inputs.tamra_month_of_year
+    policy_month = inputs.policy_month
+    amount_in_7pay = inputs.amount_in_7pay
+    npt_premium = inputs.npt_premium
+    tamra_reset = inputs.tamra_reset
+    requested_scheduled = inputs.requested_scheduled
+    requested_lumpsum = inputs.requested_lumpsum
+    payment_count_policy_year = inputs.payment_count_policy_year
+    payment_count_tamra_year = inputs.payment_count_tamra_year
+    loan_repay_from_lumpsum = inputs.loan_repay_from_lumpsum
+    loan_repay_from_scheduled = inputs.loan_repay_from_scheduled
+    ln_repay_left_over = inputs.ln_repay_left_over
+    has_loan_balance = inputs.has_loan_balance
+    levelizing_premium = inputs.levelizing_premium
+    beginning_of_year = inputs.beginning_of_year
+    policy_anniversary = inputs.policy_anniversary
+    prior_scheduled_prem_cap = inputs.prior_scheduled_prem_cap
+    prior_scheduled_cap_by_guideline = inputs.prior_scheduled_cap_by_guideline
+    prior_scheduled_cap_by_tamra = inputs.prior_scheduled_cap_by_tamra
+    dollar_for_dollar_in_transition_year = inputs.dollar_for_dollar_in_transition_year
+    prior_guideline_limit_reached = inputs.prior_guideline_limit_reached
+    prior_transition_year_active = inputs.prior_transition_year_active
+
     a = PremiumAllowances(prem_less_wd=prem_less_wd)
     forceout_adj = force_out - loan_repay_from_forceout
 

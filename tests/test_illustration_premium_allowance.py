@@ -7,6 +7,7 @@ import pytest
 
 from suiteview.illustration.core.premium_allowance import (
     INF,
+    PremiumAllowanceInput,
     compute_premium_allowances,
 )
 
@@ -44,7 +45,40 @@ def _alw(**overrides):
         prior_scheduled_prem_cap=0.0,
     )
     kwargs.update(overrides)
-    return compute_premium_allowances(**kwargs)
+    return compute_premium_allowances(PremiumAllowanceInput(**kwargs))
+
+
+def _engine_alw(options, policy, **kwargs):
+    """Engine-style allowance input: policy/options plus monthly state values."""
+    premiums_to_date = kwargs.pop("premiums_to_date")
+    withdrawals_before_forceout = kwargs.pop("withdrawals_before_forceout")
+    data = dict(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=options.guideline_cap_enabled,
+        tamra_force=(
+            options.tamra_cap_enabled
+            and policy.has_defined_life_insurance
+            and policy.tamra_7pay_level > 0
+        ),
+        mec_bypass=policy.is_mec,
+        prem_less_wd=premiums_to_date - withdrawals_before_forceout,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
+        npt_premium=0.0,
+        loan_repay_from_lumpsum=0.0,
+        loan_repay_from_scheduled=0.0,
+        ln_repay_left_over=0.0,
+        levelizing_premium=options.levelizing_premium,
+        policy_anniversary=kwargs.get("beginning_of_year", False),
+        prior_scheduled_cap_by_guideline=False,
+        prior_scheduled_cap_by_tamra=False,
+        dollar_for_dollar_in_transition_year=options.dollar_for_dollar_in_transition_year,
+        prior_guideline_limit_reached=False,
+        prior_transition_year_active=False,
+    )
+    data.update(kwargs)
+    return compute_premium_allowances(PremiumAllowanceInput(**data))
 
 
 def test_no_caps_accepts_full_requested_premium():
@@ -531,7 +565,6 @@ def test_premium_state_fields_populate_monthly_state():
 def test_premium_allowances_respects_levelizing_option():
     # The Run-Controls checkbox flows through IllustrationOptions.levelizing_premium
     # into the engine helper and actually changes the APPLIED scheduled premium.
-    from suiteview.illustration.core import calc_engine
     from suiteview.illustration.models.input_set import IllustrationOptions
     from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -545,13 +578,11 @@ def test_premium_allowances_respects_levelizing_option():
         has_loan_balance=False, beginning_of_year=True, prior_scheduled_prem_cap=0.0,
     )
 
-    on = calc_engine._premium_allowances(
-        IllustrationOptions(levelizing_premium=True), policy, **common)
+    on = _engine_alw(IllustrationOptions(levelizing_premium=True), policy, **common)
     assert on.apply_levelized is True
     assert on.applied_scheduled_premium == pytest.approx(50.0)   # 600/12, level
 
-    off = calc_engine._premium_allowances(
-        IllustrationOptions(levelizing_premium=False), policy, **common)
+    off = _engine_alw(IllustrationOptions(levelizing_premium=False), policy, **common)
     assert off.apply_levelized is False
     assert off.applied_scheduled_premium == pytest.approx(500.0)  # dollar-for-dollar
 
@@ -559,8 +590,9 @@ def test_premium_allowances_respects_levelizing_option():
 @pytest.mark.parametrize("payments", [12, 4, 2, 1])
 @pytest.mark.parametrize("levelizing,has_loan", [(True, False), (False, False), (True, True)])
 def test_maturity_options_levelize_first_guideline_capped_year(payments, levelizing, has_loan):
-    from suiteview.illustration.core.calc_engine import _premium_allowances
-    from suiteview.illustration.core.solve_level_to_exception import level_to_exception_options
+    from suiteview.illustration.core.solve_level_to_exception import (
+        level_to_exception_options,
+    )
     from suiteview.illustration.models.input_set import IllustrationOptions
     from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -573,7 +605,7 @@ def test_maturity_options_levelize_first_guideline_capped_year(payments, leveliz
     step = 12 // payments
     for month in range(1, 13):
         due = (month - 1) % step == 0
-        allowance = _premium_allowances(
+        allowance = _engine_alw(
             options, policy,
             guideline_limit=204.18, premiums_to_date=paid,
             withdrawals_before_forceout=0.0, force_out=0.0, amount_in_7pay=0.0,

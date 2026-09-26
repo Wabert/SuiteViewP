@@ -14,10 +14,12 @@ checkbox → IllustrationOptions wiring lives in ``test_illustration_run_control
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import CompiledMonthInputs
 from suiteview.illustration.core.loan_handler import LoanState
-from suiteview.illustration.core.premium_allowance import compute_premium_allowances
+from suiteview.illustration.core.premium_allowance import (
+    PremiumAllowanceInput,
+    compute_premium_allowances,
+)
 from suiteview.illustration.models.input_set import IllustrationOptions
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-
 
 ARREARS = PlancodeConfig(loan_type="Arrears", loan_charge_rate_guar=0.06,
                          pref_loan_charge_rate_guar=0.05)
@@ -54,7 +56,7 @@ def test_excess_returns_to_premium_when_enabled():
 def test_leftover_loads_as_lumpsum_premium():
     # The leftover enters the acceptance chain on the lumpsum side (NL), so it
     # is applied as gross premium — the AV pipeline then takes the premium load.
-    a = compute_premium_allowances(
+    a = compute_premium_allowances(PremiumAllowanceInput(
         is_cvat=False, is_gpt=True, tefra_force=False, tamra_force=False,
         mec_bypass=False, guideline_limit=0.0, prem_less_wd=0.0, force_out=0.0,
         loan_repay_from_forceout=0.0, seven_pay_level=0.0, tamra_year=1,
@@ -65,7 +67,7 @@ def test_leftover_loads_as_lumpsum_premium():
         ln_repay_left_over=300.0, has_loan_balance=False, levelizing_premium=False,
         beginning_of_year=True, policy_anniversary=True,
         prior_scheduled_prem_cap=0.0,
-    )
+    ))
     assert a.lumpsum_remaining == 300.0
     assert a.applied_lumpsum == 300.0
     assert a.applied_total_premium == 300.0

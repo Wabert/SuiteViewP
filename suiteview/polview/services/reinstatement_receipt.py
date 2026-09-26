@@ -12,12 +12,18 @@ from dataclasses import dataclass
 from datetime import date
 
 from suiteview.illustration.core.calc_engine import (
-    IllustrationEngine, _premium_allowances, _tamra_month_of_year, _tamra_year,
+    IllustrationEngine,
+    _tamra_month_of_year,
+    _tamra_year,
 )
-from suiteview.illustration.core.interest_calc import credit_interest
 from suiteview.illustration.core.input_compiler import CompiledMonthInputs
+from suiteview.illustration.core.interest_calc import credit_interest
+from suiteview.illustration.core.premium_allowance import (
+    PremiumAllowanceInput,
+    compute_premium_allowances,
+)
 from suiteview.illustration.core.premium_handler import apply_premium
-from suiteview.illustration.core.shadow_calc import calculate_shadow
+from suiteview.illustration.core.shadow_calc import ShadowInput, calculate_shadow
 from suiteview.illustration.models.input_set import IllustrationInputSet
 
 
@@ -73,18 +79,29 @@ def project_receipt(
         state.av_after_deduction, fraction, p, config, rates, bonus, state)
     receipt_av = state.av_after_deduction + before_interest
     tamra_year = _tamra_year(p, receipt_date)
-    allowances = _premium_allowances(
-        options, p, guideline_limit=state.guideline_limit,
-        premiums_to_date=state.premiums_to_date_after_exception,
-        withdrawals_before_forceout=state.withdrawals_to_date, force_out=0.0,
+    tamra_force = (
+        options.tamra_cap_enabled
+        and p.has_defined_life_insurance
+        and p.tamra_7pay_level > 0
+    )
+    allowances = compute_premium_allowances(PremiumAllowanceInput(
+        is_cvat=p.is_cvat, is_gpt=p.is_gpt,
+        tefra_force=options.guideline_cap_enabled, tamra_force=tamra_force,
+        mec_bypass=p.is_mec, guideline_limit=state.guideline_limit,
+        prem_less_wd=state.premiums_to_date_after_exception - state.withdrawals_to_date,
+        force_out=0.0, loan_repay_from_forceout=0.0,
+        seven_pay_level=p.tamra_7pay_level,
         amount_in_7pay=state.accumulated_7pay, tamra_year=tamra_year,
         tamra_month_of_year=_tamra_month_of_year(p, receipt_date),
-        policy_month=state.policy_month, tamra_reset=False,
+        policy_month=state.policy_month, npt_premium=0.0, tamra_reset=False,
         requested_scheduled=0.0, requested_lumpsum=premium,
         payment_count_policy_year=0, payment_count_tamra_year=0,
         has_loan_balance=p.has_loans, beginning_of_year=False,
         policy_anniversary=False, prior_scheduled_prem_cap=state.scheduled_prem_cap,
-    )
+        levelizing_premium=options.levelizing_premium,
+        loan_repay_from_lumpsum=0.0, loan_repay_from_scheduled=0.0,
+        ln_repay_left_over=0.0,
+    ))
     prem = apply_premium(
         receipt_av, p, config, rates, state.policy_year,
         state.premiums_ytd_after_exception, state.premiums_to_date_after_exception,
@@ -106,13 +123,13 @@ def project_receipt(
 
     shadow_load = 0.0
     if p.has_shadow_account:
-        shd = calculate_shadow(
+        shd = calculate_shadow(ShadowInput(
             prev_shadow_eav=state.shadow_av, gross_premium=prem.gross_premium,
             premiums_ytd=prem.premiums_ytd, policy=p, config=config, rates=rates,
             rate_year=state.policy_year, attained_age=state.attained_age,
             days_in_month=0, policy_debt=0.0, projection_date=receipt_date,
             display_days_in_month=0,
-        )
+        ))
         shadow_load = shd.shadow_prem_load
         factor = state.shadow_eff_rate
         shadow_before = max(0.0, state.shadow_av * ((1 + factor) ** fraction - 1))
