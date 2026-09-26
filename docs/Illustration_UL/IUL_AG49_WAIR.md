@@ -24,8 +24,8 @@ Engine status (implemented 2026-07-18):
 - **All three pieces are now engine-side** in `core/iul_crediting.py`, wired
   through `calc_engine` (`build_iul_context` resolves the AG49 index, SU, the
   loan spread, and the declared rate once per run):
-  - **Asset charge (SS–SX)** — `monthly_asset_charge` deducted with the MD in
-    `process_month` and `process_cyberlife_monthliversary`; `MonthlyState`
+  - **Asset charge (SS–SX)** — `monthly_asset_charge` is deducted with the MD
+    in the shared `calc_engine.run_month(ctx, convention)` path. `MonthlyState`
     carries `asset_charge_rate`/`asset_charge`, and `av_after_deduction` is the
     SX vAV_AfterCharge.
   - **Variable-loan spread (VV)** — `variable_loan_accrual_rate` feeds every

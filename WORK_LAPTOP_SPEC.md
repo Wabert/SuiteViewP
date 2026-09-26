@@ -677,7 +677,7 @@ proceed with the cleanup below:**
    (DataForge design §8) instead of a standalone dialog.
 
 ## §4 — FUTURE: Tier 3 (larger refactors, not yet started)
-- Decompose `suiteview/taskbar_launcher/suiteview_taskbar.py` (very large).
+- ~~Decompose `suiteview/taskbar_launcher/suiteview_taskbar.py` (very large).~~ **Done.** The old monolith is gone; the shell now centers on `taskbar_window.py` plus collaborators documented in `docs/TASKBAR_ARCHITECTURE.md`.
 
 ---
 

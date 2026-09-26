@@ -135,7 +135,8 @@ At a high level, the normal illustration path is being structured to follow the 
 19. Deemed Cash Value (later)
 ```
 
-That sequence is the controlling implementation path in `IllustrationEngine.process_month()`.
+That sequence is the controlling implementation path in
+`calc_engine.run_month(ctx, convention)`, invoked from `IllustrationEngine.project()`.
 
 The engine now supports two timing modes:
 
@@ -204,7 +205,13 @@ This means the inforce row already contains almost the full post-deduction, post
 
 ## 4. Monthly Projection Pipeline
 
-The normal illustration pipeline below describes `process_month()`. The GLP Exception and Policy Support forecasts use the same state objects and most of the same helper functions, but run through `process_cyberlife_monthliversary()` so the forecast rows line up with CyberLife monthliversary behavior. In that admin-alignment timing mode, accumulation/interest happens at the beginning of the monthly slice rather than near the end.
+The normal illustration pipeline below describes
+`calc_engine.run_month(ctx, convention)` under illustration timing. GLP Exception
+and Policy Support forecasts use the same state objects and most of the same
+helper functions, but pass the CyberLife monthliversary timing convention so
+their rows line up with CyberLife monthliversary behavior. In that
+admin-alignment timing mode, accumulation/interest happens at the beginning of
+the monthly slice rather than near the end.
 
 ### 4.1 Step 1 - Update Date, Year, Month, and Attained Age
 
