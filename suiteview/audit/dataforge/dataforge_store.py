@@ -20,6 +20,9 @@ from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filenam
 from .dataforge_model import DataForge
 
 logger = logging.getLogger(__name__)
+_LOAD_ERRORS = (
+    OSError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError,
+)
 
 def _forges_dir() -> Path:
     return profile_path('saved_dataforges')
@@ -37,7 +40,7 @@ def list_forges() -> list[DataForge]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 forges.append(DataForge.from_dict(json.load(fh)))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except _LOAD_ERRORS:
             logger.exception("Failed to load DataForge: %s", f)
     forges.sort(key=lambda d: d.created_at, reverse=True)
     return forges
@@ -50,7 +53,7 @@ def load_forge(name: str) -> DataForge | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return DataForge.from_dict(json.load(f))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except _LOAD_ERRORS:
         logger.exception("Failed to load DataForge: %s", name)
         return None
 

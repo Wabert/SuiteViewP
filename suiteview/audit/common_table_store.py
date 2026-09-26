@@ -15,6 +15,9 @@ from suiteview.audit.common_table import CommonTable
 from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
+_LOAD_ERRORS = (
+    OSError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError,
+)
 
 def _tables_dir() -> Path:
     return profile_path('common_tables')
@@ -32,7 +35,7 @@ def list_tables() -> list[CommonTable]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 tables.append(CommonTable.from_dict(json.load(fh)))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except _LOAD_ERRORS:
             logger.exception("Failed to load common table: %s", f)
     tables.sort(key=lambda t: t.name.lower())
     return tables
@@ -46,7 +49,7 @@ def load_table(name: str) -> CommonTable | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return CommonTable.from_dict(json.load(f))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except _LOAD_ERRORS:
         logger.exception("Failed to load common table: %s", name)
         return None
 

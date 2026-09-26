@@ -15,6 +15,9 @@ from suiteview.audit.saved_query import SavedQuery
 from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filename, write_json
 
 logger = logging.getLogger(__name__)
+_LOAD_ERRORS = (
+    OSError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError,
+)
 
 def _queries_dir() -> Path:
     return profile_path('saved_queries')
@@ -32,7 +35,7 @@ def list_queries() -> list[SavedQuery]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 queries.append(SavedQuery.from_dict(json.load(fh)))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except _LOAD_ERRORS:
             logger.exception("Failed to load saved query: %s", f)
     queries.sort(key=lambda q: q.created_at, reverse=True)
     return queries
@@ -46,7 +49,7 @@ def load_query(name: str) -> SavedQuery | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return SavedQuery.from_dict(json.load(f))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except _LOAD_ERRORS:
         logger.exception("Failed to load query: %s", name)
         return None
 

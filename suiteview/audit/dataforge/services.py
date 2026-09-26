@@ -15,7 +15,8 @@ from .forge_engine import (
     JoinSpec,
     OutputColumn,
     compile_forge_sql,
-    run_manual_sql,
+    registered_source_name,
+    run_forge,
 )
 
 
@@ -28,7 +29,15 @@ def run_visual_forge(
     appends: list[AppendSpec] = (),
     limit: int | None = None,
 ) -> ForgeResult:
-    """Run the visual design as the same DuckDB SQL shown/exported to users."""
+    """Run the visual design through the canonical DuckDB Forge executor."""
+    result = run_forge(
+        datasets,
+        joins,
+        filters=filters,
+        outputs=outputs,
+        appends=appends,
+        limit=limit,
+    )
     sql, column_sources = compile_forge_sql(
         {name: list(frame.columns) for name, frame in datasets.items()},
         joins,
@@ -37,7 +46,7 @@ def run_visual_forge(
         appends=appends,
         limit=limit,
     )
-    result = run_manual_sql(datasets, sql)
+    result.sql = sql
     result.column_sources = column_sources
     return result
 
@@ -52,8 +61,8 @@ def generate_duckdb_script(
     """Build standalone Python that loads Sources and runs the engine SQL.
 
     ``sql`` is the same DuckDB statement shown in the Forge SQL tab.  Source
-    DataFrames are registered under their user-facing names, so compiled
-    visual SQL and Manual-mode SQL use one execution path.
+    DataFrames are registered under both their user-facing names and the
+    engine's physical names, so exported visual SQL reproduces the app run.
     """
     lines = list(load_lines)
     lines.extend([
@@ -62,12 +71,13 @@ def generate_duckdb_script(
         "con = duckdb.connect()",
     ])
     for name in source_names:
-        safe = name.replace('"', '\\"')
-        lines.append(f'con.register("{safe}", df_{_var_name(name)})')
+        var_name = f"df_{_var_name(name)}"
+        lines.append(f"con.register({name!r}, {var_name})")
+        physical = registered_source_name(name)
+        if physical != name:
+            lines.append(f"con.register({physical!r}, {var_name})")
     lines.extend([
-        'result = con.execute("""',
-        sql.replace('"""', '\\"""'),
-        '""").df()',
+        f"result = con.execute({sql!r}).df()",
         "con.close()",
         "",
         "print(f'Result: {result.shape[0]} rows x {result.shape[1]} columns')",

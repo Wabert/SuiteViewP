@@ -417,6 +417,11 @@ def _resolve_outputs(
 _IDENT_RE = re.compile(r"\W+")
 
 
+def registered_source_name(alias: str) -> str:
+    """Return the DuckDB table name used for a registered Source frame."""
+    return "_src_" + _IDENT_RE.sub("_", alias)
+
+
 @dataclass(frozen=True)
 class NormalizedAppends:
     """Append Table validation output used by SQL rendering."""
@@ -799,7 +804,7 @@ def run_forge(
         physical_names: dict[str, str] = {}
         schemas: dict[str, list[str]] = {}
         for alias, df in sources.items():
-            phys = "_src_" + _IDENT_RE.sub("_", alias)
+            phys = registered_source_name(alias)
             con.register(phys, df)
             physical_names[alias] = phys
             schemas[alias] = list(df.columns)
