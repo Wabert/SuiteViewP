@@ -34,7 +34,7 @@ from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.core.access_control import guard_app_access, requires_app_access
 from suiteview.audit.tabs._styles import TightItemDelegate
-from suiteview.audit.query_object_viewer_window import (
+from suiteview.audit.query_object_viewer.common import (
     _display_dsn_for_object,
     _file_source_type_label,
     _object_group_label,

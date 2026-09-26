@@ -476,9 +476,8 @@ def test_browser_tree_builds_from_organizer(tmp_home):
         print(f"  browser tree SKIPPED (no PyQt6: {exc})")
         return
 
-    from suiteview.audit.query_object_viewer_window import (
-        QueryObjectViewerWindow, _payload,
-    )
+    from suiteview.audit.query_object_viewer.common import _payload
+    from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
     import suiteview.audit.query_organizer as qorg
 
     app = QApplication.instance() or QApplication([])

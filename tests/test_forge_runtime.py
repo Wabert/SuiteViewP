@@ -700,10 +700,8 @@ def test_dataforge_save_as_overwrite_replaces_stale_visual_copy(tmp_home):
 
 
 def test_query_object_browser_repairs_missing_dataforge_visual_copy(tmp_home):
-    from suiteview.audit.query_object_viewer_window import (
-        QueryObjectViewerWindow,
-        _dataforge_info,
-    )
+    from suiteview.audit.query_object_viewer.common import _dataforge_info
+    from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
     from suiteview.audit.saved_query import SavedQuery
 
     saved_query_store.save_query(SavedQuery(
