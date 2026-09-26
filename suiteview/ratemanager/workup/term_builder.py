@@ -357,77 +357,147 @@ def compile_rates(select_data, ultimate_data, first_level: int,
     ``max_duration`` to stop.
     """
     compiled: List[tuple] = []
-
-    # (index, scale) pairs that have select data — used to spot the
-    # ultimate-only combos handled in the second pass.
     seen_with_select = {(idx, scale) for (idx, scale, _ia) in select_data}
-
     for (index, scale, issue_age), dur_rates in select_data.items():
-        duration = 1
-        durations = sorted(dur_rates)
-
-        if len(durations) > 1:
-            eff_first, eff_ren = 1, 1
-        else:
-            eff_first, eff_ren = first_level, ren_level
-
-        for position, dur in enumerate(durations):
-            hold = eff_first if position == 0 else eff_ren
-            rate = dur_rates[dur]
-            for _ in range(hold):
-                attained = issue_age + duration - 1
-                if max_attained_age is not None and attained > max_attained_age:
-                    break
-                if max_duration is not None and duration > max_duration:
-                    break
-                compiled.append((index, scale, issue_age, duration, rate))
-                duration += 1
-
-        ult_ages = ultimate_data.get((index, scale), {})
-        if ult_ages:
-            last_age = max(ult_ages)
-            if max_attained_age is not None:
-                last_age = min(last_age, max_attained_age)
-            while issue_age + duration - 1 <= last_age:
-                if max_duration is not None and duration > max_duration:
-                    break
-                attained = issue_age + duration - 1
-                if attained in ult_ages:
-                    compiled.append(
-                        (index, scale, issue_age, duration, ult_ages[attained]))
-                duration += 1
-
-    # Ultimate-only combos: no select rates, so the rate applies from year 1.
+        compiled.extend(_compile_select_combo(
+            index, scale, issue_age, dur_rates, ultimate_data.get((index, scale), {}),
+            first_level, ren_level, max_attained_age, max_duration,
+        ))
     for (index, scale), ult_ages in ultimate_data.items():
         if (index, scale) in seen_with_select:
             continue
-        first_age = min(ult_ages)
-        last_age = max(ult_ages)
-        if max_attained_age is not None:
-            last_age = min(last_age, max_attained_age)
-
-        for issue_age in range(first_age, last_age + 1):
-            if issue_age not in ult_ages:
-                continue
-            if first_level >= NON_RENEWABLE_LEVEL:
-                # Not renewable — lock the issue-age rate for every duration.
-                limit = max_duration if max_duration is not None else 9999
-                if max_attained_age is not None:
-                    limit = min(limit, max_attained_age - issue_age + 1)
-                locked = ult_ages[issue_age]
-                for duration in range(1, limit + 1):
-                    compiled.append((index, scale, issue_age, duration, locked))
-            else:
-                duration = 1
-                for attained in range(issue_age, last_age + 1):
-                    if max_duration is not None and duration > max_duration:
-                        break
-                    if attained in ult_ages:
-                        compiled.append((index, scale, issue_age, duration,
-                                         ult_ages[attained]))
-                        duration += 1
+        compiled.extend(_compile_ultimate_only_combo(
+            index, scale, ult_ages, first_level, max_attained_age, max_duration,
+        ))
 
     return _fill_missing_scales(compiled)
+
+
+def _compile_select_combo(
+    index,
+    scale,
+    issue_age,
+    dur_rates,
+    ult_ages,
+    first_level,
+    ren_level,
+    max_attained_age,
+    max_duration,
+) -> List[tuple]:
+    rows: List[tuple] = []
+    duration = _append_select_duration_rows(
+        rows, index, scale, issue_age, dur_rates, first_level, ren_level,
+        max_attained_age, max_duration,
+    )
+    rows.extend(_ultimate_tail_rows(
+        index, scale, issue_age, duration, ult_ages, max_attained_age, max_duration,
+    ))
+    return rows
+
+
+def _append_select_duration_rows(
+    rows,
+    index,
+    scale,
+    issue_age,
+    dur_rates,
+    first_level,
+    ren_level,
+    max_attained_age,
+    max_duration,
+) -> int:
+    duration = 1
+    durations = sorted(dur_rates)
+    eff_first, eff_ren = (1, 1) if len(durations) > 1 else (first_level, ren_level)
+    for position, dur in enumerate(durations):
+        hold = eff_first if position == 0 else eff_ren
+        for _ in range(hold):
+            attained = issue_age + duration - 1
+            if _term_cap_reached(duration, attained, max_duration, max_attained_age):
+                break
+            rows.append((index, scale, issue_age, duration, dur_rates[dur]))
+            duration += 1
+    return duration
+
+
+def _ultimate_tail_rows(
+    index,
+    scale,
+    issue_age,
+    duration,
+    ult_ages,
+    max_attained_age,
+    max_duration,
+) -> List[tuple]:
+    if not ult_ages:
+        return []
+    rows: List[tuple] = []
+    last_age = min(max(ult_ages), max_attained_age) if max_attained_age is not None else max(ult_ages)
+    while issue_age + duration - 1 <= last_age:
+        if max_duration is not None and duration > max_duration:
+            break
+        attained = issue_age + duration - 1
+        if attained in ult_ages:
+            rows.append((index, scale, issue_age, duration, ult_ages[attained]))
+        duration += 1
+    return rows
+
+
+def _compile_ultimate_only_combo(
+    index,
+    scale,
+    ult_ages,
+    first_level,
+    max_attained_age,
+    max_duration,
+) -> List[tuple]:
+    first_age = min(ult_ages)
+    last_age = min(max(ult_ages), max_attained_age) if max_attained_age is not None else max(ult_ages)
+    rows: List[tuple] = []
+    for issue_age in range(first_age, last_age + 1):
+        if issue_age not in ult_ages:
+            continue
+        rows.extend(_ultimate_only_issue_rows(
+            index, scale, issue_age, ult_ages, first_level, last_age,
+            max_attained_age, max_duration,
+        ))
+    return rows
+
+
+def _ultimate_only_issue_rows(
+    index,
+    scale,
+    issue_age,
+    ult_ages,
+    first_level,
+    last_age,
+    max_attained_age,
+    max_duration,
+) -> List[tuple]:
+    if first_level >= NON_RENEWABLE_LEVEL:
+        limit = max_duration if max_duration is not None else 9999
+        if max_attained_age is not None:
+            limit = min(limit, max_attained_age - issue_age + 1)
+        return [
+            (index, scale, issue_age, duration, ult_ages[issue_age])
+            for duration in range(1, limit + 1)
+        ]
+    rows: List[tuple] = []
+    duration = 1
+    for attained in range(issue_age, last_age + 1):
+        if max_duration is not None and duration > max_duration:
+            break
+        if attained in ult_ages:
+            rows.append((index, scale, issue_age, duration, ult_ages[attained]))
+            duration += 1
+    return rows
+
+
+def _term_cap_reached(duration, attained, max_duration, max_attained_age) -> bool:
+    return (
+        (max_attained_age is not None and attained > max_attained_age)
+        or (max_duration is not None and duration > max_duration)
+    )
 
 
 def _fill_missing_scales(compiled: List[tuple]) -> List[tuple]:
@@ -471,26 +541,52 @@ def _dedupe(rows: List[tuple]) -> List[tuple]:
 def analyze(spec: TermWorkupSpec,
             progress_cb: ProgressCB = None) -> TermWorkupAnalysis:
     """Parse the IAF and derive the plan's rate space."""
-
-    def _p(frac: float, msg: str = "") -> None:
-        if progress_cb:
-            progress_cb(frac, msg)
-
     if not spec.iaf_path or not os.path.isfile(spec.iaf_path):
         return TermWorkupAnalysis(error="Select an IAF file to analyze.")
 
-    _p(0.05, "Parsing IAF…")
+    progress = _term_progress_adapter(progress_cb)
+    result = _parse_term_iaf(spec, progress)
+    if isinstance(result, TermWorkupAnalysis):
+        return result
+
+    progress(0.9, "Deriving rate space…")
+    ana = TermWorkupAnalysis(iaf_result=result)
+    _populate_product_analysis(ana, result.products[0])
+    scan = _scan_term_rates(result)
+    _apply_term_scan(ana, result, scan)
+    if not ana.combos:
+        ana.error = "No base premium rates found in this IAF."
+        return ana
+    if not scan["ultimate_ages"] and ana.select_durations <= 1:
+        ana.warnings.append(
+            "This IAF has a single select duration and no ultimate rates — "
+            "compiled rates will only cover the FIRSTLEVEL period.")
+    progress(1.0, "Analysis complete.")
+    return ana
+
+
+def _term_progress_adapter(progress_cb: ProgressCB):
+    def progress(frac: float, msg: str = "") -> None:
+        if progress_cb:
+            progress_cb(frac, msg)
+    return progress
+
+
+def _parse_term_iaf(spec: TermWorkupSpec, progress):
+    progress(0.05, "Parsing IAF…")
     result = IAFParser().parse(
-        spec.iaf_path, progress_cb=lambda pct: _p(0.05 + pct * 0.8, "Parsing IAF…"))
+        spec.iaf_path,
+        progress_cb=lambda pct: progress(0.05 + pct * 0.8, "Parsing IAF…"),
+    )
     if result.error:
         return TermWorkupAnalysis(error=result.error)
     if not result.products:
         return TermWorkupAnalysis(
             error="No plan records found — is this an IAF print file?")
+    return result
 
-    _p(0.9, "Deriving rate space…")
-    product = result.products[0]
-    ana = TermWorkupAnalysis(iaf_result=result)
+
+def _populate_product_analysis(ana: TermWorkupAnalysis, product) -> None:
     ana.plancode = product.plancode.strip()
     try:
         ana.issue_version = int(product.version.strip() or "1")
@@ -501,6 +597,8 @@ def analyze(spec: TermWorkupSpec,
     ana.pay_age = product.pay_age
     ana.pay_age_use = product.pay_age_use
 
+
+def _scan_term_rates(result) -> dict:
     base_combos: set = set()
     select_durations: set = set()
     issue_ages: set = set()
@@ -526,13 +624,22 @@ def analyze(spec: TermWorkupSpec,
         else:
             select_durations.add(rate.duration + 1)
             issue_ages.add(rate.issue_age)
+    return {
+        "base_combos": base_combos,
+        "select_durations": select_durations,
+        "issue_ages": issue_ages,
+        "ultimate_ages": ultimate_ages,
+        "per_benefit": per_benefit,
+    }
 
-    ana.combos = sorted(base_combos)
-    ana.ia_min = min(issue_ages) if issue_ages else 0
-    ana.ia_max = max(issue_ages) if issue_ages else 0
-    ana.select_durations = len(select_durations)
-    ana.ultimate_age_min = min(ultimate_ages) if ultimate_ages else 0
-    ana.ultimate_age_max = max(ultimate_ages) if ultimate_ages else 0
+
+def _apply_term_scan(ana: TermWorkupAnalysis, result, scan: dict) -> None:
+    ana.combos = sorted(scan["base_combos"])
+    ana.ia_min = min(scan["issue_ages"]) if scan["issue_ages"] else 0
+    ana.ia_max = max(scan["issue_ages"]) if scan["issue_ages"] else 0
+    ana.select_durations = len(scan["select_durations"])
+    ana.ultimate_age_min = min(scan["ultimate_ages"]) if scan["ultimate_ages"] else 0
+    ana.ultimate_age_max = max(scan["ultimate_ages"]) if scan["ultimate_ages"] else 0
     ana.banded = {b for (_s, _c, b) in ana.combos} != {"0"}
 
     scale_maps = _build_scale_maps(result)
@@ -542,25 +649,13 @@ def analyze(spec: TermWorkupSpec,
     )
 
     ana.benefit_combos = {
-        code: sorted(bucket["combos"]) for code, bucket in per_benefit.items()
+        code: sorted(bucket["combos"]) for code, bucket in scan["per_benefit"].items()
     }
     ana.benefits = sorted(
         (code, benefit_label(code), len(bucket["combos"]),
          len(bucket["durations"]), bucket["count"])
-        for code, bucket in per_benefit.items()
+        for code, bucket in scan["per_benefit"].items()
     )
-
-    if not ana.combos:
-        ana.error = "No base premium rates found in this IAF."
-        return ana
-
-    if not ultimate_ages and ana.select_durations <= 1:
-        ana.warnings.append(
-            "This IAF has a single select duration and no ultimate rates — "
-            "compiled rates will only cover the FIRSTLEVEL period.")
-
-    _p(1.0, "Analysis complete.")
-    return ana
 
 
 # ---------------------------------------------------------------------------

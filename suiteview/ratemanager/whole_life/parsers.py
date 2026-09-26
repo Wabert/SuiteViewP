@@ -201,6 +201,198 @@ def _cvf_initial_minimum(values, last, signed_zero, explicit_positive):
     return None
 
 
+class _CvfParser:
+    """State machine for CKCVDVPC cash-value report records."""
+
+    def __init__(self, path, infer_early_negatives: bool):
+        self.path = path
+        self.infer_early_negatives = infer_early_negatives
+        self.result = _Rows(path, CV_KEYS)
+        self.current = None
+        self.values = {}
+        self.explicit_positive = set()
+        self.inferred_records = {}
+        self.seen_report = False
+        self.header_pending = False
+        self.grid_header = False
+        self.line_number = 1
+
+    def parse(self):
+        for self.line_number, line in _lines(self.path, null_padding=True):
+            self._parse_line(line)
+        if self.header_pending:
+            _fail(self.path, self.line_number, "Cash-value header has no record.")
+        self._finish_record()
+        rows = self.result.finish(self.line_number)
+        adjustments = [
+            audit for record in self.inferred_records.values() for audit in record.values()
+        ]
+        self._floor_signed_values(rows, adjustments)
+        return rows, adjustments
+
+    def _parse_line(self, line):
+        stripped = line.strip()
+        if not stripped:
+            return
+        if self._is_report_heading(stripped):
+            self.seen_report = True
+            return
+        if " ".join(stripped.removeprefix("0").split()) == _CV_LABELS:
+            self._handle_label_line()
+            return
+        if self.header_pending:
+            self._start_record(line)
+            return
+        if re.fullmatch(r"-+", stripped):
+            self._require_current("Grid separator outside a cash-value record.")
+            return
+        if stripped.startswith("DURATION"):
+            self._handle_grid_heading(stripped)
+            return
+        if self._handle_duration_row(line):
+            return
+        _fail(self.path, self.line_number, f"Unsupported CVF section or layout: {stripped[:100]!r}.")
+
+    @staticmethod
+    def _is_report_heading(stripped):
+        return re.fullmatch(
+            r"1CKCVDVPC\s+RUN DATE\s*=\s*\d{2}/\d{2}/\d{2,4}\s+"
+            r"CASH VALUE RATES\s+PAGE\s+\d+",
+            stripped,
+        )
+
+    def _require_current(self, message):
+        if self.current is None:
+            _fail(self.path, self.line_number, message)
+
+    def _handle_label_line(self):
+        if not self.seen_report:
+            _fail(self.path, self.line_number, "Missing CKCVDVPC CASH VALUE RATES report heading.")
+        if self.header_pending:
+            _fail(self.path, self.line_number, "Cash-value header has no record.")
+        self._finish_record()
+        self.header_pending = True
+
+    def _start_record(self, line):
+        match = _CV_HEADER.fullmatch(line)
+        if match is None:
+            _fail(self.path, self.line_number, "Malformed cash-value record header.")
+        data = match.groupdict()
+        first, last = int(data["first"]), int(data["last"])
+        if first > last:
+            _fail(self.path, self.line_number, "FIRST DUR exceeds LAST DUR.")
+        zero = None if data["zero"] == "NO ZERO DUR" else _decimal(
+            data["zero"], self.path, self.line_number, scale=2,
+        )
+        if zero is None and first == 0:
+            _fail(self.path, self.line_number, "NO ZERO DUR requires a positive FIRST duration.")
+        self.current = {
+            "USER_CODE": data["user"], "RATE_KEY": data["class"] + data["base"] + data["sub"],
+            "CLASS": data["class"], "BASE_SERIES": data["base"], "SUBSERIES": data["sub"],
+            "USER_DEFINED": data["defined"].strip(), "ISSUE_AGE": int(data["age"]),
+            "PREMIUM_YEARS": int(data["prem"]), "BENEFIT_YEARS": int(data["ben"]),
+            "FIRST_DURATION": first, "LAST_DURATION": last, "DURATION_ZERO_VALUE": zero,
+        }
+        self.header_pending = False
+
+    def _handle_grid_heading(self, stripped):
+        expected = "DURATION" + "".join(f"({i})" for i in range(1, 11))
+        if re.sub(r"\s+", "", stripped) != expected or self.current is None:
+            _fail(self.path, self.line_number, "Unsupported cash-value grid heading.")
+        self.grid_header = True
+
+    def _handle_duration_row(self, line):
+        match = re.fullmatch(r"\s*(\d{3})-(\d{3})\s+(.+?)\s*", line)
+        if not (match and self.current is not None and self.grid_header):
+            return False
+        start, end = int(match[1]), int(match[2])
+        tokens = match[3].split()
+        if end != start + 9 or len(tokens) != 10:
+            _fail(self.path, self.line_number, "Expected ten values for the printed duration range.")
+        offset = self._duration_offset()
+        for duration, token in enumerate(tokens, start + offset):
+            self._add_duration_value(duration, token)
+        return True
+
+    def _duration_offset(self):
+        first = self.current["FIRST_DURATION"]
+        if self.current["DURATION_ZERO_VALUE"] is None:
+            return first - ((first - 1) // 10) * 10
+        return 0
+
+    def _add_duration_value(self, duration, token):
+        rate = _decimal(token, self.path, self.line_number, scale=2)
+        if duration in self.values:
+            _fail(self.path, self.line_number, f"Repeated grid duration {duration}.")
+        self.values[duration] = (rate, self.line_number)
+        if token.startswith("+"):
+            self.explicit_positive.add(duration)
+
+    def _finish_record(self):
+        if self.current is None:
+            return
+        first, last = self.current["FIRST_DURATION"], self.current["LAST_DURATION"]
+        self._validate_complete_range(first, last)
+        zero = self.current["DURATION_ZERO_VALUE"]
+        if zero is not None and 0 in self.values and abs(self.values[0][0]) != abs(zero):
+            _fail(self.path, self.values[0][1], "Duration-zero header disagrees with grid magnitude.")
+        for duration, (rate, source_line) in self.values.items():
+            self._add_or_validate_padding(duration, rate, source_line, first, last, zero)
+        self._record_inference(first, last, zero)
+        self.current, self.values = None, {}
+        self.grid_header, self.explicit_positive = False, set()
+
+    def _validate_complete_range(self, first, last):
+        missing = set(range(first, last + 1)) - self.values.keys()
+        if missing:
+            _fail(self.path, self.line_number, f"Incomplete cash-value record; missing duration {min(missing)}.")
+
+    def _add_or_validate_padding(self, duration, rate, source_line, first, last, zero):
+        if first <= duration <= last:
+            value = zero if duration == 0 else rate
+            self.result.add({**self.current, "DURATION": duration, "RATE": value}, source_line)
+        elif rate != 0:
+            _fail(self.path, source_line, f"Nonzero padding outside FIRST/LAST duration: {duration}.")
+
+    def _record_inference(self, first, last, zero):
+        if not (self.infer_early_negatives and first == 0 and zero is not None and zero < 0):
+            return
+        minimum = _cvf_initial_minimum(self.values, last, zero, self.explicit_positive)
+        inferred = self._inferred_adjustments(minimum, zero) if minimum is not None else {}
+        record_key = tuple(self.current[key] for key in CV_KEYS if key != "DURATION")
+        if record_key in self.inferred_records:
+            inferred = {
+                duration: audit for duration, audit in self.inferred_records[record_key].items()
+                if duration in inferred
+            }
+        self.inferred_records[record_key] = inferred
+
+    def _inferred_adjustments(self, minimum, zero):
+        inferred = {}
+        for duration in range(1, minimum):
+            rate, source_line = self.values[duration]
+            if rate > 0:
+                inferred[duration] = {
+                    **{key: self.current[key] for key in CV_KEYS if key != "DURATION"},
+                    "DURATION": duration, "printed_rate": str(rate),
+                    "loaded_rate": "0.00", "source_line": source_line,
+                    "minimum_duration": minimum, "minimum_rate": str(self.values[minimum][0]),
+                    "header_zero": str(zero),
+                }
+        return inferred
+
+    @staticmethod
+    def _floor_signed_values(rows, adjustments):
+        inferred_keys = {tuple(audit[key] for key in CV_KEYS) for audit in adjustments}
+        zero = Decimal("0.00")
+        for row in rows:
+            if inferred_keys and tuple(row[key] for key in CV_KEYS) in inferred_keys:
+                row["RATE"] = zero
+            for column in ("RATE", "DURATION_ZERO_VALUE"):
+                if row[column] is not None and row[column] < 0:
+                    row[column] = zero
+
+
 def parse_cvf(
     path, *, infer_early_negatives: bool = False,
     inference_audit: list[dict] | None = None,
@@ -212,148 +404,73 @@ def parse_cvf(
     """
     if not isinstance(infer_early_negatives, bool):
         raise PackageValidationError("CVF sign inference must be true or false.")
-    result = _Rows(path, CV_KEYS)
-    current = None
-    values = {}
-    explicit_positive = set()
-    inferred_records = {}
-    seen_report = False
-    header_pending = False
-    grid_header = False
-    line_number = 1
-
-    def finish_record():
-        nonlocal current, values, grid_header, explicit_positive
-        if current is None:
-            return
-        first, last = current["FIRST_DURATION"], current["LAST_DURATION"]
-        missing = set(range(first, last + 1)) - values.keys()
-        if missing:
-            _fail(path, line_number, f"Incomplete cash-value record; missing duration {min(missing)}.")
-        zero = current["DURATION_ZERO_VALUE"]
-        if zero is not None and 0 in values and abs(values[0][0]) != abs(zero):
-            _fail(path, values[0][1], "Duration-zero header disagrees with grid magnitude.")
-        for duration, (rate, source_line) in values.items():
-            if first <= duration <= last:
-                result.add({**current, "DURATION": duration, "RATE": zero if duration == 0 else rate}, source_line)
-            elif rate != 0:
-                _fail(path, source_line, f"Nonzero padding outside FIRST/LAST duration: {duration}.")
-        if infer_early_negatives and first == 0 and zero is not None and zero < 0:
-            minimum = _cvf_initial_minimum(values, last, zero, explicit_positive)
-            inferred = {}
-            if minimum is not None:
-                for duration in range(1, minimum):
-                    rate, source_line = values[duration]
-                    if rate > 0:
-                        inferred[duration] = {
-                            **{key: current[key] for key in CV_KEYS if key != "DURATION"},
-                            "DURATION": duration, "printed_rate": str(rate),
-                            "loaded_rate": "0.00", "source_line": source_line,
-                            "minimum_duration": minimum,
-                            "minimum_rate": str(values[minimum][0]),
-                            "header_zero": str(zero),
-                        }
-            record_key = tuple(current[key] for key in CV_KEYS if key != "DURATION")
-            if record_key in inferred_records:
-                # A repeated record with an explicit '+' must veto inference too.
-                inferred = {
-                    duration: audit for duration, audit in inferred_records[record_key].items()
-                    if duration in inferred
-                }
-            inferred_records[record_key] = inferred
-        current, values, grid_header, explicit_positive = None, {}, False, set()
-
-    for line_number, line in _lines(path, null_padding=True):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if re.fullmatch(
-            r"1CKCVDVPC\s+RUN DATE\s*=\s*\d{2}/\d{2}/\d{2,4}\s+"
-            r"CASH VALUE RATES\s+PAGE\s+\d+", stripped,
-        ):
-            seen_report = True
-            continue
-        if " ".join(stripped.removeprefix("0").split()) == _CV_LABELS:
-            if not seen_report:
-                _fail(path, line_number, "Missing CKCVDVPC CASH VALUE RATES report heading.")
-            if header_pending:
-                _fail(path, line_number, "Cash-value header has no record.")
-            finish_record()
-            header_pending = True
-            continue
-        if header_pending:
-            match = _CV_HEADER.fullmatch(line)
-            if match is None:
-                _fail(path, line_number, "Malformed cash-value record header.")
-            data = match.groupdict()
-            first, last = int(data["first"]), int(data["last"])
-            if first > last:
-                _fail(path, line_number, "FIRST DUR exceeds LAST DUR.")
-            zero = (
-                None if data["zero"] == "NO ZERO DUR"
-                else _decimal(data["zero"], path, line_number, scale=2)
-            )
-            if zero is None and first == 0:
-                _fail(path, line_number, "NO ZERO DUR requires a positive FIRST duration.")
-            current = {
-                "USER_CODE": data["user"],
-                "RATE_KEY": data["class"] + data["base"] + data["sub"],
-                "CLASS": data["class"], "BASE_SERIES": data["base"],
-                "SUBSERIES": data["sub"], "USER_DEFINED": data["defined"].strip(),
-                "ISSUE_AGE": int(data["age"]), "PREMIUM_YEARS": int(data["prem"]),
-                "BENEFIT_YEARS": int(data["ben"]), "FIRST_DURATION": first,
-                "LAST_DURATION": last,
-                "DURATION_ZERO_VALUE": zero,
-            }
-            header_pending = False
-            continue
-        if re.fullmatch(r"-+", stripped):
-            if current is None:
-                _fail(path, line_number, "Grid separator outside a cash-value record.")
-            continue
-        if stripped.startswith("DURATION"):
-            expected = "DURATION" + "".join(f"({i})" for i in range(1, 11))
-            if re.sub(r"\s+", "", stripped) != expected or current is None:
-                _fail(path, line_number, "Unsupported cash-value grid heading.")
-            grid_header = True
-            continue
-        match = re.fullmatch(r"\s*(\d{3})-(\d{3})\s+(.+?)\s*", line)
-        if match and current is not None and grid_header:
-            start, end = int(match[1]), int(match[2])
-            tokens = match[3].split()
-            if end != start + 9 or len(tokens) != 10:
-                _fail(path, line_number, "Expected ten values for the printed duration range.")
-            # NO ZERO DUR starts at FIRST in the printed decade containing FIRST-1.
-            first = current["FIRST_DURATION"]
-            offset = first - ((first - 1) // 10) * 10 if current["DURATION_ZERO_VALUE"] is None else 0
-            for duration, token in enumerate(tokens, start + offset):
-                rate = _decimal(token, path, line_number, scale=2)
-                if duration in values:
-                    _fail(path, line_number, f"Repeated grid duration {duration}.")
-                values[duration] = (rate, line_number)
-                if token.startswith("+"):
-                    explicit_positive.add(duration)
-            continue
-        _fail(path, line_number, f"Unsupported CVF section or layout: {stripped[:100]!r}.")
-    if header_pending:
-        _fail(path, line_number, "Cash-value header has no record.")
-    finish_record()
-    rows = result.finish(line_number)
-    adjustments = [
-        audit for record in inferred_records.values() for audit in record.values()
-    ]
-    inferred_keys = {tuple(audit[key] for key in CV_KEYS) for audit in adjustments}
-    # Validate signed headers, padding and duplicate source keys before flooring.
-    zero = Decimal("0.00")
-    for row in rows:
-        if inferred_keys and tuple(row[key] for key in CV_KEYS) in inferred_keys:
-            row["RATE"] = zero
-        for column in ("RATE", "DURATION_ZERO_VALUE"):
-            if row[column] is not None and row[column] < 0:
-                row[column] = zero
+    rows, adjustments = _CvfParser(path, infer_early_negatives).parse()
     if inference_audit is not None:
         inference_audit.extend(adjustments)
     return rows
+
+
+_NSP_TEXT_COLUMNS = (
+    ("USER_CODE", 2),
+    ("RATE_KEY", 32),
+    ("BASIS_ID", 32),
+    ("BASIS_DESCRIPTION", 500),
+    ("SEX", 1),
+    ("RATECLASS", 1),
+)
+
+
+def _nsp_validate_header(fieldnames, path) -> None:
+    if tuple(fieldnames or ()) != NSP_COLUMNS:
+        _fail(
+            path, 1, "NSP requires the canonical CSV header with explicit basis "
+            "and RATE_PER units. CVF, PUI and IAF tax premiums are not NSP. "
+            f"Expected: {','.join(NSP_COLUMNS)}",
+        )
+
+
+def _nsp_text_value(record, column, size, path, line):
+    value = record[column].strip()
+    if column != "BASIS_DESCRIPTION":
+        value = value.upper()
+    invalid = (
+        len(value) > size
+        or not value.isascii()
+        or any(ord(char) < 32 for char in value)
+        or (not value and column not in ("SEX", "RATECLASS"))
+    )
+    if invalid:
+        _fail(path, line, f"Invalid NSP {column}; explicit basis and identifiers are required.")
+    return value
+
+
+def _nsp_effective_date(token, path, line):
+    token = token.strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", token):
+        _fail(path, line, "NSP EFFECTIVE_DATE must be YYYY-MM-DD.")
+    try:
+        return datetime.strptime(token, "%Y-%m-%d").date()
+    except ValueError:
+        _fail(path, line, "NSP EFFECTIVE_DATE is not a valid calendar date.")
+
+
+def _nsp_row(record, path, line):
+    if set(record) != set(NSP_COLUMNS) or any(v is None for v in record.values()):
+        _fail(path, line, "NSP CSV row has missing or extra columns.")
+    row = {
+        column: _nsp_text_value(record, column, size, path, line)
+        for column, size in _NSP_TEXT_COLUMNS
+    }
+    if not re.fullmatch(r"\d{2}", row["USER_CODE"]):
+        _fail(path, line, "NSP USER_CODE must contain exactly two digits.")
+    for column in ("ISSUE_AGE", "DURATION"):
+        row[column] = _integer(record[column], path, line)
+    row["EFFECTIVE_DATE"] = _nsp_effective_date(record["EFFECTIVE_DATE"], path, line)
+    for column in ("RATE_PER", "RATE"):
+        row[column] = _decimal(record[column], path, line, scale=8)
+    if row["RATE_PER"] <= 0 or row["RATE"] < 0:
+        _fail(path, line, "NSP RATE_PER must be positive and RATE cannot be negative.")
+    return {column: row[column] for column in NSP_COLUMNS}
 
 
 def parse_nsp(path) -> list[dict[str, object]]:
@@ -366,48 +483,11 @@ def parse_nsp(path) -> list[dict[str, object]]:
     result = _Rows(path, NSP_KEYS)
     with Path(path).open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle, strict=True)
-        if tuple(reader.fieldnames or ()) != NSP_COLUMNS:
-            _fail(
-                path, 1, "NSP requires the canonical CSV header with explicit basis "
-                "and RATE_PER units. CVF, PUI and IAF tax premiums are not NSP. "
-                f"Expected: {','.join(NSP_COLUMNS)}",
-            )
+        _nsp_validate_header(reader.fieldnames, path)
         try:
             for record in reader:
                 line = reader.line_num
-                if set(record) != set(NSP_COLUMNS) or any(v is None for v in record.values()):
-                    _fail(path, line, "NSP CSV row has missing or extra columns.")
-                row = {}
-                for column, size in (
-                    ("USER_CODE", 2), ("RATE_KEY", 32), ("BASIS_ID", 32),
-                    ("BASIS_DESCRIPTION", 500), ("SEX", 1), ("RATECLASS", 1),
-                ):
-                    value = record[column].strip()
-                    if column != "BASIS_DESCRIPTION":
-                        value = value.upper()
-                    if (
-                        len(value) > size or not value.isascii()
-                        or any(ord(char) < 32 for char in value)
-                        or (not value and column not in ("SEX", "RATECLASS"))
-                    ):
-                        _fail(path, line, f"Invalid NSP {column}; explicit basis and identifiers are required.")
-                    row[column] = value
-                if not re.fullmatch(r"\d{2}", row["USER_CODE"]):
-                    _fail(path, line, "NSP USER_CODE must contain exactly two digits.")
-                for column in ("ISSUE_AGE", "DURATION"):
-                    row[column] = _integer(record[column], path, line)
-                token = record["EFFECTIVE_DATE"].strip()
-                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", token):
-                    _fail(path, line, "NSP EFFECTIVE_DATE must be YYYY-MM-DD.")
-                try:
-                    row["EFFECTIVE_DATE"] = datetime.strptime(token, "%Y-%m-%d").date()
-                except ValueError:
-                    _fail(path, line, "NSP EFFECTIVE_DATE is not a valid calendar date.")
-                for column in ("RATE_PER", "RATE"):
-                    row[column] = _decimal(record[column], path, line, scale=8)
-                if row["RATE_PER"] <= 0 or row["RATE"] < 0:
-                    _fail(path, line, "NSP RATE_PER must be positive and RATE cannot be negative.")
-                result.add({column: row[column] for column in NSP_COLUMNS}, line)
+                result.add(_nsp_row(record, path, line), line)
         except csv.Error as exc:
             _fail(path, reader.line_num, f"Invalid NSP CSV: {exc}")
     return result.finish(reader.line_num)
@@ -430,113 +510,153 @@ _PUI_ROW_RULE = LineRule("pui-row", (
 ))
 
 
-def parse_pui(path) -> list[dict[str, object]]:
-    """Read CJUDTPUI's printed natural key and six-decimal rate without remapping."""
-    result = _Rows(path, PUI_KEYS)
-    user = None
-    table_seen = False
-    columns_seen = False
-    end_seen = False
-    section_pending = False
-    totals = None
-    all_entries = False
-    definitions = set()
-    definition_lines = {
-        "PLAN CD PLAN CODE CHAR 11 C1 PUI RATE PUI RATE NUM 11, 6 N2",
-        "SEX PLAN SEX CODE CHAR 1 C2",
-        "CLASS PLAN RATECLASS CHAR 1 C3",
-        "ATT AGE PLAN ATTAINED AGE NUM 3, 0 N1",
-        "TAB RATE PLAN TABLE RATING CHAR 2 C4",
-    }
-    line_number = 1
-    for line_number, line in _lines(path):
+_PUI_DEFINITION_LINES = {
+    "PLAN CD PLAN CODE CHAR 11 C1 PUI RATE PUI RATE NUM 11, 6 N2",
+    "SEX PLAN SEX CODE CHAR 1 C2",
+    "CLASS PLAN RATECLASS CHAR 1 C3",
+    "ATT AGE PLAN ATTAINED AGE NUM 3, 0 N1",
+    "TAB RATE PLAN TABLE RATING CHAR 2 C4",
+}
+_PUI_IGNORED_WORDS = {
+    "0 CONTROL STATEMENTS FOLLOW:",
+    "0 ARGUMENT DESCRIPTIONS FUNCTION DESCRIPTIONS",
+    "NAME DESCRIPTION TYPE LENGTH KYWD NAME DESCRIPTION TYPE LENGTH KYWD",
+}
+
+
+class _PuiParser:
+    """State machine for CJUDTPUI rows and report control sections."""
+
+    def __init__(self, path):
+        self.path = path
+        self.result = _Rows(path, PUI_KEYS)
+        self.user = None
+        self.table_seen = False
+        self.columns_seen = False
+        self.end_seen = False
+        self.section_pending = False
+        self.totals = None
+        self.all_entries = False
+        self.definitions = set()
+        self.line_number = 1
+
+    def parse(self):
+        for self.line_number, line in _lines(self.path):
+            self._parse_line(line)
+        if self.section_pending:
+            _fail(self.path, self.line_number, "PUI user section has no rate rows.")
+        if self.totals and self.all_entries and len(self.result.rows) != self.totals[0] - self.totals[1]:
+            _fail(self.path, self.line_number, "Printed table totals do not match parsed nondeleted rows.")
+        return self.result.finish(self.line_number)
+
+    def _parse_line(self, line):
         stripped = line.strip()
         words = " ".join(stripped.split())
         if not stripped or words == "0":
-            continue
-        if end_seen:
-            _fail(path, line_number, "Unexpected content after END-OF-JOB.")
-        if re.fullmatch(
+            return
+        if self.end_seen:
+            _fail(self.path, self.line_number, "Unexpected content after END-OF-JOB.")
+        if self._is_page_heading(stripped):
+            return
+        if words in _PUI_IGNORED_WORDS:
+            return
+        if re.fullmatch(r"CJUDTPUI(?:\s+\d+)?", stripped) and not self.table_seen:
+            return
+        if words.startswith("0TABLE:"):
+            self._handle_table_options(words)
+            return
+        if re.fullmatch(r"0?\s*USER \d{2} UNIQUE ENTRIES", stripped):
+            self._require_table("Summary outside CJUDTPUI table.")
+            return
+        if self._handle_totals_or_end(words):
+            return
+        if words in _PUI_DEFINITION_LINES:
+            self.definitions.add(words)
+            return
+        if re.fullmatch(r"[- ]+", stripped):
+            return
+        if self._handle_user_or_columns(stripped, words):
+            return
+        self._add_rate_row(line, words)
+
+    @staticmethod
+    def _is_page_heading(stripped):
+        return re.fullmatch(
             r"1DATE\s+\d{2}/\d{2}/\d{2,4}\s+CYBERLIFE ONLINE TABLES LIST\s+PAGE\s+\d+",
             stripped,
+        )
+
+    def _require_table(self, message):
+        if not self.table_seen:
+            _fail(self.path, self.line_number, message)
+
+    def _handle_table_options(self, words):
+        if not re.fullmatch(
+            r"0TABLE: CJUDTPUI PROCESSING OPTIONS: USERID = (?:ALL|\d{2}) "
+            r"AUDIT# = \S+ DELETED RECORDS = OMIT",
+            words,
         ):
-            continue
-        if words == "0 CONTROL STATEMENTS FOLLOW:":
-            continue
-        if re.fullmatch(r"CJUDTPUI(?:\s+\d+)?", stripped) and not table_seen:
-            continue
-        if words.startswith("0TABLE:"):
-            if not re.fullmatch(
-                r"0TABLE: CJUDTPUI PROCESSING OPTIONS: USERID = (?:ALL|\d{2}) "
-                r"AUDIT# = \S+ DELETED RECORDS = OMIT", words,
-            ):
-                _fail(path, line_number, "Unsupported table or processing options; expected CJUDTPUI.")
-            table_seen = True
-            all_entries = "USERID = ALL AUDIT# = ALL" in words
-            continue
-        if re.fullmatch(r"0?\s*USER \d{2} UNIQUE ENTRIES", stripped):
-            if not table_seen:
-                _fail(path, line_number, "Summary outside CJUDTPUI table.")
-            continue
+            _fail(self.path, self.line_number, "Unsupported table or processing options; expected CJUDTPUI.")
+        self.table_seen = True
+        self.all_entries = "USERID = ALL AUDIT# = ALL" in words
+
+    def _handle_totals_or_end(self, words):
         match = re.fullmatch(
             r"0TABLE CONTAINS ([\d,]+) ENTRIES OF WHICH ([\d,]+) HAVE BEEN MARKED FOR DELETION\.",
             words,
         )
         if match:
-            totals = (int(match[1].replace(",", "")), int(match[2].replace(",", "")))
-            continue
+            self.totals = (int(match[1].replace(",", "")), int(match[2].replace(",", "")))
+            return True
         if words == "0*** END-OF-JOB ***":
-            end_seen = True
-            continue
-        if words in definition_lines:
-            definitions.add(words)
-            continue
-        if words in {
-            "0 ARGUMENT DESCRIPTIONS FUNCTION DESCRIPTIONS",
-            "NAME DESCRIPTION TYPE LENGTH KYWD NAME DESCRIPTION TYPE LENGTH KYWD",
-        }:
-            continue
-        if re.fullmatch(r"[- ]+", stripped):
-            continue
+            self.end_seen = True
+            return True
+        return False
+
+    def _handle_user_or_columns(self, stripped, words):
         match = re.fullmatch(r"0\s*ENTRIES FOR USER (\d{2})(?:\s+CONTINUED)?", stripped)
         if match:
-            if not table_seen:
-                _fail(path, line_number, "User section outside CJUDTPUI table.")
-            if section_pending and user != match[1]:
-                _fail(path, line_number, "PUI user section has no rate rows.")
-            user = match[1]
-            columns_seen = False
-            section_pending = True
-            continue
+            self._start_user_section(match[1])
+            return True
         if words == "0 PLAN CD SEX CLASS ATT AGE TAB RATE PUI RATE AUDIT# CHANGED":
-            if user is None:
-                _fail(path, line_number, "PUI columns have no user section.")
-            columns_seen = True
-            continue
-        if not table_seen or not columns_seen or user is None:
-            _fail(path, line_number, f"Unsupported PUI section or missing headers: {words[:100]!r}.")
-        if definitions and definitions != definition_lines:
-            _fail(path, line_number, "Incomplete or unsupported CJUDTPUI argument definitions.")
-        _check_spaces(line, _PUI_ROW_RULE.spans, path, line_number)
-        row = _PUI_ROW_RULE.parse(line, {"path": path, "line": line_number})
-        plan = row["PLANCODE"]
-        sex = row["SEX"]
-        rateclass = row["RATECLASS"]
-        table_rating = row["TABLE_RATING"]
+            if self.user is None:
+                _fail(self.path, self.line_number, "PUI columns have no user section.")
+            self.columns_seen = True
+            return True
+        return False
+
+    def _start_user_section(self, user):
+        self._require_table("User section outside CJUDTPUI table.")
+        if self.section_pending and self.user != user:
+            _fail(self.path, self.line_number, "PUI user section has no rate rows.")
+        self.user = user
+        self.columns_seen = False
+        self.section_pending = True
+
+    def _add_rate_row(self, line, words):
+        if not self.table_seen or not self.columns_seen or self.user is None:
+            _fail(self.path, self.line_number, f"Unsupported PUI section or missing headers: {words[:100]!r}.")
+        if self.definitions and self.definitions != _PUI_DEFINITION_LINES:
+            _fail(self.path, self.line_number, "Incomplete or unsupported CJUDTPUI argument definitions.")
+        _check_spaces(line, _PUI_ROW_RULE.spans, self.path, self.line_number)
+        row = _PUI_ROW_RULE.parse(line, {"path": self.path, "line": self.line_number})
+        plan, sex = row["PLANCODE"], row["SEX"]
+        rateclass, table_rating = row["RATECLASS"], row["TABLE_RATING"]
         if not plan or len(sex) > 1 or len(rateclass) > 1 or len(table_rating) > 2:
-            _fail(path, line_number, "Malformed PUI source key.")
-        result.add({
-            "USER_CODE": user, "PLANCODE": plan, "SEX": sex, "RATECLASS": rateclass,
-            "ATTAINED_AGE": row["ATTAINED_AGE"], "TABLE_RATING": table_rating,
-            "RATE": row["RATE"], "AUDIT_NUMBER": row["AUDIT_NUMBER"],
+            _fail(self.path, self.line_number, "Malformed PUI source key.")
+        self.result.add({
+            "USER_CODE": self.user, "PLANCODE": plan, "SEX": sex,
+            "RATECLASS": rateclass, "ATTAINED_AGE": row["ATTAINED_AGE"],
+            "TABLE_RATING": table_rating, "RATE": row["RATE"],
+            "AUDIT_NUMBER": row["AUDIT_NUMBER"],
             "CHANGED_DATE": row["CHANGED_DATE"],
-        }, line_number)
-        section_pending = False
-    if section_pending:
-        _fail(path, line_number, "PUI user section has no rate rows.")
-    if totals and all_entries and len(result.rows) != totals[0] - totals[1]:
-        _fail(path, line_number, "Printed table totals do not match parsed nondeleted rows.")
-    return result.finish(line_number)
+        }, self.line_number)
+        self.section_pending = False
+
+
+def parse_pui(path) -> list[dict[str, object]]:
+    """Read CJUDTPUI's printed natural key and six-decimal rate without remapping."""
+    return _PuiParser(path).parse()
 
 
 _IAF_PLAN_LABELS = (
@@ -609,6 +729,175 @@ def _iaf_aliases(line, path, number):
     return result
 
 
+class _IafParser:
+    """State machine for whole-life IAF plan/search-key/premium sections."""
+
+    def __init__(self, path, user_code):
+        self.path = path
+        self.user_code = user_code
+        self.result = _Rows(path, IAF_KEYS)
+        self.product = None
+        self.aliases = []
+        self.rates = []
+        self.scale = None
+        self.scale_count = 0
+        self.rate_section = False
+        self.aliases_section = False
+        self.pending_product = False
+        self.pending_rate = False
+        self.page_header = False
+        self.line_number = 1
+
+    def parse(self):
+        for self.line_number, line in _lines(self.path):
+            self._parse_line(line)
+        if self.pending_product or self.pending_rate:
+            _fail(self.path, self.line_number, "Truncated IAF record or premium section.")
+        self._finish_product()
+        return self.result.finish(self.line_number)
+
+    def _parse_line(self, line):
+        stripped = line.strip()
+        words = " ".join(stripped.split())
+        if not stripped:
+            return
+        if re.fullmatch(r"1 {40,}\S.*", line):
+            return
+        if self._is_page_header(stripped):
+            self.page_header = True
+            return
+        if words == _IAF_PLAN_LABELS:
+            self._handle_plan_heading()
+            return
+        if self._is_product_line(line):
+            self._start_product(line)
+            return
+        if self.pending_product:
+            _fail(self.path, self.line_number, "Expected IAF plan record after heading.")
+        if line.startswith(" *** PLAN SEARCH KEYS"):
+            self._add_search_keys(line)
+            return
+        if words == _IAF_RATE_LABELS:
+            self._start_rate_section()
+            return
+        if self.aliases_section and not line[:31].strip():
+            self.aliases.extend(_iaf_aliases(line, self.path, self.line_number))
+            return
+        self._add_rate_line(line, stripped)
+
+    @staticmethod
+    def _is_page_header(stripped):
+        return re.fullmatch(
+            r"0DATE\s+\d{2}/\d{2}/\d{2,4}\s+PRINT ISSUE AGE DESCRIPTION FILE\s+PAGE\s+\d+",
+            stripped,
+        )
+
+    @staticmethod
+    def _is_product_line(line):
+        return len(line) > 2 and line[:2] == "  " and not line[2].isspace() and line[2] != "*"
+
+    def _handle_plan_heading(self):
+        if self.pending_product:
+            _fail(self.path, self.line_number, "IAF plan heading has no record.")
+        self.pending_product = True
+        self.page_header = False
+
+    def _start_product(self, line):
+        self._finish_product()
+        self.product = _iaf_product(line, self.path, self.line_number)
+        self.aliases, self.rates, self.scale = [], [], None
+        self.scale_count = 0
+        self.pending_product = False
+        self.rate_section = self.aliases_section = self.pending_rate = False
+
+    def _add_search_keys(self, line):
+        if self.product is None or self.rates:
+            _fail(self.path, self.line_number, "Search-key section outside a new IAF record.")
+        if line[21:31].strip():
+            _fail(self.path, self.line_number, "Unexpected IAF search-key prefix.")
+        self.aliases.extend(_iaf_aliases(line, self.path, self.line_number))
+        self.aliases_section = True
+
+    def _start_rate_section(self):
+        if self.product is None or not self.aliases:
+            _fail(self.path, self.line_number, "Premium section requires a plan and search keys.")
+        self.rate_section = True
+        self.aliases_section = False
+        self.pending_rate = not (self.page_header and self.scale_count > 0)
+        self.page_header = False
+
+    def _add_rate_line(self, line, stripped):
+        if not self.rate_section or line[:19].strip() or len(line) <= 19:
+            _fail(self.path, self.line_number, f"Unsupported IAF section or layout: {stripped[:100]!r}.")
+        new_scale = bool(line[19:20].strip())
+        if new_scale:
+            self._start_scale(line)
+        elif self.scale is None:
+            _fail(self.path, self.line_number, "Premium cells have no rate type/start date.")
+        spans = list(_IAF_RATE_HEADER_RULE.spans) if new_scale else []
+        count = self._add_rate_cells(line, spans)
+        if not count and not new_scale:
+            _fail(self.path, self.line_number, "Empty premium-rate continuation.")
+        if count:
+            self.scale_count += count
+            self.pending_rate = False
+
+    def _start_scale(self, line):
+        if self.scale is not None and self.scale_count == 0:
+            _fail(self.path, self.line_number, "Previous premium scale has no rate cells.")
+        self.scale = _IAF_RATE_HEADER_RULE.parse(
+            line, {"path": self.path, "line": self.line_number},
+        )
+        rate_type = self.scale["RATE_TYPE"]
+        if rate_type not in "0ABCFGLMNSTWXY":
+            _fail(self.path, self.line_number, f"Unknown IAF premium rate type {rate_type!r}.")
+        start, stop = self.scale["SCALE_START"], self.scale["SCALE_STOP"]
+        if stop is not None and stop < start:
+            _fail(self.path, self.line_number, "Premium scale stop date precedes start date.")
+        self.scale_count = 0
+        self.pending_rate = True
+
+    def _add_rate_cells(self, line, spans):
+        spans.extend(_IAF_RATE_CELL_GROUP.spans)
+        count = 0
+        for cell in _IAF_RATE_CELL_GROUP.parse(line, {"path": self.path, "line": self.line_number}):
+            self._add_rate_cell(cell)
+            count += 1
+        _check_spaces(line, spans, self.path, self.line_number)
+        return count
+
+    def _add_rate_cell(self, cell):
+        ident = cell["PREMIUM_IDENTIFIER"]
+        if not re.fullmatch(r"\d{2}\S{5}", ident):
+            _fail(self.path, self.line_number, f"Malformed premium identifier {ident!r}.")
+        rate = {
+            **self.scale, "PREMIUM_IDENTIFIER": ident, "DURATION_CODE": ident[:2],
+            "SEX": ident[2], "RATECLASS": ident[3], "BAND": ident[4],
+            "PLAN_OPTION": ident[5:], "RATE": cell["RATE"],
+        }
+        self.rates.append((rate, self.line_number))
+
+    def _finish_product(self):
+        if self.product is None:
+            return
+        if self.pending_rate:
+            _fail(self.path, self.line_number, "Truncated IAF premium section.")
+        if not self.aliases or not self.rates:
+            _fail(self.path, self.line_number, "Incomplete IAF record: search keys and premium rates are required.")
+        expected = (
+            self.product["SOURCE_PLANCODE"],
+            self.product["SOURCE_IAF_VERSION"],
+            self.product["SOURCE_EFFECTIVE_DATE"],
+        )
+        if expected not in {
+            (a["PLANCODE"], a["IAF_VERSION"], a["EFFECTIVE_DATE"]) for a in self.aliases
+        }:
+            _fail(self.path, self.line_number, "IAF search keys omit the source record's own key.")
+        for alias in self.aliases:
+            for rate, source_line in self.rates:
+                self.result.add({"USER_CODE": self.user_code, **self.product, **alias, **rate}, source_line)
+
+
 def parse_iaf(path, user_code) -> list[dict[str, object]]:
     """Read uncompiled IAF premium cells, retaining source records and aliases.
 
@@ -619,126 +908,4 @@ def parse_iaf(path, user_code) -> list[dict[str, object]]:
     user_code = str(user_code).strip()
     if not re.fullmatch(r"\d{2}", user_code):
         _fail(path, 1, "IAF user/company code must be exactly two digits.")
-    result = _Rows(path, IAF_KEYS)
-    product = None
-    aliases = []
-    rates = []
-    scale = None
-    scale_count = 0
-    rate_section = False
-    aliases_section = False
-    pending_product = False
-    pending_rate = False
-    page_header = False
-    line_number = 1
-
-    def finish_product():
-        if product is None:
-            return
-        if pending_rate:
-            _fail(path, line_number, "Truncated IAF premium section.")
-        if not aliases or not rates:
-            _fail(path, line_number, "Incomplete IAF record: search keys and premium rates are required.")
-        expected = (product["SOURCE_PLANCODE"], product["SOURCE_IAF_VERSION"],
-                    product["SOURCE_EFFECTIVE_DATE"])
-        if expected not in {
-            (a["PLANCODE"], a["IAF_VERSION"], a["EFFECTIVE_DATE"]) for a in aliases
-        }:
-            _fail(path, line_number, "IAF search keys omit the source record's own key.")
-        for alias in aliases:
-            for rate, source_line in rates:
-                result.add({"USER_CODE": user_code, **product, **alias, **rate}, source_line)
-
-    for line_number, line in _lines(path):
-        stripped = line.strip()
-        words = " ".join(stripped.split())
-        if not stripped:
-            continue
-        if re.fullmatch(r"1 {40,}\S.*", line):
-            continue
-        if re.fullmatch(
-            r"0DATE\s+\d{2}/\d{2}/\d{2,4}\s+PRINT ISSUE AGE DESCRIPTION FILE\s+PAGE\s+\d+",
-            stripped,
-        ):
-            page_header = True
-            continue
-        if words == _IAF_PLAN_LABELS:
-            if pending_product:
-                _fail(path, line_number, "IAF plan heading has no record.")
-            pending_product = True
-            page_header = False
-            continue
-        if len(line) > 2 and line[:2] == "  " and not line[2].isspace() and line[2] != "*":
-            finish_product()
-            product = _iaf_product(line, path, line_number)
-            aliases, rates, scale, scale_count = [], [], None, 0
-            pending_product = False
-            rate_section = aliases_section = pending_rate = False
-            continue
-        if pending_product:
-            _fail(path, line_number, "Expected IAF plan record after heading.")
-        if line.startswith(" *** PLAN SEARCH KEYS"):
-            if product is None or rates:
-                _fail(path, line_number, "Search-key section outside a new IAF record.")
-            if line[21:31].strip():
-                _fail(path, line_number, "Unexpected IAF search-key prefix.")
-            aliases.extend(_iaf_aliases(line, path, line_number))
-            aliases_section = True
-            continue
-        if words == _IAF_RATE_LABELS:
-            if product is None or not aliases:
-                _fail(path, line_number, "Premium section requires a plan and search keys.")
-            rate_section = True
-            aliases_section = False
-            pending_rate = not (page_header and scale_count > 0)
-            page_header = False
-            continue
-        if aliases_section and not line[:31].strip():
-            aliases.extend(_iaf_aliases(line, path, line_number))
-            continue
-        if not rate_section or line[:19].strip() or len(line) <= 19:
-            _fail(path, line_number, f"Unsupported IAF section or layout: {stripped[:100]!r}.")
-        new_scale = bool(line[19:20].strip())
-        if new_scale:
-            if scale is not None and scale_count == 0:
-                _fail(path, line_number, "Previous premium scale has no rate cells.")
-            scale = _IAF_RATE_HEADER_RULE.parse(
-                line, {"path": path, "line": line_number},
-            )
-            rate_type = scale["RATE_TYPE"]
-            if rate_type not in "0ABCFGLMNSTWXY":
-                _fail(path, line_number, f"Unknown IAF premium rate type {rate_type!r}.")
-            start = scale["SCALE_START"]
-            stop = scale["SCALE_STOP"]
-            if stop is not None and stop < start:
-                _fail(path, line_number, "Premium scale stop date precedes start date.")
-            scale_count = 0
-            pending_rate = True
-        elif scale is None:
-            _fail(path, line_number, "Premium cells have no rate type/start date.")
-        spans = list(_IAF_RATE_HEADER_RULE.spans) if new_scale else []
-        spans.extend(_IAF_RATE_CELL_GROUP.spans)
-        count = 0
-        for cell in _IAF_RATE_CELL_GROUP.parse(
-            line, {"path": path, "line": line_number},
-        ):
-            ident = cell["PREMIUM_IDENTIFIER"]
-            if not re.fullmatch(r"\d{2}\S{5}", ident):
-                _fail(path, line_number, f"Malformed premium identifier {ident!r}.")
-            rate = {
-                **scale, "PREMIUM_IDENTIFIER": ident, "DURATION_CODE": ident[:2],
-                "SEX": ident[2], "RATECLASS": ident[3], "BAND": ident[4],
-                "PLAN_OPTION": ident[5:], "RATE": cell["RATE"],
-            }
-            rates.append((rate, line_number))
-            count += 1
-        _check_spaces(line, spans, path, line_number)
-        if not count and not new_scale:
-            _fail(path, line_number, "Empty premium-rate continuation.")
-        if count:
-            scale_count += count
-            pending_rate = False
-    if pending_product or pending_rate:
-        _fail(path, line_number, "Truncated IAF record or premium section.")
-    finish_product()
-    return result.finish(line_number)
+    return _IafParser(path, user_code).parse()

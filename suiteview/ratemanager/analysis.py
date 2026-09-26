@@ -57,14 +57,7 @@ def analyze_package(
     analyses: "OrderedDict[str, TableAnalysis]" = OrderedDict()
     state_rows: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
 
-    pointer_ref_indexes: dict[str, set[Any]] = defaultdict(set)
-    for pointer_name in schema.pointer_names:
-        pointer_data = package.tables[pointer_name]
-        for column, rate_table in pointer_data.spec.pointer_refs.items():
-            pos = pointer_data.spec.column_index(column)
-            pointer_ref_indexes[rate_table].update(
-                row[pos] for row in pointer_data.rows if row[pos] is not None
-            )
+    pointer_ref_indexes = _pointer_reference_indexes(package)
 
     table_count = len(package.tables)
     for table_number, (name, data) in enumerate(package.tables.items(), start=1):
@@ -73,69 +66,19 @@ def analyze_package(
         )
         spec = data.spec
         if spec.is_pointer:
-            existing = tuple(repository.fetch_pointer_rows(name, package.plancode))
-            incoming_scopes = {spec.scope(row) for row in data.rows}
-            scoped_existing = tuple(
-                row for row in existing if spec.scope(row) in incoming_scopes
+            analyses[name] = _analyze_pointer_table(
+                package, repository, name, data,
             )
-            incoming_by_key = data.rows_by_key()
-            existing_by_key = {spec.key(row): row for row in scoped_existing}
-            shared_keys = incoming_by_key.keys() & existing_by_key.keys()
-            identical = frozenset(
-                key for key in shared_keys
-                if incoming_by_key[key] == existing_by_key[key]
+            state_rows[name].extend(
+                repository.fetch_pointer_rows(name, package.plancode)
             )
-            different = frozenset(shared_keys - identical)
-            analyses[name] = TableAnalysis(
-                table_name=name,
-                file_rows=len(data.rows),
-                existing_rows=scoped_existing,
-                is_pointer=True,
-                identical_pointer_keys=identical,
-                different_pointer_keys=different,
-            )
-            state_rows[name].extend(existing)
             continue
 
-        incoming_by_index = data.rows_by_index()
-        requested_indexes = set(incoming_by_index) | pointer_ref_indexes[name]
-        existing_indexes = repository.fetch_existing_indexes(name, requested_indexes)
-        colliding = set(incoming_by_index) & existing_indexes
-        existing_rows = tuple(repository.fetch_rate_rows(name, colliding))
-        existing_by_index = TableData(spec, existing_rows).rows_by_index()
-
-        identical_indexes: set[Any] = set()
-        different_indexes: set[Any] = set()
-        for index in colliding:
-            if incoming_by_index[index] == existing_by_index.get(index, ()):
-                identical_indexes.add(index)
-            else:
-                different_indexes.add(index)
-
-        references = repository.fetch_index_references(name, different_indexes)
-        blocked: dict[Any, tuple[str, ...]] = {}
-        replaceable: set[Any] = set()
-        for index in different_indexes:
-            plancodes = {
-                value.strip() for value in references.get(index, set()) if value
-            }
-            other_plancodes = tuple(sorted(plancodes - {package.plancode}))
-            if other_plancodes:
-                blocked[index] = other_plancodes
-            else:
-                replaceable.add(index)
-
-        analyses[name] = TableAnalysis(
-            table_name=name,
-            file_rows=len(data.rows),
-            existing_rows=existing_rows,
-            new_indexes=frozenset(set(incoming_by_index) - existing_indexes),
-            identical_indexes=frozenset(identical_indexes),
-            different_indexes=frozenset(different_indexes),
-            replaceable_indexes=frozenset(replaceable),
-            blocked_indexes=blocked,
-            available_indexes=frozenset(existing_indexes),
+        analysis, references = _analyze_rate_table(
+            package, repository, name, data, pointer_ref_indexes[name],
         )
+        analyses[name] = analysis
+        existing_rows = analysis.existing_rows
         state_rows[name].extend(existing_rows)
         pointer_ref = schema.references.get(name)
         if pointer_ref:
@@ -152,3 +95,99 @@ def analyze_package(
         analyses,
         _rows_digest(state_rows),
     )
+
+
+def _pointer_reference_indexes(package: WorkupPackage) -> dict[str, set[Any]]:
+    pointer_ref_indexes: dict[str, set[Any]] = defaultdict(set)
+    for pointer_name in package.schema.pointer_names:
+        pointer_data = package.tables[pointer_name]
+        for column, rate_table in pointer_data.spec.pointer_refs.items():
+            pos = pointer_data.spec.column_index(column)
+            pointer_ref_indexes[rate_table].update(
+                row[pos] for row in pointer_data.rows if row[pos] is not None
+            )
+    return pointer_ref_indexes
+
+
+def _analyze_pointer_table(
+    package: WorkupPackage,
+    repository: Any,
+    name: str,
+    data: TableData,
+) -> TableAnalysis:
+    spec = data.spec
+    existing = tuple(repository.fetch_pointer_rows(name, package.plancode))
+    incoming_scopes = {spec.scope(row) for row in data.rows}
+    scoped_existing = tuple(row for row in existing if spec.scope(row) in incoming_scopes)
+    incoming_by_key = data.rows_by_key()
+    existing_by_key = {spec.key(row): row for row in scoped_existing}
+    shared_keys = incoming_by_key.keys() & existing_by_key.keys()
+    identical = frozenset(
+        key for key in shared_keys if incoming_by_key[key] == existing_by_key[key]
+    )
+    return TableAnalysis(
+        table_name=name,
+        file_rows=len(data.rows),
+        existing_rows=scoped_existing,
+        is_pointer=True,
+        identical_pointer_keys=identical,
+        different_pointer_keys=frozenset(shared_keys - identical),
+    )
+
+
+def _analyze_rate_table(
+    package: WorkupPackage,
+    repository: Any,
+    name: str,
+    data: TableData,
+    pointer_indexes: set[Any],
+) -> tuple[TableAnalysis, Mapping[Any, set[str]]]:
+    incoming_by_index = data.rows_by_index()
+    requested_indexes = set(incoming_by_index) | pointer_indexes
+    existing_indexes = repository.fetch_existing_indexes(name, requested_indexes)
+    colliding = set(incoming_by_index) & existing_indexes
+    existing_rows = tuple(repository.fetch_rate_rows(name, colliding))
+    existing_by_index = TableData(data.spec, existing_rows).rows_by_index()
+    identical_indexes, different_indexes = _compare_indexes(
+        incoming_by_index, existing_by_index, colliding,
+    )
+    references = repository.fetch_index_references(name, different_indexes)
+    blocked, replaceable = _replacement_sets(
+        references, different_indexes, package.plancode,
+    )
+    analysis = TableAnalysis(
+        table_name=name,
+        file_rows=len(data.rows),
+        existing_rows=existing_rows,
+        new_indexes=frozenset(set(incoming_by_index) - existing_indexes),
+        identical_indexes=frozenset(identical_indexes),
+        different_indexes=frozenset(different_indexes),
+        replaceable_indexes=frozenset(replaceable),
+        blocked_indexes=blocked,
+        available_indexes=frozenset(existing_indexes),
+    )
+    return analysis, references
+
+
+def _compare_indexes(incoming_by_index, existing_by_index, colliding):
+    identical_indexes: set[Any] = set()
+    different_indexes: set[Any] = set()
+    for index in colliding:
+        if incoming_by_index[index] == existing_by_index.get(index, ()):
+            identical_indexes.add(index)
+        else:
+            different_indexes.add(index)
+    return identical_indexes, different_indexes
+
+
+def _replacement_sets(references, different_indexes, plancode):
+    blocked: dict[Any, tuple[str, ...]] = {}
+    replaceable: set[Any] = set()
+    for index in different_indexes:
+        plancodes = {value.strip() for value in references.get(index, set()) if value}
+        other_plancodes = tuple(sorted(plancodes - {plancode}))
+        if other_plancodes:
+            blocked[index] = other_plancodes
+        else:
+            replaceable.add(index)
+    return blocked, replaceable

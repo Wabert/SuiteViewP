@@ -61,6 +61,14 @@ class BenefitDBSpec:
     cease_age: Optional[int] = None
 
 
+@dataclass
+class _BenefitRows:
+    pointer_rows: List[list]
+    bencoi_rows: List[list]
+    bentrg_rows: List[list]
+    counts: Dict[str, int]
+
+
 def _norm(opt: str) -> str:
     return (opt or "").strip()
 
@@ -231,93 +239,168 @@ def build_benefit_rows(
 
     total = max(len(specs), 1)
     for si, spec in enumerate(specs):
-        code = spec.code
-        cur = _benefit_rates_by_combo(result, code, "C")
-        guar = _benefit_rates_by_combo(result, code, "G")
-        ctp = _benefit_rates_by_combo(result, code, "T")
-        mtp = _benefit_rates_by_combo(result, code, "M")
-        if spec.cease_age is None:
-            raise ValueError(f"Benefit {code}: cease age is required.")
-        if spec.cease_age is not None and spec.cease_age <= 0:
-            raise ValueError(f"Benefit {code}: cease age must be greater than 0.")
-
-        coi_keys = set(cur)
-        trg_keys = set(ctp) | set(mtp)
-
-        # ── BENCOI indices: group base combos by identical COI content ──
-        bencoi_index: Dict[ComboKey, int] = {}
-        coi_groups: "OrderedDict[tuple, int]" = OrderedDict()
-        next_coi = spec.start_index
-        coi_pointer_rows = 0
-        for bc in base_combos:
-            key = _map_key(bc, coi_keys)
-            cur_rates = cur.get(key) if key else None
-            if not cur_rates:
-                continue
-            guar_rates = guar.get(key) or cur_rates
-            target_key = _map_key(bc, trg_keys)
-            c_rates = ctp.get(target_key, {}) if target_key else {}
-            m_rates = mtp.get(target_key, {}) if target_key else {}
-            issue_age_range = _target_issue_age_range(m_rates, c_rates)
-            sig = (
-                tuple(sorted(cur_rates.items())),
-                tuple(sorted(guar_rates.items())),
-                spec.renewable,
-                issue_age_range,
-                spec.cease_age,
-            )
-            idx = coi_groups.get(sig)
-            if idx is None:
-                idx = next_coi
-                coi_groups[sig] = idx
-                bencoi_rows.extend(_expand_bencoi_rows(
-                    idx, cur_rates, guar_rates, spec.renewable, max_att_age,
-                    issue_age_range, spec.cease_age))
-                next_coi += 1
-            bencoi_index[bc] = idx
-            coi_pointer_rows += 1
-
-        # ── BENTRG indices: group base combos by identical target content ──
-        bentrg_index: Dict[ComboKey, int] = {}
-        trg_groups: "OrderedDict[tuple, int]" = OrderedDict()
-        next_trg = spec.start_index
-        for bc in base_combos:
-            key = _map_key(bc, trg_keys)
-            c_rates = ctp.get(key, {}) if key else {}
-            m_rates = mtp.get(key, {}) if key else {}
-            if not c_rates and not m_rates:
-                continue
-            sig = (tuple(sorted(m_rates.items())), tuple(sorted(c_rates.items())))
-            idx = trg_groups.get(sig)
-            if idx is None:
-                idx = next_trg
-                trg_groups[sig] = idx
-                bentrg_rows.extend(_bentrg_rows(idx, m_rates, c_rates))
-                next_trg += 1
-            bentrg_index[bc] = idx
-
-        # ── Pointer rows: one per base combo the benefit applies to ──
-        for bc in base_combos:
-            ci = bencoi_index.get(bc)
-            ti = bentrg_index.get(bc)
-            if ci is None and ti is None:
-                continue
-            pointer_rows.append([
-                plancode, code, "", issue_version,
-                bc[0], bc[1], bc[2],
-                ci if ci is not None else "",
-                ti if ti is not None else "",
-            ])
-
-        counts[code] = {
-            "pointer": coi_pointer_rows or len(bentrg_index),
-            "bencoi_groups": len(coi_groups),
-            "bentrg_groups": len(trg_groups),
-        }
+        rows = _build_one_benefit(
+            result, spec, base_combos, plancode, issue_version, max_att_age,
+        )
+        pointer_rows.extend(rows.pointer_rows)
+        bencoi_rows.extend(rows.bencoi_rows)
+        bentrg_rows.extend(rows.bentrg_rows)
+        counts[spec.code] = rows.counts
         if progress_cb:
             progress_cb((si + 1) / total)
 
     return pointer_rows, bencoi_rows, bentrg_rows, counts
+
+
+def _build_one_benefit(
+    result: ParseResult,
+    spec: BenefitDBSpec,
+    base_combos: List[ComboKey],
+    plancode: str,
+    issue_version: int,
+    max_att_age: int,
+) -> _BenefitRows:
+    _validate_benefit_spec(spec)
+    cur = _benefit_rates_by_combo(result, spec.code, "C")
+    guar = _benefit_rates_by_combo(result, spec.code, "G")
+    ctp = _benefit_rates_by_combo(result, spec.code, "T")
+    mtp = _benefit_rates_by_combo(result, spec.code, "M")
+    bencoi_index, bencoi_rows, coi_groups, coi_count = _bencoi_indexes(
+        spec, base_combos, cur, guar, ctp, mtp, max_att_age,
+    )
+    bentrg_index, bentrg_rows, trg_groups = _bentrg_indexes(
+        spec, base_combos, ctp, mtp,
+    )
+    pointer_rows = _benefit_pointer_rows(
+        plancode, spec.code, issue_version, base_combos, bencoi_index, bentrg_index,
+    )
+    return _BenefitRows(
+        pointer_rows,
+        bencoi_rows,
+        bentrg_rows,
+        {
+            "pointer": coi_count or len(bentrg_index),
+            "bencoi_groups": len(coi_groups),
+            "bentrg_groups": len(trg_groups),
+        },
+    )
+
+
+def _validate_benefit_spec(spec: BenefitDBSpec) -> None:
+    if spec.cease_age is None:
+        raise ValueError(f"Benefit {spec.code}: cease age is required.")
+    if spec.cease_age <= 0:
+        raise ValueError(f"Benefit {spec.code}: cease age must be greater than 0.")
+
+
+def _bencoi_indexes(
+    spec: BenefitDBSpec,
+    base_combos: List[ComboKey],
+    cur,
+    guar,
+    ctp,
+    mtp,
+    max_att_age: int,
+):
+    bencoi_index: Dict[ComboKey, int] = {}
+    rows: List[list] = []
+    groups: "OrderedDict[tuple, int]" = OrderedDict()
+    next_index = spec.start_index
+    pointer_count = 0
+    for bc in base_combos:
+        key = _map_key(bc, set(cur))
+        cur_rates = cur.get(key) if key else None
+        if not cur_rates:
+            continue
+        idx, next_index = _bencoi_group_index(
+            spec, bc, key, cur_rates, guar, ctp, mtp, groups, rows,
+            next_index, max_att_age,
+        )
+        bencoi_index[bc] = idx
+        pointer_count += 1
+    return bencoi_index, rows, groups, pointer_count
+
+
+def _bencoi_group_index(
+    spec,
+    bc,
+    key,
+    cur_rates,
+    guar,
+    ctp,
+    mtp,
+    groups,
+    rows,
+    next_index,
+    max_att_age,
+):
+    guar_rates = guar.get(key) or cur_rates
+    target_key = _map_key(bc, set(ctp) | set(mtp))
+    c_rates = ctp.get(target_key, {}) if target_key else {}
+    m_rates = mtp.get(target_key, {}) if target_key else {}
+    issue_age_range = _target_issue_age_range(m_rates, c_rates)
+    sig = (
+        tuple(sorted(cur_rates.items())),
+        tuple(sorted(guar_rates.items())),
+        spec.renewable,
+        issue_age_range,
+        spec.cease_age,
+    )
+    idx = groups.get(sig)
+    if idx is None:
+        idx = next_index
+        groups[sig] = idx
+        rows.extend(_expand_bencoi_rows(
+            idx, cur_rates, guar_rates, spec.renewable, max_att_age,
+            issue_age_range, spec.cease_age))
+        next_index += 1
+    return idx, next_index
+
+
+def _bentrg_indexes(spec: BenefitDBSpec, base_combos: List[ComboKey], ctp, mtp):
+    bentrg_index: Dict[ComboKey, int] = {}
+    rows: List[list] = []
+    groups: "OrderedDict[tuple, int]" = OrderedDict()
+    next_index = spec.start_index
+    trg_keys = set(ctp) | set(mtp)
+    for bc in base_combos:
+        key = _map_key(bc, trg_keys)
+        c_rates = ctp.get(key, {}) if key else {}
+        m_rates = mtp.get(key, {}) if key else {}
+        if not c_rates and not m_rates:
+            continue
+        sig = (tuple(sorted(m_rates.items())), tuple(sorted(c_rates.items())))
+        idx = groups.get(sig)
+        if idx is None:
+            idx = next_index
+            groups[sig] = idx
+            rows.extend(_bentrg_rows(idx, m_rates, c_rates))
+            next_index += 1
+        bentrg_index[bc] = idx
+    return bentrg_index, rows, groups
+
+
+def _benefit_pointer_rows(
+    plancode: str,
+    code: str,
+    issue_version: int,
+    base_combos: List[ComboKey],
+    bencoi_index: Dict[ComboKey, int],
+    bentrg_index: Dict[ComboKey, int],
+) -> List[list]:
+    rows: List[list] = []
+    for bc in base_combos:
+        ci = bencoi_index.get(bc)
+        ti = bentrg_index.get(bc)
+        if ci is None and ti is None:
+            continue
+        rows.append([
+            plancode, code, "", issue_version,
+            bc[0], bc[1], bc[2],
+            ci if ci is not None else "",
+            ti if ti is not None else "",
+        ])
+    return rows
 
 
 def build_benefit_db(

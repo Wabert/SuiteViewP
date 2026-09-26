@@ -180,77 +180,103 @@ class WorkupPackage:
         if not root.is_dir():
             raise PackageValidationError(f"Workup folder does not exist: {root}")
 
-        # A group participates only when its pointer file is present. This lets
-        # a folder hold just the benefit files (or just the base files) without
-        # forcing the other group's CSVs to exist.
-        present_pointers = [
-            pointer for pointer in schema.groups
-            if (root / f"{pointer}.csv").is_file()
-        ]
-        if not present_pointers:
-            expected = " or ".join(f"{p}.csv" for p in schema.groups)
-            raise PackageValidationError(
-                "No workup pointer file found. Provide at least one rate group "
-                f"({expected})."
-            )
-
-        tables: "OrderedDict[str, TableData]" = OrderedDict()
-        for pointer in present_pointers:
-            for name in schema.groups[pointer]:
-                path = root / f"{name}.csv"
-                if not path.is_file():
-                    raise PackageValidationError(
-                        f"Missing required workup file: {path.name} "
-                        f"(required by the {pointer} rate group)."
-                    )
-                tables[name] = _read_csv_table(path, schema.specs[name])
-
-        # Absent groups are represented by empty tables so every downstream
-        # consumer can address all table names uniformly (they simply load
-        # nothing and default to Skip).
-        for name, spec in schema.specs.items():
-            tables.setdefault(name, TableData(spec, ()))
-        tables = OrderedDict((name, tables[name]) for name in schema.specs)
-
-        plancode: Optional[str] = None
-        issue_version: Optional[int] = None
-        for pointer in present_pointers:
-            pointer_rows = tables[pointer].rows
-            if not pointer_rows:
-                # An empty pointer (header only) contributes no rows to load
-                # and does not constrain the plancode/version.
-                continue
-            spec = schema.specs[pointer]
-            plancode_pos = spec.column_index("Plancode")
-            version_pos = spec.column_index("IssueVersion")
-            plancodes = {row[plancode_pos] for row in pointer_rows}
-            versions = {row[version_pos] for row in pointer_rows}
-            if len(plancodes) != 1 or None in plancodes:
-                raise PackageValidationError(
-                    f"{pointer}.csv must contain exactly one nonblank plancode."
-                )
-            if len(versions) != 1 or None in versions:
-                raise PackageValidationError(
-                    f"{pointer}.csv must contain exactly one IssueVersion."
-                )
-            this_plancode = str(next(iter(plancodes)))
-            this_version = int(next(iter(versions)))
-            if plancode is None:
-                plancode, issue_version = this_plancode, this_version
-            elif this_plancode != plancode or this_version != issue_version:
-                raise PackageValidationError(
-                    "Workup pointer files disagree: "
-                    f"{pointer}.csv has plancode {this_plancode} / "
-                    f"IssueVersion {this_version}, but expected plancode "
-                    f"{plancode} / IssueVersion {issue_version}."
-                )
-
-        if plancode is None or issue_version is None:
-            raise PackageValidationError(
-                "The workup pointer file(s) contain no rows to load."
-            )
-
+        present_pointers = _present_pointer_files(root, schema)
+        tables = _load_package_tables(root, schema, present_pointers)
+        plancode, issue_version = _package_identity(tables, schema, present_pointers)
         return cls(root, plancode, issue_version, tables, schema)
+
+
+def _present_pointer_files(root: Path, schema: RateSchema) -> list[str]:
+    # A group participates only when its pointer file is present.
+    present = [
+        pointer for pointer in schema.groups
+        if (root / f"{pointer}.csv").is_file()
+    ]
+    if not present:
+        expected = " or ".join(f"{p}.csv" for p in schema.groups)
+        raise PackageValidationError(
+            "No workup pointer file found. Provide at least one rate group "
+            f"({expected})."
+        )
+    return present
+
+
+def _load_package_tables(
+    root: Path,
+    schema: RateSchema,
+    present_pointers: list[str],
+) -> "OrderedDict[str, TableData]":
+    tables: "OrderedDict[str, TableData]" = OrderedDict()
+    for pointer in present_pointers:
+        for name in schema.groups[pointer]:
+            path = root / f"{name}.csv"
+            if not path.is_file():
+                raise PackageValidationError(
+                    f"Missing required workup file: {path.name} "
+                    f"(required by the {pointer} rate group)."
+                )
+            tables[name] = _read_csv_table(path, schema.specs[name])
+    for name, spec in schema.specs.items():
+        tables.setdefault(name, TableData(spec, ()))
+    return OrderedDict((name, tables[name]) for name in schema.specs)
+
+
+def _package_identity(
+    tables: Mapping[str, TableData],
+    schema: RateSchema,
+    present_pointers: list[str],
+) -> tuple[str, int]:
+    identity: tuple[str, int] | None = None
+    for pointer in present_pointers:
+        pointer_identity = _pointer_identity(tables[pointer], schema.specs[pointer], pointer)
+        if pointer_identity is None:
+            continue
+        if identity is None:
+            identity = pointer_identity
+        elif pointer_identity != identity:
+            _fail_pointer_disagreement(pointer, pointer_identity, identity)
+    if identity is None:
+        raise PackageValidationError(
+            "The workup pointer file(s) contain no rows to load."
+        )
+    return identity
+
+
+def _pointer_identity(
+    table: TableData,
+    spec: TableSpec,
+    pointer: str,
+) -> tuple[str, int] | None:
+    if not table.rows:
+        return None
+    plancode_pos = spec.column_index("Plancode")
+    version_pos = spec.column_index("IssueVersion")
+    plancodes = {row[plancode_pos] for row in table.rows}
+    versions = {row[version_pos] for row in table.rows}
+    if len(plancodes) != 1 or None in plancodes:
+        raise PackageValidationError(
+            f"{pointer}.csv must contain exactly one nonblank plancode."
+        )
+    if len(versions) != 1 or None in versions:
+        raise PackageValidationError(
+            f"{pointer}.csv must contain exactly one IssueVersion."
+        )
+    return str(next(iter(plancodes))), int(next(iter(versions)))
+
+
+def _fail_pointer_disagreement(
+    pointer: str,
+    pointer_identity: tuple[str, int],
+    expected_identity: tuple[str, int],
+) -> None:
+    this_plancode, this_version = pointer_identity
+    plancode, issue_version = expected_identity
+    raise PackageValidationError(
+        "Workup pointer files disagree: "
+        f"{pointer}.csv has plancode {this_plancode} / "
+        f"IssueVersion {this_version}, but expected plancode "
+        f"{plancode} / IssueVersion {issue_version}."
+    )
 
 
 
