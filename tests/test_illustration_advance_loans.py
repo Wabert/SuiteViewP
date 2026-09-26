@@ -20,6 +20,7 @@ from suiteview.illustration.core.calc_engine import (
 )
 from suiteview.illustration.core.loan_handler import (
     LoanState,
+    LoanStepInput,
     capitalize_loans,
     empty_loan_cap_repay_detail,
     repay_loan,
@@ -32,8 +33,10 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
-
+from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 
 ADVANCE = PlancodeConfig(loan_type="Advance", loan_charge_rate_guar=0.074,
                          pref_loan_charge_rate_guar=0.0566)
@@ -114,7 +117,10 @@ def test_no_capitalization_off_anniversary():
 def test_advance_repayment_reduces_principal_by_grossed_up_amount():
     cap = LoanState(rg_loan_princ=10_000.0)
     x, y = _advance_loan_factors(ADVANCE, 183)  # mid-year
-    result = repay_loan(cap, 100.0, ADVANCE, x, y)
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=100.0, config=ADVANCE,
+        adv_reg_factor=x, adv_pref_factor=y,
+    ))
 
     # Payoff = principal * (1 - X); a $100 repayment clears 100/(1-X) of the total.
     expected_reduction = _round2(100.0 / (1 - x))
@@ -132,7 +138,10 @@ def test_advance_repayment_prefers_preferred_then_regular():
     x, y = _advance_loan_factors(ADVANCE, 365)
     pref_payoff = _round2(300.0 * (1 - y))
     # Repay more than the preferred payoff: preferred clears first, rest to regular.
-    result = repay_loan(cap, pref_payoff + 100.0, ADVANCE, x, y)
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=pref_payoff + 100.0, config=ADVANCE,
+        adv_reg_factor=x, adv_pref_factor=y,
+    ))
 
     assert result.detail["Advance - Adv Pref LN Repay"] == pref_payoff
     assert result.detail["Advance - Adv Reg LN Repay"] == 100.0
@@ -143,7 +152,10 @@ def test_advance_full_payoff_clears_loan():
     cap = LoanState(rg_loan_princ=10_000.0)
     x, y = _advance_loan_factors(ADVANCE, 200)
     payoff = _round2(10_000.0 * (1 - x))
-    result = repay_loan(cap, payoff + 50.0, ADVANCE, x, y)  # over-pay
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=payoff + 50.0, config=ADVANCE,
+        adv_reg_factor=x, adv_pref_factor=y,
+    ))  # over-pay
 
     assert result.loan_state.rg_loan_princ == pytest.approx(0.0, abs=0.01)
     assert result.applied_repayment == payoff  # capped at the payoff
@@ -166,7 +178,11 @@ def test_advance_repay_principal_rounded_to_whole_cents():
     # fraction the payoff (ROUND(...,2)) can't reach once the rest is repaid —
     # stranding debt and a negative surrender value (the S0503261 bug).
     cap = LoanState(rg_loan_princ=100.007)
-    result = repay_loan(cap, 0.0, ADVANCE, 0.05, 0.04, prem_to_loan_from_lumpsum=50.0)
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=0.0, config=ADVANCE,
+        adv_reg_factor=0.05, adv_pref_factor=0.04,
+        prem_to_loan_from_lumpsum=50.0,
+    ))
     p = result.loan_state.rg_loan_princ
     assert p == _round2(p)        # whole cents, no float-dust tail
     assert p == 47.38             # 100.007 - round2(50/0.95)=52.63
@@ -174,7 +190,10 @@ def test_advance_repay_principal_rounded_to_whole_cents():
 
 def test_arrears_repayment_reduces_buckets_by_cash_no_gross_up():
     cap = LoanState(rg_loan_princ=1_000.0, rg_loan_accrued=20.0)
-    result = repay_loan(cap, 100.0, ARREARS, 0.03, 0.02)
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=100.0, config=ARREARS,
+        adv_reg_factor=0.03, adv_pref_factor=0.02,
+    ))
 
     # Arrears: cash reduces accrued first, then principal — no gross-up.
     assert result.detail["TotalLoanReduction"] == 100.0

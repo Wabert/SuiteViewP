@@ -12,19 +12,28 @@ from PyQt6.QtWidgets import QApplication
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.lapse import (
-    default_issue_no_lapse_years, lapse_value_for_month,
+    default_issue_no_lapse_years,
+    lapse_value_for_month,
 )
 from suiteview.illustration.core.rate_loader import IllustrationRates
-from suiteview.illustration.core.report_builder import issue_output_basis, issue_output_conditions
+from suiteview.illustration.core.report_builder import (
+    issue_output_basis,
+    issue_output_conditions,
+)
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.target_premium import TargetPremiumResult
 from suiteview.illustration.models.input_set import (
-    IllustrationInputSet, IllustrationOptions, IssueOverrideSet,
-    ScheduledTransaction, TransactionKind,
+    IllustrationInputSet,
+    IllustrationOptions,
+    IssueOverrideSet,
+    ScheduledTransaction,
+    TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
-
+from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 
 _QT_APP = None
 
@@ -104,7 +113,7 @@ def test_billable_to_md_probe_uses_the_same_temporary_av_basis(engine_basis):
 def test_default_period_uses_plan_safety_net_and_does_not_modify_config(engine_basis):
     engine_basis.snet_period = 2
     policy, states = _project(None, months=25)
-    assert policy.issue_no_lapse_years == 2
+    assert policy.issue_no_lapse_years is None
     assert not states[24].lapsed and states[25].lapsed
     assert engine_basis.snet_period == 2 and engine_basis.lapse_value == "SV"
 

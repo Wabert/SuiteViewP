@@ -26,6 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
+from suiteview.illustration.constants import DAYS_PER_YEAR
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 
 
@@ -63,6 +64,28 @@ class LoanState:
             + self.pf_loan_princ + self.pf_loan_accrued
             + self.vbl_loan_princ + self.vbl_loan_accrued
         )
+
+
+@dataclass(frozen=True)
+class LoanStepInput:
+    """Inputs to a loan-processing step.
+
+    ``requested_amount`` is a new-loan request for ``apply_new_fixed_loan`` and
+    a cash repayment request for ``repay_loan``.  Premium-to-loan fields are the
+    RERUN MH/MI hand-off when premium is diverted before loading to AV.
+    """
+
+    loan: LoanState
+    requested_amount: float = 0.0
+    account_value: float = 0.0
+    premiums_to_date: float = 0.0
+    withdrawals_to_date: float = 0.0
+    max_loan: float | None = None
+    config: PlancodeConfig | None = None
+    adv_reg_factor: float = 0.0
+    adv_pref_factor: float = 0.0
+    prem_to_loan_from_lumpsum: float = 0.0
+    prem_to_loan_from_scheduled: float = 0.0
 
 
 def capitalize_loans(
@@ -167,10 +190,10 @@ def accrue_loan_interest(
         # Advance loans: no monthly accrual (interest prepaid)
         return loan
 
-    rg_interest = loan.rg_loan_princ * config.loan_charge_rate_guar * days_in_month / 365.0
-    pf_interest = loan.pf_loan_princ * config.pref_loan_charge_rate_guar * days_in_month / 365.0
+    rg_interest = loan.rg_loan_princ * config.loan_charge_rate_guar * days_in_month / DAYS_PER_YEAR
+    pf_interest = loan.pf_loan_princ * config.pref_loan_charge_rate_guar * days_in_month / DAYS_PER_YEAR
     vbl_rate = variable_loan_charge_rate if variable_loan_charge_rate is not None else 0.0
-    vbl_interest = loan.vbl_loan_princ * vbl_rate * days_in_month / 365.0
+    vbl_interest = loan.vbl_loan_princ * vbl_rate * days_in_month / DAYS_PER_YEAR
 
     return LoanState(
         rg_loan_princ=loan.rg_loan_princ,
@@ -185,14 +208,7 @@ def accrue_loan_interest(
     )
 
 
-def apply_new_fixed_loan(
-    loan: LoanState,
-    requested_amount: float,
-    account_value: float,
-    premiums_to_date: float,
-    withdrawals_to_date: float,
-    max_loan: float | None = None,
-) -> LoanState:
+def apply_new_fixed_loan(inputs: LoanStepInput) -> LoanState:
     """Allocate a new fixed-loan request between preferred and regular loans.
 
     Mirrors CalcEngine TR/TW/TX: the "gain" portion of the policy is taken as
@@ -210,6 +226,13 @@ def apply_new_fixed_loan(
     interest is not re-split here — it stays in its own bucket, matching the
     workbook (capitalization happens within-bucket before this step).
     """
+    loan = inputs.loan
+    requested_amount = inputs.requested_amount
+    account_value = inputs.account_value
+    premiums_to_date = inputs.premiums_to_date
+    withdrawals_to_date = inputs.withdrawals_to_date
+    max_loan = inputs.max_loan
+
     loan_amount = max(requested_amount, 0.0)
     if max_loan is not None:
         loan_amount = min(loan_amount, max(0.0, max_loan))
@@ -274,16 +297,7 @@ def loan_payoff(
     )
 
 
-def repay_loan(
-    cap_loan: LoanState,
-    requested_repayment: float,
-    config: PlancodeConfig | None,
-    adv_reg_factor: float,
-    adv_pref_factor: float,
-    *,
-    prem_to_loan_from_lumpsum: float = 0.0,
-    prem_to_loan_from_scheduled: float = 0.0,
-) -> LoanRepayResult:
+def repay_loan(inputs: LoanStepInput) -> LoanRepayResult:
     """Apply a loan repayment to the post-capitalization buckets.
 
     The total attempted repayment is the scheduled repayment input
@@ -307,6 +321,14 @@ def repay_loan(
     happens separately). ``applied_repayment`` is the total cash applied to the
     loan, capped at the payoff.
     """
+    cap_loan = inputs.loan
+    requested_repayment = inputs.requested_amount
+    config = inputs.config
+    adv_reg_factor = inputs.adv_reg_factor
+    adv_pref_factor = inputs.adv_pref_factor
+    prem_to_loan_from_lumpsum = inputs.prem_to_loan_from_lumpsum
+    prem_to_loan_from_scheduled = inputs.prem_to_loan_from_scheduled
+
     is_advance = config is not None and config.loan_type == "Advance"
     requested = max(requested_repayment, 0.0)                  # MN
     prem_lump = max(prem_to_loan_from_lumpsum, 0.0)            # MH

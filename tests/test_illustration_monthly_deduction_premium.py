@@ -90,7 +90,10 @@ def test_levelized_guideline_cap_allows_midyear_gep_before_room_is_spent(
     levelized_guideline_policy, timing, first_month, maturity_solve,
 ):
     from dateutil.relativedelta import relativedelta
-    from suiteview.illustration.core.solve_level_to_exception import level_to_exception_options
+
+    from suiteview.illustration.core.solve_level_to_exception import (
+        level_to_exception_options,
+    )
 
     policy, _, rates = levelized_guideline_policy
     if first_month != 1:
@@ -171,15 +174,15 @@ def test_spent_guideline_room_triggers_exception_without_annual_flag(
     policy = _md_policy()
     policy.def_of_life_ins = doli
     policy.ccv_active = shadow
-    result = calc_engine._compute_exception_premium(
-        IllustrationOptions(allow_exception_prems=allow),
-        policy, PlancodeConfig(maturity_age=121), _rates(), 1,
+    result = calc_engine._compute_exception_premium(calc_engine.ExceptionPremiumInput(
+        options=IllustrationOptions(allow_exception_prems=allow),
+        policy=policy, config=PlancodeConfig(maturity_age=121), rates=_rates(), rate_year=1,
         av_after_charge=-100.0, coi_rate=6.0,
         guideline_limit_reached=False, past_snet=past_snet,
         prior_exception_mode=False, prior_lapsed=lapsed, attained_age=age,
         guideline_limit=1_000.0, premiums_to_date=1_100.0 - room,
         withdrawals_to_date=100.0, guideline_cap_enabled=cap_enabled,
-    )
+    ))
     assert (result.prem > 0) == pays
     assert result.md_prem == 0
     assert result.av_after_exception == pytest.approx(0 if pays else -100.0)
@@ -189,7 +192,10 @@ def test_spent_guideline_room_triggers_exception_without_annual_flag(
 @pytest.mark.parametrize("md_premium", [False, True])
 def test_zero_glp_starts_exception_period_and_spends_av_first(monkeypatch, timing, md_premium):
     from suiteview.illustration.models.input_set import (
-        DatedTransaction, IllustrationInputSet, ScheduledTransaction, TransactionKind,
+        DatedTransaction,
+        IllustrationInputSet,
+        ScheduledTransaction,
+        TransactionKind,
     )
     _patch(monkeypatch)
     policy = _md_policy()
@@ -242,7 +248,10 @@ def test_starting_exception_classification(doli, glp, known, from_issue, expecte
 
 
 def test_guaranteed_projection_retains_locked_exception_premiums(monkeypatch):
-    from suiteview.illustration.core.guaranteed_projection import guaranteed_options, lock_values
+    from suiteview.illustration.core.guaranteed_projection import (
+        guaranteed_options,
+        lock_values,
+    )
     _patch(monkeypatch)
     policy = _md_policy()
     policy.glp = 0.0
@@ -284,11 +293,12 @@ def test_starting_exception_preserves_shadow_and_safety_net_gates(has_shadow, pa
     policy = _md_policy()
     policy.glp = 0.0
     policy.ccv_active = has_shadow
-    result = calc_engine._compute_exception_premium(
-        IllustrationOptions(), policy, PlancodeConfig(), _rates(), 1,
+    result = calc_engine._compute_exception_premium(calc_engine.ExceptionPremiumInput(
+        options=IllustrationOptions(), policy=policy, config=PlancodeConfig(),
+        rates=_rates(), rate_year=1,
         av_after_charge=-100.0, coi_rate=6.0,
         guideline_limit_reached=False, past_snet=past_snet,
-        prior_exception_mode=True, prior_lapsed=False, attained_age=70)
+        prior_exception_mode=True, prior_lapsed=False, attained_age=70))
     assert result.prem == 0
     assert result.av_after_exception == -100.0
 
@@ -386,11 +396,11 @@ def test_gp_exception_premium_includes_flat_load_for_1u135100():
     assert config.prem_flat_load == 1.65
     rates = IllustrationRates(tpp=[0.0, 0.10])
 
-    result = calc_engine._compute_exception_premium(
-        IllustrationOptions(allow_exception_prems=True),
-        _md_policy(),
-        config,
-        rates,
+    result = calc_engine._compute_exception_premium(calc_engine.ExceptionPremiumInput(
+        options=IllustrationOptions(allow_exception_prems=True),
+        policy=_md_policy(),
+        config=config,
+        rates=rates,
         rate_year=1,
         av_after_charge=-100.0,
         coi_rate=0.0,
@@ -399,7 +409,7 @@ def test_gp_exception_premium_includes_flat_load_for_1u135100():
         prior_exception_mode=False,
         prior_lapsed=False,
         attained_age=70,
-    )
+    ))
 
     # Net premium is exactly the $100 shortfall after both the 10% load and
     # 1U135100's $1.65 flat load.

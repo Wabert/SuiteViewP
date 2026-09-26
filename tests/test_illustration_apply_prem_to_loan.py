@@ -13,10 +13,17 @@ checkbox → IllustrationOptions wiring lives in ``test_illustration_run_control
 import pytest
 
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
-from suiteview.illustration.core.loan_handler import LoanState, loan_payoff, repay_loan
-from suiteview.illustration.core.premium_allowance import compute_premium_allowances
+from suiteview.illustration.core.loan_handler import (
+    LoanState,
+    LoanStepInput,
+    loan_payoff,
+    repay_loan,
+)
+from suiteview.illustration.core.premium_allowance import (
+    PremiumAllowanceInput,
+    compute_premium_allowances,
+)
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-
 
 ARREARS = PlancodeConfig(loan_type="Arrears", loan_charge_rate_guar=0.06,
                          pref_loan_charge_rate_guar=0.05)
@@ -48,10 +55,11 @@ def test_repay_loan_records_diverted_premium_and_reduces_the_loan():
     # repay_loan takes MH/MI as already capped (the caller bounds them at the
     # payoff) and folds them into the total repayment (MK, then MO = MK + MN).
     cap = LoanState(rg_loan_princ=500.0)
-    result = repay_loan(
-        cap, 0.0, ARREARS, 0.0, 0.0,
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=0.0, config=ARREARS,
+        adv_reg_factor=0.0, adv_pref_factor=0.0,
         prem_to_loan_from_lumpsum=300.0, prem_to_loan_from_scheduled=100.0,
-    )
+    ))
     detail = result.detail
     assert detail["Arrears - From Lumpsum"] == 300.0           # MH
     assert detail["Arrears - From Scheduled Prem"] == 100.0    # MI
@@ -67,9 +75,11 @@ def test_repay_loan_records_diverted_premium_and_reduces_the_loan():
 def test_repay_loan_combines_scheduled_repayment_with_premium_diversion():
     # MN (scheduled repayment input) and MH stack into MO and reduce the loan.
     cap = LoanState(rg_loan_princ=1_000.0)
-    result = repay_loan(
-        cap, 200.0, ARREARS, 0.0, 0.0, prem_to_loan_from_lumpsum=300.0,
-    )
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=200.0, config=ARREARS,
+        adv_reg_factor=0.0, adv_pref_factor=0.0,
+        prem_to_loan_from_lumpsum=300.0,
+    ))
     assert result.detail["Arrears - Requested Loan Repayment"] == 200.0   # MN
     assert result.detail["Arrears - From Lumpsum"] == 300.0               # MH
     assert result.detail["Arrears - Total Loan Repayment Attempted"] == 500.0  # MO
@@ -80,9 +90,11 @@ def test_repay_loan_premium_diversion_works_on_advance_loans():
     cap = LoanState(rg_loan_princ=10_000.0)
     x, y = 0.05, 0.04
     payoff = _round2(10_000.0 * (1 - x))
-    result = repay_loan(
-        cap, 0.0, ADVANCE, x, y, prem_to_loan_from_lumpsum=100.0,
-    )
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=0.0, config=ADVANCE,
+        adv_reg_factor=x, adv_pref_factor=y,
+        prem_to_loan_from_lumpsum=100.0,
+    ))
     assert result.detail["Arrears - From Lumpsum"] == 100.0
     # Advance loans reduce principal by the grossed-up amount, not the cash.
     assert result.loan_state.rg_loan_princ == pytest.approx(10_000.0 - _round2(100.0 / (1 - x)))
@@ -143,7 +155,7 @@ def _alw(**overrides):
         prior_scheduled_prem_cap=0.0,
     )
     kwargs.update(overrides)
-    return compute_premium_allowances(**kwargs)
+    return compute_premium_allowances(PremiumAllowanceInput(**kwargs))
 
 
 def test_diverted_premium_only_loads_the_remainder_onto_av():

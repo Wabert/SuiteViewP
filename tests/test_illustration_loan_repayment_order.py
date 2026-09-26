@@ -7,15 +7,25 @@ import pytest
 
 from suiteview.illustration.core import calc_engine, guaranteed_projection
 from suiteview.illustration.core.bonus_rates import BonusConfig
-from suiteview.illustration.core.loan_handler import LoanState, repay_loan
+from suiteview.illustration.core.loan_handler import (
+    LoanState,
+    LoanStepInput,
+    repay_loan,
+)
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.core.solve_loan_payoff import solve_loan_payoff
 from suiteview.illustration.core.target_premium import TargetPremiumResult
 from suiteview.illustration.models.input_set import (
-    DatedTransaction, IllustrationInputSet, IllustrationOptions, TransactionKind,
+    DatedTransaction,
+    IllustrationInputSet,
+    IllustrationOptions,
+    TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 
 
 def _buckets(loan):
@@ -56,10 +66,11 @@ def test_repayment_priority_at_every_bucket_boundary(amount, expected, source):
         "scheduled": (0, 0, amount),
         "mixed": (amount / 2, amount / 4, amount / 4),
     }[source]
-    result = repay_loan(
-        cap, requested, PlancodeConfig(loan_type="Arrears"), 0, 0,
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=requested, config=PlancodeConfig(loan_type="Arrears"),
+        adv_reg_factor=0, adv_pref_factor=0,
         prem_to_loan_from_lumpsum=lump, prem_to_loan_from_scheduled=scheduled,
-    )
+    ))
     assert _buckets(result.loan_state) == expected
     assert result.applied_repayment == min(amount, 205)
     assert result.detail["LNRepayLeftOver"] == max(0, amount - 205)

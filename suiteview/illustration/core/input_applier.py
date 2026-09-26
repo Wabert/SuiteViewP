@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from suiteview.illustration.core.input_compiler import CompiledMonthInputs
-from suiteview.illustration.core.loan_handler import LoanState, loan_payoff, repay_loan
+from suiteview.illustration.core.loan_handler import (
+    LoanState,
+    LoanStepInput,
+    loan_payoff,
+    repay_loan,
+)
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 
 
@@ -85,11 +90,15 @@ def apply_cash_flow_inputs(
             max(payoff - prem_to_loan_from_lumpsum, 0.0), max(requested_scheduled, 0.0)
         )                                                                         # MI
 
-    result = repay_loan(
-        cap_loan, requested_repayment, config, adv_reg_factor, adv_pref_factor,
+    result = repay_loan(LoanStepInput(
+        loan=cap_loan,
+        requested_amount=requested_repayment,
+        config=config,
+        adv_reg_factor=adv_reg_factor,
+        adv_pref_factor=adv_pref_factor,
         prem_to_loan_from_lumpsum=prem_to_loan_from_lumpsum,
         prem_to_loan_from_scheduled=prem_to_loan_from_scheduled,
-    )
+    ))
     leftover = float((result.detail or {}).get("LNRepayLeftOver", 0.0))           # MY
 
     return CashFlowApplication(

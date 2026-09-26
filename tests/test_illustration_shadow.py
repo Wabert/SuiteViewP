@@ -1,10 +1,14 @@
 from types import SimpleNamespace
 
 from suiteview.illustration.core.calc_engine import _shadow_rider_charges_from_deduction
-from suiteview.illustration.core.shadow_calc import calculate_shadow
-from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import BenefitInfo, CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.core.rate_loader import IllustrationRates
+from suiteview.illustration.core.shadow_calc import ShadowInput, calculate_shadow
+from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.policy_data import (
+    BenefitInfo,
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 
 
 def test_shadow_rider_charges_use_regular_charges_less_ccv():
@@ -37,7 +41,7 @@ def test_shadow_calculation_applies_regular_rider_charges():
         shadow_int_rate_code="0",
     )
 
-    result = calculate_shadow(
+    result = calculate_shadow(ShadowInput(
         prev_shadow_eav=100.0,
         gross_premium=0.0,
         premiums_ytd=0.0,
@@ -49,7 +53,7 @@ def test_shadow_calculation_applies_regular_rider_charges():
         days_in_month=30,
         policy_debt=0.0,
         shadow_rider_charges=7.5,
-    )
+    ))
 
     assert result.shadow_rider_charges == 7.5
     assert result.shadow_md == 9.5

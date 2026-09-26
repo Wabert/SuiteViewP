@@ -8,6 +8,7 @@ import calendar
 from dataclasses import dataclass
 from datetime import date
 
+from suiteview.illustration.constants import DAYS_PER_YEAR, MONTHS_PER_YEAR
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -87,17 +88,17 @@ def credit_interest(
     # ── 3.3.3 Monthly rate calculation ────────────────────────
     actual_days = _days_in_month(month_date)
     use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
-    display_days = float(actual_days) if use_exact_days else 365.0 / 12.0
+    display_days = float(actual_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
 
     if use_exact_days:
         # Exact-days: credit interest on the ACTUAL calendar days in the month
         # (matches CyberLife / RERUN, and the shadow side, which already use
         # days/365). Previously this used a fixed 365/12 exponent and ignored the
         # real day count, drifting ~0.3/mo vs RERUN on 28/31-day months.
-        monthly_rate = (1.0 + effective_annual_rate) ** (actual_days / 365.0) - 1.0
+        monthly_rate = (1.0 + effective_annual_rate) ** (actual_days / DAYS_PER_YEAR) - 1.0
     else:
         # Monthly compounding
-        monthly_rate = (1.0 + effective_annual_rate) ** (1.0 / 12.0) - 1.0
+        monthly_rate = (1.0 + effective_annual_rate) ** (1.0 / MONTHS_PER_YEAR) - 1.0
 
     # ── 3.3.4 Interest on AV (split free / loaned) ─────────
     total_loaned = reg_loan_balance + pref_loan_balance
@@ -124,11 +125,11 @@ def credit_interest(
             pref_loaned_av = 0.0
 
         if use_exact_days:
-            reg_credit_monthly = (1.0 + reg_credit_annual) ** (actual_days / 365.0) - 1.0
-            pref_credit_monthly = (1.0 + pref_credit_annual) ** (actual_days / 365.0) - 1.0
+            reg_credit_monthly = (1.0 + reg_credit_annual) ** (actual_days / DAYS_PER_YEAR) - 1.0
+            pref_credit_monthly = (1.0 + pref_credit_annual) ** (actual_days / DAYS_PER_YEAR) - 1.0
         else:
-            reg_credit_monthly = (1.0 + reg_credit_annual) ** (1.0 / 12.0) - 1.0
-            pref_credit_monthly = (1.0 + pref_credit_annual) ** (1.0 / 12.0) - 1.0
+            reg_credit_monthly = (1.0 + reg_credit_annual) ** (1.0 / MONTHS_PER_YEAR) - 1.0
+            pref_credit_monthly = (1.0 + pref_credit_annual) ** (1.0 / MONTHS_PER_YEAR) - 1.0
 
         reg_impaired_int = reg_loaned_av * reg_credit_monthly
         pref_impaired_int = pref_loaned_av * pref_credit_monthly

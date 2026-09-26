@@ -1,5 +1,9 @@
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.illustration_policy_service import _translate_doli
+from suiteview.illustration.core.premium_allowance import (
+    PremiumAllowanceInput,
+    compute_premium_allowances,
+)
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.input_set import IllustrationOptions
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -26,17 +30,27 @@ def test_blank_definition_of_life_disables_guideline_and_tamra_caps():
 
     # Premiums far past the guideline limit and the 7-pay level, but with no
     # defined life insurance neither the GP nor the TAMRA side may bind.
-    allowances = calc_engine._premium_allowances(
-        IllustrationOptions(),
-        policy,
+    options = IllustrationOptions()
+    allowances = compute_premium_allowances(PremiumAllowanceInput(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=options.guideline_cap_enabled,
+        tamra_force=(
+            options.tamra_cap_enabled
+            and policy.has_defined_life_insurance
+            and policy.tamra_7pay_level > 0
+        ),
+        mec_bypass=policy.is_mec,
         guideline_limit=0.0,
-        premiums_to_date=5_000.0,
-        withdrawals_before_forceout=0.0,
+        prem_less_wd=5_000.0,
         force_out=0.0,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
         amount_in_7pay=5_000.0,
         tamra_year=1,
         tamra_month_of_year=1,
         policy_month=1,
+        npt_premium=0.0,
         tamra_reset=False,
         requested_scheduled=600.0,
         requested_lumpsum=0.0,
@@ -44,8 +58,13 @@ def test_blank_definition_of_life_disables_guideline_and_tamra_caps():
         payment_count_tamra_year=12,
         has_loan_balance=False,
         beginning_of_year=True,
+        policy_anniversary=True,
         prior_scheduled_prem_cap=0.0,
-    )
+        levelizing_premium=options.levelizing_premium,
+        loan_repay_from_lumpsum=0.0,
+        loan_repay_from_scheduled=0.0,
+        ln_repay_left_over=0.0,
+    ))
 
     assert policy.has_defined_life_insurance is False
     # No cap binds -> the full requested premium is accepted.

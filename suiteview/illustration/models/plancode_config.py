@@ -6,6 +6,12 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, Optional
 
+from suiteview.illustration.constants import (
+    LAPSE_BASIS_SURRENDER_VALUE,
+    RATE_CODE_TABLE,
+    SA_BASIS_CURRENT,
+    SA_BASIS_ORIGINAL,
+)
 
 _PLANCODE_DIR = Path(__file__).resolve().parent.parent / "plancodes"
 _PLANCODE_TABLE_PATH = _PLANCODE_DIR / "plancode_table.json"
@@ -32,11 +38,11 @@ class PlancodeConfig:
     age_calc: str = ""
 
     # Premium loading
-    premium_load: str = "Table"         # "Table" or flat rate (e.g., "0.05")
+    premium_load: str = RATE_CODE_TABLE  # "Table" or flat rate (e.g., "0.05")
     prem_flat_load: float = 0.0         # Flat $ per premium
 
     # EPU
-    epu_code: str = "Table"             # "Table" or flat rate
+    epu_code: str = RATE_CODE_TABLE      # "Table" or flat rate
 
     # Monthly fee
     mfee: str = "5"                     # "Table" or flat $ (e.g., "5")
@@ -46,7 +52,7 @@ class PlancodeConfig:
     poav_table: str = "0"               # Local PoAV table code "1"-"3"; "0" = none
 
     # Bonus interest
-    bonus: str = "Table"                # "Table" or "0" (none)
+    bonus: str = RATE_CODE_TABLE         # "Table" or "0" (none)
     dbd: float = 0.0
     gint: float = 0.0
 
@@ -80,11 +86,11 @@ class PlancodeConfig:
     # Maturity
     premium_cease_age: int = 121
     maturity_age: int = 121
-    mature_endow_value: str = "SV"
+    mature_endow_value: str = LAPSE_BASIS_SURRENDER_VALUE
 
     # Safety Net / Lapse
     snet_period: int = 10             # Safety net period in years from issue
-    lapse_value: str = "SV"           # "SV" = surrender value, "AV" = AV-loans (MLUL)
+    lapse_value: str = LAPSE_BASIS_SURRENDER_VALUE  # "SV" = surrender value, "AV" = AV-loans (MLUL)
 
     # Dynamic banding
     dynamic_banding: int = 3            # 0 = none, 1 = issue band, 2 = current band, 3 = higher of
@@ -103,10 +109,10 @@ class PlancodeConfig:
     # CTP, COI, EPU and premium-load bands remain current (SCR is unbanded).
     # CurrentSA plans assess partial surrender charges on withdrawals and
     # specified-amount decreases; OriginalSA plans do not.
-    sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
+    sa_basis: str = SA_BASIS_CURRENT  # "CurrentSA" or "OriginalSA"
 
     def __post_init__(self) -> None:
-        if self.sa_basis not in ("CurrentSA", "OriginalSA"):
+        if self.sa_basis not in (SA_BASIS_CURRENT, SA_BASIS_ORIGINAL):
             raise ValueError(f"{self.plancode}: invalid SA_Basis {self.sa_basis!r}")
 
     @property
@@ -116,7 +122,7 @@ class PlancodeConfig:
         Specified-amount decreases additionally honor the policy's Decrease
         Charge Rule (``IllustrationPolicyData.decrease_charge_allowed``).
         """
-        return self.sa_basis == "CurrentSA"
+        return self.sa_basis == SA_BASIS_CURRENT
 
     # Loans
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
@@ -215,13 +221,13 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         int_calc_method=data.get("IntCalcMethod", "Declared"),
         interest_method=data.get("Interest_Method", data.get("InterestMethod", "ExactDays")),
         age_calc=data.get("AgeCalc", ""),
-        premium_load=data.get("PremiumLoad", "Table"),
+        premium_load=data.get("PremiumLoad", RATE_CODE_TABLE),
         prem_flat_load=float(data.get("PremFlatLoad", 0)),
-        epu_code=data.get("EPU_Code", "Table"),
+        epu_code=data.get("EPU_Code", RATE_CODE_TABLE),
         mfee=str(data.get("MFEE", "5")),
         poav_code=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),
         poav_table=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),
-        bonus=data.get("Bonus", "Table"),
+        bonus=data.get("Bonus", RATE_CODE_TABLE),
         dbd=float(data.get("DBD", 0)),
         gint=float(data.get("GINT", data.get("DBD", 0))),
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
@@ -233,9 +239,12 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         corridor_code=int(data.get("CorridorCode", 1)),
         premium_cease_age=int(data.get("PremiumCeaseAge", 121)),
         maturity_age=int(data.get("MaturityAge", 121)),
-        mature_endow_value=data.get("MatureEndowValue", "SV"),
+        mature_endow_value=data.get("MatureEndowValue", LAPSE_BASIS_SURRENDER_VALUE),
         snet_period=_int_or_default(data.get("SafetyNetPeriod", 10), 0),
-        lapse_value=data.get("LapseTarget", data.get("LapseValue", "SV")),
+        lapse_value=data.get(
+            "LapseTarget",
+            data.get("LapseValue", LAPSE_BASIS_SURRENDER_VALUE),
+        ),
         dynamic_banding=int(data.get("DynamicBanding", 3)),
         rachet_banding=bool(data.get("Rachet_Banding", False)),
         band_table2_issue_date=_date_or_none(data.get("BandTable2IssueDate")),

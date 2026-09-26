@@ -11,9 +11,10 @@ from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.iul_crediting import (
+    IULCreditingContext,
+    TavInput,
     build_iul_context,
     cap_wair,
-    IULCreditingContext,
     monthly_asset_charge,
     project_tav,
     variable_loan_accrual_rate,
@@ -217,7 +218,7 @@ def test_variable_loan_rate_spread_choose():
 def test_tav_projection_premium_capped_by_annual_room():
     # UU = 1000×12; UV = 12500; no repay; VE = MIN(12500, NK=8000);
     # VF = 50000 + 8000×(1−0.06) = 57520.
-    tav = project_tav(
+    tav = project_tav(TavInput(
         begin_av=50_000.0, planned_premium=1_000.0, payments_per_year=12,
         lumpsum=500.0, policy_month=1,
         fixed_ln_principal=0.0, fixed_ln_accrued=0.0,
@@ -225,7 +226,7 @@ def test_tav_projection_premium_capped_by_annual_room():
         reg_loan_charge_rate=0.05, vbl_loan_rate=0.06,
         apply_prem_to_loan=False, is_cvat=False,
         annual_cap=8_000.0, premium_load=0.06,
-    )
+    ))
     assert tav.forecast_premium == pytest.approx(12_500.0)
     assert tav.loan_repayment == 0.0
     assert tav.capped_premium == pytest.approx(8_000.0)
@@ -234,7 +235,7 @@ def test_tav_projection_premium_capped_by_annual_room():
 
 
 def test_tav_projection_cvat_skips_the_cap():
-    tav = project_tav(
+    tav = project_tav(TavInput(
         begin_av=50_000.0, planned_premium=1_000.0, payments_per_year=12,
         lumpsum=500.0, policy_month=1,
         fixed_ln_principal=0.0, fixed_ln_accrued=0.0,
@@ -242,7 +243,7 @@ def test_tav_projection_cvat_skips_the_cap():
         reg_loan_charge_rate=0.05, vbl_loan_rate=0.06,
         apply_prem_to_loan=False, is_cvat=True,
         annual_cap=8_000.0, premium_load=0.0,
-    )
+    ))
     assert tav.capped_premium == pytest.approx(12_500.0)
     assert tav.tav == pytest.approx(62_500.0)
 
@@ -250,7 +251,7 @@ def test_tav_projection_cvat_skips_the_cap():
 def test_tav_projection_apply_prem_to_loan_diverts_premium():
     # VA = 10000×(1+0.05×1) + 100 = 10600; VB = 5000×(1+0.06×1) + 50 = 5350;
     # VC = MIN(12500, 15950) = 12500 → VD = 0 → VF = begin AV.
-    tav = project_tav(
+    tav = project_tav(TavInput(
         begin_av=50_000.0, planned_premium=1_000.0, payments_per_year=12,
         lumpsum=500.0, policy_month=1,
         fixed_ln_principal=10_000.0, fixed_ln_accrued=100.0,
@@ -258,7 +259,7 @@ def test_tav_projection_apply_prem_to_loan_diverts_premium():
         reg_loan_charge_rate=0.05, vbl_loan_rate=0.06,
         apply_prem_to_loan=True, is_cvat=False,
         annual_cap=999_999_999.0, premium_load=0.06,
-    )
+    ))
     assert tav.loan_repayment == pytest.approx(12_500.0)
     assert tav.capped_premium == 0.0
     assert tav.tav == pytest.approx(50_000.0)
@@ -266,7 +267,7 @@ def test_tav_projection_apply_prem_to_loan_diverts_premium():
 
 def test_tav_projection_mid_year_loan_interest_fraction():
     # (13 − month)/12 at month 7 → half a year of loan interest.
-    tav = project_tav(
+    tav = project_tav(TavInput(
         begin_av=0.0, planned_premium=0.0, payments_per_year=0,
         lumpsum=20_000.0, policy_month=7,
         fixed_ln_principal=10_000.0, fixed_ln_accrued=0.0,
@@ -274,14 +275,14 @@ def test_tav_projection_mid_year_loan_interest_fraction():
         reg_loan_charge_rate=0.05, vbl_loan_rate=0.06,
         apply_prem_to_loan=True, is_cvat=False,
         annual_cap=999_999_999.0, premium_load=0.0,
-    )
+    ))
     # VA = 10000×(1 + 0.05×0.5) = 10250 → VC = MIN(20000, 10250) = 10250.
     assert tav.loan_repayment == pytest.approx(10_250.0)
     assert tav.capped_premium == pytest.approx(9_750.0)
 
 
 def test_tav_display_floors_at_zero():
-    tav = project_tav(
+    tav = project_tav(TavInput(
         begin_av=-500.0, planned_premium=0.0, payments_per_year=0,
         lumpsum=0.0, policy_month=1,
         fixed_ln_principal=0.0, fixed_ln_accrued=0.0,
@@ -289,7 +290,7 @@ def test_tav_display_floors_at_zero():
         reg_loan_charge_rate=0.05, vbl_loan_rate=0.06,
         apply_prem_to_loan=False, is_cvat=False,
         annual_cap=0.0, premium_load=0.0,
-    )
+    ))
     assert tav.tav == pytest.approx(-500.0)
     assert tav.tav_display == 0.0
 
@@ -354,6 +355,7 @@ def _project(policy, options, monkeypatch, months=13, config=None):
 @pytest.mark.parametrize("guaranteed", [False, True])
 def test_rollback_iul_projects_total_av_without_historical_buckets(monkeypatch, wair, guaranteed):
     from copy import deepcopy
+
     from suiteview.illustration.core.scenario_builder import build_illustration_scenario
     from suiteview.illustration.models.input_set import RollbackOverrideSet
     from suiteview.illustration.models.policy_data import ValueRollbackSnapshot

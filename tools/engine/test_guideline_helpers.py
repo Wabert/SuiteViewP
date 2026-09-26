@@ -11,14 +11,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.illustration.core.calc_engine import (
+    ExceptionPremiumInput,
     _accumulate_guideline_premium,
     _apply_guideline_forceout,
     _compute_exception_premium,
     _guideline_limit_reached,
-    _premium_allowances,
-    _tamra_year,
 )
-from suiteview.illustration.core.loan_handler import LoanState, apply_new_fixed_loan
+from suiteview.illustration.core.loan_handler import (
+    LoanState,
+    LoanStepInput,
+    apply_new_fixed_loan,
+)
+from suiteview.illustration.core.premium_allowance import (
+    PremiumAllowanceInput,
+    compute_premium_allowances,
+)
 from suiteview.illustration.core.premium_handler import apply_premium
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -82,16 +89,27 @@ print("Guideline / TAMRA premium cap (NC..NZ)")
 
 def _applied(policy, opts=None, *, prem_td=0.0, amount_in_7pay=0.0, tamra_year=1,
              requested=999_999.0):
-    a = _premium_allowances(
-        opts or IllustrationOptions(), policy,
+    opts = opts or IllustrationOptions()
+    a = compute_premium_allowances(PremiumAllowanceInput(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=opts.guideline_cap_enabled,
+        tamra_force=(
+            opts.tamra_cap_enabled
+            and policy.has_defined_life_insurance
+            and policy.tamra_7pay_level > 0
+        ),
+        mec_bypass=policy.is_mec,
         guideline_limit=GSP,
-        premiums_to_date=prem_td,
-        withdrawals_before_forceout=0.0,
+        prem_less_wd=prem_td,
         force_out=0.0,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
         amount_in_7pay=amount_in_7pay,
         tamra_year=tamra_year,
         tamra_month_of_year=1,
         policy_month=1,
+        npt_premium=0.0,
         tamra_reset=False,
         requested_scheduled=requested,
         requested_lumpsum=0.0,
@@ -99,8 +117,13 @@ def _applied(policy, opts=None, *, prem_td=0.0, amount_in_7pay=0.0, tamra_year=1
         payment_count_tamra_year=12,
         has_loan_balance=False,
         beginning_of_year=True,
+        policy_anniversary=True,
+        levelizing_premium=opts.levelizing_premium,
+        loan_repay_from_lumpsum=0.0,
+        loan_repay_from_scheduled=0.0,
+        ln_repay_left_over=0.0,
         prior_scheduled_prem_cap=0.0,
-    )
+    ))
     return a.applied_total_premium
 
 
@@ -139,16 +162,27 @@ print("Guideline limit reached (SX)")
 
 def _sx(policy, opts=None, *, prem_td=0.0, requested=999_999.0, attained_age=70,
         beginning_of_year=True, prior=False):
-    a = _premium_allowances(
-        opts or IllustrationOptions(), policy,
+    opts = opts or IllustrationOptions()
+    a = compute_premium_allowances(PremiumAllowanceInput(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=opts.guideline_cap_enabled,
+        tamra_force=(
+            opts.tamra_cap_enabled
+            and policy.has_defined_life_insurance
+            and policy.tamra_7pay_level > 0
+        ),
+        mec_bypass=policy.is_mec,
         guideline_limit=GSP,
-        premiums_to_date=prem_td,
-        withdrawals_before_forceout=0.0,
+        prem_less_wd=prem_td,
         force_out=0.0,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
         amount_in_7pay=0.0,
         tamra_year=1,
         tamra_month_of_year=1,
         policy_month=1,
+        npt_premium=0.0,
         tamra_reset=False,
         requested_scheduled=requested,
         requested_lumpsum=0.0,
@@ -156,8 +190,13 @@ def _sx(policy, opts=None, *, prem_td=0.0, requested=999_999.0, attained_age=70,
         payment_count_tamra_year=12,
         has_loan_balance=False,
         beginning_of_year=True,
+        policy_anniversary=True,
+        levelizing_premium=opts.levelizing_premium,
+        loan_repay_from_lumpsum=0.0,
+        loan_repay_from_scheduled=0.0,
+        ln_repay_left_over=0.0,
         prior_scheduled_prem_cap=0.0,
-    )
+    ))
     return _guideline_limit_reached(
         CONFIG, a, attained_age=attained_age,
         beginning_of_year=beginning_of_year, prior_limit_reached=prior,
@@ -180,33 +219,38 @@ print("GP exception premium")
 exc_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900",
                                  def_of_life_ins="GPT", ccv_active=False)
 on = IllustrationOptions(allow_exception_prems=True)
-e = _compute_exception_premium(on, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
-                               coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
-                               prior_exception_mode=False, prior_lapsed=False, attained_age=70)
+e = _compute_exception_premium(ExceptionPremiumInput(
+    on, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
+    coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
+    prior_exception_mode=False, prior_lapsed=False, attained_age=70))
 check("exception mode triggers", e.mode)
 check("exception gross covers shortfall", approx(e.gross, 50.0))
 check("exception brings AV to ~0", approx(e.av_after_exception, 0.0))
 check("grossed-up premium > shortfall (loads)", e.prem > 50.0)
-e2 = _compute_exception_premium(on, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
-                                coi_rate=0.05, guideline_limit_reached=True, past_snet=False,
-                                prior_exception_mode=False, prior_lapsed=False, attained_age=70)
+e2 = _compute_exception_premium(ExceptionPremiumInput(
+    on, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
+    coi_rate=0.05, guideline_limit_reached=True, past_snet=False,
+    prior_exception_mode=False, prior_lapsed=False, attained_age=70))
 # SY flips on even inside the safety net; SZ withholds the premium, so the AV
 # stays negative until the no-lapse period ends.
 check("inside safety-net: mode on but premium withheld",
       e2.mode and approx(e2.av_after_exception, -50.0))
 off = IllustrationOptions(allow_exception_prems=False)
-e3 = _compute_exception_premium(off, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
-                                coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
-                                prior_exception_mode=False, prior_lapsed=False, attained_age=70)
+e3 = _compute_exception_premium(ExceptionPremiumInput(
+    off, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
+    coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
+    prior_exception_mode=False, prior_lapsed=False, attained_age=70))
 check("toggle off -> no exception", not e3.mode)
-e4 = _compute_exception_premium(on, exc_pol, CONFIG, RATES, 1, av_after_charge=25.0,
-                                coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
-                                prior_exception_mode=True, prior_lapsed=False, attained_age=70)
+e4 = _compute_exception_premium(ExceptionPremiumInput(
+    on, exc_pol, CONFIG, RATES, 1, av_after_charge=25.0,
+    coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
+    prior_exception_mode=True, prior_lapsed=False, attained_age=70))
 check("mode latches; positive AV -> no premium", e4.mode and approx(e4.prem, 0.0))
 shadow_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900", ccv_active=True)
-e5 = _compute_exception_premium(on, shadow_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
-                                coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
-                                prior_exception_mode=False, prior_lapsed=False, attained_age=70)
+e5 = _compute_exception_premium(ExceptionPremiumInput(
+    on, shadow_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
+    coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
+    prior_exception_mode=False, prior_lapsed=False, attained_age=70))
 # A CCV/shadow policy never charges the exception premium (SZ=0), but SY still
 # flips — the mode flag does not gate on CCV.
 check("CCV active -> mode on but premium withheld",
@@ -214,11 +258,17 @@ check("CCV active -> mode on but premium withheld",
 
 # ── New fixed loan split (TR/TW/TX) ───────────────────────────────────
 print("New fixed loan gain split")
-l1 = apply_new_fixed_loan(LoanState(), 1000.0, 5000.0, 3000.0, 0.0)
+l1 = apply_new_fixed_loan(LoanStepInput(
+    LoanState(), requested_amount=1000.0, account_value=5000.0,
+    premiums_to_date=3000.0, withdrawals_to_date=0.0))
 check("full loan preferred when gain covers it", approx(l1.pf_loan_princ, 1000.0) and approx(l1.rg_loan_princ, 0.0))
-l2 = apply_new_fixed_loan(LoanState(), 1000.0, 3500.0, 3000.0, 0.0)
+l2 = apply_new_fixed_loan(LoanStepInput(
+    LoanState(), requested_amount=1000.0, account_value=3500.0,
+    premiums_to_date=3000.0, withdrawals_to_date=0.0))
 check("split at the gain boundary", approx(l2.pf_loan_princ, 500.0) and approx(l2.rg_loan_princ, 500.0))
-l3 = apply_new_fixed_loan(LoanState(), 1000.0, 2000.0, 3000.0, 0.0)
+l3 = apply_new_fixed_loan(LoanStepInput(
+    LoanState(), requested_amount=1000.0, account_value=2000.0,
+    premiums_to_date=3000.0, withdrawals_to_date=0.0))
 check("no gain -> all regular", approx(l3.pf_loan_princ, 0.0) and approx(l3.rg_loan_princ, 1000.0))
 
 print(f"\nALL {passed} CHECKS PASSED")

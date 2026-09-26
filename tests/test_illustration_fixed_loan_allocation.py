@@ -1,5 +1,5 @@
-from decimal import Decimal
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -10,13 +10,17 @@ from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import CompiledMonthInputs
 from suiteview.illustration.core.loan_handler import (
     LoanState,
+    LoanStepInput,
     accrue_loan_interest,
     apply_new_fixed_loan,
 )
 from suiteview.illustration.core.rate_loader import IllustrationRates
-from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.input_set import IllustrationOptions
-from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.policy_data import (
+    CoverageSegment,
+    IllustrationPolicyData,
+)
 from suiteview.polview.models.cl_polrec.CL_POLREC_20_77 import LoanRecords
 
 
@@ -44,13 +48,13 @@ class _FakeLoanPolicy:
 def test_fixed_loan_prefers_preferred_capacity_first():
     loan = LoanState(rg_loan_princ=50.0, pf_loan_princ=25.0)
 
-    updated = apply_new_fixed_loan(
+    updated = apply_new_fixed_loan(LoanStepInput(
         loan=loan,
         requested_amount=120.0,
         account_value=500.0,
         premiums_to_date=300.0,
         withdrawals_to_date=50.0,
-    )
+    ))
 
     # Preferred capacity = 500 - 75 - (300 - 50) = 175
     assert updated.pf_loan_princ == 145.0
@@ -60,13 +64,13 @@ def test_fixed_loan_prefers_preferred_capacity_first():
 def test_fixed_loan_spills_excess_to_regular():
     loan = LoanState(rg_loan_princ=50.0, pf_loan_princ=25.0)
 
-    updated = apply_new_fixed_loan(
+    updated = apply_new_fixed_loan(LoanStepInput(
         loan=loan,
         requested_amount=250.0,
         account_value=500.0,
         premiums_to_date=300.0,
         withdrawals_to_date=50.0,
-    )
+    ))
 
     # Preferred capacity = 175, remaining 75 goes to regular.
     assert updated.pf_loan_princ == 200.0
@@ -76,13 +80,13 @@ def test_fixed_loan_spills_excess_to_regular():
 def test_fixed_loan_uses_preferred_capacity_without_availability_gate():
     loan = LoanState(rg_loan_princ=10.0, pf_loan_princ=5.0)
 
-    updated = apply_new_fixed_loan(
+    updated = apply_new_fixed_loan(LoanStepInput(
         loan=loan,
         requested_amount=80.0,
         account_value=500.0,
         premiums_to_date=0.0,
         withdrawals_to_date=0.0,
-    )
+    ))
 
     assert updated.rg_loan_princ == 10.0
     assert updated.pf_loan_princ == 85.0

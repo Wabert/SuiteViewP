@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from suiteview.illustration.constants import DAYS_PER_YEAR, MONTHS_PER_YEAR
 from suiteview.illustration.models.index_strategies import (
     ag49_index_for_issue_date,
     current_ag49_index,
@@ -179,24 +180,33 @@ class TAVProjection:
     tav_display: float        # VG — MAX(0, VF)
 
 
-def project_tav(
-    *,
-    begin_av: float,               # BO — AV post withdrawal at the BOY row
-    planned_premium: float,        # vPlannedPremium — per-payment scheduled premium
-    payments_per_year: int,        # LT — modal payments in the policy year
-    lumpsum: float,                # vLumpsum — unscheduled deposit this month
-    policy_month: int,             # E — 1..12 (anniversary = 1)
-    fixed_ln_principal: float,     # UW — begin regular(+preferred) loan principal
-    fixed_ln_accrued: float,       # UX — begin regular(+preferred) loan accrued
-    vbl_ln_principal: float,       # UY — begin variable loan principal
-    vbl_ln_accrued: float,         # UZ — begin variable loan accrued
-    reg_loan_charge_rate: float,   # sRates_LNCRG
-    vbl_loan_rate: float,          # the VV accrual rate (see note below)
-    apply_prem_to_loan: bool,      # sInput_ApplyPremToLoan
-    is_cvat: bool,                 # sINPUT_Guideline = "CVAT" skips the NK cap
-    annual_cap: float,             # NK — Annual Cap1 (guideline/7-pay annual room)
-    premium_load: float,           # OG — TPP rate (PolicyRates!AW10)
-) -> TAVProjection:
+@dataclass(frozen=True)
+class TavInput:
+    """Inputs for the one-year TAV / WAIR projection.
+
+    Dollar values are beginning-of-year values at the BOY row. Rates are annual
+    decimals; ``policy_month`` is 1..12, so the remaining-year fraction follows
+    RERUN ``(13 - policy_month) / 12``.
+    """
+
+    begin_av: float               # BO — AV post withdrawal at the BOY row
+    planned_premium: float        # per-payment scheduled premium
+    payments_per_year: int        # LT — modal payments in the policy year
+    lumpsum: float                # unscheduled premium this month
+    policy_month: int             # E — 1..12 (anniversary = 1)
+    fixed_ln_principal: float     # UW — regular+preferred loan principal
+    fixed_ln_accrued: float       # UX — regular+preferred loan accrued
+    vbl_ln_principal: float       # UY — variable loan principal
+    vbl_ln_accrued: float         # UZ — variable loan accrued
+    reg_loan_charge_rate: float   # annual regular loan charge rate
+    vbl_loan_rate: float          # annual VV variable-loan accrual rate
+    apply_prem_to_loan: bool      # sInput_ApplyPremToLoan
+    is_cvat: bool                 # CVAT skips the NK cap
+    annual_cap: float             # NK — annual premium room
+    premium_load: float           # OG — target premium load rate
+
+
+def project_tav(inputs: TavInput) -> TAVProjection:
     """One-year TAV projection (RERUN US..VG), computed on beginning-of-year rows.
 
     Note on VB: RERUN's literal formula projects the variable loan at
@@ -205,9 +215,25 @@ def project_tav(
     workbook bug (UG for UO); the intent is the variable-loan accrual rate, so
     this takes the VV rate (``variable_loan_accrual_rate``) directly.
     """
+    begin_av = inputs.begin_av
+    planned_premium = inputs.planned_premium
+    payments_per_year = inputs.payments_per_year
+    lumpsum = inputs.lumpsum
+    policy_month = inputs.policy_month
+    fixed_ln_principal = inputs.fixed_ln_principal
+    fixed_ln_accrued = inputs.fixed_ln_accrued
+    vbl_ln_principal = inputs.vbl_ln_principal
+    vbl_ln_accrued = inputs.vbl_ln_accrued
+    reg_loan_charge_rate = inputs.reg_loan_charge_rate
+    vbl_loan_rate = inputs.vbl_loan_rate
+    apply_prem_to_loan = inputs.apply_prem_to_loan
+    is_cvat = inputs.is_cvat
+    annual_cap = inputs.annual_cap
+    premium_load = inputs.premium_load
+
     uu = float(planned_premium) * float(payments_per_year)
     uv = uu + float(lumpsum)
-    year_frac = (13.0 - float(policy_month)) / 12.0
+    year_frac = (MONTHS_PER_YEAR + 1.0 - float(policy_month)) / MONTHS_PER_YEAR
     va = fixed_ln_principal * (1.0 + reg_loan_charge_rate * year_frac) + fixed_ln_accrued
     vb = vbl_ln_principal * (1.0 + vbl_loan_rate * year_frac) + vbl_ln_accrued
     vc = min(uv, va + vb) if apply_prem_to_loan else 0.0
@@ -280,4 +306,4 @@ def wair_interest(av: float, wair: float, days: float) -> float:
     loaned/unloaned split is already inside the WAIR weighting, so there is no
     separate impaired interest.
     """
-    return max(0.0, av * ((1.0 + wair) ** (days / 365.0) - 1.0))
+    return max(0.0, av * ((1.0 + wair) ** (days / DAYS_PER_YEAR) - 1.0))

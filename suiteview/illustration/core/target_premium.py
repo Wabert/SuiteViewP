@@ -56,6 +56,12 @@ from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Dict, Optional
 
 from suiteview.core.band_rules import rider_bands_as_base
+from suiteview.illustration.constants import (
+    MONTHS_PER_YEAR,
+    PER_THOUSAND,
+    RATE_CODE_TABLE,
+    SA_BASIS_ORIGINAL,
+)
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
@@ -193,7 +199,7 @@ class TargetPremiumResult:
     @property
     def mtp_monthly(self) -> float:
         """vMonthlyMTP = TRUNC(vMTP/12, 2)."""
-        return truncate_monthly_mtp(self.mtp_annual / 12.0)
+        return truncate_monthly_mtp(self.mtp_annual / MONTHS_PER_YEAR)
 
 
 def _segment_target(
@@ -211,11 +217,11 @@ def _segment_target(
     that rate, not applied here. CTP caps the per-table rate at 6 (JQ MIN(6,...)).
     """
     tbl = min(6.0, tbl_rate) if cap_tbl_rate else tbl_rate
-    flat_monthly = _trunc2(flat_extra / 12.0) if flat_extra else 0.0
+    flat_monthly = _trunc2(flat_extra / MONTHS_PER_YEAR) if flat_extra else 0.0
     return (
-        _round2(sa * rate / 1000.0)
-        + _round2(table_rating * tbl * sa / 1000.0)
-        + _round2(12.0 * flat_monthly * sa / 1000.0)
+        _round2(sa * rate / PER_THOUSAND)
+        + _round2(table_rating * tbl * sa / PER_THOUSAND)
+        + _round2(MONTHS_PER_YEAR * flat_monthly * sa / PER_THOUSAND)
     )
 
 
@@ -254,8 +260,8 @@ def _ffl_min_base(
             if seg.table_rating > 0 and _active(seg.table_cease_date, as_of)
             else 0
         )
-        iw += rate * seg.face_amount / 1000.0
-        ix += rate * table * seg.face_amount * config.table_rating_factor / 1000.0
+        iw += rate * seg.face_amount / PER_THOUSAND
+        ix += rate * table * seg.face_amount * config.table_rating_factor / PER_THOUSAND
     return iw, ix
 
 
@@ -270,7 +276,7 @@ def _ffl_monthly_fee(
     policy_year = _years_since(policy.issue_date, as_of)
     if policy.issue_age + policy_year - 1 >= config.premium_cease_age:
         return 0.0
-    if config.mfee == "Table":
+    if config.mfee == RATE_CODE_TABLE:
         base = policy.base_segment
         schedule = rates_db.get_rates(
             "MFEE", policy.plancode, base.issue_age, base.rate_sex,
@@ -321,13 +327,13 @@ def compute_target_premiums(
     for seg in policy.segments:
         if seg.face_amount <= 0:
             continue
-        mtp_band = seg.original_band if config.sa_basis == "OriginalSA" else current_band
+        mtp_band = seg.original_band if config.sa_basis == SA_BASIS_ORIGINAL else current_band
         # SA_Basis drives the MTP/CTP specified-amount basis: OriginalSA
         # plans use the coverage's ORIGINAL SA (i.e. original units); every
         # other plan uses the current specified amount.
         sa = (
             seg.original_face_amount
-            if config.sa_basis == "OriginalSA"
+            if config.sa_basis == SA_BASIS_ORIGINAL
             else seg.face_amount
         )
         table = (
@@ -376,7 +382,7 @@ def compute_target_premiums(
     # Benefit targets — looked up at the POLICY issue age (RERUN
     # tRates_Benefit_Targets key uses sINPUT_Issue_Age), base sex/rateclass and
     # the target band. PW is applied last against the MTP-without-PW total.
-    ben_band = base.original_band if config.sa_basis == "OriginalSA" else current_band
+    ben_band = base.original_band if config.sa_basis == SA_BASIS_ORIGINAL else current_band
     pw_rate = 0.0
     pw_multiplier = 0.0
     pwst_rate = 0.0
@@ -421,8 +427,8 @@ def compute_target_premiums(
             continue
         if ben_type == "A":
             # CCV (IM/KG): rate x current total SA / 1000.
-            mtp_val = ben_mtp_rate * total_face / 1000.0
-            ctp_val = ben_ctp_rate * total_face / 1000.0
+            mtp_val = ben_mtp_rate * total_face / PER_THOUSAND
+            ctp_val = ben_ctp_rate * total_face / PER_THOUSAND
             mtp_ben_ccv += mtp_val
             ctp_ben_ccv += ctp_val
         else:
@@ -505,7 +511,10 @@ def compute_target_premiums(
         # COI on SA + its table extra + flat term + monthly expense fee. Rider
         # targets (e.g. a spouse/child term rider MTP) are part of the monthly
         # target sum, same as the generic benefit targets.
-        pwoc_basis = (mtp_ben_generic + mtp_rider_sum) / 12.0 + iw + ix + iy + mfee_monthly
+        pwoc_basis = (
+            (mtp_ben_generic + mtp_rider_sum) / MONTHS_PER_YEAR
+            + iw + ix + iy + mfee_monthly
+        )
         if pw_rate > 0.0:
             # JB — PWoC_MTP.
             pw_component = _trunc2(pw_multiplier * pwoc_basis * (1.0 + factor * base_table))
