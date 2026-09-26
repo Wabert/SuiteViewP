@@ -7,7 +7,12 @@ from suiteview.audit.cyberlife_sql.helpers import (
     termination_financial_date,
 )
 from suiteview.audit.cyberlife_sql.segment52 import build_segment52
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
+from suiteview.audit.cyberlife_criteria import AuditCriteria
+from suiteview.audit.cyberlife_sql.state import (
+    DerivedAuditContext,
+    QueryContext,
+    SqlParts,
+)
 from suiteview.audit.sql_helpers import (
     selected_codes,
     strict_range_predicates,
@@ -100,6 +105,27 @@ def collect_base_display_context(ctx: QueryContext, parts: SqlParts) -> None:
     ctx.disp_substandard = ctx.dt.chk_disp_substandard.isChecked()
 
 
+def derive_audit_flags(criteria: AuditCriteria) -> DerivedAuditContext:
+    """Compute the stable CyberLife SQL flags once from collected criteria."""
+    scratch = QueryContext(criteria)
+    parts = SqlParts()
+    collect_base_display_context(scratch, parts)
+    collect_policy2_and_flag_context(scratch, parts)
+    from suiteview.audit.cyberlife_sql.ctes_policy import add_policy2_ctes
+
+    add_policy2_ctes(scratch, parts)
+    values = {
+        key: value
+        for key, value in scratch.__dict__.items()
+        if key not in {"criteria", "derived"}
+    }
+    return DerivedAuditContext(
+        criteria=criteria,
+        values=values,
+        initial_ctes=tuple(parts.sql_parts),
+    )
+
+
 def collect_policy2_and_flag_context(ctx: QueryContext, parts: SqlParts) -> None:
     ctx.disp_sex_rateclass = ctx.dt.chk_disp_sex_rateclass.isChecked()
     ctx.disp_tamra = ctx.dt.chk_tamra.isChecked()
@@ -162,4 +188,3 @@ def collect_policy2_and_flag_context(ctx: QueryContext, parts: SqlParts) -> None
     ctx.adv_sa_gt_orig = ctx.at.chk_sa_gt_orig.isChecked()
     ctx.adv_apb_rider = ctx.at.chk_apb_rider.isChecked()
     ctx.adv_gcv_gt_cv = ctx.at.chk_gcv_gt_cv.isChecked()
-

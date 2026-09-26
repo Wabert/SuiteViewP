@@ -120,13 +120,13 @@ def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , UPDF.CONV_CREDIT_RULE CN_CRED_RULE')
         parts.sql_parts.append('  , UPDF.CONV_CREDIT_PERIOD CN_CRED_PERIOD')
     if ctx.disp_within_conv:
-        ctx._today = ctx.criteria.as_of_sql
-        ctx._dur = f"TRUNCATE(MONTHS_BETWEEN('{ctx._today}', COVERAGE1.ISSUE_DT) / 12, 0)"
-        ctx._att_age = f'(COVERAGE1.INS_ISS_AGE + {ctx._dur})'
+        as_of_sql = ctx.criteria.as_of_sql
+        duration_expr = f"TRUNCATE(MONTHS_BETWEEN('{as_of_sql}', COVERAGE1.ISSUE_DT) / 12, 0)"
+        attained_age_expr = f'(COVERAGE1.INS_ISS_AGE + {duration_expr})'
         parts.sql_parts.append('  , (CASE')
-        parts.sql_parts.append(f'      WHEN (UPDF.CONVERSION_PERIOD = 0 AND {ctx._att_age} < UPDF.CONVERSION_AGE)')
-        parts.sql_parts.append(f'        OR (UPDF.CONVERSION_PERIOD > 0 AND {ctx._dur} < UPDF.CONVERSION_PERIOD')
-        parts.sql_parts.append(f'            AND {ctx._att_age} < UPDF.CONVERSION_AGE)')
+        parts.sql_parts.append(f'      WHEN (UPDF.CONVERSION_PERIOD = 0 AND {attained_age_expr} < UPDF.CONVERSION_AGE)')
+        parts.sql_parts.append(f'        OR (UPDF.CONVERSION_PERIOD > 0 AND {duration_expr} < UPDF.CONVERSION_PERIOD')
+        parts.sql_parts.append(f'            AND {attained_age_expr} < UPDF.CONVERSION_AGE)')
         parts.sql_parts.append("      THEN 'TRUE' ELSE 'FALSE'")
         parts.sql_parts.append('      END) AS WITHIN_CONV_PERIOD')
     if ctx.disp_conv_period:
@@ -274,4 +274,3 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , TABLE_RATING1.SST_XTR_RT_TBL_CD TableRating')
     if (ctx.cov_base_flat03 or ctx.cov_base_active_flat03) and (not ctx.disp_substandard):
         parts.sql_parts.append('  , FLAT_EXTRA1.SST_XTR_UNT_AMT FlatExtra')
-

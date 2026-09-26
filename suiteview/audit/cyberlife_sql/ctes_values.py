@@ -205,11 +205,11 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_prem_alloc:
         ctx.fund_items = [item.text().split(' - ')[0].strip() for item in ctx.at.list_prem_alloc.selectedItems()]
         if ctx.fund_items:
-            ctx.parts = []
-            for ctx.fid in ctx.fund_items:
-                ctx.parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID FROM {ctx.schema}.LH_FND_ALC WHERE FND_ID_CD = '{esc(ctx.fid)}' AND FND_ALC_PCT > 0 AND FND_ALC_TYP_CD = 'P'")
+            allocation_selects = []
+            for fund_id in ctx.fund_items:
+                allocation_selects.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID FROM {ctx.schema}.LH_FND_ALC WHERE FND_ID_CD = '{esc(fund_id)}' AND FND_ALC_PCT > 0 AND FND_ALC_TYP_CD = 'P'")
             parts.sql_parts.append(f', ALLOCATION_FUNDS AS (')
-            parts.sql_parts.append('\n  INTERSECT\n'.join(ctx.parts))
+            parts.sql_parts.append('\n  INTERSECT\n'.join(allocation_selects))
             parts.sql_parts.append(f')')
     parts.sql_parts.append('')
     parts.sql_parts.append('SELECT DISTINCT')
@@ -226,8 +226,8 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.append('  , POLICY1.SUS_CD SuspenseCode')
     parts.sql_parts.append('  , SUBSTR(POLICY1.SVC_AGC_NBR, 1, 1) AgentCode')
     parts.sql_parts.append("  , CASE WHEN POLICY1.POL_ISS_ST_CD = '01' THEN 'AL'")
-    for ctx.code, ctx.st in _ISS_STATE_MAP:
-        parts.sql_parts.append(f"    WHEN POLICY1.POL_ISS_ST_CD = '{ctx.code}' THEN '{ctx.st}'")
+    for code, state_abbrev in _ISS_STATE_MAP:
+        parts.sql_parts.append(f"    WHEN POLICY1.POL_ISS_ST_CD = '{code}' THEN '{state_abbrev}'")
     parts.sql_parts.append('    ELSE POLICY1.POL_ISS_ST_CD END IssueState')
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.PLN_DES_SER_CD Plancode')
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.POL_FRM_NBR FormNumber')
@@ -364,4 +364,3 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , SHADOWAV.TAR_PRM_AMT ShadowAV')
     if ctx.disp_db_option:
         parts.sql_parts.append('  , NONTRAD.DTH_BNF_PLN_OPT_CD DBOpt')
-
