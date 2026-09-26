@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import time
 import pandas as pd
-import pyodbc
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
@@ -47,9 +46,14 @@ from .tabs.manual_sql_object_editor import ManualSqlObjectEditor
 from .tabs.csv_excel_object_editor import CsvExcelObjectEditor
 from .tabs._styles import style_combo as _style_combo, _ensure_checkmark, _CHECKMARK_PATH
 from suiteview.core.db2_connection import DB2Connection
-from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
-from .cyberlife_query import build_cyberlife_sql
-from .cyberlife_criteria import AuditCriteriaBundle, CriteriaCollector
+from .controllers import (
+    AuditModeController,
+    CyberlifeRunController,
+    PickerBindingController,
+    QueryObjectPersistenceController,
+    VisualQueryController,
+)
+from .manual_sql_connections import ManualSqlConnectionService
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
 from .field_picker_panel import FieldPickerPanel
@@ -637,6 +641,12 @@ class AuditWindow(FramelessWindowBase):
         self._mode_footer_layout.setSpacing(0)
         self._active_mode_footer = None
         root.addWidget(self._mode_footer_host)
+        self._manual_sql_connections = ManualSqlConnectionService()
+        self._mode_controller = AuditModeController(self)
+        self._cyberlife_run_controller = CyberlifeRunController(self)
+        self._query_object_persistence = QueryObjectPersistenceController(self)
+        self._visual_query_controller = VisualQueryController(self)
+        self._picker_binding_controller = PickerBindingController(self)
         self._apply_initial_state()
         self._connect_signals()
         self._restore_ui_settings()
@@ -674,57 +684,7 @@ class AuditWindow(FramelessWindowBase):
     )
     def _switch_mode(self, mode: str):
         """Switch between Cyberlife, dynamic query, and DataForge views."""
-        if mode == self._current_mode:
-            return
-        prev = self._current_mode
-        self._current_mode = mode
-        # Track last active query/forge for restoring on space switch
-        if mode in self._dynamic_queries:
-            self._last_query_mode = mode
-        elif mode in self._dataforge_groups:
-            self._last_forge_mode = mode
-        prev_had_picker = (prev in self._dynamic_queries
-                           or prev in self._dataforge_groups
-                           or prev == "__forge_blank__"
-                           or prev == "__query_blank__")
-        # Batch all visibility/style changes to avoid intermediate repaints
-        self.setUpdatesEnabled(False)
-        try:
-            is_cyberlife = (mode == "cyberlife")
-            is_forge_blank = (mode == "__forge_blank__")
-            is_query_blank = (mode == "__query_blank__")
-            is_manual_sql_object = (mode == "__manual_sql_object__")
-            is_csv_excel_object = (mode == "__csv_excel_object__")
-            self.tabs.setVisible(is_cyberlife)
-            self.cyberlife_bottom_bar.setVisible(is_cyberlife)
-            self._forge_blank.setVisible(is_forge_blank)
-            self._query_blank.setVisible(is_query_blank)
-            self.manual_sql_object_tab.setVisible(is_manual_sql_object)
-            self.csv_excel_object_tab.setVisible(is_csv_excel_object)
-            # Only toggle the two affected widgets (prev + new)
-            for name, q in self._dynamic_queries.items():
-                if name == mode:
-                    q.setVisible(True)
-                elif name == prev:
-                    q.setVisible(False)
-            for name, fg in self._dataforge_groups.items():
-                if name == mode:
-                    fg.setVisible(True)
-                elif name == prev:
-                    fg.setVisible(False)
-        finally:
-            self.setUpdatesEnabled(True)
-        # Dispatch to per-mode-type setup
-        if mode in self._dataforge_groups or mode == "__forge_blank__":
-            self._enter_forge_mode(mode, prev_had_picker)
-        elif mode in self._dynamic_queries or mode == "__query_blank__":
-            self._enter_query_mode(mode, prev_had_picker)
-        elif mode == "__manual_sql_object__":
-            self._enter_manual_sql_object_mode()
-        elif mode == "__csv_excel_object__":
-            self._enter_csv_excel_object_mode()
-        else:
-            self._enter_cyberlife_mode()
+        self._mode_controller.switch_mode(mode)
     def _update_cyberlife_query_name_label(self):
         """Show the open Cyberlife query object name in the bottom bar."""
         name = self._cyberlife_saved_object_name.strip()
@@ -1626,32 +1586,7 @@ class AuditWindow(FramelessWindowBase):
     # ── Query building ───────────────────────────────────────────────
     def _build_sql(self) -> str:
         """Build the CyberLife audit SQL — delegates to cyberlife_query module."""
-        region = self.cmb_region.currentText()
-        schema = REGION_SCHEMA_MAP.get(region, DEFAULT_SCHEMA)
-        criteria = CriteriaCollector(AuditCriteriaBundle(
-            schema=schema,
-            sys_code=self.cmb_system.currentText().strip(),
-            max_count_text=self.txt_max_count.text().strip(),
-            coverage_level=self.chk_coverage_level.isChecked(),
-            coverage_scope=self.cmb_coverage_scope.currentText(),
-            tabs={
-                "policy": self.policy_tab,
-                "display": self.display_tab,
-                "custom_display": self.custom_display_tab,
-                "policy2": self.policy2_tab,
-                "people": self.people_tab,
-                "adv": self.adv_tab,
-                "coverages": self.coverages_tab,
-                "plancode": self.plancode_tab,
-                "benefits": self.benefits_tab,
-                "transaction": self.transaction_tab,
-                "segment52": self.segment52_tab,
-                "wl": self.wl_tab,
-            },
-        )).collect()
-        sql = build_cyberlife_sql(criteria)
-
-        return sql
+        return self._cyberlife_run_controller.build_sql()
 
     def _show_other_query_sql(self, sql: str):
         self.sql_tab.set_sql(sql)
@@ -1688,15 +1623,7 @@ class AuditWindow(FramelessWindowBase):
         ]
     def _cyberlife_query_object_state(self) -> dict:
         """Return the Cyberlife builder state stored in a QueryObject config."""
-        return {
-            "max_count": self.txt_max_count.text().strip(),
-            "coverage_level": self.chk_coverage_level.isChecked(),
-            "coverage_scope": self.cmb_coverage_scope.currentText(),
-            "tabs": {
-                key: tab.get_state()
-                for key, tab in self._cyberlife_criteria_tabs()
-            },
-        }
+        return self._query_object_persistence.cyberlife_state()
 
     def _new_cyberlife_query_object(self):
         """Start a new unsaved Cyberlife Query Object."""
@@ -2331,35 +2258,7 @@ class AuditWindow(FramelessWindowBase):
 
     def _manual_sql_odbc_connections(self) -> list[tuple[str, str]]:
         """Return saved ODBC connections plus system/user DSNs."""
-        saved: list[tuple[str, str]] = []
-        seen: set[str] = set()
-        try:
-            from suiteview.data.repositories import get_connection_repository
-
-            for connection in get_connection_repository().get_all_connections():
-                connection_string = str(connection.get("connection_string") or "")
-                if not connection_string.upper().startswith("DSN="):
-                    continue
-                dsn = connection_string.split("=", 1)[1].strip()
-                dsn_key = dsn.lower()
-                if not dsn or dsn_key in seen:
-                    continue
-                name = str(connection.get("connection_name") or dsn)
-                saved.append((f"{name} ({dsn})", dsn))
-                seen.add(dsn_key)
-        except Exception:
-            logger.exception("Failed to load saved ODBC connections")
-
-        try:
-            for dsn in sorted(pyodbc.dataSources().keys(), key=str.lower):
-                dsn_key = dsn.lower()
-                if dsn_key in seen:
-                    continue
-                saved.append((dsn, dsn))
-                seen.add(dsn_key)
-        except Exception:
-            logger.exception("Failed to load system ODBC data sources")
-        return saved
+        return self._manual_sql_connections.connections()
     def _save_manual_sql_object(self, payload: dict):
         """Persist the Manual SQL editor payload as a QueryObject."""
         from suiteview.audit.query_object import manual_sql_query_object
