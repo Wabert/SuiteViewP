@@ -89,6 +89,43 @@ def test_migration_is_exact_and_repeatable(profile):
     assert again["verified_files"] == 0
 
 
+def test_legacy_policy_support_tasks_moves_from_appdata(profile, tmp_path, monkeypatch):
+    appdata = tmp_path / "appdata"
+    legacy = appdata / "SuiteView" / "policy_support_tasks.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text('["GLP_Exception"]', encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(appdata))
+
+    result = maintenance.maintain_profile(profile)
+
+    target = profile_path("policy_support_tasks.json")
+    assert target.read_text(encoding="utf-8") == '["GLP_Exception"]'
+    assert not legacy.exists()
+    assert result["external_verified_files"] == 1
+    assert result["external_moves"][0]["from"] == str(legacy)
+    assert result["external_moves"][0]["to"].replace("\\", "/") == "settings/policy_support_tasks.json"
+    log = json.loads((profile / "logs" / "profile-maintenance.json").read_text(encoding="utf-8"))
+    assert log["external_verified_files"] == 1
+
+
+def test_legacy_policy_support_tasks_does_not_overwrite_profile_file(profile, tmp_path, monkeypatch):
+    appdata = tmp_path / "appdata"
+    legacy = appdata / "SuiteView" / "policy_support_tasks.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text('["Legacy"]', encoding="utf-8")
+    target = profile_path("policy_support_tasks.json")
+    target.parent.mkdir(parents=True)
+    target.write_text('["Profile"]', encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(appdata))
+
+    result = maintenance.maintain_profile(profile)
+
+    assert target.read_text(encoding="utf-8") == '["Profile"]'
+    assert legacy.read_text(encoding="utf-8") == '["Legacy"]'
+    assert result["external_moves"] == []
+    assert result["external_verified_files"] == 0
+
+
 def test_conflict_blocks_every_move_and_cleanup(profile):
     put(profile, ".key")
     put(profile, "bookmarks.json", b"{}")
@@ -315,6 +352,63 @@ def test_runtime_storage_uses_registered_profile_locations():
                 assert node.args[0].value in PROFILE_PATHS, str(path)
             if isinstance(node, ast.Constant) and node.value == ".suiteview":
                 assert path.name in {"profile_paths.py", "profile_maintenance.py"}, str(path)
+
+
+def test_profile_paths_are_not_bound_at_module_or_class_scope():
+    root = Path(__file__).resolve().parents[1]
+    allowed_pending_conversions = {
+        root / "suiteview" / "illustration" / "ui" / "report_tab.py",
+    }
+    failures = []
+    for path in (root / "suiteview").rglob("*.py"):
+        source = path.read_text(encoding="utf-8-sig")
+        tree = ast.parse(source, filename=str(path))
+        scopes = [tree, *(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef))]
+        for scope in scopes:
+            for statement in scope.body:
+                if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                    continue
+                value = statement.value
+                if value is None:
+                    continue
+                for call in (node for node in ast.walk(value) if isinstance(node, ast.Call)):
+                    if isinstance(call.func, ast.Name) and call.func.id in {"profile_path", "profile_root"}:
+                        if path not in allowed_pending_conversions:
+                            failures.append(f"{path.relative_to(root)}:{statement.lineno}")
+                        break
+    assert not failures
+
+
+def test_representative_stores_do_not_write_to_home_profile(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    profile_dir = tmp_path / "isolated-profile"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(profile_dir))
+
+    from suiteview.audit.common_table import CommonTable
+    from suiteview.audit import common_table_store, group_config, qdef_store, saved_query_store
+    from suiteview.audit.dataforge import dataforge_store
+    from suiteview.audit.dataforge.dataforge_model import DataForge
+    from suiteview.audit.qdefinition import QDefinition
+    from suiteview.audit.saved_query import SavedQuery
+    from suiteview.scratchpad.scratchpad_data_manager import ScratchPadDataManager
+    from suiteview.ui.widgets.bookmark_data_manager import BookmarkDataManager
+
+    common_table_store.save_table(CommonTable(name="Status Lookup"))
+    saved_query_store.save_query(SavedQuery(name="Policy Query", result_columns=["POLNO"]))
+    qdef_store.save_qdef(QDefinition(name="Policy QDef", forge_name="Forge", result_columns=["POLNO"]))
+    dataforge_store.save_forge(DataForge(name="Forge"))
+    group_config.save_ui_settings({"field_picker_width": 320})
+
+    ScratchPadDataManager.reset_instance()
+    ScratchPadDataManager.instance().save("isolated note")
+    BookmarkDataManager.reset_instance()
+    BookmarkDataManager.instance().save()
+
+    assert profile_path("common_tables").exists()
+    assert profile_path("bookmarks.json").exists()
+    assert not (home / ".suiteview").exists()
 
 
 def test_preview_helpers_compile():

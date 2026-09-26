@@ -35,7 +35,8 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 SP_PREFIX = "sp://"
 
-TOKEN_CACHE_FILE = profile_path('sp_token_cache.bin')
+def _token_cache_file() -> Path:
+    return profile_path('sp_token_cache.bin')
 
 
 class SharePointError(Exception):
@@ -70,9 +71,10 @@ class SharePointClient:
     def _load_cache(self):
         import msal
         cache = msal.SerializableTokenCache()
-        if TOKEN_CACHE_FILE.exists():
+        cache_file = _token_cache_file()
+        if cache_file.exists():
             try:
-                data = TOKEN_CACHE_FILE.read_bytes()
+                data = cache_file.read_bytes()
                 try:
                     import win32crypt
                     data = win32crypt.CryptUnprotectData(data, None, None, None, 0)[1]
@@ -95,8 +97,9 @@ class SharePointClient:
                 # Never persist refresh tokens in plaintext — session-only cache
                 logger.warning("pywin32 unavailable; SharePoint sign-in will not persist across restarts")
                 return
-            TOKEN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            TOKEN_CACHE_FILE.write_bytes(data)
+            cache_file = _token_cache_file()
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_bytes(data)
         except Exception as e:
             logger.error(f"Failed to save SharePoint token cache: {e}")
 

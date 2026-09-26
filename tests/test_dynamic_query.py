@@ -285,12 +285,12 @@ class DynamicQueryUiTests(unittest.TestCase):
         if app is None:
             app = QApplication([])
 
-        old_queries_dir = saved_query_store._QUERIES_DIR
+        old_profile_dir = os.environ.get("SUITEVIEW_PROFILE_DIR")
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
         groups = []
         try:
-            with tempfile.TemporaryDirectory() as tmp_queries, tempfile.TemporaryDirectory() as tmp_objects:
-                saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
+            with tempfile.TemporaryDirectory() as tmp_profile, tempfile.TemporaryDirectory() as tmp_objects:
+                os.environ["SUITEVIEW_PROFILE_DIR"] = tmp_profile
                 os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
 
                 save_as_sql = "SELECT policy_number FROM dbo.policy WHERE state = 'TX'"
@@ -331,7 +331,10 @@ class DynamicQueryUiTests(unittest.TestCase):
         finally:
             for group in groups:
                 group.close()
-            saved_query_store._QUERIES_DIR = old_queries_dir
+            if old_profile_dir is None:
+                os.environ.pop("SUITEVIEW_PROFILE_DIR", None)
+            else:
+                os.environ["SUITEVIEW_PROFILE_DIR"] = old_profile_dir
             if old_obj_dir is None:
                 os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
             else:

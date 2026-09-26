@@ -748,40 +748,28 @@ class _TmpHome:
         self._old_home = None
         self._old_userprofile = None
         self._old_qo = None
-        self._old_qdefs = None
-        self._old_queries = None
+        self._old_profile = None
 
     def __enter__(self):
-        import pathlib
         self._dir = tempfile.mkdtemp(prefix="forge_test_home_")
         self._old_home = os.environ.get("HOME")
         self._old_userprofile = os.environ.get("USERPROFILE")
         self._old_qo = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        self._old_profile = os.environ.get("SUITEVIEW_PROFILE_DIR")
         os.environ["HOME"] = self._dir
         os.environ["USERPROFILE"] = self._dir
+        os.environ["SUITEVIEW_PROFILE_DIR"] = os.path.join(
+            self._dir, ".suiteview")
         os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = os.path.join(
             self._dir, "query_objects")
-        # dataforge_store caches its dir at import time via Path.home();
-        # repoint it for the test.
-        self._old_forges = dataforge_store._FORGES_DIR
-        self._old_qdefs = qdef_store._QDEFS_DIR
-        self._old_queries = saved_query_store._QUERIES_DIR
-        dataforge_store._FORGES_DIR = (
-            pathlib.Path(self._dir) / ".suiteview" / "saved_dataforges")
-        qdef_store._QDEFS_DIR = (
-            pathlib.Path(self._dir) / ".suiteview" / "qdefinitions")
-        saved_query_store._QUERIES_DIR = (
-            pathlib.Path(self._dir) / ".suiteview" / "saved_queries")
         return self
 
     def __exit__(self, *exc):
         import shutil
-        dataforge_store._FORGES_DIR = self._old_forges
-        qdef_store._QDEFS_DIR = self._old_qdefs
-        saved_query_store._QUERIES_DIR = self._old_queries
         for key, val in (("HOME", self._old_home),
                          ("USERPROFILE", self._old_userprofile),
-                         ("SUITEVIEW_QUERY_OBJECTS_DIR", self._old_qo)):
+                         ("SUITEVIEW_QUERY_OBJECTS_DIR", self._old_qo),
+                         ("SUITEVIEW_PROFILE_DIR", self._old_profile)):
             if val is None:
                 os.environ.pop(key, None)
             else:

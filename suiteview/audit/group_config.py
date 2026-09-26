@@ -8,17 +8,18 @@ from suiteview.core.json_store import ensure_dir, write_json
 
 logger = logging.getLogger(__name__)
 
-_SETTINGS_FILE = profile_path("audit_ui_settings.json")
+def _settings_file():
+    return profile_path("audit_ui_settings.json")
 
 
 def _ensure_dir():
-    ensure_dir(_SETTINGS_FILE.parent)
+    ensure_dir(_settings_file().parent)
 
 
 def load_ui_settings() -> dict:
     """Load window-level UI settings (field picker sizes, etc.)."""
     _ensure_dir()
-    path = _SETTINGS_FILE
+    path = _settings_file()
     if not path.exists():
         return {}
     try:
@@ -32,4 +33,4 @@ def load_ui_settings() -> dict:
 def save_ui_settings(settings: dict):
     """Save window-level UI settings."""
     _ensure_dir()
-    write_json(_SETTINGS_FILE, settings, ensure_ascii=True)
+    write_json(_settings_file(), settings, ensure_ascii=True)

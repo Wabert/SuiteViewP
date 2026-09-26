@@ -21,18 +21,19 @@ from .dataforge_model import DataForge
 
 logger = logging.getLogger(__name__)
 
-_FORGES_DIR = profile_path('saved_dataforges')
+def _forges_dir() -> Path:
+    return profile_path('saved_dataforges')
 
 
 def _ensure_dir() -> Path:
-    return ensure_dir(_FORGES_DIR)
+    return ensure_dir(_forges_dir())
 
 
 def list_forges() -> list[DataForge]:
     """Return all saved DataForges (sorted newest first)."""
     _ensure_dir()
     forges: list[DataForge] = []
-    for f in _FORGES_DIR.glob("*.json"):
+    for f in _forges_dir().glob("*.json"):
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 forges.append(DataForge.from_dict(json.load(fh)))
@@ -43,7 +44,7 @@ def list_forges() -> list[DataForge]:
 
 
 def load_forge(name: str) -> DataForge | None:
-    path = _FORGES_DIR / f"{_safe_filename(name)}.json"
+    path = _forges_dir() / f"{_safe_filename(name)}.json"
     if not path.exists():
         return None
     try:
@@ -56,22 +57,23 @@ def load_forge(name: str) -> DataForge | None:
 
 def save_forge(df: DataForge) -> None:
     _ensure_dir()
-    path = _FORGES_DIR / f"{_safe_filename(df.name)}.json"
+    path = _forges_dir() / f"{_safe_filename(df.name)}.json"
     write_json(path, df.to_dict())
 
 
 def delete_forge(name: str) -> None:
     safe = _safe_filename(name)
-    path = _FORGES_DIR / f"{safe}.json"
+    root = _forges_dir()
+    path = root / f"{safe}.json"
     if path.exists():
         path.unlink()
-    snap_dir = _FORGES_DIR / safe
+    snap_dir = root / safe
     if snap_dir.is_dir():
         shutil.rmtree(snap_dir, ignore_errors=True)
 
 
 def forge_exists(name: str) -> bool:
-    return (_FORGES_DIR / f"{_safe_filename(name)}.json").exists()
+    return (_forges_dir() / f"{_safe_filename(name)}.json").exists()
 
 
 def copy_forge_snapshots(source_name: str, target_name: str) -> None:
@@ -92,7 +94,7 @@ def copy_forge_snapshots(source_name: str, target_name: str) -> None:
 # ── Per-Source Snapshot I/O ─────────────────────────────────────────────
 
 def _forge_snapshot_dir(forge_name: str) -> Path:
-    return _FORGES_DIR / _safe_filename(forge_name)
+    return _forges_dir() / _safe_filename(forge_name)
 
 
 def source_snapshot_path(forge_name: str, alias: str) -> Path:

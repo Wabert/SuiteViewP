@@ -8,6 +8,7 @@ import os
 from datetime import date
 from typing import List
 
+from suiteview.core.profile_paths import profile_path
 from suiteview.core.json_store import write_json
 from suiteview.core.support_files import (
     abr_support_directory,
@@ -110,11 +111,7 @@ DEFAULT_TASK_CATEGORIES = [
 # ---------------------------------------------------------------------------
 
 def _get_user_tasks_path() -> str:
-    app_data = os.path.join(
-        os.environ.get("APPDATA", os.path.expanduser("~")), "SuiteView"
-    )
-    os.makedirs(app_data, exist_ok=True)
-    return os.path.join(app_data, "policy_support_tasks.json")
+    return str(profile_path("policy_support_tasks.json"))
 
 def _load_user_tasks() -> List[str]:
     path = _get_user_tasks_path()
