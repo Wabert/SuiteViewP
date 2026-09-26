@@ -641,9 +641,9 @@ class RateViewerDialog(FramelessWindowBase):
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
-        inputs = self._add_edit_fields(grid, fields, existing)
+        inputs = RateViewerDialog._add_edit_fields(self, grid, fields, existing)
         layout.addLayout(grid)
-        self._add_edit_buttons(layout, dlg)
+        RateViewerDialog._add_edit_buttons(self, layout, dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return {key: widget.text().strip() for key, widget in inputs.items()}
@@ -750,7 +750,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_interest_rate_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit an interest rate entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add Interest Rate",
             edit_title="Edit Interest Rate",
             existing=existing,
@@ -764,13 +764,13 @@ class RateViewerDialog(FramelessWindowBase):
             return
         dt = values["date"]
         if not dt:
-            self._warn_required("Date")
+            RateViewerDialog._warn_required(self, "Date")
             return
-        rate = self._parse_float(values, "rate", "Moody Ave Yield")
+        rate = RateViewerDialog._parse_float(self, values, "rate", "Moody Ave Yield")
         if rate is None:
             return
-        iul_rate = self._parse_float(values, "iul_rate", "ABR Rate", default=None) if values["iul_rate"] else None
-        self._upsert_rate_row(
+        iul_rate = RateViewerDialog._parse_float(self, values, "iul_rate", "ABR Rate", default=None) if values["iul_rate"] else None
+        RateViewerDialog._upsert_rate_row(self, 
             "save interest rate data",
             "DELETE FROM [SV_ABR_INTEREST_RATES] WHERE effective_date = ?",
             (dt,),
@@ -783,7 +783,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_per_diem_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit a per diem entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add Per Diem",
             edit_title="Edit Per Diem",
             existing=existing,
@@ -795,13 +795,13 @@ class RateViewerDialog(FramelessWindowBase):
         )
         if values is None:
             return
-        year = self._parse_int(values, "year", "Year")
-        daily = self._parse_float(values, "daily", "Daily Limit")
-        annual = self._parse_float(values, "annual", "Annual Limit")
+        year = RateViewerDialog._parse_int(self, values, "year", "Year")
+        daily = RateViewerDialog._parse_float(self, values, "daily", "Daily Limit")
+        annual = RateViewerDialog._parse_float(self, values, "annual", "Annual Limit")
         if None in (year, daily, annual):
             return
         old_year = int(existing[0].replace(",", "")) if existing else None
-        self._upsert_rate_row(
+        RateViewerDialog._upsert_rate_row(self, 
             "save per diem data",
             "DELETE FROM [SV_ABR_PER_DIEM] WHERE year = ?",
             (year,),
@@ -814,7 +814,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_state_variation_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit a state variation entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add State Variation",
             edit_title="Edit State Variation",
             existing=existing,
@@ -834,14 +834,14 @@ class RateViewerDialog(FramelessWindowBase):
         if values is None:
             return
         if not values["state_abbr"]:
-            self._warn_required("State Abbreviation")
+            RateViewerDialog._warn_required(self, "State Abbreviation")
             return
-        cl_code = self._parse_int(values, "cl_state_code", "CL State Code", default=None) if values["cl_state_code"] else None
-        admin_fee = self._parse_float(values, "admin_fee", "Admin Fee", default=250.0)
+        cl_code = RateViewerDialog._parse_int(self, values, "cl_state_code", "CL State Code", default=None) if values["cl_state_code"] else None
+        admin_fee = RateViewerDialog._parse_float(self, values, "admin_fee", "Admin Fee", default=250.0)
         if admin_fee is None:
             return
         new_abbr = values["state_abbr"]
-        self._upsert_rate_row(
+        RateViewerDialog._upsert_rate_row(self, 
             "save state variation data",
             "DELETE FROM [SV_ABR_STATE_VARIATIONS] WHERE state_abbr = ?",
             (new_abbr,),
@@ -856,7 +856,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_min_face_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit a min face entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add Min Face",
             edit_title="Edit Min Face",
             existing=existing,
@@ -869,12 +869,12 @@ class RateViewerDialog(FramelessWindowBase):
             return
         plancode = values["plancode"].upper()
         if not plancode:
-            self._warn_required("Plancode")
+            RateViewerDialog._warn_required(self, "Plancode")
             return
-        amount = self._parse_float(values, "amount", "Min Face Amount")
+        amount = RateViewerDialog._parse_float(self, values, "amount", "Min Face Amount")
         if amount is None:
             return
-        self._upsert_rate_row(
+        RateViewerDialog._upsert_rate_row(self, 
             "save min face data",
             "DELETE FROM [SV_ABR_MIN_FACE] WHERE plancode = ?",
             (plancode,),
@@ -887,7 +887,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_modal_factor_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit a modal factor entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add Modal Factor",
             edit_title="Edit Modal Factor",
             existing=existing,
@@ -903,10 +903,10 @@ class RateViewerDialog(FramelessWindowBase):
             return
         plancode = values["plancode"].upper()
         if not plancode:
-            self._warn_required("Plancode")
+            RateViewerDialog._warn_required(self, "Plancode")
             return
-        mode_code = self._parse_int(values, "mode_code", "Mode Code")
-        factor = self._parse_float(values, "factor", "Factor")
+        mode_code = RateViewerDialog._parse_int(self, values, "mode_code", "Mode Code")
+        factor = RateViewerDialog._parse_float(self, values, "factor", "Factor")
         if mode_code is None or factor is None:
             return
         mode_label = values["mode_label"] or f"Mode {mode_code}"
@@ -918,7 +918,7 @@ class RateViewerDialog(FramelessWindowBase):
                     "DELETE FROM [SV_ABR_MODAL_FACTORS] WHERE plancode = ? AND mode_code = ?",
                     (old_pc, old_mode),
                 )
-        self._upsert_rate_row(
+        RateViewerDialog._upsert_rate_row(self, 
             "save modal factor data",
             "DELETE FROM [SV_ABR_MODAL_FACTORS] WHERE plancode = ? AND mode_code = ?",
             (plancode, mode_code),
@@ -930,7 +930,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_band_amount_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit a band amount entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add Band Amount",
             edit_title="Edit Band Amount",
             existing=existing,
@@ -945,10 +945,10 @@ class RateViewerDialog(FramelessWindowBase):
             return
         plancode = values["plancode"].upper()
         if not plancode:
-            self._warn_required("Plancode")
+            RateViewerDialog._warn_required(self, "Plancode")
             return
-        band = self._parse_int(values, "band", "Band")
-        amount = self._parse_float(values, "amount", "Min Face Amount")
+        band = RateViewerDialog._parse_int(self, values, "band", "Band")
+        amount = RateViewerDialog._parse_float(self, values, "amount", "Min Face Amount")
         if band is None or amount is None:
             return
         old_delete = None
@@ -959,7 +959,7 @@ class RateViewerDialog(FramelessWindowBase):
                     "DELETE FROM [SV_ABR_BAND_AMOUNTS] WHERE plancode = ? AND band = ?",
                     (old_pc, old_band),
                 )
-        self._upsert_rate_row(
+        RateViewerDialog._upsert_rate_row(self, 
             "save band amount data",
             "DELETE FROM [SV_ABR_BAND_AMOUNTS] WHERE plancode = ? AND band = ?",
             (plancode, band),
@@ -971,7 +971,7 @@ class RateViewerDialog(FramelessWindowBase):
 
     def _edit_policy_fee_dialog(self, existing: Optional[list]):
         """Open a dialog to add or edit a policy fee entry."""
-        values = self._run_edit_dialog(
+        values = RateViewerDialog._run_edit_dialog(self, 
             add_title="Add Policy Fee",
             edit_title="Edit Policy Fee",
             existing=existing,
@@ -984,12 +984,12 @@ class RateViewerDialog(FramelessWindowBase):
             return
         plancode = values["plancode"].upper()
         if not plancode:
-            self._warn_required("Plancode")
+            RateViewerDialog._warn_required(self, "Plancode")
             return
-        fee = self._parse_float(values, "fee", "Annual Fee")
+        fee = RateViewerDialog._parse_float(self, values, "fee", "Annual Fee")
         if fee is None:
             return
-        self._upsert_rate_row(
+        RateViewerDialog._upsert_rate_row(self, 
             "save policy fee data",
             "DELETE FROM [SV_ABR_POLICY_FEES] WHERE plancode = ?",
             (plancode,),
