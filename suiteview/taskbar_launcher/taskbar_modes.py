@@ -113,7 +113,7 @@ class TaskbarModes(TaskbarCollaborator):
         if hasattr(self.chrome, 'tools_menu_btn'):
             self.chrome.tools_menu_btn.hide()
         if hasattr(self.chrome, 'scratchpad_window_btn'):
-            self.state.scratchpad_window_btn.hide()
+            self.chrome.scratchpad_window_btn.hide()
         if hasattr(self.chrome, 'file_history_btn'):
             self.chrome.file_history_btn.hide()
 
