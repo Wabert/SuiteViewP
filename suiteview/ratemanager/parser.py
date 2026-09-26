@@ -209,7 +209,7 @@ _RATE_CELL_GROUP = RepeatedGroup("iaf-rate-cells", (43, 65, 87, 109), (
     Field("band", 4, 5, _field_strip),
     Field("plan_option", 5, 7, _field_strip),
     Field("rate", 8, 20, _field_float),
-), required_field="duration")
+), required_field="duration", required_field_starts_record=True)
 
 
 @dataclass

@@ -9,7 +9,7 @@ source-document spans separate from parser flow.
 | --- | --- |
 | `Field(name, start, stop, converter, validator)` | One zero-based fixed-width slice. Converters receive the raw text and a context mapping. |
 | `LineRule(name, fields)` | A named record layout that parses all fields into a dictionary. |
-| `RepeatedGroup(name, offsets, fields)` | A repeated record on one line, such as the four IAF premium identifier/rate cells. |
+| `RepeatedGroup(name, offsets, fields)` | A repeated record on one line, such as the four IAF premium identifier/rate cells. Empty cells are skipped, but populated cells validate all fields. |
 | `Section(name, rules)` | A logical group of rules for documentation and shared padding checks. |
 
 `ensure_padding_is_blank()` verifies that unsupported characters do not appear

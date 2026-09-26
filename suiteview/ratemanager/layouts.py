@@ -66,9 +66,10 @@ class RepeatedGroup:
     offsets: tuple[int, ...]
     fields: tuple[Field, ...]
     required_field: str | None = None
+    required_field_starts_record: bool = False
 
     def parse(self, line: str, context: LayoutContext | None = None) -> list[dict[str, Any]]:
-        """Parse populated repeated records, skipping empty groups."""
+        """Parse populated repeated records, skipping only documented empty groups."""
         rows: list[dict[str, Any]] = []
         for offset in self.offsets:
             raw_record = {
@@ -77,8 +78,10 @@ class RepeatedGroup:
             }
             if not any(value.strip() for value in raw_record.values()):
                 continue
-            if self.required_field is not None and not raw_record[self.required_field].strip():
-                continue
+            if self.required_field is not None and self.required_field_starts_record:
+                required = raw_record[self.required_field]
+                if not required or required[0].isspace():
+                    continue
             rows.append({
                 field.name: field.parse(line, context, offset=offset)
                 for field in self.fields

@@ -94,6 +94,25 @@ def test_iaf_parser_current_output_golden(tmp_path):
     ]
 
 
+def test_iaf_parser_skips_space_padded_duration_cell(tmp_path):
+    source = (
+        "   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  "
+        "PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       \n"
+        + _iaf_product_line("ULTEST00")
+        + _fixed([
+            (19, "C"), (23, "01011900"),
+            (43, " 51NA**"), (51, "7.77777".rjust(12)),
+            (65, "061NA**"), (73, "8.88888".rjust(12)),
+        ])
+    )
+
+    result = IAFParser().parse(str(_write(tmp_path, "iaf.txt", source)))
+
+    assert result.error is None
+    assert [rate.duration for rate in result.rates] == [6]
+    assert [rate.rate for rate in result.rates] == [8.88888]
+
+
 def test_whole_life_parsers_current_output_goldens(tmp_path):
     cv_text = (
         "1CKCVDVPC RUN DATE = 01/02/26 CASH VALUE RATES PAGE 1\n"
