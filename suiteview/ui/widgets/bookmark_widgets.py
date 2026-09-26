@@ -196,8 +196,8 @@ def get_file_icon(path_str, save_to_db=True):
         if save_to_db:
             try:
                 save_icon_to_db(path_str, _folder_icon, 'folder')
-            except:
-                pass
+            except Exception:
+                logger.debug("Could not cache folder icon for %s", path_str, exc_info=True)
         return _folder_icon
     
     # Check extension - if it has one, treat it as a file
@@ -216,11 +216,11 @@ def get_file_icon(path_str, save_to_db=True):
                     if save_to_db:
                         try:
                             save_icon_to_db(path_str, icon, 'lnk')
-                        except:
-                            pass
+                        except Exception:
+                            logger.debug("Could not cache shortcut icon for %s", path_str, exc_info=True)
                     return icon
-            except:
-                pass
+            except Exception:
+                logger.debug("Could not load shortcut icon for %s", path_str, exc_info=True)
             # Fallback - use generic file icon
             _path_cache[path_str] = _file_icon
             return _file_icon
@@ -233,8 +233,8 @@ def get_file_icon(path_str, save_to_db=True):
             if save_to_db:
                 try:
                     save_icon_to_db(path_str, icon, 'file')
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Could not cache file icon for %s", path_str, exc_info=True)
             return icon
         
         # Get icon for this extension (QFileInfo doesn't need the file to exist)
@@ -247,11 +247,11 @@ def get_file_icon(path_str, save_to_db=True):
                 if save_to_db:
                     try:
                         save_icon_to_db(path_str, icon, 'file')
-                    except:
-                        pass
+                    except Exception:
+                        logger.debug("Could not cache file icon for %s", path_str, exc_info=True)
                 return icon
-        except:
-            pass
+        except Exception:
+            logger.debug("Could not load file icon for %s", path_str, exc_info=True)
         
         # Fallback to generic file icon
         _icon_cache[suffix] = _file_icon
@@ -266,11 +266,11 @@ def get_file_icon(path_str, save_to_db=True):
             if save_to_db:
                 try:
                     save_icon_to_db(path_str, _folder_icon, 'folder')
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Could not cache folder icon for %s", path_str, exc_info=True)
             return _folder_icon
-    except:
-        pass
+    except OSError:
+        logger.debug("Could not check whether bookmark path is a folder: %s", path_str, exc_info=True)
     
     # Default to file icon for extensionless items
     _path_cache[path_str] = _file_icon
@@ -1512,7 +1512,7 @@ class CategoryBookmarkButton(QPushButton):
                 self.setIcon(icon)
                 # DB caching is handled inside get_file_icon for .lnk files
         except Exception:
-            pass  # Keep placeholder on error
+            logger.debug("Keeping placeholder bookmark icon for %s", self._path, exc_info=True)
     
     def _get_url_icon_char(self, path):
         """Get emoji icon for URLs only"""
@@ -1573,7 +1573,7 @@ class CategoryBookmarkButton(QPushButton):
             if self.parent_popup:
                 self.parent_popup.close()
         except Exception:
-            pass
+            logger.debug("Could not duplicate category bookmark", exc_info=True)
     
     def _edit_bookmark(self):
         """Edit this bookmark's name and path using compact dialog"""
@@ -1767,8 +1767,8 @@ def close_all_category_popups():
         try:
             if popup:
                 popup._force_close()
-        except:
-            pass
+        except RuntimeError:
+            logger.debug("Ignoring deleted popup during category popup cleanup", exc_info=True)
     _open_category_popups.clear()
 
 class CategoryPopup(QFrame):
@@ -2943,8 +2943,8 @@ class CategoryButton(QPushButton):
                         if self._is_descendant_of(dragged_name):
                             event.ignore()
                             return
-                except:
-                    pass
+                except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, TypeError):
+                    logger.debug("Ignoring invalid category drag payload", exc_info=True)
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -3007,7 +3007,7 @@ class CategoryButton(QPushButton):
                             try:
                                 container.refresh()
                             except RuntimeError:
-                                pass
+                                logger.debug("Skipping deleted bookmark container during refresh", exc_info=True)
                 elif item_type == 'bookmark':
                     # New bookmark without ID
                     self._handle_drop(item)
@@ -3087,7 +3087,7 @@ class CategoryButton(QPushButton):
             try:
                 container.refresh()
             except RuntimeError:
-                pass  # Widget may have been deleted
+                logger.debug("Skipping deleted bookmark container during refresh", exc_info=True)
 
 
 # =============================================================================
@@ -3382,7 +3382,7 @@ class StandaloneBookmarkButton(QPushButton):
             items.insert(insert_idx, new_bookmark)
             self.container._save_and_refresh()
         except Exception:
-            pass
+            logger.debug("Could not duplicate standalone bookmark", exc_info=True)
     
     def _open_folder_location(self):
         """Open the parent folder in SuiteView file navigator"""
@@ -4032,7 +4032,7 @@ class BookmarkContainer(QWidget):
             try:
                 container.refresh()
             except RuntimeError:
-                pass  # Widget may have been deleted
+                logger.debug("Skipping deleted bookmark container during refresh", exc_info=True)
         if not siblings:
             # Fallback — at least refresh ourselves
             self.refresh()
@@ -4102,7 +4102,7 @@ class BookmarkContainer(QWidget):
                         try:
                             container.refresh()
                         except RuntimeError:
-                            pass  # Widget may have been deleted
+                            logger.debug("Skipping deleted bookmark container during refresh", exc_info=True)
                 else:
                     # Add to category
                     if not self._data_manager.category_exists(category):
@@ -4274,7 +4274,7 @@ class BookmarkContainer(QWidget):
             try:
                 container.refresh()
             except RuntimeError:
-                pass  # Widget may have been deleted
+                logger.debug("Skipping deleted bookmark container during refresh", exc_info=True)
     
     def _handle_file_drop(self, path: str, drop_index: int):
         """Handle a file/folder being dropped onto this container - add as bookmark"""

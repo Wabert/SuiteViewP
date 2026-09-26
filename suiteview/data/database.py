@@ -1,8 +1,11 @@
 """Database initialization and connection management for SQLite"""
 
+import logging
 import sqlite3
 from typing import Optional
 from suiteview.core.profile_paths import profile_path
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -23,6 +26,11 @@ class Database:
             self.db_path = db_path
 
         self.connection: Optional[sqlite3.Connection] = None
+
+    @staticmethod
+    def _is_missing_schema_error(exc: sqlite3.OperationalError) -> bool:
+        message = str(exc).lower()
+        return "no such column" in message or "no such table" in message
 
     def connect(self) -> sqlite3.Connection:
         """Connect to database and return connection"""
@@ -219,7 +227,7 @@ class Database:
         """)
 
         conn.commit()
-        print(f"Database initialized at: {self.db_path}")
+        logger.info("Database initialized at: %s", self.db_path)
         
         # Run migrations
         self._run_migrations(conn)
@@ -231,31 +239,35 @@ class Database:
         # Migration 1: Add is_common column to column_metadata if it doesn't exist
         try:
             cursor.execute("SELECT is_common FROM column_metadata LIMIT 1")
-        except:
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
             # Column doesn't exist, add it
-            print("Running migration: Adding is_common column to column_metadata")
+            logger.info("Running migration: Adding is_common column to column_metadata")
             cursor.execute("""
                 ALTER TABLE column_metadata ADD COLUMN is_common BOOLEAN DEFAULT 0
             """)
             conn.commit()
-            print("Migration completed: is_common column added")
+            logger.info("Migration completed: is_common column added")
         
         # Migration 2: Add folder_id column to saved_queries if it doesn't exist
         try:
             cursor.execute("SELECT folder_id FROM saved_queries LIMIT 1")
-        except:
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
             # Column doesn't exist, add it
-            print("Running migration: Adding folder_id column to saved_queries")
+            logger.info("Running migration: Adding folder_id column to saved_queries")
             cursor.execute("""
                 ALTER TABLE saved_queries ADD COLUMN folder_id INTEGER REFERENCES query_folders(folder_id) ON DELETE SET NULL
             """)
             conn.commit()
-            print("Migration completed: folder_id column added")
+            logger.info("Migration completed: folder_id column added")
         
         # Migration 3: Create default "General" folders if they don't exist
         cursor.execute("SELECT COUNT(*) FROM query_folders WHERE folder_name = 'General' AND query_type = 'DB'")
         if cursor.fetchone()[0] == 0:
-            print("Running migration: Creating default folders")
+            logger.info("Running migration: Creating default folders")
             cursor.execute("""
                 INSERT INTO query_folders (folder_name, query_type, display_order)
                 VALUES ('General', 'DB', 0)
@@ -275,37 +287,41 @@ class Database:
             cursor.execute("UPDATE saved_queries SET folder_id = ? WHERE query_type = 'XDB' AND folder_id IS NULL", (xdb_folder_id,))
             
             conn.commit()
-            print("Migration completed: Default folders created and queries migrated")
+            logger.info("Migration completed: Default folders created and queries migrated")
         
         # Migration 4: Create default "General" folder for data maps if it doesn't exist
         cursor.execute("SELECT COUNT(*) FROM data_map_folders WHERE folder_name = 'General'")
         if cursor.fetchone()[0] == 0:
-            print("Running migration: Creating default data map folder")
+            logger.info("Running migration: Creating default data map folder")
             cursor.execute("""
                 INSERT INTO data_map_folders (folder_name, display_order)
                 VALUES ('General', 0)
             """)
             conn.commit()
-            print("Migration completed: Default data map folder created")
+            logger.info("Migration completed: Default data map folder created")
 
         # Migration 5: Add notes column to saved_queries if it doesn't exist
         try:
             cursor.execute("SELECT notes FROM saved_queries LIMIT 1")
-        except:
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
             # Column doesn't exist, add it
-            print("Running migration: Adding notes column to saved_queries")
+            logger.info("Running migration: Adding notes column to saved_queries")
             cursor.execute("""
                 ALTER TABLE saved_queries ADD COLUMN notes TEXT
             """)
             conn.commit()
-            print("Migration completed: notes column added")
+            logger.info("Migration completed: notes column added")
 
         # Migration 6: Add database_type column to connections if it doesn't exist
         # This is used for UI grouping (DB2, SQL_SERVER, etc.) and can be user-defined.
         try:
             cursor.execute("SELECT database_type FROM connections LIMIT 1")
-        except:
-            print("Running migration: Adding database_type column to connections")
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
+            logger.info("Running migration: Adding database_type column to connections")
             cursor.execute("""
                 ALTER TABLE connections ADD COLUMN database_type TEXT
             """)
@@ -316,13 +332,15 @@ class Database:
                 WHERE database_type IS NULL OR database_type = ''
             """)
             conn.commit()
-            print("Migration completed: database_type column added")
+            logger.info("Migration completed: database_type column added")
 
         # Migration 7: Create bookmark_icons table if it doesn't exist
         try:
             cursor.execute("SELECT 1 FROM bookmark_icons LIMIT 1")
-        except:
-            print("Running migration: Creating bookmark_icons table")
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
+            logger.info("Running migration: Creating bookmark_icons table")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS bookmark_icons (
                     path TEXT PRIMARY KEY,
@@ -332,13 +350,15 @@ class Database:
                 )
             """)
             conn.commit()
-            print("Migration completed: bookmark_icons table created")
+            logger.info("Migration completed: bookmark_icons table created")
 
         # Migration 9: Create abr_email_recipients table for ABR Quote Email Print
         try:
             cursor.execute("SELECT 1 FROM abr_email_recipients LIMIT 1")
-        except:
-            print("Running migration: Creating abr_email_recipients table")
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
+            logger.info("Running migration: Creating abr_email_recipients table")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS abr_email_recipients (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,13 +384,15 @@ class Database:
                 defaults,
             )
             conn.commit()
-            print("Migration completed: abr_email_recipients table created with defaults")
+            logger.info("Migration completed: abr_email_recipients table created with defaults")
 
         # Migration 10: Create abr_email_directory table (org-wide email directory for autocomplete)
         try:
             cursor.execute("SELECT 1 FROM abr_email_directory LIMIT 1")
-        except:
-            print("Running migration: Creating abr_email_directory table")
+        except sqlite3.OperationalError as exc:
+            if not self._is_missing_schema_error(exc):
+                raise
+            logger.info("Running migration: Creating abr_email_directory table")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS abr_email_directory (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -396,7 +418,7 @@ class Database:
                 defaults,
             )
             conn.commit()
-            print("Migration completed: abr_email_directory table created with defaults")
+            logger.info("Migration completed: abr_email_directory table created with defaults")
 
     def execute(self, query: str, params: tuple = ()):
         """Execute a query and return cursor"""

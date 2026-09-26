@@ -12,11 +12,15 @@ Originally from PolView, promoted to shared core.
 import pyodbc
 from typing import Optional, List, Tuple, Any
 from contextlib import contextmanager
+import logging
 import re
+import sqlite3
 
 from .db2_constants import REGION_DSN_MAP, DEFAULT_REGION, REGION_SCHEMA_MAP, DEFAULT_SCHEMA
 from .local_dev import connect_local_policy_database, local_data_enabled
 from .sql_permissions import guard_query_sql
+
+logger = logging.getLogger(__name__)
 
 
 class DB2ConnectionError(Exception):
@@ -118,7 +122,8 @@ class DB2Connection:
                     conn.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
                     self._connection = conn
                     return conn
-                except Exception:
+                except (pyodbc.Error, sqlite3.Error, OSError):
+                    logger.debug("Discarding dead cached local DB2 connection for %s", self.region, exc_info=True)
                     del DB2Connection._connections[self.region]
 
             try:
@@ -138,7 +143,8 @@ class DB2Connection:
                 conn.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
                 self._connection = conn
                 return conn
-            except Exception:
+            except (pyodbc.Error, SystemError, OSError):
+                logger.debug("Discarding dead cached DB2 connection for %s", self.region, exc_info=True)
                 # Connection is dead, remove from cache
                 del DB2Connection._connections[self.region]
         
@@ -183,8 +189,8 @@ class DB2Connection:
         if self._connection:
             try:
                 self._connection.close()
-            except Exception:
-                pass
+            except (pyodbc.Error, sqlite3.Error, OSError, AttributeError):
+                logger.debug("Ignoring DB2 connection close failure during cleanup", exc_info=True)
             finally:
                 self._connection = None
                 if self.region in DB2Connection._connections:
@@ -196,8 +202,8 @@ class DB2Connection:
         for region, conn in list(DB2Connection._connections.items()):
             try:
                 conn.close()
-            except Exception:
-                pass
+            except (pyodbc.Error, sqlite3.Error, OSError, AttributeError):
+                logger.debug("Ignoring cached DB2 connection close failure during cleanup", exc_info=True)
         DB2Connection._connections.clear()
     
     def _add_with_clause(self, sql: str) -> str:
@@ -324,8 +330,8 @@ class DB2Connection:
         finally:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except (pyodbc.Error, sqlite3.Error, OSError, AttributeError):
+                logger.debug("Ignoring one-shot DB2 connection close failure during cleanup", exc_info=True)
 
     def execute_query(self, sql: str, params: tuple = None) -> List[Tuple]:
         """
@@ -419,6 +425,7 @@ def test_connection(region: str = DEFAULT_REGION) -> bool:
         db.execute_query("SELECT 1 FROM SYSIBM.SYSDUMMY1")
         return True
     except Exception:
+        logger.debug("DB2 test connection failed for region %s", region, exc_info=True)
         return False
 
 
@@ -432,6 +439,7 @@ def get_available_dsns() -> List[str]:
     try:
         return [x[0] for x in pyodbc.dataSources().items()]
     except Exception:
+        logger.debug("Could not enumerate ODBC data sources", exc_info=True)
         return []
 
 

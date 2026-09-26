@@ -18,6 +18,15 @@ from suiteview.core.support_files import guard_support_file_paths
 
 logger = logging.getLogger(__name__)
 
+try:
+    from pywintypes import com_error as OutlookComError
+except ImportError:
+    OutlookComError = None
+
+OUTLOOK_COM_ERRORS = (AttributeError, TypeError, OSError) + (
+    (OutlookComError,) if OutlookComError is not None else ()
+)
+
 
 @dataclass
 class EmailAttachment:
@@ -81,7 +90,7 @@ class OutlookManager:
                     try:
                         self.outlook = win32com.client.GetActiveObject("Outlook.Application")
                         logger.info("Connected to existing Outlook instance")
-                    except:
+                    except OUTLOOK_COM_ERRORS:
                         logger.info("Starting new Outlook instance...")
                         self.outlook = win32com.client.Dispatch("Outlook.Application")
                         # Give Outlook time to fully start
@@ -350,11 +359,13 @@ class OutlookManager:
                         if sender_email and sender_email.startswith('/O='):
                             try:
                                 sender_email = item.Sender.GetExchangeUser().PrimarySmtpAddress
-                            except:
+                            except OUTLOOK_COM_ERRORS:
                                 # If GetExchangeUser fails, fall back to SenderName
+                                logger.debug("Could not resolve Exchange sender address; using SenderName", exc_info=True)
                                 sender_email = item.SenderName
                         # For external emails, sender_email should already be the SMTP address
-                    except:
+                    except OUTLOOK_COM_ERRORS:
+                        logger.debug("Could not read Outlook sender email address", exc_info=True)
                         sender_email = ""
                     
                     # Get body preview
@@ -363,7 +374,8 @@ class OutlookManager:
                         try:
                             body = item.Body or ""
                             body_preview = body[:200].replace('\r', ' ').replace('\n', ' ')
-                        except:
+                        except OUTLOOK_COM_ERRORS:
+                            logger.debug("Could not read Outlook body preview", exc_info=True)
                             body_preview = ""
                     
                     email_info = EmailInfo(
@@ -412,7 +424,8 @@ class OutlookManager:
                 pr_attach_hidden = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
                 is_hidden = attachment.PropertyAccessor.GetProperty(pr_attach_hidden)
                 return bool(is_hidden)
-            except:
+            except OUTLOOK_COM_ERRORS:
+                logger.debug("Could not read Outlook inline attachment property; assuming visible", exc_info=True)
                 return False  # If we can't read it, assume not hidden (visible)
             
         except Exception as e:
@@ -432,11 +445,13 @@ class OutlookManager:
                     # Stop at store level
                     if hasattr(current, 'Class') and current.Class == 61:  # olStore
                         break
-                except:
+                except OUTLOOK_COM_ERRORS:
+                    logger.debug("Stopped building folder path because an Outlook parent/name could not be read", exc_info=True)
                     break
             
             return '/'.join(path_parts)
-        except:
+        except OUTLOOK_COM_ERRORS:
+            logger.debug("Could not build Outlook folder path", exc_info=True)
             return "Unknown"
     
     def get_all_attachments(self, folders: List = None, limit_per_folder: int = 1000, 
@@ -490,8 +505,8 @@ class OutlookManager:
                                 raw_sender_name = item.SenderName
                                 if raw_sender_name is not None:
                                     sender_name = str(raw_sender_name).strip()
-                            except:
-                                pass
+                            except OUTLOOK_COM_ERRORS:
+                                logger.debug("Could not read Outlook SenderName", exc_info=True)
                             
                             try:
                                 # Approach 2: SenderEmailAddress property
@@ -506,17 +521,17 @@ class OutlookManager:
                                                 exchange_user = item.Sender.GetExchangeUser()
                                                 if exchange_user and exchange_user.PrimarySmtpAddress:
                                                     sender_email = str(exchange_user.PrimarySmtpAddress).strip()
-                                        except:
-                                            pass
-                            except:
-                                pass
+                                        except OUTLOOK_COM_ERRORS:
+                                            logger.debug("Could not resolve Exchange sender during attachment scan", exc_info=True)
+                            except OUTLOOK_COM_ERRORS:
+                                logger.debug("Could not read Outlook SenderEmailAddress during attachment scan", exc_info=True)
                             
                             try:
                                 # Approach 3: Sender.Name
                                 if not sender_name and item.Sender and item.Sender.Name:
                                     sender_name = str(item.Sender.Name).strip()
-                            except:
-                                pass
+                            except OUTLOOK_COM_ERRORS:
+                                logger.debug("Could not read Outlook Sender.Name during attachment scan", exc_info=True)
                             
                             # Use whatever we found
                             display_sender = sender_name or sender_email or "(Unknown Sender)"
@@ -793,9 +808,11 @@ class OutlookManager:
                         if sender_email.startswith('/O='):
                             try:
                                 sender_email = item.Sender.GetExchangeUser().PrimarySmtpAddress
-                            except:
+                            except OUTLOOK_COM_ERRORS:
+                                logger.debug("Could not resolve Exchange sender in date-filtered email scan", exc_info=True)
                                 sender_email = item.SenderName
-                    except:
+                    except OUTLOOK_COM_ERRORS:
+                        logger.debug("Could not read Outlook sender in date-filtered email scan", exc_info=True)
                         sender_email = ""
                     
                     # Get body preview
@@ -804,7 +821,8 @@ class OutlookManager:
                         try:
                             body = item.Body or ""
                             body_preview = body[:200].replace('\r', ' ').replace('\n', ' ')
-                        except:
+                        except OUTLOOK_COM_ERRORS:
+                            logger.debug("Could not read Outlook body preview in date-filtered email scan", exc_info=True)
                             body_preview = ""
                     
                     email_info = EmailInfo(
@@ -868,8 +886,8 @@ class OutlookManager:
                         raw_sender_name = item.SenderName
                         if raw_sender_name is not None:
                             sender_name = str(raw_sender_name).strip()
-                    except:
-                        pass
+                    except OUTLOOK_COM_ERRORS:
+                        logger.debug("Could not read Outlook SenderName while scanning attachments", exc_info=True)
                     
                     try:
                         raw_sender_email = item.SenderEmailAddress
@@ -881,16 +899,16 @@ class OutlookManager:
                                         exchange_user = item.Sender.GetExchangeUser()
                                         if exchange_user and exchange_user.PrimarySmtpAddress:
                                             sender_email = str(exchange_user.PrimarySmtpAddress).strip()
-                                except:
-                                    pass
-                    except:
-                        pass
+                                except OUTLOOK_COM_ERRORS:
+                                    logger.debug("Could not resolve Exchange sender while scanning attachments", exc_info=True)
+                    except OUTLOOK_COM_ERRORS:
+                        logger.debug("Could not read Outlook SenderEmailAddress while scanning attachments", exc_info=True)
                     
                     try:
                         if not sender_name and item.Sender and item.Sender.Name:
                             sender_name = str(item.Sender.Name).strip()
-                    except:
-                        pass
+                    except OUTLOOK_COM_ERRORS:
+                        logger.debug("Could not read Outlook Sender.Name while scanning attachments", exc_info=True)
                     
                     # Fallback to email info
                     if not sender_name and hasattr(email, 'sender') and email.sender:
@@ -982,6 +1000,7 @@ class OutlookManager:
                         contacts.append({'name': name.strip(), 'email': email})
                         seen_emails.add(email)
                 except Exception:
+                    logger.debug("Skipping unreadable Outlook contact", exc_info=True)
                     continue
             logger.info(f"Loaded {len(contacts)} contacts from Contacts folder")
         except Exception as e:
@@ -1007,6 +1026,7 @@ class OutlookManager:
                                 contacts.append({'name': name.strip(), 'email': email})
                                 seen_emails.add(email)
                         except Exception:
+                            logger.debug("Skipping unreadable Outlook GAL entry", exc_info=True)
                             continue
                     logger.info(f"Total contacts after GAL: {len(contacts)}")
                     break
@@ -1163,7 +1183,7 @@ class OutlookManager:
                             body_text = item.Body or ""
                             body_preview = body_text[:200].replace('\r\n', ' ').replace('\n', ' ')
                         except Exception:
-                            pass
+                            logger.debug("Could not read Outlook body preview for subject search result", exc_info=True)
 
                     sender_email = ""
                     try:
@@ -1208,7 +1228,7 @@ class OutlookManager:
                             try:
                                 body_preview = (item.Body or "")[:200].replace('\r\n', ' ').replace('\n', ' ')
                             except Exception:
-                                pass
+                                logger.debug("Could not read Outlook Sent Items body preview", exc_info=True)
                         info = EmailInfo(
                             email_id=item.EntryID,
                             subject=item.Subject or "(No Subject)",
@@ -1224,6 +1244,7 @@ class OutlookManager:
                         )
                         results.append(info)
                     except Exception:
+                        logger.debug("Skipping unreadable Outlook Sent Items search result", exc_info=True)
                         continue
             except Exception as e:
                 logger.warning(f"Could not search Sent Items: {e}")

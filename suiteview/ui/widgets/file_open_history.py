@@ -70,7 +70,7 @@ def _get_recent_files(days=7):
         import win32com.client
         shell = win32com.client.Dispatch("WScript.Shell")
     except Exception:
-        pass
+        logger.debug("Windows shortcut COM resolver unavailable; using .lnk names", exc_info=True)
 
     for lnk in recent_dir.iterdir():
         if lnk.suffix.lower() != '.lnk':
@@ -89,7 +89,7 @@ def _get_recent_files(days=7):
                 sc = shell.CreateShortCut(str(lnk))
                 target = sc.Targetpath
             except Exception:
-                pass
+                logger.debug("Could not resolve recent shortcut %s", lnk, exc_info=True)
 
         if not target:
             # Derive from .lnk filename as a fallback (strip trailing .lnk)
@@ -182,7 +182,7 @@ def _scan_recent_for_days(needed_day_keys, max_days=7):
         import win32com.client
         shell = win32com.client.Dispatch("WScript.Shell")
     except Exception:
-        pass
+        logger.debug("Windows shortcut COM resolver unavailable; using .lnk names", exc_info=True)
 
     for lnk in recent_dir.iterdir():
         if lnk.suffix.lower() != '.lnk':
@@ -204,7 +204,7 @@ def _scan_recent_for_days(needed_day_keys, max_days=7):
                 sc = shell.CreateShortCut(str(lnk))
                 target = sc.Targetpath
             except Exception:
-                pass
+                logger.debug("Could not resolve recent shortcut %s", lnk, exc_info=True)
 
         if not target:
             target = lnk.stem

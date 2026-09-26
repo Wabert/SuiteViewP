@@ -154,7 +154,7 @@ class BookmarkDataManager:
             try:
                 max_id = max(max_id, int(bar_id))
             except ValueError:
-                pass
+                logger.debug("Ignoring non-numeric bookmark bar id %r while repairing counters", bar_id, exc_info=True)
         return max_id
     
     def repair_id_counters(self):

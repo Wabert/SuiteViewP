@@ -83,7 +83,7 @@ def write_file_atomic(path: PathLike, write_to_temp: Callable[[Path], None]) -> 
         try:
             tmp.unlink()
         except OSError:
-            pass
+            logger.debug("Could not remove failed atomic-write temp file %s", tmp, exc_info=True)
         raise
 
 

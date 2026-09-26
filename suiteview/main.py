@@ -34,8 +34,8 @@ def _setup_crash_log():
         if _CRASH_LOG.exists() and _CRASH_LOG.stat().st_size > 500_000:
             text = _CRASH_LOG.read_text(encoding="utf-8", errors="replace")
             _CRASH_LOG.write_text(text[-250_000:], encoding="utf-8")
-    except Exception:
-        pass
+    except OSError:
+        logger.debug("Could not rotate SuiteView crash log", exc_info=True)
 
     def _excepthook(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -76,8 +76,8 @@ def main():
             cache_path = os.path.join(win32com.__gen_path__, 'win32com', 'gen_py')
             if os.path.exists(cache_path):
                 shutil.rmtree(cache_path, ignore_errors=True)
-    except Exception:
-        pass  # Silently ignore if clearing fails
+    except (ImportError, OSError):
+        logger.debug("Could not clear win32com gen_py cache", exc_info=True)
     
     # Qt message handler (suppress non-critical warnings)
     def qt_message_handler(mode, context, message):

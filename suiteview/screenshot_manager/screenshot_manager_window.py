@@ -1182,8 +1182,8 @@ class ScreenShotManagerWindow(FramelessWindowBase):
                         # Clean up temp file
                         try:
                             os.unlink(temp_path)
-                        except:
-                            pass
+                        except OSError:
+                            logger.debug("Ignoring temp screenshot cleanup failure for %s", temp_path, exc_info=True)
                     
                     # Add space after image
                     selection.TypeParagraph()

@@ -134,8 +134,8 @@ class MainframeWindow(QMainWindow):
                 try:
                     decrypted_user = self.cred_manager.decrypt(encrypted_user)
                     username_input.setText(decrypted_user)
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Could not decrypt saved mainframe username", exc_info=True)
         layout.addRow("Username:", username_input)
         
         # Password field
@@ -149,8 +149,8 @@ class MainframeWindow(QMainWindow):
                 try:
                     decrypted_pw = self.cred_manager.decrypt(encrypted_pw)
                     password_input.setText(decrypted_pw)
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Could not decrypt saved mainframe password", exc_info=True)
         layout.addRow("Password:", password_input)
         
         # Buttons

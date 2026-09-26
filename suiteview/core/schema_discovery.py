@@ -72,8 +72,9 @@ class SchemaDiscovery:
             # Get all schemas (databases)
             try:
                 schemas = inspector.get_schema_names()
-            except:
+            except Exception:
                 # Some databases don't support schemas, use default
+                logger.debug("Database inspector did not provide schema names; using default schema", exc_info=True)
                 schemas = [None]
 
             for schema in schemas:

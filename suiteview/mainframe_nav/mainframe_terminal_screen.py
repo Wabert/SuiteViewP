@@ -956,8 +956,8 @@ class TerminalSettingsDialog(QDialog):
                         result['details'] = "SSH server"
                     elif b'HTTP' in data or b'<' in data:
                         result['details'] = "HTTP/Web server"
-            except:
-                pass
+            except (socket.timeout, OSError):
+                logger.debug("No initial banner received during port probe", exc_info=True)
             
             sock.close()
             
@@ -978,8 +978,8 @@ class TerminalSettingsDialog(QDialog):
                 except ssl.SSLError:
                     if result['open']:
                         result['details'] = "Open but SSL failed"
-                except:
-                    pass
+                except (ssl.SSLError, OSError):
+                    logger.debug("SSL probe failed for %s:%s", host, port, exc_info=True)
             
         except socket.timeout:
             result['details'] = 'Timeout'
@@ -1009,7 +1009,7 @@ class TerminalSettingsDialog(QDialog):
                 
                 self.scan_results.clearSelection()
             except ValueError:
-                pass
+                logger.debug("Ignoring non-numeric port scan table value %r", port_item.text(), exc_info=True)
     
     def on_port_context_menu(self, pos):
         """Show context menu for port results (e.g., open HTTPS in browser)"""
