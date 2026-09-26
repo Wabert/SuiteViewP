@@ -31,7 +31,7 @@ def test_tools_menu_uses_runtime_rate_manager_permission():
         / "taskbar_system.py"
     ).read_text(encoding="utf-8")
 
-    assert '("RATEMANAGER", "Rate Manager", self._open_rate_manager)' in ui_source
+    assert '("RATEMANAGER", "Rate Manager", self.callbacks._open_rate_manager)' in ui_source
     assert '@requires_app_access("RATEMANAGER")' in system_source
 
 

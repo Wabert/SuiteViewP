@@ -11,8 +11,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QLis
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QLabel, QWidgetAction, QFileDialog, QMessageBox)
 from PyQt6.QtCore import (Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, pyqtSlot, QRect,
-                          QPoint, QTimer, QThread, QStringListModel, QSize, QRegularExpression)
+                          QPoint, QTimer, QObject, QStringListModel, QSize, QRegularExpression)
 from PyQt6.QtGui import QFont, QFontMetrics, QAction, QPainter, QColor
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
@@ -935,13 +936,12 @@ class FilterPopup(QMenu):
         return selected_values if selected_values else set(self.all_unique_values)
 
 
-class SearchWorker(QThread):
+class SearchWorker(QObject):
     """Background worker for global search operations"""
-    
-    search_completed = pyqtSignal(pd.Index)  # Emits matching indices
-    
+
     def __init__(self, df: pd.DataFrame, indices: pd.Index, search_text: str):
         super().__init__()
+        self.signals = WorkerSignals(self)
         self.df = df
         self.indices = indices
         self.search_text = search_text.lower().strip()
@@ -973,11 +973,16 @@ class SearchWorker(QThread):
                 matching_indices = pd.Index([])
             
             if not self._is_cancelled:
-                self.search_completed.emit(matching_indices)
+                self.signals.result.emit(matching_indices)
+            else:
+                self.signals.cancelled.emit()
                 
         except Exception as e:
             logger.error(f"Search error: {e}")
-            self.search_completed.emit(pd.Index([]))
+            self.signals.error.emit(str(e))
+            self.signals.result.emit(pd.Index([]))
+        finally:
+            self.signals.finished.emit()
     
     def cancel(self):
         """Cancel the search operation"""
@@ -1094,7 +1099,8 @@ class FilterTableView(QWidget):
         self._unique_values_cache: Dict[str, List[Any]] = {}  # Cache unique values per column
         self._string_columns_cache: Dict[str, pd.Series] = {}  # Pre-converted string columns
         self._all_unique_values: Dict[str, List[Any]] = {}  # Pre-computed unique values per column
-        self._search_worker: Optional[SearchWorker] = None  # Background search thread
+        self._search_worker: Optional[SearchWorker] = None
+        self._search_controller: WorkerController | None = None
         self._search_debounce_timer = QTimer()
         self._search_debounce_timer.setSingleShot(True)
         self._search_debounce_timer.timeout.connect(self._execute_search)
@@ -1603,9 +1609,8 @@ class FilterTableView(QWidget):
         self._unique_values_cache.clear()  # Clear unique values cache
         
         # Cancel any pending search
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.cancel()
-            self._search_worker.wait()
+        if self._search_controller and self._search_controller.is_running():
+            self._search_controller.cancel()
         
         # Update info
         self.update_info_label()
@@ -2013,8 +2018,8 @@ class FilterTableView(QWidget):
             return
         
         # Cancel any running search
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.cancel()
+        if self._search_controller and self._search_controller.is_running():
+            self._search_controller.cancel()
         
         # Store pending search and start debounce timer
         self._pending_search_text = search_text
@@ -2036,8 +2041,14 @@ class FilterTableView(QWidget):
             self.model._filtered_indices,
             search_text
         )
-        self._search_worker.search_completed.connect(self._on_search_completed)
-        self._search_worker.start()
+        self._search_controller = WorkerController(
+            self,
+            self._search_worker,
+            cancel=self._search_worker.cancel,
+        )
+        self._search_controller.result.connect(self._on_search_completed)
+        self._search_controller.finished.connect(self._on_search_finished)
+        self._search_controller.start()
         
         # Show searching indicator
         self.info_label.setText("🔍 Searching...")
@@ -2048,6 +2059,10 @@ class FilterTableView(QWidget):
             self.model.set_display_indices(matching_indices)
             self.update_info_label()
 
+    def _on_search_finished(self):
+        self._search_controller = None
+        self._search_worker = None
+
     def clear_all_filters(self):
         """Clear all filters and reset to original data"""
         self.column_filters.clear()
@@ -2056,8 +2071,8 @@ class FilterTableView(QWidget):
         self._unique_values_cache.clear()  # Clear cache
         
         # Cancel any running search
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.cancel()
+        if self._search_controller and self._search_controller.is_running():
+            self._search_controller.cancel()
         
         if self.model:
             # Reset to all indices

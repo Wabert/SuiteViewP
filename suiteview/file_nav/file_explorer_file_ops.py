@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 
 class FileExplorerFileOpsMixin:
+    """Requires: details selection, clipboard state, and support-file guards.
+    Provides: copy, cut, paste, rename, delete, mkdir, drops, and refresh hooks.
+    """
+
     def get_selected_path(self):
         """Get currently selected file/folder path from details view (single selection)"""
         indexes = self.details_view.selectedIndexes()

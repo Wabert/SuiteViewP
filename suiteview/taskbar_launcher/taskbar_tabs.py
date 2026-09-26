@@ -17,28 +17,31 @@ from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.bookmark_widgets import (
     BookmarkContainerRegistry,
 )
+from suiteview.taskbar_launcher.collaborators import TaskbarCollaborator
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_explorer_tab import FileExplorerTab
 
 
-class TaskbarTabsMixin:
+class TaskbarTabs(TaskbarCollaborator):
+    """Owns FileNav tab creation, synchronization, and tab actions."""
+
     def show_tab_bar_context_menu(self, pos):
         """Show context menu for the tab bar.
 
         - Right-click a tab: offer Duplicate (open new tab at same folder)
         - Right-click empty space: offer New Tab
         """
-        tab_bar = self.tab_widget.tabBar()
+        tab_bar = self.chrome.tab_widget.tabBar()
         tab_index = tab_bar.tabAt(pos)
 
-        menu = QMenu(self)
+        menu = QMenu(self.window)
         if tab_index >= 0:
-            duplicate_action = QAction("Duplicate", self)
+            duplicate_action = QAction("Duplicate", self.window)
             duplicate_action.triggered.connect(lambda _: self.duplicate_tab(tab_index))
             menu.addAction(duplicate_action)
         else:
-            new_tab_action = QAction("New Tab", self)
+            new_tab_action = QAction("New Tab", self.window)
             new_tab_action.triggered.connect(lambda _: self.add_new_tab())
             menu.addAction(new_tab_action)
 
@@ -47,7 +50,7 @@ class TaskbarTabsMixin:
     def duplicate_tab(self, index: int) -> None:
         """Duplicate the given tab into a new tab at the same folder."""
         try:
-            widget = self.tab_widget.widget(index)
+            widget = self.chrome.tab_widget.widget(index)
             if widget is None:
                 return
 
@@ -56,7 +59,7 @@ class TaskbarTabsMixin:
             if not path:
                 path = getattr(widget, 'current_details_folder', None)
 
-            title = self.tab_widget.tabText(index)
+            title = self.chrome.tab_widget.tabText(index)
             self.add_new_tab(path=path, title=title)
         except Exception as e:
             logger.error(f"Failed to duplicate tab: {e}")
@@ -76,8 +79,8 @@ class TaskbarTabsMixin:
                 title = "OneDrive"
         
         # Add tab
-        index = self.tab_widget.addTab(explorer_tab, title)
-        self.tab_widget.setCurrentIndex(index)
+        index = self.chrome.tab_widget.addTab(explorer_tab, title)
+        self.chrome.tab_widget.setCurrentIndex(index)
         self._style_close_button(index)
         
         # Connect path changes to update tab title
@@ -96,11 +99,11 @@ class TaskbarTabsMixin:
             return
         
         # If we have shared sizes, apply them to this tab
-        if self._shared_splitter_sizes:
-            tab.main_splitter.setSizes(self._shared_splitter_sizes)
+        if self.state.shared_splitter_sizes:
+            tab.main_splitter.setSizes(self.state.shared_splitter_sizes)
         else:
             # First tab - capture its sizes as the shared sizes
-            self._shared_splitter_sizes = tab.main_splitter.sizes()
+            self.state.shared_splitter_sizes = tab.main_splitter.sizes()
         
         # Connect splitter movement to sync across all tabs
         tab.main_splitter.splitterMoved.connect(
@@ -109,31 +112,31 @@ class TaskbarTabsMixin:
     
     def _on_tab_splitter_moved(self, source_tab):
         """When any tab's splitter moves, sync to all other tabs"""
-        if self._syncing_splitter:
+        if self.state.syncing_splitter:
             return
         
-        self._syncing_splitter = True
+        self.state.syncing_splitter = True
         try:
             # Get the new sizes from the tab that was moved
             new_sizes = source_tab.main_splitter.sizes()
-            self._shared_splitter_sizes = new_sizes
+            self.state.shared_splitter_sizes = new_sizes
             
             # Apply to all other tabs
-            for i in range(self.tab_widget.count()):
-                tab = self.tab_widget.widget(i)
+            for i in range(self.chrome.tab_widget.count()):
+                tab = self.chrome.tab_widget.widget(i)
                 if tab is not source_tab and hasattr(tab, 'main_splitter'):
                     tab.main_splitter.setSizes(new_sizes)
         finally:
-            self._syncing_splitter = False
+            self.state.syncing_splitter = False
     
     def close_tab(self, index):
         """Close a tab"""
         # Don't close if it's the last tab
-        if self.tab_widget.count() <= 1:
+        if self.chrome.tab_widget.count() <= 1:
             return
         
         # Get the widget before removing it
-        widget = self.tab_widget.widget(index)
+        widget = self.chrome.tab_widget.widget(index)
         
         # Disconnect signals to prevent crashes during cleanup
         if widget:
@@ -170,7 +173,7 @@ class TaskbarTabsMixin:
                 logger.error(f"Error disconnecting signals during tab close: {e}")
         
         # Now remove the tab
-        self.tab_widget.removeTab(index)
+        self.chrome.tab_widget.removeTab(index)
         
         # Delete the widget to free resources
         if widget:
@@ -178,16 +181,16 @@ class TaskbarTabsMixin:
     
     def update_tab_title(self, tab_widget, path):
         """Update tab title when path changes"""
-        index = self.tab_widget.indexOf(tab_widget)
+        index = self.chrome.tab_widget.indexOf(tab_widget)
         if index >= 0:
             path_obj = Path(path)
             title = path_obj.name if path_obj.name else str(path)
-            self.tab_widget.setTabText(index, title)
-            self.tab_widget.setTabToolTip(index, str(path))
+            self.chrome.tab_widget.setTabText(index, title)
+            self.chrome.tab_widget.setTabToolTip(index, str(path))
     
     def get_current_tab(self):
         """Get currently active tab"""
-        return self.tab_widget.currentWidget()
+        return self.chrome.tab_widget.currentWidget()
     
     def navigate_to_bookmark_folder(self, folder_path):
         """Navigate the current tab to a bookmark folder"""
@@ -221,12 +224,12 @@ class TaskbarTabsMixin:
     
     def update_footer_status(self, message):
         """Update the footer status text"""
-        if hasattr(self, 'footer_status'):
-            self.footer_status.setText(message)
+        if hasattr(self.chrome, 'footer_status'):
+            self.chrome.footer_status.setText(message)
 
     def _style_close_button(self, index):
         """Make the tab close button a subtle gold X instead of the default red icon."""
-        tab_bar = self.tab_widget.tabBar()
+        tab_bar = self.chrome.tab_widget.tabBar()
         close_btn = QToolButton(tab_bar)
         close_btn.setAutoRaise(True)
         close_btn.setText("X")
@@ -253,8 +256,8 @@ class TaskbarTabsMixin:
 
     def _emit_close_for_button(self, button):
         """Map custom close button clicks to the correct tab index."""
-        tab_bar = self.tab_widget.tabBar()
+        tab_bar = self.chrome.tab_widget.tabBar()
         for idx in range(tab_bar.count()):
             if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) is button:
-                self.tab_widget.tabCloseRequested.emit(idx)
+                self.chrome.tab_widget.tabCloseRequested.emit(idx)
                 return

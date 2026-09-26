@@ -25,8 +25,9 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Callable, Optional, Dict, List
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QFrame, QVBoxLayout, QHBoxLayout,
@@ -44,16 +45,29 @@ from suiteview.ui.widgets.frame_geometry import (
 logger = logging.getLogger(__name__)
 
 
-# Shared icon provider and cache for all bookmark widgets
-_icon_provider = None
-_icon_cache = {}  # Cache by extension for files
-_path_cache = {}  # Cache full results by path for folders
-_folder_icon = None
-_file_icon = None
-_db_icons_loaded = False  # Track if DB icons have been loaded
+@dataclass
+class BookmarkUiState:
+    """Shared UI-only state for bookmark widgets.
 
-# Global callback for footer status updates (set by main window)
-_footer_status_callback = None
+    BookmarkDataManager remains the only bookmark data source. This service owns
+    transient UI caches, popup tracking, drag state, footer callbacks, and the
+    cross-container registry.
+    """
+
+    icon_provider: QFileIconProvider | None = None
+    icon_cache: dict = field(default_factory=dict)
+    path_cache: dict = field(default_factory=dict)
+    folder_icon: QIcon | None = None
+    file_icon: QIcon | None = None
+    db_icons_loaded: bool = False
+    footer_status_callback: Callable[[str], None] | None = None
+    open_category_popups: set = field(default_factory=set)
+    global_close_timer: QTimer | None = None
+    drag_in_progress: bool = False
+    containers: Dict[int, List['BookmarkContainer']] = field(default_factory=dict)
+
+
+DEFAULT_BOOKMARK_UI_STATE = BookmarkUiState()
 
 
 def set_footer_status_callback(callback):
@@ -61,27 +75,24 @@ def set_footer_status_callback(callback):
     The callback should accept a single string argument (the path to display).
     Pass empty string to clear the footer.
     """
-    global _footer_status_callback
-    _footer_status_callback = callback
+    DEFAULT_BOOKMARK_UI_STATE.footer_status_callback = callback
 
 
 def update_footer_status(path: str):
     """Update the footer status with the given path.
     Call with empty string to clear.
     """
-    global _footer_status_callback
-    if _footer_status_callback:
-        _footer_status_callback(path)
+    if DEFAULT_BOOKMARK_UI_STATE.footer_status_callback:
+        DEFAULT_BOOKMARK_UI_STATE.footer_status_callback(path)
 
 
 def _get_icon_provider():
     """Get or create the shared QFileIconProvider"""
-    global _icon_provider, _folder_icon, _file_icon
-    if _icon_provider is None:
-        _icon_provider = QFileIconProvider()
-        _folder_icon = _icon_provider.icon(QFileIconProvider.IconType.Folder)
-        _file_icon = _icon_provider.icon(QFileIconProvider.IconType.File)
-    return _icon_provider
+    if DEFAULT_BOOKMARK_UI_STATE.icon_provider is None:
+        DEFAULT_BOOKMARK_UI_STATE.icon_provider = QFileIconProvider()
+        DEFAULT_BOOKMARK_UI_STATE.folder_icon = DEFAULT_BOOKMARK_UI_STATE.icon_provider.icon(QFileIconProvider.IconType.Folder)
+        DEFAULT_BOOKMARK_UI_STATE.file_icon = DEFAULT_BOOKMARK_UI_STATE.icon_provider.icon(QFileIconProvider.IconType.File)
+    return DEFAULT_BOOKMARK_UI_STATE.icon_provider
 
 
 def _is_url(path_str):
@@ -126,7 +137,6 @@ def get_file_icon_placeholder(path_str):
     For .lnk files, returns generic file icon and True.
     For other files, tries extension cache first.
     """
-    global _icon_cache, _path_cache, _folder_icon, _file_icon
     
     _get_icon_provider()  # Ensure icons are initialized
     
@@ -138,13 +148,13 @@ def get_file_icon_placeholder(path_str):
         return None, False
     
     # Check full path cache first
-    if path_str in _path_cache:
-        return _path_cache[path_str], False
+    if path_str in DEFAULT_BOOKMARK_UI_STATE.path_cache:
+        return DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str], False
     
     # Quick check for folder paths
     if path_str.endswith('/') or path_str.endswith('\\'):
-        _path_cache[path_str] = _folder_icon
-        return _folder_icon, False
+        DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.folder_icon
+        return DEFAULT_BOOKMARK_UI_STATE.folder_icon, False
     
     path_obj = Path(path_str)
     suffix = path_obj.suffix.lower()
@@ -152,17 +162,17 @@ def get_file_icon_placeholder(path_str):
     if suffix:
         # .lnk files need async loading - return placeholder
         if suffix == '.lnk':
-            return _file_icon, True  # Needs async load
+            return DEFAULT_BOOKMARK_UI_STATE.file_icon, True  # Needs async load
         
         # Regular files - check extension cache
-        if suffix in _icon_cache:
-            return _icon_cache[suffix], False
+        if suffix in DEFAULT_BOOKMARK_UI_STATE.icon_cache:
+            return DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix], False
         
         # Extension not cached - needs async load
-        return _file_icon, True
+        return DEFAULT_BOOKMARK_UI_STATE.file_icon, True
     
     # No extension - folder check needs filesystem
-    return _file_icon, True
+    return DEFAULT_BOOKMARK_UI_STATE.file_icon, True
 
 
 def get_file_icon(path_str, save_to_db=True):
@@ -175,7 +185,6 @@ def get_file_icon(path_str, save_to_db=True):
         path_str: File or folder path
         save_to_db: If True, saves newly fetched icons to database for instant loading
     """
-    global _icon_cache, _path_cache, _folder_icon, _file_icon
     
     if not path_str:
         return None
@@ -185,20 +194,20 @@ def get_file_icon(path_str, save_to_db=True):
         return None
     
     # Check full path cache first (loaded from DB at startup)
-    if path_str in _path_cache:
-        return _path_cache[path_str]
+    if path_str in DEFAULT_BOOKMARK_UI_STATE.path_cache:
+        return DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str]
     
     provider = _get_icon_provider()
     
     # Quick check: if path has no extension and ends with slash or backslash, it's a folder
     if path_str.endswith('/') or path_str.endswith('\\'):
-        _path_cache[path_str] = _folder_icon
+        DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.folder_icon
         if save_to_db:
             try:
-                save_icon_to_db(path_str, _folder_icon, 'folder')
+                save_icon_to_db(path_str, DEFAULT_BOOKMARK_UI_STATE.folder_icon, 'folder')
             except Exception:
                 logger.debug("Could not cache folder icon for %s", path_str, exc_info=True)
-        return _folder_icon
+        return DEFAULT_BOOKMARK_UI_STATE.folder_icon
     
     # Check extension - if it has one, treat it as a file
     path_obj = Path(path_str)
@@ -212,7 +221,7 @@ def get_file_icon(path_str, save_to_db=True):
                 file_info = QFileInfo(path_str)
                 icon = provider.icon(file_info)
                 if not icon.isNull():
-                    _path_cache[path_str] = icon  # Cache by full path
+                    DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon  # Cache by full path
                     if save_to_db:
                         try:
                             save_icon_to_db(path_str, icon, 'lnk')
@@ -222,14 +231,14 @@ def get_file_icon(path_str, save_to_db=True):
             except Exception:
                 logger.debug("Could not load shortcut icon for %s", path_str, exc_info=True)
             # Fallback - use generic file icon
-            _path_cache[path_str] = _file_icon
-            return _file_icon
+            DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+            return DEFAULT_BOOKMARK_UI_STATE.file_icon
         
         # Regular files - check extension cache first (fast path)
-        if suffix in _icon_cache:
+        if suffix in DEFAULT_BOOKMARK_UI_STATE.icon_cache:
             # Also cache by full path for DB storage
-            icon = _icon_cache[suffix]
-            _path_cache[path_str] = icon
+            icon = DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix]
+            DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon
             if save_to_db:
                 try:
                     save_icon_to_db(path_str, icon, 'file')
@@ -242,8 +251,8 @@ def get_file_icon(path_str, save_to_db=True):
             file_info = QFileInfo(path_str)
             icon = provider.icon(file_info)
             if not icon.isNull():
-                _icon_cache[suffix] = icon
-                _path_cache[path_str] = icon
+                DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix] = icon
+                DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = icon
                 if save_to_db:
                     try:
                         save_icon_to_db(path_str, icon, 'file')
@@ -254,27 +263,27 @@ def get_file_icon(path_str, save_to_db=True):
             logger.debug("Could not load file icon for %s", path_str, exc_info=True)
         
         # Fallback to generic file icon
-        _icon_cache[suffix] = _file_icon
-        _path_cache[path_str] = _file_icon
-        return _file_icon
+        DEFAULT_BOOKMARK_UI_STATE.icon_cache[suffix] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+        DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+        return DEFAULT_BOOKMARK_UI_STATE.file_icon
     
     # No extension - need to check if it's a folder (this is the slow path)
     # Only do filesystem check when absolutely necessary
     try:
         if path_obj.is_dir():
-            _path_cache[path_str] = _folder_icon
+            DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.folder_icon
             if save_to_db:
                 try:
-                    save_icon_to_db(path_str, _folder_icon, 'folder')
+                    save_icon_to_db(path_str, DEFAULT_BOOKMARK_UI_STATE.folder_icon, 'folder')
                 except Exception:
                     logger.debug("Could not cache folder icon for %s", path_str, exc_info=True)
-            return _folder_icon
+            return DEFAULT_BOOKMARK_UI_STATE.folder_icon
     except OSError:
         logger.debug("Could not check whether bookmark path is a folder: %s", path_str, exc_info=True)
     
     # Default to file icon for extensionless items
-    _path_cache[path_str] = _file_icon
-    return _file_icon
+    DEFAULT_BOOKMARK_UI_STATE.path_cache[path_str] = DEFAULT_BOOKMARK_UI_STATE.file_icon
+    return DEFAULT_BOOKMARK_UI_STATE.file_icon
 
 
 # =============================================================================
@@ -351,12 +360,11 @@ def load_icon_from_db(path_str: str) -> QIcon:
 
 def load_all_icons_from_db():
     """
-    Bulk load all cached icons from database into _path_cache.
+    Bulk load all cached icons from database into DEFAULT_BOOKMARK_UI_STATE.path_cache.
     Call this at startup for instant icon loading.
     """
-    global _path_cache, _db_icons_loaded
     
-    if _db_icons_loaded:
+    if DEFAULT_BOOKMARK_UI_STATE.db_icons_loaded:
         return 0  # Already loaded
     
     try:
@@ -372,10 +380,10 @@ def load_all_icons_from_db():
                 pixmap = QPixmap()
                 pixmap.loadFromData(icon_data)
                 if not pixmap.isNull():
-                    _path_cache[path] = QIcon(pixmap)
+                    DEFAULT_BOOKMARK_UI_STATE.path_cache[path] = QIcon(pixmap)
                     loaded_count += 1
         
-        _db_icons_loaded = True
+        DEFAULT_BOOKMARK_UI_STATE.db_icons_loaded = True
         logger.info(f"Loaded {loaded_count} icons from database cache")
         return loaded_count
     except Exception as e:
@@ -389,8 +397,7 @@ def ensure_icons_loaded():
     Call this before displaying any bookmark UI.
     Safe to call multiple times - will only load once.
     """
-    global _db_icons_loaded
-    if not _db_icons_loaded:
+    if not DEFAULT_BOOKMARK_UI_STATE.db_icons_loaded:
         load_all_icons_from_db()
 
 
@@ -1669,7 +1676,6 @@ class CategoryBookmarkButton(QPushButton):
         super().mouseReleaseEvent(event)
     
     def mouseMoveEvent(self, event):
-        global _drag_in_progress
         
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
@@ -1680,7 +1686,7 @@ class CategoryBookmarkButton(QPushButton):
         if distance < 10:
             return
         
-        _drag_in_progress = True  # Set global flag
+        DEFAULT_BOOKMARK_UI_STATE.drag_in_progress = True  # Set global flag
         
         # Start drag
         drag = QDrag(self)
@@ -1701,7 +1707,7 @@ class CategoryBookmarkButton(QPushButton):
         result = drag.exec(Qt.DropAction.MoveAction)
         
         self.drag_start_pos = None
-        _drag_in_progress = False  # Clear global flag
+        DEFAULT_BOOKMARK_UI_STATE.drag_in_progress = False  # Clear global flag
         
         # Don't close popup here - let the dropEvent handler decide whether to close
         # (dropEvent keeps popup open for same-category reorders, closes for cross-category moves)
@@ -1712,18 +1718,17 @@ class CategoryBookmarkButton(QPushButton):
 # =============================================================================
 
 # Global registry of all open category popups for proper cleanup
-_open_category_popups = set()
-_global_close_timer = None
-_drag_in_progress = False  # Track if a drag operation is happening
+DEFAULT_BOOKMARK_UI_STATE.open_category_popups = set()
+DEFAULT_BOOKMARK_UI_STATE.global_close_timer = None
+DEFAULT_BOOKMARK_UI_STATE.drag_in_progress = False  # Track if a drag operation is happening
 
 def _check_and_close_orphaned_popups():
     """Check if mouse is over any popup - if not, close all"""
-    global _open_category_popups, _drag_in_progress
     from PyQt6.QtGui import QCursor
     from PyQt6.QtWidgets import QApplication
     
     # Don't close popups during drag operations
-    if _drag_in_progress:
+    if DEFAULT_BOOKMARK_UI_STATE.drag_in_progress:
         return
     
     # Get the widget under the cursor
@@ -1746,30 +1751,27 @@ def _check_and_close_orphaned_popups():
 
 def _start_global_close_timer():
     """Start the global timer that checks for orphaned popups"""
-    global _global_close_timer
-    if _global_close_timer is None:
-        _global_close_timer = QTimer()
-        _global_close_timer.timeout.connect(_check_and_close_orphaned_popups)
-    if not _global_close_timer.isActive():
-        _global_close_timer.start(150)  # Check every 150ms
+    if DEFAULT_BOOKMARK_UI_STATE.global_close_timer is None:
+        DEFAULT_BOOKMARK_UI_STATE.global_close_timer = QTimer()
+        DEFAULT_BOOKMARK_UI_STATE.global_close_timer.timeout.connect(_check_and_close_orphaned_popups)
+    if not DEFAULT_BOOKMARK_UI_STATE.global_close_timer.isActive():
+        DEFAULT_BOOKMARK_UI_STATE.global_close_timer.start(150)  # Check every 150ms
 
 def _stop_global_close_timer():
     """Stop the global close timer when no popups are open"""
-    global _global_close_timer
-    if _global_close_timer and _global_close_timer.isActive():
-        _global_close_timer.stop()
+    if DEFAULT_BOOKMARK_UI_STATE.global_close_timer and DEFAULT_BOOKMARK_UI_STATE.global_close_timer.isActive():
+        DEFAULT_BOOKMARK_UI_STATE.global_close_timer.stop()
 
 def close_all_category_popups():
     """Close all open category popups - call this when app closes or needs cleanup"""
-    global _open_category_popups
     _stop_global_close_timer()
-    for popup in list(_open_category_popups):
+    for popup in list(DEFAULT_BOOKMARK_UI_STATE.open_category_popups):
         try:
             if popup:
                 popup._force_close()
         except RuntimeError:
             logger.debug("Ignoring deleted popup during category popup cleanup", exc_info=True)
-    _open_category_popups.clear()
+    DEFAULT_BOOKMARK_UI_STATE.open_category_popups.clear()
 
 class CategoryPopup(QFrame):
     """
@@ -1832,8 +1834,7 @@ class CategoryPopup(QFrame):
         self.setMouseTracking(True)
         
         # Register in global popup registry for cleanup
-        global _open_category_popups
-        _open_category_popups.add(self)
+        DEFAULT_BOOKMARK_UI_STATE.open_category_popups.add(self)
         _start_global_close_timer()  # Start global timer when popup opens
         
         # Set attribute to delete on close
@@ -2365,7 +2366,6 @@ class CategoryPopup(QFrame):
     
     def _force_close(self):
         """Force close this popup and remove from registry"""
-        global _open_category_popups
         
         # Close children first
         for child in list(self.child_popups):
@@ -2374,10 +2374,10 @@ class CategoryPopup(QFrame):
         self.child_popups.clear()
         
         # Remove from registry
-        _open_category_popups.discard(self)
+        DEFAULT_BOOKMARK_UI_STATE.open_category_popups.discard(self)
         
         # Stop global timer if no more popups
-        if not _open_category_popups:
+        if not DEFAULT_BOOKMARK_UI_STATE.open_category_popups:
             _stop_global_close_timer()
         
         # Clear parent button reference
@@ -2576,7 +2576,6 @@ class CategoryButton(QPushButton):
             self._show_popup()
     
     def mouseMoveEvent(self, event):
-        global _drag_in_progress
         
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
@@ -2588,7 +2587,7 @@ class CategoryButton(QPushButton):
             return
         
         self.dragging = True
-        _drag_in_progress = True  # Set global flag
+        DEFAULT_BOOKMARK_UI_STATE.drag_in_progress = True  # Set global flag
         
         # Start drag
         drag = QDrag(self)
@@ -2616,18 +2615,17 @@ class CategoryButton(QPushButton):
         
         self.drag_start_pos = None
         self.dragging = False
-        _drag_in_progress = False  # Clear global flag
+        DEFAULT_BOOKMARK_UI_STATE.drag_in_progress = False  # Clear global flag
     
     def _show_popup(self):
         """Show the category popup - position depends on context (bar vs nested)"""
-        global _drag_in_progress
         
         # Don't toggle - hover shows, leave hides
         if self.active_popup and self.active_popup.isVisible():
             return  # Already visible, nothing to do
         
         # Close other popups before showing this one (but not during drag operations)
-        if not _drag_in_progress:
+        if not DEFAULT_BOOKMARK_UI_STATE.drag_in_progress:
             if not self.parent_popup:
                 # Top-level category - close any other open popups
                 close_all_category_popups()
@@ -3445,7 +3443,6 @@ class BookmarkContainerRegistry:
     in different tabs all use bar_id=1).
     """
     _instance = None
-    _containers: Dict[int, List['BookmarkContainer']] = {}  # bar_id -> [BookmarkContainer, ...]
     
     def __new__(cls):
         if cls._instance is None:
@@ -3453,48 +3450,60 @@ class BookmarkContainerRegistry:
         return cls._instance
     
     @classmethod
-    def register(cls, bar_id: int, container: 'BookmarkContainer'):
+    def register(
+        cls,
+        bar_id: int,
+        container: 'BookmarkContainer',
+        ui_state: BookmarkUiState | None = None,
+    ):
         """Register a container by its bar ID (supports multiple per bar_id)"""
-        if bar_id not in cls._containers:
-            cls._containers[bar_id] = []
-        if container not in cls._containers[bar_id]:
-            cls._containers[bar_id].append(container)
-        logger.debug(f"BookmarkContainer registered: bar_id={bar_id} (total for this bar: {len(cls._containers[bar_id])})")
+        state = ui_state or DEFAULT_BOOKMARK_UI_STATE
+        if bar_id not in state.containers:
+            state.containers[bar_id] = []
+        if container not in state.containers[bar_id]:
+            state.containers[bar_id].append(container)
+        logger.debug(f"BookmarkContainer registered: bar_id={bar_id} (total for this bar: {len(state.containers[bar_id])})")
     
     @classmethod
-    def unregister(cls, bar_id: int, container: 'BookmarkContainer' = None):
+    def unregister(
+        cls,
+        bar_id: int,
+        container: 'BookmarkContainer' = None,
+        ui_state: BookmarkUiState | None = None,
+    ):
         """Unregister a container. If container is None, removes all for that bar_id."""
-        if bar_id in cls._containers:
+        state = ui_state or DEFAULT_BOOKMARK_UI_STATE
+        if bar_id in state.containers:
             if container is not None:
-                cls._containers[bar_id] = [c for c in cls._containers[bar_id] if c is not container]
-                if not cls._containers[bar_id]:
-                    del cls._containers[bar_id]
+                state.containers[bar_id] = [c for c in state.containers[bar_id] if c is not container]
+                if not state.containers[bar_id]:
+                    del state.containers[bar_id]
             else:
-                del cls._containers[bar_id]
+                del state.containers[bar_id]
             logger.debug(f"BookmarkContainer unregistered: bar_id={bar_id}")
     
     @classmethod
     def get(cls, bar_id: int) -> Optional['BookmarkContainer']:
         """Get the first container for a bar ID (backwards compat)"""
-        containers = cls._containers.get(bar_id, [])
+        containers = DEFAULT_BOOKMARK_UI_STATE.containers.get(bar_id, [])
         return containers[0] if containers else None
     
     @classmethod
     def get_all_for_bar(cls, bar_id: int) -> List['BookmarkContainer']:
         """Get all containers registered for a given bar_id"""
-        return list(cls._containers.get(bar_id, []))
+        return list(DEFAULT_BOOKMARK_UI_STATE.containers.get(bar_id, []))
     
     @classmethod
     def get_all(cls) -> Dict[int, 'BookmarkContainer']:
         """Get all registered containers (one per bar, backwards compat).
         Returns {bar_id: first_container} for each bar."""
-        return {bid: containers[0] for bid, containers in cls._containers.items() if containers}
+        return {bid: containers[0] for bid, containers in DEFAULT_BOOKMARK_UI_STATE.containers.items() if containers}
     
     @classmethod
     def get_all_flat(cls) -> List['BookmarkContainer']:
         """Get every registered container instance as a flat list."""
         result = []
-        for containers in cls._containers.values():
+        for containers in DEFAULT_BOOKMARK_UI_STATE.containers.values():
             result.extend(containers)
         return result
     
@@ -3502,7 +3511,7 @@ class BookmarkContainerRegistry:
     def get_others(cls, exclude_bar_id: int) -> list:
         """Get all containers except those with the specified bar_id"""
         result = []
-        for bid, containers in cls._containers.items():
+        for bid, containers in DEFAULT_BOOKMARK_UI_STATE.containers.items():
             if bid != exclude_bar_id:
                 result.extend(containers)
         return result
@@ -3570,7 +3579,13 @@ class BookmarkContainer(QWidget):
     file_dropped = pyqtSignal(object)     # Emits path/dict when file dropped
     item_reordered = pyqtSignal(int, int) # Emits (old_index, new_index) when item reordered internally
     
-    def __init__(self, bar_id: int, orientation: str = None, parent=None):
+    def __init__(
+        self,
+        bar_id: int,
+        orientation: str = None,
+        parent=None,
+        ui_state: BookmarkUiState | None = None,
+    ):
         """
         Args:
             bar_id: Integer identifier for this bookmark bar (0, 1, 2, ...)
@@ -3579,8 +3594,10 @@ class BookmarkContainer(QWidget):
             orientation: 'horizontal' or 'vertical'. If None, uses the orientation
                         stored in the data manager for this bar.
             parent: Parent widget
+            ui_state: Shared bookmark UI state for caches, popups, and registry.
         """
         super().__init__(parent)
+        self.ui_state = ui_state or DEFAULT_BOOKMARK_UI_STATE
         
         # Ensure icons are loaded from database cache before creating UI
         ensure_icons_loaded()
@@ -3606,7 +3623,7 @@ class BookmarkContainer(QWidget):
         self.save_callback = self._data_manager.save
         
         # Register with the global registry for cross-bar communication
-        BookmarkContainerRegistry.register(bar_id, self)
+        BookmarkContainerRegistry.register(bar_id, self, self.ui_state)
         
         # Auto-unregister when the underlying C++ widget is destroyed so the
         # global registry never holds a dangling reference. Without this, closing
@@ -3615,7 +3632,7 @@ class BookmarkContainer(QWidget):
         # memory and hard-crashes the app. Capture bar_id/self at connect time
         # and use identity-only removal so the slot is safe during teardown.
         self.destroyed.connect(
-            lambda _obj=None, b=bar_id, c=self: BookmarkContainerRegistry.unregister(b, c)
+            lambda _obj=None, b=bar_id, c=self, s=self.ui_state: BookmarkContainerRegistry.unregister(b, c, s)
         )
         
         self.setAcceptDrops(True)

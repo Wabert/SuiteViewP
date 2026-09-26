@@ -26,11 +26,16 @@ from suiteview.file_nav.sharepoint_client import (
     SharePointDepthScanWorker,
     is_sp_path,
 )
+from suiteview.ui.workers import WorkerController
 
 logger = logging.getLogger(__name__)
 
 
 class FileExplorerDetailsSearchMixin:
+    """Requires: details search widgets, depth scan state, and details loaders.
+    Provides: debounced filtering, depth search, cancellation, and result locking.
+    """
+
     def on_details_search_changed(self, text: str) -> None:
         """Filter the details view contents with debouncing for performance.
         
@@ -333,8 +338,15 @@ class FileExplorerDetailsSearchMixin:
             self.depth_scan_worker = SharePointDepthScanWorker(search_folder, depth_level_int)
         else:
             self.depth_scan_worker = DepthScanWorker(search_folder, depth_level_int)
-        self.depth_scan_worker.finished.connect(self._on_depth_scan_complete)
-        self.depth_scan_worker.progress.connect(self._on_depth_scan_progress)
+        self.depth_scan_controller = WorkerController(
+            self,
+            self.depth_scan_worker,
+            cancel=self.depth_scan_worker.cancel,
+        )
+        self.depth_scan_controller.result.connect(self._on_depth_scan_complete)
+        self.depth_scan_controller.progress.connect(
+            lambda payload: self._on_depth_scan_progress(payload[0], payload[1])
+        )
         
         # Create progress dialog with 3 second delay and actual progress bar
         self.depth_progress_dialog = QProgressDialog("Scanning subfolders...", "Stop", 0, 100, self)
@@ -350,7 +362,7 @@ class FileExplorerDetailsSearchMixin:
         self.depth_scan_start_count = 0
         
         # Start worker
-        self.depth_scan_worker.start()
+        self.depth_scan_controller.start()
 
     def _on_depth_scan_progress(self, count: int, message: str):
         """Update progress dialog during depth scan"""
@@ -368,11 +380,12 @@ class FileExplorerDetailsSearchMixin:
     def _on_depth_scan_cancelled(self):
         """Handle cancellation of depth scan"""
         if hasattr(self, 'depth_scan_worker') and self.depth_scan_worker:
-            # Request worker to stop
-            self.depth_scan_worker.cancel()
-            
-            # Wait a bit for worker to finish current iteration
-            self.depth_scan_worker.wait(1000)  # Wait up to 1 second
+            # Request worker to stop. The controller owns the thread and will
+            # finish asynchronously without blocking the UI thread.
+            if hasattr(self, 'depth_scan_controller') and self.depth_scan_controller:
+                self.depth_scan_controller.cancel()
+            else:
+                self.depth_scan_worker.cancel()
             
             # The worker will emit finished signal with partial results
             # Just close the progress dialog

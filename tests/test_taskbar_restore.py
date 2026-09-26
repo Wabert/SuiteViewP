@@ -1,13 +1,15 @@
 """Launcher activation and verified AppBar reservation, without live data."""
 
-from types import MethodType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from suiteview.core import single_instance
 from suiteview.taskbar_launcher import appbar
-from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
+from suiteview.taskbar_launcher.collaborators import TaskbarState
+from suiteview.taskbar_launcher.taskbar_modes import TaskbarModes
+from suiteview.taskbar_launcher.taskbar_system import SystemTray
 
 
 @pytest.fixture
@@ -124,15 +126,14 @@ def test_failed_docking_retries_once_and_notifies(monkeypatch, rect):
     monkeypatch.setattr(appbar, "register_bottom", register)
     monkeypatch.setattr(appbar, "space_reserved", Mock(return_value=False))
     monkeypatch.setattr(appbar, "unregister", Mock())
-    bar = SimpleNamespace(
-        winId=lambda: 123, devicePixelRatioF=lambda: 1.5,
-        _appbar_registered=False, _notify_docking_failure=Mock(),
-    )
-    bar._register_appbar = MethodType(SuiteViewTaskbar._register_appbar, bar)
+    state = TaskbarState()
+    window = SimpleNamespace(winId=lambda: 123, devicePixelRatioF=lambda: 1.5)
+    bar = TaskbarModes(window, state)
+    bar._notify_docking_failure = Mock()
     bar._register_appbar(42)
     assert register.call_count == 2
     register.assert_called_with(123, 63)
-    assert not bar._appbar_registered
+    assert not state.appbar_registered
     bar._notify_docking_failure.assert_called_once()
 
 
@@ -141,9 +142,9 @@ def test_failed_docking_retries_once_and_notifies(monkeypatch, rect):
     (False, True, False),
 ])
 def test_redock_does_not_reserve_for_hidden_or_undocked_bar(hidden, visible, compact):
-    bar = SimpleNamespace(
-        _hidden_to_tray=hidden, _is_compact_mode=compact,
-        isVisible=lambda: visible, _register_appbar=Mock(),
-    )
-    SuiteViewTaskbar._redock_appbar(bar)
-    bar._register_appbar.assert_not_called()
+    state = TaskbarState(hidden_to_tray=hidden, is_compact_mode=compact)
+    callbacks = SimpleNamespace(_register_appbar=Mock())
+    window = SimpleNamespace(isVisible=lambda: visible, height=lambda: 42)
+    bar = SystemTray(window, state, callbacks=callbacks)
+    bar._redock_appbar()
+    callbacks._register_appbar.assert_not_called()

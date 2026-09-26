@@ -45,11 +45,17 @@ from suiteview.file_nav.sharepoint_client import (
     make_sp_path,
     parse_sp_path,
 )
+from suiteview.ui import muted_signals
+from suiteview.ui.workers import WorkerController
 
 logger = logging.getLogger(__name__)
 
 
 class FileExplorerSharePointMixin:
+    """Requires: SharePoint library state, details/tree models, and worker tracking.
+    Provides: library discovery, Graph listings, downloads, and virtual-path rows.
+    """
+
     def load_sharepoint_libraries(self):
         """Load saved SharePoint libraries from JSON file"""
         try:
@@ -86,11 +92,11 @@ class FileExplorerSharePointMixin:
             item.appendRow(placeholder)
         return item
 
-    def _track_sp_worker(self, worker):
-        """Keep a reference to a QThread worker and clean up when it finishes"""
-        self._sp_workers.append(worker)
-        worker.finished.connect(lambda: self._sp_workers.remove(worker)
-                                if worker in self._sp_workers else None)
+    def _track_sp_worker(self, controller):
+        """Keep a reference to a worker controller and clean up when it finishes."""
+        self._sp_workers.append(controller)
+        controller.finished.connect(lambda: self._sp_workers.remove(controller)
+                                    if controller in self._sp_workers else None)
 
     def add_sharepoint_library_dialog(self):
         """Prompt for a SharePoint library URL and add it to the tree"""
@@ -133,16 +139,17 @@ class FileExplorerSharePointMixin:
         def on_cancelled():
             # Don't kill the thread mid-request - just ignore its result
             try:
-                worker.resolved.disconnect(on_resolved)
-                worker.failed.disconnect(on_failed)
+                controller.result.disconnect(on_resolved)
+                controller.error.disconnect(on_failed)
             except TypeError:
                 logger.debug("Suppressed File Explorer exception", exc_info=True)
         
-        worker.resolved.connect(on_resolved)
-        worker.failed.connect(on_failed)
+        controller = WorkerController(self, worker)
+        controller.result.connect(on_resolved)
+        controller.error.connect(on_failed)
         progress.canceled.connect(on_cancelled)
-        self._track_sp_worker(worker)
-        worker.start()
+        self._track_sp_worker(controller)
+        controller.start()
         progress.show()
 
     def discover_sharepoint_libraries_dialog(self):
@@ -171,17 +178,18 @@ class FileExplorerSharePointMixin:
         
         def on_cancelled():
             try:
-                worker.discovered.disconnect(on_discovered)
-                worker.failed.disconnect(on_failed)
+                controller.result.disconnect(on_discovered)
+                controller.error.disconnect(on_failed)
             except TypeError:
                 logger.debug("Suppressed File Explorer exception", exc_info=True)
         
-        worker.progress.connect(on_progress)
-        worker.discovered.connect(on_discovered)
-        worker.failed.connect(on_failed)
+        controller = WorkerController(self, worker)
+        controller.progress.connect(on_progress)
+        controller.result.connect(on_discovered)
+        controller.error.connect(on_failed)
         progress.canceled.connect(on_cancelled)
-        self._track_sp_worker(worker)
-        worker.start()
+        self._track_sp_worker(controller)
+        controller.start()
         progress.show()
 
     def _show_sp_library_picker(self, libraries):
@@ -271,10 +279,11 @@ class FileExplorerSharePointMixin:
         context = {"pidx": QPersistentModelIndex(self.model.indexFromItem(item)),
                    "sp_path": sp_path}
         worker = SharePointListWorker(sp_path, context)
-        worker.result_ready.connect(self._on_sp_tree_children)
-        worker.failed.connect(self._on_sp_tree_failed)
-        self._track_sp_worker(worker)
-        worker.start()
+        controller = WorkerController(self, worker)
+        controller.result.connect(lambda payload: self._on_sp_tree_children(payload[0], payload[1]))
+        controller.error.connect(lambda payload: self._on_sp_tree_failed(payload[0], payload[1]))
+        self._track_sp_worker(controller)
+        controller.start()
 
     def _sp_tree_item_from_context(self, context):
         self._sp_pending_tree.discard(context["sp_path"])
@@ -340,9 +349,8 @@ class FileExplorerSharePointMixin:
             # Restore folder-specific search term for the depth search folder
             if hasattr(self, 'details_search') and hasattr(self, 'folder_search_terms'):
                 saved_search = self.folder_search_terms.get(sp_path, "")
-                self.details_search.blockSignals(True)
-                self.details_search.setText(saved_search)
-                self.details_search.blockSignals(False)
+                with muted_signals(self.details_search):
+                    self.details_search.setText(saved_search)
                 if saved_search:
                     escaped = QRegularExpression.escape(saved_search)
                     regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
@@ -361,9 +369,8 @@ class FileExplorerSharePointMixin:
         # Restore folder-specific search term (same behavior as local folders)
         if hasattr(self, 'details_search') and hasattr(self, 'folder_search_terms'):
             saved_search = self.folder_search_terms.get(sp_path, "")
-            self.details_search.blockSignals(True)
-            self.details_search.setText(saved_search)
-            self.details_search.blockSignals(False)
+            with muted_signals(self.details_search):
+                self.details_search.setText(saved_search)
             if saved_search:
                 escaped = QRegularExpression.escape(saved_search)
                 regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
@@ -380,10 +387,11 @@ class FileExplorerSharePointMixin:
         
         context = {"gen": generation, "sp_path": sp_path, "start": start_time}
         worker = SharePointListWorker(sp_path, context)
-        worker.result_ready.connect(self._on_sp_details_ready)
-        worker.failed.connect(self._on_sp_details_failed)
-        self._track_sp_worker(worker)
-        worker.start()
+        controller = WorkerController(self, worker)
+        controller.result.connect(lambda payload: self._on_sp_details_ready(payload[0], payload[1]))
+        controller.error.connect(lambda payload: self._on_sp_details_failed(payload[0], payload[1]))
+        self._track_sp_worker(controller)
+        controller.start()
 
     def _reset_details_model_for_sp(self):
         """Clear the details model while preserving column widths (SP loads)"""
@@ -542,12 +550,13 @@ class FileExplorerSharePointMixin:
             if msg != "Download cancelled":
                 QMessageBox.warning(self, "SharePoint Download", msg)
         
-        worker.progress.connect(on_progress)
-        worker.finished_ok.connect(on_finished)
-        worker.failed.connect(on_failed)
-        progress.canceled.connect(worker.cancel)
-        self._track_sp_worker(worker)
-        worker.start()
+        controller = WorkerController(self, worker, cancel=worker.cancel)
+        controller.progress.connect(lambda payload: on_progress(payload[0], payload[1]))
+        controller.result.connect(on_finished)
+        controller.error.connect(on_failed)
+        progress.canceled.connect(controller.cancel)
+        self._track_sp_worker(controller)
+        controller.start()
 
     def show_sp_details_context_menu(self, position, index):
         """Context menu for the details view when browsing SharePoint (read-only)"""

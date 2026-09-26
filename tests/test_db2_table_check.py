@@ -1,8 +1,10 @@
 """Focused taskbar integration tests for DB2 Table Check."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
-from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
+from suiteview.taskbar_launcher.collaborators import TaskbarState
+from suiteview.taskbar_launcher.taskbar_system import AppLauncher
 
 
 def test_full_distribution_tools_menu_includes_db2_table_check():
@@ -19,7 +21,7 @@ def test_full_distribution_tools_menu_includes_db2_table_check():
         "self.tools_menu.addSeparator()", 1
     )[0]
     assert (
-        '("ADMINISTRATOR", "DB2 Table Check", self._open_db2_table_check)'
+        '("ADMINISTRATOR", "DB2 Table Check", self.callbacks._open_db2_table_check)'
         in tools_menu_block
     )
 
@@ -41,12 +43,14 @@ def test_taskbar_reuses_ckpr_db2_table_check_window(monkeypatch):
     monkeypatch.setattr(
         db2_check_module, "DB2TableCheckWindow", create_window)
 
-    bar = SuiteViewTaskbar.__new__(SuiteViewTaskbar)
-    bar.db2_check_window = None
+    state = TaskbarState(db2_check_window=None)
     setup = []
     shown = []
-    bar._setup_child_window = lambda child, title: setup.append((child, title))
-    bar._bring_to_front = lambda child: shown.append(child)
+    callbacks = SimpleNamespace(
+        _setup_child_window=lambda child, title: setup.append((child, title)),
+        _bring_to_front=lambda child: shown.append(child),
+    )
+    bar = AppLauncher(SimpleNamespace(), state, callbacks=callbacks)
 
     bar._open_db2_table_check()
     bar._open_db2_table_check()

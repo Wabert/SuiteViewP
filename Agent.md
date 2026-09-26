@@ -543,6 +543,13 @@ The Win32 dance lives in
 [`suiteview/taskbar_launcher/appbar.py`](suiteview/taskbar_launcher/appbar.py).
 Never re-declare `APPBARDATA` / `SHAppBarMessage` calls elsewhere.
 
+**AppBar exception to the frameless-window standard.** The compact taskbar is a
+Windows shell AppBar, not a normal `FramelessWindowBase` window. It may use
+manual resize grips and direct `setGeometry()` calls while docking, floating or
+negotiating work-area space with the shell. Keep those calls inside the
+taskbar mode/system collaborators and `appbar.py`; other windows should keep
+using shared frameless/window-state helpers.
+
 - **Always `ABM_REMOVE` before `ABM_NEW`.** `ABM_NEW` returns *false* for an
   HWND the shell already knows, and the failure is silent — the work area is
   simply never reserved. `register_bottom()` does the remove for you.
@@ -2629,10 +2636,20 @@ sidebar = BookmarkContainer(bar_id=1, orientation='vertical', parent=self)
 | `remove_category_from_quick_links(name)` | Remove category from sidebar |
 | `save_quick_links()` | Calls `_bookmark_manager.save()` |
 
-**`suiteview_taskbar.py`** (in `suiteview/taskbar_launcher/`) uses:
-- `self.bookmark_container` - BookmarkContainer for sidebar (bar_id=1)
-- `self.bookmark_bar` - BookmarkContainer for top bar (bar_id=0)
-- `self._bookmark_manager` - Reference to singleton
+**Taskbar and FileNav bookmark ownership**:
+- `suiteview/taskbar_launcher/taskbar_window.py` is a thin shell window.
+  It owns `TaskbarState` plus explicit collaborators for chrome, modes, tabs,
+  tray/app launching, and AppBar docking.
+- Each `FileExplorerTab` owns `NavigationController` and
+  `QuickLinksController` collaborators over `FileExplorerCore`.
+- `FileExplorerCore` creates `bookmark_bar` (top bar, `bar_id=0`) and the
+  tab quick-links controller creates `bookmark_container` (sidebar,
+  `bar_id=1`).
+- `BookmarkUiState` owns UI-only caches, popup/drag state and the container
+  registry. `BookmarkDataManager` remains the only bookmark data source.
+
+See `docs/TASKBAR_ARCHITECTURE.md`, `docs/FILENAV_ARCHITECTURE.md` and
+`docs/BOOKMARKS.md` for the current structure and contracts.
 
 ### Bookmark Best Practices
 

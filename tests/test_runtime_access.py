@@ -174,31 +174,37 @@ def test_taskbar_direct_actions_deny_before_using_existing_window(monkeypatch, o
 
 def test_launcher_controls_follow_app_grants():
     from types import SimpleNamespace
-    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.collaborators import TaskbarState
+    from suiteview.taskbar_launcher.taskbar_system import SystemTray
 
-    bar = SimpleNamespace(polview_btn=Mock(), filenav_btn=Mock(), albert_btn=Mock(),
-                          tab_widget=Mock(), _permission_actions=[("RATEMANAGER", Mock())])
+    chrome = SimpleNamespace(
+        polview_btn=Mock(), filenav_btn=Mock(), albert_btn=Mock(),
+        tab_widget=Mock(), _permission_actions=[("RATEMANAGER", Mock())],
+    )
+    bar = SystemTray(SimpleNamespace(layout=lambda: SimpleNamespace(activate=Mock(), sizeHint=lambda: SimpleNamespace(width=lambda: 1)),
+                                     resize=Mock(), height=lambda: 1),
+                     TaskbarState(), chrome=chrome)
     rights = access.EffectiveAccess("PERSON01", "BUSINESS", False, False, True,
                                    frozenset({"POLVIEW"}))
-    SuiteViewTaskbar._apply_permissions(bar, rights)
-    bar.polview_btn.setEnabled.assert_called_with(True)
-    bar.polview_btn.setVisible.assert_called_with(True)
-    bar.filenav_btn.setEnabled.assert_called_with(False)
-    bar.filenav_btn.setVisible.assert_called_with(False)
-    bar.albert_btn.setEnabled.assert_called_with(False)
-    bar.albert_btn.setVisible.assert_called_with(False)
-    bar.tab_widget.setEnabled.assert_called_with(False)
-    bar._permission_actions[0][1].setEnabled.assert_called_with(False)
-    bar._permission_actions[0][1].setVisible.assert_called_with(False)
-    SuiteViewTaskbar._apply_permissions(bar, replace(rights, all_apps=True))
-    bar.albert_btn.setEnabled.assert_called_with(False)
-    bar.albert_btn.setVisible.assert_called_with(False)
-    bar.filenav_btn.setVisible.assert_called_with(True)
-    bar._permission_actions[0][1].setVisible.assert_called_with(True)
-    SuiteViewTaskbar._apply_permissions(bar, None)
-    bar.polview_btn.setEnabled.assert_called_with(False)
-    bar.polview_btn.setVisible.assert_called_with(False)
-    bar._permission_actions[0][1].setVisible.assert_called_with(False)
+    bar._apply_permissions(rights)
+    chrome.polview_btn.setEnabled.assert_called_with(True)
+    chrome.polview_btn.setVisible.assert_called_with(True)
+    chrome.filenav_btn.setEnabled.assert_called_with(False)
+    chrome.filenav_btn.setVisible.assert_called_with(False)
+    chrome.albert_btn.setEnabled.assert_called_with(False)
+    chrome.albert_btn.setVisible.assert_called_with(False)
+    chrome.tab_widget.setEnabled.assert_called_with(False)
+    chrome._permission_actions[0][1].setEnabled.assert_called_with(False)
+    chrome._permission_actions[0][1].setVisible.assert_called_with(False)
+    bar._apply_permissions(replace(rights, all_apps=True))
+    chrome.albert_btn.setEnabled.assert_called_with(False)
+    chrome.albert_btn.setVisible.assert_called_with(False)
+    chrome.filenav_btn.setVisible.assert_called_with(True)
+    chrome._permission_actions[0][1].setVisible.assert_called_with(True)
+    bar._apply_permissions(None)
+    chrome.polview_btn.setEnabled.assert_called_with(False)
+    chrome.polview_btn.setVisible.assert_called_with(False)
+    chrome._permission_actions[0][1].setVisible.assert_called_with(False)
 
 
 def test_startup_denial_precedes_launcher_construction(monkeypatch):

@@ -44,6 +44,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QMessageBox,
 )
+from suiteview.ui import muted_signals
 
 from suiteview.core.support_files import guard_support_file_paths
 from suiteview.file_nav.sharepoint_client import (
@@ -54,6 +55,10 @@ logger = logging.getLogger(__name__)
 
 
 class FileExplorerDetailsIOMixin:
+    """Requires: details widgets, folder state, sort proxy, and icon helpers.
+    Provides: local folder loading, row creation, safe open, and search restore.
+    """
+
     def on_item_renamed(self, item):
         """Handle item rename after F2 edit"""
         # Disconnect temporarily to avoid recursive calls
@@ -209,9 +214,8 @@ class FileExplorerDetailsIOMixin:
         if not hasattr(self, 'details_search') or not hasattr(self, 'folder_search_terms'):
             return
         saved_search = self.folder_search_terms.get(str(dir_path), "")
-        self.details_search.blockSignals(True)
-        self.details_search.setText(saved_search)
-        self.details_search.blockSignals(False)
+        with muted_signals(self.details_search):
+            self.details_search.setText(saved_search)
         if saved_search:
             self.details_search.setStyleSheet(
                 """
@@ -486,19 +490,24 @@ class FileExplorerDetailsIOMixin:
 
     def show_file_preview(self, file_path):
         """Show enhanced file preview with support for Excel, CSV, images, etc."""
+        preview_text = getattr(self, "preview_text", None)
+        if preview_text is None:
+            return
+        upload_button = getattr(self, "upload_button", None)
         self.current_file_path = file_path
         path = Path(file_path)
         suffix = path.suffix.lower()
         
         # Clear preview
-        self.preview_text.clear()
-        self.upload_button.setEnabled(True)
+        preview_text.clear()
+        if upload_button is not None:
+            upload_button.setEnabled(True)
         
         try:
             # Check file size first
             file_size = path.stat().st_size
             if file_size > 10 * 1024 * 1024:  # 10 MB
-                self.preview_text.setText(
+                preview_text.setText(
                     f"📄 {path.name}\n"
                     f"Size: {file_size / (1024 * 1024):.2f} MB\n\n"
                     f"⚠️ File too large for preview\n"
@@ -524,7 +533,7 @@ class FileExplorerDetailsIOMixin:
             
             # PDF files
             elif suffix == '.pdf':
-                self.preview_text.setText(
+                preview_text.setText(
                     f"📕 PDF Document: {path.name}\n"
                     f"Size: {file_size / 1024:.1f} KB\n\n"
                     f"📌 Double-click to open in PDF viewer"
@@ -532,7 +541,7 @@ class FileExplorerDetailsIOMixin:
             
             # Word documents
             elif suffix in ['.docx', '.doc']:
-                self.preview_text.setText(
+                preview_text.setText(
                     f"📝 Word Document: {path.name}\n"
                     f"Size: {file_size / 1024:.1f} KB\n\n"
                     f"📌 Double-click to open in Microsoft Word"
@@ -540,7 +549,7 @@ class FileExplorerDetailsIOMixin:
             
             # PowerPoint
             elif suffix in ['.pptx', '.ppt']:
-                self.preview_text.setText(
+                preview_text.setText(
                     f"📽️ PowerPoint: {path.name}\n"
                     f"Size: {file_size / 1024:.1f} KB\n\n"
                     f"📌 Double-click to open in PowerPoint"
@@ -548,7 +557,7 @@ class FileExplorerDetailsIOMixin:
             
             # Access databases
             elif suffix in ['.accdb', '.mdb']:
-                self.preview_text.setText(
+                preview_text.setText(
                     f"🗃️ Access Database: {path.name}\n"
                     f"Size: {file_size / 1024:.1f} KB\n\n"
                     f"📌 Double-click to open in Microsoft Access"
@@ -556,7 +565,7 @@ class FileExplorerDetailsIOMixin:
             
             # Unknown/Binary
             else:
-                self.preview_text.setText(
+                preview_text.setText(
                     f"📃 {path.name}\n"
                     f"Type: {suffix.upper()[1:] if suffix else 'Unknown'}\n"
                     f"Size: {file_size / 1024:.1f} KB\n\n"
@@ -566,13 +575,16 @@ class FileExplorerDetailsIOMixin:
                 
         except Exception as e:
             logger.error(f"Preview error: {e}")
-            self.preview_text.setText(
+            preview_text.setText(
                 f"❌ Error previewing file:\n{str(e)}\n\n"
                 f"File: {path.name}"
             )
 
     def preview_excel_file(self, path):
         """Preview Excel file showing first few rows"""
+        preview_text = getattr(self, "preview_text", None)
+        if preview_text is None:
+            return
         try:
             
             # Read first sheet using openpyxl engine
@@ -600,11 +612,11 @@ class FileExplorerDetailsIOMixin:
             
             preview += "\n\n📌 Double-click to open in Excel"
             
-            self.preview_text.setText(preview)
+            preview_text.setText(preview)
             self.current_file_content = preview
             
         except ImportError:
-            self.preview_text.setText(
+            preview_text.setText(
                 f"📊 Excel File: {path.name}\n\n"
                 f"⚠️ Could not preview Excel file:\n"
                 f"Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support\n"
@@ -613,7 +625,7 @@ class FileExplorerDetailsIOMixin:
                 f"Double-click to open in Microsoft Excel"
             )
         except Exception as e:
-            self.preview_text.setText(
+            preview_text.setText(
                 f"📊 Excel File: {path.name}\n\n"
                 f"⚠️ Could not preview Excel file:\n{str(e)}\n\n"
                 f"Double-click to open in Microsoft Excel"
@@ -621,6 +633,9 @@ class FileExplorerDetailsIOMixin:
 
     def preview_csv_file(self, path):
         """Preview CSV file"""
+        preview_text = getattr(self, "preview_text", None)
+        if preview_text is None:
+            return
         try:
             
             # Try to read CSV
@@ -644,7 +659,7 @@ class FileExplorerDetailsIOMixin:
             if len(df) > 10:
                 preview += f"\n\n... and {len(df) - 10} more rows"
             
-            self.preview_text.setText(preview)
+            preview_text.setText(preview)
             self.current_file_content = preview
             
         except Exception:
@@ -653,6 +668,9 @@ class FileExplorerDetailsIOMixin:
 
     def preview_text_file(self, path):
         """Preview text files"""
+        preview_text = getattr(self, "preview_text", None)
+        if preview_text is None:
+            return
         try:
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read(50000)  # Read first 50KB
@@ -665,17 +683,20 @@ class FileExplorerDetailsIOMixin:
             if path.stat().st_size > 50000:
                 preview += "\n\n... (file truncated for preview)"
             
-            self.preview_text.setText(preview)
+            preview_text.setText(preview)
             self.current_file_content = content
             
         except Exception as e:
-            self.preview_text.setText(
+            preview_text.setText(
                 f"Cannot read file:\n{str(e)}\n\n"
                 f"File: {path.name}"
             )
 
     def preview_image_file(self, path):
         """Preview image file info"""
+        preview_text = getattr(self, "preview_text", None)
+        if preview_text is None:
+            return
         try:
             
             img = Image.open(path)
@@ -687,11 +708,11 @@ class FileExplorerDetailsIOMixin:
             preview += f"Mode: {img.mode}\n\n"
             preview += "📌 Double-click to view image"
             
-            self.preview_text.setText(preview)
+            preview_text.setText(preview)
             
         except Exception:
             # If PIL not available, show basic info
-            self.preview_text.setText(
+            preview_text.setText(
                 f"🖼️ Image: {path.name}\n"
                 f"Size: {path.stat().st_size / 1024:.1f} KB\n\n"
                 f"📌 Double-click to view image"

@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 class FileExplorerBookmarksMixin:
+    """Requires: BookmarkDataManager, bookmark containers, and current folder state.
+    Provides: quick-link CRUD, bookmark drops, and cross-container refresh.
+    """
+
     def load_quick_links(self):
         """Load sidebar quick links from unified bookmarks.json file
         
@@ -39,8 +43,9 @@ class FileExplorerBookmarksMixin:
         }
         """
         try:
-            if self.bookmarks_file.exists():
-                with open(self.bookmarks_file, 'r') as f:
+            bookmarks_file = getattr(self, "bookmarks_file", None)
+            if bookmarks_file and bookmarks_file.exists():
+                with open(bookmarks_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     
                     # Read from unified format: bars.sidebar

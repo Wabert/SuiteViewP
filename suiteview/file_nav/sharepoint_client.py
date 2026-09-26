@@ -15,7 +15,6 @@ available; otherwise tokens live only in memory for the session.
 
 from suiteview.core.profile_paths import profile_path
 
-import json
 import logging
 import threading
 from datetime import datetime
@@ -23,7 +22,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import requests
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject
+from suiteview.ui.workers import WorkerSignals
 
 logger = logging.getLogger(__name__)
 
@@ -361,32 +361,32 @@ def get_sharepoint_client() -> SharePointClient:
 
 # ------------------------------------------------------------------- workers
 
-class SharePointResolveWorker(QThread):
+class SharePointResolveWorker(QObject):
     """Resolve a library URL (may trigger interactive browser sign-in)."""
-    resolved = pyqtSignal(dict)
-    failed = pyqtSignal(str)
 
     def __init__(self, url, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.url = url
 
     def run(self):
         try:
-            self.resolved.emit(get_sharepoint_client().resolve_library_url(self.url))
+            self.signals.result.emit(get_sharepoint_client().resolve_library_url(self.url))
         except SharePointError as e:
-            self.failed.emit(str(e))
+            self.signals.error.emit(str(e))
         except Exception as e:
             logger.exception("SharePoint resolve failed")
-            self.failed.emit(f"Unexpected error: {e}")
+            self.signals.error.emit(f"Unexpected error: {e}")
+        finally:
+            self.signals.finished.emit()
 
 
-class SharePointListWorker(QThread):
+class SharePointListWorker(QObject):
     """List folder children in the background. `context` is passed through."""
-    result_ready = pyqtSignal(object, list)
-    failed = pyqtSignal(object, str)
 
     def __init__(self, sp_path, context, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.sp_path = sp_path
         self.context = context
 
@@ -394,58 +394,61 @@ class SharePointListWorker(QThread):
         try:
             drive_id, item_id = parse_sp_path(self.sp_path)
             items = get_sharepoint_client().list_children(drive_id, item_id)
-            self.result_ready.emit(self.context, items)
+            self.signals.result.emit((self.context, items))
         except SharePointError as e:
-            self.failed.emit(self.context, str(e))
+            self.signals.error.emit((self.context, str(e)))
         except Exception as e:
             logger.exception("SharePoint listing failed")
-            self.failed.emit(self.context, f"Unexpected error: {e}")
+            self.signals.error.emit((self.context, f"Unexpected error: {e}"))
+        finally:
+            self.signals.finished.emit()
 
 
-class SharePointDiscoverWorker(QThread):
+class SharePointDiscoverWorker(QObject):
     """Discover libraries: read OneDrive-synced sites from the registry, then
     list every document library on each site via Graph."""
-    progress = pyqtSignal(str)       # status message
-    discovered = pyqtSignal(list)    # list of library dicts (saved-library format)
-    failed = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.signals = WorkerSignals(self)
 
     def run(self):
         try:
             site_urls = get_synced_site_urls()
             if not site_urls:
-                self.failed.emit(
+                self.signals.error.emit(
                     "No SharePoint sites found in your OneDrive sync settings.\n"
                     "Add one library by URL first, or sync at least one library.")
                 return
             client = get_sharepoint_client()
             libraries = []
             for i, site_url in enumerate(site_urls, 1):
-                self.progress.emit(f"Checking site {i} of {len(site_urls)}…")
+                self.signals.progress.emit(f"Checking site {i} of {len(site_urls)}…")
                 try:
                     libraries.extend(client.list_site_libraries(site_url))
                 except SharePointError as e:
                     logger.warning(f"Discovery skipped {site_url}: {e}")
             if not libraries:
-                self.failed.emit("No document libraries were accessible on your sites.")
+                self.signals.error.emit("No document libraries were accessible on your sites.")
                 return
-            self.discovered.emit(libraries)
+            self.signals.result.emit(libraries)
         except SharePointError as e:
-            self.failed.emit(str(e))
+            self.signals.error.emit(str(e))
         except Exception as e:
             logger.exception("SharePoint discovery failed")
-            self.failed.emit(f"Unexpected error: {e}")
+            self.signals.error.emit(f"Unexpected error: {e}")
+        finally:
+            self.signals.finished.emit()
 
 
-class SharePointDepthScanWorker(QThread):
+class SharePointDepthScanWorker(QObject):
     """Recursively scan a SharePoint folder for depth search (one Graph
     listing call per subfolder). Emits result dicts shaped exactly like the
     local ``DepthScanWorker`` items so the depth-search UI renders either
     source, plus ``name``/``web_url`` so SP double-click/open keeps working."""
-    progress = pyqtSignal(int, str)
-    finished = pyqtSignal(list)
-
     def __init__(self, sp_path, depth_level, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.sp_path = sp_path
         self.depth_level = depth_level  # -1 = unlimited ("Max")
         self._cancelled = False
@@ -462,7 +465,10 @@ class SharePointDepthScanWorker(QThread):
             logger.error(f"SharePoint depth scan failed: {e}")
         except Exception:
             logger.exception("SharePoint depth scan failed")
-        self.finished.emit(results)
+        if self._cancelled:
+            self.signals.cancelled.emit()
+        self.signals.result.emit(results)
+        self.signals.finished.emit()
 
     def _scan(self, drive_id, item_id, relative_path, current_depth, results):
         if self._cancelled:
@@ -504,7 +510,7 @@ class SharePointDepthScanWorker(QThread):
                 folders.append((it["id"], display_name))
 
         # One progress tick per folder listed — network calls dominate here
-        self.progress.emit(len(results), f"Scanning depth {current_depth + 1}…")
+        self.signals.progress.emit((len(results), f"Scanning depth {current_depth + 1}…"))
 
         if self.depth_level == -1 or current_depth + 1 < self.depth_level:
             for child_id, child_display in folders:
@@ -512,14 +518,12 @@ class SharePointDepthScanWorker(QThread):
                            current_depth + 1, results)
 
 
-class SharePointDownloadWorker(QThread):
+class SharePointDownloadWorker(QObject):
     """Download a file in the background with progress reporting."""
-    progress = pyqtSignal(int, int)  # bytes done, total (0 if unknown)
-    finished_ok = pyqtSignal(str)    # local file path
-    failed = pyqtSignal(str)
 
     def __init__(self, sp_path, dest_path, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.sp_path = sp_path
         self.dest_path = Path(dest_path)
         self._cancelled = False
@@ -532,12 +536,17 @@ class SharePointDownloadWorker(QThread):
             drive_id, item_id = parse_sp_path(self.sp_path)
             result = get_sharepoint_client().download_file(
                 drive_id, item_id, self.dest_path,
-                progress_cb=lambda d, t: self.progress.emit(d, t),
+                progress_cb=lambda d, t: self.signals.progress.emit((d, t)),
                 cancel_cb=lambda: self._cancelled,
             )
-            self.finished_ok.emit(str(result))
+            if self._cancelled:
+                self.signals.cancelled.emit()
+            else:
+                self.signals.result.emit(str(result))
         except SharePointError as e:
-            self.failed.emit(str(e))
+            self.signals.error.emit(str(e))
         except Exception as e:
             logger.exception("SharePoint download failed")
-            self.failed.emit(f"Unexpected error: {e}")
+            self.signals.error.emit(f"Unexpected error: {e}")
+        finally:
+            self.signals.finished.emit()

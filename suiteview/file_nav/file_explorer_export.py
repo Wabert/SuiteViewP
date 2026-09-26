@@ -44,6 +44,10 @@ _DIRECTORY_HEADERS = ['Level', 'Type', 'Name', 'Full Path', 'Size', 'Modified', 
 
 
 class FileExplorerExportMixin:
+    """Requires: details view/proxy and Excel availability.
+    Provides: details and recursive directory exports to unsaved Excel workbooks.
+    """
+
     def export_details_to_excel(self):
         """Export the current details view to a new Excel file."""
         try:

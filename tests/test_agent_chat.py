@@ -23,7 +23,8 @@ from suiteview.agent_chat.permissions import FolderPermissionPolicy
 from suiteview.agent_chat.store import ConversationStore, ConversationStoreError
 from suiteview.agent_chat.window import ActivityRow, AgentChatWindow
 from suiteview.agent_chat.workers import AgentRunWorker
-from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
+from suiteview.taskbar_launcher.collaborators import TaskbarState
+from suiteview.taskbar_launcher.taskbar_system import AppLauncher
 
 _QT_APP = None
 
@@ -135,12 +136,14 @@ def test_taskbar_reuses_agent_chat_window(monkeypatch):
         lambda: created.append(window) or window,
     )
 
-    bar = SuiteViewTaskbar.__new__(SuiteViewTaskbar)
-    bar.agent_chat_window = None
+    state = TaskbarState(agent_chat_window=None)
     setup = []
     shown = []
-    bar._setup_child_window = lambda child, title: setup.append((child, title))
-    bar._bring_to_front = lambda child: shown.append(child)
+    callbacks = SimpleNamespace(
+        _setup_child_window=lambda child, title: setup.append((child, title)),
+        _bring_to_front=lambda child: shown.append(child),
+    )
+    bar = AppLauncher(SimpleNamespace(), state, callbacks=callbacks)
 
     bar._open_agent_chat()
     bar._open_agent_chat()
@@ -301,7 +304,11 @@ def test_agent_worker_emits_discrete_tool_activity(tmp_path):
     conversation = AgentConversation.create(folder=str(tmp_path))
     worker = AgentRunWorker(conversation, "hello")
     activity = []
-    worker.activity_added.connect(lambda kind, text: activity.append((kind, text)))
+    worker.signals.progress.connect(
+        lambda payload: activity.append((payload["activity_kind"], payload["text"]))
+        if isinstance(payload, dict) and payload.get("kind") == "activity"
+        else None
+    )
 
     worker._on_event(
         SimpleNamespace(
@@ -335,18 +342,18 @@ def test_tools_menu_omits_primary_apps_and_agent():
     source = open(source_path, encoding="utf-8").read()
 
     omitted_actions = (
-        'self.tools_menu.addAction("LLM Agent", self._open_agent_chat)',
-        'self.tools_menu.addAction("PolView", self._open_polview)',
-        'self.tools_menu.addAction("ABR Quote", self._open_abrquote)',
-        'self.tools_menu.addAction("RERUN", self._open_illustration)',
-        'self.tools_menu.addAction("Audit Tool", self._open_audit)',
+        'self.tools_menu.addAction("LLM Agent", self.callbacks._open_agent_chat)',
+        'self.tools_menu.addAction("PolView", self.callbacks._open_polview)',
+        'self.tools_menu.addAction("ABR Quote", self.callbacks._open_abrquote)',
+        'self.tools_menu.addAction("RERUN", self.callbacks._open_illustration)',
+        'self.tools_menu.addAction("Audit Tool", self.callbacks._open_audit)',
     )
     assert all(action not in source for action in omitted_actions)
-    assert 'self.tools_menu.addAction("View Screenshots", self._open_screenshot)' in source
-    assert '("MAINFRAMENAV", "Mainframe Navigator", self._open_mainframe)' in source
-    assert '("RATEMANAGER", "Rate Manager", self._open_rate_manager)' in source
+    assert 'self.tools_menu.addAction("View Screenshots", self.callbacks._open_screenshot)' in source
+    assert '("MAINFRAMENAV", "Mainframe Navigator", self.callbacks._open_mainframe)' in source
+    assert '("RATEMANAGER", "Rate Manager", self.callbacks._open_rate_manager)' in source
     assert 'self.tools_menu.addAction(title, callback)' in source
-    assert '"DB2 Table Check", self._open_db2_table_check' in source
-    assert '"📁 App Data Location", self._open_app_data_location' in source
+    assert '"DB2 Table Check", self.callbacks._open_db2_table_check' in source
+    assert '"📁 App Data Location", self.callbacks._open_app_data_location' in source
     assert "agent_chat_btn" not in source
     assert "_agent_chat_action" not in source

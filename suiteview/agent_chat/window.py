@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.ui.workers import WorkerController
+from suiteview.ui import muted_signals
 
 from .models import AgentConversation, AgentMessage
 from .store import ConversationStore, ConversationStoreError
@@ -157,7 +159,9 @@ class AgentChatWindow(FramelessWindowBase):
         self.conversations: list[AgentConversation] = []
         self.current_conversation: AgentConversation | None = None
         self.worker: AgentRunWorker | None = None
+        self.worker_controller: WorkerController | None = None
         self.models_worker: ModelListWorker | None = None
+        self.models_controller: WorkerController | None = None
         self.streaming_bubble: MessageBubble | None = None
         self.streaming_text = ""
         self._session_load_error = ""
@@ -434,40 +438,39 @@ class AgentChatWindow(FramelessWindowBase):
             QMessageBox.warning(self, "Chat History Error", str(exc))
 
     def _refresh_session_list(self, select_id: str | None = None) -> None:
-        self.session_list.blockSignals(True)
-        self.session_list.clear()
-        folder_items: dict[str, QTreeWidgetItem] = {}
-        selected_item: QTreeWidgetItem | None = None
-        first_thread: QTreeWidgetItem | None = None
-        for conversation in self.conversations:
-            folder_key = (
-                str(Path(conversation.folder).resolve()).casefold()
-                if conversation.folder
-                else ""
-            )
-            folder_item = folder_items.get(folder_key)
-            if folder_item is None:
-                folder_item = QTreeWidgetItem([conversation.folder_name])
-                folder_item.setToolTip(0, conversation.folder or "No folder assigned")
-                folder_item.setData(0, Qt.ItemDataRole.UserRole, "folder")
-                folder_item.setFlags(
-                    folder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable
+        with muted_signals(self.session_list):
+            self.session_list.clear()
+            folder_items: dict[str, QTreeWidgetItem] = {}
+            selected_item: QTreeWidgetItem | None = None
+            first_thread: QTreeWidgetItem | None = None
+            for conversation in self.conversations:
+                folder_key = (
+                    str(Path(conversation.folder).resolve()).casefold()
+                    if conversation.folder
+                    else ""
                 )
-                folder_items[folder_key] = folder_item
-                self.session_list.addTopLevelItem(folder_item)
+                folder_item = folder_items.get(folder_key)
+                if folder_item is None:
+                    folder_item = QTreeWidgetItem([conversation.folder_name])
+                    folder_item.setToolTip(0, conversation.folder or "No folder assigned")
+                    folder_item.setData(0, Qt.ItemDataRole.UserRole, "folder")
+                    folder_item.setFlags(
+                        folder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable
+                    )
+                    folder_items[folder_key] = folder_item
+                    self.session_list.addTopLevelItem(folder_item)
 
-            item = QTreeWidgetItem([conversation.title])
-            item.setData(0, Qt.ItemDataRole.UserRole, "thread")
-            item.setData(0, Qt.ItemDataRole.UserRole + 1, conversation.id)
-            item.setToolTip(0, conversation.title)
-            folder_item.addChild(item)
-            first_thread = first_thread or item
-            if conversation.id == select_id:
-                selected_item = item
+                item = QTreeWidgetItem([conversation.title])
+                item.setData(0, Qt.ItemDataRole.UserRole, "thread")
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, conversation.id)
+                item.setToolTip(0, conversation.title)
+                folder_item.addChild(item)
+                first_thread = first_thread or item
+                if conversation.id == select_id:
+                    selected_item = item
 
-        self.session_list.expandAll()
-        self.session_list.setCurrentItem(selected_item or first_thread)
-        self.session_list.blockSignals(False)
+            self.session_list.expandAll()
+            self.session_list.setCurrentItem(selected_item or first_thread)
         current_item = self.session_list.currentItem()
         if current_item is not None:
             self._select_conversation_by_id(
@@ -495,7 +498,7 @@ class AgentChatWindow(FramelessWindowBase):
         menu.exec(self.session_list.viewport().mapToGlobal(position))
 
     def _select_conversation_by_id(self, conversation_id: str) -> None:
-        if self.worker is not None and self.worker.isRunning():
+        if self.worker_controller is not None and self.worker_controller.is_running():
             return
         conversation = next(
             (item for item in self.conversations if item.id == conversation_id),
@@ -621,7 +624,10 @@ class AgentChatWindow(FramelessWindowBase):
 
     def delete_current(self) -> None:
         conversation = self.current_conversation
-        if conversation is None or self.worker is not None:
+        if (
+            conversation is None
+            or (self.worker_controller is not None and self.worker_controller.is_running())
+        ):
             return
         result = QMessageBox.question(
             self,
@@ -642,21 +648,21 @@ class AgentChatWindow(FramelessWindowBase):
 
     def _load_models(self) -> None:
         self.status_label.setText("Loading Copilot models...")
-        self.models_worker = ModelListWorker(self)
-        self.models_worker.models_ready.connect(self._on_models_ready)
-        self.models_worker.error_occurred.connect(self._on_models_error)
-        self.models_worker.finished.connect(self._models_finished)
-        self.models_worker.start()
+        self.models_worker = ModelListWorker()
+        self.models_controller = WorkerController(self, self.models_worker)
+        self.models_controller.result.connect(self._on_models_ready)
+        self.models_controller.error.connect(lambda error: self._on_models_error(str(error)))
+        self.models_controller.finished.connect(self._models_finished)
+        self.models_controller.start()
 
     def _on_models_ready(self, models: list[dict[str, str]]) -> None:
         selected = (
             self.current_conversation.model if self.current_conversation else "auto"
         )
-        self.model_combo.blockSignals(True)
-        self.model_combo.clear()
-        for model in models:
-            self.model_combo.addItem(model["name"], model["id"])
-        self.model_combo.blockSignals(False)
+        with muted_signals(self.model_combo):
+            self.model_combo.clear()
+            for model in models:
+                self.model_combo.addItem(model["name"], model["id"])
         self._select_model(selected)
         self.status_label.setText("Ready")
 
@@ -665,17 +671,16 @@ class AgentChatWindow(FramelessWindowBase):
 
     def _models_finished(self) -> None:
         if self.models_worker is not None:
-            self.models_worker.deleteLater()
             self.models_worker = None
+        self.models_controller = None
 
     def _select_model(self, model_id: str) -> None:
         index = self.model_combo.findData(model_id)
         if index < 0:
             self.model_combo.addItem(model_id, model_id)
             index = self.model_combo.count() - 1
-        self.model_combo.blockSignals(True)
-        self.model_combo.setCurrentIndex(index)
-        self.model_combo.blockSignals(False)
+        with muted_signals(self.model_combo):
+            self.model_combo.setCurrentIndex(index)
 
     def _on_model_changed(self) -> None:
         conversation = self.current_conversation
@@ -688,7 +693,11 @@ class AgentChatWindow(FramelessWindowBase):
     def send_message(self) -> None:
         conversation = self.current_conversation
         prompt = self.prompt_edit.toPlainText().strip()
-        if conversation is None or not prompt or self.worker is not None:
+        if (
+            conversation is None
+            or not prompt
+            or (self.worker_controller is not None and self.worker_controller.is_running())
+        ):
             return
         if not conversation.folder or not Path(conversation.folder).is_dir():
             QMessageBox.warning(
@@ -709,16 +718,14 @@ class AgentChatWindow(FramelessWindowBase):
         self.streaming_bubble = None
         self._set_busy(True)
 
-        self.worker = AgentRunWorker(conversation, prompt, self)
-        self.worker.session_ready.connect(self._on_session_ready)
-        self.worker.token_received.connect(self._on_token)
-        self.worker.status_changed.connect(self.status_label.setText)
-        self.worker.activity_added.connect(self._on_activity)
-        self.worker.response_complete.connect(self._on_response)
-        self.worker.error_occurred.connect(self._on_error)
-        self.worker.cancelled.connect(self._on_cancelled)
-        self.worker.finished.connect(self._worker_finished)
-        self.worker.start()
+        self.worker = AgentRunWorker(conversation, prompt)
+        self.worker_controller = WorkerController(self, self.worker, cancel=self.worker.cancel)
+        self.worker_controller.progress.connect(self._on_worker_progress)
+        self.worker_controller.result.connect(self._on_response)
+        self.worker_controller.error.connect(lambda error: self._on_error(str(error)))
+        self.worker_controller.cancelled.connect(self._on_cancelled)
+        self.worker_controller.finished.connect(self._worker_finished)
+        self.worker_controller.start()
         self._scroll_to_bottom()
 
     def _on_session_ready(self) -> None:
@@ -726,6 +733,22 @@ class AgentChatWindow(FramelessWindowBase):
             self.current_conversation.sdk_session_started = True
             self._save()
             self._update_folder_display()
+
+    def _on_worker_progress(self, payload) -> None:
+        if not isinstance(payload, dict):
+            return
+        kind = payload.get("kind")
+        if kind == "session_ready":
+            self._on_session_ready()
+        elif kind == "token":
+            self._on_token(payload.get("text", ""))
+        elif kind == "status":
+            self.status_label.setText(payload.get("text", ""))
+        elif kind == "activity":
+            self._on_activity(
+                payload.get("activity_kind", "activity"),
+                payload.get("text", ""),
+            )
 
     def _on_token(self, token: str) -> None:
         self.streaming_text += token
@@ -769,9 +792,8 @@ class AgentChatWindow(FramelessWindowBase):
         self.status_label.setText("Stopped")
 
     def _worker_finished(self) -> None:
-        if self.worker is not None:
-            self.worker.deleteLater()
         self.worker = None
+        self.worker_controller = None
         self.streaming_bubble = None
         self.streaming_text = ""
         self._set_busy(False)
@@ -793,16 +815,15 @@ class AgentChatWindow(FramelessWindowBase):
         )
 
     def stop_agent(self) -> None:
-        if self.worker is not None and self.worker.isRunning():
+        if self.worker_controller is not None and self.worker_controller.is_running():
             self.status_label.setText("Stopping agent...")
             self.stop_button.setEnabled(False)
-            self.worker.cancel()
+            self.worker_controller.cancel()
 
     def closeEvent(self, event) -> None:
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.cancel()
-            if not self.worker.wait(5000):
-                logger.warning("Agent worker did not stop before window close")
-        if self.models_worker is not None and self.models_worker.isRunning():
-            self.models_worker.wait(3000)
+        if self.worker_controller is not None and self.worker_controller.is_running():
+            self.worker_controller.cancel()
+            logger.info("Agent worker cancellation requested during window close")
+        if self.models_controller is not None and self.models_controller.is_running():
+            self.models_controller.cancel()
         event.accept()

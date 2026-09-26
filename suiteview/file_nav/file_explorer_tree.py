@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 
 class FileExplorerTreeMixin:
+    """Requires: FileExplorerCore tree model state, icon helpers, SharePoint loaders.
+    Provides: folder tree widgets, tree population, expansion, and selection handlers.
+    """
+
     def create_tree_panel(self):
         """Create the tree view with custom model (folders only, name column only)."""
         widget = QWidget()
@@ -717,4 +721,3 @@ class FileExplorerTreeMixin:
     def refresh_tree(self):
         """Refresh the tree view"""
         self.populate_tree_model()
-
