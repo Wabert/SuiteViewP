@@ -47,7 +47,7 @@ from suiteview.audit.query_object_store import (
     restore_saved_visual_design,
     save_object,
 )
-from suiteview.audit.query_object_viewer_window import _display_dsn_for_definition, _display_dsn_for_object, _limited_preview_sql, _preview_dialect_for_object
+from suiteview.audit.query_object_viewer.common import _display_dsn_for_definition, _display_dsn_for_object, _limited_preview_sql, _preview_dialect_for_object
 from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
 from suiteview.audit.saved_query import SavedQuery
 from suiteview.audit.tabs.results_tab import ResultsTab
@@ -273,7 +273,7 @@ class QueryObjectTests(unittest.TestCase):
         )
         obj.dialect = "DB2"
 
-        with patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="SQL_SERVER"):
+        with patch("suiteview.audit.query_object_viewer.common.detect_dialect", return_value="SQL_SERVER"):
             self.assertEqual(_preview_dialect_for_object(obj), "SQL_SERVER")
 
     def test_preview_dialect_falls_back_to_saved_dialect(self):
@@ -285,7 +285,7 @@ class QueryObjectTests(unittest.TestCase):
         )
         obj.dialect = "DB2"
 
-        with patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="UNKNOWN"):
+        with patch("suiteview.audit.query_object_viewer.common.detect_dialect", return_value="UNKNOWN"):
             self.assertEqual(_preview_dialect_for_object(obj), "DB2")
 
     def test_query_object_viewer_builds_data_source_index(self):
@@ -315,14 +315,14 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_odbc_detail_rows_mask_sensitive_setup_values(self):
         with patch(
-            "suiteview.audit.query_object_viewer_window.get_dsn_details",
+            "suiteview.audit.query_object_viewer.object_actions.get_dsn_details",
             return_value={
                 "DSN": "UL_Rates",
                 "Driver": "ODBC Driver 17 for SQL Server",
                 "Server": "RatesServer",
                 "Password": "secret",
             },
-        ), patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="SQL_SERVER"):
+        ), patch("suiteview.audit.query_object_viewer.object_actions.detect_dialect", return_value="SQL_SERVER"):
             rows = QueryObjectViewerWindow._odbc_detail_rows("UL_Rates")
 
         values = {key: value for key, value in rows}
@@ -1049,7 +1049,7 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_build_badges_use_cyberlife_and_dark_manual_sql_labels(self):
         from suiteview.audit.build_mode_styles import mode_style
-        from suiteview.audit.query_object_viewer_window import _QUERY_BADGES
+        from suiteview.audit.query_object_viewer.common import _QUERY_BADGES
 
         self.assertEqual(_QUERY_BADGES[OBJECT_KIND_CYBERLIFE], "CL")
         self.assertEqual(_QUERY_BADGES[OBJECT_KIND_MANUAL_SQL], "SQL")
