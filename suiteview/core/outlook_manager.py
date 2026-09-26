@@ -453,6 +453,118 @@ class OutlookManager:
         except OUTLOOK_COM_ERRORS:
             logger.debug("Could not build Outlook folder path", exc_info=True)
             return "Unknown"
+
+    def _sender_info(self, item, fallback=None, context: str = "") -> tuple[str, str]:
+        """Best-effort Outlook sender display name and SMTP address."""
+        sender_email = ""
+        sender_name = ""
+        try:
+            sender_name = self._sender_name(item, context)
+            sender_email = self._sender_email(item, context)
+            if not sender_name:
+                sender_name = self._sender_object_name(item, context)
+            if fallback is not None:
+                sender_name = sender_name or str(getattr(fallback, 'sender', '') or '').strip()
+                sender_email = sender_email or str(getattr(fallback, 'sender_email', '') or '').strip()
+        except Exception as e:
+            logger.warning(f"Sender extraction failed for {getattr(item, 'Subject', '')}: {e}")
+        return sender_name or sender_email or "(Unknown Sender)", sender_email
+
+    @staticmethod
+    def _sender_name(item, context: str) -> str:
+        try:
+            raw_sender_name = item.SenderName
+            return str(raw_sender_name).strip() if raw_sender_name is not None else ""
+        except OUTLOOK_COM_ERRORS:
+            logger.debug(f"Could not read Outlook SenderName{context}", exc_info=True)
+            return ""
+
+    @staticmethod
+    def _sender_email(item, context: str) -> str:
+        try:
+            raw_sender_email = item.SenderEmailAddress
+            sender_email = str(raw_sender_email).strip() if raw_sender_email is not None else ""
+            if sender_email and sender_email.startswith('/O='):
+                return OutlookManager._exchange_sender_email(item, context) or sender_email
+            return sender_email
+        except OUTLOOK_COM_ERRORS:
+            logger.debug(f"Could not read Outlook SenderEmailAddress{context}", exc_info=True)
+            return ""
+
+    @staticmethod
+    def _exchange_sender_email(item, context: str) -> str:
+        try:
+            if item.Sender:
+                exchange_user = item.Sender.GetExchangeUser()
+                if exchange_user and exchange_user.PrimarySmtpAddress:
+                    return str(exchange_user.PrimarySmtpAddress).strip()
+        except OUTLOOK_COM_ERRORS:
+            logger.debug(f"Could not resolve Exchange sender{context}", exc_info=True)
+        return ""
+
+    @staticmethod
+    def _sender_object_name(item, context: str) -> str:
+        try:
+            if item.Sender and item.Sender.Name:
+                return str(item.Sender.Name).strip()
+        except OUTLOOK_COM_ERRORS:
+            logger.debug(f"Could not read Outlook Sender.Name{context}", exc_info=True)
+        return ""
+
+    def _email_attachments_from_item(
+        self,
+        item,
+        calculate_hash: bool,
+        fallback=None,
+        context: str = "",
+    ) -> List[EmailAttachment]:
+        display_sender, sender_email = self._sender_info(item, fallback, context)
+        attachments: List[EmailAttachment] = []
+        for idx, attachment in enumerate(item.Attachments, 1):
+            try:
+                info = self._attachment_info(item, attachment, idx, calculate_hash, display_sender, sender_email)
+                if info is not None:
+                    attachments.append(info)
+            except Exception as e:
+                logger.warning(f"Error processing attachment {idx}: {e}")
+        return attachments
+
+    def _attachment_info(
+        self,
+        item,
+        attachment,
+        index: int,
+        calculate_hash: bool,
+        display_sender: str,
+        sender_email: str,
+    ) -> Optional[EmailAttachment]:
+        if attachment.Type != 1 or self._is_inline_image(attachment):
+            return None
+        file_ext = os.path.splitext(attachment.FileName)[1].lower()
+        return EmailAttachment(
+            email_id=item.EntryID,
+            email_subject=item.Subject or "(No Subject)",
+            email_sender=sender_email or display_sender,
+            email_date=item.ReceivedTime,
+            attachment_name=attachment.FileName,
+            attachment_type=file_ext or 'unknown',
+            attachment_size=attachment.Size,
+            attachment_index=index,
+            file_hash=self._attachment_hash(attachment) if calculate_hash else None,
+        )
+
+    @staticmethod
+    def _attachment_hash(attachment) -> Optional[str]:
+        try:
+            temp_path = os.path.join(os.getenv('TEMP'), attachment.FileName)
+            attachment.SaveAsFile(temp_path)
+            with open(temp_path, 'rb') as handle:
+                file_hash = hashlib.md5(handle.read()).hexdigest()
+            os.remove(temp_path)
+            return file_hash
+        except Exception as e:
+            logger.warning(f"Could not calculate hash for {attachment.FileName}: {e}")
+            return None
     
     def get_all_attachments(self, folders: List = None, limit_per_folder: int = 1000, 
                            calculate_hash: bool = False) -> List[EmailAttachment]:
@@ -481,115 +593,19 @@ class OutlookManager:
             try:
                 items = folder.Items
                 items.Sort("[ReceivedTime]", True)
-                
                 count = 0
                 for item in items:
                     if count >= limit_per_folder:
                         break
-                    
                     try:
-                        # Only process MailItem objects with attachments
                         if item.Class != 43 or item.Attachments.Count == 0:
                             continue
-                        
-                        # Get sender information with failsafe handling
-                        display_sender = "(Unknown Sender)"
-                        
-                        try:
-                            sender_email = ""
-                            sender_name = ""
-                            
-                            # Try multiple approaches to get sender info
-                            try:
-                                # Approach 1: SenderName property
-                                raw_sender_name = item.SenderName
-                                if raw_sender_name is not None:
-                                    sender_name = str(raw_sender_name).strip()
-                            except OUTLOOK_COM_ERRORS:
-                                logger.debug("Could not read Outlook SenderName", exc_info=True)
-                            
-                            try:
-                                # Approach 2: SenderEmailAddress property
-                                raw_sender_email = item.SenderEmailAddress
-                                if raw_sender_email is not None:
-                                    sender_email = str(raw_sender_email).strip()
-                                    
-                                    # Handle Exchange addresses
-                                    if sender_email and sender_email.startswith('/O='):
-                                        try:
-                                            if item.Sender:
-                                                exchange_user = item.Sender.GetExchangeUser()
-                                                if exchange_user and exchange_user.PrimarySmtpAddress:
-                                                    sender_email = str(exchange_user.PrimarySmtpAddress).strip()
-                                        except OUTLOOK_COM_ERRORS:
-                                            logger.debug("Could not resolve Exchange sender during attachment scan", exc_info=True)
-                            except OUTLOOK_COM_ERRORS:
-                                logger.debug("Could not read Outlook SenderEmailAddress during attachment scan", exc_info=True)
-                            
-                            try:
-                                # Approach 3: Sender.Name
-                                if not sender_name and item.Sender and item.Sender.Name:
-                                    sender_name = str(item.Sender.Name).strip()
-                            except OUTLOOK_COM_ERRORS:
-                                logger.debug("Could not read Outlook Sender.Name during attachment scan", exc_info=True)
-                            
-                            # Use whatever we found
-                            display_sender = sender_name or sender_email or "(Unknown Sender)"
-                            
-                        except Exception as e:
-                            # If all sender extraction fails, log and continue with Unknown
-                            logger.warning(f"Sender extraction failed for {item.Subject}: {e}")
-                            display_sender = "(Unknown Sender)"
-                            sender_email = ""
-                        
-                        # Process each attachment
-                        for idx, attachment in enumerate(item.Attachments, 1):
-                            try:
-                                # Skip embedded items
-                                if attachment.Type != 1:  # 1 = olByValue (file attachment)
-                                    continue
-                                
-                                # Skip inline images using comprehensive check
-                                if self._is_inline_image(attachment):
-                                    continue
-                                
-                                file_ext = os.path.splitext(attachment.FileName)[1].lower()
-                                file_hash = None
-                                
-                                # Calculate hash if requested
-                                if calculate_hash:
-                                    try:
-                                        # Save temporarily to calculate hash
-                                        temp_path = os.path.join(os.getenv('TEMP'), attachment.FileName)
-                                        attachment.SaveAsFile(temp_path)
-                                        
-                                        with open(temp_path, 'rb') as f:
-                                            file_hash = hashlib.md5(f.read()).hexdigest()
-                                        
-                                        os.remove(temp_path)
-                                    except Exception as e:
-                                        logger.warning(f"Could not calculate hash for {attachment.FileName}: {e}")
-                                
-                                attach_info = EmailAttachment(
-                                    email_id=item.EntryID,
-                                    email_subject=item.Subject or "(No Subject)",
-                                    email_sender=sender_email or display_sender,  # Use email address if available
-                                    email_date=item.ReceivedTime,
-                                    attachment_name=attachment.FileName,
-                                    attachment_type=file_ext or 'unknown',
-                                    attachment_size=attachment.Size,
-                                    attachment_index=idx,
-                                    file_hash=file_hash
-                                )
-                                
-                                all_attachments.append(attach_info)
-                            
-                            except Exception as e:
-                                logger.warning(f"Error processing attachment: {e}")
-                                continue
-                        
+                        all_attachments.extend(
+                            self._email_attachments_from_item(
+                                item, calculate_hash, context=" during attachment scan",
+                            )
+                        )
                         count += 1
-                    
                     except Exception as e:
                         logger.warning(f"Error processing email for attachments: {e}")
                         continue
@@ -873,101 +889,12 @@ class OutlookManager:
             
             try:
                 item = self.namespace.GetItemFromID(email.email_id)
-                
-                # Get sender information with failsafe handling
-                display_sender = "(Unknown Sender)"
-                
-                try:
-                    sender_email = ""
-                    sender_name = ""
-                    
-                    # Try to get sender info
-                    try:
-                        raw_sender_name = item.SenderName
-                        if raw_sender_name is not None:
-                            sender_name = str(raw_sender_name).strip()
-                    except OUTLOOK_COM_ERRORS:
-                        logger.debug("Could not read Outlook SenderName while scanning attachments", exc_info=True)
-                    
-                    try:
-                        raw_sender_email = item.SenderEmailAddress
-                        if raw_sender_email is not None:
-                            sender_email = str(raw_sender_email).strip()
-                            if sender_email and sender_email.startswith('/O='):
-                                try:
-                                    if item.Sender:
-                                        exchange_user = item.Sender.GetExchangeUser()
-                                        if exchange_user and exchange_user.PrimarySmtpAddress:
-                                            sender_email = str(exchange_user.PrimarySmtpAddress).strip()
-                                except OUTLOOK_COM_ERRORS:
-                                    logger.debug("Could not resolve Exchange sender while scanning attachments", exc_info=True)
-                    except OUTLOOK_COM_ERRORS:
-                        logger.debug("Could not read Outlook SenderEmailAddress while scanning attachments", exc_info=True)
-                    
-                    try:
-                        if not sender_name and item.Sender and item.Sender.Name:
-                            sender_name = str(item.Sender.Name).strip()
-                    except OUTLOOK_COM_ERRORS:
-                        logger.debug("Could not read Outlook Sender.Name while scanning attachments", exc_info=True)
-                    
-                    # Fallback to email info
-                    if not sender_name and hasattr(email, 'sender') and email.sender:
-                        sender_name = str(email.sender).strip()
-                    if not sender_email and hasattr(email, 'sender_email') and email.sender_email:
-                        sender_email = str(email.sender_email).strip()
-                    
-                    display_sender = sender_name or sender_email or "(Unknown Sender)"
-                    
-                except Exception as e:
-                    logger.warning(f"Sender extraction failed for {item.Subject}: {e}")
-                    display_sender = "(Unknown Sender)"
-                    sender_email = ""
-                
-                # Process each attachment
-                for idx, attachment in enumerate(item.Attachments, 1):
-                    try:
-                        # Skip embedded items
-                        if attachment.Type != 1:  # 1 = olByValue (file attachment)
-                            continue
-                        
-                        # Skip inline images using comprehensive check
-                        if self._is_inline_image(attachment):
-                            continue
-                        
-                        file_ext = os.path.splitext(attachment.FileName)[1].lower()
-                        file_hash = None
-                        
-                        # Calculate hash if requested
-                        if calculate_hash:
-                            try:
-                                temp_path = os.path.join(os.getenv('TEMP'), attachment.FileName)
-                                attachment.SaveAsFile(temp_path)
-                                
-                                with open(temp_path, 'rb') as f:
-                                    file_hash = hashlib.md5(f.read()).hexdigest()
-                                
-                                os.remove(temp_path)
-                            except Exception as e:
-                                logger.warning(f"Could not calculate hash for {attachment.FileName}: {e}")
-                        
-                        attach_info = EmailAttachment(
-                            email_id=item.EntryID,
-                            email_subject=item.Subject or "(No Subject)",
-                            email_sender=sender_email or display_sender,  # Use email address if available
-                            email_date=item.ReceivedTime,
-                            attachment_name=attachment.FileName,
-                            attachment_type=file_ext or 'unknown',
-                            attachment_size=attachment.Size,
-                            attachment_index=idx,
-                            file_hash=file_hash
-                        )
-                        
-                        attachments.append(attach_info)
-                    
-                    except Exception as e:
-                        logger.warning(f"Error processing attachment {idx}: {e}")
-                        continue
-            
+                attachments.extend(
+                    self._email_attachments_from_item(
+                        item, calculate_hash, fallback=email,
+                        context=" while scanning attachments",
+                    )
+                )
             except Exception as e:
                 logger.warning(f"Error accessing email attachments: {e}")
                 continue
@@ -988,17 +915,24 @@ class OutlookManager:
 
         contacts: List[Dict] = []
         seen_emails = set()
+        self._load_contact_folder_contacts(contacts, seen_emails)
+        self._load_gal_contacts(contacts, seen_emails)
+        return contacts
 
-        # 1. Default Contacts folder (olFolderContacts = 10)
+    def _add_contact(self, contacts: List[Dict], seen_emails: set, name: str, email: str) -> None:
+        email = (email or "").strip()
+        if email and email not in seen_emails:
+            contacts.append({'name': (name or "").strip(), 'email': email})
+            seen_emails.add(email)
+
+    def _load_contact_folder_contacts(self, contacts: List[Dict], seen_emails: set) -> None:
         try:
             contacts_folder = self.namespace.GetDefaultFolder(10)
             for item in contacts_folder.Items:
                 try:
                     name = item.FullName or item.Subject or ""
                     email = (getattr(item, 'Email1Address', '') or "").strip()
-                    if email and email not in seen_emails:
-                        contacts.append({'name': name.strip(), 'email': email})
-                        seen_emails.add(email)
+                    self._add_contact(contacts, seen_emails, name, email)
                 except Exception:
                     logger.debug("Skipping unreadable Outlook contact", exc_info=True)
                     continue
@@ -1006,34 +940,33 @@ class OutlookManager:
         except Exception as e:
             logger.warning(f"Could not access Contacts folder: {e}")
 
-        # 2. Global Address List (best-effort, may not be available)
+    def _load_gal_contacts(self, contacts: List[Dict], seen_emails: set) -> None:
         try:
             for addr_list in self.namespace.AddressLists:
                 if addr_list.Name == "Global Address List":
-                    for entry in addr_list.AddressEntries:
-                        try:
-                            name = entry.Name or ""
-                            email = ""
-                            # Try to resolve SMTP address
-                            try:
-                                exch = entry.GetExchangeUser()
-                                if exch:
-                                    email = exch.PrimarySmtpAddress or ""
-                            except Exception:
-                                email = entry.Address or ""
-                            email = email.strip()
-                            if email and email not in seen_emails:
-                                contacts.append({'name': name.strip(), 'email': email})
-                                seen_emails.add(email)
-                        except Exception:
-                            logger.debug("Skipping unreadable Outlook GAL entry", exc_info=True)
-                            continue
+                    self._load_gal_entries(addr_list, contacts, seen_emails)
                     logger.info(f"Total contacts after GAL: {len(contacts)}")
                     break
         except Exception as e:
             logger.warning(f"Could not access GAL: {e}")
 
-        return contacts
+    def _load_gal_entries(self, addr_list, contacts: List[Dict], seen_emails: set) -> None:
+        for entry in addr_list.AddressEntries:
+            try:
+                self._add_contact(contacts, seen_emails, entry.Name or "", self._gal_entry_email(entry))
+            except Exception:
+                logger.debug("Skipping unreadable Outlook GAL entry", exc_info=True)
+                continue
+
+    @staticmethod
+    def _gal_entry_email(entry) -> str:
+        try:
+            exch = entry.GetExchangeUser()
+            if exch:
+                return exch.PrimarySmtpAddress or ""
+        except Exception:
+            return entry.Address or ""
+        return entry.Address or ""
 
     def search_contacts(self, query: str) -> List[Dict]:
         """Return contacts whose name or email contains *query* (case-insensitive)."""
@@ -1171,83 +1104,8 @@ class OutlookManager:
             items.Sort("[ReceivedTime]", True)  # newest first
             restricted = items.Restrict(restriction)
 
-            results: List[EmailInfo] = []
-            for item in restricted:
-                try:
-                    if getattr(item, 'Class', 0) != 43:  # olMail
-                        continue
-
-                    body_preview = ""
-                    if include_body_preview:
-                        try:
-                            body_text = item.Body or ""
-                            body_preview = body_text[:200].replace('\r\n', ' ').replace('\n', ' ')
-                        except Exception:
-                            logger.debug("Could not read Outlook body preview for subject search result", exc_info=True)
-
-                    sender_email = ""
-                    try:
-                        if item.SenderEmailType == "EX":
-                            sender = item.Sender.GetExchangeUser()
-                            sender_email = sender.PrimarySmtpAddress if sender else ""
-                        else:
-                            sender_email = item.SenderEmailAddress or ""
-                    except Exception:
-                        sender_email = item.SenderEmailAddress or ""
-
-                    info = EmailInfo(
-                        email_id=item.EntryID,
-                        subject=item.Subject or "(No Subject)",
-                        sender=item.SenderName or "Unknown",
-                        sender_email=sender_email,
-                        received_date=item.ReceivedTime,
-                        size=item.Size,
-                        unread=item.UnRead,
-                        has_attachments=item.Attachments.Count > 0,
-                        attachment_count=item.Attachments.Count,
-                        folder_path=folder.FolderPath,
-                        body_preview=body_preview,
-                    )
-                    results.append(info)
-                except Exception as e:
-                    logger.warning(f"Error reading search result: {e}")
-                    continue
-
-            # Also search Sent Items (olFolderSentMail = 5)
-            try:
-                sent_folder = self.namespace.GetDefaultFolder(5)
-                sent_items = sent_folder.Items
-                sent_items.Sort("[SentOn]", True)
-                sent_restricted = sent_items.Restrict(restriction)
-                for item in sent_restricted:
-                    try:
-                        if getattr(item, 'Class', 0) != 43:
-                            continue
-                        body_preview = ""
-                        if include_body_preview:
-                            try:
-                                body_preview = (item.Body or "")[:200].replace('\r\n', ' ').replace('\n', ' ')
-                            except Exception:
-                                logger.debug("Could not read Outlook Sent Items body preview", exc_info=True)
-                        info = EmailInfo(
-                            email_id=item.EntryID,
-                            subject=item.Subject or "(No Subject)",
-                            sender=item.SenderName or "You",
-                            sender_email="",
-                            received_date=getattr(item, 'SentOn', item.ReceivedTime),
-                            size=item.Size,
-                            unread=False,
-                            has_attachments=item.Attachments.Count > 0,
-                            attachment_count=item.Attachments.Count,
-                            folder_path=sent_folder.FolderPath,
-                            body_preview=body_preview,
-                        )
-                        results.append(info)
-                    except Exception:
-                        logger.debug("Skipping unreadable Outlook Sent Items search result", exc_info=True)
-                        continue
-            except Exception as e:
-                logger.warning(f"Could not search Sent Items: {e}")
+            results = self._search_restricted_items(restricted, folder, include_body_preview)
+            results.extend(self._search_sent_items(restriction, include_body_preview))
 
             # Sort all results by date
             results.sort(key=lambda e: e.received_date, reverse=True)
@@ -1257,6 +1115,87 @@ class OutlookManager:
         except Exception as e:
             logger.error(f"Email subject search failed: {e}")
             return []
+
+    def _search_restricted_items(self, restricted, folder, include_body_preview: bool) -> List[EmailInfo]:
+        results: List[EmailInfo] = []
+        for item in restricted:
+            try:
+                info = self._email_info_from_search_item(item, folder, include_body_preview)
+                if info is not None:
+                    results.append(info)
+            except Exception as e:
+                logger.warning(f"Error reading search result: {e}")
+        return results
+
+    def _email_info_from_search_item(self, item, folder, include_body_preview: bool) -> Optional[EmailInfo]:
+        if getattr(item, 'Class', 0) != 43:
+            return None
+        return EmailInfo(
+            email_id=item.EntryID,
+            subject=item.Subject or "(No Subject)",
+            sender=item.SenderName or "Unknown",
+            sender_email=self._search_sender_email(item),
+            received_date=item.ReceivedTime,
+            size=item.Size,
+            unread=item.UnRead,
+            has_attachments=item.Attachments.Count > 0,
+            attachment_count=item.Attachments.Count,
+            folder_path=folder.FolderPath,
+            body_preview=self._body_preview(item, include_body_preview, "subject search result"),
+        )
+
+    def _search_sent_items(self, restriction: str, include_body_preview: bool) -> List[EmailInfo]:
+        try:
+            sent_folder = self.namespace.GetDefaultFolder(5)
+            sent_items = sent_folder.Items
+            sent_items.Sort("[SentOn]", True)
+            return self._sent_search_infos(sent_items.Restrict(restriction), sent_folder, include_body_preview)
+        except Exception as e:
+            logger.warning(f"Could not search Sent Items: {e}")
+            return []
+
+    def _sent_search_infos(self, restricted, sent_folder, include_body_preview: bool) -> List[EmailInfo]:
+        results: List[EmailInfo] = []
+        for item in restricted:
+            try:
+                if getattr(item, 'Class', 0) != 43:
+                    continue
+                results.append(EmailInfo(
+                    email_id=item.EntryID,
+                    subject=item.Subject or "(No Subject)",
+                    sender=item.SenderName or "You",
+                    sender_email="",
+                    received_date=getattr(item, 'SentOn', item.ReceivedTime),
+                    size=item.Size,
+                    unread=False,
+                    has_attachments=item.Attachments.Count > 0,
+                    attachment_count=item.Attachments.Count,
+                    folder_path=sent_folder.FolderPath,
+                    body_preview=self._body_preview(item, include_body_preview, "Sent Items body preview"),
+                ))
+            except Exception:
+                logger.debug("Skipping unreadable Outlook Sent Items search result", exc_info=True)
+        return results
+
+    @staticmethod
+    def _body_preview(item, include_body_preview: bool, context: str) -> str:
+        if not include_body_preview:
+            return ""
+        try:
+            return (item.Body or "")[:200].replace('\r\n', ' ').replace('\n', ' ')
+        except Exception:
+            logger.debug(f"Could not read Outlook {context}", exc_info=True)
+            return ""
+
+    @staticmethod
+    def _search_sender_email(item) -> str:
+        try:
+            if item.SenderEmailType == "EX":
+                sender = item.Sender.GetExchangeUser()
+                return sender.PrimarySmtpAddress if sender else ""
+            return item.SenderEmailAddress or ""
+        except Exception:
+            return item.SenderEmailAddress or ""
 
 
 # ════════════════════════════════════════════════════════════════════

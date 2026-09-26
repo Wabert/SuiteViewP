@@ -49,9 +49,15 @@ def _read_functions_only(group) -> bool:
 
 def _is_read_query(sql: str) -> bool:
     """Allow one SELECT, including read-only CTEs; never infer from its prefix."""
-    # Dense generated CTE queries contain thousands of indentation tokens.
-    # Compact only whitespace tokens, never literal/comment contents, without
-    # changing sqlparse's resource limits or the SQL sent to the database.
+    statements = sqlparse.parse(_compact_sqlparse_whitespace(sql))
+    if len(statements) != 1 or statements[0].get_type() != "SELECT":
+        return False
+    if not _read_functions_only(statements[0]):
+        return False
+    return not any(_unsafe_select_token(token) for token in statements[0].flatten())
+
+
+def _compact_sqlparse_whitespace(sql: str) -> str:
     compact = []
     previous_space = False
     for kind, value in sqlparse.lexer.tokenize(sql):
@@ -59,34 +65,32 @@ def _is_read_query(sql: str) -> bool:
         if not space or not previous_space:
             compact.append(" " if space else value)
         previous_space = space
-    statements = sqlparse.parse("".join(compact))
-    if len(statements) != 1 or statements[0].get_type() != "SELECT":
+    return "".join(compact)
+
+
+def _unsafe_select_token(token) -> bool:
+    if token.ttype in tokens.Comment or token.ttype in tokens.Literal.String:
         return False
-    # External/UDF calls may mutate data even inside a SELECT. Only known
-    # scalar/aggregate built-ins are safe without arbitrary-SQL permission.
-    if not _read_functions_only(statements[0]):
+    if _is_allowed_function_name_token(token):
         return False
-    for token in statements[0].flatten():
-        if token.ttype in tokens.Comment or token.ttype in tokens.Literal.String:
-            continue
-        owner = token.parent
-        if isinstance(owner, Identifier):
-            owner = owner.parent
-        if (
-            isinstance(owner, Function)
-            and token.value.upper() == (owner.get_name() or "").upper()
-            and token.value.upper() in _READ_FUNCTIONS
-        ):
-            continue
-        if token.ttype in tokens.Error:
-            return False
-        if token.ttype in tokens.Keyword.DDL:
-            return False
-        if token.ttype in tokens.Keyword.DML and token.normalized != "SELECT":
-            return False
-        if token.value.upper() in _UNSAFE_WORDS:
-            return False
-    return True
+    if token.ttype in tokens.Error:
+        return True
+    if token.ttype in tokens.Keyword.DDL:
+        return True
+    if token.ttype in tokens.Keyword.DML and token.normalized != "SELECT":
+        return True
+    return token.value.upper() in _UNSAFE_WORDS
+
+
+def _is_allowed_function_name_token(token) -> bool:
+    owner = token.parent
+    if isinstance(owner, Identifier):
+        owner = owner.parent
+    return (
+        isinstance(owner, Function)
+        and token.value.upper() == (owner.get_name() or "").upper()
+        and token.value.upper() in _READ_FUNCTIONS
+    )
 
 
 def guard_query_sql(sql: str) -> None:
