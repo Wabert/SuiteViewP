@@ -52,10 +52,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "suiteview.illustration.models.regression_suite",
         "suiteview.illustration.core.summary_results",
     ): "Regression snapshots still format through engine summary exports; move snapshot formatting out of models.",
-    (
-        "suiteview.ui.search_content_window",
-        "suiteview.mainframe_nav.mainframe_nav_screen",
-    ): "Explicitly deferred to the Mainframe/SearchContent wave.",
 }
 
 
@@ -103,8 +99,8 @@ def _suiteview_imports(source: str, tree: ast.AST) -> set[str]:
     return imports
 
 
-def test_suiteview_imports_do_not_point_upward():
-    violations: list[str] = []
+def _upward_edges() -> set[tuple[str, str, str]]:
+    edges: set[tuple[str, str, str]] = set()
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         source = _module_name(path)
         source_layer = _layer(source)
@@ -113,14 +109,21 @@ def test_suiteview_imports_do_not_point_upward():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for target in sorted(_suiteview_imports(source, tree)):
             target_layer = _layer(target)
-            if target_layer is None:
+            if target_layer is None or target_layer[0] <= source_layer[0]:
                 continue
-            if target_layer[0] <= source_layer[0]:
-                continue
-            reason = ALLOWLIST.get((source, target))
-            if reason:
-                continue
-            violations.append(
-                f"{source} ({source_layer[1]}) imports {target} ({target_layer[1]})"
-            )
+            edges.add((source, target,
+                       f"{source} ({source_layer[1]}) imports {target} ({target_layer[1]})"))
+    return edges
+
+
+def test_suiteview_imports_do_not_point_upward():
+    violations = [text for source, target, text in sorted(_upward_edges())
+                  if (source, target) not in ALLOWLIST]
     assert not violations, "\n".join(violations)
+
+
+def test_allowlist_has_no_stale_entries():
+    """The allowlist may only shrink: drop an entry as soon as its import is gone."""
+    live = {(source, target) for source, target, _ in _upward_edges()}
+    stale = sorted(set(ALLOWLIST) - live)
+    assert not stale, "Remove stale ALLOWLIST entries: " + ", ".join(f"{s} -> {t}" for s, t in stale)
