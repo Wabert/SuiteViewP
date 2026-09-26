@@ -105,3 +105,62 @@ def test_filenav_uses_frameless_base_with_preserved_header(app, monkeypatch):
         assert window.tools_menu_btn.objectName() == ""
     finally:
         window.close()
+
+
+def test_mainframe_window_uses_frameless_base_with_preserved_header(app, monkeypatch):
+    from suiteview.core import access_control
+    from suiteview.mainframe_nav import mainframe_window as mod
+
+    class FakeNavScreen(QWidget):
+        def __init__(self, _conn_manager):
+            super().__init__()
+
+    class FakeTerminalScreen(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.terminal_left = type("TerminalSide", (), {})()
+            self.terminal_right = type("TerminalSide", (), {})()
+            self.disconnected = False
+
+        def disconnect_all(self):
+            self.disconnected = True
+
+    monkeypatch.setattr(access_control, "guard_app_access", lambda _code: None)
+    monkeypatch.setattr(mod, "ConnectionManager", lambda: object())
+    monkeypatch.setattr(mod, "CredentialManager", lambda: object())
+    monkeypatch.setattr(mod, "MainframeNavScreen", FakeNavScreen)
+    monkeypatch.setattr(mod, "DualTerminalScreen", FakeTerminalScreen)
+
+    window = mod.MainframeWindow()
+    try:
+        assert isinstance(window, FramelessWindowBase)
+        assert window.title_label.text() == "SuiteView - Mainframe Tools"
+        assert window._header_colors == ("#1E5BA8", "#0D3A7A", "#082B5C")
+        assert window._border_color == "#D4A017"
+        assert window.minimumWidth() == 600
+        assert window.minimumHeight() == 400
+        assert window.size().width() == 1400
+        assert window.size().height() == 800
+        assert window.tab_widget.count() == 2
+        assert window.user_button.text() == "👤 User"
+    finally:
+        window.close()
+
+
+def test_search_content_window_uses_frameless_and_filter_tables(app):
+    from suiteview.mainframe_nav.search_content_window import SearchContentWindow
+    from suiteview.ui.widgets.filter_table_view import FilterTableView
+
+    class FakeFtp:
+        pass
+
+    window = SearchContentWindow(FakeFtp())
+    try:
+        assert isinstance(window, FramelessWindowBase)
+        assert window.title_label.text() == "🔍 Search Dataset Content"
+        assert window._header_colors == ("#1E5BA8", "#0D3A7A", "#082B5C")
+        assert window._border_color == "#D4A017"
+        assert isinstance(window.dataset_table, FilterTableView)
+        assert isinstance(window.results_table, FilterTableView)
+    finally:
+        window.close()

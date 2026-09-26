@@ -9,11 +9,23 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLineEdit, QPushButton,
     QLabel, QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialog, QDialogButtonBox, QStyle, QFileDialog, QInputDialog,
-    QListWidget, QListWidgetItem, QToolButton, QApplication, QCheckBox
+    QListWidget, QListWidgetItem, QToolButton, QApplication, QCheckBox, QTextEdit
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QGuiApplication
 import logging
+
+from suiteview.mainframe_nav.styles import (
+    breadcrumb_style,
+    c,
+    connections_list_style,
+    members_table_style,
+    path_input_style,
+    push_button_style,
+    search_input_style,
+    tool_button_style,
+    viewer_button_style,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,107 +64,6 @@ class FTPConnectionThread(QThread):
             self.connection_failed.emit(str(e))
 
 
-class ContentSearchThread(QThread):
-    """Background thread for searching dataset content"""
-    progress_update = pyqtSignal(str, int, int)  # message, current, total
-    search_complete = pyqtSignal(object)  # Search results dict with results, errors, skipped
-    
-    def __init__(self, ftp_manager, datasets, search_strings, case_sensitive, whole_word, current_dataset):
-        super().__init__()
-        self.ftp_manager = ftp_manager
-        self.datasets = datasets
-        self.search_strings = search_strings
-        self.case_sensitive = case_sensitive
-        self.whole_word = whole_word
-        self.current_dataset = current_dataset
-        self._is_cancelled = False
-    
-    def cancel(self):
-        """Cancel the search"""
-        self._is_cancelled = True
-    
-    def run(self):
-        """Search through datasets"""
-        import re
-        results = []
-        errors = []
-        skipped = []
-        total = len(self.datasets)
-        
-        for idx, dataset_info in enumerate(self.datasets):
-            if self._is_cancelled:
-                break
-            
-            member_name = dataset_info['name']
-            full_path = dataset_info['full_path']
-            dsorg = dataset_info.get('dsorg', '')
-            
-            self.progress_update.emit(f"Searching {member_name}...", idx + 1, total)
-            
-            # Skip PO datasets - they can't be read directly, only their members
-            if dsorg == 'PO':
-                skipped.append(f"{member_name} (PO dataset - cannot read directly)")
-                continue
-            
-            try:
-                # Read dataset content
-                content, total_lines = self.ftp_manager.read_dataset(full_path, max_lines=None)
-                
-                if not content:
-                    skipped.append(f"{member_name} (empty or no content)")
-                    continue
-                
-                # Search for each string
-                dataset_matches = []
-                for search_str in self.search_strings:
-                    # Convert wildcard pattern to regex
-                    pattern = re.escape(search_str)
-                    pattern = pattern.replace(r'\*', '.*').replace(r'\?', '.')
-                    
-                    # Add word boundaries if whole word search
-                    if self.whole_word:
-                        pattern = r'\b' + pattern + r'\b'
-                    
-                    # Compile regex
-                    flags = 0 if self.case_sensitive else re.IGNORECASE
-                    regex = re.compile(pattern, flags)
-                    
-                    # Search each line
-                    matches = []
-                    for line_num, line in enumerate(content.split('\n'), 1):
-                        if regex.search(line):
-                            matches.append({
-                                'line_number': line_num,
-                                'line_content': line.strip()
-                            })
-                    
-                    if matches:
-                        dataset_matches.append({
-                            'search_string': search_str,
-                            'matches': matches[:10]  # Limit to first 10 matches per string
-                        })
-                
-                if dataset_matches:
-                    results.append({
-                        'dataset': member_name,
-                        'full_path': full_path,
-                        'matches': dataset_matches
-                    })
-                    
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Error searching {member_name}: {error_msg}")
-                errors.append(f"{member_name}: {error_msg}")
-                continue
-        
-        # Include error/skip info in results
-        self.search_complete.emit({
-            'results': results,
-            'errors': errors,
-            'skipped': skipped
-        })
-
-
 class MainframeNavScreen(QWidget):
     """Mainframe navigation screen with file explorer layout"""
     
@@ -188,626 +99,274 @@ class MainframeNavScreen(QWidget):
         self.load_default_settings()  # Load saved credentials from database
         
     def init_ui(self):
-        """Initialize the user interface"""
+        """Initialize the user interface."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
-        
-        # Top bar with connection management buttons
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(5)
-        
-        # Connection selector label
+
+        layout.addLayout(self._build_connection_toolbar())
+
+        self.main_splitter = self._build_main_splitter()
+        layout.addWidget(self.main_splitter)
+
+        layout.addWidget(self._build_bottom_bar())
+
+    def _build_connection_toolbar(self) -> QHBoxLayout:
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(5)
+
         conn_label = QLabel("Connections:")
         conn_label.setStyleSheet(
             "font-weight: bold; "
-            "color: #1A3A6E; "
+            f"color: {c('nav_text')}; "
             "font-size: 11pt; "
             "padding: 4px;"
         )
-        top_bar.addWidget(conn_label)
-        
-        # Add Connection button
-        self.add_conn_button = QPushButton("➕ New")
-        self.add_conn_button.setFixedWidth(80)
-        self.add_conn_button.clicked.connect(self.add_connection)
-        self.add_conn_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4A6FA5;
-                color: white;
-                border: 1px solid #3A5A8A;
-                padding: 6px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #5A7FB5;
-            }
-        """)
-        top_bar.addWidget(self.add_conn_button)
-        
-        # Edit Connection button
-        self.edit_conn_button = QPushButton("✏️ Edit")
-        self.edit_conn_button.setFixedWidth(80)
-        self.edit_conn_button.clicked.connect(self.edit_connection)
+        toolbar.addWidget(conn_label)
+
+        self.add_conn_button = self._create_toolbar_button("➕ New", 80, self.add_connection)
+        toolbar.addWidget(self.add_conn_button)
+
+        self.edit_conn_button = self._create_toolbar_button("✏️ Edit", 80, self.edit_connection)
         self.edit_conn_button.setEnabled(False)
-        self.edit_conn_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4A6FA5;
-                color: white;
-                border: 1px solid #3A5A8A;
-                padding: 6px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #5A7FB5;
-            }
-            QPushButton:disabled {
-                background-color: #B0C0D8;
-                color: #7A8A9E;
-                border: 1px solid #95A5B8;
-            }
-        """)
-        top_bar.addWidget(self.edit_conn_button)
-        
-        # Delete Connection button
-        self.delete_conn_button = QPushButton("🗑️ Delete")
-        self.delete_conn_button.setFixedWidth(90)
-        self.delete_conn_button.clicked.connect(self.delete_connection)
+        toolbar.addWidget(self.edit_conn_button)
+
+        self.delete_conn_button = self._create_toolbar_button(
+            "🗑️ Delete", 90, self.delete_connection
+        )
         self.delete_conn_button.setEnabled(False)
-        self.delete_conn_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4A6FA5;
-                color: white;
-                border: 1px solid #3A5A8A;
-                padding: 6px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #5A7FB5;
-            }
-            QPushButton:disabled {
-                background-color: #B0C0D8;
-                color: #7A8A9E;
-                border: 1px solid #95A5B8;
-            }
-        """)
-        top_bar.addWidget(self.delete_conn_button)
-        
-        # Settings button for global credentials
-        self.settings_button = QPushButton("⚙️ Settings")
-        self.settings_button.setFixedWidth(100)
-        self.settings_button.clicked.connect(self.show_credentials_dialog)
-        self.settings_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4A6FA5;
-                color: white;
-                border: 1px solid #3A5A8A;
-                padding: 6px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #5A7FB5;
-            }
-        """)
-        top_bar.addWidget(self.settings_button)
-        
-        top_bar.addStretch()
-        
-        # Search Content button (right side)
-        self.search_content_button = QPushButton("🔍 Search Content")
-        self.search_content_button.setFixedWidth(130)
-        self.search_content_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: 1px solid #2980b9;
-                padding: 6px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #5dade2;
-            }
-            QPushButton:disabled {
-                background-color: #B0C0D8;
-                color: #7A8A9E;
-                border: 1px solid #95A5B8;
-            }
-        """)
-        self.search_content_button.clicked.connect(self.open_search_content_window)
+        toolbar.addWidget(self.delete_conn_button)
+
+        self.settings_button = self._create_toolbar_button(
+            "⚙️ Settings", 100, self.show_credentials_dialog
+        )
+        toolbar.addWidget(self.settings_button)
+
+        toolbar.addStretch()
+
+        self.search_content_button = self._create_toolbar_button(
+            "🔍 Search Content",
+            130,
+            self.open_search_content_window,
+            kind="search",
+        )
         self.search_content_button.setEnabled(False)
-        top_bar.addWidget(self.search_content_button)
-        
-        layout.addLayout(top_bar)
-        
-        # Main splitter with 2 panels: Connections List | Detail View
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        
-        # LEFT PANEL - Connections List (File Nav style)
+        toolbar.addWidget(self.search_content_button)
+        return toolbar
+
+    def _create_toolbar_button(self, text: str, width: int, slot, *, kind: str = "primary") -> QPushButton:
+        button = QPushButton(text)
+        button.setFixedWidth(width)
+        button.clicked.connect(slot)
+        button.setStyleSheet(push_button_style(kind))
+        return button
+
+    def _build_main_splitter(self) -> QSplitter:
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(self._build_connections_panel())
+        splitter.addWidget(self._build_content_panel())
+        self.main_splitter = splitter
+        splitter.setSizes([300, 700])
+        self.load_splitter_sizes()
+        splitter.splitterMoved.connect(self.save_splitter_sizes)
+        return splitter
+
+    def _build_connections_panel(self) -> QWidget:
         connections_widget = QWidget()
-        connections_widget.setStyleSheet("background-color: #FFF9E6;")  # Light yellow like File Nav
+        connections_widget.setStyleSheet(f"background-color: {c('panel_bg')};")
         connections_layout = QVBoxLayout(connections_widget)
         connections_layout.setContentsMargins(0, 0, 0, 0)
         connections_layout.setSpacing(0)
-        
+
         connections_header = QLabel("🔗 Connections")
         connections_header.setStyleSheet(
             "font-weight: 600; "
             "font-size: 10pt; "
             "padding: 4px 8px; "
-            "background-color: #C0D4F0; "
-            "color: #1A3A6E; "
+            f"background-color: {c('panel_header')}; "
+            f"color: {c('nav_text')}; "
             "border: none; "
-            "border-bottom: 1px solid #A0B8D8;"
+            f"border-bottom: 1px solid {c('panel_border')};"
         )
         connections_layout.addWidget(connections_header)
-        
+
         self.connections_list = QListWidget()
         self.connections_list.itemClicked.connect(self.on_connection_list_item_clicked)
-        self.connections_list.setStyleSheet("""
-            QListWidget {
-                border: none;
-                background-color: transparent;
-                outline: none;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border: none;
-                background-color: transparent;
-                color: #1A3A6E;
-            }
-            QListWidget::item:selected {
-                background-color: #B0C8E8;
-                color: #0A1E5E;
-                font-weight: bold;
-            }
-            QListWidget::item:hover {
-                background-color: #C8DCF0;
-                color: #0A1E5E;
-                font-weight: bold;
-            }
-        """)
+        self.connections_list.setStyleSheet(connections_list_style())
         connections_layout.addWidget(self.connections_list)
-        
-        main_splitter.addWidget(connections_widget)
-        
-        # RIGHT PANEL - Detail View with Dataset Attributes
+        return connections_widget
+
+    def _build_content_panel(self) -> QWidget:
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(2)
-        
-        # Detail View header with navigation and breadcrumb (File Nav style)
-        content_header_widget = QWidget()
-        content_header_widget.setStyleSheet(
-            "background-color: #FFF9E6; "
-            "border: none;"
+        content_layout.addWidget(self._build_content_header())
+        content_layout.addWidget(self._build_dataset_search_bar())
+        content_layout.addWidget(self._build_members_table())
+        return content_widget
+
+    def _build_content_header(self) -> QWidget:
+        header_widget = QWidget()
+        header_widget.setStyleSheet(f"background-color: {c('panel_bg')}; border: none;")
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(6)
+
+        self.back_button = self._create_nav_button("←", "Back", self.navigate_back)
+        self.forward_button = self._create_nav_button("→", "Forward", self.navigate_forward)
+        self.up_button = self._create_nav_button("↑", "Up One Level", self.navigate_up)
+        header_layout.addWidget(self.back_button)
+        header_layout.addWidget(self.forward_button)
+        header_layout.addWidget(self.up_button)
+        header_layout.addWidget(self._build_breadcrumb(), 1)
+        header_layout.addStretch()
+
+        self.export_button = self._create_header_action(
+            "📤 Export",
+            85,
+            self.export_selected_datasets,
+            kind="success",
         )
-        content_header_layout = QHBoxLayout(content_header_widget)
-        content_header_layout.setContentsMargins(8, 4, 8, 4)
-        content_header_layout.setSpacing(6)
-        
-        # Navigation buttons (Back, Forward, Up) - File Nav style
-        self.back_button = QToolButton()
-        self.back_button.setText("←")
-        self.back_button.setToolTip("Back")
-        self.back_button.setEnabled(False)
-        self.back_button.setAutoRaise(True)
-        self.back_button.clicked.connect(self.navigate_back)
-        self.back_button.setStyleSheet("""
-            QToolButton {
-                border: 1px solid #4A6FA5;
-                border-bottom: 2px solid #3A5A8A;
-                border-radius: 4px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #FFFFFF,
-                                            stop:0.45 #F0F5FF,
-                                            stop:1 #D0E3FF);
-                color: #0A1E5E;
-                font-weight: 600;
-                font-size: 12px;
-                padding: 2px 8px;
-            }
-            QToolButton:hover:enabled {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #FFFFFF,
-                                            stop:0.35 #E3EDFF,
-                                            stop:1 #B8D0F0);
-                border-color: #2563EB;
-            }
-            QToolButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #B8D0F0,
-                                            stop:1 #E3EDFF);
-                border: 1px solid #3A5A8A;
-                border-top: 2px solid #3A5A8A;
-            }
-            QToolButton:disabled {
-                color: #95A5C0;
-                background: #E8EEF7;
-                border: 1px solid #B0C0D8;
-            }
-        """)
-        content_header_layout.addWidget(self.back_button)
-        
-        self.forward_button = QToolButton()
-        self.forward_button.setText("→")
-        self.forward_button.setToolTip("Forward")
-        self.forward_button.setEnabled(False)
-        self.forward_button.setAutoRaise(True)
-        self.forward_button.clicked.connect(self.navigate_forward)
-        self.forward_button.setStyleSheet("""
-            QToolButton {
-                border: 1px solid #4A6FA5;
-                border-bottom: 2px solid #3A5A8A;
-                border-radius: 4px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #FFFFFF,
-                                            stop:0.45 #F0F5FF,
-                                            stop:1 #D0E3FF);
-                color: #0A1E5E;
-                font-weight: 600;
-                font-size: 12px;
-                padding: 2px 8px;
-            }
-            QToolButton:hover:enabled {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #FFFFFF,
-                                            stop:0.35 #E3EDFF,
-                                            stop:1 #B8D0F0);
-                border-color: #2563EB;
-            }
-            QToolButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #B8D0F0,
-                                            stop:1 #E3EDFF);
-                border: 1px solid #3A5A8A;
-                border-top: 2px solid #3A5A8A;
-            }
-            QToolButton:disabled {
-                color: #95A5C0;
-                background: #E8EEF7;
-                border: 1px solid #B0C0D8;
-            }
-        """)
-        content_header_layout.addWidget(self.forward_button)
-        
-        self.up_button = QToolButton()
-        self.up_button.setText("↑")
-        self.up_button.setToolTip("Up One Level")
-        self.up_button.setEnabled(False)
-        self.up_button.setAutoRaise(True)
-        self.up_button.clicked.connect(self.navigate_up)
-        self.up_button.setStyleSheet("""
-            QToolButton {
-                border: 1px solid #4A6FA5;
-                border-bottom: 2px solid #3A5A8A;
-                border-radius: 4px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #FFFFFF,
-                                            stop:0.45 #F0F5FF,
-                                            stop:1 #D0E3FF);
-                color: #0A1E5E;
-                font-weight: 600;
-                font-size: 12px;
-                padding: 2px 8px;
-            }
-            QToolButton:hover:enabled {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #FFFFFF,
-                                            stop:0.35 #E3EDFF,
-                                            stop:1 #B8D0F0);
-                border-color: #2563EB;
-            }
-            QToolButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #B8D0F0,
-                                            stop:1 #E3EDFF);
-                border: 1px solid #3A5A8A;
-                border-top: 2px solid #3A5A8A;
-            }
-            QToolButton:disabled {
-                color: #95A5C0;
-                background: #E8EEF7;
-                border: 1px solid #B0C0D8;
-            }
-        """)
-        content_header_layout.addWidget(self.up_button)
-        
-        # Breadcrumb navigation with clickable path input
+        self.export_button.setEnabled(False)
+        header_layout.addWidget(self.export_button)
+
+        self.delete_member_button = self._create_header_action(
+            "🗑️ Delete",
+            80,
+            self.delete_member,
+            kind="danger",
+        )
+        self.delete_member_button.setEnabled(False)
+        header_layout.addWidget(self.delete_member_button)
+        return header_widget
+
+    def _create_nav_button(self, text: str, tooltip: str, slot) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setEnabled(False)
+        button.setAutoRaise(True)
+        button.clicked.connect(slot)
+        button.setStyleSheet(tool_button_style())
+        return button
+
+    def _create_header_action(self, text: str, width: int, slot, *, kind: str) -> QPushButton:
+        button = QPushButton(text)
+        button.setFixedWidth(width)
+        button.clicked.connect(slot)
+        button.setStyleSheet(push_button_style(kind, dark_disabled=True, font_size="10px"))
+        return button
+
+    def _build_breadcrumb(self) -> QWidget:
         self.breadcrumb_container = QWidget()
-        self.breadcrumb_container.setStyleSheet("""
-            QWidget {
-                background-color: #FFF9E6;
-                border: 2px solid #6B8DC9;
-                border-radius: 3px;
-                padding: 1px;
-            }
-            QWidget:hover {
-                border-color: #2563EB;
-            }
-        """)
+        self.breadcrumb_container.setStyleSheet(breadcrumb_style())
         breadcrumb_container_layout = QHBoxLayout(self.breadcrumb_container)
         breadcrumb_container_layout.setContentsMargins(0, 0, 0, 0)
         breadcrumb_container_layout.setSpacing(0)
-        
-        # Breadcrumb display (shows clickable segments)
+
         self.breadcrumb_widget = QWidget()
-        self.breadcrumb_widget.setStyleSheet("background-color: #FFF9E6;")
+        self.breadcrumb_widget.setStyleSheet(f"background-color: {c('panel_bg')};")
         self.breadcrumb_layout = QHBoxLayout(self.breadcrumb_widget)
         self.breadcrumb_layout.setContentsMargins(2, 0, 2, 0)
         self.breadcrumb_layout.setSpacing(0)
-        
-        # Text input for showing full path (hidden by default)
+
         self.path_input = QLineEdit()
-        self.path_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #FFF9E6;
-                border: none;
-                padding: 2px 6px;
-                font-size: 11pt;
-                color: #2563EB;
-            }
-            QLineEdit:focus {
-                border: 1px solid #2563EB;
-            }
-        """)
+        self.path_input.setStyleSheet(path_input_style())
         self.path_input.hide()
-        self.path_input.setReadOnly(True)  # Read-only so user can only copy
+        self.path_input.setReadOnly(True)
         self.path_input.installEventFilter(self)
-        
+
         breadcrumb_container_layout.addWidget(self.breadcrumb_widget, 1)
         breadcrumb_container_layout.addWidget(self.path_input, 1)
-        
-        # Install event filter on breadcrumb widgets to detect clicks
         self.breadcrumb_widget.installEventFilter(self)
         self.breadcrumb_container.installEventFilter(self)
-        
-        content_header_layout.addWidget(self.breadcrumb_container, 1)
-        
-        content_header_layout.addStretch()
-        
-        # Export button
-        self.export_button = QPushButton("📤 Export")
-        self.export_button.setFixedWidth(85)
-        self.export_button.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                border: 2px solid #229954;
-                border-radius: 4px;
-                padding: 3px 6px;
-                font-weight: bold;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                background-color: #2ecc71;
-                border-color: #27ae60;
-            }
-            QPushButton:pressed {
-                background-color: #229954;
-            }
-            QPushButton:disabled {
-                background-color: #5d6d7e;
-                border-color: #4a5a6a;
-                color: #95a5a6;
-            }
-        """)
-        self.export_button.clicked.connect(self.export_selected_datasets)
-        self.export_button.setEnabled(False)
-        content_header_layout.addWidget(self.export_button)
-        
-        # Delete Member button
-        self.delete_member_button = QPushButton("🗑️ Delete")
-        self.delete_member_button.setFixedWidth(80)
-        self.delete_member_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                border: 2px solid #c0392b;
-                border-radius: 4px;
-                padding: 3px 6px;
-                font-weight: bold;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                background-color: #ec7063;
-                border-color: #e74c3c;
-            }
-            QPushButton:pressed {
-                background-color: #c0392b;
-            }
-            QPushButton:disabled {
-                background-color: #5d6d7e;
-                border-color: #4a5a6a;
-                color: #95a5a6;
-            }
-        """)
-        self.delete_member_button.clicked.connect(self.delete_member)
-        self.delete_member_button.setEnabled(False)
-        content_header_layout.addWidget(self.delete_member_button)
-        
-        content_layout.addWidget(content_header_widget)
-        
-        # Search bar below breadcrumb navigation
+        return self.breadcrumb_container
+
+    def _build_dataset_search_bar(self) -> QWidget:
         search_widget = QWidget()
-        search_widget.setStyleSheet("background-color: #FFF9E6; border: none;")
+        search_widget.setStyleSheet(f"background-color: {c('panel_bg')}; border: none;")
         search_layout = QHBoxLayout(search_widget)
         search_layout.setContentsMargins(8, 4, 8, 4)
         search_layout.setSpacing(8)
-        
+
         search_label = QLabel("🔍 Search:")
-        search_label.setStyleSheet("""
-            QLabel {
-                color: #1A3A6E;
-                font-size: 10pt;
-                font-weight: 600;
-            }
-        """)
+        search_label.setStyleSheet(
+            f"color: {c('nav_text')}; font-size: 10pt; font-weight: 600;"
+        )
         search_layout.addWidget(search_label)
-        
+
         self.dataset_search = QLineEdit()
         self.dataset_search.setPlaceholderText("Search datasets (use * as wildcard, e.g., S*.Error)...")
         self.dataset_search.setClearButtonEnabled(True)
-        self.dataset_search.setStyleSheet("""
-            QLineEdit {
-                padding: 3px 8px;
-                border: 1px solid #A0B8D8;
-                border-radius: 3px;
-                background: white;
-                color: #1A3A6E;
-                font-size: 10pt;
-            }
-            QLineEdit:focus {
-                border: 1px solid #2563EB;
-            }
-        """)
+        self.dataset_search.setStyleSheet(search_input_style())
         self.dataset_search.textChanged.connect(self.on_dataset_search_changed)
         search_layout.addWidget(self.dataset_search)
-        
-        # Case-sensitive toggle checkbox
+
         self.case_sensitive_checkbox = QCheckBox("Case Sensitive")
-        self.case_sensitive_checkbox.setChecked(False)  # Default to case-insensitive
-        self.case_sensitive_checkbox.setStyleSheet("""
-            QCheckBox {
-                color: #1A3A6E;
-                font-size: 9pt;
-                padding: 2px 4px;
-            }
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-            }
-        """)
-        self.case_sensitive_checkbox.stateChanged.connect(lambda: self.on_dataset_search_changed(self.dataset_search.text()))
+        self.case_sensitive_checkbox.setChecked(False)
+        self.case_sensitive_checkbox.setStyleSheet(
+            f"QCheckBox {{ color: {c('nav_text')}; font-size: 9pt; padding: 2px 4px; }}"
+            "QCheckBox::indicator { width: 16px; height: 16px; }"
+        )
+        self.case_sensitive_checkbox.stateChanged.connect(
+            lambda: self.on_dataset_search_changed(self.dataset_search.text())
+        )
         search_layout.addWidget(self.case_sensitive_checkbox)
-        
-        content_layout.addWidget(search_widget)
-        
-        # Detail table with all mainframe dataset attributes
+        return search_widget
+
+    def _build_members_table(self) -> QTableWidget:
         self.members_table = QTableWidget()
         self.members_table.setColumnCount(10)
         self.members_table.setHorizontalHeaderLabels([
-            "Name", "Volume", "Unit", "Referred", "Ext", "Used", "Recfm", "Lrecl", "BlkSz", "Dsorg"
+            "Name", "Volume", "Unit", "Referred", "Ext",
+            "Used", "Recfm", "Lrecl", "BlkSz", "Dsorg",
         ])
-        
-        # Style like Windows File Explorer
-        self.members_table.verticalHeader().setVisible(False)  # Hide row numbers
-        self.members_table.setShowGrid(False)  # No grid lines
-        self.members_table.setAlternatingRowColors(True)
-        self.members_table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
-        
-        # Apply comprehensive table styling
-        self.members_table.setStyleSheet("""
-            QTableWidget {
-                border: none;
-                background-color: white;
-                outline: none;
-            }
-            QTableWidget::item {
-                padding: 0px;
-                margin: 0px;
-                border: none;
-                outline: none;
-            }
-            QTableWidget::item:selected {
-                background-color: #0078d4;
-                color: white;
-                border: none;
-                outline: none;
-            }
-            QTableWidget::item:focus {
-                border: none;
-                outline: none;
-                background-color: #0078d4;
-                color: white;
-            }
-            QHeaderView::section {
-                background-color: #f0f0f0;
-                padding: 4px;
-                border: none;
-                border-bottom: 1px solid #d0d0d0;
-                font-weight: normal;
-                font-size: 11px;
-            }
-        """)
-        
-        # Set column resize modes - all columns are user-adjustable
-        self.members_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        # Set default widths
-        self.members_table.setColumnWidth(0, 150)  # Name
-        self.members_table.setColumnWidth(1, 70)   # Volume
-        self.members_table.setColumnWidth(2, 60)   # Unit
-        self.members_table.setColumnWidth(3, 100)  # Referred
-        self.members_table.setColumnWidth(4, 50)   # Ext
-        self.members_table.setColumnWidth(5, 60)   # Used
-        self.members_table.setColumnWidth(6, 70)   # Recfm
-        self.members_table.setColumnWidth(7, 60)   # Lrecl
-        self.members_table.setColumnWidth(8, 70)   # BlkSz
-        self.members_table.setColumnWidth(9, 60)   # Dsorg
-        
-        # Load saved column widths
+        self._configure_members_table()
+        return self.members_table
+
+    def _configure_members_table(self):
+        table = self.members_table
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setAlternatingRowColors(True)
+        table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
+        table.setStyleSheet(members_table_style())
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for index, width in enumerate((150, 70, 60, 100, 50, 60, 70, 60, 70, 60)):
+            table.setColumnWidth(index, width)
         self.load_column_widths()
-        
-        # Save column widths when changed
-        self.members_table.horizontalHeader().sectionResized.connect(self.save_column_widths)
-        
-        self.members_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.members_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-        # Disable editing - table is read-only
-        self.members_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        # Enable sorting by clicking column headers
-        self.members_table.setSortingEnabled(True)
-        self.members_table.itemSelectionChanged.connect(self.on_member_selected)
-        # Double-click to navigate or view
-        self.members_table.itemDoubleClicked.connect(self.on_item_double_clicked)
-        # Enable right-click context menu
-        self.members_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.members_table.customContextMenuRequested.connect(self.show_context_menu)
-        content_layout.addWidget(self.members_table)
-        
-        main_splitter.addWidget(content_widget)
-        
-        # Store splitter reference for saving/loading sizes
-        self.main_splitter = main_splitter
-        
-        # Set default splitter sizes (30% tree, 70% detail view)
-        main_splitter.setSizes([300, 700])
-        
-        # Load saved splitter sizes
-        self.load_splitter_sizes()
-        
-        # Save splitter sizes when moved
-        main_splitter.splitterMoved.connect(self.save_splitter_sizes)
-        
-        layout.addWidget(main_splitter)
-        
-        # Bottom status bar with action status on left and item count on right
+        table.horizontalHeader().sectionResized.connect(self.save_column_widths)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSortingEnabled(True)
+        table.itemSelectionChanged.connect(self.on_member_selected)
+        table.itemDoubleClicked.connect(self.on_item_double_clicked)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(self.show_context_menu)
+
+    def _build_bottom_bar(self) -> QWidget:
         bottom_bar = QWidget()
         bottom_bar.setMaximumHeight(20)
         bottom_layout = QHBoxLayout(bottom_bar)
         bottom_layout.setContentsMargins(2, 0, 2, 0)
         bottom_layout.setSpacing(0)
-        
-        # Action status label (left side)
+
         self.status_label = QLabel("Select a connection to browse mainframe datasets")
-        self.status_label.setStyleSheet("color: #7f8c8d; font-style: italic; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(
+            f"color: {c('muted')}; font-style: italic; padding: 2px; font-size: 11px;"
+        )
         bottom_layout.addWidget(self.status_label)
-        
-        # Spacer to push item count to the right
         bottom_layout.addStretch()
-        
-        # Item count label (right side, below details panel)
+
         self.item_count_label = QLabel("")
-        self.item_count_label.setStyleSheet("color: #2c3e50; font-weight: normal; padding: 2px; font-size: 11px;")
+        self.item_count_label.setStyleSheet(
+            f"color: {c('dark_text')}; font-weight: normal; padding: 2px; font-size: 11px;"
+        )
         bottom_layout.addWidget(self.item_count_label)
-        
-        layout.addWidget(bottom_bar)
-    
+        return bottom_bar
+
     def show_credentials_dialog(self):
         """Show dialog to configure global FTP credentials"""
         dialog = QDialog(self)
@@ -1637,7 +1196,7 @@ class MainframeNavScreen(QWidget):
             return
         
         if self.search_content_window is None or not self.search_content_window.isVisible():
-            from suiteview.ui.search_content_window import SearchContentWindow
+            from suiteview.mainframe_nav.search_content_window import SearchContentWindow
             self.search_content_window = SearchContentWindow(self.ftp_manager, self)
             self.search_content_window.show()
         else:
@@ -1658,7 +1217,7 @@ class MainframeNavScreen(QWidget):
         
         # Open search window if not open
         if self.search_content_window is None or not self.search_content_window.isVisible():
-            from suiteview.ui.search_content_window import SearchContentWindow
+            from suiteview.mainframe_nav.search_content_window import SearchContentWindow
             self.search_content_window = SearchContentWindow(self.ftp_manager, self)
             self.search_content_window.show()
         
@@ -1686,7 +1245,7 @@ class MainframeNavScreen(QWidget):
         
         # Open search window if not open
         if self.search_content_window is None or not self.search_content_window.isVisible():
-            from suiteview.ui.search_content_window import SearchContentWindow
+            from suiteview.mainframe_nav.search_content_window import SearchContentWindow
             self.search_content_window = SearchContentWindow(self.ftp_manager, self)
             self.search_content_window.show()
         
@@ -1983,7 +1542,6 @@ class MainframeNavScreen(QWidget):
         """Load saved splitter sizes from file"""
         try:
             import json
-            from pathlib import Path
             
             config_file = profile_path('mainframe_nav_splitter.json')
             
@@ -2024,7 +1582,6 @@ class MainframeNavScreen(QWidget):
         """Load saved column widths from file"""
         try:
             import json
-            from pathlib import Path
             
             config_file = profile_path('mainframe_nav_columns.json')
             
@@ -2045,386 +1602,409 @@ class MainframeNavScreen(QWidget):
             logger.error(f"Failed to load column widths: {e}")
     
     def view_selected_item(self):
-        """View the selected dataset or member content in a dialog"""
+        """View the selected dataset or member content in a dialog."""
+        context = self._selected_member_context()
+        if context is None or not self._ensure_view_connection():
+            return
+
+        member_name = context["member_name"]
+        try:
+            member_path = self._resolve_member_path(context)
+            self._set_mainframe_status(f"Loading {member_name}...", "loading")
+            content, line_count = self.ftp_manager.read_dataset(member_path, max_lines=1000)
+
+            if self._handle_empty_member_read(context, member_path, content, line_count):
+                return
+
+            logger.info(f"Loaded {line_count} lines from {member_name}")
+            self._show_member_content_dialog(context, member_path, content, line_count)
+            self._set_mainframe_status(f"✓ Viewed {member_name}", "success")
+
+        except Exception as e:
+            logger.error(f"Failed to load member: {str(e)}", exc_info=True)
+            self._set_mainframe_status(f"✗ Failed to load member: {str(e)}", "error")
+            QMessageBox.critical(self, "View Error", f"Failed to load member:\n{str(e)}")
+
+    def _selected_member_context(self) -> dict | None:
         selected_rows = self.members_table.selectedItems()
         if not selected_rows:
-            return
-        
-        # Get the name and dataset info from the selected row
+            return None
+
         row = selected_rows[0].row()
         name_item = self.members_table.item(row, 0)
         if not name_item:
-            return
-            
+            return None
+
         member_name = name_item.text()
-        
-        # Safely get Dsorg column
-        dsorg_item = self.members_table.item(row, 9)
-        dsorg = dsorg_item.text() if dsorg_item else ''
-        
         if not member_name:
-            return
-        
-        # Check if FTP manager is connected and alive
+            return None
+
+        dsorg_item = self.members_table.item(row, 9)
+        return {
+            "row": row,
+            "name_item": name_item,
+            "member_name": member_name,
+            "dsorg": dsorg_item.text() if dsorg_item else "",
+            "item_data": name_item.data(Qt.ItemDataRole.UserRole),
+        }
+
+    def _ensure_view_connection(self) -> bool:
         if not self.ftp_manager:
             QMessageBox.warning(
                 self,
                 "Not Connected",
                 "FTP connection lost. Please reconnect to mainframe."
             )
-            return
-        
+            return False
+
+        if self.ftp_manager.is_alive():
+            return True
+
+        self._set_mainframe_status("✗ Mainframe connection lost", "error")
+        QMessageBox.warning(
+            self,
+            "Connection Lost",
+            "The mainframe connection has been lost.\n\n"
+            "The mainframe region may be down or the connection timed out.\n\n"
+            "Please reconnect to the mainframe by selecting a connection from the list."
+        )
+        self.ftp_manager = None
+        return False
+
+    def _resolve_member_path(self, context: dict) -> str:
+        member_name = context["member_name"]
+        dsorg = context["dsorg"]
+        item_data = context["item_data"]
+
+        if item_data and item_data.get("full_path"):
+            member_path = item_data.get("full_path")
+            logger.info(f"Loading dataset with full path: {member_path}")
+            return member_path
+
+        if item_data and item_data.get("is_dataset"):
+            if dsorg == "PS":
+                member_path = f"{self.current_dataset}.{member_name}"
+                logger.info(f"Loading PS dataset: {member_path}")
+            else:
+                member_path = f"{self.current_dataset}({member_name})"
+                logger.info(f"Loading dataset member: {member_path}")
+            return member_path
+
+        if dsorg == "PS":
+            if "(" not in self.current_dataset:
+                member_path = f"{self.current_dataset}({member_name})"
+            else:
+                member_path = f"{self.current_dataset}.{member_name}"
+            logger.info(f"Loading PS dataset: {member_path}")
+            return member_path
+
+        member_path = f"{self.current_dataset}({member_name})"
+        logger.info(f"Loading PDS member: {member_path}")
+        return member_path
+
+    def _handle_empty_member_read(
+        self,
+        context: dict,
+        member_path: str,
+        content: str,
+        line_count: int,
+    ) -> bool:
+        if line_count != 0 or len(content) != 0:
+            return False
+
+        member_name = context["member_name"]
         if not self.ftp_manager.is_alive():
-            self.status_label.setText("✗ Mainframe connection lost")
-            self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+            self._set_mainframe_status("✗ Connection lost while reading dataset", "error")
             QMessageBox.warning(
                 self,
                 "Connection Lost",
-                "The mainframe connection has been lost.\n\n"
-                "The mainframe region may be down or the connection timed out.\n\n"
-                "Please reconnect to the mainframe by selecting a connection from the list."
+                f"Failed to read {member_name}.\n\n"
+                "The FTP connection was lost during the read operation.\n\n"
+                "Please reconnect by selecting a connection from the list."
             )
             self.ftp_manager = None
-            return
-        
-        # Get dataset data
-        item_data = name_item.data(Qt.ItemDataRole.UserRole)
-        
-        try:
-            # Build full member path
-            if item_data and item_data.get('full_path'):
-                # Use explicit full path if provided
-                member_path = item_data.get('full_path')
-                logger.info(f"Loading dataset with full path: {member_path}")
-            elif item_data and item_data.get('is_dataset'):
-                # This is a dataset listed with attributes
-                # For PS datasets, use dotted notation (not parentheses)
-                # For PO datasets being viewed as members, use parentheses
-                if dsorg == 'PS':
-                    # Sequential dataset - use full dotted path
-                    member_path = f"{self.current_dataset}.{member_name}"
-                    logger.info(f"Loading PS dataset: {member_path}")
-                else:
-                    # PO or other - treat as member with parentheses
-                    member_path = f"{self.current_dataset}({member_name})"
-                    logger.info(f"Loading dataset member: {member_path}")
-            elif dsorg == 'PS':
-                # Sequential dataset - could be member or standalone
-                # If we're inside a PDS, treat as member
-                if '(' not in self.current_dataset:
-                    member_path = f"{self.current_dataset}({member_name})"
-                else:
-                    member_path = f"{self.current_dataset}.{member_name}"
-                logger.info(f"Loading PS dataset: {member_path}")
-            else:
-                # PDS member syntax: DATASET(MEMBER)
-                member_path = f"{self.current_dataset}({member_name})"
-                logger.info(f"Loading PDS member: {member_path}")
-            
-            self.status_label.setText(f"Loading {member_name}...")
-            self.status_label.setStyleSheet("color: #3498db; font-style: italic; padding: 2px; font-size: 11px;")
-            
-            # Read first 1000 rows
-            content, line_count = self.ftp_manager.read_dataset(member_path, max_lines=1000)
-            
-            # Check if connection is still alive after read attempt
-            if line_count == 0 and len(content) == 0:
-                if not self.ftp_manager.is_alive():
-                    self.status_label.setText("✗ Connection lost while reading dataset")
-                    self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
-                    QMessageBox.warning(
-                        self,
-                        "Connection Lost",
-                        f"Failed to read {member_name}.\n\n"
-                        "The FTP connection was lost during the read operation.\n\n"
-                        "Please reconnect by selecting a connection from the list."
-                    )
-                    self.ftp_manager = None
-                    return
-                else:
-                    # Dataset might be empty, binary, or have other issues
-                    logger.warning(f"Dataset {member_path} returned 0 lines but connection is still alive")
-                    
-                    # Get dataset info for better error message
-                    item_data = name_item.data(Qt.ItemDataRole.UserRole)
-                    recfm = item_data.get('recfm', 'Unknown') if item_data else 'Unknown'
-                    used = item_data.get('used', '0') if item_data else '0'
-                    
-                    error_msg = f"Dataset {member_name} returned no readable content.\n\nPath: {member_path}\n"
-                    
-                    if int(used) > 0:
-                        error_msg += f"\nThis dataset shows {used} tracks used but returned 0 lines.\n"
-                        error_msg += "\nPossible reasons:\n"
-                        error_msg += "• Dataset contains binary data (not text)\n"
-                        error_msg += "• Dataset contains only control characters\n"
-                        if recfm == 'VB':
-                            error_msg += "• VB (Variable Block) format may have compatibility issues\n"
-                        error_msg += "• Dataset may be migrated/archived\n"
-                        error_msg += "\nTry viewing this dataset on the mainframe directly (TSO/ISPF)\nto verify its contents."
-                    else:
-                        error_msg += "\nThis dataset appears to be empty (0 tracks used)."
-                    
-                    QMessageBox.warning(
-                        self,
-                        "No Content",
-                        error_msg
-                    )
-                    self.status_label.setText(f"✗ Could not read {member_name}")
-                    self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
-                    return
-            
-            logger.info(f"Loaded {line_count} lines from {member_name}")
-            
-            # Show content in a dialog
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QPushButton, QFileDialog
-            from PyQt6.QtGui import QGuiApplication
-            
-            dialog = QDialog(self)
-            dialog.setWindowTitle(f"View: {member_name}")
-            dialog.resize(900, 700)
-            
-            layout = QVBoxLayout(dialog)
-            
-            # Info label
-            info_label = QLabel(f"Showing first 1000 lines of {member_name} (Total: {line_count} lines)")
-            info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #e8f4f8;")
-            layout.addWidget(info_label)
-            
-            # Text viewer
-            text_edit = QTextEdit()
+            return True
+
+        logger.warning(f"Dataset {member_path} returned 0 lines but connection is still alive")
+        self._warn_no_member_content(context, member_path)
+        self._set_mainframe_status(f"✗ Could not read {member_name}", "error")
+        return True
+
+    def _warn_no_member_content(self, context: dict, member_path: str):
+        item_data = context["item_data"]
+        member_name = context["member_name"]
+        recfm = item_data.get("recfm", "Unknown") if item_data else "Unknown"
+        used = item_data.get("used", "0") if item_data else "0"
+
+        error_msg = f"Dataset {member_name} returned no readable content.\n\nPath: {member_path}\n"
+        if int(used) > 0:
+            error_msg += f"\nThis dataset shows {used} tracks used but returned 0 lines.\n"
+            error_msg += "\nPossible reasons:\n"
+            error_msg += "• Dataset contains binary data (not text)\n"
+            error_msg += "• Dataset contains only control characters\n"
+            if recfm == "VB":
+                error_msg += "• VB (Variable Block) format may have compatibility issues\n"
+            error_msg += "• Dataset may be migrated/archived\n"
+            error_msg += "\nTry viewing this dataset on the mainframe directly (TSO/ISPF)\nto verify its contents."
+        else:
+            error_msg += "\nThis dataset appears to be empty (0 tracks used)."
+
+        QMessageBox.warning(self, "No Content", error_msg)
+
+    def _show_member_content_dialog(
+        self,
+        context: dict,
+        member_path: str,
+        content: str,
+        line_count: int,
+    ):
+        member_name = context["member_name"]
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"View: {member_name}")
+        dialog.resize(900, 700)
+
+        layout = QVBoxLayout(dialog)
+        info_label = self._create_member_info_label(member_name, line_count)
+        layout.addWidget(info_label)
+
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setFont(QFont("Courier New", 9))
+        text_edit.setPlainText(content)
+        layout.addWidget(text_edit)
+
+        action_layout = QHBoxLayout()
+        self._populate_member_dialog_actions(
+            dialog,
+            action_layout,
+            info_label,
+            text_edit,
+            member_name,
+            member_path,
+            content,
+            line_count,
+        )
+        layout.addLayout(action_layout)
+        dialog.exec()
+
+    def _create_member_info_label(self, member_name: str, line_count: int) -> QLabel:
+        info_label = QLabel(f"Showing first 1000 lines of {member_name} (Total: {line_count} lines)")
+        info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #e8f4f8;")
+        return info_label
+
+    def _populate_member_dialog_actions(
+        self,
+        dialog: QDialog,
+        action_layout: QHBoxLayout,
+        info_label: QLabel,
+        text_edit: QTextEdit,
+        member_name: str,
+        member_path: str,
+        content: str,
+        line_count: int,
+    ):
+        edit_state = {"editing": False}
+
+        edit_btn = self._member_dialog_button("✏️ Edit")
+        save_btn = self._member_dialog_button("💾 Save Changes")
+        save_btn.setVisible(False)
+        load_all_btn = self._member_dialog_button("Load All Lines")
+        copy_btn = self._member_dialog_button("Copy to Clipboard")
+        export_btn = self._member_dialog_button("Export to File")
+        close_btn = self._member_dialog_button("Close")
+
+        edit_btn.clicked.connect(
+            lambda: self._toggle_member_edit(
+                dialog,
+                info_label,
+                text_edit,
+                edit_btn,
+                save_btn,
+                load_all_btn,
+                edit_state,
+                member_name,
+                content,
+                line_count,
+            )
+        )
+        save_btn.clicked.connect(
+            lambda: self._save_member_changes(
+                dialog,
+                info_label,
+                text_edit,
+                edit_btn,
+                save_btn,
+                load_all_btn,
+                edit_state,
+                member_name,
+                member_path,
+            )
+        )
+        load_all_btn.clicked.connect(
+            lambda: self._load_all_member_lines(
+                dialog, info_label, text_edit, load_all_btn, member_name, member_path
+            )
+        )
+        copy_btn.clicked.connect(lambda: self._copy_member_text(info_label, text_edit))
+        export_btn.clicked.connect(lambda: self._export_member_text(dialog, info_label, text_edit, member_name))
+        close_btn.clicked.connect(dialog.reject)
+
+        for button in (edit_btn, save_btn, load_all_btn, copy_btn, export_btn):
+            action_layout.addWidget(button)
+        action_layout.addStretch()
+        action_layout.addWidget(close_btn)
+
+    def _member_dialog_button(self, text: str) -> QPushButton:
+        button = QPushButton(text)
+        button.setStyleSheet(viewer_button_style())
+        return button
+
+    def _toggle_member_edit(
+        self,
+        dialog: QDialog,
+        info_label: QLabel,
+        text_edit: QTextEdit,
+        edit_btn: QPushButton,
+        save_btn: QPushButton,
+        load_all_btn: QPushButton,
+        edit_state: dict,
+        member_name: str,
+        content: str,
+        line_count: int,
+    ):
+        if edit_state["editing"]:
+            reply = QMessageBox.question(
+                dialog,
+                "Cancel Edit",
+                "Discard changes?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
             text_edit.setReadOnly(True)
-            text_edit.setFont(QFont("Courier New", 9))
             text_edit.setPlainText(content)
-            layout.addWidget(text_edit)
-            
-            # Track edit mode
-            is_edit_mode = [False]  # Use list to allow modification in nested functions
-            
-            # Action buttons row
-            action_layout = QHBoxLayout()
-            
-            # Edit/Cancel button
-            edit_btn = QPushButton("✏️ Edit")
-            edit_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4A6FA5;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #3D5A7F;
-                }
-            """)
-            
-            # Save button (initially hidden)
-            save_btn = QPushButton("💾 Save Changes")
-            save_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4A6FA5;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #3D5A7F;
-                }
-            """)
+            edit_state["editing"] = False
+            edit_btn.setText("✏️ Edit")
             save_btn.setVisible(False)
-            
-            def toggle_edit():
-                if is_edit_mode[0]:
-                    # Cancel edit - restore original content
-                    reply = QMessageBox.question(
-                        dialog,
-                        "Cancel Edit",
-                        "Discard changes?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.No
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        text_edit.setReadOnly(True)
-                        text_edit.setPlainText(content)
-                        is_edit_mode[0] = False
-                        edit_btn.setText("✏️ Edit")
-                        save_btn.setVisible(False)
-                        load_all_btn.setEnabled(True)
-                        info_label.setText(f"Showing first 1000 lines of {member_name} (Total: {line_count} lines)")
-                else:
-                    # Enter edit mode
-                    text_edit.setReadOnly(False)
-                    is_edit_mode[0] = True
-                    edit_btn.setText("❌ Cancel")
-                    save_btn.setVisible(True)
-                    load_all_btn.setEnabled(False)
-                    info_label.setText(f"✏️ Edit mode - Make changes and click Save")
-                    info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #fff3cd;")
-            
-            def save_changes():
-                reply = QMessageBox.question(
-                    dialog,
-                    "Save Changes",
-                    f"Save changes to {member_name}?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes
-                )
-                
-                if reply == QMessageBox.StandardButton.Yes:
-                    try:
-                        info_label.setText(f"Saving changes to {member_name}...")
-                        dialog.setCursor(Qt.CursorShape.WaitCursor)
-                        
-                        modified_content = text_edit.toPlainText()
-                        success, message = self.ftp_manager.write_content(member_path, modified_content)
-                        
-                        dialog.setCursor(Qt.CursorShape.ArrowCursor)
-                        
-                        if success:
-                            text_edit.setReadOnly(True)
-                            is_edit_mode[0] = False
-                            edit_btn.setText("✏️ Edit")
-                            save_btn.setVisible(False)
-                            load_all_btn.setEnabled(True)
-                            info_label.setText(f"✓ {message}")
-                            info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #d4edda;")
-                            QMessageBox.information(dialog, "Save Complete", message)
-                            # Clear cache so we reload fresh data
-                            if self.current_dataset in self.folder_cache:
-                                del self.folder_cache[self.current_dataset]
-                        else:
-                            info_label.setText(f"✗ {message}")
-                            info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #f8d7da;")
-                            QMessageBox.critical(dialog, "Save Error", message)
-                    except Exception as e:
-                        dialog.setCursor(Qt.CursorShape.ArrowCursor)
-                        QMessageBox.critical(dialog, "Save Error", f"Failed to save:\n{str(e)}")
-            
-            edit_btn.clicked.connect(toggle_edit)
-            save_btn.clicked.connect(save_changes)
-            action_layout.addWidget(edit_btn)
-            action_layout.addWidget(save_btn)
-            
-            # Load All button
-            load_all_btn = QPushButton("Load All Lines")
-            load_all_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4A6FA5;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #3D5A7F;
-                }
-            """)
-            def load_all():
-                try:
-                    info_label.setText(f"Loading all lines from {member_name}...")
-                    dialog.setCursor(Qt.CursorShape.WaitCursor)
-                    full_content, total_lines = self.ftp_manager.read_dataset(member_path, max_lines=None)
-                    text_edit.setPlainText(full_content)
-                    info_label.setText(f"Showing all {total_lines} lines of {member_name}")
-                    load_all_btn.setEnabled(False)
-                    dialog.setCursor(Qt.CursorShape.ArrowCursor)
-                except Exception as e:
-                    dialog.setCursor(Qt.CursorShape.ArrowCursor)
-                    QMessageBox.critical(dialog, "Load Error", f"Failed to load all lines:\n{str(e)}")
-            
-            load_all_btn.clicked.connect(load_all)
-            action_layout.addWidget(load_all_btn)
-            
-            # Copy to Clipboard button
-            copy_btn = QPushButton("Copy to Clipboard")
-            copy_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4A6FA5;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #3D5A7F;
-                }
-            """)
-            def copy_to_clipboard():
-                clipboard = QGuiApplication.clipboard()
-                clipboard.setText(text_edit.toPlainText())
-                info_label.setText(f"✓ Copied {len(text_edit.toPlainText().splitlines())} lines to clipboard")
-            
-            copy_btn.clicked.connect(copy_to_clipboard)
-            action_layout.addWidget(copy_btn)
-            
-            # Export to File button
-            export_btn = QPushButton("Export to File")
-            export_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4A6FA5;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #3D5A7F;
-                }
-            """)
-            def export_to_file():
-                filename, _ = QFileDialog.getSaveFileName(
-                    dialog,
-                    "Export to File",
-                    f"{member_name}.txt",
-                    "Text Files (*.txt);;All Files (*.*)"
-                )
-                if filename:
-                    try:
-                        with open(filename, 'w', encoding='utf-8') as f:
-                            f.write(text_edit.toPlainText())
-                        info_label.setText(f"✓ Exported to {filename}")
-                        QMessageBox.information(dialog, "Export Complete", f"File saved to:\n{filename}")
-                    except Exception as e:
-                        QMessageBox.critical(dialog, "Export Error", f"Failed to export:\n{str(e)}")
-            
-            export_btn.clicked.connect(export_to_file)
-            action_layout.addWidget(export_btn)
-            
-            action_layout.addStretch()
-            layout.addLayout(action_layout)
-            
-            # Close button
-            close_btn = QPushButton("Close")
-            close_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4A6FA5;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #3D5A7F;
-                }
-            """)
-            close_btn.clicked.connect(dialog.reject)
-            action_layout.addWidget(close_btn)
-            action_layout.addStretch()
-            layout.addLayout(action_layout)
-            
-            dialog.exec()
-            
-            self.status_label.setText(f"✓ Viewed {member_name}")
-            self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
-            
+            load_all_btn.setEnabled(True)
+            info_label.setText(f"Showing first 1000 lines of {member_name} (Total: {line_count} lines)")
+            return
+
+        text_edit.setReadOnly(False)
+        edit_state["editing"] = True
+        edit_btn.setText("❌ Cancel")
+        save_btn.setVisible(True)
+        load_all_btn.setEnabled(False)
+        info_label.setText("✏️ Edit mode - Make changes and click Save")
+        info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #fff3cd;")
+
+    def _save_member_changes(
+        self,
+        dialog: QDialog,
+        info_label: QLabel,
+        text_edit: QTextEdit,
+        edit_btn: QPushButton,
+        save_btn: QPushButton,
+        load_all_btn: QPushButton,
+        edit_state: dict,
+        member_name: str,
+        member_path: str,
+    ):
+        reply = QMessageBox.question(
+            dialog,
+            "Save Changes",
+            f"Save changes to {member_name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            info_label.setText(f"Saving changes to {member_name}...")
+            dialog.setCursor(Qt.CursorShape.WaitCursor)
+            success, message = self.ftp_manager.write_content(member_path, text_edit.toPlainText())
+            dialog.setCursor(Qt.CursorShape.ArrowCursor)
+
+            if success:
+                text_edit.setReadOnly(True)
+                edit_state["editing"] = False
+                edit_btn.setText("✏️ Edit")
+                save_btn.setVisible(False)
+                load_all_btn.setEnabled(True)
+                info_label.setText(f"✓ {message}")
+                info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #d4edda;")
+                QMessageBox.information(dialog, "Save Complete", message)
+                if self.current_dataset in self.folder_cache:
+                    del self.folder_cache[self.current_dataset]
+            else:
+                info_label.setText(f"✗ {message}")
+                info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #f8d7da;")
+                QMessageBox.critical(dialog, "Save Error", message)
         except Exception as e:
-            logger.error(f"Failed to load member: {str(e)}", exc_info=True)
-            self.status_label.setText(f"✗ Failed to load member: {str(e)}")
-            self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
-            QMessageBox.critical(self, "View Error", f"Failed to load member:\n{str(e)}")
-    
-    
+            dialog.setCursor(Qt.CursorShape.ArrowCursor)
+            QMessageBox.critical(dialog, "Save Error", f"Failed to save:\n{str(e)}")
+
+    def _load_all_member_lines(
+        self,
+        dialog: QDialog,
+        info_label: QLabel,
+        text_edit: QTextEdit,
+        load_all_btn: QPushButton,
+        member_name: str,
+        member_path: str,
+    ):
+        try:
+            info_label.setText(f"Loading all lines from {member_name}...")
+            dialog.setCursor(Qt.CursorShape.WaitCursor)
+            full_content, total_lines = self.ftp_manager.read_dataset(member_path, max_lines=None)
+            text_edit.setPlainText(full_content)
+            info_label.setText(f"Showing all {total_lines} lines of {member_name}")
+            load_all_btn.setEnabled(False)
+            dialog.setCursor(Qt.CursorShape.ArrowCursor)
+        except Exception as e:
+            dialog.setCursor(Qt.CursorShape.ArrowCursor)
+            QMessageBox.critical(dialog, "Load Error", f"Failed to load all lines:\n{str(e)}")
+
+    def _copy_member_text(self, info_label: QLabel, text_edit: QTextEdit):
+        clipboard = QGuiApplication.clipboard()
+        clipboard.setText(text_edit.toPlainText())
+        info_label.setText(f"✓ Copied {len(text_edit.toPlainText().splitlines())} lines to clipboard")
+
+    def _export_member_text(
+        self,
+        dialog: QDialog,
+        info_label: QLabel,
+        text_edit: QTextEdit,
+        member_name: str,
+    ):
+        filename, _ = QFileDialog.getSaveFileName(
+            dialog,
+            "Export to File",
+            f"{member_name}.txt",
+            "Text Files (*.txt);;All Files (*.*)"
+        )
+        if not filename:
+            return
+
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(text_edit.toPlainText())
+            info_label.setText(f"✓ Exported to {filename}")
+            QMessageBox.information(dialog, "Export Complete", f"File saved to:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(dialog, "Export Error", f"Failed to export:\n{str(e)}")
+
+    def _set_mainframe_status(self, message: str, state: str):
+        styles = {
+            "loading": f"color: {c('action_blue')}; font-style: italic; padding: 2px; font-size: 11px;",
+            "success": f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;",
+            "error": f"color: {c('danger')}; font-weight: bold; padding: 2px; font-size: 11px;",
+        }
+        self.status_label.setText(message)
+        self.status_label.setStyleSheet(styles[state])
+
     def add_member(self):
         """Add a new member from a local text file"""
         if not self.current_dataset or not self.ftp_manager:
