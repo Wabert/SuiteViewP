@@ -478,6 +478,119 @@ def apply_guideline_forceout(
     )
 
 
+def resolve_requested_premium(ctx: MonthContext, work: MonthWork) -> None:
+    """Resolve scheduled and lump-sum premiums before loan repayment."""
+    state = ctx.state
+    work.requested_scheduled, work.requested_lumpsum = _split_requested_premium(
+        ctx.policy,
+        ctx.config,
+        ctx.month_inputs,
+        work.attained_age,
+        exception_period=state.inforce_exception_period,
+    )
+    work.b2md_active = _billable_to_md_active(ctx.options, work.next_year)
+    if work.b2md_active and state.billable_md_switched:
+        work.requested_scheduled = 0.0
+        if ctx.month_inputs is not None:
+            work.requested_lumpsum = max(
+                0.0,
+                work.requested_lumpsum - ctx.month_inputs.billable_to_md_premium,
+            )
+    work.has_loan_balance = _loan_balance_for_levelizing(work.cap_loan)
+    work.boy_loan = work.cap_loan
+
+
+def apply_cashflows(ctx: MonthContext, work: MonthWork) -> None:
+    """Apply loan repayments, loan-to-premium remainders and premium diversion."""
+    work.cash_flows = apply_cash_flow_inputs(
+        work.av,
+        work.cap_loan,
+        ctx.month_inputs,
+        config=ctx.config,
+        adv_reg_factor=work.adv_reg_factor,
+        adv_pref_factor=work.adv_pref_factor,
+        apply_prem_to_loan=ctx.options.apply_prem_to_loan,
+        excess_repayment_to_premium=(
+            ctx.options.apply_excess_repayment_as_premium
+            and not ctx.state.inforce_exception_period
+        ),
+        requested_lumpsum=work.requested_lumpsum,
+        requested_scheduled=work.requested_scheduled,
+    )
+    work.av = work.cash_flows.av
+    work.cap_loan = work.cash_flows.loan_state
+    work.loan_cap_repay_detail = work.cash_flows.loan_cap_repay
+
+
+def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
+    """Compute TEFRA/TAMRA premium allowances for this month."""
+    state = ctx.state
+    policy = ctx.policy
+    work.accumulated_7pay_base = (
+        0.0 if getattr(work, "tamra_reset", False) else state.accumulated_7pay
+    )
+    work.tamra_year = _tamra_year(policy, work.month_date)
+    work.tamra_moy = _tamra_month_of_year(policy, work.month_date)
+    work.pc_policy, work.pc_tamra, work.payment_mode = _payment_counts(
+        state, policy, work.month_date, work.next_month, ctx.month_inputs
+    )
+    work.beginning_of_year = (
+        work.is_anniversary or state.payment_count_policy_year == 0
+    )
+    work.allowances = compute_premium_allowances(PremiumAllowanceInput(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=ctx.options.guideline_cap_enabled,
+        tamra_force=_tamra_force(ctx.options, policy),
+        mec_bypass=policy.is_mec,
+        guideline_limit=work.guideline_limit,
+        prem_less_wd=work.premiums_to_date - work.withdrawals_before_forceout,
+        force_out=work.guideline_forceout,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
+        amount_in_7pay=work.accumulated_7pay_base,
+        tamra_year=work.tamra_year,
+        tamra_month_of_year=work.tamra_moy,
+        policy_month=work.next_month,
+        npt_premium=0.0,
+        tamra_reset=getattr(work, "tamra_reset", False),
+        requested_scheduled=work.requested_scheduled,
+        requested_lumpsum=work.requested_lumpsum,
+        payment_count_policy_year=work.pc_policy,
+        payment_count_tamra_year=work.pc_tamra,
+        has_loan_balance=work.has_loan_balance,
+        levelizing_premium=ctx.options.levelizing_premium,
+        beginning_of_year=work.beginning_of_year,
+        policy_anniversary=work.is_anniversary,
+        prior_scheduled_prem_cap=state.scheduled_prem_cap,
+        prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
+        prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
+        loan_repay_from_lumpsum=work.cash_flows.loan_repay_from_lumpsum,
+        loan_repay_from_scheduled=work.cash_flows.loan_repay_from_scheduled,
+        ln_repay_left_over=work.cash_flows.ln_repay_left_over,
+        prior_guideline_limit_reached=state.guideline_limit_reached,
+        prior_transition_year_active=state.transition_year_active,
+    ))
+
+
+def apply_premium_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Apply the accepted premium and expose pre-deduction AV."""
+    work.prem = apply_premium(
+        work.av,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        work.rate_year,
+        work.premiums_ytd,
+        work.premiums_to_date,
+        work.cost_basis,
+        gross_premium_override=work.allowances.applied_total_premium,
+        premium_cap=None,
+    )
+    work.av = work.prem.av_after_premium
+    work.av_before_deduction = work.av
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -552,100 +665,25 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     withdrawals_to_date = work.withdrawals_to_date
     av = work.av
 
-    # Requested premium (LS scheduled, vLumpsum unscheduled) is needed before
-    # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
-    requested_scheduled, requested_lumpsum = _split_requested_premium(
-        policy, config, month_inputs, attained_age,
-        exception_period=state.inforce_exception_period,
-    )
-    # Billable-to-MD: once the hand-off has latched, the row's billable
-    # premium stops — the scheduled premium (the row owns the schedule
-    # within its window) and its dated billable payments this year. Other
-    # lumpsums in the same month still pay.
-    b2md_active = _billable_to_md_active(options, next_year)
-    if b2md_active and state.billable_md_switched:
-        requested_scheduled = 0.0
-        if month_inputs is not None:
-            requested_lumpsum = max(
-                0.0, requested_lumpsum - month_inputs.billable_to_md_premium)
-    # Levelizing is gated on the loan that exists BEFORE the repayment (RERUN's
-    # NX uses LX..MC, post-capitalization/pre-repay). Capturing it after the
-    # repay would let the month that finally clears the loan flip levelizing on
-    # and apply the full scheduled premium instead of the small post-repay
-    # remainder (NY).
-    has_loan_balance = _loan_balance_for_levelizing(cap_loan)
-    # Post-capitalization, pre-repay buckets (RERUN LX..MC) — the begin
-    # loan balances of the WAIR TAV projection.
-    boy_loan = cap_loan
-    cash_flows = apply_cash_flow_inputs(
-        av,
-        cap_loan,
-        month_inputs,
-        config=config,
-        adv_reg_factor=adv_reg_factor,
-        adv_pref_factor=adv_pref_factor,
-        apply_prem_to_loan=options.apply_prem_to_loan,
-        excess_repayment_to_premium=(
-            options.apply_excess_repayment_as_premium and not state.inforce_exception_period),
-        requested_lumpsum=requested_lumpsum,
-        requested_scheduled=requested_scheduled,
-    )
-    av = cash_flows.av
-    cap_loan = cash_flows.loan_state
-    loan_cap_repay_detail = cash_flows.loan_cap_repay
-
-    # ── 12. Apply premium (CalcEngine NC..NZ acceptance chain) ───
-    # A material change restarted the 7-pay period: the prior window's
-    # contributions no longer count (LE = 0 in month 1 of a new period).
-    accumulated_7pay_base = 0.0 if tamra_reset else state.accumulated_7pay
-    tamra_year = _tamra_year(policy, month_date)
-    tamra_moy = _tamra_month_of_year(policy, month_date)
-    pc_policy, pc_tamra, _payment_mode = _payment_counts(
-        state, policy, month_date, next_month, month_inputs
-    )
-    beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
-    allowances = compute_premium_allowances(PremiumAllowanceInput(
-        is_cvat=policy.is_cvat,
-        is_gpt=policy.is_gpt,
-        tefra_force=options.guideline_cap_enabled,
-        tamra_force=_tamra_force(options, policy),
-        mec_bypass=policy.is_mec,
-        guideline_limit=guideline_limit,
-        prem_less_wd=premiums_to_date - withdrawals_before_forceout,
-        force_out=guideline_forceout,
-        loan_repay_from_forceout=0.0,
-        seven_pay_level=policy.tamra_7pay_level,
-        amount_in_7pay=accumulated_7pay_base,
-        tamra_year=tamra_year,
-        tamra_month_of_year=tamra_moy,
-        policy_month=next_month,
-        npt_premium=0.0,
-        tamra_reset=tamra_reset,
-        requested_scheduled=requested_scheduled,
-        requested_lumpsum=requested_lumpsum,
-        payment_count_policy_year=pc_policy,
-        payment_count_tamra_year=pc_tamra,
-        has_loan_balance=has_loan_balance,
-        levelizing_premium=options.levelizing_premium,
-        beginning_of_year=beginning_of_year,
-        policy_anniversary=is_anniversary,
-        prior_scheduled_prem_cap=state.scheduled_prem_cap,
-        prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
-        prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
-        loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
-        loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
-        ln_repay_left_over=cash_flows.ln_repay_left_over,
-        prior_guideline_limit_reached=state.guideline_limit_reached,
-        prior_transition_year_active=state.transition_year_active,
-    ))
-    prem = apply_premium(
-        av, policy, config, rates, rate_year,
-        premiums_ytd, premiums_to_date, cost_basis,
-        gross_premium_override=allowances.applied_total_premium,
-        premium_cap=None,
-    )
-    av = prem.av_after_premium
-    av_before_deduction = av
+    resolve_requested_premium(ctx, work)
+    apply_cashflows(ctx, work)
+    compute_allowances(ctx, work)
+    apply_premium_step(ctx, work)
+    requested_scheduled = work.requested_scheduled
+    requested_lumpsum = work.requested_lumpsum
+    b2md_active = work.b2md_active
+    boy_loan = work.boy_loan
+    cash_flows = work.cash_flows
+    cap_loan = work.cap_loan
+    loan_cap_repay_detail = work.loan_cap_repay_detail
+    accumulated_7pay_base = work.accumulated_7pay_base
+    tamra_year = work.tamra_year
+    pc_policy = work.pc_policy
+    beginning_of_year = work.beginning_of_year
+    allowances = work.allowances
+    prem = work.prem
+    av = work.av
+    av_before_deduction = work.av_before_deduction
 
     # ── 13. Monthly deduction ─────────────────────────────
     ded = calculate_deduction(
@@ -1237,93 +1275,21 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     withdrawals_to_date = work.withdrawals_to_date
     av_after_guideline = work.av
 
-    # Requested premium (LS scheduled, vLumpsum unscheduled) — needed before
-    # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
-    requested_scheduled, requested_lumpsum = _split_requested_premium(
-        policy, config, month_inputs, attained_age,
-        exception_period=state.inforce_exception_period,
-    )
-    # Billable-to-MD: once the hand-off has latched, the row's billable
-    # premium stops (see process_month).
-    b2md_active = _billable_to_md_active(options, next_year)
-    if b2md_active and state.billable_md_switched:
-        requested_scheduled = 0.0
-        if month_inputs is not None:
-            requested_lumpsum = max(
-                0.0, requested_lumpsum - month_inputs.billable_to_md_premium)
-    # Levelizing is gated on the pre-repay loan (RERUN NX uses LX..MC) — see
-    # process_month.
-    has_loan_balance = _loan_balance_for_levelizing(cap_loan)
-    cash_flows = apply_cash_flow_inputs(
-        av_after_guideline,
-        cap_loan,
-        month_inputs,
-        config=config,
-        adv_reg_factor=adv_reg_factor,
-        adv_pref_factor=adv_pref_factor,
-        apply_prem_to_loan=options.apply_prem_to_loan,
-        excess_repayment_to_premium=(
-            options.apply_excess_repayment_as_premium and not state.inforce_exception_period),
-        requested_lumpsum=requested_lumpsum,
-        requested_scheduled=requested_scheduled,
-    )
-    cap_loan = cash_flows.loan_state
-    loan_cap_repay_detail = cash_flows.loan_cap_repay
-
-    # ── Apply premium (CalcEngine NC..NZ acceptance chain) ──
-    tamra_year = _tamra_year(policy, month_date)
-    tamra_moy = _tamra_month_of_year(policy, month_date)
-    pc_policy, pc_tamra, _payment_mode = _payment_counts(
-        state, policy, month_date, next_month, month_inputs
-    )
-    beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
-    allowances = compute_premium_allowances(PremiumAllowanceInput(
-        is_cvat=policy.is_cvat,
-        is_gpt=policy.is_gpt,
-        tefra_force=options.guideline_cap_enabled,
-        tamra_force=_tamra_force(options, policy),
-        mec_bypass=policy.is_mec,
-        guideline_limit=guideline_limit,
-        prem_less_wd=premiums_to_date - withdrawals_before_forceout,
-        force_out=guideline_forceout,
-        loan_repay_from_forceout=0.0,
-        seven_pay_level=policy.tamra_7pay_level,
-        amount_in_7pay=state.accumulated_7pay,
-        tamra_year=tamra_year,
-        tamra_month_of_year=tamra_moy,
-        policy_month=next_month,
-        npt_premium=0.0,
-        tamra_reset=False,
-        requested_scheduled=requested_scheduled,
-        requested_lumpsum=requested_lumpsum,
-        payment_count_policy_year=pc_policy,
-        payment_count_tamra_year=pc_tamra,
-        has_loan_balance=has_loan_balance,
-        levelizing_premium=options.levelizing_premium,
-        beginning_of_year=beginning_of_year,
-        policy_anniversary=is_anniversary,
-        prior_scheduled_prem_cap=state.scheduled_prem_cap,
-        prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
-        prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
-        loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
-        loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
-        ln_repay_left_over=cash_flows.ln_repay_left_over,
-        prior_guideline_limit_reached=state.guideline_limit_reached,
-        prior_transition_year_active=state.transition_year_active,
-    ))
-    prem = apply_premium(
-        cash_flows.av,
-        policy,
-        config,
-        rates,
-        rate_year,
-        premiums_ytd,
-        premiums_to_date,
-        cost_basis,
-        gross_premium_override=allowances.applied_total_premium,
-        premium_cap=None,
-    )
-    av_before_deduction = prem.av_after_premium
+    resolve_requested_premium(ctx, work)
+    apply_cashflows(ctx, work)
+    compute_allowances(ctx, work)
+    apply_premium_step(ctx, work)
+    requested_scheduled = work.requested_scheduled
+    requested_lumpsum = work.requested_lumpsum
+    b2md_active = work.b2md_active
+    cash_flows = work.cash_flows
+    cap_loan = work.cap_loan
+    loan_cap_repay_detail = work.loan_cap_repay_detail
+    tamra_year = work.tamra_year
+    beginning_of_year = work.beginning_of_year
+    allowances = work.allowances
+    prem = work.prem
+    av_before_deduction = work.av_before_deduction
 
     ded = calculate_deduction(
         av_before_deduction,
