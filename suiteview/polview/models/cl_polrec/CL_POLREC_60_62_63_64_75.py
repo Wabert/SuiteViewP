@@ -125,7 +125,7 @@ class TotalRecords:
     @property
     def NET_AMT_RSK(self) -> Optional[Decimal]:
         """Recorded monthliversary NAR; missing rows/NULL remain unavailable."""
-        val = self._policy.data_item("LH_POL_MVRY_VAL", "NAR_AMT")
+        val = self._policy._field("monthly_net_amount_at_risk")
         return Decimal(str(val)) if val is not None else None
 
     # =====================================================================

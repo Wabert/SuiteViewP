@@ -28,15 +28,39 @@ class SourceValidationError(SuiteViewDataError, ValueError):
     """Input data, source schema, or an allowlisted identifier is invalid."""
 
 
+class UnknownColumnError(SourceValidationError):
+    """A loaded source table does not contain a requested column."""
+
+    def __init__(
+        self,
+        table_name: str,
+        column_name: str,
+        *,
+        available_columns: list[str] | tuple[str, ...] = (),
+        policy_number: str | None = None,
+    ) -> None:
+        context = f" on policy {policy_number}" if policy_number else ""
+        available = ", ".join(available_columns) if available_columns else "none"
+        super().__init__(
+            f"Column {table_name}.{column_name} is not present in the loaded table"
+            f"{context}. Available columns: {available}"
+        )
+        self.table_name = table_name
+        self.column_name = column_name
+        self.available_columns = tuple(available_columns)
+        self.policy_number = policy_number
+
+
 class ExternalServiceUnavailable(ConnectionUnavailable):
     """A non-database external service such as FTP, Outlook, or SharePoint is unavailable."""
 
 
 __all__ = [
-    "SuiteViewDataError",
     "ConnectionUnavailable",
+    "ExternalServiceUnavailable",
     "QueryFailed",
     "ReadOnlyViolation",
     "SourceValidationError",
-    "ExternalServiceUnavailable",
+    "SuiteViewDataError",
+    "UnknownColumnError",
 ]

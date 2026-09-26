@@ -55,12 +55,22 @@ from .cl_polrec import (
 )
 
 # Use the shared database connection module instead of a duplicate manager
+from suiteview.core.data_access.errors import UnknownColumnError
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
 
 logger = logging.getLogger(__name__)
 
 # Data access layer — PolicyData owns DB2 access and table caching
 from .policy_data import PolicyData as _PolicyData, _ConnectionManager
+from .policy_fields import FIELD_SPECS_BY_NAME, FieldSpec
+from .product_rules import ProductRules, product_rules_for
+from .rate_matrices import (
+    MatrixColumn,
+    build_rate_matrix,
+    duration_rows,
+    metadata_value,
+    rate_value_or_na,
+)
 
 # Import Rates class for rate lookups
 try:
@@ -131,6 +141,7 @@ class PolicyInformation:
         self._loans: Optional[List[LoanInfo]] = None
         self._mv_values: Optional[List[MVValueInfo]] = None
         self._activities: Optional[List[ActivityInfo]] = None
+        self._product_rules: Optional[ProductRules] = None
         
         # Rates lookup (lazy loaded)
         self._rates: Optional[Rates] = None
@@ -172,7 +183,7 @@ class PolicyInformation:
         self._data._table_errors.update(incoming._data._table_errors)
         # Any collection built against older rows must be reconstructed.
         for name in ("_coverages", "_benefits", "_agents", "_loans",
-                     "_mv_values", "_activities"):
+                     "_mv_values", "_activities", "_product_rules"):
             setattr(self, name, getattr(incoming, name, None))
         self.loan_records.invalidate()
         self.total_records.invalidate()
@@ -258,6 +269,20 @@ class PolicyInformation:
                        filter_value: Any) -> List[Dict[str, Any]]:
         """Get all row dictionaries where filter matches."""
         return self._data.get_rows_where(table_name, filter_field, filter_value)
+
+    def _field(self, name: str, index: int = 0) -> Any:
+        """Read a registered scalar field by name."""
+        spec: FieldSpec = FIELD_SPECS_BY_NAME[name]
+        try:
+            return self.data_item(spec.table, spec.column, index)
+        except UnknownColumnError:
+            if spec.optional:
+                return spec.default
+            raise
+
+    def field_value(self, name: str, index: int = 0) -> Any:
+        """Read a scalar value declared in the FieldSpec registry."""
+        return self._field(name, index)
     
     # =========================================================================
     # IDENTIFIERS
@@ -300,7 +325,7 @@ class PolicyInformation:
     @property
     def status_code(self) -> str:
         """Policy status code."""
-        return str(self.data_item("LH_BAS_POL", "POL_STS_CD") or "")
+        return str(self._field("status_code") or "")
     
     @property
     def status_description(self) -> str:
@@ -310,7 +335,7 @@ class PolicyInformation:
     @property
     def suspense_code(self) -> str:
         """Suspense code."""
-        return str(self.data_item("LH_BAS_POL", "SUS_CD") or "0")
+        return str(self._field("suspense_code") or "0")
     
     @property
     def suspense_description(self) -> str:
@@ -320,7 +345,7 @@ class PolicyInformation:
     @property
     def premium_pay_status_code(self) -> str:
         """Premium paying status code (PRM_PAY_STA_REA_CD)."""
-        return str(self.data_item("LH_BAS_POL", "PRM_PAY_STA_REA_CD") or "")
+        return str(self._field("premium_pay_status_code") or "")
     
     @property
     def premium_pay_status_description(self) -> str:
@@ -364,22 +389,22 @@ class PolicyInformation:
     @property
     def paid_to_date(self) -> Optional[date]:
         """Premium paid-to date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "PRM_PAID_TO_DT"))
+        return self._parse_date(self._field("paid_to_date"))
     
     @property
     def next_anniversary_date(self) -> Optional[date]:
         """Next policy anniversary date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_YR_END_PRC_DT"))
+        return self._parse_date(self._field("next_anniversary_date"))
     
     @property
     def next_monthliversary_date(self) -> Optional[date]:
         """Next monthliversary date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_MVRY_PRC_DT"))
+        return self._parse_date(self._field("next_monthliversary_date"))
     
     @property
     def terminate_date(self) -> Optional[date]:
         """Policy termination date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "PLN_TMN_DT"))
+        return self._parse_date(self._field("terminate_date"))
     
     @staticmethod
     def _completed_date_parts_years(date1: date, date2: date) -> int:
@@ -442,12 +467,12 @@ class PolicyInformation:
     @property
     def billing_frequency(self) -> int:
         """Billing frequency in months."""
-        return int(self.data_item("LH_BAS_POL", "PMT_FQY_PER") or 0)
+        return int(self._field("billing_frequency") or 0)
     
     @property
     def billing_mode(self) -> str:
         """Billing mode description."""
-        nsd = str(self.data_item("LH_BAS_POL", "NSD_MD_CD") or "")
+        nsd = self.non_standard_mode_code
         if nsd in NON_STANDARD_BILL_MODE_CODES:
             return NON_STANDARD_BILL_MODE_CODES[nsd]
         return BILLING_MODE_CODES.get(self.billing_frequency, f"{self.billing_frequency} months")
@@ -455,17 +480,17 @@ class PolicyInformation:
     @property
     def non_standard_mode_code(self) -> str:
         """Non-standard billing mode code (NSD_MD_CD)."""
-        return str(self.data_item("LH_BAS_POL", "NSD_MD_CD") or "")
+        return str(self._field("non_standard_mode_code") or "")
     
     @property
     def bill_day(self) -> int:
         """Billing day of month."""
-        return int(self.data_item("LH_BAS_POL", "BIL_DAY_NBR") or 0)
+        return int(self._field("bill_day") or 0)
     
     @property
     def issue_state_code(self) -> str:
         """Issue state code (raw numeric from ISSUE_ST_CD)."""
-        return str(self.data_item("LH_BAS_POL", "POL_ISS_ST_CD") or "")
+        return str(self._field("issue_state_code") or "")
     
     @property
     def issue_state(self) -> str:
@@ -478,7 +503,7 @@ class PolicyInformation:
     @property
     def resident_state_code(self) -> str:
         """Resident/premium-paying state code (raw numeric from PRM_PAY_ST_CD)."""
-        return str(self.data_item("LH_BAS_POL", "PRM_PAY_ST_CD") or "")
+        return str(self._field("resident_state_code") or "")
     
     @property
     def resident_state(self) -> str:
@@ -505,7 +530,7 @@ class PolicyInformation:
     @property
     def modal_premium(self) -> Optional[Decimal]:
         """Modal premium (premium per billing period)."""
-        val = self.data_item("LH_BAS_POL", "POL_PRM_AMT")
+        val = self._field("modal_premium")
         return Decimal(str(val)) if val is not None else None
     
     @property
@@ -518,15 +543,15 @@ class PolicyInformation:
     @property
     def annual_policy_fee(self) -> Optional[Decimal]:
         """Annual policy fee for traditional products."""
-        if self.is_advanced_product:
+        if str(self._field("non_traditional_indicator") or "").strip() == "1":
             return None
-        val = self.data_item("LH_FXD_PRM_POL", "POL_FEE_AMT")
+        val = self._field("annual_policy_fee")
         return Decimal(str(val)) if val is not None else None
     
     @property
     def target_premium(self) -> Optional[Decimal]:
         """Target premium (for UL products)."""
-        val = self.data_item("LH_POL_TARGET", "TAR_PRM_AMT")
+        val = self._field("target_premium")
         return Decimal(str(val)) if val is not None else None
     
     @property
@@ -541,7 +566,7 @@ class PolicyInformation:
     @property
     def div_option_code(self) -> str:
         """Dividend option code."""
-        return str(self.data_item("LH_BAS_POL", "PRI_DIV_OPT_CD") or "0")
+        return str(self._field("div_option_code") or "0")
     
     @property
     def div_option_description(self) -> str:
@@ -551,7 +576,7 @@ class PolicyInformation:
     @property
     def nfo_code(self) -> str:
         """Non-forfeiture option code."""
-        return str(self.data_item("LH_BAS_POL", "NFO_OPT_TYP_CD") or "0")
+        return str(self._field("nfo_code") or "0")
     
     @property
     def nfo_description(self) -> str:
@@ -561,7 +586,7 @@ class PolicyInformation:
     @property
     def db_option_code(self) -> str:
         """Death benefit option code."""
-        return str(self.data_item("LH_NON_TRD_POL", "DTH_BNF_PLN_OPT_CD") or "")
+        return str(self._field("db_option_code") or "")
     
     @property
     def db_option_description(self) -> str:
@@ -575,7 +600,7 @@ class PolicyInformation:
     @property
     def is_advanced_product(self) -> bool:
         """Whether this is an advanced product (UL/IUL/VUL)."""
-        return str(self.data_item("LH_BAS_POL", "NON_TRD_POL_IND")) == "1"
+        return self.product_rules.is_advanced
     
     @property
     def product_type(self) -> str:
@@ -586,34 +611,76 @@ class PolicyInformation:
         of truth.  Falls back to heuristic matching for plancodes not in
         the table.
         """
-        plancode = self.base_plancode
+        plancode = str(self.data_item("LH_COV_PHA", "PLN_DES_SER_CD") or "").strip()
         if not plancode:
             return "UNKNOWN"
-
-        if self.is_advanced_product:
-            prod_line = self.product_line_code
-            if prod_line == "I":
-                return "ISWL"
-            return "UL"
-
-        if self.product_line_code == "S":
-            return "DI"
-
-        if _data_lookup is not None:
-            group = _data_lookup.get_plancode_group(plancode)
-            if group and group != "Not Found":
-                return group
-
-        pln_upper = plancode.upper()
-        if any(x in pln_upper for x in ["TRM", "TERM", "TM", "RT", "ART", "YRT"]):
-            return "TERM"
-
-        return "WL"
+        return self.product_rules.product_type
     
     @property
     def product_line_code(self) -> str:
         """Product line type code."""
-        return str(self.data_item("LH_COV_PHA", "PRD_LIN_TYP_CD") or "")
+        return str(self._field("product_line_code") or "")
+
+    @property
+    def major_line_of_business(self) -> str:
+        """Major line of business code from the base coverage row, when present."""
+        return str(self._field("major_line_of_business") or "")
+
+    @property
+    def product_rules(self) -> ProductRules:
+        """Product-family strategy for product-specific policy rules."""
+        if getattr(self, "_product_rules", None) is None:
+            plancode = str(self.data_item("LH_COV_PHA", "PLN_DES_SER_CD") or "").strip()
+            group = None
+            if plancode and _data_lookup is not None:
+                group = _data_lookup.get_plancode_group(plancode)
+            self._product_rules = product_rules_for(
+                non_traditional_indicator=str(self._field("non_traditional_indicator") or ""),
+                product_line_code=str(self._field("product_line_code") or ""),
+                plancode=plancode,
+                plancode_group=group,
+            )
+        return self._product_rules
+
+    def _product_rules_for_rate_display(self) -> ProductRules:
+        """Return product rules, preserving legacy test doubles with only product_type."""
+        try:
+            rules = self.product_rules
+            if rules.rate_family != "UNKNOWN":
+                return rules
+        except Exception:
+            pass
+
+        try:
+            product_type = str(self.product_type or "").strip().upper()
+        except Exception:
+            product_type = ""
+
+        if product_type == "WL":
+            return product_rules_for(
+                non_traditional_indicator="0",
+                product_line_code="",
+                plancode=product_type,
+                plancode_group="WL",
+            )
+        if product_type == "ISWL":
+            return product_rules_for(
+                non_traditional_indicator="1",
+                product_line_code="I",
+                plancode=product_type,
+            )
+        if product_type in {"UL", "IUL", "VUL", "SGUL"}:
+            return product_rules_for(
+                non_traditional_indicator="1",
+                product_line_code="U",
+                plancode=product_type,
+            )
+        return product_rules_for(
+            non_traditional_indicator="0",
+            product_line_code="",
+            plancode=product_type,
+            plancode_group=product_type or None,
+        )
     
     @property
     def product_line_description(self) -> str:
@@ -628,7 +695,7 @@ class PolicyInformation:
     @property
     def def_of_life_ins_code(self) -> str:
         """Definition of Life Insurance code."""
-        return str(self.data_item("LH_NON_TRD_POL", "TFDF_CD") or "")
+        return str(self._field("definition_of_life_code") or "")
     
     @property
     def def_of_life_ins_description(self) -> str:
@@ -973,10 +1040,8 @@ class PolicyInformation:
         if lh_rows:
             base_plancode = str(lh_rows[0].get("PLN_DES_SER_CD", "")).strip()
         
-        # Detect advanced product (UL/IUL/VUL) vs Traditional
-        is_advanced = self.is_advanced_product
-        # Policy-level product line code (for COI rate divisor)
-        pol_product_line = self.product_line_code
+        rules = PolicyInformation._product_rules_for_rate_display(self)
+        coi_rate_divisor = rules.coi_rate_divisor()
         
         for i, row in enumerate(lh_rows):
             try:
@@ -1104,7 +1169,7 @@ class PolicyInformation:
 
                 # COI rate (Advanced) – from LH_COV_INS_RNL_RT.RNL_RT (type "C")
                 # Divided by 100 for product line "I", or 100,000 for others.
-                if is_advanced and rnl_idx >= 0:
+                if coi_rate_divisor is not None and rnl_idx >= 0:
                     raw_rate = self.data_item("LH_COV_INS_RNL_RT", "RNL_RT", rnl_idx)
                     if raw_rate is not None and str(raw_rate).strip() != "":
                         try:
@@ -1113,10 +1178,7 @@ class PolicyInformation:
                             raise ValueError(
                                 f"Invalid COI renewal rate {raw_rate!r}"
                             ) from exc
-                        if pol_product_line == "I":
-                            cov.coi_rate = r / 100
-                        else:
-                            cov.coi_rate = r / 100000
+                        cov.coi_rate = r / coi_rate_divisor
 
                 # Flat extra fallback — LH_SST_XTR_CRG is the only source
                 # for flat extra data.  LH_COV_INS_RNL_RT does NOT carry
@@ -1297,48 +1359,44 @@ class PolicyInformation:
             return self._loans
         
         self._loans = []
-        
-        # Traditional loans (LH_CSH_VAL_LOAN)
-        for row in self.fetch_table("LH_CSH_VAL_LOAN"):
-            principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
-            if principal <= 0:
-                continue
-            
+
+        for table_name in self.product_rules.loan_tables:
+            for row in self._active_loan_rows(table_name):
+                self._loans.append(self._loan_from_row(row, advanced=table_name == "LH_FND_VAL_LOAN"))
+
+        return self._loans
+
+    def _loan_from_row(self, row: Dict[str, Any], *, advanced: bool) -> LoanInfo:
+        """Build a LoanInfo from the selected product family's loan table."""
+        principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
+        if principal <= 0:
+            raise ValueError("inactive loan rows must be filtered before construction")
+
+        if advanced:
+            accrued = Decimal(str(row.get("POL_LN_ITS_AMT", 0) or 0))
+        else:
             accrued = Decimal("0")
             if str(row.get("LN_ITS_AMT_TYP_CD")) == "2":
                 accrued = Decimal(str(row.get("POL_LN_ITS_AMT", 0) or 0))
-            
-            loan = LoanInfo(
-                loan_type=str(row.get("LN_TYP_CD", "")),
-                loan_type_desc=LOAN_TYPE_CODES.get(str(row.get("LN_TYP_CD", "")), ""),
-                principal=principal,
-                accrued_interest=accrued,
-                interest_rate=Decimal(str(row["LN_CRG_ITS_RT"])) if row.get("LN_CRG_ITS_RT") else None,
-                preferred_loan=str(row.get("PRF_LN_IND")) == "1",
-                raw_data=row
-            )
-            self._loans.append(loan)
-        
-        # Advanced product loans (LH_FND_VAL_LOAN)
-        for row in self.fetch_table("LH_FND_VAL_LOAN"):
+
+        return LoanInfo(
+            loan_type=str(row.get("LN_TYP_CD", "")),
+            loan_type_desc=LOAN_TYPE_CODES.get(str(row.get("LN_TYP_CD", "")), ""),
+            principal=principal,
+            accrued_interest=accrued,
+            interest_rate=Decimal(str(row["LN_CRG_ITS_RT"])) if row.get("LN_CRG_ITS_RT") else None,
+            preferred_loan=str(row.get("PRF_LN_IND")) == "1",
+            raw_data=row,
+        )
+
+    def _active_loan_rows(self, table_name: str) -> List[Dict[str, Any]]:
+        rows = []
+        for row in self.fetch_table(table_name):
             principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
             if principal <= 0:
                 continue
-            
-            accrued = Decimal(str(row.get("POL_LN_ITS_AMT", 0) or 0))
-            
-            loan = LoanInfo(
-                loan_type=str(row.get("LN_TYP_CD", "")),
-                loan_type_desc=LOAN_TYPE_CODES.get(str(row.get("LN_TYP_CD", "")), ""),
-                principal=principal,
-                accrued_interest=accrued,
-                interest_rate=Decimal(str(row["LN_CRG_ITS_RT"])) if row.get("LN_CRG_ITS_RT") else None,
-                preferred_loan=str(row.get("PRF_LN_IND")) == "1",
-                raw_data=row
-            )
-            self._loans.append(loan)
-        
-        return self._loans
+            rows.append(row)
+        return rows
     
     @property
     def total_loan_balance(self) -> Decimal:
@@ -1586,17 +1644,17 @@ class PolicyInformation:
     @property
     def last_anniversary(self) -> Optional[date]:
         """Last policy anniversary date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "LST_ANV_DT"))
+        return self._parse_date(self._field("last_anniversary"))
     
     @property
     def next_monthliversary(self) -> Optional[date]:
         """Next monthliversary processing date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_MVRY_PRC_DT"))
+        return self.next_monthliversary_date
     
     @property
     def last_financial_date(self) -> Optional[date]:
         """Last financial processing date."""
-        dt = self._parse_date(self.data_item("LH_BAS_POL", "LST_FIN_DT"))
+        dt = self._parse_date(self._field("last_financial_date"))
         # Treat sentinel dates (e.g. 9999-12-31) as missing
         if dt and dt.year >= 9999:
             return None
@@ -1605,23 +1663,15 @@ class PolicyInformation:
     @property
     def next_bill_date(self) -> Optional[date]:
         """Next billing date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_BIL_DT"))
+        return self._parse_date(self._field("next_bill_date"))
     
     @property
     def premium_paid_to_date(self) -> Optional[date]:
         """Premium paid-to date."""
-        return self._parse_date(self.data_item("LH_BAS_POL", "PRM_BILL_TO_DT"))
-    
-    @property
-    def valuation_date(self) -> Optional[date]:
-        """
-        Get valuation date - MV date for UL, last monthliversary for traditional.
-        """
-        if self.is_advanced_product:
-            mv_dt = self._parse_date(self.data_item("LH_POL_MVRY_VAL", "MVRY_DT"))
-            if mv_dt and mv_dt.year < 9999:
-                return mv_dt
-        
+        return self._parse_date(self._field("premium_paid_to_date"))
+
+    def traditional_valuation_date(self) -> Optional[date]:
+        """Traditional valuation-date fallback: prior monthliversary, else financial date."""
         next_mv = self.next_monthliversary_date
         if next_mv and next_mv.year < 9999:
             # Go back exactly one calendar month (same day)
@@ -1629,29 +1679,31 @@ class PolicyInformation:
                 prev_year, prev_month = next_mv.year - 1, 12
             else:
                 prev_year, prev_month = next_mv.year, next_mv.month - 1
-            # Handle day overflow (e.g. March 31 → Feb 28)
+            # Handle day overflow (e.g. March 31 -> Feb 28)
             import calendar
             max_day = calendar.monthrange(prev_year, prev_month)[1]
             prev_day = min(next_mv.day, max_day)
             return date(prev_year, prev_month, prev_day)
-        
         return self.last_financial_date
+    
+    @property
+    def valuation_date(self) -> Optional[date]:
+        """
+        Get valuation date - MV date for UL, last monthliversary for traditional.
+        """
+        return self.product_rules.valuation_date(self)
     
     @property
     def grace_period_expiry_date(self) -> Optional[date]:
         """Grace period expiration date."""
-        if self.is_advanced_product:
-            return self._parse_date(self.data_item("LH_NON_TRD_POL", "GRA_PER_EXP_DT"))
-        else:
-            return self._parse_date(self.data_item("LH_TRD_POL", "GRA_PER_EXP_DT"))
+        field = "advanced_grace_expiry" if self.product_rules.is_advanced else "traditional_grace_expiry"
+        return self._parse_date(self._field(field))
     
     @property
     def in_grace(self) -> bool:
         """Whether policy is in grace period."""
-        if self.is_advanced_product:
-            return str(self.data_item("LH_NON_TRD_POL", "IN_GRA_PER_IND")) == "1"
-        else:
-            return str(self.data_item("LH_TRD_POL", "IN_GRA_PER_IND")) == "1"
+        field = "advanced_grace_indicator" if self.product_rules.is_advanced else "traditional_grace_indicator"
+        return str(self._field(field)) == "1"
     
     # =========================================================================
     # ADDITIONAL POLICY PROPERTIES
@@ -1660,27 +1712,27 @@ class PolicyInformation:
     @property
     def original_entry_code(self) -> str:
         """Original entry code."""
-        return str(self.data_item("LH_BAS_POL", "OGN_ETR_CD") or "")
+        return str(self._field("original_entry_code") or "")
     
     @property
     def last_entry_code(self) -> str:
         """Last entry code."""
-        return str(self.data_item("LH_BAS_POL", "LST_ETR_CD") or "")
+        return str(self._field("last_entry_code") or "")
     
     @property
     def policy_1035_indicator(self) -> bool:
         """Whether policy involved a 1035 exchange."""
-        return str(self.data_item("LH_BAS_POL", "POL_1035_XCG_IND")) == "1"
+        return str(self._field("policy_1035_indicator")) == "1"
     
     @property
     def servicing_agent_number(self) -> str:
         """Servicing agent number."""
-        return str(self.data_item("LH_BAS_POL", "SVC_AGT_NBR") or "")
+        return str(self._field("servicing_agent_number") or "")
     
     @property
     def servicing_branch_code(self) -> str:
         """Servicing branch/agency code."""
-        return str(self.data_item("LH_BAS_POL", "SVC_AGC_NBR") or "")
+        return str(self._field("servicing_branch_code") or "")
     
     @property
     def servicing_market_org(self) -> str:
@@ -1703,23 +1755,23 @@ class PolicyInformation:
     @property
     def policy_loan_charge_rate(self) -> Optional[Decimal]:
         """Policy loan charge interest rate."""
-        val = self.data_item("LH_BAS_POL", "LN_PLN_ITS_RT")
+        val = self._field("loan_interest_rate")
         return Decimal(str(val)) if val is not None else None
     
     @property
     def forced_premium_indicator(self) -> bool:
         """Whether policy has forced premium."""
-        return str(self.data_item("TH_BAS_POL", "FORCED_PREM_IND")) == "1"
+        return str(self._field("forced_premium_indicator")) == "1"
     
     @property
     def mdo_code(self) -> str:
         """MDO (market/distribution) code."""
-        return str(self.data_item("LH_BAS_POL", "USR_RES_CD") or "")
+        return str(self._field("mdo_code") or "")
     
     @property
     def bill_form_code(self) -> str:
         """Billing form code."""
-        return str(self.data_item("LH_BAS_POL", "BIL_FRM_CD") or "")
+        return str(self._field("bill_form_code") or "")
 
     @property
     def is_eft(self) -> bool:
@@ -1792,31 +1844,31 @@ class PolicyInformation:
     @property
     def guaranteed_interest_rate(self) -> Optional[Decimal]:
         """Guaranteed interest rate for advanced products."""
-        val = self.data_item("LH_NON_TRD_POL", "POL_GUA_ITS_RT")
+        val = self._field("guaranteed_interest_rate")
         return Decimal(str(val)) if val is not None else None
 
     @property
     def fixed_loan_interest_rate(self) -> Optional[Decimal]:
         """Fixed (regular) loan interest charge rate (LH_BAS_POL.LN_PLN_ITS_RT)."""
-        val = self.data_item("LH_BAS_POL", "LN_PLN_ITS_RT")
+        val = self._field("loan_interest_rate")
         return Decimal(str(val)) if val is not None else None
 
     @property
     def preferred_loan_interest_rate(self) -> Optional[Decimal]:
         """Preferred loan interest charge rate (LH_NON_TRD_POL.PRF_LN_ITS_CRG_RT)."""
-        val = self.data_item("LH_NON_TRD_POL", "PRF_LN_ITS_CRG_RT")
+        val = self._field("preferred_loan_interest_rate")
         return Decimal(str(val)) if val is not None else None
 
     @property
     def corridor_percent(self) -> Optional[Decimal]:
         """Corridor percentage for death benefit calculation."""
-        val = self.data_item("LH_NON_TRD_POL", "CDR_PCT")
+        val = self._field("corridor_percent")
         return Decimal(str(val)) if val is not None else Decimal("100")
     
     @property
     def grace_rule_code(self) -> str:
         """Grace period rule code."""
-        return str(self.data_item("LH_NON_TRD_POL", "GRA_THD_RLE_CD") or "")
+        return str(self._field("grace_rule_code") or "")
 
     @property
     def decrease_charge_rule(self) -> str:
@@ -1826,7 +1878,7 @@ class PolicyInformation:
         charge) and ``"0"`` (they do not). Blank/NUL-padded rows are unset and
         return ``""``.
         """
-        return str(self.data_item("TH_NON_TRD_POL", "DECR_CHRG_ALLOW") or "").strip(" \x00")
+        return str(self._field("decrease_charge_rule") or "").strip(" \x00")
 
     @property
     def decrease_charge_allowed(self) -> Optional[bool]:
@@ -3764,8 +3816,7 @@ class PolicyInformation:
     @property
     def has_fixed_premium_rates(self) -> bool:
         """ISWL or traditional WL: IAF premiums, CVF cash values and mode factors apply."""
-        product = self.product_type
-        return product == "ISWL" or (not self.is_advanced_product and product == "WL")
+        return self.product_rules.rate_family in {"ISWL", "WL"}
 
     def cov_rate_sex_code(self, cov_index: int) -> str:
         """CyberLife sex code (1/2/3) for rate keys: the 67 segment, else LH_COV_PHA."""
@@ -3814,7 +3865,9 @@ class PolicyInformation:
     _CV_RATE_COLUMNS = (
         "LOW_DUR_CSV_AMT", "LOW_DUR_1_CSV_AMT", "LOW_DUR_2_CSV_AMT", "LOW_DUR_3_CSV_AMT",
     )
+    _CV_RATE_FIELD_NAMES = ("stored_cv_0", "stored_cv_1", "stored_cv_2", "stored_cv_3")
     _NSP_RATE_COLUMNS = ("LOW_DUR_NSP_AMT", "LOW_DUR_1_NSP_AMT", "LOW_DUR_2_NSP_AMT")
+    _NSP_RATE_FIELD_NAMES = ("stored_nsp_0", "stored_nsp_1", "stored_nsp_2")
     _NONFORFEITURE_STATUS = {"44": "ETI", "45": "RPU"}
 
     def cov_cash_value_rates(self, cov_index: int) -> Dict[str, Any]:
@@ -3828,12 +3881,11 @@ class PolicyInformation:
             raise ValueError(f"Coverage index {cov_index} is out of range.")
         idx = cov_index - 1
 
-        def values(columns):
-            return [self._parse_optional_decimal(self.data_item("LH_COV_PHA", c, idx))
-                    for c in columns]
+        def values(field_names):
+            return [self._parse_optional_decimal(self._field(name, idx)) for name in field_names]
 
-        cv = values(self._CV_RATE_COLUMNS)
-        nsp = values(self._NSP_RATE_COLUMNS)
+        cv = values(self._CV_RATE_FIELD_NAMES)
+        nsp = values(self._NSP_RATE_FIELD_NAMES)
         if any(v for v in cv):
             basis, rates = "CV", cv
         elif any(v for v in nsp):
@@ -3841,7 +3893,7 @@ class PolicyInformation:
         else:
             basis, rates = None, []
 
-        low_duration = self._parse_optional_int(self.data_item("LH_COV_PHA", "LOW_DUR_PER", idx))
+        low_duration = self._parse_optional_int(self._field("stored_cv_low_duration", idx))
         schedule: Dict[int, Decimal] = {}
         if basis and low_duration is not None:
             schedule = {low_duration + k: v for k, v in enumerate(rates) if v is not None}
@@ -4009,11 +4061,10 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
-        if not self.is_advanced_product and self.product_type == "WL":
+        rules = PolicyInformation._product_rules_for_rate_display(self)
+        if rules.rate_family == "WL" and not rules.is_advanced:
             return self.build_whole_life_coverage_rate_matrix(cov_index)
 
-        from dateutil.relativedelta import relativedelta
-        
         issue_date = self.cov_issue_date(cov_index)
         maturity_date = self.cov_maturity_date(cov_index)
         issue_age = self.cov_issue_age(cov_index)
@@ -4079,67 +4130,30 @@ class PolicyInformation:
         
         # Ensure metadata lists are same length
         extra_columns: Dict[str, Optional[list]] = {}
-        if self.product_type == "ISWL":
+        if rules.rate_family == "ISWL":
             iswl_meta, extra_columns = self._iswl_coverage_rate_extras(cov_index)
             rate_fields += [name for name, _ in iswl_meta]
             rate_info += [value for _, value in iswl_meta]
         max_meta = max(len(rate_fields), len(rate_info))
         xmax = max(xmax, max_meta)
         
-        # Build the matrix
-        columns = ["RateFields", "RateInfo", "Date", "Age", "Year", "COI", "EPU", "SCR", "GuarCOI", "GuarEPU"]
-        matrix = [columns + list(extra_columns)]  # Row 0 = headers
-        
-        for row in range(1, xmax + 1):
-            row_data = []
-            for col_idx, col_name in enumerate(columns):
-                if col_name == "RateFields":
-                    row_data.append(rate_fields[row] if row < len(rate_fields) else "")
-                elif col_name == "RateInfo":
-                    row_data.append(rate_info[row] if row < len(rate_info) else "")
-                elif col_name == "Date":
-                    try:
-                        dt = issue_date + relativedelta(years=row - 1)
-                        row_data.append(dt.strftime("%m/%d/%Y"))
-                    except Exception:
-                        row_data.append("")
-                elif col_name == "Age":
-                    row_data.append(issue_age + row - 1)
-                elif col_name == "Year":
-                    row_data.append(row)
-                elif col_name == "COI":
-                    if coi and row < len(coi):
-                        row_data.append(coi[row])
-                    else:
-                        row_data.append("NA" if coi is None else "")
-                elif col_name == "EPU":
-                    if epu and row < len(epu):
-                        row_data.append(epu[row])
-                    else:
-                        row_data.append("NA" if epu is None else "")
-                elif col_name == "SCR":
-                    if scr and row < len(scr):
-                        row_data.append(scr[row])
-                    else:
-                        row_data.append("NA" if scr is None else "")
-                elif col_name == "GuarCOI":
-                    if guar_coi and row < len(guar_coi):
-                        row_data.append(guar_coi[row])
-                    else:
-                        row_data.append("NA" if guar_coi is None else "")
-                elif col_name == "GuarEPU":
-                    if guar_epu and row < len(guar_epu):
-                        row_data.append(guar_epu[row])
-                    else:
-                        row_data.append("NA" if guar_epu is None else "")
-            for values in extra_columns.values():
-                if values and row < len(values):
-                    row_data.append(values[row])
-                else:
-                    row_data.append("NA" if values is None else "")
-            matrix.append(row_data)
-        
-        return matrix
+        columns = [
+            MatrixColumn("RateFields", lambda row: metadata_value(rate_fields, row.index)),
+            MatrixColumn("RateInfo", lambda row: metadata_value(rate_info, row.index)),
+            MatrixColumn("Date", lambda row: row.date_text),
+            MatrixColumn("Age", lambda row: row.age),
+            MatrixColumn("Year", lambda row: row.year),
+            MatrixColumn("COI", lambda row: rate_value_or_na(coi, row.index)),
+            MatrixColumn("EPU", lambda row: rate_value_or_na(epu, row.index)),
+            MatrixColumn("SCR", lambda row: rate_value_or_na(scr, row.index)),
+            MatrixColumn("GuarCOI", lambda row: rate_value_or_na(guar_coi, row.index)),
+            MatrixColumn("GuarEPU", lambda row: rate_value_or_na(guar_epu, row.index)),
+        ]
+        columns.extend(
+            MatrixColumn(name, lambda row, values=values: rate_value_or_na(values, row.index))
+            for name, values in extra_columns.items()
+        )
+        return build_rate_matrix(columns, duration_rows(issue_date, issue_age, xmax))
 
     @staticmethod
     def _whole_dollars(amount) -> str:
@@ -4232,8 +4246,6 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
-        from dateutil.relativedelta import relativedelta
-        
         # Benefits use Cov 1 for many params
         issue_date_cov1 = self.cov_issue_date(1)
         maturity_date_cov1 = self.cov_maturity_date(1)
@@ -4286,35 +4298,18 @@ class PolicyInformation:
         max_meta = max(len(rate_fields), len(rate_info))
         xmax = max(xmax, max_meta)
         
-        columns = ["RateFields", "RateInfo", "Date", "Age", "Year", "COI"]
-        matrix = [columns]
-        
-        for row in range(1, xmax + 1):
-            row_data = []
-            for col_idx, col_name in enumerate(columns):
-                if col_name == "RateFields":
-                    row_data.append(rate_fields[row] if row < len(rate_fields) else "")
-                elif col_name == "RateInfo":
-                    row_data.append(rate_info[row] if row < len(rate_info) else "")
-                elif col_name == "Date":
-                    try:
-                        base_date = ben_iss_date or issue_date_cov1
-                        dt = base_date + relativedelta(years=row - 1)
-                        row_data.append(dt.strftime("%m/%d/%Y"))
-                    except Exception:
-                        row_data.append("")
-                elif col_name == "Age":
-                    row_data.append(ben_iss_age + row - 1 if ben_iss_age else "")
-                elif col_name == "Year":
-                    row_data.append(row)
-                elif col_name == "COI":
-                    if ben_coi and row < len(ben_coi):
-                        row_data.append(ben_coi[row])
-                    else:
-                        row_data.append("NA" if ben_coi is None else "")
-            matrix.append(row_data)
-        
-        return matrix
+        columns = [
+            MatrixColumn("RateFields", lambda row: metadata_value(rate_fields, row.index)),
+            MatrixColumn("RateInfo", lambda row: metadata_value(rate_info, row.index)),
+            MatrixColumn("Date", lambda row: row.date_text),
+            MatrixColumn("Age", lambda row: row.age),
+            MatrixColumn("Year", lambda row: row.year),
+            MatrixColumn("COI", lambda row: rate_value_or_na(ben_coi, row.index)),
+        ]
+        return build_rate_matrix(
+            columns,
+            duration_rows(ben_iss_date or issue_date_cov1, ben_iss_age if ben_iss_age else None, xmax),
+        )
 
     def build_policy_rate_matrix(self, scale: int = 1) -> Optional[List[List]]:
         """
@@ -4330,8 +4325,6 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
-        from dateutil.relativedelta import relativedelta
-        
         issue_date = self.cov_issue_date(1)
         maturity_date = self.cov_maturity_date(1)
         issue_age = self.cov_issue_age(1)
@@ -4373,49 +4366,18 @@ class PolicyInformation:
         max_meta = max(len(rate_fields), len(rate_info))
         xmax = max(xmax, max_meta)
         
-        columns = ["RateFields", "RateInfo", "Date", "Year", "AttainedAge", "TPP", "EPP", "MFEE", "CORR"]
-        matrix = [columns]
-        
-        for row in range(1, xmax + 1):
-            row_data = []
-            for col_idx, col_name in enumerate(columns):
-                if col_name == "RateFields":
-                    row_data.append(rate_fields[row] if row < len(rate_fields) else "")
-                elif col_name == "RateInfo":
-                    row_data.append(rate_info[row] if row < len(rate_info) else "")
-                elif col_name == "Date":
-                    try:
-                        dt = issue_date + relativedelta(years=row - 1)
-                        row_data.append(dt.strftime("%m/%d/%Y"))
-                    except Exception:
-                        row_data.append("")
-                elif col_name == "Year":
-                    row_data.append(row)
-                elif col_name == "AttainedAge":
-                    row_data.append(issue_age + row - 1)
-                elif col_name == "TPP":
-                    if tpp and row < len(tpp):
-                        row_data.append(tpp[row])
-                    else:
-                        row_data.append("NA" if tpp is None else "")
-                elif col_name == "EPP":
-                    if epp and row < len(epp):
-                        row_data.append(epp[row])
-                    else:
-                        row_data.append("NA" if epp is None else "")
-                elif col_name == "MFEE":
-                    if mfee and row < len(mfee):
-                        row_data.append(mfee[row])
-                    else:
-                        row_data.append("NA" if mfee is None else "")
-                elif col_name == "CORR":
-                    if corr and row < len(corr):
-                        row_data.append(corr[row])
-                    else:
-                        row_data.append("NA" if corr is None else "")
-            matrix.append(row_data)
-        
-        return matrix
+        columns = [
+            MatrixColumn("RateFields", lambda row: metadata_value(rate_fields, row.index)),
+            MatrixColumn("RateInfo", lambda row: metadata_value(rate_info, row.index)),
+            MatrixColumn("Date", lambda row: row.date_text),
+            MatrixColumn("Year", lambda row: row.year),
+            MatrixColumn("AttainedAge", lambda row: row.age),
+            MatrixColumn("TPP", lambda row: rate_value_or_na(tpp, row.index)),
+            MatrixColumn("EPP", lambda row: rate_value_or_na(epp, row.index)),
+            MatrixColumn("MFEE", lambda row: rate_value_or_na(mfee, row.index)),
+            MatrixColumn("CORR", lambda row: rate_value_or_na(corr, row.index)),
+        ]
+        return build_rate_matrix(columns, duration_rows(issue_date, issue_age, xmax))
 
 
     # =========================================================================

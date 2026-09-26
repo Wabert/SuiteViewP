@@ -24,6 +24,7 @@ from datetime import date, datetime
 from pyodbc import SQL_VARCHAR
 
 # Use the shared database connection module
+from suiteview.core.data_access.errors import UnknownColumnError
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
 
 logger = logging.getLogger(__name__)
@@ -202,14 +203,22 @@ class PolicyData:
 
         rows = table_data["rows"]
         columns = table_data["columns"]
+        field = field_name.upper()
 
         if index >= len(rows):
             return None
 
         try:
-            col_idx = columns.index(field_name.upper())
+            col_idx = columns.index(field)
             return rows[index][col_idx]
-        except (ValueError, IndexError):
+        except ValueError:
+            raise UnknownColumnError(
+                table_name.upper(),
+                field,
+                available_columns=columns,
+                policy_number=self._policy_number,
+            ) from None
+        except IndexError:
             return None
 
     def data_item_array(self, table_name: str, field_name: str) -> List[Any]:
@@ -222,12 +231,18 @@ class PolicyData:
 
         rows = table_data["rows"]
         columns = table_data["columns"]
+        field = field_name.upper()
 
         try:
-            col_idx = columns.index(field_name.upper())
+            col_idx = columns.index(field)
             return [row[col_idx] for row in rows]
         except ValueError:
-            return []
+            raise UnknownColumnError(
+                table_name.upper(),
+                field,
+                available_columns=columns,
+                policy_number=self._policy_number,
+            ) from None
 
     def data_item_count(self, table_name: str) -> int:
         """Get row count for a table."""
@@ -364,15 +379,21 @@ class PolicyData:
             return []
 
         columns = table_data["columns"]
+        field = filter_field.upper()
         results = []
 
         try:
-            filter_idx = columns.index(filter_field.upper())
+            filter_idx = columns.index(field)
             for row in table_data["rows"]:
                 if str(row[filter_idx]) == str(filter_value):
                     results.append(dict(zip(columns, row)))
         except ValueError:
-            pass
+            raise UnknownColumnError(
+                table_name.upper(),
+                field,
+                available_columns=columns,
+                policy_number=self._policy_number,
+            ) from None
 
         return results
 
