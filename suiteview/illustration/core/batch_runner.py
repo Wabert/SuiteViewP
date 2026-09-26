@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+from suiteview.illustration.core.ledger_specs import ForecastSpec
+
 # ── Shared constants ────────────────────────────────────────────────────────
 
 # Months-between-payments → modal code for a policy's own billing cadence.
@@ -954,6 +956,11 @@ FORECAST_TYPES: Dict[str, ForecastType] = {
         formats=MINLEVEL_FORMATS,
         run=run_min_level_policy,
     ),
+}
+
+FORECAST_SPECS: Dict[str, ForecastSpec] = {
+    key: ForecastSpec(key=forecast.key, label=forecast.label, run=forecast.run)
+    for key, forecast in FORECAST_TYPES.items()
 }
 
 

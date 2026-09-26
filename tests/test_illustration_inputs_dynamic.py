@@ -140,11 +140,11 @@ def test_spl87_zeroes_billable_premium():
 
 
 def test_context_billable_premium_and_spl87_flag():
-    from suiteview.illustration.ui.inputs_dynamic import context_from_policy
+    from suiteview.illustration.core.input_context import build_policy_context
 
-    spl87 = context_from_policy(_Spl87Policy())
+    spl87 = build_policy_context(_Spl87Policy())
     assert spl87.is_spl87 and spl87.billable_premium == 0.0
-    normal = context_from_policy(_FakePolicy())
+    normal = build_policy_context(_FakePolicy())
     assert not normal.is_spl87
     assert abs(normal.billable_premium - 153.56) < 0.005
 

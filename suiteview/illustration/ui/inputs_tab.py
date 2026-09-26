@@ -50,7 +50,9 @@ from suiteview.illustration.models.input_set import (
 from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
 from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+from suiteview.illustration.core.run_input_compiler import ControlDraft, InputDraft
 from suiteview.polview.ui.formatting import format_date
+from suiteview.ui.signals import muted_signals
 
 from .inputs_dynamic import DynamicInputsPanel
 from .issue_conditions import IssueConditionsPanel
@@ -1261,9 +1263,8 @@ class IllustrationInputsTab(QWidget):
         self._inforce_shadow = (has_shadow, shadow_ceased)
         self._mode_inputs = {}
         self._active_issue_mode = False
-        self.run_from_issue_btn.blockSignals(True)
-        self.run_from_issue_btn.setChecked(False)
-        self.run_from_issue_btn.blockSignals(False)
+        with muted_signals(self.run_from_issue_btn):
+            self.run_from_issue_btn.setChecked(False)
         self._issue_load_error = ""
         try:
             self.issue_conditions.load_policy(policy)
@@ -1316,9 +1317,8 @@ class IllustrationInputsTab(QWidget):
             try:
                 policy = self._policy_for_input_mode(enabled)
             except ValueError as exc:
-                self.run_from_issue_btn.blockSignals(True)
-                self.run_from_issue_btn.setChecked(self._active_issue_mode)
-                self.run_from_issue_btn.blockSignals(False)
+                with muted_signals(self.run_from_issue_btn):
+                    self.run_from_issue_btn.setChecked(self._active_issue_mode)
                 self._show_mode_warnings([str(exc)])
                 return
             if restore_inputs:
@@ -1802,6 +1802,36 @@ class IllustrationInputsTab(QWidget):
         state["rollback_live_inputs"] = deepcopy(self._rollback_live_inputs)
         return state
 
+    def read_draft(self) -> InputDraft:
+        """Read a plain, restorable draft from the current widget state."""
+
+        return InputDraft(
+            case_inputs=self.capture_case_inputs(),
+            input_set=self.export_input_set(),
+            controls=ControlDraft(
+                options=self.export_options(),
+                stop_on_lapse=self.stop_on_lapse_enabled(),
+                run_from_issue=self.run_from_issue_enabled(),
+                abr_quote=self.abr_quote_enabled(),
+                abr_minimum_face_amount=self.abr_minimum_face_amount(),
+            ),
+            inforce_overrides=self.export_inforce_overrides(),
+            issue_overrides=self.export_issue_overrides(),
+            rollback_overrides=self.export_rollback_overrides(),
+            max_level=self.max_level_request(),
+            min_level=self.min_level_request(),
+            shadow_level=self.shadow_level_request(),
+            target_premium=self.solve_request(),
+            duration=self.solve_duration_request(),
+            lumpsum_to_next=self.lumpsum_to_next_enabled(),
+            loan_payoffs=tuple(self.loan_payoff_requests()),
+        )
+
+    def render_draft(self, draft: InputDraft) -> list[str]:
+        """Render a previously read draft back into this inputs widget."""
+
+        return self.apply_case_inputs(deepcopy(draft.case_inputs))
+
     def _capture_active_case_inputs(self) -> dict:
         return {
             "grids": {
@@ -1896,9 +1926,8 @@ class IllustrationInputsTab(QWidget):
             self.set_value_rollback(None)
         warnings = self.issue_conditions.apply_state(state.get("issue_conditions"))
         self._mode_inputs = deepcopy(state.get("mode_inputs") or {})
-        self.run_from_issue_btn.blockSignals(True)
-        self.run_from_issue_btn.setChecked(enabled)
-        self.run_from_issue_btn.blockSignals(False)
+        with muted_signals(self.run_from_issue_btn):
+            self.run_from_issue_btn.setChecked(enabled)
         self._apply_run_from_issue(enabled, restore_inputs=False)
         if enabled != self.run_from_issue_enabled():
             raise ValueError(self.mode_warning.text())

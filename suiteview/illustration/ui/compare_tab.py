@@ -64,6 +64,7 @@ from suiteview.illustration.core.compare_runner import (
 )
 from suiteview.illustration.models import case_store
 from suiteview.illustration.models.case_store import CaseStoreError, SavedCase
+from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .saved_cases_panel import SAVED_CASE_MIME
@@ -149,14 +150,13 @@ class _ScenarioComboBox(QComboBox):
         """(Re)build the fixed entries, preserving the current selection and
         any dropped case. Order: Current Inputs, [dropped case], (none)."""
         prior = self.currentData()
-        self.blockSignals(True)
-        self.clear()
-        self.addItem(CURRENT_INPUTS_LABEL, None)
-        if self._dropped_case is not None:
-            self.addItem(self._dropped_case.name, self._dropped_case)
-        self.addItem(NO_SCENARIO_LABEL, _NO_SCENARIO)
-        self.setCurrentIndex(self._index_for(prior))
-        self.blockSignals(False)
+        with muted_signals(self):
+            self.clear()
+            self.addItem(CURRENT_INPUTS_LABEL, None)
+            if self._dropped_case is not None:
+                self.addItem(self._dropped_case.name, self._dropped_case)
+            self.addItem(NO_SCENARIO_LABEL, _NO_SCENARIO)
+            self.setCurrentIndex(self._index_for(prior))
 
     def _index_for(self, data) -> int:
         if isinstance(data, SavedCase) and self._dropped_case is not None:

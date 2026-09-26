@@ -259,6 +259,8 @@ class _InputsHarness:
 
 
 def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
+    from suiteview.illustration.core import run_service
+
     monkeypatch.setattr(
         "suiteview.illustration.ui.main_window.PolicyInformation",
         lambda *_args, **_kwargs: _LoadedPolicy(),
@@ -271,7 +273,7 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
             return SimpleNamespace(policy=deepcopy(_base_policy()), states=[])
         return SimpleNamespace(policy=policy_or_number, states=_current_states())
 
-    monkeypatch.setattr("suiteview.illustration.ui.main_window.project_policy", project)
+    monkeypatch.setattr(run_service, "project_policy", project)
 
     def scenario(policy_data, **kwargs):
         calls.append("scenario")
@@ -284,34 +286,25 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
             run_from_issue=kwargs.get("run_from_issue", False),
         )
 
-    monkeypatch.setattr("suiteview.illustration.ui.main_window.build_illustration_scenario", scenario)
+    monkeypatch.setattr(run_service, "build_illustration_scenario", scenario)
 
     def fixed_report(policy, results, **kwargs):
         calls.append("report")
         kwargs["run_date"] = date(2026, 9, 26)
         return build_ul_report(policy, results, **kwargs)
 
-    monkeypatch.setattr(report_builder, "build_ul_report", fixed_report)
-
-    from suiteview.illustration.core import guaranteed_projection
+    monkeypatch.setattr(run_service, "build_ul_report", fixed_report)
 
     def guaranteed(policy, results, **_kwargs):
         calls.append("guaranteed")
         return _guaranteed_states() if case["name"] == "guaranteed-projection" else None
 
-    monkeypatch.setattr(guaranteed_projection, "run_guaranteed_projection", guaranteed)
+    monkeypatch.setattr(run_service, "run_guaranteed_projection", guaranteed)
 
-    from suiteview.illustration.core import abr_quote
-    from suiteview.illustration.core import solve_level_to_exception
-    from suiteview.illustration.core import solve_loan_payoff
-    from suiteview.illustration.core import solve_lumpsum_to_next_premium
-    from suiteview.illustration.core import solve_max_level_allowed
-    from suiteview.illustration.core import solve_premium_duration
-    from suiteview.illustration.core import solve_premium_to_target
     from suiteview.illustration.ui import report_tab
 
     monkeypatch.setattr(
-        abr_quote,
+        run_service,
         "run_abr_quote",
         lambda policy, **_kwargs: SimpleNamespace(
             policy=policy,
@@ -331,7 +324,7 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
         lambda abr, _policy: [["ABR GOLDEN", f"premium={abr.premium:,.2f}"]],
     )
     monkeypatch.setattr(
-        solve_lumpsum_to_next_premium,
+        run_service,
         "solve_lumpsum_to_next_premium",
         lambda *_args, **_kwargs: SimpleNamespace(
             lumpsum=321.09,
@@ -343,12 +336,12 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
         ),
     )
     monkeypatch.setattr(
-        solve_max_level_allowed,
+        run_service,
         "solve_max_level_allowed",
         lambda *_args, **_kwargs: SimpleNamespace(premium=444.44, mode="M"),
     )
     monkeypatch.setattr(
-        solve_level_to_exception,
+        run_service,
         "solve_level_to_exception",
         lambda *_args, **kwargs: SimpleNamespace(
             premium=333.33 if kwargs.get("allow_exceptions") is False else 222.22,
@@ -356,12 +349,12 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
         ),
     )
     monkeypatch.setattr(
-        solve_level_to_exception,
+        run_service,
         "level_to_exception_options",
         lambda options, *_args, **_kwargs: options,
     )
     monkeypatch.setattr(
-        solve_premium_to_target,
+        run_service,
         "solve_premium_to_target",
         lambda *_args, **_kwargs: SimpleNamespace(
             premium=555.55,
@@ -372,7 +365,7 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
         ),
     )
     monkeypatch.setattr(
-        solve_premium_duration,
+        run_service,
         "solve_premium_duration",
         lambda *_args, **_kwargs: SimpleNamespace(
             premium=333.33,
@@ -386,7 +379,7 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
         ),
     )
     monkeypatch.setattr(
-        solve_loan_payoff,
+        run_service,
         "solve_loan_payoff",
         lambda *_args, **_kwargs: SimpleNamespace(repayment=66.66),
     )

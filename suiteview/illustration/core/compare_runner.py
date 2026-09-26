@@ -38,6 +38,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.ledger_specs import KpiSpec
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 
 # Policy-year marks the KPI summary samples AV/SV/DB at (plus each side's end).
@@ -71,6 +72,17 @@ MIN_SCENARIOS = 2
 MAX_SCENARIOS = 3
 
 _ZERO = 0.005  # money tolerance
+TOTAL_OUTLAY_KPI = KpiSpec(
+    key="total_outlay",
+    caption="Total Prem Outlay",
+    values=lambda k: k["total_outlay"],
+    lower_is_better=True,
+)
+POINT_KPI_SPECS = (
+    KpiSpec(key="av", caption="AV", values=lambda point: point["av"]),
+    KpiSpec(key="sv", caption="SV", values=lambda point: point["sv"]),
+    KpiSpec(key="db", caption="DB", values=lambda point: point["db"]),
+)
 
 
 def _separator_name(index: int) -> str:
@@ -490,29 +502,18 @@ def _lapse_delta(la, lb, *, a_tag="A", b_tag="B") -> tuple:
     return "—", "neutral", None
 
 
-def build_kpi_rows(outcomes: list) -> list:
-    """The KPI summary — one :class:`KpiRow` per KPI. With two scenarios the
-    delta reads B − A (toned); with three, both deltas against A on one
-    neutral line. A failed side renders "—" everywhere, so the surviving
-    scenarios' numbers still land.
-    """
-    ks = [scenario_kpi_values(o.policy, o.results) if o.ok else None
-          for o in outcomes]
-    three = len(ks) > 2
+def _text_value(kpi: dict | None, key: str) -> str:
+    return "—" if kpi is None else str(kpi[key])
 
-    def txt(k, key):
-        return "—" if k is None else str(k[key])
 
-    rows: list[KpiRow] = []
-
-    # ── outcome (lapse vs sustains) ──
-    lapses = [None if k is None else k["lapse_year"] for k in ks]
+def _outcome_row(kpis: list[dict | None]) -> KpiRow:
+    lapses = [None if kpi is None else kpi["lapse_year"] for kpi in kpis]
     delta_text, tone, delta_value = "—", "neutral", None
-    if ks[0] is not None:
-        if three:
+    if kpis[0] is not None:
+        if len(kpis) > 2:
             parts = []
-            for letter, k, lapse in zip(_LETTERS[1:], ks[1:], lapses[1:]):
-                if k is None:
+            for letter, kpi, lapse in zip(_LETTERS[1:], kpis[1:], lapses[1:]):
+                if kpi is None:
                     parts.append(f"{letter} —")
                     continue
                 text, _tone, _val = _lapse_delta(
@@ -520,18 +521,19 @@ def build_kpi_rows(outcomes: list) -> list:
                 parts.append(f"{letter} {text}" if "yrs" in text or text == "—"
                              else text)
             delta_text = " · ".join(parts)
-        elif ks[1] is not None:
+        elif kpis[1] is not None:
             delta_text, tone, delta_value = _lapse_delta(lapses[0], lapses[1])
-    rows.append(KpiRow(
+    return KpiRow(
         key="outcome", caption="Outcome",
-        values=[txt(k, "outcome") for k in ks],
-        delta_text=delta_text, tone=tone, delta_value=delta_value))
+        values=[_text_value(kpi, "outcome") for kpi in kpis],
+        delta_text=delta_text, tone=tone, delta_value=delta_value)
 
-    # ── MEC status ──
-    mecs = [None if k is None else k["mec"] for k in ks]
+
+def _mec_row(kpis: list[dict | None]) -> KpiRow:
+    mecs = [None if kpi is None else kpi["mec"] for kpi in kpis]
     delta_text, tone = "—", "neutral"
-    if all(m is not None for m in mecs) and len(set(mecs)) > 1:
-        if three:
+    if all(mec is not None for mec in mecs) and len(set(mecs)) > 1:
+        if len(kpis) > 2:
             delta_text = "differs"
         elif mecs[1] == "Not a MEC":
             delta_text, tone = "B avoids MEC", "good"
@@ -539,18 +541,19 @@ def build_kpi_rows(outcomes: list) -> list:
             delta_text, tone = "B becomes MEC", "bad"
         else:
             delta_text = "differs"
-    rows.append(KpiRow(
+    return KpiRow(
         key="mec", caption="MEC Status",
-        values=[m or "—" for m in mecs],
-        delta_text=delta_text, tone=tone))
+        values=[mec or "—" for mec in mecs],
+        delta_text=delta_text, tone=tone)
 
-    # ── first GP-exception year ──
-    firsts = [None if k is None else k["first_exception_year"] for k in ks]
+
+def _first_exception_row(kpis: list[dict | None]) -> KpiRow:
+    firsts = [None if kpi is None else kpi["first_exception_year"] for kpi in kpis]
     delta_text, delta_value = "—", None
-    if three:
+    if len(kpis) > 2:
         parts = []
-        for letter, k, first in zip(_LETTERS[1:], ks[1:], firsts[1:]):
-            if k is None or firsts[0] is None or first is None:
+        for letter, kpi, first in zip(_LETTERS[1:], kpis[1:], firsts[1:]):
+            if kpi is None or firsts[0] is None or first is None:
                 parts.append(f"{letter} —")
             else:
                 parts.append(f"{letter} {first - firsts[0]:+d} yrs")
@@ -558,29 +561,52 @@ def build_kpi_rows(outcomes: list) -> list:
     elif firsts[0] is not None and firsts[1] is not None:
         delta_value = float(firsts[1] - firsts[0])
         delta_text = f"{firsts[1] - firsts[0]:+d} yrs"
-    rows.append(KpiRow(
+    return KpiRow(
         key="first_exception", caption="First GP Exception",
-        values=["—" if k is None
+        values=["—" if kpi is None
                 else ("None" if first is None else f"Yr {first}")
-                for k, first in zip(ks, firsts)],
-        delta_text=delta_text, tone="neutral", delta_value=delta_value))
+                for kpi, first in zip(kpis, firsts)],
+        delta_text=delta_text, tone="neutral", delta_value=delta_value)
 
-    # ── total premium outlay (lower is better) ──
-    rows.append(_money_delta_row(
-        "total_outlay", "Total Prem Outlay",
-        [None if k is None else k["total_outlay"] for k in ks],
-        lower_is_better=True))
 
-    # ── AV / SV / DB at the year marks and each side's end ──
+def _money_spec_row(spec: KpiSpec, kpis: list[dict | None]) -> KpiRow:
+    return _money_delta_row(
+        spec.key,
+        spec.caption,
+        [None if kpi is None else spec.values(kpi) for kpi in kpis],
+        lower_is_better=spec.lower_is_better,
+    )
+
+
+def _point_kpi_rows(kpis: list[dict | None]) -> list[KpiRow]:
+    rows: list[KpiRow] = []
     for mark in (*KPI_YEAR_MARKS, "end"):
-        points = [None if k is None else k["points"].get(mark) for k in ks]
-        if all(p is None for p in points):
-            continue    # no projection reaches this mark
+        points = [None if kpi is None else kpi["points"].get(mark) for kpi in kpis]
+        if all(point is None for point in points):
+            continue
         mark_label = "End" if mark == "end" else f"Yr {mark}"
-        for stem, key in (("AV", "av"), ("SV", "sv"), ("DB", "db")):
+        for spec in POINT_KPI_SPECS:
             rows.append(_money_delta_row(
-                f"{key}_{mark}", f"{stem} · {mark_label}",
-                [None if p is None else p[key] for p in points]))
+                f"{spec.key}_{mark}", f"{spec.caption} · {mark_label}",
+                [None if point is None else spec.values(point) for point in points]))
+    return rows
+
+
+def build_kpi_rows(outcomes: list) -> list:
+    """The KPI summary — one :class:`KpiRow` per KPI. With two scenarios the
+    delta reads B − A (toned); with three, both deltas against A on one
+    neutral line. A failed side renders "—" everywhere, so the surviving
+    scenarios' numbers still land.
+    """
+    kpis = [scenario_kpi_values(o.policy, o.results) if o.ok else None
+          for o in outcomes]
+    rows = [
+        _outcome_row(kpis),
+        _mec_row(kpis),
+        _first_exception_row(kpis),
+        _money_spec_row(TOTAL_OUTLAY_KPI, kpis),
+    ]
+    rows.extend(_point_kpi_rows(kpis))
     return rows
 
 

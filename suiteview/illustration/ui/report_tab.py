@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.json_store import read_json, write_json
 from suiteview.illustration.core.abr_quote import ABR_TARGET_SV
+from suiteview.illustration.core.report_specs import PageSpec
 from suiteview.illustration.core.report_builder import (
     ExpenseRow,
     IllustrationReport,
@@ -467,7 +468,7 @@ def _iul_historical_page(page: _PageBuilder, report: IllustrationReport) -> None
         ))
 
 
-def format_report_pages(
+def _format_report_pages_from_specs(
     report: IllustrationReport,
     include_expense_report: bool = False,
 ) -> List[List[str]]:
@@ -1134,3 +1135,16 @@ class IllustrationReportTab(QWidget):
         document = IllustrationReportTab._print_document(
             report, printer, include_expense_report=include_expense_report)
         document.print(printer)
+
+
+def format_report_pages(
+    report: IllustrationReport,
+    include_expense_report: bool = False,
+) -> List[List[str]]:
+    """Interpret the report page spec into fixed-width text pages."""
+    spec = PageSpec(
+        name="ul_report_pages",
+        render=lambda rpt, include: _format_report_pages_from_specs(rpt, include),
+    )
+    pages = spec.interpret(report, include_expense_report)
+    return [] if pages is None else pages

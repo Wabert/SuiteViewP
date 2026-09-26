@@ -175,15 +175,15 @@ def test_prem_to_maturity_forces_exceptions_on_for_solve_and_displayed_run(monke
             _StubPolicy(policy_number, company_code),
     )
     monkeypatch.setattr("suiteview.illustration.ui.main_window.DB2Connection", _StubDB)
-    monkeypatch.setattr("suiteview.illustration.ui.main_window.IllustrationEngine", _RecordingEngine)
+    monkeypatch.setattr("suiteview.illustration.core.run_service.IllustrationEngine", _RecordingEngine)
     monkeypatch.setattr("suiteview.illustration.ui.main_window.QMessageBox", _MessageBoxSpy)
     monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", _fake_policy_load_checks)
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.project_policy",
+        "suiteview.illustration.core.run_service.project_policy",
         _fake_project_policy_factory(policy_data),
     )
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.build_illustration_scenario",
+        "suiteview.illustration.core.run_service.build_illustration_scenario",
         lambda pd, inforce_overrides=None, future_inputs=None: SimpleNamespace(
             projectable_policy=pd,
             future_inputs=future_inputs or IllustrationInputSet(),
@@ -198,7 +198,7 @@ def test_prem_to_maturity_forces_exceptions_on_for_solve_and_displayed_run(monke
         return SimpleNamespace(premium=150.0, mode="M")
 
     monkeypatch.setattr(
-        "suiteview.illustration.core.solve_level_to_exception.solve_level_to_exception",
+        "suiteview.illustration.core.run_service.solve_level_to_exception",
         _fake_solve,
     )
 
@@ -258,15 +258,15 @@ def test_max_level_still_honors_the_exception_checkbox(monkeypatch):
             _StubPolicy(policy_number, company_code),
     )
     monkeypatch.setattr("suiteview.illustration.ui.main_window.DB2Connection", _StubDB)
-    monkeypatch.setattr("suiteview.illustration.ui.main_window.IllustrationEngine", _RecordingEngine)
+    monkeypatch.setattr("suiteview.illustration.core.run_service.IllustrationEngine", _RecordingEngine)
     monkeypatch.setattr("suiteview.illustration.ui.main_window.QMessageBox", _MessageBoxSpy)
     monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", _fake_policy_load_checks)
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.project_policy",
+        "suiteview.illustration.core.run_service.project_policy",
         _fake_project_policy_factory(policy_data),
     )
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.build_illustration_scenario",
+        "suiteview.illustration.core.run_service.build_illustration_scenario",
         lambda pd, inforce_overrides=None, future_inputs=None: SimpleNamespace(
             projectable_policy=pd,
             future_inputs=future_inputs or IllustrationInputSet(),
@@ -281,7 +281,7 @@ def test_max_level_still_honors_the_exception_checkbox(monkeypatch):
         return SimpleNamespace(premium=999.0, mode="M")
 
     monkeypatch.setattr(
-        "suiteview.illustration.core.solve_max_level_allowed.solve_max_level_allowed",
+        "suiteview.illustration.core.run_service.solve_max_level_allowed",
         _fake_max_level,
     )
 

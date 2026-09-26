@@ -33,6 +33,7 @@ from suiteview.illustration.core.summary_results import (
 )
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .guideline_pv_view import GuidelinePvDetailView
@@ -1725,9 +1726,8 @@ class IllustrationValuesTab(QWidget):
 
     def _reset_view_toggle(self, *, offer_guaranteed: bool):
         """Select Current Values without re-rendering; show or hide the pair."""
-        self.guaranteed_toggle.blockSignals(True)
-        self.current_toggle.setChecked(True)
-        self.guaranteed_toggle.blockSignals(False)
+        with muted_signals(self.guaranteed_toggle):
+            self.current_toggle.setChecked(True)
         self.current_toggle.setVisible(offer_guaranteed)
         self.guaranteed_toggle.setVisible(offer_guaranteed)
 
@@ -1753,6 +1753,23 @@ class IllustrationValuesTab(QWidget):
     ):
         result_list = list(results)
         self.overview.export_guaranteed = self.guaranteed_toggle.isChecked()
+        frame, column_decimals = self._projection_frame(policy, result_list)
+        navigator_columns = self._render_projection_grids(
+            frame, column_decimals, injected_first_row_columns or set())
+        self._results = result_list
+        self._render_recalc_view(policy, result_list)
+        self._rebuild_navigator(navigator_columns)
+        self.overview.display(policy, result_list)
+        self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
+        self.charges_chart.set_data(build_charge_bands(result_list[1:]), policy.issue_age)
+        self.content_stack.setCurrentIndex(0)
+        self._set_projection_status(policy, months)
+
+    def _projection_frame(
+        self,
+        policy: IllustrationPolicyData,
+        result_list: list[MonthlyState],
+    ) -> tuple[pd.DataFrame, dict[str, int]]:
         coverage_keys = self._coverage_keys(result_list)
         benefit_keys = self._detail_keys(result_list, "benefit_amounts", "benefit_rates", "benefit_charge_detail")
         rider_keys = self._detail_keys(result_list, "rider_amounts", "rider_rates", "rider_charge_detail")
@@ -1797,7 +1814,14 @@ class IllustrationValuesTab(QWidget):
         column_decimals.update({column: 6 for column in ("Shadow COIR", "Shadow COIR + Sub", "Shadow DBD Rate", "Shadow EPUR")})
         # Ratchet band COI rates render at 6 decimals like the regular COI rates.
         column_decimals.update({column: 6 for column in self._monthly_deduction_columns if "COI Rate B" in column})
-        injected = injected_first_row_columns or set()
+        return frame, column_decimals
+
+    def _render_projection_grids(
+        self,
+        frame: pd.DataFrame,
+        column_decimals: dict[str, int],
+        injected: set[str],
+    ) -> dict[str, list[str]]:
         navigator_columns: dict[str, list[str]] = {}
         for title, grid in self._tab_grids.items():
             ordered = self.LEAD_COLUMNS + list(self._post_lead_columns(title))
@@ -1834,7 +1858,13 @@ class IllustrationValuesTab(QWidget):
                 grid.autofit_columns_to_data(padding=36, max_width=520)
             else:
                 grid.autofit_columns_to_data()
-        self._results = result_list
+        return navigator_columns
+
+    def _render_recalc_view(
+        self,
+        policy: IllustrationPolicyData,
+        result_list: list[MonthlyState],
+    ) -> None:
         seed = result_list[0] if result_list else None
         baseline = None
         if seed is not None:
@@ -1864,11 +1894,8 @@ class IllustrationValuesTab(QWidget):
                     )
                 recalcs.append(detail)
         self.recalc_view.show_recalcs(baseline, recalcs)
-        self._rebuild_navigator(navigator_columns)
-        self.overview.display(policy, result_list)
-        self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
-        self.charges_chart.set_data(build_charge_bands(result_list[1:]), policy.issue_age)
-        self.content_stack.setCurrentIndex(0)
+
+    def _set_projection_status(self, policy: IllustrationPolicyData, months: int) -> None:
         opening = (
             "issue opening"
             if getattr(policy, "run_from_issue", False)

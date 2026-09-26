@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.illustration.models.app_settings import get_illustration_settings
+from suiteview.illustration.core.input_context import PolicyContext, build_policy_context
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
@@ -53,17 +54,15 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
-from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     ag49_index_for_issue_date,
     current_ag49_index,
-    is_iul_plan,
     load_index_strategies,
     with_current_index_data,
 )
-from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
+from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.frameless_window import FramelessDialog
 
 from .allocations_panel import AllocationsDialog, AllocationsPanel
@@ -106,270 +105,6 @@ _W_MODE = 48
 _W_SPAN = 64
 _W_BASIS = 60
 
-
-def _first_float(source, *names: str) -> float:
-    for name in names:
-        value = getattr(source, name, None)
-        if value is not None:
-            return float(value or 0.0)
-    return 0.0
-
-
-@dataclass
-class PolicyContext:
-    """Everything the dynamic rows need to default and bound themselves."""
-
-    issue_date: Optional[date] = None
-    issue_age: int = 0
-    forecast_year: int = 1        # policy year containing the first forecast month
-    forecast_age: int = 0         # anniversary age at the start of that year
-    maturity_age: int = 121
-    default_mode: str = "M"
-    modal_premium: float = 0.0
-    form_number: str = ""         # base coverage form (e.g. "UL501", "SPL87")
-    max_level_premium_room: float = 0.0
-    max_level_years: int = 0
-    is_cvat: bool = False
-    in_exception_period: bool = False
-    has_loans: bool = False       # policy carries a loan (informational)
-    has_shadow: bool = False      # active shadow account (benefit type A) — gates exceptions
-    shadow_ceased: bool = False   # policy HAD a type-A benefit but it has ceased
-    rate_class: str = ""          # Cov 1
-    table_rating: int = 0         # Cov 1
-    illustrated_rate: float = 0.0
-    plancode: str = ""
-    is_iul: bool = False          # plan has an index-strategy row → allocation grid
-    gint: float = 0.0             # plan guaranteed interest (guaranteed blend basis)
-    premium_allocations: Optional[dict] = None  # inforce premium allocation % by fund ID
-    sweep_account_min: float = 0.0  # sweep fund retained minimum (DB2 source TBD)
-    suspended: bool = False
-    valuation_date: Optional[date] = None
-    index_illustration_rates: Optional[dict] = None
-    index_strategy_parameters: Optional[dict] = None
-
-    forecast_date: Optional[date] = None  # valuation + 1 month (a monthliversary)
-
-    @property
-    def is_spl87(self) -> bool:
-        """SPL87-form (single-premium) plan — a zero ongoing billable premium."""
-        return self.form_number.strip().upper().startswith("SPL87")
-
-    @property
-    def billable_premium(self) -> float:
-        """The policy's current billable premium — forced to 0 on SPL87 plans.
-        Used for the 'Billable Prem' premium type and the default INPUT amount."""
-        return 0.0 if self.is_spl87 else self.modal_premium
-
-    @property
-    def maturity_year(self) -> int:
-        return max(1, self.maturity_age - self.issue_age)
-
-    def age_for_year(self, year: int) -> int:
-        return self.issue_age + year - 1
-
-    def year_for_age(self, age: int) -> int:
-        return age - self.issue_age + 1
-
-    def anniversary(self, year: int) -> Optional[date]:
-        if self.issue_date is None:
-            return None
-        return self.issue_date + relativedelta(years=year - 1)
-
-    def effective_date(self, year: int) -> Optional[date]:
-        """When a change requested for ``year`` takes effect.
-
-        The CURRENT policy year's anniversary is already in the past — a
-        change requested for it takes effect on the FORECAST date. Later
-        years take effect at the start of that year (its anniversary).
-        """
-        when = self.anniversary(year)
-        if (
-            self.forecast_date is not None
-            and when is not None
-            and when < self.forecast_date
-        ):
-            return self.forecast_date
-        return when
-
-    def _forecast_months_since_issue(self) -> Optional[int]:
-        """Whole monthliversaries from issue to the first forecast month."""
-        if self.issue_date is None or self.forecast_date is None:
-            return None
-        months = (
-            (self.forecast_date.year - self.issue_date.year) * 12
-            + (self.forecast_date.month - self.issue_date.month)
-        )
-        if self.forecast_date.day < self.issue_date.day:
-            months -= 1
-        return months
-
-    def payment_count(self, mode: str) -> int:
-        """Number of modal payments from the forecast month to min(maturity, 100).
-
-        The whole years to the limit age contribute ``freq`` payments each, plus
-        any modal due dates still left in the CURRENT policy year (from the
-        forecast month to the next anniversary) — so e.g. a few quarters left
-        this year are counted, not just whole_years * frequency.
-        """
-        interval = _MODE_INTERVALS.get(mode, 12)
-        freq = 12 // interval
-        whole_year_payments = max(0, self.max_level_years) * freq
-
-        n_forecast = self._forecast_months_since_issue()
-        if n_forecast is None:
-            return whole_year_payments
-        # Modal due months in a policy year are 1, 1+interval, ...; count those
-        # on or after the forecast month within the current year.
-        forecast_month = n_forecast % 12 + 1  # 1..12
-        remaining_this_year = sum(
-            1 for month in range(forecast_month, 13) if (month - 1) % interval == 0
-        )
-        return whole_year_payments + remaining_this_year
-
-    def max_modal_level_premium(self, mode: str) -> float:
-        if self.is_cvat or self.max_level_premium_room <= 0.0:
-            return 0.0
-        count = self.payment_count(mode)
-        if count <= 0:
-            return 0.0
-        return self.max_level_premium_room / count
-
-    @property
-    def max_annual_level_premium(self) -> float:
-        return self.max_modal_level_premium("A")
-
-
-def context_from_policy(policy) -> PolicyContext:
-    """Build the row context from a loaded PolicyInformation."""
-    issue_date = getattr(policy, "issue_date", None) or getattr(policy, "base_issue_date", None)
-    issue_age = int(getattr(policy, "base_issue_age", None) or getattr(policy, "issue_age", 0) or 0)
-    valuation = getattr(policy, "valuation_date", None) or getattr(policy, "last_valuation_date", None)
-    duration = int(getattr(policy, "duration", 0) or 0)
-    if getattr(policy, "run_from_issue", False):
-        forecast = issue_date
-    elif issue_date is not None and duration > 0:
-        forecast = issue_date + relativedelta(months=duration)
-    else:
-        forecast = valuation + relativedelta(months=1) if valuation else None
-    if issue_date is not None and forecast is not None:
-        months = (forecast.year - issue_date.year) * 12 + (forecast.month - issue_date.month)
-        if forecast.day < issue_date.day:
-            months -= 1
-        forecast_year = max(1, months // 12 + 1)
-    else:
-        forecast_year = int(getattr(policy, "policy_year", 1) or 1)
-    maturity_age = int(getattr(policy, "maturity_age", None)
-                       or getattr(policy, "age_at_maturity", None) or 121)
-    attained_age = int(getattr(policy, "attained_age", None) or (issue_age + forecast_year - 1) or 0)
-    frequency = getattr(policy, "billing_frequency", 1)
-    try:
-        frequency = int(frequency)
-    except (TypeError, ValueError):
-        frequency = 1
-    mode = {3: "Q", 6: "S", 12: "A"}.get(frequency, "M")
-    status_code = str(getattr(policy, "status_code", "")
-                      or getattr(policy, "premium_pay_status_code", "") or "")
-    table_rating = getattr(policy, "base_table_rating", None)
-    if table_rating is None:
-        getter = getattr(policy, "cov_table_rating", None)
-        if callable(getter):
-            try:
-                table_rating = getter(1)
-            except Exception:
-                table_rating = 0
-    try:
-        table_rating = int(table_rating or 0)
-    except (TypeError, ValueError):
-        table_rating = 0
-    plancode = str(getattr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
-    illustrated_rate = 0.0
-    gint = 0.0
-    if plancode:
-        gint = load_plancode(plancode).gint
-        illustrated_rate = gint
-    if illustrated_rate == 0.0:
-        illustrated_rate = float(
-            getattr(policy, "current_interest_rate", None)
-            or getattr(policy, "guaranteed_interest_rate", 0.0)
-            or 0.0
-        )
-        if illustrated_rate > 1.0:
-            illustrated_rate /= 100.0
-    if getattr(policy, "run_from_issue", False):
-        illustrated_rate = float(policy.current_interest_rate)
-    def_of_life_ins = str(
-        getattr(policy, "def_of_life_ins", "")
-        or getattr(policy, "def_of_life_insurance", "")
-        or getattr(policy, "definition_of_life_insurance", "")
-        or "GPT"
-    ).upper()
-    is_cvat = def_of_life_ins == "CVAT"
-    max_level_end_age = min(maturity_age, 100)
-    max_level_years = max(0, max_level_end_age - attained_age - 1)
-    # GLP normalized to a monthly mode — rounddown(GLP/12, 2) * 12 — to match the
-    # engine's GLP everywhere (the Values-tab GLP column and accumulation).
-    glp = floor_monthly_cent(_first_float(policy, "glp"))
-    accumulated_glp = _first_float(policy, "accumulated_glp", "accumulated_glp_target")
-    premiums_paid_to_date = _first_float(policy, "premiums_paid_to_date", "premium_td", "total_premiums_paid")
-    withdrawals_to_date = _first_float(policy, "withdrawals_to_date", "total_withdrawals")
-    total_accumulated_glp_at_limit_age = accumulated_glp + (max_level_years * glp)
-    premium_room = max(
-        0.0,
-        total_accumulated_glp_at_limit_age
-        - (
-            premiums_paid_to_date
-            - withdrawals_to_date
-        ),
-    )
-    return PolicyContext(
-        issue_date=issue_date,
-        issue_age=issue_age,
-        forecast_year=forecast_year,
-        forecast_age=issue_age + forecast_year - 1,
-        forecast_date=forecast,
-        maturity_age=maturity_age,
-        default_mode=mode,
-        modal_premium=float(getattr(policy, "modal_premium", 0.0) or 0.0),
-        form_number=str(getattr(policy, "form_number", "")
-                        or getattr(policy, "base_form_number", "") or ""),
-        max_level_premium_room=premium_room,
-        max_level_years=max_level_years,
-        is_cvat=is_cvat,
-        in_exception_period=bool(getattr(policy, "in_exception_period", False)),
-        has_loans=bool(getattr(policy, "total_loan_balance", 0) or 0),
-        rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
-        table_rating=table_rating,
-        illustrated_rate=illustrated_rate,
-        plancode=plancode,
-        is_iul=is_iul_plan(plancode),
-        gint=gint,
-        premium_allocations=_premium_allocations_from_policy(policy),
-        sweep_account_min=float(getattr(policy, "sweep_account_min", 0.0) or 0.0),
-        suspended=status_code == "2",
-        valuation_date=valuation,
-        index_illustration_rates=getattr(policy, "index_illustration_rates", None),
-        index_strategy_parameters=getattr(policy, "index_strategy_parameters", None),
-    )
-
-
-def _premium_allocations_from_policy(policy) -> Optional[dict]:
-    """Inforce premium allocation % by fund ID, from either data shape.
-
-    ``IllustrationPolicyData`` carries ``premium_allocations`` directly;
-    ``PolicyInformation`` looks it up in DB2 (LH_FND_ALC). Missing tables or
-    a non-IUL policy simply return None → the grid defaults to 100% fixed.
-    """
-    direct = getattr(policy, "premium_allocations", None)
-    if direct:
-        return dict(direct)
-    getter = getattr(policy, "get_premium_allocation_dict", None)
-    if callable(getter):
-        try:
-            allocations = getter()
-            return {str(k): float(v) for k, v in allocations.items()} or None
-        except Exception:
-            return None
-    return None
 
 
 class _Field(QLineEdit):
@@ -634,58 +369,49 @@ class InputRow(QWidget):
 
     def _sync_type_options(self):
         current = self.type_combo.currentText()
-        self.type_combo.blockSignals(True)
-        self.type_combo.clear()
-        if self._section.spec.allow_max_level_premium:
-            # Max Level is guideline-room math, so it is GPT-only; Prem to
-            # Maturity solves for CVAT too (with exceptions off — CVAT has no
-            # guideline cap or exception machinery). The Min Level solver is
-            # loan-capable (it applies premium to the loan first), so a policy
-            # loan doesn't hide it. Prem to Shadow Maturity appears only when
-            # the policy carries a shadow-account benefit (type A) — including
-            # a ceased one, so the run can explain why it can't solve.
-            #
-            # The advanced types (Billable to MD, Max Level, Monthly Deduction,
-            # Prem to Shadow Maturity) are gated behind the app-wide
-            # "Additional Premium Types" option (off by default) — when off the
-            # dropdown shows INPUT, Billable Prem, Prem to Maturity, and the
-            # two target-value solves.
-            ctx = self._ctx
-            show_additional = get_illustration_settings().additional_premium_types
-            options = [_TYPE_INPUT, _TYPE_BILLABLE]
-            if show_additional:
-                options.append(_TYPE_BILLABLE_TO_MD)
-                options.append(_TYPE_INPUT_TO_MD)
-            if show_additional and not (ctx is not None and ctx.is_cvat):
-                options.append(_TYPE_MAX_LEVEL)
-            options.append(_TYPE_MIN_LEVEL)
-            if show_additional and ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
-                options.append(_TYPE_SHADOW_LEVEL)
-            if show_additional:
-                options.append(_TYPE_MONTHLY_DEDUCTION)
-            # "Solve" (target-value premium solve) works on any product — it
-            # bisects the real projection under the user's own run options.
-            options.append(_TYPE_SOLVE)
-            options.append(_TYPE_SOLVE_DURATION)
-            self.type_combo.addItems(options)
-            self.type_combo.setFixedWidth(self._section.spec.type_width)
-            if current in options:
-                self.type_combo.setCurrentText(current)
-        elif self._section.spec.allow_payoff:
-            options = ["Input", _TYPE_PAYOFF]
-            self.type_combo.addItems(options)
-            self.type_combo.setFixedWidth(self._section.spec.type_width)
-            if current in options:
-                self.type_combo.setCurrentText(current)
-        else:
-            self.type_combo.addItems(["Input", "Solve"])
-            model_item = self.type_combo.model().item(1)
-            if model_item is not None:
-                model_item.setEnabled(False)
-            self.type_combo.setFixedWidth(self._section.spec.type_width)
-            if current in {"Input", "Solve"}:
-                self.type_combo.setCurrentText(current)
-        self.type_combo.blockSignals(False)
+        with muted_signals(self.type_combo):
+            self.type_combo.clear()
+            if self._section.spec.allow_max_level_premium:
+                # Max Level is guideline-room math, so it is GPT-only; Prem to
+                # Maturity solves for CVAT too (with exceptions off — CVAT has no
+                # guideline cap or exception machinery). The Min Level solver is
+                # loan-capable (it applies premium to the loan first), so a policy
+                # loan doesn't hide it. Prem to Shadow Maturity appears only when
+                # the policy carries a shadow-account benefit (type A) — including
+                # a ceased one, so the run can explain why it can't solve.
+                ctx = self._ctx
+                show_additional = get_illustration_settings().additional_premium_types
+                options = [_TYPE_INPUT, _TYPE_BILLABLE]
+                if show_additional:
+                    options.append(_TYPE_BILLABLE_TO_MD)
+                    options.append(_TYPE_INPUT_TO_MD)
+                if show_additional and not (ctx is not None and ctx.is_cvat):
+                    options.append(_TYPE_MAX_LEVEL)
+                options.append(_TYPE_MIN_LEVEL)
+                if show_additional and ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
+                    options.append(_TYPE_SHADOW_LEVEL)
+                if show_additional:
+                    options.append(_TYPE_MONTHLY_DEDUCTION)
+                options.append(_TYPE_SOLVE)
+                options.append(_TYPE_SOLVE_DURATION)
+                self.type_combo.addItems(options)
+                self.type_combo.setFixedWidth(self._section.spec.type_width)
+                if current in options:
+                    self.type_combo.setCurrentText(current)
+            elif self._section.spec.allow_payoff:
+                options = ["Input", _TYPE_PAYOFF]
+                self.type_combo.addItems(options)
+                self.type_combo.setFixedWidth(self._section.spec.type_width)
+                if current in options:
+                    self.type_combo.setCurrentText(current)
+            else:
+                self.type_combo.addItems(["Input", "Solve"])
+                model_item = self.type_combo.model().item(1)
+                if model_item is not None:
+                    model_item.setEnabled(False)
+                self.type_combo.setFixedWidth(self._section.spec.type_width)
+                if current in {"Input", "Solve"}:
+                    self.type_combo.setCurrentText(current)
 
     def _on_additional_premium_types_changed(self, _enabled: bool):
         """Re-sync the Premium Type dropdown when the app-wide option flips.
@@ -712,9 +438,8 @@ class InputRow(QWidget):
         if self.amount_edit is not None:
             self.amount_edit.set_value(ctx.billable_premium, decimals=2)
         if self.mode_combo is not None and self.mode_combo.currentText() != ctx.default_mode:
-            self.mode_combo.blockSignals(True)
-            self.mode_combo.setCurrentText(ctx.default_mode)
-            self.mode_combo.blockSignals(False)
+            with muted_signals(self.mode_combo):
+                self.mode_combo.setCurrentText(ctx.default_mode)
 
     def _mode_changed(self, _index: int):
         self._refresh_max_level_amount()
@@ -899,9 +624,8 @@ class InputRow(QWidget):
             return
         if force_monthly:
             if self.mode_combo.currentText() != "M":
-                self.mode_combo.blockSignals(True)
-                self.mode_combo.setCurrentText("M")
-                self.mode_combo.blockSignals(False)
+                with muted_signals(self.mode_combo):
+                    self.mode_combo.setCurrentText("M")
             self.mode_combo.setEnabled(False)
         else:
             self.mode_combo.setEnabled(True)
@@ -2210,7 +1934,7 @@ class DynamicInputsPanel(QWidget):
 
     def load_from_policy(self, policy, *, has_shadow: bool = False,
                          shadow_ceased: bool = False):
-        self._ctx = context_from_policy(policy)
+        self._ctx = build_policy_context(policy)
         self._ctx.has_shadow = has_shadow
         self._ctx.shadow_ceased = shadow_ceased
         # A freshly retrieved policy starts with an empty lump sum.
@@ -2618,15 +2342,14 @@ class DynamicInputsPanel(QWidget):
         """(Re)build the Solve-for combo for the loaded policy — the shadow
         target appears only on a policy with an active shadow account."""
         current = self.solve_target_combo.currentData()
-        self.solve_target_combo.blockSignals(True)
-        self.solve_target_combo.clear()
-        self.solve_target_combo.addItem("Account Value", "av")
-        self.solve_target_combo.addItem("Surrender Value", "sv")
-        if self._ctx is not None and self._ctx.has_shadow:
-            self.solve_target_combo.addItem("Shadow Account Value", "shadow")
-        index = self.solve_target_combo.findData(current)
-        self.solve_target_combo.setCurrentIndex(max(0, index))
-        self.solve_target_combo.blockSignals(False)
+        with muted_signals(self.solve_target_combo):
+            self.solve_target_combo.clear()
+            self.solve_target_combo.addItem("Account Value", "av")
+            self.solve_target_combo.addItem("Surrender Value", "sv")
+            if self._ctx is not None and self._ctx.has_shadow:
+                self.solve_target_combo.addItem("Shadow Account Value", "shadow")
+            index = self.solve_target_combo.findData(current)
+            self.solve_target_combo.setCurrentIndex(max(0, index))
         # Default target age: the age-100 checkpoint (or maturity if sooner).
         if self._ctx is not None and self.solve_age_edit.value() is None:
             self.solve_age_edit.set_value(min(100, self._ctx.maturity_age))
