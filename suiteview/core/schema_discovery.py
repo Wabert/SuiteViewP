@@ -4,7 +4,15 @@ import logging
 from typing import List, Dict, Any, Optional
 from sqlalchemy import inspect, text
 
+from suiteview.core.data_access.connections import connection_factory
 from suiteview.core.connection_manager import get_connection_manager
+from suiteview.core.odbc_utils import ACCESS, DB2, SQL_SERVER
+from suiteview.core.sql_identifiers import (
+    limit_clause,
+    qualified_name,
+    quote_identifier,
+    top_clause,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -270,15 +278,15 @@ class SchemaDiscovery:
                 schema_name = 'dbo'
             
             # Build qualified table name
-            qualified_table = f"[{schema_name}].[{table_name}]"
+            qualified_table = qualified_name(schema_name, table_name, SQL_SERVER)
+            column = quote_identifier(column_name, SQL_SERVER)
             
             # SQL Server uses TOP instead of LIMIT
-            # Use parameterized query for column name safety
             query = text(f"""
-                SELECT DISTINCT TOP {limit} [{column_name}]
+                SELECT DISTINCT {top_clause(limit, SQL_SERVER)}{column}
                 FROM {qualified_table}
-                WHERE [{column_name}] IS NOT NULL
-                ORDER BY [{column_name}]
+                WHERE {column} IS NOT NULL
+                ORDER BY {column}
             """)
             
             unique_values = []
@@ -308,10 +316,10 @@ class SchemaDiscovery:
                 schema_name = 'dbo'
             
             # Build qualified table name
-            qualified_table = f"[{schema_name}].[{table_name}]"
+            qualified_table = qualified_name(schema_name, table_name, SQL_SERVER)
             
             # SQL Server uses TOP instead of LIMIT
-            query = text(f"SELECT TOP {limit} * FROM {qualified_table}")
+            query = text(f"SELECT {top_clause(limit, SQL_SERVER)}* FROM {qualified_table}")
             
             with engine.connect() as conn:
                 result = conn.execute(query)
@@ -334,8 +342,6 @@ class SchemaDiscovery:
         - Cannot use SQLAlchemy engine (forces MSSQL dialect incompatibility)
         """
         try:
-            import pyodbc
-            
             # Get connection details
             connection = self.conn_manager.get_connection(connection_id)
             if not connection:
@@ -346,10 +352,9 @@ class SchemaDiscovery:
             if not dsn:
                 raise ValueError("DB2 connection requires DSN")
             
-            conn_str = f"DSN={dsn}"
-            
-            # Connect with pyodbc directly
-            conn = pyodbc.connect(conn_str)
+            conn = connection_factory.connect_dsn(
+                dsn, autocommit=True, timeout=None, readonly=True,
+            )
             cursor = conn.cursor()
             
             # Query to get user tables with DB2-specific workarounds
@@ -398,8 +403,6 @@ class SchemaDiscovery:
         Get columns from DB2 table using direct pyodbc connection with workarounds
         """
         try:
-            import pyodbc
-            
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
             
@@ -413,8 +416,9 @@ class SchemaDiscovery:
             if not dsn:
                 raise ValueError("DB2 connection requires DSN")
             
-            conn_str = f"DSN={dsn}"
-            conn = pyodbc.connect(conn_str)
+            conn = connection_factory.connect_dsn(
+                dsn, autocommit=True, timeout=None, readonly=True,
+            )
             cursor = conn.cursor()
             
             # Query to get column information
@@ -485,8 +489,6 @@ class SchemaDiscovery:
         LIMIT is required to prevent DataDirect driver crashes
         """
         try:
-            import pyodbc
-            
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
             
@@ -500,20 +502,22 @@ class SchemaDiscovery:
             if not dsn:
                 raise ValueError("DB2 connection requires DSN")
             
-            conn_str = f"DSN={dsn}"
-            conn = pyodbc.connect(conn_str)
+            conn = connection_factory.connect_dsn(
+                dsn, autocommit=True, timeout=None, readonly=True,
+            )
             cursor = conn.cursor()
             
             # Build qualified table name
-            qualified_table = f'{schema_name}.{table_name}'
+            qualified_table = qualified_name(schema_name, table_name, DB2)
+            column = quote_identifier(column_name, DB2)
             
             # DB2 query with LIMIT to prevent crashes
             query = f"""
-                SELECT DISTINCT {column_name}
+                SELECT DISTINCT {column}
                 FROM {qualified_table}
-                WHERE {column_name} IS NOT NULL
-                ORDER BY {column_name}
-                LIMIT {limit}
+                WHERE {column} IS NOT NULL
+                ORDER BY {column}
+                {limit_clause(limit, "db2_limit")}
             """
             
             cursor.execute(query)
@@ -534,7 +538,6 @@ class SchemaDiscovery:
         Get preview data from DB2 table using pandas for 10x faster performance
         """
         try:
-            import pyodbc
             import time
             
             if not schema_name:
@@ -559,10 +562,19 @@ class SchemaDiscovery:
             # DEFERREDPREPARE=1: Defer SQL statement preparation until execute (reduces overhead)
             # CURRENTPACKAGESET=NULLID: Use default package set
             # autocommit=True: Avoid transaction overhead for read-only operations
-            conn_str = f"DSN={dsn};BLOCKSIZE=65535;MAXLOBSIZE=0;DEFERREDPREPARE=1;CURRENTPACKAGESET=NULLID"
-            
             conn_start = time.perf_counter()
-            conn = pyodbc.connect(conn_str, autocommit=True)
+            conn = connection_factory.connect_dsn(
+                dsn,
+                autocommit=True,
+                timeout=None,
+                readonly=True,
+                attributes={
+                    "BLOCKSIZE": "65535",
+                    "MAXLOBSIZE": "0",
+                    "DEFERREDPREPARE": "1",
+                    "CURRENTPACKAGESET": "NULLID",
+                },
+            )
             conn_time = time.perf_counter()
             logger.info(f"DB2 connection established in {(conn_time - conn_start):.3f} seconds")
             
@@ -573,12 +585,15 @@ class SchemaDiscovery:
             logger.info(f"Cursor arraysize set to {cursor.arraysize}")
             
             # Build qualified table name
-            qualified_table = f'{schema_name}.{table_name}'
+            qualified_table = qualified_name(schema_name, table_name, DB2)
             
             # OPTIMIZED QUERY with OPTIMIZE FOR clause
             # WITH UR: Uncommitted read (faster, no locking)
             # OPTIMIZE FOR N ROWS: Hints DB2 optimizer to prioritize first N rows (better access path)
-            query = f"SELECT * FROM {qualified_table} FETCH FIRST {limit} ROWS ONLY WITH UR OPTIMIZE FOR {limit} ROWS"
+            query = (
+                f"SELECT * FROM {qualified_table} {limit_clause(limit, DB2)} "
+                f"WITH UR OPTIMIZE FOR {int(limit)} ROWS"
+            )
             
             # Execute query
             query_start = time.perf_counter()
@@ -627,7 +642,6 @@ class SchemaDiscovery:
         This allows UI to display data progressively as it's fetched
         """
         try:
-            import pyodbc
             import time
             
             if not schema_name:
@@ -646,15 +660,28 @@ class SchemaDiscovery:
             logger.info(f"Starting chunked fetch: {limit:,} rows from {schema_name}.{table_name} in {chunk_size:,} row chunks")
             
             # Optimized connection string
-            conn_str = f"DSN={dsn};BLOCKSIZE=65535;MAXLOBSIZE=0;DEFERREDPREPARE=1;CURRENTPACKAGESET=NULLID"
-            conn = pyodbc.connect(conn_str, autocommit=True)
+            conn = connection_factory.connect_dsn(
+                dsn,
+                autocommit=True,
+                timeout=None,
+                readonly=True,
+                attributes={
+                    "BLOCKSIZE": "65535",
+                    "MAXLOBSIZE": "0",
+                    "DEFERREDPREPARE": "1",
+                    "CURRENTPACKAGESET": "NULLID",
+                },
+            )
             
             cursor = conn.cursor()
             cursor.arraysize = chunk_size
             
             # Build qualified table name and query
-            qualified_table = f'{schema_name}.{table_name}'
-            query = f"SELECT * FROM {qualified_table} FETCH FIRST {limit} ROWS ONLY WITH UR OPTIMIZE FOR {limit} ROWS"
+            qualified_table = qualified_name(schema_name, table_name, DB2)
+            query = (
+                f"SELECT * FROM {qualified_table} {limit_clause(limit, DB2)} "
+                f"WITH UR OPTIMIZE FOR {int(limit)} ROWS"
+            )
             
             # Execute query
             cursor.execute(query)
@@ -741,18 +768,15 @@ class SchemaDiscovery:
     def _get_access_tables(self, connection: Dict) -> List[Dict]:
         """Get tables from MS Access database using ODBC"""
         try:
-            import pyodbc
             import os
 
             file_path = connection.get('connection_string', '')
             if not file_path or not os.path.exists(file_path):
                 raise ValueError(f"Access file not found: {file_path}")
 
-            conn_str = (
-                r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-                f'DBQ={file_path};'
+            conn = connection_factory.connect_access_file(
+                file_path, autocommit=True, timeout=None, readonly=True,
             )
-            conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
 
             tables = []
@@ -977,23 +1001,20 @@ class SchemaDiscovery:
     def _get_access_columns(self, connection: Dict, table_name: str) -> List[Dict]:
         """Get columns from an Access table"""
         try:
-            import pyodbc
             import os
 
             file_path = connection.get('connection_string', '')
             if not file_path or not os.path.exists(file_path):
                 raise ValueError(f"Access file not found: {file_path}")
 
-            conn_str = (
-                r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-                f'DBQ={file_path};'
+            conn = connection_factory.connect_access_file(
+                file_path, autocommit=True, timeout=None, readonly=True,
             )
-            conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
 
             # Query the table to get column info instead of using cursor.columns()
             # which has issues with some Access databases
-            query = f"SELECT TOP 1 * FROM [{table_name}]"
+            query = f"SELECT {top_clause(1, ACCESS)}* FROM {quote_identifier(table_name, ACCESS)}"
             cursor.execute(query)
             
             columns = []
@@ -1081,15 +1102,16 @@ class SchemaDiscovery:
                 engine = self.conn_manager.get_engine(connection_id)
 
                 # Build qualified table name
-                qualified_table = f"{schema_name}.{table_name}" if schema_name else table_name
+                qualified_table = qualified_name(schema_name, table_name)
+                column = quote_identifier(column_name)
 
                 # Build query to get unique values
                 query = text(f"""
-                    SELECT DISTINCT {column_name}
+                    SELECT DISTINCT {column}
                     FROM {qualified_table}
-                    WHERE {column_name} IS NOT NULL
-                    ORDER BY {column_name}
-                    LIMIT {limit}
+                    WHERE {column} IS NOT NULL
+                    ORDER BY {column}
+                    {limit_clause(limit, 'sqlite')}
                 """)
 
                 with engine.connect() as conn:
@@ -1150,28 +1172,25 @@ class SchemaDiscovery:
     def _get_access_unique_values(self, connection: Dict, table_name: str,
                                  column_name: str, limit: int = 1000) -> List[Any]:
         """Get unique values from an Access table column"""
-        import pyodbc
         import os
 
         file_path = connection.get('connection_string', '')
         if not file_path or not os.path.exists(file_path):
             raise ValueError(f"Access file not found: {file_path}")
 
-        # Use pyodbc to query the Access database
-        conn_str = (
-            r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-            f'DBQ={file_path};'
+        conn = connection_factory.connect_access_file(
+            file_path, autocommit=True, timeout=None, readonly=True,
         )
-
-        conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
         # Query unique values
+        column = quote_identifier(column_name, ACCESS)
+        table = quote_identifier(table_name, ACCESS)
         query = f"""
-            SELECT DISTINCT [{column_name}]
-            FROM [{table_name}]
-            WHERE [{column_name}] IS NOT NULL
-            ORDER BY [{column_name}]
+            SELECT DISTINCT {column}
+            FROM {table}
+            WHERE {column} IS NOT NULL
+            ORDER BY {column}
         """
 
         cursor.execute(query)
@@ -1257,10 +1276,10 @@ class SchemaDiscovery:
                 engine = self.conn_manager.get_engine(connection_id)
 
                 # Build qualified table name
-                qualified_table = f"{schema_name}.{table_name}" if schema_name else table_name
+                qualified_table = qualified_name(schema_name, table_name)
 
                 # Build preview query
-                query = text(f"SELECT * FROM {qualified_table} LIMIT {limit}")
+                query = text(f"SELECT * FROM {qualified_table} {limit_clause(limit, 'sqlite')}")
 
                 with engine.connect() as conn:
                     result = conn.execute(query)
@@ -1305,23 +1324,19 @@ class SchemaDiscovery:
 
     def _get_access_preview(self, connection: Dict, table_name: str, limit: int = 10000) -> tuple:
         """Get preview data from an Access table"""
-        import pyodbc
         import os
 
         file_path = connection.get('connection_string', '')
         if not file_path or not os.path.exists(file_path):
             raise ValueError(f"Access file not found: {file_path}")
 
-        conn_str = (
-            r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-            f'DBQ={file_path};'
+        conn = connection_factory.connect_access_file(
+            file_path, autocommit=True, timeout=None, readonly=True,
         )
-
-        conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
         # Query first N rows
-        query = f"SELECT TOP {limit} * FROM [{table_name}]"
+        query = f"SELECT {top_clause(limit, ACCESS)}* FROM {quote_identifier(table_name, ACCESS)}"
         cursor.execute(query)
 
         # Get column names
@@ -1375,7 +1390,7 @@ class SchemaDiscovery:
             engine = self.conn_manager.get_engine(connection_id)
 
             # Build qualified table name
-            qualified_table = f"{schema_name}.{table_name}" if schema_name else table_name
+            qualified_table = qualified_name(schema_name, table_name)
 
             # Build count query
             query = text(f"SELECT COUNT(*) FROM {qualified_table}")

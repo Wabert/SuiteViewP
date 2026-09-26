@@ -2,9 +2,139 @@
 
 import ftplib
 import logging
-from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, List, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+_HEADER_KEYWORDS = ("-----", "NAME", "VV.MM", "CREATED", "CHANGED")
+_DATASET_INFO_KEYWORDS = (
+    "VOLUME", "UNIT", "REFERRED", "RECFM", "LRECL", "BLKSZ", "DSORG", "DSNAME",
+)
+_DASD_DEVICE_TYPES = ("3390", "3380", "3350")
+_DATASET_ATTRIBUTE_TOKENS = ("FB", "VB", "VBS", "FBA", "U", "PO", "PS", "DA", "IS", "VS")
+
+
+@dataclass(frozen=True)
+class _ListingFormat:
+    name: str
+    matches: Callable[[str, list[str]], bool]
+    parse: Callable[[str, list[str]], Optional[Dict[str, Any]]]
+
+
+def _should_skip_mvs_listing_line(line: str) -> bool:
+    line_upper = line.upper()
+    if any(keyword in line_upper for keyword in _HEADER_KEYWORDS):
+        return True
+    if any(keyword in line_upper for keyword in _DATASET_INFO_KEYWORDS):
+        logger.debug(f"Skipping dataset info line: {line}")
+        return True
+    if any(device in line_upper for device in _DASD_DEVICE_TYPES):
+        logger.debug(f"Skipping dataset attribute line (device type): {line}")
+        return True
+    parts = line.split()
+    if len(parts) > 2:
+        for part in parts:
+            if part.upper() in _DATASET_ATTRIBUTE_TOKENS:
+                logger.debug(f"Skipping dataset attribute line (found {part}): {line}")
+                return True
+    return False
+
+
+def _valid_mvs_member_name(name: str) -> bool:
+    if not name or name.startswith("*") or name.startswith("-"):
+        return False
+    if len(name) > 8:
+        logger.debug(f"Skipping '{name}' - too long for member name (>{len(name)} chars)")
+        return False
+    if not (name[0].isalpha() or name[0] in "@#$"):
+        logger.debug(f"Skipping '{name}' - invalid first character")
+        return False
+    if not all(c.isalnum() or c in "@#$" for c in name):
+        logger.debug(f"Skipping '{name}' - contains invalid characters")
+        return False
+    return True
+
+
+def _parse_unix_directory(_line: str, parts: list[str]) -> Dict[str, Any]:
+    return {
+        "name": parts[-1],
+        "type": "directory",
+        "size": 0,
+        "modified": " ".join(parts[-4:-1]) if len(parts) >= 4 else "",
+        "vv_mm": "",
+    }
+
+
+def _parse_unix_member(_line: str, parts: list[str]) -> Dict[str, Any]:
+    return {
+        "name": parts[-1],
+        "type": "member",
+        "size": int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0,
+        "modified": " ".join(parts[-4:-1]) if len(parts) >= 4 else "",
+        "vv_mm": "",
+    }
+
+
+def _is_vv_mm(value: str) -> bool:
+    return "." in value and len(value) <= 6 and value.replace(".", "").isdigit()
+
+
+def _parse_ispf_member(name: str, parts: list[str]) -> Dict[str, Any]:
+    vv_mm = parts[1]
+    created = parts[2] if len(parts) >= 3 and "/" in parts[2] else ""
+    modified = ""
+    size = 0
+    if len(parts) >= 4 and "/" in parts[3]:
+        modified = parts[3]
+        if len(parts) >= 5 and ":" in parts[4]:
+            modified = f"{parts[3]} {parts[4]}"
+            if len(parts) >= 6 and parts[5].isdigit():
+                size = int(parts[5])
+        elif len(parts) >= 5 and parts[4].isdigit():
+            size = int(parts[4])
+    logger.debug(f"Parsed ISPF member '{name}' VV.MM={vv_mm} modified='{modified}'")
+    return {
+        "name": name,
+        "type": "member",
+        "size": size,
+        "modified": modified,
+        "created": created,
+        "vv_mm": vv_mm,
+    }
+
+
+def _parse_simple_member(name: str, parts: list[str]) -> Dict[str, Any]:
+    size = 0
+    for part in parts[1:]:
+        if part.isdigit():
+            size = int(part)
+            break
+    logger.debug(f"Parsed simple member '{name}' (no ISPF stats)")
+    return {
+        "name": name,
+        "type": "member",
+        "size": size,
+        "modified": "",
+        "created": "",
+        "vv_mm": "",
+    }
+
+
+def _parse_classic_mvs_member(_line: str, parts: list[str]) -> Optional[Dict[str, Any]]:
+    name = parts[0]
+    if not _valid_mvs_member_name(name):
+        return None
+    if len(parts) >= 2 and _is_vv_mm(parts[1]):
+        return _parse_ispf_member(name, parts)
+    return _parse_simple_member(name, parts)
+
+
+_MVS_LISTING_FORMATS = (
+    _ListingFormat("unix_directory", lambda line, _parts: line.startswith("d"), _parse_unix_directory),
+    _ListingFormat("unix_member", lambda line, _parts: line.startswith("-"), _parse_unix_member),
+    _ListingFormat("classic_mvs_member", lambda _line, parts: bool(parts), _parse_classic_mvs_member),
+)
 
 
 class MainframeFTPManager:
@@ -436,128 +566,18 @@ class MainframeFTPManager:
         line = line.strip()
         if not line:
             return None
-        
-        # Skip header lines that contain column titles or dataset information
-        line_upper = line.upper()
-        
-        # First check: Skip obvious header/separator lines
-        if any(keyword in line_upper for keyword in ['-----', 'NAME', 'VV.MM', 'CREATED', 'CHANGED']):
+
+        if _should_skip_mvs_listing_line(line):
             return None
-        
-        # Second check: Skip dataset-level information lines (Volume info, Unit info, etc.)
-        # These appear before member listings in MVS FTP responses
-        if any(keyword in line_upper for keyword in ['VOLUME', 'UNIT', 'REFERRED', 'RECFM', 'LRECL', 'BLKSZ', 'DSORG', 'DSNAME']):
-            logger.debug(f"Skipping dataset info line: {line}")
-            return None
-        
-        # Third check: Skip dataset attribute lines (these have device types and org)
-        # Example: "A8C201 3390   2025/12/29  1  45  FB      80  6160  PO  D03.AA0139.RESTART.SMOPRT"
-        if any(device in line_upper for device in ['3390', '3380', '3350']):  # DASD device types
-            logger.debug(f"Skipping dataset attribute line (device type): {line}")
-            return None
-        
-        # Check for dataset organization types (PO, PS, DA, etc.) in typical attribute positions
-        parts_check = line.split()
-        if len(parts_check) > 2:
-            # Look for record formats (FB, VB, U, etc.) and dataset orgs (PO, PS, DA)
-            for part in parts_check:
-                if part.upper() in ['FB', 'VB', 'VBS', 'FBA', 'U', 'PO', 'PS', 'DA', 'IS', 'VS']:
-                    logger.debug(f"Skipping dataset attribute line (found {part}): {line}")
-                    return None
         
         try:
             parts = line.split()
             if not parts:
                 return None
-            
-            # Try Unix-style listing first (more common with modern FTP)
-            if line.startswith('d'):
-                # Directory
-                return {
-                    'name': parts[-1],
-                    'type': 'directory',
-                    'size': 0,
-                    'modified': ' '.join(parts[-4:-1]) if len(parts) >= 4 else '',
-                    'vv_mm': ''
-                }
-            elif line.startswith('-'):
-                # File/member - Unix style
-                return {
-                    'name': parts[-1],
-                    'type': 'member',
-                    'size': int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0,
-                    'modified': ' '.join(parts[-4:-1]) if len(parts) >= 4 else '',
-                    'vv_mm': ''
-                }
-            
-            # Classic MVS/ISPF format
-            name = parts[0]
-            
-            # Validate that name looks like a valid member name
-            if not name or name.startswith('*') or name.startswith('-'):
-                return None
-            
-            # MVS member names must be 1-8 characters and follow naming rules:
-            # - Start with letter or national char (@, #, $)
-            # - Contain only alphanumeric or national chars
-            # - Max 8 characters
-            if len(name) > 8:
-                logger.debug(f"Skipping '{name}' - too long for member name (>{len(name)} chars)")
-                return None
-            
-            # Check if first character is valid (letter or @#$)
-            if not (name[0].isalpha() or name[0] in '@#$'):
-                logger.debug(f"Skipping '{name}' - invalid first character")
-                return None
-            
-            # Check if all characters are valid
-            if not all(c.isalnum() or c in '@#$' for c in name):
-                logger.debug(f"Skipping '{name}' - contains invalid characters")
-                return None
-            
-            # Try to extract other fields if they exist
-            vv_mm = ''
-            modified = ''
-            created = ''
-            size = 0
-            
-            if len(parts) >= 2:
-                # Check if second field looks like VV.MM format (e.g., 01.00, 01.02)
-                # This indicates full ISPF statistics are present
-                if '.' in parts[1] and len(parts[1]) <= 6 and parts[1].replace('.', '').isdigit():
-                    vv_mm = parts[1]
-                    # Full format: NAME VV.MM CREATED CHANGED TIME SIZE INIT MOD ID
-                    if len(parts) >= 3 and '/' in parts[2]:
-                        created = parts[2]
-                    if len(parts) >= 4 and '/' in parts[3]:
-                        modified = parts[3]
-                        # Include time if present
-                        if len(parts) >= 5 and ':' in parts[4]:
-                            modified = f"{parts[3]} {parts[4]}"
-                            # Size is at index 5
-                            if len(parts) >= 6 and parts[5].isdigit():
-                                size = int(parts[5])
-                        elif len(parts) >= 5 and parts[4].isdigit():
-                            # No time, size at index 4
-                            size = int(parts[4])
-                    logger.debug(f"Parsed ISPF member '{name}' VV.MM={vv_mm} modified='{modified}'")
-                else:
-                    # Simple format without ISPF stats - just name and some numbers
-                    # Try to find size (usually a larger number)
-                    for p in parts[1:]:
-                        if p.isdigit():
-                            size = int(p)
-                            break
-                    logger.debug(f"Parsed simple member '{name}' (no ISPF stats)")
-            
-            return {
-                'name': name,
-                'type': 'member',
-                'size': size,
-                'modified': modified,
-                'created': created,
-                'vv_mm': vv_mm
-            }
+
+            for spec in _MVS_LISTING_FORMATS:
+                if spec.matches(line, parts):
+                    return spec.parse(line, parts)
             
         except Exception as e:
             logger.debug(f"Could not parse MVS listing line: {line} - {e}")

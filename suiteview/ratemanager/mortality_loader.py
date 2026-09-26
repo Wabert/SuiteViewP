@@ -10,6 +10,8 @@ from typing import Iterable
 
 from openpyxl import load_workbook
 
+from suiteview.core.data_sources import UL_RATES_DSN
+
 logger = logging.getLogger(__name__)
 
 
@@ -248,11 +250,12 @@ def _rate_rows(rates: Iterable[MortalityRate]) -> list[tuple[object, ...]]:
     ]
 
 
-def replace_live(package: MortalityPackage, dsn: str = "UL_Rates") -> dict[str, int]:
+def replace_live(package: MortalityPackage, dsn: str = UL_RATES_DSN) -> dict[str, int]:
     """Replace the unused mortality objects atomically and verify row counts."""
     from suiteview.core.build_env import guard_data_writable
     from suiteview.core.odbc_utils import connect_dsn
 
+    dsn = dsn or UL_RATES_DSN
     guard_data_writable("replace mortality rate tables")
     connection = connect_dsn(dsn, autocommit=False, timeout=10, readonly=False)
     try:

@@ -7,6 +7,7 @@ from sqlalchemy.engine import Engine
 
 from suiteview.data.repositories import get_connection_repository
 from suiteview.core.credential_manager import get_credential_manager
+from suiteview.core.data_access.connections import connection_factory
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +121,13 @@ class ConnectionManager:
 
             # DB2 requires direct pyodbc connection (not SQLAlchemy)
             if connection['connection_type'] == 'DB2':
-                import pyodbc
                 dsn = connection.get('connection_string', '').replace('DSN=', '')
                 if not dsn:
                     return False, "DB2 connection requires DSN"
                 
-                conn_str = f"DSN={dsn}"
-                conn = pyodbc.connect(conn_str)
+                conn = connection_factory.connect_dsn(
+                    dsn, autocommit=True, timeout=None, readonly=True,
+                )
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1 LIMIT 1")
                 cursor.fetchone()

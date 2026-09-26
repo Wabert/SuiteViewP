@@ -26,12 +26,12 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel
 
 from ..styles import GRAY_DARK
 from .source_query_tab import SourceQueryTab
+from suiteview.core.data_sources import UL_RATES_DSN
 
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
 
 
-UL_RATES_DSN = "UL_Rates"
 TABLE_NAME = "dbo.CYBERLIFE_PDF"
 PLANCODE_COLUMN = "Plancode"
 FIELD_NAME_COLUMN = "FieldName"

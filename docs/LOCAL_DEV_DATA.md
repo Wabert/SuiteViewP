@@ -1,7 +1,9 @@
 # Local Dev Data Mode
 
 Local dev data mode lets PolView and Illustration/Forecasting run without the
-work network, DB2, or the `UL_Rates` ODBC data source.
+work network, DB2, or the `UL_Rates` ODBC data source. See
+[`DATA_ACCESS.md`](DATA_ACCESS.md) for the shared DSN map, connection ownership,
+error hierarchy and SQL identifier rules.
 
 ## Generate Local Databases
 
@@ -34,7 +36,8 @@ The current synthetic fixture set uses plancode `1U144600` and these policies:
 
 ## Run In Local Mode
 
-Set the switch before launching PolView, Illustration, tests, or helper scripts:
+Set the switch before launching PolView, Illustration, tests, or helper scripts.
+The gate is exact: only `SUITEVIEW_LOCAL_DATA=1` enables local data.
 
 ```powershell
 $env:SUITEVIEW_LOCAL_DATA = "1"
@@ -145,6 +148,8 @@ $env:SUITEVIEW_LOCAL_RATES_DB = "C:\path\rates.sqlite"
 - The production table and field names stay the same.
 - The app code still uses `PolicyInformation`, `PolicyData`, and `Rates`.
 - Local mode only swaps the underlying connection objects to SQLite.
+- Local data is never a fallback for failed live DB2/SQL Server access; when the
+  exact gate is not set, live failures remain explicit live failures.
 - The checked-in generator uses synthetic, non-sensitive values.  A future work
   laptop export can add masked real-ish fixtures as long as it preserves table
   names and column names.

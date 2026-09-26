@@ -28,20 +28,18 @@ This module provides full read access.  Schema is managed externally
 in SQL Server.
 """
 
+from suiteview.core.data_sources import UL_RATES_DSN
 from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.profile_paths import profile_path
 
 import logging
 import time
 from datetime import date
-from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 
 import pyodbc
 
 logger = logging.getLogger(__name__)
-
-ODBC_DSN = "UL_Rates"
 
 # IssueVersion — always 1 per business rule
 ISSUE_VERSION = 1
@@ -69,7 +67,7 @@ class ABROdbcDatabase:
     rest of the codebase can use either backend interchangeably.
     """
 
-    def __init__(self, dsn: str = ODBC_DSN):
+    def __init__(self, dsn: str = UL_RATES_DSN):
         self._dsn = dsn
         self._conn: Optional[pyodbc.Connection] = None
         self.backend = "odbc"  # identifier for logging/diagnostics

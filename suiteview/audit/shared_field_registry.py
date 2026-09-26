@@ -15,10 +15,11 @@ import pyodbc
 
 from suiteview.core.odbc_utils import DB2, connect_dsn, detect_dialect
 from suiteview.core.build_env import guard_data_writable
+from suiteview.core.data_sources import UL_RATES_DSN
 
 logger = logging.getLogger(__name__)
 
-_DSN = "UL_Rates"
+_DSN = UL_RATES_DSN
 _DATABASE = "UL_Rates"
 
 

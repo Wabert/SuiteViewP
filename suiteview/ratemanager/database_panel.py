@@ -10,6 +10,7 @@ import pandas as pd
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from suiteview.core.build_env import is_data_read_only
+from suiteview.core.data_sources import UL_RATES_DSN
 
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -197,7 +198,7 @@ class WorkupDatabaseLoadTab(QWidget):
 
         connection_row = QHBoxLayout()
         connection_row.addWidget(self._section_label("UL_Rates DSN"))
-        self.dsn_edit = QLineEdit("UL_Rates")
+        self.dsn_edit = QLineEdit(UL_RATES_DSN)
         self.dsn_edit.setFixedWidth(180)
         connection_row.addWidget(self.dsn_edit)
         self.test_btn = self._button("Test Connection", self._test_connection)
@@ -313,7 +314,7 @@ class WorkupDatabaseLoadTab(QWidget):
         return button
 
     def _dsn(self) -> str:
-        return self.dsn_edit.text().strip() or "UL_Rates"
+        return self.dsn_edit.text().strip() or UL_RATES_DSN
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -633,7 +634,7 @@ class ManageExistingTab(QWidget):
 
         connection_row = QHBoxLayout()
         connection_row.addWidget(self._section_label("UL_Rates DSN"))
-        self.dsn_edit = QLineEdit("UL_Rates")
+        self.dsn_edit = QLineEdit(UL_RATES_DSN)
         self.dsn_edit.setFixedWidth(180)
         connection_row.addWidget(self.dsn_edit)
         connection_row.addStretch()
@@ -743,7 +744,7 @@ class ManageExistingTab(QWidget):
         return button
 
     def _dsn(self) -> str:
-        return self.dsn_edit.text().strip() or "UL_Rates"
+        return self.dsn_edit.text().strip() or UL_RATES_DSN
 
     def _load_pointers(self) -> None:
         plancode = self.pointer_plan_edit.text().strip()

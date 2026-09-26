@@ -9,7 +9,6 @@ WITH clause compatibility, and auto-retry on link failures.
 Originally from PolView, promoted to shared core.
 """
 
-import pyodbc
 from typing import Optional, List, Tuple, Any
 from contextlib import contextmanager
 import logging
@@ -17,15 +16,17 @@ import re
 import sqlite3
 
 from .db2_constants import REGION_DSN_MAP, DEFAULT_REGION, REGION_SCHEMA_MAP, DEFAULT_SCHEMA
-from .local_dev import connect_local_policy_database, local_data_enabled
+from .data_access.connections import connection_factory
+from .data_access.errors import ConnectionUnavailable
+from .local_dev import local_data_enabled
 from .sql_permissions import guard_query_sql
+import pyodbc
 
 logger = logging.getLogger(__name__)
 
 
-class DB2ConnectionError(Exception):
+class DB2ConnectionError(ConnectionUnavailable):
     """Custom exception for DB2 connection errors."""
-    pass
 
 
 def _clean_odbc_message(message: str) -> str:
@@ -127,12 +128,12 @@ class DB2Connection:
                     del DB2Connection._connections[self.region]
 
             try:
-                self._connection = connect_local_policy_database(self.region)
+                self._connection = connection_factory.connect_policy_db2(self.region)
                 DB2Connection._connections[self.region] = self._connection
                 return self._connection
-            except Exception as e:
+            except ConnectionUnavailable as e:
                 raise DB2ConnectionError(
-                    f"Failed to connect to local SuiteView policy database: {e}"
+                    str(e)
                 ) from e
 
         # Check if we have a cached connection for this region
@@ -150,13 +151,20 @@ class DB2Connection:
         
         # Create new connection
         try:
-            connection_string = f"DSN={self.dsn}"
-            self._connection = pyodbc.connect(connection_string, autocommit=True)
+            self._connection = connection_factory.connect_policy_db2(
+                self.region, autocommit=True,
+            )
             
             # Cache the connection
             DB2Connection._connections[self.region] = self._connection
             
             return self._connection
+
+        except ConnectionUnavailable as e:
+            msg = _extract_odbc_message(e)
+            raise DB2ConnectionError(
+                f"Failed to connect to {self.dsn}: {msg}"
+            ) from e
 
         except pyodbc.Error as e:
             # Direct pyodbc error — driver message is in args[1]
@@ -304,10 +312,7 @@ class DB2Connection:
         guard_query_sql(sql)
         sql = self._prepare_sql(sql)
         use_local_data = local_data_enabled()
-        if use_local_data:
-            conn = connect_local_policy_database(self.region)
-        else:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True)
+        conn = connection_factory.connect_policy_db2(self.region, autocommit=True)
         try:
             cursor = conn.cursor()
             try:

@@ -1,6 +1,7 @@
 import pytest
 
 from suiteview.core import db2_connection, local_dev, rates
+from suiteview.core.data_access import connections
 
 
 @pytest.mark.parametrize(
@@ -54,13 +55,13 @@ def test_db2_connection_does_not_use_local_policy_database_for_truthy_text(monke
     db2_connection.DB2Connection.close_all()
     monkeypatch.setenv(local_dev.LOCAL_DATA_ENV, "true")
     monkeypatch.setattr(
-        db2_connection,
+        connections,
         "connect_local_policy_database",
         lambda *_args, **_kwargs: pytest.fail("local policy database should not be used"),
     )
     monkeypatch.setattr(
-        db2_connection.pyodbc,
-        "connect",
+        db2_connection.connection_factory,
+        "connect_dsn",
         lambda *_args, **_kwargs: fake_connection,
     )
 
@@ -69,16 +70,22 @@ def test_db2_connection_does_not_use_local_policy_database_for_truthy_text(monke
 
 
 def test_rates_connection_does_not_use_local_rates_database_for_truthy_text(monkeypatch):
-    fake_connection = object()
+    class FakeConnection:
+        timeout = None
+
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    fake_connection = FakeConnection()
     monkeypatch.setenv(local_dev.LOCAL_DATA_ENV, "yes")
     monkeypatch.setattr(
-        rates,
+        connections,
         "connect_local_rates_database",
         lambda *_args, **_kwargs: pytest.fail("local rates database should not be used"),
     )
     monkeypatch.setattr(
-        rates.pyodbc,
-        "connect",
+        rates.connection_factory,
+        "connect_dsn",
         lambda *_args, **_kwargs: fake_connection,
     )
 

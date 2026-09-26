@@ -23,7 +23,9 @@ from uuid import uuid4
 import pyodbc
 
 from suiteview.core.build_env import guard_data_writable
+from suiteview.core.data_sources import UL_RATES_DSN
 from suiteview.core.json_store import write_json
+from suiteview.core.sql_identifiers import IdentifierCatalog, quote_identifier, qualified_name
 from suiteview.ratemanager.database_loader import (
     PackageValidationError, RateDatabaseError, StaleAnalysisError, TableData,
     ULRatesRepository, UnsafeOperationError, _chunks, _rows_digest,
@@ -216,8 +218,15 @@ class WholeLifeAnalysis:
         ]
 
 
+def _aliased_column(alias: str, column: str) -> str:
+    return f"{alias}.{quote_identifier(column)}"
+
+
 def _join(definition: WholeLifeTable) -> str:
-    return " AND ".join(f"d.[{key}] = s.[{key}]" for key in definition.keys)
+    return " AND ".join(
+        f"{_aliased_column('d', key)} = {_aliased_column('s', key)}"
+        for key in definition.keys
+    )
 
 
 def _different(definition: WholeLifeTable) -> str:
@@ -226,15 +235,15 @@ def _different(definition: WholeLifeTable) -> str:
         if c.name not in definition.keys and c.name != "MAINT_DT"
     ]
     return (
-        "EXISTS (SELECT " + ", ".join(f"d.[{c}]" for c in columns)
-        + " EXCEPT SELECT " + ", ".join(f"s.[{c}]" for c in columns) + ")"
+        "EXISTS (SELECT " + ", ".join(_aliased_column("d", c) for c in columns)
+        + " EXCEPT SELECT " + ", ".join(_aliased_column("s", c) for c in columns) + ")"
     )
 
 
 class WholeLifeRepository(ULRatesRepository):
     """Short-lived, thread-owned SQL Server repository; never a local fallback."""
 
-    def __init__(self, dsn: str = "UL_Rates", receipt_root: str | Path | None = None):
+    def __init__(self, dsn: str = UL_RATES_DSN, receipt_root: str | Path | None = None):
         super().__init__(dsn)
         self.receipt_root = (
             Path(receipt_root) if receipt_root is not None
@@ -335,7 +344,8 @@ class WholeLifeRepository(ULRatesRepository):
                 stage = f"#wl_stage_{self._stage_number}"
                 cursor.execute(definition.ddl(stage))
                 stages[name] = stage
-                columns = ", ".join(f"[{c}]" for c in data.spec.columns)
+                stage_name = quote_identifier(stage)
+                columns = ", ".join(quote_identifier(c) for c in data.spec.columns)
                 placeholders = ", ".join(
                     "CONVERT(date, ?, 23)" if c.sql_type == "date" else "?"
                     for c in definition.columns
@@ -360,7 +370,7 @@ class WholeLifeRepository(ULRatesRepository):
                         sizes.append((pyodbc.SQL_INTEGER, 0, 0))
                 cursor.setinputsizes(sizes)
                 cursor.fast_executemany = True
-                sql = f"INSERT INTO {stage} ({columns}) VALUES ({placeholders})"
+                sql = f"INSERT INTO {stage_name} ({columns}) VALUES ({placeholders})"
                 for batch in _chunks(data.rows, size=5000):
                     bound = []
                     for row in batch:
@@ -387,13 +397,13 @@ class WholeLifeRepository(ULRatesRepository):
         try:
             for name, data in package.tables.items():
                 definition = TABLES[name]
-                stage = stages[name]
-                target = f"[dbo].[{name}]"
+                stage = quote_identifier(stages[name])
+                target = qualified_name("dbo", name)
                 hint = " WITH (UPDLOCK, HOLDLOCK)" if locked else ""
                 joined = (
                     f"FROM {stage} s LEFT JOIN {target} d{hint} ON {_join(definition)}"
                 )
-                absent = f"d.[{definition.keys[0]}] IS NULL"
+                absent = f"{_aliased_column('d', definition.keys[0])} IS NULL"
                 inserted, changed = cursor.execute(
                     f"SELECT COALESCE(SUM(CASE WHEN {absent} THEN 1 ELSE 0 END), 0), "
                     f"COALESCE(SUM(CASE WHEN {absent} THEN 0 WHEN diff.changed = 1 "
@@ -403,7 +413,7 @@ class WholeLifeRepository(ULRatesRepository):
                 ).fetchone()
                 old_rows = ()
                 if changed:
-                    selected = ", ".join(f"d.[{c}]" for c in data.spec.columns)
+                    selected = ", ".join(_aliased_column("d", c) for c in data.spec.columns)
                     old_rows = tuple(
                         tuple(row)
                         for row in cursor.execute(
@@ -455,10 +465,12 @@ class WholeLifeRepository(ULRatesRepository):
             header_stage = stages["WL_DIV_HEADER"]
             rate_stage = stages["WL_RATE_DIV"]
             outside = cursor.execute(
-                f"SELECT TOP (1) d.[HEADER_ID] FROM [dbo].[WL_RATE_DIV] d "
-                f"JOIN {header_stage} s ON d.[HEADER_ID] = s.[HEADER_ID] "
-                "WHERE d.[DURATION] < s.[FIRST_DURATION] "
-                "OR d.[DURATION] > s.[LAST_DURATION]"
+                f"SELECT TOP (1) {_aliased_column('d', 'HEADER_ID')} "
+                f"FROM {qualified_name('dbo', 'WL_RATE_DIV')} d "
+                f"JOIN {quote_identifier(header_stage)} s "
+                f"ON {_aliased_column('d', 'HEADER_ID')} = {_aliased_column('s', 'HEADER_ID')} "
+                f"WHERE {_aliased_column('d', 'DURATION')} < {_aliased_column('s', 'FIRST_DURATION')} "
+                f"OR {_aliased_column('d', 'DURATION')} > {_aliased_column('s', 'LAST_DURATION')}"
             ).fetchone()
             if outside:
                 raise UnsafeOperationError(
@@ -467,11 +479,14 @@ class WholeLifeRepository(ULRatesRepository):
                     "replacement; this loader never deletes absent rates."
                 )
             missing_parent = cursor.execute(
-                f"SELECT TOP (1) other.[HEADER_ID] FROM {rate_stage} s "
-                "JOIN [dbo].[WL_RATE_DIV] d ON d.[HEADER_ID] = s.[HEADER_ID] "
-                "AND d.[DURATION] = s.[DURATION] "
-                f"JOIN {header_stage} h ON h.[HEADER_ID] = s.[HEADER_ID] "
-                "JOIN [dbo].[WL_DIV_HEADER] other "
+                f"SELECT TOP (1) other.{quote_identifier('HEADER_ID')} "
+                f"FROM {quote_identifier(rate_stage)} s "
+                f"JOIN {qualified_name('dbo', 'WL_RATE_DIV')} d "
+                f"ON {_aliased_column('d', 'HEADER_ID')} = {_aliased_column('s', 'HEADER_ID')} "
+                f"AND {_aliased_column('d', 'DURATION')} = {_aliased_column('s', 'DURATION')} "
+                f"JOIN {quote_identifier(header_stage)} h "
+                f"ON h.{quote_identifier('HEADER_ID')} = {_aliased_column('s', 'HEADER_ID')} "
+                f"JOIN {qualified_name('dbo', 'WL_DIV_HEADER')} other "
                 "ON other.[USER_CODE] = h.[USER_CODE] AND other.[PUA_KEY] = h.[PUA_KEY] "
                 "AND other.[RECORD_TYPE] = h.[RECORD_TYPE] "
                 "AND COALESCE(other.[PUA_KEY_USER_DEFINED], '') = "
@@ -498,16 +513,19 @@ class WholeLifeRepository(ULRatesRepository):
         if "WL_RATE_CV" not in package.tables:
             return
         keys = tuple(key for key in TABLES["WL_RATE_CV"].keys if key != "DURATION")
-        selected = ", ".join(f"[{key}]" for key in (*keys, "FIRST_DURATION", "LAST_DURATION"))
-        joined = " AND ".join(f"d.[{key}] = s.[{key}]" for key in keys)
+        selected = ", ".join(quote_identifier(key) for key in (*keys, "FIRST_DURATION", "LAST_DURATION"))
+        joined = " AND ".join(
+            f"{_aliased_column('d', key)} = {_aliased_column('s', key)}"
+            for key in keys
+        )
         cursor = self.connect().cursor()
         try:
             outside = cursor.execute(
-                f"SELECT TOP (1) d.[RATE_KEY], d.[ISSUE_AGE] "
-                f"FROM [dbo].[WL_RATE_CV] d JOIN "
-                f"(SELECT DISTINCT {selected} FROM {stages['WL_RATE_CV']}) s "
-                f"ON {joined} WHERE d.[DURATION] < s.[FIRST_DURATION] "
-                "OR d.[DURATION] > s.[LAST_DURATION]"
+                f"SELECT TOP (1) {_aliased_column('d', 'RATE_KEY')}, {_aliased_column('d', 'ISSUE_AGE')} "
+                f"FROM {qualified_name('dbo', 'WL_RATE_CV')} d JOIN "
+                f"(SELECT DISTINCT {selected} FROM {quote_identifier(stages['WL_RATE_CV'])}) s "
+                f"ON {joined} WHERE {_aliased_column('d', 'DURATION')} < {_aliased_column('s', 'FIRST_DURATION')} "
+                f"OR {_aliased_column('d', 'DURATION')} > {_aliased_column('s', 'LAST_DURATION')}"
             ).fetchone()
             if outside:
                 raise UnsafeOperationError(
@@ -584,13 +602,13 @@ class WholeLifeRepository(ULRatesRepository):
             for row in current:
                 name = row.table
                 definition = TABLES[name]
-                stage = stages[name]
-                target = f"[dbo].[{name}]"
+                stage = quote_identifier(stages[name])
+                target = qualified_name("dbo", name)
                 if row.changed:
                     assignments = ", ".join(
-                        f"d.[{c.name}] = " + (
+                        f"{_aliased_column('d', c.name)} = " + (
                             "CONVERT(varchar(10), GETDATE(), 101)"
-                            if c.name == "MAINT_DT" else f"s.[{c.name}]"
+                            if c.name == "MAINT_DT" else _aliased_column("s", c.name)
                         )
                         for c in definition.columns if c.name not in definition.keys
                     )
@@ -600,10 +618,10 @@ class WholeLifeRepository(ULRatesRepository):
                         f"WHERE {_different(definition)}"
                     )
                 if row.inserted:
-                    columns = ", ".join(f"[{c.name}]" for c in definition.columns)
+                    columns = ", ".join(quote_identifier(c.name) for c in definition.columns)
                     selected = ", ".join(
                         "CONVERT(varchar(10), GETDATE(), 101)"
-                        if c.name == "MAINT_DT" else f"s.[{c.name}]"
+                        if c.name == "MAINT_DT" else _aliased_column("s", c.name)
                         for c in definition.columns
                     )
                     cursor.execute(
@@ -643,18 +661,23 @@ class WholeLifeRepository(ULRatesRepository):
         self, table: str, filters: dict[str, str], limit: int = 1000,
     ) -> list[dict]:
         columns = self.columns(table)
+        catalog = IdentifierCatalog.from_tables(
+            BROWSE_TABLES,
+            {table: columns},
+        )
+        table_name = catalog.quote_table(table, "dbo")
         if not 1 <= limit <= 10000:
             raise PackageValidationError("Row limit must be between 1 and 10000.")
         if not set(filters).issubset(columns):
             raise PackageValidationError("Filters contain an unknown column.")
-        where = " AND ".join(f"[{column}] = ?" for column in filters)
-        selected = ", ".join(f"[{column}]" for column in columns)
+        where = " AND ".join(catalog.quote_column(table, column) + " = ?" for column in filters)
+        selected = ", ".join(catalog.quote_column(table, column) for column in columns)
         keys = PDF_COLUMNS if table == "CYBERLIFE_PDF" else TABLES[table].keys
-        order = ", ".join(f"[{column}]" for column in keys)
+        order = ", ".join(catalog.quote_column(table, column) for column in keys)
         cursor = self.connect().cursor()
         try:
             cursor.execute(
-                f"SELECT TOP (?) {selected} FROM [dbo].[{table}] "
+                f"SELECT TOP (?) {selected} FROM {table_name} "
                 + (f"WHERE {where} " if where else "")
                 + f"ORDER BY {order}",
                 (limit, *filters.values()),

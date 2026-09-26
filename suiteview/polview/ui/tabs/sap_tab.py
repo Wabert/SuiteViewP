@@ -17,12 +17,11 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 from .source_query_tab import SourceQueryTab
+from suiteview.core.data_sources import VRD_PROD_DSN
 
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
 
-
-VRD_PROD_DSN = "VRD Prod"
 
 DISPLAY_COLUMNS = [
     "LDTI_TX7_ID",
