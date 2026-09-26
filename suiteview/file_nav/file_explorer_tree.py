@@ -521,6 +521,7 @@ class FileExplorerTreeMixin:
         
         return [name_item, size_item, type_item, date_item, adate_item]
 
+    @staticmethod
     def _safe_startfile(path_str):
         """Open a file with os.startfile, with fallback for long paths (>260 chars).
         
@@ -549,6 +550,7 @@ class FileExplorerTreeMixin:
             else:
                 raise  # Re-raise the original OSError
 
+    @staticmethod
     def _stat_path(path, dir_entry=None):
         """Get stat info for a path, using DirEntry cache if available.
         
