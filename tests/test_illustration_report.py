@@ -5,7 +5,10 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from suiteview.illustration.core.report_builder import build_ul_report
+from suiteview.illustration.core.report_builder import (
+    build_ul_report,
+    issue_output_conditions,
+)
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
@@ -16,6 +19,7 @@ from suiteview.illustration.models.input_set import (
     ScheduledTransaction,
     TransactionKind,
 )
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     BenefitInfo,
     CoverageSegment,
@@ -177,6 +181,38 @@ def _results():
                 )
             rows.append(_month(year, month, **kw))
     return rows
+
+
+def test_issue_report_resolves_default_no_lapse_and_state_regulatory_values(monkeypatch):
+    monkeypatch.setattr(
+        "suiteview.illustration.core.report_builder.load_plancode",
+        lambda _plancode: PlancodeConfig(snet_period=5),
+        raising=False,
+    )
+    policy = _policy()
+    policy.def_of_life_ins = "GPT"
+    policy.run_from_issue = True
+    policy.issue_no_lapse_years = None
+    policy.tamra_7pay_level = 0.0
+    states = [
+        MonthlyState(
+            policy_year=1,
+            policy_month=1,
+            duration=0,
+            tamra_year=1,
+            gsp=2_400.0,
+            glp=1_200.0,
+            accumulated_glp=0.0,
+            tamra_7pay_level=3_456.78,
+        ),
+        _month(1, 1, tamra_year=1, tamra_7pay_level=3_456.78),
+    ]
+
+    report = build_ul_report(policy, states, run_date=date(2026, 6, 10))
+
+    assert any("NO LAPSE PERIOD: 5 YEARS" in line for line in report.basis_lines)
+    assert ("No Lapse Period", "5 YEARS") in issue_output_conditions(policy)
+    assert "7-PAY PREMIUM = $3,456.78" in report.regulatory_lines
 
 
 def test_report_ledger_annualizes_and_marks():
