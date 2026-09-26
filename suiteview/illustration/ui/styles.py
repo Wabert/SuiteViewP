@@ -319,12 +319,11 @@ INPUT_SMALL_BTN_STYLE = (
 INPUT_CAPTION_STYLE = (
     f"color: {PURPLE_DARK}; background: transparent; font-size: 9px; font-weight: bold;"
 )
-# Reuse the shared checkmark PNG asset (white tick, drawn once to disk) that
-# the Audit tabs' checkbox factory already generates — same glyph, different
-# indicator border color per module.
-from suiteview.audit.tabs._styles import _CHECKMARK_PATH, _ensure_checkmark  # noqa: E402
+# Reuse the shared checkmark PNG asset (white tick, drawn once to disk) — same
+# glyph, different indicator border color per module.
+from suiteview.ui.checkmark_icon import CHECKMARK_PATH, ensure_checkmark  # noqa: E402
 
-_CHECKMARK_ICON_PATH = _CHECKMARK_PATH.replace("\\", "/")
+_CHECKMARK_ICON_PATH = str(CHECKMARK_PATH).replace("\\", "/")
 
 # The canonical purple checkbox look — originated on the Illustration Control
 # tab's "Run Controls" group (see IllustrationInputsTab._make_control_checkbox)
@@ -358,7 +357,7 @@ def apply_input_checkbox_style(checkbox):
     every Illustration checkbox — not just Run Controls — renders the same
     bordered box / hover / filled-purple-with-white-tick states.
     """
-    _ensure_checkmark()
+    ensure_checkmark()
     checkbox.setStyleSheet(INPUT_CHECKBOX_STYLE)
     return checkbox
 INPUT_RADIO_STYLE = (

@@ -23,9 +23,7 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon,
 )
 
-from suiteview.core.access_control import (
-    requires_app_access,
-)
+from suiteview.ui.access_control import requires_app_access
 from suiteview.taskbar_launcher import appbar
 from suiteview.ui.widgets.frame_geometry import (
     resize_edge_at,

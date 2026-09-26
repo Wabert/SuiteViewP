@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
 from suiteview.core.access_control import (
     get_access,
 )
-from suiteview.taskbar_launcher.single_instance import activation_message
+from suiteview.core.single_instance import activation_message
+from suiteview.taskbar_launcher.app_launchers import register_default_launchers
 from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class SuiteViewTaskbar(TaskbarSystemMixin, TaskbarUiMixin, TaskbarTabsMixin, Tas
 
     def __init__(self):
         access = get_access(refresh=True)
+        register_default_launchers()
         super().__init__()
         self._permission_actions = []
         self._launcher_access = access

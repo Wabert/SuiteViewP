@@ -1,11 +1,25 @@
 """Characterization tests for CyberLife audit SQL generation."""
 from __future__ import annotations
+from datetime import date
 from pathlib import Path
 import pytest
+from suiteview.audit import sql_helpers
 from suiteview.audit.cyberlife_query import build_cyberlife_sql
 from tests.cyberlife_sql_cases import CASES, CyberlifeSqlCase, make_tabs
 from suiteview.audit.cyberlife_criteria import collect_audit_criteria
 GOLDEN_DIR = Path(__file__).parent / 'golden' / 'cyberlife_sql'
+
+
+class _GoldenDate(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 9, 25)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_golden_sql_today(monkeypatch):
+    monkeypatch.setattr(sql_helpers, "date", _GoldenDate)
+
 
 def render_case(case: CyberlifeSqlCase) -> str:
     tabs = make_tabs()

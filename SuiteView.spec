@@ -56,8 +56,6 @@ a = Analysis(
         ('suiteview/polview/data/policy_record_db2_tables.json', 'suiteview/polview/data'),
         # PolView config
         ('suiteview/polview/config/field_tooltips.json', 'suiteview/polview/config'),
-        # Audit Tool assets
-        ('suiteview/audit/tabs/_checkmark.png', 'suiteview/audit/tabs'),
         # Illustration / GLP Exception plancode and rate data (all JSON files)
         *_PLANCODES_DATAS,
         # Policy Record viewer captured screen definitions (seg_<n>.json)

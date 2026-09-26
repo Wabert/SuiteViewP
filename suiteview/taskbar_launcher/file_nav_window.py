@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.access_control import (
     guard_app_access,
-    requires_app_access,
 )
+from suiteview.ui.access_control import requires_app_access
 from suiteview.core.profile_paths import profile_path
 from suiteview.ui.widgets.bookmark_widgets import (
     BookmarkContainerRegistry,

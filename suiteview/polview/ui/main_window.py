@@ -22,11 +22,11 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QPushButton, QLabel, QMessageBox, QApplication,
 )
-from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtCore import QEvent, QTimer, Qt, QSignalBlocker, pyqtSignal, pyqtSlot
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
-from suiteview.core.access_control import requires_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import REGION_DSN_MAP
 from suiteview.core.odbc_utils import is_password_error
@@ -38,7 +38,7 @@ from .styles import (
     GREEN_BG, GOLD_TEXT, GOLD_PRIMARY,
     POLVIEW_HEADER_COLORS, POLVIEW_DUPLICATE_HEADER_COLORS, POLVIEW_BORDER_COLOR,
 )
-from .widgets import PolicyLookupBar, StyledInfoTableGroup, FixedHeaderTableWidget
+from .widgets import PolicyLookupBar, StyledInfoTableGroup
 from .tree_panel import PolicyRecordTreePanel
 from .loading_overlay import TabLoadingOverlay
 from .policy_load_controller import PolicyLoadController

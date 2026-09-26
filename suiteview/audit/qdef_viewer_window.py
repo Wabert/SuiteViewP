@@ -18,7 +18,8 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store

@@ -19,8 +19,10 @@ from PyQt6.QtWidgets import (
     QSplitter, QFileDialog, QMenu, QToolButton,
 )
 from suiteview.core.db2_constants import DEFAULT_REGION
+from suiteview.core.app_launcher import AppLauncherError, launch_app
 from suiteview.core.build_env import ReadOnlyDataError, guard_data_writable, is_data_read_only
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from .constants import REGION_ITEMS, SYSTEM_CODE_ITEMS
 from .tabs.policy_tab import PolicyTab
@@ -55,7 +57,6 @@ from .group_config import load_ui_settings, save_ui_settings
 from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
 from .query_runner import (
     execute_odbc_query,
-    run_button_context,
     run_query_async,
     format_query_error,
 )
@@ -2495,8 +2496,11 @@ class AuditWindow(FramelessWindowBase):
             return
         # Fallback: create our own RERUN window if no shared instance available.
         if self._illustration_window is None:
-            from suiteview.illustration import launch_illustration
-            self._illustration_window = launch_illustration()
+            try:
+                self._illustration_window = launch_app("RERUN")
+            except AppLauncherError as exc:
+                QMessageBox.warning(self, "RERUN", str(exc))
+                return
             self._illustration_owner = True
         iw = self._illustration_window
         if hasattr(iw, 'load_policy'):

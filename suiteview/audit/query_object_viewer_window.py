@@ -27,7 +27,8 @@ from suiteview.audit.query_object_viewer.object_actions import (
 from suiteview.audit.query_object_viewer.source_actions import (
     QueryObjectViewerSourceActionsMixin,
 )
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 

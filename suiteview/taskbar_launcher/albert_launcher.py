@@ -7,7 +7,8 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox, QPushButton
 
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.core.build_env import app_unavailable_reason
 
 logger = logging.getLogger(__name__)

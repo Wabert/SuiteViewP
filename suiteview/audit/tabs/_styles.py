@@ -7,8 +7,6 @@ All tabs should import from here for visual consistency.
 """
 from __future__ import annotations
 
-import os
-
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLineEdit, QListWidget,
@@ -16,31 +14,15 @@ from PyQt6.QtWidgets import (
     QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 from PyQt6.QtGui import QFont
+from suiteview.ui.checkmark_icon import CHECKMARK_PATH, ensure_checkmark
 
 _FONT = QFont("Segoe UI", 9)
 _ROW_H = 16
 _CTRL_H = 22
 
 # ── checkmark icon (created once, shared by all checkboxes) ────────────
-_CHECKMARK_PATH = os.path.join(os.path.dirname(__file__), "_checkmark.png")
-
-
-def _ensure_checkmark():
-    if os.path.exists(_CHECKMARK_PATH):
-        return
-    from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor
-    from PyQt6.QtCore import QPoint
-    pix = QPixmap(12, 12)
-    pix.fill(QColor(0, 0, 0, 0))
-    p = QPainter(pix)
-    pen = QPen(QColor("white"))
-    pen.setWidth(2)
-    p.setPen(pen)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.drawLine(QPoint(2, 6), QPoint(5, 9))
-    p.drawLine(QPoint(5, 9), QPoint(10, 3))
-    p.end()
-    pix.save(_CHECKMARK_PATH)
+_CHECKMARK_PATH = str(CHECKMARK_PATH)
+_ensure_checkmark = ensure_checkmark
 
 
 class TightItemDelegate(QStyledItemDelegate):

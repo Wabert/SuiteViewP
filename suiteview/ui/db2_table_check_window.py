@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QApplication,
     QProgressBar, QMessageBox,
@@ -19,7 +19,8 @@ from PyQt6.QtWidgets import (
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.core.db2_table_access import scan_table_access
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 
 logger = logging.getLogger(__name__)
 
