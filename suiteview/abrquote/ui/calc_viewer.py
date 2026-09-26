@@ -284,254 +284,219 @@ class CalcViewerDialog(FramelessWindowBase):
 
     def _build_assessment_tab(self) -> QWidget:
         """Build a read-only display of assessment inputs and derived values."""
-        a = self._assessment
-        r = self._result
-
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(SCROLL_AREA_STYLE)
-
         container = QWidget()
         grid = QGridLayout(container)
         grid.setContentsMargins(16, 12, 16, 12)
         grid.setSpacing(4)
         grid.setColumnMinimumWidth(0, 200)
         grid.setColumnMinimumWidth(1, 250)
-
-        section_font = QFont("Segoe UI", 11, QFont.Weight.Bold)
-        label_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
-        value_font = QFont("Segoe UI", 10)
-
+        fonts = (
+            QFont("Segoe UI", 11, QFont.Weight.Bold),
+            QFont("Segoe UI", 10, QFont.Weight.Bold),
+            QFont("Segoe UI", 10),
+        )
         row = 0
-
-        def _section(title):
-            nonlocal row
-            if row > 0:
-                row += 1
-            lbl = QLabel(title)
-            lbl.setFont(section_font)
-            lbl.setStyleSheet(
-                f"color: {WHITE}; background: {CRIMSON_DARK}; "
-                f"padding: 3px 8px; border-radius: 3px;"
-            )
-            grid.addWidget(lbl, row, 0, 1, 2)
-            row += 1
-
-        def _field(label, value, col=0):
-            nonlocal row
-            lbl = QLabel(label)
-            lbl.setFont(label_font)
-            lbl.setStyleSheet(f"color: {CRIMSON_DARK};")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(lbl, row, col)
-            val = QLabel(str(value))
-            val.setFont(value_font)
-            val.setStyleSheet(f"color: {GRAY_DARK};")
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            grid.addWidget(val, row, col + 1)
-            row += 1
-
-        _section("Rider Configuration")
-        _field("Rider Type:", a.rider_type)
-
-        _section("Assessment Inputs")
-        if a.use_five_year:
-            _field("5-Year Survival Rate:", f"{a.five_year_survival}")
-            _field("  Return to Normal:", "Yes" if a.use_return_5yr else "No")
-        if a.use_ten_year:
-            _field("10-Year Survival Rate:", f"{a.ten_year_survival}")
-            _field("  Return to Normal:", "Yes" if a.use_return_10yr else "No")
-        if a.use_le:
-            _field("Life Expectancy:", f"{a.life_expectancy_years} years")
-        if a.use_increased_decrement:
-            _field("Increased Decrement:", f"{a.direct_increased_decrement:.0f}%")
-            _field("  Start/Stop Year:", f"{a.incr_decrement_start_year} — {a.incr_decrement_stop_year}")
-        if a.use_table:
-            _field("Table (rating):", f"{a.direct_table_rating}")
-            _field("  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")
-        if a.use_flat:
-            _field("Flat ($/1000):", f"${a.direct_flat_extra:.2f}")
-            _field("  Start/Stop Year:", f"{a.flat_start_year} — {a.flat_stop_year}")
-        if a.use_table_2:
-            _field("Table 2 (rating):", f"{a.direct_table_rating_2}")
-            _field("  Start/Stop Year:", f"{a.table_2_start_year} — {a.table_2_stop_year}")
-        if a.use_flat_2:
-            _field("Flat 2 ($/1000):", f"${a.direct_flat_extra_2:.2f}")
-            _field("  Start/Stop Year:", f"{a.flat_2_start_year} — {a.flat_2_stop_year}")
-        _field("In Lieu Of:", "Yes" if a.in_lieu_of else "No (In Addition To)")
-
-        _section("Derived Substandard Values")
-        dv = self._derived_values
-        if dv:
-            # Side-by-side: Current vs Modified
-            grid.setColumnMinimumWidth(2, 16)
-            grid.setColumnMinimumWidth(3, 200)
-            grid.setColumnMinimumWidth(4, 250)
-
-            hdr_left = QLabel("Current (Unmodified)")
-            hdr_left.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            hdr_left.setStyleSheet(f"color: {CRIMSON_DARK}; text-decoration: underline;")
-            grid.addWidget(hdr_left, row, 0, 1, 2, Qt.AlignmentFlag.AlignCenter)
-
-            hdr_right = QLabel("Modified (Substandard Applied)")
-            hdr_right.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            hdr_right.setStyleSheet(f"color: {CRIMSON_DARK}; text-decoration: underline;")
-            grid.addWidget(hdr_right, row, 3, 1, 2, Qt.AlignmentFlag.AlignCenter)
-            row += 1
-
-            pairs = [
-                ("5-Year Survival:", "std_survival_5yr", "5-Year Survival:", "mod_survival_5yr"),
-                ("10-Year Survival:", "std_survival_10yr", "10-Year Survival:", "mod_survival_10yr"),
-                ("Life Expectancy:", "std_le", "Life Expectancy:", "mod_le"),
-                ("Table Rating:", "std_table_rating", "Table Ratings:", "table_rating"),
-                ("Flat Extra:", "std_flat_extra", "Flat Extras:", "flat_extra"),
-            ]
-            for std_lbl, std_key, mod_lbl, mod_key in pairs:
-                lf = QLabel(std_lbl)
-                lf.setFont(label_font)
-                lf.setStyleSheet(f"color: {CRIMSON_DARK};")
-                lf.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                grid.addWidget(lf, row, 0)
-                lv = QLabel(dv.get(std_key, "—"))
-                lv.setFont(value_font)
-                lv.setStyleSheet(f"color: {GRAY_DARK};")
-                lv.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                grid.addWidget(lv, row, 1)
-
-                rf = QLabel(mod_lbl)
-                rf.setFont(label_font)
-                rf.setStyleSheet(f"color: {CRIMSON_DARK};")
-                rf.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                grid.addWidget(rf, row, 3)
-                rv = QLabel(dv.get(mod_key, "—"))
-                rv.setFont(value_font)
-                rv.setStyleSheet(f"color: {GRAY_DARK};")
-                rv.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                grid.addWidget(rv, row, 4)
-                row += 1
-        else:
-            _field("Derived Table Rating:", f"{a.derived_table_rating:.4f}")
-            if a.use_five_year and a.use_ten_year:
-                _field("  5yr Table Rating:", f"{a.derived_table_rating_5yr:.4f}")
-                _field("  10yr Table Rating:", f"{a.derived_table_rating_10yr:.4f}")
-            _field("Life Expectancy (rounded):", f"{a.life_expectancy_rounded}")
-
-        if r:
-            _section("Results Summary")
-            p = self._policy
-            is_ul = p and p.product_type in ("UL", "IUL", "ISWL")
-
-            # Ensure columns 3-4 are wide enough for APV labels
-            grid.setColumnMinimumWidth(3, 100)
-            grid.setColumnMinimumWidth(4, 150)
-
-            # Full Acceleration breakdown
-            _field("", "FULL ACCELERATION")
-            accel_display = self._accel_amount_input if self._accel_amount_input > 0 else (p.face_amount if p else 0)
-            _field("Acceleration Amount Input:", f"${accel_display:,.2f}" if accel_display else "—")
-            full_start_row = row  # track for APV placement
-            _field("Eligible Death Benefit:", f"${r.full_eligible_db:,.2f}")
-            _field("Actuarial Discount:", f"${r.full_actuarial_discount:,.2f}")
-            _field("Administrative Fee:", f"${r.full_admin_fee:,.2f}")
-            if r.full_loan_repayment > 0:
-                _field("Loan Repayment:", f"${r.full_loan_repayment:,.2f}")
-            _field("Calculated Benefit:", f"${max(0.0, r.full_accel_benefit):,.2f}")
-            _field("Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
-            if r.full_surrender_value > 0:
-                _field("Surrender Value:", f"${r.full_surrender_value:,.2f}")
-                _field("Accelerated Benefit:", f"${r.full_accelerated_benefit:,.2f}")
-
-            # Full APV — columns 3-4 beside Full Acceleration
-            for j, (apv_lbl, apv_val) in enumerate([
-                ("APV_FB:", f"${r.apv_fb:,.2f}"),
-                ("APV_FP:", f"${r.apv_fp:,.2f}"),
-                ("APV_FD:", f"${r.apv_fd:,.2f}"),
-            ]):
-                al = QLabel(apv_lbl)
-                al.setFont(label_font)
-                al.setStyleSheet(f"color: {CRIMSON_DARK};")
-                al.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                grid.addWidget(al, full_start_row + j, 3)
-                av = QLabel(apv_val)
-                av.setFont(value_font)
-                av.setStyleSheet(f"color: {GRAY_DARK};")
-                av.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                grid.addWidget(av, full_start_row + j, 4)
-
-            # Max Partial Acceleration breakdown
-            _field("", "")
-            if r.partial_eligible_db > 0:
-                _field("", "MAX PARTIAL ACCELERATION")
-                min_face_display = self._min_face_amount_input if self._min_face_amount_input > 0 else (p.min_face_amount if p else 0)
-                _field("Min Face Amount Input:", f"${min_face_display:,.0f}" if min_face_display else "—")
-                partial_start_row = row
-                _field("Eligible Death Benefit:", f"${r.partial_eligible_db:,.2f}")
-                _field("Actuarial Discount:", f"${r.partial_actuarial_discount:,.2f}")
-                _field("Administrative Fee:", f"${r.partial_admin_fee:,.2f}")
-                if r.partial_loan_repayment > 0:
-                    _field("Loan Repayment:", f"${r.partial_loan_repayment:,.2f}")
-                _field("Calculated Benefit:", f"${max(0.0, r.partial_accel_benefit):,.2f}")
-                _field("Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
-                if r.partial_surrender_value > 0:
-                    _field("Surrender Value:", f"${r.partial_surrender_value:,.2f}")
-                    _field("Accelerated Benefit:", f"${r.partial_accelerated_benefit:,.2f}")
-
-                # Partial APV — proportionally scaled, columns 3-4
-                if r.full_eligible_db > 0:
-                    ratio = r.partial_eligible_db / r.full_eligible_db
-                else:
-                    ratio = 0.0
-                for j, (apv_lbl, apv_val) in enumerate([
-                    ("APV_FB:", f"${r.apv_fb * ratio:,.2f}"),
-                    ("APV_FP:", f"${r.apv_fp * ratio:,.2f}"),
-                    ("APV_FD:", f"${r.apv_fd * ratio:,.2f}"),
-                ]):
-                    al = QLabel(apv_lbl)
-                    al.setFont(label_font)
-                    al.setStyleSheet(f"color: {CRIMSON_DARK};")
-                    al.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                    grid.addWidget(al, partial_start_row + j, 3)
-                    av = QLabel(apv_val)
-                    av.setFont(value_font)
-                    av.setStyleSheet(f"color: {GRAY_DARK};")
-                    av.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                    grid.addWidget(av, partial_start_row + j, 4)
-            else:
-                _field("Partial Acceleration:", "NOT ALLOWED — At Minimum Face")
-
-            # Premium Impact / Monthly Deduction Impact
-            _field("", "")
-            if is_ul:
-                # UL: premium_before already contains just the amount (no mode)
-                _field("Last Monthly Deduction:", r.premium_before)
-            else:
-                _field("Premium Before:", r.premium_before)
-            _field("After (Full Accel):", f"${r.premium_after_full:,.2f}")
-            if r.partial_eligible_db > 0:
-                if is_ul and self._after_partial_override:
-                    _field("After (Partial):", self._after_partial_override)
-                else:
-                    _field("After (Partial):", r.premium_after_partial)
-            else:
-                _field("After (Partial):", "NOT ALLOWED")
-
-        # Messages / Warnings — combine result.messages with UI-generated warnings
-        all_warnings = list(r.messages) if r else []
-        all_warnings.extend(self._warnings)
-        if all_warnings:
-            _section("Messages")
-            for msg in all_warnings:
-                msg_lbl = QLabel(f"\u2022 {msg}")
-                msg_lbl.setWordWrap(True)
-                msg_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-                msg_lbl.setStyleSheet("color: #C62828; padding: 2px 0;")
-                msg_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                grid.addWidget(msg_lbl, row, 0, 1, 5)
-                row += 1
-
+        row = self._add_assessment_inputs(grid, row, fonts)
+        row = self._add_derived_assessment_values(grid, row, fonts)
+        if self._result:
+            row = self._add_result_summary(grid, row, fonts)
+        row = self._add_assessment_warnings(grid, row, fonts[0])
         grid.setRowStretch(row, 1)
         scroll.setWidget(container)
         return scroll
+
+    def _assessment_section(self, grid, row: int, title: str, font: QFont) -> int:
+        if row > 0:
+            row += 1
+        label = QLabel(title)
+        label.setFont(font)
+        label.setStyleSheet(
+            f"color: {WHITE}; background: {CRIMSON_DARK}; "
+            f"padding: 3px 8px; border-radius: 3px;"
+        )
+        grid.addWidget(label, row, 0, 1, 2)
+        return row + 1
+
+    def _assessment_field(self, grid, row: int, label: str, value, fonts, col: int = 0) -> int:
+        _section_font, label_font, value_font = fonts
+        label_widget = QLabel(label)
+        label_widget.setFont(label_font)
+        label_widget.setStyleSheet(f"color: {CRIMSON_DARK};")
+        label_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(label_widget, row, col)
+        value_widget = QLabel(str(value))
+        value_widget.setFont(value_font)
+        value_widget.setStyleSheet(f"color: {GRAY_DARK};")
+        value_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        grid.addWidget(value_widget, row, col + 1)
+        return row + 1
+
+    def _add_assessment_inputs(self, grid, row: int, fonts) -> int:
+        a = self._assessment
+        row = self._assessment_section(grid, row, "Rider Configuration", fonts[0])
+        row = self._assessment_field(grid, row, "Rider Type:", a.rider_type, fonts)
+        row = self._assessment_section(grid, row, "Assessment Inputs", fonts[0])
+        for label, value in self._assessment_input_rows(a):
+            row = self._assessment_field(grid, row, label, value, fonts)
+        return row
+
+    def _assessment_input_rows(self, a) -> list[tuple[str, str]]:
+        rows: list[tuple[str, str]] = []
+        if a.use_five_year:
+            rows += [("5-Year Survival Rate:", f"{a.five_year_survival}"),
+                     ("  Return to Normal:", "Yes" if a.use_return_5yr else "No")]
+        if a.use_ten_year:
+            rows += [("10-Year Survival Rate:", f"{a.ten_year_survival}"),
+                     ("  Return to Normal:", "Yes" if a.use_return_10yr else "No")]
+        if a.use_le:
+            rows.append(("Life Expectancy:", f"{a.life_expectancy_years} years"))
+        if a.use_increased_decrement:
+            rows += [("Increased Decrement:", f"{a.direct_increased_decrement:.0f}%"),
+                     ("  Start/Stop Year:", f"{a.incr_decrement_start_year} — {a.incr_decrement_stop_year}")]
+        if a.use_table:
+            rows += [("Table (rating):", f"{a.direct_table_rating}"),
+                     ("  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")]
+        if a.use_flat:
+            rows += [("Flat ($/1000):", f"${a.direct_flat_extra:.2f}"),
+                     ("  Start/Stop Year:", f"{a.flat_start_year} — {a.flat_stop_year}")]
+        if a.use_table_2:
+            rows += [("Table 2 (rating):", f"{a.direct_table_rating_2}"),
+                     ("  Start/Stop Year:", f"{a.table_2_start_year} — {a.table_2_stop_year}")]
+        if a.use_flat_2:
+            rows += [("Flat 2 ($/1000):", f"${a.direct_flat_extra_2:.2f}"),
+                     ("  Start/Stop Year:", f"{a.flat_2_start_year} — {a.flat_2_stop_year}")]
+        rows.append(("In Lieu Of:", "Yes" if a.in_lieu_of else "No (In Addition To)"))
+        return rows
+
+    def _add_derived_assessment_values(self, grid, row: int, fonts) -> int:
+        a = self._assessment
+        row = self._assessment_section(grid, row, "Derived Substandard Values", fonts[0])
+        if not self._derived_values:
+            row = self._assessment_field(grid, row, "Derived Table Rating:", f"{a.derived_table_rating:.4f}", fonts)
+            if a.use_five_year and a.use_ten_year:
+                row = self._assessment_field(grid, row, "  5yr Table Rating:", f"{a.derived_table_rating_5yr:.4f}", fonts)
+                row = self._assessment_field(grid, row, "  10yr Table Rating:", f"{a.derived_table_rating_10yr:.4f}", fonts)
+            return self._assessment_field(grid, row, "Life Expectancy (rounded):", f"{a.life_expectancy_rounded}", fonts)
+        grid.setColumnMinimumWidth(2, 16)
+        grid.setColumnMinimumWidth(3, 200)
+        grid.setColumnMinimumWidth(4, 250)
+        self._derived_headers(grid, row, fonts[1])
+        row += 1
+        for labels in self._derived_value_rows():
+            self._derived_value_row(grid, row, labels, fonts)
+            row += 1
+        return row
+
+    def _derived_headers(self, grid, row: int, font: QFont) -> None:
+        for text, col in (("Current (Unmodified)", 0), ("Modified (Substandard Applied)", 3)):
+            label = QLabel(text)
+            label.setFont(font)
+            label.setStyleSheet(f"color: {CRIMSON_DARK}; text-decoration: underline;")
+            grid.addWidget(label, row, col, 1, 2, Qt.AlignmentFlag.AlignCenter)
+
+    def _derived_value_rows(self):
+        return [
+            ("5-Year Survival:", "std_survival_5yr", "5-Year Survival:", "mod_survival_5yr"),
+            ("10-Year Survival:", "std_survival_10yr", "10-Year Survival:", "mod_survival_10yr"),
+            ("Life Expectancy:", "std_le", "Life Expectancy:", "mod_le"),
+            ("Table Rating:", "std_table_rating", "Table Ratings:", "table_rating"),
+            ("Flat Extra:", "std_flat_extra", "Flat Extras:", "flat_extra"),
+        ]
+
+    def _derived_value_row(self, grid, row: int, labels, fonts) -> None:
+        dv = self._derived_values
+        std_label, std_key, mod_label, mod_key = labels
+        self._assessment_field(grid, row, std_label, dv.get(std_key, "—"), fonts, col=0)
+        self._assessment_field(grid, row, mod_label, dv.get(mod_key, "—"), fonts, col=3)
+
+    def _add_result_summary(self, grid, row: int, fonts) -> int:
+        r = self._result
+        p = self._policy
+        is_ul = p and p.product_type in ("UL", "IUL", "ISWL")
+        row = self._assessment_section(grid, row, "Results Summary", fonts[0])
+        grid.setColumnMinimumWidth(3, 100)
+        grid.setColumnMinimumWidth(4, 150)
+        row = self._add_full_acceleration_summary(grid, row, fonts)
+        row = self._add_partial_acceleration_summary(grid, row, fonts)
+        return self._add_premium_impact_summary(grid, row, fonts, is_ul)
+
+    def _add_full_acceleration_summary(self, grid, row: int, fonts) -> int:
+        r = self._result
+        p = self._policy
+        row = self._assessment_field(grid, row, "", "FULL ACCELERATION", fonts)
+        accel_display = self._accel_amount_input if self._accel_amount_input > 0 else (p.face_amount if p else 0)
+        row = self._assessment_field(grid, row, "Acceleration Amount Input:", f"${accel_display:,.2f}" if accel_display else "—", fonts)
+        apv_start = row
+        for label, value in [
+            ("Eligible Death Benefit:", f"${r.full_eligible_db:,.2f}"),
+            ("Actuarial Discount:", f"${r.full_actuarial_discount:,.2f}"),
+            ("Administrative Fee:", f"${r.full_admin_fee:,.2f}"),
+            ("Calculated Benefit:", f"${max(0.0, r.full_accel_benefit):,.2f}"),
+            ("Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%"),
+        ]:
+            row = self._assessment_field(grid, row, label, value, fonts)
+        self._add_apv_side_labels(grid, apv_start, [r.apv_fb, r.apv_fp, r.apv_fd], fonts)
+        return row
+
+    def _add_partial_acceleration_summary(self, grid, row: int, fonts) -> int:
+        r = self._result
+        p = self._policy
+        row = self._assessment_field(grid, row, "", "", fonts)
+        if r.partial_eligible_db <= 0:
+            return self._assessment_field(grid, row, "Partial Acceleration:", "NOT ALLOWED — At Minimum Face", fonts)
+        row = self._assessment_field(grid, row, "", "MAX PARTIAL ACCELERATION", fonts)
+        min_face_display = self._min_face_amount_input if self._min_face_amount_input > 0 else (p.min_face_amount if p else 0)
+        row = self._assessment_field(grid, row, "Min Face Amount Input:", f"${min_face_display:,.0f}" if min_face_display else "—", fonts)
+        apv_start = row
+        for label, value in [
+            ("Eligible Death Benefit:", f"${r.partial_eligible_db:,.2f}"),
+            ("Actuarial Discount:", f"${r.partial_actuarial_discount:,.2f}"),
+            ("Administrative Fee:", f"${r.partial_admin_fee:,.2f}"),
+            ("Calculated Benefit:", f"${max(0.0, r.partial_accel_benefit):,.2f}"),
+            ("Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%"),
+        ]:
+            row = self._assessment_field(grid, row, label, value, fonts)
+        ratio = r.partial_eligible_db / r.full_eligible_db if r.full_eligible_db > 0 else 0.0
+        self._add_apv_side_labels(grid, apv_start, [r.apv_fb * ratio, r.apv_fp * ratio, r.apv_fd * ratio], fonts)
+        return row
+
+    def _add_apv_side_labels(self, grid, start_row: int, values: list[float], fonts) -> None:
+        for offset, (label, value) in enumerate(zip(("APV_FB:", "APV_FP:", "APV_FD:"), values)):
+            self._assessment_field(grid, start_row + offset, label, f"${value:,.2f}", fonts, col=3)
+
+    def _add_premium_impact_summary(self, grid, row: int, fonts, is_ul: bool) -> int:
+        r = self._result
+        row = self._assessment_field(grid, row, "", "", fonts)
+        row = self._assessment_field(
+            grid, row,
+            "Last Monthly Deduction:" if is_ul else "Premium Before:",
+            r.premium_before,
+            fonts,
+        )
+        row = self._assessment_field(grid, row, "After (Full Accel):", f"${r.premium_after_full:,.2f}", fonts)
+        if r.partial_eligible_db <= 0:
+            return self._assessment_field(grid, row, "After (Partial):", "NOT ALLOWED", fonts)
+        value = self._after_partial_override if is_ul and self._after_partial_override else r.premium_after_partial
+        return self._assessment_field(grid, row, "After (Partial):", value, fonts)
+
+    def _add_assessment_warnings(self, grid, row: int, font: QFont) -> int:
+        warnings = list(self._result.messages) if self._result else []
+        warnings.extend(self._warnings)
+        if not warnings:
+            return row
+        row = self._assessment_section(grid, row, "Messages", font)
+        for message in warnings:
+            label = QLabel(f"• {message}")
+            label.setWordWrap(True)
+            label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            label.setStyleSheet("color: #C62828; padding: 2px 0;")
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            grid.addWidget(label, row, 0, 1, 5)
+            row += 1
+        return row
 
     # ── Mortality tab ───────────────────────────────────────────────────
 

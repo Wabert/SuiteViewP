@@ -113,6 +113,15 @@ class RateViewerDialog(FramelessWindowBase):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        self._build_controls(root)
+        self._build_action_bar(root)
+        self._build_rate_table(root)
+        self._build_footer(root)
+
+        QTimer.singleShot(50, lambda: self._on_type_changed(0))
+        return body
+
+    def _build_controls(self, root):
         # ── Control strip ──────────────────────────────────────────────
         controls = QWidget()
         controls.setObjectName("rvControls")
@@ -204,6 +213,8 @@ class RateViewerDialog(FramelessWindowBase):
         divider.setStyleSheet(f"background-color: {SLATE_PRIMARY};")
         root.addWidget(divider)
 
+
+    def _build_action_bar(self, root):
         # ── Action bar (Add / Edit / Delete) — visible for editable tables ──
         self._action_bar = QWidget()
         self._action_bar.setObjectName("rvActionBar")
@@ -240,6 +251,8 @@ class RateViewerDialog(FramelessWindowBase):
         self._action_bar.setVisible(False)
         root.addWidget(self._action_bar)
 
+
+    def _build_rate_table(self, root):
         # ── Table (FixedHeaderTableWidget with column filter popups) ───
         self._table = FixedHeaderTableWidget(filterable=True)
         # Override the frame/header colours to match teal theme
@@ -317,6 +330,8 @@ class RateViewerDialog(FramelessWindowBase):
         """)
         root.addWidget(self._table, 1)
 
+
+    def _build_footer(self, root):
         # ── Footer / status strip ──────────────────────────────────────
         footer = QWidget()
         footer.setObjectName("rvFooter")
@@ -346,10 +361,6 @@ class RateViewerDialog(FramelessWindowBase):
 
         root.addWidget(footer)
 
-        # Load initial data after the event loop starts
-        QTimer.singleShot(50, lambda: self._on_type_changed(0))
-
-        return body
 
     # ── Data loading ───────────────────────────────────────────────────
 

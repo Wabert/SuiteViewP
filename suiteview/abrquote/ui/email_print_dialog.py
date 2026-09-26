@@ -233,6 +233,11 @@ class EmailPrintDialog(QDialog):
         r = self._result
         a = self._assessment
 
+        self._populate_policy_summary(p, r)
+        self._populate_assessment_summary(a)
+        self._set("reinsurers", p.reinsurers if p and p.reinsurers else "(none)")
+
+    def _populate_policy_summary(self, p, r):
         if r:
             self._set("quote_date", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
 
@@ -260,6 +265,7 @@ class EmailPrintDialog(QDialog):
             self._set("full_surrender_value", self._fmt(r.full_surrender_value) if r.full_surrender_value > 0 else "—")
             self._set("full_accelerated_benefit", self._fmt(r.full_accelerated_benefit) if r.full_surrender_value > 0 else "—")
 
+    def _populate_assessment_summary(self, a):
         if a:
             self._set("acceleration", a.rider_type)
             self._set("survival_5yr", f"{a.five_year_survival * 100:.1f}%")
@@ -277,8 +283,6 @@ class EmailPrintDialog(QDialog):
             if a.use_increased_decrement and a.direct_increased_decrement > 0:
                 sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
             self._set("substandard", "  |  ".join(sub_parts) if sub_parts else "None")
-
-        self._set("reinsurers", p.reinsurers if p and p.reinsurers else "(none)")
 
     def _set(self, key: str, value: str):
         if key in self._summary_labels:
@@ -386,147 +390,18 @@ class EmailPrintDialog(QDialog):
 
     def _build_summary_sections(self) -> list[tuple[str, list[tuple[str, str]]]]:
         """Collect label/value pairs grouped by titled section."""
-        p = self._policy
-        r = self._result
-        a = self._assessment
+        from ..core.quote_summary import build_summary_sections
 
-        sections: list[tuple[str, list[tuple[str, str]]]] = []
-
-        sec1: list[tuple[str, str]] = []
-        if r:
-            sec1.append(("Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—"))
-        if p:
-            sec1.append(("Policy Number:", p.policy_number))
-        if r:
-            sec1.append(("Product:", r.plan_description or (p.plan_code if p else "—")))
-        if a:
-            sec1.append(("Acceleration:", a.rider_type))
-        if sec1:
-            sections.append(("Policy", sec1))
-
-        if p:
-            sec2: list[tuple[str, str]] = []
-            sec2.append(("Issue Age:", str(p.issue_age)))
-            sec2.append(("Issue Date:", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—"))
-            total_months = (p.policy_year - 1) * 12 + p.policy_month
-            yrs, mos = total_months // 12, total_months % 12
-            if yrs and mos:
-                tif = f"{yrs} years, {mos} months"
-            elif yrs:
-                tif = f"{yrs} years"
-            else:
-                tif = f"{mos} months"
-            sec2.append(("Time in Force:", tif))
-            sections.append(("Coverage", sec2))
-
-        sec3: list[tuple[str, str]] = []
-        if p:
-            sec3.append(("Attained Age:", str(p.attained_age)))
-        if a:
-            sec3.append(("5 Yr. Survival Rate:", f"{a.computed_survival_5yr * 100:.1f}%"))
-            sec3.append(("10 Yr. Survival Rate:", f"{a.computed_survival_10yr * 100:.1f}%"))
-            sec3.append(("Life Expectancy in Years:", f"{a.computed_le:.1f}"))
-            if a.rider_type == "Terminal":
-                sec3.append(("Substandard to achieve mortality:", "50% mortality each year"))
-            else:
-                sub_parts = []
-                if a.use_five_year and a.use_ten_year and (a.derived_table_rating_5yr > 0 or a.derived_table_rating_10yr > 0):
-                    # Dual solve — show both table rating periods
-                    if a.derived_table_rating_5yr > 0:
-                        sub_parts.append(f"Table {a.derived_table_rating_5yr:.2f} (yrs 1-5)")
-                    if a.derived_table_rating_10yr > 0:
-                        sub_parts.append(f"Table {a.derived_table_rating_10yr:.2f} (yrs 6-10)")
-                elif a.derived_table_rating > 0:
-                    sub_parts.append(f"Table {a.derived_table_rating:.2f}")
-                if a.use_increased_decrement and a.direct_increased_decrement > 0:
-                    sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
-                sec3.append(("Substandard to achieve mortality:", "  |  ".join(sub_parts) if sub_parts else "None"))
-        if sec3:
-            sections.append(("Assessment", sec3))
-
-        sec4: list[tuple[str, str]] = []
-        if r:
-            full_benefit = max(r.full_accel_benefit, 0)
-            full_ratio = r.full_benefit_ratio if r.full_accel_benefit >= 0 else 0.0
-            sec4.append(("Calculated Benefit:", self._fmt(full_benefit)))
-            sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{full_ratio * 100:.2f}%"))
-            if r.full_surrender_value > 0:
-                sec4.append(("Surrender Value:", self._fmt(r.full_surrender_value)))
-                sec4.append(("Accelerated Benefit:", self._fmt(r.full_accelerated_benefit)))
-        sec4.append(("Reinsurers:", p.reinsurers if p and p.reinsurers else "(none)"))
-        if sec4:
-            sections.append(("Result", sec4))
-
-        # Warnings / Messages
-        if r and r.messages:
-            sec_warn: list[tuple[str, str]] = []
-            for msg in r.messages:
-                sec_warn.append(("", f"\u2022 {msg}"))
-            sections.append(("Warnings", sec_warn))
-
-        return sections
+        return build_summary_sections(self._policy, self._result, self._assessment)
 
     def _build_clipboard_html(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> str:
         """Build HTML table for pasting into Outlook / email clients."""
-        # Crimson palette
-        hdr_bg = "#5C0A14"
-        hdr_fg = "#FFFFFF"
-        sec_bg = "#F2E6E8"
-        sec_fg = "#5C0A14"
-        label_fg = "#4A5568"
-        value_fg = "#1A202C"
-        border_c = "#D4A0A8"
+        from ..core.quote_summary import build_clipboard_html
 
-        html = (
-            '<html><head><meta charset="utf-8"></head><body>'
-            '<table style="border-collapse:collapse; font-family:Calibri,Arial,sans-serif;'
-            f' font-size:11pt; border:1px solid {border_c}; min-width:420px;">'
-            f'<tr><td colspan="2" style="background:{hdr_bg}; color:{hdr_fg};'
-            ' font-weight:bold; font-size:13pt; padding:8px 12px;">ABR Quote Summary</td></tr>'
-        )
-        for title, pairs in sections:
-            # Section header row
-            html += (
-                f'<tr><td colspan="2" style="background:{sec_bg}; color:{sec_fg};'
-                f' font-weight:bold; font-size:10pt; padding:5px 12px;'
-                f' border-top:1px solid {border_c}; border-bottom:1px solid {border_c};">{title}</td></tr>'
-            )
-            is_warn = (title == "Warnings")
-            for lbl, val in pairs:
-                val_color = "#CC0000" if is_warn else value_fg
-                val_align = "left" if is_warn else "right"
-                html += (
-                    f'<tr>'
-                    f'<td style="padding:3px 12px; color:{label_fg}; white-space:nowrap;'
-                    f' border-bottom:1px solid #EDF2F7;">{lbl}</td>'
-                    f'<td style="padding:3px 12px; font-weight:bold; color:{val_color};'
-                    f' text-align:{val_align}; white-space:nowrap;'
-                    f' border-bottom:1px solid #EDF2F7;">{val}</td>'
-                    f'</tr>'
-                )
-        html += '</table></body></html>'
-        return html
+        return build_clipboard_html(sections)
 
     def _build_clipboard_text(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> str:
         """Build plain-text fallback for non-HTML targets (Notepad, etc.)."""
-        all_pairs = [pair for _, pairs in sections for pair in pairs]
-        label_w = max((len(lbl) for lbl, _ in all_pairs), default=0)
-        value_w = max((len(val) for _, val in all_pairs), default=0)
-        total_w = label_w + value_w + 4
+        from ..core.quote_summary import build_clipboard_text
 
-        lines: list[str] = []
-        lines.append("ABR Quote Summary")
-        lines.append("=" * total_w)
-
-        for title, pairs in sections:
-            lines.append("")
-            if title:
-                lines.append(f"— {title} —")
-            is_warn = (title == "Warnings")
-            for lbl, val in pairs:
-                if is_warn:
-                    lines.append(f"  {lbl:<{label_w}}  {val}")
-                else:
-                    lines.append(f"  {lbl:<{label_w}}  {val:>{value_w}}")
-
-        return "\n".join(lines)
+        return build_clipboard_text(sections)

@@ -255,7 +255,15 @@ def test_live_adapter_uses_exact_inputs_and_no_policy_fallback(request_data, mon
     monkeypatch.setattr("suiteview.abrquote.core.abr_policy_service.build_abr_policy", missing_policy)
     with pytest.raises(QuoteError, match="manual/default policy is forbidden"):
         quote_abr(request_data)
-    assert calls == [("SYNTHETIC", "CKPR", {"company_code": "01", "use_cache": False})]
+    assert calls == [(
+        "SYNTHETIC",
+        "CKPR",
+        {
+            "company_code": "01",
+            "use_cache": False,
+            "as_of_date": date(2026, 9, 3),
+        },
+    )]
 
 
 def test_live_api_rejects_ambient_local_snapshot(request_data, monkeypatch):

@@ -1047,120 +1047,128 @@ class AssessmentPanel(QWidget):
         self._result = result
         self.results_column.setVisible(True)
 
-        # Default the acceleration amount based on DB option —
-        # only on the first display; preserve user edits on recalcs.
         if is_first_display:
             self._populate_default_acceleration_amount()
         self.res_full_group.setTitle("Full Acceleration")
+        self._display_full_acceleration(result)
+        at_min_face = self._display_partial_acceleration(result)
+        self._display_premium_impact(result, at_min_face)
+        self._display_result_messages(result)
 
-        # Full acceleration
+    def _display_full_acceleration(self, result: ABRQuoteResult) -> None:
+        """Render the Full Acceleration result group."""
         self._res_full_labels["eligible_db"].setText(self._fmt_money(result.full_eligible_db))
         self._res_full_labels["actuarial_discount"].setText(
             self._fmt_money(result.full_actuarial_discount)
         )
         self._res_full_labels["admin_fee"].setText(self._fmt_money(result.full_admin_fee))
-
-        # Show Loan Repayment row only for UL/IUL/ISWL with a non-zero loan
         has_loan = result.full_loan_repayment > 0
         self._full_loan_lbl.setVisible(has_loan)
         self._res_full_labels["loan_repayment"].setVisible(has_loan)
         if has_loan:
-            self._res_full_labels["loan_repayment"].setText(self._fmt_money(result.full_loan_repayment))
-
-        if result.full_accel_benefit < 0:
-            self.res_full_benefit_label.setText(
-                f"$0.00  (calc: {self._fmt_money(result.full_accel_benefit)})"
+            self._res_full_labels["loan_repayment"].setText(
+                self._fmt_money(result.full_loan_repayment)
             )
-        else:
-            self.res_full_benefit_label.setText(self._fmt_money(result.full_accel_benefit))
+        self.res_full_benefit_label.setText(
+            f"$0.00  (calc: {self._fmt_money(result.full_accel_benefit)})"
+            if result.full_accel_benefit < 0
+            else self._fmt_money(result.full_accel_benefit)
+        )
         self.res_full_ratio_label.setText(f"{result.full_benefit_ratio * 100:.2f}%")
+        self._display_full_surrender_value(result)
+        self._res_full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb))
+        self._res_full_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp))
+        self._res_full_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd))
 
-        # Surrender Value and Accelerated Benefit rows (UL/IUL/ISWL only)
+    def _display_full_surrender_value(self, result: ABRQuoteResult) -> None:
         has_sv = result.full_surrender_value > 0
         self._full_sv_lbl.setVisible(has_sv)
         self._res_full_labels["surrender_value"].setVisible(has_sv)
         self._full_accel_lbl.setVisible(has_sv)
         self.res_full_accel_benefit_label.setVisible(has_sv)
         if has_sv:
-            self._res_full_labels["surrender_value"].setText(self._fmt_money(result.full_surrender_value))
-            self.res_full_accel_benefit_label.setText(self._fmt_money(result.full_accelerated_benefit))
+            self._res_full_labels["surrender_value"].setText(
+                self._fmt_money(result.full_surrender_value)
+            )
+            self.res_full_accel_benefit_label.setText(
+                self._fmt_money(result.full_accelerated_benefit)
+            )
 
-        # Full APV components
-        self._res_full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb))
-        self._res_full_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp))
-        self._res_full_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd))
-
-        # Partial acceleration — check if at minimum face
+    def _display_partial_acceleration(self, result: ABRQuoteResult) -> bool:
+        """Render the Max Partial Acceleration group; return whether it is disallowed."""
         at_min_face = result.partial_eligible_db <= 0
         has_partial_loan = result.partial_loan_repayment > 0
         has_partial_sv = result.partial_surrender_value > 0
+        self._set_partial_visibility(at_min_face, has_partial_loan, has_partial_sv)
+        if not at_min_face:
+            self._populate_partial_values(result, has_partial_loan, has_partial_sv)
+        return at_min_face
+
+    def _set_partial_visibility(
+        self,
+        at_min_face: bool,
+        has_partial_loan: bool,
+        has_partial_sv: bool,
+    ) -> None:
         self._partial_not_allowed_label.setVisible(at_min_face)
-        # Hide/show the normal partial detail widgets
-        for w in self._res_partial_static_widgets:
-            # Surrender-value and accel-benefit labels are in static widgets
-            # but need special visibility handling
-            if w in (self._partial_sv_lbl, self._partial_accel_lbl):
-                w.setVisible(not at_min_face and has_partial_sv)
+        for widget in self._res_partial_static_widgets:
+            if widget in (self._partial_sv_lbl, self._partial_accel_lbl):
+                widget.setVisible(not at_min_face and has_partial_sv)
             else:
-                w.setVisible(not at_min_face)
-        for key, val in self._res_partial_labels.items():
+                widget.setVisible(not at_min_face)
+        for key, value in self._res_partial_labels.items():
             if key == "loan_repayment":
-                val.setVisible(not at_min_face and has_partial_loan)
+                value.setVisible(not at_min_face and has_partial_loan)
             elif key == "surrender_value":
-                val.setVisible(not at_min_face and has_partial_sv)
+                value.setVisible(not at_min_face and has_partial_sv)
             else:
-                val.setVisible(not at_min_face)
-        # Also control loan label visibility
+                value.setVisible(not at_min_face)
         self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
         self._partial_sv_lbl.setVisible(not at_min_face and has_partial_sv)
         self.res_partial_benefit_label.setVisible(not at_min_face)
         self.res_partial_ratio_label.setVisible(not at_min_face)
         self.res_partial_accel_benefit_label.setVisible(not at_min_face and has_partial_sv)
-        for val in self._res_partial_apv_labels.values():
-            val.setVisible(not at_min_face)
+        for value in self._res_partial_apv_labels.values():
+            value.setVisible(not at_min_face)
 
-        if not at_min_face:
-            self._res_partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
-            self._res_partial_labels["actuarial_discount"].setText(
-                self._fmt_money(result.partial_actuarial_discount)
+    def _populate_partial_values(
+        self,
+        result: ABRQuoteResult,
+        has_partial_loan: bool,
+        has_partial_sv: bool,
+    ) -> None:
+        self._res_partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
+        self._res_partial_labels["actuarial_discount"].setText(
+            self._fmt_money(result.partial_actuarial_discount)
+        )
+        self._res_partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
+        if has_partial_loan:
+            self._res_partial_labels["loan_repayment"].setText(
+                self._fmt_money(result.partial_loan_repayment)
             )
-            self._res_partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
-            if has_partial_loan:
-                self._res_partial_labels["loan_repayment"].setText(self._fmt_money(result.partial_loan_repayment))
-            if result.partial_accel_benefit < 0:
-                self.res_partial_benefit_label.setText(
-                    f"$0.00  (calc: {self._fmt_money(result.partial_accel_benefit)})"
-                )
-            else:
-                self.res_partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
-            self.res_partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+        self.res_partial_benefit_label.setText(
+            f"$0.00  (calc: {self._fmt_money(result.partial_accel_benefit)})"
+            if result.partial_accel_benefit < 0
+            else self._fmt_money(result.partial_accel_benefit)
+        )
+        self.res_partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+        if has_partial_sv:
+            self._res_partial_labels["surrender_value"].setText(
+                self._fmt_money(result.partial_surrender_value)
+            )
+            self.res_partial_accel_benefit_label.setText(
+                self._fmt_money(result.partial_accelerated_benefit)
+            )
+        ratio = result.partial_eligible_db / result.full_eligible_db if result.full_eligible_db > 0 else 0.0
+        self._res_partial_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb * ratio))
+        self._res_partial_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp * ratio))
+        self._res_partial_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd * ratio))
 
-            # Surrender Value and Accelerated Benefit for partial
-            if has_partial_sv:
-                self._res_partial_labels["surrender_value"].setText(self._fmt_money(result.partial_surrender_value))
-                self.res_partial_accel_benefit_label.setText(self._fmt_money(result.partial_accelerated_benefit))
-
-            # Partial APV components (proportionally scaled)
-            if result.full_eligible_db > 0:
-                ratio = result.partial_eligible_db / result.full_eligible_db
-            else:
-                ratio = 0.0
-            self._res_partial_apv_labels["apv_fb"].setText(
-                self._fmt_money(result.apv_fb * ratio)
-            )
-            self._res_partial_apv_labels["apv_fp"].setText(
-                self._fmt_money(result.apv_fp * ratio)
-            )
-            self._res_partial_apv_labels["apv_fd"].setText(
-                self._fmt_money(result.apv_fd * ratio)
-            )
-
-        # Premium impact
+    def _display_premium_impact(self, result: ABRQuoteResult, at_min_face: bool) -> None:
         self.res_premium_before_label.setText(result.premium_before)
         self.res_premium_after_full_label.setText(f"${result.premium_after_full:,.2f}")
         is_ul = self._policy and self._policy.product_type in ("UL", "IUL", "ISWL")
         if is_ul:
-            # UL: After (Partial) is a user input — don't overwrite it
             self.res_premium_after_partial_label.setVisible(False)
             self.res_premium_after_partial_input.setVisible(not at_min_face)
         elif at_min_face:
@@ -1168,25 +1176,13 @@ class AssessmentPanel(QWidget):
         else:
             self.res_premium_after_partial_label.setText(result.premium_after_partial)
 
-        # Messages
+    def _display_result_messages(self, result: ABRQuoteResult) -> None:
         if result.messages:
-            bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
-            self.res_messages_label.setText(bullets)
+            self.res_messages_label.setText(
+                "\n\n".join(f"• {message}" for message in result.messages)
+            )
         else:
             self.res_messages_label.setText("")
-
-        # If user had a custom acceleration amount, re-apply proportional
-        # recalculation so the Full Acceleration section stays in sync.
-        if not is_first_display:
-            raw = self._face_input.text().replace("$", "").replace(",", "").strip()
-            try:
-                current = float(raw)
-            except ValueError:
-                current = 0.0
-            if current > 0 and abs(current - self._default_accel_amount) >= 0.01:
-                self._on_face_calc()
-
-    # ── Acceleration amount controls ──────────────────────────────────
 
     def _populate_default_acceleration_amount(self):
         """Set the default acceleration amount based on DB option.
@@ -1202,74 +1198,65 @@ class AssessmentPanel(QWidget):
         self._update_accel_reset_visibility()
 
     def _on_face_calc(self):
-        """Recalculate Full Acceleration (and Max Partial) with the user-entered full face amount."""
+        """Recalculate Full Acceleration and Max Partial for an entered face."""
         if not self._policy or not self._result:
             return
-
-        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
-        try:
-            custom_face = float(raw)
-        except ValueError:
-            self.res_messages_label.setText("\u2022 Please enter a valid numeric face amount.")
+        custom_face = self._read_custom_face_amount()
+        if custom_face is None:
             return
-
         result = self._result
-
-        # Restore any result messages (remove stale validation messages)
-        if result.messages:
-            bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
-            self.res_messages_label.setText(bullets)
-        else:
-            self.res_messages_label.setText("")
-
-        # Title always stays Full Acceleration
+        self._display_result_messages(result)
         self.res_full_group.setTitle("Full Acceleration")
 
-        # ── Full Acceleration — proportional recalculation ─────────────
-        orig_eligible = result.full_eligible_db
-        orig_discount = result.full_actuarial_discount
+        ratio = custom_face / result.full_eligible_db if result.full_eligible_db > 0 else 0.0
+        new_discount = round(result.full_actuarial_discount * ratio, 2)
+        self._render_custom_full_acceleration(result, custom_face, ratio, new_discount)
+        self._render_custom_partial_acceleration(result, custom_face, ratio)
+        self._update_accel_reset_visibility()
+
+    def _read_custom_face_amount(self) -> float | None:
+        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            return float(raw)
+        except ValueError:
+            self.res_messages_label.setText("• Please enter a valid numeric face amount.")
+            return None
+
+    def _render_custom_full_acceleration(
+        self,
+        result: ABRQuoteResult,
+        custom_face: float,
+        ratio: float,
+        new_discount: float,
+    ) -> None:
         admin_fee = result.full_admin_fee
-
-        if orig_eligible > 0:
-            ratio = custom_face / orig_eligible
-            new_discount = round(orig_discount * ratio, 2)
-        else:
-            ratio = 0.0
-            new_discount = 0.0
-
-        # Loan repayment — proportionally scaled
-        orig_loan = result.full_loan_repayment
-        if orig_eligible > 0 and orig_loan > 0:
-            new_loan = round(orig_loan * ratio, 2)
-            self._full_loan_lbl.setVisible(True)
-            self._res_full_labels["loan_repayment"].setVisible(True)
+        new_loan = round(result.full_loan_repayment * ratio, 2) if result.full_loan_repayment > 0 else 0.0
+        self._full_loan_lbl.setVisible(new_loan > 0)
+        self._res_full_labels["loan_repayment"].setVisible(new_loan > 0)
+        if new_loan > 0:
             self._res_full_labels["loan_repayment"].setText(self._fmt_money(new_loan))
-            new_benefit = round(custom_face - new_discount - admin_fee - new_loan, 2)
-        else:
-            new_benefit = round(custom_face - new_discount - admin_fee, 2)
-
-        # Surrender value — proportionally scaled
-        orig_sv = result.full_surrender_value
-        if orig_eligible > 0 and orig_sv > 0:
-            new_sv = round(orig_sv * ratio, 2)
-        else:
-            new_sv = 0.0
-
-        new_ratio = max(0.0, new_benefit) / custom_face if custom_face > 0 else 0.0
-
+        new_benefit = round(custom_face - new_discount - admin_fee - new_loan, 2)
         self._res_full_labels["eligible_db"].setText(self._fmt_money(custom_face))
         self._res_full_labels["actuarial_discount"].setText(self._fmt_money(new_discount))
         self._res_full_labels["admin_fee"].setText(self._fmt_money(admin_fee))
-
-        if new_benefit < 0:
-            self.res_full_benefit_label.setText(
-                f"$0.00  (calc: {self._fmt_money(new_benefit)})"
-            )
-        else:
-            self.res_full_benefit_label.setText(self._fmt_money(new_benefit))
+        self.res_full_benefit_label.setText(
+            f"$0.00  (calc: {self._fmt_money(new_benefit)})"
+            if new_benefit < 0 else self._fmt_money(new_benefit)
+        )
+        new_ratio = max(0.0, new_benefit) / custom_face if custom_face > 0 else 0.0
         self.res_full_ratio_label.setText(f"{new_ratio * 100:.2f}%")
+        self._render_custom_full_surrender(result, ratio, new_benefit)
+        self._res_full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb * ratio))
+        self._res_full_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp * ratio))
+        self._res_full_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd * ratio))
 
-        # Surrender Value and Accelerated Benefit — proportionally scaled
+    def _render_custom_full_surrender(
+        self,
+        result: ABRQuoteResult,
+        ratio: float,
+        new_benefit: float,
+    ) -> None:
+        new_sv = round(result.full_surrender_value * ratio, 2) if result.full_surrender_value > 0 else 0.0
         has_sv = new_sv > 0
         self._full_sv_lbl.setVisible(has_sv)
         self._res_full_labels["surrender_value"].setVisible(has_sv)
@@ -1277,94 +1264,74 @@ class AssessmentPanel(QWidget):
         self.res_full_accel_benefit_label.setVisible(has_sv)
         if has_sv:
             self._res_full_labels["surrender_value"].setText(self._fmt_money(new_sv))
-            calc_benefit = max(0.0, new_benefit)
-            accel_benefit = max(calc_benefit, new_sv)
-            self.res_full_accel_benefit_label.setText(self._fmt_money(accel_benefit))
-
-        # APV components — proportionally scaled
-        if orig_eligible > 0:
-            self._res_full_apv_labels["apv_fb"].setText(
-                self._fmt_money(result.apv_fb * ratio)
-            )
-            self._res_full_apv_labels["apv_fp"].setText(
-                self._fmt_money(result.apv_fp * ratio)
-            )
-            self._res_full_apv_labels["apv_fd"].setText(
-                self._fmt_money(result.apv_fd * ratio)
+            self.res_full_accel_benefit_label.setText(
+                self._fmt_money(max(max(0.0, new_benefit), new_sv))
             )
 
-        # ── Max Partial Acceleration — (Full Face - Min Face) ──────────
-        min_face = self.get_min_face_amount()
-        partial_eligible = max(0.0, custom_face - min_face)
+    def _render_custom_partial_acceleration(
+        self,
+        result: ABRQuoteResult,
+        custom_face: float,
+        full_ratio: float,
+    ) -> None:
+        del full_ratio
+        partial_eligible = max(0.0, custom_face - self.get_min_face_amount())
         at_min_face = partial_eligible <= 0
-        self._partial_not_allowed_label.setVisible(at_min_face)
-        for w in self._res_partial_static_widgets:
-            if w in (self._partial_sv_lbl, self._partial_accel_lbl):
-                w.setVisible(not at_min_face and result.partial_surrender_value > 0)
-            else:
-                w.setVisible(not at_min_face)
         has_partial_loan = result.partial_loan_repayment > 0
         has_partial_sv = result.partial_surrender_value > 0
-        for key, val in self._res_partial_labels.items():
-            if key == "loan_repayment":
-                val.setVisible(not at_min_face and has_partial_loan)
-            elif key == "surrender_value":
-                val.setVisible(not at_min_face and has_partial_sv)
-            else:
-                val.setVisible(not at_min_face)
-        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
-        for val in self._res_partial_apv_labels.values():
-            val.setVisible(not at_min_face)
-        self.res_partial_benefit_label.setVisible(not at_min_face)
-        self.res_partial_ratio_label.setVisible(not at_min_face)
+        self._set_partial_visibility(at_min_face, has_partial_loan, has_partial_sv)
+        if at_min_face:
+            return
+        partial_ratio = (
+            partial_eligible / result.full_eligible_db
+            if result.full_eligible_db > 0 else 0.0
+        )
+        partial_discount = round(result.full_actuarial_discount * partial_ratio, 2)
+        partial_loan = round(result.full_loan_repayment * partial_ratio, 2)
+        partial_benefit = round(
+            partial_eligible - partial_discount - result.full_admin_fee - partial_loan,
+            2,
+        )
+        self._set_custom_partial_values(
+            result,
+            partial_eligible,
+            partial_discount,
+            partial_loan,
+            partial_benefit,
+            partial_ratio,
+            has_partial_sv,
+        )
 
-        if not at_min_face:
-            if orig_eligible > 0:
-                partial_ratio = partial_eligible / orig_eligible
-            else:
-                partial_ratio = 0.0
-
-            partial_discount = round(orig_discount * partial_ratio, 2)
-            partial_loan = round(orig_loan * partial_ratio, 2) if orig_loan > 0 else 0.0
-            if partial_loan > 0:
-                partial_benefit = round(partial_eligible - partial_discount - admin_fee - partial_loan, 2)
-                self._res_partial_labels["loan_repayment"].setText(self._fmt_money(partial_loan))
-            else:
-                partial_benefit = round(partial_eligible - partial_discount - admin_fee, 2)
-
-            partial_new_ratio = max(0.0, partial_benefit) / partial_eligible if partial_eligible > 0 else 0.0
-
-            self._res_partial_labels["eligible_db"].setText(self._fmt_money(partial_eligible))
-            self._res_partial_labels["actuarial_discount"].setText(self._fmt_money(partial_discount))
-            self._res_partial_labels["admin_fee"].setText(self._fmt_money(admin_fee))
-
-            if partial_benefit < 0:
-                self.res_partial_benefit_label.setText(
-                    f"$0.00  (calc: {self._fmt_money(partial_benefit)})"
-                )
-            else:
-                self.res_partial_benefit_label.setText(self._fmt_money(partial_benefit))
-            self.res_partial_ratio_label.setText(f"{partial_new_ratio * 100:.2f}%")
-
-            if has_partial_sv:
-                partial_sv = round(orig_sv * partial_ratio, 2)
-                self._res_partial_labels["surrender_value"].setText(self._fmt_money(partial_sv))
-                self.res_partial_accel_benefit_label.setText(
-                    self._fmt_money(max(max(0.0, partial_benefit), partial_sv))
-                )
-            self.res_partial_accel_benefit_label.setVisible(not at_min_face and has_partial_sv)
-
-            self._res_partial_apv_labels["apv_fb"].setText(
-                self._fmt_money(result.apv_fb * partial_ratio)
+    def _set_custom_partial_values(
+        self,
+        result: ABRQuoteResult,
+        partial_eligible: float,
+        partial_discount: float,
+        partial_loan: float,
+        partial_benefit: float,
+        partial_ratio: float,
+        has_partial_sv: bool,
+    ) -> None:
+        self._res_partial_labels["eligible_db"].setText(self._fmt_money(partial_eligible))
+        self._res_partial_labels["actuarial_discount"].setText(self._fmt_money(partial_discount))
+        self._res_partial_labels["admin_fee"].setText(self._fmt_money(result.full_admin_fee))
+        if partial_loan > 0:
+            self._res_partial_labels["loan_repayment"].setText(self._fmt_money(partial_loan))
+        self.res_partial_benefit_label.setText(
+            f"$0.00  (calc: {self._fmt_money(partial_benefit)})"
+            if partial_benefit < 0 else self._fmt_money(partial_benefit)
+        )
+        partial_new_ratio = max(0.0, partial_benefit) / partial_eligible if partial_eligible > 0 else 0.0
+        self.res_partial_ratio_label.setText(f"{partial_new_ratio * 100:.2f}%")
+        if has_partial_sv:
+            partial_sv = round(result.full_surrender_value * partial_ratio, 2)
+            self._res_partial_labels["surrender_value"].setText(self._fmt_money(partial_sv))
+            self.res_partial_accel_benefit_label.setText(
+                self._fmt_money(max(max(0.0, partial_benefit), partial_sv))
             )
-            self._res_partial_apv_labels["apv_fp"].setText(
-                self._fmt_money(result.apv_fp * partial_ratio)
-            )
-            self._res_partial_apv_labels["apv_fd"].setText(
-                self._fmt_money(result.apv_fd * partial_ratio)
-            )
-
-        self._update_accel_reset_visibility()
+        self._res_partial_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb * partial_ratio))
+        self._res_partial_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp * partial_ratio))
+        self._res_partial_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd * partial_ratio))
 
     def _on_min_face_calc(self):
         """Emit signal to recalculate with the new min face amount."""
@@ -1821,61 +1788,89 @@ class AssessmentPanel(QWidget):
 
     def _read_assessment_inputs(self) -> AssessmentInputs | None:
         """Read and validate the assessment form into a pure input object."""
-        rider_type = self.rider_combo.currentText()
-        has_five = self.chk_five_year.isChecked()
-        has_ten = self.chk_ten_year.isChecked()
-        has_le = self.chk_le.isChecked()
-        has_survival = has_five or has_ten or has_le
-        has_table_direct = self.chk_table.isChecked()
-        has_flat_direct = self.chk_flat.isChecked()
-        has_table_2_direct = self.chk_table_2.isChecked()
-        has_flat_2_direct = self.chk_flat_2.isChecked()
-        has_incr_decrement = self.chk_incr_decrement.isChecked()
-
-        if not has_survival and not has_table_direct and not has_incr_decrement:
+        flags = self._assessment_flags()
+        if not (flags["has_survival"] or flags["use_table"] or flags["use_increased_decrement"]):
             self._show_warning(
                 "Check at least one survival input, the Table checkbox, or Increased Decrement."
             )
             return None
+        survival = self._read_survival_values(flags)
+        if survival is None:
+            return None
+        direct = self._read_direct_values(flags)
+        if direct is None:
+            return None
+        return AssessmentInputs(
+            rider_type=self.rider_combo.currentText(),
+            use_return_5yr=self.chk_return_5yr.isChecked(),
+            use_return_10yr=self.chk_return_10yr.isChecked(),
+            in_lieu_of=True,
+            **{key: value for key, value in flags.items() if key != "has_survival"},
+            **survival,
+            **direct,
+        )
 
+    def _assessment_flags(self) -> dict[str, bool]:
+        use_five = self.chk_five_year.isChecked()
+        use_ten = self.chk_ten_year.isChecked()
+        use_le = self.chk_le.isChecked()
+        return {
+            "use_five_year": use_five,
+            "use_ten_year": use_ten,
+            "use_le": use_le,
+            "has_survival": use_five or use_ten or use_le,
+            "use_table": self.chk_table.isChecked(),
+            "use_flat": self.chk_flat.isChecked(),
+            "use_table_2": self.chk_table_2.isChecked(),
+            "use_flat_2": self.chk_flat_2.isChecked(),
+            "use_increased_decrement": self.chk_incr_decrement.isChecked(),
+        }
+
+    def _read_survival_values(self, flags: dict[str, bool]) -> dict[str, float] | None:
         try:
-            five_yr = float(self.five_year_input.text().strip()) if has_five else 0.0
-            ten_yr = float(self.ten_year_input.text().strip()) if has_ten else 0.0
-            le_val = float(self.le_input.text().strip()) if has_le else 0.0
+            five_yr = float(self.five_year_input.text().strip()) if flags["use_five_year"] else 0.0
+            ten_yr = float(self.ten_year_input.text().strip()) if flags["use_ten_year"] else 0.0
+            le_val = float(self.le_input.text().strip()) if flags["use_le"] else 0.0
         except ValueError:
             self._show_warning(
                 "Enter valid numeric values for all checked survival fields."
             )
             return None
 
-        if has_five and not (0 <= five_yr <= 1):
+        if flags["use_five_year"] and not (0 <= five_yr <= 1):
             self._show_warning("5-Year Survival must be between 0 and 1.")
             return None
-        if has_ten and not (0 <= ten_yr <= 1):
+        if flags["use_ten_year"] and not (0 <= ten_yr <= 1):
             self._show_warning("10-Year Survival must be between 0 and 1.")
             return None
+        return {
+            "five_year_survival": five_yr,
+            "ten_year_survival": ten_yr,
+            "life_expectancy_years": le_val,
+        }
 
+    def _read_direct_values(self, flags: dict[str, bool]) -> dict[str, float | int] | None:
         try:
-            direct_table = float(self.table_input.text().strip()) if has_table_direct else 0.0
-            table_start_yr = int(self.table_start_input.text().strip()) if has_table_direct else 1
-            table_stop_yr = int(self.table_stop_input.text().strip()) if has_table_direct else 99
-            direct_flat = float(self.flat_input.text().strip()) if has_flat_direct else 0.0
-            flat_start_yr = int(self.flat_start_input.text().strip()) if has_flat_direct else 1
-            flat_stop_yr = int(self.flat_stop_input.text().strip()) if has_flat_direct else 99
-            direct_table_2 = float(self.table_2_input.text().strip()) if has_table_2_direct else 0.0
-            table_2_start_yr = int(self.table_2_start_input.text().strip()) if has_table_2_direct else 1
-            table_2_stop_yr = int(self.table_2_stop_input.text().strip()) if has_table_2_direct else 99
-            direct_flat_2 = float(self.flat_2_input.text().strip()) if has_flat_2_direct else 0.0
-            flat_2_start_yr = int(self.flat_2_start_input.text().strip()) if has_flat_2_direct else 1
-            flat_2_stop_yr = int(self.flat_2_stop_input.text().strip()) if has_flat_2_direct else 99
-            incr_pct = float(self.incr_decrement_input.text().strip()) if has_incr_decrement else 0.0
+            direct_table = float(self.table_input.text().strip()) if flags["use_table"] else 0.0
+            table_start_yr = int(self.table_start_input.text().strip()) if flags["use_table"] else 1
+            table_stop_yr = int(self.table_stop_input.text().strip()) if flags["use_table"] else 99
+            direct_flat = float(self.flat_input.text().strip()) if flags["use_flat"] else 0.0
+            flat_start_yr = int(self.flat_start_input.text().strip()) if flags["use_flat"] else 1
+            flat_stop_yr = int(self.flat_stop_input.text().strip()) if flags["use_flat"] else 99
+            direct_table_2 = float(self.table_2_input.text().strip()) if flags["use_table_2"] else 0.0
+            table_2_start_yr = int(self.table_2_start_input.text().strip()) if flags["use_table_2"] else 1
+            table_2_stop_yr = int(self.table_2_stop_input.text().strip()) if flags["use_table_2"] else 99
+            direct_flat_2 = float(self.flat_2_input.text().strip()) if flags["use_flat_2"] else 0.0
+            flat_2_start_yr = int(self.flat_2_start_input.text().strip()) if flags["use_flat_2"] else 1
+            flat_2_stop_yr = int(self.flat_2_stop_input.text().strip()) if flags["use_flat_2"] else 99
+            incr_pct = float(self.incr_decrement_input.text().strip()) if flags["use_increased_decrement"] else 0.0
             incr_start_yr = (
                 int(self.incr_decrement_start_input.text().strip())
-                if has_incr_decrement else 1
+                if flags["use_increased_decrement"] else 1
             )
             incr_stop_yr = (
                 int(self.incr_decrement_stop_input.text().strip())
-                if has_incr_decrement else 99
+                if flags["use_increased_decrement"] else 99
             )
         except ValueError:
             self._show_warning(
@@ -1883,38 +1878,23 @@ class AssessmentPanel(QWidget):
             )
             return None
 
-        return AssessmentInputs(
-            rider_type=rider_type,
-            use_five_year=has_five,
-            use_ten_year=has_ten,
-            use_le=has_le,
-            use_table=has_table_direct,
-            use_flat=has_flat_direct,
-            use_table_2=has_table_2_direct,
-            use_flat_2=has_flat_2_direct,
-            use_increased_decrement=has_incr_decrement,
-            use_return_5yr=self.chk_return_5yr.isChecked(),
-            use_return_10yr=self.chk_return_10yr.isChecked(),
-            in_lieu_of=True,
-            five_year_survival=five_yr,
-            ten_year_survival=ten_yr,
-            life_expectancy_years=le_val,
-            direct_table_rating=direct_table,
-            table_start_year=table_start_yr,
-            table_stop_year=table_stop_yr,
-            direct_flat_extra=direct_flat,
-            flat_start_year=flat_start_yr,
-            flat_stop_year=flat_stop_yr,
-            direct_table_rating_2=direct_table_2,
-            table_2_start_year=table_2_start_yr,
-            table_2_stop_year=table_2_stop_yr,
-            direct_flat_extra_2=direct_flat_2,
-            flat_2_start_year=flat_2_start_yr,
-            flat_2_stop_year=flat_2_stop_yr,
-            direct_increased_decrement=incr_pct,
-            incr_decrement_start_year=incr_start_yr,
-            incr_decrement_stop_year=incr_stop_yr,
-        )
+        return {
+            "direct_table_rating": direct_table,
+            "table_start_year": table_start_yr,
+            "table_stop_year": table_stop_yr,
+            "direct_flat_extra": direct_flat,
+            "flat_start_year": flat_start_yr,
+            "flat_stop_year": flat_stop_yr,
+            "direct_table_rating_2": direct_table_2,
+            "table_2_start_year": table_2_start_yr,
+            "table_2_stop_year": table_2_stop_yr,
+            "direct_flat_extra_2": direct_flat_2,
+            "flat_2_start_year": flat_2_start_yr,
+            "flat_2_stop_year": flat_2_stop_yr,
+            "direct_increased_decrement": incr_pct,
+            "incr_decrement_start_year": incr_start_yr,
+            "incr_decrement_stop_year": incr_stop_yr,
+        }
 
     def _render_assessment_result(
         self,

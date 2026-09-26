@@ -10,6 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import date
+from hashlib import sha256
 import sys
 from types import SimpleNamespace
 
@@ -677,6 +678,37 @@ def test_explanation_document_text_characterization(policy):
     ]
     assert "chance of death is 500 per 1,000 (50%)" in html
     assert "$98,314.98" in html
+
+
+def test_email_summary_renderer_characterization():
+    from suiteview.abrquote.core.quote_summary import render_quote_summary
+    from suiteview.abrquote.ui.email_print_dialog import EmailPrintDialog
+
+    policy = _workbook_policy()
+    result = _workbook_result()
+    assessment = _workbook_assessment()
+    render = SimpleNamespace(
+        _policy=policy,
+        _assessment=assessment,
+        _result=result,
+        _fmt=EmailPrintDialog._fmt,
+    )
+
+    sections = EmailPrintDialog._build_summary_sections(render)
+    html = EmailPrintDialog._build_clipboard_html(render, sections)
+    text = EmailPrintDialog._build_clipboard_text(render, sections)
+    core_sections, core_html, core_text = render_quote_summary(policy, result, assessment)
+
+    assert (core_sections, core_html, core_text) == (sections, html, text)
+    assert sha256(repr(sections).encode("utf-8")).hexdigest() == (
+        "92985d8311176157115b375d15f78f7b602584ae6ac39fa6b2ee08ea0bd61b82"
+    )
+    assert sha256(html.encode("utf-8")).hexdigest() == (
+        "d4a36a7a558c93e8000dc8d714fc91932e50b4902a4a30b9cfbf420cefa9afc1"
+    )
+    assert sha256(text.encode("utf-8")).hexdigest() == (
+        "e224b9b3e64faa177d02cf589494a96f33c1f04904769bd21f6bc4ed903fca77"
+    )
 
 
 def test_quote_pipeline_result_shape_matches_snapshot_contract(policy):

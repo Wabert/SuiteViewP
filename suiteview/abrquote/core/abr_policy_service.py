@@ -10,12 +10,11 @@ from datetime import date
 from typing import List, Optional, Tuple
 
 from ...core.policy_service import get_policy_info
-from ..models.abr_data import ABRPolicyData, DBLayer, RiderInfo
 from ..models.abr_constants import NON_STANDARD_MODE_MAP
+from ..models.abr_data import ABRPolicyData, DBLayer, PremiumResult, RiderInfo
 
 logger = logging.getLogger(__name__)
 
-# Billing frequency (months) → ABR billing mode code
 _FREQ_TO_MODE = {12: 1, 6: 2, 3: 3, 1: 4}
 
 
@@ -33,6 +32,7 @@ class PremiumScheduleResult:
     remaining_payments: int
     modal_factor: float
     modal_fee_factor: float
+    premium_result: PremiumResult
     premium_schedule: List[float] = field(default_factory=list)
     base_annual_schedule: List[float] = field(default_factory=list)
     annual_schedule: List[float] = field(default_factory=list)
@@ -40,14 +40,69 @@ class PremiumScheduleResult:
     current_year_premium: float = 0.0
 
 
-def _months_since_issue(issue_date: Optional[date], target: Optional[date]) -> Optional[int]:
-    """Whole policy months from issue to ``target`` (absolute policy month scale).
+@dataclass(frozen=True)
+class PolicyIdentity:
+    """Policy identity/duration from PolicyInformation and DB2 policy/coverage rows."""
 
-    Matches the APV engine's absolute-month convention where policy month 1 is the
-    first month in force. A coverage maturing at ``target`` provides a benefit
-    through this returned month; it drops the month after. Returns ``None`` when
-    either date is missing so the layer is treated as never expiring.
-    """
+    policy_number: str
+    region: str
+    insured_name: str
+    issue_age: int
+    attained_age: int
+    sex: str
+    rate_sex: str
+    rate_class: str
+    face_amount: float
+    db_option: str
+    issue_date: date | None
+    maturity_age: int
+    maturity_date: date | None
+    issue_state: str
+    plan_code: str
+    product_type: str
+    base_plancode: str
+    billing_mode: int
+    policy_month: int
+    policy_year: int
+    paid_to_date: date | None
+    modal_premium: float
+    annual_premium: float
+
+
+@dataclass(frozen=True)
+class PolicySubstandard:
+    """Base-coverage substandard ratings from PolicyInformation substandard rows."""
+
+    table_rating: int = 0
+    table_rating_2: int = 0
+    flat_extra: float = 0.0
+    flat_to_age: int = 0
+    flat_cease_date: date | None = None
+
+
+@dataclass(frozen=True)
+class RidersAndLayers:
+    """Riders/benefits from coverages/benefits plus primary-insured DB layers."""
+
+    riders: List[RiderInfo]
+    rider_annual_premium: float
+    db_layers: List[DBLayer]
+    issue_date: date | None
+
+
+@dataclass(frozen=True)
+class PolicyValues:
+    """UL/IUL/ISWL value basis from monthliversary and policy total fields."""
+
+    account_value: float
+    surrender_value: float
+    premiums_paid_to_date: float
+    valuation_date: date | None
+    monthly_deduction: float
+
+
+def _months_since_issue(issue_date: Optional[date], target: Optional[date]) -> Optional[int]:
+    """Whole policy months from issue to ``target`` (absolute policy month scale)."""
     if not issue_date or not target:
         return None
     months = (target.year - issue_date.year) * 12 + (target.month - issue_date.month)
@@ -57,11 +112,7 @@ def _months_since_issue(issue_date: Optional[date], target: Optional[date]) -> O
 
 
 def find_policy_companies(policy_num: str, region: str = "CKPR") -> List[str]:
-    """Return the list of CyberLife company codes that hold this policy.
-
-    Queries DB2 without loading full policy data.  Returns an empty list
-    only when no records are found; DB2/read failures propagate to callers.
-    """
+    """Return CyberLife company codes holding this policy via PolicyInformation."""
     pi = get_policy_info(
         policy_num,
         company_code=None,
@@ -71,18 +122,259 @@ def find_policy_companies(policy_num: str, region: str = "CKPR") -> List[str]:
     if pi is None:
         return []
     if pi.exists:
-        # Single company — get the company code from the loaded data
         co = str(pi.data_item("LH_BAS_POL", "CK_CMP_CD") or "").strip()
         return [co] if co else []
     if pi.available_companies:
         return pi.available_companies
     return []
 
+
 def _read_surrender_value(pi):
     # CKPR UL monthliversary rows are in LH_POL_MVRY_VAL. The generic
     # cash_surrender_value accessor first probes an undefined TH table.
     value = pi.data_item("LH_POL_MVRY_VAL", "CSV_AMT")
     return value if value is not None else pi.cash_surrender_value
+
+
+def _billing_mode(pi) -> int:
+    nsd_code = pi.non_standard_mode_code
+    if nsd_code and nsd_code in NON_STANDARD_MODE_MAP:
+        return NON_STANDARD_MODE_MAP[nsd_code]
+    freq = pi.billing_frequency or 12
+    billing_mode = _FREQ_TO_MODE.get(freq, 1)
+    if freq == 1 and pi.is_eft:
+        billing_mode = 5
+    return billing_mode
+
+
+def extract_policy_identity(policy_num: str, region: str, pi) -> PolicyIdentity:
+    """Extract identity/duration fields from PolicyInformation.
+
+    Sources: LH_BAS_POL for billing/status/date/state fields, base LH_COV_PHA
+    for demographics/plan/face, LH_COV_INS_RNL_RT for rate sex, and the
+    canonical PolicyInformation properties that wrap those DB2 rows.
+    """
+    raw_sex = pi.base_sex_code or ""
+    sex = {"1": "M", "2": "F", "3": "U"}.get(raw_sex, raw_sex)
+    raw_rate_sex = pi.renewal_cov_sex_code(1)
+    rate_sex = {"1": "M", "2": "F"}.get(raw_rate_sex, raw_rate_sex) or sex
+    try:
+        base_covs = pi.get_base_coverages()
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Base coverage lookup failed for {policy_num}"
+        ) from exc
+    maturity_date = base_covs[0].maturity_date if base_covs else None
+    return PolicyIdentity(
+        policy_number=policy_num,
+        region=region,
+        insured_name=pi.primary_insured_name or "",
+        issue_age=int(pi.base_issue_age or 0),
+        attained_age=int(pi.attained_age or 0),
+        sex=sex,
+        rate_sex=rate_sex,
+        rate_class=pi.base_rate_class or "N",
+        face_amount=float(pi.primary_insured_face_amount or 0),
+        db_option=pi.db_option_code or "",
+        issue_date=pi.issue_date,
+        maturity_age=pi.age_at_maturity or 95,
+        maturity_date=maturity_date,
+        issue_state=pi.issue_state or pi.issue_state_code or "",
+        plan_code=pi.base_plancode or "",
+        product_type=pi.product_type or "",
+        base_plancode=str(pi.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or "").strip(),
+        billing_mode=_billing_mode(pi),
+        policy_month=pi.policy_month or 1,
+        policy_year=pi.policy_year or 1,
+        paid_to_date=pi.paid_to_date,
+        modal_premium=float(pi.modal_premium or 0),
+        annual_premium=float(pi.annual_premium or 0),
+    )
+
+
+def extract_policy_substandard(policy_num: str, pi) -> PolicySubstandard:
+    """Extract base-coverage ratings from PolicyInformation substandard rows.
+
+    Source: LH_SST_XTR_CRG through ``get_substandard_ratings(1)``.
+    """
+    try:
+        ratings = pi.get_substandard_ratings(1)
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Substandard rating lookup failed for {policy_num}"
+        ) from exc
+    table_numeric = 0
+    table_numeric_2 = 0
+    flat_extra = 0.0
+    flat_to_age = 0
+    flat_cease_date = None
+    for rating in ratings:
+        if rating.type_code == "T":
+            value = rating.table_rating_numeric or 0
+            if not table_numeric:
+                table_numeric = value
+            elif not table_numeric_2:
+                table_numeric_2 = value
+        if rating.type_code == "F":
+            flat_extra = float(rating.flat_amount or 0)
+            flat_cease_date = rating.flat_cease_date
+            if flat_cease_date and pi.issue_date and pi.base_issue_age is not None:
+                flat_to_age = pi.base_issue_age + (
+                    flat_cease_date.year - pi.issue_date.year
+                )
+    return PolicySubstandard(
+        table_rating=table_numeric,
+        table_rating_2=table_numeric_2,
+        flat_extra=flat_extra,
+        flat_to_age=flat_to_age,
+        flat_cease_date=flat_cease_date,
+    )
+
+
+def _make_benefit_rider(cov, ben, cov_sex_mapped: str, cov_rc_str: str) -> RiderInfo:
+    pc = (cov.plancode or "").upper()
+    cov_face = float(cov.face_amount or 0)
+    cov_issue_age = int(cov.issue_age or 0)
+    ben_type = (ben.benefit_type_cd or "").strip()
+    ben_sub = (ben.benefit_subtype_cd or "").strip()
+    ben_face = float(ben.benefit_amount or 0) or cov_face
+    fallback = 0.0
+    if ben.coi_rate is not None and ben.units:
+        fallback = float(ben.coi_rate) * float(ben.units)
+    return RiderInfo(
+        plancode=pc,
+        face_amount=ben_face,
+        issue_age=int(ben.issue_age or cov_issue_age or 0),
+        sex=cov_sex_mapped,
+        rate_class=cov_rc_str,
+        table_rating=int(cov.table_rating or 0),
+        rider_type="BENEFIT",
+        fallback_premium=fallback,
+        benefit_type=ben_type,
+        benefit_subtype=ben_sub,
+        benefit_units=float(ben.units or 0),
+        benefit_vpu=float(ben.vpu or 0),
+        benefit_rating_factor=float(ben.rating_factor) if ben.rating_factor else 0.0,
+        cease_date=ben.cease_date,
+    )
+
+
+def _coverage_rider(cov, sex: str, base_rate_class: str) -> tuple[RiderInfo | None, float]:
+    if cov.is_base:
+        return None, 0.0
+    cov_rc = (cov.rate_class or "0").strip()
+    cov_sex = {"1": "M", "2": "F"}.get(cov.sex_code, cov.sex_code or sex)
+    if cov_rc == "0":
+        cov_rc = base_rate_class or "N"
+    annual = cov.cov_annual_premium
+    if annual is None and cov.premium_rate and cov.units:
+        annual = cov.premium_rate * cov.units
+    fallback = float(annual) if annual else 0.0
+    rider = RiderInfo(
+        plancode=(cov.plancode or "").upper(),
+        face_amount=float(cov.face_amount or 0),
+        issue_age=int(cov.issue_age or 0),
+        sex=cov_sex,
+        rate_class=cov_rc,
+        table_rating=int(cov.table_rating or 0),
+        rider_type="CTR" if cov.person_code == "50" else "COVERAGE",
+        fallback_premium=fallback,
+    )
+    return rider, fallback
+
+
+def extract_riders_and_layers(
+    policy_num: str,
+    pi,
+    identity: PolicyIdentity,
+    as_of_date: date,
+) -> RidersAndLayers:
+    """Extract premium riders, benefits and primary-insured death-benefit layers.
+
+    Sources: PolicyInformation ``get_coverages()``, ``get_benefits()`` and
+    ``primary_insured_db_layers`` (LH_COV_PHA/LH_SPM_BNF-derived records).
+    Benefit cease-date filtering is evaluated at the boundary-supplied
+    ``as_of_date`` so tests and quote retrieval are clock-independent.
+    """
+    try:
+        coverages = pi.get_coverages()
+        all_benefits = pi.get_benefits()
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Coverage/benefit lookup failed for {policy_num}"
+        ) from exc
+    issue_date = identity.issue_date or (coverages[0].issue_date if coverages else None)
+    riders: List[RiderInfo] = []
+    rider_annual = 0.0
+    for cov in coverages:
+        rider, annual = _coverage_rider(cov, identity.sex, identity.rate_class)
+        if rider:
+            riders.append(rider)
+            rider_annual += annual
+        cov_sex = {"1": "M", "2": "F"}.get(cov.sex_code, cov.sex_code or identity.sex)
+        cov_rc = (cov.rate_class or "0").strip()
+        if cov_rc == "0" and cov.is_base:
+            cov_rc = identity.rate_class
+        for benefit in (b for b in all_benefits if b.cov_pha_nbr == cov.cov_pha_nbr):
+            if benefit.cease_date and benefit.cease_date < as_of_date:
+                continue
+            if (benefit.benefit_type_cd or "").strip() == "#":
+                continue
+            riders.append(_make_benefit_rider(cov, benefit, cov_sex, cov_rc))
+    db_layers: List[DBLayer] = []
+    try:
+        layer_rows = pi.primary_insured_db_layers
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Death-benefit layer lookup failed for {policy_num}"
+        ) from exc
+    for face, expiry in layer_rows:
+        db_layers.append(
+            DBLayer(
+                face_amount=float(face or 0),
+                expiry_month=_months_since_issue(issue_date, expiry),
+            )
+        )
+    return RidersAndLayers(riders, rider_annual, db_layers, issue_date)
+
+
+def extract_policy_values(policy_num: str, pi) -> PolicyValues:
+    """Extract value basis fields from PolicyInformation.
+
+    Sources: LH_POL_MVRY_VAL for account/surrender values and valuation date,
+    LH_POL_TOTALS-derived premium totals, and the monthliversary deduction row.
+    """
+    try:
+        mv_account_value = pi.mv_av(0)
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Account value lookup failed for {policy_num}"
+        ) from exc
+    account_value = (
+        float(mv_account_value)
+        if mv_account_value is not None
+        else float(pi.accumulation_value or 0)
+    )
+    try:
+        surrender_value = float(_read_surrender_value(pi) or 0)
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Surrender value lookup failed for {policy_num}"
+        ) from exc
+    try:
+        mv_date = pi.mv_date(0)
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Valuation date lookup failed for {policy_num}"
+        ) from exc
+    valuation_date = mv_date if mv_date and mv_date.year < 9999 else pi.valuation_date
+    return PolicyValues(
+        account_value=account_value,
+        surrender_value=surrender_value,
+        premiums_paid_to_date=float(pi.total_premiums_paid or 0),
+        valuation_date=valuation_date,
+        monthly_deduction=float(pi.mv_monthly_deduction() or 0),
+    )
 
 
 def _duration_at_quote(policy: ABRPolicyData, quote_date: date) -> tuple[int, int]:
@@ -112,13 +404,7 @@ def premium_schedule_for_quote(
     quote_date: date,
     level_annual_premium: float | None = None,
 ) -> PremiumScheduleResult:
-    """Build the APV premium schedule for a quote date.
-
-    For TERM products the first schedule entry is prorated for unpaid modal
-    payments remaining in the current policy year.  For UL/IUL/ISWL products the
-    caller supplies the level annual premium used to fund coverage to maturity;
-    the current-year entry remains zero, matching the existing quote window.
-    """
+    """Build the APV premium schedule for a quote date."""
     from .premium_calc import PremiumCalculator, arithmetic_round
     from ..models.abr_database import get_abr_database
 
@@ -127,7 +413,6 @@ def premium_schedule_for_quote(
     start_year, effective_policy_month = _duration_at_quote(policy, quote_date)
     prem_result = calc.compute(policy_year=start_year)
     is_ul = policy.product_type in ("UL", "IUL", "ISWL")
-
     if is_ul:
         max_duration = (
             policy.maturity_age - policy.issue_age
@@ -144,7 +429,6 @@ def premium_schedule_for_quote(
         base_annual_schedule = calc.get_base_annual_premium_schedule()
         annual_schedule = calc.get_annual_premium_schedule()
         premium_schedule = list(base_annual_schedule)
-
     payments_per_year = {1: 1, 2: 2, 3: 4, 4: 12, 5: 12}.get(
         policy.billing_mode, 12
     )
@@ -153,19 +437,13 @@ def premium_schedule_for_quote(
     modal_fee_factor = db.get_modal_fee_factor(policy.plan_code, policy.billing_mode)
     payments_made = (effective_policy_month - 1) // months_per_payment + 1
     remaining_payments = max(payments_per_year - payments_made, 0)
-
     year_index = start_year - 1
-    current_year_premium = 0.0
-    if year_index < len(premium_schedule):
-        current_year_premium = premium_schedule[year_index]
-    if (
-        not is_ul
-        and year_index < len(premium_schedule)
-        and remaining_payments < payments_per_year
-    ):
+    current_year_premium = (
+        premium_schedule[year_index] if year_index < len(premium_schedule) else 0.0
+    )
+    if not is_ul and year_index < len(premium_schedule) and remaining_payments < payments_per_year:
         modal_total = arithmetic_round(premium_schedule[year_index] * modal_factor, 2)
         premium_schedule[year_index] = modal_total * remaining_payments
-
     return PremiumScheduleResult(
         start_year=start_year,
         effective_policy_month=effective_policy_month,
@@ -173,6 +451,7 @@ def premium_schedule_for_quote(
         remaining_payments=remaining_payments,
         modal_factor=modal_factor,
         modal_fee_factor=modal_fee_factor,
+        premium_result=prem_result,
         premium_schedule=premium_schedule,
         base_annual_schedule=base_annual_schedule,
         annual_schedule=annual_schedule,
@@ -187,275 +466,57 @@ def build_abr_policy(
     company_code: Optional[str] = None,
     *,
     use_cache: bool = True,
+    as_of_date: date,
 ) -> Tuple[Optional[ABRPolicyData], Optional[object]]:
-    """Fetch policy data from DB2 via the shared PolicyService and assemble an ABRPolicyData object.
-
-    Raises when DB2 data retrieval fails; callers that support manual entry
-    must choose it explicitly rather than receiving defaulted live values.
-    
-    Args:
-        policy_num: Policy number to look up.
-        region: DB2 region code.
-        company_code: Optional company code filter (e.g. "01").
-                      If None, DB2 may return multiple companies.
-
-    Returns:
-        Tuple of (ABRPolicyData, PolicyInformation)
-        The PolicyInformation object from DB2 is returned for UI reference if needed.
-    """
-    pi = get_policy_info(policy_num, region=region, company_code=company_code,
-                         use_cache=use_cache)
-    if pi is None:
-        raise ABRPolicyLookupError(
-            f"Policy {policy_num} not found in {region}"
-        )
-
-    # Map billing frequency (months) → ABR mode code
-    # Monthly has two modes: 4=Direct Bill (0.0930), 5=PAC/EFT (0.0864)
-    # Non-standard modes (NSD_MD_CD) override the standard mapping.
-    nsd_code = pi.non_standard_mode_code
-    if nsd_code and nsd_code in NON_STANDARD_MODE_MAP:
-        billing_mode = NON_STANDARD_MODE_MAP[nsd_code]
-    else:
-        freq = pi.billing_frequency or 12
-        billing_mode = _FREQ_TO_MODE.get(freq, 1)
-        if freq == 1 and pi.is_eft:
-            billing_mode = 5  # PAC/EFT Monthly
-
-    # Table rating numeric (from substandard ratings on base coverage)
-    table_numeric = 0
-    table_numeric_2 = 0
-    flat_extra = 0.0
-    flat_to_age = 0
-    flat_cease_date = None
-    try:
-        ratings = pi.get_substandard_ratings(1)
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Substandard rating lookup failed for {policy_num}"
-        ) from exc
-    for r in ratings:
-        if r.type_code == "T":
-            val = r.table_rating_numeric or 0
-            if not table_numeric:
-                table_numeric = val
-            elif not table_numeric_2:
-                table_numeric_2 = val
-        if r.type_code == "F":
-            flat_extra = float(r.flat_amount or 0)
-            flat_cease_date = r.flat_cease_date
-            if flat_cease_date and pi.issue_date and pi.base_issue_age is not None:
-                flat_to_age = pi.base_issue_age + (
-                    flat_cease_date.year - pi.issue_date.year
-                )
-
-    # Translate DB2 sex code ("1"->"M", "2"->"F", "3"->"U")
-    raw_sex = pi.base_sex_code or ""
-    sex = {"1": "M", "2": "F", "3": "U"}.get(raw_sex, raw_sex)
-
-    # Rate sex from 67 segment (LH_COV_INS_RNL_RT.RT_SEX_CD)
-    raw_rate_sex = pi.renewal_cov_sex_code(1)  # base coverage
-    rate_sex = {"1": "M", "2": "F"}.get(raw_rate_sex, raw_rate_sex)
-    if not rate_sex:
-        rate_sex = sex  # fallback to true sex
-
-    # Maturity age & date
-    maturity = pi.age_at_maturity or 95
-    maturity_date = None
-    try:
-        base_covs = pi.get_base_coverages()
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Base coverage lookup failed for {policy_num}"
-        ) from exc
-    if base_covs:
-        maturity_date = base_covs[0].maturity_date
-
-    # Product type (UL, IUL, ISWL, WL, TERM, DI, VUL)
-    product_type = pi.product_type or ""
-
-    riders = []
-    rider_annual = 0.0
-    try:
-        coverages = pi.get_coverages()
-        all_benefits = pi.get_benefits()
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Coverage/benefit lookup failed for {policy_num}"
-        ) from exc
-    today = date.today()
-
-    def _make_benefit_rider(cov, ben, cov_sex_mapped, cov_rc_str):
-        """Create a RiderInfo for a single benefit on a coverage."""
-        pc = (cov.plancode or "").upper()
-        cov_face = float(cov.face_amount or 0)
-        cov_issue_age = int(cov.issue_age or 0)
-        cov_table = int(cov.table_rating or 0)
-        ben_type = (ben.benefit_type_cd or "").strip()
-        ben_sub = (ben.benefit_subtype_cd or "").strip()
-        ben_units = float(ben.units or 0)
-        ben_vpu = float(ben.vpu or 0)
-        ben_face = float(ben.benefit_amount or 0) or cov_face
-        ben_issue_age = int(ben.issue_age or cov_issue_age or 0)
-        ben_rating = float(ben.rating_factor) if ben.rating_factor else 0.0
-        fallback = 0.0
-        if ben.coi_rate is not None and ben.units:
-            fallback = float(ben.coi_rate) * float(ben.units)
-
-        return RiderInfo(
-            plancode=pc,
-            face_amount=ben_face,
-            issue_age=ben_issue_age,
-            sex=cov_sex_mapped,
-            rate_class=cov_rc_str,
-            table_rating=cov_table,
-            rider_type="BENEFIT",
-            fallback_premium=fallback,
-            benefit_type=ben_type,
-            benefit_subtype=ben_sub,
-            benefit_units=ben_units,
-            benefit_vpu=ben_vpu,
-            benefit_rating_factor=ben_rating,
-            cease_date=ben.cease_date,
-        )
-
-    for cov in coverages:
-        pc = (cov.plancode or "").upper()
-        cov_sex_mapped = {"1": "M", "2": "F"}.get(
-            cov.sex_code, cov.sex_code or sex
-        )
-        cov_rc = (cov.rate_class or "0").strip()
-        if cov_rc == "0" and cov.is_base:
-            cov_rc = pi.base_rate_class or "N"
-        cov_table = int(cov.table_rating or 0)
-        cov_issue_age = int(cov.issue_age or 0)
-        cov_face = float(cov.face_amount or 0)
-
-        # Base coverage premium is computed directly over its rate schedule
-        if not cov.is_base:
-            is_ctr = (cov.person_code == "50")
-            ann = cov.cov_annual_premium
-            if ann is None and cov.premium_rate and cov.units:
-                ann = cov.premium_rate * cov.units
-            fallback = float(ann) if ann else 0.0
-            rider_annual += fallback
-            rtype = "CTR" if is_ctr else "COVERAGE"
-            riders.append(RiderInfo(
-                plancode=pc,
-                face_amount=cov_face,
-                issue_age=cov_issue_age,
-                sex=cov_sex_mapped,
-                rate_class=cov_rc,
-                table_rating=cov_table,
-                rider_type=rtype,
-                fallback_premium=fallback,
-            ))
-
-        cov_benefits = [b for b in all_benefits
-                        if b.cov_pha_nbr == cov.cov_pha_nbr]
-        for ben in cov_benefits:
-            if ben.cease_date and ben.cease_date < today:
-                continue
-            ben_type = (ben.benefit_type_cd or "").strip()
-
-            # NOTE: We must skip '#' benefits (ABR) since they have no premium charge.
-            if ben_type == "#":
-                continue
-
-            riders.append(
-                _make_benefit_rider(cov, ben, cov_sex_mapped, cov_rc)
-            )
-
-    primary_face_amount = float(pi.primary_insured_face_amount or 0)
-
-    # Resolve the issue date once — needed both for the ABRPolicyData and to
-    # convert per-layer expiry dates into absolute policy months.
-    issue_date = pi.issue_date or (coverages[0].issue_date if coverages else None)
-
-    # Death-benefit layers: base coverage + level-term riders on the primary
-    # insured, each with the absolute policy month after which it drops. This
-    # lets the APV engine project a declining death benefit when a rider
-    # expires mid-term instead of holding the full face level.
-    db_layers: List[DBLayer] = []
-    try:
-        for face, expiry in pi.primary_insured_db_layers:
-            db_layers.append(
-                DBLayer(
-                    face_amount=float(face or 0),
-                    expiry_month=_months_since_issue(issue_date, expiry),
-                )
-            )
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Death-benefit layer lookup failed for {policy_num}"
-        ) from exc
-
-    account_value = 0.0
-    surrender_value = 0.0
-    valuation_date = None
-    try:
-        mv_account_value = pi.mv_av(0)
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Account value lookup failed for {policy_num}"
-        ) from exc
-    if mv_account_value is not None:
-        account_value = float(mv_account_value)
-    else:
-        account_value = float(pi.accumulation_value or 0)
-    try:
-        surrender_value = float(_read_surrender_value(pi) or 0)
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Surrender value lookup failed for {policy_num}"
-        ) from exc
-    try:
-        mv_date = pi.mv_date(0)
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Valuation date lookup failed for {policy_num}"
-        ) from exc
-    if mv_date and mv_date.year < 9999:
-        valuation_date = mv_date
-    else:
-        valuation_date = pi.valuation_date
-
-    policy = ABRPolicyData(
-        policy_number=policy_num,
+    """Fetch CyberLife policy data and assemble an ABRPolicyData object."""
+    pi = get_policy_info(
+        policy_num,
         region=region,
-        insured_name=pi.primary_insured_name or "",
-        issue_age=int(pi.base_issue_age or 0),
-        attained_age=int(pi.attained_age or 0),
-        sex=sex,
-        rate_sex=rate_sex,
-        rate_class=pi.base_rate_class or "N",
-        face_amount=primary_face_amount,
-        db_option=pi.db_option_code or "",
-        account_value=account_value,
-        surrender_value=surrender_value,
-        premiums_paid_to_date=float(pi.total_premiums_paid or 0),
-        valuation_date=valuation_date,
-        issue_date=issue_date,
-        maturity_age=maturity,
-        maturity_date=maturity_date,
-        issue_state=pi.issue_state or pi.issue_state_code or "",
-        plan_code=pi.base_plancode or "",
-        product_type=product_type,
-        base_plancode=str(pi.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or "").strip(),
-        billing_mode=billing_mode,
-        policy_month=pi.policy_month or 1,
-        policy_year=pi.policy_year or 1,
-        table_rating=table_numeric,
-        table_rating_2=table_numeric_2,
-        flat_extra=flat_extra,
-        flat_to_age=flat_to_age,
-        flat_cease_date=flat_cease_date,
-        paid_to_date=pi.paid_to_date,
-        modal_premium=float(pi.modal_premium or 0),
-        annual_premium=float(pi.annual_premium or 0),
-        rider_annual_premium=rider_annual,
-        riders=riders,
-        db_layers=db_layers,
-        monthly_deduction=float(pi.mv_monthly_deduction() or 0),
+        company_code=company_code,
+        use_cache=use_cache,
+    )
+    if pi is None:
+        raise ABRPolicyLookupError(f"Policy {policy_num} not found in {region}")
+    identity = extract_policy_identity(policy_num, region, pi)
+    substandard = extract_policy_substandard(policy_num, pi)
+    riders = extract_riders_and_layers(policy_num, pi, identity, as_of_date)
+    values = extract_policy_values(policy_num, pi)
+    policy = ABRPolicyData(
+        policy_number=identity.policy_number,
+        region=identity.region,
+        insured_name=identity.insured_name,
+        issue_age=identity.issue_age,
+        attained_age=identity.attained_age,
+        sex=identity.sex,
+        rate_sex=identity.rate_sex,
+        rate_class=identity.rate_class,
+        face_amount=identity.face_amount,
+        db_option=identity.db_option,
+        account_value=values.account_value,
+        surrender_value=values.surrender_value,
+        premiums_paid_to_date=values.premiums_paid_to_date,
+        valuation_date=values.valuation_date,
+        issue_date=riders.issue_date,
+        maturity_age=identity.maturity_age,
+        maturity_date=identity.maturity_date,
+        issue_state=identity.issue_state,
+        plan_code=identity.plan_code,
+        product_type=identity.product_type,
+        base_plancode=identity.base_plancode,
+        billing_mode=identity.billing_mode,
+        policy_month=identity.policy_month,
+        policy_year=identity.policy_year,
+        table_rating=substandard.table_rating,
+        table_rating_2=substandard.table_rating_2,
+        flat_extra=substandard.flat_extra,
+        flat_to_age=substandard.flat_to_age,
+        flat_cease_date=substandard.flat_cease_date,
+        paid_to_date=identity.paid_to_date,
+        modal_premium=identity.modal_premium,
+        annual_premium=identity.annual_premium,
+        rider_annual_premium=riders.rider_annual_premium,
+        riders=riders.riders,
+        db_layers=riders.db_layers,
+        monthly_deduction=values.monthly_deduction,
     )
     return policy, pi
