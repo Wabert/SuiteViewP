@@ -9,9 +9,9 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from suiteview.core import access_control as access
 from suiteview.core import support_files as support
@@ -64,6 +64,33 @@ def _explorer(folder, paths=()):
         get_clipboard_files=lambda: [],
         _get_unique_dest_path=lambda path: path.with_name(path.stem + " copy" + path.suffix),
     )
+
+
+def test_file_explorer_core_constructs_offscreen(context, monkeypatch, tmp_path):
+    class FakeBookmarkManager:
+        def get_bar_data(self, _bar_id):
+            return {"categories": {}, "items": [], "category_colors": {}}
+
+        def save(self):
+            return None
+
+    class FakeBookmarkContainer(QWidget):
+        navigate_to_path = pyqtSignal(str)
+
+        def __init__(self, *args, **kwargs):
+            parent = kwargs.get("parent")
+            super().__init__(parent)
+
+    monkeypatch.setattr(explorer, "get_bookmark_manager", lambda: FakeBookmarkManager())
+    monkeypatch.setattr(explorer, "BookmarkContainer", FakeBookmarkContainer)
+    monkeypatch.setattr(explorer, "profile_path", lambda name: tmp_path / name)
+
+    widget = explorer.FileExplorerCore()
+    try:
+        assert widget.details_view.model() is widget.details_sort_proxy
+        assert widget.tree_view.model() is widget.model
+    finally:
+        widget.deleteLater()
 
 
 def test_classifier_protects_children_ancestors_not_similarly_named_paths(context):
