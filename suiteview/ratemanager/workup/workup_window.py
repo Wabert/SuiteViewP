@@ -599,18 +599,9 @@ class RateWorkupPanel(BaseWorkupPanel):
     # Build
     # ------------------------------------------------------------------
 
-    def _on_build(self):
-        if self._analysis is None:
-            QMessageBox.warning(self, "Not Analyzed",
-                                "Click 'Analyze Files' first.")
-            return
-        spec = self._gather_paths_spec()
-        if spec is None:
-            return
-
+    def _apply_build_header_fields(self, spec: WorkupSpec) -> bool:
         spec.plancode = self._analysis.plancode
         spec.fmt = "excel" if self.fmt_excel.isChecked() else "db"
-
         try:
             spec.maturity_age = int(self.maturity_edit.text().strip())
         except ValueError:
@@ -638,7 +629,9 @@ class RateWorkupPanel(BaseWorkupPanel):
 
         spec.output_dir = self.output_edit.text().strip() or os.path.dirname(
             spec.iaf_path)
+        return True
 
+    def _apply_optional_source_selections(self, spec: WorkupSpec) -> bool:
         if spec.scr_path:
             data = self.scr_combo.currentData()
             if not data:
@@ -671,7 +664,9 @@ class RateWorkupPanel(BaseWorkupPanel):
                     "belongs to this plancode.")
                 return
             spec.epu_plan, spec.epu_freq, spec.epu_rule = data
+        return True
 
+    def _selected_benefits(self) -> list[BenefitSelection] | None:
         benefits = []
         for (
             code, chk, ren_chk, cease_edit, mpf_combo, idx_edit, has_iaf_coi
@@ -709,29 +704,24 @@ class RateWorkupPanel(BaseWorkupPanel):
                 cease_age=cease_age,
                 mpf_code=mpf_combo.currentData() or "",
                 start_index=start_index))
-        spec.benefits = benefits
-        if any(b.mpf_code for b in benefits) and not spec.mpf_path:
-            QMessageBox.warning(
-                self, "No MPF File",
-                "Some benefits are linked to MPF codes but no MPF file is "
-                "selected — their COI rates would be skipped.")
-            return
+        return benefits
 
-        # Confirm before overwriting an existing workup output.
+    def _confirm_output_overwrite(self, spec: WorkupSpec) -> bool:
         if spec.fmt == "excel":
             target = os.path.join(
                 spec.output_dir, f"{spec.plancode} - Workup DB.xlsx")
         else:
             target = os.path.join(spec.output_dir, f"{spec.plancode}_Workup")
-        if os.path.exists(target):
-            reply = QMessageBox.question(
-                self, "Overwrite Existing Output?",
-                f"The output already exists:\n{target}\n\nOverwrite it?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        if not os.path.exists(target):
+            return True
+        reply = QMessageBox.question(
+            self, "Overwrite Existing Output?",
+            f"The output already exists:\n{target}\n\nOverwrite it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        return reply == QMessageBox.StandardButton.Yes
 
+    def _start_build_worker(self, spec: WorkupSpec) -> None:
         self.log.clear()
         self.progress_bar.setValue(0)
         self.btn_build.setEnabled(False)
@@ -744,6 +734,31 @@ class RateWorkupPanel(BaseWorkupPanel):
         self._build_worker.finished.connect(self._on_built)
         self._build_worker.error.connect(self._on_error)
         self._build_worker.start()
+
+    def _on_build(self):
+        if self._analysis is None:
+            QMessageBox.warning(self, "Not Analyzed",
+                                "Click 'Analyze Files' first.")
+            return
+        spec = self._gather_paths_spec()
+        if spec is None:
+            return
+        if not self._apply_build_header_fields(spec):
+            return
+        if not self._apply_optional_source_selections(spec):
+            return
+        benefits = self._selected_benefits()
+        if benefits is None:
+            return
+        spec.benefits = benefits
+        if any(b.mpf_code for b in benefits) and not spec.mpf_path:
+            QMessageBox.warning(
+                self, "No MPF File",
+                "Some benefits are linked to MPF codes but no MPF file is "
+                "selected — their COI rates would be skipped.")
+            return
+        if self._confirm_output_overwrite(spec):
+            self._start_build_worker(spec)
 
     def _on_built(self, res: WorkupResult):
         self._output_path = res.output_path
