@@ -1,12 +1,13 @@
 """Profile migrations use synthetic data and never touch the real user's profile."""
 
-import json
 import ast
 from contextlib import closing
+import json
+import os
 from pathlib import Path
 import sqlite3
-from unittest.mock import Mock
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from cryptography.fernet import Fernet
 import pytest
@@ -90,13 +91,18 @@ def test_migration_is_exact_and_repeatable(profile):
 
 
 def test_legacy_policy_support_tasks_moves_from_appdata(profile, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    root = home / ".suiteview"
     appdata = tmp_path / "appdata"
     legacy = appdata / "SuiteView" / "policy_support_tasks.json"
     legacy.parent.mkdir(parents=True)
     legacy.write_text('["GLP_Exception"]', encoding="utf-8")
+    monkeypatch.delenv("SUITEVIEW_PROFILE_DIR", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.setenv("APPDATA", str(appdata))
 
-    result = maintenance.maintain_profile(profile)
+    result = maintenance.maintain_profile(root)
 
     target = profile_path("policy_support_tasks.json")
     assert target.read_text(encoding="utf-8") == '["GLP_Exception"]'
@@ -104,8 +110,28 @@ def test_legacy_policy_support_tasks_moves_from_appdata(profile, tmp_path, monke
     assert result["external_verified_files"] == 1
     assert result["external_moves"][0]["from"] == str(legacy)
     assert result["external_moves"][0]["to"].replace("\\", "/") == "settings/policy_support_tasks.json"
-    log = json.loads((profile / "logs" / "profile-maintenance.json").read_text(encoding="utf-8"))
+    log = json.loads((root / "logs" / "profile-maintenance.json").read_text(encoding="utf-8"))
     assert log["external_verified_files"] == 1
+
+
+def test_legacy_policy_support_tasks_stays_in_appdata_for_non_default_profile(
+    profile, tmp_path, monkeypatch,
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    appdata = tmp_path / "appdata"
+    legacy = appdata / "SuiteView" / "policy_support_tasks.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text('["Legacy"]', encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("APPDATA", str(appdata))
+
+    result = maintenance.maintain_profile(profile)
+
+    assert legacy.read_text(encoding="utf-8") == '["Legacy"]'
+    assert not profile_path("policy_support_tasks.json").exists()
+    assert result["external_moves"] == []
+    assert result["external_verified_files"] == 0
 
 
 def test_legacy_policy_support_tasks_does_not_overwrite_profile_file(profile, tmp_path, monkeypatch):
@@ -409,6 +435,16 @@ def test_representative_stores_do_not_write_to_home_profile(tmp_path, monkeypatc
     assert profile_path("common_tables").exists()
     assert profile_path("bookmarks.json").exists()
     assert not (home / ".suiteview").exists()
+
+
+def test_tests_run_with_isolated_windows_appdata(tmp_path):
+    appdata = Path(os.environ["APPDATA"])
+    localappdata = Path(os.environ["LOCALAPPDATA"])
+
+    assert appdata.is_relative_to(tmp_path.parent)
+    assert localappdata.is_relative_to(tmp_path.parent)
+    assert appdata.is_dir()
+    assert localappdata.is_dir()
 
 
 def test_preview_helpers_compile():

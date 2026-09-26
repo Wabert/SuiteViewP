@@ -48,6 +48,10 @@ _MUTEX_NAMES = (
 )
 
 
+def _is_default_profile(root: Path) -> bool:
+    return root.resolve() == (Path.home() / ".suiteview").resolve()
+
+
 def _source_name(name: str) -> str:
     return "audit_groups/_ui_settings.json" if name == "audit_ui_settings.json" else name
 
@@ -73,7 +77,7 @@ def _hash(path: Path) -> str:
 def _app_guard(root: Path):
     """Reserve launcher identities during maintenance of the real user profile."""
     handles = []
-    if sys.platform != "win32" or root.resolve() != (Path.home() / ".suiteview").resolve():
+    if sys.platform != "win32" or not _is_default_profile(root):
         yield
         return
     from suiteview.core.single_instance import owned_mutex_names
@@ -146,6 +150,8 @@ def _legacy_policy_support_tasks_path() -> Path:
 
 
 def _external_moves(root: Path) -> list[tuple[Path, Path]]:
+    if not _is_default_profile(root):
+        return []
     source = _legacy_policy_support_tasks_path()
     target = _path(root, PROFILE_PATHS["policy_support_tasks.json"])
     if source.exists() and not target.exists():
@@ -234,7 +240,7 @@ def _json_updates(root: Path, moves: list[tuple[Path, Path]]) -> list[tuple[Path
 
 
 def _shortcut_updates(root: Path) -> list:
-    if sys.platform != "win32" or root.resolve() != (Path.home() / ".suiteview").resolve():
+    if sys.platform != "win32" or not _is_default_profile(root):
         return []
     from win32com.client import dynamic
 

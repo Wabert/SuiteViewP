@@ -463,6 +463,24 @@ def test_iaf_preserves_source_age_range_use_identifiers_options_and_zero(tmp_pat
     assert "ISSUE_AGE" not in rows[1] and "DURATION" not in rows[1]
 
 
+def test_iaf_populated_blank_premium_identifier_fails_closed(tmp_path):
+    text = iaf_plan() + iaf_aliases() + IAF_COLUMNS_LINE
+    text += iaf_rates(pairs=[("002SA**", ".00"), ("", ".125")])
+
+    with pytest.raises(PackageValidationError, match="Malformed premium identifier"):
+        parse_iaf(write(tmp_path, text), "00")
+
+
+def test_iaf_blank_premium_identifier_and_blank_rate_cell_is_skipped(tmp_path):
+    text = iaf_plan() + iaf_aliases() + IAF_COLUMNS_LINE
+    text += iaf_rates(pairs=[("002SA**", ".00"), ("", "")])
+
+    rows = parse_iaf(write(tmp_path, text), "00")
+
+    assert len(rows) == 1
+    assert rows[0]["PREMIUM_IDENTIFIER"] == "002SA**"
+
+
 def test_iaf_search_aliases_versions_and_effective_dates(tmp_path):
     text = iaf_plan(version="2", effective="01012025")
     text += iaf_aliases([("WLTEST00", "2", "01012025"), ("WLALIAS0", "3", "02012025")])
