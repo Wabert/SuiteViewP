@@ -38,7 +38,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QRadioButton,
-    QSizePolicy,
     QToolTip,
     QVBoxLayout,
     QWidget,
@@ -69,7 +68,6 @@ from suiteview.ui.widgets.frameless_window import FramelessDialog
 
 from .allocations_panel import AllocationsDialog, AllocationsPanel
 from .styles import (
-    GROUP_STYLE,
     ILLUSTRATION_BORDER_COLOR,
     ILLUSTRATION_HEADER_COLORS,
     INPUT_CAPTION_STYLE as _CAPTION_STYLE,
