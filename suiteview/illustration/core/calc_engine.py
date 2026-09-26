@@ -2284,56 +2284,10 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
         (s for s in policy.segments if getattr(s, "is_base", True)),
         key=lambda s: s.coverage_phase,
     )
-    issue_date = policy.issue_date
-
-    def months_between(d0, d1):
-        if d0 is None or d1 is None:
-            return 0
-        rd = relativedelta(d1, d0)
-        return rd.years * 12 + rd.months
-
-    last_active = 0
-    for index in (1, 2, 3):
-        seg = segments[index - 1] if index - 1 < len(segments) else None
-        # A base segment with positive face is active unless terminated. The
-        # status carries the raw CyberLife code ("0" = active), so test for the
-        # terminated marker rather than a literal "A".
-        active = bool(
-            seg and seg.face_amount > 0 and str(seg.status or "").strip().upper() != "T"
-        )
-        seg_issue = seg.issue_date if seg else None
-        cov_months = (months_between(seg_issue, month_date) + 1) if active else 0
-        terminated = int(getattr(seg, "months_since_terminated", 0) or 0) if seg else 0
-        cov_months_sb = max(0, cov_months - terminated)
-        # Policy-anniversary alignment: offset the coverage's own duration so the
-        # year rolls on the policy anniversary, not the coverage anniversary.
-        pol_offset = months_between(issue_date, seg_issue) % 12 if (active and seg_issue) else 0
-        year_cov_ann = (cov_months - 1) // 12 + 1 if cov_months > 0 else 0
-        year_pol_ann = (cov_months - 1 + pol_offset) // 12 + 1 if cov_months > 0 else 0
-        year_cov_ann_sb = max(1, (cov_months_sb - 1) // 12 + 1) if active else 0
-        year_pol_ann_sb = max(1, (cov_months_sb - 1 + pol_offset) // 12 + 1) if active else 0
-        if active:
-            last_active = index
-        snap[f"Cov {index} Active"] = active
-        snap[f"Cov {index} Issue Date"] = seg_issue if active else None
-        snap[f"Cov {index} Months from Issue"] = cov_months
-        snap[f"Cov {index} Months from Issue w setback"] = cov_months_sb
-        snap[f"Year by Pol Ann Cov {index}"] = year_pol_ann
-        snap[f"Year by Pol Ann w setback Cov {index}"] = year_pol_ann_sb
-        snap[f"Year by Cov Ann Cov {index}"] = year_cov_ann
-        snap[f"Year by Cov Ann w setback Cov {index}"] = year_cov_ann_sb
-        snap[f"Original SA Cov {index}"] = float(seg.original_face_amount) if seg else 0.0
-        snap[f"Current SA Cov {index}"] = float(seg.face_amount) if seg else 0.0
-        snap[f"Band Lock Cov {index}"] = int(seg.original_band) if seg else 0
-        snap[f"Issue Age Cov {index}"] = int(seg.issue_age) if seg else 0
-        snap[f"Rateclass Cov {index}"] = (seg.rate_class or "") if seg else ""
-        snap[f"Table Rating Cov {index}"] = int(seg.table_rating) if seg else 0
-
-    # APB is not modeled as a coverage segment in this engine.
-    snap["APB Active"] = False
-    snap["Original SA APB"] = 0.0
-    snap["Current SA APB"] = 0.0
-    snap["Band APB"] = 0
+    last_active = _add_coverage_slot_snapshots(
+        snap, segments, policy.issue_date, month_date
+    )
+    _add_apb_snapshot(snap)
     snap["LastActiveSegment"] = last_active
 
     current_sa = float(policy.total_face)
@@ -2359,18 +2313,87 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     snap["Base Flat2"] = 0.0
 
     # Coverage_Change (FP): any monitored coverage attribute moved this month.
+    snap["Coverage_Change"] = _coverage_snapshot_changed(snap, prior)
+    snap["PolicyChangeAVReduction"] = float(av_reduction)
+    return snap
+
+
+def _months_between_dates(d0, d1) -> int:
+    if d0 is None or d1 is None:
+        return 0
+    rd = relativedelta(d1, d0)
+    return rd.years * 12 + rd.months
+
+
+def _add_coverage_slot_snapshots(snap, segments, issue_date, month_date) -> int:
+    last_active = 0
+    for index in (1, 2, 3):
+        seg = segments[index - 1] if index - 1 < len(segments) else None
+        active = _coverage_segment_active(seg)
+        if active:
+            last_active = index
+        snap.update(_coverage_slot_snapshot(index, seg, active, issue_date, month_date))
+    return last_active
+
+
+def _coverage_segment_active(seg) -> bool:
+    return bool(
+        seg and seg.face_amount > 0 and str(seg.status or "").strip().upper() != "T"
+    )
+
+
+def _coverage_slot_snapshot(index: int, seg, active: bool, issue_date, month_date) -> dict:
+    seg_issue = seg.issue_date if seg else None
+    cov_months = (_months_between_dates(seg_issue, month_date) + 1) if active else 0
+    terminated = int(getattr(seg, "months_since_terminated", 0) or 0) if seg else 0
+    cov_months_sb = max(0, cov_months - terminated)
+    pol_offset = (
+        _months_between_dates(issue_date, seg_issue) % 12
+        if (active and seg_issue) else 0
+    )
+    return {
+        f"Cov {index} Active": active,
+        f"Cov {index} Issue Date": seg_issue if active else None,
+        f"Cov {index} Months from Issue": cov_months,
+        f"Cov {index} Months from Issue w setback": cov_months_sb,
+        f"Year by Pol Ann Cov {index}": _duration_year(cov_months, pol_offset),
+        f"Year by Pol Ann w setback Cov {index}": _setback_year(cov_months_sb, pol_offset, active),
+        f"Year by Cov Ann Cov {index}": _duration_year(cov_months, 0),
+        f"Year by Cov Ann w setback Cov {index}": _setback_year(cov_months_sb, 0, active),
+        f"Original SA Cov {index}": float(seg.original_face_amount) if seg else 0.0,
+        f"Current SA Cov {index}": float(seg.face_amount) if seg else 0.0,
+        f"Band Lock Cov {index}": int(seg.original_band) if seg else 0,
+        f"Issue Age Cov {index}": int(seg.issue_age) if seg else 0,
+        f"Rateclass Cov {index}": (seg.rate_class or "") if seg else "",
+        f"Table Rating Cov {index}": int(seg.table_rating) if seg else 0,
+    }
+
+
+def _duration_year(months: int, offset: int) -> int:
+    return (months - 1 + offset) // 12 + 1 if months > 0 else 0
+
+
+def _setback_year(months: int, offset: int, active: bool) -> int:
+    return max(1, (months - 1 + offset) // 12 + 1) if active else 0
+
+
+def _add_apb_snapshot(snap) -> None:
+    snap["APB Active"] = False
+    snap["Original SA APB"] = 0.0
+    snap["Current SA APB"] = 0.0
+    snap["Band APB"] = 0
+
+
+def _coverage_snapshot_changed(snap, prior) -> bool:
+    if not prior:
+        return False
     change_keys = (
         ["CurrentSA"]
         + [f"Rateclass Cov {i}" for i in (1, 2, 3)]
         + [f"Table Rating Cov {i}" for i in (1, 2, 3)]
         + ["Base Flat1", "Base Flat2"]
     )
-    coverage_change = bool(prior) and any(
-        snap.get(key) != prior.get(key) for key in change_keys
-    )
-    snap["Coverage_Change"] = coverage_change
-    snap["PolicyChangeAVReduction"] = float(av_reduction)
-    return snap
+    return any(snap.get(key) != prior.get(key) for key in change_keys)
 
 
 def _age_on_date(birth_date, as_of, age_basis, fallback) -> int:
