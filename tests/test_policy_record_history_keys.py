@@ -104,7 +104,9 @@ def test_access_error_is_reported_without_unfiltered_retry(policy_data):
     data, cursor = policy_data
     cursor.execute.side_effect = RuntimeError("SQLCODE -551: not authorized")
 
-    assert data.fetch_table("FH_ACCTG") == []
+    with pytest.raises(RuntimeError, match="FH_ACCTG: SQLCODE -551"):
+        data.fetch_table("FH_ACCTG")
     assert data.table_error("FH_ACCTG") == "SQLCODE -551: not authorized"
-    assert data.fetch_table("FH_ACCTG") == []
+    with pytest.raises(RuntimeError, match="FH_ACCTG: SQLCODE -551"):
+        data.fetch_table("FH_ACCTG")
     cursor.execute.assert_called_once()

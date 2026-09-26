@@ -270,6 +270,8 @@ class PolicyData:
 
     def table_error(self, table_name: str) -> str:
         """Return the DB2 load error for *table_name*, if one occurred."""
+        if table_name in self._table_errors:
+            return self._table_errors[table_name]
         self._ensure_table_loaded(table_name)
         return self._table_errors.get(table_name, "")
 
@@ -652,8 +654,7 @@ class PolicyData:
         if table_name in self._table_errors:
             error = f"{table_name}: {self._table_errors[table_name]}"
             self.reject_uncached_read(error)
-            if _connection_provider.get() is not None:
-                raise RuntimeError(error)
+            raise RuntimeError(error)
         if table_name in self._table_cache:
             return
 
