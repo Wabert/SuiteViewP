@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import sys
 
+from suiteview.core.data_access.errors import ReadOnlyViolation
+
 
 def is_distribution_build() -> bool:
     """True in the packaged (PyInstaller) EXE, False when running from source."""
@@ -32,7 +34,7 @@ def has_developer_access() -> bool:
     return not is_distribution_build()
 
 
-class ReadOnlyDataError(PermissionError):
+class ReadOnlyDataError(ReadOnlyViolation):
     """The user's role does not allow shared-database writes."""
 
 

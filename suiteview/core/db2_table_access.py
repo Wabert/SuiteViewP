@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from .db2_connection import DB2Connection
-from .db2_constants import REGION_SCHEMA_MAP, DEFAULT_SCHEMA
+from .db2_constants import REGION_SCHEMA_MAP, DEFAULT_SCHEMA, DEFAULT_REGION
 
 # Signature: progress(done: int, total: int, table: str) -> None
 ProgressCallback = Callable[[int, int, str], None]
@@ -52,7 +52,7 @@ def list_lh_th_tables(db: DB2Connection, schema: str) -> list[str]:
 
 
 def scan_table_access(
-    region: str = "CKPR",
+    region: str = DEFAULT_REGION,
     progress: Optional[ProgressCallback] = None,
 ) -> dict:
     """Scan *region* and classify every LH_/TH_ table as accessible or not.

@@ -6,7 +6,6 @@ from suiteview.core.profile_paths import profile_path
 
 import csv
 import hashlib
-import json
 import re
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
@@ -18,24 +17,31 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 import pyodbc
 
-from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.build_env import guard_data_writable
+from suiteview.core.data_access.connections import connection_factory
+from suiteview.core.data_access.errors import (
+    QueryFailed,
+    SourceValidationError,
+    SuiteViewDataError,
+)
+from suiteview.core.data_sources import UL_RATES_DSN
 from suiteview.core.json_store import write_json
+from suiteview.core.sql_identifiers import quote_identifier
 
 
-class RateDatabaseError(RuntimeError):
+class RateDatabaseError(SuiteViewDataError):
     """Base error for Rate Manager database operations."""
 
 
-class PackageValidationError(RateDatabaseError):
+class PackageValidationError(SourceValidationError, RateDatabaseError):
     """A workup folder is incomplete or contains invalid data."""
 
 
-class UnsafeOperationError(RateDatabaseError):
+class UnsafeOperationError(SourceValidationError, RateDatabaseError):
     """A requested database operation would violate a safety invariant."""
 
 
-class StaleAnalysisError(RateDatabaseError):
+class StaleAnalysisError(QueryFailed, RateDatabaseError):
     """The database changed after the user reviewed the analysis."""
 
 
@@ -997,14 +1003,14 @@ class ULRatesRepository:
     able to address the other's tables.
     """
 
-    def __init__(self, dsn: str = "UL_Rates", schema: RateSchema = UL_SCHEMA):
-        self.dsn = dsn.strip() or "UL_Rates"
+    def __init__(self, dsn: str = UL_RATES_DSN, schema: RateSchema = UL_SCHEMA):
+        self.dsn = dsn.strip() or UL_RATES_DSN
         self.schema = schema
         self._connection: Optional[pyodbc.Connection] = None
 
     def connect(self) -> pyodbc.Connection:
         if self._connection is None:
-            self._connection = connect_dsn(
+            self._connection = connection_factory.connect_dsn(
                 self.dsn, autocommit=False, timeout=10, readonly=False,
             )
         return self._connection
@@ -1043,12 +1049,12 @@ class ULRatesRepository:
         try:
             for spec in self.schema.specs.values():
                 columns = ", ".join(
-                    _quote(column)
+                    quote_identifier(column)
                     for column in spec.columns
                 )
                 try:
                     cursor.execute(
-                        f"SELECT {columns} FROM {_quote(spec.name)} WHERE 1 = 0"
+                        f"SELECT {columns} FROM {quote_identifier(spec.name)} WHERE 1 = 0"
                     )
                 except Exception as exc:
                     raise RateDatabaseError(
@@ -1066,13 +1072,13 @@ class ULRatesRepository:
         if not spec.is_pointer:
             raise ValueError(f"{table_name} is not a pointer table.")
         columns = ", ".join(
-            _quote(column) for column in spec.columns
+            quote_identifier(column) for column in spec.columns
         )
         cursor = self.connect().cursor()
         try:
             cursor.execute(
-                f"SELECT {columns} FROM {_quote(table_name)} "
-                f"WHERE {_quote('Plancode')} = ?",
+                f"SELECT {columns} FROM {quote_identifier(table_name)} "
+                f"WHERE {quote_identifier('Plancode')} = ?",
                 (plancode,),
             )
             return [
@@ -1095,9 +1101,9 @@ class ULRatesRepository:
             cursor = self.connect().cursor()
             try:
                 cursor.execute(
-                    f"SELECT DISTINCT {_quote(index_column)} "
-                    f"FROM {_quote(table_name)} "
-                    f"WHERE {_quote(index_column)} IN ({placeholders})",
+                    f"SELECT DISTINCT {quote_identifier(index_column)} "
+                    f"FROM {quote_identifier(table_name)} "
+                    f"WHERE {quote_identifier(index_column)} IN ({placeholders})",
                     chunk,
                 )
                 found.update(
@@ -1112,7 +1118,7 @@ class ULRatesRepository:
     ) -> list[tuple[Any, ...]]:
         spec = self.schema.specs[table_name]
         columns = ", ".join(
-            _quote(column) for column in spec.columns
+            quote_identifier(column) for column in spec.columns
         )
         index_column = spec.index_column
         rows: list[tuple[Any, ...]] = []
@@ -1123,8 +1129,8 @@ class ULRatesRepository:
             cursor = self.connect().cursor()
             try:
                 cursor.execute(
-                    f"SELECT {columns} FROM {_quote(table_name)} "
-                    f"WHERE {_quote(index_column)} IN ({placeholders})",
+                    f"SELECT {columns} FROM {quote_identifier(table_name)} "
+                    f"WHERE {quote_identifier(index_column)} IN ({placeholders})",
                     chunk,
                 )
                 rows.extend(
@@ -1151,9 +1157,9 @@ class ULRatesRepository:
             cursor = self.connect().cursor()
             try:
                 cursor.execute(
-                    f"SELECT {_quote(pointer_column)}, {_quote('Plancode')} "
-                    f"FROM {_quote(pointer_table)} "
-                    f"WHERE {_quote(pointer_column)} IN ({placeholders})",
+                    f"SELECT {quote_identifier(pointer_column)}, {quote_identifier('Plancode')} "
+                    f"FROM {quote_identifier(pointer_table)} "
+                    f"WHERE {quote_identifier(pointer_column)} IN ({placeholders})",
                     chunk,
                 )
                 for index, plancode in cursor.fetchall():
@@ -1187,12 +1193,12 @@ class ULRatesRepository:
                 spec = self.schema.specs[table_name]
                 scope_columns = spec.collision_scope_columns
                 where = " AND ".join(
-                    f"{_quote(column)} = ?" for column in scope_columns
+                    f"{quote_identifier(column)} = ?" for column in scope_columns
                 )
                 progress(f"Removing existing {table_name} rows...")
                 for scope_values in scopes:
                     cursor.execute(
-                        f"DELETE FROM {_quote(table_name)} WHERE {where}",
+                        f"DELETE FROM {quote_identifier(table_name)} WHERE {where}",
                         tuple(scope_values),
                     )
                     deleted[table_name] += max(cursor.rowcount, 0)
@@ -1206,8 +1212,8 @@ class ULRatesRepository:
                 for chunk in _chunks(sorted(indexes)):
                     placeholders = ", ".join("?" for _ in chunk)
                     cursor.execute(
-                        f"DELETE FROM {_quote(table_name)} "
-                        f"WHERE {_quote(index_column)} IN ({placeholders})",
+                        f"DELETE FROM {quote_identifier(table_name)} "
+                        f"WHERE {quote_identifier(index_column)} IN ({placeholders})",
                         chunk,
                     )
                     deleted[table_name] += max(cursor.rowcount, 0)
@@ -1229,13 +1235,13 @@ class ULRatesRepository:
                 progress(f"Loading {total_rows:,} row(s) into {table_name}...")
                 spec = self.schema.specs[table_name]
                 columns = ", ".join(
-                    _quote(column)
+                    quote_identifier(column)
                     for column in spec.columns
                 )
                 placeholders = ", ".join("?" for _ in spec.columns)
                 try:
                     sql = (
-                        f"INSERT INTO {_quote(table_name)} ({columns}) "
+                        f"INSERT INTO {quote_identifier(table_name)} ({columns}) "
                         f"VALUES ({placeholders})"
                     )
                     loaded = 0
@@ -1645,9 +1651,9 @@ def delete_rate_index(
         cursor = repository.connect().cursor()
         try:
             cursor.execute(
-                f"DELETE FROM {_quote(table_name)} "
+                f"DELETE FROM {quote_identifier(table_name)} "
                 f"WHERE "
-                f"{_quote(spec.index_column)} = ?",
+                f"{quote_identifier(spec.index_column)} = ?",
                 (key,),
             )
         finally:
@@ -1697,12 +1703,12 @@ def _delete_exact_rows(
             for column, value in zip(spec.key_columns, spec.key(row)):
                 database_column = column
                 if value is None:
-                    clauses.append(f"{_quote(database_column)} IS NULL")
+                    clauses.append(f"{quote_identifier(database_column)} IS NULL")
                 else:
-                    clauses.append(f"{_quote(database_column)} = ?")
+                    clauses.append(f"{quote_identifier(database_column)} = ?")
                     params.append(value)
             cursor.execute(
-                f"DELETE FROM {_quote(spec.name)} WHERE {' AND '.join(clauses)}",
+                f"DELETE FROM {quote_identifier(spec.name)} WHERE {' AND '.join(clauses)}",
                 params,
             )
             if cursor.rowcount != 1:
@@ -1724,23 +1730,19 @@ def _insert_rows(
     if not rows:
         return
     columns = ", ".join(
-        _quote(column) for column in spec.columns
+        quote_identifier(column) for column in spec.columns
     )
     placeholders = ", ".join("?" for _ in spec.columns)
     cursor = repository.connect().cursor()
     try:
         cursor.fast_executemany = True
         cursor.executemany(
-            f"INSERT INTO {_quote(spec.name)} ({columns}) "
+            f"INSERT INTO {quote_identifier(spec.name)} ({columns}) "
             f"VALUES ({placeholders})",
             [_database_row(spec, row) for row in rows],
         )
     finally:
         cursor.close()
-
-
-def _quote(identifier: str) -> str:
-    return "[" + identifier.replace("]", "]]") + "]"
 
 
 def _chunks(values, size: int = 500) -> Iterable[tuple]:

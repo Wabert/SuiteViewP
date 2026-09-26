@@ -826,6 +826,10 @@ if pi:
 
 All sub-apps share the same DB2 connectivity layer.
 
+For the maintained DSN/region map, connection ownership, read/write boundaries,
+local-data gate, error hierarchy and SQL identifier allowlist rule, see
+[`docs/DATA_ACCESS.md`](docs/DATA_ACCESS.md).
+
 ### Local SQLite Data Is Opt-In Only
 
 Generated local policy-record and rates SQLite files under `bundled_data/dev/`

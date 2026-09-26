@@ -48,7 +48,10 @@ from decimal import Decimal
 import re
 from typing import Optional, List, Dict, Any, Union, Tuple
 
-from .local_dev import connect_local_rates_database, local_data_enabled
+from .data_access.connections import connection_factory
+from .data_access.errors import QueryFailed
+from .data_sources import UL_RATES_DSN
+from .local_dev import local_data_enabled
 
 try:
     from .db2_connection import DB2Connection
@@ -85,9 +88,8 @@ _INDEX_ILLUSTRATION_PLAN_ALIASES = {
 }
 
 
-class RatesError(Exception):
+class RatesError(QueryFailed):
     """Exception for rate lookup errors."""
-    pass
 
 
 # Source-keyed CyberLife rate files (CVF prints, IAF premiums, CKUDT323-325
@@ -178,7 +180,7 @@ class Rates:
     _scr_state_plancodes: Optional[set] = None
     
     # Default SQL Server connection settings for UL_Rates database
-    DEFAULT_DSN = "UL_Rates"
+    DEFAULT_DSN = UL_RATES_DSN
     QUERY_TIMEOUT = 15          # seconds, interactive (GUI-thread) lookups
     WORKER_QUERY_TIMEOUT = 30   # seconds, background worker lookups
     
@@ -208,7 +210,7 @@ class Rates:
 
         if local_data_enabled():
             try:
-                self._connection = connect_local_rates_database()
+                self._connection = connection_factory.connect_ul_rates()
             except Exception as e:
                 raise RatesError(f"Could not connect to local SuiteView rates database: {e}") from e
             return self._connection
@@ -216,15 +218,17 @@ class Rates:
         # Create new connection
         options = {"timeout": 15}
         if self._connection_string:
-            self._connection = pyodbc.connect(self._connection_string, **options)
+            self._connection = connection_factory.connect_connection_string(
+                self._connection_string, autocommit=True, **options,
+            )
         else:
             # Use local ODBC DSN
             try:
-                self._connection = pyodbc.connect(
-                    f"DSN={self.DEFAULT_DSN}", autocommit=True, **options,
+                self._connection = connection_factory.connect_ul_rates(
+                    autocommit=True, **options,
                 )
             except Exception as e:
-                raise RatesError(f"Could not connect to UL_Rates database via DSN '{self.DEFAULT_DSN}': {e}")
+                raise RatesError(f"Could not connect to UL_Rates database via DSN '{self.DEFAULT_DSN}': {e}") from e
         
         # A read blocked by another session's rate-load transaction must fail
         # loudly instead of hanging the caller (PolView reads on the GUI thread).

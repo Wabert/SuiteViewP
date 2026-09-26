@@ -27,9 +27,12 @@ from typing import List, Dict, Any
 
 import pyodbc
 
+from suiteview.core.data_access.connections import connection_factory
+from suiteview.core.data_sources import UL_RATES_DSN
+
 logger = logging.getLogger(__name__)
 
-ODBC_DSN = "UL_Rates"
+ODBC_DSN = UL_RATES_DSN
 
 # All columns returned by the TAICession query
 TAI_CESSION_COLUMNS = [
@@ -55,7 +58,9 @@ class TAICessionResult:
 
 def _get_connection() -> pyodbc.Connection:
     """Open a connection to UL_Rates via ODBC DSN."""
-    connection = pyodbc.connect(f"DSN={ODBC_DSN}", autocommit=True, timeout=15)
+    connection = connection_factory.connect_dsn(
+        ODBC_DSN, autocommit=True, timeout=15, readonly=False,
+    )
     try:
         connection.timeout = 30
     except Exception:

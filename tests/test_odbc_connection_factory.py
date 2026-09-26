@@ -40,6 +40,10 @@ def test_non_core_code_uses_odbc_connection_factory():
     assert offenders == []
 
 
+def test_schema_discovery_uses_data_access_factory():
+    assert not _uses_direct_pyodbc_connect(SUITEVIEW / "core" / "schema_discovery.py")
+
+
 def test_connect_dsn_passes_explicit_options(monkeypatch):
     calls = []
     connection = object()

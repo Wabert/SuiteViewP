@@ -17,10 +17,11 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from suiteview.ratemanager.workup.term_spec import BandSpecRow, MODEFACT_FIELDS
+from suiteview.core.data_sources import UL_RATES_DSN
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DSN = "UL_Rates"
+DEFAULT_DSN = UL_RATES_DSN
 
 # Base indexes are allocated as free multiples of this, leaving room for up to
 # BASE_INDEX_STEP - 1 rate combos per plancode.

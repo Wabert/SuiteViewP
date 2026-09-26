@@ -11,6 +11,8 @@ import os
 import sqlite3
 from pathlib import Path
 
+from suiteview.core.db2_constants import DEFAULT_REGION
+
 
 LOCAL_DATA_ENV = "SUITEVIEW_LOCAL_DATA"
 LOCAL_POLICY_DB_ENV = "SUITEVIEW_LOCAL_POLICY_DB"
@@ -52,7 +54,7 @@ def _sqlite_literal_path(path: Path) -> str:
     return "'" + str(path).replace("'", "''") + "'"
 
 
-def connect_local_policy_database(region: str = "CKPR") -> sqlite3.Connection:
+def connect_local_policy_database(region: str = DEFAULT_REGION) -> sqlite3.Connection:
     """Return a SQLite connection shaped like the DB2 policy connection.
 
     The policy data file is attached as schema ``DB2TAB`` so existing SQL such

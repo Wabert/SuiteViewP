@@ -115,6 +115,18 @@ def _connect_connection_string(
     return pyodbc.connect(connection_string, **options)
 
 
+def connect_connection_string(
+    connection_string: str, *, autocommit: bool, timeout: int | None = None, readonly: bool = False
+) -> pyodbc.Connection:
+    """Open an ODBC connection string with explicit connection semantics."""
+    return _connect_connection_string(
+        connection_string,
+        autocommit=autocommit,
+        timeout=timeout,
+        readonly=readonly,
+    )
+
+
 def connect_dsn(
     dsn: str, *, autocommit: bool, timeout: int | None = None, readonly: bool = False
 ) -> pyodbc.Connection:
