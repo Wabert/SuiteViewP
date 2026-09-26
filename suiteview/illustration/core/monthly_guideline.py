@@ -1,5 +1,12 @@
 """7702 guideline premiums (GLP / GSP / 7-pay) by MONTHLY accumulated-value solve.
 
+Units and rounding: GLP/GSP/7-pay solves return annual dollars. Monthly COI
+rates are per $1 of specified amount after converting the source per-1,000
+rates and capping at the statutory 83.333/1000 monthly limit. Expense, rider
+and qualified-benefit charges are monthly dollars. The solved annual premium is
+normalized elsewhere with the shared monthly-cent floor so accumulated GLP/GSP
+and target-premium displays agree with the engine ledger.
+
 This is the monthly-basis equivalent of the RERUN ``Guideline_Premiums``
 calculator. The workbook compresses the same recursion into one row per policy
 year (a geometric sum of the constant within-year monthly factors — fast and

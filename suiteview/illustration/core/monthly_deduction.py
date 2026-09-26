@@ -1,6 +1,11 @@
-"""Monthly deduction — Stage 2 of the monthly pipeline.
+"""Monthly deduction — stage 2 of the monthly pipeline.
 
-Follows RERUN CalcEngine cols 405-516.
+Follows RERUN CalcEngine cols 405-516. Dollar amounts are monthly dollars unless
+named annual; COI/EPU/rider rates are monthly rates per 1,000 of net amount at
+risk or specified amount. Death benefit and corridor calculations use the
+pre-interest account value supplied by the pipeline. Coverage table ratings and
+flat extras are applied only while active on the projection date; flat extras
+are truncated to monthly cents before being converted to per-1,000 charges.
 """
 from __future__ import annotations
 

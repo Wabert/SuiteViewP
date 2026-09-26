@@ -1,8 +1,38 @@
-"""UL Illustration projection engine — orchestrates the monthly pipeline.
+"""UL Illustration projection engine and canonical monthly pipeline.
 
-Public API:
+Public API::
+
     engine = IllustrationEngine()
-    results = engine.project(policy, months=12)  # → List[MonthlyState]
+    results = engine.project(policy, months=12)  # -> list[MonthlyState]
+
+Canonical projected-month step order:
+
+1. advance counters and carry beginning values;
+2. capitalize loan interest and, for CyberLife monthliversary timing only,
+   credit interest before withdrawal;
+3. process withdrawal;
+4. apply dated policy changes and refresh target/guideline details when the
+   timing convention permits them;
+5. apply guideline force-out, resolve requested premiums and loan cash flows;
+6. compute premium allowances, apply accepted premium, deduct monthly charges
+   and any GP/monthly-deduction exception premium;
+7. apply new loans, credit post-deduction interest for illustration timing,
+   accrue loan interest, calculate shadow account values and evaluate lapse;
+8. build the ``MonthlyState`` ledger row.
+
+Timing conventions preserve the known source-system differences:
+
+========================  ======================  ==========================
+Step                      ILLUSTRATION            CYBERLIFE_MONTHLIVERSARY
+========================  ======================  ==========================
+Counters                  issue-anchored          calendar monthliversary
+Interest timing           post-deduction          pre-withdrawal
+Policy changes            yes                     rejected/skipped
+Target refresh/recalc      yes                     carry prior details
+WAIR/shadow               yes                     skipped
+Lapse                     full protection stack   simple AV <= 0 test
+7-pay withdrawals          premium minus gross WD  premiums only
+========================  ======================  ==========================
 """
 from __future__ import annotations
 

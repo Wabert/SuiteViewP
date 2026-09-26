@@ -11,6 +11,19 @@ class MonthlyState:
 
     Fields are ordered to match the CalcEngine pipeline sequence:
     counters -> premium -> deduction -> interest -> surrender -> tracking.
+
+    Timing convention:
+    * loan buckets named ``rg_loan_*`` / ``pf_loan_*`` / ``vbl_loan_*`` are
+      beginning-of-month, after anniversary capitalization and any same-month
+      repayment/new-loan processing but before end-of-month accrual.
+    * ``end_*`` loan buckets are after the month's loan-interest accrual and
+      feed the next row.
+    * ``av_after_premium`` and ``av_after_deduction`` are pre-interest values;
+      ``av_end_of_month``/``ending_sv``/``ending_db`` are end-of-month values.
+    * ``*_after_exception`` accumulators include GP/monthly-deduction exception
+      premium applied after ordinary premium and monthly deduction; ordinary
+      ``premiums_to_date``/``cost_basis`` fields do not include that exception
+      premium until the next row carries them forward.
     """
 
     # ── 0. Counters (CalcEngine cols 2-21) ────

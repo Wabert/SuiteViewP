@@ -3,6 +3,13 @@
 Computes the annual target premiums from rates, exactly as RERUN does when
 ``vPolicyChangeIndicator`` fires (and as admin does at issue):
 
+All returned headline premiums are annual dollars. Coverage, rider and benefit
+rates are annual target rates per 1,000 or per unit according to the source
+rate table; the monthly MTP used by the engine is ``TRUNC(annual / 12, 2)``.
+Table-rating target rates are required when a table rating is active; ``None``
+means unavailable, not zero. Waiver target rates 39/3# are stored as
+percentages and converted to multipliers only in the calculation.
+
     per coverage segment (HW..HZ / JQ..JT):
         ROUND(SA·rate/1000, 2)
       + ROUND(tableRating·tblRate·SA/1000, 2)        (CTP caps tblRate at 6)
