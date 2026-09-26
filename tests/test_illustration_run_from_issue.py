@@ -1,8 +1,10 @@
-import os
+import copy
 import json
-import pytest
+import os
 from datetime import date, datetime
 from types import SimpleNamespace
+
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -138,6 +140,41 @@ def test_issue_mode_runs_full_first_month_on_policy_issue_date(monkeypatch):
     assert states[1].policy_month == 1
     assert states[1].gross_premium == 100.0
     assert states[1].premiums_to_date == 100.0
+
+
+def test_engine_run_from_issue_setup_does_not_mutate_input(monkeypatch):
+    scenario = build_illustration_scenario(_current_policy(), run_from_issue=True)
+    policy = scenario.projectable_policy
+    original = copy.deepcopy(policy)
+    config = PlancodeConfig(
+        plancode="TEST", epu_code="0", mfee="0", corridor_code=None)
+    monkeypatch.setattr(calc_engine, "load_plancode", lambda _plan: config)
+    monkeypatch.setattr(
+        calc_engine,
+        "issue_no_lapse_years",
+        lambda *_args, **_kwargs: 7,
+    )
+    monkeypatch.setattr(
+        calc_engine,
+        "compute_target_premiums",
+        lambda *_args, **_kwargs: TargetPremiumResult(mtp_annual=1_200.0, ctp_annual=900.0),
+    )
+    monkeypatch.setattr(
+        calc_engine,
+        "_solve_guideline_state",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            glp=1_234.56, gsp=2_345.67, seven_pay=3_456.78),
+    )
+
+    IllustrationEngine().project(
+        policy,
+        months=0,
+        stop_on_lapse=False,
+        rates_override=IllustrationRates(),
+        bonus_override=BonusConfig(),
+    )
+
+    assert policy == original
 
 
 def test_issue_toggle_round_trips_and_recolors_internal_controls():

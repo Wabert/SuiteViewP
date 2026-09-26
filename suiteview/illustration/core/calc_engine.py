@@ -159,6 +159,10 @@ class IllustrationEngine:
         if charge_overrides:
             # The *_curr fields are collateral CREDIT rates, not loan charges.
             config = replace(config, **charge_overrides)
+
+        # Coverage changes, from-issue setup, and permanent MEC detection mutate
+        # only this run's basis.
+        policy = copy.deepcopy(policy)
         if policy.run_from_issue:
             policy.issue_no_lapse_years = issue_no_lapse_years(policy, config)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
@@ -201,8 +205,6 @@ class IllustrationEngine:
             remaining_months if months is None else min(months, remaining_months)
         )
 
-        # Coverage changes and permanent MEC detection mutate only this run's basis.
-        policy = copy.deepcopy(policy)
         changes_by_duration: Dict[int, list] = {}
         if future_inputs is not None and not future_inputs.is_empty():
             changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
