@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.solvers import bisect_min_integer
 from suiteview.illustration.core.solve_premium_to_target import (
     PremiumTargetError,
     TARGET_FIELDS,
@@ -137,20 +138,22 @@ def solve_premium_duration(
             iterations=iterations,
         )
 
-    lo = 1
-    hi = max_duration
-    while lo < hi:
-        mid = (lo + hi) // 2
-        value = measure(mid)
-        if value is not None and value >= amount:
-            hi = mid
-        else:
-            lo = mid + 1
-
-    achieved = maturity_value if lo == max_duration else measure(lo)
+    solved = bisect_min_integer(
+        lambda duration_years: (
+            (value := measure(duration_years)) is not None and value >= amount
+        ),
+        1,
+        max_duration,
+    )
+    duration_years = solved.value
+    achieved = (
+        maturity_value
+        if duration_years == max_duration
+        else measure(duration_years)
+    )
     return PremiumDurationResult(
-        duration_years=lo,
-        end_policy_year=start_policy_year + lo - 1,
+        duration_years=duration_years,
+        end_policy_year=start_policy_year + duration_years - 1,
         premium=premium,
         mode=mode,
         target=target,

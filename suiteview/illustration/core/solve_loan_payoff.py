@@ -24,7 +24,6 @@ caps every repayment at the loan payoff.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional
@@ -32,6 +31,7 @@ from typing import List, Optional
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.solvers import bracket_and_bisect
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
@@ -154,42 +154,32 @@ def solve_loan_payoff(
 
     # Bracket: seed at the check-date balance spread level across the payments
     # (it already carries the interest growth the repayments must outrun).
-    lo = 0.0
-    hi = max(base_balance / len(repayment_dates) * 1.25, 1.0)
-    doublings = 0
-    while True:
-        done, _ = paid_off(hi)
-        iterations += 1
-        if done:
-            break
-        hi *= 2.0
-        doublings += 1
-        if doublings > _MAX_BRACKET_DOUBLINGS:
-            raise LoanPayoffError(
-                "Could not find a loan repayment that pays the loan off by the "
-                "end of the Pay-off period — the loan balance keeps outrunning "
-                "the repayments. Check the Pay-off years against any new loans "
-                "requested in the same period.")
+    residual = base_balance
 
-    # Bisect to HALF the resolution, then test the rounded candidate directly
-    # — ceiling the raw ``hi`` can overshoot a full step when the boundary
-    # sits just under a grid point.
-    while hi - lo > resolution / 2.0:
-        mid = (lo + hi) / 2.0
-        done, _ = paid_off(mid)
-        iterations += 1
-        if done:
-            hi = mid
-        else:
-            lo = mid
+    def pays_off(amount: float) -> bool:
+        nonlocal residual
+        done, residual = paid_off(amount)
+        return done
 
-    repayment = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
-    done, residual = paid_off(repayment)
-    iterations += 1
-    if not done:
-        repayment = round(repayment + resolution, 2)
-        _, residual = paid_off(repayment)
-        iterations += 1
+    solved = bracket_and_bisect(
+        pays_off,
+        0.0,
+        max(base_balance / len(repayment_dates) * 1.25, 1.0),
+        growth=2.0,
+        tol=resolution / 2.0,
+        max_iter=_MAX_BRACKET_DOUBLINGS,
+        round_to=resolution,
+        round_up=True,
+        carry_lower=False,
+    )
+    iterations += solved.evaluations
+    if not solved.bracketed:
+        raise LoanPayoffError(
+            "Could not find a loan repayment that pays the loan off by the "
+            "end of the Pay-off period — the loan balance keeps outrunning "
+            "the repayments. Check the Pay-off years against any new loans "
+            "requested in the same period.")
+    repayment = solved.value
     return LoanPayoffResult(repayment=repayment,
                             residual_balance=round(residual, 2),
                             check_date=check_date, iterations=iterations)
