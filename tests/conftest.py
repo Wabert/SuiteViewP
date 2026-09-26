@@ -3,6 +3,35 @@ from pathlib import Path
 import pytest
 
 
+# Module-level singletons bound to the profile directory that was active when
+# they were first created. Reset per test so one test's profile (database,
+# encryption key, repositories) cannot leak into the next.
+_PROFILE_BOUND_SINGLETONS = (
+    ("suiteview.data.database", "_db_instance"),
+    ("suiteview.data.repositories", "_connection_repo"),
+    ("suiteview.data.repositories", "_metadata_cache_repo"),
+    ("suiteview.data.repositories", "_email_repo"),
+    ("suiteview.core.credential_manager", "_credential_manager"),
+    ("suiteview.core.connection_manager", "_connection_manager"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_profile(tmp_path_factory, monkeypatch):
+    """Give every test a private SuiteView profile instead of the user's ~/.suiteview.
+
+    Tests that need a specific profile still set SUITEVIEW_PROFILE_DIR
+    themselves; that monkeypatch simply overrides this default.
+    """
+    import importlib
+
+    monkeypatch.setenv("SUITEVIEW_PROFILE_DIR", str(tmp_path_factory.mktemp("profile")))
+    for module_name, attribute in _PROFILE_BOUND_SINGLETONS:
+        module = importlib.import_module(module_name)
+        monkeypatch.setattr(module, attribute, None)
+    yield
+
+
 _INTEGRATION_MODULES = {
     "test_access_unique.py",
     "test_attachment_manager.py",
