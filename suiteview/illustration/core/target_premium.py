@@ -202,6 +202,39 @@ class TargetPremiumResult:
         return truncate_monthly_mtp(self.mtp_annual / MONTHS_PER_YEAR)
 
 
+@dataclass
+class CoverageTargetTotals:
+    """Coverage target totals and the current specified-amount band."""
+
+    mtp_sum: float = 0.0
+    ctp_sum: float = 0.0
+    current_band: int = 0
+
+
+@dataclass
+class BenefitTargetWork:
+    """Intermediate benefit and waiver target components."""
+
+    pw_rate: float = 0.0
+    pw_multiplier: float = 0.0
+    pwst_rate: float = 0.0
+    pwst_ctp_rate: float = 0.0
+    pwst_units: float = 0.0
+    pwst_key: str = ""
+    mtp_generic: float = 0.0
+    ctp_generic: float = 0.0
+    mtp_ccv: float = 0.0
+    ctp_ccv: float = 0.0
+
+
+@dataclass
+class RiderTargetTotals:
+    """Rider target totals."""
+
+    mtp_sum: float = 0.0
+    ctp_sum: float = 0.0
+
+
 def _segment_target(
     sa: float,
     rate: float,
@@ -289,6 +322,101 @@ def _ffl_monthly_fee(
         return 0.0
 
 
+def _current_target_band(policy: IllustrationPolicyData, rates_db) -> int:
+    base = policy.base_segment
+    current_band = rates_db.get_band(
+        policy.plancode,
+        policy.band_specified_amount,
+        issue_date=policy.issue_date,
+    )
+    return int(current_band) if current_band is not None else base.band
+
+
+def _add_coverage_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    as_of: Optional[date],
+) -> CoverageTargetTotals:
+    from suiteview.illustration.core.rate_loader import RateLookupError
+
+    totals = CoverageTargetTotals(current_band=_current_target_band(policy, rates_db))
+    result.target_band = totals.current_band
+    for seg in policy.segments:
+        if seg.face_amount <= 0:
+            continue
+        mtp_band = (
+            seg.original_band if config.sa_basis == SA_BASIS_ORIGINAL
+            else totals.current_band
+        )
+        sa = (
+            seg.original_face_amount if config.sa_basis == SA_BASIS_ORIGINAL
+            else seg.face_amount
+        )
+        table = (
+            seg.table_rating
+            if seg.table_rating > 0 and _active(seg.table_cease_date, as_of)
+            else 0
+        )
+        flat = (
+            seg.flat_extra
+            if seg.flat_extra and seg.flat_extra > 0
+            and _active(seg.flat_cease_date, as_of)
+            else 0.0
+        )
+        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
+        mtp_rate = rates_db.get_mtp(*args, mtp_band) or 0.0
+        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band)
+        ctp_rate = rates_db.get_ctp(*args, totals.current_band) or 0.0
+        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, totals.current_band)
+        _require_table_target_rates(
+            policy, seg, table, mtp_tbl_rate, ctp_tbl_rate, mtp_band,
+            totals.current_band, RateLookupError,
+        )
+        mtp_tbl_rate = mtp_tbl_rate if mtp_tbl_rate is not None else 0.0
+        ctp_tbl_rate = ctp_tbl_rate if ctp_tbl_rate is not None else 0.0
+        mtp_val = _segment_target(
+            sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
+        )
+        ctp_val = _segment_target(
+            sa, ctp_rate, ctp_tbl_rate, table, flat, cap_tbl_rate=True,
+        )
+        phase = seg.coverage_phase
+        result.mtp_rates_by_coverage[phase] = mtp_rate
+        result.mtp_tbl_rates_by_coverage[phase] = mtp_tbl_rate
+        result.ctp_rates_by_coverage[phase] = ctp_rate
+        result.ctp_tbl_rates_by_coverage[phase] = ctp_tbl_rate
+        result.mtp_by_coverage[phase] = mtp_val
+        result.ctp_by_coverage[phase] = ctp_val
+        totals.mtp_sum += mtp_val
+        totals.ctp_sum += ctp_val
+    return totals
+
+
+def _require_table_target_rates(
+    policy: IllustrationPolicyData,
+    seg,
+    table: int,
+    mtp_tbl_rate: Optional[float],
+    ctp_tbl_rate: Optional[float],
+    mtp_band: int,
+    current_band: int,
+    error_type,
+) -> None:
+    for name, value, band in (
+        ("TBL1MTP", mtp_tbl_rate, mtp_band),
+        ("TBL1CTP", ctp_tbl_rate, current_band),
+    ):
+        if table > 0 and value is None:
+            raise error_type(
+                f"Required {name} rate is unavailable for plancode "
+                f"{policy.plancode}, coverage phase {seg.coverage_phase}, "
+                f"issue age {seg.issue_age}, sex {seg.rate_sex}, "
+                f"rate class {seg.rate_class}, band {band}, table rating {table}."
+            )
+
+
 def compute_target_premiums(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -302,7 +430,6 @@ def compute_target_premiums(
     SUITEVIEW_LOCAL_DATA.
     """
     from suiteview.core.rates import Rates
-    from suiteview.illustration.core.rate_loader import RateLookupError
 
     rates_db = Rates()
     result = TargetPremiumResult()
@@ -312,72 +439,10 @@ def compute_target_premiums(
     base = policy.base_segment
     total_face = policy.total_face
 
-    # CTP and unlocked MTP rates use the current total-SA band. The
-    # band face includes any rider that bands as base coverage (core.band_rules).
-    # issue_date feeds the Rates_Control-CZ issue-date band boundary.
-    current_band = rates_db.get_band(
-        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
-    current_band = int(current_band) if current_band is not None else base.band
-    result.target_band = current_band
-
-    mtp_cov_sum = 0.0
-    ctp_cov_sum = 0.0
-    # policy.segments holds only active base coverages (same convention as the
-    # deduction path — no status filtering here).
-    for seg in policy.segments:
-        if seg.face_amount <= 0:
-            continue
-        mtp_band = seg.original_band if config.sa_basis == SA_BASIS_ORIGINAL else current_band
-        # SA_Basis drives the MTP/CTP specified-amount basis: OriginalSA
-        # plans use the coverage's ORIGINAL SA (i.e. original units); every
-        # other plan uses the current specified amount.
-        sa = (
-            seg.original_face_amount
-            if config.sa_basis == SA_BASIS_ORIGINAL
-            else seg.face_amount
-        )
-        table = (
-            seg.table_rating
-            if seg.table_rating > 0 and _active(seg.table_cease_date, as_of)
-            else 0
-        )
-        flat = (
-            seg.flat_extra
-            if seg.flat_extra and seg.flat_extra > 0 and _active(seg.flat_cease_date, as_of)
-            else 0.0
-        )
-        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
-        mtp_rate = rates_db.get_mtp(*args, mtp_band) or 0.0
-        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band)
-        ctp_rate = rates_db.get_ctp(*args, current_band) or 0.0
-        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, current_band)
-        for name, value, band in (
-            ("TBL1MTP", mtp_tbl_rate, mtp_band),
-            ("TBL1CTP", ctp_tbl_rate, current_band),
-        ):
-            if table > 0 and value is None:
-                raise RateLookupError(
-                    f"Required {name} rate is unavailable for plancode "
-                    f"{policy.plancode}, coverage phase {seg.coverage_phase}, "
-                    f"issue age {seg.issue_age}, sex {seg.rate_sex}, "
-                    f"rate class {seg.rate_class}, band {band}, table rating {table}."
-                )
-        mtp_tbl_rate = mtp_tbl_rate if mtp_tbl_rate is not None else 0.0
-        ctp_tbl_rate = ctp_tbl_rate if ctp_tbl_rate is not None else 0.0
-        mtp_val = _segment_target(
-            sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
-        )
-        ctp_val = _segment_target(
-            sa, ctp_rate, ctp_tbl_rate, table, flat, cap_tbl_rate=True,
-        )
-        result.mtp_rates_by_coverage[seg.coverage_phase] = mtp_rate
-        result.mtp_tbl_rates_by_coverage[seg.coverage_phase] = mtp_tbl_rate
-        result.ctp_rates_by_coverage[seg.coverage_phase] = ctp_rate
-        result.ctp_tbl_rates_by_coverage[seg.coverage_phase] = ctp_tbl_rate
-        result.mtp_by_coverage[seg.coverage_phase] = mtp_val
-        result.ctp_by_coverage[seg.coverage_phase] = ctp_val
-        mtp_cov_sum += mtp_val
-        ctp_cov_sum += ctp_val
+    coverage = _add_coverage_targets(policy, config, rates_db, result, as_of)
+    current_band = coverage.current_band
+    mtp_cov_sum = coverage.mtp_sum
+    ctp_cov_sum = coverage.ctp_sum
 
     # Benefit targets — looked up at the POLICY issue age (RERUN
     # tRates_Benefit_Targets key uses sINPUT_Issue_Age), base sex/rateclass and
