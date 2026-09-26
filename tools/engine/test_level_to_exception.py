@@ -8,6 +8,18 @@ boundary at $48.00 lapses / $48.10 survives, so the solved minimum must land in
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -23,7 +35,6 @@ def main() -> None:
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
     from suiteview.core.policy_service import clear_cache
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.solve_level_to_exception import (
         solve_level_to_exception, LevelToExceptionError,
     )
@@ -36,7 +47,7 @@ def main() -> None:
     mode = cmd.get("mode")
 
     clear_cache()
-    pdata = build_illustration_data(policy, region=region)
+    pdata = _load_policy_data(policy, region=region)
     print(f"{policy}  issue={pdata.issue_date}  val={pdata.valuation_date}  "
           f"plancode={pdata.plancode}  maturity_age={pdata.maturity_age}  "
           f"billing_freq={pdata.billing_frequency}  cvat={pdata.is_cvat}  "
@@ -69,7 +80,7 @@ def main() -> None:
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.ui.values_overview import _status_text
     from suiteview.illustration.models.input_set import IllustrationOptions
-    states = IllustrationEngine().project(
+    states = _project_with_engine(IllustrationEngine(), 
         pdata, options=IllustrationOptions(allow_exception_prems=True),
         future_inputs=IllustrationInputSet(scheduled_transactions=[
             ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=1,

@@ -502,9 +502,7 @@ class IllustrationCompareTab(QWidget):
     def _fetch_live_policy_data(key: tuple):
         """Live illustration data for a policy — only for Current Inputs (when
         the window has none loaded) and legacy snapshot-less cases."""
-        from suiteview.illustration.core.illustration_policy_service import (
-            build_illustration_data,
-        )
+        from suiteview.illustration.api import project_policy
         if key is None:
             # Only reachable for a legacy v1 case (no frozen snapshot) with no
             # policy loaded — there is nothing to project it against.
@@ -512,8 +510,9 @@ class IllustrationCompareTab(QWidget):
                 "This saved case predates policy snapshots — load its policy "
                 "before comparing against it.")
         policy_number, region, company_code = key
-        return build_illustration_data(
-            policy_number, region=region, company_code=company_code)
+        return project_policy(
+            policy_number, region=region, company_code=company_code,
+            months=0).policy
 
     @staticmethod
     def _spec_from_tab(label: str, inputs_tab, policy_data) -> ScenarioSpec:

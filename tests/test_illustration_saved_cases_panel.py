@@ -652,7 +652,7 @@ def test_run_values_in_snapshot_mode_projects_frozen_data(monkeypatch, tmp_path)
 
     def _db2_bomb(*args, **kwargs):
         raise AssertionError(
-            "build_illustration_data must not run for a snapshot case")
+            "project_policy must not load live data for a snapshot case")
 
     captured = {}
 
@@ -664,7 +664,7 @@ def test_run_values_in_snapshot_mode_projects_frozen_data(monkeypatch, tmp_path)
         raise _StopRun("stop after policy resolution")
 
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.build_illustration_data",
+        "suiteview.illustration.ui.main_window.project_policy",
         _db2_bomb)
     monkeypatch.setattr(
         "suiteview.illustration.ui.main_window.build_illustration_scenario",

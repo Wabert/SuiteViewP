@@ -2,6 +2,10 @@
 
 Usage: venv\\Scripts\\python.exe tools\\engine\\verify_table_target_rates.py 000340565 --native
 """
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import argparse
 import json
 import os
@@ -20,10 +24,9 @@ def main():
     args = parser.parse_args()
 
     from suiteview.core.rates import Rates, owned_rate_connections
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 
     with owned_rate_connections():
-        policy = build_illustration_data(args.policy)
+        policy = _load_policy_data(args.policy)
         rates = Rates()
         rows = []
         for seg in policy.segments:

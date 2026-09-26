@@ -36,6 +36,7 @@ from typing import List, Optional
 
 from dateutil.relativedelta import relativedelta
 
+from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.solve_premium_to_target import solve_premium_to_target
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -200,12 +201,13 @@ def run_abr_quote(
         )],
         policy_changes=list(policy_changes),
     )
-    results = engine.project(
+    results = project_policy(
         policy,
-        future_inputs=future_inputs,
+        inputs=future_inputs,
         options=options,
         stop_on_lapse=False,
-    )
+        engine=engine,
+    ).states
     first_payment_date = next(
         (state.date for state in results[1:] if int(state.policy_month or 0) == 1),
         None,
@@ -320,16 +322,17 @@ def _calculate_max_partial_deduction(
         amount=0.0,
         mode="A",
     )
-    states = engine.project(
+    states = project_policy(
         adjusted,
         months=1,
-        future_inputs=IllustrationInputSet(
+        inputs=IllustrationInputSet(
             scheduled_transactions=[zero_premium],
             policy_changes=changes,
         ),
         options=options,
         stop_on_lapse=False,
-    )
+        engine=engine,
+    ).states
     if len(states) < 2 or states[1].date is None:
         raise ValueError("Unable to calculate the next monthly deduction.")
     next_state = states[1]

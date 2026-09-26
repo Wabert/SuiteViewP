@@ -5,16 +5,14 @@ from datetime import date, datetime
 
 from dateutil.relativedelta import relativedelta
 
+from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine, ProjectionTiming
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
-from suiteview.illustration.core.rate_loader import load_rates
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
     TransactionKind,
 )
-from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 
@@ -114,13 +112,15 @@ def check_forecast_availability(policy) -> GlpForecastAvailability:
         return GlpForecastAvailability(False, "GLP Exception is available only for UL policies using Guideline Premium.")
 
     try:
-        ill_policy = build_illustration_data(
+        run = project_policy(
             policy.policy_number,
             region=getattr(policy, "region", "CKPR") or "CKPR",
             company_code=getattr(policy, "company_code", "") or None,
+            months=0,
         )
-        config = load_plancode(ill_policy.plancode)
-        rates = load_rates(ill_policy, config)
+        ill_policy = run.policy
+        rates = run.rates
+        config = run.config
     except Exception as exc:
         return GlpForecastAvailability(False, f"Forecast data could not be loaded: {exc}")
 
@@ -399,14 +399,15 @@ def _project_full_horizon(
         allow_exception_prems=False,
         cap_premiums_at_acceptance=False,
     )
-    return engine.project(
+    return project_policy(
         policy,
         months=months,
-        future_inputs=future_inputs,
+        inputs=future_inputs,
         timing=ProjectionTiming.CYBERLIFE_MONTHLIVERSARY,
         stop_on_lapse=False,
         options=options,
-    )
+        engine=engine,
+    ).states
 
 
 def _level_premium_inputs(policy: IllustrationPolicyData, months: int, amount: float) -> IllustrationInputSet:

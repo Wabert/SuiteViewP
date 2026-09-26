@@ -12,6 +12,10 @@ Usage:
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import copy
 import json
 import os
@@ -32,7 +36,6 @@ def main() -> None:
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import _append_face_increase_segment
     from suiteview.illustration.core.guideline_pv import guideline_glp_detail
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.monthly_guideline import (
         build_guideline_basis,
         solve_guideline_premiums,
@@ -43,7 +46,7 @@ def main() -> None:
 
     policy_number = cmd["policy"]
     clear_cache()
-    pd = build_illustration_data(
+    pd = _load_policy_data(
         policy_number, region=cmd.get("region", "CKPR"), company_code=cmd.get("company"))
     config = load_plancode(pd.plancode)
 

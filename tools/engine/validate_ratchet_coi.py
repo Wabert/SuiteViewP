@@ -14,6 +14,18 @@ Usage:
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -26,7 +38,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.models.plancode_config import load_plancode
 
 
@@ -34,12 +45,12 @@ DEFAULT_POLICIES = ["UL054426", "UL058426"]
 
 
 def _inforce_coi(policy_num: str, region: str, ratchet: bool) -> dict:
-    policy = build_illustration_data(policy_num, region)
+    policy = _load_policy_data(policy_num, region)
     config = load_plancode(policy.plancode)  # cached singleton
     prev = config.rachet_banding
     config.rachet_banding = ratchet
     try:
-        result = IllustrationEngine().project(policy, months=1)[0]
+        result = _project_with_engine(IllustrationEngine(), policy, months=1)[0]
     finally:
         config.rachet_banding = prev
     return {

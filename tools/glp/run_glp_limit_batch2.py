@@ -1,3 +1,15 @@
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 r"""Batch the "Batch2" premium-solve columns of GLP Limit Calc v2.
 
 Reads a policy list from a workbook sheet (Company in col A, Policy in col B,
@@ -65,7 +77,7 @@ import argparse
 import json
 import sys
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -167,7 +179,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
     )
     from suiteview.illustration.core.calc_engine import _primary_insured_rider_face
     from suiteview.illustration.core.illustration_policy_service import (
-        active_rider_benefit_codes, build_illustration_data,
+        active_rider_benefit_codes,
     )
     from suiteview.illustration.core.solve_level_to_exception import (
         level_to_exception_options, solve_level_to_exception,
@@ -186,7 +198,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
     values: Dict[str, object] = {}
     errors: List[str] = []
 
-    policy = build_illustration_data(policy_number, region=region,
+    policy = _load_policy_data(policy_number, region=region,
                                      company_code=company)
     pi = get_policy_info(policy_number, region, company)
 
@@ -251,7 +263,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
     # No guideline restrictions and no stop-on-lapse so every remaining modal
     # payment is counted; the sum equals modes × modal premium.
     try:
-        states = engine.project(
+        states = _project_with_engine(engine, 
             deepcopy(policy), options=no_restrict,
             future_inputs=_level_future(modal, mode), stop_on_lapse=False)
         values["accum_cpm"] = _future_premium(states)
@@ -270,7 +282,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
         future = IllustrationInputSet(
             scheduled_transactions=list(level_future.scheduled_transactions),
             dated_transactions=dated)
-        states = engine.project(
+        states = _project_with_engine(engine, 
             deepcopy(policy), options=no_restrict_loan,
             future_inputs=future, stop_on_lapse=False)
         values["accum_lpm"] = _future_premium(states)
@@ -292,7 +304,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
         future = IllustrationInputSet(
             scheduled_transactions=list(level_future.scheduled_transactions),
             dated_transactions=dated)
-        states = engine.project(deepcopy(policy), options=opts,
+        states = _project_with_engine(engine, deepcopy(policy), options=opts,
                                 future_inputs=future)
         values["accum_lpexc"] = _future_premium(states)
     except Exception as exc:
@@ -310,7 +322,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
                 policy_changes=list(future.policy_changes))
             options = replace(options,
                               billable_to_md_no_latch_before=next_due)
-        states = engine.project(
+        states = _project_with_engine(engine, 
             deepcopy(policy), options=options, future_inputs=future,
             stop_on_lapse=True)
         values["accum_lpmd"] = _future_premium(states)

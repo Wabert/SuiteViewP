@@ -10,6 +10,18 @@ Usage:
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import os
 import sys
 from datetime import date
@@ -33,7 +45,6 @@ def main() -> None:
 
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.report_builder import build_ul_report
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet, IllustrationOptions, PolicyChangeEvent,
@@ -42,7 +53,7 @@ def main() -> None:
     from suiteview.illustration.ui.report_tab import IllustrationReportTab
 
     clear_cache()
-    policy = build_illustration_data("U0688012", region="CKPR", company_code="01")
+    policy = _load_policy_data("U0688012", region="CKPR", company_code="01")
     future = IllustrationInputSet(
         scheduled_transactions=[
             ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=1,
@@ -55,7 +66,7 @@ def main() -> None:
     )
     options = IllustrationOptions(conform_to_tefra=True, conform_to_tamra=True,
                                   exact_days_interest=True)
-    results = IllustrationEngine().project(
+    results = _project_with_engine(IllustrationEngine(), 
         policy, months=90, options=options, future_inputs=future)
 
     report = build_ul_report(policy, results, options=options,

@@ -31,7 +31,6 @@ required.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional
@@ -39,6 +38,7 @@ from typing import List, Optional
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.solvers import bracket_and_bisect
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
@@ -315,47 +315,39 @@ def solve_lumpsum_to_next_premium(
 
     seed, reason = _seed_shortfall(window(base_states), policy, config)
 
-    # Bracket an upper bound that survives, seeded just above the raw shortfall
-    # (grossed for the premium load it has yet to pay).
-    lo = 0.0
-    hi = max(seed * 1.15, policy.modal_premium, 1.0)
-    doublings = 0
-    while not survives(project(hi)):
-        iterations += 1
-        hi *= 2.0
-        doublings += 1
-        if doublings > _MAX_BRACKET_DOUBLINGS:
-            # The guideline caps the premium below the bridge — no premium-only
-            # solution. Apply the largest premium the guideline accepts and flag
-            # it so the caller can prompt for GP exception premiums.
-            capped = project(hi)
-            iterations += 1
-            applied = _accepted_lumpsum(capped, forecast)
-            return LumpsumToNextPremiumResult(
-                lumpsum=round(applied, 2), applied=round(applied, 2),
-                forecast_date=forecast, next_premium_date=next_due,
-                seed_shortfall=round(seed, 2), binding_reason=reason,
-                guideline_limited=True, iterations=iterations)
-    iterations += 1
+    final = base_states
 
-    # Bisect to HALF the resolution, then test the rounded candidate directly
-    # — ceiling the raw ``hi`` can overshoot a full step when the boundary
-    # sits just under a grid point.
-    while hi - lo > resolution / 2.0:
-        mid = (lo + hi) / 2.0
-        if survives(project(mid)):
-            hi = mid
-        else:
-            lo = mid
-        iterations += 1
-
-    lumpsum = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
-    final = project(lumpsum)
-    iterations += 1
-    if not survives(final):
-        lumpsum = round(lumpsum + resolution, 2)
+    def bridge_survives(lumpsum: float) -> bool:
+        nonlocal final
         final = project(lumpsum)
+        return survives(final)
+
+    solved = bracket_and_bisect(
+        bridge_survives,
+        0.0,
+        max(seed * 1.15, policy.modal_premium, 1.0),
+        growth=2.0,
+        tol=resolution / 2.0,
+        max_iter=_MAX_BRACKET_DOUBLINGS,
+        round_to=resolution,
+        round_up=True,
+        carry_lower=False,
+    )
+    iterations += solved.evaluations
+    if not solved.bracketed:
+        # The guideline caps the premium below the bridge — no premium-only
+        # solution. Apply the largest premium the guideline accepts and flag it
+        # so the caller can prompt for GP exception premiums.
+        capped = project(solved.value)
         iterations += 1
+        applied = _accepted_lumpsum(capped, forecast)
+        return LumpsumToNextPremiumResult(
+            lumpsum=round(applied, 2), applied=round(applied, 2),
+            forecast_date=forecast, next_premium_date=next_due,
+            seed_shortfall=round(seed, 2), binding_reason=reason,
+            guideline_limited=True, iterations=iterations)
+
+    lumpsum = solved.value
     applied = _accepted_lumpsum(final, forecast)
     return LumpsumToNextPremiumResult(
         lumpsum=round(lumpsum, 2), applied=round(applied, 2),

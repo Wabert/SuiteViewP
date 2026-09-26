@@ -11,7 +11,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.core.summary_results import project_summary_row
 from suiteview.illustration.core.target_premium import compute_target_premiums
 from suiteview.illustration.models.input_set import (
@@ -33,7 +32,7 @@ def main():
     args = parser.parse_args()
     if os.environ.get("SUITEVIEW_LOCAL_DATA") == "1":
         raise ValueError("Live verification cannot use local policy data.")
-    policy = build_illustration_data(args.policy, args.region, args.company)
+    policy = _load_policy_data(args.policy, args.region, args.company)
     original = deepcopy(policy)
     if args.date <= policy.valuation_date:
         raise ValueError("The face change must follow the loaded valuation date.")
@@ -52,8 +51,8 @@ def main():
     if args.expect_loaded_match:
         checks["loaded_target_reconciles"] = abs(before.mtp_monthly - policy.mtp) < 1e-8
     engine = IllustrationEngine()
-    control = engine.project(policy, months=months)
-    states = engine.project(policy, months=months, future_inputs=inputs)
+    control = _project_with_engine(engine, policy, months=months)
+    states = _project_with_engine(engine, policy, months=months, future_inputs=inputs)
     changed = [state for state in states if state.date >= args.date]
     checks["face_increased"] = bool(changed) and all(
         abs(state.coverage_after_change["CurrentSA"] - args.face) < 1e-8
@@ -106,3 +105,15 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states

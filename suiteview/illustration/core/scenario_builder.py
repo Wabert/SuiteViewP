@@ -1,3 +1,19 @@
+"""Build projectable illustration scenarios from loaded policy data.
+
+Copy/mutation rules:
+
+* `build_illustration_scenario` always deep-copies the loaded baseline before
+  applying inforce, issue or rollback assumptions.
+* Rollback overrides edit only the selected starting basis. They do not
+  reconstruct future events, mutate the source `PolicyInformation`, or change
+  shared plancode/rate data.
+* Fund edits must retain exactly the captured fund IDs. Aggregate account value
+  and individual fund balances are separate assumptions unless the caller edits
+  both explicitly.
+* Coverage, benefit and record edits are recorded in
+  `starting_basis_assumptions`/`starting_record_fields` so reports can disclose
+  what was manually supplied.
+"""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -96,9 +112,31 @@ def apply_rollback_overrides(
     """Edit the selected starting basis, not future events or shared plan data."""
     assumptions = policy.starting_basis_assumptions
     record_values = validate_record_values(overrides.record_values)
-    contributions = (
+    contributions = _validated_tamra_override(overrides)
+    fund_edits = _collect_fund_edits(policy, overrides, captured_funds)
+    _apply_manual_amounts(policy, overrides, assumptions)
+    _apply_record_values(policy, record_values, assumptions)
+    _apply_tamra_contributions(policy, contributions, assumptions)
+    _apply_fund_edits(policy, fund_edits, assumptions)
+    _apply_coverage_amounts(policy, overrides, assumptions)
+    _apply_benefit_amounts(policy, overrides, assumptions)
+    _refresh_base_amounts(policy)
+    _apply_rollback_db_option(policy, overrides, assumptions)
+    return policy
+
+
+def _validated_tamra_override(overrides: RollbackOverrideSet) -> list[float] | None:
+    return (
         validate_tamra_contributions(overrides.tamra_7year_contributions)
-        if overrides.tamra_7year_contributions is not None else None)
+        if overrides.tamra_7year_contributions is not None else None
+    )
+
+
+def _collect_fund_edits(
+    policy: IllustrationPolicyData,
+    overrides: RollbackOverrideSet,
+    captured_funds: dict[str, dict[str, float]] | None,
+) -> dict[str, dict[str, float]]:
     fund_edits = {}
     for name, label in (
         ("fund_values", "Unimpaired fund balances"),
@@ -109,18 +147,22 @@ def apply_rollback_overrides(
         if values is None:
             continue
         source = captured_funds[name] if captured_funds is not None else getattr(policy, name)
-        if (not isinstance(values, dict) or not source
-                or set(values) != set(source)):
+        if (not isinstance(values, dict) or not source or set(values) != set(source)):
             raise ValueError(
                 f"{label} must retain every existing captured fund ID; "
                 "fund IDs cannot be added, changed or removed.")
         normalized = {fund: record_number(value, f"{label} {fund}")
                       for fund, value in values.items()}
-        if name == "premium_allocations":
-            if (any(not 0 <= value <= 1 for value in normalized.values())
-                    or abs(sum(normalized.values()) - 1.0) > 1e-8):
-                raise ValueError("Premium allocations must be fractions totaling 100%.")
+        if name == "premium_allocations" and (
+            any(not 0 <= value <= 1 for value in normalized.values())
+            or abs(sum(normalized.values()) - 1.0) > 1e-8
+        ):
+            raise ValueError("Premium allocations must be fractions totaling 100%.")
         fund_edits[name] = normalized
+    return fund_edits
+
+
+def _apply_manual_amounts(policy, overrides, assumptions: list[str]) -> None:
     for name, label in (
         ("account_value", "Account value"),
         ("shadow_account_value", "Shadow account value"),
@@ -141,29 +183,15 @@ def apply_rollback_overrides(
                 assumptions.append(
                     "Manual account value is a total-only assumption; captured individual "
                     "fund balances are retained independently, not reconciled to that total.")
+
+
+def _apply_record_values(policy, record_values: dict, assumptions: list[str]) -> None:
     for name, value in record_values.items():
         spec = RECORD_FIELD_SPECS[name]
         setattr(policy, name, deepcopy(value))
         if name not in policy.starting_record_fields:
             policy.starting_record_fields.append(name)
-        if spec.kind == "date":
-            text = value.isoformat() if value is not None else "Not set"
-        elif spec.kind == "rate":
-            text = f"{value:.4%}"
-        elif spec.kind == "status":
-            from suiteview.polview.models.cl_polrec.policy_translations import PREMIUM_PAY_STATUS_CODES
-            text = f"{value} - {PREMIUM_PAY_STATUS_CODES[value]}"
-        else:
-            text = str(value) if spec.kind == "bool" else f"{value:,.2f}"
-        assumptions.append(f"{spec.label} was entered manually as {text}.")
-    if contributions is not None:
-        policy.tamra_7year_contributions = contributions
-        if "tamra_7year_contributions" not in policy.starting_record_fields:
-            policy.starting_record_fields.append("tamra_7year_contributions")
-        assumptions.append(
-            "7-pay contributions were entered manually as "
-            + ", ".join(f"year {index + 1}: {amount:,.2f}"
-                        for index, amount in enumerate(contributions)) + ".")
+        assumptions.append(f"{spec.label} was entered manually as {_record_value_text(spec, value)}.")
     if "premium_pay_status_code" in record_values:
         assumptions.append(
             "Premium-paying status is an explicit record assumption only; coverage activity, "
@@ -172,6 +200,32 @@ def apply_rollback_overrides(
         policy.glp_is_known = True
     if "tamra_7pay_cash_value" in record_values:
         policy.tamra_7pay_start_av = policy.tamra_7pay_cash_value
+
+
+def _record_value_text(spec, value) -> str:
+    if spec.kind == "date":
+        return value.isoformat() if value is not None else "Not set"
+    if spec.kind == "rate":
+        return f"{value:.4%}"
+    if spec.kind == "status":
+        from suiteview.polview.models.cl_polrec.policy_translations import PREMIUM_PAY_STATUS_CODES
+        return f"{value} - {PREMIUM_PAY_STATUS_CODES[value]}"
+    return str(value) if spec.kind == "bool" else f"{value:,.2f}"
+
+
+def _apply_tamra_contributions(policy, contributions, assumptions: list[str]) -> None:
+    if contributions is None:
+        return
+    policy.tamra_7year_contributions = contributions
+    if "tamra_7year_contributions" not in policy.starting_record_fields:
+        policy.starting_record_fields.append("tamra_7year_contributions")
+    assumptions.append(
+        "7-pay contributions were entered manually as "
+        + ", ".join(f"year {index + 1}: {amount:,.2f}"
+                    for index, amount in enumerate(contributions)) + ".")
+
+
+def _apply_fund_edits(policy, fund_edits: dict, assumptions: list[str]) -> None:
     for name, values in fund_edits.items():
         setattr(policy, name, values)
         assumptions.append(
@@ -184,19 +238,19 @@ def apply_rollback_overrides(
             "Aggregate account value remains independent of edited fund balances; "
             "set Account Value separately to change the projection's starting total. "
             "Impaired fund edits do not change the separately editable loan principal.")
+
+
+def _apply_coverage_amounts(policy, overrides, assumptions: list[str]) -> None:
     faces = overrides.coverage_amounts
     coverages = [*policy.segments, *policy.riders]
     segments = {segment.coverage_phase: segment for segment in coverages}
     if len(segments) != len(coverages):
         raise ValueError("Value Rollback requires unique coverage phase numbers.")
     if set(faces) - segments.keys():
-        raise ValueError(
-            f"Unknown rollback coverage phases: {set(faces) - segments.keys()}")
+        raise ValueError(f"Unknown rollback coverage phases: {set(faces) - segments.keys()}")
     for phase, face in faces.items():
         segment = segments[phase]
-        if (isinstance(face, bool) or not isinstance(face, (int, float))
-                or not isfinite(face) or face < 0):
-            raise ValueError("Rollback specified amounts must be finite and nonnegative.")
+        _validate_amount(face, "Rollback specified amounts must be finite and nonnegative.")
         if not isfinite(segment.vpu) or segment.vpu <= 0:
             raise ValueError(f"Coverage {phase} requires a positive value per unit.")
         segment.face_amount = face
@@ -205,6 +259,12 @@ def apply_rollback_overrides(
             segment.coi_renewal_rate = None
         else:
             segment.coi_rate = None
+    if faces:
+        policy.starting_coverage_amounts_are_manual = True
+        assumptions.append("Coverage and/or benefit amounts were entered manually as starting-basis assumptions.")
+
+
+def _apply_benefit_amounts(policy, overrides, assumptions: list[str]) -> None:
     benefits = {
         (benefit.coverage_phase, benefit.benefit_type, benefit.benefit_subtype): benefit
         for benefit in policy.benefits
@@ -212,13 +272,10 @@ def apply_rollback_overrides(
     if len(benefits) != len(policy.benefits):
         raise ValueError("Value Rollback requires unique benefit keys.")
     if set(overrides.benefit_amounts) - benefits.keys():
-        raise ValueError(
-            f"Unknown rollback benefits: {set(overrides.benefit_amounts) - benefits.keys()}")
+        raise ValueError(f"Unknown rollback benefits: {set(overrides.benefit_amounts) - benefits.keys()}")
     for key, amount in overrides.benefit_amounts.items():
         benefit = benefits[key]
-        if (isinstance(amount, bool) or not isinstance(amount, (int, float))
-                or not isfinite(amount) or amount < 0):
-            raise ValueError("Rollback benefit amounts must be finite and nonnegative.")
+        _validate_amount(amount, "Rollback benefit amounts must be finite and nonnegative.")
         if not isfinite(benefit.vpu) or benefit.vpu <= 0:
             raise ValueError(f"Benefit {key} requires a positive value per unit.")
         benefit.benefit_amount = amount
@@ -226,27 +283,33 @@ def apply_rollback_overrides(
         benefit.coi_rate = None
         if benefit.benefit_type == "A":
             policy.ccv_units = benefit.units
+    if overrides.benefit_amounts:
+        assumptions.append("Coverage and/or benefit amounts were entered manually as starting-basis assumptions.")
+
+
+def _validate_amount(value, message: str) -> None:
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not isfinite(value) or value < 0):
+        raise ValueError(message)
+
+
+def _refresh_base_amounts(policy: IllustrationPolicyData) -> None:
     base_segments = [segment for segment in policy.segments if segment.is_base]
     total = sum(segment.face_amount for segment in base_segments)
     if not isfinite(total) or total <= 0:
         raise ValueError("Rollback total base specified amount must be finite and positive.")
     policy.face_amount = total
     policy.units = sum(segment.units for segment in base_segments)
-    if overrides.db_option is not None:
-        if overrides.db_option not in ("A", "B", "C"):
-            raise ValueError("Rollback death-benefit option must be A, B or C.")
-        policy.db_option = overrides.db_option
-    if faces or overrides.benefit_amounts:
-        assumptions.append(
-            "Coverage and/or benefit amounts were entered manually as starting-basis assumptions.")
-    if faces:
-        policy.starting_coverage_amounts_are_manual = True
-    if overrides.db_option is not None:
-        assumptions.append(
-            f"Death-benefit option {policy.db_option} was selected manually as a starting-basis assumption.")
-    return policy
 
 
+def _apply_rollback_db_option(policy, overrides, assumptions: list[str]) -> None:
+    if overrides.db_option is None:
+        return
+    if overrides.db_option not in ("A", "B", "C"):
+        raise ValueError("Rollback death-benefit option must be A, B or C.")
+    policy.db_option = overrides.db_option
+    assumptions.append(
+        f"Death-benefit option {policy.db_option} was selected manually as a starting-basis assumption.")
 def issue_base_segments(policy: IllustrationPolicyData) -> list[CoverageSegment]:
     """Return recorded original-date base segments, without reconstructing history."""
     if policy.issue_date is None:

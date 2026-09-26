@@ -34,6 +34,7 @@ from suiteview.illustration.core.commutation import (
     MortalityTable,
     SubstandardRating,
 )
+from suiteview.illustration.core.solvers import bracket_and_bisect
 
 
 # ── Commutation / present-value method ───────────────────────────────────
@@ -702,23 +703,22 @@ def search_guideline_premiums(
         premium_years: Optional[int], rate: float, av0: float = 0.0,
         db_option: Optional[str] = None,
     ) -> float:
-        low, high = 0.0, max(face / 10.0, 100.0)
-        for _ in range(40):
-            if ending_av(high, premium_years, rate, av0, db_option) >= face:
-                break
-            high *= 2.0
-        else:
-            return high
-        for _ in range(max_iter):
-            mid = (low + high) / 2.0
-            av = ending_av(mid, premium_years, rate, av0, db_option)
-            if abs(av - face) <= tolerance:
-                return mid
-            if av < face:
-                low = mid
-            else:
-                high = mid
-        return (low + high) / 2.0
+        solved = bracket_and_bisect(
+            lambda premium: ending_av(premium, premium_years, rate, av0, db_option) >= face,
+            0.0,
+            max(face / 10.0, 100.0),
+            growth=2.0,
+            tol=tolerance,
+            max_iter=max_iter,
+            round_to=None,
+            bracket_max_iter=39,
+            value_of=lambda premium: ending_av(
+                premium, premium_years, rate, av0, db_option),
+            target=face,
+            value_tolerance=tolerance,
+            carry_lower=False,
+        )
+        return solved.value
 
     # GSP and 7-pay always solve on LEVEL-DB mechanics; GLP honors the
     # contract's actual DB option (same convention as the formula method).

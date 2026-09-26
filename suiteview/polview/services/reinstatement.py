@@ -19,10 +19,11 @@ from dateutil.relativedelta import relativedelta
 
 from suiteview.core.db2_connection import DB2ConnectionError
 from suiteview.core.rates import RatesError
+from suiteview.illustration.api import load_projection_basis, project_policy
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
-    _coverage_is_terminated, build_illustration_data,
+    _coverage_is_terminated,
 )
 from suiteview.illustration.core.rate_loader import IllustrationRates, RateLookupError, load_rates
 from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
@@ -233,10 +234,10 @@ def project_home_office_reinstatement(
             b.is_active and (b.cease_date is None or b.cease_date >= target)
             for b in ccv_benefits)
     basis = "Safety net" if in_safety_net else "Shadow account" if shadow_active else "Surrender value"
-    engine = IllustrationEngine()
     options = IllustrationOptions(no_lapse=True)
     bonus = calc_engine.load_bonus_config(p.plancode, p.valuation_date)
     receipts = {}
+    engine = IllustrationEngine()
 
     def project(cents):
         inputs = IllustrationInputSet(
@@ -254,11 +255,11 @@ def project_home_office_reinstatement(
                 summary.quote_pay_to_date, target, months - 1, cents / 100.0,
             )
         else:
-            states = engine.project(
-                copy.deepcopy(p), months=months, future_inputs=inputs,
-                options=options, rates_override=rates, bonus_override=bonus,
-                stop_on_lapse=False,
-            )
+            states = project_policy(
+                copy.deepcopy(p), months=months, inputs=inputs,
+                options=options, rates=rates, config=config,
+                bonus_override=bonus, stop_on_lapse=False, engine=engine,
+            ).states
         receipts[cents] = receipt
         if len(states) != months + 1 or states[-1].date != target:
             raise ReinstatementError("Projection did not reach the next monthly deduction.")
@@ -444,11 +445,11 @@ def calculate_home_office_reinstatement(policy, today: date | None = None) -> Re
                 raise ReinstatementError(
                     "A benefit ceases on the lapse date without a separate termination indicator. "
                     "Confirm its contractual continuation before quoting.")
-        ill_policy = build_illustration_data(
+        ill_policy = load_projection_basis(
             policy.policy_number, region=policy.region, company_code=policy.company_code,
             illustration_date=summary.current_date,
             reinstatement_date=summary.termination_date,
-        )
+        ).policy
         if len(ill_policy.segments) != len(selected) or ill_policy.valuation_date != snapshot:
             raise ReinstatementError("The loaded coverage basis is incomplete.")
         if ill_policy.has_shadow_account:

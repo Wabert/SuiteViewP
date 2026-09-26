@@ -4,6 +4,10 @@ This subprocess-oriented helper writes immutable request/output/evidence JSON
 outside SuiteView. Illustration's ABR solver is used ONLY for funding premium,
 never as a substitute for the dedicated ABR payout/clipboard calculation.
 """
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import argparse
 from contextlib import redirect_stdout
 from dataclasses import asdict
@@ -74,10 +78,9 @@ def resolve_inputs(source):
             "basis": "Same loaded surrender value used by dedicated ABR when not overridden.",
         }
         try:
-            from suiteview.illustration.core.illustration_policy_service import build_illustration_data
             from suiteview.illustration.core.abr_quote import run_abr_quote
             from suiteview.core.rates import Rates
-            illustration_policy = build_illustration_data(
+            illustration_policy = _load_policy_data(
                 source["policy_number"], region, evidence["company_code"],
                 illustration_date=quote_date,
             )

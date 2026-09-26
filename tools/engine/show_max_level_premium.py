@@ -13,6 +13,10 @@ Usage:
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import argparse
 import json
 import os
@@ -127,9 +131,6 @@ def main() -> None:
 def _run_solve(args: argparse.Namespace, ctx) -> dict:
     """Engine-solved max level premium, without and (optionally) with the
     requested face/DBO change — mirrors the Run Values Max Level path."""
-    from suiteview.illustration.core.illustration_policy_service import (
-        build_illustration_data,
-    )
     from suiteview.illustration.core.solve_max_level_allowed import (
         MaxLevelAllowedError,
         solve_max_level_allowed,
@@ -158,7 +159,7 @@ def _run_solve(args: argparse.Namespace, ctx) -> dict:
     out: dict = {"mode": mode, "start_policy_year": start_year}
 
     def _solve(policy_changes) -> dict:
-        policy_data = build_illustration_data(
+        policy_data = _load_policy_data(
             args.policy, region=args.region, company_code=args.company)
         base = IllustrationInputSet(policy_changes=list(policy_changes))
         try:

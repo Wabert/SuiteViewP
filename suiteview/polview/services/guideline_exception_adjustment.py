@@ -44,6 +44,7 @@ from datetime import date
 
 from dateutil.relativedelta import relativedelta
 
+from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.solve_level_to_exception import (
@@ -280,12 +281,22 @@ def _solve_and_project_target(
         ill_policy, solved.premium, solved.mode, int(ill_policy.policy_year or 1),
         first_month_premium_floor=first_month_floor,
     )
-    states = engine.project(
+    projection_overrides = {}
+    if not ill_policy.plancode:
+        from suiteview.illustration.core.rate_loader import IllustrationRates
+        from suiteview.illustration.models.plancode_config import PlancodeConfig
+        projection_overrides = {
+            "config": PlancodeConfig(),
+            "rates": IllustrationRates(),
+        }
+    states = project_policy(
         copy.deepcopy(ill_policy),
         options=options,
-        future_inputs=future,
+        inputs=future,
         months=months_to_target,
-    )
+        engine=engine,
+        **projection_overrides,
+    ).states
     rows = [
         _forecast_row(state)
         for state in states
@@ -296,9 +307,9 @@ def _solve_and_project_target(
         None,
     )
 
-    lump_sum = sum(row.state.applied_lumpsum for row in rows)
+    lump_sum = sum(getattr(row.state, "applied_lumpsum", 0.0) for row in rows)
     lump_sum_date = next(
-        (row.date for row in rows if row.state.applied_lumpsum > 0), None)
+        (row.date for row in rows if getattr(row.state, "applied_lumpsum", 0.0) > 0), None)
     return solved, rows, exception_start, lump_sum, lump_sum_date
 
 

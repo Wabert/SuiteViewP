@@ -41,6 +41,7 @@ from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.input_compiler import compile_month_inputs
+from suiteview.illustration.core.solvers import bracket_and_bisect
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
@@ -267,35 +268,19 @@ def solve_level_to_exception(
         nonlocal iterations
         if predicate(project(0.0)):
             return 0.0
-        lo = 0.0
-        # Exponentially grow an upper bracket that satisfies the predicate. With
-        # exception premiums on, a high-enough premium is always rescued at the
-        # guideline limit (and fully funds the run-up to it), so this terminates.
-        hi = max(policy.modal_premium, 1.0)
-        doublings = 0
-        while not predicate(project(hi)):
-            iterations += 1
-            hi *= 2.0
-            doublings += 1
-            if doublings > _MAX_BRACKET_DOUBLINGS:
-                return None
-        iterations += 1
-        # Bisect the boundary to HALF the resolution, then test the rounded
-        # candidate directly — ceiling the raw ``hi`` can overshoot a full step
-        # when the boundary sits just under a grid point.
-        while hi - lo > resolution / 2.0:
-            mid = (lo + hi) / 2.0
-            if predicate(project(mid)):
-                hi = mid
-            else:
-                lo = mid
-            iterations += 1
-        premium = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
-        iterations += 1
-        if not predicate(project(premium)):
-            premium = round(premium + resolution, 2)
-            iterations += 1
-        return premium
+        solved = bracket_and_bisect(
+            lambda premium: predicate(project(premium)),
+            0.0,
+            max(policy.modal_premium, 1.0),
+            growth=2.0,
+            tol=resolution / 2.0,
+            max_iter=_MAX_BRACKET_DOUBLINGS,
+            round_to=resolution,
+            round_up=True,
+            carry_lower=False,
+        )
+        iterations += solved.evaluations
+        return solved.value if solved.bracketed else None
 
     # Baseline: the lowest premium that stays in force to the horizon.
     survive_premium = solve_for(survives)

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.solvers import bisect_min_integer
 from suiteview.illustration.core.solve_premium_to_target import (
     PremiumTargetError,
     TARGET_FIELDS,
@@ -51,36 +52,15 @@ def solve_premium_duration(
     is returned with ``reached_target=False`` so the illustration can show the
     best available result instead of stopping.
     """
-    field_and_label = TARGET_FIELDS.get(target)
-    if field_and_label is None:
-        raise PremiumTargetError(f"Unknown solve target {target!r}.")
-    field, _label = field_and_label
-    if premium is None or float(premium) < 0.0:
-        raise PremiumTargetError("Enter a Solve for Duration premium of at least 0.")
-    if amount is None or float(amount) < 0.0:
-        raise PremiumTargetError("Enter a Solve amount of at least 0.")
-
-    premium = float(premium)
-    amount = float(amount)
-    at_age = int(at_age)
-    start_policy_year = int(start_policy_year)
-    issue_age = int(policy.issue_age or 0)
-    maturity_age = int(policy.maturity_age or 0)
-    maturity_year = max(1, maturity_age - issue_age)
-    target_year = at_age - issue_age
-    if target_year < start_policy_year:
-        raise PremiumTargetError(
-            f"Solve age {at_age} is before the premium's start year - pick an "
-            f"age after age {issue_age + start_policy_year - 1}.")
-    if at_age > maturity_age:
-        raise PremiumTargetError(
-            f"Solve age {at_age} is past the maturity age ({maturity_age}).")
-    if target == "shadow" and not getattr(policy, "has_shadow_account", False):
-        raise PremiumTargetError(
-            "This policy has no active shadow account to solve on.")
-    if start_policy_year > maturity_year:
-        raise PremiumTargetError(
-            "The premium start year is after the policy's maturity year.")
+    context = _duration_context(
+        policy, premium, target, amount, at_age, start_policy_year)
+    field = context["field"]
+    premium = context["premium"]
+    amount = context["amount"]
+    at_age = context["at_age"]
+    start_policy_year = context["start_policy_year"]
+    maturity_year = context["maturity_year"]
+    target_year = context["target_year"]
 
     mode = (mode or "M").strip().upper()
     options = base_options if base_options is not None else IllustrationOptions()
@@ -137,20 +117,22 @@ def solve_premium_duration(
             iterations=iterations,
         )
 
-    lo = 1
-    hi = max_duration
-    while lo < hi:
-        mid = (lo + hi) // 2
-        value = measure(mid)
-        if value is not None and value >= amount:
-            hi = mid
-        else:
-            lo = mid + 1
-
-    achieved = maturity_value if lo == max_duration else measure(lo)
+    solved = bisect_min_integer(
+        lambda duration_years: (
+            (value := measure(duration_years)) is not None and value >= amount
+        ),
+        1,
+        max_duration,
+    )
+    duration_years = solved.value
+    achieved = (
+        maturity_value
+        if duration_years == max_duration
+        else measure(duration_years)
+    )
     return PremiumDurationResult(
-        duration_years=lo,
-        end_policy_year=start_policy_year + lo - 1,
+        duration_years=duration_years,
+        end_policy_year=start_policy_year + duration_years - 1,
         premium=premium,
         mode=mode,
         target=target,
@@ -159,3 +141,65 @@ def solve_premium_duration(
         reached_target=True,
         iterations=iterations,
     )
+
+
+def _duration_context(
+    policy: IllustrationPolicyData,
+    premium,
+    target: str,
+    amount,
+    at_age,
+    start_policy_year,
+) -> dict:
+    field_and_label = TARGET_FIELDS.get(target)
+    if field_and_label is None:
+        raise PremiumTargetError(f"Unknown solve target {target!r}.")
+    if premium is None or float(premium) < 0.0:
+        raise PremiumTargetError("Enter a Solve for Duration premium of at least 0.")
+    if amount is None or float(amount) < 0.0:
+        raise PremiumTargetError("Enter a Solve amount of at least 0.")
+    premium = float(premium)
+    amount = float(amount)
+    at_age = int(at_age)
+    start_policy_year = int(start_policy_year)
+    issue_age = int(policy.issue_age or 0)
+    maturity_age = int(policy.maturity_age or 0)
+    maturity_year = max(1, maturity_age - issue_age)
+    target_year = at_age - issue_age
+    _validate_duration_years(
+        policy, target, at_age, start_policy_year, issue_age,
+        maturity_age, maturity_year, target_year)
+    return {
+        "field": field_and_label[0],
+        "premium": premium,
+        "amount": amount,
+        "at_age": at_age,
+        "start_policy_year": start_policy_year,
+        "maturity_year": maturity_year,
+        "target_year": target_year,
+    }
+
+
+def _validate_duration_years(
+    policy: IllustrationPolicyData,
+    target: str,
+    at_age: int,
+    start_policy_year: int,
+    issue_age: int,
+    maturity_age: int,
+    maturity_year: int,
+    target_year: int,
+) -> None:
+    if target_year < start_policy_year:
+        raise PremiumTargetError(
+            f"Solve age {at_age} is before the premium's start year - pick an "
+            f"age after age {issue_age + start_policy_year - 1}.")
+    if at_age > maturity_age:
+        raise PremiumTargetError(
+            f"Solve age {at_age} is past the maturity age ({maturity_age}).")
+    if target == "shadow" and not getattr(policy, "has_shadow_account", False):
+        raise PremiumTargetError(
+            "This policy has no active shadow account to solve on.")
+    if start_policy_year > maturity_year:
+        raise PremiumTargetError(
+            "The premium start year is after the policy's maturity year.")

@@ -327,16 +327,19 @@ def run_scenario(spec: ScenarioSpec, engine=None) -> ScenarioOutcome:
                     policy_changes=list(future_inputs.policy_changes))
         solved["payoffs"] = payoffs
 
-    results = engine.project(
+    from suiteview.illustration.api import project_policy
+
+    run = project_policy(
         policy,
         months=spec.months,
-        future_inputs=future_inputs,
+        inputs=future_inputs,
         options=run_options,
         stop_on_lapse=spec.stop_on_lapse,
+        engine=engine,
     )
     return ScenarioOutcome(
         label=spec.label,
-        results=list(results),
+        results=list(run.states),
         policy=policy,
         solved=solved,
         future_inputs=future_inputs,

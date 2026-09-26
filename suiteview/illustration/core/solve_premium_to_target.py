@@ -22,11 +22,11 @@ say so.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import List, Optional
 
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.solvers import bracket_and_bisect
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
@@ -173,53 +173,37 @@ def solve_premium_to_target(
             premium=0.0, mode=mode, target=target, at_age=at_age,
             achieved_value=float(zero_value), iterations=iterations)
 
-    # Exponentially grow an upper bracket that meets the target. The guideline
-    # cap / charges may plateau the value below the target — the backstop then
-    # reports the best the policy could do.
-    lo = 0.0
-    hi = max(float(policy.modal_premium or 0.0), 1.0)
     best: Optional[float] = zero_value
-    doublings = 0
-    while True:
-        value = measure(project(hi))
-        iterations += 1
+    achieved: Optional[float] = None
+
+    def reaches_target(premium: float) -> bool:
+        nonlocal achieved, best
+        value = measure(project(premium))
+        achieved = value
         if value is not None and (best is None or value > best):
             best = value
-        if met(value):
-            break
-        lo = hi
-        hi *= 2.0
-        doublings += 1
-        if doublings > _MAX_BRACKET_DOUBLINGS:
-            reached = f"{best:,.2f}" if best is not None else "no target-age value"
-            raise PremiumTargetError(
-                f"No level premium reaches {label} of {amount:,.2f} at age "
-                f"{at_age} — the best this policy reaches is {reached} "
-                f"(the guideline premium cap and policy charges limit what "
-                f"can be funded).",
-                best_value=best)
+        return met(value)
 
-    # Bisect the not-met ↔ met boundary until the bracket is narrower than
-    # HALF the resolution, then test the rounded candidate directly. Ceiling
-    # the raw ``hi`` (which can sit up to a full step above the boundary)
-    # overshoots by a penny whenever the boundary lies just under a grid
-    # point; with the half-step bracket the answer is provably either the
-    # first step at/above ``lo`` or the one after it.
-    while hi - lo > resolution / 2.0:
-        mid = (lo + hi) / 2.0
-        if met(measure(project(mid))):
-            hi = mid
-        else:
-            lo = mid
-        iterations += 1
-
-    premium = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
-    achieved = measure(project(premium))
-    iterations += 1
-    if not met(achieved):
-        premium = round(premium + resolution, 2)
-        achieved = measure(project(premium))
-        iterations += 1
+    solved = bracket_and_bisect(
+        reaches_target,
+        0.0,
+        max(float(policy.modal_premium or 0.0), 1.0),
+        growth=2.0,
+        tol=resolution / 2.0,
+        max_iter=_MAX_BRACKET_DOUBLINGS,
+        round_to=resolution,
+        round_up=True,
+    )
+    iterations += solved.evaluations
+    if not solved.bracketed:
+        reached = f"{best:,.2f}" if best is not None else "no target-age value"
+        raise PremiumTargetError(
+            f"No level premium reaches {label} of {amount:,.2f} at age "
+            f"{at_age} — the best this policy reaches is {reached} "
+            f"(the guideline premium cap and policy charges limit what "
+            f"can be funded).",
+            best_value=best)
+    premium = solved.value
     return PremiumTargetResult(
         premium=premium, mode=mode, target=target, at_age=at_age,
         achieved_value=float(achieved or 0.0), iterations=iterations)

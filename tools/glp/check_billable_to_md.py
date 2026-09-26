@@ -14,6 +14,14 @@ Run: venv\\Scripts\\python.exe tools/glp/check_billable_to_md.py
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
 import sys
 from datetime import date
 from pathlib import Path
@@ -99,7 +107,7 @@ def main():
     )
 
     engine = IllustrationEngine()
-    results = engine.project(
+    results = _project_with_engine(engine, 
         policy, future_inputs=future_inputs, options=options,
         rates_override=mock_rates, stop_on_lapse=True,
     )

@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import QApplication
 from suiteview.illustration.core.compare_runner import (
     LEDGER_SEPARATOR,
     ComparisonResult,
-    KpiRow,
     ScenarioOutcome,
     ScenarioSpec,
     annual_rows,
@@ -950,7 +949,11 @@ def test_run_scenario_carries_each_sides_own_schedule_to_engine():
     )
 
     class _EchoEngine:
-        def project(self, policy, months, future_inputs, options, stop_on_lapse):
+        def project(
+            self, policy, months=None, future_inputs=None, timing=None,
+            stop_on_lapse=True, options=None, bonus_override=None,
+            rates_override=None,
+        ):
             total = sum(t.amount for t in future_inputs.scheduled_transactions)
             return [_state(0, 0),
                     _state(1, 12, av_end_of_month=total,

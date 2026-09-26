@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import argparse
 import json
 import os
@@ -33,7 +45,6 @@ def main() -> None:
 
     from suiteview.core.policy_service import clear_cache, get_policy_info
     from suiteview.core.db2_connection import DB2Connection
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.calc_engine import IllustrationEngine
 
     policy_numbers = args.policy_numbers or DEFAULT_POLICIES
@@ -62,12 +73,12 @@ def main() -> None:
             loaded.append(result)
             continue
 
-        illustration_policy = build_illustration_data(
+        illustration_policy = _load_policy_data(
             policy_number,
             region=args.region,
             company_code=policy_info.company_code,
         )
-        states = IllustrationEngine().project(illustration_policy, months=2)
+        states = _project_with_engine(IllustrationEngine(), illustration_policy, months=2)
         result.update({
             "plancode": illustration_policy.plancode,
             "face_amount": illustration_policy.face_amount,

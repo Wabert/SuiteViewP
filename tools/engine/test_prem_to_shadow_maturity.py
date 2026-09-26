@@ -1,3 +1,15 @@
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 r"""Validate the "Prem to Shadow Maturity" solve path on a local-fixture policy.
 
 Mirrors main_window's shadow branch: report the policy's shadow state
@@ -26,7 +38,6 @@ def main() -> None:
 
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.solve_level_to_exception import (
         LevelToExceptionError, level_to_exception_options, solve_level_to_exception,
     )
@@ -38,7 +49,7 @@ def main() -> None:
     region = cmd.get("region", "CKPR")
 
     clear_cache()
-    pdata = build_illustration_data(policy, region=region)
+    pdata = _load_policy_data(policy, region=region)
     print(f"{policy}  plancode={pdata.plancode}  maturity_age={pdata.maturity_age}  "
           f"cvat={pdata.is_cvat}  ccv_active={pdata.ccv_active}  "
           f"ccv_ceased={pdata.ccv_ceased}  shadow_av={pdata.shadow_account_value:.2f}")
@@ -65,7 +76,7 @@ def main() -> None:
     # (CVAT solves force TAMRA conformance off — mirror that basis here.)
     options = level_to_exception_options(
         None, allow_exceptions=False, conform_to_tamra=not pdata.is_cvat)
-    states = IllustrationEngine().project(
+    states = _project_with_engine(IllustrationEngine(), 
         pdata, options=options,
         future_inputs=IllustrationInputSet(scheduled_transactions=[
             ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=1,

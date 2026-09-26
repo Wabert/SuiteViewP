@@ -9,6 +9,10 @@ Usage:
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import dataclasses
 import json
 import os
@@ -25,7 +29,6 @@ def main() -> None:
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
     from suiteview.core.policy_service import clear_cache
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.rate_loader import load_rates
     from suiteview.illustration.models.plancode_config import load_plancode
     from suiteview.illustration.core.guideline_calc import calculate_glp_iterative
@@ -36,7 +39,7 @@ def main() -> None:
     endow = int(cmd.get("endowment_age", 100))
 
     clear_cache()
-    pd = build_illustration_data(policy, region=region, company_code=company)
+    pd = _load_policy_data(policy, region=region, company_code=company)
     config = load_plancode(pd.plancode)
 
     # Guaranteed-COI rates (scale 0); loads/fees stay current (scale 1).

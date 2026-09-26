@@ -87,8 +87,20 @@ class _RecordingEngine:
     def __init__(self, *args, **kwargs):
         pass
 
-    def project(self, policy, **kwargs):
-        _RecordingEngine.calls.append(kwargs)
+    def project(
+        self, policy, months=None, future_inputs=None, timing=None,
+        stop_on_lapse=True, options=None, bonus_override=None,
+        rates_override=None,
+    ):
+        _RecordingEngine.calls.append({
+            "months": months,
+            "future_inputs": future_inputs,
+            "timing": timing,
+            "stop_on_lapse": stop_on_lapse,
+            "options": options,
+            "bonus_override": bonus_override,
+            "rates_override": rates_override,
+        })
         return [MonthlyState(
             policy_year=17,
             policy_month=1,
@@ -124,6 +136,25 @@ def _fake_policy_load_checks(self, policy_number, region, company_code):
     return [], None
 
 
+def _fake_project_policy_factory(policy_data):
+    def _fake_project_policy(policy_or_number, **kwargs):
+        if isinstance(policy_or_number, IllustrationPolicyData):
+            engine = kwargs.get("engine") or _RecordingEngine()
+            states = engine.project(
+                policy_or_number,
+                months=kwargs.get("months"),
+                future_inputs=kwargs.get("inputs"),
+                timing=kwargs.get("timing"),
+                options=kwargs.get("options"),
+                stop_on_lapse=kwargs.get("stop_on_lapse", True),
+                bonus_override=kwargs.get("bonus_override"),
+                rates_override=kwargs.get("rates"),
+            )
+            return SimpleNamespace(policy=policy_or_number, states=states)
+        return SimpleNamespace(policy=policy_data, states=[])
+    return _fake_project_policy
+
+
 def _policy_data() -> IllustrationPolicyData:
     return IllustrationPolicyData(
         face_amount=150000,
@@ -148,8 +179,8 @@ def test_prem_to_maturity_forces_exceptions_on_for_solve_and_displayed_run(monke
     monkeypatch.setattr("suiteview.illustration.ui.main_window.QMessageBox", _MessageBoxSpy)
     monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", _fake_policy_load_checks)
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.build_illustration_data",
-        lambda policy_number, region=None, company_code=None: policy_data,
+        "suiteview.illustration.ui.main_window.project_policy",
+        _fake_project_policy_factory(policy_data),
     )
     monkeypatch.setattr(
         "suiteview.illustration.ui.main_window.build_illustration_scenario",
@@ -231,8 +262,8 @@ def test_max_level_still_honors_the_exception_checkbox(monkeypatch):
     monkeypatch.setattr("suiteview.illustration.ui.main_window.QMessageBox", _MessageBoxSpy)
     monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", _fake_policy_load_checks)
     monkeypatch.setattr(
-        "suiteview.illustration.ui.main_window.build_illustration_data",
-        lambda policy_number, region=None, company_code=None: policy_data,
+        "suiteview.illustration.ui.main_window.project_policy",
+        _fake_project_policy_factory(policy_data),
     )
     monkeypatch.setattr(
         "suiteview.illustration.ui.main_window.build_illustration_scenario",

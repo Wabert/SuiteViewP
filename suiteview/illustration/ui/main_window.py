@@ -24,9 +24,9 @@ from suiteview.core.build_env import is_distribution_build
 from suiteview.ui.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
+from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
-    build_illustration_data,
     coverage_segment_data_warnings,
 )
 from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
@@ -1326,7 +1326,9 @@ class IllustrationWindow(FramelessWindowBase):
         self._illustration_data = None
         try:
             warnings.extend(coverage_segment_data_warnings(self._policy))
-            policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+            policy_data = project_policy(
+                policy_number, region=region, company_code=company_code,
+                months=0).policy
             self._illustration_data = policy_data
             warnings.extend(self._definition_of_life_warnings(policy_data))
             config = load_plancode(policy_data.plancode)
@@ -1338,7 +1340,8 @@ class IllustrationWindow(FramelessWindowBase):
 
         md_check = None
         try:
-            md_check = IllustrationEngine().project(policy_data, months=0, rates_override=rates)[0]
+            md_check = project_policy(
+                policy_data, months=0, rates=rates, config=config).states[0]
             warnings.extend(self._monthly_deduction_warnings(md_check))
         except Exception as exc:
             warnings.append(f"Unable to validate monthly deduction: {exc}")
@@ -1399,7 +1402,9 @@ class IllustrationWindow(FramelessWindowBase):
             elif self.inputs_tab.export_rollback_overrides() is not None:
                 policy_data = copy.deepcopy(self._illustration_data)
             else:
-                policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+                policy_data = project_policy(
+                    policy_number, region=region, company_code=company_code,
+                    months=0).policy
             scenario_args = {
                 "inforce_overrides": self.inputs_tab.export_inforce_overrides(),
                 "future_inputs": self.inputs_tab.export_input_set(),
@@ -1923,13 +1928,14 @@ class IllustrationWindow(FramelessWindowBase):
                     return
                 self.inputs_tab.set_loan_payoff_amounts(solved_amounts)
 
-            results = engine.project(
+            results = project_policy(
                 scenario.projectable_policy,
                 months=projection_months,
-                future_inputs=future_inputs,
+                inputs=future_inputs,
                 options=run_options,
                 stop_on_lapse=self.inputs_tab.stop_on_lapse_enabled(),
-            )
+                engine=engine,
+            ).states
 
             # Guaranteed side (RERUN LockValues): re-project with guaranteed
             # COIs / interest using the current run's applied cash flows locked

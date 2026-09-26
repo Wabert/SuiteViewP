@@ -34,7 +34,7 @@ IUL crediting (omit on declared-rate plans / to use engine defaults):
                            this true)
   current_interest_rate -> policy_data override: the blended crediting rate
                            (RERUN INPUT E52 / CalcEngine UO) — locally
-                           build_illustration_data seeds plan GINT, so the
+                           the policy-data loader seeds plan GINT, so the
                            comparison must inject the case's blend
   iul_declared_rate     -> policy_data override: fixed-strategy rate (RERUN UJ)
   iul_asset_charge_rate -> policy_data override: blended IP/IR asset rate (SU)
@@ -43,6 +43,18 @@ IUL crediting (omit on declared-rate plans / to use engine defaults):
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import csv
 import json
 import os
@@ -67,7 +79,6 @@ def run_engine_case(cmd: dict) -> dict:
     import datetime
 
     from suiteview.core.policy_service import clear_cache
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.models.input_set import (
         DatedTransaction, IllustrationOptions, IllustrationInputSet,
@@ -148,7 +159,7 @@ def run_engine_case(cmd: dict) -> dict:
             policy_changes=evs)
 
     clear_cache()
-    policy_data = build_illustration_data(policy, region=region, company_code=company)
+    policy_data = _load_policy_data(policy, region=region, company_code=company)
     # Optional shadow seed override: the current shadow account value at the
     # valuation date.  Locally the DB2 source is unconfirmed (gav is null), so the
     # comparison feeds RERUN's sInput_CurrentShadowAV here so both sides start from
@@ -173,7 +184,7 @@ def run_engine_case(cmd: dict) -> dict:
         # sINPUT_Variable_Loan_Rate — the input rate inside the VV MAX (the
         # AG49 spread branch only bites when blend − spread exceeds this).
         policy_data.variable_loan_charge_rate = float(cmd["variable_loan_rate"])
-    states = IllustrationEngine().project(
+    states = _project_with_engine(IllustrationEngine(), 
         policy_data, months=months, options=options, future_inputs=future_inputs)
 
     # Guideline/target fields live on MonthlyState but aren't in the debug pipeline order.

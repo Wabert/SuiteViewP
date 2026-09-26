@@ -14,6 +14,18 @@ valuation date.
 """
 from __future__ import annotations
 
+def _project_with_engine(engine, policy, **kwargs):
+    from suiteview.illustration.api import project_policy
+
+    if "future_inputs" in kwargs:
+        kwargs["inputs"] = kwargs.pop("future_inputs")
+    if "rates_override" in kwargs:
+        kwargs["rates"] = kwargs.pop("rates_override")
+    return project_policy(policy, engine=engine, **kwargs).states
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import json
 import os
 import sys
@@ -36,13 +48,12 @@ def main() -> None:
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import (
         IllustrationEngine, _advance_loan_factors, _days_to_next_anniversary)
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.models.plancode_config import load_plancode
     from suiteview.illustration.models.input_set import (
         DatedTransaction, IllustrationInputSet, TransactionKind)
 
     clear_cache()
-    policy = build_illustration_data(policy_num, region=cmd.get("region", "CKPR"),
+    policy = _load_policy_data(policy_num, region=cmd.get("region", "CKPR"),
                                      company_code=cmd.get("company"))
     config = load_plancode(policy.plancode)
 
@@ -59,7 +70,7 @@ def main() -> None:
                          effective_date=repay_date, amount=repay_amount),
     ])
 
-    states = IllustrationEngine().project(policy, months=months, future_inputs=inputs)
+    states = _project_with_engine(IllustrationEngine(), policy, months=months, future_inputs=inputs)
 
     header = {
         "policy": policy_num,

@@ -25,6 +25,10 @@ reports both GLP and GSP.
 """
 from __future__ import annotations
 
+def _load_policy_data(*args, **kwargs):
+    from suiteview.illustration.api import load_policy_data
+
+    return load_policy_data(*args, **kwargs)
 import csv as csvmod
 import json
 import os
@@ -45,12 +49,11 @@ def build_inputs(policy: str, region: str, company, endow: int):
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
     from suiteview.core.policy_service import clear_cache
-    from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.models.plancode_config import load_plancode
     from suiteview.illustration.core.guideline_calc import policy_to_guideline_inputs
 
     clear_cache()
-    pd = build_illustration_data(policy, region=region, company_code=company)
+    pd = _load_policy_data(policy, region=region, company_code=company)
     config = load_plancode(pd.plancode)
     gi = policy_to_guideline_inputs(pd, config, pd.issue_age, endowment_age=endow)
     ctx = {

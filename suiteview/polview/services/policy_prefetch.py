@@ -360,8 +360,9 @@ class PolicyLoadSession:
         return PreparedPolicy(policy.detached_copy(), "tables", True, presence)
 
     def _surrender_values(self):
-        from suiteview.illustration import build_illustration_data, IllustrationEngine
-        from suiteview.illustration.core.rate_loader import load_rates
+        from suiteview.illustration import (
+            IllustrationEngine, load_projection_basis, project_policy,
+        )
         from suiteview.illustration.models.plancode_config import MissingPlancodeError, load_plancode
 
         policy = self._policy
@@ -376,16 +377,18 @@ class PolicyLoadSession:
             logger.warning("PolView %s: %s", policy.policy_number, reason)
             return SurrenderValuesUnavailable(reason)
         policy_service.cache_policy_info(policy)
-        # build_illustration_data requests the inforce key. A resolved pending
+        # The projection façade requests the inforce key. A resolved pending
         # session must still use its own canonical instance, not do a new lookup.
         self._cache[(self.policy_number, policy.company_code, "I", self.region)] = policy
-        basis = build_illustration_data(
-            policy.policy_number, policy.region, policy.company_code,
+        basis_data = load_projection_basis(
+            policy.policy_number, region=policy.region,
+            company_code=policy.company_code, config=config,
         )
+        basis = basis_data.policy
         policy._data.raise_table_errors()
         if basis.base_segment is None:
             raise ValueError("Surrender calculation requires a base coverage")
-        rates = load_rates(basis, config)
+        rates = basis_data.rates
         for segment in basis.segments or [basis.base_segment]:
             schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
             if not schedule:
@@ -393,7 +396,9 @@ class PolicyLoadSession:
                     f"Missing surrender rates for {basis.plancode}, "
                     f"coverage {segment.coverage_phase}"
                 )
-        results = IllustrationEngine().project(basis, months=0, rates_override=rates)
+        results = project_policy(
+            basis, months=0, rates=rates, config=config,
+            engine=IllustrationEngine()).states
         if not results:
             raise RuntimeError("Surrender calculation returned no inforce values")
         return SurrenderValues(results[0].surrender_charge, results[0].surrender_value)
