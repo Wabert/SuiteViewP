@@ -1,10 +1,12 @@
 # Dedicated ABR Quote automation
 
 This is **SuiteView ABR Quote**, not the Illustration application's ABR projection.
-It calls the existing medical-assessment and quote orchestration methods and
-the exact `EmailPrintDialog` clipboard HTML/text builders. It constructs no Qt
-widgets, application, dialogs or clipboard objects. PyQt6 must still be installed
-because those existing methods live in UI modules.
+It now calls the same core services as the ABR window:
+`core.assessment_solver.solve_substandard()` and
+`core.quote_service.calculate_abr_quote()`.  The exact
+`EmailPrintDialog` clipboard HTML/text builders remain the renderer. It
+constructs no Qt widgets, application, dialogs or clipboard objects. PyQt6 must
+still be installed because the canonical renderer lives in UI modules.
 
 ## API and command
 
@@ -240,5 +242,7 @@ $env:PYTHONDONTWRITEBYTECODE='1'
 ```
 
 Tests use synthetic policies and in-memory rate interfaces, exercise the real
-ABR assessment/mortality/premium/APV path and canonical renderer, and never
-retrieve this work item's live policy or access response benchmarks.
+core assessment/mortality/premium/APV path plus canonical renderer, and never
+retrieve this work item's live policy or access response benchmarks. Workbook
+characterization uses the shared `core.output_spec` writers with openpyxl/fake
+COM rather than a real Excel instance.

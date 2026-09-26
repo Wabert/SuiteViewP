@@ -6,7 +6,6 @@ they deliberately do not reimplement actuarial calculations or HTML formatting.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
@@ -17,7 +16,6 @@ import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 from .models.abr_data import ABRPolicyData
 from .models.abr_database import using_quote_database
@@ -191,75 +189,47 @@ def _json_value(value):
     return value
 
 
-class _Value:
-    """In-memory value/signal port; never a Qt widget."""
-    def __init__(self, value=""):
-        self.value = value
-
-    def text(self):
-        return str(self.value)
-
-    def currentText(self):
-        return str(self.value)
-
-    def isChecked(self):
-        return bool(self.value)
-
-    def setText(self, value):
-        self.value = value
-
-    def setEnabled(self, value):
-        pass
-
-    def setVisible(self, value):
-        pass
-
-    def emit(self, *args):
-        pass
-
-
-def _raise(message):
-    raise QuoteError(message)
-
-
 def _assessment_port(policy, request):
-    from .ui.assessment_panel import AssessmentPanel
-    from .automation_data import reject_lookup_warnings
+    from .core.assessment_solver import AssessmentInputs, solve_substandard
     a = request.assessment
-    port = SimpleNamespace(
-        _policy=policy, _assessment=None,
-        rider_combo=_Value(a["rider_type"]),
-        _derived_labels=defaultdict(_Value), derived_group=_Value(),
-        status_label=_Value(), calc_btn=_Value(), assessment_ready=_Value(),
-        _clear_warning=lambda: None, _show_warning=_raise,
-        chk_return_5yr=_Value(a.get("return_after_5yr", False)),
-        chk_return_10yr=_Value(a.get("return_after_10yr", False)),
+    direct_values = {
+        key: a.get(key, {}) if key in a else {}
+        for key in _DIRECT
+    }
+    inputs = AssessmentInputs(
+        rider_type=a["rider_type"],
+        use_five_year="five_year_survival" in a,
+        use_ten_year="ten_year_survival" in a,
+        use_le="life_expectancy_years" in a,
+        use_table="table" in a,
+        use_flat="flat" in a,
+        use_table_2="table_2" in a,
+        use_flat_2="flat_2" in a,
+        use_increased_decrement="increased_decrement" in a,
+        use_return_5yr=a.get("return_after_5yr", False),
+        use_return_10yr=a.get("return_after_10yr", False),
+        five_year_survival=a.get("five_year_survival", 0.0),
+        ten_year_survival=a.get("ten_year_survival", 0.0),
+        life_expectancy_years=a.get("life_expectancy_years", 0.0),
+        direct_table_rating=direct_values["table"].get("value", 0.0),
+        table_start_year=direct_values["table"].get("start_year", 1),
+        table_stop_year=direct_values["table"].get("stop_year", 99),
+        direct_flat_extra=direct_values["flat"].get("value", 0.0),
+        flat_start_year=direct_values["flat"].get("start_year", 1),
+        flat_stop_year=direct_values["flat"].get("stop_year", 99),
+        direct_table_rating_2=direct_values["table_2"].get("value", 0.0),
+        table_2_start_year=direct_values["table_2"].get("start_year", 1),
+        table_2_stop_year=direct_values["table_2"].get("stop_year", 99),
+        direct_flat_extra_2=direct_values["flat_2"].get("value", 0.0),
+        flat_2_start_year=direct_values["flat_2"].get("start_year", 1),
+        flat_2_stop_year=direct_values["flat_2"].get("stop_year", 99),
+        direct_increased_decrement=direct_values["increased_decrement"].get("value", 0.0),
+        incr_decrement_start_year=direct_values["increased_decrement"].get("start_year", 1),
+        incr_decrement_stop_year=direct_values["increased_decrement"].get("stop_year", 99),
     )
-    for key, stem in _SURVIVAL.items():
-        setattr(port, f"chk_{stem}", _Value(key in a))
-        setattr(port, f"{stem}_input", _Value(a.get(key, "")))
-    for key, stem in _DIRECT.items():
-        item = a.get(key, {})
-        setattr(port, f"chk_{stem}", _Value(key in a))
-        setattr(port, f"{stem}_input", _Value(item.get("value", "")))
-        setattr(port, f"{stem}_start_input", _Value(item.get("start_year", "")))
-        setattr(port, f"{stem}_stop_input", _Value(item.get("stop_year", "")))
-    if a["rider_type"] == "Terminal":
-        AssessmentPanel._populate_terminal_derived(port)
-        AssessmentPanel.create_terminal_assessment(port)
-    else:
-        try:
-            with reject_lookup_warnings("suiteview.abrquote.core.goal_seek"):
-                AssessmentPanel._on_calculate(port)
-        except QuoteError as exc:
-            if "Period 2 table rating goal seek failed:" not in str(exc):
-                raise
-            _check_survival_boundary(a, port._assessment)
-            raise
-    if port._assessment is None:
-        raise QuoteError("The application's medical assessment produced no result")
-    _validate_assessment_result(a, port._assessment)
-    return port._assessment
+    result = solve_substandard(policy, inputs)
+    _validate_assessment_result(a, result.assessment)
+    return result.assessment
 
 
 def _check_survival_boundary(inputs, assessment):
@@ -300,26 +270,6 @@ def _validate_assessment_result(inputs, assessment):
             if not math.isfinite(value) or abs(value - inputs[source]) > tolerance:
                 raise QuoteError(f"Canonical assessment did not fit {source}: "
                                  f"requested {inputs[source]}, calculated {value}; no quote issued")
-
-
-class _Results:
-    def __init__(self):
-        self.result = None
-
-    def display_results(self, result):
-        self.result = result
-
-    def set_calc_data(self, *args):
-        pass
-
-
-class _Output:
-    def set_result(self, *args): pass
-    def set_assessment(self, *args): pass
-    def set_calc_data(self, *args): pass
-    def set_derived_values(self, *args): pass
-    def set_accel_inputs_fn(self, *args): pass
-    def set_after_partial_deduction_fn(self, *args): pass
 
 
 class _RateTrace:
@@ -403,36 +353,27 @@ def calculate_quote(request: QuoteRequest | dict, policy: ABRPolicyData, *,
     if not is_ul and opt.keys() & (ul_fields | {"after_partial_deduction"}):
         raise QuoteError("UL-specific inputs supplied for a TERM product")
 
-    from .ui.abr_window import ABRQuoteWindow
+    from .core.quote_service import ABRQuoteInputs, calculate_abr_quote
     from .ui.email_print_dialog import EmailPrintDialog
     trace = _RateTrace(database, p.product_type)
     with using_quote_database(trace):
         assessment = _assessment_port(p, request)
-        results = _Results()
-        assessment_results = _Results()
-        assessment_results.get_min_face_amount = lambda: opt["min_face_amount"]
-        assessment_results.set_partial_premium_breakdown = lambda value: None
-        assessment_results.get_derived_display_values = lambda: {}
-        assessment_results.get_after_partial_deduction = lambda: str(opt.get("after_partial_deduction", ""))
-        state = SimpleNamespace(
-            _policy=p, _assessment=assessment, status_label=_Value(),
-            _email_print_btn=_Value(), results_panel=results,
-            assessment_panel=assessment_results, output_panel=_Output(),
-            policy_panel=SimpleNamespace(
-                get_quote_date=lambda: request.quote_date,
-                get_interest_rate_override=lambda: opt.get("interest_rate_override"),
-                ul_level_prem_input=_Value(opt.get("level_annual_premium", "")),
-                ul_loan_payoff_input=_Value(opt.get("loan_payoff", "")),
-                ul_surrender_value_input=_Value(opt.get("surrender_value", "")),
-            ),
-        )
-        state._generate_messages = lambda *args: ABRQuoteWindow._generate_messages(state, *args)
-        state._get_current_accel_inputs = lambda: (p.default_death_benefit, opt["min_face_amount"])
-        ABRQuoteWindow._run_calculation(state)
-        if results.result is None or state.status_label.text() != "ABR Quote calculated successfully.":
-            raise QuoteError(state.status_label.text())
+    snapshot = calculate_abr_quote(
+        ABRQuoteInputs(
+            policy=p,
+            assessment=assessment,
+            quote_date=request.quote_date,
+            min_face_amount=opt["min_face_amount"],
+            interest_rate_override=opt.get("interest_rate_override"),
+            level_annual_premium=opt.get("level_annual_premium"),
+            loan_payoff=opt.get("loan_payoff", 0.0),
+            surrender_value=opt.get("surrender_value"),
+        ),
+        trace,
+    )
+    results = snapshot.result
     render = SimpleNamespace(_policy=p, _assessment=assessment,
-                             _result=results.result, _fmt=EmailPrintDialog._fmt)
+                             _result=results, _fmt=EmailPrintDialog._fmt)
     sections = EmailPrintDialog._build_summary_sections(render)
     html = EmailPrintDialog._build_clipboard_html(render, sections)
     text = EmailPrintDialog._build_clipboard_text(render, sections)
@@ -448,7 +389,7 @@ def calculate_quote(request: QuoteRequest | dict, policy: ABRPolicyData, *,
              root.parents[1] / "tools" / "abrquote" / "quote.py"]
     output = _json_value({
         "schema_version": 1, "status": "calculated",
-        "html": html, "text": text, "numbers": asdict(results.result),
+        "html": html, "text": text, "numbers": asdict(results),
         "assessment": asdict(assessment), "policy": asdict(p),
         "warnings": getattr(assessment, "automation_warnings", []),
         "needs_review": bool(getattr(assessment, "automation_warnings", [])),

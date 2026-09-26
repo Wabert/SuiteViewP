@@ -17,7 +17,6 @@ import openpyxl
 import pytest
 
 from suiteview.abrquote.automation import (
-    QuoteError,
     QuoteRequest,
     _assessment_port,
     calculate_quote,

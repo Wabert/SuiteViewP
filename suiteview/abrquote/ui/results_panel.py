@@ -763,8 +763,9 @@ class ResultsPanel(QWidget):
         """Open the detailed calculation viewer window (modeless)."""
         if not self._mort_detail:
             return
+        from .view_models import AccelerationInputState, CalcViewerModel
         after_partial = self.premium_after_partial_input.text().strip()
-        viewer = CalcViewerDialog(
+        viewer = CalcViewerDialog(CalcViewerModel(
             mortality_rows=self._mort_detail,
             apv_rows=self._apv_detail,
             apv_summary=self._apv_summary,
@@ -773,10 +774,11 @@ class ResultsPanel(QWidget):
             assessment=self._assessment,
             result=self._result,
             derived_values=self._derived_values,
-            after_partial_override=after_partial,
-            warnings=self._get_current_warnings(),
-            parent=None,
-        )
+            acceleration=AccelerationInputState(
+                after_partial_override=after_partial,
+                warnings=self._get_current_warnings(),
+            ),
+        ), parent=None)
         viewer.show()
         # Keep a reference so the window isn't garbage-collected
         self._calc_viewer = viewer

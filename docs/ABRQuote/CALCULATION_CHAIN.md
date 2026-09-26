@@ -41,6 +41,19 @@ modifications → modified mortality → APV → actuarial discount → benefit.
 
 ### 1.1 Step-by-Step Calculation
 
+The production ABR window and `suiteview.abrquote.automation` both use the same
+plain core services:
+
+- `core.assessment_solver.AssessmentInputs` → `solve_substandard()` →
+  `SubstandardSolveResult`
+- `core.quote_service.ABRQuoteInputs` → `calculate_abr_quote()` →
+  `QuoteCalculationSnapshot`
+- `core.output_spec.build_detail_workbook_spec()` →
+  `write_openpyxl()` or `write_excel_com()`
+
+The UI gathers inputs and renders outputs only; quote math, goal seek, workbook
+rows and automation no longer depend on fake Qt panels.
+
 #### Step 1: Policy Data Retrieval
 - Input: Policy number + region
 - Source: PolView's `PolicyInformation` (DB2 via ODBC)
@@ -52,7 +65,24 @@ modifications → modified mortality → APV → actuarial discount → benefit.
   - `flat_extra`, `flat_to_age`, `paid_to_date`
   - `policy_month`, `policy_year`, `attained_age`
 
-#### Step 2: Term Premium Calculation
+#### Step 2: Premium Schedule and Product Basis
+
+Supported ABR products are **TERM, UL, IUL and ISWL**.  The same mortality/APV
+engine is used for each, but the premium schedule source differs:
+
+- **TERM** uses TERM pointer/rate tables. The current quote date determines the
+  effective policy year and month. The first schedule entry is prorated by the
+  remaining modal payments in the current policy year; later years use the base
+  annual premium schedule.
+- **UL/IUL/ISWL** use an explicit level annual premium supplied to the quote
+  service. TERM display lookups may still be shown when available, but APV uses
+  the level premium, with the current-year entry set to zero as before.
+
+Rounding is unchanged: base rates are rounded to cents after table-rating
+multiplication, then flat extras are added, then premiums are rounded after
+multiplying by face units and applying modal factors.
+
+#### Step 3: Term Premium Calculation
 - **Lookup KEY** = `"{plancode} {sex} {class} {band} {issue_age}"` (e.g., "B75TL400 F N 4 33")
 - **Band** from face amount:
   | Face Range | Band |
@@ -77,7 +107,7 @@ modifications → modified mortality → APV → actuarial discount → benefit.
   | Direct Monthly (4) | 0.093 |
   | PAC Monthly (5) | 0.0864 |
 
-#### Step 3: Mortality Calculation (calc.monthly engine)
+#### Step 4: Mortality Calculation (calc.monthly engine)
 For each month from current policy month to maturity (up to 1,460 months ≈ 121 years):
 1. **VBT Lookup**: Select 2008 VBT block by Sex+Class:
    - MN = Male Non-smoker, FN = Female Non-smoker
@@ -91,7 +121,7 @@ For each month from current policy month to maturity (up to 1,460 months ≈ 121
    `qx_monthly = qx_annual/12 / (1 - (month_in_year - 1) × (qx_annual/12))`
    (Uniform Distribution of Deaths assumption)
 
-#### Step 4: APV Calculation (ABA monthly calc engine)
+#### Step 5: APV Calculation (ABA monthly calc engine)
 - **Monthly interest rate** = `(1 + annual_rate)^(1/12) - 1`
 - **Continuous mortality adjustment** = `monthly_rate / ln(1 + monthly_rate)`
 - For each month `t` (rows 7–1466, up to 1,460 months):
@@ -106,7 +136,7 @@ For each month from current policy month to maturity (up to 1,460 months ≈ 121
   - `PVFP = SUM(all PVFP_t)` (set to 0 for FL + Terminal)
   - `PVFD = 0` (no dividends for term products)
 
-#### Step 5: Actuarial Discount & Benefit
+#### Step 6: Actuarial Discount & Benefit
 - `Actuarial_Discount = ROUND(Face + PUA - (PVFB + PVFD - PVFP), 2)`
   Simplifies to: `ROUND(Face - PVFB + PVFP, 2)` (since PUA=0, PVFD=0 for term)
 - `Admin_Fee = $100 if state == "FL" else $250`
@@ -128,7 +158,7 @@ For each month from current policy month to maturity (up to 1,460 months ≈ 121
 | Admin Fee | same as Full |
 | **Accelerated Benefit** | **Eligible - Discount - Fee** |
 
-#### Step 6: Goal Seek (for medical assessment → substandard)
+#### Step 7: Goal Seek (for medical assessment → substandard)
 The VBA used Excel's Goal Seek to derive table ratings and flat extras from medical
 assessment inputs (5yr survival, 10yr survival, life expectancy). The Python port
 implements this in `suiteview/abrquote/core/goal_seek.py` (scipy `brentq` when
@@ -141,5 +171,15 @@ available, with a pure-Python `_bisect_fallback` — scipy is not a hard depende
 - **Life Expectancy**: Compute curtate future life expectancy from modified qx,
   add 0.5 for complete (UDD approximation)
 
----
+Date semantics:
 
+- The dedicated app has one quote date. It selects the ABR interest month,
+  per-diem year and premium duration.
+- Mortality and APV retain the loaded policy duration (`policy_year` and
+  `policy_month`) just as the legacy UI did; live retrieval is not a historical
+  valuation reconstruction.
+- Direct table/flat start years are inclusive; stop years are exclusive and are
+  converted to absolute policy-month ranges anchored at the loaded current
+  policy month.
+
+---
