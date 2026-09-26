@@ -808,6 +808,13 @@ if pi:
 | `data_item_where(table, return_field, filter_field, filter_value)` | Filtered single value |
 | `data_items_where(table, return_field, filter_field, filter_value)` | All matching values |
 
+`PolicyData.data_item()` returns `None` for a missing row, but a loaded table
+that lacks the requested column now raises
+`suiteview.core.data_access.errors.UnknownColumnError`. Optional scalar columns
+must be declared in `suiteview.polview.models.policy_fields.FIELD_SPECS`; update
+that registry and regenerate `docs/polview/POLICY_FIELDS.md` rather than relying
+on silent blanks.
+
 ### Rules for AI assistants
 
 1. **Never use `pi.get_value()`** — that method does not exist. Use named
@@ -982,6 +989,12 @@ policy.is_advanced_product   # bool — from LH_BAS_POL.NON_TRD_POL_IND
 policy.product_type          # "Traditional" or "Advanced"
 cov.is_advanced_product      # bool — set on each CoverageInfo during construction
 ```
+
+Implementation-specific branching belongs in `policy.product_rules`
+(`TraditionalRules`, `AdvancedRules`, `WholeLifeRules`, `ISWLRules`, `DIRules`).
+The strategy exposes value/loan table choices, display rate behavior,
+valuation-date source, support eligibility and the rate family. See
+`docs/polview/POLVIEW_REFACTOR_CONTRACTS.md`.
 
 > **Deep dive** on rate fields, divisors, renewal rate table, and VBA
 > equivalents: see [`docs/POLVIEW_CLAUDE.md`](docs/POLVIEW_CLAUDE.md)
