@@ -76,6 +76,12 @@ _LINE1_RULE = LineRule("ckultb01-line1", (
     Field("CHARGE", 112, 120, _layout_num),
     Field("_MAXIMUM_RAW", 122, 133, _text),
 ))
+_LINE1_FIELDS = {field.name: field for field in _LINE1_RULE.fields}
+_LINE1_CROSS_CHECK_FIELDS = (
+    "PLAN_CODE", "FREQ_TYPE", "RULE_CODE", "STATE_CODE", "SEX_CODE",
+    "RATE_CLASS", "BAND_CODE", "EFFECTIVE_DATE", "MONTH_DUR", "HIGH_AGE",
+)
+_FOOTER_RE = re.compile(r"^\s*(?:\*+\s*)?(?:END[- ]OF[- ](?:REPORT|JOB)|TABLE CONTAINS)\b", re.IGNORECASE)
 
 
 def is_skip_line(line: str) -> bool:
@@ -95,6 +101,8 @@ def is_skip_line(line: str) -> bool:
     # Table identifier line.
     if re.match(r"^\s*CKULTB", line):
         return True
+    if _FOOTER_RE.match(line):
+        return True
     # Column-header continuation line ("GUAR CHG ... AUDIT# CHANGED").
     if "GUAR CHG" in line and "AUDIT#" in line:
         return True
@@ -111,23 +119,21 @@ def is_data_line1(parts: List[str]) -> bool:
 
 def _record_from_line1(line: str, parts: List[str]) -> Dict:
     """Build a partial record from a parsed line-1 token list."""
-    try:
-        parsed = _LINE1_RULE.parse(line)
-    except (ValueError, IndexError):
-        parsed = {
-            "PLAN_CODE": parts[0],
-            "FREQ_TYPE": parts[1],
-            "RULE_CODE": parts[2],
-            "STATE_CODE": parts[3],
-            "SEX_CODE": parts[4],
-            "RATE_CLASS": parts[5],
-            "BAND_CODE": parts[6],
-            "EFFECTIVE_DATE": parts[7],
-            "MONTH_DUR": _int(parts[8]),
-            "HIGH_AGE": _int(parts[9]),
-            "CHARGE": _num(parts[10]),
-            "_MAXIMUM_RAW": parts[11],
-        }
+    parsed = {
+        "PLAN_CODE": parts[0],
+        "FREQ_TYPE": parts[1],
+        "RULE_CODE": parts[2],
+        "STATE_CODE": parts[3],
+        "SEX_CODE": parts[4],
+        "RATE_CLASS": parts[5],
+        "BAND_CODE": parts[6],
+        "EFFECTIVE_DATE": parts[7],
+        "MONTH_DUR": _int(parts[8]),
+        "HIGH_AGE": _int(parts[9]),
+        "CHARGE": _num(parts[10]),
+        "_MAXIMUM_RAW": parts[11],
+    }
+    _cross_check_line1_layout(line, parsed)
     return {
         **parsed,
         "MAXIMUM": 0.0,
@@ -136,6 +142,21 @@ def _record_from_line1(line: str, parts: List[str]) -> Dict:
         "AUDIT_NUM": "",
         "CHANGED_DATE": "",
     }
+
+
+def _cross_check_line1_layout(line: str, parsed: Dict) -> None:
+    """Use the fixed spans only to detect nonnumeric key/layout disagreements."""
+    for name in _LINE1_CROSS_CHECK_FIELDS:
+        field = _LINE1_FIELDS[name]
+        try:
+            layout_value = field.parse(line)
+        except (ValueError, IndexError):
+            continue
+        if layout_value != parsed[name]:
+            raise ValueError(
+                f"CKULTB01 line-1 layout disagrees with tokens for {name}: "
+                f"{layout_value!r} != {parsed[name]!r}"
+            )
 
 
 def _apply_line2(record: Dict, parts: List[str]) -> None:

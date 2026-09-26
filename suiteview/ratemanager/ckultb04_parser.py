@@ -52,6 +52,7 @@ RAW_HEADERS: List[str] = [
 
 _DATE_RE = re.compile(r"\d{2}/\d{2}/\d{4}$")
 _DASHES_RE = re.compile(r"^[\s\-]+$")
+_FOOTER_RE = re.compile(r"^\s*(?:\*+\s*)?(?:END[- ]OF[- ](?:REPORT|JOB)|TABLE CONTAINS)\b", re.IGNORECASE)
 
 
 def is_skip_line(line: str) -> bool:
@@ -71,6 +72,8 @@ def is_skip_line(line: str) -> bool:
         return True
     # Table identifier line.
     if re.match(r"^\s*CKULTB", line):
+        return True
+    if _FOOTER_RE.match(line):
         return True
     # Column header continuation line.
     stripped = line.strip()

@@ -2,7 +2,7 @@
 
 import pytest
 
-from suiteview.ratemanager import ckultb01_parser
+from suiteview.ratemanager import ckultb01_parser, ckultb04_parser
 from suiteview.ratemanager.benefit_db import (
     BenefitDBSpec, _map_key, build_benefit_rows)
 from suiteview.ratemanager.parser import ParseResult, ProductInfo, RateRecord
@@ -54,6 +54,57 @@ def test_ckultb01_unpaired_trailing_record_keeps_guaranteed_defaults(tmp_path):
 def test_ckultb01_malformed_continuation_line_fails_loudly():
     with pytest.raises(ValueError, match="continuation rate fields"):
         ckultb01_parser._apply_line2({"_MAXIMUM_RAW": "1.50"}, ["not-a-number", "x", "A1", "01/01/2020"])
+
+
+def test_ckultb01_line1_uses_token_charge_and_wide_maximum(tmp_path):
+    sample = CKULTB01_SAMPLE.replace(
+        "           5.00000  9,999,999.0",
+        "         100.00000 19,999,999.0",
+        1,
+    ).replace(
+        "           5.00000  9,999,999.00",
+        "         100.00000 19,999,999.00",
+        1,
+    )
+    path = tmp_path / "ckultb01_wide.txt"
+    path.write_text(sample, encoding="utf-8")
+
+    first = next(ckultb01_parser.iter_records(str(path)))
+
+    assert first["CHARGE"] == pytest.approx(100.0)
+    assert first["MAXIMUM"] == pytest.approx(19_999_999.0)
+
+
+def test_ckultb01_footer_after_line1_keeps_unpaired_defaults(tmp_path):
+    sample = CKULTB01_SAMPLE.splitlines()[7] + "\n ***** END OF REPORT *****\n"
+    path = tmp_path / "ckultb01_footer.txt"
+    path.write_text(sample, encoding="utf-8")
+
+    records = list(ckultb01_parser.iter_records(str(path)))
+
+    assert len(records) == 1
+    assert records[0]["CHARGE"] == pytest.approx(5.0)
+    assert records[0]["GUAR_CHARGE"] == 0.0
+    assert records[0]["GUAR_MAX"] == 0.0
+
+
+def test_ckultb01_page_break_between_line1_and_continuation(tmp_path):
+    line1, line2 = CKULTB01_SAMPLE.splitlines()[7:9]
+    sample = (
+        line1 + "\n"
+        "1DATE  04/20/26                                     CYBERLIFE ONLINE TABLES LIST                                          PAGE    2\n"
+        "0TABLE: CKULTB01                  PROCESSING OPTIONS: USERID = ALL\n"
+        + line2 + "\n"
+    )
+    path = tmp_path / "ckultb01_page_break.txt"
+    path.write_text(sample, encoding="utf-8")
+
+    records = list(ckultb01_parser.iter_records(str(path)))
+
+    assert len(records) == 1
+    assert records[0]["GUAR_CHARGE"] == pytest.approx(5.0)
+    assert records[0]["AUDIT_NUM"] == "T02416"
+
 
 def test_ckultb01_parser_stitches_wrapped_maximum(tmp_path):
     path = tmp_path / "ckultb01.txt"
@@ -242,6 +293,38 @@ CKULTB04_SAMPLE = """\
            64       6        07       F        E        A        01/01/1900      999       16        0            0.00      0.000
                                 0.000        0 S46231 08/24/2015
 """
+
+
+def test_ckultb04_footer_after_line1_keeps_unpaired_defaults(tmp_path):
+    line1 = CKULTB04_SAMPLE.splitlines()[2]
+    sample = line1 + "\n ***** END OF REPORT *****\n"
+    path = tmp_path / "ckultb04_footer.txt"
+    path.write_text(sample, encoding="utf-8")
+
+    records = list(ckultb04_parser.iter_records(str(path)))
+
+    assert len(records) == 1
+    assert records[0]["CHARGE_PCT"] == pytest.approx(3.710)
+    assert records[0]["FREE_PCT"] == 0.0
+    assert records[0]["MONTHS_FREE"] == 0
+
+
+def test_ckultb04_page_break_between_line1_and_continuation(tmp_path):
+    line1, line2 = CKULTB04_SAMPLE.splitlines()[2:4]
+    sample = (
+        line1 + "\n"
+        "1DATE  03/31/26                                     CYBERLIFE ONLINE TABLES LIST                                          PAGE    2\n"
+        "0          PLANCODE RULECODE STATE CD SEX CODE RATE     BANDCODE EFF DATE   HIGH DUR HI IAGE  GRPD/XIN AMOUNT         CHG PCT   ALLOW\n"
+        + line2 + "\n"
+    )
+    path = tmp_path / "ckultb04_page_break.txt"
+    path.write_text(sample, encoding="utf-8")
+
+    records = list(ckultb04_parser.iter_records(str(path)))
+
+    assert len(records) == 1
+    assert records[0]["FREE_PCT"] == pytest.approx(0.0)
+    assert records[0]["AUDIT_NUM"] == "S46231"
 
 
 def test_scr_aa_plus_exception_states(tmp_path):
