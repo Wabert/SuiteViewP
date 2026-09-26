@@ -1,6 +1,8 @@
 """CyberLife SQL context section builders."""
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from suiteview.audit.cyberlife_sql.custom_display import build_custom_display
 from suiteview.audit.cyberlife_sql.helpers import (
     name_match_predicate,
@@ -14,6 +16,7 @@ from suiteview.audit.cyberlife_sql.state import (
     SqlParts,
 )
 from suiteview.audit.sql_helpers import (
+    normalize_date,
     selected_codes,
     strict_range_predicates,
 )
@@ -111,9 +114,7 @@ def derive_audit_flags(criteria: AuditCriteria) -> DerivedAuditContext:
     parts = SqlParts()
     collect_base_display_context(scratch, parts)
     collect_policy2_and_flag_context(scratch, parts)
-    from suiteview.audit.cyberlife_sql.ctes_policy import add_policy2_ctes
-
-    add_policy2_ctes(scratch, parts)
+    collect_advanced_coverage_context(scratch)
     values = {
         key: value
         for key, value in scratch.__dict__.items()
@@ -121,7 +122,7 @@ def derive_audit_flags(criteria: AuditCriteria) -> DerivedAuditContext:
     }
     return DerivedAuditContext(
         criteria=criteria,
-        values=values,
+        values=MappingProxyType(dict(values)),
         initial_ctes=tuple(parts.sql_parts),
     )
 
@@ -188,3 +189,131 @@ def collect_policy2_and_flag_context(ctx: QueryContext, parts: SqlParts) -> None
     ctx.adv_sa_gt_orig = ctx.at.chk_sa_gt_orig
     ctx.adv_apb_rider = ctx.at.chk_apb_rider
     ctx.adv_gcv_gt_cv = ctx.at.chk_gcv_gt_cv
+
+
+def collect_advanced_coverage_context(ctx: QueryContext) -> None:
+    """Derive ADV and coverage flags before SQL fragments are assembled."""
+    ctx.adv_gcv_lt_cv = ctx.at.chk_gcv_lt_cv
+    ctx.adv_prem_wd_gt_face = ctx.at.chk_prem_wd_gt_face
+    ctx.adv_grace_rule = bool(ctx.at.chk_grace_rule and ctx.at.list_grace_rule)
+    ctx.adv_db_option = bool(ctx.at.chk_db_option and ctx.at.list_db_option)
+    ctx.adv_orig_entry = bool(ctx.at.chk_orig_entry and ctx.at.list_orig_entry)
+    ctx.adv_prem_alloc = bool(ctx.at.chk_prem_alloc and ctx.at.list_prem_alloc)
+    ctx.adv_fund_id = ctx.at.txt_fund_id.strip()
+    ctx.adv_fund_lo = ctx.at.txt_fund_lo.strip()
+    ctx.adv_fund_hi = ctx.at.txt_fund_hi.strip()
+    ctx.has_fund_values = bool(ctx.adv_fund_id or ctx.adv_fund_lo or ctx.adv_fund_hi)
+    ctx.adv_cirf_match = ctx.at.cbo_cirf_match.strip()
+    ctx.adv_cirf_val = ctx.at.txt_cirf.strip()
+    ctx.has_accum_val = bool(ctx.at.rng_accum_val[0].strip() or ctx.at.rng_accum_val[1].strip())
+    ctx.has_shadow_av = bool(ctx.at.rng_shadow_acct[0].strip() or ctx.at.rng_shadow_acct[1].strip())
+    ctx.has_curr_spec_amt = bool(ctx.at.rng_curr_spec_amt[0].strip() or ctx.at.rng_curr_spec_amt[1].strip())
+    ctx.has_accum_mtp = bool(ctx.at.rng_accum_mtp[0].strip() or ctx.at.rng_accum_mtp[1].strip())
+    ctx.has_accum_glp_range = bool(ctx.at.rng_accum_glp[0].strip() or ctx.at.rng_accum_glp[1].strip())
+    ctx.has_glp_range = bool(ctx.at.rng_glp[0].strip() or ctx.at.rng_glp[1].strip())
+    ctx.has_gsp_range = bool(ctx.at.rng_gsp[0].strip() or ctx.at.rng_gsp[1].strip())
+    ctx.has_type_p = bool(ctx.at.rng_type_p[0].strip() or ctx.at.rng_type_p[1].strip())
+    ctx.has_type_v = bool(ctx.at.rng_type_v[0].strip() or ctx.at.rng_type_v[1].strip())
+    ctx.multi_base_covs = ctx.pt.chk_multiple_base_covs
+    ctx.is_mdo = ctx.pt.chk_is_mdo
+    ctx.in_conversion = ctx.pt.chk_in_conversion
+    ctx.cov_val_classes = ctx.covt.val_class.selected
+    ctx.cov_val_class = ctx.covt.val_class.value.strip()
+    ctx.cov_val_base = ctx.covt.val_base.strip()
+    ctx.cov_val_sub = ctx.covt.val_sub.strip()
+    ctx.cov_val_mort = ctx.covt.val_mort_table.strip()
+    ctx.cov_rpu_mort = ctx.covt.rpu_mort_table.strip()
+    ctx.cov_eti_mort = ctx.covt.eti_mort_table.strip()
+    ctx.cov_nfo_rate = ctx.covt.nfo_int_rate.strip()
+    ctx.cov_val_class_ne = ctx.covt.chk_val_class_ne_plan
+    ctx.cov_multi_base = ctx.covt.chk_multiple_base
+    ctx.cov_gio = ctx.covt.chk_cov_gio
+    ctx.cov_cola = ctx.covt.chk_cov_cola
+    ctx.cov_skipped_rein = ctx.covt.chk_skipped_cov_rein
+    ctx.cov_cv_rate = ctx.covt.chk_cv_rate_gt_zero or (ctx.wl_tab is not None and ctx.wl_tab.chk_cv_rate)
+    ctx.cov_gcv_gt_cv = ctx.covt.chk_gcv_gt_cv
+    ctx.cov_gcv_lt_cv = ctx.covt.chk_gcv_lt_cv
+    ctx.cov_non_trad = bool(ctx.covt.chk_non_trad and ctx.covt.list_non_trad)
+    ctx.cov_spec_amt_lo = ctx.covt.txt_spec_amt_lo.strip()
+    ctx.cov_spec_amt_hi = ctx.covt.txt_spec_amt_hi.strip()
+    ctx.cov_has_spec_amt = bool(ctx.cov_spec_amt_lo or ctx.cov_spec_amt_hi)
+    ctx.cov_init_term = bool(ctx.covt.chk_init_term and ctx.covt.list_init_term)
+    ctx._bw = ctx.covt.base_cov_widgets
+    ctx.cov_base_plancode = ctx._bw["plancode"].strip()
+    ctx.cov_base_prod_line = ctx._bw["prod_line"].strip()
+    ctx.cov_base_prod_ind = ctx._bw["prod_ind"].strip()
+    ctx.cov_base_form_number = ctx._bw["form_number"].strip()
+    ctx.cov_base_rateclass = ctx._bw["rateclass"].strip()
+    ctx.cov_base_sex67 = ctx._bw["sex_code_67"].strip()
+    ctx.cov_base_sex02 = ctx._bw["sex_code_02"].strip()
+    ctx.cov_base_person = ctx._bw["person"].strip()
+    ctx.cov_base_lives_cov = ctx._bw["lives_cov"].strip()
+    ctx.cov_base_change_type = ctx._bw["change_type"].strip()
+    ctx.cov_base_cease_code = ctx._bw["cease_code"].selected
+    ctx.cov_base_cola_ind = ctx._bw["cola_ind"].strip()
+    ctx.cov_base_gio_fio = ctx._bw["gio_fio"].strip()
+    ctx.cov_base_table03 = ctx._bw["table_03"]
+    ctx.cov_base_flat03 = ctx._bw["flat_03"]
+    ctx.cov_base_active_flat03 = ctx._bw["active_flat_03"]
+    ctx.cov_base_issue_lo = normalize_date(ctx._bw["issue_date_lo"]) or ""
+    ctx.cov_base_issue_hi = normalize_date(ctx._bw["issue_date_hi"]) or ""
+    ctx.cov_base_change_lo = normalize_date(ctx._bw["change_date_lo"]) or ""
+    ctx.cov_base_change_hi = normalize_date(ctx._bw["change_date_hi"]) or ""
+    ctx.cov_needs_modcov1 = bool(ctx.cov_base_prod_ind or ctx.cov_base_cola_ind or ctx.cov_base_gio_fio)
+    ctx.cov_needs_renewals = bool(ctx.cov_base_rateclass or ctx.cov_base_sex67)
+    ctx.rider1_info = _rider_info(ctx.covt.rider1_widgets)
+    ctx.rider2_info = _rider_info(ctx.covt.rider2_widgets)
+    ctx.cov_needs_modcovsall = bool(ctx.cov_gio or ctx.cov_cola)
+    ctx.has_modcovsall = ctx.has_modcovsall or ctx.cov_needs_modcovsall
+    ctx.has_skipped_rein = ctx.has_skipped_rein or ctx.cov_skipped_rein
+    ctx.multi_base_covs = ctx.multi_base_covs or ctx.cov_multi_base
+    ctx.cov_needs_covsummary = bool(ctx.cov_has_spec_amt or ctx.cov_multi_base)
+    ctx.cov_needs_iswl_gcv = bool(ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv)
+    ctx.cov_needs_mvval = bool(ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv)
+    ctx.needs_mvval = ctx.adv_cv_corr or ctx.adv_accum_gt_prem or ctx.has_accum_val or ctx.adv_gcv_gt_cv or ctx.adv_gcv_lt_cv or ctx.cov_needs_mvval or ctx.disp_accum_value or ctx.disp_prem_ptd or ctx.disp_account_value or ctx.adv_prem_wd_gt_face
+    ctx.needs_iswl_gcv = ctx.adv_gcv_gt_cv or ctx.adv_gcv_lt_cv or ctx.cov_needs_iswl_gcv
+    ctx.needs_interpolation = ctx.needs_iswl_gcv or ctx.disp_trad_cv_cov1 or ctx.disp_account_value
+    ctx.needs_covsummary = ctx.disp_spec_amt or ctx.multi_base_covs or ctx.adv_cv_corr or ctx.adv_sa_lt_orig or ctx.adv_sa_gt_orig or ctx.has_curr_spec_amt or ctx.needs_iswl_gcv or ctx.cov_needs_covsummary
+    ctx.needs_premwd_face = ctx.adv_prem_wd_gt_face
+    ctx.cov1_plancode_match_only = ctx.plancode_tab.cov1_only
+    ctx._any_cov_plancode = bool((ctx.pt.txt_plancode.strip() or ctx.plancode_tab.plancodes) and (not ctx.cov1_plancode_match_only))
+    ctx._any_cov_product_line = bool(ctx.pt.chk_product_line and selected_codes(ctx.pt.list_product_line))
+    ctx.needs_covsall = ctx.has_modcovsall or (not ctx.coverage_level and (ctx._any_cov_plancode or ctx._any_cov_product_line))
+    ctx.disp_trad_rates = ctx.dt.Checkbox_DisplayTradRates
+    ctx.cov_base_change_set = bool(ctx.cov_base_change_lo or ctx.cov_base_change_hi)
+    ctx.cov_base_vpu_set = bool(ctx._bw["vpu_lo"].strip() or ctx._bw["vpu_hi"].strip())
+    ctx.cov_base_specamt_set = bool(ctx._bw["spec_amt_lo"].strip() or ctx._bw["spec_amt_hi"].strip())
+
+
+def _rider_info(widgets: dict) -> dict:
+    info = {}
+    info["plancode"] = widgets["plancode"].strip()
+    info["prod_line"] = widgets["prod_line"].strip()
+    info["prod_ind"] = widgets["prod_ind"].strip()
+    info["rateclass"] = widgets["rateclass"].strip()
+    info["sex_code_67"] = widgets["sex_code_67"].strip()
+    info["sex_code_02"] = widgets["sex_code_02"].strip()
+    info["person"] = widgets["person"].strip()
+    info["lives_cov"] = widgets["lives_cov"].strip()
+    info["change_type"] = widgets["change_type"].strip()
+    info["cease_code"] = widgets["cease_code"].selected
+    info["cola_ind"] = widgets["cola_ind"].strip()
+    info["gio_fio"] = widgets["gio_fio"].strip()
+    addl_plancode = widgets.get("addl_plancode")
+    info["addl_plancode"] = addl_plancode.strip() if addl_plancode is not None else ""
+    info["table_03"] = widgets["table_03"]
+    info["flat_03"] = widgets["flat_03"]
+    info["active_flat_03"] = widgets["active_flat_03"]
+    info["post_issue"] = bool(widgets.get("post_issue", False))
+    info["issue_date_lo"] = normalize_date(widgets["issue_date_lo"]) or ""
+    info["issue_date_hi"] = normalize_date(widgets["issue_date_hi"]) or ""
+    info["change_date_lo"] = normalize_date(widgets["change_date_lo"]) or ""
+    info["change_date_hi"] = normalize_date(widgets["change_date_hi"]) or ""
+    info["vpu_lo"] = widgets["vpu_lo"].strip()
+    info["vpu_hi"] = widgets["vpu_hi"].strip()
+    info["spec_amt_lo"] = widgets["spec_amt_lo"].strip()
+    info["spec_amt_hi"] = widgets["spec_amt_hi"].strip()
+    info["active"] = any(info.values())
+    info["needs_covmod"] = bool(info["prod_ind"] or info["cola_ind"] or info["gio_fio"])
+    info["needs_renewals"] = bool(info["rateclass"] or info["sex_code_67"])
+    return info

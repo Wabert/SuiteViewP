@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Mapping
 
 from ..cyberlife_criteria import AuditCriteria
@@ -36,9 +35,6 @@ class DerivedAuditContext:
     values: Mapping[str, Any]
     initial_ctes: tuple[str, ...] = ()
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
-
     def __getattr__(self, name: str) -> Any:
         try:
             return self.values[name]
@@ -59,9 +55,3 @@ class QueryContext:
         else:
             self.derived = None
             self.criteria = source
-
-
-def ctx_set(ctx: QueryContext, name: str, value: Any) -> Any:
-    """Set one legacy context value while section builders are made pure."""
-    setattr(ctx, name, value)
-    return value

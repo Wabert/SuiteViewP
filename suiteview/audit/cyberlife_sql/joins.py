@@ -4,7 +4,7 @@ from __future__ import annotations
 from suiteview.audit.cyberlife_sql.helpers import (
     cease_code_predicate,
 )
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 from suiteview.audit.sql_helpers import (
     esc,
 )
@@ -58,8 +58,8 @@ def add_core_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = USERDEF_52G.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = USERDEF_52G.TCH_POL_ID')
     if ctx.disp_gsp or ctx.has_gsp_range:
-        ctx_set(ctx, "_gsp_join", 'INNER JOIN' if ctx.has_gsp_range else 'LEFT OUTER JOIN')
-        parts.sql_parts.append(f'  {ctx._gsp_join} GSP')
+        gsp_join = 'INNER JOIN' if ctx.has_gsp_range else 'LEFT OUTER JOIN'
+        parts.sql_parts.append(f'  {gsp_join} GSP')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = GSP.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = GSP.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = GSP.TCH_POL_ID')
@@ -83,40 +83,37 @@ def add_core_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = FFC.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = FFC.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = FFC.TCH_POL_ID')
-    ctx_set(ctx, "bt", ctx.benefits_tab)
-    ctx_set(ctx, "_cease_ops", {'1': '=', '2': '<', '3': '>'})
-
-
 def add_policy_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
-    for ctx.i in range(3):
-        ctx_set(ctx, "ben_type", ctx.bt.benefit_combos[ctx.i].strip())
-        if not ctx.ben_type:
+    benefit_tab = ctx.benefits_tab
+    cease_ops = {'1': '=', '2': '<', '3': '>'}
+    for index in range(3):
+        ben_type = benefit_tab.benefit_combos[index].strip()
+        if not ben_type:
             continue
-        ctx_set(ctx, "ben_code", ctx.ben_type[0])
-        ctx_set(ctx, "alias", f'BEN{ctx.i + 1}')
-        ctx_set(ctx, "sub_type", ctx.bt.subtype_edits[ctx.i].strip())
-        ctx_set(ctx, "post_issue", ctx.bt.post_issue_chks[ctx.i])
-        ctx_set(ctx, "cease_lo", ctx.bt.cease_lo_edits[ctx.i].strip())
-        ctx_set(ctx, "cease_hi", ctx.bt.cease_hi_edits[ctx.i].strip())
-        ctx_set(ctx, "cease_status", ctx.bt.cease_status_combos[ctx.i].strip())
-        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SPM_BNF {ctx.alias}')
-        parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {ctx.alias}.CK_SYS_CD')
-        parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {ctx.alias}.CK_CMP_CD')
-        parts.sql_parts.append(f'    AND POLICY1.TCH_POL_ID = {ctx.alias}.TCH_POL_ID')
-        parts.sql_parts.append(f"    AND {ctx.alias}.SPM_BNF_TYP_CD = '{esc(ctx.ben_code)}'")
-        if ctx.sub_type:
-            parts.sql_parts.append(f"    AND {ctx.alias}.SPM_BNF_SBY_CD = '{esc(ctx.sub_type)}'")
-        if ctx.post_issue:
-            parts.sql_parts.append(f'    AND {ctx.alias}.BNF_ISS_DT > COVERAGE1.ISSUE_DT')
-        if ctx.cease_lo:
-            parts.sql_parts.append(f"    AND {ctx.alias}.BNF_CEA_DT >= '{esc(ctx.cease_lo)}'")
-        if ctx.cease_hi:
-            parts.sql_parts.append(f"    AND {ctx.alias}.BNF_CEA_DT <= '{esc(ctx.cease_hi)}'")
-        if ctx.cease_status:
-            ctx_set(ctx, "cs_code", ctx.cease_status[0])
-            ctx_set(ctx, "op", ctx._cease_ops.get(ctx.cs_code))
-            if ctx.op:
-                parts.sql_parts.append(f'    AND {ctx.alias}.BNF_CEA_DT {ctx.op} {ctx.alias}.BNF_OGN_CEA_DT')
+        ben_code = ben_type[0]
+        alias = f'BEN{index + 1}'
+        sub_type = benefit_tab.subtype_edits[index].strip()
+        post_issue = benefit_tab.post_issue_chks[index]
+        cease_lo = benefit_tab.cease_lo_edits[index].strip()
+        cease_hi = benefit_tab.cease_hi_edits[index].strip()
+        cease_status = benefit_tab.cease_status_combos[index].strip()
+        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SPM_BNF {alias}')
+        parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {alias}.CK_SYS_CD')
+        parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {alias}.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND POLICY1.TCH_POL_ID = {alias}.TCH_POL_ID')
+        parts.sql_parts.append(f"    AND {alias}.SPM_BNF_TYP_CD = '{esc(ben_code)}'")
+        if sub_type:
+            parts.sql_parts.append(f"    AND {alias}.SPM_BNF_SBY_CD = '{esc(sub_type)}'")
+        if post_issue:
+            parts.sql_parts.append(f'    AND {alias}.BNF_ISS_DT > COVERAGE1.ISSUE_DT')
+        if cease_lo:
+            parts.sql_parts.append(f"    AND {alias}.BNF_CEA_DT >= '{esc(cease_lo)}'")
+        if cease_hi:
+            parts.sql_parts.append(f"    AND {alias}.BNF_CEA_DT <= '{esc(cease_hi)}'")
+        if cease_status:
+            op = cease_ops.get(cease_status[0])
+            if op:
+                parts.sql_parts.append(f'    AND {alias}.BNF_CEA_DT {op} {alias}.BNF_OGN_CEA_DT')
     if ctx.cov_needs_modcov1:
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.TH_COV_PHA MODCOV1')
         parts.sql_parts.append('    ON COVERAGE1.CK_SYS_CD = MODCOV1.CK_SYS_CD')
@@ -193,140 +190,141 @@ def add_transaction_and_people_joins(ctx: QueryContext, parts: SqlParts) -> None
         parts.sql_parts.append("    AND (FLAT_EXTRA1.SST_XTR_TYP_CD = '2' OR FLAT_EXTRA1.SST_XTR_TYP_CD = '4')")
 
 
+
+
+def emit_rider_joins(ctx: QueryContext, parts: SqlParts, info: dict, alias: str, idx: int) -> None:
+    if not info['active']:
+        return
+    parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_PHA {alias}')
+    parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {alias}.CK_SYS_CD')
+    parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {alias}.CK_CMP_CD')
+    parts.sql_parts.append(f'    AND POLICY1.TCH_POL_ID = {alias}.TCH_POL_ID')
+    parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR > 1')
+    pc = info['plancode']
+    if pc:
+        parts.sql_parts.append(f"    AND {alias}.PLN_DES_SER_CD = '{esc(pc)}'")
+    pl = info['prod_line']
+    if pl:
+        code = pl[0]
+        parts.sql_parts.append(f"    AND {alias}.PRD_LIN_TYP_CD = '{esc(code)}'")
+    sex02 = info['sex_code_02']
+    if sex02:
+        code = sex02[0]
+        parts.sql_parts.append(f"    AND {alias}.INS_SEX_CD = '{esc(code)}'")
+    person = info['person']
+    if person:
+        code = person[:2]
+        parts.sql_parts.append(f"    AND {alias}.PRS_CD = '{esc(code)}'")
+    if info['post_issue']:
+        parts.sql_parts.append(f'    AND {alias}.ISSUE_DT > COVERAGE1.ISSUE_DT')
+    issue_lo = info['issue_date_lo']
+    if issue_lo:
+        parts.sql_parts.append(f"    AND {alias}.ISSUE_DT >= '{esc(issue_lo)}'")
+    issue_hi = info['issue_date_hi']
+    if issue_hi:
+        parts.sql_parts.append(f"    AND {alias}.ISSUE_DT <= '{esc(issue_hi)}'")
+    ct_val = info['change_type']
+    if ct_val:
+        code = ct_val[0]
+        parts.sql_parts.append(f"    AND {alias}.NXT_CHG_TYP_CD = '{esc(code)}'")
+    cease_pred = cease_code_predicate(f'{alias}.CEA_REA_CD', info['cease_code'])
+    if cease_pred:
+        parts.sql_parts.append(f'    AND {cease_pred}')
+    change_lo = info['change_date_lo']
+    if change_lo:
+        parts.sql_parts.append(f"    AND {alias}.NXT_CHG_DT >= '{esc(change_lo)}'")
+    change_hi = info['change_date_hi']
+    if change_hi:
+        parts.sql_parts.append(f"    AND {alias}.NXT_CHG_DT <= '{esc(change_hi)}'")
+    vpu_lo = info['vpu_lo']
+    if vpu_lo:
+        try:
+            parts.sql_parts.append(f'    AND {alias}.COV_VPU_AMT >= {float(vpu_lo)}')
+        except ValueError:
+            pass
+    vpu_hi = info['vpu_hi']
+    if vpu_hi:
+        try:
+            parts.sql_parts.append(f'    AND {alias}.COV_VPU_AMT <= {float(vpu_hi)}')
+        except ValueError:
+            pass
+    sa_lo = info['spec_amt_lo']
+    if sa_lo:
+        try:
+            parts.sql_parts.append(f'    AND (REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT)) >= {float(sa_lo)}')
+        except ValueError:
+            pass
+    sa_hi = info['spec_amt_hi']
+    if sa_hi:
+        try:
+            parts.sql_parts.append(f'    AND (REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT)) <= {float(sa_hi)}')
+        except ValueError:
+            pass
+    lives = info['lives_cov']
+    if lives:
+        code = lives[0]
+        parts.sql_parts.append(f"    AND {alias}.LIVES_COV_CD = '{esc(code)}'")
+    addl = info['addl_plancode']
+    if addl:
+        c = addl[0]
+        if c == '1':
+            parts.sql_parts.append(f'    AND {alias}.PLN_DES_SER_CD = COVERAGE1.PLN_DES_SER_CD')
+        elif c == '2':
+            parts.sql_parts.append(f'    AND {alias}.PLN_DES_SER_CD <> COVERAGE1.PLN_DES_SER_CD')
+    covmod_alias = f'{alias}COVMOD'
+    if info['needs_covmod']:
+        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.TH_COV_PHA {covmod_alias}')
+        parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {covmod_alias}.CK_SYS_CD')
+        parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {covmod_alias}.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {covmod_alias}.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {covmod_alias}.COV_PHA_NBR')
+        pi = info['prod_ind']
+        if pi:
+            code = pi[0]
+            parts.sql_parts.append(f"    AND {covmod_alias}.AN_PRD_ID = '{esc(code)}'")
+        cola = info['cola_ind']
+        if cola:
+            parts.sql_parts.append(f"    AND {covmod_alias}.COLA_INCR_IND = '{esc(cola)}'")
+        gio = info['gio_fio']
+        if gio:
+            if gio.lower() == 'blank':
+                parts.sql_parts.append(f"    AND {covmod_alias}.OPT_EXER_IND = ''")
+            else:
+                parts.sql_parts.append(f"    AND {covmod_alias}.OPT_EXER_IND = '{esc(gio)}'")
+    rnl_alias = f'{alias}_RENEWALS'
+    if info['needs_renewals']:
+        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_INS_RNL_RT {rnl_alias}')
+        parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {rnl_alias}.CK_SYS_CD')
+        parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {rnl_alias}.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {rnl_alias}.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {rnl_alias}.COV_PHA_NBR')
+        parts.sql_parts.append(f"    AND {rnl_alias}.PRM_RT_TYP_CD = 'C'")
+        rc = info['rateclass']
+        if rc:
+            code = rc[0]
+            parts.sql_parts.append(f"    AND {rnl_alias}.RT_CLS_CD = '{esc(code)}'")
+        sx67 = info['sex_code_67']
+        if sx67:
+            code = sx67[0]
+            parts.sql_parts.append(f"    AND {rnl_alias}.RT_SEX_CD = '{esc(code)}'")
+    if info['table_03']:
+        tr_alias = f'{alias}_TABLE_RATING'
+        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SST_XTR_CRG {tr_alias}')
+        parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {tr_alias}.CK_SYS_CD')
+        parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {tr_alias}.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {tr_alias}.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {tr_alias}.COV_PHA_NBR')
+        parts.sql_parts.append(f"    AND ({tr_alias}.SST_XTR_TYP_CD = '0' OR {tr_alias}.SST_XTR_TYP_CD = '1' OR {tr_alias}.SST_XTR_TYP_CD = '3')")
+    if info['flat_03'] or info['active_flat_03']:
+        fe_alias = f'{alias}_FLAT_EXTRA'
+        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SST_XTR_CRG {fe_alias}')
+        parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {fe_alias}.CK_SYS_CD')
+        parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {fe_alias}.CK_CMP_CD')
+        parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {fe_alias}.TCH_POL_ID')
+        parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {fe_alias}.COV_PHA_NBR')
+        parts.sql_parts.append(f"    AND ({fe_alias}.SST_XTR_TYP_CD = '2' OR {fe_alias}.SST_XTR_TYP_CD = '4')")
+        if info['active_flat_03']:
+            parts.sql_parts.append(f'    AND ({fe_alias}.SST_XTR_CEA_DT IS NULL OR {fe_alias}.SST_XTR_CEA_DT > CURRENT DATE)')
+
 def add_rider_and_custom_joins(ctx: QueryContext, parts: SqlParts) -> None:
-
-    def _emit_rider_joins(info: dict, alias: str, idx: int):
-        if not info['active']:
-            return
-        parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_PHA {alias}')
-        parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {alias}.CK_SYS_CD')
-        parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {alias}.CK_CMP_CD')
-        parts.sql_parts.append(f'    AND POLICY1.TCH_POL_ID = {alias}.TCH_POL_ID')
-        parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR > 1')
-        pc = info['plancode']
-        if pc:
-            parts.sql_parts.append(f"    AND {alias}.PLN_DES_SER_CD = '{esc(pc)}'")
-        pl = info['prod_line']
-        if pl:
-            code = pl[0]
-            parts.sql_parts.append(f"    AND {alias}.PRD_LIN_TYP_CD = '{esc(code)}'")
-        sex02 = info['sex_code_02']
-        if sex02:
-            code = sex02[0]
-            parts.sql_parts.append(f"    AND {alias}.INS_SEX_CD = '{esc(code)}'")
-        person = info['person']
-        if person:
-            code = person[:2]
-            parts.sql_parts.append(f"    AND {alias}.PRS_CD = '{esc(code)}'")
-        if info['post_issue']:
-            parts.sql_parts.append(f'    AND {alias}.ISSUE_DT > COVERAGE1.ISSUE_DT')
-        issue_lo = info['issue_date_lo']
-        if issue_lo:
-            parts.sql_parts.append(f"    AND {alias}.ISSUE_DT >= '{esc(issue_lo)}'")
-        issue_hi = info['issue_date_hi']
-        if issue_hi:
-            parts.sql_parts.append(f"    AND {alias}.ISSUE_DT <= '{esc(issue_hi)}'")
-        ct_val = info['change_type']
-        if ct_val:
-            code = ct_val[0]
-            parts.sql_parts.append(f"    AND {alias}.NXT_CHG_TYP_CD = '{esc(code)}'")
-        cease_pred = cease_code_predicate(f'{alias}.CEA_REA_CD', info['cease_code'])
-        if cease_pred:
-            parts.sql_parts.append(f'    AND {cease_pred}')
-        change_lo = info['change_date_lo']
-        if change_lo:
-            parts.sql_parts.append(f"    AND {alias}.NXT_CHG_DT >= '{esc(change_lo)}'")
-        change_hi = info['change_date_hi']
-        if change_hi:
-            parts.sql_parts.append(f"    AND {alias}.NXT_CHG_DT <= '{esc(change_hi)}'")
-        vpu_lo = info['vpu_lo']
-        if vpu_lo:
-            try:
-                parts.sql_parts.append(f'    AND {alias}.COV_VPU_AMT >= {float(vpu_lo)}')
-            except ValueError:
-                pass
-        vpu_hi = info['vpu_hi']
-        if vpu_hi:
-            try:
-                parts.sql_parts.append(f'    AND {alias}.COV_VPU_AMT <= {float(vpu_hi)}')
-            except ValueError:
-                pass
-        sa_lo = info['spec_amt_lo']
-        if sa_lo:
-            try:
-                parts.sql_parts.append(f'    AND (REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT)) >= {float(sa_lo)}')
-            except ValueError:
-                pass
-        sa_hi = info['spec_amt_hi']
-        if sa_hi:
-            try:
-                parts.sql_parts.append(f'    AND (REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT)) <= {float(sa_hi)}')
-            except ValueError:
-                pass
-        lives = info['lives_cov']
-        if lives:
-            code = lives[0]
-            parts.sql_parts.append(f"    AND {alias}.LIVES_COV_CD = '{esc(code)}'")
-        addl = info['addl_plancode']
-        if addl:
-            c = addl[0]
-            if c == '1':
-                parts.sql_parts.append(f'    AND {alias}.PLN_DES_SER_CD = COVERAGE1.PLN_DES_SER_CD')
-            elif c == '2':
-                parts.sql_parts.append(f'    AND {alias}.PLN_DES_SER_CD <> COVERAGE1.PLN_DES_SER_CD')
-        covmod_alias = f'{alias}COVMOD'
-        if info['needs_covmod']:
-            parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.TH_COV_PHA {covmod_alias}')
-            parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {covmod_alias}.CK_SYS_CD')
-            parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {covmod_alias}.CK_CMP_CD')
-            parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {covmod_alias}.TCH_POL_ID')
-            parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {covmod_alias}.COV_PHA_NBR')
-            pi = info['prod_ind']
-            if pi:
-                code = pi[0]
-                parts.sql_parts.append(f"    AND {covmod_alias}.AN_PRD_ID = '{esc(code)}'")
-            cola = info['cola_ind']
-            if cola:
-                parts.sql_parts.append(f"    AND {covmod_alias}.COLA_INCR_IND = '{esc(cola)}'")
-            gio = info['gio_fio']
-            if gio:
-                if gio.lower() == 'blank':
-                    parts.sql_parts.append(f"    AND {covmod_alias}.OPT_EXER_IND = ''")
-                else:
-                    parts.sql_parts.append(f"    AND {covmod_alias}.OPT_EXER_IND = '{esc(gio)}'")
-        rnl_alias = f'{alias}_RENEWALS'
-        if info['needs_renewals']:
-            parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_INS_RNL_RT {rnl_alias}')
-            parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {rnl_alias}.CK_SYS_CD')
-            parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {rnl_alias}.CK_CMP_CD')
-            parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {rnl_alias}.TCH_POL_ID')
-            parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {rnl_alias}.COV_PHA_NBR')
-            parts.sql_parts.append(f"    AND {rnl_alias}.PRM_RT_TYP_CD = 'C'")
-            rc = info['rateclass']
-            if rc:
-                code = rc[0]
-                parts.sql_parts.append(f"    AND {rnl_alias}.RT_CLS_CD = '{esc(code)}'")
-            sx67 = info['sex_code_67']
-            if sx67:
-                code = sx67[0]
-                parts.sql_parts.append(f"    AND {rnl_alias}.RT_SEX_CD = '{esc(code)}'")
-        if info['table_03']:
-            tr_alias = f'{alias}_TABLE_RATING'
-            parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SST_XTR_CRG {tr_alias}')
-            parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {tr_alias}.CK_SYS_CD')
-            parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {tr_alias}.CK_CMP_CD')
-            parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {tr_alias}.TCH_POL_ID')
-            parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {tr_alias}.COV_PHA_NBR')
-            parts.sql_parts.append(f"    AND ({tr_alias}.SST_XTR_TYP_CD = '0' OR {tr_alias}.SST_XTR_TYP_CD = '1' OR {tr_alias}.SST_XTR_TYP_CD = '3')")
-        if info['flat_03'] or info['active_flat_03']:
-            fe_alias = f'{alias}_FLAT_EXTRA'
-            parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SST_XTR_CRG {fe_alias}')
-            parts.sql_parts.append(f'    ON {alias}.CK_SYS_CD = {fe_alias}.CK_SYS_CD')
-            parts.sql_parts.append(f'    AND {alias}.CK_CMP_CD = {fe_alias}.CK_CMP_CD')
-            parts.sql_parts.append(f'    AND {alias}.TCH_POL_ID = {fe_alias}.TCH_POL_ID')
-            parts.sql_parts.append(f'    AND {alias}.COV_PHA_NBR = {fe_alias}.COV_PHA_NBR')
-            parts.sql_parts.append(f"    AND ({fe_alias}.SST_XTR_TYP_CD = '2' OR {fe_alias}.SST_XTR_TYP_CD = '4')")
-            if info['active_flat_03']:
-                parts.sql_parts.append(f'    AND ({fe_alias}.SST_XTR_CEA_DT IS NULL OR {fe_alias}.SST_XTR_CEA_DT > CURRENT DATE)')
-    ctx_set(ctx, "_emit_rider_joins", _emit_rider_joins)
-
+    return

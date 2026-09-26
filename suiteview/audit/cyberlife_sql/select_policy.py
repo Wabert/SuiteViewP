@@ -1,7 +1,7 @@
 """CyberLife SQL select policy section builders."""
 from __future__ import annotations
 
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 
 
 def add_policy_selects(ctx: QueryContext, parts: SqlParts) -> None:
@@ -196,7 +196,6 @@ def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('                    AND RIDER.NXT_CHG_DT > CURRENT DATE))')
         parts.sql_parts.append('       ) DISTINCT_RIDERS')
         parts.sql_parts.append('      ) ActiveRiders')
-    ctx_set(ctx, "disp_trad_rates", ctx.dt.Checkbox_DisplayTradRates)
 
 
 def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
@@ -207,9 +206,6 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , FXD_PRM.MO_MD_FCT MoModalFactor')
         parts.sql_parts.append('  , COVERAGE1.ANN_PRM_UNT_AMT PremRate')
         parts.sql_parts.append('  , POLICY1.POL_PRM_AMT PolPremium')
-    ctx_set(ctx, "cov_base_change_set", bool(ctx.cov_base_change_lo or ctx.cov_base_change_hi))
-    ctx_set(ctx, "cov_base_vpu_set", bool(ctx._bw['vpu_lo'].strip() or ctx._bw['vpu_hi'].strip()))
-    ctx_set(ctx, "cov_base_specamt_set", bool(ctx._bw['spec_amt_lo'].strip() or ctx._bw['spec_amt_hi'].strip()))
     if ctx.cov_val_classes or ctx.cov_val_class:
         parts.sql_parts.append('  , COVERAGE1.INS_CLS_CD ValClass')
     if ctx.cov_val_base:

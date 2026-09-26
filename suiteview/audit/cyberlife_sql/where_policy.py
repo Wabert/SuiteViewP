@@ -10,7 +10,8 @@ from suiteview.audit.cyberlife_sql.helpers import (
     build_bill_mode_where,
     participation_predicate,
 )
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
+from suiteview.audit.cyberlife_sql.joins import emit_rider_joins
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 from suiteview.audit.sql_helpers import (
     add_date_range,
     add_decimal_range,
@@ -23,59 +24,59 @@ from suiteview.audit.transaction_filters import transaction_predicates
 
 
 def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
-    ctx._emit_rider_joins(ctx.rider1_info, 'RIDER1', 1)
-    ctx._emit_rider_joins(ctx.rider2_info, 'RIDER2', 2)
+    emit_rider_joins(ctx, parts, ctx.rider1_info, 'RIDER1', 1)
+    emit_rider_joins(ctx, parts, ctx.rider2_info, 'RIDER2', 2)
     parts.sql_parts.extend(ctx.custom_join_lines)
     parts.wheres = []
     parts.wheres.extend(ctx.custom_where_lines)
     parts.wheres.extend(ctx.segment52_where_lines)
     if ctx.transaction_tab is not None:
-        ctx.first_transaction, ctx.second_transaction = ctx.transaction_tab.criteria()
-        parts.wheres.extend(transaction_predicates(ctx.first_transaction, ctx.second_transaction, ctx.schema))
+        first_transaction, second_transaction = ctx.transaction_tab.criteria()
+        parts.wheres.extend(transaction_predicates(first_transaction, second_transaction, ctx.schema))
     if ctx.sys_code:
         parts.wheres.append(f"POLICY1.CK_SYS_CD = '{esc(ctx.sys_code)}'")
-    ctx_set(ctx, "plancode", ctx.pt.txt_plancode.strip().upper())
-    if ctx.plancode:
-        ctx_set(ctx, "cov_filter_alias", 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL')
-        parts.wheres.append(f"{ctx.cov_filter_alias}.PLN_DES_SER_CD = '{esc(ctx.plancode)}'")
-    ctx_set(ctx, "plancode_list", ctx.plancode_tab.get_plancodes())
-    if ctx.plancode_list:
-        ctx_set(ctx, "cov_filter_alias", 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL')
-        parts.wheres.append(f'{ctx.cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(ctx.plancode_list)})')
-    ctx_set(ctx, "policy_list", ctx.plancode_tab.get_policies())
-    if ctx.policy_list:
-        parts.wheres.append(f'POLICY1.CK_POLICY_NBR IN ({in_list(ctx.policy_list)})')
-    ctx_set(ctx, "_mkt_org_map", {'MLM': '1', 'CSSD': '2', 'IMG': '7', 'DIRECT': 'D'})
-    ctx_set(ctx, "_mkt_company_map", {'CSSD': ['01'], 'IMG': ['01', '26'], 'MLM': ['01', '26'], 'DIRECT': ['01', '26']})
-    ctx_set(ctx, "market_org", ctx.pt.cmb_market.strip())
-    if ctx.market_org and ctx.market_org in ctx._mkt_org_map:
-        parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR,1,1) = '{ctx._mkt_org_map[ctx.market_org]}'")
-    ctx_set(ctx, "company", ctx.pt.cmb_company.strip())
-    if ctx.company:
-        ctx_set(ctx, "co_code", ctx.company.split(' - ')[0].strip() if ' - ' in ctx.company else ctx.company)
-        parts.wheres.append(f"POLICY1.CK_CMP_CD = '{esc(ctx.co_code)}'")
-    elif ctx.market_org and ctx.market_org in ctx._mkt_company_map:
-        ctx_set(ctx, "co_codes", ctx._mkt_company_map[ctx.market_org])
-        if len(ctx.co_codes) == 1:
-            parts.wheres.append(f"POLICY1.CK_CMP_CD = '{ctx.co_codes[0]}'")
+    plancode = ctx.pt.txt_plancode.strip().upper()
+    if plancode:
+        cov_filter_alias = 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL'
+        parts.wheres.append(f"{cov_filter_alias}.PLN_DES_SER_CD = '{esc(plancode)}'")
+    plancode_list = ctx.plancode_tab.plancodes
+    if plancode_list:
+        cov_filter_alias = 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL'
+        parts.wheres.append(f'{cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(plancode_list)})')
+    policy_list = ctx.plancode_tab.policies
+    if policy_list:
+        parts.wheres.append(f'POLICY1.CK_POLICY_NBR IN ({in_list(policy_list)})')
+    mkt_org_map = {'MLM': '1', 'CSSD': '2', 'IMG': '7', 'DIRECT': 'D'}
+    mkt_company_map = {'CSSD': ['01'], 'IMG': ['01', '26'], 'MLM': ['01', '26'], 'DIRECT': ['01', '26']}
+    market_org = ctx.pt.cmb_market.strip()
+    if market_org and market_org in mkt_org_map:
+        parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR,1,1) = '{mkt_org_map[market_org]}'")
+    company = ctx.pt.cmb_company.strip()
+    if company:
+        co_code = company.split(' - ')[0].strip() if ' - ' in company else company
+        parts.wheres.append(f"POLICY1.CK_CMP_CD = '{esc(co_code)}'")
+    elif market_org and market_org in mkt_company_map:
+        co_codes = mkt_company_map[market_org]
+        if len(co_codes) == 1:
+            parts.wheres.append(f"POLICY1.CK_CMP_CD = '{co_codes[0]}'")
         else:
-            company_conditions = ' OR '.join((f"POLICY1.CK_CMP_CD = '{c}'" for c in ctx.co_codes))
+            company_conditions = ' OR '.join((f"POLICY1.CK_CMP_CD = '{c}'" for c in co_codes))
             parts.wheres.append(f'({company_conditions})')
-    ctx_set(ctx, "form_num", ctx.pt.txt_form_number.strip())
-    if ctx.form_num:
-        parts.wheres.append(f"{ctx.result_cov_alias}.POL_FRM_NBR LIKE '{esc(ctx.form_num)}%'")
-    ctx_set(ctx, "branch", ctx.pt.txt_branch.strip())
-    if ctx.branch:
-        parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR, 2, 3) = '{esc(ctx.branch)}'")
-    ctx_set(ctx, "polnum", ctx.pt.txt_polnum_value.strip())
-    if ctx.polnum:
-        ctx_set(ctx, "criteria", ctx.pt.cmb_polnum_criteria)
-        if ctx.criteria == 'Starts with':
-            parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '{esc(ctx.polnum)}%'")
-        elif ctx.criteria == 'Ends with':
-            parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(ctx.polnum)}'")
+    form_num = ctx.pt.txt_form_number.strip()
+    if form_num:
+        parts.wheres.append(f"{ctx.result_cov_alias}.POL_FRM_NBR LIKE '{esc(form_num)}%'")
+    branch = ctx.pt.txt_branch.strip()
+    if branch:
+        parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR, 2, 3) = '{esc(branch)}'")
+    polnum = ctx.pt.txt_polnum_value.strip()
+    if polnum:
+        polnum_criteria = ctx.pt.cmb_polnum_criteria
+        if polnum_criteria == 'Starts with':
+            parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '{esc(polnum)}%'")
+        elif polnum_criteria == 'Ends with':
+            parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(polnum)}'")
         else:
-            parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(ctx.polnum)}%'")
+            parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(polnum)}%'")
     if ctx.pt.chk_rga:
         parts.wheres.append("USERGEN.FUZGREIN_IND = 'R'")
     if ctx.pt.chk_status_code:
@@ -85,15 +86,14 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.pt.chk_product_line:
         codes = selected_codes(ctx.pt.list_product_line)
         if codes:
-            ctx_set(ctx, "cov_filter_alias", ctx.result_cov_alias if ctx.coverage_level else 'COVSALL')
-            parts.wheres.append(f'{ctx.cov_filter_alias}.PRD_LIN_TYP_CD IN ({in_list(codes)})')
+            cov_filter_alias = ctx.result_cov_alias if ctx.coverage_level else 'COVSALL'
+            parts.wheres.append(f'{cov_filter_alias}.PRD_LIN_TYP_CD IN ({in_list(codes)})')
     if ctx.pt.chk_state:
-        ctx_set(ctx, "abbrevs", [item for item in ctx.pt.list_state])
-        if ctx.abbrevs:
-            ctx_set(ctx, "st_codes", [_STATE_ABBR_TO_CODE.get(a) for a in ctx.abbrevs])
-            ctx_set(ctx, "st_codes", [c for c in ctx.st_codes if c])
-            if ctx.st_codes:
-                parts.wheres.append(f'POLICY1.POL_ISS_ST_CD IN ({in_list(ctx.st_codes)})')
+        abbrevs = [item for item in ctx.pt.list_state]
+        if abbrevs:
+            st_codes = [c for c in (_STATE_ABBR_TO_CODE.get(a) for a in abbrevs) if c]
+            if st_codes:
+                parts.wheres.append(f'POLICY1.POL_ISS_ST_CD IN ({in_list(st_codes)})')
     if ctx.pt.chk_last_entry:
         codes = selected_codes(ctx.pt.list_last_entry)
         if codes:
@@ -110,17 +110,17 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
 
 def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.pt.chk_bill_mode:
-        ctx_set(ctx, "modes", [item for item in ctx.pt.list_bill_mode])
-        if ctx.modes:
-            ctx_set(ctx, "mode_clause", build_bill_mode_where(ctx.modes))
-            if ctx.mode_clause:
-                parts.wheres.append(f'({ctx.mode_clause})')
+        modes = [item for item in ctx.pt.list_bill_mode]
+        if modes:
+            mode_clause = build_bill_mode_where(modes)
+            if mode_clause:
+                parts.wheres.append(f'({mode_clause})')
     add_int_range(parts.wheres, f'{ctx.result_cov_alias}.INS_ISS_AGE', ctx.pt.txt_issue_age_lo, ctx.pt.txt_issue_age_hi)
-    ctx_set(ctx, "duration_expr", "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)")
-    add_int_range(parts.wheres, f'({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.duration_expr})', ctx.pt.txt_current_age_lo, ctx.pt.txt_current_age_hi)
-    ctx_set(ctx, "val_duration_expr", f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)')
-    add_int_range(parts.wheres, f'({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.val_duration_expr})', ctx.pt.txt_val_age_lo, ctx.pt.txt_val_age_hi)
-    add_int_range(parts.wheres, f'({ctx.duration_expr} + 1)', ctx.pt.txt_pol_year_lo, ctx.pt.txt_pol_year_hi)
+    duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
+    add_int_range(parts.wheres, f'({ctx.result_cov_alias}.INS_ISS_AGE + {duration_expr})', ctx.pt.txt_current_age_lo, ctx.pt.txt_current_age_hi)
+    val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
+    add_int_range(parts.wheres, f'({ctx.result_cov_alias}.INS_ISS_AGE + {val_duration_expr})', ctx.pt.txt_val_age_lo, ctx.pt.txt_val_age_hi)
+    add_int_range(parts.wheres, f'({duration_expr} + 1)', ctx.pt.txt_pol_year_lo, ctx.pt.txt_pol_year_hi)
     add_int_range(parts.wheres, f'MONTH({ctx.result_cov_alias}.ISSUE_DT)', ctx.pt.txt_issue_month_lo, ctx.pt.txt_issue_month_hi)
     add_int_range(parts.wheres, f'DAY({ctx.result_cov_alias}.ISSUE_DT)', ctx.pt.txt_issue_day_lo, ctx.pt.txt_issue_day_hi)
     add_date_range(parts.wheres, f'{ctx.result_cov_alias}.ISSUE_DT', ctx.pt.txt_issued_date_lo, ctx.pt.txt_issued_date_hi)
@@ -186,10 +186,10 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
         codes = selected_codes(ctx.p2t.list_loan_type)
         if codes:
             parts.wheres.append(f'POLICY1.LN_TYP_CD IN ({in_list(codes)})')
-    ctx_set(ctx, "loan_rate", ctx.p2t.txt_loan_charge_rate.strip())
-    if ctx.loan_rate:
+    loan_rate = ctx.p2t.txt_loan_charge_rate.strip()
+    if loan_rate:
         try:
-            parts.wheres.append(f'POLICY1.LN_PLN_ITS_RT = {float(ctx.loan_rate)}')
+            parts.wheres.append(f'POLICY1.LN_PLN_ITS_RT = {float(loan_rate)}')
         except ValueError:
             pass
     add_decimal_range(parts.wheres, 'POLICYDEBT.LOAN_PRINCIPLE', ctx.p2t.txt_total_loan_prin_lo, ctx.p2t.txt_total_loan_prin_hi)

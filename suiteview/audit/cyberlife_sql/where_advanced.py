@@ -4,7 +4,7 @@ from __future__ import annotations
 from suiteview.audit.cyberlife_sql.helpers import (
     cease_code_predicate,
 )
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 from suiteview.audit.sql_helpers import (
     add_date_range,
     add_decimal_range,
@@ -40,13 +40,13 @@ def add_advanced_where(ctx: QueryContext, parts: SqlParts) -> None:
     add_int_range(parts.wheres, 'ALLOCATION_P_COUNT.FND_ALC_SEQ_NBR', ctx.at.rng_type_p[0], ctx.at.rng_type_p[1])
     add_int_range(parts.wheres, 'ALLOCATION_V_COUNT.FND_ALC_SEQ_NBR', ctx.at.rng_type_v[0], ctx.at.rng_type_v[1])
     if ctx.adv_cirf_val:
-        ctx_set(ctx, "_cirf", esc(ctx.adv_cirf_val.upper()))
-        ctx_set(ctx, "_cirf_col", 'UPPER(TRIM(FFC_SRCH.CUR_ITS_RT_SER_NBR))')
+        cirf = esc(ctx.adv_cirf_val.upper())
+        cirf_col = 'UPPER(TRIM(FFC_SRCH.CUR_ITS_RT_SER_NBR))'
         if ctx.adv_cirf_match == 'Exact':
-            ctx_set(ctx, "_cirf_pred", f"{ctx._cirf_col} = '{ctx._cirf}'")
+            cirf_pred = f"{cirf_col} = '{cirf}'"
         else:
-            ctx_set(ctx, "_cirf_pred", f"{ctx._cirf_col} LIKE '%{ctx._cirf}%'")
-        parts.wheres.append(f'EXISTS (SELECT 1 FROM {ctx.schema}.LH_COV_FXD_FND_CTL FFC_SRCH WHERE FFC_SRCH.CK_SYS_CD = POLICY1.CK_SYS_CD AND FFC_SRCH.CK_CMP_CD = POLICY1.CK_CMP_CD AND FFC_SRCH.TCH_POL_ID = POLICY1.TCH_POL_ID AND {ctx._cirf_pred})')
+            cirf_pred = f"{cirf_col} LIKE '%{cirf}%'"
+        parts.wheres.append(f'EXISTS (SELECT 1 FROM {ctx.schema}.LH_COV_FXD_FND_CTL FFC_SRCH WHERE FFC_SRCH.CK_SYS_CD = POLICY1.CK_SYS_CD AND FFC_SRCH.CK_CMP_CD = POLICY1.CK_CMP_CD AND FFC_SRCH.TCH_POL_ID = POLICY1.TCH_POL_ID AND {cirf_pred})')
     if ctx.multi_base_covs:
         parts.wheres.append('(COVSUMMARY.BASECOVCOUNT > 1)')
     if ctx.is_mdo:
@@ -118,9 +118,9 @@ def assemble_sql(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_change_type:
         code = ctx.cov_base_change_type[0]
         parts.wheres.append(f"COVERAGE1.NXT_CHG_TYP_CD = '{esc(code)}'")
-    ctx_set(ctx, "_cease_pred", cease_code_predicate('COVERAGE1.CEA_REA_CD', ctx.cov_base_cease_code))
-    if ctx._cease_pred:
-        parts.wheres.append(ctx._cease_pred)
+    cease_pred = cease_code_predicate('COVERAGE1.CEA_REA_CD', ctx.cov_base_cease_code)
+    if cease_pred:
+        parts.wheres.append(cease_pred)
     add_date_range(parts.wheres, 'COVERAGE1.ISSUE_DT', ctx._bw['issue_date_lo'], ctx._bw['issue_date_hi'])
     add_date_range(parts.wheres, 'COVERAGE1.NXT_CHG_DT', ctx._bw['change_date_lo'], ctx._bw['change_date_hi'])
     if ctx.cov_base_prod_ind:
@@ -146,14 +146,14 @@ def assemble_sql(ctx: QueryContext, parts: SqlParts) -> None:
             parts.wheres.append('RESULTCOV.COV_PHA_NBR = 1')
         elif ctx.coverage_scope == 'Covs 2+ only':
             parts.wheres.append('RESULTCOV.COV_PHA_NBR > 1')
-        ctx_set(ctx, "rider_match_aliases", [])
+        rider_match_aliases = []
         if ctx.rider1_info['active']:
-            ctx.rider_match_aliases.append('RIDER1')
+            rider_match_aliases.append('RIDER1')
         if ctx.rider2_info['active']:
-            ctx.rider_match_aliases.append('RIDER2')
-        if ctx.rider_match_aliases:
-            ctx_set(ctx, "checks", [f'RESULTCOV.COV_PHA_NBR = {alias}.COV_PHA_NBR' for alias in ctx.rider_match_aliases])
-            parts.wheres.append('(' + ' OR '.join(ctx.checks) + ')')
+            rider_match_aliases.append('RIDER2')
+        if rider_match_aliases:
+            checks = [f'RESULTCOV.COV_PHA_NBR = {alias}.COV_PHA_NBR' for alias in rider_match_aliases]
+            parts.wheres.append('(' + ' OR '.join(checks) + ')')
     if parts.wheres:
         parts.sql_parts.append('WHERE ' + parts.wheres[0])
         for where_clause in parts.wheres[1:]:
