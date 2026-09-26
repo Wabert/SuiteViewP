@@ -35,8 +35,7 @@ from suiteview.ratemanager.ui_helpers import (
 
 # Shared RateManager palette + stylesheet (also used by the Workup window).
 from suiteview.ratemanager.rm_styles import (
-    BLUE, BLUE_LIGHT, GOLD, GOLD_TEXT,
-    BG_DARK, BG_MID, TEXT, TEXT_MID, BORDER,
+    BLUE_LIGHT, GOLD, GOLD_TEXT, TEXT, TEXT_MID,
     HEADER_COLORS, BORDER_COLOR, body_stylesheet,
 )
 
@@ -702,31 +701,36 @@ class _ConverterPanel(QWidget):
 
     def _on_run_clicked(self):
         mode = self._selected_mode()
-        if self.select_mode and self.select_kind == "mpf":
-            self._start_mpf_export(mode)
-            return
-        if self.select_mode and self.select_kind == "ckultb04":
-            if mode in ("raw", "table"):
-                self._start_ckultb04(mode)
-            else:
-                self._start_ckultb04_db()
-            return
-        if self.select_mode:
-            if mode == "table":
-                self._start_benefit_table()
-            else:
-                self._start_benefit_db()
+        if self._dispatch_select_mode(mode):
             return
         if self.kind == "CKULTB04":
-            if mode in ("raw", "table"):
-                self._start_ckultb04(mode)
-            else:
-                self._start_ckultb04_db()
+            self._dispatch_ckultb04_mode(mode)
             return
         if mode == "db":
             self._start_reformat()
         else:
             self._start_conversion()
+
+    def _dispatch_select_mode(self, mode: str) -> bool:
+        if self.select_mode and self.select_kind == "mpf":
+            self._start_mpf_export(mode)
+            return True
+        if self.select_mode and self.select_kind == "ckultb04":
+            self._dispatch_ckultb04_mode(mode)
+            return True
+        if self.select_mode:
+            if mode == "table":
+                self._start_benefit_table()
+            else:
+                self._start_benefit_db()
+            return True
+        return False
+
+    def _dispatch_ckultb04_mode(self, mode: str) -> None:
+        if mode in ("raw", "table"):
+            self._start_ckultb04(mode)
+        else:
+            self._start_ckultb04_db()
 
     def _update_file_previews(self):
         input_path = self.input_edit.text().strip()
@@ -815,35 +819,7 @@ class _ConverterPanel(QWidget):
         self._benefit_rows = []
 
         if self.select_kind == "ckultb04":
-            if not summary:
-                self.log.append("No plan codes found in this file.")
-                return
-            for row, (code, count) in enumerate(summary):
-                self.benefit_table.insertRow(row)
-                inc_cell, inc_chk = self._make_check_cell(
-                    True, "Include this plan code in the export.")
-                self.benefit_table.setCellWidget(
-                    row, 0, self._benefit_label_cell(code, inc_cell))
-                item = QTableWidgetItem(f"{count:,}")
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.benefit_table.setItem(row, 1, item)
-
-                mat_edit = QLineEdit("121")
-                mat_edit.setObjectName("BenefitIndex")
-                mat_edit.setToolTip(
-                    "Maturity age — durations are filled with 0 out to this age "
-                    "(DB Format only).")
-                self.benefit_table.setCellWidget(row, 2, mat_edit)
-
-                idx_edit = QLineEdit(str(14000 + row * 100))
-                idx_edit.setObjectName("BenefitIndex")
-                idx_edit.setToolTip("Starting Index(SCR) for DB Format.")
-                self.benefit_table.setCellWidget(row, 3, idx_edit)
-
-                self._benefit_rows.append((code, inc_chk, mat_edit, idx_edit))
-            self.log.append(
-                f"Found {len(summary)} plan code(s). Check the ones to print; "
-                "set Maturity Age & Starting Index for DB Format, then run.")
+            self._populate_ckultb04_plan_rows(summary)
             return
 
         unit = "premium code" if self.select_kind == "mpf" else "benefit"
@@ -851,6 +827,40 @@ class _ConverterPanel(QWidget):
             self.log.append(f"No {unit}s found in this file.")
             return
 
+        self._populate_select_rows(summary, unit)
+
+    def _populate_ckultb04_plan_rows(self, summary: list) -> None:
+        if not summary:
+            self.log.append("No plan codes found in this file.")
+            return
+        for row, (code, count) in enumerate(summary):
+            self.benefit_table.insertRow(row)
+            inc_cell, inc_chk = self._make_check_cell(
+                True, "Include this plan code in the export.")
+            self.benefit_table.setCellWidget(
+                row, 0, self._benefit_label_cell(code, inc_cell))
+            item = QTableWidgetItem(f"{count:,}")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.benefit_table.setItem(row, 1, item)
+
+            mat_edit = QLineEdit("121")
+            mat_edit.setObjectName("BenefitIndex")
+            mat_edit.setToolTip(
+                "Maturity age — durations are filled with 0 out to this age "
+                "(DB Format only).")
+            self.benefit_table.setCellWidget(row, 2, mat_edit)
+
+            idx_edit = QLineEdit(str(14000 + row * 100))
+            idx_edit.setObjectName("BenefitIndex")
+            idx_edit.setToolTip("Starting Index(SCR) for DB Format.")
+            self.benefit_table.setCellWidget(row, 3, idx_edit)
+
+            self._benefit_rows.append((code, inc_chk, mat_edit, idx_edit))
+        self.log.append(
+            f"Found {len(summary)} plan code(s). Check the ones to print; "
+            "set Maturity Age & Starting Index for DB Format, then run.")
+
+    def _populate_select_rows(self, summary: list, unit: str) -> None:
         base_index = 200000 if self.select_kind == "mpf" else 141200
         for row, entry in enumerate(summary):
             code = entry[0]
