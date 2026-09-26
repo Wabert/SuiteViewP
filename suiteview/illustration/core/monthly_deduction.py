@@ -390,6 +390,519 @@ class DeductionResult:
     av_after_deduction: float = 0.0
 
 
+@dataclass
+class DeathBenefitBasis:
+    """Death-benefit and discounted coverage basis before NAR allocation."""
+
+    mAV: float
+    nar_av: float
+    face: float
+    dbo: str
+    standard_db: float
+    corridor_rate: float
+    gross_db: float
+    corr_amount: float
+    discount_factor: float
+    segments: list
+    discounted_base_segments: list
+    db_by_coverage: Dict[str, float]
+    discounted_db_by_coverage: Dict[str, float]
+    discounted_db_cov1: float
+    discounted_db_corr: float
+    discounted_db: float
+
+
+@dataclass
+class NarAllocation:
+    """FIFO net-amount-at-risk allocation across coverages and corridor."""
+
+    segment_nars: list
+    nar_by_coverage: Dict[str, float]
+    nar_cov1: float
+    nar_corr: float
+    nar: float
+
+
+@dataclass
+class CoiChargeBreakdown:
+    """Base COI charges, including optional ratchet-band details."""
+
+    rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    charges_by_coverage: Dict[str, float] = field(default_factory=dict)
+    rate_cov1: float = 0.0
+    rate_corr: float = 0.0
+    charge_cov1: float = 0.0
+    charge_corr: float = 0.0
+    charge_total: float = 0.0
+    ratchet_active: bool = False
+    band_break: float = 0.0
+    band1_nar_by_coverage: Dict[str, float] = field(default_factory=dict)
+    band2_nar_by_coverage: Dict[str, float] = field(default_factory=dict)
+    band1_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    band2_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class ExpenseChargeBreakdown:
+    """Monthly EPU, policy-fee and account-value expense charges."""
+
+    epu_rate: float = 0.0
+    epu_charge: float = 0.0
+    epu_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    epu_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
+    mfee_charge: float = 0.0
+    av_charge: float = 0.0
+
+
+@dataclass
+class BenefitChargeBreakdown:
+    """Rider and benefit charges added after the base deduction."""
+
+    pw_charge: float = 0.0
+    benefit_charges: float = 0.0
+    benefit_amounts: Dict[str, float] = field(default_factory=dict)
+    benefit_rates: Dict[str, float] = field(default_factory=dict)
+    benefit_charge_detail: Dict[str, float] = field(default_factory=dict)
+    rider_charges: float = 0.0
+    rider_amounts: Dict[str, float] = field(default_factory=dict)
+    rider_rates: Dict[str, float] = field(default_factory=dict)
+    rider_charge_detail: Dict[str, float] = field(default_factory=dict)
+
+
+def _build_death_benefit_basis(
+    mAV: float,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    attained_age: int,
+    premiums_to_date: float,
+) -> DeathBenefitBasis:
+    """Build standard/corridor death benefit and discounted coverage slices."""
+    nar_av = max(0.0, mAV)
+    face = policy.total_face
+    dbo = policy.db_option
+    if dbo == DB_OPTION_LEVEL:
+        standard_db = face
+    elif dbo == DB_OPTION_INCREASING:
+        standard_db = face + nar_av
+    elif dbo == DB_OPTION_RETURN_OF_PREMIUM:
+        standard_db = face + max(0.0, premiums_to_date - policy.withdrawals_to_date)
+    else:
+        standard_db = face
+
+    corr_rate = get_corridor_factor(policy.plancode, attained_age, config.corridor_code)
+    gross_db = (
+        max(standard_db, float(math.floor(corr_rate * nar_av + 1e-6)))
+        if corr_rate > 0 else standard_db
+    )
+    corr_amount = gross_db - standard_db
+    discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
+    segments = [segment for segment in (policy.segments or [policy.base_segment]) if segment is not None]
+    prem_adj = (
+        max(0.0, premiums_to_date - policy.withdrawals_to_date)
+        if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
+    )
+    first_addition = (
+        nar_av if dbo == DB_OPTION_INCREASING
+        else prem_adj if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
+    )
+    discounted_base_segments = _discount_base_segments(
+        segments, face, first_addition, discount_factor)
+    db_by_coverage = {
+        f"cov{index}": segment_db
+        for index, (_, segment_db, _) in enumerate(discounted_base_segments, start=1)
+    }
+    discounted_db_by_coverage = {
+        f"cov{index}": discounted_db_segment
+        for index, (_, _, discounted_db_segment) in enumerate(discounted_base_segments, start=1)
+    }
+    discounted_db_corr = corr_amount / discount_factor if corr_amount > 0 else 0.0
+    return DeathBenefitBasis(
+        mAV=mAV, nar_av=nar_av, face=face, dbo=dbo, standard_db=standard_db,
+        corridor_rate=corr_rate, gross_db=gross_db, corr_amount=corr_amount,
+        discount_factor=discount_factor, segments=segments,
+        discounted_base_segments=discounted_base_segments,
+        db_by_coverage=db_by_coverage,
+        discounted_db_by_coverage=discounted_db_by_coverage,
+        discounted_db_cov1=discounted_db_by_coverage.get("cov1", 0.0),
+        discounted_db_corr=discounted_db_corr,
+        discounted_db=sum(discounted_db_by_coverage.values()) + discounted_db_corr,
+    )
+
+
+def _discount_base_segments(segments, face: float, first_addition: float, discount_factor: float) -> list:
+    """Discount base coverage death benefits one month for NAR calculation."""
+    if not segments:
+        fallback_db = face + first_addition
+        return [(None, fallback_db, fallback_db / discount_factor)]
+    result = []
+    for index, segment in enumerate(segments):
+        segment_db = segment.face_amount + (first_addition if index == 0 else 0.0)
+        result.append((segment, segment_db, segment_db / discount_factor))
+    return result
+
+
+def _allocate_nar(basis: DeathBenefitBasis) -> NarAllocation:
+    """Allocate account value FIFO against discounted DB slices."""
+    remaining_av = basis.nar_av
+    segment_nars = []
+    for segment, _, discounted_db_segment in basis.discounted_base_segments:
+        segment_nar = max(0.0, discounted_db_segment - remaining_av)
+        remaining_av = max(0.0, remaining_av - discounted_db_segment)
+        segment_nars.append((segment, segment_nar))
+    nar_by_coverage = {
+        f"cov{index}": segment_nar
+        for index, (_, segment_nar) in enumerate(segment_nars, start=1)
+    }
+    nar_corr = max(0.0, basis.discounted_db_corr - remaining_av)
+    nar = sum(nar_by_coverage.values()) + nar_corr
+    return NarAllocation(
+        segment_nars=segment_nars,
+        nar_by_coverage=nar_by_coverage,
+        nar_cov1=nar_by_coverage.get("cov1", 0.0),
+        nar_corr=nar_corr,
+        nar=nar,
+    )
+
+
+def _maturity_deduction_result(basis: DeathBenefitBasis, nar: NarAllocation) -> DeductionResult:
+    """Return the no-charge maturity-row deduction result."""
+    return DeductionResult(
+        nar_av=basis.nar_av,
+        standard_db=basis.standard_db,
+        corridor_rate=basis.corridor_rate,
+        gross_db=basis.gross_db,
+        corr_amount=basis.corr_amount,
+        db_by_coverage=basis.db_by_coverage,
+        discounted_db_by_coverage=basis.discounted_db_by_coverage,
+        discounted_db_cov1=basis.discounted_db_cov1,
+        discounted_db_corr=basis.discounted_db_corr,
+        discounted_db=basis.discounted_db,
+        total_db=basis.gross_db,
+        total_discounted_db=basis.discounted_db,
+        nar_by_coverage=nar.nar_by_coverage,
+        nar_cov1=nar.nar_cov1,
+        nar_corr=nar.nar_corr,
+        nar=nar.nar,
+        total_nar=nar.nar,
+        av_after_deduction=basis.mAV,
+    )
+
+
+def _calculate_coi_charges(
+    nar: NarAllocation,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date: date | None,
+    bln_round_charge: bool,
+) -> CoiChargeBreakdown:
+    """Calculate base COI charges and ratchet-band override if applicable."""
+    seg = policy.base_segment
+    base_schedule = rates.segment_coi.get(seg.coverage_phase, rates.coi) if seg else rates.coi
+    base_year = _coi_rate_year(seg, policy, projection_date, rate_year)
+    adjusted_coi = _adjusted_coi_rate(
+        _rate_from_schedule(base_schedule, base_year), seg, config,
+        projection_date, round_5=True)
+    rates_by_coverage, charges_by_coverage = {}, {}
+    for index, (segment, segment_nar) in enumerate(nar.segment_nars, start=1):
+        schedule = rates.coi if segment is None else rates.segment_coi.get(segment.coverage_phase, rates.coi)
+        rate_year_i = _coi_rate_year(segment, policy, projection_date, rate_year)
+        rate = _adjusted_coi_rate(
+            _rate_from_schedule(schedule, rate_year_i), segment, config,
+            projection_date, round_5=(index == 1))
+        if _segment_matured(segment, projection_date):
+            rate = 0.0
+        charge = (segment_nar / PER_THOUSAND) * rate
+        charges_by_coverage[f"cov{index}"] = _round_near(charge, 2) if bln_round_charge else charge
+        rates_by_coverage[f"cov{index}"] = rate
+    corridor_key = _corridor_coverage_key(nar.segment_nars, projection_date)
+    rate_corr = rates_by_coverage[corridor_key] if corridor_key is not None else 0.0
+    charge_corr = (nar.nar_corr / PER_THOUSAND) * rate_corr
+    total = sum(charges_by_coverage.values()) + charge_corr
+    result = CoiChargeBreakdown(
+        rates_by_coverage=rates_by_coverage,
+        charges_by_coverage=charges_by_coverage,
+        rate_cov1=adjusted_coi,
+        rate_corr=rate_corr,
+        charge_cov1=charges_by_coverage.get("cov1", 0.0),
+        charge_corr=charge_corr,
+        charge_total=total,
+    )
+    return _apply_ratchet_if_needed(
+        result, nar, policy, config, rates, rate_year, projection_date, bln_round_charge)
+
+
+def _apply_ratchet_if_needed(
+    result: CoiChargeBreakdown,
+    nar: NarAllocation,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date: date | None,
+    bln_round_charge: bool,
+) -> CoiChargeBreakdown:
+    """Replace regular COI charges with ratchet-banded charges when configured."""
+    if not (config.rachet_banding and getattr(rates, "band_break", 0.0) > 0):
+        if bln_round_charge:
+            result.charge_total = _round_near(result.charge_total, 2)
+        return result
+    rc = _ratchet_coi(
+        nar.segment_nars, nar.nar_corr, rates, config, policy,
+        projection_date, rate_year, bln_round_charge,
+    )
+    return CoiChargeBreakdown(
+        rates_by_coverage=dict(rc.band1_rates),
+        charges_by_coverage=rc.charges_by_coverage,
+        rate_cov1=rc.cov1_band1_rate,
+        rate_corr=rc.band1_rates["corr"],
+        charge_cov1=rc.charges_by_coverage.get("cov1", 0.0),
+        charge_corr=rc.charge_corr,
+        charge_total=_round_near(rc.total, 2) if bln_round_charge else rc.total,
+        ratchet_active=True,
+        band_break=rates.band_break,
+        band1_nar_by_coverage=rc.band1_nar,
+        band2_nar_by_coverage=rc.band2_nar,
+        band1_rates_by_coverage=rc.band1_rates,
+        band2_rates_by_coverage=rc.band2_rates,
+    )
+
+
+def _calculate_expense_charges(
+    basis: DeathBenefitBasis,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date: date | None,
+    bln_round_charge: bool,
+) -> ExpenseChargeBreakdown:
+    """Calculate EPU, monthly fee and AV charges."""
+    epu = _calculate_epu_charges(
+        basis.segments if basis.segments else [None],
+        basis.face, policy, config, rates, rate_year, projection_date, bln_round_charge)
+    mfee_charge = _monthly_fee_charge(config, rates, rate_year)
+    av_charge = 0.0
+    if config.poav_table != "0":
+        av_charge = max(0.0, basis.mAV * get_rate(rates, "poav", rate_year))
+    epu.mfee_charge = mfee_charge
+    epu.av_charge = av_charge
+    if bln_round_charge:
+        epu.epu_charge = _round_near(epu.epu_charge, 2)
+    return epu
+
+
+def _calculate_epu_charges(
+    epu_segments,
+    face: float,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date: date | None,
+    bln_round_charge: bool,
+) -> ExpenseChargeBreakdown:
+    """Calculate per-coverage EPU charges."""
+    result = ExpenseChargeBreakdown()
+    if config.epu_code == RATE_CODE_TABLE:
+        for index, segment in enumerate(epu_segments, start=1):
+            schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
+            epu_rate = _rate_from_schedule(schedule, _coverage_year(segment, projection_date, rate_year))
+            if _segment_matured(segment, projection_date):
+                epu_rate = 0.0
+            basis = _epu_segment_basis(segment, face, config)
+            charge = _round_near((basis / PER_THOUSAND) * epu_rate, 2)
+            result.epu_rates_by_coverage[f"cov{index}"] = epu_rate
+            result.epu_charges_by_coverage[f"cov{index}"] = charge
+    else:
+        result = _calculate_flat_epu_charges(epu_segments, policy, config, projection_date, bln_round_charge)
+    result.epu_rate = result.epu_rates_by_coverage.get("cov1", 0.0)
+    result.epu_charge = sum(result.epu_charges_by_coverage.values())
+    return result
+
+
+def _epu_segment_basis(segment, face: float, config: PlancodeConfig) -> float:
+    if config.sa_basis == SA_BASIS_ORIGINAL:
+        return segment.original_face_amount if segment else face
+    return segment.face_amount if segment else face
+
+
+def _calculate_flat_epu_charges(
+    epu_segments,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    projection_date: date | None,
+    bln_round_charge: bool,
+) -> ExpenseChargeBreakdown:
+    """Calculate flat-code EPU charges."""
+    result = ExpenseChargeBreakdown()
+    try:
+        epu_flat = float(config.epu_code)
+    except (ValueError, TypeError):
+        epu_flat = 0.0
+    for index, segment in enumerate(epu_segments, start=1):
+        units = (
+            segment.original_face_amount / PER_THOUSAND
+            if segment is not None and config.sa_basis == SA_BASIS_ORIGINAL
+            else segment.units if segment else policy.units
+        )
+        charge = 0.0 if _segment_matured(segment, projection_date) else epu_flat * units
+        result.epu_rates_by_coverage[f"cov{index}"] = epu_flat
+        result.epu_charges_by_coverage[f"cov{index}"] = (
+            _round_near(charge, 2) if bln_round_charge else charge)
+    return result
+
+
+def _monthly_fee_charge(config: PlancodeConfig, rates: IllustrationRates, rate_year: int) -> float:
+    if config.mfee == RATE_CODE_TABLE:
+        return get_rate(rates, "mfee", rate_year)
+    try:
+        return float(config.mfee)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _calculate_benefit_charges(
+    base_deduction: float,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    monthly_mtp: float,
+    projection_date: date | None,
+) -> BenefitChargeBreakdown:
+    """Calculate riders, benefits and premium-waiver charges."""
+    rider_result = _calculate_rider_charges(policy, config, rates, rate_year, projection_date)
+    benefit_result = _calculate_policy_benefit_charges(
+        base_deduction, rider_result.rider_charges, policy, config, rates,
+        rate_year, monthly_mtp, projection_date)
+    benefit_result.rider_charges = rider_result.rider_charges
+    benefit_result.rider_amounts = rider_result.rider_amounts
+    benefit_result.rider_rates = rider_result.rider_rates
+    benefit_result.rider_charge_detail = rider_result.rider_charge_detail
+    return benefit_result
+
+
+def _calculate_rider_charges(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date: date | None,
+) -> BenefitChargeBreakdown:
+    """Calculate rider charges active on the projection date."""
+    result = BenefitChargeBreakdown()
+    for rider in policy.riders:
+        if not rider_active_on(rider, policy, projection_date):
+            continue
+        rider_key = rider.export_key
+        rider_rate = _rider_charge_rate(rider, policy, rates, rate_year, projection_date)
+        rider_rate = (
+            rider_rate * (1.0 + config.table_rating_factor * (rider.table_rating or 0))
+            + _trunc2((rider.flat_extra or 0.0) / MONTHS_PER_YEAR)
+        )
+        charge = _round_near(rider.units * rider_rate, 2)
+        result.rider_amounts[rider_key] = rider.face_amount
+        result.rider_rates[rider_key] = rider_rate
+        result.rider_charge_detail[rider_key] = charge
+        result.rider_charges += charge
+    return result
+
+
+def _rider_charge_rate(rider, policy, rates, rate_year, projection_date) -> float:
+    rider_rates = rates.rider_rates.get(rider.export_key, [])
+    if rider_rates:
+        return _rate_from_schedule(
+            rider_rates, _rider_rate_year(rider, policy, projection_date, rate_year))
+    if rider.coi_rate is not None:
+        return float(rider.coi_rate)
+    if rider.premium_rate is not None:
+        return float(rider.premium_rate)
+    return 0.0
+
+
+def _calculate_policy_benefit_charges(
+    base_deduction: float,
+    rider_charges: float,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    monthly_mtp: float,
+    projection_date: date | None,
+) -> BenefitChargeBreakdown:
+    """Calculate non-rider benefit charges, including premium waivers."""
+    result = BenefitChargeBreakdown()
+    non_pw_charges = 0.0
+    detail_key_by_id = benefit_rate_keys(policy.benefits)
+    for ben in sorted(policy.benefits, key=lambda benefit: (benefit.benefit_type or "") == "3"):
+        if _skip_benefit_charge(ben, projection_date):
+            continue
+        detail_key = detail_key_by_id[id(ben)]
+        charge_input = _benefit_charge_input(
+            ben, detail_key, base_deduction + rider_charges + non_pw_charges,
+            policy, config, rates, rate_year, monthly_mtp, projection_date)
+        result.benefit_amounts[detail_key] = charge_input["amount"]
+        result.benefit_rates[detail_key] = charge_input["rate"]
+        result.benefit_charge_detail[detail_key] = charge_input["charge"]
+        result.benefit_charges += charge_input["charge"]
+        if (ben.benefit_type or "") == "3":
+            result.pw_charge = charge_input["charge"]
+        if (ben.benefit_type or "") not in ("3", "4"):
+            non_pw_charges += charge_input["charge"]
+    return result
+
+
+def _skip_benefit_charge(ben, projection_date: date | None) -> bool:
+    if not ben.is_active or (ben.benefit_type or "").startswith("#"):
+        return True
+    return bool(
+        ben.pay_up_date is not None
+        and projection_date is not None
+        and projection_date >= ben.pay_up_date
+    )
+
+
+def _benefit_charge_input(
+    ben,
+    detail_key: str,
+    monthly_deduction_basis: float,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    monthly_mtp: float,
+    projection_date: date | None,
+) -> dict:
+    """Return amount/rate/charge for one benefit."""
+    ben_type = ben.benefit_type or ""
+    rate = _benefit_adjusted_rate(ben, detail_key, policy, rates, rate_year, projection_date)
+    if ben_type == "3":
+        subtype = ben.benefit_subtype or ""
+        amount = max(monthly_mtp, monthly_deduction_basis) if subtype in ("9", "#") else monthly_deduction_basis
+        charge = rate * amount * benefit_charge_factor(policy.plancode, ben_type + subtype)
+    elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
+        amount, charge = target_waiver_charge(policy, config, ben.coi_rate or 0.0, projection_date)
+    else:
+        amount = ben.benefit_amount
+        charge = ben.units * rate * benefit_charge_factor(policy.plancode, ben_type + (ben.benefit_subtype or ""))
+    return {"amount": amount, "rate": rate, "charge": _round_near(charge, 2)}
+
+
+def _benefit_adjusted_rate(ben, detail_key: str, policy, rates, rate_year, projection_date) -> float:
+    ben_rates = rates.benefit_coi.get(detail_key, [])
+    if ben_rates:
+        raw = _rate_from_schedule(
+            ben_rates, _benefit_rate_year(ben, policy, projection_date, rate_year))
+    elif ben.coi_rate is not None:
+        raw = float(ben.coi_rate)
+    else:
+        raw = 0.0
+    factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
+    return raw * factor
+
+
 def calculate_deduction(
     av_after_premium: float,
     policy: IllustrationPolicyData,
@@ -417,437 +930,80 @@ def calculate_deduction(
     Returns:
         DeductionResult with all deduction-stage outputs.
     """
-    mAV = av_after_premium
-
-    # ── 3.2.1 NAR AV (col 406) ───────────────────────────────
-    nar_av = max(0.0, mAV)
-
-    # ── 3.2.2 Standard death benefit (col 407) ────────────────
-    face = policy.total_face
-    dbo = policy.db_option
-
-    if dbo == DB_OPTION_LEVEL:
-        standard_db = face
-    elif dbo == DB_OPTION_INCREASING:
-        standard_db = face + nar_av
-    elif dbo == DB_OPTION_RETURN_OF_PREMIUM:
-        standard_db = face + max(0.0, premiums_to_date - policy.withdrawals_to_date)
-    else:
-        standard_db = face
-
-    # ── 3.2.3 Gross DB — corridor check (cols 408-411) ───────
-    corr_rate = get_corridor_factor(
-        policy.plancode,
-        attained_age,
-        config.corridor_code,
-    )
-    # Corridor death benefit is truncated to a whole dollar (CyberLife rule).
-    # NOTE: this diverges from RERUN col OT (=MAX(OQ, OP*OR)), which multiplies
-    # without truncating. The +1e-6 absorbs float-multiply dust so an exact-dollar
-    # product (e.g. a non-round corridor rate × AV) isn't dropped a dollar.
-    if corr_rate > 0:
-        corr_db = float(math.floor(corr_rate * nar_av + 1e-6))
-        gross_db = max(standard_db, corr_db)
-    else:
-        gross_db = standard_db
-    corr_amount = gross_db - standard_db
-
-    # ── 3.2.4 Discounted DB — per segment (cols 418-422) ────
-    discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
-
-    segments = policy.segments or [policy.base_segment]
-    segments = [segment for segment in segments if segment is not None]
-    prem_adj = (
-        max(0.0, premiums_to_date - policy.withdrawals_to_date)
-        if dbo == DB_OPTION_RETURN_OF_PREMIUM
-        else 0.0
-    )
-    first_segment_addition = (
-        nar_av
-        if dbo == DB_OPTION_INCREASING
-        else prem_adj if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
-    )
-
-    discounted_base_segments = []
-    if segments:
-        for index, segment in enumerate(segments):
-            segment_db = segment.face_amount
-            if index == 0:
-                segment_db += first_segment_addition
-            discounted_base_segments.append((segment, segment_db, segment_db / discount_factor))
-    else:
-        fallback_db = face + first_segment_addition
-        discounted_base_segments.append((None, fallback_db, fallback_db / discount_factor))
-
-    db_by_coverage = {
-        f"cov{index}": segment_db
-        for index, (_, segment_db, _) in enumerate(discounted_base_segments, start=1)
-    }
-    discounted_db_by_coverage = {
-        f"cov{index}": discounted_db_segment
-        for index, (_, _, discounted_db_segment) in enumerate(discounted_base_segments, start=1)
-    }
-    discounted_db_cov1 = discounted_db_by_coverage.get("cov1", 0.0)
-
-    # Corridor: treated as a separate coverage segment
-    discounted_db_corr = corr_amount / discount_factor if corr_amount > 0 else 0.0
-
-    discounted_db = sum(discounted_db_by_coverage.values()) + discounted_db_corr
-
-    # ── 3.2.5 NAR — FIFO (cols 423-426) ──────────────────────
-    # Apply AV to base coverage 1 first, then each increase, then corridor.
-    remaining_av = nar_av
-    segment_nars = []
-    for segment, _, discounted_db_segment in discounted_base_segments:
-        segment_nar = max(0.0, discounted_db_segment - remaining_av)
-        remaining_av = max(0.0, remaining_av - discounted_db_segment)
-        segment_nars.append((segment, segment_nar))
-
-    nar_by_coverage = {
-        f"cov{index}": segment_nar
-        for index, (_, segment_nar) in enumerate(segment_nars, start=1)
-    }
-    nar_cov1 = nar_by_coverage.get("cov1", 0.0)
-    nar_corr = max(0.0, discounted_db_corr - remaining_av)
-    nar = sum(nar_by_coverage.values()) + nar_corr
-
+    basis = _build_death_benefit_basis(
+        av_after_premium, policy, config, attained_age, premiums_to_date)
+    nar = _allocate_nar(basis)
     if _at_or_after_policy_maturity(policy, config, attained_age):
-        return DeductionResult(
-            nar_av=nar_av,
-            standard_db=standard_db,
-            corridor_rate=corr_rate,
-            gross_db=gross_db,
-            corr_amount=corr_amount,
-            db_by_coverage=db_by_coverage,
-            discounted_db_by_coverage=discounted_db_by_coverage,
-            discounted_db_cov1=discounted_db_cov1,
-            discounted_db_corr=discounted_db_corr,
-            discounted_db=discounted_db,
-            total_db=gross_db,
-            total_discounted_db=discounted_db,
-            nar_by_coverage=nar_by_coverage,
-            nar_cov1=nar_cov1,
-            nar_corr=nar_corr,
-            nar=nar,
-            total_nar=nar,
-            av_after_deduction=mAV,
-        )
+        return _maturity_deduction_result(basis, nar)
 
-    # ── 3.2.6 COI charge — per segment (col 427) ─────────────
-    seg = policy.base_segment
-    first_segment_coi_year = _coi_rate_year(seg, policy, projection_date, rate_year)
-    # Read the base segment's own schedule (rates.coi is a load-time alias that
-    # goes stale when a face change re-bands the segment mid-projection).
-    base_coi_schedule = (
-        rates.segment_coi.get(seg.coverage_phase, rates.coi) if seg is not None else rates.coi
+    coi = _calculate_coi_charges(
+        nar, policy, config, rates, rate_year, projection_date,
+        bln_round_charge,
     )
-    first_segment_raw_coi = _rate_from_schedule(base_coi_schedule, first_segment_coi_year)
-    adjusted_coi = _adjusted_coi_rate(first_segment_raw_coi, seg, config, projection_date, round_5=True)
-
-    coi_rates_by_coverage: Dict[str, float] = {}
-    coi_charges_by_coverage: Dict[str, float] = {}
-    for index, (segment, segment_nar) in enumerate(segment_nars, start=1):
-        segment_schedule = rates.coi if segment is None else rates.segment_coi.get(segment.coverage_phase, rates.coi)
-        segment_rate_year = _coi_rate_year(segment, policy, projection_date, rate_year)
-        segment_raw_coi = _rate_from_schedule(segment_schedule, segment_rate_year)
-        segment_adjusted_coi = _adjusted_coi_rate(
-            segment_raw_coi, segment, config, projection_date, round_5=(index == 1))
-        if _segment_matured(segment, projection_date):
-            segment_adjusted_coi = 0.0
-        segment_coi_charge = (segment_nar / PER_THOUSAND) * segment_adjusted_coi
-        if bln_round_charge:
-            segment_coi_charge = _round_near(segment_coi_charge, 2)
-        key = f"cov{index}"
-        coi_rates_by_coverage[key] = segment_adjusted_coi
-        coi_charges_by_coverage[key] = segment_coi_charge
-
-    coi_charge_cov1 = coi_charges_by_coverage.get("cov1", 0.0)
-    corridor_key = _corridor_coverage_key(segment_nars, projection_date)
-    coi_rate_corr = coi_rates_by_coverage[corridor_key] if corridor_key is not None else 0.0
-    coi_charge_corr = (nar_corr / PER_THOUSAND) * coi_rate_corr
-    coi_charge = sum(coi_charges_by_coverage.values()) + coi_charge_corr
-
-    # ── 3.2.6b Ratchet banding override (cols PP-QX) ─────────
-    # RERUN QZ: vTotalBaseCOI = IF(sRatchetBanding, QX, PO). When the plancode is
-    # ratchet-banded, replace the per-segment single-band COI above with the
-    # band-split charge (NAR ≤ break at band 1, excess at band 2).
-    ratchet_active = bool(config.rachet_banding and getattr(rates, "band_break", 0.0) > 0)
-    band_break = 0.0
-    coi_band1_nar_by_coverage: Dict[str, float] = {}
-    coi_band2_nar_by_coverage: Dict[str, float] = {}
-    coi_band1_rates_by_coverage: Dict[str, float] = {}
-    coi_band2_rates_by_coverage: Dict[str, float] = {}
-    if ratchet_active:
-        rc = _ratchet_coi(
-            segment_nars, nar_corr, rates, config, policy,
-            projection_date, rate_year, bln_round_charge,
-        )
-        coi_charges_by_coverage = rc.charges_by_coverage
-        coi_charge_corr = rc.charge_corr
-        coi_charge = rc.total
-        coi_charge_cov1 = rc.charges_by_coverage.get("cov1", 0.0)
-        # Representative single rate (display): band-1 rate covers the bulk.
-        adjusted_coi = rc.cov1_band1_rate
-        coi_rate_corr = rc.band1_rates["corr"]
-        coi_rates_by_coverage = dict(rc.band1_rates)
-        band_break = rates.band_break
-        coi_band1_nar_by_coverage = rc.band1_nar
-        coi_band2_nar_by_coverage = rc.band2_nar
-        coi_band1_rates_by_coverage = rc.band1_rates
-        coi_band2_rates_by_coverage = rc.band2_rates
-
-    # ── 3.2.7 EPU charge (col 496) ───────────────────────────
-    epu_rate = 0.0
-    epu_charge = 0.0
-    epu_rates_by_coverage: Dict[str, float] = {}
-    epu_charges_by_coverage: Dict[str, float] = {}
-
-    epu_segments = segments if segments else [None]
-
-    if config.epu_code == RATE_CODE_TABLE:
-        for index, segment in enumerate(epu_segments, start=1):
-            segment_schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
-            segment_rate_year = _coverage_year(segment, projection_date, rate_year)
-            segment_epu_rate = _rate_from_schedule(segment_schedule, segment_rate_year)
-            if _segment_matured(segment, projection_date):
-                segment_epu_rate = 0.0
-            # SA_Basis drives the EPU specified-amount basis: OriginalSA
-            # plans (SkippedCovRein family) charge on the coverage's ORIGINAL
-            # specified amount; everything else uses the current specified amount.
-            if config.sa_basis == SA_BASIS_ORIGINAL:
-                segment_basis = segment.original_face_amount if segment else face
-            else:
-                segment_basis = segment.face_amount if segment else face
-            # RERUN rounds each coverage's EPU charge to cents (SB-SE).
-            segment_epu_charge = _round_near((segment_basis / PER_THOUSAND) * segment_epu_rate, 2)
-            key = f"cov{index}"
-            epu_rates_by_coverage[key] = segment_epu_rate
-            epu_charges_by_coverage[key] = segment_epu_charge
-        epu_rate = epu_rates_by_coverage.get("cov1", 0.0)
-        epu_charge = sum(epu_charges_by_coverage.values())
-    else:
-        try:
-            epu_flat = float(config.epu_code)
-        except (ValueError, TypeError):
-            epu_flat = 0.0
-        for index, segment in enumerate(epu_segments, start=1):
-            if segment is not None and config.sa_basis == SA_BASIS_ORIGINAL:
-                segment_units = segment.original_face_amount / PER_THOUSAND
-            else:
-                segment_units = segment.units if segment else policy.units
-            key = f"cov{index}"
-            epu_rates_by_coverage[key] = epu_flat
-            segment_epu_charge = epu_flat * segment_units
-            if _segment_matured(segment, projection_date):
-                segment_epu_charge = 0.0
-            if bln_round_charge:
-                segment_epu_charge = _round_near(segment_epu_charge, 2)
-            epu_charges_by_coverage[key] = segment_epu_charge
-        epu_rate = epu_rates_by_coverage.get("cov1", 0.0)
-        epu_charge = sum(epu_charges_by_coverage.values())
-
-    if bln_round_charge:
-        coi_charge = _round_near(coi_charge, 2)
-        epu_charge = _round_near(epu_charge, 2)
-
-    # ── 3.2.8 Monthly fee (col 498) ──────────────────────────
-    if config.mfee == RATE_CODE_TABLE:
-        mfee_charge = get_rate(rates, "mfee", rate_year)
-    else:
-        try:
-            mfee_charge = float(config.mfee)
-        except (ValueError, TypeError):
-            mfee_charge = 0.0
-
-    # ── 3.2.9 AV charge (col 503) — monthly rate, NOT /12 ───
-    av_charge = 0.0
-    if config.poav_table != "0":
-        poav_rate = get_rate(rates, "poav", rate_year)
-        av_charge = max(0.0, mAV * poav_rate)
-
-    # ── 3.2.10 Benefit charges ────────────────────────────────
-    # Computed AFTER base deduction — waivers 39/3# waive the greater of MTP or
-    # the monthly deduction; all other type-3 waivers waive the deduction only.
-    pw_charge = 0.0
-    benefit_charges = 0.0
-    benefit_amounts: Dict[str, float] = {}
-    benefit_rates: Dict[str, float] = {}
-    benefit_charge_detail: Dict[str, float] = {}
-    rider_charges = 0.0
-    rider_amounts: Dict[str, float] = {}
-    rider_rates: Dict[str, float] = {}
-    rider_charge_detail: Dict[str, float] = {}
-
-    base_deduction = coi_charge + epu_charge + mfee_charge + av_charge
-
-    for rider in policy.riders:
-        if not rider_active_on(rider, policy, projection_date):
-            continue
-        rider_key = rider.export_key
-        rider_rate_schedule = rates.rider_rates.get(rider_key, [])
-        rider_rate = 0.0
-        if rider_rate_schedule:
-            rider_rate_year = _rider_rate_year(rider, policy, projection_date, rate_year)
-            rider_rate = _rate_from_schedule(rider_rate_schedule, rider_rate_year)
-        elif rider.coi_rate is not None:
-            rider_rate = float(rider.coi_rate)
-        elif rider.premium_rate is not None:
-            rider_rate = float(rider.premium_rate)
-
-        # Apply rider substandard (table rating + flat extra), mirroring RERUN
-        # RR = RO*(1 + factor*table) + TRUNC(flat/12, 2). The base COI applies the
-        # same adjustment; the rider previously used the raw rate, undercharging
-        # any table-rated/flat-extra rider.
-        rider_table = rider.table_rating if rider.table_rating else 0
-        rider_flat = rider.flat_extra if rider.flat_extra else 0.0
-        rider_rate = (
-            rider_rate * (1.0 + config.table_rating_factor * rider_table)
-            + _trunc2(rider_flat / MONTHS_PER_YEAR)
-        )
-
-        rider_amount = rider.face_amount
-        rider_charge = rider.units * rider_rate
-        rider_charge = _round_near(rider_charge, 2)
-        rider_amounts[rider_key] = rider_amount
-        rider_rates[rider_key] = rider_rate
-        rider_charge_detail[rider_key] = rider_charge
-        rider_charges += rider_charge
-
-    non_pw_benefit_charges = 0.0
-    # Charge PW (type 3) benefits last; keep the ordered list so each benefit can
-    # be given a stable per-benefit detail key below.
-    sorted_benefits = sorted(
-        policy.benefits, key=lambda benefit: (benefit.benefit_type or "") == "3"
+    expenses = _calculate_expense_charges(
+        basis, policy, config, rates, rate_year, projection_date,
+        bln_round_charge,
     )
-    # Multiple benefits can legitimately share a type+subtype (rare, but valid —
-    # e.g. two type-11 benefits). Both the COI-rate schedule (loaded per benefit
-    # in rate_loader) and the per-benefit breakdown dicts are keyed by a unique
-    # per-benefit key so a later benefit never reuses/overwrites an earlier one.
-    detail_key_by_id = benefit_rate_keys(policy.benefits)
-
-    for ben in sorted_benefits:
-        detail_key = detail_key_by_id[id(ben)]
-        if not ben.is_active:
-            continue
-        if (ben.benefit_type or "").startswith("#"):
-            continue
-        # Benefit premiums stop at the pay-up anniversary. The contractual
-        # cease date is displayed separately and does not control charges.
-        if ben.pay_up_date is not None and projection_date is not None and projection_date >= ben.pay_up_date:
-            continue
-        ben_type = ben.benefit_type or ""
-        ben_rates = rates.benefit_coi.get(detail_key, [])
-
-        # COI duration is item-specific, but rates update on policy anniversaries.
-        ben_coi_rate = 0.0
-        if ben_rates:
-            benefit_rate_year = _benefit_rate_year(ben, policy, projection_date, rate_year)
-            ben_coi_rate = _rate_from_schedule(ben_rates, benefit_rate_year)
-        elif ben.coi_rate is not None:
-            ben_coi_rate = float(ben.coi_rate)
-
-        substandard_factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
-        adjusted_rate = ben_coi_rate * substandard_factor
-
-        # A few plancodes store a benefit's rate in a different unit/frequency
-        # than the deduction formula (e.g. MLUL/MLUL502 benefit 10 stores an
-        # annual-per-unit rate → ÷12 ×1000). CyberLife converts at deduction
-        # time and leaves the stored/displayed rate raw, so apply the factor to
-        # the charge only. See suiteview/core/benefit_rate_rules.py.
-        charge_factor = benefit_charge_factor(
-            policy.plancode, ben_type + (ben.benefit_subtype or ""))
-
-        if ben_type == "3":
-            # PW waive basis = the monthly deduction excluding the PW charge
-            # itself (base + riders + any non-PW benefits already charged).
-            monthly_deduction_basis = (
-                base_deduction + rider_charges + non_pw_benefit_charges
-            )
-            # Only waivers 39 and 3# waive the GREATER of the monthly minimum
-            # target premium (MTP) or the monthly deduction. Every other type-3
-            # premium waiver waives only the monthly deduction.
-            ben_subtype = ben.benefit_subtype or ""
-            if ben_subtype in ("9", "#"):
-                benefit_amount = max(monthly_mtp, monthly_deduction_basis)
-            else:
-                benefit_amount = monthly_deduction_basis
-            charge = adjusted_rate * benefit_amount * charge_factor
-        elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
-            benefit_amount, charge = target_waiver_charge(
-                policy, config, ben_coi_rate, projection_date,
-            )
-        else:
-            benefit_amount = ben.benefit_amount
-            charge = ben.units * adjusted_rate * charge_factor
-
-        charge = _round_near(charge, 2)
-        if ben_type == "3":
-            pw_charge = charge
-
-        benefit_amounts[detail_key] = benefit_amount
-        benefit_rates[detail_key] = adjusted_rate
-        benefit_charge_detail[detail_key] = charge
-        benefit_charges += charge
-        # The type-3 PWoC waiver (Benefit Amount 3F) waives the monthly deduction
-        # basis, but a type-4 stipulated premium waiver (PWoT) is itself a
-        # premium-waiver benefit and its charge is NOT part of what type-3 waives.
-        # Exclude type-4 from the basis while keeping its own charge in the totals.
-        if ben_type not in ("3", "4"):
-            non_pw_benefit_charges += charge
-
-    # ── 3.2.11 Total deduction (cols 515-516) ────────────────
-    total_deduction = base_deduction + benefit_charges + rider_charges
+    base_deduction = (
+        coi.charge_total + expenses.epu_charge
+        + expenses.mfee_charge + expenses.av_charge
+    )
+    benefits = _calculate_benefit_charges(
+        base_deduction, policy, config, rates, rate_year, monthly_mtp,
+        projection_date,
+    )
+    total_deduction = (
+        base_deduction + benefits.benefit_charges + benefits.rider_charges
+    )
     if bln_round_charge:
         total_deduction = _round_near(total_deduction, 2)
-    av_after_deduction = mAV - total_deduction
-
     return DeductionResult(
-        nar_av=nar_av,
-        standard_db=standard_db,
-        corridor_rate=corr_rate,
-        gross_db=gross_db,
-        corr_amount=corr_amount,
-        db_by_coverage=db_by_coverage,
-        discounted_db_by_coverage=discounted_db_by_coverage,
-        discounted_db_cov1=discounted_db_cov1,
-        discounted_db_corr=discounted_db_corr,
-        discounted_db=discounted_db,
-        total_db=gross_db,
-        total_discounted_db=discounted_db,
-        nar_by_coverage=nar_by_coverage,
-        nar_cov1=nar_cov1,
-        nar_corr=nar_corr,
-        nar=nar,
-        total_nar=nar,
-        coi_rates_by_coverage=coi_rates_by_coverage,
-        coi_charges_by_coverage=coi_charges_by_coverage,
-        coi_rate=adjusted_coi,
-        coi_rate_corr=coi_rate_corr,
-        coi_charge_cov1=coi_charge_cov1,
-        coi_charge_corr=coi_charge_corr,
-        coi_charge=coi_charge,
-        total_coi_charge=coi_charge,
-        ratchet_active=ratchet_active,
-        band_break=band_break,
-        coi_band1_nar_by_coverage=coi_band1_nar_by_coverage,
-        coi_band2_nar_by_coverage=coi_band2_nar_by_coverage,
-        coi_band1_rates_by_coverage=coi_band1_rates_by_coverage,
-        coi_band2_rates_by_coverage=coi_band2_rates_by_coverage,
-        epu_rate=epu_rate,
-        epu_charge=epu_charge,
-        epu_rates_by_coverage=epu_rates_by_coverage,
-        epu_charges_by_coverage=epu_charges_by_coverage,
-        mfee_charge=mfee_charge,
-        av_charge=av_charge,
-        pw_charge=pw_charge,
-        benefit_charges=benefit_charges,
-        benefit_amounts=benefit_amounts,
-        benefit_rates=benefit_rates,
-        benefit_charge_detail=benefit_charge_detail,
-        rider_charges=rider_charges,
-        rider_amounts=rider_amounts,
-        rider_rates=rider_rates,
-        rider_charge_detail=rider_charge_detail,
+        nar_av=basis.nar_av,
+        standard_db=basis.standard_db,
+        corridor_rate=basis.corridor_rate,
+        gross_db=basis.gross_db,
+        corr_amount=basis.corr_amount,
+        db_by_coverage=basis.db_by_coverage,
+        discounted_db_by_coverage=basis.discounted_db_by_coverage,
+        discounted_db_cov1=basis.discounted_db_cov1,
+        discounted_db_corr=basis.discounted_db_corr,
+        discounted_db=basis.discounted_db,
+        total_db=basis.gross_db,
+        total_discounted_db=basis.discounted_db,
+        nar_by_coverage=nar.nar_by_coverage,
+        nar_cov1=nar.nar_cov1,
+        nar_corr=nar.nar_corr,
+        nar=nar.nar,
+        total_nar=nar.nar,
+        coi_rates_by_coverage=coi.rates_by_coverage,
+        coi_charges_by_coverage=coi.charges_by_coverage,
+        coi_rate=coi.rate_cov1,
+        coi_rate_corr=coi.rate_corr,
+        coi_charge_cov1=coi.charge_cov1,
+        coi_charge_corr=coi.charge_corr,
+        coi_charge=coi.charge_total,
+        total_coi_charge=coi.charge_total,
+        ratchet_active=coi.ratchet_active,
+        band_break=coi.band_break,
+        coi_band1_nar_by_coverage=coi.band1_nar_by_coverage,
+        coi_band2_nar_by_coverage=coi.band2_nar_by_coverage,
+        coi_band1_rates_by_coverage=coi.band1_rates_by_coverage,
+        coi_band2_rates_by_coverage=coi.band2_rates_by_coverage,
+        epu_rate=expenses.epu_rate,
+        epu_charge=expenses.epu_charge,
+        epu_rates_by_coverage=expenses.epu_rates_by_coverage,
+        epu_charges_by_coverage=expenses.epu_charges_by_coverage,
+        mfee_charge=expenses.mfee_charge,
+        av_charge=expenses.av_charge,
+        pw_charge=benefits.pw_charge,
+        benefit_charges=benefits.benefit_charges,
+        benefit_amounts=benefits.benefit_amounts,
+        benefit_rates=benefits.benefit_rates,
+        benefit_charge_detail=benefits.benefit_charge_detail,
+        rider_charges=benefits.rider_charges,
+        rider_amounts=benefits.rider_amounts,
+        rider_rates=benefits.rider_rates,
+        rider_charge_detail=benefits.rider_charge_detail,
         total_deduction=total_deduction,
-        av_after_deduction=av_after_deduction,
+        av_after_deduction=basis.mAV - total_deduction,
     )

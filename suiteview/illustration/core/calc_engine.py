@@ -3634,6 +3634,124 @@ class ExceptionPremiumInput:
     guideline_cap_enabled: bool = False
 
 
+@dataclass(frozen=True)
+class ExceptionGrossUpBasis:
+    """Premium-load and COI-saving factors for MD/GP gross-up."""
+
+    tpp: float
+    denom: float
+    flat: float
+    phi: float
+    coi_factor: float
+
+
+def _exception_grossup_basis(inputs: ExceptionPremiumInput) -> ExceptionGrossUpBasis:
+    """Resolve premium-load denominator and COI feedback factors."""
+    tpp = get_rate(inputs.rates, "tpp", inputs.rate_year)
+    denom = 1.0 - tpp
+    if abs(denom) < MONEY_EPSILON:
+        denom = 1.0
+    db_factor = 1.0
+    if str(inputs.policy.db_option or "").upper() in (
+        DB_OPTION_INCREASING,
+        DB_OPTION_RETURN_OF_PREMIUM,
+    ):
+        discount = round((1.0 + inputs.config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
+        db_factor = 1.0 - 1.0 / discount if discount else 1.0
+    phi = (inputs.coi_rate / PER_THOUSAND) * db_factor
+    coi_factor = 1.0 - phi
+    if abs(coi_factor) < MONEY_EPSILON:
+        coi_factor = 1.0
+    return ExceptionGrossUpBasis(
+        tpp=tpp, denom=denom, flat=inputs.config.prem_flat_load,
+        phi=phi, coi_factor=coi_factor,
+    )
+
+
+def _apply_md_exception_premium(
+    result: _ExceptionPremium,
+    av: float,
+    inputs: ExceptionPremiumInput,
+    basis: ExceptionGrossUpBasis,
+) -> float:
+    """Apply the guideline-capped Monthly Deduction premium phase."""
+    if not inputs.md_premium_active or inputs.prior_lapsed:
+        return av
+    result.md_premium_mode = True
+    gross_target = max(0.0, inputs.total_deduction)
+    if gross_target <= 0.0:
+        return av
+    discount = gross_target * basis.phi
+    wanted = (gross_target - discount + basis.flat) / basis.denom
+    room = _exception_guideline_room(inputs)
+    md_prem = min(wanted, room)
+    result.md_prem_capped = md_prem < wanted - MONEY_EPSILON
+    net = md_prem * basis.denom - basis.flat
+    if net <= 0.0:
+        return av
+    av_bump = net / basis.coi_factor
+    result.md_prem = md_prem
+    result.md_prem_gross = av_bump
+    result.percentage_load += md_prem * basis.tpp
+    result.flat_load += basis.flat
+    result.md_discount = av_bump - net
+    return av + av_bump
+
+
+def _exception_guideline_room(inputs: ExceptionPremiumInput) -> float:
+    """Remaining gross-premium room for the MD premium."""
+    if not inputs.guideline_cap_enabled:
+        return math.inf
+    used_room = inputs.premiums_to_date - inputs.withdrawals_to_date
+    return max(0.0, inputs.guideline_limit - used_room)
+
+
+def _apply_gp_exception_premium(
+    result: _ExceptionPremium,
+    av: float,
+    inputs: ExceptionPremiumInput,
+    basis: ExceptionGrossUpBasis,
+) -> float:
+    """Apply the uncapped GP exception phase on the remaining negative AV."""
+    gp_mode = inputs.prior_exception_mode or _exception_triggers(result, av, inputs)
+    result.requires_option_a = (
+        inputs.options.switch_to_option_a_in_exception
+        and gp_mode
+        and str(inputs.policy.db_option or "").upper() == DB_OPTION_INCREASING
+    )
+    result.mode = gp_mode
+    result.is_gp_exception = gp_mode
+    if not (
+        gp_mode and inputs.past_snet and not inputs.policy.has_shadow_account
+        and not inputs.prior_lapsed and av < 0.0
+    ):
+        return av
+    gross = -av
+    discount = gross * basis.phi
+    gp_prem = (gross - discount + basis.flat) / basis.denom
+    result.gross = gross
+    result.prem = gp_prem
+    result.discount = discount
+    result.gp_percentage_load = gp_prem * basis.tpp
+    result.gp_flat_load = basis.flat
+    result.percentage_load += result.gp_percentage_load
+    result.flat_load += result.gp_flat_load
+    new_av = av + gp_prem * basis.denom - basis.flat + discount
+    return 0.0 if abs(new_av) < MONEY_EPSILON else new_av
+
+
+def _exception_triggers(result: _ExceptionPremium, av: float, inputs: ExceptionPremiumInput) -> bool:
+    """Whether this month newly enters GP exception mode."""
+    room_exhausted = (
+        inputs.guideline_cap_enabled and inputs.policy.is_gpt
+        and inputs.guideline_limit - (
+            inputs.premiums_to_date - inputs.withdrawals_to_date
+        ) <= MONEY_EPSILON
+    )
+    at_guideline = inputs.guideline_limit_reached or result.md_prem_capped or room_exhausted
+    return inputs.options.allow_exception_prems and at_guideline and av < 0.0
+
+
 def _compute_exception_premium(inputs: ExceptionPremiumInput) -> _ExceptionPremium:
     """Monthly Deduction premium then GP exception premium, in sequence.
 
@@ -3664,135 +3782,13 @@ def _compute_exception_premium(inputs: ExceptionPremiumInput) -> _ExceptionPremi
     premium and the GP exception, and correct for a partially-funded (capped) MD
     premium.
     """
-    options = inputs.options
-    policy = inputs.policy
-    config = inputs.config
-    rates = inputs.rates
-    rate_year = inputs.rate_year
-    av_after_charge = inputs.av_after_charge
-    coi_rate = inputs.coi_rate
-    guideline_limit_reached = inputs.guideline_limit_reached
-    past_snet = inputs.past_snet
-    prior_exception_mode = inputs.prior_exception_mode
-    prior_lapsed = inputs.prior_lapsed
-    attained_age = inputs.attained_age
-    md_premium_active = inputs.md_premium_active
-    total_deduction = inputs.total_deduction
-    guideline_limit = inputs.guideline_limit
-    premiums_to_date = inputs.premiums_to_date
-    withdrawals_to_date = inputs.withdrawals_to_date
-    guideline_cap_enabled = inputs.guideline_cap_enabled
-
-    result = _ExceptionPremium(av_after_exception=av_after_charge)
-    past_maturity = attained_age >= config.maturity_age
-    if past_maturity:
+    result = _ExceptionPremium(av_after_exception=inputs.av_after_charge)
+    if inputs.attained_age >= inputs.config.maturity_age:
         return result
-
-    tpp = get_rate(rates, "tpp", rate_year)
-    denom = 1.0 - tpp
-    if abs(denom) < MONEY_EPSILON:
-        denom = 1.0
-    flat = config.prem_flat_load
-    # COI feedback per dollar of AV the premium lifts before the deduction. With a
-    # level death benefit (Option A) a dollar of AV cuts the NAR dollar-for-dollar,
-    # so the saving is the full COI rate. With an increasing death benefit
-    # (Option B — and Option C, treated the same here, conservatively) the DB also
-    # rises, so the NAR barely moves and the saving collapses to
-    # r·(1 − 1/(1+dbd)^(1/12)) — nearly (but not quite) a wash.
-    db_factor = 1.0
-    if str(policy.db_option or "").upper() in (
-        DB_OPTION_INCREASING,
-        DB_OPTION_RETURN_OF_PREMIUM,
-    ):
-        discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
-        db_factor = 1.0 - 1.0 / discount_factor if discount_factor else 1.0
-    phi = (coi_rate / PER_THOUSAND) * db_factor
-    coi_factor = 1.0 - phi
-    if abs(coi_factor) < MONEY_EPSILON:
-        coi_factor = 1.0
-
-    av = av_after_charge
-
-    # ── Phase 1: Monthly Deduction premium (capped at the guideline room) ──
-    if md_premium_active and not prior_lapsed:
-        result.md_premium_mode = True
-        gross_target = max(0.0, total_deduction)
-        if gross_target > 0.0:
-            # Gross-up: the premium that — net of the premium load and the COI
-            # saving it earns — lifts the AV by the full deduction so the AV
-            # returns to its pre-deduction value. ``discount`` is that COI saving.
-            discount = gross_target * phi
-            md_prem_wanted = (gross_target - discount + flat) / denom
-            # The MD premium is SUBJECT TO the guideline: cap the gross premium at
-            # the remaining room (limit − net premiums paid). Once the room is
-            # exhausted the AV is only partially restored (or not at all) and the
-            # policy begins to run down — at which point the GP exception (Phase 2)
-            # takes over if it is allowed.
-            if guideline_cap_enabled:
-                room = max(0.0, guideline_limit - (premiums_to_date - withdrawals_to_date))
-            else:
-                room = math.inf
-            md_prem = min(md_prem_wanted, room)
-            result.md_prem_capped = md_prem < md_prem_wanted - MONEY_EPSILON
-            # Realized AV bump from the (possibly capped) premium: the net premium
-            # plus the COI saving it earns, modelled as ``net / (1 - phi)``.
-            net = md_prem * denom - flat
-            if net > 0.0:
-                av_bump = net / coi_factor
-                av += av_bump
-                result.md_prem = md_prem
-                result.md_prem_gross = av_bump
-                result.percentage_load += md_prem * tpp
-                result.flat_load += flat
-                # COI saving: the part of the AV bump funded by the lower COI
-                # (the premium lifting the pre-deduction AV), not the net premium.
-                result.md_discount = av_bump - net
-
-    # ── Phase 2: GP exception premium (uncapped, on the residual) ──
-    ccv_active = policy.has_shadow_account
-    # The exception kicks in when the policy is at the guideline limit with a
-    # residual negative AV — either the annual scheduled-premium cap binds
-    # (even with unspent room under levelizing), or the room has run out.
-    # An off-cycle first forecast month can
-    # leave the annual scheduled-premium flag false even after a later payment
-    # exhausts the actual guideline room.
-    room_exhausted = (
-        guideline_cap_enabled and policy.is_gpt
-        and guideline_limit - (premiums_to_date - withdrawals_to_date) <= MONEY_EPSILON
-    )
-    at_guideline = guideline_limit_reached or result.md_prem_capped or room_exhausted
-    triggered = options.allow_exception_prems and at_guideline and av < 0.0
-    gp_mode = prior_exception_mode or triggered      # already past_maturity-guarded
-    # An Option B policy uses Option A (level death benefit) assumptions for the
-    # entire GP exception period — not just the trigger month — but ONLY when the
-    # run opts in via ``switch_to_option_a_in_exception``. Flag the switch on ANY
-    # month the policy is in exception mode while still Option B, so the caller
-    # reruns the month's deduction + exception under the level benefit
-    # (idempotent: once db_option is "A" this is False).
-    result.requires_option_a = (
-        options.switch_to_option_a_in_exception
-        and gp_mode and str(policy.db_option or "").upper() == DB_OPTION_INCREASING
-    )
-    result.mode = gp_mode
-    result.is_gp_exception = gp_mode
-    if gp_mode and past_snet and not ccv_active and not prior_lapsed and av < 0.0:
-        # Uncapped gross-up that brings the residual AV exactly to 0 (it is NOT
-        # subject to the guideline — that is the whole point of the exception).
-        # The COI saving (``discount``) is SUBTRACTED from the premium needed and
-        # ADDED BACK to the AV — the same value on both sides of one identity, so
-        # it nets out and the AV lands on the target. Mirrors RERUN SZ/TA/TB/TD.
-        gross = -av
-        discount = gross * phi
-        gp_prem = (gross - discount + flat) / denom
-        av += gp_prem * denom - flat + discount      # = gross → brings AV to 0
-        result.gross = gross
-        result.prem = gp_prem
-        result.discount = discount
-        result.gp_percentage_load = gp_prem * tpp
-        result.gp_flat_load = flat
-        result.percentage_load += result.gp_percentage_load
-        result.flat_load += result.gp_flat_load
-
+    basis = _exception_grossup_basis(inputs)
+    av = _apply_md_exception_premium(
+        result, inputs.av_after_charge, inputs, basis)
+    av = _apply_gp_exception_premium(result, av, inputs, basis)
     result.av_after_exception = av
     return result
 
