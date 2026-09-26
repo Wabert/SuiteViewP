@@ -713,6 +713,141 @@ def apply_exception_premium(
     work.av = work.exception.av_after_exception
 
 
+def apply_new_loans(ctx: MonthContext, work: MonthWork) -> None:
+    """Apply new fixed loans after deduction/exception premium processing."""
+    loan_cap = None
+    if ctx.options.restrict_loans_to_sv:
+        _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
+            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+        )
+        loan_cap = (
+            work.av
+            - full_sc_for_loan
+            - work.cap_loan.policy_debt
+            - ctx.config.md_holdback * work.ded.total_deduction
+        )
+    work.fixed_loan_state = apply_new_fixed_loan(LoanStepInput(
+        loan=work.cap_loan,
+        requested_amount=(
+            ctx.month_inputs.regular_loan if ctx.month_inputs is not None else 0.0
+        ),
+        account_value=work.av,
+        premiums_to_date=work.prem.premiums_to_date,
+        withdrawals_to_date=work.withdrawals_to_date,
+        max_loan=loan_cap,
+    ))
+    work.applied_regular_loan = max(
+        0.0, work.fixed_loan_state.rg_loan_princ - work.cap_loan.rg_loan_princ
+    )
+    work.applied_preferred_loan = max(
+        0.0, work.fixed_loan_state.pf_loan_princ - work.cap_loan.pf_loan_princ
+    )
+
+
+def credit_interest_post_deduction(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Credit post-deduction interest and optional WAIR interest."""
+    if convention.interest_timing != "post_deduction":
+        return
+    work.intr = credit_interest(
+        work.av,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        ctx.bonus,
+        work.rate_year,
+        work.attained_age,
+        work.month_date,
+        reg_loan_balance=work.fixed_loan_state.rg_loan_princ,
+        pref_loan_balance=work.fixed_loan_state.pf_loan_princ,
+        exact_days_interest=ctx.options.exact_days_interest,
+    )
+    work.wair_tav = work.wair_swam = work.wair_held = work.wair_rate = 0.0
+    if ctx.iul_ctx is not None and ctx.iul_ctx.wair_enabled:
+        _apply_wair_interest(ctx, work)
+    work.av = work.intr.av_end_of_month
+
+
+def _apply_wair_interest(ctx: MonthContext, work: MonthWork) -> None:
+    iul_ctx = ctx.iul_ctx
+    uk = iul_ctx.declared_rate + work.intr.bonus_interest_rate
+    up = work.intr.effective_annual_rate
+    if work.beginning_of_year:
+        tavp = project_tav(TavInput(
+            begin_av=work.bo_av,
+            planned_premium=work.requested_scheduled,
+            payments_per_year=work.pc_policy,
+            lumpsum=work.requested_lumpsum,
+            policy_month=work.next_month,
+            fixed_ln_principal=(
+                work.boy_loan.rg_loan_princ + work.boy_loan.pf_loan_princ
+            ),
+            fixed_ln_accrued=(
+                work.boy_loan.rg_loan_accrued + work.boy_loan.pf_loan_accrued
+            ),
+            vbl_ln_principal=work.boy_loan.vbl_loan_princ,
+            vbl_ln_accrued=work.boy_loan.vbl_loan_accrued,
+            reg_loan_charge_rate=ctx.config.loan_charge_rate_guar,
+            vbl_loan_rate=variable_loan_accrual_rate(
+                iul_ctx,
+                ctx.policy.variable_loan_charge_rate,
+                ctx.policy.current_interest_rate,
+            ),
+            apply_prem_to_loan=ctx.options.apply_prem_to_loan,
+            is_cvat=ctx.policy.is_cvat,
+            annual_cap=work.allowances.annual_cap_1,
+            premium_load=work.prem.tpp_rate,
+        ))
+        work.wair_tav = tavp.tav_display
+        work.wair_swam = work.ded.total_deduction * MONTHS_PER_YEAR
+        work.wair_held = weighted_average_rate(
+            av=tavp.tav,
+            swam=work.wair_swam,
+            reg_ln_principal=work.fixed_loan_state.rg_loan_princ,
+            reg_ln_accrued=work.fixed_loan_state.rg_loan_accrued,
+            pref_ln_principal=work.fixed_loan_state.pf_loan_princ,
+            pref_ln_accrued=work.fixed_loan_state.pf_loan_accrued,
+            reg_loan_credit_rate=work.intr.reg_loan_credit_rate,
+            pref_loan_credit_rate=work.intr.pref_loan_credit_rate,
+            declared_plus_bonus=uk,
+            blend_plus_bonus=up,
+        )
+    else:
+        work.wair_tav = ctx.state.wair_tav
+        work.wair_swam = ctx.state.wair_swam
+        work.wair_held = ctx.state.wair_held
+    work.wair_rate = cap_wair(iul_ctx, work.wair_held, uk)
+    vl = wair_interest(work.av, work.wair_rate, work.intr.days_in_month)
+    work.intr = replace(
+        work.intr,
+        effective_annual_rate=work.wair_rate,
+        monthly_interest_rate=(
+            (1.0 + work.wair_rate) ** (work.intr.days_in_month / DAYS_PER_YEAR)
+            - 1.0
+        ),
+        reg_impaired_int=0.0,
+        pref_impaired_int=0.0,
+        unimpaired_int=vl,
+        interest_credited=vl,
+        av_end_of_month=work.av + vl,
+    )
+
+
+def accrue_loans(ctx: MonthContext, work: MonthWork) -> None:
+    """Accrue loan interest after new loans and interest crediting."""
+    work.accrual_loan = accrue_loan_interest(
+        work.fixed_loan_state,
+        ctx.config,
+        work.intr.days_in_month,
+        variable_loan_accrual_rate(
+            ctx.iul_ctx,
+            ctx.policy.variable_loan_charge_rate,
+            ctx.policy.current_interest_rate,
+        ),
+    )
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -816,109 +951,19 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     exception = work.exception
     av = work.av
 
-    # ── 15. Policy values / new fixed loans (gain → preferred) ─
-    # The applied loan is capped at the lapse SV (TQ vAppliedLoan with
-    # sInput_RestrictLoansToSV): AV − full SC − existing debt − MD holdback.
-    loan_cap = None
-    if options.restrict_loans_to_sv:
-        _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-            policy, rates, rate_year, month_date, config)
-        loan_cap = (
-            av - full_sc_for_loan - cap_loan.policy_debt
-            - config.md_holdback * ded.total_deduction
-        )
-    fixed_loan_state = apply_new_fixed_loan(LoanStepInput(
-        loan=cap_loan,
-        requested_amount=month_inputs.regular_loan if month_inputs is not None else 0.0,
-        account_value=av,
-        premiums_to_date=prem.premiums_to_date,
-        withdrawals_to_date=withdrawals_to_date,
-        max_loan=loan_cap,
-    ))
-    applied_regular_loan = max(0.0, fixed_loan_state.rg_loan_princ - cap_loan.rg_loan_princ)
-    applied_preferred_loan = max(0.0, fixed_loan_state.pf_loan_princ - cap_loan.pf_loan_princ)
-
-    # ── 16. Accumulation: interest crediting ──────────────
-    intr = credit_interest(
-        av, policy, config, rates, bonus, rate_year,
-        attained_age, month_date,
-        reg_loan_balance=fixed_loan_state.rg_loan_princ,
-        pref_loan_balance=fixed_loan_state.pf_loan_princ,
-        exact_days_interest=options.exact_days_interest,
-    )
-
-    # 16a. WAIR crediting (RERUN US..VL): when the run uses the Weighted
-    # Average Interest Rate, VL replaces the blended-rate credit entirely
-    # (VO CHOOSE method 3 — the loaned/unloaned split lives inside the
-    # WAIR weighting, so no separate impaired interest). The WAIR is
-    # recomputed on beginning-of-year rows from the one-year TAV
-    # projection and held through the policy year (VJ carry-forward).
-    wair_tav = wair_swam = wair_held = wair_rate = 0.0
-    if iul_ctx is not None and iul_ctx.wair_enabled:
-        uk = iul_ctx.declared_rate + intr.bonus_interest_rate      # UK
-        up = intr.effective_annual_rate                            # UP = UO + bonus
-        if beginning_of_year:
-            tavp = project_tav(TavInput(
-                begin_av=bo_av,
-                planned_premium=requested_scheduled,
-                payments_per_year=pc_policy,
-                lumpsum=requested_lumpsum,
-                policy_month=next_month,
-                fixed_ln_principal=boy_loan.rg_loan_princ + boy_loan.pf_loan_princ,
-                fixed_ln_accrued=boy_loan.rg_loan_accrued + boy_loan.pf_loan_accrued,
-                vbl_ln_principal=boy_loan.vbl_loan_princ,
-                vbl_ln_accrued=boy_loan.vbl_loan_accrued,
-                reg_loan_charge_rate=config.loan_charge_rate_guar,
-                vbl_loan_rate=variable_loan_accrual_rate(
-                    iul_ctx, policy.variable_loan_charge_rate,
-                    policy.current_interest_rate),
-                apply_prem_to_loan=options.apply_prem_to_loan,
-                is_cvat=policy.is_cvat,
-                annual_cap=allowances.annual_cap_1,
-                premium_load=prem.tpp_rate,
-            ))
-            wair_tav = tavp.tav_display                            # VG
-            # VH: input SWAM on the valuation row (handled at month 0);
-            # projected rows proxy it as this month's deduction × 12.
-            wair_swam = ded.total_deduction * MONTHS_PER_YEAR
-            wair_held = weighted_average_rate(                     # VJ
-                av=tavp.tav,
-                swam=wair_swam,
-                reg_ln_principal=fixed_loan_state.rg_loan_princ,   # TY
-                reg_ln_accrued=fixed_loan_state.rg_loan_accrued,   # MT
-                pref_ln_principal=fixed_loan_state.pf_loan_princ,
-                pref_ln_accrued=fixed_loan_state.pf_loan_accrued,
-                reg_loan_credit_rate=intr.reg_loan_credit_rate,
-                pref_loan_credit_rate=intr.pref_loan_credit_rate,
-                declared_plus_bonus=uk,
-                blend_plus_bonus=up,
-            )
-        else:
-            wair_tav = state.wair_tav
-            wair_swam = state.wair_swam
-            wair_held = state.wair_held
-        wair_rate = cap_wair(iul_ctx, wair_held, uk)               # VK
-        vl = wair_interest(av, wair_rate, intr.days_in_month)      # VL
-        intr = replace(
-            intr,
-            effective_annual_rate=wair_rate,
-            monthly_interest_rate=(1.0 + wair_rate) ** (intr.days_in_month / DAYS_PER_YEAR) - 1.0,
-            reg_impaired_int=0.0,
-            pref_impaired_int=0.0,
-            unimpaired_int=vl,
-            interest_credited=vl,
-            av_end_of_month=av + vl,
-        )
-    av = intr.av_end_of_month
-
-    # ── 16b. Accumulation: loan interest charges ──────────
-    accrual_loan = accrue_loan_interest(
-        fixed_loan_state,
-        config,
-        intr.days_in_month,
-        variable_loan_accrual_rate(
-            iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
-    )
+    apply_new_loans(ctx, work)
+    credit_interest_post_deduction(ctx, ILLUSTRATION_TIMING, work)
+    accrue_loans(ctx, work)
+    fixed_loan_state = work.fixed_loan_state
+    applied_regular_loan = work.applied_regular_loan
+    applied_preferred_loan = work.applied_preferred_loan
+    intr = work.intr
+    wair_tav = work.wair_tav
+    wair_swam = work.wair_swam
+    wair_held = work.wair_held
+    wair_rate = work.wair_rate
+    av = work.av
+    accrual_loan = work.accrual_loan
 
     # ── 17. Shadow account processing ─────────────────────
     shd = calculate_shadow(ShadowInput(
@@ -1319,31 +1364,13 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     exception = work.exception
     av_end = work.av
 
-    loan_cap = None
-    if options.restrict_loans_to_sv:
-        _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-            policy, rates, rate_year, month_date, config)
-        loan_cap = (
-            av_end - full_sc_for_loan - cap_loan.policy_debt
-            - config.md_holdback * ded.total_deduction
-        )
-    fixed_loan_state = apply_new_fixed_loan(LoanStepInput(
-        loan=cap_loan,
-        requested_amount=month_inputs.regular_loan if month_inputs is not None else 0.0,
-        account_value=av_end,
-        premiums_to_date=prem.premiums_to_date,
-        withdrawals_to_date=withdrawals_to_date,
-        max_loan=loan_cap,
-    ))
-    applied_regular_loan = max(0.0, fixed_loan_state.rg_loan_princ - cap_loan.rg_loan_princ)
-    applied_preferred_loan = max(0.0, fixed_loan_state.pf_loan_princ - cap_loan.pf_loan_princ)
-    accrual_loan = accrue_loan_interest(
-        fixed_loan_state,
-        config,
-        intr.days_in_month,
-        variable_loan_accrual_rate(
-            iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
-    )
+    apply_new_loans(ctx, work)
+    credit_interest_post_deduction(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    accrue_loans(ctx, work)
+    fixed_loan_state = work.fixed_loan_state
+    applied_regular_loan = work.applied_regular_loan
+    applied_preferred_loan = work.applied_preferred_loan
+    accrual_loan = work.accrual_loan
     monthly_mtp = truncate_monthly_mtp(policy.mtp)
     accumulated_mtp = state.accumulated_mtp + monthly_mtp
     accum_mtp_less_prem = (
