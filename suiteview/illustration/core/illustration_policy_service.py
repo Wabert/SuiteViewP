@@ -1,18 +1,41 @@
+"""Map PolicyInformation/DB2 policy records into IllustrationPolicyData.
+
+Source mapping:
+
+* Core identity/duration: PolicyInformation properties backed by LH_BAS_POL and
+  base coverage fields (plan, company, status, issue/valuation dates, billing,
+  demographics, death-benefit option and duration).
+* Coverage/rider/benefit structure: PolicyInformation ``get_base_coverages()``,
+  ``get_riders()``, ``get_benefits()`` plus substandard ratings. Band lookups
+  stay at the rate boundary through ``Rates.get_band``.
+* Financial basis: PolicyInformation monthliversary values, premium history,
+  policy totals, target/guideline amounts, loans, withdrawals, MEC/TAMRA fields
+  and shadow-account seed values.
+* IUL basis: current fund buckets, impaired loan-collateral buckets, premium
+  allocations and UL_Rates index illustration assumptions for the requested
+  illustration date.
+
+The public loader deliberately performs only source mapping and validation. It
+loads neither projection rates nor engine results; use ``suiteview.illustration.api``
+for the canonical build-rates-project wiring.
+"""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 
 from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
-from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
+from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
-from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.index_strategies import is_iul_plan
+from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
+)
+from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
     PremiumTransaction,
@@ -21,24 +44,103 @@ from suiteview.illustration.models.policy_data import (
 from suiteview.illustration.models.rider_config import load_rider_config
 
 
+@dataclass(frozen=True)
+class PolicySourceSnapshot:
+    """Loaded DB2/PolicyInformation facts used to build an illustration policy.
+
+    The snapshot names the source boundary: all database reads happen before the
+    build_* mapping steps, while rate-band lookups needed to identify the policy
+    shape are captured here with their source inputs.
+    """
+
+    policy_number: str
+    region: str
+    pi: object
+    rates_db: Rates
+    illustration_date: date
+    reinstatement_date: date | None
+    plancode: str
+    plancode_config: PlancodeConfig
+    issue_date: date | None
+    issue_age: int
+    rate_sex: str
+    rate_class: str
+    valuation_date: date | None
+    as_of_date: date
+    face_amount: float
+    units: float
+    band: int
+    form_number: str
+    base_coverages: list
+    active_base_coverages: list
+    substandard_by_phase: dict
+    raw_benefits: list
+    raw_riders: list
+
+
+@dataclass(frozen=True)
+class BenefitAssembly:
+    """Mapped supplemental benefits plus derived CCV/shadow indicators."""
+
+    benefits: list[IllBenefitInfo]
+    ccv_active: bool
+    ccv_ceased: bool
+    ccv_units: float
+    ccv_coi_rate: float | None
+
+
 def build_illustration_data(
     policy_number: str,
     region: str = "CKPR",
-    company_code: Optional[str] = None,
+    company_code: str | None = None,
     *,
-    illustration_date: Optional[date] = None,
-    reinstatement_date: Optional[date] = None,
+    illustration_date: date | None = None,
+    reinstatement_date: date | None = None,
 ) -> IllustrationPolicyData:
-    """Load policy data from DB2 and return a ready-to-project IllustrationPolicyData.
+    """Load PolicyInformation and map it into IllustrationPolicyData.
 
-    Uses the shared PolicyInformation class to fetch all tables from DB2,
-    then maps fields into the illustration data model.
+    The orchestration is intentionally thin: create a source snapshot, build the
+    named policy-data sections, then attach value-rollback snapshots. Projection
+    rates and engine execution are owned by ``suiteview.illustration.api``.
     ``reinstatement_date`` opts into continuous coverage for a confirmed lapse;
     only coverages explicitly terminated on that effective date are restored.
 
     Raises:
         ValueError: If policy not found in DB2.
     """
+    source = _load_policy_source_snapshot(
+        policy_number,
+        region,
+        company_code,
+        illustration_date=illustration_date,
+        reinstatement_date=reinstatement_date,
+    )
+    benefits = build_benefits(source)
+    policy = IllustrationPolicyData(
+        **build_core_identity(source),
+        **build_financial_basis(source),
+        **build_iul_basis(source),
+        segments=build_coverage_segments(source),
+        benefits=benefits.benefits,
+        riders=build_riders(source),
+        ccv_active=benefits.ccv_active,
+        ccv_ceased=benefits.ccv_ceased,
+        ccv_units=benefits.ccv_units,
+        ccv_coi_rate=benefits.ccv_coi_rate,
+    )
+    policy.rollback_snapshots = build_value_rollback_snapshots(source.pi, policy)
+    return policy
+
+
+def _load_policy_source_snapshot(
+    policy_number: str,
+    region: str,
+    company_code: str | None,
+    *,
+    illustration_date: date | None,
+    reinstatement_date: date | None,
+) -> PolicySourceSnapshot:
+    """Read PolicyInformation once and cache source facts shared by builders."""
     pi = get_policy_info(policy_number, region, company_code)
     if pi is None or not pi.exists:
         raise ValueError(f"Policy {policy_number} not found in region {region}")
@@ -48,102 +150,158 @@ def build_illustration_data(
         raise ValueError("Coverage restoration requires the policy's confirmed lapse effective date.")
 
     rates_db = Rates()
-    illustration_date = illustration_date or date.today()
-
-    # ── Basic identity / plan ─────────────────────────────────
+    illustration_date = illustration_date or date.today()  # noqa: DTZ011
     plancode = pi.base_plancode or ""
     plancode_config = load_plancode(plancode)
     issue_date = pi.issue_date
-    issue_age_raw = pi.base_issue_age
-    issue_age = issue_age_raw if issue_age_raw is not None else 0
-
-    # ── Demographics ──────────────────────────────────────────
+    issue_age = pi.base_issue_age if pi.base_issue_age is not None else 0
     rate_sex = _translate_sex(pi.base_sex_code)
     rate_class = getattr(pi, "base_rate_class", "") or ""
-
-    # ── Face / DB ─────────────────────────────────────────────
-    face_raw = pi.base_total_face_amount
-    face_amount = float(face_raw) if face_raw else 0.0
+    valuation_date = pi.valuation_date
+    as_of_date = valuation_date or date.today()  # noqa: DTZ011
+    face_amount = float(pi.base_total_face_amount) if pi.base_total_face_amount else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
-    db_option = _translate_dbo(pi.db_option_code or "")
-    # Preliminary band on the base specified amount incl. any base-banding rider
-    # (core.band_rules); refined from the summed base coverages below.
     raw_band = rates_db.get_band(
         plancode, float(pi.base_band_specified_amount), issue_date=issue_date)
     band = raw_band if raw_band is not None else 1
 
-    # ── Account value ─────────────────────────────────────────
-    av_raw = pi.mv_av(0)
-    account_value = float(av_raw) if av_raw is not None else 0.0
-    system_coi_charge = float(pi.mv_coi_charge(0) or 0)
-    system_expense_charge = float(pi.mv_expense_charge(0) or 0)
-    system_other_charge = float(pi.mv_other_charge(0) or 0)
-    system_monthly_deduction = float(pi.mv_monthly_deduction(0) or 0)
-
-    # ── Premium ───────────────────────────────────────────────
-    modal_raw = pi.modal_premium
-    modal_premium = float(modal_raw) if modal_raw is not None else 0.0
-    billing_frequency = pi.billing_frequency or 1
-    if billing_frequency <= 0:
-        billing_frequency = 1
-    annual_premium = modal_premium * (12.0 / billing_frequency)
-    premium_transactions = [
-        PremiumTransaction(
-            effective_date=transaction.trans_date,
-            amount=float(transaction.gross_amount),
-            transaction_type=transaction.trans_code,
-        )
-        for transaction in pi.get_premium_transactions()
+    raw_riders = [
+        restore_lapse_coverage(rider, reinstatement_date)
+        for rider in pi.get_riders()
     ]
+    base_coverages = [
+        restore_lapse_coverage(cov, reinstatement_date)
+        for cov in pi.get_base_coverages()
+    ]
+    active_base_coverages = [
+        cov for cov in base_coverages
+        if not _coverage_is_terminated(cov, as_of_date)
+    ]
+    form_cov = (active_base_coverages or base_coverages or [None])[0]
+    form_number = (getattr(form_cov, "form_number", "") or "").strip()
+    if base_coverages:
+        face_amount = sum(float(cov.face_amount or 0.0) for cov in active_base_coverages)
+        units = sum(
+            float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
+            for cov in active_base_coverages
+        )
+        band_face = float(pi.base_band_specified_amount)
+        if reinstatement_date is not None:
+            band_face = face_amount + sum(
+                float(rider.face_amount)
+                for rider in raw_riders
+                if not _coverage_is_terminated(rider, as_of_date)
+                and rider_bands_as_base(rider.plancode)
+            )
+        raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
+        band = raw_band if raw_band is not None else 1
 
-    # ── Duration / timing ─────────────────────────────────────
+    substandard_by_phase = {}
+    for rating in pi.get_substandard_ratings():
+        substandard_by_phase.setdefault(rating.coverage_phase, []).append(rating)
+    return PolicySourceSnapshot(
+        policy_number=policy_number,
+        region=region,
+        pi=pi,
+        rates_db=rates_db,
+        illustration_date=illustration_date,
+        reinstatement_date=reinstatement_date,
+        plancode=plancode,
+        plancode_config=plancode_config,
+        issue_date=issue_date,
+        issue_age=issue_age,
+        rate_sex=rate_sex,
+        rate_class=rate_class,
+        valuation_date=valuation_date,
+        as_of_date=as_of_date,
+        face_amount=face_amount,
+        units=units,
+        band=band,
+        form_number=form_number,
+        base_coverages=base_coverages,
+        active_base_coverages=active_base_coverages,
+        substandard_by_phase=substandard_by_phase,
+        raw_benefits=pi.get_benefits(),
+        raw_riders=raw_riders,
+    )
+
+
+def build_core_identity(source: PolicySourceSnapshot) -> dict:
+    """Map LH_BAS_POL/base coverage identity, timing and DBO fields."""
+    pi = source.pi
     policy_year = pi.policy_year or 1
     policy_month = pi.policy_month or 1
-    valuation_date = pi.valuation_date
-    if issue_date and valuation_date:
-        months_since_issue = _completed_months(issue_date, valuation_date)
+    if source.issue_date and source.valuation_date:
+        months_since_issue = _completed_months(source.issue_date, source.valuation_date)
         policy_month = (months_since_issue % 12) + 1
     duration = (policy_year - 1) * 12 + policy_month
-    att_age_raw = pi.attained_age
-    attained_age = att_age_raw if att_age_raw is not None else (issue_age + policy_year - 1)
-    maturity_age = pi.age_at_maturity or 121
+    attained_age = (
+        pi.attained_age
+        if pi.attained_age is not None
+        else (source.issue_age + policy_year - 1)
+    )
+    return {
+        "policy_number": source.policy_number.strip(),
+        "region": source.region,
+        "company_code": pi.company_code or "",
+        "reins_partner": str(getattr(pi, "reins_partner", "") or "").strip().upper(),
+        "insured_name": pi.primary_insured_name or "",
+        "premium_pay_status_code": str(getattr(pi, "premium_pay_status_code", "") or ""),
+        "plancode": source.plancode,
+        "product_type": pi.product_type or "",
+        "form_number": source.form_number,
+        "issue_state": pi.issue_state or "",
+        "company_sub": pi.company_name or "",
+        "issue_date": source.issue_date,
+        "issue_age": source.issue_age,
+        "attained_age": attained_age,
+        "insured_birth_date": pi.primary_insured_birth_date,
+        "rate_sex": source.rate_sex,
+        "rate_class": source.rate_class,
+        "face_amount": source.face_amount,
+        "units": source.units,
+        "db_option": _translate_dbo(pi.db_option_code or ""),
+        "band": source.band,
+        "illustration_date": source.illustration_date,
+        "policy_year": policy_year,
+        "policy_month": policy_month,
+        "duration": duration,
+        "valuation_date": source.valuation_date,
+        "maturity_age": pi.age_at_maturity or 121,
+    }
 
-    # ── IUL illustration rates / strategy parameters ──────────
+
+def build_iul_basis(source: PolicySourceSnapshot) -> dict:
+    """Map IUL fund/allocation tables and UL_Rates index assumptions."""
+    pi = source.pi
     reins_partner = str(getattr(pi, "reins_partner", "") or "").strip().upper()
     index_illustration_rates = None
     index_strategy_parameters = None
     index_benchmark_minimum = None
     index_benchmark_maximum = None
     index_market_returns = None
-    if is_iul_plan(plancode):
-        index_illustration_rates = rates_db.get_index_illustration_rates(
+    if is_iul_plan(source.plancode):
+        index_illustration_rates = source.rates_db.get_index_illustration_rates(
             pi.company_code or "",
-            plancode,
-            illustration_date,
+            source.plancode,
+            source.illustration_date,
             reins_partner,
         )
-        index_market_returns = rates_db.get_index_market_returns()
-        index_strategy_parameters = rates_db.get_index_strategy_parameters(
-            plancode,
-            illustration_date,
+        index_market_returns = source.rates_db.get_index_market_returns()
+        index_strategy_parameters = source.rates_db.get_index_strategy_parameters(
+            source.plancode,
+            source.illustration_date,
             reins_partner,
         )
-        benchmark = rates_db.get_index_benchmark_minmax(
-            plancode,
-            illustration_date,
+        benchmark = source.rates_db.get_index_benchmark_minmax(
+            source.plancode,
+            source.illustration_date,
             reins_partner,
         )
         if benchmark is not None:
             index_benchmark_minimum = benchmark["minimum"]
             index_benchmark_maximum = benchmark["maximum"]
 
-    # ── Interest ──────────────────────────────────────────────
-    guaranteed_rate = plancode_config.gint
-    current_rate = plancode_config.gint
-
-    # ── IUL funds / allocations ───────────────────────────────
-    # Loaded for every advanced policy (cheap, and the Policy tab shows them);
-    # only IUL plans consume the allocations for the blended crediting rate.
     fund_values = {}
     for bucket in pi.get_fund_buckets(current_only=True):
         fund = str(bucket.fund_id or "").strip()
@@ -160,242 +318,250 @@ def build_illustration_data(
     }
     if sum(premium_allocations.values()) > 1.5:
         premium_allocations = {fund: pct / 100 for fund, pct in premium_allocations.items()}
+    return {
+        "guaranteed_interest_rate": source.plancode_config.gint,
+        "current_interest_rate": source.plancode_config.gint,
+        "fund_values": fund_values,
+        "impaired_fund_values": impaired_fund_values,
+        "premium_allocations": premium_allocations,
+        "index_illustration_rates": index_illustration_rates,
+        "index_strategy_parameters": index_strategy_parameters,
+        "index_benchmark_minimum": index_benchmark_minimum,
+        "index_benchmark_maximum": index_benchmark_maximum,
+        "index_market_returns": index_market_returns,
+    }
 
-    # ── 7702 / Guideline ──────────────────────────────────────
-    doli_code = str(pi.def_of_life_ins_code or "")
-    def_of_life_ins = _translate_doli(doli_code)
 
-    # GLP and GSP are both normalized to a monthly mode — rounddown(x/12, 2) * 12
-    # — so the annual premium is an exact 12x its monthly twelfth. This matches
-    # how the engine accumulates/displays them (floor_monthly_cent) and keeps
-    # every consumer on the same normalized value. Normalizing the GSP the same
-    # way as the GLP matters when a premium is limited by the GSP.
+def build_financial_basis(source: PolicySourceSnapshot) -> dict:
+    """Map monthliversary values, premiums, targets, loans and TAMRA fields."""
+    pi = source.pi
+    modal_premium = float(pi.modal_premium) if pi.modal_premium is not None else 0.0
+    billing_frequency = pi.billing_frequency or 1
+    if billing_frequency <= 0:
+        billing_frequency = 1
+    av_raw = pi.mv_av(0)
     glp_raw = pi.glp
-    glp = floor_monthly_cent(float(glp_raw)) if glp_raw is not None else 0.0
     gsp_raw = pi.gsp
-    gsp = floor_monthly_cent(float(gsp_raw)) if gsp_raw is not None else 0.0
-    accum_glp_raw = pi.accumulated_glp_target
-    accumulated_glp = float(accum_glp_raw) if accum_glp_raw is not None else 0.0
-    corr_raw = pi.corridor_percent
-    corridor_pct = float(corr_raw) if corr_raw is not None else 100.0
+    tamra_level_raw = pi.tamra_7pay_level
+    tamra_start_av_raw = pi.tamra_7pay_av
+    return {
+        "account_value": float(av_raw) if av_raw is not None else 0.0,
+        "cost_basis": float(pi.cost_basis) if pi.cost_basis is not None else 0.0,
+        "system_coi_charge": float(pi.mv_coi_charge(0) or 0),
+        "system_expense_charge": float(pi.mv_expense_charge(0) or 0),
+        "system_other_charge": float(pi.mv_other_charge(0) or 0),
+        "system_monthly_deduction": float(pi.mv_monthly_deduction(0) or 0),
+        "modal_premium": modal_premium,
+        "annual_premium": modal_premium * (12.0 / billing_frequency),
+        "billing_frequency": billing_frequency,
+        "premiums_paid_to_date": float(pi.premium_td) if pi.premium_td is not None else 0.0,
+        "premiums_ytd": float(pi.premium_ytd) if pi.premium_ytd is not None else 0.0,
+        "premium_transactions": _premium_transactions(pi),
+        "def_of_life_ins": _translate_doli(str(pi.def_of_life_ins_code or "")),
+        "glp": floor_monthly_cent(float(glp_raw)) if glp_raw is not None else 0.0,
+        "glp_is_known": glp_raw is not None,
+        "gsp": floor_monthly_cent(float(gsp_raw)) if gsp_raw is not None else 0.0,
+        "accumulated_glp": _float_or_zero(pi.accumulated_glp_target),
+        "corridor_percent": _float_or_default(pi.corridor_percent, 100.0),
+        "mtp": _float_or_zero(pi.mtp),
+        "accumulated_mtp": _float_or_zero(pi.accumulated_mtp_target),
+        "map_cease_date": getattr(pi, "map_date", None),
+        "ctp": _float_or_zero(pi.ctp),
+        "is_mec": pi.is_mec,
+        "tamra_7pay_level": _float_or_zero(tamra_level_raw),
+        "tamra_7pay_start_date": pi.tamra_7pay_start_date,
+        "tamra_7pay_start_av": _float_or_zero(tamra_start_av_raw),
+        "tamra_7pay_cash_value": _float_or_zero(tamra_start_av_raw),
+        "tamra_7year_lowest_db": float(getattr(pi, "tamra_7pay_specified_amount", None) or 0.0),
+        "tamra_7year_contributions": _tamra_contributions(pi),
+        "withdrawals_to_date": float(pi.total_withdrawals or 0),
+        "decrease_charge_allowed": pi.decrease_charge_allowed,
+        "shadow_account_value": _float_or_zero(pi.shadow_account_value),
+        **_loan_basis(pi),
+    }
 
-    # ── Targets ───────────────────────────────────────────────
-    mtp_raw = pi.mtp
-    mtp = float(mtp_raw) if mtp_raw is not None else 0.0
-    ctp_raw = pi.ctp
-    ctp = float(ctp_raw) if ctp_raw is not None else 0.0
-    accum_mtp_raw = pi.accumulated_mtp_target
-    accumulated_mtp = float(accum_mtp_raw) if accum_mtp_raw is not None else 0.0
-    map_cease_date = getattr(pi, "map_date", None)
 
-    # ── Premiums paid ─────────────────────────────────────────
-    paid_raw = pi.premium_td
-    premiums_paid = float(paid_raw) if paid_raw is not None else 0.0
-    ytd_raw = pi.premium_ytd
-    premiums_ytd = float(ytd_raw) if ytd_raw is not None else 0.0
-    cost_basis_raw = pi.cost_basis
-    cost_basis = float(cost_basis_raw) if cost_basis_raw is not None else 0.0
+def _float_or_zero(value) -> float:
+    return float(value) if value is not None else 0.0
 
-    # ── Loans ─────────────────────────────────────────────────
-    reg_loan_prin = float(pi.total_regular_loan_principal or 0)
-    reg_loan_acc = float(pi.total_regular_loan_accrued or 0)
-    pref_loan_prin = float(pi.total_preferred_loan_principal or 0)
-    pref_loan_acc = float(pi.total_preferred_loan_accrued or 0)
-    var_loan_prin = float(pi.total_variable_loan_principal or 0)
-    var_loan_acc = float(pi.total_variable_loan_accrued or 0)
+
+def _float_or_default(value, default: float) -> float:
+    return float(value) if value is not None else default
+
+
+def _premium_transactions(pi) -> list[PremiumTransaction]:
+    return [
+        PremiumTransaction(
+            effective_date=transaction.trans_date,
+            amount=float(transaction.gross_amount),
+            transaction_type=transaction.trans_code,
+        )
+        for transaction in pi.get_premium_transactions()
+    ]
+
+
+def _tamra_contributions(pi) -> list[float]:
+    return [
+        float(pi.tamra_7pay_premium_paid(tamra_year) or 0.0)
+        - float(pi.tamra_7pay_withdrawals(tamra_year) or 0.0)
+        for tamra_year in range(1, 8)
+    ]
+
+
+def _loan_basis(pi) -> dict:
     var_loan_rate_raw = getattr(pi, "variable_loan_charge_rate", None)
-    var_loan_charge_rate = float(var_loan_rate_raw) if var_loan_rate_raw is not None else None
-    regular_rate_raw = getattr(pi, "fixed_loan_interest_rate", None)
-    preferred_rate_raw = getattr(pi, "preferred_loan_interest_rate", None)
-    # These canonical properties expose DB2 percentage points, including 0.5%.
-    regular_loan_charge_rate = (
-        float(regular_rate_raw) / 100 if regular_rate_raw is not None else None)
-    preferred_loan_charge_rate = (
-        float(preferred_rate_raw) / 100 if preferred_rate_raw is not None else None)
-    # CyberLife stores LN_CRG_ITS_RT percent-form (5.700 = 5.7%); the engine
-    # contract is an annual fraction. Values <= 1 are already fractions.
+    var_loan_charge_rate = (
+        float(var_loan_rate_raw) if var_loan_rate_raw is not None else None
+    )
     if var_loan_charge_rate is not None and var_loan_charge_rate > 1:
         var_loan_charge_rate /= 100.0
+    regular_rate_raw = getattr(pi, "fixed_loan_interest_rate", None)
+    preferred_rate_raw = getattr(pi, "preferred_loan_interest_rate", None)
+    return {
+        "regular_loan_principal": float(pi.total_regular_loan_principal or 0),
+        "regular_loan_accrued": float(pi.total_regular_loan_accrued or 0),
+        "preferred_loan_principal": float(pi.total_preferred_loan_principal or 0),
+        "preferred_loan_accrued": float(pi.total_preferred_loan_accrued or 0),
+        "preferred_loans_available": bool(pi.preferred_loans_available),
+        "regular_loan_charge_rate": (
+            float(regular_rate_raw) / 100 if regular_rate_raw is not None else None
+        ),
+        "preferred_loan_charge_rate": (
+            float(preferred_rate_raw) / 100 if preferred_rate_raw is not None else None
+        ),
+        "variable_loan_principal": float(pi.total_variable_loan_principal or 0),
+        "variable_loan_accrued": float(pi.total_variable_loan_accrued or 0),
+        "variable_loan_charge_rate": var_loan_charge_rate,
+    }
 
-    # ── Withdrawals ───────────────────────────────────────────
-    withdrawals = float(pi.total_withdrawals or 0)
 
-    # ── Shadow seed ───────────────────────────────────────────
-    shadow_raw = pi.shadow_account_value
-    shadow_av = float(shadow_raw) if shadow_raw is not None else 0.0
+def build_coverage_segments(source: PolicySourceSnapshot) -> list[CoverageSegment]:
+    """Map active LH_COV_PHA base coverage rows into engine segments."""
+    return [_coverage_segment_from_source(source, cov) for cov in source.active_base_coverages]
 
-    # ── MEC / TAMRA ───────────────────────────────────────────
-    is_mec = pi.is_mec
-    tamra_level_raw = pi.tamra_7pay_level
-    tamra_7pay_level = float(tamra_level_raw) if tamra_level_raw is not None else 0.0
-    tamra_7pay_start = pi.tamra_7pay_start_date
-    tamra_start_av_raw = pi.tamra_7pay_av
-    tamra_7pay_start_av = float(tamra_start_av_raw) if tamra_start_av_raw is not None else 0.0
-    tamra_contributions = []
-    for tamra_yr in range(1, 8):
-        paid = pi.tamra_7pay_premium_paid(tamra_yr)
-        withdrawn = pi.tamra_7pay_withdrawals(tamra_yr)
-        tamra_contributions.append(
-            float(paid or 0.0) - float(withdrawn or 0.0)
+
+def _coverage_segment_from_source(source: PolicySourceSnapshot, cov) -> CoverageSegment:
+    seg_face = float(cov.face_amount) if cov.face_amount else 0.0
+    if source.plancode_config.sa_basis == "OriginalSA" and cov.orig_amount is None:
+        raise ValueError(
+            f"Coverage {cov.cov_pha_nbr}: original specified amount is required "
+            "for SA_Basis=OriginalSA"
         )
+    seg_orig_face = float(cov.orig_amount) if cov.orig_amount is not None else seg_face
+    try:
+        seg_rate_sex = _translate_sex(cov.sex_code)
+    except (AttributeError, TypeError, ValueError):
+        seg_rate_sex = source.rate_sex
+    seg_table, seg_table_cease, seg_flat, seg_flat_cease = _substandard_basis(source, cov)
+    seg_band = source.band
+    original_band = (
+        source.pi.cov_mtp_band(cov.cov_pha_nbr)
+        if source.plancode_config.sa_basis == "OriginalSA"
+        else seg_band
+    )
+    return CoverageSegment(
+        coverage_phase=cov.cov_pha_nbr,
+        is_base=True,
+        is_cola=str(getattr(cov, "cola_indicator", "")).strip() == "1",
+        issue_date=cov.issue_date,
+        issue_age=cov.issue_age if cov.issue_age is not None else source.issue_age,
+        rate_sex=seg_rate_sex,
+        rate_class=cov.rate_class or source.rate_class,
+        face_amount=seg_face,
+        original_face_amount=seg_orig_face,
+        units=float(cov.units) if cov.units else seg_face / 1000.0,
+        vpu=float(cov.vpu) if cov.vpu else 1000.0,
+        band=seg_band,
+        original_band=original_band,
+        table_rating=seg_table,
+        table_cease_date=seg_table_cease,
+        flat_extra=seg_flat,
+        flat_cease_date=seg_flat_cease,
+        status=cov.cov_status or "A",
+        maturity_date=cov.maturity_date,
+        coi_renewal_rate=float(cov.coi_rate) if cov.coi_rate else None,
+    )
 
-    as_of_date = valuation_date or date.today()
 
-    # ── Build coverage segments ───────────────────────────────
-    segments = []
-    base_covs = pi.get_base_coverages()
-    base_covs = [restore_lapse_coverage(cov, reinstatement_date) for cov in base_covs]
+def _substandard_basis(source: PolicySourceSnapshot, cov) -> tuple[int, object, float, object]:
+    seg_table = cov.table_rating if cov.table_rating is not None else 0
+    seg_table_cease = None
+    seg_flat = float(cov.flat_extra) if cov.flat_extra else 0.0
+    seg_flat_cease = cov.flat_cease_date
+    for rating in source.substandard_by_phase.get(cov.cov_pha_nbr, []):
+        if rating.type_code == "T" and rating.table_rating_numeric and rating.table_rating_numeric > 0:
+            seg_table = rating.table_rating_numeric
+            seg_table_cease = rating.cease_date
+        elif rating.type_code == "F":
+            if rating.flat_amount:
+                seg_flat = float(rating.flat_amount)
+            seg_flat_cease = rating.flat_cease_date
+    return seg_table, seg_table_cease, seg_flat, seg_flat_cease
 
-    active_base_covs = [
-        cov for cov in base_covs
-        if not _coverage_is_terminated(cov, as_of_date)
-    ]
-    # Form number lives on the base coverage (LH_COV_PHA.POL_FRM_NBR).
-    form_cov = (active_base_covs or base_covs or [None])[0]
-    form_number = (getattr(form_cov, "form_number", "") or "").strip()
-    if base_covs:
-        face_amount = sum(float(cov.face_amount or 0.0) for cov in active_base_covs)
-        units = sum(
-            float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
-            for cov in active_base_covs
-        )
-        # Band is looked up on the base specified amount PLUS any rider that
-        # bands as base coverage (e.g. 1U144A00 on IUL08 — see core.band_rules).
-        band_face = float(pi.base_band_specified_amount)
-        if reinstatement_date is not None:
-            restored_riders = [
-                restore_lapse_coverage(rider, reinstatement_date)
-                for rider in pi.get_riders()
-            ]
-            band_face = face_amount + sum(
-                float(rider.face_amount)
-                for rider in restored_riders
-                if not _coverage_is_terminated(rider, as_of_date)
-                and rider_bands_as_base(rider.plancode)
-            )
-        raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
-        band = raw_band if raw_band is not None else 1
 
-    substandard_by_phase = {}
-    for rating in pi.get_substandard_ratings():
-        substandard_by_phase.setdefault(rating.coverage_phase, []).append(rating)
-
-    for cov in active_base_covs:
-        seg_face = float(cov.face_amount) if cov.face_amount else 0.0
-        if plancode_config.sa_basis == "OriginalSA" and cov.orig_amount is None:
-            raise ValueError(
-                f"Coverage {cov.cov_pha_nbr}: original specified amount is required "
-                "for SA_Basis=OriginalSA"
-            )
-        seg_orig_face = float(cov.orig_amount) if cov.orig_amount is not None else seg_face
-        seg_units = float(cov.units) if cov.units else seg_face / 1000.0
-        # Every base coverage (original + increases) bands on the COMBINED base
-        # specified amount, so they all share the policy base band computed above.
-        # (Do NOT call pi.cov_band(cov.cov_pha_nbr): cov_band expects a 1-based
-        # index into get_coverages(), not a coverage-phase number. When phases
-        # have gaps from terminated coverages/riders, a phase number indexes the
-        # wrong coverage and can yield band 0 -> an empty COI schedule -> a COI
-        # rate/charge of 0 for that increase segment.)
-        seg_band = band
-        original_band = (
-            pi.cov_mtp_band(cov.cov_pha_nbr)
-            if plancode_config.sa_basis == "OriginalSA"
-            else seg_band
-        )
-
-        # Get rate sex from coverage record
-        try:
-            seg_rate_sex = _translate_sex(cov.sex_code)
-        except Exception:
-            seg_rate_sex = rate_sex
-
-        seg_rate_class = cov.rate_class or rate_class
-        seg_table = cov.table_rating if cov.table_rating is not None else 0
-        seg_table_cease = None
-        seg_flat = float(cov.flat_extra) if cov.flat_extra else 0.0
-        seg_flat_cease = cov.flat_cease_date
-        for rating in substandard_by_phase.get(cov.cov_pha_nbr, []):
-            if rating.type_code == "T" and rating.table_rating_numeric and rating.table_rating_numeric > 0:
-                seg_table = rating.table_rating_numeric
-                seg_table_cease = rating.flat_cease_date
-            elif rating.type_code == "F":
-                if rating.flat_amount:
-                    seg_flat = float(rating.flat_amount)
-                seg_flat_cease = rating.flat_cease_date
-
-        segments.append(CoverageSegment(
-            coverage_phase=cov.cov_pha_nbr,
-            is_base=True,
-            is_cola=str(getattr(cov, "cola_indicator", "")).strip() == "1",
-            issue_date=cov.issue_date,
-            issue_age=cov.issue_age if cov.issue_age is not None else issue_age,
-            rate_sex=seg_rate_sex,
-            rate_class=seg_rate_class,
-            face_amount=seg_face,
-            original_face_amount=seg_orig_face,
-            units=seg_units,
-            vpu=float(cov.vpu) if cov.vpu else 1000.0,
-            band=seg_band,
-            original_band=original_band,
-            table_rating=seg_table,
-            table_cease_date=seg_table_cease,
-            flat_extra=seg_flat,
-            flat_cease_date=seg_flat_cease,
-            status=cov.cov_status or "A",
-            maturity_date=cov.maturity_date,
-            coi_renewal_rate=float(cov.coi_rate) if cov.coi_rate else None,
-        ))
-
-    # ── Build benefits list ───────────────────────────────────
+def build_benefits(source: PolicySourceSnapshot) -> BenefitAssembly:
+    """Map LH_SPM_BNF supplemental benefits and derive CCV indicators."""
     benefits = []
-    raw_benefits = pi.get_benefits()
-
-    for b in raw_benefits:
-        if b.pay_up_date and b.pay_up_date < as_of_date:
+    for benefit in source.raw_benefits:
+        if benefit.pay_up_date and benefit.pay_up_date < source.as_of_date:
             continue
         benefits.append(IllBenefitInfo(
-            coverage_phase=b.cov_pha_nbr,
-            form_number=b.form_number or "",
-            benefit_type=b.benefit_type_cd or "",
-            benefit_subtype=b.benefit_subtype_cd or "",
-            benefit_amount=float(b.benefit_amount) if b.benefit_amount else 0.0,
-            units=float(b.units) if b.units else 0.0,
-            vpu=float(b.vpu) if b.vpu else 0.0,
-            issue_date=b.issue_date,
-            issue_age=b.issue_age if b.issue_age is not None else 0,
-            pay_up_date=b.pay_up_date,
-            cease_date=b.cease_date,
-            rating_factor=float(b.rating_factor) if b.rating_factor else 0.0,
-            coi_rate=float(b.coi_rate) if b.coi_rate else None,
+            coverage_phase=benefit.cov_pha_nbr,
+            form_number=benefit.form_number or "",
+            benefit_type=benefit.benefit_type_cd or "",
+            benefit_subtype=benefit.benefit_subtype_cd or "",
+            benefit_amount=float(benefit.benefit_amount) if benefit.benefit_amount else 0.0,
+            units=float(benefit.units) if benefit.units else 0.0,
+            vpu=float(benefit.vpu) if benefit.vpu else 0.0,
+            issue_date=benefit.issue_date,
+            issue_age=benefit.issue_age if benefit.issue_age is not None else 0,
+            pay_up_date=benefit.pay_up_date,
+            cease_date=benefit.cease_date,
+            rating_factor=float(benefit.rating_factor) if benefit.rating_factor else 0.0,
+            coi_rate=float(benefit.coi_rate) if benefit.coi_rate else None,
             is_active=True,
         ))
+    ccv_active = False
+    ccv_units = 0.0
+    ccv_coi_rate: float | None = None
+    for benefit in benefits:
+        if benefit.benefit_type == "A" and benefit.is_active:
+            ccv_active = True
+            ccv_units = benefit.units
+            ccv_coi_rate = benefit.coi_rate
+            break
+    ccv_ceased = not ccv_active and any(
+        (benefit.benefit_type_cd or "") == "A"
+        and benefit.cease_date
+        and benefit.cease_date < source.as_of_date
+        for benefit in source.raw_benefits)
+    return BenefitAssembly(
+        benefits=benefits,
+        ccv_active=ccv_active,
+        ccv_ceased=ccv_ceased,
+        ccv_units=ccv_units,
+        ccv_coi_rate=ccv_coi_rate,
+    )
 
-    # ── Build rider list ──────────────────────────────────────
+
+def build_riders(source: PolicySourceSnapshot) -> list[RiderInfo]:
+    """Map non-base LH_COV_PHA rider rows with rider-config metadata."""
     riders = []
     rider_counts = {}
-    raw_riders = pi.get_riders()
-
-    for rider in raw_riders:
-        rider = restore_lapse_coverage(rider, reinstatement_date)
+    for rider in source.raw_riders:
         rider_plancode = rider.plancode or ""
-        if not rider_plancode or rider_plancode == plancode:
+        if not rider_plancode or rider_plancode == source.plancode:
             continue
-        if _coverage_is_terminated(rider, as_of_date):
+        if _coverage_is_terminated(rider, source.as_of_date):
             continue
         rider_config = load_rider_config(rider_plancode)
         rider_counts[rider_plancode] = rider_counts.get(rider_plancode, 0) + 1
         rider_face = float(rider.face_amount) if rider.face_amount else 0.0
         rider_units = float(rider.units) if rider.units else rider_face / 1000.0
         if rider_bands_as_base(rider_plancode):
-            # This rider acts like a segment of base coverage: it charges on the
-            # policy's (combined) band, not its own face-based band. Reuse the
-            # base band computed above (base plancode band table on the combined
-            # specified amount). See core.band_rules.
-            rider_band = band
+            rider_band = source.band
         else:
-            # No issue_date: RERUN's CZ issue-date band rule applies only to the
-            # BASE plancode's band table (sBandTableCode), never to rider bands.
-            raw_rider_band = rates_db.get_band(rider_plancode, rider_face)
+            raw_rider_band = source.rates_db.get_band(rider_plancode, rider_face)
             rider_band = raw_rider_band if raw_rider_band is not None else 1
         riders.append(RiderInfo(
             coverage_phase=rider.cov_pha_nbr,
@@ -416,123 +582,13 @@ def build_illustration_data(
             premium_rate=float(rider.premium_rate) if rider.premium_rate else None,
             coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
             is_active=True,
-            on_primary_insured=pi._covers_primary_insured(rider),
+            on_primary_insured=source.pi._covers_primary_insured(rider),
             cov_type=rider_config.cov_type if rider_config is not None else "",
             cease_age_dur=rider_config.cease_age_dur if rider_config is not None else None,
             cease_use_code=rider_config.cease_use_code if rider_config is not None else "",
             description=rider_config.description if rider_config is not None else "",
         ))
-
-    # ── CCV / Shadow Account detection ───────────────────────
-    ccv_active = False
-    ccv_units = 0.0
-    ccv_coi_rate: Optional[float] = None
-    for ben in benefits:
-        if ben.benefit_type == "A" and ben.is_active:
-            ccv_active = True
-            ccv_units = ben.units
-            ccv_coi_rate = ben.coi_rate
-            break
-    # A type-A benefit that ceased before the valuation date was filtered out of
-    # ``benefits`` above — remember it so the UI can explain why the shadow
-    # account can't drive a solve.
-    ccv_ceased = not ccv_active and any(
-        (b.benefit_type_cd or "") == "A" and b.cease_date and b.cease_date < as_of_date
-        for b in raw_benefits)
-
-    # ── Assemble ──────────────────────────────────────────────
-    policy = IllustrationPolicyData(
-        policy_number=policy_number.strip(),
-        region=region,
-        company_code=pi.company_code or "",
-        reins_partner=reins_partner,
-        insured_name=pi.primary_insured_name or "",
-        premium_pay_status_code=str(getattr(pi, "premium_pay_status_code", "") or ""),
-        plancode=plancode,
-        product_type=pi.product_type or "",
-        form_number=form_number,
-        issue_state=pi.issue_state or "",
-        company_sub=pi.company_name or "",
-        issue_date=issue_date,
-        issue_age=issue_age,
-        attained_age=attained_age,
-        insured_birth_date=pi.primary_insured_birth_date,
-        rate_sex=rate_sex,
-        rate_class=rate_class,
-        face_amount=face_amount,
-        units=units,
-        db_option=db_option,
-        band=band,
-        account_value=account_value,
-        cost_basis=cost_basis,
-        system_coi_charge=system_coi_charge,
-        system_expense_charge=system_expense_charge,
-        system_other_charge=system_other_charge,
-        system_monthly_deduction=system_monthly_deduction,
-        modal_premium=modal_premium,
-        annual_premium=annual_premium,
-        billing_frequency=billing_frequency,
-        premiums_paid_to_date=premiums_paid,
-        premiums_ytd=premiums_ytd,
-        premium_transactions=premium_transactions,
-        guaranteed_interest_rate=guaranteed_rate,
-        current_interest_rate=current_rate,
-        fund_values=fund_values,
-        impaired_fund_values=impaired_fund_values,
-        premium_allocations=premium_allocations,
-        index_illustration_rates=index_illustration_rates,
-        index_strategy_parameters=index_strategy_parameters,
-        index_benchmark_minimum=index_benchmark_minimum,
-        index_benchmark_maximum=index_benchmark_maximum,
-        index_market_returns=index_market_returns,
-        illustration_date=illustration_date,
-        policy_year=policy_year,
-        policy_month=policy_month,
-        duration=duration,
-        valuation_date=valuation_date,
-        maturity_age=maturity_age,
-        def_of_life_ins=def_of_life_ins,
-        glp=glp,
-        glp_is_known=glp_raw is not None,
-        gsp=gsp,
-        accumulated_glp=accumulated_glp,
-        corridor_percent=corridor_pct,
-        mtp=mtp,
-        accumulated_mtp=accumulated_mtp,
-        map_cease_date=map_cease_date,
-        ctp=ctp,
-        is_mec=is_mec,
-        tamra_7pay_level=tamra_7pay_level,
-        tamra_7pay_start_date=tamra_7pay_start,
-        tamra_7pay_start_av=tamra_7pay_start_av,
-        tamra_7pay_cash_value=tamra_7pay_start_av,
-        tamra_7year_lowest_db=float(getattr(pi, "tamra_7pay_specified_amount", None) or 0.0),
-        tamra_7year_contributions=tamra_contributions,
-        regular_loan_principal=reg_loan_prin,
-        regular_loan_accrued=reg_loan_acc,
-        preferred_loan_principal=pref_loan_prin,
-        preferred_loan_accrued=pref_loan_acc,
-        preferred_loans_available=bool(pi.preferred_loans_available),
-        regular_loan_charge_rate=regular_loan_charge_rate,
-        preferred_loan_charge_rate=preferred_loan_charge_rate,
-        variable_loan_principal=var_loan_prin,
-        variable_loan_accrued=var_loan_acc,
-        variable_loan_charge_rate=var_loan_charge_rate,
-        withdrawals_to_date=withdrawals,
-        decrease_charge_allowed=pi.decrease_charge_allowed,
-        shadow_account_value=shadow_av,
-        ccv_active=ccv_active,
-        ccv_ceased=ccv_ceased,
-        ccv_units=ccv_units,
-        ccv_coi_rate=ccv_coi_rate,
-        segments=segments,
-        benefits=benefits,
-        riders=riders,
-    )
-    policy.rollback_snapshots = build_value_rollback_snapshots(pi, policy)
-    return policy
-
-
+    return riders
 def active_rider_benefit_codes(pi) -> str:
     """Comma-delimited active rider plancodes + supplemental benefit codes.
 
@@ -569,7 +625,7 @@ def active_rider_benefit_codes(pi) -> str:
 
 def coverage_segment_data_warnings(pi) -> list[str]:
     """Flag blank CyberLife fields before illustration defaults mask them."""
-    as_of_date = pi.valuation_date or date.today()
+    as_of_date = pi.valuation_date or date.today()  # noqa: DTZ011
     incomplete_segments: list[str] = []
 
     for coverage in pi.get_base_coverages():
