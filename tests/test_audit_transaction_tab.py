@@ -13,7 +13,7 @@ from suiteview.audit.tabs.policy2_tab import Policy2Tab
 from suiteview.audit.tabs.policy_tab import PolicyTab
 from suiteview.audit.tabs.transaction_tab import TransactionTab
 from suiteview.audit.transaction_filters import TransactionDateComparison
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from tests.audit_criteria_helpers import collect_audit_criteria
 _QT_APP = None
 
 def _app():

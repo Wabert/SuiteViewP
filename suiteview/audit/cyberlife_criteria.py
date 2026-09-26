@@ -217,25 +217,28 @@ class CriteriaCollector:
 
     def collect(self) -> AuditCriteria:
         tabs = self.bundle.tabs
-        return collect_audit_criteria(
+        return AuditCriteria(
             schema=self.bundle.schema,
             sys_code=self.bundle.sys_code,
             max_count_text=self.bundle.max_count_text,
-            policy_tab=tabs["policy"],
-            display_tab=tabs["display"],
-            policy2_tab=tabs["policy2"],
-            adv_tab=tabs["adv"],
-            coverages_tab=tabs["coverages"],
-            plancode_tab=tabs["plancode"],
-            benefits_tab=tabs["benefits"],
-            transaction_tab=tabs.get("transaction"),
+            policy=_freeze_tab(tabs["policy"], PolicyCriteria),
+            display=_freeze_tab(tabs["display"], DisplayCriteria),
+            policy2=_freeze_tab(tabs["policy2"], Policy2Criteria),
+            adv=_freeze_tab(tabs["adv"], AdvCriteria),
+            coverages=_freeze_tab(tabs["coverages"], CoveragesCriteria),
+            plancode=_freeze_plancode(tabs["plancode"]),
+            benefits=_freeze_tab(tabs["benefits"], BenefitsCriteria),
+            transaction=_freeze_transaction(tabs.get("transaction")),
             coverage_level=self.bundle.coverage_level,
             coverage_scope=self.bundle.coverage_scope,
-            custom_display_tab=tabs.get("custom_display"),
-            people_tab=tabs.get("people"),
-            segment52_tab=tabs.get("segment52"),
-            wl_tab=tabs.get("wl"),
-            as_of=self.bundle.as_of,
+            custom_display=_freeze_custom_display(tabs.get("custom_display")),
+            people=(
+                _freeze_tab(tabs.get("people"), PeopleCriteria)
+                if tabs.get("people") is not None else None
+            ),
+            segment52=_freeze_segment52(tabs.get("segment52")),
+            wl=_freeze_wl(tabs.get("wl")),
+            as_of=self.bundle.as_of or date.today(),
         )
 
 
@@ -321,48 +324,3 @@ def _freeze_segment52(tab: Any | None) -> Segment52Criteria | None:
     base = _freeze_tab(tab, Segment52Criteria)
     return Segment52Criteria(base.attrs, tab.get_state())
 
-
-def collect_audit_criteria(
-    schema: str,
-    sys_code: str,
-    max_count_text: str,
-    policy_tab: Any,
-    display_tab: Any,
-    policy2_tab: Any,
-    adv_tab: Any,
-    coverages_tab: Any,
-    plancode_tab: Any,
-    benefits_tab: Any,
-    transaction_tab: Any | None = None,
-    coverage_level: bool = False,
-    coverage_scope: str = "All Covs",
-    custom_display_tab: Any | None = None,
-    people_tab: Any | None = None,
-    segment52_tab: Any | None = None,
-    wl_tab: Any | None = None,
-    as_of: date | None = None,
-) -> AuditCriteria:
-    """Read Qt widgets once and return immutable SQL-builder criteria.
-
-    ``as_of`` defaults to today; pass a fixed date for reproducible SQL.
-    """
-    return AuditCriteria(
-        schema=schema,
-        sys_code=sys_code,
-        max_count_text=max_count_text,
-        policy=_freeze_tab(policy_tab, PolicyCriteria),
-        display=_freeze_tab(display_tab, DisplayCriteria),
-        policy2=_freeze_tab(policy2_tab, Policy2Criteria),
-        adv=_freeze_tab(adv_tab, AdvCriteria),
-        coverages=_freeze_tab(coverages_tab, CoveragesCriteria),
-        plancode=_freeze_plancode(plancode_tab),
-        benefits=_freeze_tab(benefits_tab, BenefitsCriteria),
-        transaction=_freeze_transaction(transaction_tab),
-        coverage_level=coverage_level,
-        coverage_scope=coverage_scope,
-        custom_display=_freeze_custom_display(custom_display_tab),
-        people=_freeze_tab(people_tab, PeopleCriteria) if people_tab is not None else None,
-        segment52=_freeze_segment52(segment52_tab),
-        wl=_freeze_wl(wl_tab),
-        as_of=as_of or date.today(),
-    )

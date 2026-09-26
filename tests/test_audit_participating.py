@@ -13,7 +13,7 @@ from suiteview.audit.tabs.display_tab import DisplayTab
 from suiteview.audit.tabs.plancode_tab import PlancodeTab
 from suiteview.audit.tabs.policy2_tab import Policy2Tab
 from suiteview.audit.tabs.policy_tab import PolicyTab
-from suiteview.audit.cyberlife_criteria import collect_audit_criteria
+from tests.audit_criteria_helpers import collect_audit_criteria
 LABELS = ['Participating', 'Participating but divs are paid up', 'Nonparticipating']
 
 @pytest.fixture
