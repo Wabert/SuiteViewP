@@ -252,115 +252,139 @@ def _seg67_amount(row: dict, table: str, column: str, field: str,
     )
 
 
+def _seg67_extra_key_groups(table: str, row: dict) -> tuple[list, str]:
+    percent = _seg67_text(row, "SST_XTR_PCT_IND", 1)
+    if percent not in ("0", "1"):
+        raise ValueError(f"Unsupported Segment 67 extra percentage flag: {percent!r}")
+    return [[_seg67_token(
+        _seg67_text(row, "SST_XTR_RT_TBL_CD", 2),
+        "Table Rating Code", table, "SST_XTR_RT_TBL_CD",
+    )]], percent
+
+
+def _seg67_benefit_key(table: str, row: dict) -> tuple[str, str, str, str, str]:
+    if table.startswith("LH_BNF_"):
+        return (
+            _seg67_text(row, "SPM_BNF_TYP_CD", 1),
+            _seg67_text(row, "SPM_BNF_SBY_CD", 1),
+            "SPM_BNF_TYP_CD",
+            "SPM_BNF_SBY_CD",
+            "0",
+        )
+    option = _seg67_value(row, "DTH_BNF_PLN_OPT_CD")
+    option = "" if option is None else str(option).strip()
+    if len(option) > 1 or (option and ord(option) < 32):
+        raise ValueError(f"Invalid Segment 67 death benefit option: {option!r}")
+    if table.endswith("_GDL_PRM"):
+        btype, subtype, bcolumn, system_calc = _seg67_guideline_benefit_key(row, option)
+        return btype, subtype, bcolumn, "DTH_BNF_PLN_OPT_CD", system_calc
+    btype, subtype, bcolumn, scolumn = _seg67_coverage_benefit_key(row, option)
+    return btype, subtype, bcolumn, scolumn, "0"
+
+
+def _seg67_guideline_benefit_key(row: dict, option: str) -> tuple[str, str, str, str]:
+    system_calc = _seg67_text(row, "SYS_CLC_PRM_IND", 1)
+    if system_calc not in ("0", "1"):
+        raise ValueError(f"Invalid Segment 67 guideline flag: {system_calc!r}")
+    rate_type = _seg67_text(row, "PRM_RT_TYP_CD", 1)
+    if system_calc == "1":
+        if rate_type not in ("A", "S"):
+            raise ValueError("Segment 67 system-calculated guidelines require type A or S")
+        return " ", option or " ", "SYS_CLC_PRM_IND", system_calc
+    if not option:
+        raise ValueError("Segment 67 rate-file guideline plan option is unavailable")
+    return "*", option, "SYS_CLC_PRM_IND", system_calc
+
+
+def _seg67_coverage_benefit_key(row: dict, option: str) -> tuple[str, str, str, str]:
+    rate_type = _seg67_text(row, "PRM_RT_TYP_CD", 1)
+    if rate_type not in ("C", "T", "W", "L", "F", "M"):
+        raise ValueError(f"Unsupported Segment 67 coverage rate type: {rate_type!r}")
+    joint = _seg67_text(row, "JT_INS_IND", 1)
+    if joint not in ("0", "1"):
+        raise ValueError(f"Invalid Segment 67 joint-insured flag: {joint!r}")
+    if joint == "1" and rate_type != "C":
+        raise ValueError("Segment 67 joint-insured markers are verified only for C rates")
+    subtype = "J" if joint == "1" else (option or "*")
+    if rate_type == "C" and joint == "0":
+        subtype = "*"
+    scolumn = "JT_INS_IND" if joint == "1" else "DTH_BNF_PLN_OPT_CD"
+    return "*", subtype, "PRM_RT_TYP_CD", scolumn
+
+
+def _seg67_guideline_groups(table: str, row: dict, rate_type: str,
+                            system_calc: str, benefit: bool) -> list:
+    if rate_type not in ("A", "S", "1", "2", "3"):
+        raise ValueError(f"Unsupported Segment 67 guideline type: {rate_type!r}")
+    if not benefit and system_calc == "1":
+        key = "  "
+    else:
+        key = "".join(_seg67_text(row, column, 1) for column in ("RT_SEX_CD", "RT_CLS_CD"))
+        if not key.strip():
+            raise ValueError("Segment 67 rate-file guideline key is unavailable")
+    units = rate_type in ("1", "2")
+    return [
+        [_seg67_token(
+            key, "Guideline Rate Key", table, "RT_SEX_CD / RT_CLS_CD",
+            "System-calculated guideline premiums have a blank key.",
+        )],
+        [_seg67_amount(
+            row, table, "GDL_PRM_UNT_QTY" if units else "GDL_PRM_AMT",
+            "GLP/GSP Units" if units else "GLP/GSP Premium", 11, 3 if units else 2,
+        )],
+    ]
+
+
+def _seg67_rate_key_group(table: str, row: dict) -> list:
+    return [[
+        _seg67_token(_seg67_text(row, column, 1), field, table, column)
+        for column, field in (
+            ("RT_SEX_CD", "Rate Sex"), ("RT_CLS_CD", "Rate Class"),
+            ("RT_BAN_CD", "Rate Band"),
+        )
+    ]]
+
+
+def _seg67_extra_amount_group(table: str, row: dict, percent: str) -> list:
+    if percent == "0":
+        amount = _seg67_value(row, "SST_XTR_UNT_AMT")
+        if amount is not None and Decimal(str(amount)) != 0:
+            raise ValueError(
+                "Segment 67 nonzero dollar extra: packed precision is not "
+                "verified for this coverage (fixed versus flexible premium)"
+            )
+    return [[_seg67_amount(
+        row, table, "SST_XTR_PCT" if percent == "1" else "SST_XTR_UNT_AMT",
+        "Extra Percentage" if percent == "1" else "Extra Unit Amount",
+        9, 5 if percent == "1" else 0,
+    )]]
+
+
 def _seg67_entry_groups(table: str, row: dict) -> list:
     """Keep rate-key bytes together while allowing entries to span lines."""
     rate_type = _seg67_text(row, "PRM_RT_TYP_CD", 1)
     groups = [[_seg67_token(rate_type, "Rate Type Code", table, "PRM_RT_TYP_CD")]]
     guideline = table.endswith("_GDL_PRM")
     benefit = table.startswith("LH_BNF_")
+    system_calc = "0"
+    percent = "0"
 
     if table == "LH_SST_XTR_RNL_RT":
-        percent = _seg67_text(row, "SST_XTR_PCT_IND", 1)
-        if percent not in ("0", "1"):
-            raise ValueError(f"Unsupported Segment 67 extra percentage flag: {percent!r}")
-        groups.append([_seg67_token(
-            _seg67_text(row, "SST_XTR_RT_TBL_CD", 2),
-            "Table Rating Code", table, "SST_XTR_RT_TBL_CD",
-        )])
+        extra_groups, percent = _seg67_extra_key_groups(table, row)
+        groups.extend(extra_groups)
     else:
-        if benefit:
-            btype = _seg67_text(row, "SPM_BNF_TYP_CD", 1)
-            subtype = _seg67_text(row, "SPM_BNF_SBY_CD", 1)
-            bcolumn, scolumn = "SPM_BNF_TYP_CD", "SPM_BNF_SBY_CD"
-        else:
-            option = _seg67_value(row, "DTH_BNF_PLN_OPT_CD")
-            option = "" if option is None else str(option).strip()
-            if len(option) > 1 or (option and ord(option) < 32):
-                raise ValueError(f"Invalid Segment 67 death benefit option: {option!r}")
-            scolumn = "DTH_BNF_PLN_OPT_CD"
-            if guideline:
-                system_calc = _seg67_text(row, "SYS_CLC_PRM_IND", 1)
-                if system_calc not in ("0", "1"):
-                    raise ValueError(f"Invalid Segment 67 guideline flag: {system_calc!r}")
-                if system_calc == "1":
-                    if rate_type not in ("A", "S"):
-                        raise ValueError(
-                            "Segment 67 system-calculated guidelines require type A or S"
-                        )
-                    btype, subtype = " ", option or " "
-                else:
-                    if not option:
-                        raise ValueError(
-                            "Segment 67 rate-file guideline plan option is unavailable"
-                        )
-                    btype, subtype = "*", option
-                bcolumn = "SYS_CLC_PRM_IND"
-            else:
-                if rate_type not in ("C", "T", "W", "L", "F", "M"):
-                    raise ValueError(f"Unsupported Segment 67 coverage rate type: {rate_type!r}")
-                joint = _seg67_text(row, "JT_INS_IND", 1)
-                if joint not in ("0", "1"):
-                    raise ValueError(f"Invalid Segment 67 joint-insured flag: {joint!r}")
-                if joint == "1" and rate_type != "C":
-                    raise ValueError(
-                        "Segment 67 joint-insured markers are verified only for C rates"
-                    )
-                btype = "*"
-                subtype = "J" if joint == "1" else (option or "*")
-                if rate_type == "C" and joint == "0":
-                    subtype = "*"
-                bcolumn = "PRM_RT_TYP_CD"
-                if joint == "1":
-                    scolumn = "JT_INS_IND"
+        btype, subtype, bcolumn, scolumn, system_calc = _seg67_benefit_key(table, row)
         groups.extend([
             [_seg67_token(btype, "Benefit Type", table, bcolumn)],
             [_seg67_token(subtype, "Benefit Subtype", table, scolumn)],
         ])
 
     if guideline:
-        if rate_type not in ("A", "S", "1", "2", "3"):
-            raise ValueError(f"Unsupported Segment 67 guideline type: {rate_type!r}")
-        if not benefit and system_calc == "1":
-            key = "  "
-        else:
-            key = "".join(
-                _seg67_text(row, column, 1)
-                for column in ("RT_SEX_CD", "RT_CLS_CD")
-            )
-            if not key.strip():
-                raise ValueError("Segment 67 rate-file guideline key is unavailable")
-        groups.append([_seg67_token(
-            key, "Guideline Rate Key", table, "RT_SEX_CD / RT_CLS_CD",
-            "System-calculated guideline premiums have a blank key.",
-        )])
-        units = rate_type in ("1", "2")
-        groups.append([_seg67_amount(
-            row, table, "GDL_PRM_UNT_QTY" if units else "GDL_PRM_AMT",
-            "GLP/GSP Units" if units else "GLP/GSP Premium", 11, 3 if units else 2,
-        )])
+        groups.extend(_seg67_guideline_groups(table, row, rate_type, system_calc, benefit))
     else:
-        groups.append([
-            _seg67_token(_seg67_text(row, column, 1), field, table, column)
-            for column, field in (
-                ("RT_SEX_CD", "Rate Sex"), ("RT_CLS_CD", "Rate Class"),
-                ("RT_BAN_CD", "Rate Band"),
-            )
-        ])
+        groups.extend(_seg67_rate_key_group(table, row))
         if table == "LH_SST_XTR_RNL_RT":
-            if percent == "0":
-                amount = _seg67_value(row, "SST_XTR_UNT_AMT")
-                if amount is not None and Decimal(str(amount)) != 0:
-                    # D202 p.200 uses 5 decimals for flexible premiums, 2 for
-                    # fixed premiums. No verified phase-specific selector yet.
-                    raise ValueError(
-                        "Segment 67 nonzero dollar extra: packed precision is not "
-                        "verified for this coverage (fixed versus flexible premium)"
-                    )
-            groups.append([_seg67_amount(
-                row, table, "SST_XTR_PCT" if percent == "1" else "SST_XTR_UNT_AMT",
-                "Extra Percentage" if percent == "1" else "Extra Unit Amount",
-                9, 5 if percent == "1" else 0,
-            )])
+            groups.extend(_seg67_extra_amount_group(table, row, percent))
         else:
             # RNL_RT already contains the unscaled nine packed digits in DB2.
             groups.append([_seg67_amount(row, table, "RNL_RT", "Rate", 9)])

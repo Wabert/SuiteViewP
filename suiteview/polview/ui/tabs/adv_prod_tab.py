@@ -175,44 +175,31 @@ class AdvProdValuesTab(QWidget):
         if mvav:
             self.policy_info.set_value("total_av", format_currency(mvav))
 
-        fund_rows = policy.fetch_table("LH_POL_FND_VAL_TOT")
-        unimpaired_total = 0.0
-        for row in fund_rows:
-            if "9999" in str(row.get("MVRY_DT", "")):
-                amt = row.get("CSV_AMT", 0)
-                if amt:
-                    try:
-                        unimpaired_total += float(amt)
-                    except Exception:
-                        pass
+        unimpaired_total = self._sum_numeric_rows(
+            policy.fetch_table("LH_POL_FND_VAL_TOT"),
+            "CSV_AMT",
+            lambda row: "9999" in str(row.get("MVRY_DT", "")),
+        )
         self.policy_info.set_value("unimpaired_av", format_currency(unimpaired_total))
 
-        loan_rows = policy.fetch_table("LH_FND_VAL_LOAN")
-        impaired_total = 0.0
-        for row in loan_rows:
-            fnd_id = str(row.get("FND_ID_CD", "")).strip()
-            if "9999" in str(row.get("MVRY_DT", "")) and fnd_id != "LZ":
-                amt = row.get("LN_PRI_AMT", 0)
-                if amt:
-                    try:
-                        impaired_total += float(amt)
-                    except Exception:
-                        pass
+        impaired_total = self._sum_numeric_rows(
+            policy.fetch_table("LH_FND_VAL_LOAN"),
+            "LN_PRI_AMT",
+            lambda row: (
+                "9999" in str(row.get("MVRY_DT", ""))
+                and str(row.get("FND_ID_CD", "")).strip() != "LZ"
+            ),
+        )
         self.policy_info.set_value("impaired_av", format_currency(impaired_total))
 
         if policy.gav:
             self.policy_info.set_value("gav", format_currency(policy.gav))
 
-        cov_target_rows = policy.fetch_table("LH_COV_TARGET")
-        ccv_total = 0.0
-        for row in cov_target_rows:
-            if str(row.get("TAR_TYP_CD", "")).strip() == "XP":
-                amt = row.get("TAR_PRM_AMT", 0)
-                if amt:
-                    try:
-                        ccv_total += float(amt)
-                    except Exception:
-                        pass
+        ccv_total = self._sum_numeric_rows(
+            policy.fetch_table("LH_COV_TARGET"),
+            "TAR_PRM_AMT",
+            lambda row: str(row.get("TAR_TYP_CD", "")).strip() == "XP",
+        )
         if ccv_total != 0:
             self.policy_info.set_value("ccv", format_currency(ccv_total))
 
@@ -243,6 +230,20 @@ class AdvProdValuesTab(QWidget):
                 self.policy_info.set_value("sp_prem_cease_age", str(policy.sp_prem_cease_age))
         if policy.db_dial_to_age:
             self.policy_info.set_value("db_dial_to_age", str(policy.db_dial_to_age))
+
+    @staticmethod
+    def _sum_numeric_rows(rows, amount_field: str, predicate) -> float:
+        total = 0.0
+        for row in rows:
+            if not predicate(row):
+                continue
+            amount = row.get(amount_field, 0)
+            if amount:
+                try:
+                    total += float(amount)
+                except Exception:
+                    pass
+        return total
 
     def _load_monthliversary_from_policy(self, policy):
         mv_rows = policy.fetch_table("LH_POL_MVRY_VAL")

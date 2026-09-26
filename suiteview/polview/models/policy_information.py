@@ -995,6 +995,151 @@ class PolicyInformation:
             coverage.plancode.strip().upper() == "0699830R"
             for coverage in self.get_coverages()
         )
+
+    def _th_coverage_rows_by_phase(self) -> Dict[int, Dict[str, Any]]:
+        th_cov_data: Dict[int, Dict[str, Any]] = {}
+        try:
+            th_rows = self.fetch_table("TH_COV_PHA")
+            for th_row in th_rows:
+                pha = int(th_row.get("COV_PHA_NBR", 0))
+                th_cov_data[pha] = th_row
+        except Exception:
+            pass  # Table may not exist for all policies
+        return th_cov_data
+
+    def _substandard_ratings_by_phase(self) -> Dict[int, List[SubstandardRatingInfo]]:
+        all_ratings: Dict[int, List[SubstandardRatingInfo]] = {}
+        for rating in self.get_substandard_ratings():
+            all_ratings.setdefault(rating.coverage_phase, []).append(rating)
+        return all_ratings
+
+    @staticmethod
+    def _base_plancode_from_coverage_rows(rows: List[Dict[str, Any]]) -> str:
+        if not rows:
+            return ""
+        return str(rows[0].get("PLN_DES_SER_CD", "")).strip()
+
+    def _coverage_amount_fields(self, row: Dict[str, Any]):
+        units = self._parse_optional_decimal(row.get("COV_UNT_QTY"))
+        orig_units = self._parse_optional_decimal(row.get("OGN_SPC_UNT_QTY"))
+        vpu = self._parse_optional_decimal(row.get("COV_VPU_AMT"))
+        premium_rate = self._parse_optional_decimal(row.get("ANN_PRM_UNT_AMT"))
+        face_amount = (units * vpu) if (units is not None and vpu is not None) else None
+        orig_amount = (orig_units * vpu) if (orig_units is not None and vpu is not None) else None
+        return units, orig_units, vpu, premium_rate, face_amount, orig_amount
+
+    @staticmethod
+    def _coverage_substandard_fields(cov_ratings: List[SubstandardRatingInfo]):
+        table_rating = None
+        table_rating_code = ""
+        table_cease_date = None
+        flat_extra = None
+        flat_cease_date = None
+        for rating in cov_ratings:
+            if rating.type_code == "T" and rating.table_rating_numeric and rating.table_rating_numeric > 0:
+                table_rating = rating.table_rating_numeric
+                table_rating_code = rating.table_rating or ""
+                if rating.flat_cease_date:
+                    table_cease_date = rating.flat_cease_date
+            if rating.type_code == "F":
+                if rating.flat_amount is not None:
+                    flat_extra = rating.flat_amount
+                if rating.flat_cease_date:
+                    flat_cease_date = rating.flat_cease_date
+        return table_rating, table_rating_code, table_cease_date, flat_extra, flat_cease_date
+
+    def _build_coverage_info(
+        self,
+        row: Dict[str, Any],
+        th_cov_data: Dict[int, Dict[str, Any]],
+        all_ratings: Dict[int, List[SubstandardRatingInfo]],
+        base_plancode: str,
+    ) -> CoverageInfo:
+        cov_pha_nbr = int(row.get("COV_PHA_NBR", 0))
+        plancode = str(row.get("PLN_DES_SER_CD", "")).strip()
+        units, orig_units, vpu, premium_rate, face_amount, orig_amount = (
+            self._coverage_amount_fields(row)
+        )
+        th_row = th_cov_data.get(cov_pha_nbr, {})
+        cola_indicator = str(th_row.get("COLA_INCR_IND", "")) if th_row else ""
+        status_code = str(row.get("NXT_CHG_TYP_CD", ""))
+        elim_code = str(row.get("AH_ACC_ELM_PER_CD", "") or "")
+        bnf_code = str(row.get("AH_ACC_BNF_PER_CD", "") or "")
+        substandard = self._coverage_substandard_fields(all_ratings.get(cov_pha_nbr, []))
+        table_rating, table_rating_code, table_cease_date, flat_extra, flat_cease_date = substandard
+        return CoverageInfo(
+            cov_pha_nbr=cov_pha_nbr,
+            plancode=plancode,
+            form_number=str(row.get("POL_FRM_NBR", "")).strip(),
+            issue_date=self._parse_date(row.get("ISSUE_DT")),
+            maturity_date=self._parse_date(row.get("COV_MT_EXP_DT")),
+            issue_age=self._parse_optional_int(row.get("INS_ISS_AGE")),
+            face_amount=face_amount,
+            orig_amount=orig_amount,
+            units=units,
+            orig_units=orig_units,
+            vpu=vpu,
+            person_code=str(row.get("PRS_CD", "00")),
+            person_desc=PERSON_CODES.get(str(row.get("PRS_CD", "00")), ""),
+            sex_code=SEX_CODE_DISPLAY.get(str(row.get("INS_SEX_CD", "")), str(row.get("INS_SEX_CD", ""))),
+            sex_desc=SEX_CODES.get(str(row.get("INS_SEX_CD", "")), ""),
+            product_line_code=str(row.get("PRD_LIN_TYP_CD", "")),
+            product_line_desc=PRODUCT_LINE_CODES.get(str(row.get("PRD_LIN_TYP_CD", "")), ""),
+            class_code=str(row.get("INS_CLS_CD", "")),
+            rate_class="",
+            rate_class_desc="",
+            table_rating=table_rating,
+            table_rating_code=table_rating_code,
+            table_cease_date=table_cease_date,
+            cola_indicator=cola_indicator,
+            gio_indicator="",
+            flat_extra=flat_extra,
+            flat_cease_date=flat_cease_date,
+            prs_seq_nbr=int(row.get("PRS_SEQ_NBR", 0) or 0),
+            lives_cov_cd=str(row.get("LIVES_COV_CD", "")),
+            cov_status=status_code,
+            cov_status_date=self._parse_date(row.get("NXT_CHG_DT")),
+            cov_status_desc="",
+            premium_rate=premium_rate,
+            nxt_chg_typ_cd=str(row.get("NXT_CHG_TYP_CD", "")),
+            nxt_chg_dt=self._parse_date(row.get("NXT_CHG_DT")),
+            terminate_date=self._parse_date(row.get("PLN_TMN_DT")),
+            is_base=(plancode == base_plancode),
+            cov_annual_premium=(
+                premium_rate * units
+                if premium_rate is not None and units is not None
+                else premium_rate
+            ),
+            annual_premium_per_unit=premium_rate,
+            cv_amount=None,
+            nsp_amount=None,
+            elimination_period=translate_elimination_period_code(elim_code) if elim_code else "",
+            benefit_period=translate_benefit_period_code(bnf_code) if bnf_code else "",
+            raw_data=row
+        )
+
+    def _apply_coverage_renewal_fields(
+        self,
+        cov: CoverageInfo,
+        coi_rate_divisor: Decimal | None,
+    ) -> None:
+        rnl_idx = self.cov_renewal_index(cov.cov_pha_nbr, "C", "0")
+        if rnl_idx >= 0:
+            rc = str(self.data_item("LH_COV_INS_RNL_RT", "RT_CLS_CD", rnl_idx) or "")
+            cov.rate_class = rc
+            cov.rate_class_desc = rate_class_description(rc, cov.plancode)
+            rnl_sex = str(self.data_item("LH_COV_INS_RNL_RT", "RT_SEX_CD", rnl_idx) or "")
+            if rnl_sex:
+                cov.sex_code = SEX_CODE_DISPLAY.get(rnl_sex, rnl_sex)
+                cov.sex_desc = SEX_CODES.get(rnl_sex, "")
+        if coi_rate_divisor is not None and rnl_idx >= 0:
+            raw_rate = self.data_item("LH_COV_INS_RNL_RT", "RNL_RT", rnl_idx)
+            if raw_rate is not None and str(raw_rate).strip() != "":
+                try:
+                    rate = Decimal(str(raw_rate))
+                except ArithmeticError as exc:
+                    raise ValueError(f"Invalid COI renewal rate {raw_rate!r}") from exc
+                cov.coi_rate = rate / coi_rate_divisor
     
     def get_coverages(self) -> List[CoverageInfo]:
         """Get all coverage phases with complete field mapping.
@@ -1015,175 +1160,17 @@ class PolicyInformation:
         # Don't set self._coverages until we succeed — prevents caching a
         # partial/empty list if an exception occurs mid-build.
         built: List[CoverageInfo] = []
-        
-        # Fetch TH_COV_PHA for COLA/GIO/CV/NSP
-        th_cov_data = {}
-        try:
-            th_rows = self.fetch_table("TH_COV_PHA")
-            for th_row in th_rows:
-                pha = int(th_row.get("COV_PHA_NBR", 0))
-                th_cov_data[pha] = th_row
-        except Exception:
-            pass  # Table may not exist for all policies
-        
-        # Pre-fetch substandard ratings for all coverages
-        all_ratings = {}
-        for rating in self.get_substandard_ratings():
-            phase = rating.coverage_phase
-            if phase not in all_ratings:
-                all_ratings[phase] = []
-            all_ratings[phase].append(rating)
-        
-        # Determine base plancode from first coverage row
+        th_cov_data = self._th_coverage_rows_by_phase()
+        all_ratings = self._substandard_ratings_by_phase()
         lh_rows = self.fetch_table("LH_COV_PHA")
-        base_plancode = ""
-        if lh_rows:
-            base_plancode = str(lh_rows[0].get("PLN_DES_SER_CD", "")).strip()
-        
+        base_plancode = self._base_plancode_from_coverage_rows(lh_rows)
         rules = PolicyInformation._product_rules_for_rate_display(self)
         coi_rate_divisor = rules.coi_rate_divisor()
         
         for i, row in enumerate(lh_rows):
             try:
-                cov_pha_nbr = int(row.get("COV_PHA_NBR", 0))
-                plancode = str(row.get("PLN_DES_SER_CD", "")).strip()
-                
-                # Get units and VPU for calculations
-                units = self._parse_optional_decimal(row.get("COV_UNT_QTY"))
-                orig_units = self._parse_optional_decimal(row.get("OGN_SPC_UNT_QTY"))
-                vpu = self._parse_optional_decimal(row.get("COV_VPU_AMT"))
-                premium_rate = self._parse_optional_decimal(row.get("ANN_PRM_UNT_AMT"))
-                
-                # Calculate amounts
-                face_amount = (units * vpu) if (units is not None and vpu is not None) else None
-                orig_amount = (orig_units * vpu) if (orig_units is not None and vpu is not None) else None
-                
-                # Get COLA/GIO/CV/NSP from TH_COV_PHA
-                th_row = th_cov_data.get(cov_pha_nbr, {})
-                cola_indicator = str(th_row.get("COLA_INCR_IND", "")) if th_row else ""
-                gio_indicator = ""  # OPT_EXER_IND does not exist on TH_COV_PHA
-                cv_amount = None    # CV_AMT does not exist on TH_COV_PHA
-                nsp_amount = None   # NSP_AMT does not exist on TH_COV_PHA
-                
-                cov_ratings = all_ratings.get(cov_pha_nbr, [])
-                table_rating = None
-                table_rating_code = ""
-                table_cease_date = None
-                flat_extra = None
-                flat_cease_date = None
-                for r in cov_ratings:
-                    if r.type_code == "T" and r.table_rating_numeric and r.table_rating_numeric > 0:
-                        table_rating = r.table_rating_numeric
-                        table_rating_code = r.table_rating or ""
-                        if r.flat_cease_date:
-                            table_cease_date = r.flat_cease_date
-                    if r.type_code == "F":
-                        if r.flat_amount is not None:
-                            flat_extra = r.flat_amount
-                        if r.flat_cease_date:
-                            flat_cease_date = r.flat_cease_date
-                
-                # Get status code
-                status_code = str(row.get("NXT_CHG_TYP_CD", ""))
-                status_date = self._parse_date(row.get("NXT_CHG_DT"))
-
-                # DI fields
-                elim_code = str(row.get("AH_ACC_ELM_PER_CD", "") or "")
-                bnf_code = str(row.get("AH_ACC_BNF_PER_CD", "") or "")
-                
-                # is_base: same plancode as first coverage (handles UL increases)
-                is_base = (plancode == base_plancode)
-                
-                cov = CoverageInfo(
-                    cov_pha_nbr=cov_pha_nbr,
-                    plancode=plancode,
-                    form_number=str(row.get("POL_FRM_NBR", "")).strip(),
-                    issue_date=self._parse_date(row.get("ISSUE_DT")),
-                    maturity_date=self._parse_date(row.get("COV_MT_EXP_DT")),
-                    issue_age=self._parse_optional_int(row.get("INS_ISS_AGE")),
-                    face_amount=face_amount,
-                    orig_amount=orig_amount,
-                    units=units,
-                    orig_units=orig_units,
-                    vpu=vpu,
-                    person_code=str(row.get("PRS_CD", "00")),
-                    person_desc=PERSON_CODES.get(str(row.get("PRS_CD", "00")), ""),
-                    sex_code=SEX_CODE_DISPLAY.get(str(row.get("INS_SEX_CD", "")), str(row.get("INS_SEX_CD", ""))),
-                    sex_desc=SEX_CODES.get(str(row.get("INS_SEX_CD", "")), ""),
-                    product_line_code=str(row.get("PRD_LIN_TYP_CD", "")),
-                    product_line_desc=PRODUCT_LINE_CODES.get(str(row.get("PRD_LIN_TYP_CD", "")), ""),
-                    class_code=str(row.get("INS_CLS_CD", "")),
-                    rate_class="",   # populated below from LH_COV_INS_RNL_RT
-                    rate_class_desc="",
-                    table_rating=table_rating,
-                    table_rating_code=table_rating_code,
-                    table_cease_date=table_cease_date,
-                    cola_indicator=cola_indicator,
-                    gio_indicator=gio_indicator,
-                    flat_extra=flat_extra,
-                    flat_cease_date=flat_cease_date,
-                    prs_seq_nbr=int(row.get("PRS_SEQ_NBR", 0) or 0),
-                    lives_cov_cd=str(row.get("LIVES_COV_CD", "")),
-                    cov_status=status_code,
-                    cov_status_date=status_date,
-                    cov_status_desc="",
-                    # Premium rate (Trad) – from LH_COV_PHA.ANN_PRM_UNT_AMT
-                    premium_rate=premium_rate,
-                    nxt_chg_typ_cd=str(row.get("NXT_CHG_TYP_CD", "")),
-                    nxt_chg_dt=self._parse_date(row.get("NXT_CHG_DT")),
-                    terminate_date=self._parse_date(row.get("PLN_TMN_DT")),
-                    is_base=is_base,
-                    # Total annual premium = per-unit rate × units
-                    cov_annual_premium=(
-                        premium_rate * units
-                        if premium_rate is not None and units is not None
-                        else premium_rate
-                    ),
-                    # Raw per-unit rate (ANN_PRM_UNT_AMT)
-                    annual_premium_per_unit=premium_rate,
-                    cv_amount=cv_amount,
-                    nsp_amount=nsp_amount,
-                    elimination_period=translate_elimination_period_code(elim_code) if elim_code else "",
-                    benefit_period=translate_benefit_period_code(bnf_code) if bnf_code else "",
-                    raw_data=row
-                )
-
-                # Rate class & sex — from LH_COV_INS_RNL_RT (Record 67)
-                # The 67 segment has per-coverage sex (RT_SEX_CD) and rate class
-                # (RT_CLS_CD).  LH_COV_PHA.INS_SEX_CD may be the same for all
-                # coverages, so the 67 segment is the authoritative source.
-                rnl_idx = self.cov_renewal_index(cov_pha_nbr, "C", "0")
-                if rnl_idx >= 0:
-                    rc = str(self.data_item(
-                        "LH_COV_INS_RNL_RT", "RT_CLS_CD", rnl_idx
-                    ) or "")
-                    cov.rate_class = rc
-                    cov.rate_class_desc = rate_class_description(rc, plancode)
-                    # Per-coverage sex code from 67 segment
-                    rnl_sex = str(self.data_item(
-                        "LH_COV_INS_RNL_RT", "RT_SEX_CD", rnl_idx
-                    ) or "")
-                    if rnl_sex:
-                        cov.sex_code = SEX_CODE_DISPLAY.get(rnl_sex, rnl_sex)
-                        cov.sex_desc = SEX_CODES.get(rnl_sex, "")
-
-                # COI rate (Advanced) – from LH_COV_INS_RNL_RT.RNL_RT (type "C")
-                # Divided by 100 for product line "I", or 100,000 for others.
-                if coi_rate_divisor is not None and rnl_idx >= 0:
-                    raw_rate = self.data_item("LH_COV_INS_RNL_RT", "RNL_RT", rnl_idx)
-                    if raw_rate is not None and str(raw_rate).strip() != "":
-                        try:
-                            r = Decimal(str(raw_rate))
-                        except ArithmeticError as exc:
-                            raise ValueError(
-                                f"Invalid COI renewal rate {raw_rate!r}"
-                            ) from exc
-                        cov.coi_rate = r / coi_rate_divisor
-
-                # Flat extra fallback — LH_SST_XTR_CRG is the only source
-                # for flat extra data.  LH_COV_INS_RNL_RT does NOT carry
-                # flat extra fields (per COBOL DB2 translation workbook).
-
+                cov = self._build_coverage_info(row, th_cov_data, all_ratings, base_plancode)
+                self._apply_coverage_renewal_fields(cov, coi_rate_divisor)
                 built.append(cov)
             except Exception as _cov_exc:
                 logger.error(
@@ -3922,6 +3909,56 @@ class PolicyInformation:
             candidates.append(self.valuation_date)
         return max(candidates) if candidates else None
 
+    def _guaranteed_cash_value_detail(
+        self,
+        cov_index: int,
+        info: Dict[str, Any],
+        coverages: Dict[int, CoverageInfo],
+        as_of: date,
+    ):
+        from dateutil.relativedelta import relativedelta
+
+        if not info["basis"]:
+            return None, None, None, None
+        label = f"Cov {info['cov_pha_nbr'] or cov_index}"
+        cov = coverages.get(info["cov_pha_nbr"])
+        if cov is None:
+            return None, None, f"{label}: coverage record unavailable", None
+        if not self._coverage_is_active(cov, as_of):
+            return None, None, None, f"{label}: coverage not active"
+        issue = cov.issue_date
+        if issue is None or info["units"] is None:
+            return None, None, f"{label}: missing issue date or units", None
+        if as_of < issue:
+            return None, None, f"{label}: as-of date precedes issue date", None
+
+        duration = self._completed_date_parts_years(issue, as_of)
+        anniversary = issue + relativedelta(years=duration)
+        months = 0
+        while months < 12 and anniversary + relativedelta(months=months + 1) <= as_of:
+            months += 1
+        boy = info["rates"].get(duration)
+        eoy = info["rates"].get(duration + 1)
+        if boy is None or eoy is None:
+            available = sorted(info["rates"])
+            span = f"{available[0]}-{available[-1]}" if available else "none"
+            return (
+                None,
+                None,
+                f"{label}: stored {info['basis']} rates cover durations "
+                f"{span}, not {duration}-{duration + 1}",
+                None,
+            )
+        value = (info["units"] * (boy * (12 - months) + eoy * months) / 12).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP)
+        detail = {
+            "cov_index": cov_index, "cov_pha_nbr": info["cov_pha_nbr"],
+            "basis": info["basis"], "nonforfeiture": info["nonforfeiture"],
+            "duration": duration, "months": months, "boy_rate": boy, "eoy_rate": eoy,
+            "units": info["units"], "value": value,
+        }
+        return detail, value, None, None
+
     def guaranteed_cash_value(self, as_of: Optional[date] = None) -> Dict[str, Any]:
         """Interpolated guaranteed cash value from the stored 02-segment rates.
 
@@ -3933,8 +3970,6 @@ class PolicyInformation:
         not active are excluded; if any active coverage with stored rates cannot
         be valued, ``value`` is None with a ``reason`` rather than a partial total.
         """
-        from dateutil.relativedelta import relativedelta
-
         as_of = as_of or self._guaranteed_cash_value_date()
         result: Dict[str, Any] = {"value": None, "as_of": as_of, "details": [], "reason": ""}
         if as_of is None:
@@ -3945,48 +3980,18 @@ class PolicyInformation:
         excluded, blockers = [], []
         for cov_index in range(1, self.coverage_count + 1):
             info = self.cov_cash_value_rates(cov_index)
-            if not info["basis"]:
+            detail, value, blocker, excluded_reason = self._guaranteed_cash_value_detail(
+                cov_index, info, coverages, as_of)
+            if blocker:
+                blockers.append(blocker)
                 continue
-            label = f"Cov {info['cov_pha_nbr'] or cov_index}"
-            cov = coverages.get(info["cov_pha_nbr"])
-            if cov is None:
-                blockers.append(f"{label}: coverage record unavailable")
+            if excluded_reason:
+                excluded.append(excluded_reason)
                 continue
-            if not self._coverage_is_active(cov, as_of):
-                excluded.append(f"{label}: coverage not active")
+            if detail is None:
                 continue
-            issue = cov.issue_date
-            if issue is None or info["units"] is None:
-                blockers.append(f"{label}: missing issue date or units")
-                continue
-            if as_of < issue:
-                blockers.append(f"{label}: as-of date precedes issue date")
-                continue
-            duration = self._completed_date_parts_years(issue, as_of)
-            anniversary = issue + relativedelta(years=duration)
-            # Monthliversaries clamp to month end (issue on the 31st -> Feb 28).
-            months = 0
-            while months < 12 and anniversary + relativedelta(months=months + 1) <= as_of:
-                months += 1
-            boy = info["rates"].get(duration)
-            eoy = info["rates"].get(duration + 1)
-            if boy is None or eoy is None:
-                available = sorted(info["rates"])
-                span = f"{available[0]}-{available[-1]}" if available else "none"
-                blockers.append(
-                    f"{label}: stored {info['basis']} rates cover durations "
-                    f"{span}, not {duration}-{duration + 1}"
-                )
-                continue
-            value = (info["units"] * (boy * (12 - months) + eoy * months) / 12).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP)
             total += value
-            result["details"].append({
-                "cov_index": cov_index, "cov_pha_nbr": info["cov_pha_nbr"],
-                "basis": info["basis"], "nonforfeiture": info["nonforfeiture"],
-                "duration": duration, "months": months, "boy_rate": boy, "eoy_rate": eoy,
-                "units": info["units"], "value": value,
-            })
+            result["details"].append(detail)
         if result["details"] and not blockers:
             result["value"] = total
         reasons = blockers + excluded

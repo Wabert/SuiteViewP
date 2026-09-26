@@ -7,6 +7,7 @@ and provides export to Excel functionality.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from typing import Optional
 
@@ -28,6 +29,23 @@ from .abr_styles import (
 from .calc_viewer import CalcViewerDialog
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _FaceRecalcValues:
+    ratio: float
+    discount: float
+    loan: float
+    benefit: float
+
+
+@dataclass(frozen=True)
+class _PartialRecalcValues:
+    eligible: float
+    ratio: float
+    discount: float
+    loan: float
+    benefit: float
 
 
 class ResultsPanel(QWidget):
@@ -457,24 +475,21 @@ class ResultsPanel(QWidget):
         if custom_face is None:
             return
 
-        # Lock input back down
+        self._lock_accepted_face_amount(custom_face)
+        full_values = self._full_face_recalc(custom_face)
+        self._render_full_face_recalc(custom_face, full_values)
+        self._render_partial_face_recalc(custom_face, full_values.ratio)
+
+    def _lock_accepted_face_amount(self, custom_face: float) -> None:
         self._face_input.setEnabled(False)
         self._face_input.setText(f"${custom_face:,.2f}")
         self._face_change_btn.setText("Change")
 
-        # Recalculate the full acceleration group with the custom face
-        total_face = self._policy.face_amount
-        is_full = abs(custom_face - total_face) < 0.01
-
-        if is_full:
-            self.full_group.setTitle("Full Acceleration")
-        else:
-            self.full_group.setTitle("Partial Acceleration")
-
-        # Proportional recalculation
+    def _full_face_recalc(self, custom_face: float) -> _FaceRecalcValues:
         orig_eligible = self._result.full_eligible_db
         orig_discount = self._result.full_actuarial_discount
         admin_fee = self._result.full_admin_fee
+        orig_loan = self._result.full_loan_repayment
 
         if orig_eligible > 0:
             ratio = custom_face / orig_eligible
@@ -483,123 +498,145 @@ class ResultsPanel(QWidget):
             ratio = 0.0
             new_discount = 0.0
 
+        new_loan = round(orig_loan * ratio, 2) if orig_eligible > 0 and orig_loan > 0 else 0.0
+        new_benefit = round(custom_face - new_discount - admin_fee - new_loan, 2)
+        return _FaceRecalcValues(
+            ratio=ratio,
+            discount=new_discount,
+            loan=new_loan,
+            benefit=new_benefit,
+        )
+
+    def _render_full_face_recalc(
+        self,
+        custom_face: float,
+        values: _FaceRecalcValues,
+    ) -> None:
+        total_face = self._policy.face_amount
+        is_full = abs(custom_face - total_face) < 0.01
+        if is_full:
+            self.full_group.setTitle("Full Acceleration")
+        else:
+            self.full_group.setTitle("Partial Acceleration")
+
+        admin_fee = self._result.full_admin_fee
+
         self._full_labels["eligible_db"].setText(self._fmt_money(custom_face))
-        self._full_labels["actuarial_discount"].setText(self._fmt_money(new_discount))
+        self._full_labels["actuarial_discount"].setText(self._fmt_money(values.discount))
         self._full_labels["admin_fee"].setText(self._fmt_money(admin_fee))
 
-        # Loan repayment — proportionally scaled
-        orig_loan = self._result.full_loan_repayment
-        if orig_eligible > 0 and orig_loan > 0:
-            new_loan = round(orig_loan * ratio, 2)
+        if values.loan > 0:
             self._full_loan_lbl.setVisible(True)
             self._full_labels["loan_repayment"].setVisible(True)
-            self._full_labels["loan_repayment"].setText(self._fmt_money(new_loan))
-            new_benefit = round(custom_face - new_discount - admin_fee - new_loan, 2)
-        else:
-            new_benefit = round(custom_face - new_discount - admin_fee, 2)
+            self._full_labels["loan_repayment"].setText(self._fmt_money(values.loan))
 
-        new_ratio = max(0.0, new_benefit) / custom_face if custom_face > 0 else 0.0
-
-        if new_benefit < 0:
+        new_ratio = max(0.0, values.benefit) / custom_face if custom_face > 0 else 0.0
+        if values.benefit < 0:
             self.full_benefit_label.setText(
-                f"$0.00  (calc result: {self._fmt_money(new_benefit)})"
+                f"$0.00  (calc result: {self._fmt_money(values.benefit)})"
             )
         else:
-            self.full_benefit_label.setText(self._fmt_money(new_benefit))
+            self.full_benefit_label.setText(self._fmt_money(values.benefit))
         self.full_ratio_label.setText(f"{new_ratio * 100:.2f}%")
 
-        # APV components — proportionally scaled
-        if orig_eligible > 0:
+        if self._result.full_eligible_db > 0:
             self._full_apv_labels["apv_fb"].setText(
-                self._fmt_money(self._result.apv_fb * ratio)
+                self._fmt_money(self._result.apv_fb * values.ratio)
             )
             self._full_apv_labels["apv_fp"].setText(
-                self._fmt_money(self._result.apv_fp * ratio)
+                self._fmt_money(self._result.apv_fp * values.ratio)
             )
             self._full_apv_labels["apv_fd"].setText(
-                self._fmt_money(self._result.apv_fd * ratio)
+                self._fmt_money(self._result.apv_fd * values.ratio)
             )
 
-        # ── Max Partial Acceleration — recalculate with custom face ────
+    def _partial_face_recalc(
+        self,
+        partial_eligible: float,
+        ratio: float,
+    ) -> _PartialRecalcValues:
+        partial_discount = round(self._result.full_actuarial_discount * ratio, 2)
+        orig_loan = self._result.full_loan_repayment
+        partial_loan = round(orig_loan * ratio, 2) if orig_loan > 0 else 0.0
+        partial_benefit = round(
+            partial_eligible
+            - partial_discount
+            - self._result.full_admin_fee
+            - partial_loan,
+            2,
+        )
+        return _PartialRecalcValues(
+            eligible=partial_eligible,
+            ratio=ratio,
+            discount=partial_discount,
+            loan=partial_loan,
+            benefit=partial_benefit,
+        )
+
+    def _set_partial_recalc_visibility(
+        self,
+        at_min_face: bool,
+        has_partial_loan: bool,
+    ) -> None:
+        self._partial_not_allowed_label.setVisible(at_min_face)
+        for widget in self._partial_static_widgets:
+            widget.setVisible(not at_min_face)
+        for key, value_label in self._partial_labels.items():
+            if key == "loan_repayment":
+                value_label.setVisible(not at_min_face and has_partial_loan)
+            else:
+                value_label.setVisible(not at_min_face)
+        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
+        self.partial_benefit_label.setVisible(not at_min_face)
+        self.partial_ratio_label.setVisible(not at_min_face)
+        for value_label in self._partial_apv_labels.values():
+            value_label.setVisible(not at_min_face)
+
+    def _render_partial_face_recalc(self, custom_face: float, _full_ratio: float) -> None:
         min_face = (self._result.full_eligible_db
                     - self._result.partial_eligible_db)
         partial_eligible = max(0.0, custom_face - min_face)
         at_min_face = partial_eligible <= 0
-
-        self._partial_not_allowed_label.setVisible(at_min_face)
         has_partial_loan = self._result.partial_loan_repayment > 0
-        for w in self._partial_static_widgets:
-            w.setVisible(not at_min_face)
-        for key, val in self._partial_labels.items():
-            if key == "loan_repayment":
-                val.setVisible(not at_min_face and has_partial_loan)
-            else:
-                val.setVisible(not at_min_face)
-        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
-        self.partial_benefit_label.setVisible(not at_min_face)
-        self.partial_ratio_label.setVisible(not at_min_face)
-        for val in self._partial_apv_labels.values():
-            val.setVisible(not at_min_face)
+        self._set_partial_recalc_visibility(at_min_face, has_partial_loan)
+        if at_min_face:
+            return
 
-        if not at_min_face:
-            if orig_eligible > 0:
-                partial_ratio_scale = partial_eligible / orig_eligible
-            else:
-                partial_ratio_scale = 0.0
+        if self._result.full_eligible_db > 0:
+            partial_ratio_scale = partial_eligible / self._result.full_eligible_db
+        else:
+            partial_ratio_scale = 0.0
+        values = self._partial_face_recalc(partial_eligible, partial_ratio_scale)
+        admin_fee = self._result.full_admin_fee
 
-            partial_discount = round(orig_discount * partial_ratio_scale, 2)
-            partial_loan = (
-                round(orig_loan * partial_ratio_scale, 2)
-                if orig_loan > 0 else 0.0
-            )
-            if partial_loan > 0:
-                partial_benefit = round(
-                    partial_eligible - partial_discount - admin_fee - partial_loan, 2
-                )
-                self._partial_labels["loan_repayment"].setText(
-                    self._fmt_money(partial_loan)
-                )
-            else:
-                partial_benefit = round(
-                    partial_eligible - partial_discount - admin_fee, 2
-                )
-
-            partial_new_ratio = (
-                max(0.0, partial_benefit) / partial_eligible
-                if partial_eligible > 0 else 0.0
+        if values.loan > 0:
+            self._partial_labels["loan_repayment"].setText(
+                self._fmt_money(values.loan)
             )
 
-            self._partial_labels["eligible_db"].setText(
-                self._fmt_money(partial_eligible)
+        partial_new_ratio = (
+            max(0.0, values.benefit) / values.eligible
+            if values.eligible > 0 else 0.0
+        )
+        self._partial_labels["eligible_db"].setText(self._fmt_money(values.eligible))
+        self._partial_labels["actuarial_discount"].setText(self._fmt_money(values.discount))
+        self._partial_labels["admin_fee"].setText(self._fmt_money(admin_fee))
+        if values.benefit < 0:
+            self.partial_benefit_label.setText(
+                f"$0.00  (calc result: {self._fmt_money(values.benefit)})"
             )
-            self._partial_labels["actuarial_discount"].setText(
-                self._fmt_money(partial_discount)
-            )
-            self._partial_labels["admin_fee"].setText(
-                self._fmt_money(admin_fee)
-            )
-
-            if partial_benefit < 0:
-                self.partial_benefit_label.setText(
-                    f"$0.00  (calc result: {self._fmt_money(partial_benefit)})"
-                )
-            else:
-                self.partial_benefit_label.setText(
-                    self._fmt_money(partial_benefit)
-                )
-            self.partial_ratio_label.setText(
-                f"{partial_new_ratio * 100:.2f}%"
-            )
-
-            self._partial_apv_labels["apv_fb"].setText(
-                self._fmt_money(self._result.apv_fb * partial_ratio_scale)
-            )
-            self._partial_apv_labels["apv_fp"].setText(
-                self._fmt_money(self._result.apv_fp * partial_ratio_scale)
-            )
-            self._partial_apv_labels["apv_fd"].setText(
-                self._fmt_money(self._result.apv_fd * partial_ratio_scale)
-            )
+        else:
+            self.partial_benefit_label.setText(self._fmt_money(values.benefit))
+        self.partial_ratio_label.setText(f"{partial_new_ratio * 100:.2f}%")
+        self._partial_apv_labels["apv_fb"].setText(
+            self._fmt_money(self._result.apv_fb * values.ratio)
+        )
+        self._partial_apv_labels["apv_fp"].setText(
+            self._fmt_money(self._result.apv_fp * values.ratio)
+        )
+        self._partial_apv_labels["apv_fd"].setText(
+            self._fmt_money(self._result.apv_fd * values.ratio)
+        )
 
     def _read_accepted_face_amount(self) -> float | None:
         """Return validated face amount or reset the editor after a warning."""

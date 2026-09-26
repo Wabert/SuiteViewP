@@ -317,47 +317,52 @@ class PolicyTab(QWidget):
 
     def _populate_column2_from_policy(self, policy):
         c = self.col2
+        self._populate_billing_fields(policy, c)
+        self._populate_entry_and_status_fields(policy, c)
+        self._populate_dividend_and_mortality_fields(policy, c)
+        self._populate_nsp_fields(policy, c)
+        self._populate_cash_value_rates(policy)
+
+    def _populate_billing_fields(self, policy, c) -> None:
         prm_mode = translate_bill_mode_from_frequency(
             str(policy.billing_frequency or ""),
             str(policy.non_standard_mode_code or ""),
         )
         c.set_value("prm_mode", prm_mode)
         c.set_value("modal_prm", format_currency(policy.modal_premium, "$"))
-
         bil_form = str(policy.field_value("bill_form_code") or "")
         c.set_value("bil_form", translate_bill_form_code(bil_form))
         c.set_value("bil_ctl_nbr", str(policy.field_value("billing_control_number") or ""))
         c.set_value("replaced_pol", str(policy.field_value("replaced_policy_number") or ""))
 
+    def _populate_entry_and_status_fields(self, policy, c) -> None:
         ogn = str(policy.field_value("original_entry_code") or "")
         c.set_value("ogn_etr_cd", f"{ogn} - {translate_entry_code(ogn)}")
         c.set_value("conv_pol", str(policy.field_value("converted_policy_number") or "Null").strip())
         lst = str(policy.field_value("last_entry_code") or "")
         c.set_value("lst_etr_cd", f"{lst} - {translate_last_entry_code(lst)}")
-
         usr_res = str(policy.field_value("mdo_code") or "")
         c.set_value("mdo", usr_res[:1] if usr_res else "")
         c.set_value("bypass_lapse", usr_res[-1:] if len(usr_res) > 1 else "")
         c.set_value("mec_status", translate_mec_indicator(policy.mec_indicator))
-
         nfo = policy.nfo_code
-        if policy.is_advanced_product:
-            c.set_value("nfo_opt", "Surrender value")
-        else:
-            c.set_value("nfo_opt", f"{nfo} - {policy.nfo_description}")
+        c.set_value(
+            "nfo_opt",
+            "Surrender value" if policy.is_advanced_product else f"{nfo} - {policy.nfo_description}",
+        )
 
+    def _populate_dividend_and_mortality_fields(self, policy, c) -> None:
         pri_div = str(policy.div_option_code or "").strip()
         c.set_value("pri_div_opt", f"{pri_div} - {policy.div_option_description}" if pri_div else "")
         div_2nd = str(policy.field_value("second_dividend_option") or "").strip()
         c.set_value("div_2nd_opt", f"{div_2nd} - {translate_div_option_code(div_2nd)}" if div_2nd else "")
-
         mtl_tbl_cd = str(policy.field_value("mortality_factor_table") or "").strip()
         c.set_value("mtl_tbl", mtl_tbl_cd)
         c.set_value("mtl_desc", translate_mortality_table_code(mtl_tbl_cd))
-        res_rt = policy.field_value("reserve_interest_rate")
-        c.set_value("res_its_rt", format_rate(res_rt, decimals=2, suffix="%"))
+        c.set_value("res_its_rt", format_rate(policy.field_value("reserve_interest_rate"), decimals=2, suffix="%"))
         c.set_value("mtl_fun_cd", str(policy.field_value("mortality_fund_code") or ""))
 
+    def _populate_nsp_fields(self, policy, c) -> None:
         nsp_ei_cd = str(policy.field_value("nsp_extended_insurance_table") or "").strip()
         c.set_value("nsp_ei_tbl", nsp_ei_cd)
         c.set_value("nsp_ei_desc", translate_mortality_table_code(nsp_ei_cd))
@@ -365,11 +370,10 @@ class PolicyTab(QWidget):
         c.set_value("nsp_rpu_tbl", nsp_rpu_cd)
         c.set_value("nsp_rpu_desc", translate_mortality_table_code(nsp_rpu_cd))
         nsp_rt = policy.field_value("nsp_interest_rate")
-        if nsp_rt and str(nsp_rt) != "Null":
-            c.set_value("nsp_its_rt", format_rate(nsp_rt, decimals=2, suffix="%"))
-        else:
-            c.set_value("nsp_its_rt", "")
-        self._populate_cash_value_rates(policy)
+        c.set_value(
+            "nsp_its_rt",
+            format_rate(nsp_rt, decimals=2, suffix="%") if nsp_rt and str(nsp_rt) != "Null" else "",
+        )
 
     def _populate_cash_value_rates(self, policy):
         """Show the base coverage's stored CV (or nonforfeiture NSP) rates."""
@@ -408,18 +412,24 @@ class PolicyTab(QWidget):
         c.set_value("class_cd", str(policy.data_item("LH_COV_PHA", "INS_CLS_CD") or ""))
         c.set_value("base_cd", str(policy.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or ""))
         c.set_value("sub_cd", str(policy.data_item("LH_COV_PHA", "LIF_PLN_SUB_SRE_CD") or ""))
+        self._populate_loan_fields(policy, c)
+        self._populate_mode_factor_fields(policy, c)
+        c.set_value("annual_fee", format_currency(policy.annual_policy_fee, "$"))
 
+    def _populate_loan_fields(self, policy, c) -> None:
         ln_typ = str(policy.data_item("LH_BAS_POL", "LN_TYP_CD") or "")
         if ln_typ == "9":
             c.set_value("ln_typ", "Loans not allowed")
             c.set_value("ln_rate", "")
-        else:
-            c.set_value("ln_typ", translate_loan_type_code(ln_typ))
-            if ln_typ not in ("6", "7"):
-                c.set_value("ln_rate", format_rate(policy.data_item("LH_BAS_POL", "LN_PLN_ITS_RT"), decimals=2, suffix="%"))
-            else:
-                c.set_value("ln_rate", "")
+            return
+        c.set_value("ln_typ", translate_loan_type_code(ln_typ))
+        c.set_value(
+            "ln_rate",
+            format_rate(policy.data_item("LH_BAS_POL", "LN_PLN_ITS_RT"), decimals=2, suffix="%")
+            if ln_typ not in ("6", "7") else "",
+        )
 
+    def _populate_mode_factor_fields(self, policy, c) -> None:
         c.set_value("san_md_fct", str(policy.data_item("LH_FXD_PRM_POL", "SAN_MD_FCT") or ""))
         c.set_value("qtr_md_fct", str(policy.data_item("LH_FXD_PRM_POL", "QTR_MD_FCT") or ""))
         c.set_value("mo_md_fct", str(policy.data_item("LH_FXD_PRM_POL", "MO_MD_FCT") or ""))
@@ -428,4 +438,3 @@ class PolicyTab(QWidget):
         rt_ord = str(policy.data_item("LH_FXD_PRM_POL", "RT_FCT_ORD_CD") or "").strip()
         c.set_value("rt_fct_ord", f"{rt_ord} - {translate_rating_order_code(rt_ord)}" if rt_ord else "")
         c.set_value("rou_rle_cd", str(policy.data_item("LH_FXD_PRM_POL", "ROU_RLE_CD") or ""))
-        c.set_value("annual_fee", format_currency(policy.annual_policy_fee, "$"))

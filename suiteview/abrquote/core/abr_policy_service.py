@@ -147,6 +147,29 @@ def _billing_mode(pi) -> int:
     return billing_mode
 
 
+def _sex_from_code(raw_sex: str) -> str:
+    return {"1": "M", "2": "F", "3": "U"}.get(raw_sex, raw_sex)
+
+
+def _rate_sex(pi, fallback: str) -> str:
+    raw_rate_sex = pi.renewal_cov_sex_code(1)
+    return {"1": "M", "2": "F"}.get(raw_rate_sex, raw_rate_sex) or fallback
+
+
+def _base_maturity_date(policy_num: str, pi) -> date | None:
+    try:
+        base_covs = pi.get_base_coverages()
+    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
+        raise ABRPolicyLookupError(
+            f"Base coverage lookup failed for {policy_num}"
+        ) from exc
+    return base_covs[0].maturity_date if base_covs else None
+
+
+def _base_plancode_from_data_item(pi) -> str:
+    return str(pi.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or "").strip()
+
+
 def extract_policy_identity(policy_num: str, region: str, pi) -> PolicyIdentity:
     """Extract identity/duration fields from PolicyInformation.
 
@@ -154,17 +177,7 @@ def extract_policy_identity(policy_num: str, region: str, pi) -> PolicyIdentity:
     for demographics/plan/face, LH_COV_INS_RNL_RT for rate sex, and the
     canonical PolicyInformation properties that wrap those DB2 rows.
     """
-    raw_sex = pi.base_sex_code or ""
-    sex = {"1": "M", "2": "F", "3": "U"}.get(raw_sex, raw_sex)
-    raw_rate_sex = pi.renewal_cov_sex_code(1)
-    rate_sex = {"1": "M", "2": "F"}.get(raw_rate_sex, raw_rate_sex) or sex
-    try:
-        base_covs = pi.get_base_coverages()
-    except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
-        raise ABRPolicyLookupError(
-            f"Base coverage lookup failed for {policy_num}"
-        ) from exc
-    maturity_date = base_covs[0].maturity_date if base_covs else None
+    sex = _sex_from_code(pi.base_sex_code or "")
     return PolicyIdentity(
         policy_number=policy_num,
         region=region,
@@ -172,17 +185,17 @@ def extract_policy_identity(policy_num: str, region: str, pi) -> PolicyIdentity:
         issue_age=int(pi.base_issue_age or 0),
         attained_age=int(pi.attained_age or 0),
         sex=sex,
-        rate_sex=rate_sex,
+        rate_sex=_rate_sex(pi, sex),
         rate_class=pi.base_rate_class or "N",
         face_amount=float(pi.primary_insured_face_amount or 0),
         db_option=pi.db_option_code or "",
         issue_date=pi.issue_date,
         maturity_age=pi.age_at_maturity or 95,
-        maturity_date=maturity_date,
+        maturity_date=_base_maturity_date(policy_num, pi),
         issue_state=pi.issue_state or pi.issue_state_code or "",
         plan_code=pi.base_plancode or "",
         product_type=pi.product_type or "",
-        base_plancode=str(pi.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or "").strip(),
+        base_plancode=_base_plancode_from_data_item(pi),
         billing_mode=_billing_mode(pi),
         policy_month=pi.policy_month or 1,
         policy_year=pi.policy_year or 1,

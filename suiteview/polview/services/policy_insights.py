@@ -278,6 +278,15 @@ def _append_life_and_date_chips(
     facts: PolicySummaryFacts,
     today: date,
 ) -> None:
+    _append_advanced_life_chips(chips, read, facts)
+    _append_policy_date_chips(chips, read, facts, today)
+
+
+def _append_advanced_life_chips(
+    chips: list[Chip],
+    read: _Reader,
+    facts: PolicySummaryFacts,
+) -> None:
     if facts.advanced:
         dol = str(read.get("gpt_cvat") or "").strip()
         if dol:
@@ -289,6 +298,14 @@ def _append_life_and_date_chips(
         if corridor_db is not None and standard_db is not None and corridor_db > standard_db:
             chips.append(Chip("corridor", "In Corridor", WARN,
                               "Corridor death benefit exceeds the standard death benefit."))
+
+
+def _append_policy_date_chips(
+    chips: list[Chip],
+    read: _Reader,
+    facts: PolicySummaryFacts,
+    today: date,
+) -> None:
     lives = read.get("insured_lives_description")
     if lives and lives != "Single":
         chips.append(Chip("joint", lives, INFO, "Base coverage lives code (NBR_OF_LIVES_CD)."))
@@ -403,19 +420,9 @@ def support_tool_availability(policy) -> dict[str, ToolAvailability]:
     product = read.get("product_type") if loaded else None
     rules = read.get("product_rules") if loaded else None
     glp = bool(loaded and read.get("glp", lambda p: is_glp_exception_eligible(p)))
-    doli = read.get("def_of_life_ins_description") if loaded else ""
-    glp_reason = (
-        "Available only for UL/IUL/ISWL/SGUL/VUL policies using Guideline Premium"
-        f" (this policy: {product or 'unknown'}"
-        + (f", {doli}" if doli else "") + ")."
-    )
-    ul = bool(loaded and (
-        getattr(rules, "supports_reinstatement", None)
-        if rules is not None else is_ul_policy(policy)
-    ))
-    rider = bool(loaded and read.get("annuity", lambda p: any(
-        str(getattr(c, "plancode", "")).strip().upper() == "0699830R"
-        for c in p.get_coverages())))
+    glp_reason = _glp_unavailable_reason(product, read, loaded)
+    ul = _reinstatement_available(policy, rules, loaded, is_ul_policy)
+    rider = _annuity_rider_available(policy, read, loaded)
     return {
         "policy_support": ToolAvailability("policy_support", "Policy Support", loaded,
                                            "" if loaded else none_loaded),
@@ -434,6 +441,32 @@ def support_tool_availability(policy) -> dict[str, ToolAvailability]:
             "" if rider else ("No 0699830R annuity rider coverage on this policy."
                               if loaded else none_loaded)),
     }
+
+
+def _glp_unavailable_reason(product: str | None, read: _Reader, loaded: bool) -> str:
+    doli = read.get("def_of_life_ins_description") if loaded else ""
+    return (
+        "Available only for UL/IUL/ISWL/SGUL/VUL policies using Guideline Premium"
+        f" (this policy: {product or 'unknown'}"
+        + (f", {doli}" if doli else "") + ")."
+    )
+
+
+def _reinstatement_available(policy, rules, loaded: bool, fallback) -> bool:
+    if not loaded:
+        return False
+    return bool(
+        getattr(rules, "supports_reinstatement", None)
+        if rules is not None else fallback(policy)
+    )
+
+
+def _annuity_rider_available(policy, read: _Reader, loaded: bool) -> bool:
+    if not loaded:
+        return False
+    return bool(read.get("annuity", lambda p: any(
+        str(getattr(c, "plancode", "")).strip().upper() == "0699830R"
+        for c in p.get_coverages())))
 
 
 def suggested_actions(policy, summary: PolicySummary,

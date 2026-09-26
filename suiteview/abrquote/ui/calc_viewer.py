@@ -180,105 +180,160 @@ class CalcViewerDialog(FramelessWindowBase):
 
     def _build_policy_info_tab(self) -> QWidget:
         """Build a read-only display of policy details matching Print Detail."""
-        from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS
+        scroll, container, grid = self._new_policy_info_tab()
+        fonts = self._policy_info_fonts()
+        row = 0
+        row = self._add_policy_detail_fields(grid, row, fonts)
+        row = self._add_quote_parameter_fields(grid, row, fonts)
+        row = self._add_rider_fields(grid, row, fonts)
+        grid.setRowStretch(row, 1)
+        scroll.setWidget(container)
+        return scroll
 
-        p = self._policy
-        r = self._result
-
+    def _new_policy_info_tab(self) -> tuple[QScrollArea, QWidget, QGridLayout]:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(SCROLL_AREA_STYLE)
-
         container = QWidget()
         grid = QGridLayout(container)
         grid.setContentsMargins(16, 12, 16, 12)
         grid.setSpacing(4)
         grid.setColumnMinimumWidth(0, 180)
         grid.setColumnMinimumWidth(1, 280)
+        return scroll, container, grid
 
-        section_font = QFont("Segoe UI", 11, QFont.Weight.Bold)
-        label_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
-        value_font = QFont("Segoe UI", 10)
-        section_color = QColor(CRIMSON_DARK)
+    def _policy_info_fonts(self) -> tuple[QFont, QFont, QFont]:
+        return (
+            QFont("Segoe UI", 11, QFont.Weight.Bold),
+            QFont("Segoe UI", 10, QFont.Weight.Bold),
+            QFont("Segoe UI", 10),
+        )
 
-        row = 0
-
-        def _section(title):
-            nonlocal row
-            if row > 0:
-                row += 1
-            lbl = QLabel(title)
-            lbl.setFont(section_font)
-            lbl.setStyleSheet(
-                f"color: {WHITE}; background: {CRIMSON_DARK}; "
-                f"padding: 3px 8px; border-radius: 3px;"
-            )
-            grid.addWidget(lbl, row, 0, 1, 2)
+    def _policy_info_section(
+        self,
+        grid: QGridLayout,
+        row: int,
+        title: str,
+        font: QFont,
+    ) -> int:
+        if row > 0:
             row += 1
+        label = QLabel(title)
+        label.setFont(font)
+        label.setStyleSheet(
+            f"color: {WHITE}; background: {CRIMSON_DARK}; "
+            f"padding: 3px 8px; border-radius: 3px;"
+        )
+        grid.addWidget(label, row, 0, 1, 2)
+        return row + 1
 
-        def _field(label, value):
-            nonlocal row
-            lbl = QLabel(label)
-            lbl.setFont(label_font)
-            lbl.setStyleSheet(f"color: {CRIMSON_DARK};")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(lbl, row, 0)
-            val = QLabel(str(value))
-            val.setFont(value_font)
-            val.setStyleSheet(f"color: {GRAY_DARK};")
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            grid.addWidget(val, row, 1)
-            row += 1
+    def _policy_info_field(
+        self,
+        grid: QGridLayout,
+        row: int,
+        label: str,
+        value,
+        fonts: tuple[QFont, QFont, QFont],
+    ) -> int:
+        _section_font, label_font, value_font = fonts
+        label_widget = QLabel(label)
+        label_widget.setFont(label_font)
+        label_widget.setStyleSheet(f"color: {CRIMSON_DARK};")
+        label_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(label_widget, row, 0)
+        value_widget = QLabel(str(value))
+        value_widget.setFont(value_font)
+        value_widget.setStyleSheet(f"color: {GRAY_DARK};")
+        value_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        grid.addWidget(value_widget, row, 1)
+        return row + 1
 
-        _section("Policy Details")
-        _field("Policy Number:", p.policy_number)
-        _field("Insured:", p.insured_name or "—")
+    def _add_policy_detail_fields(
+        self,
+        grid: QGridLayout,
+        row: int,
+        fonts: tuple[QFont, QFont, QFont],
+    ) -> int:
+        from ..models.abr_constants import MODAL_LABELS, PLAN_CODE_INFO
 
+        p = self._policy
+        row = self._policy_info_section(grid, row, "Policy Details", fonts[0])
+        row = self._policy_info_field(grid, row, "Policy Number:", p.policy_number, fonts)
+        row = self._policy_info_field(grid, row, "Insured:", p.insured_name or "—", fonts)
         plan_info = PLAN_CODE_INFO.get(p.plan_code.upper(), None) if p.plan_code else None
         plan_desc = f"{plan_info[1]} ({plan_info[0]}-Year Level)" if plan_info else "—"
-        _field("Plancode:", p.plan_code or "—")
-        _field("Plan Description:", plan_desc)
-
+        row = self._policy_info_field(grid, row, "Plancode:", p.plan_code or "—", fonts)
+        row = self._policy_info_field(grid, row, "Plan Description:", plan_desc, fonts)
         sex_display = {"M": "Male", "F": "Female", "U": "Unisex"}.get(p.sex, p.sex or "—")
-        _field("Sex:", sex_display)
-        _field("Rate Sex:", p.rate_sex or "—")
-        _field("Issue Age:", str(p.issue_age))
-        _field("Attained Age:", str(p.attained_age))
-        _field("Rate Class:", p.rate_class or "—")
-        _field("Face Amount:", f"${p.face_amount:,.2f}" if p.face_amount else "—")
-        _field("Min Face:", f"${p.min_face_amount:,.0f}")
-        _field("Issue State:", p.issue_state or "—")
-        _field("Issue Date:", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—")
-        _field("Policy Year:", str(p.policy_year))
-        _field("Month of Year:", str(p.policy_month))
-        _field("Base Plancode:", p.base_plancode or "—")
-        _field("Billing Mode:", MODAL_LABELS.get(p.billing_mode, str(p.billing_mode)))
-        _field("Modal Premium:", f"${p.modal_premium:,.2f}" if p.modal_premium else "—")
-        _field("Table Rating:", str(p.table_rating))
-        _field("Annual Flat Extra:", f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None")
-        _field("Flat Cease Date:", p.flat_cease_date.strftime("%m/%d/%Y") if p.flat_cease_date else "—")
-        _field("Reinsurers:", p.reinsurers or "(none)")
+        fields = [
+            ("Sex:", sex_display),
+            ("Rate Sex:", p.rate_sex or "—"),
+            ("Issue Age:", str(p.issue_age)),
+            ("Attained Age:", str(p.attained_age)),
+            ("Rate Class:", p.rate_class or "—"),
+            ("Face Amount:", f"${p.face_amount:,.2f}" if p.face_amount else "—"),
+            ("Min Face:", f"${p.min_face_amount:,.0f}"),
+            ("Issue State:", p.issue_state or "—"),
+            ("Issue Date:", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—"),
+            ("Policy Year:", str(p.policy_year)),
+            ("Month of Year:", str(p.policy_month)),
+            ("Base Plancode:", p.base_plancode or "—"),
+            ("Billing Mode:", MODAL_LABELS.get(p.billing_mode, str(p.billing_mode))),
+            ("Modal Premium:", f"${p.modal_premium:,.2f}" if p.modal_premium else "—"),
+            ("Table Rating:", str(p.table_rating)),
+            ("Annual Flat Extra:", f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None"),
+            (
+                "Flat Cease Date:",
+                p.flat_cease_date.strftime("%m/%d/%Y") if p.flat_cease_date else "—",
+            ),
+            ("Reinsurers:", p.reinsurers or "(none)"),
+        ]
+        for label, value in fields:
+            row = self._policy_info_field(grid, row, label, value, fonts)
+        return row
 
-        if r:
-            _section("Quote Parameters")
-            _field("Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
-            _field("ABR Interest Rate:", f"{r.abr_interest_rate * 100:.2f}%")
-            _field("Per Diem (Daily):", f"${r.per_diem_daily:,.2f}")
-            _field("Per Diem (Annual):", f"${r.per_diem_annual:,.2f}")
+    def _add_quote_parameter_fields(
+        self,
+        grid: QGridLayout,
+        row: int,
+        fonts: tuple[QFont, QFont, QFont],
+    ) -> int:
+        r = self._result
+        if not r:
+            return row
+        row = self._policy_info_section(grid, row, "Quote Parameters", fonts[0])
+        fields = [
+            ("Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—"),
+            ("ABR Interest Rate:", f"{r.abr_interest_rate * 100:.2f}%"),
+            ("Per Diem (Daily):", f"${r.per_diem_daily:,.2f}"),
+            ("Per Diem (Annual):", f"${r.per_diem_annual:,.2f}"),
+        ]
+        for label, value in fields:
+            row = self._policy_info_field(grid, row, label, value, fonts)
+        return row
 
-        _section("Riders / Coverages")
-        if p.riders:
-            for rider in p.riders:
-                rider_desc = f"{rider.plancode} ({rider.rider_type})"
-                if rider.benefit_type:
-                    rider_desc += f" — BNF {rider.benefit_type}{rider.benefit_subtype or ''}"
-                _field(rider_desc, f"${rider.fallback_premium:,.2f}/yr")
-        else:
-            _field("No riders.", "")
-
-        grid.setRowStretch(row, 1)
-        scroll.setWidget(container)
-        return scroll
+    def _add_rider_fields(
+        self,
+        grid: QGridLayout,
+        row: int,
+        fonts: tuple[QFont, QFont, QFont],
+    ) -> int:
+        p = self._policy
+        row = self._policy_info_section(grid, row, "Riders / Coverages", fonts[0])
+        if not p.riders:
+            return self._policy_info_field(grid, row, "No riders.", "", fonts)
+        for rider in p.riders:
+            rider_desc = f"{rider.plancode} ({rider.rider_type})"
+            if rider.benefit_type:
+                rider_desc += f" — BNF {rider.benefit_type}{rider.benefit_subtype or ''}"
+            row = self._policy_info_field(
+                grid,
+                row,
+                rider_desc,
+                f"${rider.fallback_premium:,.2f}/yr",
+                fonts,
+            )
+        return row
 
     # ── Assessment tab ──────────────────────────────────────────────────
 
