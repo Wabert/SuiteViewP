@@ -38,6 +38,23 @@ CKULTB01_SAMPLE = """\
 """
 
 
+def test_ckultb01_unpaired_trailing_record_keeps_guaranteed_defaults(tmp_path):
+    sample = CKULTB01_SAMPLE.rsplit("\n", 2)[0] + "\n"
+    path = tmp_path / "ckultb01_unpaired.txt"
+    path.write_text(sample, encoding="utf-8")
+
+    records = list(ckultb01_parser.iter_records(str(path)))
+
+    assert len(records) == 3
+    assert records[-1]["CHARGE"] == 10.0
+    assert records[-1]["GUAR_CHARGE"] == 0.0
+    assert records[-1]["GUAR_MAX"] == 0.0
+
+
+def test_ckultb01_malformed_continuation_line_fails_loudly():
+    with pytest.raises(ValueError, match="continuation rate fields"):
+        ckultb01_parser._apply_line2({"_MAXIMUM_RAW": "1.50"}, ["not-a-number", "x", "A1", "01/01/2020"])
+
 def test_ckultb01_parser_stitches_wrapped_maximum(tmp_path):
     path = tmp_path / "ckultb01.txt"
     path.write_text(CKULTB01_SAMPLE, encoding="utf-8")

@@ -110,12 +110,15 @@ def _read_source_rows(path: str | Path) -> tuple[tuple[object, ...], ...]:
     try:
         workbook = load_workbook(path, read_only=True, data_only=True)
     except PermissionError:
+        import pywintypes  # type: ignore[import-not-found]
         import win32com.client  # type: ignore[import-not-found]
+
+        com_errors = (pywintypes.com_error, AttributeError, OSError, RuntimeError)
 
         target = str(Path(path).resolve()).lower()
         try:
             excel_workbook = win32com.client.GetObject(str(Path(path).resolve()))
-        except (OSError, RuntimeError):
+        except com_errors:
             logger.debug("Workbook was not available through GetObject", exc_info=True)
             excel_workbook = None
             try:
@@ -125,7 +128,7 @@ def _read_source_rows(path: str | Path) -> tuple[tuple[object, ...], ...]:
                     if str(candidate.FullName).lower() == target:
                         excel_workbook = candidate
                         break
-            except (OSError, RuntimeError):
+            except com_errors:
                 logger.debug(
                     "Could not inspect active Excel workbooks", exc_info=True
                 )

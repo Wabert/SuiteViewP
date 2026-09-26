@@ -69,3 +69,52 @@ def test_database_rows_bind_rates_as_floats():
 
     assert rows == [("N", 20, 1.23456789)]
     assert isinstance(rows[0][2], float)
+
+def test_locked_workbook_falls_back_to_dispatchex_when_excel_not_running(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    import pywintypes
+
+    def com_fail(*_args, **_kwargs):
+        raise pywintypes.com_error(-2147221021, "Operation unavailable", None, None)
+
+    class FakeRange:
+        Value2 = ((1, 2), (3, 4))
+
+    class FakeWorkbook:
+        closed = False
+
+        def Worksheets(self, _name):
+            return types.SimpleNamespace(Range=lambda _ref: FakeRange())
+
+        def Close(self, SaveChanges):
+            FakeWorkbook.closed = True
+
+    class FakeExcel:
+        quit_called = False
+
+        def __init__(self):
+            self.Workbooks = types.SimpleNamespace(Open=lambda *_a, **_k: FakeWorkbook())
+
+        def Quit(self):
+            FakeExcel.quit_called = True
+
+    client = types.ModuleType("win32com.client")
+    client.GetObject = com_fail
+    client.GetActiveObject = com_fail
+    client.DispatchEx = lambda _prog_id: FakeExcel()
+    package = types.ModuleType("win32com")
+    package.client = client
+    monkeypatch.setitem(sys.modules, "win32com", package)
+    monkeypatch.setitem(sys.modules, "win32com.client", client)
+
+    def locked(*_args, **_kwargs):
+        raise PermissionError("locked by Excel")
+
+    monkeypatch.setattr(mortality_loader, "load_workbook", locked)
+
+    rows = mortality_loader._read_source_rows(tmp_path / "locked.xlsx")
+
+    assert rows == ((1, 2), (3, 4))
+    assert FakeWorkbook.closed and FakeExcel.quit_called

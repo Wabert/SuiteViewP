@@ -36,9 +36,8 @@ def list_forges() -> list[DataForge]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 forges.append(DataForge.from_dict(json.load(fh)))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
             logger.exception("Failed to load DataForge: %s", f)
-            raise RuntimeError(f"Failed to load DataForge: {f}") from exc
     forges.sort(key=lambda d: d.created_at, reverse=True)
     return forges
 
@@ -50,9 +49,9 @@ def load_forge(name: str) -> DataForge | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return DataForge.from_dict(json.load(f))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         logger.exception("Failed to load DataForge: %s", name)
-        raise RuntimeError(f"Failed to load DataForge: {name}") from exc
+        return None
 
 
 def save_forge(df: DataForge) -> None:
@@ -123,9 +122,9 @@ def load_source_snapshot(forge_name: str, alias: str):
         return None
     try:
         return pd.read_parquet(path)
-    except (OSError, ValueError, ImportError) as exc:
+    except (OSError, ValueError, ImportError):
         logger.exception("Failed to load Snapshot for %s/%s", forge_name, alias)
-        raise RuntimeError(f"Failed to load Snapshot for {forge_name}/{alias}") from exc
+        return None
 
 
 def delete_source_snapshot(forge_name: str, alias: str) -> None:

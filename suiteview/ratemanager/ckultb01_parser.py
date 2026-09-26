@@ -116,6 +116,9 @@ def _apply_line2(record: Dict, parts: List[str]) -> None:
         max_raw += parts[0]
         rest = parts[1:]
     record["MAXIMUM"] = _num(max_raw)
+    if not rest:
+        # Unpaired line-1 record (see iter_records): keep the 0.0 guaranteed defaults.
+        return
     try:
         record["GUAR_CHARGE"] = _num(rest[0])
         record["GUAR_MAX"] = _num(rest[1])
