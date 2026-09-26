@@ -27,45 +27,73 @@ def _fmt_date(value) -> str:
     return f"{value:%m/%d/%Y}" if value else ""
 
 
-def seven_pay_backtest(policy, states: list, recalc_index: int, detail: dict) -> dict | None:
-    """Retroactively test a recalculated seven-pay level against its window."""
-    new_level = float(detail.get("seven_pay_new") or 0.0)
-    window_start = detail.get("seven_pay_window_start")
-    change_year = int(detail.get("tamra_year_at_change") or 0)
-    if new_level <= 0.0 or window_start is None or not (1 <= change_year <= 7):
-        return None
-    recalc_state = states[recalc_index]
-
-    projected_cum: dict[int, float] = {}
+def _projected_cumulative_by_year(
+    states: list,
+    recalc_index: int,
+    window_start,
+    change_year: int,
+    amount_in_7pay: float,
+) -> dict[int, float]:
+    projected = {}
     for state in states[1:recalc_index + 1]:
         if state.tamra_7pay_start_date == window_start and 1 <= state.tamra_year <= 7:
-            projected_cum[state.tamra_year] = state.accumulated_7pay
-    projected_cum[change_year] = recalc_state.amount_in_7pay
+            projected[state.tamra_year] = state.accumulated_7pay
+    projected[change_year] = amount_in_7pay
+    return projected
 
-    contributions = list(getattr(policy, "tamra_7year_contributions", None) or [])
-    window_is_original = states[0].tamra_7pay_start_date == window_start
 
+def _cumulative_for_backtest_year(
+    year: int,
+    *,
+    change_year: int,
+    projected_cum: dict[int, float],
+    window_is_original: bool,
+    contributions: list,
+):
+    if year > change_year:
+        return None
+    if year in projected_cum:
+        return projected_cum[year]
+    if window_is_original and year <= len(contributions):
+        return sum(contributions[:year])
+    return None
+
+
+def _backtest_result(
+    cumulative,
+    limit: float,
+    mec_year: int | None,
+    year: int,
+) -> tuple[str, int | None]:
+    if cumulative is None:
+        return "not reached", mec_year
+    if mec_year is not None or cumulative > limit + 0.005:
+        return "MEC", mec_year or year
+    return "OK", mec_year
+
+
+def _seven_pay_backtest_rows(
+    *,
+    new_level: float,
+    window_start,
+    change_year: int,
+    projected_cum: dict[int, float],
+    window_is_original: bool,
+    contributions: list,
+) -> tuple[list[dict], int | None]:
     rows: list[dict] = []
     mec_year: int | None = None
     prior_cum = 0.0
     for year in range(1, 8):
-        if year > change_year:
-            cumulative = None
-        elif year in projected_cum:
-            cumulative = projected_cum[year]
-        elif window_is_original and year <= len(contributions):
-            cumulative = sum(contributions[:year])
-        else:
-            cumulative = None
+        cumulative = _cumulative_for_backtest_year(
+            year,
+            change_year=change_year,
+            projected_cum=projected_cum,
+            window_is_original=window_is_original,
+            contributions=contributions,
+        )
         limit = year * new_level
-        if cumulative is None:
-            result = "not reached"
-        elif mec_year is not None or cumulative > limit + 0.005:
-            result = "MEC"
-            if mec_year is None:
-                mec_year = year
-        else:
-            result = "OK"
+        result, mec_year = _backtest_result(cumulative, limit, mec_year, year)
         rows.append({
             "TAMRA Year": year,
             "Year Begins": _fmt_date(_add_years(window_start, year - 1)),
@@ -77,6 +105,35 @@ def seven_pay_backtest(policy, states: list, recalc_index: int, detail: dict) ->
         })
         if cumulative is not None:
             prior_cum = cumulative
+    return rows, mec_year
+
+
+def seven_pay_backtest(policy, states: list, recalc_index: int, detail: dict) -> dict | None:
+    """Retroactively test a recalculated seven-pay level against its window."""
+    new_level = float(detail.get("seven_pay_new") or 0.0)
+    window_start = detail.get("seven_pay_window_start")
+    change_year = int(detail.get("tamra_year_at_change") or 0)
+    if new_level <= 0.0 or window_start is None or not (1 <= change_year <= 7):
+        return None
+    recalc_state = states[recalc_index]
+
+    projected_cum = _projected_cumulative_by_year(
+        states,
+        recalc_index,
+        window_start,
+        change_year,
+        recalc_state.amount_in_7pay,
+    )
+    contributions = list(getattr(policy, "tamra_7year_contributions", None) or [])
+    window_is_original = states[0].tamra_7pay_start_date == window_start
+    rows, mec_year = _seven_pay_backtest_rows(
+        new_level=new_level,
+        window_start=window_start,
+        change_year=change_year,
+        projected_cum=projected_cum,
+        window_is_original=window_is_original,
+        contributions=contributions,
+    )
     return {
         "rows": rows,
         "is_mec": mec_year is not None,

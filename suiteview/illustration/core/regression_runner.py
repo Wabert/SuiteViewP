@@ -120,6 +120,103 @@ def _row_key(row: dict) -> tuple:
     return row.get("Date"), row.get("Year"), row.get("Month")
 
 
+def _rows_by_key(rows: list[dict], label: str, case_name: str, basis: str) -> dict:
+    rows_by_key = {_row_key(row): row for row in rows}
+    if len(rows_by_key) != len(rows):
+        raise ValueError(f"{case_name} {basis} {label} has duplicate row keys.")
+    return rows_by_key
+
+
+def _row_presence_diff(
+    case_id: str,
+    case_name: str,
+    basis: str,
+    key: tuple,
+    expected_row: dict | None,
+    actual_row: dict | None,
+) -> DiffRecord | None:
+    if expected_row is not None and actual_row is not None:
+        return None
+    return DiffRecord(
+        case_id, case_name, basis, key[0], key[1], key[2],
+        "<row>", "present" if expected_row else "missing",
+        "present" if actual_row else "missing", kind="row",
+    )
+
+
+def _schema_diff(
+    case_id: str,
+    case_name: str,
+    basis: str,
+    key: tuple,
+    expected_row: dict,
+    actual_row: dict,
+) -> DiffRecord | None:
+    if tuple(expected_row.keys()) == ALL_COLUMNS and tuple(actual_row.keys()) == ALL_COLUMNS:
+        return None
+    return DiffRecord(
+        case_id, case_name, basis, key[0], key[1], key[2],
+        "<schema>", list(expected_row), list(actual_row), kind="schema",
+    )
+
+
+def _compare_cell(
+    case_id: str,
+    case_name: str,
+    basis: str,
+    key: tuple,
+    column: str,
+    expected_value,
+    actual_value,
+) -> DiffRecord | None:
+    if column in LEAD_COLUMNS or not (
+        _numeric(expected_value) and _numeric(actual_value)
+    ):
+        equal = type(expected_value) is type(actual_value) and expected_value == actual_value
+        tolerance = None
+        delta = None
+    else:
+        tolerance = (
+            RATE_TOLERANCE
+            if column in ("Interest Rate", "Shadow Int Rate")
+            else MONEY_TOLERANCE
+        )
+        delta = float(actual_value) - float(expected_value)
+        boundary = tolerance + max(
+            math.ulp(float(actual_value)),
+            math.ulp(float(expected_value)),
+        )
+        equal = abs(delta) <= boundary
+    if equal:
+        return None
+    return DiffRecord(
+        case_id, case_name, basis, key[0], key[1], key[2],
+        column, expected_value, actual_value, delta, tolerance,
+    )
+
+
+def _row_diffs(
+    case_id: str,
+    case_name: str,
+    basis: str,
+    key: tuple,
+    expected_row: dict,
+    actual_row: dict,
+) -> list[DiffRecord]:
+    return [
+        diff for column in ALL_COLUMNS
+        if (diff := _compare_cell(
+            case_id,
+            case_name,
+            basis,
+            key,
+            column,
+            expected_row[column],
+            actual_row[column],
+        )) is not None
+    ]
+
+
 def compare_rows(
     case_id: str,
     case_name: str,
@@ -131,56 +228,25 @@ def compare_rows(
         return BasisResult(status=STATUS_NO_BASELINE, rows=actual)
 
     diffs = []
-    expected_by_key = {_row_key(row): row for row in expected}
-    actual_by_key = {_row_key(row): row for row in actual}
-    if len(expected_by_key) != len(expected):
-        raise ValueError(f"{case_name} {basis} baseline has duplicate row keys.")
-    if len(actual_by_key) != len(actual):
-        raise ValueError(f"{case_name} {basis} result has duplicate row keys.")
+    expected_by_key = _rows_by_key(expected, "baseline", case_name, basis)
+    actual_by_key = _rows_by_key(actual, "result", case_name, basis)
 
     keys = list(dict.fromkeys([*expected_by_key, *actual_by_key]))
     for key in keys:
         expected_row = expected_by_key.get(key)
         actual_row = actual_by_key.get(key)
-        if expected_row is None or actual_row is None:
-            diffs.append(DiffRecord(
-                case_id, case_name, basis, key[0], key[1], key[2],
-                "<row>", "present" if expected_row else "missing",
-                "present" if actual_row else "missing", kind="row",
-            ))
+        presence_diff = _row_presence_diff(
+            case_id, case_name, basis, key, expected_row, actual_row)
+        if presence_diff is not None:
+            diffs.append(presence_diff)
             continue
-        if tuple(expected_row.keys()) != ALL_COLUMNS or tuple(actual_row.keys()) != ALL_COLUMNS:
-            diffs.append(DiffRecord(
-                case_id, case_name, basis, key[0], key[1], key[2],
-                "<schema>", list(expected_row), list(actual_row), kind="schema",
-            ))
+        schema_diff = _schema_diff(
+            case_id, case_name, basis, key, expected_row, actual_row)
+        if schema_diff is not None:
+            diffs.append(schema_diff)
             continue
-        for column in ALL_COLUMNS:
-            expected_value = expected_row[column]
-            actual_value = actual_row[column]
-            if column in LEAD_COLUMNS or not (
-                _numeric(expected_value) and _numeric(actual_value)
-            ):
-                equal = type(expected_value) is type(actual_value) and expected_value == actual_value
-                tolerance = None
-                delta = None
-            else:
-                tolerance = (
-                    RATE_TOLERANCE
-                    if column in ("Interest Rate", "Shadow Int Rate")
-                    else MONEY_TOLERANCE
-                )
-                delta = float(actual_value) - float(expected_value)
-                boundary = tolerance + max(
-                    math.ulp(float(actual_value)),
-                    math.ulp(float(expected_value)),
-                )
-                equal = abs(delta) <= boundary
-            if not equal:
-                diffs.append(DiffRecord(
-                    case_id, case_name, basis, key[0], key[1], key[2],
-                    column, expected_value, actual_value, delta, tolerance,
-                ))
+        diffs.extend(_row_diffs(
+            case_id, case_name, basis, key, expected_row, actual_row))
     return BasisResult(
         status=STATUS_FAIL if diffs else STATUS_PASS,
         rows=actual,

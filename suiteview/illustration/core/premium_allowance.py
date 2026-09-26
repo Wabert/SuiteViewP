@@ -204,6 +204,287 @@ def _annual_cap(
     return min(gp_side, tamra_side)
 
 
+def _annual_cap_sources(
+    inputs: PremiumAllowanceInput,
+    gp_allowance: float,
+    npt_allowance: float,
+    tamra_allowance: float,
+) -> tuple[bool, bool]:
+    gp_side = gp_allowance if (inputs.is_gpt and inputs.tefra_force) else INF
+    tamra_side = (
+        INF if (not inputs.tamra_force or inputs.mec_bypass)
+        else min(npt_allowance, tamra_allowance)
+    )
+    return (
+        gp_side < INF and gp_side <= tamra_side + MONEY_EPSILON,
+        tamra_side < INF and tamra_side <= gp_side + MONEY_EPSILON,
+    )
+
+
+def _active_tamra(inputs: PremiumAllowanceInput) -> bool:
+    return inputs.tamra_force and not inputs.mec_bypass and inputs.tamra_year <= 7
+
+
+def _set_initial_allowances(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+    forceout_adj: float,
+) -> None:
+    """Populate NC..NF, the room available before premium is applied."""
+    result.gp_allowance_0 = (
+        INF if inputs.is_cvat
+        else max(0.0, inputs.guideline_limit - inputs.prem_less_wd + forceout_adj)
+    )
+    result.npt_allowance_0 = (
+        INF if not inputs.is_cvat or inputs.tamra_year <= 7
+        else inputs.npt_premium
+    )
+    result.tamra_allowance_0 = (
+        max(
+            0.0,
+            inputs.seven_pay_level * inputs.tamra_year
+            - inputs.amount_in_7pay
+            + forceout_adj,
+        )
+        if inputs.tamra_year <= 7 else INF
+    )
+    result.annual_cap_0 = (
+        result.gp_allowance_0 if (inputs.is_gpt and inputs.tefra_force) else INF
+    )
+
+
+def _apply_lumpsum_chain(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+) -> None:
+    """Apply the zero-modeled 1035 and unscheduled premium columns NG..NQ."""
+    result.applied_1035 = 0.0
+    result.gp_allowance_1 = result.gp_allowance_0 - result.applied_1035
+    result.npt_allowance_1 = result.npt_allowance_0 - result.applied_1035
+    result.tamra_allowance_1 = result.tamra_allowance_0
+    result.annual_cap_1 = _annual_cap(
+        is_gpt=inputs.is_gpt,
+        tefra_force=inputs.tefra_force,
+        tamra_force=inputs.tamra_force,
+        mec_bypass=inputs.mec_bypass,
+        gp_allowance=result.gp_allowance_1,
+        npt_allowance=result.npt_allowance_1,
+        tamra_allowance=result.tamra_allowance_1,
+    )
+
+    result.lumpsum_remaining = (
+        inputs.requested_lumpsum
+        - inputs.loan_repay_from_lumpsum
+        + inputs.ln_repay_left_over
+    )
+    result.applied_lumpsum = min(result.lumpsum_remaining, result.annual_cap_1)
+
+    result.gp_allowance_2 = result.gp_allowance_1 - result.applied_lumpsum
+    result.npt_allowance_2 = result.npt_allowance_1 - result.applied_lumpsum
+    result.tamra_allowance_2 = max(
+        result.tamra_allowance_1 - result.applied_lumpsum,
+        0.0,
+    )
+    result.annual_cap_2 = _annual_cap(
+        is_gpt=inputs.is_gpt,
+        tefra_force=inputs.tefra_force,
+        tamra_force=inputs.tamra_force,
+        mec_bypass=inputs.mec_bypass,
+        gp_allowance=result.gp_allowance_2,
+        npt_allowance=result.npt_allowance_2,
+        tamra_allowance=result.tamra_allowance_2,
+    )
+
+
+def _set_level_allowances(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+) -> None:
+    """Populate NR..NU by spreading annual room over remaining modal payments."""
+    lu = inputs.payment_count_tamra_year
+    lt = inputs.payment_count_policy_year
+    result.tamra_level_allowance_boy = (
+        result.tamra_allowance_2 if lu == 0 else result.tamra_allowance_2 / lu
+    )
+    if inputs.tamra_month_of_year != inputs.policy_month and inputs.tamra_year < 7:
+        eoy_numerator = (
+            result.tamra_allowance_2
+            + (0.0 if inputs.tamra_reset else inputs.seven_pay_level)
+        )
+    else:
+        eoy_numerator = INF
+    result.tamra_level_allowance_eoy = (
+        eoy_numerator / lt if inputs.payment_count_policy_year > 0 else INF
+    )
+    result.npt_level_allowance = (
+        result.npt_allowance_2 if lu == 0 else result.npt_allowance_2 / lu
+    )
+    result.gp_level_allowance = result.gp_allowance_2 / lt if lt > 0 else INF
+
+
+def _scheduled_tamra_side(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+    active_tamra: bool,
+) -> float:
+    if not inputs.tamra_force or inputs.mec_bypass:
+        return INF
+    if not active_tamra and not inputs.is_cvat:
+        return INF
+    return min(
+        result.tamra_level_allowance_boy,
+        result.tamra_level_allowance_eoy,
+        result.npt_level_allowance,
+    )
+
+
+def _set_scheduled_cap(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+) -> None:
+    active_tamra = _active_tamra(inputs)
+    tamra_constraint_exit = (
+        inputs.prior_scheduled_cap_by_tamra
+        and not active_tamra
+    )
+    cap_uninitialized = (
+        inputs.prior_scheduled_prem_cap <= 0.0
+        and not inputs.prior_scheduled_cap_by_guideline
+        and not inputs.prior_scheduled_cap_by_tamra
+    )
+    recalculate_cap = (
+        inputs.tamra_reset
+        or inputs.policy_anniversary
+        or tamra_constraint_exit
+        or cap_uninitialized
+    )
+    if not recalculate_cap:
+        result.scheduled_prem_cap = inputs.prior_scheduled_prem_cap
+        result.scheduled_cap_by_guideline = inputs.prior_scheduled_cap_by_guideline
+        result.scheduled_cap_by_tamra = inputs.prior_scheduled_cap_by_tamra
+        return
+
+    tamra_side = _scheduled_tamra_side(result, inputs, active_tamra)
+    gp_side = (
+        result.gp_level_allowance if (inputs.is_gpt and inputs.tefra_force)
+        else INF
+    )
+    result.scheduled_prem_cap = _floor_cent(min(tamra_side, gp_side))
+    result.scheduled_cap_by_guideline = (
+        gp_side < INF and gp_side <= tamra_side + MONEY_EPSILON
+    )
+    result.scheduled_cap_by_tamra = (
+        tamra_side < INF and tamra_side <= gp_side + MONEY_EPSILON
+    )
+
+
+def _apply_transition_year(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+) -> None:
+    if inputs.beginning_of_year:
+        gp_binds_this_year = (
+            inputs.is_gpt
+            and inputs.tefra_force
+            and result.scheduled_cap_by_guideline
+        )
+        result.in_transition_year = (
+            inputs.dollar_for_dollar_in_transition_year
+            and gp_binds_this_year
+            and not inputs.prior_guideline_limit_reached
+        )
+    else:
+        result.in_transition_year = inputs.prior_transition_year_active
+
+
+def _tamra_scheduled_gate(inputs: PremiumAllowanceInput, result: PremiumAllowances) -> float:
+    if not inputs.tamra_force:
+        return INF
+    return INF if inputs.mec_bypass else result.npt_allowance_0
+
+
+def _apply_lumpsum_cap_flags(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+) -> None:
+    if result.applied_lumpsum >= result.lumpsum_remaining - MONEY_EPSILON:
+        return
+    gp_binds, tamra_binds = _annual_cap_sources(
+        inputs,
+        result.gp_allowance_1,
+        result.npt_allowance_1,
+        result.tamra_allowance_1,
+    )
+    result.capped_by_guideline |= gp_binds
+    result.capped_by_tamra |= tamra_binds
+
+
+def _apply_scheduled_cap_flags(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+    *,
+    levelized_or_full: float,
+    tamra_scheduled_gate: float,
+) -> None:
+    if result.applied_scheduled_premium >= (
+        result.scheduled_less_loan_repay - MONEY_EPSILON
+    ):
+        return
+    if result.annual_cap_2 <= min(levelized_or_full, tamra_scheduled_gate) + MONEY_EPSILON:
+        gp_binds, tamra_binds = _annual_cap_sources(
+            inputs,
+            result.gp_allowance_2,
+            result.npt_allowance_2,
+            result.tamra_allowance_2,
+        )
+        result.capped_by_guideline |= gp_binds
+        result.capped_by_tamra |= tamra_binds
+    if (
+        result.apply_levelized
+        and result.levelized_max_premium
+        < result.scheduled_less_loan_repay - MONEY_EPSILON
+    ):
+        result.capped_by_guideline |= result.scheduled_cap_by_guideline
+        result.capped_by_tamra |= result.scheduled_cap_by_tamra
+    if tamra_scheduled_gate <= min(result.annual_cap_2, levelized_or_full) + MONEY_EPSILON:
+        result.capped_by_tamra = True
+
+
+def _apply_scheduled_premium(
+    result: PremiumAllowances,
+    inputs: PremiumAllowanceInput,
+) -> None:
+    result.levelized_max_premium = min(
+        result.scheduled_prem_cap,
+        inputs.requested_scheduled,
+    )
+    result.apply_levelized = (
+        inputs.levelizing_premium
+        and not inputs.has_loan_balance
+        and not result.in_transition_year
+    )
+    result.scheduled_less_loan_repay = (
+        inputs.requested_scheduled - inputs.loan_repay_from_scheduled
+    )
+    levelized_or_full = (
+        min(result.levelized_max_premium, result.scheduled_less_loan_repay)
+        if result.apply_levelized else result.scheduled_less_loan_repay
+    )
+    tamra_scheduled_gate = _tamra_scheduled_gate(inputs, result)
+    result.applied_scheduled_premium = min(
+        result.annual_cap_2,
+        levelized_or_full,
+        tamra_scheduled_gate,
+    )
+    _apply_lumpsum_cap_flags(result, inputs)
+    _apply_scheduled_cap_flags(
+        result,
+        inputs,
+        levelized_or_full=levelized_or_full,
+        tamra_scheduled_gate=tamra_scheduled_gate,
+    )
+
+
 def compute_premium_allowances(inputs: PremiumAllowanceInput) -> PremiumAllowances:
     """Compute the NC..NZ "Apply Premium" chain for one month.
 
@@ -211,223 +492,13 @@ def compute_premium_allowances(inputs: PremiumAllowanceInput) -> PremiumAllowanc
     gross premium the policy accepts this month (the value the AV pipeline then
     splits into target/excess and loads).
     """
-    is_cvat = inputs.is_cvat
-    is_gpt = inputs.is_gpt
-    tefra_force = inputs.tefra_force
-    tamra_force = inputs.tamra_force
-    mec_bypass = inputs.mec_bypass
-    guideline_limit = inputs.guideline_limit
-    prem_less_wd = inputs.prem_less_wd
-    force_out = inputs.force_out
-    loan_repay_from_forceout = inputs.loan_repay_from_forceout
-    seven_pay_level = inputs.seven_pay_level
-    tamra_year = inputs.tamra_year
-    tamra_month_of_year = inputs.tamra_month_of_year
-    policy_month = inputs.policy_month
-    amount_in_7pay = inputs.amount_in_7pay
-    npt_premium = inputs.npt_premium
-    tamra_reset = inputs.tamra_reset
-    requested_scheduled = inputs.requested_scheduled
-    requested_lumpsum = inputs.requested_lumpsum
-    payment_count_policy_year = inputs.payment_count_policy_year
-    payment_count_tamra_year = inputs.payment_count_tamra_year
-    loan_repay_from_lumpsum = inputs.loan_repay_from_lumpsum
-    loan_repay_from_scheduled = inputs.loan_repay_from_scheduled
-    ln_repay_left_over = inputs.ln_repay_left_over
-    has_loan_balance = inputs.has_loan_balance
-    levelizing_premium = inputs.levelizing_premium
-    beginning_of_year = inputs.beginning_of_year
-    policy_anniversary = inputs.policy_anniversary
-    prior_scheduled_prem_cap = inputs.prior_scheduled_prem_cap
-    prior_scheduled_cap_by_guideline = inputs.prior_scheduled_cap_by_guideline
-    prior_scheduled_cap_by_tamra = inputs.prior_scheduled_cap_by_tamra
-    dollar_for_dollar_in_transition_year = inputs.dollar_for_dollar_in_transition_year
-    prior_guideline_limit_reached = inputs.prior_guideline_limit_reached
-    prior_transition_year_active = inputs.prior_transition_year_active
+    result = PremiumAllowances(prem_less_wd=inputs.prem_less_wd)
+    forceout_adj = inputs.force_out - inputs.loan_repay_from_forceout
 
-    a = PremiumAllowances(prem_less_wd=prem_less_wd)
-    forceout_adj = force_out - loan_repay_from_forceout
-
-    # ── NC / ND / NE — allowances before any premium applied ──
-    a.gp_allowance_0 = (
-        INF if is_cvat else max(0.0, guideline_limit - prem_less_wd + forceout_adj)
-    )
-    if is_cvat:
-        a.npt_allowance_0 = INF if tamra_year <= 7 else npt_premium
-    else:
-        a.npt_allowance_0 = INF
-    if tamra_year <= 7:
-        a.tamra_allowance_0 = max(
-            0.0, seven_pay_level * tamra_year - amount_in_7pay + forceout_adj
-        )
-    else:
-        a.tamra_allowance_0 = INF
-
-    # ── NF — annual cap before the 1035 exchange ──
-    a.annual_cap_0 = a.gp_allowance_0 if (is_gpt and tefra_force) else INF
-
-    # ── NG..NK — after the 1035 exchange. 1035 (vApplied1035 = MIN(LL, NF)) is
-    #    not modeled here, so applied_1035 stays 0 and the "1" allowances equal
-    #    the "0" allowances. ──
-    a.applied_1035 = 0.0
-    a.gp_allowance_1 = a.gp_allowance_0 - a.applied_1035
-    a.npt_allowance_1 = a.npt_allowance_0 - a.applied_1035
-    a.tamra_allowance_1 = a.tamra_allowance_0
-    a.annual_cap_1 = _annual_cap(
-        is_gpt=is_gpt, tefra_force=tefra_force, tamra_force=tamra_force,
-        mec_bypass=mec_bypass, gp_allowance=a.gp_allowance_1,
-        npt_allowance=a.npt_allowance_1, tamra_allowance=a.tamra_allowance_1,
-    )
-
-    # ── NL / NM — the lumpsum (unscheduled premium) is applied first, against
-    #    the annual cap, reducing the room left for the scheduled premium. ──
-    a.lumpsum_remaining = (requested_lumpsum - loan_repay_from_lumpsum) + ln_repay_left_over
-    a.applied_lumpsum = min(a.lumpsum_remaining, a.annual_cap_1)
-
-    # ── NN..NQ — allowances after the lumpsum ──
-    a.gp_allowance_2 = a.gp_allowance_1 - a.applied_lumpsum
-    a.npt_allowance_2 = a.npt_allowance_1 - a.applied_lumpsum
-    a.tamra_allowance_2 = max(a.tamra_allowance_1 - a.applied_lumpsum, 0.0)
-    a.annual_cap_2 = _annual_cap(
-        is_gpt=is_gpt, tefra_force=tefra_force, tamra_force=tamra_force,
-        mec_bypass=mec_bypass, gp_allowance=a.gp_allowance_2,
-        npt_allowance=a.npt_allowance_2, tamra_allowance=a.tamra_allowance_2,
-    )
-
-    # ── NR..NU — per-mode level allowances (allowance spread over the payments
-    #    left in the year). LU = TAMRA-year payments, LT = policy-year payments. ──
-    lu = payment_count_tamra_year
-    lt = payment_count_policy_year
-    a.tamra_level_allowance_boy = (
-        a.tamra_allowance_2 if lu == 0 else a.tamra_allowance_2 / lu
-    )
-    if tamra_month_of_year != policy_month and tamra_year < 7:
-        eoy_numerator = a.tamra_allowance_2 + (0.0 if tamra_reset else seven_pay_level)
-    else:
-        eoy_numerator = INF
-    a.tamra_level_allowance_eoy = (
-        eoy_numerator / lt if payment_count_policy_year > 0 else INF
-    )
-    a.npt_level_allowance = (
-        a.npt_allowance_2 if lu == 0 else a.npt_allowance_2 / lu
-    )
-    a.gp_level_allowance = (
-        a.gp_allowance_2 / lt if lt > 0 else INF
-    )
-
-    # ── NV — Scheduled Prem Cap. Start the first level at a new TAMRA period,
-    # then recalculate at each policy anniversary from the three RERUN limits:
-    # TAMRA room before its off-anniversary increase (NR), TAMRA room after that
-    # increase (NS), and policy-year guideline room (NU). Carry NV between those
-    # anchors; a later TAMRA anniversary does not restart the policy-year level.
-    active_tamra = tamra_force and not mec_bypass and tamra_year <= 7
-    tamra_constraint_exit = (
-        prior_scheduled_cap_by_tamra and not active_tamra
-    )
-    cap_uninitialized = (
-        prior_scheduled_prem_cap <= 0.0
-        and not prior_scheduled_cap_by_guideline
-        and not prior_scheduled_cap_by_tamra
-    )
-    recalculate_cap = (
-        tamra_reset
-        or policy_anniversary
-        or tamra_constraint_exit
-        or cap_uninitialized
-    )
-    if recalculate_cap:
-        if not tamra_force or mec_bypass:
-            tamra_side = INF
-        elif not active_tamra and not is_cvat:
-            tamra_side = INF
-        else:
-            tamra_side = min(
-                a.tamra_level_allowance_boy,
-                a.tamra_level_allowance_eoy,
-                a.npt_level_allowance,
-            )
-        gp_side = a.gp_level_allowance if (is_gpt and tefra_force) else INF
-        a.scheduled_prem_cap = _floor_cent(min(tamra_side, gp_side))
-        a.scheduled_cap_by_guideline = (
-            gp_side < INF and gp_side <= tamra_side + MONEY_EPSILON
-        )
-        a.scheduled_cap_by_tamra = (
-            tamra_side < INF and tamra_side <= gp_side + MONEY_EPSILON
-        )
-    else:
-        a.scheduled_prem_cap = prior_scheduled_prem_cap
-        a.scheduled_cap_by_guideline = prior_scheduled_cap_by_guideline
-        a.scheduled_cap_by_tamra = prior_scheduled_cap_by_tamra
-
-    # ── Transition-year dollar-for-dollar (Prem-to-Maturity) ──
-    # The FIRST policy year the GP guideline binds the level premium is the year
-    # the policy tips into GP exception mode. That year's premium can never be
-    # level (it ends on exception premiums), so — when the caller opts in — accept
-    # the scheduled premium dollar-for-dollar instead of spreading the freshly
-    # opened annual room across the modal payments: the billable premium fills the
-    # guideline room and the MD / GP exception premium takes over once it is
-    # exhausted, rather than oscillating against the room for the rest of the year.
-    # Latched at the anniversary (the SX-flag anchor) and carried through the year;
-    # the NEXT year sees ``prior_guideline_limit_reached`` and does not re-enter.
-    if beginning_of_year:
-        gp_binds_this_year = (is_gpt and tefra_force) and a.scheduled_cap_by_guideline
-        a.in_transition_year = (
-            dollar_for_dollar_in_transition_year
-            and gp_binds_this_year
-            and not prior_guideline_limit_reached
-        )
-    else:
-        a.in_transition_year = prior_transition_year_active
-
-    # ── NW / NX / NY / NZ ──
-    a.levelized_max_premium = min(a.scheduled_prem_cap, requested_scheduled)
-    a.apply_levelized = (
-        levelizing_premium and not has_loan_balance and not a.in_transition_year
-    )
-    a.scheduled_less_loan_repay = requested_scheduled - loan_repay_from_scheduled
-    levelized_or_full = (
-        min(a.levelized_max_premium, a.scheduled_less_loan_repay)
-        if a.apply_levelized else a.scheduled_less_loan_repay
-    )
-    if tamra_force:
-        tamra_scheduled_gate = INF if mec_bypass else a.npt_allowance_0
-    else:
-        tamra_scheduled_gate = INF
-    a.applied_scheduled_premium = min(
-        a.annual_cap_2, levelized_or_full, tamra_scheduled_gate
-    )
-
-    def annual_cap_sources(
-        gp_allowance: float,
-        npt_allowance: float,
-        tamra_allowance: float,
-    ) -> tuple[bool, bool]:
-        gp_side = gp_allowance if (is_gpt and tefra_force) else INF
-        tamra_side = (
-            INF if (not tamra_force or mec_bypass)
-            else min(npt_allowance, tamra_allowance)
-        )
-        return (
-            gp_side < INF and gp_side <= tamra_side + MONEY_EPSILON,
-            tamra_side < INF and tamra_side <= gp_side + MONEY_EPSILON,
-        )
-
-    if a.applied_lumpsum < a.lumpsum_remaining - MONEY_EPSILON:
-        gp_binds, tamra_binds = annual_cap_sources(
-            a.gp_allowance_1, a.npt_allowance_1, a.tamra_allowance_1)
-        a.capped_by_guideline |= gp_binds
-        a.capped_by_tamra |= tamra_binds
-
-    if a.applied_scheduled_premium < a.scheduled_less_loan_repay - MONEY_EPSILON:
-        if a.annual_cap_2 <= min(levelized_or_full, tamra_scheduled_gate) + MONEY_EPSILON:
-            gp_binds, tamra_binds = annual_cap_sources(
-                a.gp_allowance_2, a.npt_allowance_2, a.tamra_allowance_2)
-            a.capped_by_guideline |= gp_binds
-            a.capped_by_tamra |= tamra_binds
-        if a.apply_levelized and a.levelized_max_premium < a.scheduled_less_loan_repay - MONEY_EPSILON:
-            a.capped_by_guideline |= a.scheduled_cap_by_guideline
-            a.capped_by_tamra |= a.scheduled_cap_by_tamra
-        if tamra_scheduled_gate <= min(a.annual_cap_2, levelized_or_full) + MONEY_EPSILON:
-            a.capped_by_tamra = True
-
-    return a
+    _set_initial_allowances(result, inputs, forceout_adj)
+    _apply_lumpsum_chain(result, inputs)
+    _set_level_allowances(result, inputs)
+    _set_scheduled_cap(result, inputs)
+    _apply_transition_year(result, inputs)
+    _apply_scheduled_premium(result, inputs)
+    return result
