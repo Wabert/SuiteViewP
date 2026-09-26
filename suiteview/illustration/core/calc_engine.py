@@ -406,6 +406,38 @@ def apply_policy_changes(
     )
 
 
+def refresh_targets(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:
+    """Refresh target-premium details and carry safety-net timing flags."""
+    state = ctx.state
+    policy = ctx.policy
+    if (
+        convention.refresh_targets
+        and (
+            not state.mtp_detail
+            or ctx.policy_changes
+            or work.wd.face_decrease > MONEY_EPSILON
+            or target_actives_signature(policy, work.month_date)
+            != target_actives_signature(policy, state.date)
+        )
+    ):
+        work.mtp_detail, work.ctp_detail = build_target_detail_snapshots(
+            policy, compute_target_premiums(policy, ctx.config, as_of=work.month_date)
+        )
+    else:
+        work.mtp_detail = state.mtp_detail
+        work.ctp_detail = state.ctp_detail
+
+    work.monthly_mtp = truncate_monthly_mtp(policy.mtp)
+    work.pw_monthly_mtp = _round_near(policy.mtp, 2)
+    work.accumulated_mtp = state.accumulated_mtp + work.monthly_mtp
+    if policy.map_cease_date is not None:
+        work.within_snet = work.month_date <= policy.map_cease_date
+    else:
+        work.within_snet = work.next_year <= ctx.config.snet_period
+    work.past_snet = not work.within_snet
+    work.prior_exception_mode = state.gp_exception_mode
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -459,41 +491,15 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     guideline_recalc = work.guideline_recalc
     cov_after_change = work.cov_after_change
 
-    # ── 7b. MTP/CTP detail snapshots (HO..JG / JI..KQ) ────
-    # Recomputed when a change or SA-reducing withdrawal moved the coverage
-    # this month (vPolicyChangeIndicator), or when a date-gated component
-    # (rider/benefit/table/flat) crosses its cease date — RERUN recomputes
-    # vMTP monthly, so ceased riders drop out of its displayed target.
-    # Carried forward otherwise.
-    if (
-        not state.mtp_detail
-        or policy_changes
-        or wd.face_decrease > MONEY_EPSILON
-        or target_actives_signature(policy, month_date)
-        != target_actives_signature(policy, state.date)
-    ):
-        mtp_detail, ctp_detail = build_target_detail_snapshots(
-            policy, compute_target_premiums(policy, config, as_of=month_date)
-        )
-    else:
-        mtp_detail = state.mtp_detail
-        ctp_detail = state.ctp_detail
-
-    # ── 8. Minimum Target Premium calculation/accumulation ─
-    # Accumulation uses vMonthlyMTP = TRUNC(vMTP/12, 2) (JE/JF); the PW
-    # waive basis uses ROUND(vMTP/12, 2) (SL) — they differ by a cent when
-    # the recomputed annual MTP is not an even multiple of 12 cents.
-    monthly_mtp = truncate_monthly_mtp(policy.mtp)
-    pw_monthly_mtp = _round_near(policy.mtp, 2)
-    accumulated_mtp = state.accumulated_mtp + monthly_mtp
-
-    # Safety-net window — needed before exception-premium eligibility.
-    if policy.map_cease_date is not None:
-        within_snet = month_date <= policy.map_cease_date
-    else:
-        within_snet = next_year <= config.snet_period
-    past_snet = not within_snet
-    prior_exception_mode = state.gp_exception_mode
+    refresh_targets(ctx, ILLUSTRATION_TIMING, work)
+    mtp_detail = work.mtp_detail
+    ctp_detail = work.ctp_detail
+    monthly_mtp = work.monthly_mtp
+    pw_monthly_mtp = work.pw_monthly_mtp
+    accumulated_mtp = work.accumulated_mtp
+    within_snet = work.within_snet
+    past_snet = work.past_snet
+    prior_exception_mode = work.prior_exception_mode
 
     # ── 9. Commission Target Premium (split handled in apply_premium) ─
 
@@ -1204,18 +1210,14 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     adv_reg_ln_int = work.adv_reg_ln_int
     adv_pref_ln_int = work.adv_pref_ln_int
 
-    if policy.map_cease_date is not None:
-        within_snet = month_date <= policy.map_cease_date
-    else:
-        within_snet = next_year <= config.snet_period
-    past_snet = not within_snet
-    prior_exception_mode = state.gp_exception_mode
-
     credit_interest_pre_withdrawal(ctx, work)
     intr = work.intr
     process_withdrawal_step(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
     wd = work.wd
     cost_basis = work.cost_basis
+    refresh_targets(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    past_snet = work.past_snet
+    prior_exception_mode = work.prior_exception_mode
 
     gsp_floored = floor_monthly_cent(policy.gsp)
     accumulated_glp = _accumulate_guideline_premium(
