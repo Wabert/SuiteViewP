@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import date
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from dateutil.relativedelta import relativedelta
 
@@ -111,6 +111,88 @@ logger = logging.getLogger(__name__)
 class ProjectionTiming(str, Enum):
     ILLUSTRATION = "illustration"
     CYBERLIFE_MONTHLIVERSARY = "cyberlife_monthliversary"
+
+
+@dataclass(frozen=True)
+class TimingConvention:
+    """Controls the few actuarial timing differences between month pipelines."""
+
+    name: str
+    counter_timing: Literal["issue_anchored", "monthliversary"]
+    interest_timing: Literal["pre_withdrawal", "post_deduction"]
+    supports_policy_changes: bool
+    refresh_targets: bool
+    guideline_recalc: bool
+    full_lapse_protection: bool
+    shadow_enabled: bool
+    wair_enabled: bool
+    withdrawal_reduces_7pay: bool
+
+
+ILLUSTRATION_TIMING = TimingConvention(
+    name="illustration",
+    counter_timing="issue_anchored",
+    interest_timing="post_deduction",
+    supports_policy_changes=True,
+    refresh_targets=True,
+    guideline_recalc=True,
+    full_lapse_protection=True,
+    shadow_enabled=True,
+    wair_enabled=True,
+    withdrawal_reduces_7pay=True,
+)
+
+CYBERLIFE_MONTHLIVERSARY_TIMING = TimingConvention(
+    name="cyberlife_monthliversary",
+    counter_timing="monthliversary",
+    interest_timing="pre_withdrawal",
+    supports_policy_changes=False,
+    refresh_targets=False,
+    guideline_recalc=False,
+    full_lapse_protection=False,
+    shadow_enabled=False,
+    wair_enabled=False,
+    withdrawal_reduces_7pay=False,
+)
+
+
+@dataclass(frozen=True)
+class MonthContext:
+    """Immutable inputs for one projected month."""
+
+    state: MonthlyState
+    policy: IllustrationPolicyData
+    config: PlancodeConfig
+    rates: IllustrationRates
+    bonus: BonusConfig
+    month_inputs: object | None
+    options: IllustrationOptions
+    policy_changes: object | None = None
+    iul_ctx: Optional[IULCreditingContext] = None
+
+
+@dataclass
+class MonthWork:
+    """Mutable working state passed between named month-pipeline steps."""
+
+    next_year: int = 0
+    next_month: int = 0
+    duration: int = 0
+    attained_age: int = 0
+    month_date: Optional[date] = None
+    is_anniversary: bool = False
+    rate_year: int = 0
+    lapse_value: str = LAPSE_BASIS_SURRENDER_VALUE
+    premiums_ytd: float = 0.0
+    premiums_to_date: float = 0.0
+    cost_basis: float = 0.0
+    withdrawals_to_date: float = 0.0
+    av: float = 0.0
+    bo_av: float = 0.0
+    adv_reg_factor: float = 1.0
+    adv_pref_factor: float = 1.0
+    adv_reg_ln_int: float = 0.0
+    adv_pref_ln_int: float = 0.0
 
 
 class IllustrationEngine:
