@@ -249,13 +249,14 @@ def test_increase_segment_coi_stops_on_segment_maturity_date():
     assert at.coi_charges_by_coverage["cov1"] > 0.0
 
 
-def test_benefit_charge_stops_on_benefit_cease_date():
+def test_benefit_charge_continues_past_cease_until_pay_up():
     benefit = BenefitInfo(
         benefit_type="2",
         benefit_subtype="1",
         benefit_amount=25_000.0,
         units=25.0,
         cease_date=date(2041, 9, 1),
+        pay_up_date=date(2041, 10, 1),
         coi_rate=1.5,
         is_active=True,
     )
@@ -282,9 +283,22 @@ def test_benefit_charge_stops_on_benefit_cease_date():
         premiums_to_date=0.0,
         projection_date=date(2041, 9, 1),
     )
+    at_pay_up = calculate_deduction(
+        10_000.0,
+        policy,
+        config,
+        rates,
+        rate_year=1,
+        attained_age=45,
+        premiums_to_date=0.0,
+        projection_date=date(2041, 10, 1),
+    )
 
+    # 17e837a deliberately made benefit cease date informational for charges;
+    # only the pay-up anniversary stops the premium.
     assert before_cease.benefit_charges == pytest.approx(37.5)
-    assert at_cease.benefit_charges == pytest.approx(0.0)
+    assert at_cease.benefit_charges == pytest.approx(37.5)
+    assert at_pay_up.benefit_charges == pytest.approx(0.0)
 
 
 def test_benefit_charge_uses_benefit_duration_at_policy_anniversary():

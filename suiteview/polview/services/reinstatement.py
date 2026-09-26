@@ -275,7 +275,8 @@ def project_home_office_reinstatement(
         success = margin >= -1e-8 if in_safety_net else margin > 1e-8
         accepted = sum(row.gross_premium for row in states[1:]) + (receipt.gross if receipt else 0.0)
         if any(row.gp_exception_prem for row in states):
-            raise ReinstatementError("An unquoted exception premium was generated.")
+            raise ReinstatementError(
+                "Regulatory acceptance caps generated an unquoted exception premium.")
         return success, states, accepted
 
     limit_amount = _number(max_premium, "Premium search bound")

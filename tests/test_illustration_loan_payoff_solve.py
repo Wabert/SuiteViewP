@@ -242,8 +242,14 @@ def _fill_payoff_row(row, year, mode, for_years):
     row._for_years_edited()
 
 
+def _use_input_premium(panel):
+    """Loan payoff request tests need ordinary INPUT premiums, not Min-Level."""
+    panel.premium_section.rows()[0].type_combo.setCurrentText("INPUT")
+
+
 def test_loan_payoff_request_expands_dates_and_check_date():
     panel = _panel()
+    _use_input_premium(panel)
     _fill_payoff_row(panel.repayment_section.rows()[0], 8, "A", 3)
     requests = panel.loan_payoff_requests()
     assert len(requests) == 1
@@ -261,6 +267,7 @@ def test_loan_payoff_request_clamps_the_current_year_to_the_forecast_date():
     # Year 7's anniversary (2025-11-09) is behind the forecast date
     # (2026-06-09) — the first repayment lands on the forecast date instead.
     panel = _panel()
+    _use_input_premium(panel)
     _fill_payoff_row(panel.repayment_section.rows()[0], 7, "A", 1)
     requests = panel.loan_payoff_requests()
     assert len(requests) == 1
@@ -296,6 +303,7 @@ def test_input_repayment_rows_still_export():
 
 def test_payoff_requests_sorted_and_filled_in_year_order():
     panel = _panel()
+    _use_input_premium(panel)
     # Two windows entered out of order: years 20-22 first, then 8-10.
     _fill_payoff_row(panel.repayment_section.rows()[0], 20, "A", 3)
     _fill_payoff_row(panel.repayment_section.add_row(), 8, "A", 3)
@@ -309,6 +317,7 @@ def test_payoff_requests_sorted_and_filled_in_year_order():
 
 def test_level_premium_type_suppresses_payoff_requests():
     panel = _panel()
+    _use_input_premium(panel)
     _fill_payoff_row(panel.repayment_section.rows()[0], 8, "A", 3)
     assert panel.loan_payoff_requests()
     panel.premium_section.rows()[0].type_combo.setCurrentText("Prem to Maturity")
