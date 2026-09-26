@@ -546,3 +546,85 @@ def test_report_and_ledger_component_golden():
         "monthly_ledger_cells": ledger_cells,
     }
     _assert_or_update(COMPONENT_GOLDEN, actual)
+
+
+def test_lumpsum_guideline_limited_warning_is_shown(monkeypatch):
+    from suiteview.illustration.core.run_service import ReportResult, RunResult
+
+    _app()
+    warnings = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, title, text: warnings.append((title, text)) or QMessageBox.StandardButton.Ok,
+    )
+    window = IllustrationWindow()
+    policy = _base_policy()
+    states = _current_states()
+    result = RunResult(
+        policy=policy,
+        scenario=SimpleNamespace(inforce_overrides=None),
+        current=states,
+        guaranteed=None,
+        solved_inputs=SimpleNamespace(),
+        report=ReportResult(build_ul_report(policy, states)),
+        messages=["Values ready"],
+        lumpsum_result=SimpleNamespace(
+            lumpsum=321.09,
+            forecast_date=date(2026, 1, 5),
+            next_premium_date=date(2026, 2, 5),
+            binding_reason="SV",
+            guideline_limited=True,
+            applied=123.45,
+        ),
+    )
+
+    try:
+        window._render_run_result(result)
+    finally:
+        window.close()
+
+    assert warnings
+    title, text = warnings[0]
+    assert title == "Lumpsum to Next Premium"
+    assert "Enable Allow GP Exception Premium" in text
+    assert "2/05/2026" in text
+
+
+def test_lumpsum_status_uses_shared_unpadded_date_formatting():
+    from suiteview.illustration.core.run_service import (
+        PolicyBasis,
+        RunControls,
+        RunRequest,
+        RunScenario,
+        SolveRequestSet,
+        _final_status,
+    )
+
+    request = RunRequest(
+        basis=PolicyBasis(policy_number="POLA"),
+        inputs=IllustrationInputSet(),
+        controls=RunControls(
+            options=IllustrationOptions(),
+            projection_months=1,
+            duration_label="1 month",
+            stop_on_lapse=True,
+        ),
+        solves=SolveRequestSet(),
+    )
+    status = _final_status(
+        request,
+        RunScenario(SimpleNamespace(run_from_issue=False), 1, "1 month"),
+        [MonthlyState(), MonthlyState()],
+        None,
+        SimpleNamespace(
+            lumpsum=321.09,
+            forecast_date=date(2026, 1, 5),
+            next_premium_date=date(2026, 2, 5),
+            binding_reason="SV",
+        ),
+    )
+
+    assert "1/05/2026" in status
+    assert "2/05/2026" in status
+    assert "01/05/2026" not in status

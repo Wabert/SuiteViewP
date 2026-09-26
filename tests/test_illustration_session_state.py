@@ -7,16 +7,20 @@ Get resets that policy to fresh defaults.
 """
 import os
 from datetime import date
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.core.report_builder import IllustrationReport, LedgerRow
 from suiteview.illustration.models.calc_state import MonthlyState
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.ui.main_window import IllustrationWindow
 from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
+from suiteview.illustration.ui.styles import ISSUE_BLUE_BG
 from suiteview.illustration.ui.values_tab import IllustrationValuesTab
 
 _QT_APP = None
@@ -282,6 +286,53 @@ def test_switching_policies_preserves_inputs_and_values_per_policy(monkeypatch):
     window.close()
 
 
+def test_revisiting_issue_mode_policy_restores_issue_styling(monkeypatch):
+    def load_checks(self, policy_number, region, company_code):
+        self._illustration_data = IllustrationPolicyData(
+            policy_number=policy_number,
+            company_code=company_code,
+            region=region,
+            issue_date=date(2010, 5, 15),
+            issue_age=40,
+            attained_age=56,
+            valuation_date=date(2026, 6, 15),
+            policy_year=17,
+            policy_month=1,
+            duration=193,
+            maturity_age=121,
+            face_amount=150_000,
+            segments=[
+                CoverageSegment(
+                    issue_date=date(2010, 5, 15),
+                    issue_age=40,
+                    face_amount=150_000,
+                    original_face_amount=150_000,
+                    units=150,
+                )
+            ],
+        )
+        return [], None
+
+    window = _make_window(monkeypatch)
+    monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", load_checks)
+
+    window._on_get_policy("POLA", "CKPR", "01")
+    window.inputs_tab.run_from_issue_btn.setChecked(True)
+    assert window.inputs_tab.run_from_issue_enabled() is True
+    assert ISSUE_BLUE_BG in window.tabs_container.styleSheet()
+
+    window._on_get_policy("POLB", "CKPR", "01")
+    assert window.inputs_tab.run_from_issue_enabled() is False
+    assert ISSUE_BLUE_BG not in window.tabs_container.styleSheet()
+
+    window._on_get_policy("POLA", "CKPR", "01")
+
+    assert window.inputs_tab.run_from_issue_enabled() is True
+    assert ISSUE_BLUE_BG in window.tabs_container.styleSheet()
+
+    window.close()
+
+
 def test_revisit_without_a_run_restores_inputs_and_empty_values(monkeypatch):
     window = _make_window(monkeypatch)
 
@@ -299,6 +350,93 @@ def test_revisit_without_a_run_restores_inputs_and_empty_values(monkeypatch):
     assert window.report_tab.current_report() is None
 
     window.close()
+
+
+def test_policy_load_checks_uses_data_loader_before_projection(monkeypatch):
+    calls = []
+    policy_data = IllustrationPolicyData(
+        policy_number="POLA",
+        plancode="TEST",
+        face_amount=150_000,
+        segments=[CoverageSegment(face_amount=150_000)],
+    )
+    harness = SimpleNamespace(
+        _policy=object(),
+        _illustration_data=None,
+        _definition_of_life_warnings=lambda _policy: [],
+        _monthly_deduction_warnings=lambda _state: [],
+    )
+
+    monkeypatch.setattr(
+        "suiteview.illustration.ui.main_window.coverage_segment_data_warnings",
+        lambda _policy: [],
+    )
+    monkeypatch.setattr(
+        "suiteview.illustration.ui.main_window.load_policy_data",
+        lambda *args, **kwargs: calls.append(("load_policy_data", args, kwargs)) or policy_data,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "suiteview.illustration.ui.main_window.load_plancode",
+        lambda _plancode: PlancodeConfig(plancode="TEST"),
+    )
+    monkeypatch.setattr(
+        "suiteview.illustration.ui.main_window.load_rates",
+        lambda _policy, _config: IllustrationRates(),
+    )
+
+    def project(policy_or_number, **_kwargs):
+        calls.append(("project_policy", policy_or_number))
+        return SimpleNamespace(policy=policy_data, states=[MonthlyState()])
+
+    monkeypatch.setattr(
+        "suiteview.illustration.ui.main_window.project_policy",
+        project,
+    )
+
+    warnings, md_check = IllustrationWindow._policy_load_checks(
+        harness, "POLA", "CKPR", "01")
+
+    assert warnings == []
+    assert md_check is not None
+    assert harness._illustration_data is policy_data
+    assert calls == [
+        ("load_policy_data", ("POLA",), {"region": "CKPR", "company_code": "01"}),
+        ("project_policy", policy_data),
+    ]
+
+
+def test_policy_load_surfaces_illustration_data_error(monkeypatch):
+    window = _make_window(monkeypatch)
+    warnings = []
+
+    class MessageBoxSpy:
+        @staticmethod
+        def warning(_parent, title, text):
+            warnings.append((title, text))
+
+        @staticmethod
+        def critical(_parent, title, text):
+            warnings.append((title, text))
+
+    monkeypatch.setattr("suiteview.illustration.ui.main_window.QMessageBox", MessageBoxSpy)
+
+    def failed_checks(self, policy_number, region, company_code):
+        self._illustration_data = None
+        self._illustration_load_error = "Unable to load illustration data/rates: boom"
+        return [self._illustration_load_error], None
+
+    monkeypatch.setattr(IllustrationWindow, "_policy_load_checks", failed_checks)
+
+    try:
+        window._on_get_policy("POLA", "CKPR", "01")
+
+        assert window._status_label.text() == "Unable to load illustration data/rates: boom"
+        assert warnings == [
+            ("Illustration Data", "Unable to load illustration data/rates: boom")
+        ]
+    finally:
+        window.close()
 
 
 def test_clicking_get_reloads_same_policy_with_default_inputs(monkeypatch):
