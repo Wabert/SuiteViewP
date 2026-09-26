@@ -2868,33 +2868,56 @@ def _will_alter_guideline_charge_basis(policy, change) -> bool:
     if not policy.is_gpt:
         return False
     if change.kind == PolicyChangeKind.RATE_CLASS:
-        base = policy.base_segment
-        new_class = str(change.value or "").strip().upper()
-        return (
-            base is not None
-            and bool(new_class)
-            and new_class != (base.rate_class or "").upper()
-        )
+        return _rate_class_will_change(policy, change.value)
     if change.kind == PolicyChangeKind.SUBSTANDARD:
-        base = policy.base_segment
-        return base is not None and int(change.value or 0) != base.table_rating
-    if change.kind != PolicyChangeKind.RIDER_DROP:
-        return False
+        return _substandard_will_change(policy, change.value)
+    return (
+        change.kind == PolicyChangeKind.RIDER_DROP
+        and _rider_or_benefit_will_change(policy, change)
+    )
+
+
+def _rate_class_will_change(policy, value) -> bool:
+    base = policy.base_segment
+    new_class = str(value or "").strip().upper()
+    return (
+        base is not None
+        and bool(new_class)
+        and new_class != (base.rate_class or "").upper()
+    )
+
+
+def _substandard_will_change(policy, value) -> bool:
+    base = policy.base_segment
+    return base is not None and int(value or 0) != base.table_rating
+
+
+def _rider_or_benefit_will_change(policy, change) -> bool:
     target = str((change.metadata or {}).get("target", ""))
     new_amount = float(change.value or 0.0)
     if target.startswith("cov:"):
-        phase = int(target.split(":", 1)[1])
-        for rider in policy.riders:
-            if rider.coverage_phase == phase and rider.is_active:
-                return new_amount <= 0.0 or abs(float(rider.face_amount) - new_amount) > 1e-6
+        return _rider_will_change(policy.riders, target, new_amount)
     if target.startswith("ben:"):
-        parts = target.split(":")
-        ben_key = parts[1] if len(parts) > 1 else ""
-        phase = int(parts[2]) if len(parts) > 2 else 0
-        for ben in policy.benefits:
-            key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
-            if key == ben_key and (phase == 0 or ben.coverage_phase == phase) and ben.is_active:
-                return new_amount <= 0.0 or abs(float(ben.benefit_amount) - new_amount) > 1e-6
+        return _benefit_will_change(policy.benefits, target, new_amount)
+    return False
+
+
+def _rider_will_change(riders, target: str, new_amount: float) -> bool:
+    phase = int(target.split(":", 1)[1])
+    for rider in riders:
+        if rider.coverage_phase == phase and rider.is_active:
+            return new_amount <= 0.0 or abs(float(rider.face_amount) - new_amount) > 1e-6
+    return False
+
+
+def _benefit_will_change(benefits, target: str, new_amount: float) -> bool:
+    parts = target.split(":")
+    ben_key = parts[1] if len(parts) > 1 else ""
+    phase = int(parts[2]) if len(parts) > 2 else 0
+    for ben in benefits:
+        key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        if key == ben_key and (phase == 0 or ben.coverage_phase == phase) and ben.is_active:
+            return new_amount <= 0.0 or abs(float(ben.benefit_amount) - new_amount) > 1e-6
     return False
 
 
