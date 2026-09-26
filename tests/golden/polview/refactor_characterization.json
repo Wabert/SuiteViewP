@@ -1,0 +1,861 @@
+{
+  "glp_result": {
+    "account_value": 49820.0,
+    "accumulated_glp": 10000.0,
+    "accumulated_glp_prior_to_target": 8000.0,
+    "accumulated_withdrawals": 0.0,
+    "adjusted_account_value": 50000.0,
+    "adjusted_premiums_paid_to_date": 9000.0,
+    "adjustment_to_accum_glp": 2000.0,
+    "adjustment_to_accum_glp_pre_calc": 4000.0,
+    "current_valuation_date": "2024-06-01",
+    "flat_fee": 15.0,
+    "force_out_amount": 0.0,
+    "force_out_required": false,
+    "forecast_rows": [
+      {
+        "account_value": 49000.0,
+        "forecast_date": "2024-07-01",
+        "interest_credited": 5.0,
+        "monthly_deduction": 20.0,
+        "policy_month": 1,
+        "policy_year": 5,
+        "premium": 100.0
+      }
+    ],
+    "glp": -2000.0,
+    "glp_adjustment_message": "",
+    "gsp": 0.0,
+    "months_to_target_date": 13,
+    "new_accum_glp": 12000.0,
+    "new_glp": 0.0,
+    "premium_load_percent": 0.1,
+    "premium_td_on_target_date": 12000.0,
+    "premiums_paid_to_date": 8800.0,
+    "premiums_since_valuation_date": 200.0,
+    "total_monthly_deductions_to_target_date": 1200.0,
+    "total_required_premium_after_load": 3000.0,
+    "total_required_premium_before_load": 2500.0
+  },
+  "matrices": {
+    "benefit": [
+      [
+        "RateFields",
+        "RateInfo",
+        "Date",
+        "Age",
+        "Year",
+        "COI"
+      ],
+      [
+        "Policy",
+        "U9990001",
+        "01/15/2022",
+        42,
+        1,
+        0.7
+      ],
+      [
+        "Ben Index",
+        1,
+        "01/15/2023",
+        43,
+        2,
+        0.8
+      ],
+      [
+        "Benefit Code",
+        "10",
+        "01/15/2024",
+        44,
+        3,
+        ""
+      ],
+      [
+        "Benefit",
+        "1",
+        "01/15/2025",
+        45,
+        4,
+        ""
+      ],
+      [
+        "IssueAge",
+        42,
+        "01/15/2026",
+        46,
+        5,
+        ""
+      ],
+      [
+        "Sex",
+        "M",
+        "01/15/2027",
+        47,
+        6,
+        ""
+      ],
+      [
+        "Rateclass",
+        "N",
+        "01/15/2028",
+        48,
+        7,
+        ""
+      ],
+      [
+        "Band",
+        3,
+        "01/15/2029",
+        49,
+        8,
+        ""
+      ],
+      [
+        "Scale",
+        1,
+        "01/15/2030",
+        50,
+        9,
+        ""
+      ],
+      [
+        " ",
+        " ",
+        "01/15/2031",
+        51,
+        10,
+        ""
+      ],
+      [
+        "MTP",
+        12.34,
+        "01/15/2032",
+        52,
+        11,
+        ""
+      ],
+      [
+        "CTP",
+        "",
+        "01/15/2033",
+        53,
+        12,
+        ""
+      ],
+      [
+        "",
+        "",
+        "01/15/2034",
+        54,
+        13,
+        ""
+      ]
+    ],
+    "coverage": [
+      [
+        "RateFields",
+        "RateInfo",
+        "Date",
+        "Age",
+        "Year",
+        "COI",
+        "EPU",
+        "SCR",
+        "GuarCOI",
+        "GuarEPU"
+      ],
+      [
+        "Policy",
+        "U9990001",
+        "01/15/2020",
+        40,
+        1,
+        1.1,
+        0.1,
+        5.0,
+        9.1,
+        "NA"
+      ],
+      [
+        "Cov Index",
+        1,
+        "01/15/2021",
+        41,
+        2,
+        1.2,
+        0.2,
+        4.0,
+        9.2,
+        "NA"
+      ],
+      [
+        "Plancode",
+        "TESTUL",
+        "01/15/2022",
+        42,
+        3,
+        1.3,
+        "",
+        3.0,
+        "",
+        "NA"
+      ],
+      [
+        "IssueDate",
+        "2020-01-15",
+        "01/15/2023",
+        43,
+        4,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "IssueAge",
+        40,
+        "01/15/2024",
+        44,
+        5,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Sex",
+        "M",
+        "01/15/2025",
+        45,
+        6,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Rateclass",
+        "N",
+        "01/15/2026",
+        46,
+        7,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Amount",
+        "250,000",
+        "01/15/2027",
+        47,
+        8,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "OrigAmount",
+        "200,000",
+        "01/15/2028",
+        48,
+        9,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Band",
+        3,
+        "01/15/2029",
+        49,
+        10,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Table",
+        2,
+        "01/15/2030",
+        50,
+        11,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Flat",
+        "1.25",
+        "01/15/2031",
+        51,
+        12,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Flat Duration",
+        3,
+        "01/15/2032",
+        52,
+        13,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        " ",
+        " ",
+        "01/15/2033",
+        53,
+        14,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "MTP",
+        100.25,
+        "01/15/2034",
+        54,
+        15,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "CTP",
+        80.5,
+        "01/15/2035",
+        55,
+        16,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "TBL1MTP",
+        "NA",
+        "01/15/2036",
+        56,
+        17,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "TBL1CTP",
+        "NA",
+        "01/15/2037",
+        57,
+        18,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        " ",
+        " ",
+        "01/15/2038",
+        58,
+        19,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "Substandard is not",
+        " ",
+        "01/15/2039",
+        59,
+        20,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "included in rates",
+        " ",
+        "01/15/2040",
+        60,
+        21,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ],
+      [
+        "",
+        "",
+        "01/15/2041",
+        61,
+        22,
+        "",
+        "",
+        "",
+        "",
+        "NA"
+      ]
+    ],
+    "policy": [
+      [
+        "RateFields",
+        "RateInfo",
+        "Date",
+        "Year",
+        "AttainedAge",
+        "TPP",
+        "EPP",
+        "MFEE",
+        "CORR"
+      ],
+      [
+        "Policy",
+        "U9990001",
+        "01/15/2020",
+        1,
+        40,
+        0.05,
+        "NA",
+        7.5,
+        250.0
+      ],
+      [
+        "Product",
+        "UL",
+        "01/15/2021",
+        2,
+        41,
+        0.04,
+        "NA",
+        "",
+        240.0
+      ],
+      [
+        "Plancode",
+        "TESTUL",
+        "01/15/2022",
+        3,
+        42,
+        "",
+        "NA",
+        "",
+        230.0
+      ],
+      [
+        "IssueDate",
+        "2020-01-15",
+        "01/15/2023",
+        4,
+        43,
+        "",
+        "NA",
+        "",
+        ""
+      ],
+      [
+        "IssueAge",
+        40,
+        "01/15/2024",
+        5,
+        44,
+        "",
+        "NA",
+        "",
+        ""
+      ],
+      [
+        "Sex",
+        "M",
+        "01/15/2025",
+        6,
+        45,
+        "",
+        "NA",
+        "",
+        ""
+      ],
+      [
+        "Rateclass",
+        "N",
+        "01/15/2026",
+        7,
+        46,
+        "",
+        "NA",
+        "",
+        ""
+      ],
+      [
+        "Band",
+        3,
+        "01/15/2027",
+        8,
+        47,
+        "",
+        "NA",
+        "",
+        ""
+      ],
+      [
+        "Scale",
+        1,
+        "01/15/2028",
+        9,
+        48,
+        "",
+        "NA",
+        "",
+        ""
+      ],
+      [
+        "",
+        "",
+        "01/15/2029",
+        10,
+        49,
+        "",
+        "NA",
+        "",
+        ""
+      ]
+    ]
+  },
+  "policy_summary": {
+    "html": "<table style=\"border-collapse:collapse;font-family:Calibri,Segoe UI,sans-serif;font-size:11pt;\"><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Policy</td><td style=\"padding:1px 0;\">01-U9990001</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Plan</td><td style=\"padding:1px 0;\">TESTUL</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Form</td><td style=\"padding:1px 0;\">FORM1</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Status</td><td style=\"padding:1px 0;\">54 Grace period</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Rein block</td><td style=\"padding:1px 0;\">RGA</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Valuation Date</td><td style=\"padding:1px 0;\">9/15/2026</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Death benefit</td><td style=\"padding:1px 0;\">$275,000</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Issued</td><td style=\"padding:1px 0;\">9/26/2020</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Issue Age</td><td style=\"padding:1px 0;\">40</td></tr><tr><td style=\"padding:1px 14px 1px 0;font-weight:bold;color:#0A3D0A;white-space:nowrap;\">Attained Age</td><td style=\"padding:1px 0;\">46</td></tr></table>",
+    "rows": [
+      [
+        "Policy",
+        "01-U9990001"
+      ],
+      [
+        "Plan",
+        "TESTUL"
+      ],
+      [
+        "Form",
+        "FORM1"
+      ],
+      [
+        "Status",
+        "54 Grace period"
+      ],
+      [
+        "Rein block",
+        "RGA"
+      ],
+      [
+        "Valuation Date",
+        "9/15/2026"
+      ],
+      [
+        "Death benefit",
+        "$275,000"
+      ],
+      [
+        "Issued",
+        "9/26/2020"
+      ],
+      [
+        "Issue Age",
+        "40"
+      ],
+      [
+        "Attained Age",
+        "46"
+      ]
+    ],
+    "summary": {
+      "attained_age": 46,
+      "chips": [
+        {
+          "key": "region",
+          "text": "CKAS",
+          "tone": "test",
+          "tooltip": "CKAS is not production (CKPR). Values are acceptance region data."
+        },
+        {
+          "key": "status",
+          "text": "54 Grace period",
+          "tone": "warn",
+          "tooltip": "Premium paying status 54 - Grace period\nSource: LH_BAS_POL.PRM_PAY_STA_REA_CD"
+        },
+        {
+          "key": "grace",
+          "text": "In Grace until 10/05/2026",
+          "tone": "danger",
+          "tooltip": "Policy is in its grace period until 10/05/2026. Premium is needed to keep coverage in force.\nSource: IN_GRA_PER_IND = 1, GRA_PER_EXP_DT"
+        },
+        {
+          "key": "mec",
+          "text": "MEC",
+          "tone": "warn",
+          "tooltip": "Modified Endowment Contract (LH_TAMRA_7_PY_PER.MEC_STA_CD = 1)."
+        },
+        {
+          "key": "loan",
+          "text": "Loan $123.45",
+          "tone": "warn",
+          "tooltip": "Total policy debt: loan principal plus accrued interest."
+        },
+        {
+          "key": "reins",
+          "text": "Reins RGA",
+          "tone": "info",
+          "tooltip": "Reinsurance partner code R (TH_USER_GENERIC.FUZGREIN_IND)."
+        },
+        {
+          "key": "product",
+          "text": "UL \u00b7 Advanced",
+          "tone": "neutral",
+          "tooltip": "Product line: Universal Life"
+        },
+        {
+          "key": "dol",
+          "text": "GPT",
+          "tone": "neutral",
+          "tooltip": "Definition of life insurance: GPT = Guideline Premium Test, CVAT = Cash Value Accumulation Test"
+        },
+        {
+          "key": "corridor",
+          "text": "In Corridor",
+          "tone": "warn",
+          "tooltip": "Corridor death benefit exceeds the standard death benefit."
+        },
+        {
+          "key": "joint",
+          "text": "Joint Second to Die",
+          "tone": "info",
+          "tooltip": "Base coverage lives code (NBR_OF_LIVES_CD)."
+        },
+        {
+          "key": "anniversary",
+          "text": "\ud83c\udf82 6-year anniversary today",
+          "tone": "fun",
+          "tooltip": "Issued 9/26/2020. Happy policy anniversary!"
+        },
+        {
+          "key": "birthday",
+          "text": "\ud83c\udf88 Insured's birthday",
+          "tone": "fun",
+          "tooltip": "It's the primary insured's birthday today."
+        }
+      ],
+      "company_code": "01",
+      "company_name": "ANICO",
+      "db_option": "Option A",
+      "form_number": "FORM1",
+      "insured_name": "Hidden In Copy",
+      "issue_age": 40,
+      "issue_date": "2020-09-26",
+      "paid_to_date": "2026-08-15",
+      "pending": [],
+      "plancode": "TESTUL",
+      "policy_number": "U9990001",
+      "policy_year": 7,
+      "product_type": "UL",
+      "region": "CKAS",
+      "reins_partner": "RGA",
+      "status_code": "54",
+      "status_description": "Grace period",
+      "system_code": "I",
+      "total_death_benefit": "275000",
+      "valuation_date": "2026-09-15"
+    },
+    "text": "Policy:         01-U9990001\nPlan:           TESTUL\nForm:           FORM1\nStatus:         54 Grace period\nRein block:     RGA\nValuation Date: 9/15/2026\nDeath benefit:  $275,000\nIssued:         9/26/2020\nIssue Age:      40\nAttained Age:   46"
+  },
+  "rates": {
+    "keys": {
+      "bands": "BANDSPECS_TESTUL",
+      "benefit": "BENCOI_TESTUL_40_M_N_3_10_1",
+      "coi": "COI_TESTUL_40_M_N_3_1",
+      "corr": "CORR_TESTUL_40",
+      "epp": "EPP_TESTUL_F_N_2_1",
+      "scr": "SCR_TESTUL_40_M_N_3_TX"
+    },
+    "lookups": {
+      "band": 2,
+      "bandspecs": [
+        [
+          0,
+          1,
+          "1900-01-01"
+        ],
+        [
+          100000,
+          2,
+          "1900-01-01"
+        ]
+      ],
+      "coi": [
+        null,
+        1.25,
+        1.5
+      ]
+    }
+  },
+  "reinstatement": {
+    "basis": "Surrender value",
+    "breakdown": [
+      [
+        "Starting account value (post-deduction)",
+        "10.00"
+      ],
+      [
+        "Starting shadow account value",
+        "0.00"
+      ],
+      [
+        "Starting premiums paid",
+        "1,000.00"
+      ],
+      [
+        "Starting accumulated withdrawals",
+        "0.00"
+      ],
+      [
+        "Starting accumulated minimum target premium",
+        "1,000.00"
+      ],
+      [
+        "Required gross premium",
+        "10.01"
+      ],
+      [
+        "Premium loads",
+        "0.00"
+      ],
+      [
+        "Interest before next deduction",
+        "0.00"
+      ],
+      [
+        "Total monthly deductions (including next)",
+        "20.00"
+      ],
+      [
+        "Guideline forceouts",
+        "0.00"
+      ],
+      [
+        "Next monthliversary debt (at deduction)",
+        "0.00"
+      ],
+      [
+        "Next accumulated minimum target premium",
+        "1,020.00"
+      ],
+      [
+        "Next premiums paid (including quote)",
+        "1,010.01"
+      ],
+      [
+        "Next accumulated withdrawals",
+        "0.00"
+      ],
+      [
+        "Next premiums paid less withdrawals and debt",
+        "1,010.01"
+      ],
+      [
+        "Next surrender charge",
+        "0.00"
+      ],
+      [
+        "Next account value after deduction",
+        "0.01"
+      ],
+      [
+        "Next surrender value after deduction",
+        "0.01"
+      ],
+      [
+        "Shadow premium loads",
+        "0.00"
+      ],
+      [
+        "Shadow deductions",
+        "0.00"
+      ],
+      [
+        "Shadow interest before next deduction",
+        "0.00"
+      ],
+      [
+        "Next shadow value after deduction",
+        "0.00"
+      ],
+      [
+        "Next shadow value less debt",
+        "0.00"
+      ]
+    ],
+    "explanation": "Surrender value: starting account value + accepted premium - premium loads + interest - all monthly deductions - forceouts - surrender charge - debt at the next deduction must be strictly positive.\nContinuous coverage from the verified post-deduction snapshot 2026-01-15. One premium is posted on 2026-02-15; no historical receipts are backdated. Canonical illustration crediting basis: 0.0000%, ExactDays; a between-deduction receipt earns only its remaining-period interest. The next monthliversary deduction is included; interest after that deduction is excluded. TEFRA/TAMRA caps and guideline forceouts remain enabled; no automatic exception premium. Skipped coverage and reinstatement-specific regulatory resets are not modeled.",
+    "premium": "10.01",
+    "states": [
+      {
+        "av_after_deduction": 10.0,
+        "date": "2026-01-15",
+        "gross_premium": 0.0,
+        "surrender_value": 10.0
+      },
+      {
+        "av_after_deduction": 10.009999999999998,
+        "date": "2026-02-15",
+        "gross_premium": 10.01,
+        "surrender_value": 10.009999999999998
+      },
+      {
+        "av_after_deduction": 0.00999999999999801,
+        "date": "2026-03-15",
+        "gross_premium": 0.0,
+        "surrender_value": 0.00999999999999801
+      }
+    ],
+    "summary": {
+      "current_date": "2026-02-15",
+      "eligible": true,
+      "last_entry_code": "Q",
+      "last_entry_description": "Termination - Lapse",
+      "message": "Eligible lapse termination.",
+      "next_monthliversary": "2026-03-15",
+      "quote_pay_to_date": "2026-02-15",
+      "terminated_months": 1,
+      "terminated_years": 1,
+      "termination_date": "2025-01-15"
+    }
+  }
+}
