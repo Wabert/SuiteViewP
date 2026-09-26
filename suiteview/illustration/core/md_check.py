@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List
 
-from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
+from suiteview.illustration.api import project_policy
 
 
 @dataclass
@@ -32,8 +31,9 @@ def calculate_last_monthly_deduction_check(
     policy_number: str,
     region: str = "CKPR",
 ) -> MonthlyDeductionCheck:
-    policy = build_illustration_data(policy_number, region=region)
-    inforce = IllustrationEngine().project(policy, months=0)[0]
+    run = project_policy(policy_number, region=region, months=0)
+    policy = run.policy
+    inforce = run.states[0]
     return MonthlyDeductionCheck(
         policy_number=policy.policy_number,
         valuation_date=str(policy.valuation_date or ""),

@@ -11,6 +11,7 @@ import copy
 from dataclasses import dataclass
 from datetime import date
 
+from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import (
     IllustrationEngine, _premium_allowances, _tamra_month_of_year, _tamra_year,
 )
@@ -60,11 +61,11 @@ def project_receipt(
     engine = IllustrationEngine()
     p = copy.deepcopy(policy)
     p.modal_premium = p.annual_premium = 0.0
-    states = engine.project(
-        p, months=prior_months, future_inputs=IllustrationInputSet(),
-        options=options, rates_override=rates, bonus_override=bonus,
-        stop_on_lapse=False,
-    )
+    states = project_policy(
+        p, months=prior_months, inputs=IllustrationInputSet(),
+        options=options, rates=rates, config=config, bonus_override=bonus,
+        stop_on_lapse=False, engine=engine,
+    ).states
     if not states or states[-1].date != pay_to:
         raise ValueError("Receipt projection did not reach its pay-to monthliversary.")
     state = states[-1]

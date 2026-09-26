@@ -4,11 +4,10 @@ API-first calculation package for Universal Life illustration projections.
 Migrated from RERUN v19.1 Excel workbook.
 
 Quick start:
-    from suiteview.illustration import build_illustration_data, IllustrationEngine
+    from suiteview.illustration import project_policy
 
-    policy = build_illustration_data("UE000576")
-    engine = IllustrationEngine()
-    results = engine.project(policy, months=12)
+    run = project_policy("UE000576", months=12)
+    results = run.states
 
 Export debug to Excel:
     from suiteview.illustration.debug.excel_export import export_projection_to_excel
@@ -35,6 +34,7 @@ from suiteview.illustration.core.rate_loader import IllustrationRates, load_rate
 from suiteview.illustration.core.illustration_policy_service import (
     build_illustration_data,
 )
+from suiteview.illustration.api import ProjectionRun, project_policy
 
 
 def launch_illustration():
@@ -59,6 +59,8 @@ __all__ = [
     "load_rates",
     # Service
     "build_illustration_data",
+    "ProjectionRun",
+    "project_policy",
     # UI
     "launch_illustration",
 ]

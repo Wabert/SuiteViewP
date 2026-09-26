@@ -175,6 +175,7 @@ def _md_and_rate_check(engine, policy):
     Returns ``(md_diff, system_md, missing_rates, check_error)``. On failure the
     first three are best-effort and ``check_error`` explains why.
     """
+    from suiteview.illustration.api import project_policy
     from suiteview.illustration.core.rate_loader import load_rates
     from suiteview.illustration.core.rate_validation import (
         missing_required_rate_warnings,
@@ -189,7 +190,8 @@ def _md_and_rate_check(engine, policy):
         config = load_plancode(policy.plancode)
         rates = load_rates(policy, config)
         missing_rates = missing_required_rate_warnings(policy, rates)
-        seed = engine.project(policy, months=0, rates_override=rates)[0]
+        seed = project_policy(
+            policy, months=0, rates=rates, config=config, engine=engine).states[0]
         system_md = round(float(seed.system_monthly_deduction or 0.0), 2)
         md_diff = round(
             float(seed.system_monthly_deduction or 0.0)
@@ -318,6 +320,7 @@ def run_glp_forecast_policy(
     forecasts but keep the snapshot. Never raises — failures come back as a
     status + error string.
     """
+    from suiteview.illustration.api import project_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.core.illustration_policy_service import (
         build_illustration_data,
@@ -385,9 +388,10 @@ def run_glp_forecast_policy(
             ScheduledTransaction(
                 kind=TransactionKind.PREMIUM, policy_year=1,
                 amount=0.0, mode="A")])
-        states = engine.project(
+        states = project_policy(
             deepcopy(policy), options=_forecast_options(),
-            future_inputs=no_prem_future, stop_on_lapse=True)
+            inputs=no_prem_future, stop_on_lapse=True,
+            engine=engine).states
         values["lapse_no_prem"] = _lapse_or_maturity(states, policy)
 
         # ── Run 2: current premium, Lumpsum to Next Premium on ─────────
@@ -417,9 +421,10 @@ def run_glp_forecast_policy(
         current_with_lump = IllustrationInputSet(
             scheduled_transactions=list(current_future.scheduled_transactions),
             dated_transactions=list(dated))
-        states = engine.project(
+        states = project_policy(
             deepcopy(policy), options=options,
-            future_inputs=current_with_lump, stop_on_lapse=True)
+            inputs=current_with_lump, stop_on_lapse=True,
+            engine=engine).states
         values["lapse_cur_prem"] = _lapse_or_maturity(states, policy)
         values["lumpsum"] = lumpsum_amount
 
@@ -452,9 +457,10 @@ def run_glp_forecast_policy(
             ScheduledTransaction(
                 kind=TransactionKind.PREMIUM, policy_year=1,
                 amount=GLP_ABSOLUTE_MAX_PREMIUM, mode="M")])
-        states = engine.project(
+        states = project_policy(
             deepcopy(policy), options=_forecast_options(),
-            future_inputs=abs_max_future, stop_on_lapse=True)
+            inputs=abs_max_future, stop_on_lapse=True,
+            engine=engine).states
         values["lapse_abs_max"] = _lapse_or_maturity(states, policy)
 
         return result(STATUS_COMPLETE)
@@ -581,6 +587,7 @@ def run_billable_to_md_policy(
     its regular billable premium and the run measures how long it then sustains
     it. When ``skip_loans`` is set, any policy carrying a loan is bypassed.
     """
+    from suiteview.illustration.api import project_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.core.illustration_policy_service import (
         build_illustration_data,
@@ -661,9 +668,9 @@ def run_billable_to_md_policy(
                     billable_to_md_no_latch_before=lump.next_premium_date)
                 values["lumpsum"] = lump.lumpsum
 
-        states = engine.project(
-            deepcopy(policy), options=options, future_inputs=future,
-            stop_on_lapse=True)
+        states = project_policy(
+            deepcopy(policy), options=options, inputs=future,
+            stop_on_lapse=True, engine=engine).states
 
         switch = next((s for s in states if s.billable_md_switched), None)
         exc = next((s for s in states if s.gp_exception_prem > 0), None)
@@ -760,6 +767,7 @@ def _absolute_max_result(engine, policy):
     otherwise the policy year in which it lapses (``maturity_av`` is ``None``).
     ``(None, None)`` if the projection yields nothing.
     """
+    from suiteview.illustration.api import project_policy
     from suiteview.illustration.core.solve_level_to_exception import (
         level_to_exception_options,
     )
@@ -772,8 +780,9 @@ def _absolute_max_result(engine, policy):
         ScheduledTransaction(
             kind=TransactionKind.PREMIUM, policy_year=1,
             amount=MINLEVEL_ABSOLUTE_MAX_PREMIUM, mode="M")])
-    states = engine.project(
-        policy, future_inputs=future, options=options, stop_on_lapse=True)
+    states = project_policy(
+        policy, inputs=future, options=options, stop_on_lapse=True,
+        engine=engine).states
     if not states:
         return None, None
     if states[-1].attained_age >= policy.maturity_age:
@@ -800,6 +809,7 @@ def run_min_level_policy(
 
     Never raises — failures come back as a status + error string.
     """
+    from suiteview.illustration.api import project_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.core.illustration_policy_service import (
         build_illustration_data,
@@ -912,9 +922,9 @@ def run_min_level_policy(
                     effective_date=lump.forecast_date,
                     amount=lump.lumpsum,
                     subtype=LUMPSUM_SUBTYPE)])
-            final_states = engine.project(
+            final_states = project_policy(
                 deepcopy(policy), options=level_options,
-                future_inputs=final_future)
+                inputs=final_future, engine=engine).states
             # Keep the solved level premium; refresh exception/total-paid from
             # the run that includes the bridge.
             lte = _build_result(lte.premium, lte.mode, final_states, lte.iterations)

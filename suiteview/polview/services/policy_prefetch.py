@@ -360,7 +360,7 @@ class PolicyLoadSession:
         return PreparedPolicy(policy.detached_copy(), "tables", True, presence)
 
     def _surrender_values(self):
-        from suiteview.illustration import build_illustration_data, IllustrationEngine
+        from suiteview.illustration import build_illustration_data, project_policy
         from suiteview.illustration.core.rate_loader import load_rates
         from suiteview.illustration.models.plancode_config import MissingPlancodeError, load_plancode
 
@@ -393,7 +393,8 @@ class PolicyLoadSession:
                     f"Missing surrender rates for {basis.plancode}, "
                     f"coverage {segment.coverage_phase}"
                 )
-        results = IllustrationEngine().project(basis, months=0, rates_override=rates)
+        results = project_policy(
+            basis, months=0, rates=rates, config=config).states
         if not results:
             raise RuntimeError("Surrender calculation returned no inforce values")
         return SurrenderValues(results[0].surrender_charge, results[0].surrender_value)

@@ -19,8 +19,8 @@ from dateutil.relativedelta import relativedelta
 
 from suiteview.core.db2_connection import DB2ConnectionError
 from suiteview.core.rates import RatesError
+from suiteview.illustration.api import project_policy
 from suiteview.illustration.core import calc_engine
-from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
     _coverage_is_terminated, build_illustration_data,
 )
@@ -233,7 +233,6 @@ def project_home_office_reinstatement(
             b.is_active and (b.cease_date is None or b.cease_date >= target)
             for b in ccv_benefits)
     basis = "Safety net" if in_safety_net else "Shadow account" if shadow_active else "Surrender value"
-    engine = IllustrationEngine()
     options = IllustrationOptions(no_lapse=True)
     bonus = calc_engine.load_bonus_config(p.plancode, p.valuation_date)
     receipts = {}
@@ -254,11 +253,11 @@ def project_home_office_reinstatement(
                 summary.quote_pay_to_date, target, months - 1, cents / 100.0,
             )
         else:
-            states = engine.project(
-                copy.deepcopy(p), months=months, future_inputs=inputs,
-                options=options, rates_override=rates, bonus_override=bonus,
-                stop_on_lapse=False,
-            )
+            states = project_policy(
+                copy.deepcopy(p), months=months, inputs=inputs,
+                options=options, rates=rates, config=config,
+                bonus_override=bonus, stop_on_lapse=False,
+            ).states
         receipts[cents] = receipt
         if len(states) != months + 1 or states[-1].date != target:
             raise ReinstatementError("Projection did not reach the next monthly deduction.")
