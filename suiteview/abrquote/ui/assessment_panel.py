@@ -13,7 +13,6 @@ Rider Types:
 from __future__ import annotations
 
 import logging
-from dataclasses import replace as dc_replace
 from datetime import date
 from typing import Optional
 
@@ -25,22 +24,15 @@ from PyQt6.QtWidgets import (
 )
 
 from ..models.abr_data import (
-    ABRPolicyData, MedicalAssessment, MortalityParams, ABRQuoteResult,
+    ABRPolicyData, MedicalAssessment, ABRQuoteResult,
 )
 from ..models.abr_database import get_abr_database
-from ..models.abr_constants import (
-    MORTALITY_IMPROVEMENT_RATE,
-    MORTALITY_IMPROVEMENT_CAP,
-    MORTALITY_MULTIPLIER,
-    MORTALITY_MULTIPLIER_TERMINAL,
-    MATURITY_AGE,
+from ..core.assessment_solver import (
+    AssessmentInputs,
+    SubstandardSolveResult,
+    solve_substandard,
+    terminal_substandard,
 )
-from ..core.goal_seek import (
-    find_combined_substandard,
-    find_dual_table_ratings,
-    compute_assessment_index,
-)
-from ..core.mortality_engine import MortalityEngine
 from .abr_styles import (
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_SUBTLE,
     SLATE_PRIMARY, SLATE_TEXT,
@@ -1564,6 +1556,7 @@ class AssessmentPanel(QWidget):
         if not self._mort_detail:
             return
         from .calc_viewer import CalcViewerDialog
+        from .view_models import AccelerationInputState, CalcViewerModel
         after_partial = self.res_premium_after_partial_input.text().strip()
 
         # Read current face/min-face input values
@@ -1574,7 +1567,7 @@ class AssessmentPanel(QWidget):
             accel_val = 0.0
         min_face_val = self.get_min_face_amount()
 
-        viewer = CalcViewerDialog(
+        viewer = CalcViewerDialog(CalcViewerModel(
             mortality_rows=self._mort_detail,
             apv_rows=self._apv_detail,
             apv_summary=self._apv_summary,
@@ -1583,12 +1576,13 @@ class AssessmentPanel(QWidget):
             assessment=self._assessment,
             result=self._result,
             derived_values=self.get_derived_display_values(),
-            after_partial_override=after_partial,
-            warnings=self._get_current_warnings(),
-            accel_amount_input=accel_val,
-            min_face_amount_input=min_face_val,
-            parent=None,
-        )
+            acceleration=AccelerationInputState(
+                acceleration_amount=accel_val,
+                min_face_amount=min_face_val,
+                after_partial_override=after_partial,
+                warnings=self._get_current_warnings(),
+            ),
+        ), parent=None)
         viewer.show()
         self._calc_viewer = viewer
 
@@ -1815,122 +1809,19 @@ class AssessmentPanel(QWidget):
     # ── Terminal derived values ───────────────────────────────────────────
 
     def _populate_terminal_derived(self):
-        """Compute and display derived substandard values for Terminal rider.
-
-        Terminal uses is_terminal=True which forces 50 %/yr mortality in the
-        engine, so there is no goal-seek and no assessment substandard.
-        We still show the derived survival / LE so the user can see them.
-        """
-        p = self._policy
-        if p is None:
+        """Compute and display fixed terminal-rider derived values."""
+        if self._policy is None:
             return
-
-        abs_policy_month = (p.policy_year - 1) * 12 + p.policy_month
-
-        # Standard (unmodified) params — no terminal, no substandard
-        std_params = MortalityParams(
-            issue_age=p.issue_age,
-            sex=p.rate_sex or p.sex,
-            rate_class=p.rate_class,
-            policy_month=abs_policy_month,
-            maturity_age=p.maturity_age or MATURITY_AGE,
-            table_rating_1=0.0,
-            table_1_start_month=1,
-            table_1_last_month=9999,
-            flat_extra_1=0.0,
-            flat_1_start_month=1,
-            flat_1_duration=9999,
-            mortality_multiplier=MORTALITY_MULTIPLIER,
-            improvement_rate=MORTALITY_IMPROVEMENT_RATE,
-            improvement_cap=MORTALITY_IMPROVEMENT_CAP,
-            is_terminal=False,
+        self._render_assessment_result(
+            terminal_substandard(self._policy),
+            emit_ready=False,
         )
-        std_engine = MortalityEngine(std_params)
-        std_le = std_engine.compute_life_expectancy()
-        std_survival_5yr = std_engine.compute_survival_probability(5)
-        std_survival_10yr = std_engine.compute_survival_probability(10)
-
-        # Terminal (modified) params — is_terminal=True, 50 %/yr mortality
-        term_params = MortalityParams(
-            issue_age=p.issue_age,
-            sex=p.rate_sex or p.sex,
-            rate_class=p.rate_class,
-            policy_month=abs_policy_month,
-            maturity_age=p.maturity_age or MATURITY_AGE,
-            table_rating_1=0.0,
-            table_1_start_month=1,
-            table_1_last_month=9999,
-            flat_extra_1=0.0,
-            flat_1_start_month=1,
-            flat_1_duration=9999,
-            mortality_multiplier=MORTALITY_MULTIPLIER_TERMINAL,
-            improvement_rate=0.0,
-            improvement_cap=MORTALITY_IMPROVEMENT_CAP,
-            is_terminal=True,
-        )
-        term_engine = MortalityEngine(term_params)
-        term_le = term_engine.compute_life_expectancy()
-        term_survival_5yr = term_engine.compute_survival_probability(5)
-        term_survival_10yr = term_engine.compute_survival_probability(10)
-
-        # Stash for create_terminal_assessment
-        self._term_survival_5yr = term_survival_5yr
-        self._term_survival_10yr = term_survival_10yr
-        self._term_le = term_le
-
-        # ── Populate left column (Current / Unmodified) ─────────────────
-        self._derived_labels["std_survival_5yr"].setText(
-            f"{std_survival_5yr:.4f}  ({std_survival_5yr * 100:.2f}%)"
-        )
-        self._derived_labels["std_survival_10yr"].setText(
-            f"{std_survival_10yr:.4f}  ({std_survival_10yr * 100:.2f}%)"
-        )
-        std_le_age = p.attained_age + round(std_le)
-        self._derived_labels["std_le"].setText(
-            f"{std_le:.1f} years (age {std_le_age})"
-        )
-        if p.table_rating > 0:
-            self._derived_labels["std_table_rating"].setText(
-                f"Table {p.table_rating}"
-            )
-        else:
-            self._derived_labels["std_table_rating"].setText("None")
-        if p.flat_extra > 0:
-            flat_txt = f"${p.flat_extra:.3f}/1000"
-            if p.flat_to_age > 0:
-                flat_txt += f" (to age {p.flat_to_age})"
-            self._derived_labels["std_flat_extra"].setText(flat_txt)
-        else:
-            self._derived_labels["std_flat_extra"].setText("None")
-
-        # ── Populate right column (Modified / Terminal Applied) ─────────
-        self._derived_labels["mod_survival_5yr"].setText(
-            f"{term_survival_5yr:.4f}  ({term_survival_5yr * 100:.2f}%)"
-        )
-        self._derived_labels["mod_survival_10yr"].setText(
-            f"{term_survival_10yr:.4f}  ({term_survival_10yr * 100:.2f}%)"
-        )
-        term_le_age = p.attained_age + round(term_le)
-        self._derived_labels["mod_le"].setText(
-            f"{term_le:.1f} years (age {term_le_age})"
-        )
-        self._derived_labels["table_rating"].setText("Annual Mortality = 0.5000")
-        self._derived_labels["flat_extra"].setText("\u2014")
-
-        self.derived_group.setVisible(True)
 
     # ── Actions ──────────────────────────────────────────────────────────
 
-    def _on_calculate(self):
-        """Run goal seek to derive substandard from the checked inputs."""
-        self._clear_warning()
-        if self._policy is None:
-            self._show_warning("Please load a policy first (Step 1).")
-            return
-
+    def _read_assessment_inputs(self) -> AssessmentInputs | None:
+        """Read and validate the assessment form into a pure input object."""
         rider_type = self.rider_combo.currentText()
-
-        # Validate: at least one survival input or direct table must be checked
         has_five = self.chk_five_year.isChecked()
         has_ten = self.chk_ten_year.isChecked()
         has_le = self.chk_le.isChecked()
@@ -1941,484 +1832,121 @@ class AssessmentPanel(QWidget):
         has_flat_2_direct = self.chk_flat_2.isChecked()
         has_incr_decrement = self.chk_incr_decrement.isChecked()
 
-        if not has_survival and not has_table_direct and not has_incr_decrement and not has_incr_decrement:
+        if not has_survival and not has_table_direct and not has_incr_decrement:
             self._show_warning(
                 "Check at least one survival input, the Table checkbox, or Increased Decrement."
             )
-            return
+            return None
 
-        # Parse checked survival inputs
-        five_yr = ten_yr = le_val = 0.0
         try:
-            if has_five:
-                five_yr = float(self.five_year_input.text().strip())
-            if has_ten:
-                ten_yr = float(self.ten_year_input.text().strip())
-            if has_le:
-                le_val = float(self.le_input.text().strip())
+            five_yr = float(self.five_year_input.text().strip()) if has_five else 0.0
+            ten_yr = float(self.ten_year_input.text().strip()) if has_ten else 0.0
+            le_val = float(self.le_input.text().strip()) if has_le else 0.0
         except ValueError:
             self._show_warning(
                 "Enter valid numeric values for all checked survival fields."
             )
-            return
+            return None
 
-        # Validate ranges
         if has_five and not (0 <= five_yr <= 1):
             self._show_warning("5-Year Survival must be between 0 and 1.")
-            return
+            return None
         if has_ten and not (0 <= ten_yr <= 1):
             self._show_warning("10-Year Survival must be between 0 and 1.")
-            return
-
-        # Parse direct table/flat (set 1)
-        direct_table = 0.0
-        table_start_yr = 1
-        table_stop_yr = 99
-        direct_flat = 0.0
-        flat_start_yr = 1
-        flat_stop_yr = 99
-
-        # Parse increased decrement
-        incr_decrement_pct = 0.0
-        incr_decrement_start_yr = 1
-        incr_decrement_stop_yr = 99
-
-        # Parse direct table/flat (set 2)
-        direct_table_2 = 0.0
-        table_2_start_yr = 1
-        table_2_stop_yr = 99
-        direct_flat_2 = 0.0
-        flat_2_start_yr = 1
-        flat_2_stop_yr = 99
+            return None
 
         try:
-            if has_table_direct:
-                direct_table = float(self.table_input.text().strip())
-                table_start_yr = int(self.table_start_input.text().strip())
-                table_stop_yr = int(self.table_stop_input.text().strip())
-            if has_flat_direct:
-                direct_flat = float(self.flat_input.text().strip())
-                flat_start_yr = int(self.flat_start_input.text().strip())
-                flat_stop_yr = int(self.flat_stop_input.text().strip())
-            if has_table_2_direct:
-                direct_table_2 = float(self.table_2_input.text().strip())
-                table_2_start_yr = int(self.table_2_start_input.text().strip())
-                table_2_stop_yr = int(self.table_2_stop_input.text().strip())
-            if has_flat_2_direct:
-                direct_flat_2 = float(self.flat_2_input.text().strip())
-                flat_2_start_yr = int(self.flat_2_start_input.text().strip())
-                flat_2_stop_yr = int(self.flat_2_stop_input.text().strip())
-            if has_incr_decrement:
-                incr_decrement_pct = float(self.incr_decrement_input.text().strip())
-                incr_decrement_start_yr = int(self.incr_decrement_start_input.text().strip())
-                incr_decrement_stop_yr = int(self.incr_decrement_stop_input.text().strip())
+            direct_table = float(self.table_input.text().strip()) if has_table_direct else 0.0
+            table_start_yr = int(self.table_start_input.text().strip()) if has_table_direct else 1
+            table_stop_yr = int(self.table_stop_input.text().strip()) if has_table_direct else 99
+            direct_flat = float(self.flat_input.text().strip()) if has_flat_direct else 0.0
+            flat_start_yr = int(self.flat_start_input.text().strip()) if has_flat_direct else 1
+            flat_stop_yr = int(self.flat_stop_input.text().strip()) if has_flat_direct else 99
+            direct_table_2 = float(self.table_2_input.text().strip()) if has_table_2_direct else 0.0
+            table_2_start_yr = int(self.table_2_start_input.text().strip()) if has_table_2_direct else 1
+            table_2_stop_yr = int(self.table_2_stop_input.text().strip()) if has_table_2_direct else 99
+            direct_flat_2 = float(self.flat_2_input.text().strip()) if has_flat_2_direct else 0.0
+            flat_2_start_yr = int(self.flat_2_start_input.text().strip()) if has_flat_2_direct else 1
+            flat_2_stop_yr = int(self.flat_2_stop_input.text().strip()) if has_flat_2_direct else 99
+            incr_pct = float(self.incr_decrement_input.text().strip()) if has_incr_decrement else 0.0
+            incr_start_yr = (
+                int(self.incr_decrement_start_input.text().strip())
+                if has_incr_decrement else 1
+            )
+            incr_stop_yr = (
+                int(self.incr_decrement_stop_input.text().strip())
+                if has_incr_decrement else 99
+            )
         except ValueError:
             self._show_warning(
                 "Enter valid numeric values for all checked Table / Flat fields."
             )
+            return None
+
+        return AssessmentInputs(
+            rider_type=rider_type,
+            use_five_year=has_five,
+            use_ten_year=has_ten,
+            use_le=has_le,
+            use_table=has_table_direct,
+            use_flat=has_flat_direct,
+            use_table_2=has_table_2_direct,
+            use_flat_2=has_flat_2_direct,
+            use_increased_decrement=has_incr_decrement,
+            use_return_5yr=self.chk_return_5yr.isChecked(),
+            use_return_10yr=self.chk_return_10yr.isChecked(),
+            in_lieu_of=True,
+            five_year_survival=five_yr,
+            ten_year_survival=ten_yr,
+            life_expectancy_years=le_val,
+            direct_table_rating=direct_table,
+            table_start_year=table_start_yr,
+            table_stop_year=table_stop_yr,
+            direct_flat_extra=direct_flat,
+            flat_start_year=flat_start_yr,
+            flat_stop_year=flat_stop_yr,
+            direct_table_rating_2=direct_table_2,
+            table_2_start_year=table_2_start_yr,
+            table_2_stop_year=table_2_stop_yr,
+            direct_flat_extra_2=direct_flat_2,
+            flat_2_start_year=flat_2_start_yr,
+            flat_2_stop_year=flat_2_stop_yr,
+            direct_increased_decrement=incr_pct,
+            incr_decrement_start_year=incr_start_yr,
+            incr_decrement_stop_year=incr_stop_yr,
+        )
+
+    def _render_assessment_result(
+        self,
+        result: SubstandardSolveResult,
+        *,
+        emit_ready: bool = True,
+    ) -> None:
+        """Render a core assessment result into labels and panel state."""
+        self._assessment = result.assessment
+        for key, value in result.derived_values.items():
+            self._derived_labels[key].setText(value)
+        self.derived_group.setVisible(True)
+        if emit_ready:
+            self.assessment_ready.emit(self._assessment)
+
+    def _on_calculate(self):
+        """Run the core goal seek to derive substandard from checked inputs."""
+        self._clear_warning()
+        if self._policy is None:
+            self._show_warning("Please load a policy first (Step 1).")
+            return
+
+        inputs = self._read_assessment_inputs()
+        if inputs is None:
             return
 
         self.status_label.setText("Computing substandard values (goal seek)...")
         self.calc_btn.setEnabled(False)
-
         try:
-            p = self._policy
-
-            # Build base mortality params (standard — no table/flat)
-            # Convert month-within-year to absolute policy month since issue
-            abs_policy_month = (p.policy_year - 1) * 12 + p.policy_month
-
-            # Determine mortality multiplier and improvement from rider type
-            # Excel: mort_mult = IF(B28="C", 75%, 100%)
-            #        MI        = IF(B28="C", 0.01, 0)
-            is_terminal = (rider_type == "Terminal")
-            if is_terminal:
-                mort_mult = MORTALITY_MULTIPLIER_TERMINAL   # 100%
-                mi_rate = 0.0                                # no improvement
-            else:
-                mort_mult = MORTALITY_MULTIPLIER            # 75%
-                mi_rate = MORTALITY_IMPROVEMENT_RATE         # 1%
-
-            # ── Determine if policy substandards should be included ──────
-            is_in_lieu_of = True  # always "In Lieu Of"
-
-            # Base params always start clean (no substandard) so the goal
-            # seek solves correctly.  The policy's existing substandards
-            # are added to additional_tables/additional_flats later when
-            # "In Addition To" is selected.
-            base_params = MortalityParams(
-                issue_age=p.issue_age,
-                sex=p.rate_sex or p.sex,  # rate_sex from 67 segment
-                rate_class=p.rate_class,
-                policy_month=abs_policy_month,
-                maturity_age=p.maturity_age or MATURITY_AGE,
-                table_rating_1=0.0,
-                table_1_start_month=1,
-                table_1_last_month=9999,
-                flat_extra_1=0.0,
-                flat_1_start_month=1,
-                flat_1_duration=9999,
-                mortality_multiplier=mort_mult,
-                improvement_rate=mi_rate,
-                improvement_cap=MORTALITY_IMPROVEMENT_CAP,
-                is_terminal=is_terminal,
-            )
-
-            # ── Determine table rating(s) from survival inputs ──────────
-            table_rating = 0.0
-            table_rating_5yr = 0.0
-            table_rating_10yr = 0.0
-            computed_le = 0.0
-            is_dual_solve = has_five and has_ten
-
-            if is_dual_solve:
-                # Two-solve: 5yr table + 10yr table (relative to current month)
-                table_rating_5yr, table_rating_10yr, computed_le = find_dual_table_ratings(
-                    base_params,
-                    five_yr,
-                    ten_yr,
-                    return_after_10yr=self.chk_return_10yr.isChecked(),
-                )
-                table_rating = table_rating_5yr  # primary for display
-
-            elif has_five:
-                # Single 5yr solve (direct table/flat are add-ons, NOT replacements)
-                table_rating, _, computed_le = find_combined_substandard(
-                    base_params,
-                    MedicalAssessment(five_year_survival=five_yr),
-                    assessment_index=1,
-                )
-                table_rating_5yr = table_rating
-                # Handle Return checkbox — table drops after 5 years
-                if self.chk_return_5yr.isChecked():
-                    final_p = dc_replace(
-                        base_params,
-                        table_rating_1=table_rating,
-                        table_1_start_month=abs_policy_month,
-                        table_1_last_month=abs_policy_month + 59,
-                    )
-                    engine = MortalityEngine(final_p)
-                    computed_le = engine.compute_life_expectancy()
-
-            elif has_ten:
-                # Single 10yr solve
-                table_rating, _, computed_le = find_combined_substandard(
-                    base_params,
-                    MedicalAssessment(ten_year_survival=ten_yr),
-                    assessment_index=3,
-                )
-                # Handle Return checkbox — table drops after 10 years
-                if self.chk_return_10yr.isChecked():
-                    final_p = dc_replace(
-                        base_params,
-                        table_rating_1=table_rating,
-                        table_1_start_month=abs_policy_month,
-                        table_1_last_month=abs_policy_month + 119,
-                    )
-                    engine = MortalityEngine(final_p)
-                    computed_le = engine.compute_life_expectancy()
-
-            elif has_le:
-                # LE solve
-                table_rating, _, computed_le = find_combined_substandard(
-                    base_params,
-                    MedicalAssessment(life_expectancy_years=le_val),
-                    assessment_index=5,
-                )
-
-            elif has_table_direct:
-                # No survival inputs — use direct table as primary (no solve)
-                table_rating = direct_table
-
-            # ── Build additional tables/flats from direct user inputs ─────
-            # IMPORTANT: When there is NO survival solve, the direct Table 1
-            # rating becomes the primary table_rating_1.  We must NOT also
-            # put it into additional_tables, or it gets applied twice.
-            has_survival_solve = has_five or has_ten or has_le
-            additional_tables = []
-            additional_flats = []
-
-            # "In Addition To" — carry policy's existing substandards as
-            # additional layers so they are not overwritten by dc_replace.
-            if not is_in_lieu_of:
-                if p.table_rating > 0:
-                    additional_tables.append(
-                        (float(p.table_rating), 1, 9999)
-                    )
-                if p.table_rating_2 > 0:
-                    additional_tables.append(
-                        (float(p.table_rating_2), 1, 9999)
-                    )
-                if p.flat_extra > 0:
-                    flat_last = 9999
-                    if p.flat_to_age > 0:
-                        remaining = max(0, p.flat_to_age - p.attained_age) * 12
-                        flat_last = abs_policy_month + remaining
-                    additional_flats.append(
-                        (p.flat_extra, 1, flat_last)
-                    )
-
-            if has_table_direct and direct_table > 0 and has_survival_solve:
-                # Only add as additional when a survival solve owns the primary slot
-                # Start/stop years are relative to quote date, not policy issue
-                # Stop year is exclusive: drops off at beginning of stop year
-                t_start_m = abs_policy_month + (table_start_yr - 1) * 12
-                t_stop_m = abs_policy_month + (table_stop_yr - 1) * 12 - 1
-                additional_tables.append((direct_table, t_start_m, t_stop_m))
-
-            if has_flat_direct and direct_flat > 0:
-                # Start/stop years are relative to quote date, not policy issue
-                # Stop year is exclusive: drops off at beginning of stop year
-                f_start_m = abs_policy_month + (flat_start_yr - 1) * 12
-                f_stop_m = abs_policy_month + (flat_stop_yr - 1) * 12 - 1
-                additional_flats.append((direct_flat, f_start_m, f_stop_m))
-
-            if has_table_2_direct and direct_table_2 > 0:
-                t2_start_m = abs_policy_month + (table_2_start_yr - 1) * 12
-                t2_stop_m = abs_policy_month + (table_2_stop_yr - 1) * 12 - 1
-                additional_tables.append((direct_table_2, t2_start_m, t2_stop_m))
-
-            if has_flat_2_direct and direct_flat_2 > 0:
-                f2_start_m = abs_policy_month + (flat_2_start_yr - 1) * 12
-                f2_stop_m = abs_policy_month + (flat_2_stop_yr - 1) * 12 - 1
-                additional_flats.append((direct_flat_2, f2_start_m, f2_stop_m))
-
-            # Increased Decrement → convert to equivalent table rating
-            # ID% means mortality factor = 1 + ID/100
-            # Table rating formula: factor = 1 + table_rating × 0.25
-            # So table_rating = (ID/100) / 0.25 = ID / 25
-            if has_incr_decrement and incr_decrement_pct > 0:
-                id_table_rating = incr_decrement_pct / 25.0
-                id_start_m = abs_policy_month + (incr_decrement_start_yr - 1) * 12
-                id_stop_m = abs_policy_month + (incr_decrement_stop_yr - 1) * 12 - 1
-                additional_tables.append((id_table_rating, id_start_m, id_stop_m))
-
-            # ── Compute derived values with ALL ratings combined ────────
-            # Always build the full final params for LE and survival calc.
-            # Table period boundaries MUST be anchored to abs_policy_month
-            # so the mortality engine (which starts its loop at policy_month)
-            # applies ratings over the correct window.
-            if is_dual_solve:
-                p1_start = abs_policy_month
-                p1_end = abs_policy_month + 59
-                p2_start = abs_policy_month + 60
-                p2_end = abs_policy_month + 119
-                last_month_p2 = p2_end if self.chk_return_10yr.isChecked() else 9999
-                final_params = dc_replace(
-                    base_params,
-                    table_rating_1=table_rating_5yr,
-                    table_1_start_month=p1_start,
-                    table_1_last_month=p1_end,
-                    table_rating_2=table_rating_10yr,
-                    table_2_start_month=p2_start,
-                    table_2_last_month=last_month_p2,
-                    additional_tables=additional_tables,
-                    additional_flats=additional_flats,
-                )
-            elif has_survival_solve:
-                # Single solve — respect Return checkbox
-                if has_five and self.chk_return_5yr.isChecked():
-                    t1_last = abs_policy_month + 59
-                elif has_ten and self.chk_return_10yr.isChecked():
-                    t1_last = abs_policy_month + 119
-                else:
-                    t1_last = 9999
-                final_params = dc_replace(
-                    base_params,
-                    table_rating_1=table_rating,
-                    table_1_start_month=abs_policy_month,
-                    table_1_last_month=t1_last,
-                    additional_tables=additional_tables,
-                    additional_flats=additional_flats,
-                )
-            else:
-                # No survival solve — direct table is the primary rating
-                # Start/stop years are relative to quote date
-                # Stop year is exclusive: drops off at beginning of stop year
-                t_start_m = abs_policy_month + (table_start_yr - 1) * 12
-                t_stop_m = abs_policy_month + (table_stop_yr - 1) * 12 - 1
-                final_params = dc_replace(
-                    base_params,
-                    table_rating_1=table_rating,
-                    table_1_start_month=t_start_m,
-                    table_1_last_month=t_stop_m,
-                    additional_tables=additional_tables,
-                    additional_flats=additional_flats,
-                )
-
-            engine = MortalityEngine(final_params)
-            computed_le = engine.compute_life_expectancy()
-            survival_5yr = engine.compute_survival_probability(5)
-            survival_10yr = engine.compute_survival_probability(10)
-
-            # ── Compute standard (unmodified) values ────────────────────
-            std_engine = MortalityEngine(base_params)
-            std_le = std_engine.compute_life_expectancy()
-            std_survival_5yr = std_engine.compute_survival_probability(5)
-            std_survival_10yr = std_engine.compute_survival_probability(10)
-
-            assessment_idx = compute_assessment_index(table_rating)
-
-            # ── Build assessment result ─────────────────────────────────
-            self._assessment = MedicalAssessment(
-                rider_type=rider_type,
-                use_five_year=has_five,
-                use_ten_year=has_ten,
-                use_le=has_le,
-                use_increased_decrement=has_incr_decrement,
-                use_table=has_table_direct,
-                use_flat=has_flat_direct,
-                use_table_2=has_table_2_direct,
-                use_flat_2=has_flat_2_direct,
-                use_return_5yr=self.chk_return_5yr.isChecked(),
-                use_return_10yr=self.chk_return_10yr.isChecked(),
-                in_lieu_of=True,
-                five_year_survival=five_yr,
-                ten_year_survival=ten_yr,
-                life_expectancy_years=le_val if le_val else computed_le,
-                life_expectancy_rounded=round(le_val if le_val else computed_le),
-                direct_increased_decrement=incr_decrement_pct,
-                incr_decrement_start_year=incr_decrement_start_yr,
-                incr_decrement_stop_year=incr_decrement_stop_yr,
-                direct_table_rating=direct_table,
-                table_start_year=table_start_yr,
-                table_stop_year=table_stop_yr,
-                direct_flat_extra=direct_flat,
-                flat_start_year=flat_start_yr,
-                flat_stop_year=flat_stop_yr,
-                direct_table_rating_2=direct_table_2,
-                table_2_start_year=table_2_start_yr,
-                table_2_stop_year=table_2_stop_yr,
-                direct_flat_extra_2=direct_flat_2,
-                flat_2_start_year=flat_2_start_yr,
-                flat_2_stop_year=flat_2_stop_yr,
-                derived_table_rating=table_rating,
-                derived_table_rating_5yr=table_rating_5yr,
-                derived_table_rating_10yr=table_rating_10yr,
-                derived_flat_extra=direct_flat if has_flat_direct else 0.0,
-                derived_increased_decrement=incr_decrement_pct if has_incr_decrement else 0.0,
-                assessment_index=assessment_idx,
-                computed_survival_5yr=survival_5yr,
-                computed_survival_10yr=survival_10yr,
-                computed_le=computed_le,
-            )
-
-            # ── Populate derived labels ─────────────────────────────────
-            # Left: standard (unmodified) — including policy substandards
-            self._derived_labels["std_survival_5yr"].setText(
-                f"{std_survival_5yr:.4f}  ({std_survival_5yr * 100:.2f}%)"
-            )
-            self._derived_labels["std_survival_10yr"].setText(
-                f"{std_survival_10yr:.4f}  ({std_survival_10yr * 100:.2f}%)"
-            )
-            std_le_age = p.attained_age + round(std_le)
-            self._derived_labels["std_le"].setText(f"{std_le:.1f} years (age {std_le_age})")
-
-            # Policy substandard baseline
-            if p.table_rating > 0 or p.table_rating_2 > 0:
-                tbl_parts = []
-                if p.table_rating > 0:
-                    tbl_parts.append(f"Table {p.table_rating}")
-                if p.table_rating_2 > 0:
-                    tbl_parts.append(f"Table {p.table_rating_2}")
-                self._derived_labels["std_table_rating"].setText(
-                    "  |  ".join(tbl_parts)
-                )
-            else:
-                self._derived_labels["std_table_rating"].setText("None")
-
-            if p.flat_extra > 0:
-                flat_txt = f"${p.flat_extra:.3f}/1000"
-                if p.flat_to_age > 0:
-                    flat_txt += f" (to age {p.flat_to_age})"
-                self._derived_labels["std_flat_extra"].setText(flat_txt)
-            else:
-                self._derived_labels["std_flat_extra"].setText("None")
-
-            # Right: modified (substandard applied)
-            self._derived_labels["mod_survival_5yr"].setText(
-                f"{survival_5yr:.4f}  ({survival_5yr * 100:.2f}%)"
-            )
-            self._derived_labels["mod_survival_10yr"].setText(
-                f"{survival_10yr:.4f}  ({survival_10yr * 100:.2f}%)"
-            )
-            mod_le_age = p.attained_age + round(computed_le)
-            self._derived_labels["mod_le"].setText(f"{computed_le:.1f} years (age {mod_le_age})")
-
-
-            # Table ratings display — always show year range
-            maturity_age = p.maturity_age or MATURITY_AGE
-            yrs_to_maturity = maturity_age - p.attained_age
-
-            # Did a survival solve produce the table_rating, or was it
-            # entered directly by the user?  When entered directly (no
-            # survival input checked) we must NOT show it twice — once as
-            # a derived rating and again as a "+Tbl" add-on.
-            has_survival_solve = has_five or has_ten or has_le
-
-            tbl_parts = []
-            # Show the policy's existing table rating(s) if "In Addition To"
-            if not is_in_lieu_of and p.table_rating > 0:
-                tbl_parts.append(f"Policy Tbl {p.table_rating} (existing)")
-            if not is_in_lieu_of and p.table_rating_2 > 0:
-                tbl_parts.append(f"Policy Tbl {p.table_rating_2} (existing)")
-
-            if is_dual_solve:
-                # 5yr period always covers years 1-5
-                tbl_parts.append(f"5yr: {table_rating_5yr:.2f} (yrs 1-5)")
-                # 6-10yr period: if Return checked, ends at yr 10; else to maturity
-                if self.chk_return_10yr.isChecked():
-                    p2_label = "yrs 6-10"
-                else:
-                    p2_label = f"yrs 6-{yrs_to_maturity}"
-                tbl_parts.append(f"6-10yr: {table_rating_10yr:.2f} ({p2_label})")
-            elif table_rating > 0 and has_survival_solve:
-                # Single survival solve — show derived rating with applicable range
-                if has_five and self.chk_return_5yr.isChecked():
-                    yr_label = "yrs 1-5"
-                elif has_ten and self.chk_return_10yr.isChecked():
-                    yr_label = "yrs 1-10"
-                else:
-                    yr_label = f"yrs 1-{yrs_to_maturity}"
-                tbl_parts.append(f"{table_rating:.2f} ({yr_label})")
-            # Direct table inputs (add-on or sole source)
-            if has_table_direct and direct_table > 0:
-                tbl_parts.append(f"Tbl {direct_table:.0f} (yr {table_start_yr}-{table_stop_yr - 1})")
-            if has_table_2_direct and direct_table_2 > 0:
-                tbl_parts.append(f"Tbl2 {direct_table_2:.0f} (yr {table_2_start_yr}-{table_2_stop_yr - 1})")
-            if has_incr_decrement and incr_decrement_pct > 0:
-                id_table = incr_decrement_pct / 25.0
-                tbl_parts.append(
-                    f"ID {incr_decrement_pct:.0f}% "
-                    f"(Tbl {id_table:.0f}, yr {incr_decrement_start_yr}-{incr_decrement_stop_yr - 1})"
-                )
-            self._derived_labels["table_rating"].setText(
-                "  |  ".join(tbl_parts) if tbl_parts else "None"
-            )
-
-            # Flat extras display
-            flat_parts = []
-            # Show the policy's existing flat extra if "In Addition To"
-            if not is_in_lieu_of and p.flat_extra > 0:
-                fe_txt = f"Policy ${p.flat_extra:.3f}"
-                if p.flat_to_age > 0:
-                    fe_txt += f" (to age {p.flat_to_age})"
-                else:
-                    fe_txt += " (existing)"
-                flat_parts.append(fe_txt)
-
-            if has_flat_direct and direct_flat > 0:
-                flat_parts.append(f"${direct_flat:.3f} (yr {flat_start_yr}-{flat_stop_yr - 1})")
-            if has_flat_2_direct and direct_flat_2 > 0:
-                flat_parts.append(f"${direct_flat_2:.3f} (yr {flat_2_start_yr}-{flat_2_stop_yr - 1})")
-            self._derived_labels["flat_extra"].setText(
-                "  |  ".join(flat_parts) if flat_parts else "None"
-            )
-
-            self.derived_group.setVisible(True)
+            result = solve_substandard(self._policy, inputs)
+            self._render_assessment_result(result)
             self.status_label.setText("Substandard values computed successfully.")
-            self.assessment_ready.emit(self._assessment)
-
         except Exception as e:
             logger.error(f"Goal seek error: {e}", exc_info=True)
             self._show_warning(f"Calculation error: {e}")
@@ -2501,12 +2029,13 @@ class AssessmentPanel(QWidget):
 
         No goal seek, no substandard.
         """
-        self._assessment = MedicalAssessment(
-            rider_type="Terminal",
-            computed_survival_5yr=getattr(self, '_term_survival_5yr', 0.0),
-            computed_survival_10yr=getattr(self, '_term_survival_10yr', 0.0),
-            computed_le=getattr(self, '_term_le', 0.0),
-        )
+        if self._policy is not None:
+            self._render_assessment_result(
+                terminal_substandard(self._policy),
+                emit_ready=False,
+            )
+        elif self._assessment is None:
+            self._assessment = MedicalAssessment(rider_type="Terminal")
         self.assessment_ready.emit(self._assessment)
         return self._assessment
 

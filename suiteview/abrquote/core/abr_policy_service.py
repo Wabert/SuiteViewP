@@ -5,6 +5,7 @@ ABR Quote — Core service to build ABRPolicyData from CyberLife DB2 records.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import date
 from typing import List, Optional, Tuple
 
@@ -20,6 +21,23 @@ _FREQ_TO_MODE = {12: 1, 6: 2, 3: 3, 1: 4}
 
 class ABRPolicyLookupError(RuntimeError):
     """Raised when live ABR policy data cannot be read safely."""
+
+
+@dataclass(frozen=True)
+class PremiumScheduleResult:
+    """Premium schedule inputs used by ABR APV and premium displays."""
+
+    start_year: int
+    effective_policy_month: int
+    payments_per_year: int
+    remaining_payments: int
+    modal_factor: float
+    modal_fee_factor: float
+    premium_schedule: List[float] = field(default_factory=list)
+    base_annual_schedule: List[float] = field(default_factory=list)
+    annual_schedule: List[float] = field(default_factory=list)
+    current_modal_premium: float = 0.0
+    current_year_premium: float = 0.0
 
 
 def _months_since_issue(issue_date: Optional[date], target: Optional[date]) -> Optional[int]:
@@ -65,6 +83,102 @@ def _read_surrender_value(pi):
     # cash_surrender_value accessor first probes an undefined TH table.
     value = pi.data_item("LH_POL_MVRY_VAL", "CSV_AMT")
     return value if value is not None else pi.cash_surrender_value
+
+
+def _duration_at_quote(policy: ABRPolicyData, quote_date: date) -> tuple[int, int]:
+    if policy.issue_date:
+        anniv_month = policy.issue_date.month
+        anniv_day = policy.issue_date.day
+        years_since_issue = quote_date.year - policy.issue_date.year
+        if (quote_date.month, quote_date.day) < (anniv_month, anniv_day):
+            years_since_issue -= 1
+        start_year = max(years_since_issue + 1, 1)
+        anniv_year = policy.issue_date.year + years_since_issue
+        months_elapsed = (
+            (quote_date.year - anniv_year) * 12
+            + quote_date.month - anniv_month
+        )
+        if quote_date.day < anniv_day:
+            months_elapsed -= 1
+        effective_policy_month = max(months_elapsed + 1, 1)
+    else:
+        effective_policy_month = policy.policy_month
+        start_year = max(policy.policy_year, 1)
+    return start_year, effective_policy_month
+
+
+def premium_schedule_for_quote(
+    policy: ABRPolicyData,
+    quote_date: date,
+    level_annual_premium: float | None = None,
+) -> PremiumScheduleResult:
+    """Build the APV premium schedule for a quote date.
+
+    For TERM products the first schedule entry is prorated for unpaid modal
+    payments remaining in the current policy year.  For UL/IUL/ISWL products the
+    caller supplies the level annual premium used to fund coverage to maturity;
+    the current-year entry remains zero, matching the existing quote window.
+    """
+    from .premium_calc import PremiumCalculator, arithmetic_round
+    from ..models.abr_database import get_abr_database
+
+    db = get_abr_database()
+    calc = PremiumCalculator(policy)
+    start_year, effective_policy_month = _duration_at_quote(policy, quote_date)
+    prem_result = calc.compute(policy_year=start_year)
+    is_ul = policy.product_type in ("UL", "IUL", "ISWL")
+
+    if is_ul:
+        max_duration = (
+            policy.maturity_age - policy.issue_age
+            if policy.maturity_age and policy.issue_age else 0
+        )
+        premium_schedule = [0.0] * max(max_duration, 0)
+        for year_index in range(start_year - 1, len(premium_schedule)):
+            premium_schedule[year_index] = float(level_annual_premium or 0.0)
+        if start_year - 1 < len(premium_schedule):
+            premium_schedule[start_year - 1] = 0.0
+        annual_schedule: List[float] = []
+        base_annual_schedule: List[float] = []
+    else:
+        base_annual_schedule = calc.get_base_annual_premium_schedule()
+        annual_schedule = calc.get_annual_premium_schedule()
+        premium_schedule = list(base_annual_schedule)
+
+    payments_per_year = {1: 1, 2: 2, 3: 4, 4: 12, 5: 12}.get(
+        policy.billing_mode, 12
+    )
+    months_per_payment = 12 // payments_per_year
+    modal_factor = db.get_modal_factor(policy.plan_code, policy.billing_mode)
+    modal_fee_factor = db.get_modal_fee_factor(policy.plan_code, policy.billing_mode)
+    payments_made = (effective_policy_month - 1) // months_per_payment + 1
+    remaining_payments = max(payments_per_year - payments_made, 0)
+
+    year_index = start_year - 1
+    current_year_premium = 0.0
+    if year_index < len(premium_schedule):
+        current_year_premium = premium_schedule[year_index]
+    if (
+        not is_ul
+        and year_index < len(premium_schedule)
+        and remaining_payments < payments_per_year
+    ):
+        modal_total = arithmetic_round(premium_schedule[year_index] * modal_factor, 2)
+        premium_schedule[year_index] = modal_total * remaining_payments
+
+    return PremiumScheduleResult(
+        start_year=start_year,
+        effective_policy_month=effective_policy_month,
+        payments_per_year=payments_per_year,
+        remaining_payments=remaining_payments,
+        modal_factor=modal_factor,
+        modal_fee_factor=modal_fee_factor,
+        premium_schedule=premium_schedule,
+        base_annual_schedule=base_annual_schedule,
+        annual_schedule=annual_schedule,
+        current_modal_premium=prem_result.modal_premium,
+        current_year_premium=current_year_premium,
+    )
 
 
 def build_abr_policy(

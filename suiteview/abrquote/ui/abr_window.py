@@ -23,16 +23,8 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
-from ..models.abr_data import ABRPolicyData, MedicalAssessment, MortalityParams, ABRQuoteResult
-from ..models.abr_constants import (
-    MORTALITY_IMPROVEMENT_RATE, MORTALITY_IMPROVEMENT_CAP,
-    MORTALITY_MULTIPLIER, MORTALITY_MULTIPLIER_TERMINAL,
-    MATURITY_AGE, MODAL_LABELS,
-)
-from ..models.abr_database import get_abr_database
-from ..core.mortality_engine import MortalityEngine
-from ..core.premium_calc import PremiumCalculator
-from ..core.apv_engine import APVEngine
+from ..models.abr_data import ABRPolicyData, MedicalAssessment
+from ..core.quote_service import ABRQuoteInputs, calculate_abr_quote
 from .abr_styles import (
     ABR_HEADER_COLORS, ABR_BORDER_COLOR,
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_BG, CRIMSON_LIGHT,
@@ -417,371 +409,65 @@ class ABRQuoteWindow(FramelessWindowBase):
         try:
             p = self._policy
             a = self._assessment
-            db = get_abr_database()
+            if p is None or a is None:
+                self.status_label.setText("Calculation error: policy or assessment missing")
+                return
 
-            # ── 1. Get interest rate ────────────────────────────────────
-            quote_date = self.policy_panel.get_quote_date()
-
-            # Check for user override first
-            override_rate = self.policy_panel.get_interest_rate_override()
-            if override_rate is not None:
-                annual_rate = override_rate
-            else:
-                quote_month = quote_date.strftime("%Y-%m")
-                rate_info = db.get_effective_interest_rate(quote_month)
-                if rate_info is None:
-                    self.status_label.setText("Error: No ABR interest rate data available.")
-                    return
-                _, annual_rate = rate_info
-
-            # ── 2. Build mortality params ───────────────────────────────
-            is_terminal = a.rider_type == "Terminal"
-
-            # Mortality multiplier and improvement from rider type
-            # Excel: mort_mult = IF(B28="C", 75%, 100%)
-            #        MI        = IF(B28="C", 0.01, 0)
-            if is_terminal:
-                mort_mult = MORTALITY_MULTIPLIER_TERMINAL   # 100%
-                mi_rate = 0.0                                # no improvement
-            else:
-                mort_mult = MORTALITY_MULTIPLIER            # 75%
-                mi_rate = MORTALITY_IMPROVEMENT_RATE         # 1%
-
-            # Convert month-within-year to absolute policy month since issue
-            abs_policy_month = (p.policy_year - 1) * 12 + p.policy_month
-
-            # Determine primary table periods from assessment
-            # All month boundaries anchored to abs_policy_month
-            has_survival_solve = a.use_five_year or a.use_ten_year or a.use_le
-            is_dual = a.use_five_year and a.use_ten_year
-            if is_dual:
-                # Dual-solve: period 1 = 5yr, period 2 = 6-10yr
-                t1_rating = a.derived_table_rating_5yr
-                t1_start = abs_policy_month
-                t1_last = abs_policy_month + 59
-                t2_rating = a.derived_table_rating_10yr
-                t2_start = abs_policy_month + 60
-                t2_last = (abs_policy_month + 119) if a.use_return_10yr else 9999
-            elif a.use_five_year and a.use_return_5yr:
-                # Single 5yr solve with Return → bounded to 60 months
-                t1_rating = a.derived_table_rating
-                t1_start = abs_policy_month
-                t1_last = abs_policy_month + 59
-                t2_rating = 0.0
-                t2_start = 0
-                t2_last = 0
-            elif a.use_ten_year and a.use_return_10yr:
-                # Single 10yr solve with Return → bounded to 120 months
-                t1_rating = a.derived_table_rating
-                t1_start = abs_policy_month
-                t1_last = abs_policy_month + 119
-                t2_rating = 0.0
-                t2_start = 0
-                t2_last = 0
-            elif has_survival_solve:
-                # Single solve or LE solve — standard behavior
-                t1_rating = a.derived_table_rating
-                t1_start = abs_policy_month
-                t1_last = 9999
-                t2_rating = 0.0
-                t2_start = 0
-                t2_last = 0
-            else:
-                # No survival solve — direct table is the primary rating
-                # Start/stop years are relative to quote date
-                # Stop year is exclusive: drops off at beginning of stop year
-                t1_rating = a.derived_table_rating
-                t1_start = abs_policy_month + (a.table_start_year - 1) * 12 if a.use_table else abs_policy_month
-                t1_last = abs_policy_month + (a.table_stop_year - 1) * 12 - 1 if a.use_table else 9999
-                t2_rating = 0.0
-                t2_start = 0
-                t2_last = 0
-
-            # Build additional tables/flats from direct user inputs
-            # IMPORTANT: When there is NO survival solve, the direct Table 1
-            # rating is already in t1_rating.  Do NOT also add it to
-            # additional_tables, or it gets applied twice.
-            additional_tables = []
-            additional_flats = []
-
-            # "In Addition To" — carry the policy's existing substandards
-            # as additional layers so they are applied alongside the
-            # assessment-derived values.
-            if not a.in_lieu_of:
-                if p.table_rating > 0:
-                    additional_tables.append(
-                        (float(p.table_rating), 1, 9999)
-                    )
-                if p.flat_extra > 0:
-                    flat_last = 9999
-                    if p.flat_to_age > 0:
-                        remaining = max(0, p.flat_to_age - p.attained_age) * 12
-                        flat_last = abs_policy_month + remaining
-                    additional_flats.append(
-                        (p.flat_extra, 1, flat_last)
-                    )
-
-            if a.use_table and a.direct_table_rating > 0 and has_survival_solve:
-                # Only add as additional when a survival solve owns the primary slot
-                # Start/stop years are relative to quote date, not policy issue
-                # Stop year is exclusive: drops off at beginning of stop year
-                ts = abs_policy_month + (a.table_start_year - 1) * 12
-                te = abs_policy_month + (a.table_stop_year - 1) * 12 - 1
-                additional_tables.append((a.direct_table_rating, ts, te))
-
-            if a.use_flat and a.direct_flat_extra > 0:
-                # Start/stop years are relative to quote date, not policy issue
-                # Stop year is exclusive: drops off at beginning of stop year
-                fs = abs_policy_month + (a.flat_start_year - 1) * 12
-                fe = abs_policy_month + (a.flat_stop_year - 1) * 12 - 1
-                additional_flats.append((a.direct_flat_extra, fs, fe))
-
-            if a.use_table_2 and a.direct_table_rating_2 > 0:
-                ts2 = abs_policy_month + (a.table_2_start_year - 1) * 12
-                te2 = abs_policy_month + (a.table_2_stop_year - 1) * 12 - 1
-                additional_tables.append((a.direct_table_rating_2, ts2, te2))
-
-            if a.use_flat_2 and a.direct_flat_extra_2 > 0:
-                fs2 = abs_policy_month + (a.flat_2_start_year - 1) * 12
-                fe2 = abs_policy_month + (a.flat_2_stop_year - 1) * 12 - 1
-                additional_flats.append((a.direct_flat_extra_2, fs2, fe2))
-
-            # Increased Decrement → convert to equivalent table rating
-            if a.use_increased_decrement and a.direct_increased_decrement > 0:
-                id_table_rating = a.direct_increased_decrement / 25.0
-                id_start = abs_policy_month + (a.incr_decrement_start_year - 1) * 12
-                id_stop = abs_policy_month + (a.incr_decrement_stop_year - 1) * 12 - 1
-                additional_tables.append((id_table_rating, id_start, id_stop))
-
-            mort_params = MortalityParams(
-                issue_age=p.issue_age,
-                sex=p.rate_sex or p.sex,  # rate_sex from 67 segment
-                rate_class=p.rate_class,
-                policy_month=abs_policy_month,
-                maturity_age=p.maturity_age or MATURITY_AGE,
-                table_rating_1=t1_rating,
-                table_1_start_month=t1_start,
-                table_1_last_month=t1_last,
-                table_rating_2=t2_rating,
-                table_2_start_month=t2_start,
-                table_2_last_month=t2_last,
-                flat_extra_1=0.0,
-                flat_1_start_month=1,
-                flat_1_duration=9999,
-                additional_tables=additional_tables,
-                additional_flats=additional_flats,
-                mortality_multiplier=mort_mult,
-                improvement_rate=mi_rate,
-                improvement_cap=MORTALITY_IMPROVEMENT_CAP,
-                is_terminal=is_terminal,
-            )
-
-            # ── 3. Compute monthly mortality ────────────────────────────
-            mort_engine = MortalityEngine(mort_params)
-            self._mort_detail = mort_engine.compute_detailed_table()
-            monthly_qx = [row["qx_monthly"] for row in self._mort_detail]
-
-            # ── 4. Compute premiums ─────────────────────────────────────
-            # Determine the effective policy year from the quote date
-            # (not CyberLife's valuation-based policy_year) so the
-            # rate lookup uses the correct duration.
-            if p.issue_date:
-                anniv_month = p.issue_date.month
-                anniv_day = p.issue_date.day
-                ysi = quote_date.year - p.issue_date.year
-                if (quote_date.month, quote_date.day) < (anniv_month, anniv_day):
-                    ysi -= 1
-                start_yr = max(ysi + 1, 1)
-                anniv_year = p.issue_date.year + ysi
-                months_elapsed = (
-                    (quote_date.year - anniv_year) * 12
-                    + quote_date.month - anniv_month
-                )
-                if quote_date.day < anniv_day:
-                    months_elapsed -= 1
-                effective_policy_month = max(months_elapsed + 1, 1)
-            else:
-                effective_policy_month = p.policy_month
-                start_yr = max(p.policy_year, 1)
-
-            prem_calc = PremiumCalculator(p)
-            prem_result = prem_calc.compute(policy_year=start_yr)
+            def _money_input(widget, default: float = 0.0) -> float:
+                text = widget.text().strip().replace(",", "").replace("$", "")
+                try:
+                    return float(text) if text else default
+                except ValueError:
+                    return default
 
             is_ul = p.product_type in ("UL", "IUL", "ISWL")
-
-            if is_ul:
-                # UL/IUL/ISWL: build premium schedule from user-entered
-                # level premium (same logic as policy_panel's
-                # _populate_ul_premium_schedule).  TERM rate tables don't
-                # exist for these products.
-                level_text = self.policy_panel.ul_level_prem_input.text().strip().replace(",", "").replace("$", "")
-                try:
-                    level_prem = float(level_text) if level_text else 0.0
-                except ValueError:
-                    level_prem = 0.0
-
-                max_duration = (p.maturity_age - p.issue_age) if p.maturity_age and p.issue_age else 0
-                premium_schedule = [0.0] * max(max_duration, 0)
-                # Fill future years with the level premium
-                for yr_idx in range(start_yr - 1, len(premium_schedule)):
-                    premium_schedule[yr_idx] = level_prem
-                # Current year = 0 (no more payments in the current year)
-                if start_yr - 1 < len(premium_schedule):
-                    premium_schedule[start_yr - 1] = 0.0
-            else:
-                premium_schedule = list(prem_calc.get_base_annual_premium_schedule())
-
-            # Pre-prorate the first year to match Future Premiums table.
-            # The APV engine uses these values as-is (no internal proration).
-            payments_per_year = {1: 1, 2: 2, 3: 4, 4: 12, 5: 12}.get(
-                p.billing_mode, 12
+            level_prem = (
+                _money_input(self.policy_panel.ul_level_prem_input)
+                if is_ul else None
             )
-            months_per_payment = 12 // payments_per_year
-            modal_factor = db.get_modal_factor(p.plan_code, p.billing_mode)
-            modal_fee_factor = db.get_modal_fee_factor(p.plan_code, p.billing_mode)
-
-            payments_made = (effective_policy_month - 1) // months_per_payment + 1
-            remaining_payments = max(payments_per_year - payments_made, 0)
-
-            # Prorate the current year entry in the schedule
-            # Apply single modal_factor to the total annual premium
-            policy_fee_for_proration = db.get_policy_fee(p.plan_code)
-            yr_idx = start_yr - 1
-            if not is_ul and yr_idx < len(premium_schedule) and remaining_payments < payments_per_year:
-                full_annual = premium_schedule[yr_idx]
-                modal_total = round(full_annual * modal_factor, 2)
-                premium_schedule[yr_idx] = modal_total * remaining_payments
-
-            # ── 5. Compute APV ──────────────────────────────────────────
-            # Project the locked-in death benefit (Face + Account Value for
-            # Option B, Face + Premiums Paid for Option C, else Face). The
-            # PVDB and eligible amounts must all use this same benefit.
-            projected_death_benefit = p.default_death_benefit
-            apv_engine = APVEngine(annual_rate, p)
-            self._apv_detail, self._apv_summary = apv_engine.compute_detailed_table(
-                monthly_qx, premium_schedule, is_terminal=is_terminal,
-                death_benefit=projected_death_benefit,
+            loan_amount = (
+                _money_input(self.policy_panel.ul_loan_payoff_input)
+                if is_ul else 0.0
+            )
+            surrender_value = (
+                _money_input(
+                    self.policy_panel.ul_surrender_value_input,
+                    float(p.surrender_value or 0.0),
+                )
+                if is_ul else None
             )
 
-            admin_fee = db.get_admin_fee(p.issue_state)
-            min_face = self.assessment_panel.get_min_face_amount()
-            p.min_face_amount = min_face
-
-            # Read loan payoff from Policy Info (UL/IUL/ISWL only)
-            loan_amount = 0.0
-            surrender_value = 0.0
-            if p.product_type in ("UL", "IUL", "ISWL"):
-                loan_text = self.policy_panel.ul_loan_payoff_input.text().strip().replace(",", "").replace("$", "")
-                try:
-                    loan_amount = float(loan_text) if loan_text else 0.0
-                except ValueError:
-                    loan_amount = 0.0
-                sv_text = self.policy_panel.ul_surrender_value_input.text().strip().replace(",", "").replace("$", "")
-                try:
-                    surrender_value = float(sv_text) if sv_text else float(p.surrender_value or 0.0)
-                except ValueError:
-                    surrender_value = float(p.surrender_value or 0.0)
-
-            full = apv_engine.compute_full_acceleration(
-                admin_fee=admin_fee,
-                apv_summary=self._apv_summary,
-                loan_repayment=loan_amount,
+            snapshot = calculate_abr_quote(ABRQuoteInputs(
+                policy=p,
+                assessment=a,
+                quote_date=self.policy_panel.get_quote_date(),
+                min_face_amount=self.assessment_panel.get_min_face_amount(),
+                interest_rate_override=self.policy_panel.get_interest_rate_override(),
+                level_annual_premium=level_prem,
+                loan_payoff=loan_amount,
                 surrender_value=surrender_value,
-                eligible_death_benefit=projected_death_benefit,
-            )
+            ))
 
-            partial = apv_engine.compute_partial_acceleration(
-                full,
-                min_face=min_face,
-                admin_fee=admin_fee,
-            )
-
-            # ── 6. Compute partial premium ──────────────────────────────
-            min_face_prem = prem_calc.compute_min_face_premium(min_face, policy_year=start_yr)
-
-            # Build partial-premium breakdown using PremiumCalculator
-            from dataclasses import replace as _replace
-            reduced_policy = _replace(p, face_amount=min_face)
-            mf_calc = PremiumCalculator(reduced_policy)
-            partial_prem_breakdown = mf_calc.build_coverage_breakdown(
-                policy_year=start_yr,
-                prem_result=min_face_prem,
-                modal_factor=modal_factor,
-            )
-
-            # ── 7. Per diem ─────────────────────────────────────────────
-            perdiem = db.get_per_diem(quote_date.year)
-            pd_daily = perdiem[0] if perdiem else 0.0
-            pd_annual = perdiem[1] if perdiem else 0.0
-
-            # ── 8. Build result ─────────────────────────────────────────
-            modal_label = MODAL_LABELS.get(p.billing_mode, "")
-            messages = self._generate_messages(p, full, partial, pd_annual)
-
-            result = ABRQuoteResult(
-                # Full
-                full_eligible_db=full["eligible_db"],
-                full_actuarial_discount=full["actuarial_discount"],
-                full_admin_fee=full["admin_fee"],
-                full_loan_repayment=full.get("loan_repayment", 0.0),
-                full_accel_benefit=full["accelerated_benefit"],
-                full_accelerated_benefit=full.get("final_accelerated_benefit", full["accelerated_benefit"]),
-                full_benefit_ratio=full["benefit_ratio"],
-                full_surrender_value=full.get("surrender_value", 0.0),
-                # Partial
-                partial_eligible_db=partial["eligible_db"],
-                partial_actuarial_discount=partial["actuarial_discount"],
-                partial_admin_fee=partial["admin_fee"],
-                partial_loan_repayment=partial.get("loan_repayment", 0.0),
-                partial_accel_benefit=partial["accelerated_benefit"],
-                partial_accelerated_benefit=partial.get("final_accelerated_benefit", partial["accelerated_benefit"]),
-                partial_benefit_ratio=partial["benefit_ratio"],
-                partial_surrender_value=partial.get("surrender_value", 0.0),
-                # Premium
-                premium_before=(
-                    f"${p.monthly_deduction:,.2f}"
-                    if p.product_type in ("UL", "IUL", "ISWL")
-                    else f"${prem_result.modal_premium:,.2f} {modal_label}"
-                ),
-                premium_after_full=0.0,
-                premium_after_partial=(
-                    f"${min_face_prem.modal_premium:,.2f}"
-                    if p.product_type in ("UL", "IUL", "ISWL")
-                    else f"${min_face_prem.modal_premium:,.2f} {modal_label}"
-                ),
-                # Details
-                plan_description=PremiumCalculator.get_plan_description(p.plan_code),
-                abr_interest_rate=annual_rate,
-                quote_date=quote_date,
-                # APV components
-                apv_fb=self._apv_summary.get("pvfb_adjusted", 0.0),
-                apv_fp=self._apv_summary.get("pvfp", 0.0),
-                apv_fd=0.0,
-                per_diem_daily=pd_daily,
-                per_diem_annual=pd_annual,
-                messages=messages,
-            )
-
-            # ── 9. Display results ──────────────────────────────────────
-            policy_info_str = f"{p.policy_number} — {p.insured_name}"
+            self._mort_detail = snapshot.mortality_detail
+            self._apv_detail = snapshot.apv_detail
+            self._apv_summary = snapshot.apv_summary
+            result = snapshot.result
 
             self.results_panel.display_results(result)
             self.results_panel.set_calc_data(
                 self._mort_detail, self._apv_detail, self._apv_summary,
-                policy_info_str,
+                snapshot.policy_info,
             )
 
-            # Also show results inline on the assessment panel
             self.assessment_panel.display_results(result)
             self.assessment_panel.set_calc_data(
                 self._mort_detail, self._apv_detail, self._apv_summary,
-                policy_info_str,
+                snapshot.policy_info,
             )
             self.assessment_panel.set_partial_premium_breakdown(
-                partial_prem_breakdown
+                snapshot.partial_premium_breakdown
             )
 
-            # Pass data to output panel for Print Detail
             self.output_panel.set_result(result)
             self.output_panel.set_assessment(self._assessment)
             self.output_panel.set_calc_data(
@@ -790,9 +476,7 @@ class ABRQuoteWindow(FramelessWindowBase):
             self.output_panel.set_derived_values(
                 self.assessment_panel.get_derived_display_values()
             )
-            self.output_panel.set_accel_inputs_fn(
-                self._get_current_accel_inputs
-            )
+            self.output_panel.set_accel_inputs_fn(self._get_current_accel_inputs)
             self.output_panel.set_after_partial_deduction_fn(
                 self.assessment_panel.get_after_partial_deduction
             )
@@ -807,7 +491,6 @@ class ABRQuoteWindow(FramelessWindowBase):
     def _generate_messages(self, p: ABRPolicyData, full: dict, partial: dict,
                            per_diem_annual: float = 0.0) -> list:
         """Generate validation/warning messages."""
-        db = get_abr_database()
         messages = []
 
         if full["accelerated_benefit"] > 100_000:

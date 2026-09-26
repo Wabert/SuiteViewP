@@ -429,24 +429,26 @@ def test_resolver_cli_pins_failure_json_for_review(tmp_path, monkeypatch):
 def test_canonical_ui_proceeds_with_unattainable_target_but_keeps_attained_value(
         request_data, policy, monkeypatch):
     from suiteview.abrquote.automation import _assessment_port
-    from suiteview.abrquote.ui.assessment_panel import AssessmentPanel
-    original = AssessmentPanel._on_calculate
-    captured = []
-    def observe(port):
-        captured.append(port)
-        return original(port)
-    monkeypatch.setattr(AssessmentPanel, "_on_calculate", observe)
+    from suiteview.abrquote.core.assessment_solver import AssessmentInputs, solve_substandard
     request_data["assessment"] = {
         "rider_type": "Critical", "five_year_survival": .9, "ten_year_survival": .899,
     }
     with using_quote_database(Rates()):
+        solved = solve_substandard(
+            policy,
+            AssessmentInputs(
+                rider_type="Critical",
+                use_five_year=True,
+                use_ten_year=True,
+                five_year_survival=.9,
+                ten_year_survival=.899,
+            ),
+        )
         with pytest.raises(QuoteError, match="Nonnegative mortality boundary") as error:
             _assessment_port(policy, QuoteRequest.from_dict(request_data))
-    port = captured[0]
-    assert port.status_label.value == "Substandard values computed successfully."
-    assert port._assessment.ten_year_survival == .899
-    assert port._assessment.derived_table_rating_10yr == 0
-    assert port._assessment.computed_survival_10yr < .899
+    assert solved.assessment.ten_year_survival == .899
+    assert solved.assessment.derived_table_rating_10yr == 0
+    assert solved.assessment.computed_survival_10yr < .899
     assert error.value.details["ui_permits_continuation"] is True
     assert error.value.details["exact_fit"] is False
 

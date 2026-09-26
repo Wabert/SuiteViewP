@@ -34,6 +34,7 @@ from .abr_styles import (
     BUTTON_SLATE_STYLE,
 )
 from ...ui.widgets.frameless_window import FramelessWindowBase
+from .view_models import CalcViewerModel
 
 logger = logging.getLogger(__name__)
 
@@ -41,38 +42,24 @@ logger = logging.getLogger(__name__)
 class CalcViewerDialog(FramelessWindowBase):
     """Modeless frameless window showing detailed month-by-month calculation tables."""
 
-    def __init__(
-        self,
-        mortality_rows: list[dict],
-        apv_rows: list[dict],
-        apv_summary: dict,
-        policy_info: str = "",
-        policy=None,
-        assessment=None,
-        result=None,
-        derived_values: dict | None = None,
-        after_partial_override: str = "",
-        warnings: list[str] | None = None,
-        accel_amount_input: float = 0.0,
-        min_face_amount_input: float = 0.0,
-        parent=None,
-    ):
-        self._mort_rows = mortality_rows
-        self._apv_rows = apv_rows
-        self._apv_summary = apv_summary
-        self._policy_info = policy_info
-        self._policy = policy
-        self._assessment = assessment
-        self._result = result
-        self._derived_values = derived_values or {}
-        self._after_partial_override = after_partial_override
-        self._warnings = warnings or []
-        self._accel_amount_input = accel_amount_input
-        self._min_face_amount_input = min_face_amount_input
+    def __init__(self, model: CalcViewerModel, parent=None):
+        self._model = model
+        self._mort_rows = model.mortality_rows
+        self._apv_rows = model.apv_rows
+        self._apv_summary = model.apv_summary
+        self._policy_info = model.policy_info
+        self._policy = model.policy
+        self._assessment = model.assessment
+        self._result = model.result
+        self._derived_values = model.derived_values
+        self._after_partial_override = model.acceleration.after_partial_override
+        self._warnings = model.acceleration.warnings
+        self._accel_amount_input = model.acceleration.acceleration_amount
+        self._min_face_amount_input = model.acceleration.min_face_amount
 
         title = (
-            f"SuiteView:  Calculation Detail — {policy_info}"
-            if policy_info
+            f"SuiteView:  Calculation Detail — {self._policy_info}"
+            if self._policy_info
             else "SuiteView:  Calculation Detail"
         )
 
@@ -878,487 +865,32 @@ class CalcViewerDialog(FramelessWindowBase):
     # ── Export ──────────────────────────────────────────────────────────
 
     def _on_export(self):
-        """Export full 5-sheet detail workbook to a new unsaved Excel workbook via COM."""
-        p = self._policy
-        r = self._result
-        a = self._assessment
-
-        if not p or not r:
+        """Export full detail workbook to a new unsaved Excel workbook via COM."""
+        if not self._policy or not self._result:
             QMessageBox.warning(self, "Export", "No results available to export.")
             return
 
         try:
-            from win32com.client import dynamic
-            from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS
+            from ..core.output_spec import build_detail_workbook_spec, write_excel_com
 
-            excel = dynamic.Dispatch("Excel.Application")
-            excel.Visible = True
-            excel.ScreenUpdating = False
-
-            wb = excel.Workbooks.Add()
-
-            # Helper: write a label+value pair into cells
-            def _field(ws, row, label, value, col=1):
-                ws.Cells(row, col).Value = label
-                ws.Cells(row, col).Font.Bold = True
-                ws.Cells(row, col + 1).Value = value
-                return row + 1
-
-            def _section(ws, row, title, col_span=2):
-                ws.Cells(row, 1).Value = title
-                ws.Cells(row, 1).Font.Bold = True
-                ws.Cells(row, 1).Font.Color = 0xFFFFFF
-                ws.Cells(row, 1).Interior.Color = 0x00008B  # BGR for #8B0000
-                if col_span > 1:
-                    ws.Range(ws.Cells(row, 1), ws.Cells(row, col_span)).Merge()
-                    ws.Range(ws.Cells(row, 1), ws.Cells(row, col_span)).Interior.Color = 0x00008B
-                return row + 1
-
-            # ── Sheet 1: Policy Info ────────────────────────────────────
-            ws1 = wb.Worksheets(1)
-            ws1.Name = "Policy Info"
-
-            row = 1
-            ws1.Cells(row, 1).Value = "ABR Quote — Policy Information"
-            ws1.Cells(row, 1).Font.Bold = True
-            ws1.Cells(row, 1).Font.Size = 12
-            row = 3
-
-            row = _section(ws1, row, "Policy Details")
-            row = _field(ws1, row, "Policy Number:", p.policy_number)
-            row = _field(ws1, row, "Insured:", p.insured_name or "—")
-
-            plan_info = PLAN_CODE_INFO.get(p.plan_code.upper(), None) if p.plan_code else None
-            plan_desc = f"{plan_info[1]} ({plan_info[0]}-Year Level)" if plan_info else "—"
-            row = _field(ws1, row, "Plancode:", p.plan_code or "—")
-            row = _field(ws1, row, "Plan Description:", plan_desc)
-
-            sex_display = {"M": "Male", "F": "Female", "U": "Unisex"}.get(p.sex, p.sex or "—")
-            row = _field(ws1, row, "Sex:", sex_display)
-            row = _field(ws1, row, "Rate Sex:", p.rate_sex or "—")
-            row = _field(ws1, row, "Issue Age:", p.issue_age)
-            row = _field(ws1, row, "Attained Age:", p.attained_age)
-            row = _field(ws1, row, "Rate Class:", p.rate_class or "—")
-            row = _field(ws1, row, "Face Amount:", f"${p.face_amount:,.2f}" if p.face_amount else "—")
-            row = _field(ws1, row, "Min Face:", f"${p.min_face_amount:,.0f}")
-            row = _field(ws1, row, "Issue State:", p.issue_state or "—")
-            row = _field(ws1, row, "Issue Date:", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—")
-            row = _field(ws1, row, "Policy Year:", p.policy_year)
-            row = _field(ws1, row, "Month of Year:", p.policy_month)
-            row = _field(ws1, row, "Base Plancode:", p.base_plancode or "—")
-            row = _field(ws1, row, "Billing Mode:", MODAL_LABELS.get(p.billing_mode, str(p.billing_mode)))
-            row = _field(ws1, row, "Modal Premium:", f"${p.modal_premium:,.2f}" if p.modal_premium else "—")
-            row = _field(ws1, row, "Table Rating:", p.table_rating)
-            row = _field(ws1, row, "Annual Flat Extra:", f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None")
-            row = _field(ws1, row, "Flat Cease Date:", p.flat_cease_date.strftime("%m/%d/%Y") if p.flat_cease_date else "—")
-            row = _field(ws1, row, "Reinsurers:", p.reinsurers or "(none)")
-
-            row += 1
-            row = _section(ws1, row, "Quote Parameters")
-            row = _field(ws1, row, "Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
-            row = _field(ws1, row, "ABR Interest Rate:", f"{r.abr_interest_rate * 100:.2f}%")
-            row = _field(ws1, row, "Per Diem (Daily):", f"${r.per_diem_daily:,.2f}")
-            row = _field(ws1, row, "Per Diem (Annual):", f"${r.per_diem_annual:,.2f}")
-
-            row += 1
-            row = _section(ws1, row, "Riders / Coverages")
-            if p.riders:
-                for rider in p.riders:
-                    rider_desc = f"{rider.plancode} ({rider.rider_type})"
-                    if rider.benefit_type:
-                        rider_desc += f" — BNF {rider.benefit_type}{rider.benefit_subtype or ''}"
-                    row = _field(ws1, row, rider_desc, f"${rider.fallback_premium:,.2f}/yr")
-            else:
-                row = _field(ws1, row, "No riders.", "")
-
-            ws1.Columns("A:A").ColumnWidth = 22
-            ws1.Columns("B:B").ColumnWidth = 35
-
-            # ── Sheet 2: Assessment ─────────────────────────────────────
-            ws2 = wb.Worksheets.Add(After=ws1)
-            ws2.Name = "Assessment"
-
-            row = 1
-            ws2.Cells(row, 1).Value = "ABR Quote — Assessment"
-            ws2.Cells(row, 1).Font.Bold = True
-            ws2.Cells(row, 1).Font.Size = 12
-            row = 3
-
-            row = _section(ws2, row, "Rider Configuration")
-            row = _field(ws2, row, "Rider Type:", a.rider_type if a else "—")
-
-            row += 1
-            row = _section(ws2, row, "Assessment Inputs")
-            if a:
-                if a.use_five_year:
-                    row = _field(ws2, row, "5-Year Survival Rate:", f"{a.five_year_survival}")
-                    row = _field(ws2, row, "  Return to Normal:", "Yes" if a.use_return_5yr else "No")
-                if a.use_ten_year:
-                    row = _field(ws2, row, "10-Year Survival Rate:", f"{a.ten_year_survival}")
-                    row = _field(ws2, row, "  Return to Normal:", "Yes" if a.use_return_10yr else "No")
-                if a.use_le:
-                    row = _field(ws2, row, "Life Expectancy:", f"{a.life_expectancy_years} years")
-                if hasattr(a, 'use_increased_decrement') and a.use_increased_decrement:
-                    row = _field(ws2, row, "Increased Decrement:", f"{a.direct_increased_decrement:.0f}%")
-                    row = _field(ws2, row, "  Start/Stop Year:", f"{a.incr_decrement_start_year} — {a.incr_decrement_stop_year}")
-                if a.use_table:
-                    row = _field(ws2, row, "Table (rating):", f"{a.direct_table_rating}")
-                    row = _field(ws2, row, "  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")
-                if a.use_flat:
-                    row = _field(ws2, row, "Flat ($/1000):", f"${a.direct_flat_extra:.2f}")
-                    row = _field(ws2, row, "  Start/Stop Year:", f"{a.flat_start_year} — {a.flat_stop_year}")
-                if a.use_table_2:
-                    row = _field(ws2, row, "Table 2 (rating):", f"{a.direct_table_rating_2}")
-                    row = _field(ws2, row, "  Start/Stop Year:", f"{a.table_2_start_year} — {a.table_2_stop_year}")
-                if a.use_flat_2:
-                    row = _field(ws2, row, "Flat 2 ($/1000):", f"${a.direct_flat_extra_2:.2f}")
-                    row = _field(ws2, row, "  Start/Stop Year:", f"{a.flat_2_start_year} — {a.flat_2_stop_year}")
-                row = _field(ws2, row, "In Lieu Of:", "Yes" if a.in_lieu_of else "No (In Addition To)")
-            else:
-                row = _field(ws2, row, "No assessment data.", "")
-
-            row += 1
-            row = _section(ws2, row, "Derived Substandard Values")
-            dv = self._derived_values
-            if dv:
-                ws2.Cells(row, 1).Value = "Current (Unmodified)"
-                ws2.Cells(row, 1).Font.Bold = True
-                ws2.Cells(row, 1).Font.Underline = True
-                ws2.Cells(row, 3).Value = "Modified (Substandard Applied)"
-                ws2.Cells(row, 3).Font.Bold = True
-                ws2.Cells(row, 3).Font.Underline = True
-                row += 1
-
-                field_pairs = [
-                    ("5-Year Survival:", "std_survival_5yr", "5-Year Survival:", "mod_survival_5yr"),
-                    ("10-Year Survival:", "std_survival_10yr", "10-Year Survival:", "mod_survival_10yr"),
-                    ("Life Expectancy:", "std_le", "Life Expectancy:", "mod_le"),
-                    ("Table Rating:", "std_table_rating", "Table Ratings:", "table_rating"),
-                    ("Flat Extra:", "std_flat_extra", "Flat Extras:", "flat_extra"),
-                ]
-                for std_label, std_key, mod_label, mod_key in field_pairs:
-                    ws2.Cells(row, 1).Value = std_label
-                    ws2.Cells(row, 1).Font.Bold = True
-                    ws2.Cells(row, 2).Value = str(dv.get(std_key, "—"))
-                    ws2.Cells(row, 3).Value = mod_label
-                    ws2.Cells(row, 3).Font.Bold = True
-                    ws2.Cells(row, 4).Value = str(dv.get(mod_key, "—"))
-                    row += 1
-            elif a:
-                row = _field(ws2, row, "Derived Table Rating:", f"{a.derived_table_rating:.4f}")
-                if a.use_five_year and a.use_ten_year:
-                    row = _field(ws2, row, "  5yr Table Rating:", f"{a.derived_table_rating_5yr:.4f}")
-                    row = _field(ws2, row, "  10yr Table Rating:", f"{a.derived_table_rating_10yr:.4f}")
-                row = _field(ws2, row, "Life Expectancy (rounded):", f"{a.life_expectancy_rounded}")
-
-            row += 1
-            is_ul = p and p.product_type in ("UL", "IUL", "ISWL")
-
-            row = _section(ws2, row, "Results Summary", col_span=4)
-
-            # Full Acceleration breakdown
-            ws2.Cells(row, 1).Value = "FULL ACCELERATION"
-            ws2.Cells(row, 1).Font.Bold = True
-            ws2.Cells(row, 1).Font.Underline = True
-            row += 1
-            accel_display = self._accel_amount_input or (p.face_amount if p else 0.0)
-            row = _field(ws2, row, "Acceleration Amount Input:", f"${accel_display:,.2f}" if accel_display else "—")
-            full_start_row = row
-            row = _field(ws2, row, "Eligible Death Benefit:", f"${r.full_eligible_db:,.2f}")
-            row = _field(ws2, row, "Actuarial Discount:", f"${r.full_actuarial_discount:,.2f}")
-            row = _field(ws2, row, "Administrative Fee:", f"${r.full_admin_fee:,.2f}")
-            if r.full_loan_repayment > 0:
-                row = _field(ws2, row, "Loan Repayment:", f"${r.full_loan_repayment:,.2f}")
-            row = _field(ws2, row, "Calculated Benefit:", f"${max(0.0, r.full_accel_benefit):,.2f}")
-            row = _field(ws2, row, "Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
-            if r.full_surrender_value > 0:
-                row = _field(ws2, row, "Surrender Value:", f"${r.full_surrender_value:,.2f}")
-                row = _field(ws2, row, "Accelerated Benefit:", f"${r.full_accelerated_benefit:,.2f}")
-
-            # Full APV — columns C-D beside Full Acceleration
-            for j, (apv_lbl, apv_val) in enumerate([
-                ("APV_FB:", f"${r.apv_fb:,.2f}"),
-                ("APV_FP:", f"${r.apv_fp:,.2f}"),
-                ("APV_FD:", f"${r.apv_fd:,.2f}"),
-            ]):
-                ws2.Cells(full_start_row + j, 3).Value = apv_lbl
-                ws2.Cells(full_start_row + j, 3).Font.Bold = True
-                ws2.Cells(full_start_row + j, 4).Value = apv_val
-
-            row += 1
-
-            # Max Partial Acceleration breakdown
-            if r.partial_eligible_db > 0:
-                ws2.Cells(row, 1).Value = "MAX PARTIAL ACCELERATION"
-                ws2.Cells(row, 1).Font.Bold = True
-                ws2.Cells(row, 1).Font.Underline = True
-                row += 1
-                min_face_display = self._min_face_amount_input or (p.min_face_amount if p else 0.0)
-                row = _field(ws2, row, "Min Face Amount Input:", f"${min_face_display:,.0f}")
-                partial_start_row = row
-                row = _field(ws2, row, "Eligible Death Benefit:", f"${r.partial_eligible_db:,.2f}")
-                row = _field(ws2, row, "Actuarial Discount:", f"${r.partial_actuarial_discount:,.2f}")
-                row = _field(ws2, row, "Administrative Fee:", f"${r.partial_admin_fee:,.2f}")
-                if r.partial_loan_repayment > 0:
-                    row = _field(ws2, row, "Loan Repayment:", f"${r.partial_loan_repayment:,.2f}")
-                row = _field(ws2, row, "Calculated Benefit:", f"${max(0.0, r.partial_accel_benefit):,.2f}")
-                row = _field(ws2, row, "Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
-                if r.partial_surrender_value > 0:
-                    row = _field(ws2, row, "Surrender Value:", f"${r.partial_surrender_value:,.2f}")
-                    row = _field(ws2, row, "Accelerated Benefit:", f"${r.partial_accelerated_benefit:,.2f}")
-
-                # Partial APV — proportionally scaled, columns C-D
-                if r.full_eligible_db > 0:
-                    pratio = r.partial_eligible_db / r.full_eligible_db
-                else:
-                    pratio = 0.0
-                for j, (apv_lbl, apv_val) in enumerate([
-                    ("APV_FB:", f"${r.apv_fb * pratio:,.2f}"),
-                    ("APV_FP:", f"${r.apv_fp * pratio:,.2f}"),
-                    ("APV_FD:", f"${r.apv_fd * pratio:,.2f}"),
-                ]):
-                    ws2.Cells(partial_start_row + j, 3).Value = apv_lbl
-                    ws2.Cells(partial_start_row + j, 3).Font.Bold = True
-                    ws2.Cells(partial_start_row + j, 4).Value = apv_val
-            else:
-                row = _field(ws2, row, "Partial Acceleration:", "NOT ALLOWED — At Minimum Face")
-
-            row += 1
-
-            # Premium Impact
-            if is_ul:
-                row = _field(ws2, row, "Last Monthly Deduction:", r.premium_before)
-            else:
-                row = _field(ws2, row, "Premium Before:", r.premium_before)
-            row = _field(ws2, row, "After (Full Accel):", f"${r.premium_after_full:,.2f}")
-            if r.partial_eligible_db > 0:
-                after_partial = self._after_partial_override or r.premium_after_partial
-                row = _field(ws2, row, "After (Partial):", after_partial)
-            else:
-                row = _field(ws2, row, "After (Partial):", "NOT ALLOWED")
-
-            # Messages / Warnings
-            warnings = self._warnings or (r.messages if r.messages else [])
-            if warnings:
-                row += 1
-                row = _section(ws2, row, "Messages")
-                for msg in warnings:
-                    ws2.Cells(row, 1).Value = f"\u2022 {msg}"
-                    ws2.Cells(row, 1).Font.Bold = True
-                    ws2.Cells(row, 1).Font.Color = 0x2828C6  # BGR for C62828
-                    row += 1
-
-            ws2.Columns("A:A").ColumnWidth = 28
-            ws2.Columns("B:B").ColumnWidth = 35
-            ws2.Columns("C:C").ColumnWidth = 20
-            ws2.Columns("D:D").ColumnWidth = 25
-
-            # ── Sheet 3: Mortality Derivation ───────────────────────────
-            ws3 = wb.Worksheets.Add(After=ws2)
-            ws3.Name = "Mortality Derivation"
-
-            mort_headers = (
-                "Quote Month", "Policy Year", "Mo in Yr", "Att Age",
-                "qx VBT", "qx × Mult", "qx Improved",
-                "Table Rating", "qx + Table",
-                "Flat Extra", "qx + Flat", "qx Capped",
-                "qx Monthly", "px Monthly", "Cum Survival",
+            spec = build_detail_workbook_spec(
+                self._policy,
+                self._result,
+                self._assessment,
+                self._mort_rows,
+                self._apv_rows,
+                self._apv_summary,
+                derived_values=self._derived_values,
+                accel_amount=self._accel_amount_input,
+                min_face_amount=self._min_face_amount_input,
+                after_partial_override=self._after_partial_override,
+                apv_sheet_name="APV Present Value",
             )
-            mort_col_count = len(mort_headers)
-
-            mort_data = [mort_headers]
-            mort_year_boundary_rows = []
-            for i, mrow in enumerate(self._mort_rows):
-                tbl_val = mrow.get("table_rating_applied", 0.0)
-                flat_val = mrow.get("flat_extra_applied", 0.0)
-                mort_data.append((
-                    mrow["quote_month"], mrow["duration_year"],
-                    mrow["month_in_year"], mrow["attained_age"],
-                    mrow["qx_vbt"], mrow["qx_multiplied"],
-                    mrow["qx_improved"],
-                    tbl_val if tbl_val > 0 else "",
-                    mrow["qx_table_rated"],
-                    flat_val if flat_val > 0 else "",
-                    mrow["qx_flat_extra"], mrow["qx_capped"],
-                    mrow["qx_monthly"], mrow["px_monthly"],
-                    mrow["cum_survival"],
-                ))
-                if mrow["month_in_year"] == 1 and i > 0:
-                    mort_year_boundary_rows.append(i + 2)
-
-            total_mort = len(mort_data)
-            ws3.Range(ws3.Cells(1, 1), ws3.Cells(total_mort, mort_col_count)).Value = mort_data
-
-            hdr3 = ws3.Range(ws3.Cells(1, 1), ws3.Cells(1, mort_col_count))
-            hdr3.Font.Bold = True
-            hdr3.Font.Color = 0xFFFFFF
-            hdr3.Interior.Color = 0x404D00
-            hdr3.HorizontalAlignment = -4108
-
-            if total_mort > 1:
-                ws3.Range(ws3.Cells(2, 5), ws3.Cells(total_mort, 7)).NumberFormat = "0.00000000"
-                ws3.Range(ws3.Cells(2, 9), ws3.Cells(total_mort, 9)).NumberFormat = "0.00000000"
-                ws3.Range(ws3.Cells(2, 11), ws3.Cells(total_mort, 14)).NumberFormat = "0.00000000"
-                ws3.Range(ws3.Cells(2, 15), ws3.Cells(total_mort, 15)).NumberFormat = "0.000000%"
-
-            for yr_row in mort_year_boundary_rows:
-                ws3.Range(ws3.Cells(yr_row, 1), ws3.Cells(yr_row, mort_col_count)).Interior.Color = 0xD0F3FF
-
-            ws3.Range("A2").Select()
-            excel.ActiveWindow.FreezePanes = True
-            if total_mort > 1:
-                ws3.Range(ws3.Cells(1, 1), ws3.Cells(total_mort, mort_col_count)).AutoFilter()
-            ws3.Columns.AutoFit()
-
-            # ── Sheet 4: Life Expectancy ────────────────────────────────
-            ws4 = wb.Worksheets.Add(After=ws3)
-            ws4.Name = "Life Expectancy"
-
-            le_headers = (
-                "Quote Month", "Policy Year", "Att Age",
-                "qx Monthly", "px Monthly", "tPx (cum surv)",
-                "Sum tPx (months)", "Curtate LE (years)",
-            )
-            le_col_count = len(le_headers)
-
-            # Compute LE development from mortality data
-            tp_x = 1.0
-            sum_tpx = 0.0
-            le_data = [le_headers]
-            le_year_rows = []
-            for i, mrow in enumerate(self._mort_rows):
-                qx_m = mrow["qx_monthly"]
-                px_m = 1.0 - qx_m
-                tp_x *= px_m
-                sum_tpx += tp_x
-                curtate_years = sum_tpx / 12.0
-                le_data.append((
-                    mrow["quote_month"], mrow["duration_year"],
-                    mrow["attained_age"],
-                    qx_m, px_m, tp_x,
-                    sum_tpx, curtate_years,
-                ))
-                if mrow["quote_month"] % 12 == 1 and i > 0:
-                    le_year_rows.append(i + 2)
-
-            total_le = len(le_data)
-            ws4.Range(ws4.Cells(1, 1), ws4.Cells(total_le, le_col_count)).Value = le_data
-
-            hdr4 = ws4.Range(ws4.Cells(1, 1), ws4.Cells(1, le_col_count))
-            hdr4.Font.Bold = True
-            hdr4.Font.Color = 0xFFFFFF
-            hdr4.Interior.Color = 0x404D00
-            hdr4.HorizontalAlignment = -4108
-
-            if total_le > 1:
-                ws4.Range(ws4.Cells(2, 4), ws4.Cells(total_le, 5)).NumberFormat = "0.00000000"
-                ws4.Range(ws4.Cells(2, 6), ws4.Cells(total_le, 6)).NumberFormat = "0.000000%"
-                ws4.Range(ws4.Cells(2, 7), ws4.Cells(total_le, 8)).NumberFormat = "0.0000"
-
-            for yr_row in le_year_rows:
-                ws4.Range(ws4.Cells(yr_row, 1), ws4.Cells(yr_row, le_col_count)).Interior.Color = 0xD0F3FF
-
-            # Summary rows
-            curtate_le = sum_tpx / 12.0 if self._mort_rows else 0.0
-            complete_le = curtate_le + 0.5
-            sr = total_le + 2
-            for i, (label, value, fmt) in enumerate([
-                ("Sum tPx (months):", sum_tpx, "0.0000"),
-                ("Curtate LE (years):", curtate_le, "0.0000"),
-                ("Complete LE (+ 0.5):", complete_le, "0.0000"),
-            ]):
-                ws4.Cells(sr + i, 6).Value = label
-                ws4.Cells(sr + i, 6).Font.Bold = True
-                ws4.Cells(sr + i, 8).Value = value
-                ws4.Cells(sr + i, 8).Font.Bold = True
-                ws4.Cells(sr + i, 8).NumberFormat = fmt
-
-            ws4.Activate()
-            ws4.Range("A2").Select()
-            excel.ActiveWindow.FreezePanes = True
-            if total_le > 1:
-                ws4.Range(ws4.Cells(1, 1), ws4.Cells(total_le, le_col_count)).AutoFilter()
-            ws4.Columns.AutoFit()
-
-            # ── Sheet 5: APV — Present Value ────────────────────────────
-            ws5 = wb.Worksheets.Add(After=ws4)
-            ws5.Name = "APV Present Value"
-
-            apv_headers = (
-                "Month", "t", "qx Monthly", "px Monthly", "tpx (cum surv)",
-                "v^(t+1)", "v^t", "Death Benefit", "PVDB(t)", "PVDB Cum",
-                "Prem Rate", "PVFP(t)", "PVFP Cum", "tpx End",
-            )
-            apv_col_count = len(apv_headers)
-
-            apv_data = [apv_headers]
-            apv_prem_rows = []
-            for i, arow in enumerate(self._apv_rows):
-                apv_data.append((
-                    arow["month"], arow["t"],
-                    arow["qx_monthly"], arow["px_monthly"],
-                    arow["tp_x"], arow["v_benefit"], arow["v_premium"],
-                    arow.get("death_benefit", 0.0),
-                    arow["pvdb_t"], arow["pvdb_cum"],
-                    arow["prem_rate"], arow["pvfp_t"], arow["pvfp_cum"],
-                    arow["tp_x_end"],
-                ))
-                if arow["prem_rate"] > 0:
-                    apv_prem_rows.append(i + 2)
-
-            total_apv = len(apv_data)
-            ws5.Range(ws5.Cells(1, 1), ws5.Cells(total_apv, apv_col_count)).Value = apv_data
-
-            hdr5 = ws5.Range(ws5.Cells(1, 1), ws5.Cells(1, apv_col_count))
-            hdr5.Font.Bold = True
-            hdr5.Font.Color = 0xFFFFFF
-            hdr5.Interior.Color = 0x404D00
-            hdr5.HorizontalAlignment = -4108
-
-            if total_apv > 1:
-                ws5.Range(ws5.Cells(2, 3), ws5.Cells(total_apv, 4)).NumberFormat = "0.00000000"
-                ws5.Range(ws5.Cells(2, 5), ws5.Cells(total_apv, 5)).NumberFormat = "0.000000%"
-                ws5.Range(ws5.Cells(2, 6), ws5.Cells(total_apv, 7)).NumberFormat = "0.0000000000"
-                ws5.Range(ws5.Cells(2, 8), ws5.Cells(total_apv, 8)).NumberFormat = "#,##0.00"
-                ws5.Range(ws5.Cells(2, 9), ws5.Cells(total_apv, 10)).NumberFormat = "#,##0.000000"
-                ws5.Range(ws5.Cells(2, 11), ws5.Cells(total_apv, 11)).NumberFormat = "0.0000"
-                ws5.Range(ws5.Cells(2, 12), ws5.Cells(total_apv, 13)).NumberFormat = "#,##0.000000"
-                ws5.Range(ws5.Cells(2, 14), ws5.Cells(total_apv, 14)).NumberFormat = "0.000000%"
-
-            for pr_row in apv_prem_rows:
-                ws5.Range(ws5.Cells(pr_row, 1), ws5.Cells(pr_row, apv_col_count)).Interior.Color = 0xD0F3FF
-
-            # Summary rows below data
-            s = self._apv_summary
-            sr = total_apv + 2
-            for i, (label, value, fmt) in enumerate([
-                ("PVFB (raw sum):", s["pvfb_raw"], "#,##0.000000"),
-                ("Continuous Mort Adj:", s["cont_mort_adj"], "0.0000000000"),
-                ("PVFB (adjusted × 1000):", s["pvfb_adjusted"], "#,##0.00"),
-                ("PVFP:", s["pvfp"], "#,##0.000000"),
-                ("Actuarial Discount:", s["actuarial_discount"], "#,##0.00"),
-            ]):
-                ws5.Cells(sr + i, 9).Value = label
-                ws5.Cells(sr + i, 9).Font.Bold = True
-                ws5.Cells(sr + i, 10).Value = value
-                ws5.Cells(sr + i, 10).Font.Bold = True
-                ws5.Cells(sr + i, 10).NumberFormat = fmt
-
-            ws5.Activate()
-            ws5.Range("A2").Select()
-            excel.ActiveWindow.FreezePanes = True
-            if total_apv > 1:
-                ws5.Range(ws5.Cells(1, 1), ws5.Cells(total_apv, apv_col_count)).AutoFilter()
-            ws5.Columns.AutoFit()
-
-            # Activate the first sheet
-            ws1.Activate()
-            ws1.Range("A1").Select()
-            excel.ScreenUpdating = True
-
+            write_excel_com(spec)
         except ImportError:
             QMessageBox.warning(
-                self, "Error",
+                self,
+                "Error",
                 "win32com is not available. Cannot export to Excel.",
             )
         except Exception as e:
