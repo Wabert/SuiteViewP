@@ -431,10 +431,11 @@ class VisualJoinsTab(JoinCanvasView):
             loader.finished.connect(lambda l=loader: _release_loader(l))
             self._loaders[table] = loader
             loader.result.connect(lambda payload: self._on_columns_loaded(*payload))
-            loader.error.connect(lambda msg, tbl=table: self._on_columns_error(tbl, msg))
+            loader.error.connect(self._on_columns_error)
             loader.finished.connect(self._on_loader_finished)
             loader.start()
 
+    @pyqtSlot(str, list)
     def _on_columns_loaded(self, table: str, columns: list):
         self._table_columns[table] = [str(col[0]) for col in columns if col and col[0]]
         self._column_types[table] = {
@@ -442,7 +443,9 @@ class VisualJoinsTab(JoinCanvasView):
         }
         self._refresh_canvas_sources()
 
-    def _on_columns_error(self, table: str, msg: str):
+    @pyqtSlot(str)
+    def _on_columns_error(self, msg: str):
+        table = getattr(self.sender(), "table_name", "?")
         logger.warning("Visual join canvas could not load columns for %s: %s", table, msg)
 
     @pyqtSlot()
