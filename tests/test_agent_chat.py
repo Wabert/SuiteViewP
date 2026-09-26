@@ -23,7 +23,7 @@ from suiteview.agent_chat.permissions import FolderPermissionPolicy
 from suiteview.agent_chat.store import ConversationStore, ConversationStoreError
 from suiteview.agent_chat.window import ActivityRow, AgentChatWindow
 from suiteview.agent_chat.workers import AgentRunWorker
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 _QT_APP = None
 
@@ -330,7 +330,7 @@ def test_tools_menu_omits_primary_apps_and_agent():
         + os.sep
         + "taskbar_launcher"
         + os.sep
-        + "suiteview_taskbar.py"
+        + "taskbar_ui.py"
     )
     source = open(source_path, encoding="utf-8").read()
 

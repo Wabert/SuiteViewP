@@ -160,7 +160,7 @@ def test_wrong_database_fails_closed(database):
 ])
 def test_taskbar_direct_actions_deny_before_using_existing_window(monkeypatch, operation):
     from PyQt6.QtWidgets import QMessageBox
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     warning = Mock()
     monkeypatch.setattr(QMessageBox, "warning", warning)
@@ -174,7 +174,7 @@ def test_taskbar_direct_actions_deny_before_using_existing_window(monkeypatch, o
 
 def test_launcher_controls_follow_app_grants():
     from types import SimpleNamespace
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     bar = SimpleNamespace(polview_btn=Mock(), filenav_btn=Mock(), albert_btn=Mock(),
                           tab_widget=Mock(), _permission_actions=[("RATEMANAGER", Mock())])
@@ -202,21 +202,21 @@ def test_launcher_controls_follow_app_grants():
 
 
 def test_startup_denial_precedes_launcher_construction(monkeypatch):
-    from suiteview.taskbar_launcher import suiteview_taskbar
+    from suiteview.taskbar_launcher import taskbar_window
 
-    monkeypatch.setattr(suiteview_taskbar, "get_access",
+    monkeypatch.setattr(taskbar_window, "get_access",
                         Mock(side_effect=access.AccessDeniedError("Disabled user")))
     with pytest.raises(access.AccessDeniedError, match="Disabled user"):
-        suiteview_taskbar.SuiteViewTaskbar.__init__(object())
+        taskbar_window.SuiteViewTaskbar.__init__(object())
 
 
 def test_filenav_constructor_cannot_bypass_app_grant(monkeypatch):
-    from suiteview.taskbar_launcher import suiteview_taskbar
+    from suiteview.taskbar_launcher import file_nav_window
 
-    monkeypatch.setattr(suiteview_taskbar, "guard_app_access",
+    monkeypatch.setattr(file_nav_window, "guard_app_access",
                         Mock(side_effect=access.AccessDeniedError("FILENAV denied")))
     with pytest.raises(access.AccessDeniedError, match="FILENAV denied"):
-        suiteview_taskbar.FileNavWindow.__init__(object())
+        file_nav_window.FileNavWindow.__init__(object())
 
 
 def test_ui_decorator_preserves_qt_zero_argument_slots(monkeypatch):

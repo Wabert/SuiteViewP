@@ -79,7 +79,7 @@ def test_email_attachments_uses_frameless_base_with_preserved_header(
 
 def test_filenav_uses_frameless_base_with_preserved_header(app, monkeypatch):
     from suiteview.core import access_control
-    from suiteview.taskbar_launcher import suiteview_taskbar as mod
+    from suiteview.taskbar_launcher import file_nav_window as mod
 
     class FakeFileExplorerTab(QWidget):
         path_changed = pyqtSignal(str)

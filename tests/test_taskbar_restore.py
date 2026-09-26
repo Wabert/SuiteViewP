@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from suiteview.taskbar_launcher import appbar, single_instance
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 
 @pytest.fixture

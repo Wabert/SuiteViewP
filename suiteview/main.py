@@ -96,7 +96,7 @@ def main():
 
     # Create and show the main SuiteView window
     try:
-        from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+        from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
         logger.info("Creating SuiteViewTaskbar...")
         suiteview = SuiteViewTaskbar()

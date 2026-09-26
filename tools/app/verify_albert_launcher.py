@@ -20,7 +20,7 @@ from compose import ComposeWindow
 from compose_support import InstanceLease
 from workops_browser import load_workops
 from suiteview.taskbar_launcher import albert_launcher
-from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
 
 def main():

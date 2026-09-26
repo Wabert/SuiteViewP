@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import QApplication, QScrollArea
 
-from suiteview.taskbar_launcher.suiteview_taskbar import BookmarkBarsPopup
+from suiteview.taskbar_launcher.bookmark_bars_popup import BookmarkBarsPopup
 from suiteview.ui.widgets import bookmark_data_manager
 
 

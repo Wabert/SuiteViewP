@@ -4748,7 +4748,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 self._file_nav_window = None
         if self._file_nav_window is None:
             try:
-                from suiteview.taskbar_launcher.suiteview_taskbar import FileNavWindow
+                from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
                 self._file_nav_window = FileNavWindow(parent_bar=None)
             except Exception:
                 logger.exception("Failed to open standalone File Nav")

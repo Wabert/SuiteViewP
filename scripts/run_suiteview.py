@@ -78,7 +78,7 @@ def main(local_data: bool = False):
 
         qInstallMessageHandler(qt_message_handler)
 
-        from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+        from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
         # Create application - don't quit when last window closes (we have tray)
         app = QApplication(sys.argv)

@@ -74,7 +74,7 @@ def main():
         mutex, title = args.activate
         return 1 if acquire_or_activate(mutex, (title,)) else 0
 
-    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
+    from suiteview.taskbar_launcher.taskbar_window import SuiteViewTaskbar
 
     mutex = f"SuiteView_Restore_Test_{os.getpid()}"
     title = f"SuiteView Restore Test {os.getpid()}"

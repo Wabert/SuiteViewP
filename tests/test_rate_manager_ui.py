@@ -18,15 +18,21 @@ from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
 
 def test_tools_menu_uses_runtime_rate_manager_permission():
-    source = (
+    ui_source = (
         Path(__file__).parents[1]
         / "suiteview"
         / "taskbar_launcher"
-        / "suiteview_taskbar.py"
+        / "taskbar_ui.py"
+    ).read_text(encoding="utf-8")
+    system_source = (
+        Path(__file__).parents[1]
+        / "suiteview"
+        / "taskbar_launcher"
+        / "taskbar_system.py"
     ).read_text(encoding="utf-8")
 
-    assert '("RATEMANAGER", "Rate Manager", self._open_rate_manager)' in source
-    assert '@requires_app_access("RATEMANAGER")' in source
+    assert '("RATEMANAGER", "Rate Manager", self._open_rate_manager)' in ui_source
+    assert '@requires_app_access("RATEMANAGER")' in system_source
 
 
 _QT_APP = QApplication.instance() or QApplication([])
