@@ -47,6 +47,8 @@ from .dialogs import FileObjectPreviewDialog
 
 
 class QueryObjectViewerObjectActionsMixin:
+    """Requires BrowserState selection/window attributes; provides object actions."""
+
     @staticmethod
     def _objects_from_payload(payload: dict) -> list[QueryObject]:
         objects: list[QueryObject] = []
@@ -128,26 +130,8 @@ class QueryObjectViewerObjectActionsMixin:
         objects_by_name = {obj.name: obj for obj in forge_objects}
         if forge is not None:
             for source in forge.sources:
-                definition = source.definition or {}
-                copy_name = str(definition.get("name", "")).strip() or source.query_name
-                source_label = self._definition_source_label(definition, source.query_name)
-                fields = definition.get("fields") or []
-                result_columns = definition.get("result_columns") or []
-                column_count = len(fields) or len(result_columns)
-                snapshot = "Stale" if source.snapshot.stale else source.snapshot.created_at or "Not refreshed"
-                dsn_label = _display_dsn_for_definition(definition)
-                source_object = objects_by_name.get(copy_name) or objects_by_name.get(source.query_name)
-                if source_object is not None and not dsn_label:
-                    dsn_label = _display_dsn_for_object(source_object)
-                rows.append([
-                    source_label,
-                    copy_name,
-                    _kind_label(str(definition.get("kind", "executable_query"))),
-                    dsn_label,
-                    column_count,
-                    snapshot,
-                    source.snapshot.row_count or "",
-                ])
+                row, copy_name = self._forge_source_row(source, objects_by_name)
+                rows.append(row)
                 seen.add(copy_name)
         for obj in forge_objects:
             if obj.name in seen:
@@ -163,6 +147,37 @@ class QueryObjectViewerObjectActionsMixin:
                 "",
             ])
         return rows
+
+    def _forge_source_row(
+        self,
+        source,
+        objects_by_name: dict[str, QueryObject],
+    ) -> tuple[list[object], str]:
+        definition = source.definition or {}
+        copy_name = str(definition.get("name", "")).strip() or source.query_name
+        source_label = self._definition_source_label(definition, source.query_name)
+        fields = definition.get("fields") or []
+        result_columns = definition.get("result_columns") or []
+        column_count = len(fields) or len(result_columns)
+        snapshot = (
+            "Stale"
+            if source.snapshot.stale
+            else source.snapshot.created_at or "Not refreshed"
+        )
+        dsn_label = _display_dsn_for_definition(definition)
+        source_object = objects_by_name.get(copy_name) or objects_by_name.get(
+            source.query_name)
+        if source_object is not None and not dsn_label:
+            dsn_label = _display_dsn_for_object(source_object)
+        return ([
+            source_label,
+            copy_name,
+            _kind_label(str(definition.get("kind", "executable_query"))),
+            dsn_label,
+            column_count,
+            snapshot,
+            source.snapshot.row_count or "",
+        ], copy_name)
 
     def _forge_field_rows(self, forge, forge_objects: list[QueryObject]) -> tuple[list[list[object]], list[list[object]]]:
         display_state = (forge.config or {}).get("display_tab", {}) if forge is not None else {}

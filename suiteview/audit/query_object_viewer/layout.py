@@ -51,6 +51,8 @@ from .widgets import _CompactSourceDelegate, _OrganizerPillDelegate, _OrganizerT
 
 
 class QueryObjectViewerLayoutMixin:
+    """Requires BrowserState sizing/loading attrs; provides QWidget layout."""
+
     def build_content(self) -> QWidget:
         body = QWidget()
         body.setStyleSheet("QWidget { background-color: #F0F0F0; }")

@@ -36,6 +36,8 @@ from suiteview.core.odbc_utils import (
 
 
 class QueryObjectViewerDetailsMixin:
+    """Requires BrowserState current/detail attrs; provides detail rendering."""
+
     def _clear_detail(self):
         self._current = None
         self._current_forge_name = ""
@@ -504,4 +506,3 @@ class QueryObjectViewerDetailsMixin:
         return details or {"__error__": "not found"}
 
     # ── Data Source dashboard actions ─────────────────────────────────
-

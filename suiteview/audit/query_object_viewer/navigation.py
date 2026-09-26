@@ -39,6 +39,8 @@ from suiteview.audit.query_organizer import COMMONS_GROUP_ID, get_query_organize
 
 
 class QueryObjectViewerNavigationMixin:
+    """Requires BrowserState tree/current attrs; provides navigation loading."""
+
     def refresh(self):
         """Rebuild the tree from the organizer: groups, forges, loose queries.
 
