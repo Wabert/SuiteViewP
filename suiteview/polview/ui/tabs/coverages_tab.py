@@ -2,6 +2,8 @@
 Coverages tab – Policy Info header, Coverages table, and Benefits table.
 """
 
+import logging
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTableWidgetItem,
 )
@@ -16,6 +18,8 @@ from ...models.cl_polrec.policy_translations import translate_benefit_type
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
+
+logger = logging.getLogger(__name__)
 
 
 # LH_COV_PHA.NXT_CHG_TYP_CD, shown as words (the code is in the cell tooltip).
@@ -240,10 +244,8 @@ class CoveragesTab(QWidget):
             self._bnf_data = list(benefits)
             self._populate_benefits_from_policy(benefits)
             self._balance_sections(len(coverages), len(benefits))
-        except Exception as e:
-            import traceback, sys
-            print(f"[CoveragesTab] Error loading data: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
+        except Exception:
+            logger.exception("CoveragesTab failed to load policy data")
             raise
 
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):

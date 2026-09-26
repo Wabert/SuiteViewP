@@ -15,7 +15,7 @@ Data flow:
 
 from __future__ import annotations
 
-import sys
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -25,6 +25,8 @@ from pyodbc import SQL_VARCHAR
 
 # Use the shared database connection module
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
+
+logger = logging.getLogger(__name__)
 
 
 _connection_provider = ContextVar("policy_connection_provider", default=None)
@@ -596,13 +598,14 @@ class PolicyData:
             # Walk the exception chain to find the real driver message
             from suiteview.core.db2_connection import _extract_odbc_message
             self._last_error = _extract_odbc_message(e)
-            print(
-                f"[PolicyData] ERROR loading policy {self._policy_number} "
-                f"(region={self._region}): {self._last_error}",
-                file=sys.stderr,
+            logger.error(
+                "PolicyData identity load failed for %s (region=%s): %s",
+                self._policy_number,
+                self._region,
+                self._last_error,
+                exc_info=True,
             )
-            if _connection_provider.get() is not None:
-                raise
+            raise RuntimeError(self._last_error) from e
         finally:
             if cursor is not None:
                 cursor.close()
@@ -701,17 +704,19 @@ class PolicyData:
 
             error = _extract_odbc_message(exc)
             self._table_errors[table_name] = error
-            print(
-                f"[PolicyData] FAILED to load table {table_name} for policy "
-                f"{self._policy_number} (region={self._region}, "
-                f"company={self._company_code}, sys={self._system_code}, "
-                f"pol_id={self._policy_id}): {error}",
-                file=sys.stderr,
+            logger.error(
+                "PolicyData table load failed for %s on policy %s "
+                "(region=%s, company=%s, sys=%s, pol_id=%s): %s",
+                table_name,
+                self._policy_number,
+                self._region,
+                self._company_code,
+                self._system_code,
+                self._policy_id,
+                error,
+                exc_info=True,
             )
-            # Cache empty result so we don't retry on every access
-            self._table_cache[table_name] = {"columns": [], "rows": []}
-            if _connection_provider.get() is not None:
-                raise RuntimeError(f"{table_name}: {error}") from exc
+            raise RuntimeError(f"{table_name}: {error}") from exc
         finally:
             if cursor is not None:
                 cursor.close()

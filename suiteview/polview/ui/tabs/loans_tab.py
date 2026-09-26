@@ -13,6 +13,7 @@ Layout (mirrors VBA):
     - Loan Detail table      (Eff Date, Pref, Fund, Phs, Principal, Accru Int, Chrg Rt, Credit Rt, Int Status)
 """
 
+import logging
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame,
@@ -22,6 +23,8 @@ from PyQt6.QtCore import Qt
 
 from ..formatting import format_currency, format_date, US_DATE_FMT
 from ..widgets import StyledInfoTableGroup, StyledTableGroup
+
+logger = logging.getLogger(__name__)
 
 
 def _format_rate(value) -> str:
@@ -137,9 +140,7 @@ class LoansTab(QWidget):
                 self._load_fund_loans(policy)
 
         except Exception:
-            import traceback, sys
-            print(f"[LoansTab] Error loading data", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
+            logger.exception("LoansTab failed to load policy data")
             raise
 
     # ── private loaders ──────────────────────────────────────────────────

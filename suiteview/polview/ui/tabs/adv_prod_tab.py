@@ -3,6 +3,7 @@ Advanced Product Values tab – Policy Info, Fund Values, Monthliversary,
 and Fund History sections for UL/VUL products.
 """
 
+import logging
 from decimal import Decimal
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel
@@ -14,6 +15,8 @@ from ...services.policy_prefetch import SurrenderValues, SurrenderValuesUnavaila
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
+
+logger = logging.getLogger(__name__)
 
 # Left column width: fits all ten Monthliversary columns with seven-digit
 # values and a vertical scrollbar, so no horizontal scrollbar by default.
@@ -163,10 +166,8 @@ class AdvProdValuesTab(QWidget):
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
             self._load_premium_allocation_from_policy(policy)
-        except Exception as e:
-            import traceback, sys
-            print(f"[AdvProdValuesTab] Error loading data: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
+        except Exception:
+            logger.exception("AdvProdValuesTab failed to load policy data")
             raise
 
     def _load_policy_info_from_policy(self, policy):
