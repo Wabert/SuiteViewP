@@ -25,8 +25,8 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.access_control import (
     can_access_app,
-    requires_app_access,
 )
+from suiteview.ui.access_control import requires_app_access
 from suiteview.scratchpad.scratchpad_panel import ScratchPadPanel
 from suiteview.ui.dialogs.shortcuts_dialog import AddBookmarkDialog
 from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager

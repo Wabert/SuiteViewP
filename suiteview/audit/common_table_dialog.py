@@ -51,7 +51,8 @@ from suiteview.audit import common_table_store
 from suiteview.audit.common_table_defaults import seed_defaults
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 
 logger = logging.getLogger(__name__)
 

@@ -13,9 +13,7 @@ from PyQt6.QtWidgets import (
     QToolButton,
 )
 
-from suiteview.core.access_control import (
-    requires_app_access,
-)
+from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.bookmark_widgets import (
     BookmarkContainerRegistry,
 )

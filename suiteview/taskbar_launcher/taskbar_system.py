@@ -35,9 +35,9 @@ from suiteview.core.access_control import (
     AccessDeniedError,
     AccessUnavailableError,
     get_access,
-    requires_app_access,
 )
 from suiteview.core.profile_paths import profile_path, profile_root
+from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.file_open_history import FileOpenHistoryPanel
 from suiteview.ui.widgets.frame_geometry import (
     ALL_RESIZE_EDGES,

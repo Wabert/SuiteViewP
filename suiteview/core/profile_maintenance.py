@@ -7,7 +7,6 @@ import ctypes
 import ctypes.wintypes as wt
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import sys
@@ -73,7 +72,7 @@ def _app_guard(root: Path):
     if sys.platform != "win32" or root.resolve() != (Path.home() / ".suiteview").resolve():
         yield
         return
-    from suiteview.taskbar_launcher.single_instance import owned_mutex_names
+    from suiteview.core.single_instance import owned_mutex_names
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateMutexW.argtypes = [wt.LPVOID, wt.BOOL, wt.LPCWSTR]

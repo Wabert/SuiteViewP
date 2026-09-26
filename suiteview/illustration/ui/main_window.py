@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.build_env import is_distribution_build
-from suiteview.core.access_control import requires_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
 from suiteview.illustration.core.calc_engine import IllustrationEngine

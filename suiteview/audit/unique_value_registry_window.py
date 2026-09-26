@@ -12,7 +12,6 @@ from suiteview.core.profile_paths import profile_path
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem, QColor
@@ -26,7 +25,8 @@ from PyQt6.QtWidgets import (
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.build_env import is_data_read_only
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 from . import shared_field_registry as registry
 from .tabs._styles import make_checkbox as _make_checkbox
 

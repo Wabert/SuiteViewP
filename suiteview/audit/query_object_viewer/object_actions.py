@@ -38,8 +38,10 @@ from suiteview.audit.query_object_viewer.common import (
     logger,
 )
 from suiteview.audit.query_organizer import get_query_organizer
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.app_launcher import AppLauncherError, launch_app
+from suiteview.core.access_control import guard_app_access
 from suiteview.core.odbc_utils import UNKNOWN, detect_dialect, get_dsn_details
+from suiteview.ui.access_control import requires_app_access
 
 from .dialogs import FileObjectPreviewDialog
 
@@ -306,9 +308,10 @@ class QueryObjectViewerObjectActionsMixin:
                 self._file_nav_window = None
         if self._file_nav_window is None:
             try:
-                # Deferred to avoid importing the taskbar launcher while this viewer module loads.
-                from suiteview.taskbar_launcher.file_nav_window import FileNavWindow
-                self._file_nav_window = FileNavWindow(parent_bar=None)
+                self._file_nav_window = launch_app("FILENAV", parent_bar=None)
+            except AppLauncherError:
+                logger.warning("No FileNav launcher registered")
+                return False
             except Exception:
                 logger.exception("Failed to open standalone File Nav")
                 return False

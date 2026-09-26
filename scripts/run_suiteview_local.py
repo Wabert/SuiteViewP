@@ -23,4 +23,4 @@ from run_suiteview import main  # noqa: E402  (reuse the one launcher implementa
 
 
 if __name__ == "__main__":
-    main(local_data=True)
+    sys.exit(main(local_data=True))

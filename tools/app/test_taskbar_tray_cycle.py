@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QWidget
-from suiteview.taskbar_launcher.single_instance import acquire_or_activate
+from suiteview.core.single_instance import acquire_or_activate
 
 STEP_DELAY_MS = 1500
 

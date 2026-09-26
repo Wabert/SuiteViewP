@@ -1009,9 +1009,10 @@ class Rates:
         table (e.g. Traditional products) have no issue-date banding rule.
         """
         try:
-            from suiteview.illustration.models.plancode_config import load_plancode
-            return load_plancode(plancode).band_table2_issue_date
-        except (ImportError, KeyError, FileNotFoundError):
+            from suiteview.core.plancode_rules import band_table2_issue_date
+
+            return band_table2_issue_date(plancode)
+        except (ValueError, FileNotFoundError):
             return None
 
     def get_band_break(

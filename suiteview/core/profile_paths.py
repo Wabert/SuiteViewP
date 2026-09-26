@@ -23,6 +23,7 @@ PROFILE_PATHS = {
     "rate_manager_backups": "backups/rate_manager",
     "suiteview.ico": "assets/suiteview.ico",
     "suiteview_local.ico": "assets/suiteview_local.ico",
+    "checkmark.png": "assets/checkmark.png",
     "logs": "logs",
     "diagnostics": "diagnostics",
     "screenshots": "screenshots",

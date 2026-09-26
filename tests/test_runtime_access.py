@@ -221,17 +221,18 @@ def test_filenav_constructor_cannot_bypass_app_grant(monkeypatch):
 
 def test_ui_decorator_preserves_qt_zero_argument_slots(monkeypatch):
     from PyQt6.QtWidgets import QApplication, QPushButton
+    from suiteview.ui import access_control as ui_access
 
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(build_env.sys, "frozen", False)
     calls = []
 
     class Actions:
-        @access.requires_app_access("POLVIEW")
+        @ui_access.requires_app_access("POLVIEW")
         def open(self):
             calls.append("opened")
 
-        @access.requires_app_access("POLVIEW")
+        @ui_access.requires_app_access("POLVIEW")
         def toggle(self, checked):
             calls.append(checked)
 
@@ -247,13 +248,14 @@ def test_ui_decorator_preserves_qt_zero_argument_slots(monkeypatch):
 
 def test_ui_decorator_reports_permission_change_inside_target(monkeypatch):
     from PyQt6.QtWidgets import QMessageBox
+    from suiteview.ui import access_control as ui_access
 
     monkeypatch.setattr(build_env.sys, "frozen", False)
     warning = Mock()
     monkeypatch.setattr(QMessageBox, "warning", warning)
 
     class Actions:
-        @access.requires_app_access("POLVIEW")
+        @ui_access.requires_app_access("POLVIEW")
         def open(self):
             raise access.AccessDeniedError("Revoked before construction")
 

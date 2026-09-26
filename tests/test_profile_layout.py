@@ -247,7 +247,7 @@ def test_concurrent_maintenance_is_refused(profile):
 
 
 def test_running_launcher_blocks_before_any_files_change(tmp_path, monkeypatch):
-    from suiteview.taskbar_launcher import single_instance
+    from suiteview.core import single_instance
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     root = tmp_path / ".suiteview"
@@ -264,7 +264,7 @@ def test_running_launcher_blocks_before_any_files_change(tmp_path, monkeypatch):
 
 
 def test_launcher_can_migrate_while_holding_its_own_identity(tmp_path, monkeypatch):
-    from suiteview.taskbar_launcher import single_instance
+    from suiteview.core import single_instance
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     root = tmp_path / ".suiteview"

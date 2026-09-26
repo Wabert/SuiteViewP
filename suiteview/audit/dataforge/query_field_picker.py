@@ -32,7 +32,8 @@ from suiteview.audit import saved_query_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.query_runner import execute_odbc_query
-from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.access_control import guard_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.audit.query_object_viewer.common import (
     _display_dsn_for_object,

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QEvent, QTimer, QFileInfo
 from PyQt6.QtGui import QIcon
-from suiteview.core.access_control import requires_app_access
+from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.widgets.frame_geometry import (
     HORIZONTAL_RESIZE_EDGES,
     resize_edge_at,

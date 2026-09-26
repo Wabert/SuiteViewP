@@ -2775,6 +2775,20 @@ venv interpreter**.
 
 ## Testing
 
+### Layering guard
+
+SuiteView imports are ordered from lower-level infrastructure to shell:
+
+`core` → `data` → domain models (`*/models`, `polview/data`) → engines/services
+(`illustration/core`, `polview/services`, app logic) → shared UI (`suiteview/ui`)
+→ app UIs/windows (`*/ui`, Audit, RateManager, Mainframe, Administrator, etc.)
+→ shell/startup (`taskbar_launcher`, `suiteview.startup`, `suiteview.main`).
+
+Lower layers must not import higher layers. `tests/test_layering.py` parses
+module-level and function-level imports and fails on new upward imports. Existing
+exceptions are documented in that test with a removal reason; the allowlist may
+only shrink.
+
 ### SuiteView access-control tables and Administrator
 
 `tools/admin/create_access_control.py` provisions `dbo.SV_AccessRole`,
