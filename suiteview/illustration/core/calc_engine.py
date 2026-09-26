@@ -263,6 +263,52 @@ def capitalize_loans_step(ctx: MonthContext, work: MonthWork) -> None:
     work.adv_pref_ln_int = work.cap_loan.adv_pref_int
 
 
+def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
+    """Credit interest before withdrawal for CyberLife monthliversary timing."""
+    work.intr = credit_interest(
+        ctx.state.av_end_of_month,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        ctx.bonus,
+        work.rate_year,
+        work.attained_age,
+        work.month_date,
+        reg_loan_balance=work.cap_loan.rg_loan_princ,
+        pref_loan_balance=work.cap_loan.pf_loan_princ,
+        exact_days_interest=ctx.options.exact_days_interest,
+    )
+    work.av = work.intr.av_end_of_month
+
+
+def process_withdrawal_step(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Apply requested withdrawal and update AV, cost basis and withdrawal totals."""
+    work.wd = _process_withdrawal(WithdrawalInput(
+        state=ctx.state,
+        policy=ctx.policy,
+        config=ctx.config,
+        rates=ctx.rates,
+        rate_year=work.rate_year,
+        attained_age=work.attained_age,
+        month_date=work.month_date,
+        av=work.av,
+        cost_basis=work.cost_basis,
+        month_inputs=ctx.month_inputs,
+        cap_loan=work.cap_loan,
+        is_anniversary=work.is_anniversary,
+        options=ctx.options,
+        defer_guideline_recalc=(
+            convention.guideline_recalc and bool(ctx.policy_changes)
+        ),
+    ))
+    work.av = work.wd.av_post_withdrawal
+    work.bo_av = work.av
+    work.cost_basis = work.wd.cost_basis_after_wd
+    work.withdrawals_to_date = work.wd.withdrawals_to_date
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -301,29 +347,12 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     adv_reg_ln_int = work.adv_reg_ln_int
     adv_pref_ln_int = work.adv_pref_ln_int
 
-    # ── 2c. Withdrawal (CalcEngine AX..BU — before the dated changes) ─
-    wd = _process_withdrawal(WithdrawalInput(
-        state=state,
-        policy=policy,
-        config=config,
-        rates=rates,
-        rate_year=rate_year,
-        attained_age=attained_age,
-        month_date=month_date,
-        av=av,
-        cost_basis=cost_basis,
-        month_inputs=month_inputs,
-        cap_loan=cap_loan,
-        is_anniversary=is_anniversary,
-        options=options,
-        defer_guideline_recalc=bool(policy_changes),
-    ))
-    av = wd.av_post_withdrawal
-    # BO (AV post withdrawal) — the begin AV of the WAIR one-year TAV
-    # projection on beginning-of-year rows.
-    bo_av = av
-    cost_basis = wd.cost_basis_after_wd
-    withdrawals_to_date = wd.withdrawals_to_date
+    process_withdrawal_step(ctx, ILLUSTRATION_TIMING, work)
+    wd = work.wd
+    av = work.av
+    bo_av = work.bo_av
+    cost_basis = work.cost_basis
+    withdrawals_to_date = work.withdrawals_to_date
 
     # ── 3-7. Policy changes / coverage after change ───────
     # Apply any dated policy change effective this month (mutates the private
@@ -1153,38 +1182,11 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     past_snet = not within_snet
     prior_exception_mode = state.gp_exception_mode
 
-    intr = credit_interest(
-        state.av_end_of_month,
-        policy,
-        config,
-        rates,
-        bonus,
-        rate_year,
-        attained_age,
-        month_date,
-        reg_loan_balance=cap_loan.rg_loan_princ,
-        pref_loan_balance=cap_loan.pf_loan_princ,
-        exact_days_interest=options.exact_days_interest,
-    )
-
-    # Withdrawal (CalcEngine AX..BU) — before the guideline force-out so the
-    # month's net withdrawal is already in withdrawals-to-date.
-    wd = _process_withdrawal(WithdrawalInput(
-        state=state,
-        policy=policy,
-        config=config,
-        rates=rates,
-        rate_year=rate_year,
-        attained_age=attained_age,
-        month_date=month_date,
-        av=intr.av_end_of_month,
-        cost_basis=cost_basis,
-        month_inputs=month_inputs,
-        cap_loan=cap_loan,
-        is_anniversary=is_anniversary,
-        options=options,
-    ))
-    cost_basis = wd.cost_basis_after_wd
+    credit_interest_pre_withdrawal(ctx, work)
+    intr = work.intr
+    process_withdrawal_step(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    wd = work.wd
+    cost_basis = work.cost_basis
 
     gsp_floored = floor_monthly_cent(policy.gsp)
     accumulated_glp = _accumulate_guideline_premium(
