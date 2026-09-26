@@ -437,13 +437,35 @@ def _modified_table_parts(
     inputs: AssessmentInputs,
     assessment: MedicalAssessment,
 ) -> list[str]:
-    yrs_to_maturity = (policy.maturity_age or MATURITY_AGE) - policy.attained_age
-    has_survival_solve = inputs.use_five_year or inputs.use_ten_year or inputs.use_le
+    table_parts = _existing_policy_table_parts(policy, inputs)
+    table_parts.extend(_survival_table_parts(policy, inputs, assessment))
+    table_parts.extend(_direct_table_parts(inputs))
+    increased_decrement = _increased_decrement_table_part(inputs)
+    if increased_decrement:
+        table_parts.append(increased_decrement)
+    return table_parts
+
+
+def _existing_policy_table_parts(
+    policy: ABRPolicyData,
+    inputs: AssessmentInputs,
+) -> list[str]:
     table_parts: list[str] = []
     if not inputs.in_lieu_of and policy.table_rating > 0:
         table_parts.append(f"Policy Tbl {policy.table_rating} (existing)")
     if not inputs.in_lieu_of and policy.table_rating_2 > 0:
         table_parts.append(f"Policy Tbl {policy.table_rating_2} (existing)")
+    return table_parts
+
+
+def _survival_table_parts(
+    policy: ABRPolicyData,
+    inputs: AssessmentInputs,
+    assessment: MedicalAssessment,
+) -> list[str]:
+    yrs_to_maturity = (policy.maturity_age or MATURITY_AGE) - policy.attained_age
+    has_survival_solve = inputs.use_five_year or inputs.use_ten_year or inputs.use_le
+    table_parts: list[str] = []
     if inputs.use_five_year and inputs.use_ten_year:
         table_parts.append(f"5yr: {assessment.derived_table_rating_5yr:.2f} (yrs 1-5)")
         p2_label = "yrs 6-10" if inputs.use_return_10yr else f"yrs 6-{yrs_to_maturity}"
@@ -456,6 +478,11 @@ def _modified_table_parts(
         else:
             yr_label = f"yrs 1-{yrs_to_maturity}"
         table_parts.append(f"{assessment.derived_table_rating:.2f} ({yr_label})")
+    return table_parts
+
+
+def _direct_table_parts(inputs: AssessmentInputs) -> list[str]:
+    table_parts: list[str] = []
     if inputs.use_table and inputs.direct_table_rating > 0:
         table_parts.append(
             f"Tbl {inputs.direct_table_rating:.0f} "
@@ -466,14 +493,18 @@ def _modified_table_parts(
             f"Tbl2 {inputs.direct_table_rating_2:.0f} "
             f"(yr {inputs.table_2_start_year}-{inputs.table_2_stop_year - 1})"
         )
+    return table_parts
+
+
+def _increased_decrement_table_part(inputs: AssessmentInputs) -> str:
     if inputs.use_increased_decrement and inputs.direct_increased_decrement > 0:
         id_table = inputs.direct_increased_decrement / 25.0
-        table_parts.append(
+        return (
             f"ID {inputs.direct_increased_decrement:.0f}% "
             f"(Tbl {id_table:.0f}, yr "
             f"{inputs.incr_decrement_start_year}-{inputs.incr_decrement_stop_year - 1})"
         )
-    return table_parts
+    return ""
 
 
 def _modified_flat_parts(policy: ABRPolicyData, inputs: AssessmentInputs) -> list[str]:

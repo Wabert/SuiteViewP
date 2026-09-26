@@ -142,8 +142,7 @@ def _flags(row):
     return bits
 
 
-def build_segment_55(pi):
-    """Render verified fixed-fund records; fail loudly on incomplete/unknown bases."""
+def _segment55_sources(pi):
     sources = {}
     for table in TABLES:
         sources[table] = pi.fetch_table(table)
@@ -151,10 +150,10 @@ def build_segment_55(pi):
             raise ValueError(f"Segment 55 {table}: {error}")
         if sources[table] is None:
             raise ValueError(f"Segment 55 {table} returned no row collection")
-    common = _index(sources[COMMON_TABLE], COMMON_TABLE)
-    fixed = _index(sources[FIXED_TABLE], FIXED_TABLE)
-    if not any(sources.values()):
-        return None
+    return sources
+
+
+def _validate_segment55_sources(sources, common):
     if not common:
         raise ValueError("Segment 55 has no LH_COV_IVM_FND_CTL fund-control rows")
     for table in (FIXED_TABLE, *TIER_TABLES):
@@ -167,50 +166,78 @@ def build_segment_55(pi):
             "Segment 55 tiered/duration portfolio extension is not yet live-screen verified; "
             "cannot safely reconstruct its count, stored length and tier ordering"
         )
+
+
+def _segment55_fixed_row(key, row, fixed):
+    fund_type = _value(row, COMMON_TABLE, "FND_TYP_CD")
+    if fund_type != "F":
+        raise ValueError(
+            f"Segment 55 fund {key[3:]} type {fund_type!r}: variable/unknown fund "
+            "layout is not live-screen verified; fixed-fund data must not be fabricated"
+        )
+    if key not in fixed:
+        raise ValueError(f"Segment 55 missing {FIXED_TABLE} row for policy/fund key: {key}")
+    return fixed[key]
+
+
+def _segment55_count(fixed_row):
+    count = _value(fixed_row, FIXED_TABLE, "TIER_ITS_RT_NBR")
+    if count is None:
+        return None
+    try:
+        count = Decimal(str(count))
+        if not count.is_finite() or count != count.to_integral_value() or not 0 <= count <= 8:
+            raise ValueError("expected a tier count in 0..8")
+    except (ValueError, ArithmeticError) as exc:
+        raise ValueError(f"Segment 55 invalid {FIXED_TABLE}.TIER_ITS_RT_NBR: {count!r}") from exc
+    return count
+
+
+def _validate_segment55_method(key, fixed_row):
+    method = _value(fixed_row, FIXED_TABLE, "IVM_MTH_TYP_CD")
+    subtype = _value(fixed_row, FIXED_TABLE, "IVM_MTH_SBY_CD")
+    if method is None or subtype is None:
+        raise ValueError(f"Segment 55 fund {key[3:]} investment method/subtype is unknown")
+    method, subtype = str(method).strip(), str(subtype).strip()
+    count = _segment55_count(fixed_row)
+    if subtype in ("D", "T") or count not in (None, 0):
+        raise ValueError("Segment 55 tiered/duration portfolio layout is not yet live-screen verified")
+    if (method, subtype) not in {
+        ("1", ""), ("1", "4"), *[("2", str(number)) for number in range(1, 7)],
+    }:
+        raise ValueError(f"Segment 55 unsupported investment method/subtype: {method!r}/{subtype!r}")
+
+
+def _segment55_groups(row, fixed_row):
+    groups = [
+        [_tok("55", "Segment Identification")],
+        [{**_tok("0079", "Segment Length"),
+          "note": "Verified fixed, non-tiered record: 45-byte common area + 34-byte fixed area."}],
+        _flags(row),
+    ]
+    groups.extend([_example(
+        "00000000", name,
+        "Reserved byte with no DB2 source; captured zeros are illustrative, not verified live bits.",
+    )] for name in ("Flag Byte B", "Flag Byte U"))
+    groups.extend([_field_token(row, COMMON_TABLE, spec)] for spec in COMMON_FIELDS)
+    groups.extend([_field_token(fixed_row, FIXED_TABLE, spec)] for spec in FIXED_FIELDS)
+    return groups
+
+
+def build_segment_55(pi):
+    """Render verified fixed-fund records; fail loudly on incomplete/unknown bases."""
+    sources = _segment55_sources(pi)
+    common = _index(sources[COMMON_TABLE], COMMON_TABLE)
+    fixed = _index(sources[FIXED_TABLE], FIXED_TABLE)
+    if not any(sources.values()):
+        return None
+    _validate_segment55_sources(sources, common)
     lines = [[_sep("  "), _tok("6255,", "Screen Name"), _sep(" "),
               _tok(_policy_display(pi), "Policy Number")]]
     for key in sorted(common, key=lambda item: (item[3], item[4], *item[:3])):
         row = common[key]
-        fund_type = _value(row, COMMON_TABLE, "FND_TYP_CD")
-        if fund_type != "F":
-            raise ValueError(
-                f"Segment 55 fund {key[3:]} type {fund_type!r}: variable/unknown fund "
-                "layout is not live-screen verified; fixed-fund data must not be fabricated"
-            )
-        if key not in fixed:
-            raise ValueError(f"Segment 55 missing {FIXED_TABLE} row for policy/fund key: {key}")
-        fixed_row = fixed[key]
-        method = _value(fixed_row, FIXED_TABLE, "IVM_MTH_TYP_CD")
-        subtype = _value(fixed_row, FIXED_TABLE, "IVM_MTH_SBY_CD")
-        if method is None or subtype is None:
-            raise ValueError(f"Segment 55 fund {key[3:]} investment method/subtype is unknown")
-        method, subtype = str(method).strip(), str(subtype).strip()
-        count = _value(fixed_row, FIXED_TABLE, "TIER_ITS_RT_NBR")
-        if count is not None:
-            try:
-                count = Decimal(str(count))
-                if not count.is_finite() or count != count.to_integral_value() or not 0 <= count <= 8:
-                    raise ValueError("expected a tier count in 0..8")
-            except (ValueError, ArithmeticError) as exc:
-                raise ValueError(f"Segment 55 invalid {FIXED_TABLE}.TIER_ITS_RT_NBR: {count!r}") from exc
-        if subtype in ("D", "T") or count not in (None, 0):
-            raise ValueError("Segment 55 tiered/duration portfolio layout is not yet live-screen verified")
-        if (method, subtype) not in {
-            ("1", ""), ("1", "4"), *[("2", str(number)) for number in range(1, 7)],
-        }:
-            raise ValueError(f"Segment 55 unsupported investment method/subtype: {method!r}/{subtype!r}")
-        groups = [
-            [_tok("55", "Segment Identification")],
-            [{**_tok("0079", "Segment Length"),
-              "note": "Verified fixed, non-tiered record: 45-byte common area + 34-byte fixed area."}],
-            _flags(row),
-        ]
-        groups.extend([_example(
-            "00000000", name,
-            "Reserved byte with no DB2 source; captured zeros are illustrative, not verified live bits.",
-        )] for name in ("Flag Byte B", "Flag Byte U"))
-        groups.extend([_field_token(row, COMMON_TABLE, spec)] for spec in COMMON_FIELDS)
-        groups.extend([_field_token(fixed_row, FIXED_TABLE, spec)] for spec in FIXED_FIELDS)
-        lines.extend(_wrap_record_groups(groups))
+        fixed_row = _segment55_fixed_row(key, row, fixed)
+        _validate_segment55_method(key, fixed_row)
+        lines.extend(_wrap_record_groups(_segment55_groups(row, fixed_row)))
     _append_screen_footer(lines, pi, min_lines=18)
     return lines

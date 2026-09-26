@@ -143,6 +143,55 @@ class ExplanationDoc:
     cc_lines: List[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _RiderContext:
+    """Normalized rider inputs that control customer-facing wording."""
+
+    label: str
+    is_terminal: bool
+
+
+@dataclass(frozen=True)
+class _ProductContext:
+    """Product-family flags used by premium explanation sections."""
+
+    is_ul: bool
+    is_term: bool
+
+
+@dataclass(frozen=True)
+class _CalculationAmounts:
+    """Money and rate values displayed in the explanation worksheet."""
+
+    eligible_db: Optional[float]
+    admin_fee: float
+    loan_repay: Optional[float]
+    payable: Optional[float]
+    surrender: Optional[float]
+    pv_benefits: Optional[float]
+    pv_premiums: Optional[float]
+    pv_dividends: Optional[float]
+    interest_rate: Optional[float]
+    accelerated_amount: Optional[float]
+    net_pv: Optional[float]
+    calc_benefit: Optional[float]
+    discount: Optional[float]
+    accel_pct: Optional[float]
+
+
+@dataclass(frozen=True)
+class _AmountComponents:
+    eligible_db: Optional[float]
+    admin_fee: float
+    loan_repay: Optional[float]
+    payable: Optional[float]
+    surrender: Optional[float]
+    pv_benefits: Optional[float]
+    pv_premiums: Optional[float]
+    pv_dividends: Optional[float]
+    interest_rate: Optional[float]
+
+
 # ── Formatting helpers ──────────────────────────────────────────────────────
 def _money(value: Optional[float]) -> str:
     if value is None:
@@ -176,128 +225,199 @@ def _fmt_date(d: Optional[date]) -> str:
     return d.strftime("%B %d, %Y") if d else PLACEHOLDER
 
 
-# ── Builder ─────────────────────────────────────────────────────────────────
-def build_explanation(
-    policy: Optional[ABRPolicyData] = None,
-    result: Optional[ABRQuoteResult] = None,
-    assessment: Optional[MedicalAssessment] = None,
-    level_annual_premium: Optional[float] = None,
-    eligible_db_override: Optional[float] = None,
-) -> ExplanationDoc:
-    """Build the Accelerated Benefit explanation as a formal claims letter.
-
-    All arguments are optional. When a quote object is missing, its values are
-    rendered as ``[to be completed]`` placeholders so the document remains a
-    usable template for a manual response.
-
-    ``level_annual_premium`` is the user-entered UL annual level premium (used to
-    fund the coverage to maturity); when provided for a UL-type product, the
-    letter explains how the future premiums were determined.
-
-    ``eligible_db_override`` is the user-entered Eligible Death Benefit (e.g.
-    Option B policies where the death benefit is face plus account value). When
-    it differs from the quoted eligible DB, all dollar figures are rescaled
-    proportionally — the same way the on-screen Full Acceleration recalc does.
-    The letter always presents a full acceleration of that amount.
-    """
-    p = policy
-    r = result
-
-    policy_number = (p.policy_number if p and p.policy_number else PLACEHOLDER)
-    quote_date = _fmt_date(r.quote_date if r else None)
-    insured_name = (p.insured_name.strip() if p and p.insured_name else "")
-
-    # ── Rider type drives the mortality basis and wording ──────────────
+def _rider_context(assessment: Optional[MedicalAssessment]) -> _RiderContext:
     rider_key = ""
     if assessment and assessment.rider_type:
         rider_key = assessment.rider_type.strip().lower()
     is_terminal = rider_key.startswith("terminal")
     is_chronic = rider_key.startswith("chronic")
     is_critical = rider_key.startswith("critical")
-    rider_label = _RIDER_LABELS.get(
+    label = _RIDER_LABELS.get(
         "terminal" if is_terminal else
         "chronic" if is_chronic else
         "critical" if is_critical else "", "",
     )
+    return _RiderContext(label=label, is_terminal=is_terminal)
 
-    # ── UL-type products fund to maturity with a level annual premium ──
-    is_ul = bool(p and p.product_type and
-                 p.product_type.upper() in ("UL", "IUL", "VUL", "ISWL"))
-    is_term = bool(p and p.product_type and p.product_type.upper() == "TERM")
 
-    # ── Derived amounts for the worksheet (always full acceleration) ───
-    eligible_db = r.full_eligible_db if r else None
-    admin_fee = (r.full_admin_fee if r and r.full_admin_fee else ADMIN_CHARGE_DEFAULT)
-    loan_repay = r.full_loan_repayment if r else None
-    payable = r.full_accelerated_benefit if r else None  # greater of calc & surrender
-    surrender = r.full_surrender_value if r else None
-    pv_benefits = r.apv_fb if r else None
-    pv_premiums = r.apv_fp if r else None
-    pv_dividends = r.apv_fd if r else None
-    interest_rate = r.abr_interest_rate if r else None
+def _product_context(policy: Optional[ABRPolicyData]) -> _ProductContext:
+    product_type = policy.product_type.upper() if policy and policy.product_type else ""
+    return _ProductContext(
+        is_ul=product_type in ("UL", "IUL", "VUL", "ISWL"),
+        is_term=product_type == "TERM",
+    )
 
-    # User-entered Eligible Death Benefit — rescale everything proportionally,
-    # the same way the on-screen Full Acceleration recalc does.
-    overridden = bool(
-        r and eligible_db_override and eligible_db
+
+def _amount_components(result: Optional[ABRQuoteResult]) -> _AmountComponents:
+    eligible_db = result.full_eligible_db if result else None
+    admin_fee = (
+        result.full_admin_fee
+        if result and result.full_admin_fee
+        else ADMIN_CHARGE_DEFAULT
+    )
+    loan_repay = result.full_loan_repayment if result else None
+    payable = result.full_accelerated_benefit if result else None
+    surrender = result.full_surrender_value if result else None
+    pv_benefits = result.apv_fb if result else None
+    pv_premiums = result.apv_fp if result else None
+    pv_dividends = result.apv_fd if result else None
+    interest_rate = result.abr_interest_rate if result else None
+    return _AmountComponents(
+        eligible_db=eligible_db,
+        admin_fee=admin_fee,
+        loan_repay=loan_repay,
+        payable=payable,
+        surrender=surrender,
+        pv_benefits=pv_benefits,
+        pv_premiums=pv_premiums,
+        pv_dividends=pv_dividends,
+        interest_rate=interest_rate,
+    )
+
+
+def _has_eligible_override(
+    result: Optional[ABRQuoteResult],
+    eligible_db_override: Optional[float],
+    eligible_db: Optional[float],
+) -> bool:
+    return bool(
+        result and eligible_db_override and eligible_db
         and abs(eligible_db_override - eligible_db) >= 0.01
     )
-    if overridden:
-        ratio = eligible_db_override / eligible_db
-        eligible_db = eligible_db_override
-        loan_repay = round(loan_repay * ratio, 2) if loan_repay else loan_repay
-        surrender = round(surrender * ratio, 2) if surrender else surrender
-        pv_benefits = (pv_benefits or 0.0) * ratio
-        pv_premiums = (pv_premiums or 0.0) * ratio
-        pv_dividends = (pv_dividends or 0.0) * ratio
-    accelerated_amount = eligible_db  # full acceleration is the standard quote
 
-    # Value today of the accelerated benefit = PVFB - PVFP + PVFDivs, then the
-    # calculated benefit is that net present value less the admin fee and any
-    # policy loan. Computed here so the worksheet reconciles exactly on the page.
-    net_pv = None
-    calc_benefit = None
-    if r:
-        net_pv = (pv_benefits or 0.0) - (pv_premiums or 0.0) + (pv_dividends or 0.0)
-        calc_benefit = round(net_pv - admin_fee - (loan_repay or 0.0), 2)
+
+def _with_eligible_override(
+    amounts: _AmountComponents,
+    eligible_db_override: float,
+) -> _AmountComponents:
+    ratio = eligible_db_override / amounts.eligible_db
+    return _AmountComponents(
+        eligible_db=eligible_db_override,
+        admin_fee=amounts.admin_fee,
+        loan_repay=(
+            round(amounts.loan_repay * ratio, 2)
+            if amounts.loan_repay else amounts.loan_repay
+        ),
+        payable=amounts.payable,
+        surrender=(
+            round(amounts.surrender * ratio, 2)
+            if amounts.surrender else amounts.surrender
+        ),
+        pv_benefits=(amounts.pv_benefits or 0.0) * ratio,
+        pv_premiums=(amounts.pv_premiums or 0.0) * ratio,
+        pv_dividends=(amounts.pv_dividends or 0.0) * ratio,
+        interest_rate=amounts.interest_rate,
+    )
+
+
+def _net_and_calculated_benefit(
+    result: Optional[ABRQuoteResult],
+    amounts: _AmountComponents,
+) -> tuple[Optional[float], Optional[float]]:
+    if not result:
+        return None, None
+    net_pv = (
+        (amounts.pv_benefits or 0.0)
+        - (amounts.pv_premiums or 0.0)
+        + (amounts.pv_dividends or 0.0)
+    )
+    calc_benefit = round(
+        net_pv - amounts.admin_fee - (amounts.loan_repay or 0.0), 2
+    )
+    return net_pv, calc_benefit
+
+
+def _payable_amount(
+    amounts: _AmountComponents,
+    overridden: bool,
+    calc_benefit: Optional[float],
+) -> Optional[float]:
     if overridden and calc_benefit is not None:
-        payable = round(max(max(0.0, calc_benefit), surrender or 0.0), 2)
+        return round(max(max(0.0, calc_benefit), amounts.surrender or 0.0), 2)
+    return amounts.payable
 
-    # Actuarial discount (rider definition: amount accelerated minus its value
-    # today), stated explicitly as a worksheet line.
-    discount = (None if overridden else (r.full_actuarial_discount if r else None))
+
+def _actuarial_discount(
+    result: Optional[ABRQuoteResult],
+    overridden: bool,
+    accelerated_amount: Optional[float],
+    net_pv: Optional[float],
+) -> Optional[float]:
+    discount = None if overridden else (result.full_actuarial_discount if result else None)
     if discount is None and accelerated_amount is not None and net_pv is not None:
-        discount = round(accelerated_amount - net_pv, 2)
-    accel_pct = (accelerated_amount / eligible_db
-                 if accelerated_amount and eligible_db else None)
+        return round(accelerated_amount - net_pv, 2)
+    return discount
 
-    doc = ExplanationDoc(
+
+def _calculation_amounts(
+    result: Optional[ABRQuoteResult],
+    eligible_db_override: Optional[float],
+) -> _CalculationAmounts:
+    amounts = _amount_components(result)
+    overridden = _has_eligible_override(result, eligible_db_override, amounts.eligible_db)
+    if overridden:
+        amounts = _with_eligible_override(amounts, eligible_db_override)
+
+    accelerated_amount = amounts.eligible_db
+    net_pv, calc_benefit = _net_and_calculated_benefit(result, amounts)
+    payable = _payable_amount(amounts, overridden, calc_benefit)
+    discount = _actuarial_discount(result, overridden, accelerated_amount, net_pv)
+    accel_pct = accelerated_amount / amounts.eligible_db if accelerated_amount else None
+
+    return _CalculationAmounts(
+        eligible_db=amounts.eligible_db,
+        admin_fee=amounts.admin_fee,
+        loan_repay=amounts.loan_repay,
+        payable=payable,
+        surrender=amounts.surrender,
+        pv_benefits=amounts.pv_benefits,
+        pv_premiums=amounts.pv_premiums,
+        pv_dividends=amounts.pv_dividends,
+        interest_rate=amounts.interest_rate,
+        accelerated_amount=accelerated_amount,
+        net_pv=net_pv,
+        calc_benefit=calc_benefit,
+        discount=discount,
+        accel_pct=accel_pct,
+    )
+
+
+def _letter_shell(
+    policy_number: str,
+    quote_date: str,
+    insured_name: str,
+    rider_label: str,
+    has_result: bool,
+) -> ExplanationDoc:
+    return ExplanationDoc(
         title="How Your Accelerated Benefit Was Determined",
         subtitle=(
             f"Policy {policy_number}"
             + (f"   \u2022   Accelerated benefit for {rider_label}" if rider_label else "")
-            + (f"   \u2022   Prepared {quote_date}" if r else "")
+            + (f"   \u2022   Prepared {quote_date}" if has_result else "")
         ),
         letterhead=list(LETTERHEAD),
-        letter_date=(quote_date if r else PLACEHOLDER),
+        letter_date=(quote_date if has_result else PLACEHOLDER),
         recipient=[
             insured_name if insured_name else "[Policyholder Name]",
             "[Street Address]",
             "[City, State  ZIP]",
         ],
         re_lines=[f"RE:  Accelerated Benefit    Policy: {policy_number}"],
-        salutation=(f"Dear {insured_name}:" if insured_name
-                    else "Dear [Policyholder Name]:"),
+        salutation=(
+            f"Dear {insured_name}:"
+            if insured_name
+            else "Dear [Policyholder Name]:"
+        ),
         closing="Sincerely,",
         signer="[Claims Specialist Name]",
         signer_title="Claims Specialist",
         cc_lines=["cc:  Agent \u2013 [Agent Name]"],
     )
 
-    # ── Letter body (claims-letter flow with short section headings) ────
 
-    # Opening — state the letter's purpose.
-    doc.sections.append(Section("", [
+def _opening_section() -> Section:
+    return Section("", [
         Para(
             "This letter responds to your questions regarding the Accelerated "
             "Benefit available under your policy and explains how the benefit "
@@ -308,10 +428,11 @@ def build_explanation(
             "sections below describe each of them and show the figures used in "
             "this determination."
         ),
-    ]))
+    ])
 
-    # Why qualifying ≠ amount — the heart of the explanation.
-    why_blocks: List[Block] = [
+
+def _why_amount_section(is_terminal: bool) -> Section:
+    blocks: List[Block] = [
         Para(
             "The Accelerated Death Benefit Rider is not a disability or "
             "income-replacement benefit. It is an early payment of the policy's "
@@ -322,7 +443,7 @@ def build_explanation(
         ),
     ]
     if not is_terminal:
-        why_blocks.append(Para(
+        blocks.append(Para(
             "Eligibility and amount are therefore determined by different "
             "things. Eligibility depends on the condition described in the "
             "rider. The amount, however, depends on how significantly the "
@@ -334,21 +455,22 @@ def build_explanation(
             "rider's conditions for making a claim are met, but the actuarial "
             "value of paying the death benefit early is small."
         ))
-    why_blocks.append(Para(
+    blocks.append(Para(
         "The sooner the death benefit is expected to be paid, the less it "
         "must be reduced for being paid early, and the larger the amount that "
         "can be advanced today. Conversely, when expected mortality changes "
         "only modestly, the benefit is expected further in the future, a "
         "larger reduction applies, and the accelerated amount is smaller."
     ))
-    doc.sections.append(Section(
+    return Section(
         "Why qualifying for the benefit does not itself determine the amount",
-        why_blocks,
-    ))
+        blocks,
+    )
 
-    # Eligibility + the modified mortality table.
+
+def _mortality_basis_section(is_terminal: bool) -> Section:
     if is_terminal:
-        mortality_blocks = [
+        blocks: List[Block] = [
             Para(
                 "As part of the accelerated benefit calculation, we use a mortality "
                 f"table built for terminally ill insureds \u2014 {BASE_TABLE_TERMINAL}. "
@@ -358,7 +480,7 @@ def build_explanation(
             ),
         ]
     else:
-        mortality_blocks = [
+        blocks = [
             Para(
                 "As part of the accelerated benefit calculation, underwriting "
                 "factors are applied to a standard industry mortality table to "
@@ -379,11 +501,11 @@ def build_explanation(
                 "benefit and the future premiums."
             ),
         ]
-    doc.sections.append(Section(
-        "The mortality basis used in the calculation", mortality_blocks))
+    return Section("The mortality basis used in the calculation", blocks)
 
-    # Under the terms of the rider — deductions and discount factors.
-    doc.sections.append(Section(
+
+def _rider_provisions_section(admin_fee: float) -> Section:
+    return Section(
         "The rider provisions that govern the calculation", [
         Para(
             "Under the terms of the rider, the Accelerated Death Benefit equals "
@@ -402,10 +524,14 @@ def build_explanation(
             "be less than the cash surrender value of the base policy, if any."
         ),
         Para("A copy of the rider is available to you at any time on request."),
-    ]))
+    ])
 
-    # The actuarial-discount explanation (brief, approved wording).
-    pv_blocks: List[Block] = [
+
+def _actuarial_discount_section(
+    product: _ProductContext,
+    level_annual_premium: Optional[float],
+) -> Section:
+    blocks: List[Block] = [
         Para(
             "The actuarial discount is the Eligible Death Benefit less the "
             "value today — the present value — of the benefit being "
@@ -436,28 +562,28 @@ def build_explanation(
             "described above."
         ),
     ]
-    if is_ul:
-        lvl = (level_annual_premium if level_annual_premium
-               else None)
+    if product.is_ul:
+        lvl = level_annual_premium if level_annual_premium else None
         lvl_text = _money(lvl) if lvl else "[Annual Level Premium]"
-        pv_blocks.append(Para(
+        blocks.append(Para(
             "For this universal life policy, the future premiums are "
             "determined by calculating a level annual premium that keeps the "
             "policy in force to maturity, using the same interest rate applied "
             "elsewhere in this calculation. For this quote, that annual "
             f"premium was determined to be {lvl_text}."
         ))
-    elif is_term:
-        pv_blocks.append(Para(
+    elif product.is_term:
+        blocks.append(Para(
             "For this term policy, no separate premium calculation is needed: "
             "the future premiums used in this calculation are the premiums "
             "already scheduled under the policy's premium schedule for the "
             "remainder of the term."
         ))
-    doc.sections.append(Section("How the actuarial discount is calculated", pv_blocks))
+    return Section("How the actuarial discount is calculated", blocks)
 
-    # Interest rate (Moody's basis + the rider's contractual cap).
-    doc.sections.append(Section("The interest rate", [
+
+def _interest_rate_section(interest_rate: Optional[float]) -> Section:
+    return Section("The interest rate", [
         Para(
             "Because a future benefit is being paid early, an interest rate is "
             "used to express future amounts in today's dollars. For this "
@@ -467,37 +593,46 @@ def build_explanation(
             "date or the maximum adjustable policy loan interest rate allowed "
             "by law."
         ),
-    ]))
+    ])
 
-    # The numbers.
-    doc.sections.append(Section("Summary of this calculation", [
+
+def _summary_section(amounts: _CalculationAmounts) -> Section:
+    return Section("Summary of this calculation", [
         Para(
             "The figures behind this determination are summarized below. They "
             "show the key present-value components and how the accelerated "
             "benefit follows from them:"
         ),
         Worksheet([
-            WorksheetRow("Eligible Death Benefit", _money(eligible_db)),
+            WorksheetRow("Eligible Death Benefit", _money(amounts.eligible_db)),
             WorksheetRow("Portion requested for acceleration",
-                         _pct(accel_pct, 1) if accel_pct is not None else PLACEHOLDER),
-            WorksheetRow("Death benefit being accelerated", _money(accelerated_amount)),
-            WorksheetRow("Present Value of Future Benefits (PVFB)", _money(pv_benefits)),
-            WorksheetRow("Less: Present Value of Future Premiums (PVFP)", _money(pv_premiums)),
-            WorksheetRow("Plus: Present Value of Future Dividends (PVFDivs)", _money(pv_dividends)),
-            WorksheetRow("Value today of the accelerated benefit", _money(net_pv)),
+                         _pct(amounts.accel_pct, 1)
+                         if amounts.accel_pct is not None else PLACEHOLDER),
+            WorksheetRow("Death benefit being accelerated",
+                         _money(amounts.accelerated_amount)),
+            WorksheetRow("Present Value of Future Benefits (PVFB)",
+                         _money(amounts.pv_benefits)),
+            WorksheetRow("Less: Present Value of Future Premiums (PVFP)",
+                         _money(amounts.pv_premiums)),
+            WorksheetRow("Plus: Present Value of Future Dividends (PVFDivs)",
+                         _money(amounts.pv_dividends)),
+            WorksheetRow("Value today of the accelerated benefit", _money(amounts.net_pv)),
             WorksheetRow("Actuarial discount (amount accelerated \u2212 value today)",
-                         _money(discount)),
-            WorksheetRow("Less: Administrative Fee", _money(admin_fee)),
-            WorksheetRow("Less: outstanding policy loan, if any", _money(loan_repay)),
-            WorksheetRow("Calculated accelerated benefit", _money(calc_benefit)),
-            WorksheetRow("Policy's current cash surrender value", _money(surrender)),
+                         _money(amounts.discount)),
+            WorksheetRow("Less: Administrative Fee", _money(amounts.admin_fee)),
+            WorksheetRow("Less: outstanding policy loan, if any",
+                         _money(amounts.loan_repay)),
+            WorksheetRow("Calculated accelerated benefit", _money(amounts.calc_benefit)),
+            WorksheetRow("Policy's current cash surrender value",
+                         _money(amounts.surrender)),
             WorksheetRow("Accelerated benefit payable (the greater of the two above)",
-                         _money(payable), emphasis=True),
+                         _money(amounts.payable), emphasis=True),
         ]),
-    ]))
+    ])
 
-    # A note on the information in this letter (cooperative confidentiality).
-    doc.sections.append(Section("A note about the information in this letter", [
+
+def _confidentiality_section() -> Section:
+    return Section("A note about the information in this letter", [
         Para(
             "A few items \u2014 the individualized modified mortality table, the "
             "specific rating factors, and the internal medical evaluations "
@@ -511,20 +646,22 @@ def build_explanation(
             "file with the insurance regulator as part of the approved form "
             "filing."
         ),
-    ]))
+    ])
 
-    # Additional information (brief, service-oriented; avoids inviting disputes).
-    doc.sections.append(Section("Additional medical information", [
+
+def _additional_medical_section() -> Section:
+    return Section("Additional medical information", [
         Para(
             "Our goal is for the determination to reflect a complete picture of "
             "the insured's health. If there is additional medical information "
             "you would like us to consider, you are welcome to send it to us, "
             "and we will review it."
         ),
-    ]))
+    ])
 
-    # Required notices (NAIC Model Reg #620 §6.D).
-    doc.sections.append(Section("", [
+
+def _required_notices_section() -> Section:
+    return Section("", [
         Note(
             "Important notices: Depending on your circumstances, an accelerated "
             "death benefit may be fully or partially excludable from income "
@@ -537,29 +674,87 @@ def build_explanation(
             "Income (SSI); the agency that administers the program can confirm "
             "how a payment would be treated."
         ),
-    ]))
+    ])
 
-    # Close.
-    doc.sections.append(Section("", [
+
+def _contact_section() -> Section:
+    return Section("", [
         Para(
             "If you have questions about this determination or would like to "
             f"discuss it further, please contact our office at {CONTACT_PHONE}."
         ),
-    ]))
+    ])
 
+
+def _explanation_sections(
+    rider: _RiderContext,
+    product: _ProductContext,
+    amounts: _CalculationAmounts,
+    level_annual_premium: Optional[float],
+) -> List[Section]:
+    return [
+        _opening_section(),
+        _why_amount_section(rider.is_terminal),
+        _mortality_basis_section(rider.is_terminal),
+        _rider_provisions_section(amounts.admin_fee),
+        _actuarial_discount_section(product, level_annual_premium),
+        _interest_rate_section(amounts.interest_rate),
+        _summary_section(amounts),
+        _confidentiality_section(),
+        _additional_medical_section(),
+        _required_notices_section(),
+        _contact_section(),
+    ]
+
+
+# ── Builder ─────────────────────────────────────────────────────────────────
+def build_explanation(
+    policy: Optional[ABRPolicyData] = None,
+    result: Optional[ABRQuoteResult] = None,
+    assessment: Optional[MedicalAssessment] = None,
+    level_annual_premium: Optional[float] = None,
+    eligible_db_override: Optional[float] = None,
+) -> ExplanationDoc:
+    """Build the Accelerated Benefit explanation as a formal claims letter.
+
+    All arguments are optional. When a quote object is missing, its values are
+    rendered as ``[to be completed]`` placeholders so the document remains a
+    usable template for a manual response.
+
+    ``level_annual_premium`` is the user-entered UL annual level premium (used to
+    fund the coverage to maturity); when provided for a UL-type product, the
+    letter explains how the future premiums were determined.
+
+    ``eligible_db_override`` is the user-entered Eligible Death Benefit (e.g.
+    Option B policies where the death benefit is face plus account value). When
+    it differs from the quoted eligible DB, all dollar figures are rescaled
+    proportionally — the same way the on-screen Full Acceleration recalc does.
+    The letter always presents a full acceleration of that amount.
+    """
+    p = policy
+    r = result
+    policy_number = (p.policy_number if p and p.policy_number else PLACEHOLDER)
+    quote_date = _fmt_date(r.quote_date if r else None)
+    insured_name = (p.insured_name.strip() if p and p.insured_name else "")
+
+    rider = _rider_context(assessment)
+    product = _product_context(policy)
+    amounts = _calculation_amounts(result, eligible_db_override)
+    doc = _letter_shell(
+        policy_number,
+        quote_date,
+        insured_name,
+        rider.label,
+        r is not None,
+    )
+    doc.sections.extend(
+        _explanation_sections(rider, product, amounts, level_annual_premium)
+    )
     return doc
 
 
-# ── HTML rendering (on-screen panel) ────────────────────────────────────────
-def explanation_to_html(doc: ExplanationDoc) -> str:
-    """Render an ExplanationDoc to a styled HTML fragment for QTextEdit."""
-    crimson = "#8B1A2A"
-    crimson_dark = "#5C0A14"
-    slate = "#4A6FA5"
-    gray = "#333"
+def _html_letter_frame(doc: ExplanationDoc, crimson_dark: str, slate: str, gray: str) -> List[str]:
     parts: List[str] = []
-
-    # ── Letter header (letterhead, date, recipient, RE, salutation) ────
     if doc.letterhead:
         parts.append(
             f'<div style="text-align:center;color:{crimson_dark};'
@@ -582,65 +777,94 @@ def explanation_to_html(doc: ExplanationDoc) -> str:
         )
     if doc.salutation:
         parts.append(f'<p style="margin:8px 0;color:{gray};">{doc.salutation}</p>')
+    return parts
 
-    # Title/subtitle only shown when there's no letter framing.
-    if not doc.letterhead:
+
+def _html_report_title(doc: ExplanationDoc, crimson_dark: str, slate: str) -> List[str]:
+    if doc.letterhead:
+        return []
+    return [
+        f'<h2 style="color:{crimson_dark};margin:0 0 2px 0;">{doc.title}</h2>',
+        f'<div style="color:{slate};font-size:11px;margin:0 0 12px 0;">'
+        f'{doc.subtitle}</div>',
+    ]
+
+
+def _html_para(block: Para) -> str:
+    style = "margin:4px 0;line-height:1.4;"
+    if block.bold:
+        style += "font-weight:bold;"
+    if block.italic:
+        style += "font-style:italic;color:#444;"
+    return f'<p style="{style}">{block.text}</p>'
+
+
+def _html_bullets(block: Bullets) -> str:
+    parts = ['<ul style="margin:4px 0 4px 18px;line-height:1.4;">']
+    parts.extend(f"<li>{item}</li>" for item in block.items)
+    parts.append("</ul>")
+    return "".join(parts)
+
+
+def _html_worksheet(block: Worksheet, crimson: str, crimson_dark: str) -> str:
+    parts = [
+        '<table cellspacing="0" cellpadding="4" '
+        'style="border-collapse:collapse;margin:6px 0;width:100%;">'
+    ]
+    for row in block.rows:
+        lbl_style = "border-bottom:1px solid #ddd;"
+        val_style = "border-bottom:1px solid #ddd;text-align:right;"
+        if row.emphasis:
+            lbl_style = (
+                f"border-top:2px solid {crimson};font-weight:bold;"
+                f"color:{crimson_dark};"
+            )
+            val_style = (
+                f"border-top:2px solid {crimson};font-weight:bold;"
+                f"text-align:right;color:{crimson_dark};"
+            )
         parts.append(
-            f'<h2 style="color:{crimson_dark};margin:0 0 2px 0;">{doc.title}</h2>'
+            f'<tr><td style="{lbl_style}">{row.label}</td>'
+            f'<td style="{val_style}">{row.value}</td></tr>'
         )
-        parts.append(
-            f'<div style="color:{slate};font-size:11px;margin:0 0 12px 0;">'
-            f'{doc.subtitle}</div>'
-        )
+    parts.append("</table>")
+    return "".join(parts)
+
+
+def _html_note(block: Note, crimson: str) -> str:
+    return (
+        f'<div style="margin:8px 0;padding:8px 10px;'
+        f'background:#F3E6E8;border-left:3px solid {crimson};'
+        f'font-style:italic;color:#333;line-height:1.4;">'
+        f'{block.text}</div>'
+    )
+
+
+def _html_block(block: Block, crimson: str, crimson_dark: str) -> str:
+    if isinstance(block, Para):
+        return _html_para(block)
+    if isinstance(block, Bullets):
+        return _html_bullets(block)
+    if isinstance(block, Worksheet):
+        return _html_worksheet(block, crimson, crimson_dark)
+    if isinstance(block, Note):
+        return _html_note(block, crimson)
+    return ""
+
+
+def _html_sections(doc: ExplanationDoc, crimson: str, crimson_dark: str) -> List[str]:
+    parts: List[str] = []
     for sec in doc.sections:
         if sec.heading:
             parts.append(
                 f'<h3 style="color:{crimson};margin:14px 0 4px 0;">{sec.heading}</h3>'
             )
-        for block in sec.blocks:
-            if isinstance(block, Para):
-                style = "margin:4px 0;line-height:1.4;"
-                if block.bold:
-                    style += "font-weight:bold;"
-                if block.italic:
-                    style += "font-style:italic;color:#444;"
-                parts.append(f'<p style="{style}">{block.text}</p>')
-            elif isinstance(block, Bullets):
-                parts.append('<ul style="margin:4px 0 4px 18px;line-height:1.4;">')
-                for item in block.items:
-                    parts.append(f"<li>{item}</li>")
-                parts.append("</ul>")
-            elif isinstance(block, Worksheet):
-                parts.append(
-                    '<table cellspacing="0" cellpadding="4" '
-                    'style="border-collapse:collapse;margin:6px 0;width:100%;">'
-                )
-                for row in block.rows:
-                    lbl_style = "border-bottom:1px solid #ddd;"
-                    val_style = "border-bottom:1px solid #ddd;text-align:right;"
-                    if row.emphasis:
-                        lbl_style = (
-                            f"border-top:2px solid {crimson};font-weight:bold;"
-                            f"color:{crimson_dark};"
-                        )
-                        val_style = (
-                            f"border-top:2px solid {crimson};font-weight:bold;"
-                            f"text-align:right;color:{crimson_dark};"
-                        )
-                    parts.append(
-                        f'<tr><td style="{lbl_style}">{row.label}</td>'
-                        f'<td style="{val_style}">{row.value}</td></tr>'
-                    )
-                parts.append("</table>")
-            elif isinstance(block, Note):
-                parts.append(
-                    f'<div style="margin:8px 0;padding:8px 10px;'
-                    f'background:#F3E6E8;border-left:3px solid {crimson};'
-                    f'font-style:italic;color:#333;line-height:1.4;">'
-                    f'{block.text}</div>'
-                )
+        parts.extend(_html_block(block, crimson, crimson_dark) for block in sec.blocks)
+    return parts
 
-    # ── Closing / signature / cc ───────────────────────────────────────
+
+def _html_closing(doc: ExplanationDoc, gray: str) -> List[str]:
+    parts: List[str] = []
     if doc.closing:
         parts.append(f'<p style="margin:14px 0 2px 0;color:{gray};">{doc.closing}</p>')
     if doc.signer:
@@ -653,82 +877,155 @@ def explanation_to_html(doc: ExplanationDoc) -> str:
         )
     for line in doc.cc_lines:
         parts.append(f'<div style="margin:2px 0;color:{gray};font-size:10px;">{line}</div>')
+    return parts
+
+
+# ── HTML rendering (on-screen panel) ────────────────────────────────────────
+def explanation_to_html(doc: ExplanationDoc) -> str:
+    """Render an ExplanationDoc to a styled HTML fragment for QTextEdit."""
+    crimson = "#8B1A2A"
+    crimson_dark = "#5C0A14"
+    slate = "#4A6FA5"
+    gray = "#333"
+    parts: List[str] = []
+
+    parts.extend(_html_letter_frame(doc, crimson_dark, slate, gray))
+    parts.extend(_html_report_title(doc, crimson_dark, slate))
+    parts.extend(_html_sections(doc, crimson, crimson_dark))
+    parts.extend(_html_closing(doc, gray))
     return "".join(parts)
 
 
 # ── Word rendering (export) ─────────────────────────────────────────────────
-def explanation_to_docx(doc: ExplanationDoc, out_path: str) -> str:
-    """Render an ExplanationDoc to a professional .docx file at ``out_path``.
-
-    Returns the path written. Raises ImportError if python-docx is unavailable.
-    """
+def _new_docx_document():
     from docx import Document
-    from docx.shared import Pt, RGBColor, Inches
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-
-    crimson = RGBColor(0x8B, 0x1A, 0x2A)
-    crimson_dark = RGBColor(0x5C, 0x0A, 0x14)
-    slate = RGBColor(0x4A, 0x6F, 0xA5)
-    gray = RGBColor(0x33, 0x33, 0x33)
+    from docx.shared import Inches, Pt
 
     document = Document()
-
-    # 0.5-inch margins all around.
     for section in document.sections:
         section.top_margin = Inches(0.5)
         section.bottom_margin = Inches(0.5)
         section.left_margin = Inches(0.5)
         section.right_margin = Inches(0.5)
-
-    # Base style
     normal = document.styles["Normal"]
     normal.font.name = "Calibri"
     normal.font.size = Pt(10.5)
+    return document
 
-    is_letter = bool(doc.letterhead)
 
-    if is_letter:
-        # ── Letterhead (centered) ──────────────────────────────────────
-        for i, line in enumerate(doc.letterhead):
-            lp = document.add_paragraph()
-            lp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            lp.paragraph_format.space_after = Pt(0)
-            lrun = lp.add_run(line)
-            lrun.bold = (i == 0)
-            lrun.font.size = Pt(13 if i == 0 else 8.5)
-            lrun.font.color.rgb = crimson_dark if i == 0 else gray
-        # spacer
-        document.add_paragraph()
-        # Date
-        dp = document.add_paragraph()
-        dp.add_run(doc.letter_date).font.color.rgb = gray
-        # Recipient
-        for line in doc.recipient:
-            rp = document.add_paragraph()
-            rp.paragraph_format.space_after = Pt(0)
-            rp.add_run(line).font.color.rgb = gray
-        document.add_paragraph()
-        # RE line(s)
-        for line in doc.re_lines:
-            rep = document.add_paragraph()
-            rerun = rep.add_run(line)
-            rerun.bold = True
-            rerun.font.color.rgb = crimson_dark
-        # Salutation
-        if doc.salutation:
-            sp = document.add_paragraph()
-            sp.add_run(doc.salutation).font.color.rgb = gray
-    else:
-        # Title / subtitle (report format)
-        title_p = document.add_paragraph()
-        run = title_p.add_run(doc.title)
-        run.bold = True
-        run.font.size = Pt(17)
-        run.font.color.rgb = crimson_dark
-        sub_p = document.add_paragraph()
-        sub_run = sub_p.add_run(doc.subtitle.replace("\u2022", "|"))
-        sub_run.font.size = Pt(10)
-        sub_run.font.color.rgb = slate
+def _docx_colors():
+    from docx.shared import RGBColor
+
+    return {
+        "crimson": RGBColor(0x8B, 0x1A, 0x2A),
+        "crimson_dark": RGBColor(0x5C, 0x0A, 0x14),
+        "slate": RGBColor(0x4A, 0x6F, 0xA5),
+        "gray": RGBColor(0x33, 0x33, 0x33),
+    }
+
+
+def _docx_letter_header(document, doc: ExplanationDoc, colors) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt
+
+    for i, line in enumerate(doc.letterhead):
+        lp = document.add_paragraph()
+        lp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        lp.paragraph_format.space_after = Pt(0)
+        lrun = lp.add_run(line)
+        lrun.bold = (i == 0)
+        lrun.font.size = Pt(13 if i == 0 else 8.5)
+        lrun.font.color.rgb = colors["crimson_dark"] if i == 0 else colors["gray"]
+    document.add_paragraph()
+    dp = document.add_paragraph()
+    dp.add_run(doc.letter_date).font.color.rgb = colors["gray"]
+    for line in doc.recipient:
+        rp = document.add_paragraph()
+        rp.paragraph_format.space_after = Pt(0)
+        rp.add_run(line).font.color.rgb = colors["gray"]
+    document.add_paragraph()
+    for line in doc.re_lines:
+        rep = document.add_paragraph()
+        rerun = rep.add_run(line)
+        rerun.bold = True
+        rerun.font.color.rgb = colors["crimson_dark"]
+    if doc.salutation:
+        sp = document.add_paragraph()
+        sp.add_run(doc.salutation).font.color.rgb = colors["gray"]
+
+
+def _docx_report_header(document, doc: ExplanationDoc, colors) -> None:
+    from docx.shared import Pt
+
+    title_p = document.add_paragraph()
+    run = title_p.add_run(doc.title)
+    run.bold = True
+    run.font.size = Pt(17)
+    run.font.color.rgb = colors["crimson_dark"]
+    sub_p = document.add_paragraph()
+    sub_run = sub_p.add_run(doc.subtitle.replace("\u2022", "|"))
+    sub_run.font.size = Pt(10)
+    sub_run.font.color.rgb = colors["slate"]
+
+
+def _docx_para(document, block: Para) -> None:
+    from docx.shared import RGBColor
+
+    para = document.add_paragraph()
+    run = para.add_run(block.text)
+    run.bold = block.bold
+    run.italic = block.italic
+    if block.italic:
+        run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+
+
+def _docx_bullets(document, block: Bullets) -> None:
+    for item in block.items:
+        document.add_paragraph(item, style="List Bullet")
+
+
+def _docx_worksheet(document, block: Worksheet, colors) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    table = document.add_table(rows=0, cols=2)
+    table.style = "Light List Accent 1"
+    table.autofit = True
+    for row in block.rows:
+        cells = table.add_row().cells
+        lbl_run = cells[0].paragraphs[0].add_run(row.label)
+        val_para = cells[1].paragraphs[0]
+        val_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        val_run = val_para.add_run(row.value)
+        if row.emphasis:
+            lbl_run.bold = True
+            val_run.bold = True
+            lbl_run.font.color.rgb = colors["crimson_dark"]
+            val_run.font.color.rgb = colors["crimson_dark"]
+
+
+def _docx_note(document, block: Note) -> None:
+    from docx.shared import Inches, RGBColor
+
+    para = document.add_paragraph()
+    para.paragraph_format.left_indent = Inches(0.2)
+    run = para.add_run(block.text)
+    run.italic = True
+    run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+
+
+def _docx_block(document, block: Block, colors) -> None:
+    if isinstance(block, Para):
+        _docx_para(document, block)
+    elif isinstance(block, Bullets):
+        _docx_bullets(document, block)
+    elif isinstance(block, Worksheet):
+        _docx_worksheet(document, block, colors)
+    elif isinstance(block, Note):
+        _docx_note(document, block)
+
+
+def _docx_sections(document, doc: ExplanationDoc, colors) -> None:
+    from docx.shared import Pt
 
     for sec in doc.sections:
         if sec.heading:
@@ -737,56 +1034,28 @@ def explanation_to_docx(doc: ExplanationDoc, out_path: str) -> str:
             head_run = head_p.add_run(sec.heading)
             head_run.bold = True
             head_run.font.size = Pt(12.5)
-            head_run.font.color.rgb = crimson
-
+            head_run.font.color.rgb = colors["crimson"]
         for block in sec.blocks:
-            if isinstance(block, Para):
-                para = document.add_paragraph()
-                run = para.add_run(block.text)
-                run.bold = block.bold
-                run.italic = block.italic
-                if block.italic:
-                    run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
-            elif isinstance(block, Bullets):
-                for item in block.items:
-                    document.add_paragraph(item, style="List Bullet")
-            elif isinstance(block, Worksheet):
-                table = document.add_table(rows=0, cols=2)
-                table.style = "Light List Accent 1"
-                table.autofit = True
-                for row in block.rows:
-                    cells = table.add_row().cells
-                    lbl_run = cells[0].paragraphs[0].add_run(row.label)
-                    val_para = cells[1].paragraphs[0]
-                    val_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                    val_run = val_para.add_run(row.value)
-                    if row.emphasis:
-                        lbl_run.bold = True
-                        val_run.bold = True
-                        lbl_run.font.color.rgb = crimson_dark
-                        val_run.font.color.rgb = crimson_dark
-            elif isinstance(block, Note):
-                para = document.add_paragraph()
-                para.paragraph_format.left_indent = Inches(0.2)
-                run = para.add_run(block.text)
-                run.italic = True
-                run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+            _docx_block(document, block, colors)
 
-    # ── Closing / signature / cc ───────────────────────────────────────
+
+def _docx_closing(document, doc: ExplanationDoc, colors) -> None:
+    from docx.shared import Pt
+
     if doc.closing:
         document.add_paragraph()
         cp = document.add_paragraph()
         cp.paragraph_format.space_after = Pt(0)
-        cp.add_run(doc.closing).font.color.rgb = gray
+        cp.add_run(doc.closing).font.color.rgb = colors["gray"]
     if doc.signer:
         document.add_paragraph()  # room for a signature
         sgn = document.add_paragraph()
         sgn.paragraph_format.space_after = Pt(0)
-        sgn.add_run(doc.signer).font.color.rgb = gray
+        sgn.add_run(doc.signer).font.color.rgb = colors["gray"]
     if doc.signer_title:
         tp = document.add_paragraph()
         tp.paragraph_format.space_after = Pt(0)
-        tp.add_run(doc.signer_title).font.color.rgb = gray
+        tp.add_run(doc.signer_title).font.color.rgb = colors["gray"]
     if doc.cc_lines:
         document.add_paragraph()
         for line in doc.cc_lines:
@@ -794,7 +1063,23 @@ def explanation_to_docx(doc: ExplanationDoc, out_path: str) -> str:
             ccp.paragraph_format.space_after = Pt(0)
             ccrun = ccp.add_run(line)
             ccrun.font.size = Pt(9)
-            ccrun.font.color.rgb = gray
+            ccrun.font.color.rgb = colors["gray"]
+
+
+def explanation_to_docx(doc: ExplanationDoc, out_path: str) -> str:
+    """Render an ExplanationDoc to a professional .docx file at ``out_path``.
+
+    Returns the path written. Raises ImportError if python-docx is unavailable.
+    """
+    document = _new_docx_document()
+    colors = _docx_colors()
+
+    if doc.letterhead:
+        _docx_letter_header(document, doc, colors)
+    else:
+        _docx_report_header(document, doc, colors)
+    _docx_sections(document, doc, colors)
+    _docx_closing(document, doc, colors)
 
     document.save(out_path)
     return out_path

@@ -104,8 +104,12 @@ class AssessmentPanel(QWidget):
         outer_layout = QHBoxLayout()
         outer_layout.setContentsMargins(8, 8, 8, 8)
         outer_layout.setSpacing(8)
+        outer_layout.addWidget(self._build_left_column(), stretch=5)
+        outer_layout.addWidget(self._build_results_scroll(), stretch=4)
+        main_layout.addLayout(outer_layout, 1)
+        self._build_bottom_view_calc_row(main_layout)
 
-        # ── Left column: assessment inputs ──────────────────────────────
+    def _build_left_column(self) -> QScrollArea:
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setStyleSheet(SCROLL_AREA_STYLE)
@@ -114,7 +118,17 @@ class AssessmentPanel(QWidget):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(10)
 
-        # ── Rider Type Selection ────────────────────────────────────────
+        layout.addWidget(self._build_rider_configuration_group())
+        layout.addWidget(self._build_assessment_format_group())
+        self._build_warning_and_calculate(layout)
+        layout.addWidget(self._build_derived_group())
+        self._build_status_label(layout)
+        layout.addStretch()
+
+        left_scroll.setWidget(left_widget)
+        return left_scroll
+
+    def _build_rider_configuration_group(self) -> QGroupBox:
         rider_group = QGroupBox("Rider Configuration")
         rider_group.setStyleSheet(GROUP_BOX_STYLE)
         rider_layout = QGridLayout(rider_group)
@@ -130,10 +144,8 @@ class AssessmentPanel(QWidget):
         self.rider_combo.currentTextChanged.connect(self._on_rider_changed)
         rider_layout.addWidget(self.rider_combo, 0, 1)
 
-        # Per diem / annual limit labels — shown only for Chronic rider
         per_diem_style = f"font-size: 11px; color: {GRAY_DARK};"
         per_diem_val_style = f"font-size: 11px; color: {CRIMSON_DARK}; font-weight: bold;"
-
         lbl_pd = QLabel("Per Diem:")
         lbl_pd.setStyleSheet(per_diem_style)
         rider_layout.addWidget(lbl_pd, 0, 3, Qt.AlignmentFlag.AlignRight)
@@ -148,19 +160,20 @@ class AssessmentPanel(QWidget):
         self._rider_annual_limit_label.setStyleSheet(per_diem_val_style)
         rider_layout.addWidget(self._rider_annual_limit_label, 0, 6)
 
-        # Container list for show/hide
-        self._chronic_only_widgets = [lbl_pd, self._rider_per_diem_label,
-                                      lbl_al, self._rider_annual_limit_label]
+        self._chronic_only_widgets = [
+            lbl_pd,
+            self._rider_per_diem_label,
+            lbl_al,
+            self._rider_annual_limit_label,
+        ]
         is_chronic = self.rider_combo.currentText() == "Chronic"
-        for w in self._chronic_only_widgets:
-            w.setVisible(is_chronic)
+        for widget in self._chronic_only_widgets:
+            widget.setVisible(is_chronic)
         if is_chronic:
             self._refresh_per_diem_display()
 
         rider_layout.setColumnStretch(2, 1)
         rider_layout.setColumnStretch(7, 1)
-
-        # Rider type mismatch warning — shown when selected rider is not on the policy
         self._rider_mismatch_label = QLabel("")
         self._rider_mismatch_label.setStyleSheet(
             "color: red; font-weight: bold; font-size: 11px; padding: 0 4px;"
@@ -168,351 +181,188 @@ class AssessmentPanel(QWidget):
         self._rider_mismatch_label.setWordWrap(True)
         self._rider_mismatch_label.setVisible(False)
         rider_layout.addWidget(self._rider_mismatch_label, 1, 0, 1, 8)
+        return rider_group
 
-        layout.addWidget(rider_group)
-
-        # ── Assessment Format (survival + direct inputs) ────────────────
+    def _build_assessment_format_group(self) -> QGroupBox:
         self.assessment_group = QGroupBox("Assessment Format")
         self.assessment_group.setStyleSheet(GROUP_BOX_STYLE)
         assess_vbox = QVBoxLayout(self.assessment_group)
         assess_vbox.setContentsMargins(12, 20, 12, 8)
         assess_vbox.setSpacing(4)
 
-        # (Substandard mode is always "In Lieu Of" — radio UI removed)
-
-        # ── Row 0: 5-Year Survival ───────────────────────────────────────
-        row0 = QHBoxLayout()
-        row0.setSpacing(6)
-
-        self.chk_five_year = QCheckBox()
-        self.chk_five_year.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_five_year.setFixedWidth(20)
-        self.chk_five_year.toggled.connect(self._on_checkbox_toggled)
-        row0.addWidget(self.chk_five_year)
-
-        lbl_5yr = QLabel("5-Year Survival Rate:")
-        lbl_5yr.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_5yr.setFixedWidth(160)
-        row0.addWidget(lbl_5yr)
-
-        self.five_year_input = QLineEdit()
-        self.five_year_input.setPlaceholderText("e.g. 0.018")
-        self.five_year_input.setStyleSheet(INPUT_STYLE)
-        self.five_year_input.setFixedWidth(100)
-        self.five_year_input.setReadOnly(True)
-        row0.addWidget(self.five_year_input)
-
-        self.chk_return_5yr = QCheckBox("Return (drop after yr 5)")
-        self.chk_return_5yr.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_return_5yr.setEnabled(False)
-        row0.addWidget(self.chk_return_5yr)
-
-        row0.addStretch()
-        assess_vbox.addLayout(row0)
-
-        # ── Row 1: 10-Year Survival ──────────────────────────────────────
-        row1 = QHBoxLayout()
-        row1.setSpacing(6)
-
-        self.chk_ten_year = QCheckBox()
-        self.chk_ten_year.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_ten_year.setFixedWidth(20)
-        self.chk_ten_year.toggled.connect(self._on_checkbox_toggled)
-        row1.addWidget(self.chk_ten_year)
-
-        lbl_10yr = QLabel("10-Year Survival Rate:")
-        lbl_10yr.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_10yr.setFixedWidth(160)
-        row1.addWidget(lbl_10yr)
-
-        self.ten_year_input = QLineEdit()
-        self.ten_year_input.setPlaceholderText("e.g. 0.500")
-        self.ten_year_input.setStyleSheet(INPUT_STYLE)
-        self.ten_year_input.setFixedWidth(100)
-        self.ten_year_input.setReadOnly(True)
-        row1.addWidget(self.ten_year_input)
-
-        self.chk_return_10yr = QCheckBox("Return (drop after yr 10)")
-        self.chk_return_10yr.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_return_10yr.setEnabled(False)
-        row1.addWidget(self.chk_return_10yr)
-
-        row1.addStretch()
-        assess_vbox.addLayout(row1)
-
-        # ── Row 2: Life Expectancy ──────────────────────────────────────
-        row2 = QHBoxLayout()
-        row2.setSpacing(6)
-
-        self.chk_le = QCheckBox()
-        self.chk_le.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_le.setFixedWidth(20)
-        self.chk_le.toggled.connect(self._on_checkbox_toggled)
-        row2.addWidget(self.chk_le)
-
-        lbl_le = QLabel("Life Expectancy:")
-        lbl_le.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_le.setFixedWidth(160)
-        row2.addWidget(lbl_le)
-
-        self.le_input = QLineEdit()
-        self.le_input.setPlaceholderText("e.g. 4.9")
-        self.le_input.setStyleSheet(INPUT_STYLE)
-        self.le_input.setFixedWidth(100)
-        self.le_input.setReadOnly(True)
-        row2.addWidget(self.le_input)
-
-        row2.addStretch()
-        assess_vbox.addLayout(row2)
-
-        # ── Row 2b: Increased Decrement ──────────────────────────────────
-        row2b = QHBoxLayout()
-        row2b.setSpacing(6)
-
-        self.chk_incr_decrement = QCheckBox()
-        self.chk_incr_decrement.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_incr_decrement.setFixedWidth(20)
-        self.chk_incr_decrement.toggled.connect(self._on_checkbox_toggled)
-        row2b.addWidget(self.chk_incr_decrement)
-
-        lbl_id = QLabel("Increased Decrement:")
-        lbl_id.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_id.setFixedWidth(160)
-        row2b.addWidget(lbl_id)
-
-        self.incr_decrement_input = QLineEdit()
-        self.incr_decrement_input.setPlaceholderText("%")
-        self.incr_decrement_input.setStyleSheet(INPUT_STYLE)
-        self.incr_decrement_input.setFixedWidth(70)
-        self.incr_decrement_input.setReadOnly(True)
-        row2b.addWidget(self.incr_decrement_input)
-
-        row2b.addSpacing(10)
-
-        lbl_id_start = QLabel("Start Yr:")
-        lbl_id_start.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row2b.addWidget(lbl_id_start)
-
-        self.incr_decrement_start_input = QLineEdit("1")
-        self.incr_decrement_start_input.setStyleSheet(INPUT_STYLE)
-        self.incr_decrement_start_input.setFixedWidth(40)
-        self.incr_decrement_start_input.setReadOnly(True)
-        row2b.addWidget(self.incr_decrement_start_input)
-
-        row2b.addSpacing(6)
-
-        lbl_id_stop = QLabel("Stop Yr:")
-        lbl_id_stop.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row2b.addWidget(lbl_id_stop)
-
-        self.incr_decrement_stop_input = QLineEdit("99")
-        self.incr_decrement_stop_input.setStyleSheet(INPUT_STYLE)
-        self.incr_decrement_stop_input.setFixedWidth(40)
-        self.incr_decrement_stop_input.setReadOnly(True)
-        row2b.addWidget(self.incr_decrement_stop_input)
-
-        row2b.addStretch()
-        assess_vbox.addLayout(row2b)
-
-        # ── Row 3: Table ─────────────────────────────────────────────────
-        row3 = QHBoxLayout()
-        row3.setSpacing(6)
-
-        self.chk_table = QCheckBox()
-        self.chk_table.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_table.setFixedWidth(20)
-        self.chk_table.toggled.connect(self._on_checkbox_toggled)
-        row3.addWidget(self.chk_table)
-
-        lbl_table = QLabel("Table:")
-        lbl_table.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_table.setFixedWidth(160)
-        row3.addWidget(lbl_table)
-
-        self.table_input = QLineEdit()
-        self.table_input.setPlaceholderText("rating")
-        self.table_input.setStyleSheet(INPUT_STYLE)
-        self.table_input.setFixedWidth(70)
-        self.table_input.setReadOnly(True)
-        row3.addWidget(self.table_input)
-
-        row3.addSpacing(10)
-
-        lbl_t_start = QLabel("Start Yr:")
-        lbl_t_start.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row3.addWidget(lbl_t_start)
-
-        self.table_start_input = QLineEdit("1")
-        self.table_start_input.setStyleSheet(INPUT_STYLE)
-        self.table_start_input.setFixedWidth(40)
-        self.table_start_input.setReadOnly(True)
-        row3.addWidget(self.table_start_input)
-
-        row3.addSpacing(6)
-
-        lbl_t_stop = QLabel("Stop Yr:")
-        lbl_t_stop.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row3.addWidget(lbl_t_stop)
-
-        self.table_stop_input = QLineEdit("99")
-        self.table_stop_input.setStyleSheet(INPUT_STYLE)
-        self.table_stop_input.setFixedWidth(40)
-        self.table_stop_input.setReadOnly(True)
-        row3.addWidget(self.table_stop_input)
-
-        row3.addStretch()
-        assess_vbox.addLayout(row3)
-
-        # ── Row 4: Flat ──────────────────────────────────────────────────
-        row4 = QHBoxLayout()
-        row4.setSpacing(6)
-
-        self.chk_flat = QCheckBox()
-        self.chk_flat.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_flat.setFixedWidth(20)
-        self.chk_flat.toggled.connect(self._on_checkbox_toggled)
-        row4.addWidget(self.chk_flat)
-
-        lbl_flat = QLabel("Flat:")
-        lbl_flat.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_flat.setFixedWidth(160)
-        row4.addWidget(lbl_flat)
-
-        self.flat_input = QLineEdit()
-        self.flat_input.setPlaceholderText("$/1000")
-        self.flat_input.setStyleSheet(INPUT_STYLE)
-        self.flat_input.setFixedWidth(70)
-        self.flat_input.setReadOnly(True)
-        row4.addWidget(self.flat_input)
-
-        row4.addSpacing(10)
-
-        lbl_f_start = QLabel("Start Yr:")
-        lbl_f_start.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row4.addWidget(lbl_f_start)
-
-        self.flat_start_input = QLineEdit("1")
-        self.flat_start_input.setStyleSheet(INPUT_STYLE)
-        self.flat_start_input.setFixedWidth(40)
-        self.flat_start_input.setReadOnly(True)
-        row4.addWidget(self.flat_start_input)
-
-        row4.addSpacing(6)
-
-        lbl_f_stop = QLabel("Stop Yr:")
-        lbl_f_stop.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row4.addWidget(lbl_f_stop)
-
-        self.flat_stop_input = QLineEdit("99")
-        self.flat_stop_input.setStyleSheet(INPUT_STYLE)
-        self.flat_stop_input.setFixedWidth(40)
-        self.flat_stop_input.setReadOnly(True)
-        row4.addWidget(self.flat_stop_input)
-
-        row4.addStretch()
-        assess_vbox.addLayout(row4)
-
-        # ── Row 5: Table 2 ───────────────────────────────────────────────
-        row5 = QHBoxLayout()
-        row5.setSpacing(6)
-
-        self.chk_table_2 = QCheckBox()
-        self.chk_table_2.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_table_2.setFixedWidth(20)
-        self.chk_table_2.toggled.connect(self._on_checkbox_toggled)
-        row5.addWidget(self.chk_table_2)
-
-        lbl_table_2 = QLabel("Table 2:")
-        lbl_table_2.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_table_2.setFixedWidth(160)
-        row5.addWidget(lbl_table_2)
-
-        self.table_2_input = QLineEdit()
-        self.table_2_input.setPlaceholderText("rating")
-        self.table_2_input.setStyleSheet(INPUT_STYLE)
-        self.table_2_input.setFixedWidth(70)
-        self.table_2_input.setReadOnly(True)
-        row5.addWidget(self.table_2_input)
-
-        row5.addSpacing(10)
-
-        lbl_t2_start = QLabel("Start Yr:")
-        lbl_t2_start.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row5.addWidget(lbl_t2_start)
-
-        self.table_2_start_input = QLineEdit("1")
-        self.table_2_start_input.setStyleSheet(INPUT_STYLE)
-        self.table_2_start_input.setFixedWidth(40)
-        self.table_2_start_input.setReadOnly(True)
-        row5.addWidget(self.table_2_start_input)
-
-        row5.addSpacing(6)
-
-        lbl_t2_stop = QLabel("Stop Yr:")
-        lbl_t2_stop.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row5.addWidget(lbl_t2_stop)
-
-        self.table_2_stop_input = QLineEdit("99")
-        self.table_2_stop_input.setStyleSheet(INPUT_STYLE)
-        self.table_2_stop_input.setFixedWidth(40)
-        self.table_2_stop_input.setReadOnly(True)
-        row5.addWidget(self.table_2_stop_input)
-
-        row5.addStretch()
-        assess_vbox.addLayout(row5)
-
-        # ── Row 6: Flat 2 ────────────────────────────────────────────────
-        row6 = QHBoxLayout()
-        row6.setSpacing(6)
-
-        self.chk_flat_2 = QCheckBox()
-        self.chk_flat_2.setStyleSheet(_CHECKBOX_STYLE)
-        self.chk_flat_2.setFixedWidth(20)
-        self.chk_flat_2.toggled.connect(self._on_checkbox_toggled)
-        row6.addWidget(self.chk_flat_2)
-
-        lbl_flat_2 = QLabel("Flat 2:")
-        lbl_flat_2.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
-        lbl_flat_2.setFixedWidth(160)
-        row6.addWidget(lbl_flat_2)
-
-        self.flat_2_input = QLineEdit()
-        self.flat_2_input.setPlaceholderText("$/1000")
-        self.flat_2_input.setStyleSheet(INPUT_STYLE)
-        self.flat_2_input.setFixedWidth(70)
-        self.flat_2_input.setReadOnly(True)
-        row6.addWidget(self.flat_2_input)
-
-        row6.addSpacing(10)
-
-        lbl_f2_start = QLabel("Start Yr:")
-        lbl_f2_start.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row6.addWidget(lbl_f2_start)
-
-        self.flat_2_start_input = QLineEdit("1")
-        self.flat_2_start_input.setStyleSheet(INPUT_STYLE)
-        self.flat_2_start_input.setFixedWidth(40)
-        self.flat_2_start_input.setReadOnly(True)
-        row6.addWidget(self.flat_2_start_input)
-
-        row6.addSpacing(6)
-
-        lbl_f2_stop = QLabel("Stop Yr:")
-        lbl_f2_stop.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
-        row6.addWidget(lbl_f2_stop)
-
-        self.flat_2_stop_input = QLineEdit("99")
-        self.flat_2_stop_input.setStyleSheet(INPUT_STYLE)
-        self.flat_2_stop_input.setFixedWidth(40)
-        self.flat_2_stop_input.setReadOnly(True)
-        row6.addWidget(self.flat_2_stop_input)
-
-        row6.addStretch()
-        assess_vbox.addLayout(row6)
-
-        layout.addWidget(self.assessment_group)
-
-        # ── Warning label (below assessment group, bold red) ───────────
+        self._add_survival_row(
+            assess_vbox,
+            "chk_five_year",
+            "5-Year Survival Rate:",
+            "five_year_input",
+            "e.g. 0.018",
+            "chk_return_5yr",
+            "Return (drop after yr 5)",
+        )
+        self._add_survival_row(
+            assess_vbox,
+            "chk_ten_year",
+            "10-Year Survival Rate:",
+            "ten_year_input",
+            "e.g. 0.500",
+            "chk_return_10yr",
+            "Return (drop after yr 10)",
+        )
+        self._add_survival_row(
+            assess_vbox,
+            "chk_le",
+            "Life Expectancy:",
+            "le_input",
+            "e.g. 4.9",
+        )
+        self._add_direct_input_row(
+            assess_vbox,
+            "chk_incr_decrement",
+            "Increased Decrement:",
+            "incr_decrement_input",
+            "%",
+            70,
+            "incr_decrement_start_input",
+            "incr_decrement_stop_input",
+        )
+        self._add_direct_input_row(
+            assess_vbox,
+            "chk_table",
+            "Table:",
+            "table_input",
+            "rating",
+            70,
+            "table_start_input",
+            "table_stop_input",
+        )
+        self._add_direct_input_row(
+            assess_vbox,
+            "chk_flat",
+            "Flat:",
+            "flat_input",
+            "$/1000",
+            70,
+            "flat_start_input",
+            "flat_stop_input",
+        )
+        self._add_direct_input_row(
+            assess_vbox,
+            "chk_table_2",
+            "Table 2:",
+            "table_2_input",
+            "rating",
+            70,
+            "table_2_start_input",
+            "table_2_stop_input",
+        )
+        self._add_direct_input_row(
+            assess_vbox,
+            "chk_flat_2",
+            "Flat 2:",
+            "flat_2_input",
+            "$/1000",
+            70,
+            "flat_2_start_input",
+            "flat_2_stop_input",
+        )
+        return self.assessment_group
+
+    def _assessment_checkbox(self) -> QCheckBox:
+        checkbox = QCheckBox()
+        checkbox.setStyleSheet(_CHECKBOX_STYLE)
+        checkbox.setFixedWidth(20)
+        checkbox.toggled.connect(self._on_checkbox_toggled)
+        return checkbox
+
+    def _assessment_input(self, placeholder: str, width: int, text: str = "") -> QLineEdit:
+        input_widget = QLineEdit(text)
+        input_widget.setPlaceholderText(placeholder)
+        input_widget.setStyleSheet(INPUT_STYLE)
+        input_widget.setFixedWidth(width)
+        input_widget.setReadOnly(True)
+        return input_widget
+
+    def _add_survival_row(
+        self,
+        layout: QVBoxLayout,
+        checkbox_attr: str,
+        label_text: str,
+        input_attr: str,
+        placeholder: str,
+        return_attr: str | None = None,
+        return_text: str = "",
+    ) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        checkbox = self._assessment_checkbox()
+        setattr(self, checkbox_attr, checkbox)
+        row.addWidget(checkbox)
+
+        label = QLabel(label_text)
+        label.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
+        label.setFixedWidth(160)
+        row.addWidget(label)
+
+        input_widget = self._assessment_input(placeholder, 100)
+        setattr(self, input_attr, input_widget)
+        row.addWidget(input_widget)
+
+        if return_attr:
+            return_checkbox = QCheckBox(return_text)
+            return_checkbox.setStyleSheet(_CHECKBOX_STYLE)
+            return_checkbox.setEnabled(False)
+            setattr(self, return_attr, return_checkbox)
+            row.addWidget(return_checkbox)
+        row.addStretch()
+        layout.addLayout(row)
+
+    def _add_direct_input_row(
+        self,
+        layout: QVBoxLayout,
+        checkbox_attr: str,
+        label_text: str,
+        input_attr: str,
+        placeholder: str,
+        input_width: int,
+        start_attr: str,
+        stop_attr: str,
+    ) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        checkbox = self._assessment_checkbox()
+        setattr(self, checkbox_attr, checkbox)
+        row.addWidget(checkbox)
+
+        label = QLabel(label_text)
+        label.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
+        label.setFixedWidth(160)
+        row.addWidget(label)
+
+        input_widget = self._assessment_input(placeholder, input_width)
+        setattr(self, input_attr, input_widget)
+        row.addWidget(input_widget)
+        row.addSpacing(10)
+        self._add_year_input_pair(row, "Start Yr:", start_attr, "1")
+        row.addSpacing(6)
+        self._add_year_input_pair(row, "Stop Yr:", stop_attr, "99")
+        row.addStretch()
+        layout.addLayout(row)
+
+    def _add_year_input_pair(
+        self,
+        row: QHBoxLayout,
+        label_text: str,
+        input_attr: str,
+        default_text: str,
+    ) -> None:
+        label = QLabel(label_text)
+        label.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
+        row.addWidget(label)
+        input_widget = self._assessment_input("", 40, default_text)
+        setattr(self, input_attr, input_widget)
+        row.addWidget(input_widget)
+
+    def _build_warning_and_calculate(self, layout: QVBoxLayout) -> None:
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet(
             "color: red; font-weight: bold; font-size: 11px; padding: 2px 4px;"
@@ -521,7 +371,6 @@ class AssessmentPanel(QWidget):
         self.warning_label.setVisible(False)
         layout.addWidget(self.warning_label)
 
-        # ── Calculate button ────────────────────────────────────────────
         calc_row = QHBoxLayout()
         calc_row.addStretch()
         self.calc_btn = QPushButton("Calculate Substandard")
@@ -531,84 +380,85 @@ class AssessmentPanel(QWidget):
         calc_row.addStretch()
         layout.addLayout(calc_row)
 
-        # ── Derived Substandard Results ─────────────────────────────────
+    def _build_derived_group(self) -> QGroupBox:
         self.derived_group = QGroupBox("Derived Substandard Values")
         self.derived_group.setStyleSheet(GROUP_BOX_STYLE)
         derived_layout = QGridLayout(self.derived_group)
         derived_layout.setContentsMargins(8, 14, 8, 4)
         derived_layout.setSpacing(2)
-
         self._derived_labels = {}
 
-        HEADER_STYLE = (
+        header_style = (
             f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;"
             f" text-decoration: underline; padding-bottom: 1px;"
         )
-        LABEL_STYLE = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;"
-        VALUE_STYLE = f"color: {GRAY_DARK}; font-size: 11px;"
-
-        # ── Left column header: Current (Unmodified) ─────────────────
-        hdr_left = QLabel("Current (Unmodified)")
-        hdr_left.setStyleSheet(HEADER_STYLE)
-        derived_layout.addWidget(hdr_left, 0, 0, 1, 2, Qt.AlignmentFlag.AlignCenter)
-
-        left_fields = [
-            (1, "5-Year Survival:", "std_survival_5yr"),
-            (2, "10-Year Survival:", "std_survival_10yr"),
-            (3, "Life Expectancy:", "std_le"),
-            (4, "Table Rating:", "std_table_rating"),
-            (5, "Flat Extra:", "std_flat_extra"),
-        ]
-        for row, label_text, key in left_fields:
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(LABEL_STYLE)
-            derived_layout.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignRight)
-            val = QLabel("\u2014")
-            val.setStyleSheet(VALUE_STYLE)
-            derived_layout.addWidget(val, row, 1, Qt.AlignmentFlag.AlignLeft)
-            self._derived_labels[key] = val
-
-        # ── Spacer column ────────────────────────────────────────────
+        label_style = f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;"
+        value_style = f"color: {GRAY_DARK}; font-size: 11px;"
+        self._add_derived_column(
+            derived_layout,
+            0,
+            "Current (Unmodified)",
+            [
+                (1, "5-Year Survival:", "std_survival_5yr"),
+                (2, "10-Year Survival:", "std_survival_10yr"),
+                (3, "Life Expectancy:", "std_le"),
+                (4, "Table Ratings:", "std_table_rating"),
+                (5, "Flat Extra:", "std_flat_extra"),
+            ],
+            header_style,
+            label_style,
+            value_style,
+        )
         derived_layout.setColumnMinimumWidth(2, 16)
-
-        # ── Right column header: Modified (Substandard Applied) ──────
-        hdr_right = QLabel("Modified (Substandard Applied)")
-        hdr_right.setStyleSheet(HEADER_STYLE)
-        derived_layout.addWidget(hdr_right, 0, 3, 1, 2, Qt.AlignmentFlag.AlignCenter)
-
-        right_fields = [
-            (1, "5-Year Survival:", "mod_survival_5yr"),
-            (2, "10-Year Survival:", "mod_survival_10yr"),
-            (3, "Life Expectancy:", "mod_le"),
-            (4, "Table Ratings:", "table_rating"),
-            (5, "Flat Extras:", "flat_extra"),
-        ]
-        for row, label_text, key in right_fields:
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(LABEL_STYLE)
-            derived_layout.addWidget(lbl, row, 3, Qt.AlignmentFlag.AlignRight)
-            val = QLabel("\u2014")
-            val.setStyleSheet(VALUE_STYLE)
-            derived_layout.addWidget(val, row, 4, Qt.AlignmentFlag.AlignLeft)
-            self._derived_labels[key] = val
-
+        self._add_derived_column(
+            derived_layout,
+            3,
+            "Modified (Substandard Applied)",
+            [
+                (1, "5-Year Survival:", "mod_survival_5yr"),
+                (2, "10-Year Survival:", "mod_survival_10yr"),
+                (3, "Life Expectancy:", "mod_le"),
+                (4, "Table Ratings:", "table_rating"),
+                (5, "Flat Extras:", "flat_extra"),
+            ],
+            header_style,
+            label_style,
+            value_style,
+        )
         derived_layout.setColumnStretch(5, 1)
         self.derived_group.setVisible(False)
-        layout.addWidget(self.derived_group)
+        return self.derived_group
 
-        # ── Status ──────────────────────────────────────────────────────
+    def _add_derived_column(
+        self,
+        layout: QGridLayout,
+        start_col: int,
+        title: str,
+        fields: list[tuple[int, str, str]],
+        header_style: str,
+        label_style: str,
+        value_style: str,
+    ) -> None:
+        header = QLabel(title)
+        header.setStyleSheet(header_style)
+        layout.addWidget(header, 0, start_col, 1, 2, Qt.AlignmentFlag.AlignCenter)
+        for row, label_text, key in fields:
+            label = QLabel(label_text)
+            label.setStyleSheet(label_style)
+            layout.addWidget(label, row, start_col, Qt.AlignmentFlag.AlignRight)
+            value = QLabel("\u2014")
+            value.setStyleSheet(value_style)
+            layout.addWidget(value, row, start_col + 1, Qt.AlignmentFlag.AlignLeft)
+            self._derived_labels[key] = value
+
+    def _build_status_label(self, layout: QVBoxLayout) -> None:
         self.status_label = QLabel("Load a policy first, then enter medical assessment values.")
         self.status_label.setStyleSheet(
             f"color: {GRAY_DARK}; font-size: 11px; font-style: italic; padding: 4px;"
         )
         layout.addWidget(self.status_label)
 
-        layout.addStretch()
-
-        left_scroll.setWidget(left_widget)
-        outer_layout.addWidget(left_scroll, stretch=5)
-
-        # ── Right column: Results ───────────────────────────────────────
+    def _build_results_scroll(self) -> QScrollArea:
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setStyleSheet(SCROLL_AREA_STYLE)
@@ -616,20 +466,15 @@ class AssessmentPanel(QWidget):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(8, 4, 8, 4)
         right_layout.setSpacing(10)
-
         self._build_results_column(right_layout)
-
         right_scroll.setWidget(right_widget)
         self.results_column = right_scroll
-        outer_layout.addWidget(right_scroll, stretch=4)
+        return right_scroll
 
-        main_layout.addLayout(outer_layout, 1)
-
-        # ── Bottom-right View Calc button ───────────────────────────────
+    def _build_bottom_view_calc_row(self, main_layout: QVBoxLayout) -> None:
         bottom_row = QHBoxLayout()
         bottom_row.setContentsMargins(8, 2, 12, 6)
         bottom_row.addStretch()
-
         self.res_view_calc_btn = QPushButton("View Calc")
         self.res_view_calc_btn.setStyleSheet(
             f"QPushButton {{ color: {SLATE_TEXT}; background: transparent; "
@@ -642,19 +487,23 @@ class AssessmentPanel(QWidget):
         self.res_view_calc_btn.clicked.connect(self._on_res_view_calc)
         self.res_view_calc_btn.setEnabled(False)
         bottom_row.addWidget(self.res_view_calc_btn)
-
         main_layout.addLayout(bottom_row)
 
     # ── Right column builder ────────────────────────────────────────────
 
     def _build_results_column(self, layout: QVBoxLayout):
         """Build the results groups (Full, Partial, Premium) in the right column."""
+        crimson_btn_style, reset_btn_style = self._results_button_styles()
+        self._add_acceleration_amount_row(layout, crimson_btn_style, reset_btn_style)
+        layout.addWidget(self._build_full_result_group())
+        self._add_min_face_row(layout, crimson_btn_style, reset_btn_style)
+        layout.addWidget(self._build_partial_result_group())
+        layout.addWidget(self._build_premium_impact_group())
+        self._add_result_messages(layout)
+        layout.addStretch()
 
-        # ── Acceleration amount label + input + Calc ────────────────────
-        accel_row = QHBoxLayout()
-        accel_row.setSpacing(8)
-
-        _crimson_btn_style = f"""
+    def _results_button_styles(self) -> tuple[str, str]:
+        crimson_btn_style = f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 {CRIMSON_RICH}, stop:1 {CRIMSON_PRIMARY});
@@ -670,8 +519,7 @@ class AssessmentPanel(QWidget):
                     stop:0 {CRIMSON_PRIMARY}, stop:1 {CRIMSON_DARK});
             }}
         """
-
-        _reset_btn_style = f"""
+        reset_btn_style = f"""
             QPushButton {{
                 background: transparent;
                 color: {CRIMSON_PRIMARY};
@@ -685,13 +533,24 @@ class AssessmentPanel(QWidget):
                 background: {CRIMSON_SUBTLE};
             }}
         """
+        return crimson_btn_style, reset_btn_style
 
+    def _add_acceleration_amount_row(
+        self,
+        layout: QVBoxLayout,
+        crimson_btn_style: str,
+        reset_btn_style: str,
+    ) -> None:
+        accel_row = QHBoxLayout()
+        accel_row.setSpacing(8)
         self._accel_label = QLabel("Full Death Benefit:")
-        self._accel_label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
+        self._accel_label.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};"
+        )
         accel_row.addWidget(self._accel_label)
 
         self._accel_reset_btn = QPushButton("Reset")
-        self._accel_reset_btn.setStyleSheet(_reset_btn_style)
+        self._accel_reset_btn.setStyleSheet(reset_btn_style)
         self._accel_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._accel_reset_btn.clicked.connect(self._on_accel_reset)
         self._accel_reset_btn.setVisible(False)
@@ -706,256 +565,263 @@ class AssessmentPanel(QWidget):
         self._face_calc_btn = QPushButton("Calc")
         self._face_calc_btn.setFixedWidth(60)
         self._face_calc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._face_calc_btn.setStyleSheet(_crimson_btn_style)
+        self._face_calc_btn.setStyleSheet(crimson_btn_style)
         self._face_calc_btn.clicked.connect(self._on_face_calc)
         accel_row.addWidget(self._face_calc_btn)
-
         accel_row.addStretch()
         layout.addLayout(accel_row)
 
-        # ── Full Acceleration ───────────────────────────────────────────
-        self.res_full_group = QGroupBox("Full Acceleration")
-        self.res_full_group.setStyleSheet(GROUP_BOX_STYLE)
-        full_grid = QGridLayout(self.res_full_group)
-        full_grid.setContentsMargins(12, 16, 12, 8)
-        full_grid.setSpacing(4)
-        full_grid.setHorizontalSpacing(8)
+    def _new_result_group(self, title: str) -> tuple[QGroupBox, QGridLayout]:
+        group = QGroupBox(title)
+        group.setStyleSheet(GROUP_BOX_STYLE)
+        grid = QGridLayout(group)
+        grid.setContentsMargins(12, 16, 12, 8)
+        grid.setSpacing(4)
+        grid.setHorizontalSpacing(8)
+        return group, grid
 
+    def _add_label_value_row(
+        self,
+        grid: QGridLayout,
+        row: int,
+        label_text: str,
+        label_style: str,
+        value_style: str,
+        labels: dict[str, QLabel],
+        key: str,
+        value_col: int = 1,
+    ) -> QLabel:
+        label = QLabel(label_text)
+        label.setStyleSheet(label_style)
+        grid.addWidget(label, row, value_col - 1, Qt.AlignmentFlag.AlignRight)
+        value = QLabel("\u2014")
+        value.setStyleSheet(value_style)
+        value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        grid.addWidget(value, row, value_col, Qt.AlignmentFlag.AlignLeft)
+        labels[key] = value
+        return label
+
+    def _build_full_result_group(self) -> QGroupBox:
+        self.res_full_group, full_grid = self._new_result_group("Full Acceleration")
+        label_style = f"font-size: 11px; color: {GRAY_DARK};"
+        value_style = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
         self._res_full_labels = {}
-        for i, (label_text, key) in enumerate([
+        for row, (label_text, key) in enumerate([
             ("Eligible Death Benefit:", "eligible_db"),
             ("Actuarial Discount:", "actuarial_discount"),
             ("Administrative Fee:", "admin_fee"),
         ]):
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
-            full_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
-            val = QLabel("\u2014")
-            val.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            full_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
-            self._res_full_labels[key] = val
+            self._add_label_value_row(
+                full_grid, row, label_text, label_style, value_style, self._res_full_labels, key
+            )
+        self._add_full_optional_rows(full_grid, label_style, value_style)
+        self._res_full_apv_labels = {}
+        self._add_apv_block(full_grid, self._res_full_apv_labels, [])
+        full_grid.setColumnStretch(1, 2)
+        full_grid.setColumnStretch(4, 2)
+        return self.res_full_group
 
-        # Loan Repayment row (visible only for UL/IUL/ISWL)
-        self._full_loan_lbl = QLabel("Loan Repayment:")
-        self._full_loan_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
-        full_grid.addWidget(self._full_loan_lbl, 3, 0, Qt.AlignmentFlag.AlignRight)
-        self._res_full_labels["loan_repayment"] = QLabel("\u2014")
-        self._res_full_labels["loan_repayment"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
-        self._res_full_labels["loan_repayment"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        full_grid.addWidget(self._res_full_labels["loan_repayment"], 3, 1, Qt.AlignmentFlag.AlignLeft)
+    def _add_full_optional_rows(
+        self,
+        grid: QGridLayout,
+        label_style: str,
+        value_style: str,
+    ) -> None:
+        self._full_loan_lbl = self._add_label_value_row(
+            grid, 3, "Loan Repayment:", label_style, value_style,
+            self._res_full_labels, "loan_repayment"
+        )
         self._full_loan_lbl.setVisible(False)
         self._res_full_labels["loan_repayment"].setVisible(False)
 
         divider = QFrame()
         divider.setStyleSheet(DIVIDER_STYLE)
         divider.setFixedHeight(2)
-        full_grid.addWidget(divider, 4, 0, 1, 2)
-
-        lbl_ab = QLabel("Calculated Benefit:")
-        lbl_ab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
-        full_grid.addWidget(lbl_ab, 5, 0, Qt.AlignmentFlag.AlignRight)
-
-        self.res_full_benefit_label = QLabel("\u2014")
-        self.res_full_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        full_grid.addWidget(self.res_full_benefit_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
-
-        lbl_br = QLabel("Benefit Ratio:")
-        lbl_br.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
-        full_grid.addWidget(lbl_br, 6, 0, Qt.AlignmentFlag.AlignRight)
-        self.res_full_ratio_label = QLabel("\u2014")
-        self.res_full_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
-        full_grid.addWidget(self.res_full_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
-
-        # Surrender Value row (visible only for UL/IUL/ISWL with surrender value)
-        self._full_sv_lbl = QLabel("Surrender Value:")
-        self._full_sv_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
-        full_grid.addWidget(self._full_sv_lbl, 7, 0, Qt.AlignmentFlag.AlignRight)
-        self._res_full_labels["surrender_value"] = QLabel("\u2014")
-        self._res_full_labels["surrender_value"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
-        self._res_full_labels["surrender_value"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        full_grid.addWidget(self._res_full_labels["surrender_value"], 7, 1, Qt.AlignmentFlag.AlignLeft)
-        self._full_sv_lbl.setVisible(False)
+        grid.addWidget(divider, 4, 0, 1, 2)
+        self._add_standalone_result_value(grid, 5, "Calculated Benefit:", True)
+        self._add_full_ratio_row(grid)
+        self._full_sv_lbl = self._add_label_value_row(
+            grid, 7, "Surrender Value:", label_style, value_style,
+            self._res_full_labels, "surrender_value"
+        )
         self._res_full_labels["surrender_value"].setVisible(False)
-
-        # Accelerated Benefit row (max of calc benefit and surrender, UL only)
+        self._full_sv_lbl.setVisible(False)
         self._full_accel_lbl = QLabel("Accelerated Benefit:")
-        self._full_accel_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
-        full_grid.addWidget(self._full_accel_lbl, 8, 0, Qt.AlignmentFlag.AlignRight)
+        self._full_accel_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};"
+        )
+        grid.addWidget(self._full_accel_lbl, 8, 0, Qt.AlignmentFlag.AlignRight)
         self.res_full_accel_benefit_label = QLabel("\u2014")
         self.res_full_accel_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        full_grid.addWidget(self.res_full_accel_benefit_label, 8, 1, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.res_full_accel_benefit_label, 8, 1, Qt.AlignmentFlag.AlignLeft)
         self._full_accel_lbl.setVisible(False)
         self.res_full_accel_benefit_label.setVisible(False)
 
-        # ── Vertical separator between main values and APV block ────────
-        vsep_full = QFrame()
-        vsep_full.setFrameShape(QFrame.Shape.VLine)
-        vsep_full.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
-        full_grid.addWidget(vsep_full, 0, 2, 9, 1)
+    def _add_standalone_result_value(
+        self,
+        grid: QGridLayout,
+        row: int,
+        label_text: str,
+        full: bool,
+    ) -> None:
+        label = QLabel(label_text)
+        label.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
+        grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignRight)
+        value = QLabel("\u2014")
+        value.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
+        grid.addWidget(value, row, 1, Qt.AlignmentFlag.AlignLeft)
+        if full:
+            self.res_full_benefit_label = value
+        else:
+            self.res_partial_benefit_label = value
+            self._res_partial_static_widgets.append(label)
 
-        # APV component labels — right column (cols 3 & 4)
-        apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
-        apv_val_style  = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
-        self._res_full_apv_labels = {}
-        for j, (apv_label, apv_key) in enumerate([
+    def _add_full_ratio_row(self, grid: QGridLayout) -> None:
+        label = QLabel("Benefit Ratio:")
+        label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
+        grid.addWidget(label, 6, 0, Qt.AlignmentFlag.AlignRight)
+        self.res_full_ratio_label = QLabel("\u2014")
+        self.res_full_ratio_label.setStyleSheet(
+            f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;"
+        )
+        grid.addWidget(self.res_full_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
+
+    def _add_apv_block(
+        self,
+        grid: QGridLayout,
+        labels: dict[str, QLabel],
+        static_widgets: list[QWidget],
+    ) -> None:
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
+        grid.addWidget(separator, 0, 2, 9, 1)
+        static_widgets.append(separator)
+        label_style = f"font-size: 11px; color: {GRAY_DARK};"
+        value_style = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
+        for row, (apv_label, apv_key) in enumerate([
             ("APV_FB:", "apv_fb"),
             ("APV_FP:", "apv_fp"),
             ("APV_FD:", "apv_fd"),
         ]):
-            lbl = QLabel(apv_label)
-            lbl.setStyleSheet(apv_lbl_style)
-            full_grid.addWidget(lbl, j, 3, Qt.AlignmentFlag.AlignRight)
-            val = QLabel("\u2014")
-            val.setStyleSheet(apv_val_style)
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            full_grid.addWidget(val, j, 4, Qt.AlignmentFlag.AlignLeft)
-            self._res_full_apv_labels[apv_key] = val
+            label = QLabel(apv_label)
+            label.setStyleSheet(label_style)
+            grid.addWidget(label, row, 3, Qt.AlignmentFlag.AlignRight)
+            value = QLabel("\u2014")
+            value.setStyleSheet(value_style)
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            grid.addWidget(value, row, 4, Qt.AlignmentFlag.AlignLeft)
+            labels[apv_key] = value
+            static_widgets.append(label)
 
-        full_grid.setColumnStretch(1, 2)
-        full_grid.setColumnStretch(4, 2)
-        layout.addWidget(self.res_full_group)
-
-        # ── Min Face Amount input ───────────────────────────────────────
+    def _add_min_face_row(
+        self,
+        layout: QVBoxLayout,
+        crimson_btn_style: str,
+        reset_btn_style: str,
+    ) -> None:
         min_face_row = QHBoxLayout()
         min_face_row.setContentsMargins(0, 2, 0, 2)
         self._min_face_label = QLabel("Min Face Amount:")
-        self._min_face_label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
+        self._min_face_label.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};"
+        )
         min_face_row.addWidget(self._min_face_label)
-
         self._min_face_reset_btn = QPushButton("Reset Min Amount")
-        self._min_face_reset_btn.setStyleSheet(_reset_btn_style)
+        self._min_face_reset_btn.setStyleSheet(reset_btn_style)
         self._min_face_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._min_face_reset_btn.clicked.connect(self._on_min_face_reset)
         self._min_face_reset_btn.setVisible(False)
         min_face_row.addWidget(self._min_face_reset_btn)
-
         self._min_face_input = QLineEdit()
         self._min_face_input.setStyleSheet(INPUT_STYLE)
         self._min_face_input.setFixedWidth(120)
         self._min_face_input.setText("50,000")
         min_face_row.addWidget(self._min_face_input)
-
         self._min_face_calc_btn = QPushButton("Calc")
         self._min_face_calc_btn.setFixedWidth(60)
         self._min_face_calc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._min_face_calc_btn.setStyleSheet(_crimson_btn_style)
+        self._min_face_calc_btn.setStyleSheet(crimson_btn_style)
         self._min_face_calc_btn.clicked.connect(self._on_min_face_calc)
         min_face_row.addWidget(self._min_face_calc_btn)
-
         min_face_row.addStretch()
         layout.addLayout(min_face_row)
 
-        # ── Max Partial Acceleration ────────────────────────────────────
-        self.res_partial_group = QGroupBox("Max Partial Acceleration")
-        self.res_partial_group.setStyleSheet(GROUP_BOX_STYLE)
-        partial_grid = QGridLayout(self.res_partial_group)
-        partial_grid.setContentsMargins(12, 16, 12, 8)
-        partial_grid.setSpacing(4)
-        partial_grid.setHorizontalSpacing(8)
-
+    def _build_partial_result_group(self) -> QGroupBox:
+        self.res_partial_group, partial_grid = self._new_result_group("Max Partial Acceleration")
+        label_style = f"font-size: 11px; color: {GRAY_DARK};"
+        value_style = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
         self._res_partial_labels = {}
-        self._res_partial_static_widgets = []  # track all widgets to hide when at min face
-        for i, (label_text, key) in enumerate([
+        self._res_partial_static_widgets = []
+        for row, (label_text, key) in enumerate([
             ("Eligible Death Benefit:", "eligible_db"),
             ("Actuarial Discount:", "actuarial_discount"),
             ("Administrative Fee:", "admin_fee"),
         ]):
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
-            partial_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
-            val = QLabel("\u2014")
-            val.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            partial_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
-            self._res_partial_labels[key] = val
-            self._res_partial_static_widgets.append(lbl)
+            label = self._add_label_value_row(
+                partial_grid, row, label_text, label_style, value_style,
+                self._res_partial_labels, key
+            )
+            self._res_partial_static_widgets.append(label)
+        self._add_partial_optional_rows(partial_grid, label_style, value_style)
+        self._res_partial_apv_labels = {}
+        self._add_apv_block(partial_grid, self._res_partial_apv_labels, self._res_partial_static_widgets)
+        self._add_partial_not_allowed_label(partial_grid)
+        partial_grid.setColumnStretch(1, 2)
+        partial_grid.setColumnStretch(4, 2)
+        return self.res_partial_group
 
-        # Loan Repayment row (visible only for UL/IUL/ISWL)
-        self._partial_loan_lbl = QLabel("Loan Repayment:")
-        self._partial_loan_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
-        partial_grid.addWidget(self._partial_loan_lbl, 3, 0, Qt.AlignmentFlag.AlignRight)
-        self._res_partial_labels["loan_repayment"] = QLabel("\u2014")
-        self._res_partial_labels["loan_repayment"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
-        self._res_partial_labels["loan_repayment"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        partial_grid.addWidget(self._res_partial_labels["loan_repayment"], 3, 1, Qt.AlignmentFlag.AlignLeft)
+    def _add_partial_optional_rows(
+        self,
+        grid: QGridLayout,
+        label_style: str,
+        value_style: str,
+    ) -> None:
+        self._partial_loan_lbl = self._add_label_value_row(
+            grid, 3, "Loan Repayment:", label_style, value_style,
+            self._res_partial_labels, "loan_repayment"
+        )
         self._partial_loan_lbl.setVisible(False)
         self._res_partial_labels["loan_repayment"].setVisible(False)
         self._res_partial_static_widgets.append(self._partial_loan_lbl)
-
-        divider2 = QFrame()
-        divider2.setStyleSheet(DIVIDER_STYLE)
-        divider2.setFixedHeight(2)
-        partial_grid.addWidget(divider2, 4, 0, 1, 2)
-        self._res_partial_static_widgets.append(divider2)
-
-        lbl_pab = QLabel("Calculated Benefit:")
-        lbl_pab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
-        partial_grid.addWidget(lbl_pab, 5, 0, Qt.AlignmentFlag.AlignRight)
-        self._res_partial_static_widgets.append(lbl_pab)
-
-        self.res_partial_benefit_label = QLabel("\u2014")
-        self.res_partial_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        partial_grid.addWidget(self.res_partial_benefit_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
-
-        lbl_pbr = QLabel("Benefit Ratio:")
-        lbl_pbr.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
-        partial_grid.addWidget(lbl_pbr, 6, 0, Qt.AlignmentFlag.AlignRight)
-        self._res_partial_static_widgets.append(lbl_pbr)
-        self.res_partial_ratio_label = QLabel("\u2014")
-        self.res_partial_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
-        partial_grid.addWidget(self.res_partial_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
-
-        # Surrender Value row (visible only for UL/IUL/ISWL with surrender value)
-        self._partial_sv_lbl = QLabel("Surrender Value:")
-        self._partial_sv_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
-        partial_grid.addWidget(self._partial_sv_lbl, 7, 0, Qt.AlignmentFlag.AlignRight)
-        self._res_partial_labels["surrender_value"] = QLabel("\u2014")
-        self._res_partial_labels["surrender_value"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
-        self._res_partial_labels["surrender_value"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        partial_grid.addWidget(self._res_partial_labels["surrender_value"], 7, 1, Qt.AlignmentFlag.AlignLeft)
+        self._add_partial_divider_and_core_rows(grid)
+        self._partial_sv_lbl = self._add_label_value_row(
+            grid, 7, "Surrender Value:", label_style, value_style,
+            self._res_partial_labels, "surrender_value"
+        )
         self._partial_sv_lbl.setVisible(False)
         self._res_partial_labels["surrender_value"].setVisible(False)
         self._res_partial_static_widgets.append(self._partial_sv_lbl)
-
-        # Accelerated Benefit row (max of calc benefit and surrender, UL only)
         self._partial_accel_lbl = QLabel("Accelerated Benefit:")
-        self._partial_accel_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
-        partial_grid.addWidget(self._partial_accel_lbl, 8, 0, Qt.AlignmentFlag.AlignRight)
+        self._partial_accel_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};"
+        )
+        grid.addWidget(self._partial_accel_lbl, 8, 0, Qt.AlignmentFlag.AlignRight)
         self.res_partial_accel_benefit_label = QLabel("\u2014")
         self.res_partial_accel_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        partial_grid.addWidget(self.res_partial_accel_benefit_label, 8, 1, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.res_partial_accel_benefit_label, 8, 1, Qt.AlignmentFlag.AlignLeft)
         self._partial_accel_lbl.setVisible(False)
         self.res_partial_accel_benefit_label.setVisible(False)
         self._res_partial_static_widgets.append(self._partial_accel_lbl)
 
-        # ── Vertical separator between main values and APV block ────────
-        vsep_partial = QFrame()
-        vsep_partial.setFrameShape(QFrame.Shape.VLine)
-        vsep_partial.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
-        partial_grid.addWidget(vsep_partial, 0, 2, 9, 1)
-        self._res_partial_static_widgets.append(vsep_partial)
+    def _add_partial_divider_and_core_rows(self, grid: QGridLayout) -> None:
+        divider = QFrame()
+        divider.setStyleSheet(DIVIDER_STYLE)
+        divider.setFixedHeight(2)
+        grid.addWidget(divider, 4, 0, 1, 2)
+        self._res_partial_static_widgets.append(divider)
+        self._add_standalone_result_value(grid, 5, "Calculated Benefit:", False)
+        label = QLabel("Benefit Ratio:")
+        label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
+        grid.addWidget(label, 6, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_partial_static_widgets.append(label)
+        self.res_partial_ratio_label = QLabel("\u2014")
+        self.res_partial_ratio_label.setStyleSheet(
+            f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;"
+        )
+        grid.addWidget(self.res_partial_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
-        # APV component labels — right column (cols 3 & 4)
-        apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
-        apv_val_style  = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
-        self._res_partial_apv_labels = {}
-        for j, (apv_label, apv_key) in enumerate([
-            ("APV_FB:", "apv_fb"),
-            ("APV_FP:", "apv_fp"),
-            ("APV_FD:", "apv_fd"),
-        ]):
-            lbl = QLabel(apv_label)
-            lbl.setStyleSheet(apv_lbl_style)
-            partial_grid.addWidget(lbl, j, 3, Qt.AlignmentFlag.AlignRight)
-            val = QLabel("\u2014")
-            val.setStyleSheet(apv_val_style)
-            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            partial_grid.addWidget(val, j, 4, Qt.AlignmentFlag.AlignLeft)
-            self._res_partial_apv_labels[apv_key] = val
-            self._res_partial_static_widgets.append(lbl)
-
-        # "Not allowed" overlay label — shown when policy is at minimum face
+    def _add_partial_not_allowed_label(self, grid: QGridLayout) -> None:
         self._partial_not_allowed_label = QLabel(
             "MAX PARTIAL NOT ALLOWED\nPOLICY ALREADY AT MINIMUM FACE"
         )
@@ -964,47 +830,44 @@ class AssessmentPanel(QWidget):
         )
         self._partial_not_allowed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._partial_not_allowed_label.setVisible(False)
-        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 9, 5)
+        grid.addWidget(self._partial_not_allowed_label, 0, 0, 9, 5)
 
-        partial_grid.setColumnStretch(1, 2)
-        partial_grid.setColumnStretch(4, 2)
-        layout.addWidget(self.res_partial_group)
-
-        # ── Premium Impact ──────────────────────────────────────────────
+    def _build_premium_impact_group(self) -> QGroupBox:
         self.res_premium_group = QGroupBox("Premium Impact")
         self.res_premium_group.setStyleSheet(GROUP_BOX_STYLE)
         prem_grid = QGridLayout(self.res_premium_group)
         prem_grid.setContentsMargins(12, 16, 12, 8)
         prem_grid.setSpacing(4)
-
         self._prem_row_labels = []
-        for i, label_text in enumerate(["Premium Before:", "After (Full Accel):", "After (Max Partial):"]):
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {CRIMSON_DARK};")
-            prem_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
-            self._prem_row_labels.append(lbl)
+        for row, label_text in enumerate([
+            "Premium Before:", "After (Full Accel):", "After (Max Partial):"
+        ]):
+            label = QLabel(label_text)
+            label.setStyleSheet(
+                f"font-size: 12px; font-weight: bold; color: {CRIMSON_DARK};"
+            )
+            prem_grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignRight)
+            self._prem_row_labels.append(label)
+        self._add_premium_values(prem_grid)
+        prem_grid.setColumnStretch(3, 1)
+        return self.res_premium_group
 
+    def _add_premium_values(self, grid: QGridLayout) -> None:
         self.res_premium_before_label = QLabel("\u2014")
         self.res_premium_before_label.setStyleSheet(LABEL_MONEY_STYLE)
-        prem_grid.addWidget(self.res_premium_before_label, 0, 1)
-
+        grid.addWidget(self.res_premium_before_label, 0, 1)
         self.res_premium_after_full_label = QLabel("\u2014")
         self.res_premium_after_full_label.setStyleSheet(LABEL_MONEY_STYLE)
-        prem_grid.addWidget(self.res_premium_after_full_label, 1, 1)
-
-        # After (Partial): read-only label for non-UL, editable input for UL
+        grid.addWidget(self.res_premium_after_full_label, 1, 1)
         self.res_premium_after_partial_label = QLabel("\u2014")
         self.res_premium_after_partial_label.setStyleSheet(LABEL_MONEY_STYLE)
-        prem_grid.addWidget(self.res_premium_after_partial_label, 2, 1)
-
+        grid.addWidget(self.res_premium_after_partial_label, 2, 1)
         self.res_premium_after_partial_input = QLineEdit()
         self.res_premium_after_partial_input.setPlaceholderText("0.00")
         self.res_premium_after_partial_input.setStyleSheet(INPUT_STYLE)
         self.res_premium_after_partial_input.setFixedWidth(120)
         self.res_premium_after_partial_input.setVisible(False)
-        prem_grid.addWidget(self.res_premium_after_partial_input, 2, 1)
-
-        # 🔎 View premium calculation button next to After (Partial)
+        grid.addWidget(self.res_premium_after_partial_input, 2, 1)
         self._partial_prem_detail_btn = QPushButton("🔎")
         self._partial_prem_detail_btn.setFixedSize(22, 20)
         self._partial_prem_detail_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1016,22 +879,19 @@ class AssessmentPanel(QWidget):
         )
         self._partial_prem_detail_btn.clicked.connect(self._show_partial_premium_breakdown)
         self._partial_prem_detail_btn.setVisible(False)
-        prem_grid.addWidget(self._partial_prem_detail_btn, 2, 2)
+        grid.addWidget(self._partial_prem_detail_btn, 2, 2)
 
-        prem_grid.setColumnStretch(3, 1)
-        layout.addWidget(self.res_premium_group)
-
-        # ── Messages ────────────────────────────────────────────────────
+    def _add_result_messages(self, layout: QVBoxLayout) -> None:
         self.res_messages_label = QLabel("")
         self.res_messages_label.setWordWrap(True)
         self.res_messages_label.setStyleSheet(
             f"color: #C62828; font-size: 13px; font-weight: bold; padding: 4px;"
         )
         self.res_messages_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.res_messages_label.customContextMenuRequested.connect(self._show_messages_context_menu)
+        self.res_messages_label.customContextMenuRequested.connect(
+            self._show_messages_context_menu
+        )
         layout.addWidget(self.res_messages_label)
-
-        layout.addStretch()
 
     # ── Results helpers ─────────────────────────────────────────────────
 

@@ -341,22 +341,14 @@ class RawTableTab(QWidget):
 
     def _export_to_excel(self):
         """Export current table data (or the search matches) to a new Excel file."""
-        if self._search_result is not None:
-            frame = self.search_hits_frame()
-            cols = [] if "Table" not in frame.columns else list(frame.columns)
-            rows = [tuple(None if pd.isna(v) else v for v in r)
-                    for r in frame.itertuples(index=False)] if cols else []
-            transposed = False
-        else:
-            cols, rows, transposed = self._current_cols, self._current_rows, self._is_transposed
+        cols, rows, transposed = self._export_rows()
         if not cols or not rows:
             QMessageBox.information(self, "Export", "No data to export")
             return
 
         try:
             import openpyxl
-            from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
-            from openpyxl.utils import get_column_letter
+            from openpyxl.styles import Font, PatternFill, Border, Side
         except ImportError:
             QMessageBox.warning(
                 self, "Export",
@@ -379,37 +371,62 @@ class RawTableTab(QWidget):
             bottom=Side(style="thin"),
         )
 
-        # Write data based on current view mode
+        self._write_export_sheet(ws, cols, rows, transposed, header_font, header_fill, thin_border)
+        self._autofit_export_sheet(ws)
+        filepath = self._save_export_workbook(wb)
+        self._open_export_workbook(filepath)
+        self.status_message = f"Exported to {filepath}"
+
+    def _export_rows(self):
+        if self._search_result is None:
+            return self._current_cols, self._current_rows, self._is_transposed
+        frame = self.search_hits_frame()
+        cols = [] if "Table" not in frame.columns else list(frame.columns)
+        rows = [
+            tuple(None if pd.isna(value) else value for value in row)
+            for row in frame.itertuples(index=False)
+        ] if cols else []
+        return cols, rows, False
+
+    def _write_export_sheet(
+        self, ws, cols, rows, transposed: bool, header_font, header_fill, thin_border
+    ) -> None:
         if transposed:
-            ws.cell(row=1, column=1, value="Field").font = header_font
-            ws.cell(row=1, column=1).fill = header_fill
-            ws.cell(row=1, column=1).border = thin_border
+            self._write_transposed_export(ws, cols, rows, header_font, header_fill, thin_border)
+            return
+        self._write_normal_export(ws, cols, rows, header_font, header_fill, thin_border)
 
-            for col_idx in range(len(rows)):
-                cell = ws.cell(row=1, column=col_idx + 2, value=f"Row {col_idx + 1}")
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.border = thin_border
+    @staticmethod
+    def _write_transposed_export(ws, cols, rows, header_font, header_fill, thin_border) -> None:
+        ws.cell(row=1, column=1, value="Field").font = header_font
+        ws.cell(row=1, column=1).fill = header_fill
+        ws.cell(row=1, column=1).border = thin_border
+        for col_idx in range(len(rows)):
+            cell = ws.cell(row=1, column=col_idx + 2, value=f"Row {col_idx + 1}")
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+        for row_idx, field_name in enumerate(cols):
+            ws.cell(row=row_idx + 2, column=1, value=field_name).border = thin_border
+            for col_idx, row_data in enumerate(rows):
+                value = row_data[row_idx] if row_idx < len(row_data) else ""
+                ws.cell(row=row_idx + 2, column=col_idx + 2, value=value).border = thin_border
 
-            for row_idx, field_name in enumerate(cols):
-                ws.cell(row=row_idx + 2, column=1, value=field_name).border = thin_border
-                for col_idx, row_data in enumerate(rows):
-                    value = row_data[row_idx] if row_idx < len(row_data) else ""
-                    cell = ws.cell(row=row_idx + 2, column=col_idx + 2, value=value)
-                    cell.border = thin_border
-        else:
-            for col_idx, col_name in enumerate(cols):
-                cell = ws.cell(row=1, column=col_idx + 1, value=col_name)
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.border = thin_border
+    @staticmethod
+    def _write_normal_export(ws, cols, rows, header_font, header_fill, thin_border) -> None:
+        for col_idx, col_name in enumerate(cols):
+            cell = ws.cell(row=1, column=col_idx + 1, value=col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+        for row_idx, row_data in enumerate(rows):
+            for col_idx, value in enumerate(row_data):
+                ws.cell(row=row_idx + 2, column=col_idx + 1, value=value).border = thin_border
 
-            for row_idx, row_data in enumerate(rows):
-                for col_idx, value in enumerate(row_data):
-                    cell = ws.cell(row=row_idx + 2, column=col_idx + 1, value=value)
-                    cell.border = thin_border
+    @staticmethod
+    def _autofit_export_sheet(ws) -> None:
+        from openpyxl.utils import get_column_letter
 
-        # Auto-fit column widths
         for column_cells in ws.columns:
             max_length = 0
             column_letter = get_column_letter(column_cells[0].column)
@@ -422,24 +439,25 @@ class RawTableTab(QWidget):
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width
 
-        # Save to temp file and open
+    def _save_export_workbook(self, wb) -> str:
         import tempfile
         import os
-        import subprocess
 
         temp_dir = tempfile.gettempdir()
         filename = f"{self._current_table_name or 'Export'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         filepath = os.path.join(temp_dir, filename)
-
         wb.save(filepath)
+        return filepath
 
-        # Open in Excel
+    @staticmethod
+    def _open_export_workbook(filepath: str) -> None:
+        import os
+        import subprocess
+
         try:
             os.startfile(filepath)
         except Exception:
             subprocess.Popen(["start", filepath], shell=True)
-
-        self.status_message = f"Exported to {filepath}"
 
     # ── data loading ─────────────────────────────────────────────────────
 

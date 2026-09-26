@@ -123,16 +123,25 @@ def select_premium_row(rows: List[Dict[str, Any]], option: str, sex: str, ratecl
     if not by_sex:
         found = ", ".join(sorted({r["SEX"] for r in candidates}))
         return None, f"No WL_RATE_PREM premium for sex {sex or '(blank)'} (loaded: {found})"
-    matched = [r for r in by_sex if rateclass and r["RATECLASS"] == rateclass]
-    if not matched:
-        matched = [r for r in by_sex if r["RATECLASS"] == "0"]
+    matched = _premium_rateclass_matches(by_sex, rateclass)
     if not matched:
         found = ", ".join(sorted({r["RATECLASS"] for r in by_sex}))
         return None, f"No WL_RATE_PREM premium for rate class {rateclass or '(blank)'} (loaded: {found})"
-    if len(matched) > 1:
-        ids = ", ".join(f"{r['PREMIUM_IDENTIFIER']}@{r['SCALE_START']}" for r in matched)
-        return None, f"Ambiguous: {len(matched)} premium cells ({ids}); not selected"
-    return matched[0], ""
+    return _single_premium_row(matched)
+
+
+def _premium_rateclass_matches(rows: List[Dict[str, Any]], rateclass: str) -> List[Dict[str, Any]]:
+    matched = [row for row in rows if rateclass and row["RATECLASS"] == rateclass]
+    return matched or [row for row in rows if row["RATECLASS"] == "0"]
+
+
+def _single_premium_row(rows: List[Dict[str, Any]]):
+    if len(rows) == 1:
+        return rows[0], ""
+    if len(rows) > 1:
+        ids = ", ".join(f"{r['PREMIUM_IDENTIFIER']}@{r['SCALE_START']}" for r in rows)
+        return None, f"Ambiguous: {len(rows)} premium cells ({ids}); not selected"
+    return None, ""
 
 
 def _coverage_substandard(cov, as_of: date) -> str:
@@ -262,21 +271,18 @@ def build_premium_rate_matrix(policy: "PolicyInformation", cov_index: int) -> Li
     return _matrix(columns, metadata, body)
 
 
-def build_modal_premium_matrix(policy: "PolicyInformation") -> List[List]:
-    """Annual premium from IAF rates, mode factors, policy fee and POL_PRM_AMT."""
-    as_of = _as_of(policy)
-    plancode = policy.cov_plancode(1)
-    stored = policy.modal_premium
-    columns = ["RateFields", "RateInfo", "Line", "Item", "Units", "Rate", "Amount", "Note"]
-    body: List[list] = []
-    blockers: List[str] = []
-
+def _modal_policy_blockers(policy: "PolicyInformation") -> List[str]:
     status = policy.premium_pay_status_code.strip()
     if status in ("44", "45"):
-        blockers.append("Policy is on ETI/RPU: no fixed premium is billed")
-    items = premium_items(policy) if not blockers else []
+        return ["Policy is on ETI/RPU: no fixed premium is billed"]
+    return []
+
+
+def _modal_premium_rows(items: List[PremiumItem]) -> tuple[List[list], List[str], Decimal, List[str]]:
+    body: List[list] = []
+    blockers: List[str] = []
     annual = Decimal("0")
-    substandard = []
+    substandard: List[str] = []
     for item in items:
         if not item.active:
             body.append(["Premium", item.label, _cell(item.units), _cell(item.rate), "",
@@ -297,58 +303,95 @@ def build_modal_premium_matrix(policy: "PolicyInformation") -> List[List]:
                      f"{item.option} x units"])
     if items and not blockers:
         body.append(["Annual", "Annual premium", "", "", _money(annual), "Sum of active items"])
+    return body, blockers, annual, substandard
 
-    lookup = policy.rates_modal_factors()
-    factors = lookup["factors"]
+
+def _modal_lookup_blockers(plancode: str, lookup: Dict[str, Any]) -> List[str]:
     if lookup["index"] is None:
-        blockers.append(f"Not loaded: no POINT_MODEFACT pointer for plancode {plancode}")
-    elif factors is None:
-        blockers.append(f"Not loaded: mode premium table {lookup['index']} is not in RATE_MODEFACT")
+        return [f"Not loaded: no POINT_MODEFACT pointer for plancode {plancode}"]
+    if lookup["factors"] is None:
+        return [f"Not loaded: mode premium table {lookup['index']} is not in RATE_MODEFACT"]
+    return []
 
-    frequency, nsd, form = policy.billing_frequency, policy.non_standard_mode_code, policy.bill_form_code
-    mode = family = None
+
+def _modal_mode_and_family(policy: "PolicyInformation", blockers: List[str]):
+    frequency = policy.billing_frequency
+    nsd = policy.non_standard_mode_code
+    form = policy.bill_form_code
     try:
-        mode = billing_mode(frequency, nsd)
-        family = factor_family(form)
+        return billing_mode(frequency, nsd), factor_family(form), form
     except ModalPremiumError as exc:
         blockers.append(str(exc))
-    if factors is not None:
-        problems = unverified_rules(factors)
-        if problems:
-            blockers.append("Unverified mode premium rules: " + ", ".join(problems))
+        return None, None, form
 
-    result = None
-    if not blockers:
-        try:
-            result = calculate_modal_premium(annual, factors, form, mode)
-        except ModalPremiumError as exc:
-            blockers.append(str(exc))
-    if result is not None:
-        suffix = "" if mode == "A" else f"{mode}"
-        body.append(["Mode factor", f"{family}{suffix}" if suffix else "Annual (1.0)", "",
-                     result.factor, _money(result.premium),
-                     f"round({_money(annual)} x {result.factor}, 2)"])
-        body.append(["Policy fee", f"{family}{suffix}_FEE" if suffix else "Annual (1.0)", "",
-                     result.fee_factor, _money(result.fee),
-                     f"round({_money(result.policy_fee)} x {result.fee_factor}, 2)"])
-        body.append(["Modal", "Calculated modal premium", "", "", _money(result.total), ""])
-    else:
+
+def _append_modal_rule_blockers(factors: Optional[Dict[str, Any]], blockers: List[str]) -> None:
+    if factors is None:
+        return
+    problems = unverified_rules(factors)
+    if problems:
+        blockers.append("Unverified mode premium rules: " + ", ".join(problems))
+
+
+def _modal_result(annual: Decimal, factors, form: str, mode, blockers: List[str]):
+    if blockers:
+        return None
+    try:
+        return calculate_modal_premium(annual, factors, form, mode)
+    except ModalPremiumError as exc:
+        blockers.append(str(exc))
+        return None
+
+
+def _append_modal_rows(body: List[list], annual: Decimal, result, mode, family, blockers: List[str]) -> None:
+    if result is None:
         body.append(["Modal", "Calculated modal premium", "", "", "Not calculated",
                      "; ".join(blockers)])
-    body.append(["Stored", "LH_BAS_POL.POL_PRM_AMT", "", "", _money(stored), ""])
-    if result is not None and stored is not None:
-        difference = stored - result.total
-        note = "Match" if difference == 0 else "Differs"
-        if substandard:
-            note += "; substandard not included (" + ", ".join(substandard) + ")"
-        body.append(["Difference", "Stored - calculated", "", "", _money(difference), note])
+        return
+    suffix = "" if mode == "A" else f"{mode}"
+    body.append(["Mode factor", f"{family}{suffix}" if suffix else "Annual (1.0)", "",
+                 result.factor, _money(result.premium),
+                 f"round({_money(annual)} x {result.factor}, 2)"])
+    body.append(["Policy fee", f"{family}{suffix}_FEE" if suffix else "Annual (1.0)", "",
+                 result.fee_factor, _money(result.fee),
+                 f"round({_money(result.policy_fee)} x {result.fee_factor}, 2)"])
+    body.append(["Modal", "Calculated modal premium", "", "", _money(result.total), ""])
 
-    mode_text = (f"{MODE_LABELS[mode]} (PMT_FQY_PER {frequency}"
-                 + (f", NSD_MD_CD {nsd}: monthly premium" if nsd.strip() else "") + ")"
-                 if mode else f"PMT_FQY_PER {frequency}")
+
+def _append_modal_difference(
+    body: List[list],
+    stored: Optional[Decimal],
+    result,
+    substandard: List[str],
+) -> None:
+    body.append(["Stored", "LH_BAS_POL.POL_PRM_AMT", "", "", _money(stored), ""])
+    if result is None or stored is None:
+        return
+    difference = stored - result.total
+    note = "Match" if difference == 0 else "Differs"
+    if substandard:
+        note += "; substandard not included (" + ", ".join(substandard) + ")"
+    body.append(["Difference", "Stored - calculated", "", "", _money(difference), note])
+
+
+def _mode_text(mode, frequency, nsd: str) -> str:
+    if not mode:
+        return f"PMT_FQY_PER {frequency}"
+    nsd = nsd or ""
+    return (
+        f"{MODE_LABELS[mode]} (PMT_FQY_PER {frequency}"
+        + (f", NSD_MD_CD {nsd}: monthly premium" if nsd.strip() else "")
+        + ")"
+    )
+
+
+def _modal_metadata(policy: "PolicyInformation", plancode: str, as_of: date,
+                    mode, lookup: Dict[str, Any]) -> List[tuple]:
+    factors = lookup["factors"]
     metadata = [
         ("Policy", policy.policy_number), ("Plancode", plancode), ("As of", _cell(as_of)),
-        ("Mode", mode_text), ("Bill Form", describe_bill_form(form)),
+        ("Mode", _mode_text(mode, policy.billing_frequency, policy.non_standard_mode_code)),
+        ("Bill Form", describe_bill_form(policy.bill_form_code)),
         ("Rate User", f"{policy.cyberlife_rate_user_code} (company {policy.company_code})"),
         ("Premiums", "WL_RATE_PREM (N)"),
         ("Factors", lookup["index"] or "No POINT_MODEFACT pointer"),
@@ -374,4 +417,27 @@ def build_modal_premium_matrix(policy: "PolicyInformation") -> List[List]:
             ("PAC tables", f"factor {factors['PAC_FACTOR_TABLE']}, fee {factors['PAC_FEE_FACTOR_TABLE']}"),
             ("Rules table", factors["RULES_TABLE"]), ("Factor source", factors["FACTOR_SOURCE"]),
         ]
+    return metadata
+
+
+def build_modal_premium_matrix(policy: "PolicyInformation") -> List[List]:
+    """Annual premium from IAF rates, mode factors, policy fee and POL_PRM_AMT."""
+    as_of = _as_of(policy)
+    plancode = policy.cov_plancode(1)
+    stored = policy.modal_premium
+    columns = ["RateFields", "RateInfo", "Line", "Item", "Units", "Rate", "Amount", "Note"]
+    blockers = _modal_policy_blockers(policy)
+    items = premium_items(policy) if not blockers else []
+    body, premium_blockers, annual, substandard = _modal_premium_rows(items)
+    blockers.extend(premium_blockers)
+
+    lookup = policy.rates_modal_factors()
+    factors = lookup["factors"]
+    blockers.extend(_modal_lookup_blockers(plancode, lookup))
+    mode, family, form = _modal_mode_and_family(policy, blockers)
+    _append_modal_rule_blockers(factors, blockers)
+    result = _modal_result(annual, factors, form, mode, blockers)
+    _append_modal_rows(body, annual, result, mode, family, blockers)
+    _append_modal_difference(body, stored, result, substandard)
+    metadata = _modal_metadata(policy, plancode, as_of, mode, lookup)
     return _matrix(columns, metadata, body)

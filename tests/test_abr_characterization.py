@@ -656,11 +656,13 @@ def test_calc_viewer_export_workbook_characterization(tmp_path, monkeypatch):
     workbook.close()
 
 
-def test_explanation_document_text_characterization(policy):
+def test_explanation_document_text_characterization(policy, tmp_path):
     from suiteview.abrquote.core.abr_explanation import (
         build_explanation,
+        explanation_to_docx,
         explanation_to_html,
     )
+    from docx import Document
 
     policy.insured_name = "Jane Example"
     result = _workbook_result()
@@ -668,6 +670,15 @@ def test_explanation_document_text_characterization(policy):
 
     doc = build_explanation(policy, result, assessment)
     html = explanation_to_html(doc)
+    docx_path = tmp_path / "explanation.docx"
+    explanation_to_docx(doc, str(docx_path))
+    word_doc = Document(str(docx_path))
+    paragraph_text = [paragraph.text for paragraph in word_doc.paragraphs]
+    for table in word_doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                paragraph_text.extend(paragraph.text for paragraph in cell.paragraphs)
+    docx_text = "\n".join(paragraph_text)
 
     assert doc.title == "How Your Accelerated Benefit Was Determined"
     assert doc.letterhead[0] == "AMERICAN NATIONAL INSURANCE COMPANY"
@@ -678,6 +689,12 @@ def test_explanation_document_text_characterization(policy):
     ]
     assert "chance of death is 500 per 1,000 (50%)" in html
     assert "$98,314.98" in html
+    assert sha256(html.encode("utf-8")).hexdigest() == (
+        "e28f3ea8793c02f6d3d886196bd7d1c48a946530ac26a1d4fa9aaceca77cc0f2"
+    )
+    assert sha256(docx_text.encode("utf-8")).hexdigest() == (
+        "5e5f4524fad674fa1a03ed406a3273904456f004af6117e105e7f4987761aae7"
+    )
 
 
 def test_email_summary_renderer_characterization():

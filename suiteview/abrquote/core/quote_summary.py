@@ -53,6 +53,79 @@ def _substandard_text(assessment: MedicalAssessment) -> str:
     return "  |  ".join(sub_parts) if sub_parts else "None"
 
 
+def _policy_section(
+    policy: ABRPolicyData | None,
+    result: ABRQuoteResult | None,
+    assessment: MedicalAssessment | None,
+) -> tuple[str, list[tuple[str, str]]] | None:
+    pairs: list[tuple[str, str]] = []
+    if result:
+        pairs.append((
+            "Quote Date:",
+            result.quote_date.strftime("%m/%d/%Y") if result.quote_date else "—",
+        ))
+    if policy:
+        pairs.append(("Policy Number:", policy.policy_number))
+    if result:
+        pairs.append((
+            "Product:",
+            result.plan_description or (policy.plan_code if policy else "—"),
+        ))
+    if assessment:
+        pairs.append(("Acceleration:", assessment.rider_type))
+    return ("Policy", pairs) if pairs else None
+
+
+def _coverage_section(policy: ABRPolicyData | None) -> tuple[str, list[tuple[str, str]]] | None:
+    if not policy:
+        return None
+    return ("Coverage", [
+        ("Issue Age:", str(policy.issue_age)),
+        ("Issue Date:", policy.issue_date.strftime("%m/%d/%Y") if policy.issue_date else "—"),
+        ("Time in Force:", _time_in_force(policy)),
+    ])
+
+
+def _assessment_section(
+    policy: ABRPolicyData | None,
+    assessment: MedicalAssessment | None,
+) -> tuple[str, list[tuple[str, str]]] | None:
+    pairs: list[tuple[str, str]] = []
+    if policy:
+        pairs.append(("Attained Age:", str(policy.attained_age)))
+    if assessment:
+        pairs.extend([
+            ("5 Yr. Survival Rate:", f"{assessment.computed_survival_5yr * 100:.1f}%"),
+            ("10 Yr. Survival Rate:", f"{assessment.computed_survival_10yr * 100:.1f}%"),
+            ("Life Expectancy in Years:", f"{assessment.computed_le:.1f}"),
+            ("Substandard to achieve mortality:", _substandard_text(assessment)),
+        ])
+    return ("Assessment", pairs) if pairs else None
+
+
+def _result_section(
+    policy: ABRPolicyData | None,
+    result: ABRQuoteResult | None,
+) -> tuple[str, list[tuple[str, str]]] | None:
+    pairs: list[tuple[str, str]] = []
+    if result:
+        full_benefit = max(result.full_accel_benefit, 0)
+        full_ratio = result.full_benefit_ratio if result.full_accel_benefit >= 0 else 0.0
+        pairs.append(("Calculated Benefit:", fmt_money(full_benefit)))
+        pairs.append(("Benefit Ratio (Accl Ben/Full DB):", f"{full_ratio * 100:.2f}%"))
+        if result.full_surrender_value > 0:
+            pairs.append(("Surrender Value:", fmt_money(result.full_surrender_value)))
+            pairs.append(("Accelerated Benefit:", fmt_money(result.full_accelerated_benefit)))
+    pairs.append(("Reinsurers:", policy.reinsurers if policy and policy.reinsurers else "(none)"))
+    return ("Result", pairs) if pairs else None
+
+
+def _warnings_section(result: ABRQuoteResult | None) -> tuple[str, list[tuple[str, str]]] | None:
+    if result and result.messages:
+        return ("Warnings", [("", f"• {msg}") for msg in result.messages])
+    return None
+
+
 def build_summary_sections(
     policy: ABRPolicyData | None,
     result: ABRQuoteResult | None,
@@ -60,56 +133,15 @@ def build_summary_sections(
 ) -> list[tuple[str, list[tuple[str, str]]]]:
     """Collect label/value pairs grouped by titled summary section."""
     sections: list[tuple[str, list[tuple[str, str]]]] = []
-    sec1: list[tuple[str, str]] = []
-    if result:
-        sec1.append((
-            "Quote Date:",
-            result.quote_date.strftime("%m/%d/%Y") if result.quote_date else "—",
-        ))
-    if policy:
-        sec1.append(("Policy Number:", policy.policy_number))
-    if result:
-        sec1.append(("Product:", result.plan_description or (policy.plan_code if policy else "—")))
-    if assessment:
-        sec1.append(("Acceleration:", assessment.rider_type))
-    if sec1:
-        sections.append(("Policy", sec1))
-
-    if policy:
-        sections.append(("Coverage", [
-            ("Issue Age:", str(policy.issue_age)),
-            ("Issue Date:", policy.issue_date.strftime("%m/%d/%Y") if policy.issue_date else "—"),
-            ("Time in Force:", _time_in_force(policy)),
-        ]))
-
-    sec3: list[tuple[str, str]] = []
-    if policy:
-        sec3.append(("Attained Age:", str(policy.attained_age)))
-    if assessment:
-        sec3.extend([
-            ("5 Yr. Survival Rate:", f"{assessment.computed_survival_5yr * 100:.1f}%"),
-            ("10 Yr. Survival Rate:", f"{assessment.computed_survival_10yr * 100:.1f}%"),
-            ("Life Expectancy in Years:", f"{assessment.computed_le:.1f}"),
-            ("Substandard to achieve mortality:", _substandard_text(assessment)),
-        ])
-    if sec3:
-        sections.append(("Assessment", sec3))
-
-    sec4: list[tuple[str, str]] = []
-    if result:
-        full_benefit = max(result.full_accel_benefit, 0)
-        full_ratio = result.full_benefit_ratio if result.full_accel_benefit >= 0 else 0.0
-        sec4.append(("Calculated Benefit:", fmt_money(full_benefit)))
-        sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{full_ratio * 100:.2f}%"))
-        if result.full_surrender_value > 0:
-            sec4.append(("Surrender Value:", fmt_money(result.full_surrender_value)))
-            sec4.append(("Accelerated Benefit:", fmt_money(result.full_accelerated_benefit)))
-    sec4.append(("Reinsurers:", policy.reinsurers if policy and policy.reinsurers else "(none)"))
-    if sec4:
-        sections.append(("Result", sec4))
-
-    if result and result.messages:
-        sections.append(("Warnings", [("", f"• {msg}") for msg in result.messages]))
+    for section in (
+        _policy_section(policy, result, assessment),
+        _coverage_section(policy),
+        _assessment_section(policy, assessment),
+        _result_section(policy, result),
+        _warnings_section(result),
+    ):
+        if section:
+            sections.append(section)
     return sections
 
 

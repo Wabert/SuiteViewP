@@ -362,90 +362,126 @@ class CoveragesTab(QWidget):
             return
 
         is_ul_product = policy.product_line_code == "U"
-
-        columns = ["Phs", "Form", "COLA", "GIO", "Plancode", "IssueDate", "Mat Date", "Amount"]
-        if is_ul_product:
-            columns.append("Orig Amt")
-        columns.extend(["IssAge", "Gender", "Class", "Tbl", "Tbl Cease Date", "Flat", "Flat Cease", "Status", "CeaseDate", "Rate", "AttAge", "PRS", "LIV", "VPU"])
-
+        columns = self._coverage_columns(is_ul_product)
         self.cov_table.setColumnCount(len(columns))
         self.cov_table.setHorizontalHeaderLabels(columns)
-        # Right-align all headers
         for c in range(len(columns)):
             h = self.cov_table._data_table.horizontalHeaderItem(c)
             if h:
                 h.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.cov_table.setRowCount(len(coverages))
 
-        # Pre-compute values for per-coverage attained age (VBA formula):
-        # AA = CovIssueAge(x) + CompletedDateParts("YYYY", CovIssueDate(1), ValuationDate)
-        #      - CompletedDateParts("YYYY", CovIssueDate(1), CovIssueDate(x))
         base_issue_date = coverages[0].issue_date if coverages else None
         val_date = policy.valuation_date
-        # Completed years from base issue date to valuation date
         years_base_to_val = 0
         if base_issue_date and val_date:
             years_base_to_val = policy._completed_date_parts_years(base_issue_date, val_date)
 
         for row_idx, cov in enumerate(coverages):
-            col = 0
-            self._set_item(row_idx, col, cov.cov_pha_nbr); col += 1
-            self._set_item(row_idx, col, getattr(cov, 'form_number', "")); col += 1
-            self._set_item(row_idx, col, "COLA" if getattr(cov, 'cola_indicator', '') == "1" else ""); col += 1
-            self._set_item(row_idx, col, "GIO" if getattr(cov, 'gio_indicator', '') == "Y" else ""); col += 1
-            self._set_item(row_idx, col, cov.plancode); col += 1
-            self._set_item(row_idx, col, format_date(cov.issue_date)); col += 1
-            self._set_item(row_idx, col, format_date(getattr(cov, 'maturity_date', None))); col += 1
-            self._set_item(row_idx, col, format_amount(cov.face_amount)); col += 1
-            if is_ul_product:
-                self._set_item(row_idx, col, format_amount(getattr(cov, 'orig_amount', None))); col += 1
-            self._set_item(row_idx, col, cov.issue_age if cov.issue_age is not None else ""); col += 1
-            self._set_item(row_idx, col, (cov.sex_desc[:1] if cov.sex_desc else cov.sex_code)); col += 1
-            # Rate class: prefer renewal rate record, fall back to LH_COV_PHA
-            rate_class = cov.rate_class
-            if not rate_class:
-                rnl_idx = policy.cov_renewal_index(cov.cov_pha_nbr, "C", "0")
-                if rnl_idx >= 0:
-                    rate_class = policy.renewal_cov_rateclass(rnl_idx)
-            self._set_item(row_idx, col, rate_class); col += 1
-            tbl = getattr(cov, 'table_rating', None)
-            self._set_item(row_idx, col, tbl if tbl and tbl != 0 else ""); col += 1
-            self._set_item(row_idx, col, format_date(getattr(cov, 'table_cease_date', None)) if tbl and tbl != 0 else ""); col += 1
-            flat = getattr(cov, 'flat_extra', None)
-            self._set_item(row_idx, col, format_amount(flat)); col += 1
-            self._set_item(row_idx, col, format_date(getattr(cov, 'flat_cease_date', None)) if flat else ""); col += 1
-            # Status, CeaseDate, Rate
-            status = getattr(cov, 'nxt_chg_typ_cd', '') or getattr(cov, 'cov_status', '')
-            self._set_item(row_idx, col, _COVERAGE_STATUS_TEXT.get(str(status).strip(), status))
-            status_item = self.cov_table.item(row_idx, col)
-            if status_item is not None:
-                status_item.setToolTip(f"Next change type {status} (LH_COV_PHA.NXT_CHG_TYP_CD)")
-                if str(status).strip() == "0":
-                    status_item.setForeground(QColor("#B71C1C"))
-            col += 1
-            self._set_item(row_idx, col, format_date(getattr(cov, 'nxt_chg_dt', None)) if status == "0" else ""); col += 1
-            # Rate: cov.rate picks the right value automatically:
-            #   Advanced products → coi_rate  (from LH_COV_INS_RNL_RT.RNL_RT)
-            #   Traditional products → premium_rate (from LH_COV_PHA.ANN_PRM_UNT_AMT)
-            rate_val = cov.rate
-            self._set_item(row_idx, col, str(rate_val) if rate_val is not None else ""); col += 1
-            # Per-coverage attained age (AA)
-            if val_date and base_issue_date and cov.issue_age is not None:
-                # Completed years from base issue date to this coverage's issue date
-                years_base_to_cov = 0
-                if cov.issue_date and base_issue_date:
-                    years_base_to_cov = policy._completed_date_parts_years(base_issue_date, cov.issue_date)
-                att_age = cov.issue_age + years_base_to_val - years_base_to_cov
-                self._set_item(row_idx, col, att_age)
-            else:
-                self._set_item(row_idx, col, "")
-            col += 1
-            # PRS, LIV, VPU
-            self._set_item(row_idx, col, getattr(cov, 'person_code', "")); col += 1
-            self._set_item(row_idx, col, getattr(cov, 'lives_cov_cd', "")); col += 1
-            self._set_item(row_idx, col, self._format_vpu(cov.vpu))
+            self._populate_coverage_row(
+                row_idx, cov, policy, is_ul_product,
+                base_issue_date, val_date, years_base_to_val,
+            )
 
         self.cov_table.autoFitAllColumns()
+
+    @staticmethod
+    def _coverage_columns(is_ul_product: bool) -> list[str]:
+        columns = ["Phs", "Form", "COLA", "GIO", "Plancode", "IssueDate", "Mat Date", "Amount"]
+        if is_ul_product:
+            columns.append("Orig Amt")
+        columns.extend([
+            "IssAge", "Gender", "Class", "Tbl", "Tbl Cease Date", "Flat",
+            "Flat Cease", "Status", "CeaseDate", "Rate", "AttAge", "PRS", "LIV", "VPU",
+        ])
+        return columns
+
+    def _coverage_rate_class(self, policy, cov) -> str:
+        rate_class = cov.rate_class
+        if not rate_class:
+            rnl_idx = policy.cov_renewal_index(cov.cov_pha_nbr, "C", "0")
+            if rnl_idx >= 0:
+                rate_class = policy.renewal_cov_rateclass(rnl_idx)
+        return rate_class
+
+    def _coverage_attained_age(
+        self, policy, cov, base_issue_date, val_date, years_base_to_val: int
+    ):
+        if not (val_date and base_issue_date and cov.issue_age is not None):
+            return ""
+        years_base_to_cov = 0
+        if cov.issue_date and base_issue_date:
+            years_base_to_cov = policy._completed_date_parts_years(base_issue_date, cov.issue_date)
+        return cov.issue_age + years_base_to_val - years_base_to_cov
+
+    def _set_coverage_status_item(self, row_idx: int, col: int, status) -> None:
+        self._set_item(row_idx, col, _COVERAGE_STATUS_TEXT.get(str(status).strip(), status))
+        status_item = self.cov_table.item(row_idx, col)
+        if status_item is not None:
+            status_item.setToolTip(f"Next change type {status} (LH_COV_PHA.NXT_CHG_TYP_CD)")
+            if str(status).strip() == "0":
+                status_item.setForeground(QColor("#B71C1C"))
+
+    def _populate_coverage_row(
+        self,
+        row_idx: int,
+        cov,
+        policy,
+        is_ul_product: bool,
+        base_issue_date,
+        val_date,
+        years_base_to_val: int,
+    ) -> None:
+        values = [
+            cov.cov_pha_nbr,
+            getattr(cov, 'form_number', ""),
+            "COLA" if getattr(cov, 'cola_indicator', '') == "1" else "",
+            "GIO" if getattr(cov, 'gio_indicator', '') == "Y" else "",
+            cov.plancode,
+            format_date(cov.issue_date),
+            format_date(getattr(cov, 'maturity_date', None)),
+            format_amount(cov.face_amount),
+        ]
+        if is_ul_product:
+            values.append(format_amount(getattr(cov, 'orig_amount', None)))
+        values.extend([
+            cov.issue_age if cov.issue_age is not None else "",
+            cov.sex_desc[:1] if cov.sex_desc else cov.sex_code,
+            self._coverage_rate_class(policy, cov),
+        ])
+        tbl = getattr(cov, 'table_rating', None)
+        flat = getattr(cov, 'flat_extra', None)
+        values.extend([
+            tbl if tbl and tbl != 0 else "",
+            format_date(getattr(cov, 'table_cease_date', None)) if tbl and tbl != 0 else "",
+            format_amount(flat),
+            format_date(getattr(cov, 'flat_cease_date', None)) if flat else "",
+        ])
+        for col, value in enumerate(values):
+            self._set_item(row_idx, col, value)
+        col = len(values)
+        status = getattr(cov, 'nxt_chg_typ_cd', '') or getattr(cov, 'cov_status', '')
+        self._set_coverage_status_item(row_idx, col, status)
+        col += 1
+        self._set_item(
+            row_idx,
+            col,
+            format_date(getattr(cov, 'nxt_chg_dt', None)) if status == "0" else "",
+        )
+        col += 1
+        rate_val = cov.rate
+        self._set_item(row_idx, col, str(rate_val) if rate_val is not None else "")
+        col += 1
+        self._set_item(
+            row_idx, col,
+            self._coverage_attained_age(policy, cov, base_issue_date, val_date, years_base_to_val),
+        )
+        col += 1
+        self._set_item(row_idx, col, getattr(cov, 'person_code', ""))
+        col += 1
+        self._set_item(row_idx, col, getattr(cov, 'lives_cov_cd', ""))
+        col += 1
+        self._set_item(row_idx, col, self._format_vpu(cov.vpu))
 
     def _populate_benefits_from_policy(self, benefits: list):
         columns = ["Code", "Name", "Phs", "Type", "Form", "IssueDate", "PayUpDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate", "RenewRate"]

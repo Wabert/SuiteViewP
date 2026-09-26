@@ -1543,8 +1543,7 @@ class PolicySupportTab(QWidget):
 
     def _build_glp_quote_workbook(self):
         import openpyxl
-        from openpyxl.styles import Alignment, Font, PatternFill
-        from openpyxl.utils import get_column_letter
+        from openpyxl.styles import Font, PatternFill
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -1556,32 +1555,8 @@ class PolicySupportTab(QWidget):
         header_font = Font(bold=True, color="006100")
         bold_font = Font(bold=True)
 
-        policy_text = ""
-        if self._policy:
-            policy_text = " - ".join(
-                part for part in (
-                    str(getattr(self._policy, "region", "") or "").strip(),
-                    str(getattr(self._policy, "company_code", "") or "").strip(),
-                    str(getattr(self._policy, "policy_number", "") or "").strip(),
-                ) if part
-            )
-
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
-        title_cell = ws.cell(row=1, column=1, value=f"GLP Exception Quote{f' - {policy_text}' if policy_text else ''}")
-        title_cell.fill = title_fill
-        title_cell.font = title_font
-        title_cell.alignment = Alignment(horizontal="center")
-
-        ws.cell(row=3, column=1, value="Target Inforce Date").font = bold_font
-        ws.cell(row=3, column=2, value=self._glp_target_date.text().strip())
-        ws.cell(row=4, column=1, value="Forecast Status").font = bold_font
-        ws.cell(row=4, column=2, value=self._glp_forecast_status_label.text())
-
-        row_num = 6
-        ws.cell(row=row_num, column=1, value="Calculation Summary").fill = header_fill
-        ws.cell(row=row_num, column=1).font = header_font
-        ws.cell(row=row_num, column=2).fill = header_fill
-        row_num += 1
+        self._write_glp_workbook_header(ws, title_fill, title_font, bold_font)
+        row_num = self._write_glp_summary_header(ws, header_fill, header_font)
         result = getattr(self, "_glp_result", None)
         s = (
             result.zero_glp.summary
@@ -1591,83 +1566,141 @@ class PolicySupportTab(QWidget):
         summary_values = (
             self._glp_summary_values(result) if s is not None else None
         )
+        row_num = self._write_glp_scenario_summary(
+            ws, row_num, result, summary_values, target_text, s is not None, bold_font)
+        if summary_values is not None:
+            row_num = self._write_glp_adjustment_summary(
+                ws, row_num, result, summary_values, bold_font)
+
+        row_num += 2
+        self._write_glp_workbook_forecast_tables(ws, row_num, header_fill, header_font)
+        self._autofit_glp_quote_columns(ws)
+        return wb
+
+    def _write_glp_workbook_header(self, ws, title_fill, title_font, bold_font):
+        from openpyxl.styles import Alignment
+
+        policy_text = ""
+        if self._policy:
+            policy_text = " - ".join(
+                part for part in (
+                    str(getattr(self._policy, "region", "") or "").strip(),
+                    str(getattr(self._policy, "company_code", "") or "").strip(),
+                    str(getattr(self._policy, "policy_number", "") or "").strip(),
+                ) if part
+            )
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
+        title = f"GLP Exception Quote{f' - {policy_text}' if policy_text else ''}"
+        title_cell = ws.cell(row=1, column=1, value=title)
+        title_cell.fill = title_fill
+        title_cell.font = title_font
+        title_cell.alignment = Alignment(horizontal="center")
+        ws.cell(row=3, column=1, value="Target Inforce Date").font = bold_font
+        ws.cell(row=3, column=2, value=self._glp_target_date.text().strip())
+        ws.cell(row=4, column=1, value="Forecast Status").font = bold_font
+        ws.cell(row=4, column=2, value=self._glp_forecast_status_label.text())
+
+    @staticmethod
+    def _write_glp_summary_header(ws, header_fill, header_font) -> int:
+        row_num = 6
+        ws.cell(row=row_num, column=1, value="Calculation Summary").fill = header_fill
+        ws.cell(row=row_num, column=1).font = header_font
+        ws.cell(row=row_num, column=2).fill = header_fill
+        return row_num + 1
+
+    def _write_glp_scenario_summary(
+        self, ws, row_num: int, result, summary_values, target_text: str,
+        exception_required: bool, bold_font,
+    ) -> int:
         header_target = summary_values["target_text"] if summary_values else target_text
         ws.cell(
             row=row_num, column=1,
             value=(
                 f"EXCEPTION PREMIUM REQUIRED FOR {header_target}"
-                if s is not None
+                if exception_required
                 else f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
                      "DO NOT ADJUST THE ACCUM GLP."
             )).font = bold_font
         row_num += 1
-        if result is not None:
-            for label, scenario in (
-                ("Min Prem To Target", result),
-                ("Min Prem To Target (GLP=0)", result.zero_glp),
-                ("Min Prem to Target (no forceout)", result.no_forceout),
-            ):
-                ws.cell(row=row_num, column=1, value=label).font = bold_font
-                ws.cell(row=row_num, column=2,
-                        value=f"${scenario.premium:,.2f} ({scenario.premium_mode}) ongoing")
-                row_num += 1
-                if scenario.lump_sum > 0:
-                    ws.cell(row=row_num, column=1, value="Lump sum needed").font = bold_font
-                    ws.cell(row=row_num, column=2, value=(
-                        f"${scenario.lump_sum:,.2f} once on "
-                        f"{scenario.lump_sum_date:%m/%d/%Y}; in addition to ongoing premium"))
-                    row_num += 1
-            ws.cell(row=row_num, column=1, value="Exception Premium Status").font = bold_font
-            ws.cell(
-                row=row_num,
-                column=2,
-                value=(
-                    result.exception_start.strftime("%m/%d/%Y")
-                    if result.exception_start is not None
-                    else "Not before target date"
-                ),
-            )
-            row_num += 1
-        if summary_values is not None:
-            summary_rows = [
-                ("Accum GLP Increase", f"{summary_values['adjustment']:,.2f}"),
-                ("New Accum GLP", f"{summary_values['new_accum']:,.2f}"),
-            ]
-            if summary_values["glp_not_zero"]:
-                summary_rows.append(("New GLP", "0"))
-            summary_rows.append((
-                f"Premium to get to {summary_values['target_text']}",
-                f"{summary_values['premium_to_target']:,.2f}",
-            ))
-            for label, value in summary_rows:
-                ws.cell(row=row_num, column=1, value=label).font = bold_font
-                ws.cell(row=row_num, column=2, value=value).font = bold_font
-                row_num += 1
-            note_cell = ws.cell(
-                row=row_num, column=1,
-                value=self._glp_segment_note_text(
-                    summary_values["new_accum"],
-                    summary_values["current_accum"],
-                    result.current_glp,
-                ))
-            note_cell.font = bold_font
-            row_num += 1
+        if result is None:
+            return row_num
+        for label, scenario in (
+            ("Min Prem To Target", result),
+            ("Min Prem To Target (GLP=0)", result.zero_glp),
+            ("Min Prem to Target (no forceout)", result.no_forceout),
+        ):
+            row_num = self._write_glp_scenario_row(ws, row_num, label, scenario, bold_font)
+        ws.cell(row=row_num, column=1, value="Exception Premium Status").font = bold_font
+        ws.cell(
+            row=row_num,
+            column=2,
+            value=(
+                result.exception_start.strftime("%m/%d/%Y")
+                if result.exception_start is not None
+                else "Not before target date"
+            ),
+        )
+        return row_num + 1
 
-        row_num += 2
+    @staticmethod
+    def _write_glp_scenario_row(ws, row_num: int, label: str, scenario, bold_font) -> int:
+        ws.cell(row=row_num, column=1, value=label).font = bold_font
+        ws.cell(row=row_num, column=2,
+                value=f"${scenario.premium:,.2f} ({scenario.premium_mode}) ongoing")
+        row_num += 1
+        if scenario.lump_sum > 0:
+            ws.cell(row=row_num, column=1, value="Lump sum needed").font = bold_font
+            ws.cell(row=row_num, column=2, value=(
+                f"${scenario.lump_sum:,.2f} once on "
+                f"{scenario.lump_sum_date:%m/%d/%Y}; in addition to ongoing premium"))
+            row_num += 1
+        return row_num
+
+    def _write_glp_adjustment_summary(self, ws, row_num: int, result, summary_values, bold_font) -> int:
+        summary_rows = [
+            ("Accum GLP Increase", f"{summary_values['adjustment']:,.2f}"),
+            ("New Accum GLP", f"{summary_values['new_accum']:,.2f}"),
+        ]
+        if summary_values["glp_not_zero"]:
+            summary_rows.append(("New GLP", "0"))
+        summary_rows.append((
+            f"Premium to get to {summary_values['target_text']}",
+            f"{summary_values['premium_to_target']:,.2f}",
+        ))
+        for label, value in summary_rows:
+            ws.cell(row=row_num, column=1, value=label).font = bold_font
+            ws.cell(row=row_num, column=2, value=value).font = bold_font
+            row_num += 1
+        note_cell = ws.cell(
+            row=row_num, column=1,
+            value=self._glp_segment_note_text(
+                summary_values["new_accum"],
+                summary_values["current_accum"],
+                result.current_glp,
+            ))
+        note_cell.font = bold_font
+        return row_num + 1
+
+    def _write_glp_workbook_forecast_tables(self, ws, row_num: int, header_fill, header_font) -> None:
         row_num = self._write_glp_forecast_sheet(
             ws, self._glp_target_table, "Monthly Forecast \u2014 Min Prem To Target",
             row_num, header_fill, header_font)
         if self._glp_zero_glp_table.rowCount() > 0:
             row_num += 1
             row_num = self._write_glp_forecast_sheet(
-                ws, self._glp_zero_glp_table, "Monthly Forecast \u2014 Min Prem To Target (GLP=0)",
+                ws, self._glp_zero_glp_table,
+                "Monthly Forecast \u2014 Min Prem To Target (GLP=0)",
                 row_num, header_fill, header_font)
         if self._glp_no_forceout_table.rowCount() > 0:
             row_num += 1
-            row_num = self._write_glp_forecast_sheet(
+            self._write_glp_forecast_sheet(
                 ws, self._glp_no_forceout_table,
                 "Monthly Forecast \u2014 Min Prem to Target (no forceout)",
                 row_num, header_fill, header_font)
+
+    @staticmethod
+    def _autofit_glp_quote_columns(ws) -> None:
+        from openpyxl.utils import get_column_letter
 
         for col_index in range(1, ws.max_column + 1):
             max_length = max(
@@ -1675,8 +1708,6 @@ class PolicySupportTab(QWidget):
                 for row_index in range(1, ws.max_row + 1)
             )
             ws.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 55)
-
-        return wb
 
     def _write_glp_forecast_sheet(self, ws, table, title, row_num, header_fill, header_font):
         """Write one labelled forecast table into the GLP quote worksheet."""
