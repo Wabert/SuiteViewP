@@ -1,26 +1,37 @@
 """Purple and gold UI styling for the Illustration app."""
 
-PURPLE_DARK = "#2A1458"
-PURPLE_RICH = "#4B2383"
-PURPLE_PRIMARY = "#5E35A5"
-PURPLE_LIGHT = "#7E57C2"
-PURPLE_BG = "#EDE7F6"
-PURPLE_SUBTLE = "#F6F1FB"
-ISSUE_BLUE_DARK = "#315F7D"
-ISSUE_BLUE_PRIMARY = "#6F9FBE"
-ISSUE_BLUE_LIGHT = "#A9C9DD"
-ISSUE_BLUE_BG = "#EAF4FA"
-GOLD_PRIMARY = "#D4A017"
-GOLD_TEXT = "#FFD54F"
-WHITE = "#FFFFFF"
-GRAY_DARK = "#2D3748"
+from suiteview.ui import tokens
+
+_ILLUSTRATION_STYLE = tokens.ILLUSTRATION_STYLE
+
+PURPLE_DARK = tokens.ILLUSTRATION.primary_dark
+PURPLE_RICH = tokens.ILLUSTRATION.header_mid
+PURPLE_PRIMARY = tokens.ILLUSTRATION.primary
+PURPLE_LIGHT = tokens.ILLUSTRATION.primary_light
+PURPLE_BG = tokens.ILLUSTRATION.body
+PURPLE_SUBTLE = tokens.ILLUSTRATION.subtle
+ISSUE_BLUE_DARK = _ILLUSTRATION_STYLE.issue_dark
+ISSUE_BLUE_PRIMARY = _ILLUSTRATION_STYLE.issue_primary
+ISSUE_BLUE_LIGHT = _ILLUSTRATION_STYLE.issue_light
+ISSUE_BLUE_BG = _ILLUSTRATION_STYLE.issue_body
+GOLD_PRIMARY = tokens.GOLD_BORDER
+GOLD_TEXT = tokens.GOLD_TEXT
+WHITE = tokens.SURFACE
+GRAY_DARK = tokens.TEXT
+_TAB_IDLE_START = tokens.TAB_IDLE_START
+_TAB_IDLE_END = tokens.TAB_IDLE_END
+_VALUE_GLOSS = _ILLUSTRATION_STYLE.value_gloss
+_VALUE_HOVER = _ILLUSTRATION_STYLE.value_hover
+_VALUE_PRESSED = _ILLUSTRATION_STYLE.value_pressed
+_VALUE_MATURED = _ILLUSTRATION_STYLE.value_matured
+_VALUE_MATURED_HOVER = _ILLUSTRATION_STYLE.value_matured_hover
 
 ILLUSTRATION_HEADER_COLORS = (PURPLE_DARK, PURPLE_RICH, PURPLE_PRIMARY)
-ILLUSTRATION_ISSUE_HEADER_COLORS = ("#123C56", "#205B78", "#317897")
+ILLUSTRATION_ISSUE_HEADER_COLORS = _ILLUSTRATION_STYLE.issue_header
 # Visibly lighter gradient the title bar wears while a saved case (frozen
 # policy snapshot) is loaded — same hue family, instantly reads as
 # "different mode", white title text stays legible on every stop.
-ILLUSTRATION_SNAPSHOT_HEADER_COLORS = ("#9E7BD8", "#8E67CE", "#7E57C2")
+ILLUSTRATION_SNAPSHOT_HEADER_COLORS = _ILLUSTRATION_STYLE.snapshot_header
 ILLUSTRATION_BORDER_COLOR = GOLD_PRIMARY
 
 TAB_WIDGET_STYLE = f"""
@@ -35,7 +46,7 @@ TAB_WIDGET_STYLE = f"""
     }}
     QTabBar::tab {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #E0E0E0, stop:1 #BDBDBD);
+            stop:0 {_TAB_IDLE_START}, stop:1 {_TAB_IDLE_END});
         color: {GRAY_DARK};
         padding: 8px 16px;
         margin-right: 2px;
@@ -99,7 +110,10 @@ INPUT_SECTION_GROUP_STYLE = GROUP_STYLE + f"""
 ISSUE_GROUP_STYLE = (
     GROUP_STYLE.replace(PURPLE_DARK, ISSUE_BLUE_DARK)
     .replace(PURPLE_PRIMARY, ISSUE_BLUE_DARK)
-    + "\nQGroupBox:disabled { background-color: #ECECEC; color: #666666; }"
+    + (
+        f"\nQGroupBox:disabled {{ background-color: {_ILLUSTRATION_STYLE.disabled_surface};"
+        f" color: {_ILLUSTRATION_STYLE.disabled_text}; }}"
+    )
 )
 
 
@@ -122,7 +136,7 @@ FUND_TABLE_STYLE = f"""
         color: {PURPLE_DARK};
         padding: 2px 4px;
         border: none;
-        border-right: 1px solid #D8C8F0;
+        border-right: 1px solid {_ILLUSTRATION_STYLE.table_rule};
         border-bottom: 1px solid {PURPLE_PRIMARY};
         font-size: 10px;
         font-weight: bold;
@@ -147,7 +161,7 @@ INPUT_TABLE_STYLE = f"""
         background-color: {WHITE};
         border: 1px solid {PURPLE_PRIMARY};
         border-radius: 4px;
-        gridline-color: #D8C8F0;
+        gridline-color: {_ILLUSTRATION_STYLE.table_rule};
         font-size: 11px;
         selection-background-color: {PURPLE_SUBTLE};
         selection-color: {PURPLE_DARK};
@@ -157,7 +171,7 @@ INPUT_TABLE_STYLE = f"""
         color: {PURPLE_DARK};
         padding: 0px;
         border: none;
-        border-right: 1px solid #D8C8F0;
+        border-right: 1px solid {_ILLUSTRATION_STYLE.table_rule};
         border-bottom: 1px solid {PURPLE_PRIMARY};
         font-size: 10px;
         font-weight: bold;
@@ -174,12 +188,12 @@ INPUT_TABLE_STYLE = f"""
 VALUE_BUTTON_STYLE = f"""
     QPushButton {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #B99AF0, stop:0.18 #7E57C2, stop:0.52 #5E35A5,
-            stop:0.54 #4B2383, stop:1 #2A1458);
+            stop:0 {_VALUE_GLOSS[0]}, stop:0.18 {_VALUE_GLOSS[1]}, stop:0.52 {_VALUE_GLOSS[2]},
+            stop:0.54 {_VALUE_GLOSS[3]}, stop:1 {_VALUE_GLOSS[4]});
         color: {GOLD_TEXT};
         border: 2px solid {GOLD_PRIMARY};
-        border-top-color: #FFE08A;
-        border-left-color: #FFE08A;
+        border-top-color: {_ILLUSTRATION_STYLE.gold_highlight};
+        border-left-color: {_ILLUSTRATION_STYLE.gold_highlight};
         border-radius: 5px;
         font-size: 10px;
         font-weight: bold;
@@ -188,18 +202,18 @@ VALUE_BUTTON_STYLE = f"""
     }}
     QPushButton:hover {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #D1BEF7, stop:0.20 #9270D2, stop:0.55 #6E43B8,
-            stop:0.57 #5E35A5, stop:1 #3B1B70);
-        border-color: #FFE08A;
-        color: #FFF3B0;
+            stop:0 {_VALUE_HOVER[0]}, stop:0.20 {_VALUE_HOVER[1]}, stop:0.55 {_VALUE_HOVER[2]},
+            stop:0.57 {_VALUE_HOVER[3]}, stop:1 {_VALUE_HOVER[4]});
+        border-color: {_ILLUSTRATION_STYLE.gold_highlight};
+        color: {_ILLUSTRATION_STYLE.gold_soft_text};
     }}
     QPushButton:pressed {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #2A1458, stop:1 #5E35A5);
-        border-top-color: #9F7610;
-        border-left-color: #9F7610;
-        border-bottom-color: #FFE08A;
-        border-right-color: #FFE08A;
+            stop:0 {_VALUE_PRESSED[0]}, stop:1 {_VALUE_PRESSED[1]});
+        border-top-color: {_ILLUSTRATION_STYLE.gold_shadow};
+        border-left-color: {_ILLUSTRATION_STYLE.gold_shadow};
+        border-bottom-color: {_ILLUSTRATION_STYLE.gold_highlight};
+        border-right-color: {_ILLUSTRATION_STYLE.gold_highlight};
         padding-top: 6px;
         padding-bottom: 4px;
     }}
@@ -208,24 +222,24 @@ VALUE_BUTTON_STYLE = f"""
 # A paler, de-emphasized version of VALUE_BUTTON_STYLE for riders/benefits that
 # have already matured. Still clickable (the detail dialog opens) — just muted so
 # it reads as "no longer in force."
-VALUE_BUTTON_MATURED_STYLE = """
-    QPushButton {
+VALUE_BUTTON_MATURED_STYLE = f"""
+    QPushButton {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #E7DDF7, stop:0.5 #CDBDEC, stop:1 #B9A6E0);
-        color: #6E5E92;
-        border: 2px solid #C9BBE2;
+            stop:0 {_VALUE_MATURED[0]}, stop:0.5 {_VALUE_MATURED[1]}, stop:1 {_VALUE_MATURED[2]});
+        color: {_ILLUSTRATION_STYLE.value_matured_text};
+        border: 2px solid {_ILLUSTRATION_STYLE.value_matured_border};
         border-radius: 5px;
         font-size: 10px;
         font-weight: bold;
         font-style: italic;
         padding: 3px 12px;
         min-height: 22px;
-    }
-    QPushButton:hover {
+    }}
+    QPushButton:hover {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #EFE8FA, stop:0.5 #D9CCF1, stop:1 #C7B7E8);
-        color: #4B2383;
-    }
+            stop:0 {_VALUE_MATURED_HOVER[0]}, stop:0.5 {_VALUE_MATURED_HOVER[1]}, stop:1 {_VALUE_MATURED_HOVER[2]});
+        color: {PURPLE_RICH};
+    }}
 """
 
 # Checkable panel-toggle buttons that live IN the window header (title bar),
@@ -245,28 +259,28 @@ HEADER_PANEL_BUTTON_STYLE = f"""
     }}
     QPushButton:checked {{
         background-color: rgba(212, 160, 23, 0.35);
-        color: #FFF3B0;
+        color: {_ILLUSTRATION_STYLE.gold_soft_text};
     }}
 """
 
 # "Options"-style header menu button — plain clickable text (no box/border),
 # matching the SuiteView taskbar's "Tools" menu button. Gold text that brightens
 # on hover; the drop-down arrow indicator is hidden so it reads as bare text.
-HEADER_MENU_BUTTON_STYLE = """
-    QPushButton {
+HEADER_MENU_BUTTON_STYLE = f"""
+    QPushButton {{
         background: transparent;
         border: none;
         padding: 4px 12px;
-        color: #D4A017;
+        color: {GOLD_PRIMARY};
         font-size: 12px;
         font-weight: 600;
-    }
-    QPushButton:hover {
-        color: #FFD700;
-    }
-    QPushButton::menu-indicator {
+    }}
+    QPushButton:hover {{
+        color: {_ILLUSTRATION_STYLE.menu_hover_text};
+    }}
+    QPushButton::menu-indicator {{
         image: none;
-    }
+    }}
 """
 
 # Drop-down menu for the header "Options" button — same shape as the taskbar's
@@ -298,23 +312,31 @@ STATUS_BAR_STYLE = f"""
 # ── Shared input-field styles (Inputs tab + Allocations panel) ──────────────
 
 INPUT_EDIT_STYLE = (
-    "QLineEdit { background: white; color: #2A1458; border: 1px solid #B79CDE;"
+    f"QLineEdit {{ background: white; color: {PURPLE_DARK};"
+    f" border: 1px solid {_ILLUSTRATION_STYLE.input_border};"
     " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
-    "QLineEdit:read-only { background: #E8DDF8; color: #4B2383; }"
-    "QLineEdit:disabled { background: #E8DDF8; color: #7A6B91; }"
-    "QLineEdit[invalid=\"true\"] { border: 1px solid #C62828; background: #FDECEA; }"
+    f"QLineEdit:read-only {{ background: {_ILLUSTRATION_STYLE.input_readonly_surface};"
+    f" color: {PURPLE_RICH}; }}"
+    f"QLineEdit:disabled {{ background: {_ILLUSTRATION_STYLE.input_readonly_surface};"
+    f" color: {_ILLUSTRATION_STYLE.input_disabled_text}; }}"
+    f"QLineEdit[invalid=\"true\"] {{ border: 1px solid {tokens.STATUS_ERROR};"
+    f" background: {_ILLUSTRATION_STYLE.invalid_surface}; }}"
 )
 INPUT_COMBO_STYLE = (
-    "QComboBox { background: white; color: #2A1458; border: 1px solid #B79CDE;"
+    f"QComboBox {{ background: white; color: {PURPLE_DARK};"
+    f" border: 1px solid {_ILLUSTRATION_STYLE.input_border};"
     " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
-    "QComboBox:disabled { background: #E8DDF8; color: #7A6B91; }"
-    "QComboBox::drop-down { border-left: 1px solid #B79CDE; width: 14px; }"
+    f"QComboBox:disabled {{ background: {_ILLUSTRATION_STYLE.input_readonly_surface};"
+    f" color: {_ILLUSTRATION_STYLE.input_disabled_text}; }}"
+    f"QComboBox::drop-down {{ border-left: 1px solid {_ILLUSTRATION_STYLE.input_border};"
+    " width: 14px; }"
 )
 INPUT_SMALL_BTN_STYLE = (
-    "QPushButton { background: #F3ECFC; color: #4B2383; border: 1px solid #7E57C2;"
+    f"QPushButton {{ background: {_ILLUSTRATION_STYLE.input_small_button_surface};"
+    f" color: {PURPLE_RICH}; border: 1px solid {PURPLE_LIGHT};"
     " border-radius: 9px; min-width: 18px; max-width: 18px; min-height: 18px;"
     " max-height: 18px; font-size: 12px; font-weight: bold; padding: 0; }"
-    "QPushButton:hover { background: #E6DAF8; }"
+    f"QPushButton:hover {{ background: {_ILLUSTRATION_STYLE.input_small_button_hover}; }}"
 )
 INPUT_CAPTION_STYLE = (
     f"color: {PURPLE_DARK}; background: transparent; font-size: 9px; font-weight: bold;"
@@ -333,17 +355,20 @@ _CHECKMARK_ICON_PATH = str(CHECKMARK_PATH).replace("\\", "/")
 INPUT_CHECKBOX_STYLE = (
     f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
     " font-weight: bold; spacing: 6px; }"
-    "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
+    f"QCheckBox::indicator {{ border: 1px solid {PURPLE_PRIMARY}; width: 12px; height: 12px;"
     " background-color: white; }"
-    "QCheckBox::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
+    f"QCheckBox::indicator:hover {{ border: 1px solid {PURPLE_RICH};"
+    f" background-color: {_ILLUSTRATION_STYLE.checkbox_hover_surface}; }}"
     "QCheckBox::indicator:checked {"
-    "  background-color: #5E35A5; border: 1px solid #4B2383;"
+    f"  background-color: {PURPLE_PRIMARY}; border: 1px solid {PURPLE_RICH};"
     f"  image: url({_CHECKMARK_ICON_PATH});"
     "}"
-    "QCheckBox:disabled { color: #9A8FB0; }"
-    "QCheckBox::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
+    f"QCheckBox:disabled {{ color: {_ILLUSTRATION_STYLE.checkbox_disabled_text}; }}"
+    f"QCheckBox::indicator:disabled {{ border: 1px solid {_ILLUSTRATION_STYLE.checkbox_disabled_border};"
+    f" background-color: {_ILLUSTRATION_STYLE.checkbox_disabled_surface}; }}"
     "QCheckBox::indicator:checked:disabled {"
-    "  background-color: #B7A6D6; border: 1px solid #C9B8E4;"
+    f"  background-color: {_ILLUSTRATION_STYLE.checkbox_disabled_checked};"
+    f" border: 1px solid {_ILLUSTRATION_STYLE.checkbox_disabled_border};"
     f"  image: url({_CHECKMARK_ICON_PATH});"
     "}"
 )
@@ -363,12 +388,16 @@ def apply_input_checkbox_style(checkbox):
 INPUT_RADIO_STYLE = (
     f"QRadioButton {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
     " font-weight: bold; spacing: 6px; }"
-    "QRadioButton::indicator { border: 1px solid #5E35A5; border-radius: 6px;"
+    f"QRadioButton::indicator {{ border: 1px solid {PURPLE_PRIMARY}; border-radius: 6px;"
     " width: 12px; height: 12px; background-color: white; }"
-    "QRadioButton::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
-    "QRadioButton::indicator:checked { background-color: #5E35A5; border: 1px solid #4B2383; }"
-    "QRadioButton:disabled { color: #9A8FB0; }"
-    "QRadioButton::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
-    "QRadioButton::indicator:checked:disabled { background-color: #B7A6D6;"
-    " border: 1px solid #C9B8E4; }"
+    f"QRadioButton::indicator:hover {{ border: 1px solid {PURPLE_RICH};"
+    f" background-color: {_ILLUSTRATION_STYLE.checkbox_hover_surface}; }}"
+    f"QRadioButton::indicator:checked {{ background-color: {PURPLE_PRIMARY};"
+    f" border: 1px solid {PURPLE_RICH}; }}"
+    f"QRadioButton:disabled {{ color: {_ILLUSTRATION_STYLE.checkbox_disabled_text}; }}"
+    f"QRadioButton::indicator:disabled {{ border: 1px solid {_ILLUSTRATION_STYLE.checkbox_disabled_border};"
+    f" background-color: {_ILLUSTRATION_STYLE.checkbox_disabled_surface}; }}"
+    f"QRadioButton::indicator:checked:disabled {{"
+    f" background-color: {_ILLUSTRATION_STYLE.checkbox_disabled_checked};"
+    f" border: 1px solid {_ILLUSTRATION_STYLE.checkbox_disabled_border}; }}"
 )

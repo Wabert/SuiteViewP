@@ -81,18 +81,18 @@ class MainframeWindow(FramelessWindowBase):
         footer_layout.setSpacing(0)
         self.user_button = QPushButton("👤 User")
         self.user_button.setStyleSheet(
-            "QPushButton {"
+            f"QPushButton {{"
             "background-color: transparent;"
-            "color: #666;"
+            f"color: {c('note_text')};"
             "padding: 2px 8px;"
-            "border: 1px solid #ccc;"
+            f"border: 1px solid {c('dialog_border')};"
             "border-radius: 3px;"
             "font-size: 9pt;"
             "}"
             "QPushButton:hover {"
-            "background-color: #f0f0f0;"
-            "color: #333;"
-            "border: 1px solid #999;"
+            f"background-color: {c('dialog_hover_bg')};"
+            f"color: {c('dialog_hover_text')};"
+            f"border: 1px solid {c('dialog_hover_border')};"
             "}"
         )
         self.user_button.clicked.connect(self.show_user_credentials_dialog)
@@ -113,7 +113,9 @@ class MainframeWindow(FramelessWindowBase):
 
         layout = QFormLayout(dialog)
         info_label = QLabel("Enter your mainframe credentials.\nThese will be used for both Terminal and Navigation.")
-        info_label.setStyleSheet("color: #555; font-style: italic; margin-bottom: 10px;")
+        info_label.setStyleSheet(
+            f"color: {c('secondary_text')}; font-style: italic; margin-bottom: 10px;"
+        )
         layout.addRow(info_label)
 
         existing_conn = self._find_user_connection()

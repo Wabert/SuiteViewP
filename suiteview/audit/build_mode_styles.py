@@ -18,6 +18,7 @@ from suiteview.audit.query_object import (
     OBJECT_KIND_MANUAL_SQL,
     OBJECT_KIND_VISUAL,
 )
+from suiteview.ui import tokens
 
 
 @dataclass(frozen=True)
@@ -29,21 +30,35 @@ class ModeStyle:
 
 
 MODE_STYLES: dict[str, ModeStyle] = {
-    OBJECT_KIND_CYBERLIFE: ModeStyle("Cyberlife", "#1E5BA8", "#E3ECF7"),
-    OBJECT_KIND_VISUAL: ModeStyle("Visual Query", "#2E7D32", "#E6F3E6"),
-    OBJECT_KIND_MANUAL_SQL: ModeStyle("Manual SQL", "#5A3218", "#F4E9DC"),
-    OBJECT_KIND_ADHOC_SOURCE: ModeStyle("File Source", "#B58900", "#FFF4C2"),
-    OBJECT_KIND_EXECUTABLE: ModeStyle("Executable", "#374151", "#E5E7EB"),
+    OBJECT_KIND_CYBERLIFE: ModeStyle(
+        "Cyberlife", tokens.AUDIT_MODE_CYBERLIFE.color, tokens.AUDIT_MODE_CYBERLIFE.tint
+    ),
+    OBJECT_KIND_VISUAL: ModeStyle(
+        "Visual Query", tokens.AUDIT_MODE_VISUAL.color, tokens.AUDIT_MODE_VISUAL.tint
+    ),
+    OBJECT_KIND_MANUAL_SQL: ModeStyle(
+        "Manual SQL", tokens.AUDIT_MODE_MANUAL_SQL.color, tokens.AUDIT_MODE_MANUAL_SQL.tint
+    ),
+    OBJECT_KIND_ADHOC_SOURCE: ModeStyle(
+        "File Source", tokens.AUDIT_MODE_FILE_SOURCE.color, tokens.AUDIT_MODE_FILE_SOURCE.tint
+    ),
+    OBJECT_KIND_EXECUTABLE: ModeStyle(
+        "Executable", tokens.AUDIT_MODE_EXECUTABLE.color, tokens.AUDIT_MODE_EXECUTABLE.tint
+    ),
 }
 
-_DEFAULT_STYLE = ModeStyle("Query", "#475569", "#E8ECF1")
+_DEFAULT_STYLE = ModeStyle(
+    "Query", tokens.AUDIT_MODE_DEFAULT.color, tokens.AUDIT_MODE_DEFAULT.tint
+)
 
 # Reserved for DataForge — heavier than any query/group (design §8).
-FORGE_STYLE = ModeStyle("DataForge", "#C2410C", "#FFEDD5")
+FORGE_STYLE = ModeStyle(
+    "DataForge", tokens.AUDIT_MODE_DATAFORGE.color, tokens.AUDIT_MODE_DATAFORGE.tint
+)
 
 # Query Groups: neutral but weighty — bold rows with a warm gray fill, so
 # structure reads from weight and origin reads from the mode colors.
-GROUP_STYLE = ModeStyle("Group", "#3F3F46", "#ECEAE6")
+GROUP_STYLE = ModeStyle("Group", tokens.AUDIT_MODE_GROUP.color, tokens.AUDIT_MODE_GROUP.tint)
 
 # The audit window's build-mode keys ("cyberlife"/"visual"/"manual_sql"/
 # "file") map onto the same identities as the object kinds they produce.

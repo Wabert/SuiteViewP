@@ -5,25 +5,35 @@ Used by both the Rate File Converter window and the Rate Workup window so the
 two stay visually identical.
 """
 
-BLUE        = "#1A3A7A"
-BLUE_LIGHT  = "#2A5AAA"
-BLUE_DARK   = "#0D3A7A"
-GOLD        = "#D4A017"
-GOLD_TEXT   = "#FFD54F"
-GOLD_PRIMARY = "#FFC107"
+from suiteview.ui import tokens
+
+BLUE        = tokens.RATEMANAGER.primary
+BLUE_LIGHT  = tokens.RATEMANAGER.primary_light
+BLUE_DARK   = tokens.RATEMANAGER.primary_dark
+GOLD        = tokens.RATEMANAGER.accent
+GOLD_TEXT   = tokens.RATEMANAGER.accent_text
+GOLD_PRIMARY = tokens.GOLD_BUTTON
 
 # Inputs/controls sit a few shades lighter than the page so they read as
-# interactive against BG_DARK (user feedback: the old #252540 was too close).
-BG_DARK     = "#1E1E2E"
-BG_MID      = "#343456"
-BG_INPUT    = "#32325A"
-TEXT        = "#E8E8F0"
-TEXT_MID    = "#A8A8C4"
-BORDER      = "#55558A"
+# interactive against BG_DARK (user feedback: the old near-body shade was too close).
+BG_DARK     = tokens.RATEMANAGER.body
+BG_MID      = tokens.RATEMANAGER.subtle
+BG_INPUT    = tokens.RATEMANAGER.surface
+TEXT        = tokens.RATEMANAGER.text
+TEXT_MID    = tokens.RATEMANAGER.text_muted
+BORDER      = tokens.RATEMANAGER.scroll
+_DISABLED_TEXT = tokens.RATEMANAGER_DISABLED_TEXT
+_DISABLED_BUTTON = tokens.RATEMANAGER_DISABLED_BUTTON
+_DISABLED_BUTTON_TEXT = tokens.RATEMANAGER_DISABLED_BUTTON_TEXT
+_DISABLED_BUTTON_BORDER = tokens.RATEMANAGER_DISABLED_BUTTON_BORDER
 
 # Header colours for FramelessWindowBase
-HEADER_COLORS = ("#1E5BA8", "#0D3A7A", "#082B5C")
-BORDER_COLOR  = "#D4A017"
+HEADER_COLORS = (
+    tokens.RATEMANAGER.header_start,
+    tokens.RATEMANAGER.header_mid,
+    tokens.RATEMANAGER.header_end,
+)
+BORDER_COLOR  = tokens.RATEMANAGER.border
 
 
 def body_stylesheet(root_object_name: str = "RateManagerBody") -> str:
@@ -92,7 +102,7 @@ def body_stylesheet(root_object_name: str = "RateManagerBody") -> str:
             border-color: {GOLD};
         }}
         #SecondaryBtn:disabled {{
-            color: #555;
+            color: {_DISABLED_TEXT};
         }}
 
         #PrimaryBtn {{
@@ -108,9 +118,9 @@ def body_stylesheet(root_object_name: str = "RateManagerBody") -> str:
             background: {BLUE_LIGHT};
         }}
         #PrimaryBtn:disabled {{
-            background: #333;
-            color: #666;
-            border-color: #444;
+            background: {_DISABLED_BUTTON};
+            color: {_DISABLED_BUTTON_TEXT};
+            border-color: {_DISABLED_BUTTON_BORDER};
         }}
 
         #LogArea {{

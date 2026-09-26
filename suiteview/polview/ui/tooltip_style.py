@@ -18,10 +18,13 @@ from PyQt6.QtCore import QEvent, QObject
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from suiteview.ui import tokens
+
 # Bare declarations on purpose: a selector such as "QLabel { ... }" loses to the
 # inherited bare "background: transparent" rules (verified natively).
 TOOLTIP_STYLE = (
-    "color: #1A202C; background: #FFFDF2; border: 1px solid #D4A017;"
+    f"color: {tokens.TEXT_DARK}; background: {tokens.POLVIEW_TOOLTIP_SURFACE}; "
+    f"border: 1px solid {tokens.GOLD_BORDER};"
     " padding: 3px 6px; font-size: 11px; font-weight: normal; font-style: normal;"
     " text-decoration: none;"
 )

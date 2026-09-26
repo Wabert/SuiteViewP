@@ -32,8 +32,18 @@ from suiteview.ui.widgets.frame_geometry import (
     snap_rect_for_edge,
     update_cursor_for_resize_edge,
 )
+from suiteview.ui import tokens
 
 logger = logging.getLogger(__name__)
+DEFAULT_HEADER_COLORS = (
+    tokens.DEFAULT.header_start,
+    tokens.DEFAULT.header_mid,
+    tokens.DEFAULT.header_end,
+)
+DEFAULT_BORDER_COLOR = tokens.DEFAULT.border
+DEFAULT_BODY_COLOR = tokens.SURFACE
+HEADER_TEXT_COLOR = tokens.SURFACE
+CLOSE_HOVER_COLOR = tokens.WINDOW_CLOSE_HOVER
 
 # ── Native Windows resize support ────────────────────────────────────────────
 # Frameless windows resized purely in Python (per-mouse-move setGeometry) look
@@ -168,15 +178,13 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
 
     def __init__(self, title: str = "SuiteView", default_size=(1000, 700),
                  min_size=(500, 450), parent=None,
-                 header_colors=None, border_color="#D4A017",
+                 header_colors=None, border_color=DEFAULT_BORDER_COLOR,
                  header_widgets=None, header_prefix_widgets=None,
                  header_title_stretch=0):
         super().__init__(parent)
 
         # Theme colours -- header gradient stops & border
-        self._header_colors = header_colors or (
-            "#1E5BA8", "#0D3A7A", "#082B5C"  # default SuiteView blue
-        )
+        self._header_colors = header_colors or DEFAULT_HEADER_COLORS
         self._border_color = border_color
         self._header_widgets = header_widgets or []
         self._header_prefix_widgets = header_prefix_widgets or []
@@ -278,14 +286,14 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
 
     def header_title_style(self):
         """Return the stylesheet for the header title label."""
-        return """
-            QLabel {
-                color: #FFFFFF;
+        return f"""
+            QLabel {{
+                color: {HEADER_TEXT_COLOR};
                 font-size: 18px;
                 font-weight: bold;
                 font-style: italic;
                 background: transparent;
-            }
+            }}
         """
 
     def set_header_colors(self, colors):
@@ -362,7 +370,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
         close_btn = QPushButton("\u2715")
         close_btn.setStyleSheet(btn_style + f"""
             QPushButton:hover {{
-                background-color: #E81123;
+                background-color: {CLOSE_HOVER_COLOR};
                 color: {self._border_color};
             }}
         """)
@@ -902,13 +910,11 @@ class FramelessDialog(QDialog):
     """
 
     def __init__(self, title: str, parent=None,
-                 header_colors=None, border_color: str = "#D4A017",
-                 body_color: str = "#FFFFFF"):
+                 header_colors=None, border_color: str = DEFAULT_BORDER_COLOR,
+                 body_color: str = DEFAULT_BODY_COLOR):
         super().__init__(parent, Qt.WindowType.Dialog
                          | Qt.WindowType.FramelessWindowHint)
-        self._header_colors = header_colors or (
-            "#1E5BA8", "#0D3A7A", "#082B5C"  # default SuiteView blue
-        )
+        self._header_colors = header_colors or DEFAULT_HEADER_COLORS
         self._border_color = border_color
         self._drag_pos: Optional[QPoint] = None
 
@@ -943,7 +949,7 @@ class FramelessDialog(QDialog):
 
         title_label = QLabel(title)
         title_label.setStyleSheet(
-            "QLabel { color: #FFFFFF; font-size: 13px; font-weight: bold;"
+            f"QLabel {{ color: {HEADER_TEXT_COLOR}; font-size: 13px; font-weight: bold;"
             " font-style: italic; background: transparent; }")
         layout.addWidget(title_label)
         layout.addStretch()
@@ -958,7 +964,7 @@ class FramelessDialog(QDialog):
                 color: {self._border_color};
             }}
             QPushButton:hover {{
-                background-color: #E81123;
+                background-color: {CLOSE_HOVER_COLOR};
                 color: {self._border_color};
             }}
         """)

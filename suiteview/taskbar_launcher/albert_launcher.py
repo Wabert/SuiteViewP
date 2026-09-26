@@ -10,10 +10,14 @@ from PyQt6.QtWidgets import QMessageBox, QPushButton
 from suiteview.core.access_control import guard_app_access
 from suiteview.ui.access_control import requires_app_access
 from suiteview.core.build_env import app_unavailable_reason
+from suiteview.ui import tokens
 
 logger = logging.getLogger(__name__)
 BRIDGE = (Path(__file__).resolve().parents[3] / "Email Manager"
           / "outlook-albert" / "bridge.py")
+ALBERT_BUTTON_GRADIENT = ("#247C75", "#103F3C")
+ALBERT_BUTTON_HOVER = ("#2F9188", "#185B57")
+ALBERT_BUTTON_DISABLED = ("#DFE3E8", "#737B85", "#AAB0B7")
 
 
 def launch_albert():
@@ -38,30 +42,30 @@ class AlbertButton(QPushButton):
         self.setEnabled(not unavailable)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Keep the Outlook badge colors in SuiteView's flatter rounded button shape.
-        self.setStyleSheet("""
-            QPushButton {
+        self.setStyleSheet(f"""
+            QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #247C75, stop:1 #103F3C);
-                border: 2px solid #D4A017;
+                    stop:0 {ALBERT_BUTTON_GRADIENT[0]}, stop:1 {ALBERT_BUTTON_GRADIENT[1]});
+                border: 2px solid {tokens.GOLD_BORDER};
                 border-radius: 4px;
-                color: #FFD700;
+                color: {tokens.ILLUSTRATION_STYLE.menu_hover_text};
                 font-family: 'Segoe UI'; font-size: 14px; font-weight: bold;
                 padding: 0;
-            }
-            QPushButton:hover {
-                border-color: #FFD700;
+            }}
+            QPushButton:hover {{
+                border-color: {tokens.ILLUSTRATION_STYLE.menu_hover_text};
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2F9188, stop:1 #185B57);
-            }
-            QPushButton:pressed {
-                background: #103F3C;
-                border-color: #D4A017;
-            }
-            QPushButton:disabled {
-                background: #DFE3E8;
-                color: #737B85;
-                border-color: #AAB0B7;
-            }
+                    stop:0 {ALBERT_BUTTON_HOVER[0]}, stop:1 {ALBERT_BUTTON_HOVER[1]});
+            }}
+            QPushButton:pressed {{
+                background: {ALBERT_BUTTON_GRADIENT[1]};
+                border-color: {tokens.GOLD_BORDER};
+            }}
+            QPushButton:disabled {{
+                background: {ALBERT_BUTTON_DISABLED[0]};
+                color: {ALBERT_BUTTON_DISABLED[1]};
+                border-color: {ALBERT_BUTTON_DISABLED[2]};
+            }}
         """)
         self.clicked.connect(self._open)
 

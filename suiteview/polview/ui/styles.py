@@ -9,21 +9,23 @@ All color constants and QSS stylesheet strings are defined here so that
 every widget module can import them from a single source.
 """
 
+from suiteview.ui import tokens
+
 # =============================================================================
 # GREEN & GOLD COLOR SCHEME -- Rich casino poker-table green
 # =============================================================================
 
 # Primary Greens -- deep, rich felt green
 # (Variable names keep BLUE_ prefix so downstream files need zero changes)
-BLUE_RICH          = "#1B5E20"       # Rich deep green (main)
-BLUE_GRADIENT_TOP  = "#0A3D0A"       # Darkest green for gradient top
-BLUE_GRADIENT_BOT  = "#2E7D32"       # Lighter green for gradient bottom
-BLUE_PRIMARY       = "#1B5E20"       # Main green
-BLUE_LIGHT         = "#4CAF50"       # Lighter green for highlights
-BLUE_SCROLL        = "#81C784"       # Light green for scrollbar handles
-BLUE_DARK          = "#0A3D0A"       # Dark green for headers
-BLUE_SUBTLE        = "#E8F5E9"       # Very light green for backgrounds
-BLUE_BG            = "#C8E6C9"       # Light green for main background
+BLUE_RICH          = tokens.POLVIEW.primary        # Rich deep green (main)
+BLUE_GRADIENT_TOP  = tokens.POLVIEW.header_start   # Darkest green for gradient top
+BLUE_GRADIENT_BOT  = tokens.POLVIEW.header_end     # Lighter green for gradient bottom
+BLUE_PRIMARY       = tokens.POLVIEW.primary        # Main green
+BLUE_LIGHT         = tokens.POLVIEW.primary_light  # Lighter green for highlights
+BLUE_SCROLL        = tokens.POLVIEW.scroll         # Light green for scrollbar handles
+BLUE_DARK          = tokens.POLVIEW.primary_dark   # Dark green for headers
+BLUE_SUBTLE        = tokens.POLVIEW.subtle         # Very light green for backgrounds
+BLUE_BG            = tokens.POLVIEW.body           # Light green for main background
 
 # Semantic aliases (use these in NEW code)
 GREEN_RICH          = BLUE_RICH
@@ -37,24 +39,29 @@ GREEN_SUBTLE        = BLUE_SUBTLE
 GREEN_BG            = BLUE_BG
 
 # Gold/Yellow -- warm golden accents (matching SuiteView family)
-GOLD_PRIMARY = "#D4A017"
-GOLD_LIGHT   = "#FFF3D0"
-GOLD_DARK    = "#B8860B"
-GOLD_TEXT    = "#FFD54F"
+GOLD_PRIMARY = tokens.GOLD_BORDER
+GOLD_LIGHT   = tokens.GOLD_LIGHT
+GOLD_DARK    = tokens.GOLD_DARK
+GOLD_TEXT    = tokens.GOLD_TEXT
 
 # Neutral Colors
-WHITE      = "#FFFFFF"
-GRAY_LIGHT = "#F5F7FA"
-GRAY_MID   = "#E1E5EB"
-GRAY_TEXT  = "#4A5568"
-GRAY_DARK  = "#2D3748"
+WHITE      = tokens.SURFACE
+GRAY_LIGHT = tokens.SURFACE_ALT
+GRAY_MID   = tokens.BORDER
+GRAY_TEXT  = tokens.TEXT_MUTED
+GRAY_DARK  = tokens.TEXT
+_TAB_IDLE_START = tokens.TAB_IDLE_START
+_TAB_IDLE_END = tokens.TAB_IDLE_END
+_DISABLED_TAB_BG = tokens.POLVIEW_DISABLED_TAB_BG
+_DISABLED_TAB_TEXT = tokens.DISABLED_TEXT
+_LOOKUP_FOCUS_BG = tokens.POLVIEW_LOOKUP_FOCUS
 
 # FramelessWindowBase theme colours
 POLVIEW_HEADER_COLORS = (GREEN_GRADIENT_TOP, GREEN_RICH, GREEN_GRADIENT_BOT)
 POLVIEW_BORDER_COLOR  = GOLD_PRIMARY
 
 # Lighter header for duplicate PolView windows opened from the Policy List
-POLVIEW_DUPLICATE_HEADER_COLORS = ("#2E7D32", "#4CAF50", "#66BB6A")
+POLVIEW_DUPLICATE_HEADER_COLORS = tokens.POLVIEW_DUPLICATE_HEADER
 
 # =============================================================================
 # STYLESHEET DEFINITIONS
@@ -218,7 +225,7 @@ TAB_WIDGET_STYLE = f"""
     }}
     QTabBar::tab {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #E0E0E0, stop:1 #BDBDBD);
+            stop:0 {_TAB_IDLE_START}, stop:1 {_TAB_IDLE_END});
         color: {GRAY_DARK};
         padding: 6px 11px;
         margin-right: 2px;
@@ -240,8 +247,8 @@ TAB_WIDGET_STYLE = f"""
         border-bottom: 3px solid {GOLD_PRIMARY};
     }}
     QTabBar::tab:disabled {{
-        background: #EEF1F4;
-        color: #A0AEC0;
+        background: {_DISABLED_TAB_BG};
+        color: {_DISABLED_TAB_TEXT};
         font-style: italic;
     }}
 """
@@ -366,7 +373,7 @@ LOOKUP_BAR_STYLE = f"""
     }}
     QLineEdit:focus {{
         border-color: {GOLD_TEXT};
-        background-color: #FFFEF5;
+        background-color: {_LOOKUP_FOCUS_BG};
     }}
     QComboBox {{
         background-color: {WHITE};

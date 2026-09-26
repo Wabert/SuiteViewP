@@ -130,6 +130,12 @@ or SQL Server access.
 The full component manual is [`docs/ui/UI_CONVENTIONS.md`](docs/ui/UI_CONVENTIONS.md).
 Keep these cross-cutting rules in mind:
 
+SuiteView visual identity lives in [`suiteview/ui/tokens.py`](suiteview/ui/tokens.py)
+and is documented in [`docs/UI_TOKENS.md`](docs/UI_TOKENS.md). Use semantic
+tokens and frozen app palettes for shared brand, status and repeated component
+colors; keep one-off local colors in a small named module palette rather than
+scattering raw literals through style strings.
+
 | Concern | Canonical rule | Details |
 | --- | --- | --- |
 | Tables | Dense rows, compact headers, no visual noise; sort/filter by default when useful. | [`FilterTableView`](suiteview/ui/widgets/filter_table_view.py) |

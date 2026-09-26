@@ -15,10 +15,20 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont
 from suiteview.ui.checkmark_icon import CHECKMARK_PATH, ensure_checkmark
+from suiteview.ui import tokens
 
-_FONT = QFont("Segoe UI", 9)
-_ROW_H = 16
-_CTRL_H = 22
+_FONT = QFont(tokens.FONT_FAMILY_UI, tokens.FONT_SIZE_COMPACT_PT)
+_ROW_H = tokens.ROW_HEIGHT_COMPACT
+_CTRL_H = tokens.CONTROL_HEIGHT_COMPACT
+_AUDIT_BLUE = tokens.AUDIT.primary
+_AUDIT_BLUE_DARK = tokens.AUDIT_CHECKED_BORDER
+_AUDIT_TINT = tokens.AUDIT.subtle
+_AUDIT_PRESSED = tokens.AUDIT_PRESSED_SURFACE
+_SELECTION = tokens.SELECTION
+_DISABLED_BG = tokens.DISABLED_SURFACE
+_SURFACE = "white"
+_MUTED_BG = tokens.MUTED_CONTROL_SURFACE
+_ACTIVE_HOVER = tokens.CONTROL_HOVER_SURFACE
 
 # ── checkmark icon (created once, shared by all checkboxes) ────────────
 _CHECKMARK_PATH = str(CHECKMARK_PATH)
@@ -48,9 +58,10 @@ def make_checkbox(text: str, *, checked: bool = False) -> QCheckBox:
     cb.setChecked(checked)
     icon_path = _CHECKMARK_PATH.replace("\\", "/")
     cb.setStyleSheet(
-        "QCheckBox::indicator { border: 1px solid #1E5BA8; width: 12px; height: 12px; background-color: white; }"
+        f"QCheckBox::indicator {{ border: 1px solid {_AUDIT_BLUE}; width: 12px;"
+        f" height: 12px; background-color: {_SURFACE}; }}"
         "QCheckBox::indicator:checked {"
-        "  background-color: #1E5BA8; border: 1px solid #14407A;"
+        f"  background-color: {_AUDIT_BLUE}; border: 1px solid {_AUDIT_BLUE_DARK};"
         f"  image: url({icon_path});"
         "}"
     )
@@ -65,11 +76,11 @@ def make_listbox(items: list[str], *, height_rows: int = 10,
     lb.setFont(_FONT)
     lb.setItemDelegate(TightItemDelegate(lb))
     lb.setUniformItemSizes(True)
-    bg_color = "white" if enabled else "#F0F0F0"
+    bg_color = _SURFACE if enabled else _DISABLED_BG
     lb.setStyleSheet(
-        f"QListWidget {{ border: 1px solid #1E5BA8; background-color: {bg_color}; outline: none; }}"
+        f"QListWidget {{ border: 1px solid {_AUDIT_BLUE}; background-color: {bg_color}; outline: none; }}"
         "QListWidget::item { padding: 0px 2px; border: none; }"
-        "QListWidget::item:selected { background-color: #A0C4E8; color: black; border: none; }"
+        f"QListWidget::item:selected {{ background-color: {_SELECTION}; color: black; border: none; }}"
         "QListWidget::item:focus { outline: none; border: none; }"
     )
     if multi:
@@ -134,7 +145,8 @@ class MultiSelectPopup(QWidget):
             self.search_bar.setFont(_FONT)
             self.search_bar.setFixedHeight(_CTRL_H)
             self.search_bar.setStyleSheet(
-                "QLineEdit { border: 1px solid #1E5BA8; padding: 0px 4px; background: white; }"
+                f"QLineEdit {{ border: 1px solid {_AUDIT_BLUE}; padding: 0px 4px;"
+                f" background: {_SURFACE}; }}"
             )
             self.search_bar.textChanged.connect(self._apply_filter)
             bar_row.addWidget(self.search_bar, 1)
@@ -143,10 +155,10 @@ class MultiSelectPopup(QWidget):
             clear_btn.setFont(_FONT)
             clear_btn.setFixedHeight(_CTRL_H)
             clear_btn.setStyleSheet(
-                "QPushButton { border: 1px solid #1E5BA8; background: white;"
-                " color: #1E5BA8; padding: 0px 6px; }"
-                "QPushButton:hover { background: #E3ECF7; }"
-                "QPushButton:pressed { background: #C0D8F0; }"
+                f"QPushButton {{ border: 1px solid {_AUDIT_BLUE}; background: {_SURFACE};"
+                f" color: {_AUDIT_BLUE}; padding: 0px 6px; }}"
+                f"QPushButton:hover {{ background: {_AUDIT_TINT}; }}"
+                f"QPushButton:pressed {{ background: {_AUDIT_PRESSED}; }}"
             )
             clear_btn.clicked.connect(self._clear_all)
             bar_row.addWidget(clear_btn)
@@ -187,16 +199,16 @@ class MultiSelectPopup(QWidget):
         self._update_display_text()
 
     def _apply_input_style(self):
-        bg = "#E4E4E4" if self._muted else "white"
-        hover = "#E4E4E4" if self._muted else "#F8FBFF"
+        bg = _MUTED_BG if self._muted else _SURFACE
+        hover = _MUTED_BG if self._muted else _ACTIVE_HOVER
         self.display.setStyleSheet(
-            f"QLineEdit {{ background: {bg}; border: 1px solid #1E5BA8; border-right: none;"
+            f"QLineEdit {{ background: {bg}; border: 1px solid {_AUDIT_BLUE}; border-right: none;"
             " padding: 0px 4px; }"
             f"QLineEdit:hover {{ background: {hover}; }}"
         )
         self.button.setStyleSheet(
-            f"QToolButton {{ background: {bg}; border: 1px solid #1E5BA8; border-left: none;"
-            " color: #1E5BA8; padding: 0px; }"
+            f"QToolButton {{ background: {bg}; border: 1px solid {_AUDIT_BLUE}; border-left: none;"
+            f" color: {_AUDIT_BLUE}; padding: 0px; }}"
             f"QToolButton:hover {{ background: {hover}; }}"
         )
 
@@ -352,11 +364,11 @@ def connect_checkbox_listbox(chk: QCheckBox, lb: QListWidget):
     """Wire checkbox to enable/disable listbox and clear selections on uncheck."""
     def _on_toggle(checked: bool):
         lb.setEnabled(checked)
-        bg_color = "white" if checked else "#F0F0F0"
+        bg_color = _SURFACE if checked else _DISABLED_BG
         lb.setStyleSheet(
-            f"QListWidget {{ border: 1px solid #1E5BA8; background-color: {bg_color}; }}"
+            f"QListWidget {{ border: 1px solid {_AUDIT_BLUE}; background-color: {bg_color}; }}"
             "QListWidget::item { padding: 0px 2px; border: none; }"
-            "QListWidget::item:selected { background-color: #A0C4E8; color: black; border: none; }"
+            f"QListWidget::item:selected {{ background-color: {_SELECTION}; color: black; border: none; }}"
         )
         if not checked:
             lb.clearSelection()
