@@ -438,6 +438,46 @@ def refresh_targets(ctx: MonthContext, convention: TimingConvention, work: Month
     work.prior_exception_mode = state.gp_exception_mode
 
 
+def apply_guideline_forceout(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Accumulate guideline premium and apply any required force-out."""
+    state = ctx.state
+    policy = ctx.policy
+    work.accum_glp_prior_amount = state.accumulated_glp
+    work.gsp_floored = floor_monthly_cent(policy.gsp)
+    work.accumulated_glp = _accumulate_guideline_premium(
+        state, policy, work.is_anniversary, work.attained_age
+    )
+    if convention.guideline_recalc and work.attained_age < 100:
+        work.accumulated_glp += float(
+            work.guideline_recalc.get("accum_glp_adjustment", 0.0) or 0.0
+        )
+    if convention.guideline_recalc and work.guideline_recalc:
+        _record_accum_glp_recalc_detail(
+            work.guideline_recalc,
+            prior_amount=work.accum_glp_prior_amount,
+            new_amount=work.accumulated_glp,
+            policy_month=work.next_month,
+        )
+    work.guideline_limit = max(work.gsp_floored, work.accumulated_glp)
+    work.withdrawals_before_forceout = work.withdrawals_to_date
+    (
+        work.guideline_forceout,
+        work.withdrawals_to_date,
+        work.av,
+    ) = _apply_guideline_forceout(
+        work.gsp_floored,
+        work.accumulated_glp,
+        work.premiums_to_date,
+        work.withdrawals_to_date,
+        work.av,
+        enabled=ctx.options.force_out_enabled,
+        has_guideline_limit=policy.is_gpt,
+        prior_exception_mode=work.prior_exception_mode,
+    )
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -503,45 +543,14 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
 
     # ── 9. Commission Target Premium (split handled in apply_premium) ─
 
-    # ── 10. 7702 — GLP accumulation, guideline limit, force-out ─
-    # GLP and GSP are both normalized to a monthly-cent annual value so the
-    # annual amount is an exact 12x its monthly twelfth.
-    accum_glp_prior_amount = state.accumulated_glp
-    gsp_floored = floor_monthly_cent(policy.gsp)
-    accumulated_glp = _accumulate_guideline_premium(
-        state, policy, is_anniversary, attained_age
-    )
-    # Mid-year guideline recalc trues up AccumGLP pro-rata for the rest of
-    # the policy year (see _recalc_guideline_on_change); one-time add that
-    # persists via the state carry-forward. Frozen with the accrual at 100.
-    if attained_age < 100:
-        accumulated_glp += float(
-            guideline_recalc.get("accum_glp_adjustment", 0.0) or 0.0)
-    if guideline_recalc:
-        _record_accum_glp_recalc_detail(
-            guideline_recalc,
-            prior_amount=accum_glp_prior_amount,
-            new_amount=accumulated_glp,
-            policy_month=next_month,
-        )
-    guideline_limit = max(gsp_floored, accumulated_glp)
-
-    # Force-out: limit is the GREATER of GSP and AccumGLP, capped by
-    # available AV, gated by TEFRA conformance, disabled once exception
-    # mode is on (KX checks the prior month's exception flag). KW (Prem−WD)
-    # uses the withdrawals-to-date BEFORE the force-out; the allowance chain
-    # then adds the force-out back as new guideline room.
-    withdrawals_before_forceout = withdrawals_to_date
-    guideline_forceout, withdrawals_to_date, av = _apply_guideline_forceout(
-        gsp_floored,
-        accumulated_glp,
-        premiums_to_date,
-        withdrawals_to_date,
-        av,
-        enabled=options.force_out_enabled,
-        has_guideline_limit=policy.is_gpt,
-        prior_exception_mode=prior_exception_mode,
-    )
+    apply_guideline_forceout(ctx, ILLUSTRATION_TIMING, work)
+    gsp_floored = work.gsp_floored
+    accumulated_glp = work.accumulated_glp
+    guideline_limit = work.guideline_limit
+    withdrawals_before_forceout = work.withdrawals_before_forceout
+    guideline_forceout = work.guideline_forceout
+    withdrawals_to_date = work.withdrawals_to_date
+    av = work.av
 
     # Requested premium (LS scheduled, vLumpsum unscheduled) is needed before
     # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
@@ -1219,22 +1228,14 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     past_snet = work.past_snet
     prior_exception_mode = work.prior_exception_mode
 
-    gsp_floored = floor_monthly_cent(policy.gsp)
-    accumulated_glp = _accumulate_guideline_premium(
-        state, policy, is_anniversary, attained_age
-    )
-    guideline_limit = max(gsp_floored, accumulated_glp)
-    withdrawals_before_forceout = wd.withdrawals_to_date
-    guideline_forceout, withdrawals_to_date, av_after_guideline = _apply_guideline_forceout(
-        gsp_floored,
-        accumulated_glp,
-        premiums_to_date,
-        wd.withdrawals_to_date,
-        wd.av_post_withdrawal,
-        enabled=options.force_out_enabled,
-        has_guideline_limit=policy.is_gpt,
-        prior_exception_mode=prior_exception_mode,
-    )
+    apply_guideline_forceout(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    gsp_floored = work.gsp_floored
+    accumulated_glp = work.accumulated_glp
+    guideline_limit = work.guideline_limit
+    withdrawals_before_forceout = work.withdrawals_before_forceout
+    guideline_forceout = work.guideline_forceout
+    withdrawals_to_date = work.withdrawals_to_date
+    av_after_guideline = work.av
 
     # Requested premium (LS scheduled, vLumpsum unscheduled) — needed before
     # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
