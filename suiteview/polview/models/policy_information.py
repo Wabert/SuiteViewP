@@ -961,16 +961,11 @@ class PolicyInformation:
         
         # Pre-fetch substandard ratings for all coverages
         all_ratings = {}
-        try:
-            for rating in self.get_substandard_ratings():
-                phase = rating.coverage_phase
-                if phase not in all_ratings:
-                    all_ratings[phase] = []
-                all_ratings[phase].append(rating)
-        except (ArithmeticError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid COI renewal rate {raw_rate!r}"
-            ) from exc
+        for rating in self.get_substandard_ratings():
+            phase = rating.coverage_phase
+            if phase not in all_ratings:
+                all_ratings[phase] = []
+            all_ratings[phase].append(rating)
         
         # Determine base plancode from first coverage row
         lh_rows = self.fetch_table("LH_COV_PHA")
@@ -1111,15 +1106,17 @@ class PolicyInformation:
                 # Divided by 100 for product line "I", or 100,000 for others.
                 if is_advanced and rnl_idx >= 0:
                     raw_rate = self.data_item("LH_COV_INS_RNL_RT", "RNL_RT", rnl_idx)
-                    if raw_rate is not None:
+                    if raw_rate is not None and str(raw_rate).strip() != "":
                         try:
                             r = Decimal(str(raw_rate))
-                            if pol_product_line == "I":
-                                cov.coi_rate = r / 100
-                            else:
-                                cov.coi_rate = r / 100000
-                        except Exception:
-                            pass
+                        except ArithmeticError as exc:
+                            raise ValueError(
+                                f"Invalid COI renewal rate {raw_rate!r}"
+                            ) from exc
+                        if pol_product_line == "I":
+                            cov.coi_rate = r / 100
+                        else:
+                            cov.coi_rate = r / 100000
 
                 # Flat extra fallback — LH_SST_XTR_CRG is the only source
                 # for flat extra data.  LH_COV_INS_RNL_RT does NOT carry

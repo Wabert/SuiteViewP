@@ -128,3 +128,18 @@ def test_nonrenewing_benefit_keeps_renewal_rate_not_applicable(qtbot):
     qtbot.addWidget(tab)
     tab._populate_benefits_from_policy([benefit])
     assert _cells(tab.bnf_table)["RenewRate"] == ""
+
+
+def test_invalid_coi_renewal_rate_fails_loudly():
+    policy = _policy(2)
+    base_item = policy.data_item
+    policy.data_item = lambda table, field, *args: (
+        "not-a-rate" if (table, field) == ("LH_COV_INS_RNL_RT", "RNL_RT")
+        else base_item(table, field, *args)
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to build coverage row 0") as err:
+        policy.get_coverages()
+
+    assert isinstance(err.value.__cause__, ValueError)
+    assert "Invalid COI renewal rate 'not-a-rate'" in str(err.value.__cause__)
