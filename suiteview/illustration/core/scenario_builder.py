@@ -324,16 +324,10 @@ def issue_base_segments(policy: IllustrationPolicyData) -> list[CoverageSegment]
     return segments
 
 
-def prepare_policy_for_issue_projection(
+def _issue_exclusions(
     policy: IllustrationPolicyData,
-    issue_overrides: IssueOverrideSet | None = None,
-) -> IllustrationPolicyData:
-    """Rebase in place without database IO; bands resolve when rates are loaded."""
-    segments = issue_base_segments(policy)
-    overrides = issue_overrides or IssueOverrideSet()
-    policy.issue_no_lapse_years = (
-        validate_no_lapse_years(overrides.no_lapse_years)
-        if overrides.no_lapse_years is not None else None)
+    overrides: IssueOverrideSet,
+) -> tuple[set[int], set[tuple]]:
     excluded_riders = set(overrides.excluded_rider_phases)
     excluded_benefits = {tuple(key) for key in overrides.excluded_benefit_keys}
     rider_phases = {r.coverage_phase for r in policy.riders}
@@ -345,21 +339,41 @@ def prepare_policy_for_issue_projection(
         raise ValueError(f"Unknown rider exclusions: {excluded_riders - rider_phases}")
     if excluded_benefits - benefit_keys:
         raise ValueError(f"Unknown benefit exclusions: {excluded_benefits - benefit_keys}")
+    return excluded_riders, excluded_benefits
+
+
+def _original_issue_faces(segments: list[CoverageSegment]) -> list[float]:
     faces = [
         s.original_face_amount if s.original_face_amount > 0 else s.face_amount
         for s in segments
     ]
     if any(not isfinite(face) or face <= 0 for face in faces):
         raise ValueError("Original issue-date base face amounts must be finite and positive.")
-    original_total = sum(faces)
+    return faces
+
+
+def _issue_total_and_dbo(
+    policy: IllustrationPolicyData,
+    overrides: IssueOverrideSet,
+    original_total: float,
+) -> tuple[float, str]:
     total = overrides.face_amount if overrides.face_amount is not None else original_total
     if not isfinite(total) or total <= 0:
         raise ValueError("Issue face amount must be finite and positive.")
     dbo = overrides.db_option if overrides.db_option is not None else policy.db_option
     if dbo not in ("A", "B", "C"):
         raise ValueError(f"Invalid issue death-benefit option: {dbo!r}. Expected A, B or C.")
+    return total, dbo
 
+
+def _rebase_issue_segments(
+    policy: IllustrationPolicyData,
+    segments: list[CoverageSegment],
+    faces: list[float],
+    total: float,
+) -> None:
     policy.segments = segments
+    original_total = sum(faces)
     assigned = 0.0
     for index, (segment, original_face) in enumerate(zip(segments, faces)):
         face = (
@@ -375,7 +389,14 @@ def prepare_policy_for_issue_projection(
     policy.face_amount = total
     policy.units = sum(segment.units for segment in segments)
     policy._issue_bands_initialized = False
-    policy.db_option = dbo
+
+
+def _retain_issue_riders_and_benefits(
+    policy: IllustrationPolicyData,
+    segments: list[CoverageSegment],
+    excluded_riders: set[int],
+    excluded_benefits: set[tuple],
+) -> None:
     policy.riders = [
         r for r in policy.riders
         if r.issue_date == policy.issue_date and r.coverage_phase not in excluded_riders
@@ -385,9 +406,13 @@ def prepare_policy_for_issue_projection(
     }
     policy.benefits = [
         b for b in policy.benefits
-        if b.issue_date == policy.issue_date and b.coverage_phase in retained_phases
+        if b.issue_date == policy.issue_date
+        and b.coverage_phase in retained_phases
         and (b.coverage_phase, b.benefit_type, b.benefit_subtype) not in excluded_benefits
     ]
+
+
+def _activate_issue_coverages(policy: IllustrationPolicyData) -> None:
     for rider in policy.riders:
         rider.status = "A"
         rider.is_active = True
@@ -402,6 +427,8 @@ def prepare_policy_for_issue_projection(
     policy.ccv_ceased = False
     policy.ccv_coi_rate = None
 
+
+def _set_issue_projection_dates(policy: IllustrationPolicyData) -> None:
     policy.run_from_issue = True
     if policy.illustration_date is None:
         policy.illustration_date = date.today()
@@ -411,40 +438,48 @@ def prepare_policy_for_issue_projection(
     policy.duration = 0
     policy.attained_age = policy.issue_age
 
-    policy.account_value = 0.0
+
+def _reset_issue_values(policy: IllustrationPolicyData) -> None:
+    for name in (
+        "account_value", "swam", "glp", "gsp", "mtp", "ctp",
+        "tamra_7pay_level", "_debug_csv", "cost_basis",
+        "system_coi_charge", "system_expense_charge", "system_other_charge",
+        "system_monthly_deduction", "premiums_paid_to_date", "premiums_ytd",
+        "withdrawals_to_date", "accumulated_glp", "accumulated_mtp",
+        "regular_loan_principal", "regular_loan_accrued",
+        "preferred_loan_principal", "preferred_loan_accrued",
+        "variable_loan_principal", "variable_loan_accrued",
+        "shadow_account_value", "deemed_cash_value", "tamra_7pay_start_av",
+        "tamra_7pay_cash_value", "tamra_7year_lowest_db",
+    ):
+        setattr(policy, name, 0.0)
     policy.fund_values = {fund: 0.0 for fund in policy.fund_values}
     policy.impaired_fund_values = {fund: 0.0 for fund in policy.impaired_fund_values}
-    policy.swam = 0.0
-    policy.glp = 0.0
-    policy.gsp = 0.0
-    policy.mtp = 0.0
-    policy.ctp = 0.0
-    policy.tamra_7pay_level = 0.0
-    policy._debug_csv = 0.0
-    policy.cost_basis = 0.0
-    policy.system_coi_charge = 0.0
-    policy.system_expense_charge = 0.0
-    policy.system_other_charge = 0.0
-    policy.system_monthly_deduction = 0.0
-    policy.premiums_paid_to_date = 0.0
-    policy.premiums_ytd = 0.0
-    policy.withdrawals_to_date = 0.0
-    policy.accumulated_glp = 0.0
-    policy.accumulated_mtp = 0.0
-    policy.regular_loan_principal = 0.0
-    policy.regular_loan_accrued = 0.0
-    policy.preferred_loan_principal = 0.0
-    policy.preferred_loan_accrued = 0.0
-    policy.variable_loan_principal = 0.0
-    policy.variable_loan_accrued = 0.0
-    policy.shadow_account_value = 0.0
-    policy.deemed_cash_value = 0.0
     policy.is_mec = False
     policy.tamra_7pay_start_date = policy.issue_date
-    policy.tamra_7pay_start_av = 0.0
-    policy.tamra_7pay_cash_value = 0.0
-    policy.tamra_7year_lowest_db = 0.0
     policy.tamra_7year_contributions = [0.0] * 7
+
+
+def prepare_policy_for_issue_projection(
+    policy: IllustrationPolicyData,
+    issue_overrides: IssueOverrideSet | None = None,
+) -> IllustrationPolicyData:
+    """Rebase in place without database IO; bands resolve when rates are loaded."""
+    segments = issue_base_segments(policy)
+    overrides = issue_overrides or IssueOverrideSet()
+    policy.issue_no_lapse_years = (
+        validate_no_lapse_years(overrides.no_lapse_years)
+        if overrides.no_lapse_years is not None else None)
+    excluded_riders, excluded_benefits = _issue_exclusions(policy, overrides)
+    faces = _original_issue_faces(segments)
+    total, dbo = _issue_total_and_dbo(policy, overrides, sum(faces))
+    _rebase_issue_segments(policy, segments, faces, total)
+    policy.db_option = dbo
+    _retain_issue_riders_and_benefits(
+        policy, segments, excluded_riders, excluded_benefits)
+    _activate_issue_coverages(policy)
+    _set_issue_projection_dates(policy)
+    _reset_issue_values(policy)
     return policy
 
 

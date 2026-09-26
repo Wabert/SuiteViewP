@@ -88,6 +88,207 @@ class ShadowInput:
     display_days_in_month: float | None = None
 
 
+def _sa_for_shadow_basis(policy: IllustrationPolicyData, config: PlancodeConfig) -> float:
+    seg = policy.base_segment
+    if config.shadow_sa_basis == 1:
+        return seg.original_face_amount if seg else policy.face_amount
+    return policy.face_amount
+
+
+def _shadow_target_premium(
+    *,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    sa_for_basis: float,
+) -> float:
+    if config.shadow_target != RATE_CODE_TABLE:
+        return 0.0
+    seg = policy.base_segment
+    tpr = get_rate(rates, "shadow_tpr", rate_year)
+    tpr_tbl1 = get_rate(rates, "shadow_tpr_tbl1", rate_year)
+    table_cov1 = seg.table_rating if seg else 0
+    flat1 = (seg.flat_extra / MONTHS_PER_YEAR) if seg and seg.flat_extra else 0.0
+    flat2 = 0.0  # Second flat extra — not implemented
+    return _round_near(
+        sa_for_basis / PER_THOUSAND * (tpr + tpr_tbl1 * table_cov1 + flat1 + flat2),
+        2,
+    )
+
+
+def _premium_split(
+    *,
+    gross_premium: float,
+    premiums_ytd: float,
+    shadow_target_prem: float,
+) -> tuple[float, float]:
+    applied_prem = gross_premium
+    prem_ytd_before = premiums_ytd - applied_prem
+    prem_under = max(min(shadow_target_prem - prem_ytd_before, applied_prem), 0.0)
+    prem_over = (
+        min(applied_prem, premiums_ytd - shadow_target_prem)
+        if premiums_ytd > shadow_target_prem else 0.0
+    )
+    return prem_under, max(prem_over, 0.0)
+
+
+def _shadow_premium_load_rates(
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+) -> tuple[float, float]:
+    if config.shadow_prem_load_code == RATE_CODE_TABLE:
+        return (
+            get_rate(rates, "shadow_tpp", rate_year),
+            get_rate(rates, "shadow_epp", rate_year),
+        )
+    flat_pct = float(config.shadow_prem_load_code)
+    return flat_pct, flat_pct
+
+
+def _configured_rate(
+    configured,
+    rates: IllustrationRates,
+    rate_key: str,
+    rate_year: int,
+) -> float:
+    return get_rate(rates, rate_key, rate_year) if configured == RATE_CODE_TABLE else float(configured)
+
+
+def _shadow_death_benefit(
+    policy: IllustrationPolicyData,
+    shadow_nar_av: float,
+    shadow_sa: float,
+) -> float:
+    if policy.db_option == DB_OPTION_INCREASING:
+        return shadow_nar_av + shadow_sa
+    return shadow_sa
+
+
+def _active_table_rating(seg, projection_date: date | None) -> int:
+    if not seg or seg.table_rating <= 0:
+        return 0
+    return seg.table_rating if _charge_active(seg.table_cease_date, projection_date) else 0
+
+
+def _active_flat_extra(seg, projection_date: date | None) -> float:
+    if not seg or not seg.flat_extra or seg.flat_extra <= 0:
+        return 0.0
+    if not _charge_active(seg.flat_cease_date, projection_date):
+        return 0.0
+    monthly_flat = seg.flat_extra / MONTHS_PER_YEAR
+    return float(Decimal(str(monthly_flat)).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    ))
+
+
+def _shadow_coi_rate(
+    *,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date: date | None,
+) -> float:
+    seg = policy.base_segment
+    shadow_coi_rate_raw = get_rate(rates, "shadow_coi", rate_year)
+    table_cov1 = _active_table_rating(seg, projection_date)
+    base_flat1 = _active_flat_extra(seg, projection_date)
+    base_flat2 = 0.0  # Second flat extra — not yet implemented
+    return (
+        shadow_coi_rate_raw * (1.0 + config.table_rating_factor * table_cov1)
+        + base_flat1
+        + base_flat2
+    )
+
+
+def _shadow_interest_values(
+    *,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    shadow_av: float,
+    days_in_month: int,
+    display_days_in_month: float | None,
+) -> tuple[float, float, float, float]:
+    shadow_days = (
+        float(display_days_in_month)
+        if display_days_in_month is not None else float(days_in_month)
+    )
+    shadow_int_rate = _configured_rate(
+        config.shadow_int_rate_code,
+        rates,
+        "shadow_int",
+        rate_year,
+    )
+    shadow_eff_rate = (1.0 + shadow_int_rate) ** (shadow_days / DAYS_PER_YEAR) - 1.0
+    shadow_interest = max(0.0, shadow_eff_rate * shadow_av)
+    return shadow_days, shadow_int_rate, shadow_eff_rate, shadow_interest
+
+
+def _shadow_eav(
+    *,
+    config: PlancodeConfig,
+    attained_age: int,
+    shadow_av: float,
+    shadow_interest: float,
+) -> float:
+    if attained_age > (config.shadow_cease_age - 1):
+        return 0.0
+    return _round_near(shadow_av + shadow_interest, 2)
+
+
+def _shadow_eav_less_debt(
+    config: PlancodeConfig,
+    shadow_eav: float,
+    policy_debt: float,
+) -> float:
+    if config.shadow_loan_impact == "Reduce":
+        return shadow_eav - policy_debt
+    return shadow_eav
+
+
+_SHADOW_RESULT_SOURCES = {
+    "shadow_bav": "shadow_bav",
+    "shadow_wd_charges": "shadow_wd_charges",
+    "shadow_sa": "shadow_sa",
+    "shadow_target_prem": "shadow_target_prem",
+    "shadow_prem_under_target": "prem_under",
+    "shadow_prem_over_target": "prem_over",
+    "shadow_target_load": "target_load",
+    "shadow_excess_load": "excess_load",
+    "shadow_prem_load": "shadow_prem_load",
+    "shadow_net_prem": "shadow_net_prem",
+    "shadow_nar_av": "shadow_nar_av",
+    "shadow_db": "shadow_db",
+    "shadow_coi_rate": "shadow_coi_rate",
+    "shadow_coi": "shadow_coi",
+    "shadow_dbd_rate": "shadow_dbd_rate",
+    "shadow_nar": "shadow_nar",
+    "shadow_epu_rate": "shadow_epu_rate",
+    "shadow_epu": "shadow_epu",
+    "shadow_mfee": "shadow_mfee",
+    "shadow_rider_charges": "shadow_rider_charges",
+    "shadow_md": "shadow_md",
+    "shadow_av": "shadow_av",
+    "shadow_days": "shadow_days",
+    "shadow_int_rate": "shadow_int_rate",
+    "shadow_eff_rate": "shadow_eff_rate",
+    "shadow_interest": "shadow_interest",
+    "shadow_eav": "shadow_eav",
+    "shadow_eav_less_debt": "shadow_eav_less_debt",
+}
+
+
+def _build_shadow_result(values: dict) -> ShadowResult:
+    return ShadowResult(**{
+        field: values[source]
+        for field, source in _SHADOW_RESULT_SOURCES.items()
+    })
+
+
 def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     """Calculate one month of the shadow account.
 
@@ -126,8 +327,6 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     if not policy.has_shadow_account:
         return ShadowResult()
 
-    seg = policy.base_segment
-
     # ── BAV (col WP) ─────────────────────────────────────────
     # Inforce row: 0 (prev_shadow_eav will be 0 from MonthlyState default)
     shadow_bav = prev_shadow_eav
@@ -141,42 +340,29 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
 
     # ── SA for rate basis ─────────────────────────────────────
     # sShadow_SA_Basis: 1 = OriginalSA, 2 = CurrentSA
-    if config.shadow_sa_basis == 1:
-        sa_for_basis = seg.original_face_amount if seg else policy.face_amount
-    else:
-        sa_for_basis = policy.face_amount
+    sa_for_basis = _sa_for_shadow_basis(policy, config)
 
     # ── Shadow Target Premium (col WU) ───────────────────────
     # shadow_tp = ROUND(sa_basis/1000 * (TPR + TPRTBL1*table + flat1 + flat2), 2) + CTR_CTP + PWSTP_CTP
     # For EXECUL: shadow_target = "0" → TPR=0, TPRTBL1=0, so shadow_tp = 0
-    if config.shadow_target == RATE_CODE_TABLE:
-        tpr = get_rate(rates, "shadow_tpr", rate_year)
-        tpr_tbl1 = get_rate(rates, "shadow_tpr_tbl1", rate_year)
-        table_cov1 = seg.table_rating if seg else 0
-        flat1 = (seg.flat_extra / MONTHS_PER_YEAR) if seg and seg.flat_extra else 0.0
-        flat2 = 0.0  # Second flat extra — not implemented
-        shadow_target_prem = _round_near(
-            sa_for_basis / PER_THOUSAND * (tpr + tpr_tbl1 * table_cov1 + flat1 + flat2), 2
-        )
-    else:
-        shadow_target_prem = 0.0
+    shadow_target_prem = _shadow_target_premium(
+        policy=policy,
+        config=config,
+        rates=rates,
+        rate_year=rate_year,
+        sa_for_basis=sa_for_basis,
+    )
 
     # ── Premium split under/over target (cols WX/WY) ─────────
     applied_prem = gross_premium
-    prem_ytd_before = premiums_ytd - applied_prem  # YTD before this premium
-
-    prem_under = max(min(shadow_target_prem - prem_ytd_before, applied_prem), 0.0)
-    prem_over = min(applied_prem, premiums_ytd - shadow_target_prem) if premiums_ytd > shadow_target_prem else 0.0
-    prem_over = max(prem_over, 0.0)
+    prem_under, prem_over = _premium_split(
+        gross_premium=gross_premium,
+        premiums_ytd=premiums_ytd,
+        shadow_target_prem=shadow_target_prem,
+    )
 
     # ── Premium load rates (cols WZ/XA) ──────────────────────
-    if config.shadow_prem_load_code == RATE_CODE_TABLE:
-        tpp_pct = get_rate(rates, "shadow_tpp", rate_year)
-        epp_pct = get_rate(rates, "shadow_epp", rate_year)
-    else:
-        flat_pct = float(config.shadow_prem_load_code)
-        tpp_pct = flat_pct
-        epp_pct = flat_pct
+    tpp_pct, epp_pct = _shadow_premium_load_rates(config, rates, rate_year)
 
     # ── Premium loads (cols XB/XC/XD) ─────────────────────────
     target_load = prem_under * tpp_pct
@@ -191,40 +377,29 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     shadow_nar_av = shadow_bav - shadow_wd_charges + shadow_net_prem
 
     # ── Shadow DB (col XG) ───────────────────────────────────
-    if policy.db_option == DB_OPTION_INCREASING:
-        shadow_db = shadow_nar_av + shadow_sa
-    else:
-        shadow_db = shadow_sa
+    shadow_db = _shadow_death_benefit(policy, shadow_nar_av, shadow_sa)
 
     # ── Shadow COI rate (col XH/XI) ──────────────────────────
-    shadow_coi_rate_raw = get_rate(rates, "shadow_coi", rate_year)
-
     # Substandard adjustment: rate * (1 + table_factor * table) + flat extras.
     # Substandard ceases STRICTLY before its cease date — same rule as the regular
     # COI (monthly_deduction._charge_active): not added on/after the cease
     # anniversary.  Previously the shadow path applied table/flat unconditionally,
     # so the flat never dropped off at the cease date.
-    table_active = bool(seg and seg.table_rating > 0
-                        and _charge_active(seg.table_cease_date, projection_date))
-    table_cov1 = seg.table_rating if table_active else 0
-    table_factor = config.table_rating_factor
-    flat_active = bool(seg and seg.flat_extra and seg.flat_extra > 0
-                       and _charge_active(seg.flat_cease_date, projection_date))
-    base_flat1 = (seg.flat_extra / MONTHS_PER_YEAR) if flat_active else 0.0
-    base_flat1 = float(Decimal(str(base_flat1)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-    base_flat2 = 0.0  # Second flat extra — not yet implemented
-
-    shadow_coi_rate = (
-        shadow_coi_rate_raw * (1.0 + table_factor * table_cov1)
-        + base_flat1
-        + base_flat2
+    shadow_coi_rate = _shadow_coi_rate(
+        policy=policy,
+        config=config,
+        rates=rates,
+        rate_year=rate_year,
+        projection_date=projection_date,
     )
 
     # ── Shadow DBD rate (col XJ) ─────────────────────────────
-    if config.shadow_dbd_rate == RATE_CODE_TABLE:
-        shadow_dbd_rate = get_rate(rates, "shadow_dbd", rate_year)
-    else:
-        shadow_dbd_rate = float(config.shadow_dbd_rate)
+    shadow_dbd_rate = _configured_rate(
+        config.shadow_dbd_rate,
+        rates,
+        "shadow_dbd",
+        rate_year,
+    )
 
     # ── Shadow NAR (col XK) ──────────────────────────────────
     # NAR = DB / (1 + dbd_rate)^(1/12) - NAR_AV
@@ -237,10 +412,12 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     shadow_coi = _round_near(shadow_nar / PER_THOUSAND * shadow_coi_rate, 2)
 
     # ── Shadow EPU (cols XM/XN) ──────────────────────────────
-    if config.shadow_epu_code == RATE_CODE_TABLE:
-        shadow_epu_rate = get_rate(rates, "shadow_epu", rate_year)
-    else:
-        shadow_epu_rate = float(config.shadow_epu_code)
+    shadow_epu_rate = _configured_rate(
+        config.shadow_epu_code,
+        rates,
+        "shadow_epu",
+        rate_year,
+    )
 
     shadow_epu = shadow_epu_rate * sa_for_basis / PER_THOUSAND
 
@@ -260,58 +437,27 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         shadow_av = shadow_nar_av - shadow_md
 
     # ── Interest (cols XS-XV) ─────────────────────────────────
-    shadow_days = float(display_days_in_month) if display_days_in_month is not None else float(days_in_month)
-
-    if config.shadow_int_rate_code == RATE_CODE_TABLE:
-        shadow_int_rate = get_rate(rates, "shadow_int", rate_year)
-    else:
-        shadow_int_rate = float(config.shadow_int_rate_code)
-
     # RERUN XW = (1+XV)^(XU/365) − 1 where XU is the OPTION-AWARE day count
     # (365/12 with exact-days off), not the actual calendar days.
-    shadow_eff_rate = (1.0 + shadow_int_rate) ** (shadow_days / DAYS_PER_YEAR) - 1.0
-    shadow_interest = max(0.0, shadow_eff_rate * shadow_av)
+    shadow_days, shadow_int_rate, shadow_eff_rate, shadow_interest = _shadow_interest_values(
+        config=config,
+        rates=rates,
+        rate_year=rate_year,
+        shadow_av=shadow_av,
+        days_in_month=days_in_month,
+        display_days_in_month=display_days_in_month,
+    )
 
     # ── Shadow EAV (col XW) ──────────────────────────────────
     # Active only if CCV benefit active (or inherent), and age <= cease_age - 1
-    if attained_age > (config.shadow_cease_age - 1):
-        shadow_eav = 0.0
-    else:
-        shadow_eav = _round_near(shadow_av + shadow_interest, 2)
+    shadow_eav = _shadow_eav(
+        config=config,
+        attained_age=attained_age,
+        shadow_av=shadow_av,
+        shadow_interest=shadow_interest,
+    )
 
     # ── Shadow EAV less debt (col XX) ─────────────────────────
-    if config.shadow_loan_impact == "Reduce":
-        shadow_eav_less_debt = shadow_eav - policy_debt
-    else:
-        shadow_eav_less_debt = shadow_eav
+    shadow_eav_less_debt = _shadow_eav_less_debt(config, shadow_eav, policy_debt)
 
-    return ShadowResult(
-        shadow_bav=shadow_bav,
-        shadow_wd_charges=shadow_wd_charges,
-        shadow_sa=shadow_sa,
-        shadow_target_prem=shadow_target_prem,
-        shadow_prem_under_target=prem_under,
-        shadow_prem_over_target=prem_over,
-        shadow_target_load=target_load,
-        shadow_excess_load=excess_load,
-        shadow_prem_load=shadow_prem_load,
-        shadow_net_prem=shadow_net_prem,
-        shadow_nar_av=shadow_nar_av,
-        shadow_db=shadow_db,
-        shadow_coi_rate=shadow_coi_rate,
-        shadow_coi=shadow_coi,
-        shadow_dbd_rate=shadow_dbd_rate,
-        shadow_nar=shadow_nar,
-        shadow_epu_rate=shadow_epu_rate,
-        shadow_epu=shadow_epu,
-        shadow_mfee=shadow_mfee,
-        shadow_rider_charges=shadow_rider_charges,
-        shadow_md=shadow_md,
-        shadow_av=shadow_av,
-        shadow_days=shadow_days,
-        shadow_int_rate=shadow_int_rate,
-        shadow_eff_rate=shadow_eff_rate,
-        shadow_interest=shadow_interest,
-        shadow_eav=shadow_eav,
-        shadow_eav_less_debt=shadow_eav_less_debt,
-    )
+    return _build_shadow_result(locals())

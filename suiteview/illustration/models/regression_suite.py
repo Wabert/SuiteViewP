@@ -258,57 +258,68 @@ def _load_revision(archive, slot: str, metadata: Optional[dict]) -> Optional[Bas
     )
 
 
-def load_suite(path: Path | str) -> RegressionSuite:
-    source = Path(path)
-    try:
-        with zipfile.ZipFile(source, "r") as archive:
-            names = archive.namelist()
-            if len(names) != len(set(names)):
-                raise RegressionSuiteError("Suite contains duplicate member names.")
-            for name in names:
-                _validate_member_name(name)
-            manifest = _read_json(archive, "manifest.json")
-            if manifest.get("kind") != SUITE_KIND:
-                raise RegressionSuiteError("File is not a SuiteView regression suite.")
-            if manifest.get("schema_version") != SUITE_SCHEMA_VERSION:
-                raise RegressionSuiteError(
-                    f"Unsupported regression suite schema "
-                    f"{manifest.get('schema_version')!r}.")
-            if manifest.get("summary_schema_version") != SUMMARY_SCHEMA_VERSION:
-                raise RegressionSuiteError("Suite uses an unsupported Summary schema.")
-            if tuple(manifest.get("summary_columns") or ()) != ALL_COLUMNS:
-                raise RegressionSuiteError("Suite Summary columns do not match this build.")
+def _suite_manifest(archive: zipfile.ZipFile) -> dict:
+    names = archive.namelist()
+    if len(names) != len(set(names)):
+        raise RegressionSuiteError("Suite contains duplicate member names.")
+    for name in names:
+        _validate_member_name(name)
+    manifest = _read_json(archive, "manifest.json")
+    if manifest.get("kind") != SUITE_KIND:
+        raise RegressionSuiteError("File is not a SuiteView regression suite.")
+    if manifest.get("schema_version") != SUITE_SCHEMA_VERSION:
+        raise RegressionSuiteError(
+            f"Unsupported regression suite schema "
+            f"{manifest.get('schema_version')!r}.")
+    if manifest.get("summary_schema_version") != SUMMARY_SCHEMA_VERSION:
+        raise RegressionSuiteError("Suite uses an unsupported Summary schema.")
+    if tuple(manifest.get("summary_columns") or ()) != ALL_COLUMNS:
+        raise RegressionSuiteError("Suite Summary columns do not match this build.")
+    _verify_suite_checksums(archive, names, manifest)
+    return manifest
 
-            checksums = manifest.get("checksums")
-            if not isinstance(checksums, dict):
-                raise RegressionSuiteError("Suite has no checksum table.")
-            expected_names = {"manifest.json", *checksums.keys()}
-            if set(names) != expected_names:
-                raise RegressionSuiteError("Suite members do not match its manifest.")
-            for name, expected in checksums.items():
-                actual = _digest(archive.read(name))
-                if actual != expected:
-                    raise RegressionSuiteError(f"Checksum mismatch for {name}.")
 
-            entries = []
-            case_ids = set()
-            for metadata in manifest.get("cases") or []:
-                case_id = str(metadata.get("case_id") or "")
-                member = str(metadata.get("member") or "")
-                if not case_id or case_id in case_ids:
-                    raise RegressionSuiteError("Suite contains duplicate or empty case ids.")
-                case_ids.add(case_id)
-                case = decode_saved_case(_read_json(archive, member), Path(member))
-                if case.schema_version != 2 or case.policy_snapshot is None:
-                    raise RegressionSuiteError(
-                        f"Case '{case.name}' has no frozen schema-v2 snapshot.")
-                entries.append(SuiteCase(case_id, case))
+def _verify_suite_checksums(
+    archive: zipfile.ZipFile,
+    names: list[str],
+    manifest: dict,
+) -> None:
+    checksums = manifest.get("checksums")
+    if not isinstance(checksums, dict):
+        raise RegressionSuiteError("Suite has no checksum table.")
+    expected_names = {"manifest.json", *checksums.keys()}
+    if set(names) != expected_names:
+        raise RegressionSuiteError("Suite members do not match its manifest.")
+    for name, expected in checksums.items():
+        actual = _digest(archive.read(name))
+        if actual != expected:
+            raise RegressionSuiteError(f"Checksum mismatch for {name}.")
 
-            active = _load_revision(archive, "current", manifest.get("active_baseline"))
-            previous = _load_revision(archive, "previous", manifest.get("previous_baseline"))
-    except (OSError, zipfile.BadZipFile) as exc:
-        raise RegressionSuiteError(f"Cannot read regression suite {source}: {exc}") from exc
 
+def _load_suite_cases(archive: zipfile.ZipFile, manifest: dict) -> list[SuiteCase]:
+    entries = []
+    case_ids = set()
+    for metadata in manifest.get("cases") or []:
+        case_id = str(metadata.get("case_id") or "")
+        member = str(metadata.get("member") or "")
+        if not case_id or case_id in case_ids:
+            raise RegressionSuiteError("Suite contains duplicate or empty case ids.")
+        case_ids.add(case_id)
+        case = decode_saved_case(_read_json(archive, member), Path(member))
+        if case.schema_version != 2 or case.policy_snapshot is None:
+            raise RegressionSuiteError(
+                f"Case '{case.name}' has no frozen schema-v2 snapshot.")
+        entries.append(SuiteCase(case_id, case))
+    return entries
+
+
+def _loaded_suite(
+    source: Path,
+    manifest: dict,
+    entries: list[SuiteCase],
+    active: Optional[BaselineRevision],
+    previous: Optional[BaselineRevision],
+) -> RegressionSuite:
     suite = RegressionSuite(
         suite_id=str(manifest.get("suite_id") or ""),
         name=str(manifest.get("name") or ""),
@@ -324,6 +335,20 @@ def load_suite(path: Path | str) -> RegressionSuite:
         if revision and not set(revision.rows).issubset(known):
             raise RegressionSuiteError("Baseline refers to a case not in the suite.")
     return suite
+
+
+def load_suite(path: Path | str) -> RegressionSuite:
+    source = Path(path)
+    try:
+        with zipfile.ZipFile(source, "r") as archive:
+            manifest = _suite_manifest(archive)
+            entries = _load_suite_cases(archive, manifest)
+            active = _load_revision(archive, "current", manifest.get("active_baseline"))
+            previous = _load_revision(archive, "previous", manifest.get("previous_baseline"))
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RegressionSuiteError(f"Cannot read regression suite {source}: {exc}") from exc
+
+    return _loaded_suite(source, manifest, entries, active, previous)
 
 
 def update_baseline(

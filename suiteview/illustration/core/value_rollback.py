@@ -427,6 +427,68 @@ def _processed_history(history, tables):
     return [item for item in history if id(item[2]) not in pending_rows], True
 
 
+def _same_day_cd_boundary(history: list[tuple[date, str, dict]], when: date) -> Decimal | None:
+    boundary_rows = [
+        row for day, code, row in history
+        if day == when and code == "CD"
+        and str(row.get("FCB0_REV_IND", "")).strip() == "0"
+        and str(row.get("FCB2_REV_APPL_IND", "")).strip() == "0"
+    ]
+    return (
+        _amount(boundary_rows[0], "SEQ_NO", "FH_FIXED")
+        if len(boundary_rows) == 1 else None
+    )
+
+
+def _history_reversal_flags(row: dict) -> list[str]:
+    flags = [str(row.get(key, "")).strip() for key in ("FCB0_REV_IND", "FCB2_REV_APPL_IND")]
+    if any(flag not in {"0", "1"} for flag in flags):
+        raise ValueError("Financial history reversal flags are missing or invalid.")
+    return flags
+
+
+def _later_history_candidate(day: date, code: str, row: dict, when: date) -> bool:
+    entry = _record_date(row.get("ENTRY_DT"))
+    if entry is None:
+        raise ValueError("Financial history entry dates are required to check backdated activity.")
+    if day < when:
+        if entry > when and code != "CD":
+            raise ValueError("Backdated financial activity can invalidate the stored historical basis.")
+        return False
+    flags = _history_reversal_flags(row)
+    if "1" in flags:
+        raise ValueError("Reversed financial activity requires verified historical accumulator effects.")
+    if any(
+        str(row.get(key, "0")).strip() == "1"
+        for key in ("FCB3_ACT_CORR_IND", "FEB1_UNDO_REDO_IND")
+    ):
+        raise ValueError("Corrected financial activity requires verified historical accumulator effects.")
+    if code == "CD":
+        return False
+    if code != "PR":
+        raise ValueError(f"Historical accumulator effects are unverified for transaction {code}.")
+    if str(row.get("FEB3_1035_EXCH_IND", "0")).strip() != "0":
+        raise ValueError("1035-exchange premiums require the historical transferred cost basis.")
+    return True
+
+
+def _later_premium_amount(row: dict) -> Decimal:
+    amount_field = "GROSS_AMT" if "GROSS_AMT" in row else "TOT_TRS_AMT"
+    amount = _amount(row, amount_field, "FH_FIXED")
+    if amount < 0:
+        raise ValueError("Negative premiums require verified correction handling.")
+    return amount
+
+
+def _same_day_premium_is_after_boundary(
+    row: dict,
+    boundary: Decimal | None,
+) -> bool:
+    if boundary is None:
+        raise ValueError("Same-day premium/deduction ordering is unavailable.")
+    return _amount(row, "SEQ_NO", "FH_FIXED") >= boundary
+
+
 def _later_premiums(
     history: list[tuple[date, str, dict]], when: date,
 ) -> list[tuple[date, Decimal]]:
@@ -438,50 +500,14 @@ def _later_premiums(
     convention). Exchanges, withdrawals, corrections and other transaction
     families need their own verified accumulator effects; they are not guessed.
     """
-    boundary_rows = [
-        row for day, code, row in history
-        if day == when and code == "CD"
-        and str(row.get("FCB0_REV_IND", "")).strip() == "0"
-        and str(row.get("FCB2_REV_APPL_IND", "")).strip() == "0"
-    ]
-    boundary = (
-        _amount(boundary_rows[0], "SEQ_NO", "FH_FIXED")
-        if len(boundary_rows) == 1 else None
-    )
+    boundary = _same_day_cd_boundary(history, when)
     result = []
     for day, code, row in history:
-        entry = _record_date(row.get("ENTRY_DT"))
-        if entry is None:
-            raise ValueError("Financial history entry dates are required to check backdated activity.")
-        if day < when:
-            if entry is not None and entry > when and code != "CD":
-                raise ValueError("Backdated financial activity can invalidate the stored historical basis.")
+        if not _later_history_candidate(day, code, row, when):
             continue
-        flags = [str(row.get(key, "")).strip() for key in ("FCB0_REV_IND", "FCB2_REV_APPL_IND")]
-        if any(flag not in {"0", "1"} for flag in flags):
-            raise ValueError("Financial history reversal flags are missing or invalid.")
-        if "1" in flags:
-            raise ValueError("Reversed financial activity requires verified historical accumulator effects.")
-        if any(
-            str(row.get(key, "0")).strip() == "1"
-            for key in ("FCB3_ACT_CORR_IND", "FEB1_UNDO_REDO_IND")
-        ):
-            raise ValueError("Corrected financial activity requires verified historical accumulator effects.")
-        if code == "CD":
+        amount = _later_premium_amount(row)
+        if day == when and not _same_day_premium_is_after_boundary(row, boundary):
             continue
-        if code != "PR":
-            raise ValueError(f"Historical accumulator effects are unverified for transaction {code}.")
-        if str(row.get("FEB3_1035_EXCH_IND", "0")).strip() != "0":
-            raise ValueError("1035-exchange premiums require the historical transferred cost basis.")
-        amount_field = "GROSS_AMT" if "GROSS_AMT" in row else "TOT_TRS_AMT"
-        amount = _amount(row, amount_field, "FH_FIXED")
-        if amount < 0:
-            raise ValueError("Negative premiums require verified correction handling.")
-        if day == when:
-            if boundary is None:
-                raise ValueError("Same-day premium/deduction ordering is unavailable.")
-            if _amount(row, "SEQ_NO", "FH_FIXED") < boundary:
-                continue
         result.append((day, amount))
     return result
 
@@ -572,23 +598,24 @@ def _recover_tamra(snapshot, tables, later, policy):
     snapshot.tamra_7year_contributions = [float(by_year[year]) for year in range(1, 8)]
 
 
-def _recover_targets(snapshot, tables, policy, history, coverages):
-    """Reverse canonical engine target accrual on an explicitly unchanged basis."""
-    when = snapshot.valuation_date
-    anchor = snapshot.source_valuation_date
-    _later_premiums(history, when)
+def _ensure_single_base_target_basis(policy) -> None:
     if len(policy.segments) != 1:
         raise ValueError(
             "Historical target reconstruction currently requires a single-base "
             "UL/IUL policy with an unchanged coverage basis."
         )
+
+
+def _check_coverage_target_basis(coverages, when: date, anchor: date) -> None:
     if not coverages:
         raise ValueError("Coverage history is unavailable to check the target basis.")
     for coverage in coverages:
         for field in ("issue_date", "cov_status_date", "terminate_date", "maturity_date"):
             changed = getattr(coverage, field, None)
             if changed is not None and when < changed <= anchor:
-                raise ValueError("A recorded coverage change crosses the rollback interval; historical targets are unavailable.")
+                raise ValueError(
+                    "A recorded coverage change crosses the rollback interval; "
+                    "historical targets are unavailable.")
         original = getattr(coverage, "orig_amount", None)
         current = getattr(coverage, "face_amount", None)
         if original is not None and current is not None and original != current:
@@ -596,50 +623,84 @@ def _recover_targets(snapshot, tables, policy, history, coverages):
                 "Coverage face differs from its original amount without a dated target-change "
                 "history; unchanged-target reconstruction is unsafe."
             )
+
+
+def _check_rider_benefit_target_basis(policy, when: date, anchor: date) -> None:
     for item in [*policy.riders, *policy.benefits]:
         for field in ("issue_date", "maturity_date", "cease_date", "pay_up_date"):
             changed = getattr(item, field, None)
             if changed is not None and when < changed <= anchor:
-                raise ValueError("A rider/benefit boundary crosses the rollback interval; historical targets are unavailable.")
+                raise ValueError(
+                    "A rider/benefit boundary crosses the rollback interval; "
+                    "historical targets are unavailable.")
+
+
+def _target_amount(tables, code: str, when: date, anchor: date) -> Decimal:
+    matches = [
+        row for row in tables["LH_POL_TARGET"]
+        if str(row.get("TAR_TYP_CD", "")).strip() == code
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"A unique current {code} target amount is required.")
+    if code in {"MT", "TA"}:
+        target_date = _record_date(matches[0].get("TAR_DT"))
+        if target_date is not None and when < target_date <= anchor:
+            raise ValueError(
+                f"The {code} target date crosses the rollback interval; "
+                "prior target basis is unavailable.")
+    return _amount(matches[0], "TAR_PRM_AMT", "LH_POL_TARGET")
+
+
+def _guideline_level_premium(tables) -> Decimal:
+    glp_rows = [
+        row for row in tables["LH_COV_INS_GDL_PRM"]
+        if str(row.get("PRM_RT_TYP_CD", "")).strip() == "A"
+    ]
+    if len(glp_rows) != 1:
+        raise ValueError("A unique current guideline level premium is required.")
+    return _amount(glp_rows[0], "GDL_PRM_AMT", "LH_COV_INS_GDL_PRM")
+
+
+def _target_month_window(policy, when: date, anchor: date) -> tuple[int, int]:
+    return (
+        _completed_months(policy.issue_date, when),
+        _completed_months(policy.issue_date, anchor),
+    )
+
+
+def _anniversary_count_before_age_100(policy, first_month: int, last_month: int) -> int:
+    return sum(
+        month % 12 == 0 and policy.issue_age + month // 12 < 100
+        for month in range(first_month + 1, last_month + 1)
+    )
+
+
+def _recover_targets(snapshot, tables, policy, history, coverages):
+    """Reverse canonical engine target accrual on an explicitly unchanged basis."""
+    when = snapshot.valuation_date
+    anchor = snapshot.source_valuation_date
+    _later_premiums(history, when)
+    _ensure_single_base_target_basis(policy)
+    _check_coverage_target_basis(coverages, when, anchor)
+    _check_rider_benefit_target_basis(policy, when, anchor)
     if any(day > anchor and code == "CD" for day, code, _ in history):
         raise ValueError("A later recorded deduction makes the loaded target-accumulation date ambiguous.")
 
-    def target(code):
-        matches = [row for row in tables["LH_POL_TARGET"]
-                   if str(row.get("TAR_TYP_CD", "")).strip() == code]
-        if len(matches) != 1:
-            raise ValueError(f"A unique current {code} target amount is required.")
-        if code in {"MT", "TA"}:
-            target_date = _record_date(matches[0].get("TAR_DT"))
-            if target_date is not None and when < target_date <= anchor:
-                raise ValueError(f"The {code} target date crosses the rollback interval; prior target basis is unavailable.")
-        return _amount(matches[0], "TAR_PRM_AMT", "LH_POL_TARGET")
-
-    monthly_mtp = target("MT")
-    accumulated_mtp = target("MA")
+    monthly_mtp = _target_amount(tables, "MT", when, anchor)
+    accumulated_mtp = _target_amount(tables, "MA", when, anchor)
     if policy.is_cvat:
         accumulated_glp = glp = Decimal(0)
         snapshot.limitations.append(
             "CVAT has no guideline-premium test; AccumGLP is zero (not applicable).")
     else:
-        accumulated_glp = target("TA")
-        glp_rows = [
-            row for row in tables["LH_COV_INS_GDL_PRM"]
-            if str(row.get("PRM_RT_TYP_CD", "")).strip() == "A"
-        ]
-        if len(glp_rows) != 1:
-            raise ValueError("A unique current guideline level premium is required.")
-        glp = _amount(glp_rows[0], "GDL_PRM_AMT", "LH_COV_INS_GDL_PRM")
-    first_month = _completed_months(policy.issue_date, when)
-    last_month = _completed_months(policy.issue_date, anchor)
+        accumulated_glp = _target_amount(tables, "TA", when, anchor)
+        glp = _guideline_level_premium(tables)
+    first_month, last_month = _target_month_window(policy, when, anchor)
     # calc_engine steps 8/10: MTP is already MONTHLY; GLP is added only at
     # anniversaries before attained age 100, not one twelfth every month.
     monthly_mtp = Decimal(str(truncate_monthly_mtp(float(monthly_mtp))))
     mtp_delta = monthly_mtp * (last_month - first_month)
-    anniversaries = sum(
-        month % 12 == 0 and policy.issue_age + month // 12 < 100
-        for month in range(first_month + 1, last_month + 1)
-    )
+    anniversaries = _anniversary_count_before_age_100(policy, first_month, last_month)
     glp_delta = Decimal(str(floor_monthly_cent(float(glp)))) * anniversaries
     if accumulated_mtp < mtp_delta:
         raise ValueError("Current AccumMTP does not reconcile with unchanged-target reverse accrual.")
@@ -672,46 +733,214 @@ def _recover_deduction(snapshot, history):
     )
 
 
-def _recover_loans(snapshot, loan_rows, policy, history):
-    dated = [row for row in loan_rows if _record_date(row.get("MVRY_DT")) == snapshot.valuation_date]
-    if not dated:
-        # An empty successfully read table plus unchanged zero current loans is
-        # evidence of no loan buckets, not a missing amount in a retained row.
-        if not history:
-            raise ValueError("Financial history is required to establish that no historical loans existed.")
-        _later_premiums(history, snapshot.valuation_date)
-        if loan_rows or any(getattr(policy, name) != 0 for name in _LOAN_FIELDS):
-            raise ValueError("Exact-date loan values are unavailable; current/sentinel loans cannot be reused.")
-        for name in _LOAN_FIELDS:
-            setattr(snapshot, name, 0.0)
-        return
-    amounts = dict.fromkeys(_LOAN_FIELDS, Decimal(0))
-    rates = set()
-    seen = set()
-    for row in dated:
-        fund = str(row.get("FND_ID_CD") or "").strip()
-        preferred = str(row.get("PRF_LN_IND", "")).strip()
-        status = str(row.get("LN_ITS_AMT_TYP_CD", "")).strip()
-        phase = _amount(row, "FND_VAL_PHA_NBR", "LH_FND_VAL_LOAN")
-        if not fund or preferred not in {"0", "1"} or status not in {"0", "1", "2"}:
-            raise ValueError("Historical loan bucket classification/interest status is unavailable.")
-        key = (fund, phase, preferred, status)
-        if key in seen:
-            raise ValueError("Duplicate historical loan buckets are ambiguous.")
-        seen.add(key)
-        kind = "variable" if fund == "LZ" else "preferred" if preferred == "1" else "regular"
-        amounts[f"{kind}_loan_principal"] += _amount(row, "LN_PRI_AMT", "LH_FND_VAL_LOAN")
-        if status != "1":
-            amounts[f"{kind}_loan_accrued"] += _amount(row, "POL_LN_ITS_AMT", "LH_FND_VAL_LOAN")
-        if kind == "variable":
-            rate = _amount(row, "LN_CRG_ITS_RT", "LH_FND_VAL_LOAN")
-            rates.add(rate / 100 if rate > 1 else rate)
+def _dated_loan_rows(loan_rows, valuation_date: date) -> list[dict]:
+    return [
+        row for row in loan_rows
+        if _record_date(row.get("MVRY_DT")) == valuation_date
+    ]
+
+
+def _recover_absent_loans(snapshot, loan_rows, policy, history) -> None:
+    # An empty successfully read table plus unchanged zero current loans is
+    # evidence of no loan buckets, not a missing amount in a retained row.
+    if not history:
+        raise ValueError("Financial history is required to establish that no historical loans existed.")
+    _later_premiums(history, snapshot.valuation_date)
+    if loan_rows or any(getattr(policy, name) != 0 for name in _LOAN_FIELDS):
+        raise ValueError("Exact-date loan values are unavailable; current/sentinel loans cannot be reused.")
+    for name in _LOAN_FIELDS:
+        setattr(snapshot, name, 0.0)
+
+
+def _loan_bucket_identity(row: dict) -> tuple[str, Decimal, str, str]:
+    fund = str(row.get("FND_ID_CD") or "").strip()
+    preferred = str(row.get("PRF_LN_IND", "")).strip()
+    status = str(row.get("LN_ITS_AMT_TYP_CD", "")).strip()
+    phase = _amount(row, "FND_VAL_PHA_NBR", "LH_FND_VAL_LOAN")
+    if not fund or preferred not in {"0", "1"} or status not in {"0", "1", "2"}:
+        raise ValueError("Historical loan bucket classification/interest status is unavailable.")
+    return fund, phase, preferred, status
+
+
+def _loan_kind(fund: str, preferred: str) -> str:
+    if fund == "LZ":
+        return "variable"
+    return "preferred" if preferred == "1" else "regular"
+
+
+def _accumulate_loan_row(
+    row: dict,
+    amounts: dict,
+    rates: set,
+    seen: set,
+) -> None:
+    fund, phase, preferred, status = _loan_bucket_identity(row)
+    key = (fund, phase, preferred, status)
+    if key in seen:
+        raise ValueError("Duplicate historical loan buckets are ambiguous.")
+    seen.add(key)
+    kind = _loan_kind(fund, preferred)
+    amounts[f"{kind}_loan_principal"] += _amount(row, "LN_PRI_AMT", "LH_FND_VAL_LOAN")
+    if status != "1":
+        amounts[f"{kind}_loan_accrued"] += _amount(row, "POL_LN_ITS_AMT", "LH_FND_VAL_LOAN")
+    if kind == "variable":
+        rate = _amount(row, "LN_CRG_ITS_RT", "LH_FND_VAL_LOAN")
+        rates.add(rate / 100 if rate > 1 else rate)
+
+
+def _apply_recovered_loans(snapshot, amounts: dict, rates: set) -> None:
     if len(rates) > 1:
         raise ValueError("Historical variable-loan buckets have conflicting rates.")
     if rates:
         snapshot.variable_loan_charge_rate = float(rates.pop())
     for name, amount in amounts.items():
         setattr(snapshot, name, float(amount))
+
+
+def _recover_loans(snapshot, loan_rows, policy, history):
+    dated = _dated_loan_rows(loan_rows, snapshot.valuation_date)
+    if not dated:
+        _recover_absent_loans(snapshot, loan_rows, policy, history)
+        return
+    amounts = dict.fromkeys(_LOAN_FIELDS, Decimal(0))
+    rates = set()
+    seen = set()
+    for row in dated:
+        _accumulate_loan_row(row, amounts, rates, seen)
+    _apply_recovered_loans(snapshot, amounts, rates)
+
+
+def _rollback_monthliversary_rows(pi: PolicyInformation, anchor: date) -> dict[date, list[dict]]:
+    rows = _read_rows(pi, "LH_POL_MVRY_VAL")
+    dated = {}
+    earliest = _six_months_before(anchor)
+    for row in rows:
+        when = _record_date(row.get("MVRY_DT"))
+        if when is not None and earliest <= when < anchor:
+            dated.setdefault(when, []).append(row)
+    return dated
+
+
+def _rollback_source_tables(pi: PolicyInformation) -> dict[str, list[dict]]:
+    return {
+        name: _read_rows(pi, name) for name in (
+            "LH_POL_TOTALS", "LH_POL_YR_TOT", "LH_POL_TARGET",
+            "LH_COV_INS_GDL_PRM",
+            "LH_TAMRA_7_PY_PER", "LH_TAMRA_7_PY_YR", "LH_FND_VAL_LOAN", "FH_FIXED",
+        )
+    }
+
+
+def _rollback_history_context(tables) -> tuple[list | None, str | None, bool]:
+    history = None
+    history_error = None
+    excluded_pending = False
+    try:
+        history = _transactions(tables["FH_FIXED"])
+        if not history:
+            raise ValueError("Financial history is unavailable; accumulator reversal cannot be verified.")
+        history, excluded_pending = _processed_history(history, tables)
+    except ValueError as exc:
+        history_error = str(exc)
+    return history, history_error, excluded_pending
+
+
+def _new_rollback_snapshot(
+    when: date,
+    anchor: date,
+    excluded_pending: bool,
+) -> ValueRollbackSnapshot:
+    snapshot = ValueRollbackSnapshot(valuation_date=when, source_valuation_date=anchor)
+    snapshot.limitations.extend([
+        "Account value is the recorded post-deduction U1MV value; do not deduct charges again.",
+        "Specified amounts, DB option, underwriting, target rates and billing are current "
+        "assumptions, not recovered historical coverage conditions.",
+    ])
+    if excluded_pending:
+        snapshot.limitations.append(
+            "Pending premiums (FBB3_PROCD_IND=0) were excluded only after "
+            "processed premium history reconciled exactly to current premiums paid."
+        )
+    return snapshot
+
+
+def _apply_monthliversary_amounts(
+    snapshot: ValueRollbackSnapshot,
+    policy: IllustrationPolicyData,
+    row: dict,
+) -> None:
+    try:
+        snapshot.account_value = float(_amount(row, "CSV_AMT", "LH_POL_MVRY_VAL"))
+        expected_year = _duration(policy, snapshot.valuation_date)[0]
+        if _amount(row, "POL_DUR_NBR", "LH_POL_MVRY_VAL") != expected_year:
+            raise ValueError("U1MV policy year disagrees with the original issue date.")
+    except ValueError as exc:
+        snapshot.blocking_errors.append(str(exc))
+    for name, column in (
+        ("system_coi_charge", "CINS_AMT"),
+        ("system_expense_charge", "EXP_CRG_AMT"),
+        ("system_other_charge", "OTH_PRM_AMT"),
+    ):
+        try:
+            setattr(snapshot, name, float(_amount(row, column, "LH_POL_MVRY_VAL")))
+        except ValueError as exc:
+            snapshot.limitations.append(str(exc))
+    if all(getattr(snapshot, name) is not None for name in _SYSTEM_AMOUNTS[:3]):
+        snapshot.system_monthly_deduction = sum(
+            getattr(snapshot, name) for name in _SYSTEM_AMOUNTS[:3])
+
+
+def _recover_snapshot_accumulators(
+    snapshot: ValueRollbackSnapshot,
+    policy: IllustrationPolicyData,
+    tables,
+    history,
+    history_error: str | None,
+    coverages,
+) -> None:
+    if history_error:
+        snapshot.blocking_errors.append(history_error)
+        return
+    try:
+        later = _recover_totals(policy, snapshot, tables, history)
+        _recover_tamra(snapshot, tables, later, policy)
+    except ValueError as exc:
+        snapshot.blocking_errors.append(str(exc))
+    try:
+        _recover_targets(snapshot, tables, policy, history, coverages)
+    except ValueError as exc:
+        snapshot.blocking_errors.append(str(exc))
+    try:
+        _recover_deduction(snapshot, history)
+    except ValueError as exc:
+        snapshot.blocking_errors.append(str(exc))
+
+
+def _recover_snapshot_loans(snapshot, tables, policy, history) -> None:
+    try:
+        _recover_loans(snapshot, tables["LH_FND_VAL_LOAN"], policy, history or [])
+    except ValueError as exc:
+        snapshot.blocking_errors.append(str(exc))
+
+
+def _append_snapshot_policy_limitations(
+    snapshot: ValueRollbackSnapshot,
+    policy: IllustrationPolicyData,
+) -> None:
+    snapshot.limitations.append(
+        "Historical individual fund balances are unavailable; the recorded total "
+        "account value is not assigned to current fund IDs.")
+    if policy.ccv_active or policy.shadow_account_value or policy.swam:
+        snapshot.limitations.append(
+            "The coverage-target XP record is current, not historical. A historical "
+            "shadow amount must be entered before projection.")
+    if policy.is_cvat:
+        snapshot.deemed_cash_value = snapshot.account_value
+        snapshot.limitations.append(
+            "CVAT deemed-value display follows the Policy tab's account-value convention; "
+            "historical NSP and tax-test calculations are not reconstructed.")
+    if _is_iul(policy):
+        snapshot.limitations.append(_IUL_TOTAL_BASIS)
 
 
 def build_value_rollback_snapshots(
@@ -725,100 +954,21 @@ def build_value_rollback_snapshots(
     anchor = policy.valuation_date
     if anchor is None:
         return []
-    rows = _read_rows(pi, "LH_POL_MVRY_VAL")
-    dated = {}
-    earliest = _six_months_before(anchor)
-    for row in rows:
-        when = _record_date(row.get("MVRY_DT"))
-        if when is not None and earliest <= when < anchor:
-            dated.setdefault(when, []).append(row)
+    dated = _rollback_monthliversary_rows(pi, anchor)
     if not dated:
         return []
-    tables = {
-        name: _read_rows(pi, name) for name in (
-            "LH_POL_TOTALS", "LH_POL_YR_TOT", "LH_POL_TARGET",
-            "LH_COV_INS_GDL_PRM",
-            "LH_TAMRA_7_PY_PER", "LH_TAMRA_7_PY_YR", "LH_FND_VAL_LOAN", "FH_FIXED",
-        )
-    }
+    tables = _rollback_source_tables(pi)
     coverages = pi.get_coverages()
-    history = None
-    history_error = None
-    excluded_pending = False
-    try:
-        history = _transactions(tables["FH_FIXED"])
-        if not history:
-            raise ValueError("Financial history is unavailable; accumulator reversal cannot be verified.")
-        history, excluded_pending = _processed_history(history, tables)
-    except ValueError as exc:
-        history_error = str(exc)
+    history, history_error, excluded_pending = _rollback_history_context(tables)
     snapshots = []
     for when, matching in sorted(dated.items(), reverse=True):
-        snapshot = ValueRollbackSnapshot(valuation_date=when, source_valuation_date=anchor)
-        snapshot.limitations.extend([
-            "Account value is the recorded post-deduction U1MV value; do not deduct charges again.",
-            "Specified amounts, DB option, underwriting, target rates and billing are current "
-            "assumptions, not recovered historical coverage conditions.",
-        ])
-        if excluded_pending:
-            snapshot.limitations.append(
-                "Pending premiums (FBB3_PROCD_IND=0) were excluded only after "
-                "processed premium history reconciled exactly to current premiums paid."
-            )
+        snapshot = _new_rollback_snapshot(when, anchor, excluded_pending)
         if len(matching) != 1:
             snapshot.blocking_errors.append("Multiple U1MV records exist for this date.")
-        row = matching[0]
-        try:
-            snapshot.account_value = float(_amount(row, "CSV_AMT", "LH_POL_MVRY_VAL"))
-            expected_year = _duration(policy, when)[0]
-            if _amount(row, "POL_DUR_NBR", "LH_POL_MVRY_VAL") != expected_year:
-                raise ValueError("U1MV policy year disagrees with the original issue date.")
-        except ValueError as exc:
-            snapshot.blocking_errors.append(str(exc))
-        for name, column in (
-            ("system_coi_charge", "CINS_AMT"),
-            ("system_expense_charge", "EXP_CRG_AMT"),
-            ("system_other_charge", "OTH_PRM_AMT"),
-        ):
-            try:
-                setattr(snapshot, name, float(_amount(row, column, "LH_POL_MVRY_VAL")))
-            except ValueError as exc:
-                snapshot.limitations.append(str(exc))
-        if all(getattr(snapshot, name) is not None for name in _SYSTEM_AMOUNTS[:3]):
-            snapshot.system_monthly_deduction = sum(getattr(snapshot, name) for name in _SYSTEM_AMOUNTS[:3])
-        if history_error:
-            snapshot.blocking_errors.append(history_error)
-        else:
-            try:
-                later = _recover_totals(policy, snapshot, tables, history)
-                _recover_tamra(snapshot, tables, later, policy)
-            except ValueError as exc:
-                snapshot.blocking_errors.append(str(exc))
-            try:
-                _recover_targets(snapshot, tables, policy, history, coverages)
-            except ValueError as exc:
-                snapshot.blocking_errors.append(str(exc))
-            try:
-                _recover_deduction(snapshot, history)
-            except ValueError as exc:
-                snapshot.blocking_errors.append(str(exc))
-        try:
-            _recover_loans(snapshot, tables["LH_FND_VAL_LOAN"], policy, history or [])
-        except ValueError as exc:
-            snapshot.blocking_errors.append(str(exc))
-        snapshot.limitations.append(
-            "Historical individual fund balances are unavailable; the recorded total "
-            "account value is not assigned to current fund IDs.")
-        if policy.ccv_active or policy.shadow_account_value or policy.swam:
-            snapshot.limitations.append(
-                "The coverage-target XP record is current, not historical. A historical "
-                "shadow amount must be entered before projection.")
-        if policy.is_cvat:
-            snapshot.deemed_cash_value = snapshot.account_value
-            snapshot.limitations.append(
-                "CVAT deemed-value display follows the Policy tab's account-value convention; "
-                "historical NSP and tax-test calculations are not reconstructed.")
-        if _is_iul(policy):
-            snapshot.limitations.append(_IUL_TOTAL_BASIS)
+        _apply_monthliversary_amounts(snapshot, policy, matching[0])
+        _recover_snapshot_accumulators(
+            snapshot, policy, tables, history, history_error, coverages)
+        _recover_snapshot_loans(snapshot, tables, policy, history)
+        _append_snapshot_policy_limitations(snapshot, policy)
         snapshots.append(snapshot)
     return snapshots

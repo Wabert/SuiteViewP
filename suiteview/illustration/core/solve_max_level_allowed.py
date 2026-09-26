@@ -82,6 +82,124 @@ def _default_mode(policy: IllustrationPolicyData) -> str:
     return _MODE_FROM_FREQ.get(int(policy.billing_frequency or 1), "M")
 
 
+def _age_100_stop_year(
+    policy: IllustrationPolicyData,
+    start_policy_year: int,
+) -> Optional[int]:
+    if policy.maturity_age <= 100:
+        return None
+    stop_year = 100 - int(policy.issue_age or 0) + 1
+    if stop_year <= int(start_policy_year):
+        raise MaxLevelAllowedError(
+            "No level-premium window remains — the policy is at or past "
+            "the age-100 premium limit.")
+    return stop_year
+
+
+def _level_future_inputs(
+    base: Optional[IllustrationInputSet],
+    *,
+    premium: float,
+    mode: str,
+    start_policy_year: int,
+    stop_year: Optional[int],
+) -> IllustrationInputSet:
+    scheds = list(base.scheduled_transactions) if base is not None else []
+    scheds.append(ScheduledTransaction(
+        kind=TransactionKind.PREMIUM,
+        policy_year=int(start_policy_year),
+        amount=float(premium),
+        mode=mode,
+    ))
+    if stop_year is not None:
+        scheds.append(ScheduledTransaction(
+            kind=TransactionKind.PREMIUM,
+            policy_year=int(stop_year),
+            amount=0.0,
+            mode="A",
+        ))
+    return IllustrationInputSet(
+        scheduled_transactions=scheds,
+        dated_transactions=list(base.dated_transactions) if base is not None else [],
+        policy_changes=list(base.policy_changes) if base is not None else [],
+    )
+
+
+def _project_level_premium(
+    *,
+    engine: IllustrationEngine,
+    policy: IllustrationPolicyData,
+    options: IllustrationOptions,
+    base: Optional[IllustrationInputSet],
+    premium: float,
+    mode: str,
+    start_policy_year: int,
+    stop_year: Optional[int],
+    stop_on_lapse: bool = True,
+) -> List[MonthlyState]:
+    # The level row is appended even at zero: a 0-amount schedule at the
+    # start year TERMINATES any base scheduled premium from that year on,
+    # exactly as the real level premium will — so the probe's consumed
+    # premiums match the final run's base contribution.
+    future = _level_future_inputs(
+        base,
+        premium=premium,
+        mode=mode,
+        start_policy_year=start_policy_year,
+        stop_year=stop_year,
+    )
+    return engine.project(
+        policy,
+        options=options,
+        future_inputs=future,
+        stop_on_lapse=stop_on_lapse,
+    )
+
+
+def _lifetime_guideline_room(
+    probe: List[MonthlyState],
+    resolution: float,
+) -> float:
+    if len(probe) < 2:
+        raise MaxLevelAllowedError(
+            "The projection produced no forecast months to pay into.")
+    final = probe[-1]
+    limit = max(float(final.gsp or 0.0), float(final.accumulated_glp or 0.0))
+    consumed = float(final.prem_less_wd or 0.0)
+    room = limit - consumed
+    if room < resolution:
+        raise MaxLevelAllowedError(
+            "The base inputs already consume the lifetime guideline room — "
+            "no additional level premium is allowed.")
+    return room
+
+
+def _count_level_payments(
+    probe: List[MonthlyState],
+    *,
+    policy: IllustrationPolicyData,
+    interval: int,
+    start_policy_year: int,
+    stop_year: Optional[int],
+) -> int:
+    payments = 0
+    for state in probe[1:]:
+        year = int(state.policy_year or 0)
+        if year < int(start_policy_year):
+            continue
+        if stop_year is not None and year >= stop_year:
+            continue
+        if int(state.attained_age or 0) >= int(policy.maturity_age or 0):
+            continue
+        if (int(state.policy_month or 1) - 1) % interval == 0:
+            payments += 1
+    if payments <= 0:
+        raise MaxLevelAllowedError(
+            "No level-premium payment dates remain before the age-100 "
+            "premium limit.")
+    return payments
+
+
 def solve_max_level_allowed(
     policy: IllustrationPolicyData,
     *,
@@ -131,77 +249,51 @@ def solve_max_level_allowed(
     # level payment past it would always be outside the room. Maturity before
     # 100 needs no stop: the engine collects no premium on or after the
     # maturity date.
-    stop_year: Optional[int] = None
-    if policy.maturity_age > 100:
-        stop_year = 100 - int(policy.issue_age or 0) + 1
-        if stop_year <= int(start_policy_year):
-            raise MaxLevelAllowedError(
-                "No level-premium window remains — the policy is at or past "
-                "the age-100 premium limit.")
-
-    def project(premium: float, *, stop_on_lapse: bool = True) -> List[MonthlyState]:
-        # The level row is appended even at zero: a 0-amount schedule at the
-        # start year TERMINATES any base scheduled premium from that year on,
-        # exactly as the real level premium will — so the probe's consumed
-        # premiums match the final run's base contribution.
-        scheds = list(base.scheduled_transactions) if base is not None else []
-        scheds.append(ScheduledTransaction(
-            kind=TransactionKind.PREMIUM, policy_year=int(start_policy_year),
-            amount=float(premium), mode=mode))
-        if stop_year is not None:
-            scheds.append(ScheduledTransaction(
-                kind=TransactionKind.PREMIUM, policy_year=int(stop_year),
-                amount=0.0, mode="A"))
-        future = IllustrationInputSet(
-            scheduled_transactions=scheds,
-            dated_transactions=list(base.dated_transactions) if base is not None else [],
-            policy_changes=list(base.policy_changes) if base is not None else [],
-        )
-        return engine.project(policy, options=options, future_inputs=future,
-                              stop_on_lapse=stop_on_lapse)
+    stop_year = _age_100_stop_year(policy, start_policy_year)
 
     # ── 1. Zero-premium probe: the guideline chain is premium-independent, so
     # one full-horizon run (no lapse stop — an unfunded policy may well lapse)
     # yields the end-of-window limit, the room the base inputs consume, and
     # the exact payment calendar.
-    probe = project(0.0, stop_on_lapse=False)
-    if len(probe) < 2:                      # [0] is the inforce seed row
-        raise MaxLevelAllowedError(
-            "The projection produced no forecast months to pay into.")
-    final = probe[-1]
-    limit = max(float(final.gsp or 0.0), float(final.accumulated_glp or 0.0))
-    consumed = float(final.prem_less_wd or 0.0)
-    room = limit - consumed
-    if room < resolution:
-        raise MaxLevelAllowedError(
-            "The base inputs already consume the lifetime guideline room — "
-            "no additional level premium is allowed.")
+    probe = _project_level_premium(
+        engine=engine,
+        policy=policy,
+        options=options,
+        base=base,
+        premium=0.0,
+        mode=mode,
+        start_policy_year=start_policy_year,
+        stop_year=stop_year,
+        stop_on_lapse=False,
+    )
+    room = _lifetime_guideline_room(probe, resolution)
 
     # ── 2. Payment count: modal due months (policy months 1, 1+interval, …)
     # the level schedule spans, read off the probe's own month stream so a
     # mid-year start counts exactly the due dates the engine will collect.
     # probe[0] is the inforce seed row (current month, no premium) — skip it.
-    payments = 0
-    for state in probe[1:]:
-        year = int(state.policy_year or 0)
-        if year < int(start_policy_year):
-            continue
-        if stop_year is not None and year >= stop_year:
-            continue
-        if int(state.attained_age or 0) >= int(policy.maturity_age or 0):
-            continue                        # no premium on/after maturity
-        if (int(state.policy_month or 1) - 1) % interval == 0:
-            payments += 1
-    if payments <= 0:
-        raise MaxLevelAllowedError(
-            "No level-premium payment dates remain before the age-100 "
-            "premium limit.")
+    payments = _count_level_payments(
+        probe,
+        policy=policy,
+        interval=interval,
+        start_policy_year=start_policy_year,
+        stop_year=stop_year,
+    )
 
     premium = max(0.0, math.floor(room / payments / resolution) * resolution)
 
     # ── 3. Apply it. The guideline cap clips any transiently tight year —
     # expected for a policy already funded to its guideline today.
-    states = project(premium)
+    states = _project_level_premium(
+        engine=engine,
+        policy=policy,
+        options=options,
+        base=base,
+        premium=premium,
+        mode=mode,
+        start_policy_year=start_policy_year,
+        stop_year=stop_year,
+    )
     return _build_result(premium, mode, policy, states, iterations=2)
 
 
