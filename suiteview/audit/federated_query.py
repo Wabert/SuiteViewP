@@ -30,14 +30,18 @@ Correctness rules (a quietly-wrong join is worse than an error):
   UI can ask before running.
 
 Pure planning/execution logic — no Qt. ODBC and file access are injectable so the
-behaviour is unit-testable without a database.
+behaviour is unit-testable without a database.  ``FederatedPlanner`` keeps the
+planner in explicit phases (``SourcePartition``, ``ColumnDemand``,
+``PushdownPlan``, ``DuckDbRewrite``) so pushdown eligibility and final DuckDB
+rewriting can be tested and maintained independently.
 """
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from suiteview.audit.dynamic_query import (
     DUCKDB,
@@ -80,8 +84,12 @@ def is_numeric_type_name(type_name: str) -> bool:
 _BROAD_KEYS = frozenset({"CK_SYS_CD", "CK_CMP_CD", "COV_PHA_NBR"})
 
 
-def _pushdown_rank(candidate: "PushdownCandidate") -> tuple[int, int]:
-    from suiteview.audit.policy_list import COMPANY_ALIASES, SYSTEM_ALIASES, normalize_name
+def _pushdown_rank(candidate: PushdownCandidate) -> tuple[int, int]:
+    from suiteview.audit.policy_list import (
+        COMPANY_ALIASES,
+        SYSTEM_ALIASES,
+        normalize_name,
+    )
 
     broad = (candidate.column.upper() in _BROAD_KEYS
              or normalize_name(candidate.column) in COMPANY_ALIASES | SYSTEM_ALIASES)
@@ -204,6 +212,240 @@ class FederatedPlan:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class FederatedPlanRequest:
+    """Inputs needed to plan a mixed-source Visual Query."""
+
+    table_sources: dict[str, str]
+    used_tables: list[str]
+    primary_table: str
+    field_filters: list[dict]
+    select_columns: list[dict]
+    join_infos: list[dict]
+    max_count: str
+    display_all: bool = False
+    distinct: bool = False
+    cte_prefix: str = ""
+    dialect_for: Callable[[str], str] | None = None
+    source_labels: dict[str, str] | None = None
+    inline_tables: dict[str, dict] | None = None
+
+
+@dataclass(frozen=True)
+class SourcePartition:
+    """Tables split by local-vs-ODBC source and ordered join metadata."""
+
+    known_tables: list[str]
+    tables: list[str]
+    ordered_joins: list[dict]
+    local_tables: list[str]
+    odbc_tables: list[str]
+    inline_tables: dict[str, dict]
+
+
+@dataclass(frozen=True)
+class ColumnDemand:
+    """Columns, filters and safe pushdown edges required for staging."""
+
+    needs_all: bool
+    needed: dict[str, list[str]]
+    filters_by_table: dict[str, list[dict]]
+    cross_pairs: list[tuple[str, str, str, str]]
+    edges: list[tuple[str, str, str, str, bool]]
+
+
+@dataclass(frozen=True)
+class PushdownPlan:
+    """Database staging steps after safe key restrictions are chosen."""
+
+    steps: list[StagingStep]
+
+
+@dataclass(frozen=True)
+class DuckDbRewrite:
+    """Final DuckDB SQL plus hidden key-helper columns."""
+
+    final_sql: str
+    key_helpers: list[tuple[str, str, str, str, str, str]]
+
+
+class FederatedPlanner:
+    """Phase planner for mixed File Source / ODBC visual queries."""
+
+    def __init__(self, request: FederatedPlanRequest):
+        from suiteview.core.odbc_utils import detect_dialect
+
+        self.request = request
+        self._dialect_for = request.dialect_for or detect_dialect
+
+    def plan(self) -> FederatedPlan:
+        """Run SourcePartition → ColumnDemand → PushdownPlan → DuckDbRewrite."""
+        partition = self.source_partition()
+        demand = self.column_demand(partition)
+        pushdown = self.pushdown_plan(partition, demand)
+        rewrite = self.duckdb_rewrite(partition, demand)
+        request = self.request
+        return FederatedPlan(
+            primary=request.primary_table,
+            table_sources={t: request.table_sources[t] for t in partition.tables},
+            local_tables=partition.local_tables,
+            steps=pushdown.steps,
+            final_sql=rewrite.final_sql,
+            cross_key_pairs=demand.cross_pairs,
+            source_labels=dict(request.source_labels or {}),
+            inline_tables={
+                t: partition.inline_tables[t]
+                for t in partition.local_tables
+                if t in partition.inline_tables
+            },
+            key_helpers=rewrite.key_helpers,
+        )
+
+    def source_partition(self) -> SourcePartition:
+        """Separate local tables from database tables and validate pasted lists."""
+        request = self.request
+        known = [t for t in request.table_sources if t]
+        tables = [t for t in request.used_tables if t in request.table_sources]
+        ordered = order_join_infos(
+            request.primary_table, request.join_infos) if request.join_infos else []
+        inline_tables = dict(request.inline_tables or {})
+        for table in tables:
+            if is_list_token(request.table_sources[table]) and table not in inline_tables:
+                raise FederatedQueryError(
+                    f"The pasted list {table!r} has no data. Remove it and paste it again.")
+        return SourcePartition(
+            known_tables=known,
+            tables=tables,
+            ordered_joins=ordered,
+            local_tables=[t for t in tables if is_local_token(request.table_sources[t])],
+            odbc_tables=[t for t in tables if not is_local_token(request.table_sources[t])],
+            inline_tables=inline_tables,
+        )
+
+    def _table_of(self, spec: dict, partition: SourcePartition) -> str:
+        return split_field_key(spec.get("field_key", ""), partition.known_tables)[0]
+
+    def column_demand(self, partition: SourcePartition) -> ColumnDemand:
+        """Find database columns to stage and key edges safe for pushdown."""
+        request = self.request
+        needs_all = (
+            request.display_all or not request.select_columns
+            or any(ji.get("extra_conditions") for ji in request.join_infos)
+        )
+        needed: dict[str, list[str]] = {t: [] for t in partition.odbc_tables}
+
+        def need(table: str, column: str):
+            if table in needed and column and column not in needed[table]:
+                needed[table].append(column)
+
+        for spec in [*request.select_columns, *request.field_filters]:
+            need(self._table_of(spec, partition), spec["column"])
+
+        cross_pairs: list[tuple[str, str, str, str]] = []
+        edges: list[tuple[str, str, str, str, bool]] = []
+        for ji in partition.ordered_joins:
+            lt, rt = ji["left_table"], ji["right_table"]
+            how = str(ji.get("join_type", "")).upper()
+            push_right = how.startswith(("INNER", "LEFT"))
+            push_left = how.startswith(("INNER", "RIGHT"))
+            pairs = [(lt, lc, rt, rc) for lc, rc in ji.get("on_pairs", [])]
+            pairs.extend(ji.get("cross_pairs", []))
+            for ta, ca, tb, cb in pairs:
+                need(ta, ca)
+                need(tb, cb)
+                if request.table_sources.get(ta) != request.table_sources.get(tb):
+                    cross_pairs.append((ta, ca, tb, cb))
+            for lc, rc in ji.get("on_pairs", []):
+                edges.append((rt, rc, lt, lc, push_right))
+                edges.append((lt, lc, rt, rc, push_left))
+
+        filters_by_table: dict[str, list[dict]] = {t: [] for t in partition.odbc_tables}
+        for filt in request.field_filters:
+            table = self._table_of(filt, partition)
+            if table in filters_by_table:
+                filters_by_table[table].append(filt)
+
+        return ColumnDemand(
+            needs_all=needs_all,
+            needed=needed,
+            filters_by_table=filters_by_table,
+            cross_pairs=cross_pairs,
+            edges=edges,
+        )
+
+    def pushdown_plan(self, partition: SourcePartition,
+                      demand: ColumnDemand) -> PushdownPlan:
+        """Order database staging, preferring already-staged key restrictions."""
+        request = self.request
+        staged = set(partition.local_tables)
+
+        def candidates(table: str) -> list[PushdownCandidate]:
+            return [
+                PushdownCandidate(column=col, from_table=src, from_column=src_col)
+                for tgt, col, src, src_col, ok in demand.edges
+                if ok and tgt == table and src in staged
+            ]
+
+        remaining = list(partition.odbc_tables)
+        steps: list[StagingStep] = []
+        while remaining:
+            pick = next((t for t in remaining if candidates(t)), None)
+            if pick is None:
+                pick = next(
+                    (t for t in remaining if demand.filters_by_table[t]), remaining[0])
+            dsn = request.table_sources[pick]
+            steps.append(StagingStep(
+                table=pick,
+                dsn=dsn,
+                dialect=self._dialect_for(dsn),
+                columns=None if demand.needs_all else list(demand.needed[pick]),
+                filters=list(demand.filters_by_table[pick]),
+                pushdowns=sorted(candidates(pick), key=_pushdown_rank),
+            ))
+            staged.add(pick)
+            remaining.remove(pick)
+        return PushdownPlan(steps)
+
+    def duckdb_rewrite(self, partition: SourcePartition,
+                       demand: ColumnDemand) -> DuckDbRewrite:
+        """Rewrite database filters/key joins for the final DuckDB statement."""
+        request = self.request
+        odbc_set = set(partition.odbc_tables)
+        final_filters = [
+            {**filt, "mode": "not_null"}
+            if self._table_of(filt, partition) in odbc_set else filt
+            for filt in request.field_filters
+        ]
+        key_helpers: list[tuple[str, str, str, str, str, str]] = []
+        final_joins: list[dict] = []
+        for index, ji in enumerate(request.join_infos):
+            lt, rt = ji["left_table"], ji["right_table"]
+            pairs = []
+            for pos, (lc, rc) in enumerate(ji.get("on_pairs", [])):
+                if request.table_sources.get(lt) != request.table_sources.get(rt):
+                    lh = f"{KEY_HELPER_PREFIX}{index}_{pos}_l"
+                    rh = f"{KEY_HELPER_PREFIX}{index}_{pos}_r"
+                    key_helpers.append((lt, lc, lh, rt, rc, rh))
+                    pairs.append((lh, rh))
+                else:
+                    pairs.append((lc, rc))
+            final_joins.append({**ji, "on_pairs": pairs})
+        if request.join_infos:
+            final_sql = build_join_sql(
+                request.primary_table, request.max_count, final_filters,
+                join_infos=final_joins, select_columns=request.select_columns,
+                display_all=request.display_all, distinct=request.distinct,
+                dialect=DUCKDB)
+        else:
+            final_sql = build_dynamic_sql(
+                request.primary_table, request.max_count, final_filters,
+                select_columns=request.select_columns, display_all=request.display_all,
+                distinct=request.distinct, dialect=DUCKDB)
+        if request.cte_prefix:
+            final_sql = request.cte_prefix + "\n" + final_sql
+        return DuckDbRewrite(final_sql, key_helpers)
+
+
 def plan_federated_query(
     *,
     table_sources: dict[str, str],
@@ -227,134 +469,22 @@ def plan_federated_query(
     is in ``inline_tables``). ``used_tables`` are the tables referenced by fields
     and joins (a CTE Common Table has no source and is ignored).
     """
-    from suiteview.core.odbc_utils import detect_dialect
-
-    dialect_for = dialect_for or detect_dialect
-    known = [t for t in table_sources if t]
-    tables = [t for t in used_tables if t in table_sources]
-    ordered = order_join_infos(primary_table, join_infos) if join_infos else []
-    inline_tables = dict(inline_tables or {})
-    for table in tables:
-        if is_list_token(table_sources[table]) and table not in inline_tables:
-            raise FederatedQueryError(
-                f"The pasted list {table!r} has no data. Remove it and paste it again.")
-
-    def table_of(spec: dict) -> str:
-        return split_field_key(spec.get("field_key", ""), known)[0]
-
-    file_tables = [t for t in tables if is_local_token(table_sources[t])]
-    odbc_tables = [t for t in tables if not is_local_token(table_sources[t])]
-
-    # Columns each database table must return.
-    needs_all = display_all or not select_columns or any(
-        ji.get("extra_conditions") for ji in join_infos)
-    needed: dict[str, list[str]] = {t: [] for t in odbc_tables}
-
-    def need(table: str, column: str):
-        if table in needed and column and column not in needed[table]:
-            needed[table].append(column)
-
-    for spec in [*select_columns, *field_filters]:
-        need(table_of(spec), spec["column"])
-    cross_pairs: list[tuple[str, str, str, str]] = []
-    # (restricted table, its column, source table, source column, safe)
-    edges: list[tuple[str, str, str, str, bool]] = []
-    for ji in ordered:
-        lt, rt = ji["left_table"], ji["right_table"]
-        how = str(ji.get("join_type", "")).upper()
-        push_right = how.startswith("INNER") or how.startswith("LEFT")
-        push_left = how.startswith("INNER") or how.startswith("RIGHT")
-        pairs = [(lt, lc, rt, rc) for lc, rc in ji.get("on_pairs", [])]
-        pairs.extend(ji.get("cross_pairs", []))
-        for ta, ca, tb, cb in pairs:
-            need(ta, ca)
-            need(tb, cb)
-            if table_sources.get(ta) != table_sources.get(tb):
-                cross_pairs.append((ta, ca, tb, cb))
-        for lc, rc in ji.get("on_pairs", []):
-            edges.append((rt, rc, lt, lc, push_right))
-            edges.append((lt, lc, rt, rc, push_left))
-
-    filters_by_table: dict[str, list[dict]] = {t: [] for t in odbc_tables}
-    for filt in field_filters:
-        table = table_of(filt)
-        if table in filters_by_table:
-            filters_by_table[table].append(filt)
-
-    # Stage file tables first, then each database table as soon as a staged
-    # neighbour can restrict it; otherwise prefer filtered tables.
-    staged = set(file_tables)
-
-    def candidates(table: str) -> list[PushdownCandidate]:
-        return [
-            PushdownCandidate(column=col, from_table=src, from_column=src_col)
-            for tgt, col, src, src_col, ok in edges
-            if ok and tgt == table and src in staged
-        ]
-
-    remaining = list(odbc_tables)
-    steps: list[StagingStep] = []
-    while remaining:
-        pick = next((t for t in remaining if candidates(t)), None)
-        if pick is None:
-            pick = next((t for t in remaining if filters_by_table[t]), remaining[0])
-        dsn = table_sources[pick]
-        steps.append(StagingStep(
-            table=pick,
-            dsn=dsn,
-            dialect=dialect_for(dsn),
-            columns=None if needs_all else list(needed[pick]),
-            filters=list(filters_by_table[pick]),
-            pushdowns=sorted(candidates(pick), key=_pushdown_rank),
-        ))
-        staged.add(pick)
-        remaining.remove(pick)
-
-    # DuckDB statement: database filters already ran on the database.
-    odbc_set = set(odbc_tables)
-    final_filters = [
-        {**filt, "mode": "not_null"} if table_of(filt) in odbc_set else filt
-        for filt in field_filters
-    ]
-    # Cross-source keys are compared through hidden helper columns holding the
-    # normalized value, so the user's own columns are shown exactly as loaded.
-    key_helpers: list[tuple[str, str, str, str, str, str]] = []
-    final_joins: list[dict] = []
-    for index, ji in enumerate(join_infos):
-        lt, rt = ji["left_table"], ji["right_table"]
-        pairs = []
-        for pos, (lc, rc) in enumerate(ji.get("on_pairs", [])):
-            if table_sources.get(lt) != table_sources.get(rt):
-                lh, rh = f"{KEY_HELPER_PREFIX}{index}_{pos}_l", f"{KEY_HELPER_PREFIX}{index}_{pos}_r"
-                key_helpers.append((lt, lc, lh, rt, rc, rh))
-                pairs.append((lh, rh))
-            else:
-                pairs.append((lc, rc))
-        final_joins.append({**ji, "on_pairs": pairs})
-    if join_infos:
-        final_sql = build_join_sql(
-            primary_table, max_count, final_filters,
-            join_infos=final_joins, select_columns=select_columns,
-            display_all=display_all, distinct=distinct, dialect=DUCKDB)
-    else:
-        final_sql = build_dynamic_sql(
-            primary_table, max_count, final_filters,
-            select_columns=select_columns, display_all=display_all,
-            distinct=distinct, dialect=DUCKDB)
-    if cte_prefix:
-        final_sql = cte_prefix + "\n" + final_sql
-
-    return FederatedPlan(
-        primary=primary_table,
-        table_sources={t: table_sources[t] for t in tables},
-        local_tables=file_tables,
-        steps=steps,
-        final_sql=final_sql,
-        cross_key_pairs=cross_pairs,
-        source_labels=dict(source_labels or {}),
-        inline_tables={t: inline_tables[t] for t in file_tables if t in inline_tables},
-        key_helpers=key_helpers,
+    request = FederatedPlanRequest(
+        table_sources=table_sources,
+        used_tables=used_tables,
+        primary_table=primary_table,
+        field_filters=field_filters,
+        select_columns=select_columns,
+        join_infos=join_infos,
+        max_count=max_count,
+        display_all=display_all,
+        distinct=distinct,
+        cte_prefix=cte_prefix,
+        dialect_for=dialect_for,
+        source_labels=source_labels,
+        inline_tables=inline_tables,
     )
+    return FederatedPlanner(request).plan()
 
 
 # ── Execution ─────────────────────────────────────────────────────────────
@@ -374,7 +504,7 @@ class OdbcSession:
             self._connections[dsn] = conn
         return conn
 
-    def fetch(self, dsn: str, sql: str) -> "pd.DataFrame":
+    def fetch(self, dsn: str, sql: str) -> pd.DataFrame:
         import pandas as pd
 
         cursor = self._connection(dsn).cursor()
@@ -415,7 +545,7 @@ class OdbcSession:
 
 
 def load_file_table(token: str, table: str,
-                    text_columns: list[str] | None = None) -> "pd.DataFrame":
+                    text_columns: list[str] | None = None) -> pd.DataFrame:
     """Load one File Source member table; ``text_columns`` keep their raw text."""
     from suiteview.audit import file_query_runner
     from suiteview.audit.query_sources import resolve_file_token
@@ -438,7 +568,7 @@ def load_file_table(token: str, table: str,
     return df
 
 
-def inline_dataframe(data: dict) -> "pd.DataFrame":
+def inline_dataframe(data: dict) -> pd.DataFrame:
     """A pasted list as text columns (values stay exactly as normalized)."""
     import pandas as pd
 
@@ -553,9 +683,9 @@ def execute_federated_plan(
     plan: FederatedPlan,
     *,
     session: OdbcSession | None = None,
-    file_loader: Callable[[str, str, list[str]], "pd.DataFrame"] | None = None,
+    file_loader: Callable[[str, str, list[str]], pd.DataFrame] | None = None,
     chunk_size: int = PUSHDOWN_CHUNK_SIZE,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Stage every table, then run the plan's DuckDB statement over them."""
     from suiteview.audit.dataforge import forge_engine
     from suiteview.core.sql_permissions import guard_query_sql
@@ -593,7 +723,7 @@ def execute_federated_plan(
 
 
 def _stage(step: StagingStep, frames: dict, types: dict[str, str],
-           session: OdbcSession, chunk_size: int, guard) -> "pd.DataFrame":
+           session: OdbcSession, chunk_size: int, guard) -> pd.DataFrame:
     import pandas as pd
 
     if not step.pushdowns:

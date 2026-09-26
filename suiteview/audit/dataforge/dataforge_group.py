@@ -5,7 +5,7 @@ Each DataForgeGroup manages:
   - Source saved queries (instead of direct tables)
   - A QTabWidget with Filter, Joins, Display, Results, SQL, Code tabs
   - A bottom bar with Queries, Field Picker, Save, Run buttons
-  - Execution via pandas merge/filter operations
+  - Execution by compiling the visual design to DuckDB SQL
 """
 from __future__ import annotations
 
@@ -17,54 +17,76 @@ import pandas as pd
 from PyQt6.QtCore import QMimeData, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QLabel, QPushButton, QMessageBox, QApplication, QInputDialog, QTextEdit, QScrollArea,
-    QFrame, QCheckBox,
+    QApplication,
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
-from suiteview.audit.qdefinition import QDefinition
-from suiteview.audit import qdef_store
-from suiteview.audit.query_object import (
-    object_from_qdefinition,
-    object_from_saved_query,
-    qdefinition_from_query_object,
-)
-from suiteview.audit import query_object_store
+from suiteview.audit import qdef_store, query_object_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
-from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
 from suiteview.audit.dataforge import dataforge_store as df_store
-from suiteview.audit.tabs.field_row import FieldRow, FieldGrid
-from suiteview.audit.tabs.results_tab import ResultsTab
-from suiteview.audit.tabs._styles import _FONT
-from suiteview.audit.sql_helpers import fmt_time
-from suiteview.audit.ui.bottom_bar import AuditBottomBar
-from suiteview.audit.query_runner import (
-    run_button_context,
-    execute_odbc_query,
-    run_query_async,
-    format_query_error,
+from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
+
+# Phase 3 Manual mode: the visual design compiles to one DuckDB statement
+# (shown on the SQL tab); Manual mode lets the user edit and run that SQL
+# directly against the Source tables. See DATAFORGE_DESIGN.md §5.
+from suiteview.audit.dataforge.forge_engine import (
+    FilterSpec,
+    ForgeEngineError,
+    JoinSpec,
+    OutputColumn,
+    compile_forge_sql,
+    run_manual_sql,
+    shared_append_columns,
 )
-from suiteview.audit.query_builder_menu import query_builder_menu
-from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
-from suiteview.audit.tabs._sort_controls import (
-    SortControl, handle_direction_changed, handle_order_edited, renumber,
-)
+
 # Phase 2 join UI: the MS-Access-style canvas (field-linked Source boxes with
 # drawn join lines) replaces the old card-based ForgeJoinsTab. JoinCanvasView
 # is API-compatible (update_queries / get_merge_ops / get_state / set_state /
 # state_changed) and its set_state migrates the old {"cards": [...]} format, so
 # previously-saved Forges still load.
 from suiteview.audit.dataforge.join_canvas_view import (
-    JoinCanvasView,
     ORANGE_JOIN_CANVAS_THEME,
+    JoinCanvasView,
 )
-# Phase 3 Manual mode: the visual design compiles to one DuckDB statement
-# (shown on the SQL tab); Manual mode lets the user edit and run that SQL
-# directly against the Source tables. See DATAFORGE_DESIGN.md §5.
-from suiteview.audit.dataforge.forge_engine import (
-    FilterSpec, ForgeEngineError, JoinSpec, OutputColumn,
-    compile_forge_sql, run_manual_sql, shared_append_columns,
+from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
+from suiteview.audit.dataforge.services import (
+    generate_duckdb_script,
+    run_visual_forge,
 )
+from suiteview.audit.qdefinition import QDefinition
+from suiteview.audit.query_builder_menu import query_builder_menu
+from suiteview.audit.query_object import (
+    object_from_qdefinition,
+    object_from_saved_query,
+    qdefinition_from_query_object,
+)
+from suiteview.audit.query_runner import (
+    execute_odbc_query,
+    format_query_error,
+    run_query_async,
+)
+from suiteview.audit.sql_helpers import fmt_time
+from suiteview.audit.tabs._sort_controls import (
+    SortControl,
+    handle_direction_changed,
+    handle_order_edited,
+    renumber,
+)
+from suiteview.audit.tabs._styles import _FONT
+from suiteview.audit.tabs.field_row import FieldGrid, FieldRow
+from suiteview.audit.tabs.results_tab import ResultsTab
+from suiteview.audit.ui.bottom_bar import AuditBottomBar
 
 logger = logging.getLogger(__name__)
 
@@ -1675,7 +1697,7 @@ class DataForgeGroup(QWidget):
             QMessageBox.information(
                 self, "Query Loaded",
                 f"\"{query_name}\" — {len(df)} rows loaded into memory.")
-        except Exception as exc:
+        except ForgeEngineError as exc:
             QApplication.restoreOverrideCursor()
             logger.exception("Single query execution failed: %s", query_name)
             QMessageBox.warning(
@@ -1719,7 +1741,7 @@ class DataForgeGroup(QWidget):
                 if self._queries_dialog and self._queries_dialog.isVisible():
                     self._queries_dialog.update_data_status(
                         set(self._datasets.keys()))
-            except Exception as exc:
+            except ForgeEngineError as exc:
                 progress.close()
                 logger.exception("View query failed: %s", query_name)
                 QMessageBox.warning(
@@ -1734,8 +1756,7 @@ class DataForgeGroup(QWidget):
 
     def _show_preview_window(self, query_name: str, df: pd.DataFrame):
         """Open a preview window showing the first 1000 rows."""
-        from suiteview.audit.dataforge._query_preview_window import (
-            QueryPreviewWindow)
+        from suiteview.audit.dataforge._query_preview_window import QueryPreviewWindow
         win = QueryPreviewWindow(query_name, df, parent=None)
         win.show()
         # Keep reference to prevent GC
@@ -1902,60 +1923,21 @@ class DataForgeGroup(QWidget):
                 self._show_manual_results(datasets, sqls, manual_sql, t_query)
                 return
 
-            # Append Tables: each becomes a dataset (row-preserving stack of members over
-            # their shared columns); members are consumed by the append and
-            # the merge ops reference the Append Table's name instead.
-            datasets = self._apply_append_ops(datasets)
-
-            # Step 2: Apply pandas merge operations
             t1 = time.time()
-            merge_ops = self.joins_tab.get_merge_ops()
-
-            if merge_ops:
-                # Execute merges in order
-                result = None
-                for op in merge_ops:
-                    left_name = op["left"]
-                    right_name = op["right"]
-                    left_on = op["left_on"]
-                    right_on = op["right_on"]
-                    how = op["how"]
-
-                    if not left_on or not right_on:
-                        continue
-
-                    left_df = result if result is not None else datasets.get(left_name)
-                    right_df = datasets.get(right_name)
-
-                    if left_df is None or right_df is None:
-                        continue
-
-                    result = pd.merge(
-                        left_df, right_df,
-                        left_on=left_on, right_on=right_on,
-                        how=how, suffixes=(f"_{left_name}", f"_{right_name}"))
-
-                if result is None:
-                    # No valid merges — use first dataset
-                    result = next(iter(datasets.values()))
-            else:
-                # No merges — use the first surviving visual Source. In an
-                # append-only Forge, member Sources are consumed and the Append
-                # Table is the only surviving result source.
-                result = datasets[self._default_result_source_name(datasets)]
-
-            # Step 3: Apply pandas filters from filter tabs
-            for tab in self._filter_tabs:
-                result = self._apply_pandas_filters(result, tab)
-
-            # Step 4: Apply display column selection
-            if not self.display_tab.display_all:
-                result = self._apply_display_columns(result)
-
-            # Step 5: Apply max count
             max_count = self.txt_max_count.text().strip()
-            if max_count.isdigit():
-                result = result.head(int(max_count))
+            try:
+                forge_result = run_visual_forge(
+                    datasets,
+                    self._engine_joins(),
+                    filters=self._engine_filter_specs(),
+                    outputs=self._engine_outputs(),
+                    appends=self.joins_tab.to_append_specs(),
+                    limit=int(max_count) if max_count.isdigit() else None,
+                )
+            except ForgeEngineError as exc:
+                QMessageBox.warning(self, "DataForge Error", str(exc))
+                return
+            result = forge_result.dataframe
 
             t_print = time.time() - t1
             t_total = t_query + t_print
@@ -1972,10 +1954,10 @@ class DataForgeGroup(QWidget):
 
             # Update SQL tab: per-dataset SQL + the compiled Forge SQL
             self.sql_tab.set_datasets(sqls)
-            self._refresh_forge_sql()
+            self.sql_tab.set_forge_sql(forge_result.sql)
 
             # Generate Python code
-            code = self._generate_python_code(sqls, merge_ops, max_count)
+            code = self._generate_python_code(sqls, forge_result.sql)
             self.code_tab.set_code(code)
 
             self.tab_widget.setCurrentWidget(self.results_tab)
@@ -2239,7 +2221,7 @@ class DataForgeGroup(QWidget):
             return
         try:
             self.sql_tab.set_forge_sql(self._compile_visual_sql())
-        except Exception as exc:
+        except ForgeEngineError as exc:
             self.sql_tab.set_forge_sql(
                 "-- The visual design doesn't compile yet:\n-- "
                 + str(exc).replace("\n", "\n-- ")
@@ -2303,92 +2285,13 @@ class DataForgeGroup(QWidget):
         return "\n".join(lines)
 
     def _generate_python_code(self, sqls: dict[str, str],
-                              merge_ops: list[dict],
-                              max_count: str) -> str:
-        """Generate real, runnable Python code that reproduces the DataForge."""
-        lines = self._generate_load_code(sqls)
-
-        append_ops = self.joins_tab.get_append_ops()
-        if append_ops:
-            lines.extend([
-                "",
-                "# ── Append Tables (stack rows over shared columns) ─────────",
-            ])
-            for op in append_ops:
-                member_vars = ", ".join(f"df_{_var(m)}" for m in op["members"])
-                lines.extend([
-                    f"_frames = [{member_vars}]",
-                    "_shared = [c for c in _frames[0].columns"
-                    " if all(c in f.columns for f in _frames)]",
-                    "for _frame in _frames[1:]:",
-                    "    _lower = {c.lower() for c in _frame.columns}",
-                    "    _shared = [c for c in _shared if c.lower() in _lower]",
-                    "_aligned = []",
-                    "for _frame in _frames:",
-                    "    _lookup = {c.lower(): c for c in _frame.columns}",
-                    "    _part = _frame[[_lookup[c.lower()] for c in _shared]].copy()",
-                    "    _part.columns = _shared",
-                    "    _aligned.append(_part)",
-                    f"df_{_var(op['name'])} = pd.concat(_aligned, ignore_index=True)",
-                ])
-
-        if merge_ops:
-            lines.extend([
-                "",
-                "# ── Merge datasets ─────────────────────────────────────────",
-            ])
-            for i, op in enumerate(merge_ops):
-                left = op["left"]
-                right = op["right"]
-                left_on = op["left_on"]
-                right_on = op["right_on"]
-                how = op["how"]
-                if i == 0:
-                    lines.append(
-                        f'result = pd.merge(df_{_var(left)}, df_{_var(right)}, '
-                        f'left_on="{left_on}", right_on="{right_on}", '
-                        f'how="{how}")')
-                else:
-                    lines.append(
-                        f'result = pd.merge(result, df_{_var(right)}, '
-                        f'left_on="{left_on}", right_on="{right_on}", '
-                        f'how="{how}")')
-        else:
-            first_name = self._default_code_result_source_name(append_ops)
-            lines.extend([
-                "",
-                f"result = df_{_var(first_name)}",
-            ])
-
-        # Filters
-        filter_code = self._generate_filter_code()
-        if filter_code:
-            lines.extend([
-                "",
-                "# ── Apply filters ──────────────────────────────────────────",
-            ])
-            lines.extend(filter_code)
-
-        # Max count
-        if max_count.isdigit():
-            lines.extend([
-                "",
-                f"result = result.head({max_count})",
-            ])
-
-        lines.extend([
-            "",
-            "print(f'Result: {result.shape[0]} rows x {result.shape[1]} columns')",
-            "print(result.head(20))",
-        ])
-
-        return "\n".join(lines)
-
-    def _default_code_result_source_name(self, append_ops: list[dict]) -> str:
-        consumed = {member for op in append_ops for member in op["members"]}
-        surviving = [name for name in self._sources if name not in consumed]
-        surviving.extend(op["name"] for op in append_ops)
-        return surviving[0] if surviving else "data"
+                              forge_sql: str) -> str:
+        """Generate runnable Python that reproduces the engine DataForge run."""
+        return generate_duckdb_script(
+            self._generate_load_code(sqls, extra_imports=("import duckdb",)),
+            list(self._sources),
+            forge_sql,
+        )
 
     def _generate_adhoc_load_code(self, name: str, sq: QDefinition) -> list[str]:
         """Generate pandas load code for a DataForge ad hoc file source."""
@@ -2437,92 +2340,6 @@ class DataForgeGroup(QWidget):
         selected_columns = [column for column in sq.result_columns if column]
         if selected_columns:
             lines.append(f"{var_name} = {var_name}[[c for c in {selected_columns!r} if c in {var_name}.columns]]")
-        return lines
-
-    def _generate_filter_code(self) -> list[str]:
-        """Generate pandas filter code from filter tabs."""
-        from suiteview.audit.dynamic_query import collect_field_filters
-        lines = []
-        filter_lines = []
-        needs_range_helper = False
-        for tab in self._filter_tabs:
-            filters = collect_field_filters(tab.grid)
-            for filt in filters:
-                field_key = filt.get("field_key") or filt.get("key", "")
-                col = filt.get("column") or field_key.rsplit(".", 1)[-1]
-                if not col:
-                    continue
-                mode = filt.get("mode", "contains")
-                value = filt.get("value", "")
-
-                if mode == "contains" and value:
-                    filter_lines.append(
-                        f'result = result[result["{col}"].astype(str)'
-                        f'.str.contains("{value}", case=False, na=False)]')
-                elif mode == "regex" and value:
-                    filter_lines.append(
-                        f'result = result[result["{col}"].astype(str)'
-                        f'.str.contains(r"{value}", case=False, na=False)]')
-                elif mode == "range":
-                    lo = filt.get("range_lo", filt.get("lo", ""))
-                    hi = filt.get("range_hi", filt.get("hi", ""))
-                    if lo or hi:
-                        needs_range_helper = True
-                        filter_lines.append(
-                            f'result = result[_series_matches_range(result["{col}"], "{lo}", "{hi}", "{col}")]')
-                elif mode == "list":
-                    items = filt.get("list_values", filt.get("items", []))
-                    if items:
-                        filter_lines.append(
-                            f'result = result[result["{col}"].astype(str)'
-                            f'.isin({items!r})]')
-        if needs_range_helper:
-            lines.extend([
-                "def _series_matches_range(series, lo='', hi='', column=''):",
-                "    mask = pd.Series(True, index=series.index)",
-                "    non_null = series.dropna()",
-                "    if non_null.empty:",
-                "        return mask",
-                "    lo_text = str(lo).strip()",
-                "    hi_text = str(hi).strip()",
-                "    sample_values = [str(value) for value in non_null.head(10)]",
-                "    looks_temporal = (",
-                "        pd.api.types.is_datetime64_any_dtype(series)",
-                "        or any(marker in column.lower() for marker in ('date', 'time', 'dt'))",
-                "        or any(any(sep in value for sep in ('/', '-', ':')) for value in [lo_text, hi_text, *sample_values])",
-                "    )",
-                "    if looks_temporal:",
-                "        date_values = pd.to_datetime(series, errors='coerce')",
-                "        lo_dt = pd.to_datetime(lo_text, errors='coerce') if lo_text else pd.NaT",
-                "        hi_dt = pd.to_datetime(hi_text, errors='coerce') if hi_text else pd.NaT",
-                "        if date_values.notna().any() and ((lo_text and not pd.isna(lo_dt)) or (hi_text and not pd.isna(hi_dt))):",
-                "            if lo_text:",
-                "                mask &= date_values >= lo_dt",
-                "            if hi_text:",
-                "                mask &= date_values <= hi_dt",
-                "            return mask & date_values.notna()",
-                "    numeric_values = pd.to_numeric(series, errors='coerce')",
-                "    if numeric_values.notna().any():",
-                "        if lo_text:",
-                "            try:",
-                "                mask &= numeric_values >= float(lo_text.replace(',', ''))",
-                "            except ValueError:",
-                "                pass",
-                "        if hi_text:",
-                "            try:",
-                "                mask &= numeric_values <= float(hi_text.replace(',', ''))",
-                "            except ValueError:",
-                "                pass",
-                "        return mask & numeric_values.notna()",
-                "    text_values = series.astype(str)",
-                "    if lo_text:",
-                "        mask &= text_values >= lo_text",
-                "    if hi_text:",
-                "        mask &= text_values <= hi_text",
-                "    return mask",
-                "",
-            ])
-        lines.extend(filter_lines)
         return lines
 
     # ── Save/Delete DataForge ────────────────────────────────────────

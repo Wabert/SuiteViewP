@@ -292,12 +292,12 @@ def test_dataforge_flat_file_date_range_filter_and_code_tab(tmp_home):
 
     code = group._generate_python_code(
         {qd.name: "Ad hoc source: csv"},
-        [],
-        "",
+        group._compile_visual_sql(),
     )
     assert "pd.read_csv" in code
     assert "pyodbc.connect" not in code
-    assert '_series_matches_range(result["Date of Death"], "", "12/1/2024", "Date of Death")' in code
+    assert "duckdb.connect()" in code
+    assert "\"Date of Death\" <= '12/1/2024'" in code
     print("  flat-file date range filter + code tab  OK")
 
 
@@ -355,12 +355,12 @@ def test_dataforge_append_only_uses_append_result_and_keeps_rows(tmp_home):
 
     code = group._generate_python_code(
         {qd_a.name: qd_a.sql, qd_b.name: qd_b.sql},
-        [],
-        "",
+        group._compile_visual_sql(),
     )
-    assert "df_appendtable = pd.concat(_aligned, ignore_index=True)" in code
+    assert "UNION ALL" in code
+    assert "duckdb.connect()" in code
     assert "drop_duplicates" not in code
-    assert "result = df_appendtable" in code
+    assert "pd.merge" not in code
     print("  append-only DataForge uses append result + keeps rows  OK")
 
 

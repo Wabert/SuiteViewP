@@ -74,12 +74,19 @@ duplication, no removing it elsewhere.
 
 ---
 
-## 4. Engine — DuckDB over Snapshots (decided 2026-06-06)
+## 4. Engine — DuckDB over Snapshots (decided 2026-06-06; enforced 2026-09-26)
 
-Replace the current sequential `pd.merge` execution with **DuckDB**:
-- Register each Source's Snapshot (parquet/DataFrame) as a virtual table.
-- Compile the Forge's joins + filters + output selection into **one SQL
-  statement** DuckDB runs.
+DataForge has one runtime contract: **DuckDB SQL compiled by
+`forge_engine`**.
+
+- The visual Run button registers each loaded Source DataFrame and executes the
+  same compiled DuckDB SQL shown in the SQL tab.
+- Manual mode runs the user's DuckDB SQL against the same registered Source
+  tables.
+- The generated Python script registers the same Source DataFrames and executes
+  the same DuckDB SQL. It no longer reconstructs the Forge with pandas merges.
+- Saved/headless Forge execution (`forge_runtime`) compiles through the same
+  `forge_engine` path over Source Snapshots.
 
 Why DuckDB over pandas (at ~500k rows it's not a speed *necessity*, but):
 - Makes the "query" half first-class (future GROUP BY / aggregation / window fns).
@@ -87,6 +94,24 @@ Why DuckDB over pandas (at ~500k rows it's not a speed *necessity*, but):
   pandas suffix hacks (two datasets both have `company_code`, `policy_number`…).
 - Reads parquet Snapshots directly (snapshot-caching synergy).
 - Unifies the two build modes (see §5).
+
+### Output/schema contract
+
+The engine names output columns consistently across visual run, runtime and
+script export:
+
+- `Display all` returns every selected relation column in join order. The first
+  occurrence of a duplicate column name keeps the original name; later duplicates
+  are suffixed as `<column>__<source-alias>`.
+- Join keys are not implicitly coalesced. If both sides expose the same key name,
+  the duplicate-name rule above applies; if their names differ, both key columns
+  remain visible.
+- Explicit output aliases are honored. Without an alias, selected and aggregate
+  outputs keep the source column name, using the same duplicate-name rule.
+- Source filters are CTE filters: they shrink that Source **before** the join.
+  For example, filtering the right side of a left join preserves unmatched left
+  rows and attaches only matching right rows. Result filters, when used, apply
+  after the join and may remove unmatched rows.
 
 ---
 
@@ -130,8 +155,9 @@ Foundation to **keep** (it's sound):
 - (retired) card-canvas join UI (drag/resize/multi-key/
   auto-match/state migration). **Join model kept; visual layer rebuilt** to the
   MS-Access style.
-- `dataforge_group.py` — the designer widget + current execution path
-  (`_run_forge`, pandas merges). **Execution swapped to DuckDB.**
+- `dataforge_group.py` — the designer widget. Its Run button delegates the
+  loaded Source DataFrames to the DuckDB engine service; it no longer owns a
+  pandas merge/filter implementation.
 - `query_object.py` / `query_object_store.py` — the unified **Query** model +
   registry. Keep; this is the backbone.
 - Parquet **Snapshot** machinery in `qdef_store.py` (save/load/has snapshot) —
@@ -346,6 +372,14 @@ Visual Query once it adopts the canvas (roadmap #1):
   on the minipc with local parquet/flat-file Sources; live source Refresh is not.
 
 ## Changelog
+- **2026-09-26** — Enforced one DataForge execution path. Visual Run,
+  runtime/headless execution and generated scripts now use the DuckDB
+  `forge_engine` SQL contract. The former visual pandas path and script
+  `pd.merge` reconstruction were removed after parity tests documented their
+  differences. `compile_forge_sql` is split into pure phases
+  (`normalize_appends`, `bind_filters`, `order_join_graph`, `resolve_outputs`,
+  `render_sql`), and the output/schema rules above document right/full join
+  duplicate-key handling and aggregate/default output names.
 - **2026-06-12** — Built the Append Table canvas view/interaction layer from
   §9: right-click Add Append Table, brown AppendBox rendering, query-list and
   canvas-source drops, member removal, shared-field/error/type-warning states,
