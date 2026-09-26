@@ -431,9 +431,7 @@ def _add_benefit_targets(
     work = BenefitTargetWork()
     for ben in policy.benefits:
         ben_type = ben.benefit_type or ""
-        if not ben.is_active or ben_type.startswith("#"):
-            continue
-        if ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date:
+        if not _benefit_counts_for_target(ben, ben_type, as_of):
             continue
         ben_key = ben_type + (ben.benefit_subtype or "")
         ben_args = (
@@ -453,19 +451,43 @@ def _add_benefit_targets(
             work.pwst_units = ben.units or 0.0
             work.pwst_key = ben_key
             continue
-        if ben_type == "A":
-            mtp_val = ben_mtp_rate * total_face / PER_THOUSAND
-            ctp_val = ben_ctp_rate * total_face / PER_THOUSAND
-            work.mtp_ccv += mtp_val
-            work.ctp_ccv += ctp_val
-        else:
-            mtp_val = (ben.units or 0.0) * ben_mtp_rate
-            ctp_val = (ben.units or 0.0) * ben_ctp_rate
-            work.mtp_generic += mtp_val
-            work.ctp_generic += ctp_val
-        result.mtp_benefits[ben_key] = mtp_val
-        result.ctp_benefits[ben_key] = ctp_val
+        _add_nonwaiver_benefit_target(
+            work, result, ben, ben_type, ben_key, ben_mtp_rate,
+            ben_ctp_rate, total_face,
+        )
     return work
+
+
+def _benefit_counts_for_target(ben, ben_type: str, as_of: Optional[date]) -> bool:
+    if not ben.is_active or ben_type.startswith("#"):
+        return False
+    return not (
+        ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date
+    )
+
+
+def _add_nonwaiver_benefit_target(
+    work: BenefitTargetWork,
+    result: TargetPremiumResult,
+    ben,
+    ben_type: str,
+    ben_key: str,
+    ben_mtp_rate: float,
+    ben_ctp_rate: float,
+    total_face: float,
+) -> None:
+    if ben_type == "A":
+        mtp_val = ben_mtp_rate * total_face / PER_THOUSAND
+        ctp_val = ben_ctp_rate * total_face / PER_THOUSAND
+        work.mtp_ccv += mtp_val
+        work.ctp_ccv += ctp_val
+    else:
+        mtp_val = (ben.units or 0.0) * ben_mtp_rate
+        ctp_val = (ben.units or 0.0) * ben_ctp_rate
+        work.mtp_generic += mtp_val
+        work.ctp_generic += ctp_val
+    result.mtp_benefits[ben_key] = mtp_val
+    result.ctp_benefits[ben_key] = ctp_val
 
 
 def _add_rider_targets(
@@ -510,6 +532,126 @@ def _add_rider_targets(
     return totals
 
 
+def _finish_waiver_targets(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    coverage: CoverageTargetTotals,
+    benefits: BenefitTargetWork,
+    riders: RiderTargetTotals,
+    as_of: Optional[date],
+) -> None:
+    base = policy.base_segment
+    total_face = policy.total_face
+    base_table = (
+        base.table_rating
+        if base.table_rating > 0 and _active(base.table_cease_date, as_of)
+        else 0
+    )
+    factor = config.table_rating_factor
+    pwst_active = bool(benefits.pwst_key)
+    pw_component = 0.0
+    pwst_component = 0.0
+    pwst_ctp_component = 0.0
+
+    if config.is_ffl:
+        pw_component, pwst_component = _finish_ffl_waivers(
+            policy, config, rates_db, result, coverage.current_band, benefits,
+            riders, base_table, total_face, as_of,
+        )
+    elif pwst_active:
+        pwst_component = (
+            benefits.pwst_units * benefits.pwst_rate * (1.0 + factor * base_table)
+        )
+        pwst_ctp_component = (
+            benefits.pwst_units * benefits.pwst_ctp_rate
+            * (1.0 + factor * base_table)
+        )
+
+    mtp_wo_pw = (
+        coverage.mtp_sum + benefits.mtp_generic + benefits.mtp_ccv
+        + riders.mtp_sum + pwst_component
+    )
+    if not config.is_ffl and benefits.pw_rate > 0.0:
+        pw_component = benefits.pw_multiplier * mtp_wo_pw * (1.0 + factor * base_table)
+    result.mtp_annual = mtp_wo_pw + pw_component
+    if config.is_ffl and pwst_active:
+        pwst_ctp_component = result.ffl_pwot_factor * result.mtp_annual
+    ctp_wo_pw = (
+        coverage.ctp_sum + benefits.ctp_generic + benefits.ctp_ccv
+        + riders.ctp_sum + pwst_ctp_component
+    )
+    if benefits.pw_rate > 0.0:
+        result.mtp_benefits["39"] = pw_component
+        result.ctp_benefits["39"] = _round2(pw_component)
+    if pwst_active:
+        result.mtp_benefits[benefits.pwst_key] = pwst_component
+        result.ctp_benefits[benefits.pwst_key] = pwst_ctp_component
+
+    result.pw_rate = benefits.pw_rate
+    result.pwst_rate = benefits.pwst_rate
+    result.pwst_ctp_rate = benefits.pwst_ctp_rate
+    result.pwst_component = pwst_component
+    result.pwst_ctp_component = pwst_ctp_component
+    result.mtp_wo_pw = mtp_wo_pw
+    result.ctp_wo_pw = ctp_wo_pw
+    result.pw_component = pw_component
+    result.ctp_annual = ctp_wo_pw + _round2(pw_component)
+
+
+def _finish_ffl_waivers(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    result: TargetPremiumResult,
+    current_band: int,
+    benefits: BenefitTargetWork,
+    riders: RiderTargetTotals,
+    base_table: int,
+    total_face: float,
+    as_of: Optional[date],
+) -> tuple[float, float]:
+    base = policy.base_segment
+    factor = config.table_rating_factor
+    iw, ix = _ffl_min_base(policy, config, rates_db, current_band, as_of)
+    base_flat = (
+        base.flat_extra
+        if base.flat_extra and base.flat_extra > 0
+        and _active(base.flat_cease_date, as_of)
+        else 0.0
+    )
+    iy = total_face * base_flat
+    mfee_monthly = _ffl_monthly_fee(policy, config, rates_db, current_band, as_of)
+    pwoc_basis = (
+        (benefits.mtp_generic + riders.mtp_sum) / MONTHS_PER_YEAR
+        + iw + ix + iy + mfee_monthly
+    )
+    pw_component = 0.0
+    if benefits.pw_rate > 0.0:
+        pw_component = _trunc2(
+            benefits.pw_multiplier * pwoc_basis * (1.0 + factor * base_table)
+        )
+    pwot_basis = (
+        sum(result.mtp_by_coverage.values())
+        + benefits.mtp_generic + riders.mtp_sum + pw_component
+    )
+    pwot_factor = 0.0
+    pwst_component = 0.0
+    if benefits.pwst_key:
+        x = benefits.pwst_rate / 100.0 * (1.0 + base_table * factor)
+        if x < 1.0:
+            pwot_factor = _trunc5(x / (1.0 - x))
+        pwst_component = _trunc2(pwot_basis * pwot_factor)
+    result.ffl_min_base = iw
+    result.ffl_min_base_table = ix
+    result.ffl_min_base_flat = iy
+    result.ffl_pwoc_basis = pwoc_basis
+    result.ffl_pwot_basis = pwot_basis
+    result.ffl_pwot_factor = pwot_factor
+    return pw_component, pwst_component
+
+
 def compute_target_premiums(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -529,117 +671,15 @@ def compute_target_premiums(
     if not policy.segments:
         return result
 
-    base = policy.base_segment
-    total_face = policy.total_face
-
     coverage = _add_coverage_targets(policy, config, rates_db, result, as_of)
     current_band = coverage.current_band
-    mtp_cov_sum = coverage.mtp_sum
-    ctp_cov_sum = coverage.ctp_sum
-
     benefits = _add_benefit_targets(
         policy, config, rates_db, result, current_band, as_of
     )
     riders = _add_rider_targets(policy, rates_db, result, current_band, as_of)
-    pw_rate = benefits.pw_rate
-    pw_multiplier = benefits.pw_multiplier
-    pwst_rate = benefits.pwst_rate
-    pwst_ctp_rate = benefits.pwst_ctp_rate
-    pwst_units = benefits.pwst_units
-    pwst_key = benefits.pwst_key
-    mtp_ben_generic = benefits.mtp_generic
-    ctp_ben_generic = benefits.ctp_generic
-    mtp_ben_ccv = benefits.mtp_ccv
-    ctp_ben_ccv = benefits.ctp_ccv
-    mtp_rider_sum = riders.mtp_sum
-    ctp_rider_sum = riders.ctp_sum
-
-    base_table = (
-        base.table_rating
-        if base.table_rating > 0 and _active(base.table_cease_date, as_of)
-        else 0
+    _finish_waiver_targets(
+        policy, config, rates_db, result, coverage, benefits, riders, as_of
     )
-    factor = config.table_rating_factor
-    pwst_active = bool(pwst_key)
-    pw_component = 0.0        # IV
-    pwst_component = 0.0      # IK
-    pwst_ctp_component = 0.0  # KE
-
-    if config.is_ffl:
-        # FFL Premium Waivers (CalcEngine IW..JD) — both waiver targets come
-        # from cost bases instead of units x rate.
-        iw, ix = _ffl_min_base(policy, config, rates_db, current_band, as_of)
-        base_flat = (
-            base.flat_extra
-            if base.flat_extra and base.flat_extra > 0
-            and _active(base.flat_cease_date, as_of)
-            else 0.0
-        )
-        # IY = TotalSA x vFlat1, replicated EXACTLY as RERUN computes it —
-        # the workbook applies neither /1000 nor /12 to this term (suspected
-        # workbook bug; keep in lockstep for comparison runs).
-        iy = total_face * base_flat
-        mfee_monthly = _ffl_monthly_fee(policy, config, rates_db, current_band, as_of)
-        # IZ — PWoC min basis: monthly benefit AND rider targets + current base
-        # COI on SA + its table extra + flat term + monthly expense fee. Rider
-        # targets (e.g. a spouse/child term rider MTP) are part of the monthly
-        # target sum, same as the generic benefit targets.
-        pwoc_basis = (
-            (mtp_ben_generic + mtp_rider_sum) / MONTHS_PER_YEAR
-            + iw + ix + iy + mfee_monthly
-        )
-        if pw_rate > 0.0:
-            # JB — PWoC_MTP.
-            pw_component = _trunc2(pw_multiplier * pwoc_basis * (1.0 + factor * base_table))
-        # JA — PWoT min basis: coverage + benefit + rider targets + the PWoC
-        # target (excludes CCV and the PWoT target itself).
-        pwot_basis = mtp_cov_sum + mtp_ben_generic + mtp_rider_sum + pw_component
-        pwot_factor = 0.0
-        if pwst_active:
-            x = pwst_rate / 100.0 * (1.0 + base_table * factor)
-            if x < 1.0:
-                pwot_factor = _trunc5(x / (1.0 - x))   # JC
-            pwst_component = _trunc2(pwot_basis * pwot_factor)  # IK = JD
-        result.ffl_min_base = iw
-        result.ffl_min_base_table = ix
-        result.ffl_min_base_flat = iy
-        result.ffl_pwoc_basis = pwoc_basis
-        result.ffl_pwot_basis = pwot_basis
-        result.ffl_pwot_factor = pwot_factor
-    elif pwst_active:
-        # IK / KE non-FFL: units x rate x (1 + factor x base table rating).
-        pwst_component = pwst_units * pwst_rate * (1.0 + factor * base_table)
-        pwst_ctp_component = pwst_units * pwst_ctp_rate * (1.0 + factor * base_table)
-
-    # IT — MTP w/o PW (includes CCV, riders and the PWoT target).
-    mtp_wo_pw = mtp_cov_sum + mtp_ben_generic + mtp_ben_ccv + mtp_rider_sum + pwst_component
-
-    if not config.is_ffl and pw_rate > 0.0:
-        # IV — PW (PWoC): pwRate x (MTP w/o PW) x (1 + factor x table).
-        pw_component = pw_multiplier * mtp_wo_pw * (1.0 + factor * base_table)
-
-    result.mtp_annual = mtp_wo_pw + pw_component   # JG
-    if config.is_ffl and pwst_active:
-        # KE — FFL PWoT CTP = JC x vMTP (the full annual MTP, not JA).
-        pwst_ctp_component = result.ffl_pwot_factor * result.mtp_annual
-    ctp_wo_pw = ctp_cov_sum + ctp_ben_generic + ctp_ben_ccv + ctp_rider_sum + pwst_ctp_component
-
-    if pw_rate > 0.0:
-        result.mtp_benefits["39"] = pw_component
-        result.ctp_benefits["39"] = _round2(pw_component)
-    if pwst_active:
-        result.mtp_benefits[pwst_key] = pwst_component
-        result.ctp_benefits[pwst_key] = pwst_ctp_component
-
-    result.pw_rate = pw_rate
-    result.pwst_rate = pwst_rate
-    result.pwst_ctp_rate = pwst_ctp_rate
-    result.pwst_component = pwst_component
-    result.pwst_ctp_component = pwst_ctp_component
-    result.mtp_wo_pw = mtp_wo_pw
-    result.ctp_wo_pw = ctp_wo_pw
-    result.pw_component = pw_component
-    result.ctp_annual = ctp_wo_pw + _round2(pw_component)
     return result
 
 
