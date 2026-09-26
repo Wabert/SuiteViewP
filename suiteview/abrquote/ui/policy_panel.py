@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QPushButton,
     QGroupBox, QFrame, QDialog,
     QTableWidgetItem, QDateEdit, QSizePolicy,
-    QApplication,
+    QApplication, QMessageBox,
 )
 
 from ..models.abr_data import ABRPolicyData, RiderInfo
@@ -456,6 +456,11 @@ class PolicyPanel(QWidget):
                 companies = find_policy_companies(policy_num, region)
                 if not companies:
                     logger.warning(f"Policy {policy_num} not found in {region}.")
+                    QMessageBox.warning(
+                        self,
+                        "Policy Lookup",
+                        f"Policy {policy_num} was not found in {region}.",
+                    )
                     return
                 if len(companies) > 1:
                     self._show_company_chooser(companies)
@@ -495,8 +500,18 @@ class PolicyPanel(QWidget):
                 self.policy_loaded.emit(policy)
             else:
                 logger.warning(f"Could not retrieve policy {policy_num} from {region}.")
+                QMessageBox.warning(
+                    self,
+                    "Policy Lookup",
+                    f"Could not retrieve policy {policy_num} from {region}.",
+                )
         except Exception as e:
-            logger.error(f"Error retrieving policy: {e}")
+            logger.error("Error retrieving policy", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Policy Lookup Failed",
+                f"Could not retrieve policy {policy_num}:\n{e}",
+            )
         finally:
             QApplication.restoreOverrideCursor()
             self.retrieve_btn.setText("Get")
