@@ -220,8 +220,13 @@ def run_query_async(
     def _on_ok(payload):
         try:
             on_success(payload)
-        except Exception:
+        except Exception as exc:
             logger.exception("Query success handler failed")
+            if on_error is not None:
+                try:
+                    on_error(exc)
+                except Exception:
+                    logger.exception("Query error handler failed")
 
     def _on_err(exc):
         try:

@@ -1722,19 +1722,20 @@ class DataForgeGroup(QWidget):
         try:
             df = self._load_source_dataframe(sq)
             self._datasets[query_name] = df
-            QApplication.restoreOverrideCursor()
-            if self._queries_dialog and self._queries_dialog.isVisible():
-                self._queries_dialog.update_data_status(
-                    set(self._datasets.keys()))
-            QMessageBox.information(
-                self, "Query Loaded",
-                f"\"{query_name}\" — {len(df)} rows loaded into memory.")
-        except ForgeEngineError as exc:
-            QApplication.restoreOverrideCursor()
+        except Exception as exc:
             logger.exception("Single query execution failed: %s", query_name)
             QMessageBox.warning(
                 self, "Query Error",
-                f"Failed to execute \"{query_name}\":\n\n{exc}")
+                f"Failed to execute \"{query_name}\":\n\n{format_query_error(exc)}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        if self._queries_dialog and self._queries_dialog.isVisible():
+            self._queries_dialog.update_data_status(
+                set(self._datasets.keys()))
+        QMessageBox.information(
+            self, "Query Loaded",
+            f"\"{query_name}\" — {len(df)} rows loaded into memory.")
 
     def get_unique_values(self, query_name: str, col_name: str) -> list[str]:
         """Return sorted unique values for a column from the cached dataset."""
@@ -1773,12 +1774,11 @@ class DataForgeGroup(QWidget):
                 if self._queries_dialog and self._queries_dialog.isVisible():
                     self._queries_dialog.update_data_status(
                         set(self._datasets.keys()))
-            except ForgeEngineError as exc:
-                progress.close()
+            except Exception as exc:
                 logger.exception("View query failed: %s", query_name)
                 QMessageBox.warning(
                     self, "Query Error",
-                    f"Failed to execute \"{query_name}\":\n\n{exc}")
+                    f"Failed to execute \"{query_name}\":\n\n{format_query_error(exc)}")
                 return
             finally:
                 progress.close()
@@ -1966,8 +1966,9 @@ class DataForgeGroup(QWidget):
                     appends=self.joins_tab.to_append_specs(),
                     limit=int(max_count) if max_count.isdigit() else None,
                 )
-            except ForgeEngineError as exc:
-                QMessageBox.warning(self, "DataForge Error", str(exc))
+            except Exception as exc:
+                logger.exception("DataForge visual run failed")
+                QMessageBox.warning(self, "DataForge Error", format_query_error(exc))
                 return
             result = forge_result.dataframe
 
@@ -2017,8 +2018,9 @@ class DataForgeGroup(QWidget):
         limit = int(max_count) if max_count.isdigit() else None
         try:
             res = run_manual_sql(datasets, manual_sql, limit=limit)
-        except ForgeEngineError as exc:
-            QMessageBox.warning(self, "Manual SQL Error", str(exc))
+        except Exception as exc:
+            logger.exception("DataForge manual SQL failed")
+            QMessageBox.warning(self, "Manual SQL Error", format_query_error(exc))
             return
         result = res.dataframe
 
@@ -2281,13 +2283,11 @@ class DataForgeGroup(QWidget):
             if self._is_adhoc_source(sq):
                 lines.extend(self._generate_adhoc_load_code(name, sq))
             else:
-                dsn = sq.dsn.replace('"', '\\"')
-                sql = sqls.get(name, sq.sql).replace('"""', '\\"""')
+                dsn = sq.dsn
+                sql = sqls.get(name, sq.sql)
                 lines.extend([
-                    f'conn_{_var(name)} = pyodbc.connect("DSN={dsn}", autocommit=True)',
-                    f'df_{_var(name)} = pd.read_sql("""',
-                    f'{sql}',
-                    f'""", conn_{_var(name)})',
+                    f"conn_{_var(name)} = pyodbc.connect({'DSN=' + dsn!r}, autocommit=True)",
+                    f"df_{_var(name)} = pd.read_sql({sql!r}, conn_{_var(name)})",
                     f'conn_{_var(name)}.close()',
                 ])
         return lines
@@ -2303,12 +2303,9 @@ class DataForgeGroup(QWidget):
             "con = duckdb.connect()",
         ])
         for name in self._sources:
-            safe = name.replace('"', '\\"')
-            lines.append(f'con.register("{safe}", df_{_var(name)})')
+            lines.append(f"con.register({name!r}, df_{_var(name)})")
         lines.extend([
-            'result = con.execute("""',
-            manual_sql.replace('"""', '\\"""'),
-            '""").df()',
+            f"result = con.execute({manual_sql!r}).df()",
             "con.close()",
         ])
         if limit:

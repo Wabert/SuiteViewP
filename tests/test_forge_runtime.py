@@ -297,7 +297,7 @@ def test_dataforge_flat_file_date_range_filter_and_code_tab(tmp_home):
     assert "pd.read_csv" in code
     assert "pyodbc.connect" not in code
     assert "duckdb.connect()" in code
-    assert "\"Date of Death\" <= '12/1/2024'" in code
+    assert "\"Date of Death\" <= \\'12/1/2024\\'" in code
     print("  flat-file date range filter + code tab  OK")
 
 

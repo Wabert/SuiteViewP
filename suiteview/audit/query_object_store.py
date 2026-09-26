@@ -34,6 +34,9 @@ from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filenam
 logger = logging.getLogger(__name__)
 
 _ID_SUFFIX_RE = re.compile(r"__([0-9a-f]{8})$")
+_LOAD_ERRORS = (
+    OSError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError,
+)
 
 
 def _objects_dir() -> Path:
@@ -79,12 +82,14 @@ def _load_path(path: Path) -> QueryObject | None:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-    except Exception:
+        if not isinstance(data, dict):
+            raise TypeError("query object file must contain a JSON object")
+        needs_migration = "id" not in data or _is_legacy_path(path)
+        obj = QueryObject.from_dict(data)  # stamps an id if missing
+    except _LOAD_ERRORS:
         logger.exception("Failed to load query object: %s", path)
         return None
 
-    needs_migration = "id" not in data or _is_legacy_path(path)
-    obj = QueryObject.from_dict(data)  # stamps an id if missing
     if needs_migration:
         try:
             target = object_path(obj)
