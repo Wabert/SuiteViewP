@@ -16,18 +16,19 @@ from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filenam
 
 logger = logging.getLogger(__name__)
 
-_QUERIES_DIR = profile_path('saved_queries')
+def _queries_dir() -> Path:
+    return profile_path('saved_queries')
 
 
 def _ensure_dir() -> Path:
-    return ensure_dir(_QUERIES_DIR)
+    return ensure_dir(_queries_dir())
 
 
 def list_queries() -> list[SavedQuery]:
     """Return all saved queries (sorted newest first)."""
     _ensure_dir()
     queries: list[SavedQuery] = []
-    for f in _QUERIES_DIR.glob("*.json"):
+    for f in _queries_dir().glob("*.json"):
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 queries.append(SavedQuery.from_dict(json.load(fh)))
@@ -39,7 +40,7 @@ def list_queries() -> list[SavedQuery]:
 
 def load_query(name: str) -> SavedQuery | None:
     """Load a single saved query by name."""
-    path = _QUERIES_DIR / f"{_safe_filename(name)}.json"
+    path = _queries_dir() / f"{_safe_filename(name)}.json"
     if not path.exists():
         return None
     try:
@@ -53,7 +54,7 @@ def load_query(name: str) -> SavedQuery | None:
 def save_query(sq: SavedQuery) -> None:
     """Save a query. Overwrites if same name exists."""
     _ensure_dir()
-    path = _QUERIES_DIR / f"{_safe_filename(sq.name)}.json"
+    path = _queries_dir() / f"{_safe_filename(sq.name)}.json"
     write_json(path, sq.to_dict())
     try:
         from suiteview.audit.query_object import object_from_saved_query
@@ -79,13 +80,13 @@ def rename_query(old_name: str, new_name: str) -> None:
         return
     saved.name = new_name
     _ensure_dir()
-    write_json(_QUERIES_DIR / f"{_safe_filename(new_name)}.json", saved.to_dict())
+    write_json(_queries_dir() / f"{_safe_filename(new_name)}.json", saved.to_dict())
     delete_query_file(old_name)
 
 
 def delete_query_file(name: str) -> None:
     """Delete only the saved-query design file (no QueryObject cascade)."""
-    path = _QUERIES_DIR / f"{_safe_filename(name)}.json"
+    path = _queries_dir() / f"{_safe_filename(name)}.json"
     if path.exists():
         path.unlink()
 
@@ -101,4 +102,4 @@ def delete_query(name: str) -> None:
 
 
 def query_exists(name: str) -> bool:
-    return (_QUERIES_DIR / f"{_safe_filename(name)}.json").exists()
+    return (_queries_dir() / f"{_safe_filename(name)}.json").exists()

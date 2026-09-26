@@ -12,6 +12,7 @@ from suiteview.core.profile_paths import profile_path
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem, QColor
@@ -108,7 +109,8 @@ _TABLE_STYLE = (
     "  border-right: 1px solid #C8D8E8; }"
 )
 
-_SETTINGS_PATH = profile_path('registry_window_geometry.json')
+def _settings_path() -> Path:
+    return profile_path('registry_window_geometry.json')
 
 _BTN_STYLE = (
     "QPushButton { background-color: #1E5BA8; color: white;"
@@ -1355,8 +1357,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
     @staticmethod
     def _load_geometry_settings() -> dict:
         try:
-            if _SETTINGS_PATH.exists():
-                return json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
+            settings_path = _settings_path()
+            if settings_path.exists():
+                return json.loads(settings_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
         return {}
@@ -1366,8 +1369,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         data = {"x": geo.x(), "y": geo.y(),
                 "w": geo.width(), "h": geo.height()}
         try:
-            _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _SETTINGS_PATH.write_text(
+            settings_path = _settings_path()
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(
                 json.dumps(data), encoding="utf-8")
         except OSError:
             pass

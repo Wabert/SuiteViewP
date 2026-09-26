@@ -7,6 +7,8 @@ import ctypes
 import ctypes.wintypes as wt
 import hashlib
 import json
+import logging
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -15,6 +17,8 @@ from suiteview.core.json_store import write_json
 from suiteview.core.profile_paths import (
     PROFILE_LAYOUT_VERSION, PROFILE_PATHS, profile_root,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ProfileMaintenanceError(RuntimeError):
@@ -136,6 +140,24 @@ def _moves(root: Path) -> list[tuple[Path, Path]]:
     return pairs
 
 
+def _legacy_policy_support_tasks_path() -> Path:
+    appdata = Path(os.environ.get("APPDATA", str(Path.home())))
+    return appdata / "SuiteView" / "policy_support_tasks.json"
+
+
+def _external_moves(root: Path) -> list[tuple[Path, Path]]:
+    source = _legacy_policy_support_tasks_path()
+    target = _path(root, PROFILE_PATHS["policy_support_tasks.json"])
+    if source.exists() and not target.exists():
+        try:
+            if source.resolve() == target.resolve():
+                return []
+        except OSError:
+            pass
+        return [(source, target)]
+    return []
+
+
 def plan_profile(root: Path | None = None, *, cleanup: bool = False) -> dict:
     """Return filenames/counts only; never read or report credential values."""
     root = root or profile_root()
@@ -150,6 +172,7 @@ def plan_profile(root: Path | None = None, *, cleanup: bool = False) -> dict:
         (source, target) for source, target in _moves(root)
         if source.exists() and source not in excluded
     ]
+    external_moves = _external_moves(root)
     targets = set()
     for source, target in moves:
         if target.exists() or target in targets:
@@ -167,6 +190,8 @@ def plan_profile(root: Path | None = None, *, cleanup: bool = False) -> dict:
         "root": str(root),
         "moves": [{"from": str(s.relative_to(root)), "to": str(t.relative_to(root))}
                   for s, t in moves],
+        "external_moves": [{"from": str(s), "to": str(t.relative_to(root))}
+                           for s, t in external_moves],
         "remove": [str(p.relative_to(root)) for p in obsolete],
         "layout_version": PROFILE_LAYOUT_VERSION,
     }
@@ -236,6 +261,9 @@ def maintain_profile(root: Path | None = None, *, cleanup: bool = False) -> dict
     with _app_guard(root), _profile_lock(root):
         plan = plan_profile(root, cleanup=cleanup)
         moves = [(_path(root, item["from"]), _path(root, item["to"])) for item in plan["moves"]]
+        external_moves = [
+            (Path(item["from"]), _path(root, item["to"])) for item in plan["external_moves"]
+        ]
         updates = _json_updates(root, moves)
         shortcuts = _shortcut_updates(root)
         verified = 0
@@ -253,6 +281,22 @@ def maintain_profile(root: Path | None = None, *, cleanup: bool = False) -> dict
                 if _hash(moved) != digest:
                     raise ProfileMaintenanceError(f"Content verification failed after moving {moved}")
                 verified += 1
+        external_verified = 0
+        for source, target in external_moves:
+            _check_tree(source)
+            digest = _hash(source)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                logger.info(
+                    "Skipped legacy policy support task migration because profile file exists: %s",
+                    target,
+                )
+                continue
+            shutil.move(str(source), str(target))
+            if _hash(target) != digest:
+                raise ProfileMaintenanceError(f"Content verification failed after moving {target}")
+            external_verified += 1
+            logger.info("Moved legacy policy support tasks from %s to %s", source, target)
         for target, value in updates:
             write_json(target, value)
             if json.loads(target.read_text(encoding="utf-8")) != value:
@@ -278,6 +322,7 @@ def maintain_profile(root: Path | None = None, *, cleanup: bool = False) -> dict
         write_json(root / "layout.json", {"version": PROFILE_LAYOUT_VERSION})
         result = {
             **plan, "verified_files": verified, "rewritten_json_files": len(updates),
+            "external_verified_files": external_verified,
             "removed_files": removed, "updated_shortcuts": len(shortcuts),
         }
         write_json(root / "logs" / "profile-maintenance.json", result)
@@ -288,5 +333,5 @@ def initialize_profile() -> None:
     """Called by launchers before importing modules with persisted state."""
     root = profile_root()
     plan = plan_profile(root)
-    if plan["moves"] or not (root / "layout.json").exists():
+    if plan["moves"] or plan["external_moves"] or not (root / "layout.json").exists():
         maintain_profile(root)

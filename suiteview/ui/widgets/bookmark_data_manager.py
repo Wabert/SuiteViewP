@@ -70,9 +70,6 @@ class BookmarkDataManager:
     _instance = None
     _initialized = False
     
-    # File path
-    DATA_FILE = profile_path('bookmarks.json')
-    
     # Default bar configurations
     DEFAULT_BARS = {
         0: {"orientation": "horizontal"},  # Top bar
@@ -113,6 +110,10 @@ class BookmarkDataManager:
         """Reset the singleton (useful for testing)"""
         cls._instance = None
         cls._initialized = False
+
+    @property
+    def data_file(self) -> Path:
+        return profile_path('bookmarks.json')
     
     # =========================================================================
     # ID Generation
@@ -680,8 +681,9 @@ class BookmarkDataManager:
     def save(self):
         """Save all data to the JSON file"""
         try:
-            write_json(self.DATA_FILE, self._data)
-            logger.debug(f"Saved bookmark data to {self.DATA_FILE}")
+            data_file = self.data_file
+            write_json(data_file, self._data)
+            logger.debug(f"Saved bookmark data to {data_file}")
             
             self._notify_callbacks()
             
@@ -696,8 +698,9 @@ class BookmarkDataManager:
     def _load(self):
         """Load data from file or initialize with defaults"""
         try:
-            if self.DATA_FILE.exists():
-                with open(self.DATA_FILE, 'r', encoding='utf-8') as f:
+            data_file = self.data_file
+            if data_file.exists():
+                with open(data_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
                 # Check if this is old format (has 'categories' at top level)
@@ -712,7 +715,7 @@ class BookmarkDataManager:
                         self.repair_id_counters()
                     # Clean up legacy categories dict in bars
                     self._cleanup_legacy_categories_in_bars()
-                    logger.info(f"Loaded bookmark data from {self.DATA_FILE}")
+                    logger.info(f"Loaded bookmark data from {data_file}")
             else:
                 logger.info("No bookmark data found, initializing defaults")
                 self._initialize_defaults()

@@ -8,7 +8,7 @@ enable OneDrive backup or cross-device synchronization.
 
 | Location | Contents | Retention |
 |---|---|---|
-| `settings/` | FileNav, mainframe, illustration and registry preferences; SharePoint library configuration; Audit field-picker settings | Preserve preferences |
+| `settings/` | FileNav, mainframe, illustration and registry preferences; SharePoint library configuration; Audit field-picker settings; Policy Support task categories | Preserve preferences |
 | `data/suiteview.db` | Saved connections/queries, mappings, metadata and email/icon caches | Preserve; not merely a cache |
 | `data/bookmarks.json` | Current bookmark tree | Preserve |
 | `data/notes/` | ScratchPad text | Preserve |
@@ -42,9 +42,10 @@ Developer screenshot helpers use `diagnostics_dir()`, which creates that output
 directory. Explicit output paths and per-store directory overrides still work.
 
 `SUITEVIEW_PROFILE_DIR` selects an explicit absolute, isolated profile for
-tests/tools. Set it before importing modules that cache path constants. This is
-independent of the local-policy-data switch and grants no access permissions.
-Tests must not use the developer's real profile.
+tests/tools. Persistent stores resolve registered paths when they read or write
+so a test can change the profile between operations. This is independent of the
+local-policy-data switch and grants no access permissions. Tests must not use
+the developer's real profile.
 
 ## Moving an existing profile
 
@@ -86,6 +87,9 @@ Maintenance:
   without changing their target or arguments.
 - Can resume after interruption. Completed moves stay at their destination;
   pending moves and JSON reference updates finish on the next attempt.
+- Moves the legacy `%APPDATA%\SuiteView\policy_support_tasks.json` file into
+  `settings/policy_support_tasks.json` only when the profile copy is absent; it
+  leaves both files untouched if a profile copy already exists.
 - Writes `layout.json` only after completion and records filenames/counts, not
   secret values, in `logs/profile-maintenance.json`.
 

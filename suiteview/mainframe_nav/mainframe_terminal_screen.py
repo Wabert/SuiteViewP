@@ -18,22 +18,22 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                               QProgressBar, QTableWidget,
                               QTableWidgetItem, QHeaderView, QAbstractItemView, QMenu,
                               QSizePolicy)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEventLoop, QUrl
+from PyQt6.QtCore import QObject, Qt, pyqtSignal, QTimer, QEventLoop, QUrl
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QDesktopServices
 
 from suiteview.mainframe_nav.tn3270 import TN3270Client, Screen, AID
 from suiteview.ui.widgets.uppercase_input import force_uppercase
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
 
-class TerminalReceiveThread(QThread):
+class TerminalReceiveWorker(QObject):
     """Background thread for receiving terminal data"""
-    screen_updated = pyqtSignal(object)  # Emits Screen object
-    connection_lost = pyqtSignal(str)
-    
+
     def __init__(self, client: TN3270Client):
         super().__init__()
+        self.signals = WorkerSignals(self)
         self.client = client
         self.running = True
     
@@ -42,11 +42,12 @@ class TerminalReceiveThread(QThread):
         while self.running and self.client.connected:
             try:
                 if self.client.receive_screen():
-                    self.screen_updated.emit(self.client.screen)
+                    self.signals.progress.emit(self.client.screen)
             except Exception as e:
                 logger.error(f"Receive error: {e}")
-                self.connection_lost.emit(str(e))
+                self.signals.error.emit(str(e))
                 break
+        self.signals.finished.emit()
     
     def stop(self):
         """Stop the receive thread"""
@@ -1068,7 +1069,7 @@ class MainframeTerminalScreen(QWidget):
         self.setMinimumSize(250, 300)
         
         self.client: TN3270Client = None
-        self.receive_thread: TerminalReceiveThread = None
+        self.receive_thread: WorkerController | None = None
         self.input_buffer = ""
         self.current_input_address = 0
         
@@ -1587,9 +1588,10 @@ class MainframeTerminalScreen(QWidget):
                             self.pending_autofill = True
                 
                 # Start receive thread
-                self.receive_thread = TerminalReceiveThread(self.client)
-                self.receive_thread.screen_updated.connect(self.on_screen_update)
-                self.receive_thread.connection_lost.connect(self.on_connection_lost)
+                receive_worker = TerminalReceiveWorker(self.client)
+                self.receive_thread = WorkerController(self, receive_worker, cancel=receive_worker.stop)
+                self.receive_thread.progress.connect(self.on_screen_update)
+                self.receive_thread.error.connect(self.on_connection_lost)
                 self.receive_thread.start()
                 
                 # Enable input - focus on terminal for direct screen input
@@ -1621,8 +1623,7 @@ class MainframeTerminalScreen(QWidget):
     def disconnect_from_mainframe(self):
         """Disconnect from mainframe"""
         if self.receive_thread:
-            self.receive_thread.stop()
-            self.receive_thread.wait(2000)
+            self.receive_thread.cancel()
             self.receive_thread = None
         
         if self.client:

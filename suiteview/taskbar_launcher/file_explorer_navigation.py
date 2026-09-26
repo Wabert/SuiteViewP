@@ -716,89 +716,78 @@ class NavigationController(FileExplorerController):
         else:
             logger.debug("Already at end of history")
     
-    def on_details_item_double_clicked(self, index):
-        """Override to use navigate_to_path for history tracking"""
+    def _details_path_from_index(self, index):
         logger.debug(f"\n=== DOUBLE CLICK DEBUG ===")
         logger.debug(f"Proxy Index: row={index.row()}, col={index.column()}")
-        
-        # Get the data directly from the proxy model (which handles sorting)
         path = self.tab.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
-        
-        # If this column doesn't have the path data, get it from column 0 of the same row
         if not path:
             col0_index = index.sibling(index.row(), 0)
             col0_text = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole)
             logger.debug(f"Column 0 text for this row: {col0_text}")
             path = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
-        
+        logger.debug(f"Path retrieved: {path}")
+        logger.debug(f"=========================\n")
+        return path
+
+    def _handle_sharepoint_double_click(self, index, path: str) -> None:
+        col0_index = index.sibling(index.row(), 0)
+        kind = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
+        name = (self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
+                or self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
+        if kind == "folder":
+            self.load_sharepoint_contents_in_details(path, name)
+        else:
+            self.tab.open_sharepoint_file(path, name)
+
+    def _open_path_obj(self, path_obj: Path) -> None:
+        try:
+            if os.name == 'nt':
+                self.tab._safe_startfile(str(path_obj))
+            elif sys.platform == 'darwin':
+                subprocess.run(['open', str(path_obj)])
+            else:
+                subprocess.run(['xdg-open', str(path_obj)])
+        except Exception as e:
+            logger.error(f"Failed to open file: {e}")
+            QMessageBox.warning(self, "Cannot Open File", f"Failed to open {path_obj.name}\n\nError: {str(e)}")
+
+    def _handle_shortcut_double_click(self, path_obj: Path) -> bool:
+        if path_obj.suffix.lower() != '.lnk' or not path_obj.is_file():
+            return False
+        target_path = self.tab._resolve_shortcut(str(path_obj))
+        if not target_path:
+            return False
+        target_obj = Path(target_path)
+        if target_obj.exists() and target_obj.is_dir():
+            logger.debug(f"Shortcut resolves to folder: {target_obj}")
+            self.navigate_to_path(target_obj, add_to_history=True)
+            return True
+        if target_obj.exists() and target_obj.is_file():
+            logger.debug(f"Shortcut resolves to file: {target_obj}")
+            self._open_path_obj(target_obj)
+            return True
+        return False
+
+    def on_details_item_double_clicked(self, index):
+        """Override to use navigate_to_path for history tracking"""
+        path = self._details_path_from_index(index)
         if not path:
             logger.debug("No path data found")
             return
-        
-        logger.debug(f"Path retrieved: {path}")
-        logger.debug(f"=========================\n")
-        
-        # SharePoint virtual items: navigate folders, download-and-open files
+
         if is_sp_path(path):
-            col0_index = index.sibling(index.row(), 0)
-            kind = self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
-            name = (self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
-                    or self.tab.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
-            if kind == "folder":
-                self.load_sharepoint_contents_in_details(path, name)
-            else:
-                self.tab.open_sharepoint_file(path, name)
+            self._handle_sharepoint_double_click(index, path)
             return
-        
+
         path_obj = Path(path)
-        
-        # Handle .lnk shortcut files - resolve target and navigate if it's a folder
-        if path_obj.suffix.lower() == '.lnk' and path_obj.is_file():
-            target_path = self.tab._resolve_shortcut(str(path_obj))
-            if target_path:
-                target_obj = Path(target_path)
-                if target_obj.exists() and target_obj.is_dir():
-                    # Navigate to the folder target within File Nav (with history tracking)
-                    logger.debug(f"Shortcut resolves to folder: {target_obj}")
-                    self.navigate_to_path(target_obj, add_to_history=True)
-                    return
-                elif target_obj.exists() and target_obj.is_file():
-                    # Shortcut points to a file, open it
-                    logger.debug(f"Shortcut resolves to file: {target_obj}")
-                    try:
-                        if os.name == 'nt':
-                            self.tab._safe_startfile(str(target_obj))
-                        elif sys.platform == 'darwin':
-                            subprocess.run(['open', str(target_obj)])
-                        else:
-                            subprocess.run(['xdg-open', str(target_obj)])
-                    except Exception as e:
-                        logger.error(f"Failed to open file: {e}")
-                        QMessageBox.warning(self, "Cannot Open File", f"Failed to open {target_obj.name}\n\nError: {str(e)}")
-                    return
-            # If we can't resolve, fall through to open the .lnk file itself
-        
-        is_dir = path_obj.is_dir()
-        is_file = path_obj.is_file()
-        
-        if is_dir:
+        if self._handle_shortcut_double_click(path_obj):
+            return
+
+        if path_obj.is_dir():
             logger.debug(f"Is directory, navigating to: {path_obj}")
-            # Use navigate_to_path to track history
             self.navigate_to_path(path_obj, add_to_history=True)
-        elif is_file or (not is_dir and not is_file):
-            # Open file with default application
-            # Note: we also try opening when both is_file and is_dir return False,
-            # which happens with long paths (>260 chars) on Windows with LongPathsEnabled=0
-            try:
-                if os.name == 'nt':
-                    self.tab._safe_startfile(str(path_obj))
-                elif sys.platform == 'darwin':
-                    subprocess.run(['open', str(path_obj)])
-                else:
-                    subprocess.run(['xdg-open', str(path_obj)])
-            except Exception as e:
-                logger.error(f"Failed to open file: {e}")
-                QMessageBox.warning(self, "Cannot Open File", f"Failed to open {path_obj.name}\n\nError: {str(e)}")
+        else:
+            self._open_path_obj(path_obj)
     
     def load_directory_contents_at_root(self, dir_path):
         """Load a specific directory at the root of the tree"""

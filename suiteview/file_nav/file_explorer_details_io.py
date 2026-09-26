@@ -290,59 +290,40 @@ class FileExplorerDetailsIOMixin:
         finally:
             self.details_view.setUpdatesEnabled(True)
 
-    def on_details_item_double_clicked(self, index):
-        """Handle double click in details view"""
-        # DEBUG: Log what we're clicking
+    def _details_path_from_index(self, index):
         logger.debug(f"\n=== DOUBLE CLICK DEBUG ===")
         logger.debug(f"Proxy Index: row={index.row()}, col={index.column()}")
         logger.debug(f"Display text at clicked index: {self.details_sort_proxy.data(index, Qt.ItemDataRole.DisplayRole)}")
-        
-        # Get the data directly from the proxy model at the clicked index
-        # The proxy model handles all the sorting/filtering, so we should query it directly
+
         path = self.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
-        
-        # If this column doesn't have the path data, get it from column 0 of the same row
         if not path:
             col0_index = index.sibling(index.row(), 0)
             col0_text = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole)
             logger.debug(f"Column 0 text for this row: {col0_text}")
             path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
-        
         logger.debug(f"Path retrieved: {path}")
         logger.debug(f"=========================\n")
-        
-        if not path:
+        return path
+
+    def _open_sharepoint_details_item(self, index, path: str) -> None:
+        col0_index = index.sibling(index.row(), 0)
+        kind = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
+        name = (self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
+                or self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
+        if kind == "folder":
+            self.load_sharepoint_contents_in_details(path, name)
+        else:
+            self.open_sharepoint_file(path, name)
+
+    def _turn_off_depth_search(self) -> None:
+        if not self.depth_search_enabled:
             return
-        
-        # SharePoint virtual items: navigate folders, download-and-open files
-        if is_sp_path(path):
-            col0_index = index.sibling(index.row(), 0)
-            kind = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
-            name = (self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
-                    or self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
-            if kind == "folder":
-                self.load_sharepoint_contents_in_details(path, name)
-            else:
-                self.open_sharepoint_file(path, name)
-            return
-        
-        path_obj = Path(path)
-        
-        # Handle .lnk shortcut files - resolve target and navigate if it's a folder
-        if path_obj.suffix.lower() == '.lnk' and path_obj.is_file():
-            target_path = self._resolve_shortcut(str(path_obj))
-            if target_path:
-                target_obj = Path(target_path)
-                if target_obj.exists() and target_obj.is_dir():
-                    # Navigate to the folder target within File Nav
-                    # If depth search is active, turn it off first
-                    if self.depth_search_enabled:
-                        self.depth_search_enabled = False
-                        self.depth_search_locked = False
-                        self.depth_search_active_results = None
-                        self.depth_toggle_btn.setText("Off")
-                        self.depth_toggle_btn.setToolTip("Depth search is off")
-                        self.depth_toggle_btn.setStyleSheet("""
+        self.depth_search_enabled = False
+        self.depth_search_locked = False
+        self.depth_search_active_results = None
+        self.depth_toggle_btn.setText("Off")
+        self.depth_toggle_btn.setToolTip("Depth search is off")
+        self.depth_toggle_btn.setStyleSheet("""
                             QPushButton {
                                 background-color: #E0ECFF;
                                 border: 1px solid #2563EB;
@@ -356,70 +337,58 @@ class FileExplorerDetailsIOMixin:
                                 background-color: #C9DAFF;
                             }
                         """)
-                        self.depth_search_folder = None
-                        # Re-enable tree panel
-                        if hasattr(self, 'tree_view'):
-                            self.tree_view.setEnabled(True)
-                        # Restore normal toolbar color
-                        self._apply_compact_toolbar_style(self.toolbar, locked=False)
-                    
-                    self.load_folder_contents_in_details(target_obj)
-                    return
-                elif target_obj.exists() and target_obj.is_file():
-                    # Shortcut points to a file, open it
-                    try:
-                        if os.name == 'nt':
-                            self._safe_startfile(str(target_obj))
-                        elif sys.platform == 'darwin':
-                            subprocess.run(['open', str(target_obj)])
-                        else:
-                            subprocess.run(['xdg-open', str(target_obj)])
-                    except Exception as e:
-                        logger.error(f"Failed to open file: {e}")
-                        QMessageBox.warning(self, "Cannot Open File", f"Failed to open {target_obj.name}\n\nError: {str(e)}")
-                    return
-                # Target doesn't exist — show message in the details panel
-                self.details_model.clear()
-                self.details_model.setHorizontalHeaderLabels(
-                    ['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
-                msg_item = QStandardItem(f"File location not found: {target_path}")
-                msg_item.setForeground(Qt.GlobalColor.red)
-                msg_item.setEditable(False)
-                self.details_model.appendRow([msg_item])
-                return
-            else:
-                # Could not resolve shortcut target at all
-                self.details_model.clear()
-                self.details_model.setHorizontalHeaderLabels(
-                    ['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
-                msg_item = QStandardItem(f"File location not found: {path_obj}")
-                msg_item.setForeground(Qt.GlobalColor.red)
-                msg_item.setEditable(False)
-                self.details_model.appendRow([msg_item])
-                return
-        
+        self.depth_search_folder = None
+        if hasattr(self, 'tree_view'):
+            self.tree_view.setEnabled(True)
+        self._apply_compact_toolbar_style(self.toolbar, locked=False)
+
+    def _show_missing_file_location(self, target_path) -> None:
+        self.details_model.clear()
+        self.details_model.setHorizontalHeaderLabels(
+            ['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
+        msg_item = QStandardItem(f"File location not found: {target_path}")
+        msg_item.setForeground(Qt.GlobalColor.red)
+        msg_item.setEditable(False)
+        self.details_model.appendRow([msg_item])
+
+    def _handle_shortcut_double_click(self, path_obj: Path) -> bool:
+        if path_obj.suffix.lower() != '.lnk' or not path_obj.is_file():
+            return False
+        target_path = self._resolve_shortcut(str(path_obj))
+        if not target_path:
+            self._show_missing_file_location(path_obj)
+            return True
+        target_obj = Path(target_path)
+        if target_obj.exists() and target_obj.is_dir():
+            self._turn_off_depth_search()
+            self.load_folder_contents_in_details(target_obj)
+            return True
+        if target_obj.exists() and target_obj.is_file():
+            self.open_file(target_obj)
+            return True
+        self._show_missing_file_location(target_path)
+        return True
+
+    def on_details_item_double_clicked(self, index):
+        """Handle double click in details view"""
+        path = self._details_path_from_index(index)
+        if not path:
+            return
+
+        if is_sp_path(path):
+            self._open_sharepoint_details_item(index, path)
+            return
+
+        path_obj = Path(path)
+        if self._handle_shortcut_double_click(path_obj):
+            return
+
         is_dir = path_obj.is_dir()
         is_file = path_obj.is_file()
-        
         if is_dir:
-            # Navigate into folder - update tree selection and load in details
             self.load_folder_contents_in_details(path_obj)
-            # TODO: Could also expand/select this folder in the tree view
         elif is_file or (not is_dir and not is_file):
-            # Open file with default application
-            # Note: we also try opening when both is_file and is_dir return False,
-            # which happens with long paths (>260 chars) or cloud-only OneDrive files.
-            # Windows os.startfile() handles these cases fine even when Python can't stat them.
-            try:
-                if os.name == 'nt':
-                    self._safe_startfile(str(path_obj))
-                elif sys.platform == 'darwin':
-                    subprocess.run(['open', str(path_obj)])
-                else:
-                    subprocess.run(['xdg-open', str(path_obj)])
-            except Exception as e:
-                logger.error(f"Failed to open file: {e}")
-                QMessageBox.warning(self, "Cannot Open File", f"Failed to open {path_obj.name}\n\nError: {str(e)}")
+            self.open_file(path_obj)
 
     def _resolve_shortcut(self, lnk_path):
         """Resolve a Windows .lnk shortcut file to get its target path"""

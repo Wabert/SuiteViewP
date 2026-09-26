@@ -22,25 +22,29 @@ from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filenam
 
 logger = logging.getLogger(__name__)
 
-_QDEFS_DIR = profile_path('qdefinitions')
 COMMONS_NAME = "_commons"
 
 
+def _qdefs_dir() -> Path:
+    return profile_path('qdefinitions')
+
+
 def _ensure_dir(forge_name: str = "") -> Path:
-    d = _QDEFS_DIR / _safe_filename(forge_name) if forge_name else _QDEFS_DIR
+    root = _qdefs_dir()
+    d = root / _safe_filename(forge_name) if forge_name else root
     return ensure_dir(d)
 
 
 def _forge_dir(forge_name: str) -> Path:
     """Return the directory for a specific forge's QDefs."""
-    return _QDEFS_DIR / _safe_filename(forge_name)
+    return _qdefs_dir() / _safe_filename(forge_name)
 
 
 def list_forge_names() -> list[str]:
     """Return all forge names that have QDefs stored."""
-    ensure_dir(_QDEFS_DIR)
+    root = ensure_dir(_qdefs_dir())
     names: list[str] = []
-    for d in _QDEFS_DIR.iterdir():
+    for d in root.iterdir():
         if d.is_dir() and any(d.glob("*.json")):
             names.append(d.name)
     return sorted(names)
@@ -52,7 +56,7 @@ def list_qdefs(forge_name: str = "") -> list[QDefinition]:
     If forge_name is empty, returns all QDefs from all forges.
     When a specific forge is given, also includes QDefs from _commons.
     """
-    ensure_dir(_QDEFS_DIR)
+    root = ensure_dir(_qdefs_dir())
     qdefs: list[QDefinition] = []
 
     if forge_name:
@@ -75,9 +79,9 @@ def list_qdefs(forge_name: str = "") -> list[QDefinition]:
                         qdefs.append(qd)
                 except Exception:
                     logger.exception("Failed to load QDefinition: %s", f)
-    elif _QDEFS_DIR.exists():
+    elif root.exists():
         # All forges
-        for d in _QDEFS_DIR.iterdir():
+        for d in root.iterdir():
             if not d.is_dir():
                 continue
             fn = d.name
@@ -99,9 +103,10 @@ def load_qdef(name: str, forge_name: str = "") -> QDefinition | None:
     """Load a single QDefinition by name within a forge."""
     if not forge_name:
         # Search all forges for this name (no dir yet => nothing saved).
-        if not _QDEFS_DIR.exists():
+        root = _qdefs_dir()
+        if not root.exists():
             return None
-        for d in _QDEFS_DIR.iterdir():
+        for d in root.iterdir():
             if not d.is_dir():
                 continue
             path = d / f"{_safe_filename(name)}.json"
@@ -153,12 +158,13 @@ def delete_qdef_files(name: str, forge_name: str = "") -> None:
     object).
     """
     safe = _safe_filename(name)
-    if not _QDEFS_DIR.exists():
+    root = _qdefs_dir()
+    if not root.exists():
         return
     if forge_name:
         dirs = [_forge_dir(forge_name)]
     else:
-        dirs = [d for d in _QDEFS_DIR.iterdir() if d.is_dir()]
+        dirs = [d for d in root.iterdir() if d.is_dir()]
     for d in dirs:
         for suffix in (".json", ".parquet"):
             path = d / f"{safe}{suffix}"
@@ -180,7 +186,8 @@ def qdef_exists(name: str, forge_name: str = "") -> bool:
     if forge_name:
         return (_forge_dir(forge_name) / f"{_safe_filename(name)}.json").exists()
     # Search all forges
-    for d in _QDEFS_DIR.iterdir():
+    root = _qdefs_dir()
+    for d in root.iterdir():
         if d.is_dir() and (d / f"{_safe_filename(name)}.json").exists():
             return True
     return False
@@ -191,16 +198,17 @@ def snapshot_path(name: str, forge_name: str = "") -> Path:
     if forge_name:
         return _forge_dir(forge_name) / f"{_safe_filename(name)}.parquet"
     # Search all forges for existing snapshot
-    for d in _QDEFS_DIR.iterdir():
+    root = _qdefs_dir()
+    for d in root.iterdir():
         if d.is_dir():
             p = d / f"{_safe_filename(name)}.parquet"
             if p.exists():
                 return p
     # Default to first forge found with the json, or _unassigned
-    for d in _QDEFS_DIR.iterdir():
+    for d in root.iterdir():
         if d.is_dir() and (d / f"{_safe_filename(name)}.json").exists():
             return d / f"{_safe_filename(name)}.parquet"
-    return _QDEFS_DIR / COMMONS_NAME / f"{_safe_filename(name)}.parquet"
+    return root / COMMONS_NAME / f"{_safe_filename(name)}.parquet"
 
 
 def has_snapshot(name: str, forge_name: str = "") -> bool:

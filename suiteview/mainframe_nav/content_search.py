@@ -3,19 +3,19 @@
 import logging
 import re
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject
+
+from suiteview.ui.workers import WorkerSignals
 
 logger = logging.getLogger(__name__)
 
 
-class ContentSearchThread(QThread):
+class ContentSearchWorker(QObject):
     """Search selected mainframe datasets without blocking the UI."""
-
-    progress_update = pyqtSignal(str, int, int)
-    search_complete = pyqtSignal(object)
 
     def __init__(self, ftp_manager, datasets, search_strings, case_sensitive, whole_word, current_dataset):
         super().__init__()
+        self.signals = WorkerSignals(self)
         self.ftp_manager = ftp_manager
         self.datasets = datasets
         self.search_strings = search_strings
@@ -43,7 +43,7 @@ class ContentSearchThread(QThread):
             full_path = dataset_info["full_path"]
             dsorg = dataset_info.get("dsorg", "")
 
-            self.progress_update.emit(f"Searching {member_name}...", idx + 1, total)
+            self.signals.progress.emit((f"Searching {member_name}...", idx + 1, total))
 
             if dsorg == "PO":
                 skipped.append(f"{member_name} (PO dataset - cannot read directly)")
@@ -69,13 +69,14 @@ class ContentSearchThread(QThread):
                 logger.error(f"Error searching {member_name}: {error_msg}")
                 errors.append(f"{member_name}: {error_msg}")
 
-        self.search_complete.emit(
+        self.signals.result.emit(
             {
                 "results": results,
                 "errors": errors,
                 "skipped": skipped,
             }
         )
+        self.signals.finished.emit()
 
     def _find_matches(self, content: str) -> list[dict]:
         dataset_matches = []

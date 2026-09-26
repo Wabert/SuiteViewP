@@ -36,29 +36,19 @@ class _TmpHome:
         self._dir = tempfile.mkdtemp(prefix="organizer_test_home_")
         self._old_env = {k: os.environ.get(k) for k in
                          ("HOME", "USERPROFILE", "SUITEVIEW_QUERY_OBJECTS_DIR",
-                          "SUITEVIEW_QUERY_ORGANIZER_FILE")}
+                          "SUITEVIEW_QUERY_ORGANIZER_FILE", "SUITEVIEW_PROFILE_DIR")}
         os.environ["HOME"] = self._dir
         os.environ["USERPROFILE"] = self._dir
+        os.environ["SUITEVIEW_PROFILE_DIR"] = os.path.join(
+            self._dir, ".suiteview")
         os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = os.path.join(
             self._dir, "query_objects")
         os.environ["SUITEVIEW_QUERY_ORGANIZER_FILE"] = os.path.join(
             self._dir, "query_organizer.json")
-        self._old_forges = dataforge_store._FORGES_DIR
-        self._old_qdefs = qdef_store._QDEFS_DIR
-        self._old_queries = saved_query_store._QUERIES_DIR
-        dataforge_store._FORGES_DIR = (
-            Path(self._dir) / ".suiteview" / "saved_dataforges")
-        qdef_store._QDEFS_DIR = (
-            Path(self._dir) / ".suiteview" / "qdefinitions")
-        saved_query_store._QUERIES_DIR = (
-            Path(self._dir) / ".suiteview" / "saved_queries")
         return self
 
     def __exit__(self, *exc):
         import shutil
-        dataforge_store._FORGES_DIR = self._old_forges
-        qdef_store._QDEFS_DIR = self._old_qdefs
-        saved_query_store._QUERIES_DIR = self._old_queries
         for key, val in self._old_env.items():
             if val is None:
                 os.environ.pop(key, None)

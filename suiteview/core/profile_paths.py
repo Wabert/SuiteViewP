@@ -15,6 +15,7 @@ PROFILE_PATHS = {
     "bookmarks.json": "data/bookmarks.json",
     "scratchpad.txt": "data/notes/scratchpad.txt",
     "polview_notes.json": "data/notes/polview_notes.json",
+    "policy_support_tasks.json": "settings/policy_support_tasks.json",
     "query_organizer.json": "data/query/query_organizer.json",
     "agent_chat": "data/agent_chat",
     "illustration_cases": "data/illustration/cases",

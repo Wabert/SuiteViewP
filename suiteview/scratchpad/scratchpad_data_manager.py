@@ -19,8 +19,6 @@ class ScratchPadDataManager:
     _instance = None
     _initialized = False
 
-    DATA_FILE = profile_path('scratchpad.txt')
-
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -42,21 +40,27 @@ class ScratchPadDataManager:
         cls._instance = None
         cls._initialized = False
 
+    @property
+    def data_file(self) -> Path:
+        return profile_path('scratchpad.txt')
+
     # -- persistence ----------------------------------------------------------
 
     def _load(self):
-        if self.DATA_FILE.exists():
+        data_file = self.data_file
+        if data_file.exists():
             try:
-                self._text = self.DATA_FILE.read_text(encoding="utf-8")
-                logger.info("Loaded scratchpad from %s", self.DATA_FILE)
+                self._text = data_file.read_text(encoding="utf-8")
+                logger.info("Loaded scratchpad from %s", data_file)
             except Exception as e:
                 logger.error("Failed to load scratchpad: %s", e, exc_info=True)
 
     def save(self, text: str):
         self._text = text
         try:
-            self.DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-            self.DATA_FILE.write_text(text, encoding="utf-8")
+            data_file = self.data_file
+            data_file.parent.mkdir(parents=True, exist_ok=True)
+            data_file.write_text(text, encoding="utf-8")
         except Exception as e:
             logger.error("Failed to save scratchpad: %s", e, exc_info=True)
 

@@ -16,18 +16,19 @@ from suiteview.core.json_store import ensure_dir, safe_filename as _safe_filenam
 
 logger = logging.getLogger(__name__)
 
-_TABLES_DIR = profile_path('common_tables')
+def _tables_dir() -> Path:
+    return profile_path('common_tables')
 
 
 def _ensure_dir() -> Path:
-    return ensure_dir(_TABLES_DIR)
+    return ensure_dir(_tables_dir())
 
 
 def list_tables() -> list[CommonTable]:
     """Return all common tables sorted by name."""
     _ensure_dir()
     tables: list[CommonTable] = []
-    for f in _TABLES_DIR.glob("*.json"):
+    for f in _tables_dir().glob("*.json"):
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 tables.append(CommonTable.from_dict(json.load(fh)))
@@ -39,7 +40,7 @@ def list_tables() -> list[CommonTable]:
 
 def load_table(name: str) -> CommonTable | None:
     """Load a single common table by name."""
-    path = _TABLES_DIR / f"{_safe_filename(name)}.json"
+    path = _tables_dir() / f"{_safe_filename(name)}.json"
     if not path.exists():
         return None
     try:
@@ -53,16 +54,16 @@ def load_table(name: str) -> CommonTable | None:
 def save_table(ct: CommonTable) -> None:
     """Save a common table. Overwrites if same name exists."""
     _ensure_dir()
-    path = _TABLES_DIR / f"{_safe_filename(ct.name)}.json"
+    path = _tables_dir() / f"{_safe_filename(ct.name)}.json"
     write_json(path, ct.to_dict(), ensure_ascii=True)
 
 
 def delete_table(name: str) -> None:
     """Delete a common table file."""
-    path = _TABLES_DIR / f"{_safe_filename(name)}.json"
+    path = _tables_dir() / f"{_safe_filename(name)}.json"
     if path.exists():
         path.unlink()
 
 
 def table_exists(name: str) -> bool:
-    return (_TABLES_DIR / f"{_safe_filename(name)}.json").exists()
+    return (_tables_dir() / f"{_safe_filename(name)}.json").exists()

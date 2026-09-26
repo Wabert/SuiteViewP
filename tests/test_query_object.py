@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import patch
 
@@ -55,6 +56,20 @@ from suiteview.audit import qdef_store, saved_query_store
 from suiteview.audit.dataforge.query_field_picker import QueryFieldPicker, _group_query_objects_for_selector, _load_query_source
 from suiteview.audit.dataforge import dataforge_store
 from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
+
+
+@contextmanager
+def _temporary_profile():
+    old_profile_dir = os.environ.get("SUITEVIEW_PROFILE_DIR")
+    with tempfile.TemporaryDirectory() as tmp_profile:
+        os.environ["SUITEVIEW_PROFILE_DIR"] = tmp_profile
+        try:
+            yield tmp_profile
+        finally:
+            if old_profile_dir is None:
+                os.environ.pop("SUITEVIEW_PROFILE_DIR", None)
+            else:
+                os.environ["SUITEVIEW_PROFILE_DIR"] = old_profile_dir
 
 
 class QueryObjectTests(unittest.TestCase):
@@ -685,10 +700,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_visual_query_object_copy_copies_saved_design(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_queries_dir = saved_query_store._QUERIES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
             saved = SavedQuery(
                 name="Visual Premium Query",
                 source_group="Premium Group",
@@ -708,7 +721,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(copied_design.sql, saved.sql)
             self.assertEqual(copied_design.config, saved.config)
 
-        saved_query_store._QUERIES_DIR = old_queries_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -716,10 +728,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_visual_query_object_restores_missing_saved_design(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_queries_dir = saved_query_store._QUERIES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
             obj = object_from_saved_query(SavedQuery(
                 name="Copied Before Fix",
                 source_group="Premium Group",
@@ -741,7 +751,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(restored.sql, obj.sql)
             self.assertEqual(loaded_object.description, "Keep object metadata")
 
-        saved_query_store._QUERIES_DIR = old_queries_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -783,10 +792,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_rename_object_visual_sticks_after_design_resave(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_queries_dir = saved_query_store._QUERIES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
             saved_query_store.save_query(SavedQuery(
                 name="Old Visual",
                 source_group="G",
@@ -816,7 +823,6 @@ class QueryObjectTests(unittest.TestCase):
             names = sorted(o.name for o in list_objects())
             self.assertEqual(names, ["New Visual"])
 
-        saved_query_store._QUERIES_DIR = old_queries_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -826,12 +832,8 @@ class QueryObjectTests(unittest.TestCase):
         from suiteview.audit.dataforge.queries_dialog import _list_query_sources
 
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        old_queries_dir = saved_query_store._QUERIES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_queries:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
-            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
 
             standalone = manual_sql_query_object(
                 "Claims", sql="SELECT 1", dsn="D", result_columns=["a"])
@@ -845,8 +847,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertIn("Claims", names)
             self.assertNotIn("Claims [F]", names)
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
-        saved_query_store._QUERIES_DIR = old_queries_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -885,15 +885,13 @@ class QueryObjectTests(unittest.TestCase):
     def test_query_object_viewer_initial_selection_populates_detail(self):
         old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
         old_data_sources_dir = os.environ.get("SUITEVIEW_DATA_SOURCES_DIR")
-        old_forges_dir = dataforge_store._FORGES_DIR
         with tempfile.TemporaryDirectory() as tmp_dir, \
-                tempfile.TemporaryDirectory() as tmp_forges, \
-                tempfile.TemporaryDirectory() as tmp_data_sources:
+                tempfile.TemporaryDirectory() as tmp_data_sources, \
+                _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
             # Isolate registered data sources so the ODBC count is deterministic
             # regardless of what's registered on the machine running the test.
             os.environ["SUITEVIEW_DATA_SOURCES_DIR"] = tmp_data_sources
-            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
             save_object(manual_sql_query_object(
                 "Initial Viewer Object",
                 sql="SELECT POLICY FROM WORK",
@@ -941,7 +939,6 @@ class QueryObjectTests(unittest.TestCase):
             finally:
                 window.close()
 
-        dataforge_store._FORGES_DIR = old_forges_dir
         if old_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -953,10 +950,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_query_object_viewer_file_source_keeps_left_width_and_dark_badge(self):
         old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_forges_dir = dataforge_store._FORGES_DIR
-        with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as tmp_forges:
+        with tempfile.TemporaryDirectory() as tmp_dir, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
-            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
             save_object(adhoc_source_object(
                 "Claims File Source",
                 source_type="csv",
@@ -1022,7 +1017,6 @@ class QueryObjectTests(unittest.TestCase):
             finally:
                 window.close()
 
-        dataforge_store._FORGES_DIR = old_forges_dir
         if old_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -1217,10 +1211,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_saved_query_store_publishes_query_object(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_queries_dir = saved_query_store._QUERIES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
             saved = SavedQuery(
                 name="Published Query",
                 dsn="CKPR_DSN",
@@ -1238,7 +1230,6 @@ class QueryObjectTests(unittest.TestCase):
             saved_query_store.delete_query("Published Query")
             self.assertFalse(object_exists("Published Query"))
 
-        saved_query_store._QUERIES_DIR = old_queries_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -1246,10 +1237,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_qdef_store_publishes_query_object(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
             qdef = QDefinition(
                 name="Published QDef",
                 forge_name="Forge A",
@@ -1269,7 +1258,6 @@ class QueryObjectTests(unittest.TestCase):
             qdef_store.delete_qdef("Published QDef", forge_name="Forge A")
             self.assertFalse(object_exists("Published QDef"))
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -1458,10 +1446,8 @@ class QueryObjectTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         self.assertIsNotNone(app)
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
 
             obj = cyberlife_query_object(
                 "Cyberlife Trad CV [Forge]",
@@ -1503,7 +1489,6 @@ class QueryObjectTests(unittest.TestCase):
                 {"max_count": ""},
             )
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -1632,12 +1617,10 @@ class QueryObjectTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         self.assertIsNotNone(app)
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
         picker = None
         try:
-            with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+            with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
                 os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-                qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
 
                 forge_name = "Forge"
                 old_name = "Claims [Forge]"
@@ -1696,7 +1679,6 @@ class QueryObjectTests(unittest.TestCase):
         finally:
             if picker is not None:
                 picker.close()
-            qdef_store._QDEFS_DIR = old_qdefs_dir
             if old_obj_dir is None:
                 os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
             else:
@@ -1706,12 +1688,10 @@ class QueryObjectTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         self.assertIsNotNone(app)
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
         picker = None
         try:
-            with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+            with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
                 os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-                qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
 
                 forge_name = "Forge"
                 old_name = "Claims [Forge]"
@@ -1767,7 +1747,6 @@ class QueryObjectTests(unittest.TestCase):
         finally:
             if picker is not None:
                 picker.close()
-            qdef_store._QDEFS_DIR = old_qdefs_dir
             if old_obj_dir is None:
                 os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
             else:
@@ -1796,12 +1775,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_query_object_browser_delete_dataforge_records_keeps_original(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        old_forges_dir = dataforge_store._FORGES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_forges:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
-            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
 
             original = manual_sql_query_object(
                 "Claims", sql="SELECT * FROM CLAIMS", dsn="FAKE_DSN",
@@ -1838,8 +1813,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertFalse(object_exists("Claims [RGA - EXECUL and Claims]"))
             self.assertTrue(object_exists("Claims"))
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
-        dataforge_store._FORGES_DIR = old_forges_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -1847,12 +1820,8 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_query_object_browser_renames_dataforge_source_records(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        old_forges_dir = dataforge_store._FORGES_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_forges:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
-            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
 
             forge_name = "Forge"
             old_name = "Claims [Forge]"
@@ -1925,8 +1894,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(forge.config["display_tab"]["rows"][0]["field_key"], f"{new_name}.amount")
             self.assertEqual(forge.config["joins"][0]["left_source"], new_name)
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
-        dataforge_store._FORGES_DIR = old_forges_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -1963,10 +1930,8 @@ class QueryObjectTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         self.assertIsNotNone(app)
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_data:
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_data, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
             path = os.path.join(tmp_data, "claims.csv")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("claim_id,amount\nC1,100\nC2,250\n")
@@ -1994,7 +1959,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(list(df.columns), ["claim_id", "amount"])
             self.assertEqual(len(df), 2)
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
@@ -2027,10 +1991,8 @@ class QueryObjectTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         self.assertIsNotNone(app)
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        old_qdefs_dir = qdef_store._QDEFS_DIR
-        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+        with tempfile.TemporaryDirectory() as tmp_objects, _temporary_profile():
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
-            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
             obj = adhoc_source_object(
                 "CLAIMDATA [Forge]",
                 source_type="csv",
@@ -2053,7 +2015,6 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(refreshed.kind, OBJECT_KIND_ADHOC_SOURCE)
             self.assertEqual(refreshed.result_columns, ["claim_id", "amount"])
 
-        qdef_store._QDEFS_DIR = old_qdefs_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
