@@ -877,30 +877,30 @@ def _benefit_charge_input(
 ) -> dict:
     """Return amount/rate/charge for one benefit."""
     ben_type = ben.benefit_type or ""
-    rate = _benefit_adjusted_rate(ben, detail_key, policy, rates, rate_year, projection_date)
+    raw_rate = _benefit_raw_rate(ben, detail_key, policy, rates, rate_year, projection_date)
+    factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
+    rate = raw_rate * factor
     if ben_type == "3":
         subtype = ben.benefit_subtype or ""
         amount = max(monthly_mtp, monthly_deduction_basis) if subtype in ("9", "#") else monthly_deduction_basis
         charge = rate * amount * benefit_charge_factor(policy.plancode, ben_type + subtype)
     elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
-        amount, charge = target_waiver_charge(policy, config, ben.coi_rate or 0.0, projection_date)
+        amount, charge = target_waiver_charge(policy, config, raw_rate, projection_date)
     else:
         amount = ben.benefit_amount
         charge = ben.units * rate * benefit_charge_factor(policy.plancode, ben_type + (ben.benefit_subtype or ""))
     return {"amount": amount, "rate": rate, "charge": _round_near(charge, 2)}
 
 
-def _benefit_adjusted_rate(ben, detail_key: str, policy, rates, rate_year, projection_date) -> float:
+def _benefit_raw_rate(ben, detail_key: str, policy, rates, rate_year, projection_date) -> float:
+    """Return the unadjusted benefit COI rate for the projection date."""
     ben_rates = rates.benefit_coi.get(detail_key, [])
     if ben_rates:
-        raw = _rate_from_schedule(
+        return _rate_from_schedule(
             ben_rates, _benefit_rate_year(ben, policy, projection_date, rate_year))
-    elif ben.coi_rate is not None:
-        raw = float(ben.coi_rate)
-    else:
-        raw = 0.0
-    factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
-    return raw * factor
+    if ben.coi_rate is not None:
+        return float(ben.coi_rate)
+    return 0.0
 
 
 def calculate_deduction(
