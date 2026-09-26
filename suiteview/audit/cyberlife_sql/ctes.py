@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 def _conversion_sc_cte(schema: str) -> str:
     """Keep both dates from one eligible SC row, never independent MAX dates."""
     return f"CONVERSION_SC AS\n  (SELECT CONVERTED_POLICY.CK_SYS_CD, FH.CK_CMP_CD, FH.TCH_POL_ID,\n    FH.ENTRY_DT AS CONV_SC_ENTRY_DT, FH.ASOF_DT AS CONV_SC_EFFECTIVE_DT,\n    ROW_NUMBER() OVER (\n      PARTITION BY CONVERTED_POLICY.CK_SYS_CD, FH.CK_CMP_CD, FH.TCH_POL_ID\n      ORDER BY FH.ENTRY_DT DESC NULLS LAST, FH.ENTRY_TIME DESC NULLS LAST,\n               FH.SEQ_NO DESC) AS SC_ROW\n   FROM {schema}.FH_FIXED FH\n   INNER JOIN {schema}.LH_BAS_POL CONVERTED_POLICY\n     ON CONVERTED_POLICY.CK_CMP_CD = FH.CK_CMP_CD\n    AND CONVERTED_POLICY.TCH_POL_ID = FH.TCH_POL_ID\n    AND CONVERTED_POLICY.LST_ETR_CD = 'O'\n   WHERE FH.TRANS = 'SC'\n     AND FH.FCB0_REV_IND = '0'\n     AND FH.FCB2_REV_APPL_IND = '0')"

@@ -1,7 +1,38 @@
 """QueryObject Viewer DetailsMixin methods."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+import json
+import os
+from pathlib import Path
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QTableWidgetItem
+
+from suiteview.audit import data_source_store, file_source_store
+from suiteview.audit.dataforge import dataforge_store
+from suiteview.audit.file_source import (
+    SOURCE_TYPE_CSV,
+    SOURCE_TYPE_EXCEL,
+    SOURCE_TYPE_FIXED_WIDTH,
+    datasource_label,
+)
+from suiteview.audit.query_object import OBJECT_KIND_ADHOC_SOURCE, QueryObject
+from suiteview.audit.query_object_viewer.common import (
+    _dataforge_display_name,
+    _display_dsn_for_object,
+    _file_source_type_label,
+    _filename_from_path,
+    _kind_label,
+)
+from suiteview.core.odbc_utils import (
+    UNKNOWN,
+    access_driver,
+    detect_dialect,
+    get_dsn_details,
+    list_access_tables,
+    probe_access_connection,
+    probe_dsn_connection,
+)
 
 
 class QueryObjectViewerDetailsMixin:

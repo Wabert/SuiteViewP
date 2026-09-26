@@ -1,7 +1,27 @@
 """Tree and table widgets/delegates for QueryObject Viewer."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+import re
+
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QStyle,
+    QStyledItemDelegate,
+    QTableWidget,
+    QTreeWidget,
+)
+
+from suiteview.audit.build_mode_styles import GROUP_STYLE
+from suiteview.audit.query_object_viewer.common import (
+    _FONT,
+    _FONT_BOLD,
+    _FONT_SMALL,
+    _pill_colors_for_group,
+)
+from suiteview.audit.query_organizer import COMMONS_GROUP_ID
+
 
 class _OrganizerTree(QTreeWidget):
     """The browser tree with bookmark-style drag-drop (design §8).

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from ..sql_helpers import esc, in_list
 from ..constants import (
-    PARTICIPATION_CODES, PARTICIPATION_TYPE_DESCRIPTIONS,
+    PARTICIPATION_CODES,
+    PARTICIPATION_TYPE_DESCRIPTIONS,
     TERMINATION_LAST_ENTRY_CODES,
 )
+from ..sql_helpers import esc, in_list
+
 
 def terminated_policy_predicate() -> str:
     return f"POLICY1.PRM_PAY_STA_REA_CD >= '97' AND POLICY1.LST_ETR_CD IN ({in_list(TERMINATION_LAST_ENTRY_CODES)})"

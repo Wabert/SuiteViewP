@@ -1,8 +1,47 @@
 """Data-source dashboard widget for QueryObject Viewer."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+import pandas as pd
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QSplitter,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from suiteview.audit.file_source import DATA_TYPES as _FILE_DATA_TYPES
+from suiteview.audit.query_object_viewer.common import (
+    _BTN_DANGER_STYLE,
+    _BTN_STYLE,
+    _DASHBOARD_GROUP_STYLE,
+    _FONT,
+    _FONT_BOLD,
+    _FONT_SMALL,
+    _HEALTH_PILL_COLORS,
+    _reskin_info_table_blue,
+)
+from suiteview.audit.query_object_viewer.dialogs import _TablePreviewDialog
+from suiteview.polview.ui.widgets import StyledInfoTableGroup
+
 from .widgets import _FileDropTable
+
 
 class _SourceDashboard(QWidget):
     """Detail view AND editor for a Data Source — a source dashboard.

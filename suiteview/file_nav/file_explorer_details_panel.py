@@ -3,8 +3,30 @@ from __future__ import annotations
 
 import logging
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import DropTreeView, FileSortProxyModel, NoFocusDelegate
+from PyQt6.QtCore import (
+    Qt,
+)
+from PyQt6.QtGui import (
+    QStandardItemModel,
+)
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
+)
+
+from suiteview.file_nav.file_explorer_widgets import (
+    DropTreeView,
+    FileSortProxyModel,
+    NoFocusDelegate,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -9,19 +9,26 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QDialog, QWidget
 
 from suiteview.audit.query_object import QueryObject
-from suiteview.core.access_control import guard_app_access, requires_app_access
-from suiteview.ui.widgets.frameless_window import FramelessWindowBase
-
 from suiteview.audit.query_object_viewer.common import (
     _BORDER_COLOR,
     _HEADER_COLORS,
 )
+from suiteview.audit.query_object_viewer.context_menus import (
+    QueryObjectViewerOrganizerActionsMixin,
+)
 from suiteview.audit.query_object_viewer.details import QueryObjectViewerDetailsMixin
 from suiteview.audit.query_object_viewer.layout import QueryObjectViewerLayoutMixin
-from suiteview.audit.query_object_viewer.navigation import QueryObjectViewerNavigationMixin
-from suiteview.audit.query_object_viewer.context_menus import QueryObjectViewerOrganizerActionsMixin
-from suiteview.audit.query_object_viewer.object_actions import QueryObjectViewerObjectActionsMixin
-from suiteview.audit.query_object_viewer.source_actions import QueryObjectViewerSourceActionsMixin
+from suiteview.audit.query_object_viewer.navigation import (
+    QueryObjectViewerNavigationMixin,
+)
+from suiteview.audit.query_object_viewer.object_actions import (
+    QueryObjectViewerObjectActionsMixin,
+)
+from suiteview.audit.query_object_viewer.source_actions import (
+    QueryObjectViewerSourceActionsMixin,
+)
+from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 
 class QueryObjectViewerWindow(

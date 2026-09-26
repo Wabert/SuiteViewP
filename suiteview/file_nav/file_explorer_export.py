@@ -2,8 +2,39 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
+import time
+from datetime import datetime
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+except ImportError:  # pragma: no cover - optional Excel export dependency
+    openpyxl = None
+    Font = None
+    PatternFill = None
+
+
+
+try:
+    import win32com.client
+    from win32com.client import dynamic as win32com_dynamic
+except ImportError:  # pragma: no cover - optional Windows COM automation
+    win32com = None
+    win32com_dynamic = None
+
+from PyQt6.QtCore import (
+    Qt,
+)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QMessageBox,
+    QProgressDialog,
+)
+
 from suiteview.file_nav.file_explorer_widgets import PrintDirectoryDialog
 
 logger = logging.getLogger(__name__)

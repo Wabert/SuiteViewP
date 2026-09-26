@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .helpers import name_match_predicate
 
+
 def build_custom_display(custom_display_tab, result_cov_alias: str, schema: str) -> tuple[list[str], list[str], list[str]]:
     """Build SELECT column lines, JOIN lines, and WHERE conditions for the
     Custom Display tab.

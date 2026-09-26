@@ -1,7 +1,46 @@
 """QueryObject Viewer ObjectActionsMixin methods."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+import os
+from datetime import datetime
+from pathlib import Path
+
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QInputDialog,
+    QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
+)
+
+from suiteview.audit import qdef_store, query_object_store
+from suiteview.audit.adhoc_source_intake import (
+    promote_adhoc_source,
+    query_object_from_file,
+)
+from suiteview.audit.dataforge import dataforge_store
+from suiteview.audit.query_object import (
+    OBJECT_KIND_ADHOC_SOURCE,
+    OBJECT_KIND_CYBERLIFE,
+    OBJECT_KIND_EXECUTABLE,
+    OBJECT_KIND_MANUAL_SQL,
+    OBJECT_KIND_VISUAL,
+    QueryObject,
+)
+from suiteview.audit.query_object_viewer.common import (
+    _SENSITIVE_ODBC_KEYS,
+    _dataforge_display_name,
+    _dataforge_info,
+    _display_dsn_for_definition,
+    _display_dsn_for_object,
+    _kind_label,
+    logger,
+)
+from suiteview.audit.query_organizer import get_query_organizer
+from suiteview.core.access_control import guard_app_access, requires_app_access
+from suiteview.core.odbc_utils import UNKNOWN, detect_dialect, get_dsn_details
+
 from .dialogs import FileObjectPreviewDialog
 
 

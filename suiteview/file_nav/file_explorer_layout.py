@@ -1,17 +1,14 @@
 """File Explorer Layout."""
 from __future__ import annotations
 
+import json
 import logging
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import (
-    DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+from PyQt6.QtCore import (
+    QTimer,
 )
+
+from suiteview.core.json_store import write_json
 
 logger = logging.getLogger(__name__)
 

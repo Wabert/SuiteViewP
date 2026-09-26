@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from .helpers import name_match_predicate
 from ..segment52_fields import SEGMENT52_FIELDS
 from ..sql_helpers import strict_range_predicates
+from .helpers import name_match_predicate
+
 
 def build_segment52(segment52_tab, show_all: bool) -> tuple[list[str], list[str]]:
     fields = segment52_tab.get_state()['fields'] if segment52_tab is not None else {}

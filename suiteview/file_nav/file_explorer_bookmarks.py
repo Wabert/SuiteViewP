@@ -1,17 +1,23 @@
 """File Explorer Bookmarks."""
 from __future__ import annotations
 
+import json
 import logging
+import webbrowser
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import (
-    DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+from PyQt6.QtWidgets import (
+    QDialog,
+    QMessageBox,
 )
+
+from suiteview.core.json_store import write_json
+from suiteview.ui.dialogs.shortcuts_dialog import (
+    AddBookmarkDialog,
+    show_compact_confirm,
+)
+from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
 
 logger = logging.getLogger(__name__)
 

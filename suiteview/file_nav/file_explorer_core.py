@@ -6,26 +6,44 @@ existing FileNav callers while the behavior is organized by concern.
 from __future__ import annotations
 
 import logging
+import tempfile
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import (
-    DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+from PyQt6.QtCore import (
+    QFileInfo,
+    QSize,
+    Qt,
 )
+from PyQt6.QtGui import (
+    QAction,
+    QIcon,
+)
+from PyQt6.QtWidgets import (
+    QFileIconProvider,
+    QSizePolicy,
+    QSplitter,
+    QToolBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from suiteview.core.access_control import guard_app_access
+from suiteview.core.profile_paths import profile_path
 from suiteview.file_nav.file_explorer_bookmarks import FileExplorerBookmarksMixin
 from suiteview.file_nav.file_explorer_context_menus import FileExplorerContextMenuMixin
 from suiteview.file_nav.file_explorer_details_io import FileExplorerDetailsIOMixin
 from suiteview.file_nav.file_explorer_details_panel import FileExplorerDetailsPanelMixin
-from suiteview.file_nav.file_explorer_details_search import FileExplorerDetailsSearchMixin
+from suiteview.file_nav.file_explorer_details_search import (
+    FileExplorerDetailsSearchMixin,
+)
 from suiteview.file_nav.file_explorer_export import FileExplorerExportMixin
 from suiteview.file_nav.file_explorer_file_ops import FileExplorerFileOpsMixin
 from suiteview.file_nav.file_explorer_layout import FileExplorerLayoutMixin
 from suiteview.file_nav.file_explorer_sharepoint import FileExplorerSharePointMixin
 from suiteview.file_nav.file_explorer_tree import FileExplorerTreeMixin
+from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+from suiteview.ui.widgets.bookmark_widgets import BookmarkContainer
 
 logger = logging.getLogger(__name__)
 

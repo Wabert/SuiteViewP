@@ -1,53 +1,18 @@
 """Standalone FileNav window."""
 
-import ctypes
 import logging
-import os
-import subprocess
-import sys
-import time
 import traceback
-import webbrowser
-from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (
-    QAction,
-    QBrush,
-    QColor,
-    QCursor,
-    QFont,
-    QIcon,
-    QLinearGradient,
-    QMouseEvent,
-    QPainter,
-    QPen,
-    QPixmap,
-    QStandardItemModel,
-)
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QAbstractButton,
     QApplication,
-    QComboBox,
     QFrame,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMenu,
-    QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizeGrip,
-    QSizePolicy,
-    QSplitter,
-    QStyle,
-    QSystemTrayIcon,
     QTabBar,
     QTabWidget,
     QToolButton,
@@ -55,48 +20,20 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from suiteview import __version__ as APP_VERSION
 from suiteview.core.access_control import (
-    AccessDeniedError,
-    AccessUnavailableError,
-    can_access_app,
-    get_access,
     guard_app_access,
     requires_app_access,
 )
-from suiteview.core.profile_paths import profile_path, profile_root
-from suiteview.file_nav.file_explorer_core import DropTreeView, FileExplorerCore, NoFocusDelegate
-from suiteview.file_nav.sharepoint_client import is_sp_path
-from suiteview.scratchpad.scratchpad_panel import ScratchPadPanel
-from suiteview.taskbar_launcher import appbar
-from suiteview.taskbar_launcher.albert_launcher import AlbertButton
-from suiteview.taskbar_launcher.single_instance import activation_message
-from suiteview.ui.dialogs.shortcuts_dialog import AddBookmarkDialog
-from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+from suiteview.core.profile_paths import profile_path
 from suiteview.ui.widgets.bookmark_widgets import (
-    BookmarkContainer,
     BookmarkContainerRegistry,
-    CATEGORY_CONTEXT_MENU_STYLE,
-    CategoryButton,
-    CategoryPopup,
-    StandaloneBookmarkButton,
     set_footer_status_callback,
 )
-from suiteview.ui.widgets.file_open_history import FileOpenHistoryPanel
-from suiteview.ui.widgets.frame_geometry import (
-    ALL_RESIZE_EDGES,
-    cursor_for_resize_edge,
-    resize_edge_at,
-    resize_geometry_for_edge,
-    update_cursor_for_resize_edge,
-)
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
-from suiteview.ui.widgets.uppercase_input import force_uppercase
-from suiteview.ui.widgets.window_state import NativeMinimizeMixin
-from suiteview.administrator.launcher import AdministratorMenuAccess
 
 logger = logging.getLogger(__name__)
 from suiteview.taskbar_launcher.file_explorer_tab import FileExplorerTab
+
 
 class FileNavWindow(FramelessWindowBase):
     """Standalone File Navigator window with classic Blue & Gold theme.

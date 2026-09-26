@@ -2,15 +2,37 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import subprocess
+from pathlib import Path
+from urllib.parse import quote
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import (
-    DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+try:
+    import winreg
+except ImportError:  # pragma: no cover - non-Windows development host
+    winreg = None
+
+
+
+
+
+from PyQt6.QtCore import (
+    QMimeData,
+    Qt,
+    QTimer,
+    QUrl,
+)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QInputDialog,
+    QLineEdit,
+    QMessageBox,
+)
+
+from suiteview.core.support_files import guard_support_file_paths
+from suiteview.file_nav.sharepoint_client import (
+    is_sp_path,
 )
 
 logger = logging.getLogger(__name__)

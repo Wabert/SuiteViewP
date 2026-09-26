@@ -2,15 +2,52 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import (
-    DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+except ImportError:  # pragma: no cover - optional Excel export dependency
+    openpyxl = None
+    Font = None
+    PatternFill = None
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover - optional preview dependency
+    pd = None
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - optional image preview dependency
+    Image = None
+
+try:
+    import win32com.client
+    from win32com.client import dynamic as win32com_dynamic
+except ImportError:  # pragma: no cover - optional Windows COM automation
+    win32com = None
+    win32com_dynamic = None
+
+from PyQt6.QtCore import (
+    QRegularExpression,
+    Qt,
+)
+from PyQt6.QtGui import (
+    QStandardItem,
+)
+from PyQt6.QtWidgets import (
+    QMessageBox,
+)
+
+from suiteview.core.support_files import guard_support_file_paths
+from suiteview.file_nav.sharepoint_client import (
+    is_sp_path,
 )
 
 logger = logging.getLogger(__name__)

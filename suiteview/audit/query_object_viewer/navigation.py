@@ -1,7 +1,41 @@
-﻿"""QueryObject Viewer NavigationMixin methods."""
+"""QueryObject Viewer NavigationMixin methods."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QTreeWidgetItem
+
+from suiteview.audit import data_source_store, file_source_store, query_object_store
+from suiteview.audit.build_mode_styles import FORGE_STYLE, GROUP_STYLE, mode_style
+from suiteview.audit.data_source import KIND_ACCESS, KIND_ODBC, datasource_kind_label
+from suiteview.audit.dataforge import dataforge_store
+from suiteview.audit.file_source import datasource_label
+from suiteview.audit.group_config import load_ui_settings, save_ui_settings
+from suiteview.audit.qdefinition import QDefinition
+from suiteview.audit.query_object import (
+    OBJECT_KIND_ADHOC_SOURCE,
+    QueryObject,
+    object_from_qdefinition,
+)
+from suiteview.audit.query_object_viewer.common import (
+    _FILE_SOURCE_TYPES,
+    _FONT,
+    _FONT_BOLD,
+    _LEFT_PANEL_DEFAULT_WIDTH,
+    _LEFT_PANEL_MAX_WIDTH,
+    _LEFT_PANEL_MIN_WIDTH,
+    _QUERY_BADGES,
+    _RIGHT_PANEL_MIN_WIDTH,
+    _dataforge_display_name,
+    _dataforge_info,
+    _display_dsn_for_object,
+    _file_source_key,
+    _filename_from_path,
+    _kind_label,
+    _payload,
+    logger,
+)
+from suiteview.audit.query_organizer import COMMONS_GROUP_ID, get_query_organizer
 
 
 class QueryObjectViewerNavigationMixin:

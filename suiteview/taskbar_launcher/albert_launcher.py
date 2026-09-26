@@ -1,14 +1,14 @@
 """Launch the maintained Albert composer without importing Outlook or its UI."""
 import logging
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox, QPushButton
+
 from suiteview.core.access_control import guard_app_access, requires_app_access
 from suiteview.core.build_env import app_unavailable_reason
-
 
 logger = logging.getLogger(__name__)
 BRIDGE = (Path(__file__).resolve().parents[3] / "Email Manager"

@@ -1,7 +1,20 @@
-﻿"""Organizer context-menu, create, rename, and drop methods."""
+"""Organizer context-menu, create, rename, and drop methods."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+from datetime import datetime
+
+from PyQt6.QtWidgets import QAbstractItemView, QInputDialog, QMenu, QMessageBox
+
+from suiteview.audit import qdef_store, query_object_store, saved_query_store
+from suiteview.audit.dataforge import dataforge_store
+from suiteview.audit.query_object import (
+    OBJECT_KIND_VISUAL,
+    QueryObject,
+    qdefinition_from_query_object,
+)
+from suiteview.audit.query_object_viewer.common import _payload, logger
+from suiteview.audit.query_organizer import COMMONS_GROUP_ID, get_query_organizer
+from suiteview.ui.widgets.bookmark_widgets import ColorPickerPopup
 
 
 class QueryObjectViewerOrganizerActionsMixin:

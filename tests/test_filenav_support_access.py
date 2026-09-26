@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem
-from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QWidget
 
 from suiteview.core import access_control as access
 from suiteview.core import support_files as support
@@ -129,7 +129,7 @@ def test_direct_filenav_mutations(context, monkeypatch, protected, writable, ope
     old_path = folder / "original.txt"
     old_path.write_text("preserve", encoding="utf-8")
     browser = _explorer(folder, [old_path])
-    monkeypatch.setattr(explorer.QInputDialog, "getText", lambda *a, **k: ("renamed.txt", True))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("renamed.txt", True))
     context.writable = writable
     assert access.can_write_support_files()  # Cached UI says yes; boundary must refresh.
 

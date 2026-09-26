@@ -5,7 +5,7 @@ from unittest.mock import Mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PyQt6.QtWidgets import QApplication, QMenu
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox
 
 from suiteview.administrator import launcher
 
@@ -107,7 +107,7 @@ def test_taskbar_denial_hides_existing_window_and_reports(monkeypatch):
     monkeypatch.setattr(service.AccessRepository, "load",
                         Mock(side_effect=PermissionError("ADMIN access revoked")))
     warning = Mock()
-    monkeypatch.setattr(taskbar.QMessageBox, "warning", warning)
+    monkeypatch.setattr(QMessageBox, "warning", warning)
     bar = SimpleNamespace(administrator_window=Mock(), _bring_to_front=Mock())
     taskbar.SuiteViewTaskbar._open_administrator(bar)
     bar.administrator_window.hide.assert_called_once()

@@ -1,7 +1,46 @@
 """Dialogs used by QueryObject Viewer."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
+
+from suiteview.audit.adhoc_source_intake import query_adhoc_object
+from suiteview.audit.data_source import KIND_ACCESS, KIND_ODBC, RegisteredDataSource
+from suiteview.audit.query_object import OBJECT_KIND_ADHOC_SOURCE, QueryObject
+from suiteview.audit.query_object_viewer.common import (
+    _BTN_STYLE,
+    _FONT,
+    _FONT_BOLD,
+    _FONT_SMALL,
+    _limited_preview_sql,
+    _preview_dialect_for_object,
+)
+from suiteview.audit.query_runner import execute_odbc_query
+from suiteview.core.odbc_utils import (
+    ACCESS,
+    detect_dialect,
+    list_installed_dsns,
+    probe_access_connection,
+    probe_dsn_connection,
+)
+from suiteview.ui.widgets.filter_table_view import FilterTableView
+
 
 class _TablePreviewDialog(QDialog):
     """Popup preview of a table's data with adjustable row count and search.

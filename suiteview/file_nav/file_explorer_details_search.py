@@ -2,15 +2,29 @@
 from __future__ import annotations
 
 import logging
+import math
+import re
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
+from PyQt6.QtCore import (
+    QRegularExpression,
+    Qt,
+    QTimer,
+)
+from PyQt6.QtGui import (
+    QStandardItem,
+)
+from PyQt6.QtWidgets import (
+    QMessageBox,
+    QProgressDialog,
+)
+
 from suiteview.file_nav.file_explorer_widgets import (
     DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+)
+from suiteview.file_nav.sharepoint_client import (
+    SharePointDepthScanWorker,
+    is_sp_path,
 )
 
 logger = logging.getLogger(__name__)

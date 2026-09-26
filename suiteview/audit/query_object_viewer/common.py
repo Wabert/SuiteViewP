@@ -1,61 +1,16 @@
 """Shared imports, constants, and helpers for QueryObject Viewer."""
 from __future__ import annotations
 
-import json
 import logging
 import re
-from datetime import datetime
-from pathlib import Path
 
-import pandas as pd
-
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (
-    QBrush,
-    QColor,
     QFont,
-    QLinearGradient,
-    QPainter,
-    QPen,
-)
-from PyQt6.QtWidgets import (
-    QAbstractItemView,
-    QComboBox,
-    QFrame,
-    QDialog,
-    QDialogButtonBox,
-    QFileDialog,
-    QFormLayout,
-    QGridLayout,
-    QGroupBox,
-    QHeaderView,
-    QHBoxLayout,
-    QInputDialog,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QMenu,
-    QApplication,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QStyle,
-    QStyledItemDelegate,
-    QTableWidget,
-    QTableWidgetItem,
-    QTabWidget,
-    QTextEdit,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
 )
 
-from suiteview.audit.adhoc_source_intake import (
-    promote_adhoc_source,
-    query_adhoc_object,
-    query_object_from_file,
+from suiteview.audit.build_mode_styles import (
+    GROUP_STYLE,
 )
 from suiteview.audit.query_object import (
     OBJECT_KIND_ADHOC_SOURCE,
@@ -64,83 +19,17 @@ from suiteview.audit.query_object import (
     OBJECT_KIND_MANUAL_SQL,
     OBJECT_KIND_VISUAL,
     QueryObject,
-    object_from_qdefinition,
-    qdefinition_from_query_object,
 )
-from suiteview.audit.file_source import DATA_TYPES as _FILE_DATA_TYPES
-from suiteview.audit.qdefinition import QDefinition
-from suiteview.audit.query_runner import execute_odbc_query
-from suiteview.audit import query_object_store
-from suiteview.audit.build_mode_styles import (
-    FORGE_STYLE, GROUP_STYLE, mode_style,
-)
-from suiteview.audit.query_organizer import (
-    COMMONS_GROUP_ID,
-    COMMONS_GROUP_NAME,
-    get_query_organizer,
-)
-from suiteview.audit.group_config import load_ui_settings, save_ui_settings
 from suiteview.core.odbc_utils import (
     ACCESS,
     DB2,
     SQL_SERVER,
     UNKNOWN,
     detect_dialect,
-    get_dsn_details,
 )
-from suiteview.polview.ui.widgets import StyledInfoTableGroup
-from suiteview.core.build_env import is_data_read_only
-from suiteview.core.access_control import guard_app_access, requires_app_access
-from suiteview.ui.widgets.filter_table_view import FilterTableView
-from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ui.widgets.bookmark_widgets import (
-    ColorPickerPopup,
     darken_color,
     lighten_color,
-)
-
-import os
-
-from suiteview.audit import (
-    data_source_store,
-    file_query_runner,
-    file_source_store,
-    qdef_store,
-    saved_query_store,
-)
-from suiteview.audit.dataforge import dataforge_store
-from suiteview.audit.adhoc_source_intake import fixed_width_spec
-from suiteview.audit.data_source import (
-    KIND_ACCESS,
-    KIND_ODBC,
-    RegisteredDataSource,
-    datasource_kind_label,
-)
-from suiteview.audit.file_source import (
-    SOURCE_TYPE_CSV,
-    SOURCE_TYPE_EXCEL,
-    SOURCE_TYPE_FIXED_WIDTH,
-    datasource_label,
-)
-from suiteview.audit.file_source_format_dialogs import (
-    DialogCancelled,
-    establish_source_from_first_file,
-    prompt_format_spec_for_source,
-)
-from suiteview.audit.file_source_intake import (
-    FileValidationError,
-    add_member_file,
-    apply_column_names,
-    infer_file_source_from_file,
-    parse_column_spec_text,
-    validate_member_file,
-)
-from suiteview.core.odbc_utils import (
-    access_driver,
-    list_access_tables,
-    list_installed_dsns,
-    probe_access_connection,
-    probe_dsn_connection,
 )
 
 logger = logging.getLogger(__name__)

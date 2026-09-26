@@ -2,16 +2,26 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
-from suiteview.file_nav.file_explorer_widgets import (
-    DepthScanWorker,
-    DropFolderTreeView,
-    DropTreeView,
-    FileSortProxyModel,
-    NoFocusDelegate,
-    PrintDirectoryDialog,
+from PyQt6.QtCore import (
+    Qt,
+    QUrl,
 )
+from PyQt6.QtGui import (
+    QDesktopServices,
+)
+from PyQt6.QtWidgets import (
+    QDialog,
+    QMenu,
+    QMessageBox,
+)
+
+from suiteview.file_nav.sharepoint_client import (
+    is_sp_path,
+)
+from suiteview.ui.dialogs.batch_rename_dialog import BatchRenameDialog
+from suiteview.ui.dialogs.mainframe_upload_dialog import MainframeUploadDialog
 
 logger = logging.getLogger(__name__)
 

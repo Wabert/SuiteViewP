@@ -2,8 +2,38 @@
 from __future__ import annotations
 
 import logging
+import os
+from datetime import datetime
+from pathlib import Path
 
-from suiteview.file_nav.file_explorer_imports import *
+from PyQt6.QtCore import (
+    QMimeData,
+    QSortFilterProxyModel,
+    Qt,
+    QThread,
+    QUrl,
+    pyqtSignal,
+)
+from PyQt6.QtGui import (
+    QDrag,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+)
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QStyle,
+    QStyledItemDelegate,
+    QTreeView,
+    QVBoxLayout,
+)
+
+from suiteview.file_nav.sharepoint_client import (
+    is_sp_path,
+)
 
 logger = logging.getLogger(__name__)
 

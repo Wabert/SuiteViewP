@@ -1,8 +1,42 @@
 """QueryObject Viewer SourceActionsMixin methods."""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403 - private split module shares viewer globals.
-from .dialogs import _RegisterAccessDialog, _RegisterOdbcDialog, _TablePreviewDialog
+import os
+from datetime import datetime
+from pathlib import Path
+
+from PyQt6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QInputDialog,
+    QMessageBox,
+    QTreeWidgetItem,
+)
+
+from suiteview.audit import data_source_store, file_query_runner, file_source_store
+from suiteview.audit.adhoc_source_intake import fixed_width_spec
+from suiteview.audit.data_source import KIND_ACCESS
+from suiteview.audit.file_source import SOURCE_TYPE_EXCEL, SOURCE_TYPE_FIXED_WIDTH
+from suiteview.audit.file_source_format_dialogs import (
+    DialogCancelled,
+    establish_source_from_first_file,
+    prompt_format_spec_for_source,
+)
+from suiteview.audit.file_source_intake import (
+    FileValidationError,
+    add_member_file,
+    apply_column_names,
+    infer_file_source_from_file,
+    parse_column_spec_text,
+    validate_member_file,
+)
+from suiteview.audit.query_object_viewer.common import (
+    _FILE_SOURCE_FILE_FILTER,
+    _payload,
+    logger,
+)
+
+from .dialogs import _RegisterAccessDialog, _RegisterOdbcDialog
 
 
 class QueryObjectViewerSourceActionsMixin:
