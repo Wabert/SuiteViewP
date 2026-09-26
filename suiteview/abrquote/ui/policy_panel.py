@@ -75,12 +75,21 @@ class PolicyPanel(QWidget):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(12)
 
-        # Two-column layout: left (groups) / right (premium schedule)
         main_hbox = QHBoxLayout()
         main_hbox.setSpacing(12)
         left_col = QVBoxLayout()
         left_col.setSpacing(12)
 
+        self._build_lookup_group(left_col)
+        self._build_policy_details_group(left_col)
+        self._build_ul_inputs(left_col)
+        self._build_coverages_group(left_col)
+        self._build_rate_group(left_col)
+        self._build_premium_warning(left_col)
+        self._build_premium_schedule_column(main_hbox, left_col)
+        layout.addLayout(main_hbox, 1)
+
+    def _build_lookup_group(self, left_col):
         # ── Lookup bar (2×2 grid) ────────────────────────────────────────
         lookup_group = QGroupBox("Policy Lookup")
         lookup_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -145,6 +154,8 @@ class PolicyPanel(QWidget):
 
         left_col.addWidget(lookup_group)
 
+
+    def _build_policy_details_group(self, left_col):
         # ── Policy details grid ─────────────────────────────────────────
         self.details_group = QGroupBox("Policy Details")
         self.details_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -243,6 +254,8 @@ class PolicyPanel(QWidget):
         self.details_group.setVisible(False)
         left_col.addWidget(self.details_group)
 
+
+    def _build_ul_inputs(self, left_col):
         # ── UL / Advanced Product Inputs ────────────────────────────────
         self.ul_input_frame = QFrame()
         ul_grid = QGridLayout(self.ul_input_frame)
@@ -282,6 +295,8 @@ class PolicyPanel(QWidget):
         self.ul_input_frame.setVisible(False)
         left_col.addWidget(self.ul_input_frame)
 
+
+    def _build_coverages_group(self, left_col):
         # ── Coverages ─────────────────────────────────────────────
         self.riders_group = QGroupBox("Coverages")
         self.riders_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -299,6 +314,8 @@ class PolicyPanel(QWidget):
         self.riders_group.setVisible(False)
         left_col.addWidget(self.riders_group)
 
+
+    def _build_rate_group(self, left_col):
         # ── ABR Rate Info ───────────────────────────────────────────────
         self.rate_group = QGroupBox("ABR Rate Information")
         self.rate_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -382,6 +399,8 @@ class PolicyPanel(QWidget):
         self.rate_group.setVisible(False)
         left_col.addWidget(self.rate_group)
 
+
+    def _build_premium_warning(self, left_col):
         # ── Premium mismatch warning ────────────────────────────────────
         self.premium_warning = QLabel("")
         self.premium_warning.setStyleSheet(
@@ -393,6 +412,8 @@ class PolicyPanel(QWidget):
         left_col.addWidget(self.premium_warning)
         left_col.addStretch()
 
+
+    def _build_premium_schedule_column(self, main_hbox, left_col):
         # ── Premium schedule (right column) ─────────────────────────────
         right_col = QVBoxLayout()
         right_col.setSpacing(0)
@@ -419,7 +440,7 @@ class PolicyPanel(QWidget):
         main_hbox.addLayout(right_col)
         main_hbox.setStretchFactor(left_col, 0)
         main_hbox.setStretchFactor(right_col, 1)
-        layout.addLayout(main_hbox, 1)
+
 
     # ── Actions ─────────────────────────────────────────────────────────
 
