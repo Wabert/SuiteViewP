@@ -71,7 +71,7 @@ def _statements(cursor):
 @pytest.fixture(autouse=True)
 def prohibit_live_database(monkeypatch):
     with patch(
-        "suiteview.ratemanager.database_loader.connect_dsn",
+        "suiteview.ratemanager.database_loader.connection_factory.connect_dsn",
         side_effect=AssertionError("Dividend integration tests must never access a live database"),
     ):
         yield
@@ -201,7 +201,7 @@ def test_contraction_checks_all_existing_rows_not_only_incoming_duration_keys(tm
     with pytest.raises(UnsafeOperationError, match="Range contraction"):
         repository._validate_dividend_schedules(package, STAGES)
     query = _statements(cursor)[0]
-    assert "JOIN #div_header s ON d.[HEADER_ID] = s.[HEADER_ID]" in query
+    assert "JOIN [#div_header] s ON d.[HEADER_ID] = s.[HEADER_ID]" in query
     assert "d.[DURATION] < s.[FIRST_DURATION]" in query
     assert "d.[DURATION] > s.[LAST_DURATION]" in query
     assert "#div_rates" not in query

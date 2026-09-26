@@ -7,6 +7,7 @@ import pyodbc
 
 from suiteview.audit.other_queries import build_other_query, execute_other_query
 from suiteview.core import access_control, db2_connection
+from suiteview.core.data_access import connections
 
 
 @pytest.fixture
@@ -143,9 +144,13 @@ def test_execution_uses_restricted_isolated_db2_and_varchar_binding(monkeypatch,
     monkeypatch.setattr(access_control, "get_access", lambda **kwargs: rights)
     monkeypatch.setattr(db2_connection, "local_data_enabled", lambda: False)
     local = MagicMock(side_effect=AssertionError("No local fallback"))
-    monkeypatch.setattr(db2_connection, "connect_local_policy_database", local)
+    monkeypatch.setattr(connections, "connect_local_policy_database", local)
     connection = MagicMock()
-    monkeypatch.setattr(db2_connection.pyodbc, "connect", MagicMock(return_value=connection))
+    monkeypatch.setattr(
+        db2_connection.connection_factory,
+        "connect_policy_db2",
+        MagicMock(return_value=connection),
+    )
     cursor = connection.cursor.return_value
     query = build_other_query(kind, "CKAS", plancode="BASE", show_policies=show_policies,
                               table="LH_BAS_POL", field="CK_CMP_CD")

@@ -22,7 +22,7 @@ from suiteview.ratemanager.whole_life.service import WholeLifeRepository
 @pytest.fixture(autouse=True)
 def no_live_database(monkeypatch):
     connect = Mock(side_effect=AssertionError("Tests must never use live databases"))
-    monkeypatch.setattr(loader, "connect_dsn", connect)
+    monkeypatch.setattr(loader.connection_factory, "connect_dsn", connect)
     return connect
 
 
@@ -346,7 +346,11 @@ def test_read_only_shared_db2_select_preserves_parameters_and_schema_rewrite(
     cursor.description = [("CK_POLICY_NBR",)]
     cursor.fetchall.return_value = [("POLICY",)]
     monkeypatch.setattr(db2_connection, "local_data_enabled", lambda: False)
-    monkeypatch.setattr(db2_connection.pyodbc, "connect", Mock(return_value=connection))
+    monkeypatch.setattr(
+        db2_connection.connection_factory,
+        "connect_policy_db2",
+        Mock(return_value=connection),
+    )
     database = db2_connection.DB2Connection("CKAS")
     monkeypatch.setattr(database, "connect", lambda: connection)
     execute = (
