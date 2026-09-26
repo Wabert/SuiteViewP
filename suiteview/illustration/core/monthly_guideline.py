@@ -160,6 +160,182 @@ class GuidelineSolveResult:
     seven_pay: float = 0.0
 
 
+def _guideline_start_date(
+    policy: IllustrationPolicyData,
+    as_of: Optional[date],
+    start_year: int,
+    months_into_year: int,
+) -> Optional[date]:
+    if as_of is not None or policy.issue_date is None:
+        return as_of
+    return policy.issue_date + relativedelta(
+        months=(start_year - 1) * 12 + months_into_year
+    )
+
+
+def _guideline_coi_rate(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    policy_year: int,
+    age: int,
+    month_date: Optional[date],
+) -> float:
+    base = policy.base_segment
+    if age >= config.premium_cease_age:
+        raw_coi = 0.0
+    else:
+        raw_coi = _safe_rate(
+            rates.segment_coi.get(base.coverage_phase, rates.coi), policy_year
+        )
+    adjusted = _adjusted_coi_rate(raw_coi, base, config, month_date)
+    return min(adjusted, COI_MONTHLY_CAP) / 1000.0
+
+
+def _guideline_fee(
+    config: PlancodeConfig, rates: IllustrationRates, policy_year: int, age: int
+) -> float:
+    if age >= config.maturity_age:
+        return 0.0
+    if config.mfee == "Table":
+        return _safe_rate(rates.mfee, policy_year)
+    try:
+        return float(config.mfee)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _guideline_epu(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    policy_year: int,
+) -> float:
+    epu_total = 0.0
+    for seg in policy.segments:
+        seg_year = max(1, policy_year - _coverage_start_year_offset(policy, seg))
+        if config.epu_code == "Table":
+            seg_rate = _safe_rate(
+                rates.segment_epu.get(seg.coverage_phase, rates.epu), seg_year
+            )
+        else:
+            try:
+                seg_rate = float(config.epu_code)
+            except (TypeError, ValueError):
+                seg_rate = 0.0
+        sa_basis = (
+            seg.original_face_amount if config.sa_basis == "OriginalSA"
+            else seg.face_amount
+        )
+        epu_total += seg_rate * sa_basis / 1000.0
+    return epu_total
+
+
+def _guideline_benefit_charges(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    policy_year: int,
+    month_date: Optional[date],
+    active_as_of: Optional[date],
+    monthly_mtp: float,
+) -> tuple[float, dict]:
+    ben_total = 0.0
+    detail = {}
+    benefit_schedule_keys = benefit_rate_keys(policy.benefits)
+    for ben in policy.benefits:
+        ben_type = ben.benefit_type or ""
+        if not _benefit_counts_for_guideline(policy, ben, ben_type, policy_year, active_as_of):
+            continue
+        ben_key = benefit_schedule_keys[id(ben)]
+        benefit_year = max(1, policy_year - _coverage_start_year_offset(policy, ben))
+        rate = _safe_rate(rates.benefit_coi.get(ben_key, []), benefit_year)
+        if rate <= 0.0:
+            continue
+        factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
+        gross = rate * factor
+        charge_factor = benefit_charge_factor(
+            policy.plancode, ben_type + (ben.benefit_subtype or "")
+        )
+        if ben_type == "3":
+            charge = _trunc2(gross * monthly_mtp * charge_factor)
+        elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
+            _, charge = target_waiver_charge(policy, config, rate, month_date)
+        else:
+            charge = (ben.units or 0.0) * gross * charge_factor
+        ben_total += charge
+        detail[_benefit_label(ben_type, ben.benefit_subtype)] = charge
+    return ben_total, detail
+
+
+def _benefit_counts_for_guideline(
+    policy: IllustrationPolicyData,
+    ben,
+    ben_type: str,
+    policy_year: int,
+    active_as_of: Optional[date],
+) -> bool:
+    if not ben.is_active or ben_type.startswith("#"):
+        return False
+    if ben_type not in _GUIDELINE_BENEFIT_TYPES:
+        return False
+    if ben.pay_up_date is not None and active_as_of is not None and active_as_of >= ben.pay_up_date:
+        return False
+    cease_year = _benefit_cease_year(policy, ben)
+    return not (cease_year is not None and policy_year > cease_year)
+
+
+def _guideline_rider_charges(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    policy_year: int,
+    active_as_of: Optional[date],
+) -> float:
+    year_date = _policy_year_start(policy, policy_year)
+    rider_total = 0.0
+    for rider in policy.riders:
+        if not rider.is_active:
+            continue
+        if active_as_of is not None and not rider_active_on(rider, policy, active_as_of):
+            continue
+        if year_date is not None and not rider_active_on(rider, policy, year_date):
+            continue
+        rider_year = max(1, policy_year - _coverage_start_year_offset(policy, rider))
+        rate = _safe_rate(rates.rider_rates.get(rider.export_key, []), rider_year)
+        if rate <= 0.0 and rider.coi_rate is not None:
+            rate = float(rider.coi_rate)
+        if rate <= 0.0:
+            continue
+        rider_table = rider.table_rating or 0
+        rider_flat = rider.flat_extra or 0.0
+        adjusted_rate = (
+            rate * (1.0 + config.table_rating_factor * rider_table)
+            + _trunc2(rider_flat / 12.0)
+        )
+        rider_total += (rider.units or 0.0) * adjusted_rate
+    return rider_total
+
+
+def _set_guideline_premium_loads(
+    gm: GuidelineMonth,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    policy_year: int,
+    age: int,
+) -> None:
+    if age >= config.premium_cease_age:
+        return
+    if config.premium_load == "Table":
+        gm.tpp = _safe_rate(rates.tpp, policy_year)
+        gm.epp = _safe_rate(rates.epp, policy_year)
+        return
+    try:
+        gm.tpp = gm.epp = float(config.premium_load)
+    except (TypeError, ValueError):
+        gm.tpp = gm.epp = 0.0
+
+
 def build_guideline_basis(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -184,7 +360,6 @@ def build_guideline_basis(
     period start still EXCLUDES a benefit that has since ceased. Defaults to
     ``as_of`` (the solve start).
     """
-    base = policy.base_segment
     issue_age = policy.issue_age
     total_months = max(0, (guideline_maturity_age(policy) - attained_age) * 12 - months_into_year)
     if active_as_of is None:
@@ -207,10 +382,7 @@ def build_guideline_basis(
 
     month_in_year = months_into_year
     policy_year = start_year
-    start_date = as_of
-    if start_date is None and policy.issue_date is not None:
-        start_date = policy.issue_date + relativedelta(
-            months=(start_year - 1) * 12 + months_into_year)
+    start_date = _guideline_start_date(policy, as_of, start_year, months_into_year)
     for m in range(total_months):
         if m > 0 and month_in_year == 0:
             policy_year += 1
@@ -220,139 +392,17 @@ def build_guideline_basis(
             is_anniversary=(month_in_year == 0),
         )
 
-        # ── Guaranteed COI per $1 SA (T): substandard + flats, capped.
-        #    The workbook zeroes the base COI from the premium-cease age on
-        #    (Guideline_Premiums COIR: IF(age>=sPremiumCeaseAge,0,...)). ──
-        if age >= config.premium_cease_age:
-            raw_coi = 0.0
-        else:
-            raw_coi = _safe_rate(rates.segment_coi.get(base.coverage_phase, rates.coi), policy_year)
         month_date = start_date + relativedelta(months=m) if start_date is not None else None
-        adjusted = _adjusted_coi_rate(raw_coi, base, config, month_date)
-        gm.coi_rate = min(adjusted, COI_MONTHLY_CAP) / 1000.0
-
-        # ── Monthly policy fee (zero from the contract maturity age on —
-        #    Guideline_Premiums Fee: IF(age>=sMaturityAge,0,...)) ──
-        if age >= config.maturity_age:
-            gm.fee = 0.0
-        elif config.mfee == "Table":
-            gm.fee = _safe_rate(rates.mfee, policy_year)
-        else:
-            try:
-                gm.fee = float(config.mfee)
-            except (TypeError, ValueError):
-                gm.fee = 0.0
-
-        # ── Per-unit (EPU) charges, per segment at its own coverage year ──
-        epu_total = 0.0
-        for seg in policy.segments:
-            seg_year = max(1, policy_year - _coverage_start_year_offset(policy, seg))
-            if config.epu_code == "Table":
-                seg_rate = _safe_rate(rates.segment_epu.get(seg.coverage_phase, rates.epu), seg_year)
-            else:
-                try:
-                    seg_rate = float(config.epu_code)
-                except (TypeError, ValueError):
-                    seg_rate = 0.0
-            sa_basis = (
-                seg.original_face_amount
-                if config.sa_basis == "OriginalSA"
-                else seg.face_amount
-            )
-            epu_total += seg_rate * sa_basis / 1000.0
-        gm.epu = epu_total
-
-        # ── Benefit charges (PW waives the monthly MTP — a FIXED basis here,
-        #     keeping the solve linear; matches Guideline_Premiums AE). Each
-        #     benefit stops at its payup/cease anniversary (the workbook gates
-        #     on the payup AGE — e.g. PW ceases at the age-60 anniversary). ──
-        ben_total = 0.0
-        benefit_schedule_keys = benefit_rate_keys(policy.benefits)
-        for ben in policy.benefits:
-            ben_type = ben.benefit_type or ""
-            if not ben.is_active or ben_type.startswith("#"):
-                continue
-            # Only waiver/GIO-style QAB charges load the guideline; ADB and
-            # other non-QAB benefits are excluded (see _GUIDELINE_BENEFIT_TYPES).
-            if ben_type not in _GUIDELINE_BENEFIT_TYPES:
-                continue
-            # A benefit already ceased at the calculation date contributes
-            # nothing anywhere in the solve (strict, matching vPW_Active).
-            if (
-                ben.pay_up_date is not None
-                and active_as_of is not None
-                and active_as_of >= ben.pay_up_date
-            ):
-                continue
-            cease_year = _benefit_cease_year(policy, ben)
-            if cease_year is not None and policy_year > cease_year:
-                continue
-            ben_key = benefit_schedule_keys[id(ben)]
-            schedule = rates.benefit_coi.get(ben_key, [])
-            benefit_year = max(1, policy_year - _coverage_start_year_offset(policy, ben))
-            rate = _safe_rate(schedule, benefit_year)
-            if rate <= 0.0:
-                continue
-            factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
-            gross = rate * factor
-            # Same per-(plancode, benefit) charge normalisation as the monthly
-            # deduction — one shared rule (see core/benefit_rate_rules.py) so the
-            # two engines never diverge.
-            charge_factor = benefit_charge_factor(
-                policy.plancode, ben_type + (ben.benefit_subtype or ""))
-            if ben_type == "3":
-                charge = _trunc2(gross * monthly_mtp * charge_factor)
-            elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
-                _, charge = target_waiver_charge(policy, config, rate, month_date)
-            else:
-                charge = (ben.units or 0.0) * gross * charge_factor
-            ben_total += charge
-            gm.benefit_charge_detail[_benefit_label(ben_type, ben.benefit_subtype)] = charge
-        gm.benefit_charges = ben_total
-
-        # ── Rider charges (CTR / spouse-term / other UL riders): the CURRENT
-        #    rider COI stream — the SAME rates.rider_rates schedules the
-        #    monthly deduction charges (guideline expenses are always current;
-        #    RERUN Guideline_Premiums CTR/Rider1..3 columns key
-        #    tRates_Select_CCOI, Scale 1). Each rider charges while active on
-        #    the policy-year anniversary and is excluded entirely when already
-        #    ceased at the change row (vR*_Active@change / vCTR_Active). ──
-        year_date = _policy_year_start(policy, policy_year)
-        rider_total = 0.0
-        for rider in policy.riders:
-            if not rider.is_active:
-                continue
-            if active_as_of is not None and not rider_active_on(rider, policy, active_as_of):
-                continue
-            if year_date is not None and not rider_active_on(rider, policy, year_date):
-                continue
-            rider_year = max(1, policy_year - _coverage_start_year_offset(policy, rider))
-            rate = _safe_rate(rates.rider_rates.get(rider.export_key, []), rider_year)
-            if rate <= 0.0 and rider.coi_rate is not None:
-                rate = float(rider.coi_rate)
-            if rate <= 0.0:
-                continue
-            # Same substandard adjustment as the deduction path.
-            rider_table = rider.table_rating or 0
-            rider_flat = rider.flat_extra or 0.0
-            adjusted_rate = (
-                rate * (1.0 + config.table_rating_factor * rider_table)
-                + _trunc2(rider_flat / 12.0)
-            )
-            charge = (rider.units or 0.0) * adjusted_rate
-            rider_total += charge
-        gm.rider_charges = rider_total
-
-        # ── Premium loads (zero past the premium cease age) ──
-        if age < config.premium_cease_age:
-            if config.premium_load == "Table":
-                gm.tpp = _safe_rate(rates.tpp, policy_year)
-                gm.epp = _safe_rate(rates.epp, policy_year)
-            else:
-                try:
-                    gm.tpp = gm.epp = float(config.premium_load)
-                except (TypeError, ValueError):
-                    gm.tpp = gm.epp = 0.0
+        gm.coi_rate = _guideline_coi_rate(policy, config, rates, policy_year, age, month_date)
+        gm.fee = _guideline_fee(config, rates, policy_year, age)
+        gm.epu = _guideline_epu(policy, config, rates, policy_year)
+        gm.benefit_charges, gm.benefit_charge_detail = _guideline_benefit_charges(
+            policy, config, rates, policy_year, month_date, active_as_of, monthly_mtp
+        )
+        gm.rider_charges = _guideline_rider_charges(
+            policy, config, rates, policy_year, active_as_of
+        )
+        _set_guideline_premium_loads(gm, config, rates, policy_year, age)
 
         basis.months.append(gm)
         month_in_year = (month_in_year + 1) % 12
