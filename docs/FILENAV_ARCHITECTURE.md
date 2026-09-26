@@ -31,7 +31,15 @@ and owns:
 The tab keeps public navigation method names through the collaborators so
 existing callers can still use `navigate_to_path`, `toggle_dual_pane` and the
 folder-history helpers. The controllers use explicit tab dependencies and named
-delegates; they do not rely on `__getattr__` forwarding.
+delegates; they do not rely on `property(...)`, `setattr(...)`,
+`__getattr__`/`__setattr__` forwarding, or QWidget-pass-through base classes.
+Navigation state lives in `FileExplorerTabState`, while widgets built by the
+quick-links controller remain on that controller and are copied onto the tab
+only where existing `FileExplorerCore` mixins still read the legacy names.
+
+`tests/test_mixin_contracts.py` statically guards this contract: controllers
+must not assign `self.tab.<name>` and the taskbar/FileNav collaborator classes
+must not reintroduce hidden forwarding.
 
 ## Worker ownership
 

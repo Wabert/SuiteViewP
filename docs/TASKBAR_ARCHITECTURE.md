@@ -12,15 +12,22 @@
 | `AppLauncher` | Named app-launching collaborator sharing the tray/window setup seam. |
 
 Collaborators receive the window, `TaskbarState`, `TaskbarChrome` widgets and a
-typed callback surface explicitly. They do not use `__getattr__`/`__setattr__`
-forwarding and do not write attributes onto the window. Shared mutable shell
-state, including child-window references, lives in `TaskbarState`; widgets built
-by the chrome live on `TaskbarChrome`.
+typed callback surface explicitly. They do not use `property(...)`,
+`setattr(...)` class loops, `__getattr__`/`__setattr__` forwarding, or
+QWidget-pass-through bases, and they do not write attributes onto the window.
+Shared mutable shell state, including child-window references, lives in
+`TaskbarState`; widgets built by the chrome live on `TaskbarChrome`.
 
 The shell still exposes the public method names used by tests, shortcuts and
 launcher scripts through named delegates, but new code should add behavior to
 the collaborator that owns the concern instead of adding more state to the
 window.
+
+`TaskbarCallbacks` is intentionally narrow: it contains only operations one
+collaborator asks the shell or another collaborator to perform. Direct widget
+work stays greppable at the call site (for example `self.window.setGeometry(...)`
+or `self.callbacks.close_tab(index)`), rather than being hidden behind generated
+forwarders.
 
 ## AppBar exception
 
@@ -37,3 +44,4 @@ Guard tests:
 - `tests/test_taskbar_restore.py`
 - `tests/test_taskbar_quit.py`
 - `tests/test_taskbar_tray_menu.py`
+- `tests/test_mixin_contracts.py` (static collaborator contract)
