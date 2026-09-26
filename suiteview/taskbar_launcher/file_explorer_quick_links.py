@@ -42,6 +42,29 @@ logger = logging.getLogger(__name__)
 class QuickLinksController(FileExplorerController):
     """Owns the bookmark/sidebar/scratchpad panels for a File Explorer tab."""
 
+    def __init__(self, tab: QWidget, state) -> None:
+        super().__init__(tab, state)
+        self.main_splitter = None
+        self.bookmark_container = None
+        self.quick_links_panel = None
+        self.tree_panel_2 = None
+        self.quick_links_header = None
+        self.quick_links_model = None
+        self.sidebar_footer = None
+        self.quick_links_items_layout = None
+        self.quick_links_scroll_content = None
+        self.scratchpad_panel = None
+
+    def _bookmark_bar(self):
+        return getattr(self.tab, 'bookmark_bar', None)
+
+    def _breadcrumb_bookmarks_toggle(self):
+        navigation = getattr(self.tab, 'navigation', None)
+        return getattr(navigation, 'bookmarks_toggle_btn', None)
+
+    def _scratchpad_toggle(self):
+        return getattr(self.tab, 'scratchpad_toggle_btn', None)
+
     def _setup_dual_pane(self):
         """Set up the Quick Links panel (on the right) - using unified BookmarkContainer"""
         
@@ -51,7 +74,7 @@ class QuickLinksController(FileExplorerController):
                 self.main_splitter = child
                 break
         
-        if not hasattr(self, 'main_splitter'):
+        if self.main_splitter is None:
             logger.debug("Could not find main splitter")
             return
         
@@ -177,13 +200,13 @@ class QuickLinksController(FileExplorerController):
             self.main_splitter.setSizes([saved_left, saved_middle + saved_right, 0, 0])
         
         # Connect the bookmark bar's sidebar toggle button to toggle_dual_pane
-        if hasattr(self, 'bookmark_bar') and hasattr(self.tab.bookmark_bar, 'sidebar_toggle_btn'):
-            self.tab.bookmark_bar.sidebar_toggle_btn.clicked.connect(self.toggle_dual_pane)
+        bookmark_bar = self._bookmark_bar()
+        if bookmark_bar is not None and hasattr(bookmark_bar, 'sidebar_toggle_btn'):
+            bookmark_bar.sidebar_toggle_btn.clicked.connect(self.toggle_dual_pane)
             # Set initial checked state based on restored visibility
-            self.tab.bookmark_bar.sidebar_toggle_btn.setChecked(self.state.dual_pane_active)
+            bookmark_bar.sidebar_toggle_btn.setChecked(self.state.dual_pane_active)
 
         # ── ScratchPad panel (4th splitter widget, index 3) ────────────
-        self.scratchpad_panel = None
         self.state.scratchpad_panel_active = (
             can_access_app("SCRATCHPAD") and self.tab.panel_widths.get('scratchpad_visible', False)
         )
@@ -222,7 +245,7 @@ class QuickLinksController(FileExplorerController):
     
     def refresh_quick_links_list(self):
         """Refresh the Quick Links list - delegates to BookmarkContainer"""
-        if hasattr(self, 'bookmark_container'):
+        if self.bookmark_container is not None:
             self.bookmark_container.refresh()
             self._update_sidebar_footer()
         else:
@@ -230,7 +253,7 @@ class QuickLinksController(FileExplorerController):
     
     def _update_sidebar_footer(self):
         """Update the sidebar footer with bookmark and category counts"""
-        if not hasattr(self, 'sidebar_footer'):
+        if self.sidebar_footer is None:
             return
         
         try:
@@ -238,16 +261,15 @@ class QuickLinksController(FileExplorerController):
             bookmark_count = 0
             category_count = 0
             
-            if hasattr(self, 'custom_quick_links'):
-                # Count items (new format: categories have nested items)
-                items = self.tab.custom_quick_links.get('items', [])
-                for item in items:
-                    if item.get('type') == 'bookmark':
-                        bookmark_count += 1
-                    elif item.get('type') == 'category':
-                        category_count += 1
-                        # Count bookmarks inside this category
-                        bookmark_count += len(item.get('items', []))
+            # Count items (new format: categories have nested items)
+            items = self.tab.custom_quick_links.get('items', [])
+            for item in items:
+                if item.get('type') == 'bookmark':
+                    bookmark_count += 1
+                elif item.get('type') == 'category':
+                    category_count += 1
+                    # Count bookmarks inside this category
+                    bookmark_count += len(item.get('items', []))
             
             self.sidebar_footer.setText(f"{bookmark_count} bookmarks, {category_count} categories")
         except Exception as e:
@@ -269,7 +291,7 @@ class QuickLinksController(FileExplorerController):
             self.tab.open_file(path)
         else:
             QMessageBox.warning(
-                self, "Bookmark Invalid",
+                self.tab, "Bookmark Invalid",
                 f"The bookmark path no longer exists:\n\n{path}\n\n"
                 "The folder or file may have been renamed, moved, or deleted."
             )
@@ -284,7 +306,7 @@ class QuickLinksController(FileExplorerController):
         path_obj = Path(path)
         if not path_obj.exists():
             QMessageBox.warning(
-                self, "Bookmark Invalid",
+                self.tab, "Bookmark Invalid",
                 f"The bookmark path no longer exists:\n\n{path}\n\n"
                 "The folder or file may have been renamed, moved, or deleted."
             )
@@ -299,22 +321,22 @@ class QuickLinksController(FileExplorerController):
         
         path = bookmark_btn.bookmark_path
         
-        menu = QMenu(self)
+        menu = QMenu(self.tab)
         
         # Open folder location - navigate to parent folder
-        open_folder_action = QAction("📂 Open folder location", self)
+        open_folder_action = QAction("📂 Open folder location", self.tab)
         open_folder_action.triggered.connect(lambda: self._open_folder_location(path))
         menu.addAction(open_folder_action)
         
         # Copy full link to clipboard
-        copy_link_action = QAction("📋 Copy full link to clipboard", self)
+        copy_link_action = QAction("📋 Copy full link to clipboard", self.tab)
         copy_link_action.triggered.connect(lambda: QApplication.clipboard().setText(path))
         menu.addAction(copy_link_action)
         
         menu.addSeparator()
         
         # Remove action
-        remove_action = QAction("🗑️ Remove from Quick Links", self)
+        remove_action = QAction("🗑️ Remove from Quick Links", self.tab)
         remove_action.triggered.connect(lambda: self._remove_bookmark_from_quick_links(path))
         menu.addAction(remove_action)
         
@@ -339,16 +361,16 @@ class QuickLinksController(FileExplorerController):
         category_name = cat_widget.category_name
         category_items = cat_widget.category_items
         
-        menu = QMenu(self)
+        menu = QMenu(self.tab)
         menu.setStyleSheet(CATEGORY_CONTEXT_MENU_STYLE)
         
         # Rename action
-        rename_action = QAction("✏️ Rename", self)
+        rename_action = QAction("✏️ Rename", self.tab)
         rename_action.triggered.connect(lambda: self._rename_category_in_quick_links(category_name))
         menu.addAction(rename_action)
         
         # Remove action with confirmation
-        remove_action = QAction("🗑️ Remove", self)
+        remove_action = QAction("🗑️ Remove", self.tab)
         remove_action.triggered.connect(lambda: self._remove_category_with_confirmation(category_name, category_items))
         menu.addAction(remove_action)
         
@@ -358,7 +380,7 @@ class QuickLinksController(FileExplorerController):
         """Rename a category in Quick Links"""
         
         new_name, ok = QInputDialog.getText(
-            self,
+            self.tab,
             "Rename Category",
             f"Enter new name for '{old_name}':",
             QLineEdit.EchoMode.Normal,
@@ -371,7 +393,7 @@ class QuickLinksController(FileExplorerController):
                 return
             
             if self.tab._bookmark_manager.find_category_by_name(new_name):
-                QMessageBox.warning(self, "Duplicate", f"Category '{new_name}' already exists.")
+                QMessageBox.warning(self.tab, "Duplicate", f"Category '{new_name}' already exists.")
             else:
                 if self.tab.rename_category_in_quick_links(old_name, new_name):
                     self.tab.refresh_quick_links_list()
@@ -387,7 +409,7 @@ class QuickLinksController(FileExplorerController):
             message = f"Are you sure you want to remove the empty category '{category_name}'?"
         
         reply = QMessageBox.question(
-            self,
+            self.tab,
             "Remove Category",
             message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -401,10 +423,10 @@ class QuickLinksController(FileExplorerController):
     def _show_quick_links_panel_context_menu(self, position):
         """Show context menu for Quick Links panel (empty area or header) - allows creating new categories"""
         
-        menu = QMenu(self)
+        menu = QMenu(self.tab)
         
         # New Category action
-        new_category_action = QAction("📁 New Category...", self)
+        new_category_action = QAction("📁 New Category...", self.tab)
         new_category_action.triggered.connect(self._create_new_category)
         menu.addAction(new_category_action)
         
@@ -419,7 +441,7 @@ class QuickLinksController(FileExplorerController):
         """Create a new empty category in Quick Links"""
         
         name, ok = QInputDialog.getText(
-            self,
+            self.tab,
             "New Category",
             "Enter name for the new category:",
             QLineEdit.EchoMode.Normal,
@@ -429,12 +451,12 @@ class QuickLinksController(FileExplorerController):
         if ok and name:
             name = name.strip()
             if not name:
-                QMessageBox.warning(self, "Invalid Name", "Category name cannot be empty.")
+                QMessageBox.warning(self.tab, "Invalid Name", "Category name cannot be empty.")
                 return
             
             # Check if category already exists (use new format - search items)
             if self.tab._bookmark_manager.find_category_by_name(name):
-                QMessageBox.warning(self, "Duplicate", f"Category '{name}' already exists.")
+                QMessageBox.warning(self.tab, "Duplicate", f"Category '{name}' already exists.")
                 return
             
             # Use BookmarkContainer's add_category method (new format)
@@ -446,15 +468,15 @@ class QuickLinksController(FileExplorerController):
         """Launch the Add Bookmark dialog to add a bookmark to the sidebar"""
         
         # Get current folder to pre-fill the dialog
-        current_folder = getattr(self, 'current_details_folder', None)
+        current_folder = getattr(self.tab, 'current_details_folder', None)
         if not current_folder:
-            current_folder = getattr(self, 'current_directory', None)
+            current_folder = getattr(self.tab, 'current_directory', None)
         
         # Get categories from the sidebar bookmark container (new format - from items)
         categories = [item.get('name') for item in self.tab.custom_quick_links.get('items', [])
                       if item.get('type') == 'category']
         
-        dialog = AddBookmarkDialog(categories, self)
+        dialog = AddBookmarkDialog(categories, self.tab)
         
         # Pre-fill path if we have a current folder
         if current_folder:
@@ -476,7 +498,7 @@ class QuickLinksController(FileExplorerController):
             for item in items:
                 if item.get('type') == 'bookmark':
                     if item.get('path') == path:
-                        QMessageBox.information(self, "Already Added", f"'{name}' is already in Bookmarks.")
+                        QMessageBox.information(self.tab, "Already Added", f"'{name}' is already in Bookmarks.")
                         return
             
             # Add to items
@@ -590,8 +612,9 @@ class QuickLinksController(FileExplorerController):
         
         # If from bookmark bar (top level), remove from bar items
         if source_category in ('__BAR__', '__CONTAINER__') and bookmark.get('source_location') == 'bar':
-            if hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
-                removed_from_source = self.tab.bookmark_bar.remove_bookmark_by_path(path)
+            bookmark_bar = self._bookmark_bar()
+            if bookmark_bar is not None:
+                removed_from_source = bookmark_bar.remove_bookmark_by_path(path)
                 if removed_from_source:
                     logger.info(f"Removed '{path}' from bookmark bar")
         
@@ -681,13 +704,14 @@ class QuickLinksController(FileExplorerController):
         is_from_bar_category: bool,
     ) -> None:
         removed_from_source = False
-        if is_from_bar and not is_from_bar_category and hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
-            bar_items = self.tab.bookmark_bar.bookmarks_data.get('bar_items', [])
+        bookmark_bar = self._bookmark_bar()
+        if is_from_bar and not is_from_bar_category and bookmark_bar is not None:
+            bar_items = bookmark_bar.bookmarks_data.get('bar_items', [])
             for i, item in enumerate(bar_items):
                 if item.get('type') == 'bookmark' and item.get('path') == path:
                     bar_items.pop(i)
-                    self.tab.bookmark_bar.save_bookmarks()
-                    self.tab.bookmark_bar.refresh_bookmarks()
+                    bookmark_bar.save_bookmarks()
+                    bookmark_bar.refresh_bookmarks()
                     logger.info(f"Removed '{path}' from bookmark bar")
                     removed_from_source = True
                     break
@@ -697,10 +721,10 @@ class QuickLinksController(FileExplorerController):
                 removed_from_source = True
                 logger.info(f"Removed from Quick Links category '{source_category}'")
 
-        if not removed_from_source and is_from_bar_category and hasattr(self, 'bookmark_bar') and self.tab.bookmark_bar:
+        if not removed_from_source and is_from_bar_category and bookmark_bar is not None:
             if self.tab._bookmark_manager.remove_bookmark_from_category_by_name(source_category, path):
-                self.tab.bookmark_bar.save_bookmarks()
-                self.tab.bookmark_bar.refresh_bookmarks()
+                bookmark_bar.save_bookmarks()
+                bookmark_bar.refresh_bookmarks()
                 logger.info(f"Removed from bookmark bar category '{source_category}'")
 
     def on_bookmark_dropped_to_quick_links(self, bookmark):
@@ -769,7 +793,7 @@ class QuickLinksController(FileExplorerController):
             self.tab.save_quick_links()
         
         # If it came from bookmark bar, remove it from there (MOVE semantics)
-        if source == 'bookmark_bar' and hasattr(self, 'bookmark_bar'):
+        if source == 'bookmark_bar' and self._bookmark_bar() is not None:
             self._remove_category_from_bookmark_bar(category_name)
         
         self.tab.refresh_quick_links_list()
@@ -777,11 +801,12 @@ class QuickLinksController(FileExplorerController):
     
     def _remove_category_from_bookmark_bar(self, category_name):
         """Remove a category from the bookmark bar (after moving to Quick Links)"""
-        if not hasattr(self, 'bookmark_bar'):
+        bookmark_bar = self._bookmark_bar()
+        if bookmark_bar is None:
             return
         
         # Use BookmarkContainer's remove_category method (new format)
-        self.tab.bookmark_bar.remove_category(category_name)
+        bookmark_bar.remove_category(category_name)
     
     def on_quick_link_clicked(self, item):
         """Handle single click on quick link - navigate to folder or select file"""
@@ -805,15 +830,17 @@ class QuickLinksController(FileExplorerController):
         """Toggle the Quick Links panel on/off"""
         self.state.dual_pane_active = not self.state.dual_pane_active
         
-        if hasattr(self, 'tree_panel_2'):
+        if self.tree_panel_2 is not None:
             self.tree_panel_2.setVisible(self.state.dual_pane_active)
             
             # Update the sidebar toggle button state in bookmark bar
-            if hasattr(self, 'bookmark_bar') and hasattr(self.tab.bookmark_bar, 'sidebar_toggle_btn'):
-                self.tab.bookmark_bar.sidebar_toggle_btn.setChecked(self.state.dual_pane_active)
+            bookmark_bar = self._bookmark_bar()
+            if bookmark_bar is not None and hasattr(bookmark_bar, 'sidebar_toggle_btn'):
+                bookmark_bar.sidebar_toggle_btn.setChecked(self.state.dual_pane_active)
             # Update the breadcrumb bar bookmarks toggle button
-            if hasattr(self, 'bookmarks_toggle_btn'):
-                self.bookmarks_toggle_btn.setChecked(self.state.dual_pane_active)
+            bookmarks_toggle = self._breadcrumb_bookmarks_toggle()
+            if bookmarks_toggle is not None:
+                bookmarks_toggle.setChecked(self.state.dual_pane_active)
             
             # Refresh quick links when showing
             if self.state.dual_pane_active:
@@ -864,8 +891,9 @@ class QuickLinksController(FileExplorerController):
         self.scratchpad_panel.setVisible(self.state.scratchpad_panel_active)
 
         # Update toggle button checked state
-        if hasattr(self, 'scratchpad_toggle_btn'):
-            self.scratchpad_toggle_btn.setChecked(self.state.scratchpad_panel_active)
+        scratchpad_toggle = self._scratchpad_toggle()
+        if scratchpad_toggle is not None:
+            scratchpad_toggle.setChecked(self.state.scratchpad_panel_active)
 
         # Adjust splitter sizes
         current_sizes = self.main_splitter.sizes()
@@ -890,7 +918,7 @@ class QuickLinksController(FileExplorerController):
     @requires_app_access("SCRATCHPAD")
     def _on_scratchpad_fullscreen(self, go_full: bool):
         """Expand the scratchpad panel to fill the entire splitter, or restore."""
-        if not hasattr(self, 'main_splitter'):
+        if self.main_splitter is None:
             return
 
         if go_full:

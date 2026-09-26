@@ -267,7 +267,7 @@ class SystemTray(TaskbarCollaborator):
         floating on top of maximised windows instead of docked beside them.
         """
         self.state.hidden_to_tray = False
-        self.restore_window()
+        self.window.restore_window()
 
         if self.state.is_compact_mode:
             # Re-apply WS_EX_TOOLWINDOW so the bar stays out of the taskbar
@@ -875,7 +875,7 @@ class SystemTray(TaskbarCollaborator):
         # Create the directory if it doesn't exist
         app_data_dir.mkdir(parents=True, exist_ok=True)
         # Navigate to it in the current tab's details pane
-        current_tab = self.get_current_tab()
+        current_tab = self.window.get_current_tab()
         if current_tab and hasattr(current_tab, 'navigate_to_path'):
             current_tab.navigate_to_path(str(app_data_dir))
 
@@ -1046,7 +1046,7 @@ class SystemTray(TaskbarCollaborator):
                 self.chrome.footer_bar.show()
                 self.chrome.tab_widget.show()
         
-        if hasattr(self, 'size_grip'):
+        if getattr(self, 'size_grip', None) is not None:
             self.size_grip.move(w - 16, h - 16)
             self.size_grip.raise_()
         
@@ -1079,6 +1079,13 @@ class AppLauncher(TaskbarCollaborator):
     keeps the ownership explicit and gives a future split a clear seam.
     """
 
+    def _build_suiteview_icon(self, *args, **kwargs):
+        if self.callbacks is not None and hasattr(self.callbacks, "_build_suiteview_icon"):
+            return self.callbacks._build_suiteview_icon(*args, **kwargs)
+        return SystemTray._build_suiteview_icon(self, *args, **kwargs)
+
+    def _create_icon_pixmap(self, *args, **kwargs):
+        return SystemTray._create_icon_pixmap(self, *args, **kwargs)
 
     def _take_quick_screenshot(self, *args, **kwargs):
         return SystemTray._take_quick_screenshot(self, *args, **kwargs)

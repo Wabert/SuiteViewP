@@ -37,6 +37,17 @@ from suiteview.taskbar_launcher.collaborators import FileExplorerController
 class NavigationController(FileExplorerController):
     """Owns breadcrumb navigation, history, and keyboard routing for a tab."""
 
+    def __init__(self, tab: QWidget, state) -> None:
+        super().__init__(tab, state)
+        self.back_btn = None
+        self.forward_btn = None
+        self.breadcrumb_frame = None
+        self.breadcrumb_widget = None
+        self.bookmarks_toggle_btn = None
+        self.history_panel = None
+        self.history_list = None
+        self.current_path_btn = None
+
     def _replace_views_with_navigable(self):
         """Replace parent's QTreeView instances with NavigableTreeView"""
         
@@ -244,16 +255,15 @@ class NavigationController(FileExplorerController):
         breadcrumb_layout.addWidget(self.bookmarks_toggle_btn)
         
         # Connect history button from Folders header
-        if hasattr(self, 'folders_history_btn'):
-            self.folders_history_btn.clicked.connect(self.toggle_history_panel)
+        if hasattr(self.tab, 'folders_history_btn'):
+            self.tab.folders_history_btn.clicked.connect(self.toggle_history_panel)
         
         # Insert at position 2 (after toolbar and bookmark bar)
         # Order: toolbar(0), bookmark_bar(1), breadcrumb(2), splitter(3)
         main_layout.insertWidget(2, self.breadcrumb_frame)
         
         # Set initial state of bookmarks sidebar toggle button
-        if hasattr(self, 'dual_pane_active'):
-            self.bookmarks_toggle_btn.setChecked(getattr(self.tab.quick_links, 'dual_pane_active', False))
+        self.bookmarks_toggle_btn.setChecked(self.state.dual_pane_active)
         
         # Update initial breadcrumb
         self.update_breadcrumb(self.state.current_directory)
@@ -285,7 +295,7 @@ class NavigationController(FileExplorerController):
     
     def _apply_depth_search_locked_style(self, locked: bool = False) -> None:
         """Override to change breadcrumb bar color when depth search is locked."""
-        if not hasattr(self, 'breadcrumb_frame'):
+        if self.breadcrumb_frame is None:
             return
         
         # Also call FileExplorerCore's implementation to apply red border to splitter.
@@ -301,7 +311,7 @@ class NavigationController(FileExplorerController):
                 }
             """)
             # Also update the breadcrumb widget inside
-            if hasattr(self, 'breadcrumb_widget'):
+            if self.breadcrumb_widget is not None:
                 self.breadcrumb_widget.setStyleSheet("""
                     ClickableBreadcrumb {
                         background-color: #FFCCCC;
@@ -323,7 +333,7 @@ class NavigationController(FileExplorerController):
                 }
             """)
             # Restore breadcrumb widget style
-            if hasattr(self, 'breadcrumb_widget'):
+            if self.breadcrumb_widget is not None:
                 self.breadcrumb_widget.setStyleSheet("""
                     ClickableBreadcrumb {
                         background-color: #FFFDE7;
@@ -339,7 +349,7 @@ class NavigationController(FileExplorerController):
     
     def go_to_onedrive_home(self):
         """Navigate to the starting path (OneDrive folder where app opened)"""
-        if hasattr(self, 'starting_path'):
+        if self.state.starting_path:
             self.navigate_to_path(self.state.starting_path)
         else:
             # Fallback: try to find OneDrive
@@ -407,32 +417,32 @@ class NavigationController(FileExplorerController):
     
     def _update_nav_button_states(self):
         """Update enabled/disabled state of back/forward buttons based on current path history"""
-        if hasattr(self, 'back_btn'):
+        if self.back_btn is not None:
             self.back_btn.setEnabled(self.state.current_path_index > 0)
-        if hasattr(self, 'forward_btn'):
+        if self.forward_btn is not None:
             self.forward_btn.setEnabled(self.state.current_path_index < len(self.state.current_path_history) - 1)
         # Update history panel if visible
-        if hasattr(self, 'history_panel') and self.history_panel.isVisible():
+        if self.history_panel is not None and self.history_panel.isVisible():
             self._update_history_panel()
     
     def toggle_history_panel(self):
         """Toggle the history panel on/off"""
-        if not hasattr(self, 'history_panel'):
+        if self.history_panel is None:
             self._create_history_panel()
         
         if self.history_panel.isVisible():
             self.history_panel.hide()
-            self.folders_history_btn.setChecked(False)
+            self.tab.folders_history_btn.setChecked(False)
         else:
             self._update_history_panel()
             self.history_panel.show()
-            self.folders_history_btn.setChecked(True)
+            self.tab.folders_history_btn.setChecked(True)
     
     def _create_history_panel(self):
         """Create the history panel widget"""
         
         # Create panel frame
-        self.history_panel = QFrame(self)
+        self.history_panel = QFrame(self.tab)
         self.history_panel.setFrameShape(QFrame.Shape.StyledPanel)
         self.history_panel.setStyleSheet("""
             QFrame {
@@ -476,7 +486,7 @@ class NavigationController(FileExplorerController):
                 border-radius: 3px;
             }
         """)
-        close_btn.clicked.connect(lambda: (self.history_panel.hide(), self.folders_history_btn.setChecked(False)))
+        close_btn.clicked.connect(lambda: (self.history_panel.hide(), self.tab.folders_history_btn.setChecked(False)))
         header_layout.addWidget(close_btn)
         panel_layout.addLayout(header_layout)
         
@@ -601,7 +611,7 @@ class NavigationController(FileExplorerController):
     
     def _update_history_panel(self):
         """Update the history list widget with current history"""
-        if not hasattr(self, 'history_list'):
+        if self.history_list is None:
             return
         
         self.history_list.clear()
@@ -749,7 +759,7 @@ class NavigationController(FileExplorerController):
                 subprocess.run(['xdg-open', str(path_obj)])
         except Exception as e:
             logger.error(f"Failed to open file: {e}")
-            QMessageBox.warning(self, "Cannot Open File", f"Failed to open {path_obj.name}\n\nError: {str(e)}")
+            QMessageBox.warning(self.tab, "Cannot Open File", f"Failed to open {path_obj.name}\n\nError: {str(e)}")
 
     def _handle_shortcut_double_click(self, path_obj: Path) -> bool:
         if path_obj.suffix.lower() != '.lnk' or not path_obj.is_file():
@@ -791,8 +801,8 @@ class NavigationController(FileExplorerController):
     
     def load_directory_contents_at_root(self, dir_path):
         """Load a specific directory at the root of the tree"""
-        self.model.clear()
-        self.model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified'])
+        self.tab.model.clear()
+        self.tab.model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified'])
         
         try:
             dir_path = Path(dir_path)
@@ -805,7 +815,7 @@ class NavigationController(FileExplorerController):
                     else:
                         row_items = self.tab.create_file_item(item)
                     
-                    self.model.appendRow(row_items)
+                    self.tab.model.appendRow(row_items)
                 except (PermissionError, OSError):
                     continue
                     
@@ -815,8 +825,9 @@ class NavigationController(FileExplorerController):
     def go_up_one_level(self):
         """Go up one directory level - operates on details view"""
         # Use the current details folder, not the tree selection
-        if hasattr(self, 'current_details_folder') and self.tab.current_details_folder:
-            current = Path(self.tab.current_details_folder)
+        current_details_folder = getattr(self.tab, 'current_details_folder', None)
+        if current_details_folder:
+            current = Path(current_details_folder)
         else:
             current = Path(self.state.current_directory)
         
@@ -827,9 +838,10 @@ class NavigationController(FileExplorerController):
     
     def refresh_current_folder(self):
         """Refresh the current folder contents"""
-        if hasattr(self, 'current_details_folder') and self.tab.current_details_folder:
+        current_details_folder = getattr(self.tab, 'current_details_folder', None)
+        if current_details_folder:
             # Refresh without adding to history
-            self.tab.load_folder_contents_in_details(Path(self.tab.current_details_folder))
+            self.tab.load_folder_contents_in_details(Path(current_details_folder))
     
     def load_sharepoint_contents_in_details(self, sp_path, display_name=None):
         """Override: route SharePoint loads through navigate_to_path so
@@ -841,7 +853,7 @@ class NavigationController(FileExplorerController):
     def on_tree_item_clicked(self, index):
         """Override parent method to use navigate_to_path for history tracking"""
         # Get the path from the clicked item
-        item = self.model.itemFromIndex(index)
+        item = self.tab.model.itemFromIndex(index)
         if not item:
             return
         
@@ -863,7 +875,7 @@ class NavigationController(FileExplorerController):
     
     def on_item_double_clicked(self, index):
         """Override to update breadcrumb when navigating into folders"""
-        item = self.model.itemFromIndex(self.model.index(index.row(), 0, index.parent()))
+        item = self.tab.model.itemFromIndex(self.tab.model.index(index.row(), 0, index.parent()))
         if not item:
             return
         
