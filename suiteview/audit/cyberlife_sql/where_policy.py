@@ -34,7 +34,7 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.extend(transaction_predicates(ctx.first_transaction, ctx.second_transaction, ctx.schema))
     if ctx.sys_code:
         parts.wheres.append(f"POLICY1.CK_SYS_CD = '{esc(ctx.sys_code)}'")
-    ctx_set(ctx, "plancode", ctx.pt.txt_plancode.text().strip().upper())
+    ctx_set(ctx, "plancode", ctx.pt.txt_plancode.strip().upper())
     if ctx.plancode:
         ctx_set(ctx, "cov_filter_alias", 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL')
         parts.wheres.append(f"{ctx.cov_filter_alias}.PLN_DES_SER_CD = '{esc(ctx.plancode)}'")
@@ -47,10 +47,10 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.append(f'POLICY1.CK_POLICY_NBR IN ({in_list(ctx.policy_list)})')
     ctx_set(ctx, "_mkt_org_map", {'MLM': '1', 'CSSD': '2', 'IMG': '7', 'DIRECT': 'D'})
     ctx_set(ctx, "_mkt_company_map", {'CSSD': ['01'], 'IMG': ['01', '26'], 'MLM': ['01', '26'], 'DIRECT': ['01', '26']})
-    ctx_set(ctx, "market_org", ctx.pt.cmb_market.currentText().strip())
+    ctx_set(ctx, "market_org", ctx.pt.cmb_market.strip())
     if ctx.market_org and ctx.market_org in ctx._mkt_org_map:
         parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR,1,1) = '{ctx._mkt_org_map[ctx.market_org]}'")
-    ctx_set(ctx, "company", ctx.pt.cmb_company.currentText().strip())
+    ctx_set(ctx, "company", ctx.pt.cmb_company.strip())
     if ctx.company:
         ctx_set(ctx, "co_code", ctx.company.split(' - ')[0].strip() if ' - ' in ctx.company else ctx.company)
         parts.wheres.append(f"POLICY1.CK_CMP_CD = '{esc(ctx.co_code)}'")
@@ -61,56 +61,56 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
         else:
             company_conditions = ' OR '.join((f"POLICY1.CK_CMP_CD = '{c}'" for c in ctx.co_codes))
             parts.wheres.append(f'({company_conditions})')
-    ctx_set(ctx, "form_num", ctx.pt.txt_form_number.text().strip())
+    ctx_set(ctx, "form_num", ctx.pt.txt_form_number.strip())
     if ctx.form_num:
         parts.wheres.append(f"{ctx.result_cov_alias}.POL_FRM_NBR LIKE '{esc(ctx.form_num)}%'")
-    ctx_set(ctx, "branch", ctx.pt.txt_branch.text().strip())
+    ctx_set(ctx, "branch", ctx.pt.txt_branch.strip())
     if ctx.branch:
         parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR, 2, 3) = '{esc(ctx.branch)}'")
-    ctx_set(ctx, "polnum", ctx.pt.txt_polnum_value.text().strip())
+    ctx_set(ctx, "polnum", ctx.pt.txt_polnum_value.strip())
     if ctx.polnum:
-        ctx_set(ctx, "criteria", ctx.pt.cmb_polnum_criteria.currentText())
+        ctx_set(ctx, "criteria", ctx.pt.cmb_polnum_criteria)
         if ctx.criteria == 'Starts with':
             parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '{esc(ctx.polnum)}%'")
         elif ctx.criteria == 'Ends with':
             parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(ctx.polnum)}'")
         else:
             parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(ctx.polnum)}%'")
-    if ctx.pt.chk_rga.isChecked():
+    if ctx.pt.chk_rga:
         parts.wheres.append("USERGEN.FUZGREIN_IND = 'R'")
-    if ctx.pt.chk_status_code.isChecked():
+    if ctx.pt.chk_status_code:
         codes = selected_codes(ctx.pt.list_status)
         if codes:
             parts.wheres.append(f'POLICY1.PRM_PAY_STA_REA_CD IN ({in_list(codes)})')
-    if ctx.pt.chk_product_line.isChecked():
+    if ctx.pt.chk_product_line:
         codes = selected_codes(ctx.pt.list_product_line)
         if codes:
             ctx_set(ctx, "cov_filter_alias", ctx.result_cov_alias if ctx.coverage_level else 'COVSALL')
             parts.wheres.append(f'{ctx.cov_filter_alias}.PRD_LIN_TYP_CD IN ({in_list(codes)})')
-    if ctx.pt.chk_state.isChecked():
-        ctx_set(ctx, "abbrevs", [item.text() for item in ctx.pt.list_state.selectedItems()])
+    if ctx.pt.chk_state:
+        ctx_set(ctx, "abbrevs", [item for item in ctx.pt.list_state])
         if ctx.abbrevs:
             ctx_set(ctx, "st_codes", [_STATE_ABBR_TO_CODE.get(a) for a in ctx.abbrevs])
             ctx_set(ctx, "st_codes", [c for c in ctx.st_codes if c])
             if ctx.st_codes:
                 parts.wheres.append(f'POLICY1.POL_ISS_ST_CD IN ({in_list(ctx.st_codes)})')
-    if ctx.pt.chk_last_entry.isChecked():
+    if ctx.pt.chk_last_entry:
         codes = selected_codes(ctx.pt.list_last_entry)
         if codes:
             parts.wheres.append(f'POLICY1.LST_ETR_CD IN ({in_list(codes)})')
-    if ctx.pt.chk_suspense.isChecked():
+    if ctx.pt.chk_suspense:
         codes = selected_codes(ctx.pt.list_suspense)
         if codes:
             parts.wheres.append(f'POLICY1.SUS_CD IN ({in_list(codes)})')
-    if ctx.pt.chk_billing_form.isChecked():
+    if ctx.pt.chk_billing_form:
         codes = selected_codes(ctx.pt.list_billing_form)
         if codes:
             parts.wheres.append(f'POLICY1.BIL_FRM_CD IN ({in_list(codes)})')
 
 
 def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
-    if ctx.pt.chk_bill_mode.isChecked():
-        ctx_set(ctx, "modes", [item.text() for item in ctx.pt.list_bill_mode.selectedItems()])
+    if ctx.pt.chk_bill_mode:
+        ctx_set(ctx, "modes", [item for item in ctx.pt.list_bill_mode])
         if ctx.modes:
             ctx_set(ctx, "mode_clause", build_bill_mode_where(ctx.modes))
             if ctx.mode_clause:
@@ -136,23 +136,23 @@ def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
             parts.wheres.append(f'({grace_conditions})')
     add_decimal_range(parts.wheres, 'TAMRA.SVPY_LVL_PRM_AMT', ctx.p2t.txt_tamra_7pay_prem_lo, ctx.p2t.txt_tamra_7pay_prem_hi)
     add_decimal_range(parts.wheres, 'TAMRA.SVPY_BEG_CSV_AMT', ctx.p2t.txt_tamra_7pay_av_lo, ctx.p2t.txt_tamra_7pay_av_hi)
-    if ctx.p2t.chk_1035_amt.isChecked():
+    if ctx.p2t.chk_1035_amt:
         parts.wheres.append('TAMRA.XCG_1035_PMT_QTY > 0')
-    if ctx.p2t.chk_mec.isChecked():
+    if ctx.p2t.chk_mec:
         parts.wheres.append("TAMRA.MEC_STA_CD = '1'")
     add_decimal_range(parts.wheres, 'POLICY_TOTALS.TOT_ADD_PRM_AMT', ctx.p2t.txt_total_addl_prem_lo, ctx.p2t.txt_total_addl_prem_hi)
     add_decimal_range(parts.wheres, '(POLICY_TOTALS.TOT_ADD_PRM_AMT + POLICY_TOTALS.TOT_REG_PRM_AMT)', ctx.p2t.txt_total_prem_addl_reg_lo, ctx.p2t.txt_total_prem_addl_reg_hi)
     add_decimal_range(parts.wheres, 'POLICY_TOTALS.TOT_WTD_AMT', ctx.p2t.txt_accum_wd_lo, ctx.p2t.txt_accum_wd_hi)
     add_decimal_range(parts.wheres, 'LH_POL_YR_TOT_at_MaxDuration.YTD_TOT_PMT_AMT', ctx.p2t.txt_prem_ytd_lo, ctx.p2t.txt_prem_ytd_hi)
     add_date_range(parts.wheres, 'NONTRAD.BIL_COMMENCE_DT', ctx.p2t.txt_bil_commence_dt_lo, ctx.p2t.txt_bil_commence_dt_hi)
-    if ctx.p2t.chk_billing_suspended.isChecked():
+    if ctx.p2t.chk_billing_suspended:
         parts.wheres.append("NONTRAD.BIL_STA_CD = '1'")
-    if ctx.p2t.chk_failed_guideline.isChecked():
+    if ctx.p2t.chk_failed_guideline:
         parts.wheres.append("NONTRAD.PR_LIMIT_EXC_ONL = '1'")
-    if ctx.p2t.chk_participating.isChecked():
+    if ctx.p2t.chk_participating:
         codes = []
-        for item in ctx.p2t.list_participating.selectedItems():
-            label = item.text()
+        for item in ctx.p2t.list_participating:
+            label = item
             if label not in PARTICIPATION_CODES:
                 raise ValueError(f'Unknown participation category: {label}')
             codes.extend(PARTICIPATION_CODES[label])
@@ -160,11 +160,11 @@ def add_policy_where(ctx: QueryContext, parts: SqlParts) -> None:
             parts.wheres.append(participation_predicate(codes))
     if ctx.wl_tab is not None:
         for checkbox, listbox, column in ((ctx.wl_tab.chk_pri_div, ctx.wl_tab.list_pri_div, 'POLICY1.PRI_DIV_OPT_CD'), (ctx.wl_tab.chk_sec_div, ctx.wl_tab.list_sec_div, 'POLICY1.DIV_2ND_OPT_CD'), (ctx.wl_tab.chk_nfo, ctx.wl_tab.list_nfo, 'POLICY1.NFO_OPT_TYP_CD')):
-            if checkbox.isChecked():
+            if checkbox:
                 codes = selected_codes(listbox)
                 if codes:
                     parts.wheres.append(f'{column} IN ({in_list(codes)})')
-        if ctx.wl_tab.chk_participation_type.isChecked():
+        if ctx.wl_tab.chk_participation_type:
             codes = ctx.wl_tab.selected_participation_codes()
             if codes:
                 parts.wheres.append(participation_predicate(codes))
@@ -174,19 +174,19 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
     add_date_range(parts.wheres, 'POLICY1.LST_FIN_DT', ctx.p2t.txt_last_fin_date_lo, ctx.p2t.txt_last_fin_date_hi)
     parts.wheres.extend(ctx.term_fin_predicates)
     parts.wheres.extend(ctx.term_both_predicates)
-    if ctx.p2t.chk_has_converted.isChecked():
+    if ctx.p2t.chk_has_converted:
         parts.wheres.append('USERGEN.EXCH_POL_NUMBER IS NOT NULL')
-    if ctx.p2t.chk_has_replacement_pol.isChecked():
+    if ctx.p2t.chk_has_replacement_pol:
         parts.wheres.append('USERDEF_52R.REPLACED_POLICY IS NOT NULL')
-    if ctx.p2t.chk_cov_gio.isChecked():
+    if ctx.p2t.chk_cov_gio:
         parts.wheres.append("MODCOVSALL.OPT_EXER_IND = 'Y'")
-    if ctx.p2t.chk_cov_cola.isChecked():
+    if ctx.p2t.chk_cov_cola:
         parts.wheres.append("MODCOVSALL.COLA_INCR_IND = '1'")
-    if ctx.p2t.chk_loan_type.isChecked():
+    if ctx.p2t.chk_loan_type:
         codes = selected_codes(ctx.p2t.list_loan_type)
         if codes:
             parts.wheres.append(f'POLICY1.LN_TYP_CD IN ({in_list(codes)})')
-    ctx_set(ctx, "loan_rate", ctx.p2t.txt_loan_charge_rate.text().strip())
+    ctx_set(ctx, "loan_rate", ctx.p2t.txt_loan_charge_rate.strip())
     if ctx.loan_rate:
         try:
             parts.wheres.append(f'POLICY1.LN_PLN_ITS_RT = {float(ctx.loan_rate)}')
@@ -194,23 +194,23 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
             pass
     add_decimal_range(parts.wheres, 'POLICYDEBT.LOAN_PRINCIPLE', ctx.p2t.txt_total_loan_prin_lo, ctx.p2t.txt_total_loan_prin_hi)
     add_decimal_range(parts.wheres, 'POLICYDEBT.LOAN_ACCRUED', ctx.p2t.txt_total_accured_lint_lo, ctx.p2t.txt_total_accured_lint_hi)
-    if ctx.p2t.chk_trad_overloan.isChecked():
+    if ctx.p2t.chk_trad_overloan:
         codes = selected_codes(ctx.p2t.list_trad_overloan)
         if codes:
             parts.wheres.append(f'POLICY1_MOD.OVERLOAN_IND IN ({in_list(codes)})')
-    if ctx.p2t.chk_non_trad.isChecked():
+    if ctx.p2t.chk_non_trad:
         codes = selected_codes(ctx.p2t.list_non_trad)
         if codes:
             parts.wheres.append(f'POLICY1.NON_TRD_POL_IND IN ({in_list(codes)})')
-    if ctx.p2t.chk_std_loan_payment.isChecked():
+    if ctx.p2t.chk_std_loan_payment:
         codes = selected_codes(ctx.p2t.list_std_loan_payment)
         if codes:
             parts.wheres.append(f'SLR_BILL_CONTROL.BIL_FRM_CD IN ({in_list(codes)})')
-    if ctx.p2t.chk_def_life.isChecked():
+    if ctx.p2t.chk_def_life:
         codes = selected_codes(ctx.p2t.list_def_life)
         if codes:
             parts.wheres.append(f'NONTRAD.TFDF_CD IN ({in_list(codes)})')
-    if ctx.p2t.chk_reinsurance.isChecked():
+    if ctx.p2t.chk_reinsurance:
         codes = selected_codes(ctx.p2t.list_reinsurance)
         if codes:
             parts.wheres.append(f'POLICY1.REINSURED_CD IN ({in_list(codes)})')
@@ -242,7 +242,7 @@ def add_coverage_and_benefit_where(ctx: QueryContext, parts: SqlParts) -> None:
         codes = selected_codes(ctx.at.list_db_option)
         if codes:
             parts.wheres.append(f'NONTRAD.DTH_BNF_PLN_OPT_CD IN ({in_list(codes)})')
-    if ctx.at.chk_decr_chrg_rule.isChecked() and ctx.at.list_decr_chrg_rule.selectedItems():
+    if ctx.at.chk_decr_chrg_rule and ctx.at.list_decr_chrg_rule:
         codes = selected_codes(ctx.at.list_decr_chrg_rule)
         rule_preds = []
         known = [code for code in codes if code in ('0', '1')]

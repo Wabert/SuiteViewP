@@ -89,16 +89,16 @@ def add_core_joins(ctx: QueryContext, parts: SqlParts) -> None:
 
 def add_policy_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
     for ctx.i in range(3):
-        ctx_set(ctx, "ben_type", ctx.bt.benefit_combos[ctx.i].currentText().strip())
+        ctx_set(ctx, "ben_type", ctx.bt.benefit_combos[ctx.i].strip())
         if not ctx.ben_type:
             continue
         ctx_set(ctx, "ben_code", ctx.ben_type[0])
         ctx_set(ctx, "alias", f'BEN{ctx.i + 1}')
-        ctx_set(ctx, "sub_type", ctx.bt.subtype_edits[ctx.i].text().strip())
-        ctx_set(ctx, "post_issue", ctx.bt.post_issue_chks[ctx.i].isChecked())
-        ctx_set(ctx, "cease_lo", ctx.bt.cease_lo_edits[ctx.i].text().strip())
-        ctx_set(ctx, "cease_hi", ctx.bt.cease_hi_edits[ctx.i].text().strip())
-        ctx_set(ctx, "cease_status", ctx.bt.cease_status_combos[ctx.i].currentText().strip())
+        ctx_set(ctx, "sub_type", ctx.bt.subtype_edits[ctx.i].strip())
+        ctx_set(ctx, "post_issue", ctx.bt.post_issue_chks[ctx.i])
+        ctx_set(ctx, "cease_lo", ctx.bt.cease_lo_edits[ctx.i].strip())
+        ctx_set(ctx, "cease_hi", ctx.bt.cease_hi_edits[ctx.i].strip())
+        ctx_set(ctx, "cease_status", ctx.bt.cease_status_combos[ctx.i].strip())
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SPM_BNF {ctx.alias}')
         parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {ctx.alias}.CK_SYS_CD')
         parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {ctx.alias}.CK_CMP_CD')

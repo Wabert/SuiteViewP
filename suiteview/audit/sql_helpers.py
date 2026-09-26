@@ -47,8 +47,9 @@ def selected_codes(listbox) -> list[str]:
       'AL'                      → 'AL'
     """
     codes = []
-    for item in listbox.selectedItems():
-        text = item.text()
+    items = listbox.selectedItems() if hasattr(listbox, "selectedItems") else listbox
+    for item in items:
+        text = item.text() if hasattr(item, "text") else str(item)
         if " - " in text:
             codes.append(text.split(" - ", 1)[0].strip())
         elif "-" in text:
@@ -103,8 +104,8 @@ def strict_range_predicates(
 
 def add_int_range(wheres: list, column: str, lo_widget, hi_widget):
     """Append integer >= / <= clauses if the range widgets have values."""
-    lo = lo_widget.text().strip()
-    hi = hi_widget.text().strip()
+    lo = _text_value(lo_widget).strip()
+    hi = _text_value(hi_widget).strip()
     if lo and lo.lstrip("-").isdigit():
         wheres.append(f"{column} >= {int(lo)}")
     if hi and hi.lstrip("-").isdigit():
@@ -117,8 +118,8 @@ def add_date_range(wheres: list, column: str, lo_widget, hi_widget):
     Normalizes user date input (e.g. 1/1/2026) to ISO format (2026-01-01)
     so DB2 DATE column comparisons work correctly.
     """
-    lo = normalize_date(lo_widget.text())
-    hi = normalize_date(hi_widget.text())
+    lo = normalize_date(_text_value(lo_widget))
+    hi = normalize_date(_text_value(hi_widget))
     if lo:
         wheres.append(f"{column} >= '{lo}'")
     if hi:
@@ -126,8 +127,8 @@ def add_date_range(wheres: list, column: str, lo_widget, hi_widget):
 
 def add_decimal_range(wheres: list, column: str, lo_widget, hi_widget):
     """Append numeric >= / <= clauses if the range widgets have values."""
-    lo = lo_widget.text().strip()
-    hi = hi_widget.text().strip()
+    lo = _text_value(lo_widget).strip()
+    hi = _text_value(hi_widget).strip()
     try:
         if lo:
             wheres.append(f"{column} >= {float(lo)}")
@@ -138,3 +139,7 @@ def add_decimal_range(wheres: list, column: str, lo_widget, hi_widget):
             wheres.append(f"{column} <= {float(hi)}")
     except ValueError:
         pass
+
+
+def _text_value(value) -> str:
+    return value.text() if hasattr(value, "text") else str(value or "")

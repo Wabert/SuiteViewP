@@ -78,5 +78,5 @@ def test_criteria_collector_reads_registered_tabs() -> None:
             "wl": tabs["wl_tab"],
         },
     )).collect()
-    assert criteria.policy.txt_plancode.text() == "1U144A00"
-    assert criteria.display.chk_paid_to_date.isChecked() is True
+    assert criteria.policy.txt_plancode == "1U144A00"
+    assert criteria.display.chk_paid_to_date is True

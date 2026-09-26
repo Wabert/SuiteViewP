@@ -203,7 +203,7 @@ def add_target_and_value_ctes(ctx: QueryContext, parts: SqlParts) -> None:
 
 def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_prem_alloc:
-        ctx_set(ctx, "fund_items", [item.text().split(' - ')[0].strip() for item in ctx.at.list_prem_alloc.selectedItems()])
+        ctx_set(ctx, "fund_items", [item.split(' - ')[0].strip() for item in ctx.at.list_prem_alloc])
         if ctx.fund_items:
             allocation_selects = []
             for fund_id in ctx.fund_items:
@@ -346,10 +346,10 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.SBQ_RNL_PER')
     if ctx.disp_commission_target:
         parts.sql_parts.append('  , COMMTARGET.TAR_PRM_AMT CTP')
-    if ctx.p2t.chk_participating.isChecked() or (ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type.isChecked()):
+    if ctx.p2t.chk_participating or (ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type):
         parts.sql_parts.append('  , COVERAGE1.DIV_PTP_TYP_CD ParticipationCode')
         parts.sql_parts.append(f'  , {participation_description()} Participation')
-    if ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type.isChecked():
+    if ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type:
         ctx_set(ctx, "cases", [f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) = '{esc(code)}' THEN '{esc(description)}'" for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()])
         parts.sql_parts.append('  , (CASE ' + ' '.join(ctx.cases) + " ELSE 'Unknown' END) ParticipationType")
     if ctx.disp_monthly_mtp:

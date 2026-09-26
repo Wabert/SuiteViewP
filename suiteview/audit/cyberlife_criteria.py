@@ -5,64 +5,13 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Mapping
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QListWidget
-
-
-@dataclass(frozen=True)
-class TextCriteria:
-    value: str = ""
-
-    def text(self) -> str:
-        return self.value
-
-
-@dataclass(frozen=True)
-class CheckCriteria:
-    checked: bool = False
-
-    def isChecked(self) -> bool:
-        return self.checked
-
-
-@dataclass(frozen=True)
-class ComboCriteria:
-    value: str = ""
-
-    def currentText(self) -> str:
-        return self.value
-
-
-@dataclass(frozen=True)
-class ListItemCriteria:
-    label: str
-    user_data: Any = None
-
-    def text(self) -> str:
-        return self.label
-
-    def data(self, _role: Any = None) -> Any:
-        return self.user_data
-
-
-@dataclass(frozen=True)
-class ListCriteria:
-    selected: tuple[ListItemCriteria, ...] = ()
-
-    def selectedItems(self) -> list[ListItemCriteria]:
-        return list(self.selected)
 
 
 @dataclass(frozen=True)
 class MultiSelectCriteria:
     value: str = ""
     selected: tuple[str, ...] = ()
-
-    def text(self) -> str:
-        return self.value
-
-    def selected_values(self) -> list[str]:
-        return list(self.selected)
 
 
 @dataclass(frozen=True)
@@ -242,23 +191,17 @@ class CriteriaCollector:
         )
 
 
-def _freeze_listbox(widget: QListWidget) -> ListCriteria:
-    selected = []
-    for item in widget.selectedItems():
-        selected.append(ListItemCriteria(
-            item.text(),
-            item.data(Qt.ItemDataRole.UserRole),
-        ))
-    return ListCriteria(tuple(selected))
+def _freeze_listbox(widget: QListWidget) -> tuple[str, ...]:
+    return tuple(item.text() for item in widget.selectedItems())
 
 
 def _freeze_value(value: Any) -> Any:
     if isinstance(value, QLineEdit):
-        return TextCriteria(value.text())
+        return value.text()
     if isinstance(value, QCheckBox):
-        return CheckCriteria(value.isChecked())
+        return value.isChecked()
     if isinstance(value, QComboBox):
-        return ComboCriteria(value.currentText())
+        return value.currentText()
     if isinstance(value, QListWidget):
         return _freeze_listbox(value)
     if hasattr(value, "selected_values") and hasattr(value, "text"):
@@ -323,4 +266,3 @@ def _freeze_segment52(tab: Any | None) -> Segment52Criteria | None:
         return None
     base = _freeze_tab(tab, Segment52Criteria)
     return Segment52Criteria(base.attrs, tab.get_state())
-

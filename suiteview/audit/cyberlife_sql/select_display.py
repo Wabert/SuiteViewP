@@ -61,8 +61,8 @@ def add_rider_selects_and_from(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.extend(ctx.custom_select_lines)
     parts.sql_parts.extend(ctx.segment52_select_lines)
     ctx_set(ctx, "cov1_plancode_match_only", ctx.plancode_tab.cov1_plancode_match_only())
-    ctx_set(ctx, "_any_cov_plancode", bool((ctx.pt.txt_plancode.text().strip() or ctx.plancode_tab.get_plancodes()) and (not ctx.cov1_plancode_match_only)))
-    ctx_set(ctx, "_any_cov_product_line", bool(ctx.pt.chk_product_line.isChecked() and selected_codes(ctx.pt.list_product_line)))
+    ctx_set(ctx, "_any_cov_plancode", bool((ctx.pt.txt_plancode.strip() or ctx.plancode_tab.get_plancodes()) and (not ctx.cov1_plancode_match_only)))
+    ctx_set(ctx, "_any_cov_product_line", bool(ctx.pt.chk_product_line and selected_codes(ctx.pt.list_product_line)))
     ctx_set(ctx, "needs_covsall", ctx.has_modcovsall or (not ctx.coverage_level and (ctx._any_cov_plancode or ctx._any_cov_product_line)))
     parts.sql_parts.append(f'FROM {ctx.schema}.LH_BAS_POL POLICY1')
     if ctx.needs_covsall:
