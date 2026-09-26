@@ -4,7 +4,7 @@ from __future__ import annotations
 from suiteview.audit.cyberlife_sql.helpers import (
     terminated_policy_predicate,
 )
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
 from suiteview.audit.sql_helpers import (
     esc,
     in_list,
@@ -55,15 +55,15 @@ def add_rider_selects_and_from(ctx: QueryContext, parts: SqlParts) -> None:
         if info['flat_03'] or info['active_flat_03']:
             lines.append(f'  , {fe_alias}.SST_XTR_UNT_AMT {label}FlatExtra')
         return lines
-    ctx._rider_select_lines = _rider_select_lines
+    ctx_set(ctx, "_rider_select_lines", _rider_select_lines)
     parts.sql_parts.extend(ctx._rider_select_lines(ctx.rider1_info, 'RIDER1', 'Rider1'))
     parts.sql_parts.extend(ctx._rider_select_lines(ctx.rider2_info, 'RIDER2', 'Rider2'))
     parts.sql_parts.extend(ctx.custom_select_lines)
     parts.sql_parts.extend(ctx.segment52_select_lines)
-    ctx.cov1_plancode_match_only = ctx.plancode_tab.cov1_plancode_match_only()
-    ctx._any_cov_plancode = bool((ctx.pt.txt_plancode.text().strip() or ctx.plancode_tab.get_plancodes()) and (not ctx.cov1_plancode_match_only))
-    ctx._any_cov_product_line = bool(ctx.pt.chk_product_line.isChecked() and selected_codes(ctx.pt.list_product_line))
-    ctx.needs_covsall = ctx.has_modcovsall or (not ctx.coverage_level and (ctx._any_cov_plancode or ctx._any_cov_product_line))
+    ctx_set(ctx, "cov1_plancode_match_only", ctx.plancode_tab.cov1_plancode_match_only())
+    ctx_set(ctx, "_any_cov_plancode", bool((ctx.pt.txt_plancode.text().strip() or ctx.plancode_tab.get_plancodes()) and (not ctx.cov1_plancode_match_only)))
+    ctx_set(ctx, "_any_cov_product_line", bool(ctx.pt.chk_product_line.isChecked() and selected_codes(ctx.pt.list_product_line)))
+    ctx_set(ctx, "needs_covsall", ctx.has_modcovsall or (not ctx.coverage_level and (ctx._any_cov_plancode or ctx._any_cov_product_line)))
     parts.sql_parts.append(f'FROM {ctx.schema}.LH_BAS_POL POLICY1')
     if ctx.needs_covsall:
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_COV_PHA COVSALL')
@@ -94,7 +94,7 @@ def add_rider_selects_and_from(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = BILLMODE_POOL.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = BILLMODE_POOL.TCH_POL_ID')
     if ctx.needs_covsummary:
-        ctx._cov_join = 'INNER JOIN' if ctx.multi_base_covs else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_cov_join", 'INNER JOIN' if ctx.multi_base_covs else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._cov_join} COVSUMMARY')
         parts.sql_parts.append('    ON COVSUMMARY.CK_SYS_CD = POLICY1.CK_SYS_CD')
         parts.sql_parts.append('    AND COVSUMMARY.CK_CMP_CD = POLICY1.CK_CMP_CD')
@@ -159,7 +159,7 @@ def add_policy_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND RESULTCOV_MOD.COV_PHA_NBR = RESULTCOV.COV_PHA_NBR')
         parts.sql_parts.append(f'    AND RESULTCOV_MOD.AN_PRD_ID IN ({in_list(ctx.policy_product_indicator_codes)})')
     if ctx.has_52r or ctx.disp_replacement_pol:
-        ctx._52r_join = 'INNER JOIN' if ctx.has_52r else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_52r_join", 'INNER JOIN' if ctx.has_52r else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._52r_join} {ctx.schema}.TH_USER_REPLACEMENT USERDEF_52R')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = USERDEF_52R.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = USERDEF_52R.CK_CMP_CD')
@@ -180,7 +180,7 @@ def add_policy_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = POLICY1_MOD.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = POLICY1_MOD.TCH_POL_ID')
     if ctx.has_term_entry or ctx.disp_term_date:
-        ctx._td_join = 'INNER JOIN' if ctx.has_term_entry else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_td_join", 'INNER JOIN' if ctx.has_term_entry else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._td_join} TERMINATION_DATES AS TD')
         parts.sql_parts.append('    ON POLICY1.CK_CMP_CD = TD.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = TD.TCH_POL_ID')
@@ -206,14 +206,14 @@ def add_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_POLICY_NBR = PC.SOURCE_POLICY_NBR')
         parts.sql_parts.append("    AND POLICY1.LST_ETR_CD = 'O'")
     if ctx.has_77_segment or ctx.disp_policy_debt:
-        ctx._loan_join = 'INNER JOIN' if ctx.has_77_segment else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_loan_join", 'INNER JOIN' if ctx.has_77_segment else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._loan_join} ALL_LOANS')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = ALL_LOANS.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = ALL_LOANS.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = ALL_LOANS.TCH_POL_ID')
         if ctx.has_77_segment and ctx.has_preferred_loan:
             parts.sql_parts.append("    AND ALL_LOANS.PRF_LN_IND = '1'")
-        ctx._debt_join = 'INNER JOIN' if ctx.has_77_segment else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_debt_join", 'INNER JOIN' if ctx.has_77_segment else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._debt_join} POLICYDEBT')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = POLICYDEBT.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = POLICYDEBT.CK_CMP_CD')
@@ -246,7 +246,7 @@ def add_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = ISWL_INTERPOLATED_GCV.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = ISWL_INTERPOLATED_GCV.TCH_POL_ID')
     if ctx.adv_glp_neg or ctx.disp_glp or ctx.has_glp_range:
-        ctx._glp_join = 'INNER JOIN' if ctx.adv_glp_neg or ctx.has_glp_range else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_glp_join", 'INNER JOIN' if ctx.adv_glp_neg or ctx.has_glp_range else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._glp_join} GLP')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = GLP.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = GLP.CK_CMP_CD')
@@ -262,7 +262,7 @@ def add_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND COVERAGE1.CK_CMP_CD = TRAD_CV.CK_CMP_CD')
         parts.sql_parts.append('    AND COVERAGE1.TCH_POL_ID = TRAD_CV.TCH_POL_ID')
     if ctx.has_fund_values:
-        ctx._fid = ctx.adv_fund_id
+        ctx_set(ctx, "_fid", ctx.adv_fund_id)
         parts.sql_parts.append('  INNER JOIN FUND_VALUES')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = FUND_VALUES.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = FUND_VALUES.CK_CMP_CD')

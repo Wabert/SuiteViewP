@@ -9,7 +9,7 @@ from suiteview.audit.cyberlife_sql.helpers import (
     _ISS_STATE_MAP,
     participation_description,
 )
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
 from suiteview.audit.sql_helpers import (
     esc,
 )
@@ -31,7 +31,7 @@ def add_policy_year_and_grace_ctes(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append(f'   PMT_FQY_PER, NSD_MD_CD')
         parts.sql_parts.append(f'   FROM {ctx.schema}.LH_BAS_POL)')
     if ctx.needs_covsummary:
-        ctx._apb_cond = " OR TEMPCOVALL.PLN_DES_SER_CD = '1U144A00'" if ctx.adv_apb_rider else ''
+        ctx_set(ctx, "_apb_cond", " OR TEMPCOVALL.PLN_DES_SER_CD = '1U144A00'" if ctx.adv_apb_rider else '')
         parts.sql_parts.append(f', ALL_BASE_COVS AS (')
         parts.sql_parts.append(f'  SELECT TEMPCOV1.CK_SYS_CD, TEMPCOV1.TCH_POL_ID, TEMPCOV1.CK_CMP_CD')
         parts.sql_parts.append(f'    , TEMPCOVALL.COV_PHA_NBR')
@@ -203,7 +203,7 @@ def add_target_and_value_ctes(ctx: QueryContext, parts: SqlParts) -> None:
 
 def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.adv_prem_alloc:
-        ctx.fund_items = [item.text().split(' - ')[0].strip() for item in ctx.at.list_prem_alloc.selectedItems()]
+        ctx_set(ctx, "fund_items", [item.text().split(' - ')[0].strip() for item in ctx.at.list_prem_alloc.selectedItems()])
         if ctx.fund_items:
             allocation_selects = []
             for fund_id in ctx.fund_items:
@@ -234,11 +234,11 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     parts.sql_parts.append(f"  , VARCHAR_FORMAT({ctx.result_cov_alias}.ISSUE_DT, 'MM/DD/YYYY') IssueDt")
     parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INS_ISS_AGE IssueAge')
     parts.sql_parts.append('  , USERGEN.FUZGREIN_IND RGA_Ind')
-    ctx.duration_expr = "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)"
+    ctx_set(ctx, "duration_expr", "TRUNCATE(MONTHS_BETWEEN('" + ctx.criteria.as_of_sql + f"', {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)")
     if ctx.has_current_age:
         parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.duration_expr}) CurrentAge')
     if ctx.has_val_age:
-        ctx.val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
+        ctx_set(ctx, "val_duration_expr", f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)')
         parts.sql_parts.append(f'  , INTEGER({ctx.result_cov_alias}.INS_ISS_AGE + {ctx.val_duration_expr}) ValAttainedAge')
     if ctx.has_pol_year:
         parts.sql_parts.append(f'  , INTEGER({ctx.duration_expr} + 1) PolicyYear')
@@ -259,7 +259,7 @@ def add_cash_value_and_account_ctes(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_bill_to:
         parts.sql_parts.append("  , VARCHAR_FORMAT(POLICY1.PRM_BILL_TO_DT, 'MM/DD/YYYY') BillToDate")
     if ctx.disp_duration or ctx.disp_attained_age:
-        ctx.disp_val_duration_expr = f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)'
+        ctx_set(ctx, "disp_val_duration_expr", f'TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(ctx.schema)}, {ctx.result_cov_alias}.ISSUE_DT) / 12, 0)')
     if ctx.disp_duration:
         parts.sql_parts.append(f'  , INTEGER({ctx.disp_val_duration_expr}) ValDuration')
     if ctx.disp_attained_age:
@@ -350,7 +350,7 @@ def add_initial_display_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , COVERAGE1.DIV_PTP_TYP_CD ParticipationCode')
         parts.sql_parts.append(f'  , {participation_description()} Participation')
     if ctx.wl_tab is not None and ctx.wl_tab.chk_participation_type.isChecked():
-        ctx.cases = [f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) = '{esc(code)}' THEN '{esc(description)}'" for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()]
+        ctx_set(ctx, "cases", [f"WHEN TRIM(COVERAGE1.DIV_PTP_TYP_CD) = '{esc(code)}' THEN '{esc(description)}'" for code, description in PARTICIPATION_TYPE_DESCRIPTIONS.items()])
         parts.sql_parts.append('  , (CASE ' + ' '.join(ctx.cases) + " ELSE 'Unknown' END) ParticipationType")
     if ctx.disp_monthly_mtp:
         parts.sql_parts.append('  , MTP.TAR_PRM_AMT MonthlyMTP')

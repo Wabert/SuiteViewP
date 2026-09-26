@@ -59,3 +59,9 @@ class QueryContext:
         else:
             self.derived = None
             self.criteria = source
+
+
+def ctx_set(ctx: QueryContext, name: str, value: Any) -> Any:
+    """Set one legacy context value while section builders are made pure."""
+    setattr(ctx, name, value)
+    return value

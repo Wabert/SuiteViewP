@@ -4,7 +4,7 @@ from __future__ import annotations
 from suiteview.audit.cyberlife_sql.helpers import (
     cease_code_predicate,
 )
-from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
+from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts, ctx_set
 from suiteview.audit.sql_helpers import (
     esc,
 )
@@ -58,7 +58,7 @@ def add_core_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = USERDEF_52G.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = USERDEF_52G.TCH_POL_ID')
     if ctx.disp_gsp or ctx.has_gsp_range:
-        ctx._gsp_join = 'INNER JOIN' if ctx.has_gsp_range else 'LEFT OUTER JOIN'
+        ctx_set(ctx, "_gsp_join", 'INNER JOIN' if ctx.has_gsp_range else 'LEFT OUTER JOIN')
         parts.sql_parts.append(f'  {ctx._gsp_join} GSP')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = GSP.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = GSP.CK_CMP_CD')
@@ -83,22 +83,22 @@ def add_core_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = FFC.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = FFC.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = FFC.TCH_POL_ID')
-    ctx.bt = ctx.benefits_tab
-    ctx._cease_ops = {'1': '=', '2': '<', '3': '>'}
+    ctx_set(ctx, "bt", ctx.benefits_tab)
+    ctx_set(ctx, "_cease_ops", {'1': '=', '2': '<', '3': '>'})
 
 
 def add_policy_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
     for ctx.i in range(3):
-        ctx.ben_type = ctx.bt.benefit_combos[ctx.i].currentText().strip()
+        ctx_set(ctx, "ben_type", ctx.bt.benefit_combos[ctx.i].currentText().strip())
         if not ctx.ben_type:
             continue
-        ctx.ben_code = ctx.ben_type[0]
-        ctx.alias = f'BEN{ctx.i + 1}'
-        ctx.sub_type = ctx.bt.subtype_edits[ctx.i].text().strip()
-        ctx.post_issue = ctx.bt.post_issue_chks[ctx.i].isChecked()
-        ctx.cease_lo = ctx.bt.cease_lo_edits[ctx.i].text().strip()
-        ctx.cease_hi = ctx.bt.cease_hi_edits[ctx.i].text().strip()
-        ctx.cease_status = ctx.bt.cease_status_combos[ctx.i].currentText().strip()
+        ctx_set(ctx, "ben_code", ctx.ben_type[0])
+        ctx_set(ctx, "alias", f'BEN{ctx.i + 1}')
+        ctx_set(ctx, "sub_type", ctx.bt.subtype_edits[ctx.i].text().strip())
+        ctx_set(ctx, "post_issue", ctx.bt.post_issue_chks[ctx.i].isChecked())
+        ctx_set(ctx, "cease_lo", ctx.bt.cease_lo_edits[ctx.i].text().strip())
+        ctx_set(ctx, "cease_hi", ctx.bt.cease_hi_edits[ctx.i].text().strip())
+        ctx_set(ctx, "cease_status", ctx.bt.cease_status_combos[ctx.i].currentText().strip())
         parts.sql_parts.append(f'  INNER JOIN {ctx.schema}.LH_SPM_BNF {ctx.alias}')
         parts.sql_parts.append(f'    ON POLICY1.CK_SYS_CD = {ctx.alias}.CK_SYS_CD')
         parts.sql_parts.append(f'    AND POLICY1.CK_CMP_CD = {ctx.alias}.CK_CMP_CD')
@@ -113,8 +113,8 @@ def add_policy_value_joins(ctx: QueryContext, parts: SqlParts) -> None:
         if ctx.cease_hi:
             parts.sql_parts.append(f"    AND {ctx.alias}.BNF_CEA_DT <= '{esc(ctx.cease_hi)}'")
         if ctx.cease_status:
-            ctx.cs_code = ctx.cease_status[0]
-            ctx.op = ctx._cease_ops.get(ctx.cs_code)
+            ctx_set(ctx, "cs_code", ctx.cease_status[0])
+            ctx_set(ctx, "op", ctx._cease_ops.get(ctx.cs_code))
             if ctx.op:
                 parts.sql_parts.append(f'    AND {ctx.alias}.BNF_CEA_DT {ctx.op} {ctx.alias}.BNF_OGN_CEA_DT')
     if ctx.cov_needs_modcov1:
@@ -328,5 +328,5 @@ def add_rider_and_custom_joins(ctx: QueryContext, parts: SqlParts) -> None:
             parts.sql_parts.append(f"    AND ({fe_alias}.SST_XTR_TYP_CD = '2' OR {fe_alias}.SST_XTR_TYP_CD = '4')")
             if info['active_flat_03']:
                 parts.sql_parts.append(f'    AND ({fe_alias}.SST_XTR_CEA_DT IS NULL OR {fe_alias}.SST_XTR_CEA_DT > CURRENT DATE)')
-    ctx._emit_rider_joins = _emit_rider_joins
+    ctx_set(ctx, "_emit_rider_joins", _emit_rider_joins)
 
