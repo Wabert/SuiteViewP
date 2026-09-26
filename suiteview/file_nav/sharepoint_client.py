@@ -488,7 +488,7 @@ class SharePointDepthScanWorker(QThread):
                         it["modified"].replace("Z", "+00:00")).astimezone()
                     modified = dt.strftime("%Y-%m-%d %H:%M")
                 except ValueError:
-                    logger.debug("SharePoint item size was not an integer: %r", item.get("size"), exc_info=True)
+                    logger.debug("SharePoint item modified date was not ISO format: %r", it["modified"], exc_info=True)
             results.append({
                 "path": make_sp_path(drive_id, it["id"]),
                 "display_name": display_name,
