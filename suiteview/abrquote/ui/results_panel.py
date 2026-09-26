@@ -56,7 +56,14 @@ class ResultsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(12)
+        self._build_face_amount_row(layout)
+        self._build_full_acceleration_group(layout)
+        self._build_partial_acceleration_group(layout)
+        self._build_premium_impact_group(layout)
+        self._build_messages_area(layout)
+        self._build_action_buttons(layout)
 
+    def _build_face_amount_row(self, layout):
         # ── Face Amount to Accelerate ───────────────────────────────────
         face_row = QHBoxLayout()
         face_row.setSpacing(8)
@@ -97,6 +104,8 @@ class ResultsPanel(QWidget):
 
         layout.addLayout(face_row)
 
+
+    def _build_full_acceleration_group(self, layout):
         # ── Full Acceleration ───────────────────────────────────────────
         self.full_group = QGroupBox("Full Acceleration")
         self.full_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -179,6 +188,8 @@ class ResultsPanel(QWidget):
         full_grid.setColumnStretch(4, 2)
         layout.addWidget(self.full_group)
 
+
+    def _build_partial_acceleration_group(self, layout):
         # ── Max Partial Acceleration ────────────────────────────────────
         self.partial_group = QGroupBox("Max Partial Acceleration")
         self.partial_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -247,6 +258,8 @@ class ResultsPanel(QWidget):
         self._partial_static_widgets.append(vsep_partial)
 
         # APV component labels — right column
+        apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
+        apv_val_style = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
         self._partial_apv_labels = {}
         for j, (apv_label, apv_key) in enumerate([
             ("APV_FB:", "apv_fb"),
@@ -278,6 +291,8 @@ class ResultsPanel(QWidget):
         partial_grid.setColumnStretch(4, 2)
         layout.addWidget(self.partial_group)
 
+
+    def _build_premium_impact_group(self, layout):
         # ── Premium Impact ──────────────────────────────────────────────
         self.premium_group = QGroupBox("Premium Impact")
         self.premium_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -315,6 +330,8 @@ class ResultsPanel(QWidget):
         premium_layout.setColumnStretch(2, 1)
         layout.addWidget(self.premium_group)
 
+
+    def _build_messages_area(self, layout):
         # ── Messages ────────────────────────────────────────────────────
         msg_group = QGroupBox("Messages")
         msg_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -330,6 +347,8 @@ class ResultsPanel(QWidget):
         msg_layout.addWidget(self.messages_label)
         layout.addWidget(msg_group)
 
+
+    def _build_action_buttons(self, layout):
         # ── Action buttons ──────────────────────────────────────────────
         btn_row = QHBoxLayout()
 
@@ -360,6 +379,7 @@ class ResultsPanel(QWidget):
         btn_row.addWidget(self.new_quote_btn)
 
         layout.addLayout(btn_row)
+
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -433,48 +453,9 @@ class ResultsPanel(QWidget):
         if not self._policy or not self._result:
             return
 
-        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
-        try:
-            custom_face = float(raw)
-        except ValueError:
-            QMessageBox.warning(
-                self, "Invalid Amount",
-                "Please enter a valid numeric face amount.",
-            )
-            self._revert_face_input()
+        custom_face = self._read_accepted_face_amount()
+        if custom_face is None:
             return
-
-        total_face = self._policy.face_amount
-        min_allowed = 10_000.0
-
-        if custom_face > total_face:
-            QMessageBox.warning(
-                self, "Invalid Amount",
-                f"Face amount cannot exceed the total policy face "
-                f"of ${total_face:,.2f}.",
-            )
-            self._revert_face_input()
-            return
-
-        if custom_face < min_allowed:
-            QMessageBox.warning(
-                self, "Invalid Amount",
-                f"Face amount cannot be less than the minimum "
-                f"of ${min_allowed:,.2f}.",
-            )
-            self._revert_face_input()
-            return
-
-        # Check if amount exceeds max partial eligible DB
-        max_partial_eligible = self._result.partial_eligible_db
-        if (max_partial_eligible > 0
-                and custom_face > max_partial_eligible
-                and abs(custom_face - total_face) >= 0.01):
-            QMessageBox.warning(
-                self, "Below Minimum Warning",
-                f"Accelerating this amount would drop the face below the "
-                f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}.",
-            )
 
         # Lock input back down
         self._face_input.setEnabled(False)
@@ -482,6 +463,7 @@ class ResultsPanel(QWidget):
         self._face_change_btn.setText("Change")
 
         # Recalculate the full acceleration group with the custom face
+        total_face = self._policy.face_amount
         is_full = abs(custom_face - total_face) < 0.01
 
         if is_full:
@@ -618,6 +600,52 @@ class ResultsPanel(QWidget):
             self._partial_apv_labels["apv_fd"].setText(
                 self._fmt_money(self._result.apv_fd * partial_ratio_scale)
             )
+
+    def _read_accepted_face_amount(self) -> float | None:
+        """Return validated face amount or reset the editor after a warning."""
+        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            custom_face = float(raw)
+        except ValueError:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                "Please enter a valid numeric face amount.",
+            )
+            self._revert_face_input()
+            return
+
+        total_face = self._policy.face_amount
+        min_allowed = 10_000.0
+
+        if custom_face > total_face:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                f"Face amount cannot exceed the total policy face "
+                f"of ${total_face:,.2f}.",
+            )
+            self._revert_face_input()
+            return
+
+        if custom_face < min_allowed:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                f"Face amount cannot be less than the minimum "
+                f"of ${min_allowed:,.2f}.",
+            )
+            self._revert_face_input()
+            return
+
+        # Check if amount exceeds max partial eligible DB
+        max_partial_eligible = self._result.partial_eligible_db
+        if (max_partial_eligible > 0
+                and custom_face > max_partial_eligible
+                and abs(custom_face - total_face) >= 0.01):
+            QMessageBox.warning(
+                self, "Below Minimum Warning",
+                f"Accelerating this amount would drop the face below the "
+                f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}.",
+            )
+        return custom_face
 
     def set_calc_data(
         self,

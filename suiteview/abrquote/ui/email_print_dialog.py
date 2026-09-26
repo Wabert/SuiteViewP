@@ -233,6 +233,11 @@ class EmailPrintDialog(QDialog):
         r = self._result
         a = self._assessment
 
+        self._populate_policy_summary(p, r)
+        self._populate_assessment_summary(a)
+        self._set("reinsurers", p.reinsurers if p and p.reinsurers else "(none)")
+
+    def _populate_policy_summary(self, p, r):
         if r:
             self._set("quote_date", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
 
@@ -260,6 +265,7 @@ class EmailPrintDialog(QDialog):
             self._set("full_surrender_value", self._fmt(r.full_surrender_value) if r.full_surrender_value > 0 else "—")
             self._set("full_accelerated_benefit", self._fmt(r.full_accelerated_benefit) if r.full_surrender_value > 0 else "—")
 
+    def _populate_assessment_summary(self, a):
         if a:
             self._set("acceleration", a.rider_type)
             self._set("survival_5yr", f"{a.five_year_survival * 100:.1f}%")
@@ -277,8 +283,6 @@ class EmailPrintDialog(QDialog):
             if a.use_increased_decrement and a.direct_increased_decrement > 0:
                 sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
             self._set("substandard", "  |  ".join(sub_parts) if sub_parts else "None")
-
-        self._set("reinsurers", p.reinsurers if p and p.reinsurers else "(none)")
 
     def _set(self, key: str, value: str):
         if key in self._summary_labels:
@@ -401,4 +405,3 @@ class EmailPrintDialog(QDialog):
         from ..core.quote_summary import build_clipboard_text
 
         return build_clipboard_text(sections)
-

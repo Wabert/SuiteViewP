@@ -576,14 +576,22 @@ class PolicyPanel(QWidget):
 
     def _populate_details(self, p: ABRPolicyData):
         """Fill in the detail labels from policy data."""
-        labels = self._detail_labels
+        self._reset_calc_premium_display()
+        self._populate_identity_details(p)
+        self._populate_ul_details(p)
+        self._populate_duration_and_rating_details(p)
+        self._populate_value_and_maturity_details(p)
+        self._populate_ul_inputs(p)
 
-        # Reset calc premium (will be set by _populate_premium_schedule)
+    def _reset_calc_premium_display(self) -> None:
+        labels = self._detail_labels
         labels["calc_premium"].setText("—")
         labels["calc_premium"].setStyleSheet(f"color: {GRAY_DARK}; font-size: 11px;")
         self._calc_detail_btn.setVisible(False)
         self._prem_breakdown = None
 
+    def _populate_identity_details(self, p: ABRPolicyData) -> None:
+        labels = self._detail_labels
         labels["insured_name"].setText(p.insured_name or "—")
         labels["policy_number"].setText(p.policy_number)
         labels["plancode"].setText(p.plan_code or "—")
@@ -600,7 +608,8 @@ class PolicyPanel(QWidget):
         death_benefit = p.default_death_benefit
         labels["face_amount"].setText(f"${death_benefit:,.2f}" if death_benefit else "—")
 
-        # UL/IUL-only fields: DB Option, Account Value, Premiums Paid
+    def _populate_ul_details(self, p: ABRPolicyData) -> None:
+        labels = self._detail_labels
         is_ul = p.product_type in ("UL", "IUL", "ISWL")
         db_opt_display = {
             "1": "A (Level)", "2": "B (Increasing)", "3": "C (ROP)"
@@ -616,6 +625,8 @@ class PolicyPanel(QWidget):
             self._detail_labels[k].setVisible(is_ul)
             self._detail_field_labels[k].setVisible(is_ul)
 
+    def _populate_duration_and_rating_details(self, p: ABRPolicyData) -> None:
+        labels = self._detail_labels
         labels["issue_state"].setText(p.issue_state if p.issue_state else "—")
         if p.issue_date:
             labels["issue_date"].setText(
@@ -650,6 +661,9 @@ class PolicyPanel(QWidget):
             if p.flat_cease_date else "—"
         )
 
+    def _populate_value_and_maturity_details(self, p: ABRPolicyData) -> None:
+        labels = self._detail_labels
+        is_ul = p.product_type in ("UL", "IUL", "ISWL")
         if is_ul and p.valuation_date:
             labels["valuation_date"].setText(
                 f"{p.valuation_date.month}/{p.valuation_date.day}/{p.valuation_date.year}  (last monthliversary)"
@@ -680,7 +694,7 @@ class PolicyPanel(QWidget):
         mat_dur = p.maturity_age - p.issue_age if p.maturity_age and p.issue_age else 0
         labels["maturity_duration"].setText(str(mat_dur) if mat_dur > 0 else "—")
 
-        # UL input group — show for UL/IUL/ISWL, hide for all others
+    def _populate_ul_inputs(self, p: ABRPolicyData) -> None:
         is_ul = p.product_type in ("UL", "IUL", "ISWL")
         self.ul_input_frame.setVisible(is_ul)
         if is_ul:
@@ -965,54 +979,13 @@ class PolicyPanel(QWidget):
             val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             grid.addWidget(val, row, 1, Qt.AlignmentFlag.AlignRight)
 
-        if detail_data["type"] == "coverage":
-            cov = detail_data["cov"]
-            row = 0
-            add_row(row, "Plancode:", cov.plancode); row += 1
-            add_row(row, "Phase:", cov.cov_pha_nbr); row += 1
-            add_row(row, "Person Code:", f"{cov.person_code} - {cov.person_desc}" if cov.person_desc else cov.person_code); row += 1
-            add_row(row, "Person Sequence:", cov.prs_seq_nbr); row += 1
-            add_row(row, "Issue Date:", cov.issue_date.strftime("%m/%d/%Y") if cov.issue_date else ""); row += 1
-            # Cease date: NXT_CHG_DT for active coverages, maturity date as fallback
-            cease = cov.nxt_chg_dt or cov.maturity_date
-            add_row(row, "Cease Date:", cease.strftime("%m/%d/%Y") if cease else ""); row += 1
-            add_row(row, "Cov Status Code:", cov.nxt_chg_typ_cd or ""); row += 1
-            add_row(row, "Lives Covered:", cov.lives_cov_cd or ""); row += 1
-            add_row(row, "Units:", f"{cov.units:,.2f}" if cov.units else ""); row += 1
-            add_row(row, "VPU:", f"{cov.vpu:,.3f}" if cov.vpu else ""); row += 1
-            add_row(row, "Issue Age:", cov.issue_age); row += 1
-            add_row(row, "Sex:", cov.sex_desc or cov.sex_code); row += 1
-            add_row(row, "Rate Class:", f"{cov.rate_class} - {cov.rate_class_desc}" if cov.rate_class_desc else cov.rate_class); row += 1
-            tbl_code = cov.table_rating_code or ""
-            tbl_num = cov.table_rating or 0
-            if tbl_code:
-                add_row(row, "Rating:", f"{tbl_code} ({tbl_num * 25}%)"); row += 1
-            else:
-                add_row(row, "Rating:", "Standard"); row += 1
-
-        elif detail_data["type"] == "benefit":
-            bnf = detail_data["bnf"]
-            row = 0
-            add_row(row, "Benefit Code:", bnf.benefit_code); row += 1
-            add_row(row, "Phase:", bnf.cov_pha_nbr); row += 1
-            add_row(row, "Type:", bnf.benefit_type_cd); row += 1
-            add_row(row, "Description:", bnf.benefit_desc); row += 1
-            add_row(row, "Form:", bnf.form_number); row += 1
-            add_row(row, "Issue Date:", bnf.issue_date.strftime("%m/%d/%Y") if bnf.issue_date else ""); row += 1
-            add_row(row, "Cease Date:", bnf.cease_date.strftime("%m/%d/%Y") if bnf.cease_date else ""); row += 1
-            add_row(row, "Orig Cease:", bnf.orig_cease_date.strftime("%m/%d/%Y") if bnf.orig_cease_date else ""); row += 1
-            add_row(row, "Units:", f"{bnf.units:,.2f}" if bnf.units else ""); row += 1
-            add_row(row, "VPU:", f"{bnf.vpu:,.3f}" if bnf.vpu else ""); row += 1
-            add_row(row, "Amount:", f"${bnf.benefit_amount:,.2f}" if bnf.benefit_amount else ""); row += 1
-            add_row(row, "Issue Age:", bnf.issue_age if bnf.issue_age else ""); row += 1
-            rating = bnf.rating_factor
-            try:
-                rating_str = f"{float(rating):.0%}" if rating else ""
-            except Exception:
-                rating_str = ""
-            add_row(row, "Rating:", rating_str); row += 1
-            add_row(row, "Renewal:", bnf.renewal_indicator); row += 1
-            add_row(row, "COI Rate:", bnf.coi_rate if bnf.coi_rate else ""); row += 1
+        rows = (
+            self._coverage_detail_rows(detail_data["cov"])
+            if detail_data["type"] == "coverage"
+            else self._benefit_detail_rows(detail_data["bnf"])
+        )
+        for row, (label, value) in enumerate(rows):
+            add_row(row, label, value)
 
         layout.addLayout(grid)
         layout.addStretch()
@@ -1026,6 +999,53 @@ class PolicyPanel(QWidget):
         layout.addLayout(btn_row)
 
         dlg.exec()
+
+    def _coverage_detail_rows(self, cov) -> list[tuple[str, object]]:
+        cease = cov.nxt_chg_dt or cov.maturity_date
+        rating = (
+            f"{cov.table_rating_code} ({(cov.table_rating or 0) * 25}%)"
+            if cov.table_rating_code else "Standard"
+        )
+        return [
+            ("Plancode:", cov.plancode),
+            ("Phase:", cov.cov_pha_nbr),
+            ("Person Code:", f"{cov.person_code} - {cov.person_desc}" if cov.person_desc else cov.person_code),
+            ("Person Sequence:", cov.prs_seq_nbr),
+            ("Issue Date:", cov.issue_date.strftime("%m/%d/%Y") if cov.issue_date else ""),
+            ("Cease Date:", cease.strftime("%m/%d/%Y") if cease else ""),
+            ("Cov Status Code:", cov.nxt_chg_typ_cd or ""),
+            ("Lives Covered:", cov.lives_cov_cd or ""),
+            ("Units:", f"{cov.units:,.2f}" if cov.units else ""),
+            ("VPU:", f"{cov.vpu:,.3f}" if cov.vpu else ""),
+            ("Issue Age:", cov.issue_age),
+            ("Sex:", cov.sex_desc or cov.sex_code),
+            ("Rate Class:", f"{cov.rate_class} - {cov.rate_class_desc}" if cov.rate_class_desc else cov.rate_class),
+            ("Rating:", rating),
+        ]
+
+    def _benefit_detail_rows(self, bnf) -> list[tuple[str, object]]:
+        rating = bnf.rating_factor
+        try:
+            rating_str = f"{float(rating):.0%}" if rating else ""
+        except Exception:
+            rating_str = ""
+        return [
+            ("Benefit Code:", bnf.benefit_code),
+            ("Phase:", bnf.cov_pha_nbr),
+            ("Type:", bnf.benefit_type_cd),
+            ("Description:", bnf.benefit_desc),
+            ("Form:", bnf.form_number),
+            ("Issue Date:", bnf.issue_date.strftime("%m/%d/%Y") if bnf.issue_date else ""),
+            ("Cease Date:", bnf.cease_date.strftime("%m/%d/%Y") if bnf.cease_date else ""),
+            ("Orig Cease:", bnf.orig_cease_date.strftime("%m/%d/%Y") if bnf.orig_cease_date else ""),
+            ("Units:", f"{bnf.units:,.2f}" if bnf.units else ""),
+            ("VPU:", f"{bnf.vpu:,.3f}" if bnf.vpu else ""),
+            ("Amount:", f"${bnf.benefit_amount:,.2f}" if bnf.benefit_amount else ""),
+            ("Issue Age:", bnf.issue_age if bnf.issue_age else ""),
+            ("Rating:", rating_str),
+            ("Renewal:", bnf.renewal_indicator),
+            ("COI Rate:", bnf.coi_rate if bnf.coi_rate else ""),
+        ]
 
     def _populate_premium_schedule(self):
         """Render the core PremiumScheduleResult for the loaded policy."""

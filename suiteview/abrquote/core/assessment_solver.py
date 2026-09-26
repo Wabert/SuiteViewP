@@ -412,17 +412,39 @@ def _modified_text(
     inputs: AssessmentInputs,
     assessment: MedicalAssessment,
 ) -> dict[str, str]:
-    maturity_age = policy.maturity_age or MATURITY_AGE
-    yrs_to_maturity = maturity_age - policy.attained_age
-    has_survival_solve = inputs.use_five_year or inputs.use_ten_year or inputs.use_le
-    is_dual_solve = inputs.use_five_year and inputs.use_ten_year
+    table_parts = _modified_table_parts(policy, inputs, assessment)
+    flat_parts = _modified_flat_parts(policy, inputs)
+    return {
+        "mod_survival_5yr": (
+            f"{assessment.computed_survival_5yr:.4f}  "
+            f"({assessment.computed_survival_5yr * 100:.2f}%)"
+        ),
+        "mod_survival_10yr": (
+            f"{assessment.computed_survival_10yr:.4f}  "
+            f"({assessment.computed_survival_10yr * 100:.2f}%)"
+        ),
+        "mod_le": (
+            f"{assessment.computed_le:.1f} years "
+            f"(age {policy.attained_age + round(assessment.computed_le)})"
+        ),
+        "table_rating": "  |  ".join(table_parts) if table_parts else "None",
+        "flat_extra": "  |  ".join(flat_parts) if flat_parts else "None",
+    }
 
+
+def _modified_table_parts(
+    policy: ABRPolicyData,
+    inputs: AssessmentInputs,
+    assessment: MedicalAssessment,
+) -> list[str]:
+    yrs_to_maturity = (policy.maturity_age or MATURITY_AGE) - policy.attained_age
+    has_survival_solve = inputs.use_five_year or inputs.use_ten_year or inputs.use_le
     table_parts: list[str] = []
     if not inputs.in_lieu_of and policy.table_rating > 0:
         table_parts.append(f"Policy Tbl {policy.table_rating} (existing)")
     if not inputs.in_lieu_of and policy.table_rating_2 > 0:
         table_parts.append(f"Policy Tbl {policy.table_rating_2} (existing)")
-    if is_dual_solve:
+    if inputs.use_five_year and inputs.use_ten_year:
         table_parts.append(f"5yr: {assessment.derived_table_rating_5yr:.2f} (yrs 1-5)")
         p2_label = "yrs 6-10" if inputs.use_return_10yr else f"yrs 6-{yrs_to_maturity}"
         table_parts.append(f"6-10yr: {assessment.derived_table_rating_10yr:.2f} ({p2_label})")
@@ -451,7 +473,10 @@ def _modified_text(
             f"(Tbl {id_table:.0f}, yr "
             f"{inputs.incr_decrement_start_year}-{inputs.incr_decrement_stop_year - 1})"
         )
+    return table_parts
 
+
+def _modified_flat_parts(policy: ABRPolicyData, inputs: AssessmentInputs) -> list[str]:
     flat_parts: list[str] = []
     if not inputs.in_lieu_of and policy.flat_extra > 0:
         text = f"Policy ${policy.flat_extra:.3f}"
@@ -467,23 +492,7 @@ def _modified_text(
             f"${inputs.direct_flat_extra_2:.3f} "
             f"(yr {inputs.flat_2_start_year}-{inputs.flat_2_stop_year - 1})"
         )
-
-    return {
-        "mod_survival_5yr": (
-            f"{assessment.computed_survival_5yr:.4f}  "
-            f"({assessment.computed_survival_5yr * 100:.2f}%)"
-        ),
-        "mod_survival_10yr": (
-            f"{assessment.computed_survival_10yr:.4f}  "
-            f"({assessment.computed_survival_10yr * 100:.2f}%)"
-        ),
-        "mod_le": (
-            f"{assessment.computed_le:.1f} years "
-            f"(age {policy.attained_age + round(assessment.computed_le)})"
-        ),
-        "table_rating": "  |  ".join(table_parts) if table_parts else "None",
-        "flat_extra": "  |  ".join(flat_parts) if flat_parts else "None",
-    }
+    return flat_parts
 
 
 def _build_result(
