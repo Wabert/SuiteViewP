@@ -20,7 +20,7 @@ from suiteview.audit.dataforge.join_canvas_view import (
     JoinCanvasView,
 )
 from suiteview.audit.dynamic_query import null_supplied_tables
-from suiteview.audit.field_picker_panel import FIELD_DRAG_MIME, _FieldLoaderThread
+from suiteview.audit.field_picker_panel import FIELD_DRAG_MIME, _FieldLoaderWorker
 from suiteview.audit.join_suggestions import (
     KIND_DATABASE,
     KIND_FILE,
@@ -36,6 +36,7 @@ from suiteview.audit.query_sources import (
     is_local_token,
     resolve_file_token,
 )
+from suiteview.ui.workers import WorkerController
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,6 @@ _ACTIVE_COLUMN_LOADERS: set = set()
 
 
 def _release_loader(loader) -> None:
-    loader.wait()
     _ACTIVE_COLUMN_LOADERS.discard(loader)
 
 
@@ -108,7 +108,7 @@ class VisualJoinsTab(JoinCanvasView):
         self._list_rows: dict[str, int] = {}
         self._table_columns: dict[str, list[str]] = {}
         self._column_types: dict[str, dict[str, str]] = {}
-        self._loaders: dict[str, _FieldLoaderThread] = {}
+        self._loaders: dict[str, WorkerController] = {}
         self._join_metadata: dict[tuple[str, str], dict] = {}
         self._dismissed_pairs: set[frozenset[str]] = set()
         self._pending_suggestions: list[tuple[str, str, list[tuple[str, str]]]] = []
@@ -424,16 +424,17 @@ class VisualJoinsTab(JoinCanvasView):
                 continue
             # Unparented and kept alive by the module registry: closing the query
             # must never destroy a thread that is still waiting on ODBC.
-            loader = _FieldLoaderThread(self._dsn, table)
+            worker = _FieldLoaderWorker(self._dsn, table)
+            loader = WorkerController(None, worker)
+            loader.table_name = table
             _ACTIVE_COLUMN_LOADERS.add(loader)
             loader.finished.connect(lambda l=loader: _release_loader(l))
             self._loaders[table] = loader
-            loader.columns_loaded.connect(self._on_columns_loaded)
-            loader.error_occurred.connect(self._on_columns_error)
+            loader.result.connect(lambda payload: self._on_columns_loaded(*payload))
+            loader.error.connect(lambda msg, tbl=table: self._on_columns_error(tbl, msg))
             loader.finished.connect(self._on_loader_finished)
             loader.start()
 
-    @pyqtSlot(str, list)
     def _on_columns_loaded(self, table: str, columns: list):
         self._table_columns[table] = [str(col[0]) for col in columns if col and col[0]]
         self._column_types[table] = {
@@ -441,9 +442,7 @@ class VisualJoinsTab(JoinCanvasView):
         }
         self._refresh_canvas_sources()
 
-    @pyqtSlot(str)
-    def _on_columns_error(self, msg: str):
-        table = getattr(self.sender(), "table_name", "?")
+    def _on_columns_error(self, table: str, msg: str):
         logger.warning("Visual join canvas could not load columns for %s: %s", table, msg)
 
     @pyqtSlot()

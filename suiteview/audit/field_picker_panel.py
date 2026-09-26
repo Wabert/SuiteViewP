@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QMimeData, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag, QColor, QBrush
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -36,6 +36,7 @@ from .query_sources import (
 )
 from .tabs._styles import TightItemDelegate
 from suiteview.core.odbc_utils import connect_dsn
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 if TYPE_CHECKING:
     pass
@@ -163,13 +164,12 @@ _SOURCE_KIND_TIPS = {
 _NO_FILE_SOURCES = "No file sources — create one in Objects"
 
 
-class _FieldLoaderThread(QThread):
-    """Background thread to fetch column metadata from ODBC."""
-    columns_loaded = pyqtSignal(str, list)  # table_name, [(col_name, type_name, size, nullable)]
-    error_occurred = pyqtSignal(str)
+class _FieldLoaderWorker(QObject):
+    """Fetch column metadata from ODBC inside a WorkerController thread."""
 
     def __init__(self, dsn: str, table_name: str, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.dsn = dsn
         self.table_name = table_name
 
@@ -196,18 +196,19 @@ class _FieldLoaderThread(QThread):
                     str(column_name).upper() in indexed_names,
                 ))
             conn.close()
-            self.columns_loaded.emit(self.table_name, columns)
+            self.signals.result.emit((self.table_name, columns))
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
-class _TableLoaderThread(QThread):
-    """Background thread to fetch table metadata from ODBC."""
-    tables_loaded = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
+class _TableLoaderWorker(QObject):
+    """Fetch table metadata from ODBC inside a WorkerController thread."""
 
     def __init__(self, dsn: str, parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self.dsn = dsn
 
     def run(self):
@@ -233,9 +234,11 @@ class _TableLoaderThread(QThread):
                         exc_info=True,
                     )
             conn.close()
-            self.tables_loaded.emit(sorted(set(tables), key=str.lower))
+            self.signals.result.emit(sorted(set(tables), key=str.lower))
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
 class DraggableFieldList(QListWidget):
@@ -328,8 +331,8 @@ class FieldPickerPanel(QWidget):
         self._available_tables: list[str] = []
         self._display_names: dict[str, str] = {}
         self._current_table: str = ""
-        self._loader: _FieldLoaderThread | None = None
-        self._table_loader: _TableLoaderThread | None = None
+        self._loader: WorkerController | None = None
+        self._table_loader: WorkerController | None = None
         self._field_cache: dict[str, list[tuple]] = {}
         self._common_table_cols: dict[str, list[tuple]] = {}
         self._connections: list[tuple[str, str]] = []  # ODBC options only
@@ -766,9 +769,10 @@ class FieldPickerPanel(QWidget):
         self.list_tables.clear()
         self.list_fields.clear()
         self.lbl_status.setText(f"Loading tables for {dsn}...")
-        self._table_loader = _TableLoaderThread(dsn, self)
-        self._table_loader.tables_loaded.connect(self._on_tables_loaded)
-        self._table_loader.error_occurred.connect(self._on_tables_error)
+        worker = _TableLoaderWorker(dsn)
+        self._table_loader = WorkerController(self, worker)
+        self._table_loader.result.connect(self._on_tables_loaded)
+        self._table_loader.error.connect(self._on_tables_error)
         self._table_loader.start()
 
     def _on_tables_loaded(self, tables: list[str]):
@@ -1043,9 +1047,10 @@ class FieldPickerPanel(QWidget):
             return
         self.list_fields.clear()
         self.lbl_status.setText("Loading...")
-        self._loader = _FieldLoaderThread(self._dsn, table, self)
-        self._loader.columns_loaded.connect(self._on_fields_loaded)
-        self._loader.error_occurred.connect(self._on_fields_error)
+        worker = _FieldLoaderWorker(self._dsn, table)
+        self._loader = WorkerController(self, worker)
+        self._loader.result.connect(lambda payload: self._on_fields_loaded(*payload))
+        self._loader.error.connect(self._on_fields_error)
         self._loader.start()
 
     def _on_fields_loaded(self, table: str, columns: list[tuple]):

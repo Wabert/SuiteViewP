@@ -10,13 +10,14 @@ from typing import Callable, Optional
 
 import pandas as pd
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 from suiteview.audit.sql_helpers import fmt_time
 from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.sql_permissions import guard_query_sql
 from suiteview.audit.ui.bottom_bar import AuditBottomBar
+from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
@@ -145,28 +146,27 @@ def format_query_error(exc: BaseException) -> str:
     return msg
 
 
-class _QueryWorker(QThread):
-    """Runs a no-argument callable on a background thread.
+class _QueryWorker(QObject):
+    """Runs a no-argument callable through WorkerController.
 
     The callable MUST NOT touch any Qt widgets — it should perform only the
-    slow data work (DB I/O, pandas) and return a payload.  The result is
-    delivered back to the GUI thread via the ``succeeded``/``failed`` signals.
+    slow data work (DB I/O, pandas) and return a payload.
     """
-
-    succeeded = pyqtSignal(object)
-    failed = pyqtSignal(object)
 
     def __init__(self, work: Callable[[], object], parent=None):
         super().__init__(parent)
+        self.signals = WorkerSignals(self)
         self._work = work
 
-    def run(self):  # executes on the worker thread
+    def run(self):
         try:
             result = self._work()
         except BaseException as exc:  # noqa: BLE001 — forwarded to GUI thread
-            self.failed.emit(exc)
-            return
-        self.succeeded.emit(result)
+            self.signals.error.emit(exc)
+        else:
+            self.signals.result.emit(result)
+        finally:
+            self.signals.finished.emit()
 
 
 def run_query_async(
@@ -180,7 +180,7 @@ def run_query_async(
     restore_text: str = "Run\nAudit",
     bar: AuditBottomBar | None = None,
     on_busy: Optional[Callable[[bool], None]] = None,
-) -> Optional[_QueryWorker]:
+) -> Optional[WorkerController]:
     """Run ``work()`` on a background thread, keeping the UI responsive.
 
     ``work`` runs off the GUI thread and must not touch Qt widgets; it returns
@@ -204,26 +204,24 @@ def run_query_async(
     if on_busy is not None:
         on_busy(True)
 
-    worker = _QueryWorker(work, parent=owner)
-    owner._active_query_worker = worker
+    worker = _QueryWorker(work)
+    controller = WorkerController(owner, worker)
+    owner._active_query_worker = controller
 
     def _finish():
-        worker.wait()
         if btn is not None:
             btn.setEnabled(True)
             btn.setText(restore_text)
         if on_busy is not None:
             on_busy(False)
         owner._active_query_worker = None
-        worker.deleteLater()
+        controller.deleteLater()
 
     def _on_ok(payload):
         try:
             on_success(payload)
         except Exception:
             logger.exception("Query success handler failed")
-        finally:
-            _finish()
 
     def _on_err(exc):
         try:
@@ -231,10 +229,11 @@ def run_query_async(
                 on_error(exc)
             else:
                 logger.error("Query failed: %s", format_query_error(exc))
-        finally:
-            _finish()
+        except Exception:
+            logger.exception("Query error handler failed")
 
-    worker.succeeded.connect(_on_ok)
-    worker.failed.connect(_on_err)
-    worker.start()
-    return worker
+    controller.result.connect(_on_ok)
+    controller.error.connect(_on_err)
+    controller.finished.connect(_finish)
+    controller.start()
+    return controller
