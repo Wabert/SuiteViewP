@@ -1,50 +1,58 @@
 """Mainframe Nav palette and UI style helpers."""
 
-MAINFRAME_NAV_PALETTE = {
-    "brand_blue": "#1E5BA8",
-    "brand_blue_dark": "#0D3A7A",
-    "brand_blue_deep": "#082B5C",
-    "nav_text": "#1A3A6E",
-    "nav_text_dark": "#0A1E5E",
-    "panel_bg": "#FFF9E6",
-    "panel_header": "#C0D4F0",
-    "panel_border": "#A0B8D8",
-    "primary": "#4A6FA5",
-    "primary_border": "#3A5A8A",
-    "primary_hover": "#5A7FB5",
-    "viewer_hover": "#3D5A7F",
-    "disabled_bg": "#B0C0D8",
-    "disabled_text": "#7A8A9E",
-    "disabled_border": "#95A5B8",
-    "action_blue": "#3498db",
-    "action_blue_border": "#2980b9",
-    "action_blue_hover": "#5dade2",
-    "success": "#27ae60",
-    "success_border": "#229954",
-    "success_hover": "#2ecc71",
-    "danger": "#e74c3c",
-    "danger_border": "#c0392b",
-    "danger_hover": "#ec7063",
-    "dark_disabled": "#5d6d7e",
-    "dark_disabled_border": "#4a5a6a",
-    "dark_disabled_text": "#95a5a6",
-    "breadcrumb_border": "#6B8DC9",
-    "focus_blue": "#2563EB",
-    "tool_grad_top": "#FFFFFF",
-    "tool_grad_mid": "#F0F5FF",
-    "tool_grad_bottom": "#D0E3FF",
-    "tool_grad_hover_mid": "#E3EDFF",
-    "tool_grad_hover_bottom": "#B8D0F0",
-    "tool_disabled_bg": "#E8EEF7",
-    "tool_disabled_text": "#95A5C0",
-    "list_selected": "#B0C8E8",
-    "list_hover": "#C8DCF0",
-    "table_selected": "#0078d4",
-    "table_header": "#f0f0f0",
-    "table_header_border": "#d0d0d0",
-    "muted": "#7f8c8d",
-    "dark_text": "#2c3e50",
-    "white": "#FFFFFF",
+from suiteview.ui import tokens
+
+_MAINFRAME_NAV_KEYS = (
+    "brand_blue",
+    "brand_blue_dark",
+    "brand_blue_deep",
+    "nav_text",
+    "nav_text_dark",
+    "panel_bg",
+    "panel_header",
+    "panel_border",
+    "primary",
+    "primary_border",
+    "primary_hover",
+    "viewer_hover",
+    "disabled_bg",
+    "disabled_text",
+    "disabled_border",
+    "action_blue",
+    "action_blue_border",
+    "action_blue_hover",
+    "success",
+    "success_border",
+    "success_hover",
+    "danger",
+    "danger_border",
+    "danger_hover",
+    "dark_disabled",
+    "dark_disabled_border",
+    "dark_disabled_text",
+    "breadcrumb_border",
+    "focus_blue",
+    "tool_grad_top",
+    "tool_grad_mid",
+    "tool_grad_bottom",
+    "tool_grad_hover_mid",
+    "tool_grad_hover_bottom",
+    "tool_disabled_bg",
+    "tool_disabled_text",
+    "list_selected",
+    "list_hover",
+    "table_selected",
+    "table_header",
+    "table_header_border",
+    "muted",
+    "dark_text",
+    "white",
+)
+MAINFRAME_NAV_PALETTE = {key: tokens.MAINFRAME_NAV_COLORS[key] for key in _MAINFRAME_NAV_KEYS}
+_MAINFRAME_EXTRA_COLORS = {
+    key: value
+    for key, value in tokens.MAINFRAME_NAV_COLORS.items()
+    if key not in MAINFRAME_NAV_PALETTE
 }
 
 MAINFRAME_HEADER_COLORS = (
@@ -52,12 +60,15 @@ MAINFRAME_HEADER_COLORS = (
     MAINFRAME_NAV_PALETTE["brand_blue_dark"],
     MAINFRAME_NAV_PALETTE["brand_blue_deep"],
 )
-MAINFRAME_BORDER_COLOR = "#D4A017"
+MAINFRAME_BORDER_COLOR = tokens.MAINFRAME.border
 
 
 def c(name: str) -> str:
     """Return a palette color."""
-    return MAINFRAME_NAV_PALETTE[name]
+    try:
+        return MAINFRAME_NAV_PALETTE[name]
+    except KeyError:
+        return _MAINFRAME_EXTRA_COLORS[name]
 
 
 def push_button_style(kind: str = "primary", *, dark_disabled: bool = False, font_size: str | None = None) -> str:

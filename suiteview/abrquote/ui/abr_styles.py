@@ -6,6 +6,8 @@ Theme: Deep crimson/burgundy headers with slate-blue accents.
 
 from pathlib import Path
 
+from suiteview.ui import tokens
+
 # Resolve the white down-arrow SVG next to this file (forward slashes for Qt QSS)
 _ARROW_ICON = (Path(__file__).parent / "arrow_down_white.svg").as_posix()
 
@@ -14,26 +16,27 @@ _ARROW_ICON = (Path(__file__).parent / "arrow_down_white.svg").as_posix()
 # =============================================================================
 
 # Primary Crimsons — deep burgundy/crimson
-CRIMSON_DARK      = "#5C0A14"       # Darkest crimson (gradient start)
-CRIMSON_PRIMARY   = "#8B1A2A"       # Main crimson
-CRIMSON_RICH      = "#A52535"       # Rich crimson (gradient end)
-CRIMSON_LIGHT     = "#C96070"       # Light crimson-rose for hover states
-CRIMSON_SUBTLE    = "#F9ECED"       # Very light blush for backgrounds
-CRIMSON_BG        = "#EDD8DA"       # Light blush for main background
-CRIMSON_SCROLL    = "#C08090"       # Scrollbar handles
+CRIMSON_DARK      = tokens.ABR.primary_dark       # Darkest crimson (gradient start)
+CRIMSON_PRIMARY   = tokens.ABR.primary            # Main crimson
+CRIMSON_RICH      = tokens.ABR.header_end         # Rich crimson (gradient end)
+CRIMSON_LIGHT     = tokens.ABR.primary_light      # Light crimson-rose for hover states
+CRIMSON_SUBTLE    = tokens.ABR.subtle             # Very light blush for backgrounds
+CRIMSON_BG        = tokens.ABR.body               # Light blush for main background
+CRIMSON_SCROLL    = tokens.ABR.scroll             # Scrollbar handles
 
 # Slate-Blue accents (replacing gold accents for a cooler contrast)
-SLATE_PRIMARY   = "#4A6FA5"       # Slate-blue accent / border
-SLATE_LIGHT     = "#D8E4F4"       # Light slate-blue for selections
-SLATE_DARK      = "#2E4F85"       # Dark slate-blue for pressed states
-SLATE_TEXT      = "#B8D0F0"       # Slate-blue text on dark backgrounds
+SLATE_PRIMARY   = tokens.ABR.accent       # Slate-blue accent / border
+SLATE_LIGHT     = tokens.ABR.selection    # Light slate-blue for selections
+SLATE_DARK      = tokens.ABR_SLATE_DARK   # Dark slate-blue for pressed states
+SLATE_TEXT      = tokens.ABR.accent_text  # Slate-blue text on dark backgrounds
 
 # Neutral Colors
-WHITE          = "#FFFFFF"
-GRAY_LIGHT     = "#F5F7FA"
-GRAY_MID       = "#E1E5EB"
-GRAY_TEXT      = "#4A5568"
-GRAY_DARK      = "#2D3748"
+WHITE          = tokens.SURFACE
+GRAY_LIGHT     = tokens.SURFACE_ALT
+GRAY_MID       = tokens.BORDER
+GRAY_TEXT      = tokens.TEXT_MUTED
+GRAY_DARK      = tokens.TEXT
+_INPUT_FOCUS_BG = tokens.INPUT_FOCUS_SURFACE
 
 # FramelessWindowBase theme colours
 ABR_HEADER_COLORS = (CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH)
@@ -92,7 +95,7 @@ DATEEDIT_STYLE = f"""
     }}
     QDateEdit:focus {{
         border: 2px solid {SLATE_PRIMARY};
-        background-color: #F5F8FF;
+        background-color: {_INPUT_FOCUS_BG};
     }}
     QDateEdit::drop-down {{
         subcontrol-origin: border;
@@ -124,7 +127,7 @@ INPUT_STYLE = f"""
     }}
     QLineEdit:focus {{
         border: 2px solid {SLATE_PRIMARY};
-        background-color: #F5F8FF;
+        background-color: {_INPUT_FOCUS_BG};
     }}
     QLineEdit:disabled {{
         background-color: {GRAY_LIGHT};

@@ -23,6 +23,7 @@ from suiteview.ui.widgets.bookmark_widgets import (
     CategoryButton,
     StandaloneBookmarkButton,
 )
+from suiteview.ui import tokens
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +81,12 @@ class BookmarkBarsPopup(QWidget):
         bar_ids = manager.get_all_bar_ids()
 
         # ── Outer styling ────────────────────────────────────────────────────
-        self.setStyleSheet("""
-            BookmarkBarsPopup {
-                background: #0D3A7A;
-                border: 2px solid #D4A017;
+        self.setStyleSheet(f"""
+            BookmarkBarsPopup {{
+                background: {tokens.BRAND_BLUE_DARK};
+                border: 2px solid {tokens.GOLD_BORDER};
                 border-radius: 6px;
-            }
+            }}
         """)
 
         outer_layout = QVBoxLayout(self)
@@ -94,16 +95,16 @@ class BookmarkBarsPopup(QWidget):
 
         # ── Header ───────────────────────────────────────────────────────────
         header = QLabel("📌  Bookmarks")
-        header.setStyleSheet("""
-            QLabel {
-                color: #D4A017;
+        header.setStyleSheet(f"""
+            QLabel {{
+                color: {tokens.GOLD_BORDER};
                 font-size: 11pt;
                 font-weight: bold;
                 font-family: 'Segoe UI', sans-serif;
                 background: transparent;
                 padding: 4px 8px 6px 8px;
-                border-bottom: 1px solid #D4A017;
-            }
+                border-bottom: 1px solid {tokens.GOLD_BORDER};
+            }}
         """)
         outer_layout.addWidget(header)
 
@@ -132,12 +133,12 @@ class BookmarkBarsPopup(QWidget):
             # ── Per-bar outer panel ──────────────────────────────────────────
             panel = QFrame()
             panel.setFixedWidth(PANEL_WIDTH)
-            panel.setStyleSheet("""
-                QFrame {
-                    background: #9EC8EE;
-                    border: 1px solid #5A9FD8;
+            panel.setStyleSheet(f"""
+                QFrame {{
+                    background: {tokens.BOOKMARK_POPUP_PANEL};
+                    border: 1px solid {tokens.BOOKMARK_POPUP_PANEL_BORDER};
                     border-radius: 5px;
-                }
+                }}
             """)
             panel_layout = QVBoxLayout(panel)
             panel_layout.setContentsMargins(0, 0, 0, 0)
@@ -145,20 +146,20 @@ class BookmarkBarsPopup(QWidget):
 
             # Bar title
             title_lbl = QLabel(bar_name)
-            title_lbl.setStyleSheet("""
-                QLabel {
-                    color: #FFD700;
+            title_lbl.setStyleSheet(f"""
+                QLabel {{
+                    color: {tokens.ILLUSTRATION_STYLE.menu_hover_text};
                     font-size: 9pt;
                     font-weight: bold;
                     font-family: 'Segoe UI', sans-serif;
-                    background: #0D3A7A;
+                    background: {tokens.BRAND_BLUE_DARK};
                     padding: 4px 8px;
-                    border-bottom: 1px solid #3A7DC8;
+                    border-bottom: 1px solid {tokens.BOOKMARK_POPUP_TITLE_BORDER};
                     border-top-left-radius: 4px;
                     border-top-right-radius: 4px;
                     border-bottom-left-radius: 0px;
                     border-bottom-right-radius: 0px;
-                }
+                }}
             """)
             panel_layout.addWidget(title_lbl)
 
@@ -168,21 +169,21 @@ class BookmarkBarsPopup(QWidget):
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
-            scroll.setStyleSheet("""
-                QScrollArea { background: transparent; border: none; }
-                QScrollArea > QWidget > QWidget { background: transparent; }
-                QScrollBar:vertical {
-                    background: #0D3A7A;
+            scroll.setStyleSheet(f"""
+                QScrollArea {{ background: transparent; border: none; }}
+                QScrollArea > QWidget > QWidget {{ background: transparent; }}
+                QScrollBar:vertical {{
+                    background: {tokens.BRAND_BLUE_DARK};
                     width: 6px;
                     margin: 0;
                     border-radius: 3px;
-                }
-                QScrollBar::handle:vertical {
-                    background: #D4A017;
+                }}
+                QScrollBar::handle:vertical {{
+                    background: {tokens.GOLD_BORDER};
                     border-radius: 3px;
                     min-height: 20px;
-                }
-                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+                }}
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
             """)
 
             # Items container
@@ -281,14 +282,14 @@ class BookmarkBarsPopup(QWidget):
         if _panels_built == 0:
             placeholder = QLabel("No bookmarks yet.\nRight-click a folder in SuiteView\nto add bookmarks.")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setStyleSheet("""
-                QLabel {
-                    color: #A0B8D8;
+            placeholder.setStyleSheet(f"""
+                QLabel {{
+                    color: {tokens.BORDER_MUTED};
                     font-size: 10pt;
                     font-style: italic;
                     font-family: 'Segoe UI', sans-serif;
                     padding: 28px;
-                }
+                }}
             """)
             outer_layout.addWidget(placeholder)
 
@@ -358,7 +359,7 @@ class BookmarkBarsPopup(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = self.rect().adjusted(1, 1, -1, -1)
-        painter.setPen(QPen(QColor("#D4A017"), 2))
-        painter.setBrush(QColor("#0D3A7A"))
+        painter.setPen(QPen(QColor(tokens.GOLD_BORDER), 2))
+        painter.setBrush(QColor(tokens.BRAND_BLUE_DARK))
         painter.drawRoundedRect(r, 5, 5)
         painter.end()

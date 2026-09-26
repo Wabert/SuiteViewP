@@ -400,15 +400,15 @@ class MainframeNavScreen(QWidget):
         
         # Note about credentials
         cred_note = QLabel("💡 Use the 'User' button at the bottom of the window to set your credentials.")
-        cred_note.setStyleSheet("""
-            QLabel {
-                color: #666;
+        cred_note.setStyleSheet(f"""
+            QLabel {{
+                color: {c('note_text')};
                 font-style: italic;
                 padding: 10px;
-                background-color: #f0f8ff;
+                background-color: {c('note_bg')};
                 border-radius: 4px;
-                border: 1px solid #cce5ff;
-            }
+                border: 1px solid {c('note_border')};
+            }}
         """)
         cred_note.setWordWrap(True)
         layout.addWidget(cred_note)
@@ -417,17 +417,17 @@ class MainframeNavScreen(QWidget):
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("""
-            QPushButton {
-                background-color: #2c5f8d;
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c('dialog_action')};
                 color: white;
                 padding: 6px 20px;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1e4a6b;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {c('dialog_action_hover')};
+            }}
         """)
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
@@ -588,7 +588,9 @@ class MainframeNavScreen(QWidget):
             # Disable buttons during connection (load_button removed in UI refactor)
             
             self.status_label.setText("Connecting to mainframe...")
-            self.status_label.setStyleSheet("color: #3498db; font-style: italic; padding: 2px; font-size: 11px;")
+            self.status_label.setStyleSheet(
+                f"color: {c('action_blue')}; font-style: italic; padding: 2px; font-size: 11px;"
+            )
             
             worker = FTPConnectionWorker(
                 host=self.connection_settings['host'],
@@ -612,7 +614,9 @@ class MainframeNavScreen(QWidget):
         # Clear cache on new connection
         self.folder_cache.clear()
         self.status_label.setText("✓ Connected to mainframe")
-        self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(
+            f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;"
+        )
         logger.info("Successfully connected to mainframe")
         
         # Enable Search Content button
@@ -643,7 +647,9 @@ class MainframeNavScreen(QWidget):
             user_message = f"Connection failed: {error_message}"
             self.status_label.setText("✗ Connection failed")
         
-        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(
+            f"color: {c('danger')}; font-weight: bold; padding: 2px; font-size: 11px;"
+        )
         
         QMessageBox.warning(
             self, 
@@ -780,13 +786,13 @@ class MainframeNavScreen(QWidget):
                     message += f"\n...and {len(failed_items) - 5} more"
             QMessageBox.information(self, "Export Complete", message)
             self.status_label.setText(f"✓ Exported {success_count} dataset(s)")
-            self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+            self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
             return
 
         QMessageBox.warning(self, "Export Failed",
             f"Failed to export datasets:\n" + "\n".join(failed_items[:10]))
         self.status_label.setText("Export failed")
-        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {c('danger')}; font-weight: bold; padding: 2px; font-size: 11px;")
 
     def export_selected_datasets(self):
         """Export selected datasets/members to a folder"""
@@ -827,7 +833,7 @@ class MainframeNavScreen(QWidget):
         clipboard.setText(text)
         
         self.status_label.setText("✓ Search results copied to clipboard")
-        self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
         logger.info("Search results copied to clipboard")
     
     def load_dataset(self):
@@ -910,7 +916,7 @@ class MainframeNavScreen(QWidget):
             return True
         QApplication.restoreOverrideCursor()
         self.status_label.setText("✗ Mainframe connection lost")
-        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {c('danger')}; font-weight: bold; padding: 2px; font-size: 11px;")
         QMessageBox.warning(
             self,
             "Connection Lost",
@@ -1123,7 +1129,7 @@ class MainframeNavScreen(QWidget):
         clipboard.setText(full_path)
         
         self.status_label.setText(f"✓ Copied to clipboard: {full_path}")
-        self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
         logger.info(f"Copied full path to clipboard: {full_path}")
     
     def open_search_content_window(self):
@@ -1166,7 +1172,7 @@ class MainframeNavScreen(QWidget):
         self.search_content_window.activateWindow()
         
         self.status_label.setText(f"✓ Added {member_name} to Search Content")
-        self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
     
     def add_selected_to_search_content(self):
         """Add all selected datasets to search content window"""
@@ -1216,7 +1222,7 @@ class MainframeNavScreen(QWidget):
         self.search_content_window.activateWindow()
         
         self.status_label.setText(f"✓ Added {added_count} dataset(s) to Search Content")
-        self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
     
     def on_member_selected(self):
         """Handle member selection - enable/disable buttons"""
@@ -1308,7 +1314,7 @@ class MainframeNavScreen(QWidget):
             # Show placeholder when no path
             label = QLabel("Select a connection")
             label.setStyleSheet(
-                "color: #4A6FA5; "
+                f"color: {c('primary')}; "
                 "font-style: italic; "
                 "font-size: 10pt;"
             )
@@ -1324,7 +1330,7 @@ class MainframeNavScreen(QWidget):
             if i > 0:
                 sep = QLabel(" > ")
                 sep.setStyleSheet(
-                    "color: #2563EB; "
+                    f"color: {c('focus_blue')}; "
                     "font-weight: normal; "
                     "font-size: 11pt; "
                     "background: transparent; "
@@ -1343,9 +1349,9 @@ class MainframeNavScreen(QWidget):
             partial_path = '.'.join(segments[:i+1])
             
             # Style as hyperlink - blue, bold, underline on hover
-            btn.setStyleSheet("""
-                QPushButton {
-                    color: #2563EB;
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    color: {c('focus_blue')};
                     font-weight: 600;
                     font-size: 11pt;
                     border: none;
@@ -1353,14 +1359,14 @@ class MainframeNavScreen(QWidget):
                     text-align: left;
                     padding: 2px 4px;
                     margin: 0px;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     text-decoration: underline;
-                }
-                QPushButton:focus {
+                }}
+                QPushButton:focus {{
                     outline: none;
                     border: none;
-                }
+                }}
             """)
             
             # Connect click to navigate to this segment
@@ -1726,7 +1732,9 @@ class MainframeNavScreen(QWidget):
 
     def _create_member_info_label(self, member_name: str, line_count: int) -> QLabel:
         info_label = QLabel(f"Showing first 1000 lines of {member_name} (Total: {line_count} lines)")
-        info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #e8f4f8;")
+        info_label.setStyleSheet(
+            f"font-weight: bold; padding: 4px; background-color: {c('info_bg')};"
+        )
         return info_label
 
     def _populate_member_dialog_actions(
@@ -1834,7 +1842,9 @@ class MainframeNavScreen(QWidget):
         save_btn.setVisible(True)
         load_all_btn.setEnabled(False)
         info_label.setText("✏️ Edit mode - Make changes and click Save")
-        info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #fff3cd;")
+        info_label.setStyleSheet(
+            f"font-weight: bold; padding: 4px; background-color: {c('warning_bg')};"
+        )
 
     def _save_member_changes(
         self,
@@ -1871,13 +1881,17 @@ class MainframeNavScreen(QWidget):
                 save_btn.setVisible(False)
                 load_all_btn.setEnabled(True)
                 info_label.setText(f"✓ {message}")
-                info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #d4edda;")
+                info_label.setStyleSheet(
+                    f"font-weight: bold; padding: 4px; background-color: {c('success_bg')};"
+                )
                 QMessageBox.information(dialog, "Save Complete", message)
                 if self.current_dataset in self.folder_cache:
                     del self.folder_cache[self.current_dataset]
             else:
                 info_label.setText(f"✗ {message}")
-                info_label.setStyleSheet("font-weight: bold; padding: 4px; background-color: #f8d7da;")
+                info_label.setStyleSheet(
+                    f"font-weight: bold; padding: 4px; background-color: {c('error_bg')};"
+                )
                 QMessageBox.critical(dialog, "Save Error", message)
         except Exception as e:
             dialog.setCursor(Qt.CursorShape.ArrowCursor)
@@ -1991,13 +2005,13 @@ class MainframeNavScreen(QWidget):
             
             if success:
                 self.status_label.setText(f"✓ Added {member_name}")
-                self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+                self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
                 QMessageBox.information(self, "Upload Complete", f"Member {member_name} added successfully.")
                 # Reload the member list to get actual dates from mainframe
                 self.load_members(self.current_dataset)
             else:
                 self.status_label.setText(f"✗ {message}")
-                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+                self.status_label.setStyleSheet(f"color: {c('danger')}; font-weight: bold; padding: 2px; font-size: 11px;")
                 QMessageBox.critical(self, "Upload Error", message)
                 
         except Exception as e:
@@ -2057,7 +2071,7 @@ class MainframeNavScreen(QWidget):
             
             if success:
                 self.status_label.setText(f"✓ Deleted {member_name}")
-                self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+                self.status_label.setStyleSheet(f"color: {c('success')}; font-weight: bold; padding: 2px; font-size: 11px;")
                 QMessageBox.information(self, "Delete Complete", f"Member {member_name} deleted successfully.")
                 # Clear cache and reload the member list
                 if self.current_dataset in self.folder_cache:
@@ -2065,7 +2079,7 @@ class MainframeNavScreen(QWidget):
                 self.load_members(self.current_dataset)
             else:
                 self.status_label.setText(f"✗ {message}")
-                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+                self.status_label.setStyleSheet(f"color: {c('danger')}; font-weight: bold; padding: 2px; font-size: 11px;")
                 QMessageBox.critical(self, "Delete Error", message)
                 
         except Exception as e:
@@ -2131,17 +2145,17 @@ class MainframeNavScreen(QWidget):
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("""
-            QPushButton {
-                background-color: #2c5f8d;
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c('dialog_action')};
                 color: white;
                 padding: 6px 20px;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1e4a6b;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {c('dialog_action_hover')};
+            }}
         """)
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
@@ -2238,17 +2252,17 @@ class MainframeNavScreen(QWidget):
             button_box = QDialogButtonBox(
                 QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
             )
-            button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("""
-                QPushButton {
-                    background-color: #2c5f8d;
+            button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c('dialog_action')};
                     color: white;
                     padding: 6px 20px;
                     border-radius: 4px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #1e4a6b;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {c('dialog_action_hover')};
+                }}
             """)
             button_box.accepted.connect(dialog.accept)
             button_box.rejected.connect(dialog.reject)

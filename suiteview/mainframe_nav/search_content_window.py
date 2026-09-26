@@ -58,7 +58,7 @@ class SearchContentWindow(FramelessWindowBase):
 
     def build_content(self) -> QWidget:
         body = QWidget()
-        body.setStyleSheet("QWidget { background-color: #f8f9fa; }")
+        body.setStyleSheet(f"QWidget {{ background-color: {c('search_bg')}; }}")
         layout = QVBoxLayout(body)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
@@ -71,7 +71,8 @@ class SearchContentWindow(FramelessWindowBase):
     def _build_search_criteria(self) -> QWidget:
         search_control_widget = QWidget()
         search_control_widget.setStyleSheet(
-            "background-color: #f8f9fa; border: 1px solid #bdc3c7; border-radius: 3px;"
+            f"background-color: {c('search_bg')}; border: 1px solid {c('search_border')};"
+            " border-radius: 3px;"
         )
         search_control_layout = QVBoxLayout(search_control_widget)
         search_control_layout.setContentsMargins(6, 3, 6, 3)
@@ -109,7 +110,7 @@ class SearchContentWindow(FramelessWindowBase):
         search_input = QLineEdit()
         search_input.setPlaceholderText(f"Enter search string {index + 1}...")
         search_input.setStyleSheet(
-            "QLineEdit { border: 1px solid #bdc3c7; border-radius: 2px; "
+            f"QLineEdit {{ border: 1px solid {c('search_border')}; border-radius: 2px; "
             "padding: 2px 4px; font-family: Consolas, monospace; "
             "font-size: 8pt; background-color: white; }"
         )
@@ -139,15 +140,17 @@ class SearchContentWindow(FramelessWindowBase):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(5)
-        left_layout.addWidget(self._section_label("📋 Datasets to Search", "#e8f4f8"))
+        left_layout.addWidget(self._section_label("📋 Datasets to Search", c("info_bg")))
 
         dataset_info = QLabel("Right-click datasets in Mainframe Nav and select 'Add to Search'")
-        dataset_info.setStyleSheet("color: #7f8c8d; font-size: 8pt; font-style: italic; padding: 2px;")
+        dataset_info.setStyleSheet(
+            f"color: {c('muted')}; font-size: 8pt; font-style: italic; padding: 2px;"
+        )
         left_layout.addWidget(dataset_info)
 
         dataset_controls = QHBoxLayout()
         dataset_filter_label = QLabel("Filter:")
-        dataset_filter_label.setStyleSheet("font-size: 9pt; color: #34495e;")
+        dataset_filter_label.setStyleSheet(f"font-size: 9pt; color: {c('filter_text')};")
         dataset_controls.addWidget(dataset_filter_label)
 
         self.dataset_filter = QLineEdit()
@@ -176,14 +179,16 @@ class SearchContentWindow(FramelessWindowBase):
         right_layout.setSpacing(5)
 
         results_header_layout = QHBoxLayout()
-        results_header_layout.addWidget(self._section_label("✓ Datasets with Matches", "#e8f8f5"))
+        results_header_layout.addWidget(self._section_label("✓ Datasets with Matches", c("results_bg")))
         self.results_info_label = QLabel("")
-        self.results_info_label.setStyleSheet("color: #7f8c8d; font-style: italic; font-size: 8pt; padding: 4px;")
+        self.results_info_label.setStyleSheet(
+            f"color: {c('muted')}; font-style: italic; font-size: 8pt; padding: 4px;"
+        )
         results_header_layout.addWidget(self.results_info_label)
         results_header_layout.addStretch()
         right_layout.addLayout(results_header_layout)
 
-        self.results_table = self._create_filter_table(selection_bg="#27ae60", selection_fg="white")
+        self.results_table = self._create_filter_table(selection_bg=c("success"), selection_fg="white")
         self.results_table.table_view.doubleClicked.connect(self.view_result_details)
         right_layout.addWidget(self.results_table)
 
@@ -204,13 +209,13 @@ class SearchContentWindow(FramelessWindowBase):
         )
         return label
 
-    def _create_filter_table(self, *, selection_bg: str = "#3498db", selection_fg: str = "white") -> FilterTableView:
+    def _create_filter_table(self, *, selection_bg: str = c("action_blue"), selection_fg: str = "white") -> FilterTableView:
         table = FilterTableView(self)
         table.search_bar.hide()
         table.apply_ledger_style(
-            header_bg="#e8f4f8",
+            header_bg=c("info_bg"),
             header_fg=c("dark_text"),
-            border="#bdc3c7",
+            border=c("search_border"),
             selection_bg=selection_bg,
             selection_fg=selection_fg,
         )
@@ -371,11 +376,15 @@ class SearchContentWindow(FramelessWindowBase):
 
         if results:
             self.results_info_label.setText(", ".join(info_parts))
-            self.results_info_label.setStyleSheet("color: #27ae60; font-style: italic; font-size: 9pt; padding: 6px;")
+            self.results_info_label.setStyleSheet(
+                f"color: {c('success')}; font-style: italic; font-size: 9pt; padding: 6px;"
+            )
         else:
             suffix = f" ({', '.join(info_parts[1:])})" if info_parts[1:] else ""
             self.results_info_label.setText("No matches found" + suffix)
-            self.results_info_label.setStyleSheet("color: #e74c3c; font-style: italic; font-size: 9pt; padding: 6px;")
+            self.results_info_label.setStyleSheet(
+                f"color: {c('danger')}; font-style: italic; font-size: 9pt; padding: 6px;"
+            )
 
     def view_result_details(self, index: QModelIndex):
         """View detailed match information for a result."""
@@ -444,7 +453,9 @@ class SearchContentWindow(FramelessWindowBase):
         dialog.resize(900, 700)
         layout = QVBoxLayout(dialog)
         header = QLabel(header_text)
-        header.setStyleSheet("font-weight: bold; padding: 8px; background-color: #e8f4f8; border-radius: 3px;")
+        header.setStyleSheet(
+            f"font-weight: bold; padding: 8px; background-color: {c('info_bg')}; border-radius: 3px;"
+        )
         layout.addWidget(header)
         details_text = QTextEdit()
         details_text.setReadOnly(True)

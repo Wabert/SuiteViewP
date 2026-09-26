@@ -37,6 +37,7 @@ Start with [`../Agent.md`](../Agent.md) for canonical standards, then use this i
 | [`STARTUP.md`](STARTUP.md) | Startup entry points, logging and initialization order. |
 | [`TASKBAR_ARCHITECTURE.md`](TASKBAR_ARCHITECTURE.md) | Taskbar launcher collaborators and AppBar architecture. |
 | [`TN3270.md`](TN3270.md) | TN3270 decoder pipeline and supported orders. |
+| [`UI_TOKENS.md`](UI_TOKENS.md) | Semantic visual-identity tokens and app palette rules. |
 | [`WORKERS.md`](WORKERS.md) | Worker/cancellation/threading rules. |
 | [`audit/AUDIT_MANUAL.md`](audit/AUDIT_MANUAL.md) | Audit/Query manual moved out of Agent.md. |
 | [`audit/Audit_Criteria_Input_Types.md`](audit/Audit_Criteria_Input_Types.md) | Audit criteria input types and UI contracts. |

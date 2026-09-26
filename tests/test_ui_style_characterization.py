@@ -35,6 +35,17 @@ STYLE_MODULES = (
     "suiteview.mainframe_nav.styles",
 )
 
+HEX_FREE_STYLE_FILES = (
+    "suiteview/abrquote/ui/abr_styles.py",
+    "suiteview/audit/build_mode_styles.py",
+    "suiteview/audit/tabs/_styles.py",
+    "suiteview/illustration/ui/styles.py",
+    "suiteview/polview/ui/styles.py",
+    "suiteview/polview/ui/tooltip_style.py",
+    "suiteview/ratemanager/rm_styles.py",
+    "suiteview/mainframe_nav/styles.py",
+)
+
 EXPECTED_MODULE_HASHES = {
     "suiteview.abrquote.ui.abr_styles": (
         "6f85f98d2ed4677b255c6765c459477abe09ce210a6bfb7d6fb7141d4bf449e0"
@@ -193,6 +204,14 @@ def _collect_widget_styles(window) -> list[str]:
     return sorted(HEX_LITERAL_RE.sub(lambda match: match.group(0).upper(), value) for value in styles)
 
 
+def _reset_process_singletons() -> None:
+    try:
+        from suiteview.illustration.models import app_settings
+    except ImportError:
+        return
+    app_settings._settings = None
+
+
 @pytest.mark.parametrize("module_name", STYLE_MODULES)
 def test_style_module_output_matches_characterization(module_name, app):
     assert _digest(_collect_module(module_name)) == EXPECTED_MODULE_HASHES[module_name]
@@ -208,3 +227,22 @@ def test_window_stylesheet_tree_matches_characterization(
         assert _digest(_collect_widget_styles(window)) == EXPECTED_WINDOW_HASHES[name]
     finally:
         _cleanup(window, app)
+        _reset_process_singletons()
+
+
+def test_converted_style_modules_do_not_reintroduce_raw_hex_literals():
+    root = Path(__file__).resolve().parents[1]
+    offenders = {}
+    for relative in HEX_FREE_STYLE_FILES:
+        matches = HEX_LITERAL_RE.findall((root / relative).read_text(encoding="utf-8"))
+        if matches:
+            offenders[relative] = sorted(set(matches))
+    assert offenders == {}
+
+
+def test_design_tokens_stay_semantic_and_plain_python():
+    token_text = (Path(__file__).resolve().parents[1] / "suiteview/ui/tokens.py").read_text(
+        encoding="utf-8"
+    )
+    assert "hex_" not in token_text.lower()
+    assert "def qss" not in token_text
