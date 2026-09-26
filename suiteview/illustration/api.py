@@ -8,8 +8,6 @@ and UI/report reduction.
 """
 from __future__ import annotations
 
-import inspect
-import sys
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -119,7 +117,6 @@ def project_policy(
     overrides; otherwise the standard plancode and rate loaders are used.
     """
     runner = engine or IllustrationEngine()
-    project_parameters = inspect.signature(runner.project).parameters
     should_load_rates = engine is None or rates is not None or config is not None
     if should_load_rates:
         basis = load_projection_basis(
@@ -145,8 +142,7 @@ def project_policy(
         run_config = None
         run_rates = None
     run_options = options if options is not None else IllustrationOptions()
-    states = _project_with_supported_kwargs(
-        runner,
+    states = runner.project(
         policy,
         months=months,
         future_inputs=inputs,
@@ -169,22 +165,6 @@ def project_policy(
     )
 
 
-def _project_with_supported_kwargs(
-    runner: IllustrationEngine,
-    policy: IllustrationPolicyData,
-    **kwargs,
-) -> list[MonthlyState]:
-    """Call ``project`` with public kwargs, tolerating narrow test doubles."""
-    parameters = inspect.signature(runner.project).parameters
-    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
-        return runner.project(policy, **kwargs)
-    accepted = {
-        name: value for name, value in kwargs.items()
-        if name in parameters
-    }
-    return runner.project(policy, **accepted)
-
-
 def _coerce_policy(
     policy_or_number_or_pi: str | IllustrationPolicyData | Any,
     *,
@@ -196,7 +176,7 @@ def _coerce_policy(
     if isinstance(policy_or_number_or_pi, IllustrationPolicyData):
         return policy_or_number_or_pi
     if isinstance(policy_or_number_or_pi, str):
-        return _build_policy_data(
+        return build_illustration_data(
             policy_or_number_or_pi,
             region=region,
             company_code=company_code,
@@ -206,32 +186,13 @@ def _coerce_policy(
     policy_number = getattr(policy_or_number_or_pi, "policy_number", None)
     if not policy_number:
         return policy_or_number_or_pi
-    return _build_policy_data(
+    return build_illustration_data(
         str(policy_number),
         region=getattr(policy_or_number_or_pi, "region", region) or region,
         company_code=company_code or getattr(policy_or_number_or_pi, "company_code", None),
         illustration_date=illustration_date,
         reinstatement_date=reinstatement_date,
     )
-
-
-def _build_policy_data(*args, **kwargs) -> IllustrationPolicyData:
-    """Resolve the package-level builder so existing test doubles still work."""
-    package = sys.modules.get("suiteview.illustration")
-    package_builder = getattr(package, "build_illustration_data", build_illustration_data)
-    from suiteview.illustration.core import illustration_policy_service
-
-    core_builder = illustration_policy_service.build_illustration_data
-    builder = package_builder if package_builder is not build_illustration_data else core_builder
-    try:
-        return builder(*args, **kwargs)
-    except TypeError as exc:
-        if "unexpected keyword argument" not in str(exc):
-            raise
-        policy_number = args[0] if args else kwargs.get("policy_number")
-        region = kwargs.get("region", args[1] if len(args) > 1 else "CKPR")
-        company = kwargs.get("company_code", args[2] if len(args) > 2 else None)
-        return builder(policy_number, region, company)
 
 
 def _load_plancode_config(plancode: str) -> PlancodeConfig:

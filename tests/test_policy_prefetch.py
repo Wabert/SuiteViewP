@@ -611,6 +611,7 @@ def test_reinsurance_is_detached_explicit_and_retries(source, monkeypatch, qtbot
 
 def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
     from suiteview import illustration
+    from suiteview.illustration import api as illustration_api
     from suiteview.illustration.core import rate_loader
     from suiteview.illustration.models import plancode_config
 
@@ -621,18 +622,22 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
     rates = SimpleNamespace(segment_scr={1: [0, 1]}, scr=[0, 1])
     observed = []
 
-    def build(number, region, company):
-        assert policy_service.get_policy_info(number, region, company) is session._policy
+    def build(number, region="CKPR", company_code=None, **kwargs):
+        assert policy_service.get_policy_info(number, region, company_code) is session._policy
         observed.append("build")
         return basis
 
     class Engine:
-        def project(self, loaded, *, months, rates_override):
+        def project(
+            self, loaded, months=None, future_inputs=None, timing=None,
+            stop_on_lapse=True, options=None, bonus_override=None,
+            rates_override=None,
+        ):
             assert loaded is basis and months == 0 and rates_override is rates
             observed.append("project")
             return [SimpleNamespace(surrender_charge=100, surrender_value=75)]
 
-    monkeypatch.setattr(illustration, "build_illustration_data", build)
+    monkeypatch.setattr(illustration_api, "build_illustration_data", build)
     monkeypatch.setattr(illustration, "IllustrationEngine", Engine)
     monkeypatch.setattr(plancode_config, "load_plancode", lambda code: object())
     monkeypatch.setattr(rate_loader, "load_rates", lambda *args: rates)
@@ -649,14 +654,14 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
 
 
 def test_missing_illustration_plan_keeps_advanced_policy_values_available(source, monkeypatch, qtbot):
-    from suiteview import illustration
+    from suiteview.illustration import api as illustration_api
     from suiteview.illustration.models import plancode_config
     from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
 
     monkeypatch.setattr(plancode_config, "_TABLE_CACHE", {})
     monkeypatch.setattr(plancode_config, "_CONFIG_CACHE", {})
     monkeypatch.setattr(
-        illustration, "build_illustration_data",
+        illustration_api, "build_illustration_data",
         lambda *args: pytest.fail("Unsupported plan must not run illustration calculations"),
     )
     session = prefetch.PolicyLoadSession("TEST")
@@ -697,6 +702,7 @@ def test_optional_surrender_failures_do_not_block_policy_records(
     source, monkeypatch, qtbot, caplog, error, step,
 ):
     from suiteview import illustration
+    from suiteview.illustration import api as illustration_api
     from suiteview.illustration.core import rate_loader
     from suiteview.illustration.models import plancode_config
     from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
@@ -707,14 +713,14 @@ def test_optional_surrender_failures_do_not_block_policy_records(
     segment = SimpleNamespace(coverage_phase=1)
     basis = SimpleNamespace(plancode="SYNTH", base_segment=segment, segments=[segment])
     monkeypatch.setattr(plancode_config, "load_plancode", lambda code: object())
-    monkeypatch.setattr(illustration, "build_illustration_data", lambda *args: basis)
+    monkeypatch.setattr(illustration_api, "build_illustration_data", lambda *args, **kwargs: basis)
     monkeypatch.setattr(
         rate_loader, "load_rates",
         lambda *args: SimpleNamespace(segment_scr={1: [0, 1]}, scr=[0, 1]),
     )
     target, attribute = {
         "configuration": (plancode_config, "load_plancode"),
-        "basis": (illustration, "build_illustration_data"),
+        "basis": (illustration_api, "build_illustration_data"),
         "rates": (rate_loader, "load_rates"),
         "projection": (illustration.IllustrationEngine, "project"),
     }[step]
@@ -742,7 +748,7 @@ def test_optional_surrender_failures_do_not_block_policy_records(
 
 
 def test_illustration_only_table_failure_does_not_poison_record_snapshot(source, monkeypatch, qtbot):
-    from suiteview import illustration
+    from suiteview.illustration import api as illustration_api
     from suiteview.illustration.models import plancode_config
     from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
 
@@ -751,10 +757,10 @@ def test_illustration_only_table_failure_does_not_poison_record_snapshot(source,
     source.connections[0].fail.add("LH_TAMRA_7_PY_YR")
     monkeypatch.setattr(plancode_config, "load_plancode", lambda code: object())
 
-    def build(*args):
+    def build(*args, **kwargs):
         session._policy.fetch_table("LH_TAMRA_7_PY_YR")
 
-    monkeypatch.setattr(illustration, "build_illustration_data", build)
+    monkeypatch.setattr(illustration_api, "build_illustration_data", build)
     try:
         prepared = session.prepare("advprod")
         assert isinstance(prepared.payload, prefetch.SurrenderValuesUnavailable)

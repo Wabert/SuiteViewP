@@ -320,7 +320,7 @@ def test_resolver_derives_funding_instead_of_substituting_modal_premium(monkeypa
     }
     monkeypatch.setattr(resolver, "inspect", lambda *args: evidence)
     ill_policy = IllustrationPolicyData(policy_number="SYNTHETIC", annual_premium=999)
-    monkeypatch.setattr("suiteview.illustration.core.illustration_policy_service.build_illustration_data",
+    monkeypatch.setattr("suiteview.illustration.api.build_illustration_data",
                         lambda *args, **kwargs: ill_policy)
     called = []
     def fund(policy, minimum_face_amount):

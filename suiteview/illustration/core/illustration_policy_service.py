@@ -531,40 +531,13 @@ def _substandard_basis(source: PolicySourceSnapshot, cov) -> tuple[int, object, 
 
 def build_benefits(source: PolicySourceSnapshot) -> BenefitAssembly:
     """Map LH_SPM_BNF supplemental benefits and derive CCV indicators."""
-    benefits = []
-    for benefit in source.raw_benefits:
-        if benefit.pay_up_date and benefit.pay_up_date < source.as_of_date:
-            continue
-        benefits.append(IllBenefitInfo(
-            coverage_phase=benefit.cov_pha_nbr,
-            form_number=benefit.form_number or "",
-            benefit_type=benefit.benefit_type_cd or "",
-            benefit_subtype=benefit.benefit_subtype_cd or "",
-            benefit_amount=float(benefit.benefit_amount) if benefit.benefit_amount else 0.0,
-            units=float(benefit.units) if benefit.units else 0.0,
-            vpu=float(benefit.vpu) if benefit.vpu else 0.0,
-            issue_date=benefit.issue_date,
-            issue_age=benefit.issue_age if benefit.issue_age is not None else 0,
-            pay_up_date=benefit.pay_up_date,
-            cease_date=benefit.cease_date,
-            rating_factor=float(benefit.rating_factor) if benefit.rating_factor else 0.0,
-            coi_rate=float(benefit.coi_rate) if benefit.coi_rate else None,
-            is_active=True,
-        ))
-    ccv_active = False
-    ccv_units = 0.0
-    ccv_coi_rate: float | None = None
-    for benefit in benefits:
-        if benefit.benefit_type == "A" and benefit.is_active:
-            ccv_active = True
-            ccv_units = benefit.units
-            ccv_coi_rate = benefit.coi_rate
-            break
-    ccv_ceased = not ccv_active and any(
-        (benefit.benefit_type_cd or "") == "A"
-        and benefit.cease_date
-        and benefit.cease_date < source.as_of_date
-        for benefit in source.raw_benefits)
+    benefits = [
+        _benefit_info(benefit)
+        for benefit in source.raw_benefits
+        if _benefit_payable(benefit, source.as_of_date)
+    ]
+    ccv_active, ccv_units, ccv_coi_rate = _active_ccv_basis(benefits)
+    ccv_ceased = _ccv_ceased(source.raw_benefits, source.as_of_date, ccv_active)
     return BenefitAssembly(
         benefits=benefits,
         ccv_active=ccv_active,
@@ -574,51 +547,108 @@ def build_benefits(source: PolicySourceSnapshot) -> BenefitAssembly:
     )
 
 
+def _benefit_payable(benefit, as_of_date: date) -> bool:
+    return not (benefit.pay_up_date and benefit.pay_up_date < as_of_date)
+
+
+def _benefit_info(benefit) -> IllBenefitInfo:
+    return IllBenefitInfo(
+        coverage_phase=benefit.cov_pha_nbr,
+        form_number=benefit.form_number or "",
+        benefit_type=benefit.benefit_type_cd or "",
+        benefit_subtype=benefit.benefit_subtype_cd or "",
+        benefit_amount=float(benefit.benefit_amount) if benefit.benefit_amount else 0.0,
+        units=float(benefit.units) if benefit.units else 0.0,
+        vpu=float(benefit.vpu) if benefit.vpu else 0.0,
+        issue_date=benefit.issue_date,
+        issue_age=benefit.issue_age if benefit.issue_age is not None else 0,
+        pay_up_date=benefit.pay_up_date,
+        cease_date=benefit.cease_date,
+        rating_factor=float(benefit.rating_factor) if benefit.rating_factor else 0.0,
+        coi_rate=float(benefit.coi_rate) if benefit.coi_rate else None,
+        is_active=True,
+    )
+
+
+def _active_ccv_basis(benefits: list[IllBenefitInfo]) -> tuple[bool, float, float | None]:
+    for benefit in benefits:
+        if benefit.benefit_type == "A" and benefit.is_active:
+            return True, benefit.units, benefit.coi_rate
+    return False, 0.0, None
+
+
+def _ccv_ceased(raw_benefits: list, as_of_date: date, ccv_active: bool) -> bool:
+    if ccv_active:
+        return False
+    return any(
+        (benefit.benefit_type_cd or "") == "A"
+        and benefit.cease_date
+        and benefit.cease_date < as_of_date
+        for benefit in raw_benefits
+    )
+
+
 def build_riders(source: PolicySourceSnapshot) -> list[RiderInfo]:
     """Map non-base LH_COV_PHA rider rows with rider-config metadata."""
     riders = []
     rider_counts = {}
     for rider in source.raw_riders:
+        if not _rider_is_projectable(rider, source):
+            continue
         rider_plancode = rider.plancode or ""
-        if not rider_plancode or rider_plancode == source.plancode:
-            continue
-        if _coverage_is_terminated(rider, source.as_of_date):
-            continue
-        rider_config = load_rider_config(rider_plancode)
         rider_counts[rider_plancode] = rider_counts.get(rider_plancode, 0) + 1
-        rider_face = float(rider.face_amount) if rider.face_amount else 0.0
-        rider_units = float(rider.units) if rider.units else rider_face / 1000.0
-        if rider_bands_as_base(rider_plancode):
-            rider_band = source.band
-        else:
-            raw_rider_band = source.rates_db.get_band(rider_plancode, rider_face)
-            rider_band = raw_rider_band if raw_rider_band is not None else 1
-        riders.append(RiderInfo(
-            coverage_phase=rider.cov_pha_nbr,
-            occurrence=rider_counts[rider_plancode],
-            plancode=rider_plancode,
-            issue_date=rider.issue_date,
-            issue_age=rider.issue_age if rider.issue_age is not None else 0,
-            rate_sex=rider.sex_code or "",
-            rate_class=rider.rate_class or "",
-            face_amount=rider_face,
-            units=rider_units,
-            vpu=float(rider.vpu) if rider.vpu else 1000.0,
-            band=int(rider_band),
-            table_rating=rider.table_rating or 0,
-            flat_extra=float(rider.flat_extra) if rider.flat_extra else 0.0,
-            maturity_date=rider.maturity_date,
-            status=rider.cov_status or "",
-            premium_rate=float(rider.premium_rate) if rider.premium_rate else None,
-            coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
-            is_active=True,
-            on_primary_insured=source.pi._covers_primary_insured(rider),
-            cov_type=rider_config.cov_type if rider_config is not None else "",
-            cease_age_dur=rider_config.cease_age_dur if rider_config is not None else None,
-            cease_use_code=rider_config.cease_use_code if rider_config is not None else "",
-            description=rider_config.description if rider_config is not None else "",
-        ))
+        riders.append(_rider_info(source, rider, rider_counts[rider_plancode]))
     return riders
+
+
+def _rider_is_projectable(rider, source: PolicySourceSnapshot) -> bool:
+    rider_plancode = rider.plancode or ""
+    return bool(
+        rider_plancode
+        and rider_plancode != source.plancode
+        and not _coverage_is_terminated(rider, source.as_of_date)
+    )
+
+
+def _rider_info(source: PolicySourceSnapshot, rider, occurrence: int) -> RiderInfo:
+    rider_plancode = rider.plancode or ""
+    rider_config = load_rider_config(rider_plancode)
+    rider_face = float(rider.face_amount) if rider.face_amount else 0.0
+    rider_units = float(rider.units) if rider.units else rider_face / 1000.0
+    return RiderInfo(
+        coverage_phase=rider.cov_pha_nbr,
+        occurrence=occurrence,
+        plancode=rider_plancode,
+        issue_date=rider.issue_date,
+        issue_age=rider.issue_age if rider.issue_age is not None else 0,
+        rate_sex=rider.sex_code or "",
+        rate_class=rider.rate_class or "",
+        face_amount=rider_face,
+        units=rider_units,
+        vpu=float(rider.vpu) if rider.vpu else 1000.0,
+        band=int(_rider_band(source, rider_plancode, rider_face)),
+        table_rating=rider.table_rating or 0,
+        flat_extra=float(rider.flat_extra) if rider.flat_extra else 0.0,
+        maturity_date=rider.maturity_date,
+        status=rider.cov_status or "",
+        premium_rate=float(rider.premium_rate) if rider.premium_rate else None,
+        coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
+        is_active=True,
+        on_primary_insured=source.pi._covers_primary_insured(rider),
+        cov_type=rider_config.cov_type if rider_config is not None else "",
+        cease_age_dur=rider_config.cease_age_dur if rider_config is not None else None,
+        cease_use_code=rider_config.cease_use_code if rider_config is not None else "",
+        description=rider_config.description if rider_config is not None else "",
+    )
+
+
+def _rider_band(source: PolicySourceSnapshot, rider_plancode: str, rider_face: float) -> int:
+    if rider_bands_as_base(rider_plancode):
+        return source.band
+    raw_rider_band = source.rates_db.get_band(rider_plancode, rider_face)
+    return raw_rider_band if raw_rider_band is not None else 1
+
+
 def active_rider_benefit_codes(pi) -> str:
     """Comma-delimited active rider plancodes + supplemental benefit codes.
 

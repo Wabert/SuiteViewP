@@ -17,8 +17,11 @@ def _stub_dependencies(monkeypatch, ill_policy, states):
     )
 
     class FakeEngine:
-        def project(self, _policy, options=None, future_inputs=None,
-                    months=None, stop_on_lapse=True, **_kw):
+        def project(
+            self, _policy, months=None, future_inputs=None, timing=None,
+            stop_on_lapse=True, options=None, bonus_override=None,
+            rates_override=None,
+        ):
             return states
 
     monkeypatch.setattr(gea, "IllustrationEngine", FakeEngine)
@@ -268,8 +271,11 @@ def test_zero_solved_premium_explicitly_overrides_billing(monkeypatch):
     captured = {}
 
     class CapturingEngine:
-        def project(self, _policy, options=None, future_inputs=None,
-                    months=None, stop_on_lapse=True, **_kw):
+        def project(
+            self, _policy, months=None, future_inputs=None, timing=None,
+            stop_on_lapse=True, options=None, bonus_override=None,
+            rates_override=None,
+        ):
             captured["future_inputs"] = future_inputs
             return states
 
@@ -296,8 +302,11 @@ def test_positive_solved_premium_schedules_a_premium_row(monkeypatch):
     captured = {}
 
     class CapturingEngine:
-        def project(self, _policy, options=None, future_inputs=None,
-                    months=None, stop_on_lapse=True, **_kw):
+        def project(
+            self, _policy, months=None, future_inputs=None, timing=None,
+            stop_on_lapse=True, options=None, bonus_override=None,
+            rates_override=None,
+        ):
             captured["future_inputs"] = future_inputs
             return states
 
@@ -394,7 +403,11 @@ def test_all_solves_preserve_targets_and_count_premium_without_loan_repayment(mo
         return SimpleNamespace(premium=premium, mode="Q")
 
     class Engine:
-        def project(self, policy, *, options, future_inputs, months):
+        def project(
+            self, policy, months=None, future_inputs=None, timing=None,
+            stop_on_lapse=True, options=None, bonus_override=None,
+            rates_override=None,
+        ):
             projections.append((policy.glp, options, months))
             tx = future_inputs.scheduled_transactions[0]
             assert tx.amount == (10.0 if policy.glp else (
