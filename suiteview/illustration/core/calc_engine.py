@@ -591,6 +591,128 @@ def apply_premium_step(ctx: MonthContext, work: MonthWork) -> None:
     work.av_before_deduction = work.av
 
 
+def deduct_monthly_charges(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Deduct monthly charges and IUL asset charge."""
+    monthly_mtp = (
+        work.pw_monthly_mtp
+        if convention == ILLUSTRATION_TIMING
+        else work.monthly_mtp
+    )
+    work.ded = calculate_deduction(
+        work.av_before_deduction,
+        ctx.policy,
+        ctx.config,
+        ctx.rates,
+        work.rate_year,
+        work.attained_age,
+        work.prem.premiums_to_date,
+        monthly_mtp=monthly_mtp,
+        projection_date=work.month_date,
+    )
+    work.asset_charge = monthly_asset_charge(
+        ctx.iul_ctx,
+        work.av_before_deduction,
+        work.cap_loan.rg_loan_princ,
+        work.cap_loan.rg_loan_accrued,
+    )
+    work.av_after_charge = work.ded.av_after_deduction - work.asset_charge
+
+
+def _exception_input(
+    ctx: MonthContext, work: MonthWork, md_premium_active: bool
+) -> ExceptionPremiumInput:
+    return ExceptionPremiumInput(
+        options=ctx.options,
+        policy=ctx.policy,
+        config=ctx.config,
+        rates=ctx.rates,
+        rate_year=work.rate_year,
+        av_after_charge=work.av_after_charge,
+        coi_rate=work.ded.coi_rate,
+        guideline_limit_reached=work.guideline_limit_reached,
+        past_snet=work.past_snet,
+        prior_exception_mode=work.prior_exception_mode,
+        prior_lapsed=ctx.state.lapsed,
+        attained_age=work.attained_age,
+        md_premium_active=md_premium_active,
+        total_deduction=work.ded.total_deduction,
+        guideline_limit=work.guideline_limit,
+        premiums_to_date=work.prem.premiums_to_date,
+        withdrawals_to_date=work.withdrawals_to_date,
+        guideline_cap_enabled=ctx.options.guideline_cap_enabled and ctx.policy.is_gpt,
+    )
+
+
+def _update_billable_to_md(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    work.b2md_switched = ctx.state.billable_md_switched
+    if not (
+        work.b2md_active
+        and not work.b2md_switched
+        and not ctx.state.lapsed
+        and _b2md_latch_allowed(ctx.options, work.month_date)
+    ):
+        return
+    if convention.full_lapse_protection:
+        _, sc_probe, _, _ = _calculate_surrender_charge(
+            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+        )
+        probe_debt = work.cap_loan.policy_debt
+        snet_probe = (
+            (work.prem.premiums_to_date - work.withdrawals_to_date - probe_debt)
+            - work.accumulated_mtp >= 0 and work.within_snet
+        )
+        shadow_probe = (
+            ctx.policy.has_shadow_account
+            and work.past_snet
+            and ctx.state.shadow_eav_less_debt > 0
+        )
+        sv_probe = (
+            work.lapse_value == LAPSE_BASIS_SURRENDER_VALUE
+            and work.av_after_charge - sc_probe - probe_debt > 0
+        )
+        av_probe = (
+            work.lapse_value == LAPSE_BASIS_ACCOUNT_VALUE
+            and work.av_after_charge - probe_debt > 0
+        )
+        work.b2md_switched = not (
+            snet_probe or shadow_probe or sv_probe or av_probe
+        )
+    else:
+        work.b2md_switched = work.av_after_charge <= 0.0
+
+
+def apply_exception_premium(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Compute monthly-deduction and GP exception premiums."""
+    work.guideline_limit_reached = _guideline_limit_reached(
+        ctx.config,
+        work.allowances,
+        attained_age=work.attained_age,
+        beginning_of_year=work.beginning_of_year,
+        prior_limit_reached=ctx.state.guideline_limit_reached,
+    )
+    _update_billable_to_md(ctx, convention, work)
+    md_premium_active = (
+        _monthly_deduction_premium_active(ctx.options, work.next_year)
+        or (work.b2md_active and work.b2md_switched)
+    ) and not ctx.state.inforce_exception_period
+    work.exception = _compute_exception_premium(
+        _exception_input(ctx, work, md_premium_active)
+    )
+    if work.exception.requires_option_a:
+        ctx.policy.db_option = DB_OPTION_LEVEL
+        deduct_monthly_charges(ctx, convention, work)
+        work.exception = _compute_exception_premium(
+            _exception_input(ctx, work, md_premium_active)
+        )
+    work.av = work.exception.av_after_exception
+
+
 def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     """Run one illustration-timing month through the current month pipeline."""
 
@@ -685,117 +807,14 @@ def _run_illustration_month(ctx: MonthContext) -> MonthlyState:
     av = work.av
     av_before_deduction = work.av_before_deduction
 
-    # ── 13. Monthly deduction ─────────────────────────────
-    ded = calculate_deduction(
-        av, policy, config, rates, rate_year,
-        attained_age, prem.premiums_to_date,
-        monthly_mtp=pw_monthly_mtp,
-        projection_date=month_date,
-    )
-    # 13b. IUL asset charge (RERUN SV/SX): MAX(0, SU/12 × (OO − MS − MT))
-    # on the unloaned AV (post-repay regular loan buckets), deducted from
-    # AV alongside the monthly deduction under AG49 regimes 1-2 only.
-    asset_charge = monthly_asset_charge(
-        iul_ctx, av_before_deduction,
-        cap_loan.rg_loan_princ, cap_loan.rg_loan_accrued,
-    )
-    av_after_charge = ded.av_after_deduction - asset_charge
-
-    # ── 14. GP Exception premium ──────────────────────────
-    guideline_limit_reached = _guideline_limit_reached(
-        config, allowances,
-        attained_age=attained_age,
-        beginning_of_year=beginning_of_year,
-        prior_limit_reached=state.guideline_limit_reached,
-    )
-    # Billable-to-MD hand-off: within the window, the FIRST month the
-    # post-deduction values would fail the lapse test in stage 18 (absent
-    # any MD/exception help) latches the switch — the Monthly Deduction
-    # premium pays from THIS month on, so the policy survives the month
-    # the billable premium stopped carrying it. The probe mirrors the
-    # stage-18 protections on the pre-help account value: safety net,
-    # shadow account (prior month's EAV-less-debt — this month's shadow
-    # runs at stage 17), and the plancode's SV/AV lapse basis.
-    b2md_switched = state.billable_md_switched
-    if (b2md_active and not b2md_switched and not state.lapsed
-            and _b2md_latch_allowed(options, month_date)):
-        _, sc_probe, _, _ = _calculate_surrender_charge(
-            policy, rates, rate_year, month_date, config)
-        probe_debt = cap_loan.policy_debt
-        snet_probe = (
-            (prem.premiums_to_date - withdrawals_to_date - probe_debt)
-            - accumulated_mtp >= 0 and within_snet)
-        shadow_probe = (
-            policy.has_shadow_account and past_snet
-            and state.shadow_eav_less_debt > 0)
-        sv_probe = (lapse_value == LAPSE_BASIS_SURRENDER_VALUE
-                    and av_after_charge - sc_probe - probe_debt > 0)
-        av_probe = (lapse_value == LAPSE_BASIS_ACCOUNT_VALUE
-                    and av_after_charge - probe_debt > 0)
-        if not (snet_probe or shadow_probe or sv_probe or av_probe):
-            b2md_switched = True
-    md_premium_active = (
-        _monthly_deduction_premium_active(options, next_year)
-        or (b2md_active and b2md_switched)) and not state.inforce_exception_period
-    exception = _compute_exception_premium(ExceptionPremiumInput(
-        options=options,
-        policy=policy,
-        config=config,
-        rates=rates,
-        rate_year=rate_year,
-        av_after_charge=av_after_charge,
-        coi_rate=ded.coi_rate,
-        guideline_limit_reached=guideline_limit_reached,
-        past_snet=past_snet,
-        prior_exception_mode=prior_exception_mode,
-        prior_lapsed=state.lapsed,
-        attained_age=attained_age,
-        md_premium_active=md_premium_active,
-        total_deduction=ded.total_deduction,
-        guideline_limit=guideline_limit,
-        premiums_to_date=prem.premiums_to_date,
-        withdrawals_to_date=withdrawals_to_date,
-        guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-    ))
-    if exception.requires_option_a:
-        policy.db_option = DB_OPTION_LEVEL
-        ded = calculate_deduction(
-            av_before_deduction,
-            policy,
-            config,
-            rates,
-            rate_year,
-            attained_age,
-            prem.premiums_to_date,
-            monthly_mtp=pw_monthly_mtp,
-            projection_date=month_date,
-        )
-        asset_charge = monthly_asset_charge(
-            iul_ctx, av_before_deduction,
-            cap_loan.rg_loan_princ, cap_loan.rg_loan_accrued,
-        )
-        av_after_charge = ded.av_after_deduction - asset_charge
-        exception = _compute_exception_premium(ExceptionPremiumInput(
-            options=options,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            av_after_charge=av_after_charge,
-            coi_rate=ded.coi_rate,
-            guideline_limit_reached=guideline_limit_reached,
-            past_snet=past_snet,
-            prior_exception_mode=prior_exception_mode,
-            prior_lapsed=state.lapsed,
-            attained_age=attained_age,
-            md_premium_active=md_premium_active,
-            total_deduction=ded.total_deduction,
-            guideline_limit=guideline_limit,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-        ))
-    av = exception.av_after_exception
+    deduct_monthly_charges(ctx, ILLUSTRATION_TIMING, work)
+    apply_exception_premium(ctx, ILLUSTRATION_TIMING, work)
+    ded = work.ded
+    asset_charge = work.asset_charge
+    guideline_limit_reached = work.guideline_limit_reached
+    b2md_switched = work.b2md_switched
+    exception = work.exception
+    av = work.av
 
     # ── 15. Policy values / new fixed loans (gain → preferred) ─
     # The applied loan is capped at the lapse SV (TQ vAppliedLoan with
@@ -1291,103 +1310,14 @@ def _run_cyberlife_monthliversary(ctx: MonthContext) -> MonthlyState:
     prem = work.prem
     av_before_deduction = work.av_before_deduction
 
-    ded = calculate_deduction(
-        av_before_deduction,
-        policy,
-        config,
-        rates,
-        rate_year,
-        attained_age,
-        prem.premiums_to_date,
-        monthly_mtp=truncate_monthly_mtp(policy.mtp),
-        projection_date=month_date,
-    )
-
-    # IUL asset charge (RERUN SV/SX) — same deduction-time charge as the
-    # illustration path; WAIR crediting is not modeled in this CyberLife-
-    # monthliversary timing mode (blended-rate credit only).
-    asset_charge = monthly_asset_charge(
-        iul_ctx, av_before_deduction,
-        cash_flows.loan_state.rg_loan_princ, cash_flows.loan_state.rg_loan_accrued,
-    )
-
-    guideline_limit_reached = _guideline_limit_reached(
-        config, allowances,
-        attained_age=attained_age,
-        beginning_of_year=beginning_of_year,
-        prior_limit_reached=state.guideline_limit_reached,
-    )
-    # Billable-to-MD hand-off — this timing mode's lapse test is simply
-    # av_end <= 0, so the probe latches the switch the first month the
-    # post-deduction AV would go negative without help (see process_month
-    # for the full-protection probe on the illustration timing).
-    b2md_switched = state.billable_md_switched
-    if (b2md_active and not b2md_switched and not state.lapsed
-            and _b2md_latch_allowed(options, month_date)
-            and ded.av_after_deduction - asset_charge <= 0.0):
-        b2md_switched = True
-    exception = _compute_exception_premium(ExceptionPremiumInput(
-        options=options,
-        policy=policy,
-        config=config,
-        rates=rates,
-        rate_year=rate_year,
-        av_after_charge=ded.av_after_deduction - asset_charge,
-        coi_rate=ded.coi_rate,
-        guideline_limit_reached=guideline_limit_reached,
-        past_snet=past_snet,
-        prior_exception_mode=prior_exception_mode,
-        prior_lapsed=state.lapsed,
-        attained_age=attained_age,
-        md_premium_active=(
-            _monthly_deduction_premium_active(options, next_year)
-            or (b2md_active and b2md_switched)) and not state.inforce_exception_period,
-        total_deduction=ded.total_deduction,
-        guideline_limit=guideline_limit,
-        premiums_to_date=prem.premiums_to_date,
-        withdrawals_to_date=withdrawals_to_date,
-        guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-    ))
-    if exception.requires_option_a:
-        policy.db_option = DB_OPTION_LEVEL
-        ded = calculate_deduction(
-            av_before_deduction,
-            policy,
-            config,
-            rates,
-            rate_year,
-            attained_age,
-            prem.premiums_to_date,
-            monthly_mtp=truncate_monthly_mtp(policy.mtp),
-            projection_date=month_date,
-        )
-        asset_charge = monthly_asset_charge(
-            iul_ctx, av_before_deduction,
-            cash_flows.loan_state.rg_loan_princ, cash_flows.loan_state.rg_loan_accrued,
-        )
-        exception = _compute_exception_premium(ExceptionPremiumInput(
-            options=options,
-            policy=policy,
-            config=config,
-            rates=rates,
-            rate_year=rate_year,
-            av_after_charge=ded.av_after_deduction - asset_charge,
-            coi_rate=ded.coi_rate,
-            guideline_limit_reached=guideline_limit_reached,
-            past_snet=past_snet,
-            prior_exception_mode=prior_exception_mode,
-            prior_lapsed=state.lapsed,
-            attained_age=attained_age,
-            md_premium_active=(
-                _monthly_deduction_premium_active(options, next_year)
-                or (b2md_active and b2md_switched)) and not state.inforce_exception_period,
-            total_deduction=ded.total_deduction,
-            guideline_limit=guideline_limit,
-            premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=withdrawals_to_date,
-            guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
-        ))
-    av_end = exception.av_after_exception
+    deduct_monthly_charges(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    apply_exception_premium(ctx, CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    ded = work.ded
+    asset_charge = work.asset_charge
+    guideline_limit_reached = work.guideline_limit_reached
+    b2md_switched = work.b2md_switched
+    exception = work.exception
+    av_end = work.av
 
     loan_cap = None
     if options.restrict_loans_to_sv:
