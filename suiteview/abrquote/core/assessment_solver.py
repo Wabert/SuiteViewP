@@ -384,13 +384,20 @@ def assessment_to_mortality_params(
     )
 
 
-def _standard_text(policy: ABRPolicyData, standard_le: float, surv5: float, surv10: float) -> dict[str, str]:
+def _standard_text(
+    policy: ABRPolicyData,
+    standard_le: float,
+    surv5: float,
+    surv10: float,
+    *,
+    include_secondary_table: bool = True,
+) -> dict[str, str]:
     table_text = "None"
     if policy.table_rating > 0 or policy.table_rating_2 > 0:
         parts = []
         if policy.table_rating > 0:
             parts.append(f"Table {policy.table_rating}")
-        if policy.table_rating_2 > 0:
+        if include_secondary_table and policy.table_rating_2 > 0:
             parts.append(f"Table {policy.table_rating_2}")
         table_text = "  |  ".join(parts)
     flat_text = "None"
@@ -541,8 +548,10 @@ def _build_result(
     survival_5yr = engine.compute_survival_probability(5)
     survival_10yr = engine.compute_survival_probability(10)
     standard_le, standard_5yr, standard_10yr = _standard_projection(base_params)
-    if not computed_le:
-        computed_le = final_le
+    computed_le = final_le
+    reported_le = (
+        inputs.life_expectancy_years if inputs.life_expectancy_years else computed_le
+    )
     assessment = MedicalAssessment(
         rider_type=inputs.rider_type,
         use_five_year=inputs.use_five_year,
@@ -558,8 +567,8 @@ def _build_result(
         in_lieu_of=inputs.in_lieu_of,
         five_year_survival=inputs.five_year_survival,
         ten_year_survival=inputs.ten_year_survival,
-        life_expectancy_years=inputs.life_expectancy_years or computed_le,
-        life_expectancy_rounded=round(inputs.life_expectancy_years or computed_le),
+        life_expectancy_years=reported_le,
+        life_expectancy_rounded=round(reported_le),
         direct_increased_decrement=inputs.direct_increased_decrement,
         incr_decrement_start_year=inputs.incr_decrement_start_year,
         incr_decrement_stop_year=inputs.incr_decrement_stop_year,
@@ -617,7 +626,13 @@ def terminal_substandard(policy: ABRPolicyData) -> SubstandardSolveResult:
         computed_le=term_le,
     )
     labels = {
-        **_standard_text(policy, standard_le, standard_5yr, standard_10yr),
+        **_standard_text(
+            policy,
+            standard_le,
+            standard_5yr,
+            standard_10yr,
+            include_secondary_table=False,
+        ),
         "mod_survival_5yr": (
             f"{assessment.computed_survival_5yr:.4f}  "
             f"({assessment.computed_survival_5yr * 100:.2f}%)"

@@ -206,6 +206,7 @@ def _json_value(value):
 
 def _assessment_port(policy, request):
     from .core.assessment_solver import AssessmentInputs, solve_substandard
+    from .automation_data import reject_lookup_warnings
     a = request.assessment
     direct_values = {
         key: a.get(key, {}) if key in a else {}
@@ -242,7 +243,15 @@ def _assessment_port(policy, request):
         incr_decrement_start_year=direct_values["increased_decrement"].get("start_year", 1),
         incr_decrement_stop_year=direct_values["increased_decrement"].get("stop_year", 99),
     )
-    result = solve_substandard(policy, inputs)
+    result = None
+    try:
+        with reject_lookup_warnings("suiteview.abrquote.core.goal_seek"):
+            result = solve_substandard(policy, inputs)
+    except QuoteError as exc:
+        if "Period 2 table rating goal seek failed:" not in str(exc) or result is None:
+            raise
+        _check_survival_boundary(a, result.assessment)
+        raise
     _validate_assessment_result(a, result.assessment)
     return result.assessment
 
