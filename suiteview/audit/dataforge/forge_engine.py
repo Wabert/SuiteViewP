@@ -412,6 +412,218 @@ def _resolve_outputs(
 _IDENT_RE = re.compile(r"\W+")
 
 
+@dataclass(frozen=True)
+class NormalizedAppends:
+    """Append Table validation output used by SQL rendering."""
+
+    specs: tuple[AppendSpec, ...]
+    aliases: tuple[str, ...]
+    consumed_sources: frozenset[str]
+    schemas: dict[str, list[str]]
+
+    def surviving_sources(self, sources: list[str]) -> list[str]:
+        """Sources still visible to the join graph, followed by append aliases."""
+        return [s for s in sources if s not in self.consumed_sources] + list(self.aliases)
+
+    def surviving_schemas(self, schemas: dict[str, list[str]]) -> dict[str, list[str]]:
+        """Schemas for the join graph after append members are consumed."""
+        return {
+            **{s: schemas[s] for s in schemas if s not in self.consumed_sources},
+            **self.schemas,
+        }
+
+
+@dataclass(frozen=True)
+class BoundFilters:
+    """Source and append filters grouped by the CTE they belong to."""
+
+    by_source: dict[str, list[FilterSpec]]
+    by_append: dict[str, list[FilterSpec]]
+
+
+@dataclass(frozen=True)
+class JoinGraph:
+    """Left-deep join plan plus already-placed source order."""
+
+    placed: list[str]
+    steps: list[tuple[JoinSpec, str, str]]
+
+
+@dataclass(frozen=True)
+class ResolvedOutputs:
+    """Rendered SELECT/GROUP/ORDER pieces and output lineage."""
+
+    select_exprs: list[str]
+    column_sources: dict[str, tuple[str, str]]
+    group_by_exprs: list[str]
+    order_by_exprs: list[str]
+
+
+def normalize_appends(
+    schemas: dict[str, list[str]],
+    appends: list[AppendSpec] | tuple[AppendSpec, ...] = (),
+) -> NormalizedAppends:
+    """Validate Append Tables and compute their shared-column schemas."""
+    specs = tuple(appends)
+    append_aliases = [a.alias for a in specs]
+    consumed: set[str] = set()
+    append_schemas: dict[str, list[str]] = {}
+    for ap in specs:
+        if ap.alias in schemas or append_aliases.count(ap.alias) > 1:
+            raise ForgeEngineError(
+                f"Append Table name {ap.alias!r} collides with another "
+                f"Source/Append Table; give it a unique name.")
+        for member in ap.members:
+            if member not in schemas:
+                raise ForgeEngineError(
+                    f"Append Table {ap.alias!r} references unknown Source "
+                    f"{member!r}.")
+            if member in consumed:
+                raise ForgeEngineError(
+                    f"Source {member!r} is a member of two Append Tables; a "
+                    f"Source can be appended only once.")
+        shared = shared_append_columns(schemas, ap.members)
+        if not shared:
+            raise ForgeEngineError(
+                f"Append Table {ap.alias!r}: its members share no columns, "
+                f"so the append would be empty. Members need at least one "
+                f"common field.")
+        append_schemas[ap.alias] = shared
+        consumed.update(ap.members)
+    return NormalizedAppends(
+        specs=specs,
+        aliases=tuple(append_aliases),
+        consumed_sources=frozenset(consumed),
+        schemas=append_schemas,
+    )
+
+
+def bind_filters(sources: list[str], append_aliases: tuple[str, ...],
+                 filters: list[FilterSpec] | tuple[FilterSpec, ...]) -> BoundFilters:
+    """Group Source-scope filters by Source/Append CTE and reject unknown names."""
+    filters_by_source: dict[str, list[FilterSpec]] = {s: [] for s in sources}
+    filters_by_append: dict[str, list[FilterSpec]] = {a: [] for a in append_aliases}
+    for filt in filters:
+        if filt.source in filters_by_source:
+            filters_by_source[filt.source].append(filt)
+        elif filt.source in filters_by_append:
+            filters_by_append[filt.source].append(filt)
+        else:
+            raise ForgeEngineError(
+                f"Filter references unknown Source {filt.source!r}.")
+    return BoundFilters(filters_by_source, filters_by_append)
+
+
+def order_join_graph(joins: list[JoinSpec], sources: list[str]) -> JoinGraph:
+    """Resolve canvas relationships into the left-deep join graph SQL can render."""
+    placed, steps = _ordered_joins(joins, sources)
+    return JoinGraph(placed, steps)
+
+
+def resolve_outputs(
+    sources: list[str],
+    schemas: dict[str, list[str]],
+    outputs: list[OutputColumn] | None,
+) -> ResolvedOutputs:
+    """Resolve display selections into SELECT, GROUP BY and ORDER BY fragments."""
+    select_exprs, column_sources, group_by_exprs, order_by_exprs = _resolve_outputs(
+        sources, schemas, outputs)
+    return ResolvedOutputs(
+        select_exprs=select_exprs,
+        column_sources=column_sources,
+        group_by_exprs=group_by_exprs,
+        order_by_exprs=order_by_exprs,
+    )
+
+
+def render_sql(
+    *,
+    source_names: list[str],
+    physical_names: dict[str, str],
+    normalized_appends: NormalizedAppends,
+    bound_filters: BoundFilters,
+    join_graph: JoinGraph,
+    outputs: ResolvedOutputs,
+    result_filters: list[FilterSpec] | tuple[FilterSpec, ...] = (),
+    limit: int | None = None,
+) -> str:
+    """Render the final DuckDB SQL from normalized pure-phase outputs."""
+    ctes = []
+    for src in source_names:
+        phys = _qi(physical_names[src])
+        preds = [p for p in (_filter_to_sql(f, phys)
+                             for f in bound_filters.by_source[src]) if p]
+        where = f" WHERE {' AND '.join(preds)}" if preds else ""
+        ctes.append(f"{_qi(src)} AS (SELECT * FROM {phys}{where})")
+
+    for append in normalized_appends.specs:
+        shared_cols = ", ".join(_qi(c) for c in normalized_appends.schemas[append.alias])
+        union = "\n  UNION ALL\n  ".join(
+            f"SELECT {shared_cols} FROM {_qi(member)}" for member in append.members)
+        preds = [p for p in (_filter_to_sql(f, _qi("_ap"))
+                             for f in bound_filters.by_append[append.alias]) if p]
+        if preds:
+            body = (f"SELECT * FROM (\n  {union}\n  ) AS {_qi('_ap')}"
+                    f" WHERE {' AND '.join(preds)}")
+        else:
+            body = union
+        ctes.append(f"{_qi(append.alias)} AS (\n  {body}\n  )")
+    with_clause = "WITH " + ",\n     ".join(ctes)
+
+    residual_preds: list[str] = []
+    if not join_graph.steps:
+        from_clause = f"FROM {_qi(join_graph.placed[0])}"
+    else:
+        first_join = join_graph.steps[0][0]
+        base = first_join.left_source
+        lines = [f"FROM {_qi(base)}"]
+        already_joined: set[str] = {base}
+        for join, new, anchor in join_graph.steps:
+            if new in already_joined:
+                if join.how not in ("inner",):
+                    raise ForgeEngineError(
+                        f"Join {join.left_source}->{join.right_source} closes a "
+                        f"join cycle (both Sources already joined) with "
+                        f"how={join.how!r}; only inner joins are supported on "
+                        f"such extra edges. Remove the redundant relationship "
+                        f"or make it inner.")
+                residual_preds.append(_join_on_clause(join))
+                continue
+            how = _swap_how(join.how) if new == join.left_source else join.how
+            kw = _JOIN_SQL[how]
+            lines.append(f"{kw} {_qi(new)} ON {_join_on_clause(join)}")
+            already_joined.add(new)
+        from_clause = "\n".join(lines)
+
+    select_clause = "SELECT\n  " + ",\n  ".join(outputs.select_exprs)
+    sql = f"{with_clause}\n{select_clause}\n{from_clause}"
+    if residual_preds:
+        sql += "\nWHERE " + " AND ".join(residual_preds)
+    if outputs.group_by_exprs:
+        sql += "\nGROUP BY " + ", ".join(outputs.group_by_exprs)
+
+    if result_filters:
+        outer = "_forge"
+        preds = []
+        for rf in result_filters:
+            if rf.column not in outputs.column_sources:
+                raise ForgeEngineError(
+                    f"Result filter references unknown output column "
+                    f"{rf.column!r}; available: {sorted(outputs.column_sources)}.")
+            pred = _filter_to_sql(rf, _qi(outer))
+            if pred:
+                preds.append(pred)
+        if preds:
+            sql = (f"SELECT * FROM (\n{sql}\n) AS {_qi(outer)}"
+                   f"\nWHERE " + " AND ".join(preds))
+
+    if outputs.order_by_exprs:
+        sql += "\nORDER BY " + ", ".join(outputs.order_by_exprs)
+    if limit is not None and int(limit) > 0:
+        sql += f"\nLIMIT {int(limit)}"
+    return sql
+
+
 def compile_forge_sql(
     schemas: dict[str, list[str]],
     joins: list[JoinSpec],
@@ -441,148 +653,25 @@ def compile_forge_sql(
         raise ForgeEngineError("A Forge needs at least one Source.")
     physical_names = physical_names or {s: s for s in sources}
 
-    # ── Validate appends; work out who is consumed ────────────────────
-    appends = list(appends)
-    append_aliases = [a.alias for a in appends]
-    consumed: set[str] = set()
-    append_schemas: dict[str, list[str]] = {}
-    for ap in appends:
-        if ap.alias in schemas or append_aliases.count(ap.alias) > 1:
-            raise ForgeEngineError(
-                f"Append Table name {ap.alias!r} collides with another "
-                f"Source/Append Table; give it a unique name.")
-        for m in ap.members:
-            if m not in schemas:
-                raise ForgeEngineError(
-                    f"Append Table {ap.alias!r} references unknown Source "
-                    f"{m!r}.")
-            if m in consumed:
-                raise ForgeEngineError(
-                    f"Source {m!r} is a member of two Append Tables; a "
-                    f"Source can be appended only once.")
-        shared = shared_append_columns(schemas, ap.members)
-        if not shared:
-            raise ForgeEngineError(
-                f"Append Table {ap.alias!r}: its members share no columns, "
-                f"so the append would be empty. Members need at least one "
-                f"common field.")
-        append_schemas[ap.alias] = shared
-        consumed.update(ap.members)
-
-    # Group filters by Source/append so each CTE carries its own predicates.
-    filters_by_source: dict[str, list[FilterSpec]] = {s: [] for s in sources}
-    filters_by_append: dict[str, list[FilterSpec]] = {a: [] for a in append_aliases}
-    for f in filters:
-        if f.source in filters_by_source:
-            filters_by_source[f.source].append(f)
-        elif f.source in filters_by_append:
-            filters_by_append[f.source].append(f)
-        else:
-            raise ForgeEngineError(
-                f"Filter references unknown Source {f.source!r}.")
-
-    # Build a CTE per Source: SELECT * FROM <physical> [WHERE <source filters>].
-    # Members keep their CTEs (their filters apply BEFORE the append).
-    ctes = []
-    for src in sources:
-        phys = _qi(physical_names[src])
-        preds = [p for p in (_filter_to_sql(f, phys)
-                             for f in filters_by_source[src]) if p]
-        where = f" WHERE {' AND '.join(preds)}" if preds else ""
-        ctes.append(f"{_qi(src)} AS (SELECT * FROM {phys}{where})")
-
-    # Append CTEs: UNION ALL preserves the row stack, in first-member column order.
-    for ap in appends:
-        shared_cols = ", ".join(_qi(c) for c in append_schemas[ap.alias])
-        union = "\n  UNION ALL\n  ".join(
-            f"SELECT {shared_cols} FROM {_qi(m)}" for m in ap.members)
-        preds = [p for p in (_filter_to_sql(f, _qi("_ap"))
-                             for f in filters_by_append[ap.alias]) if p]
-        if preds:
-            body = (f"SELECT * FROM (\n  {union}\n  ) AS {_qi('_ap')}"
-                    f" WHERE {' AND '.join(preds)}")
-        else:
-            body = union
-        ctes.append(f"{_qi(ap.alias)} AS (\n  {body}\n  )")
-    with_clause = "WITH " + ",\n     ".join(ctes)
-
-    # The join graph sees the surviving Sources + the Append Tables.
-    sources = [s for s in sources if s not in consumed] + append_aliases
-    schemas = {**{s: schemas[s] for s in schemas if s not in consumed},
-               **append_schemas}
-    if not sources:
+    normalized = normalize_appends(schemas, appends)
+    bound = bind_filters(sources, normalized.aliases, filters)
+    join_sources = normalized.surviving_sources(sources)
+    join_schemas = normalized.surviving_schemas(schemas)
+    if not join_sources:
         raise ForgeEngineError("A Forge needs at least one Source.")
-
-    # FROM / JOIN chain.
-    placed, steps = _ordered_joins(list(joins), sources)
-    residual_preds: list[str] = []
-    if not steps:
-        from_clause = f"FROM {_qi(placed[0])}"
-    else:
-        first_join = steps[0][0]
-        base = first_join.left_source
-        lines = [f"FROM {_qi(base)}"]
-        already_joined: set[str] = {base}
-        for join, new, anchor in steps:
-            if new in already_joined:
-                # Multi-path join: both tables already joined, so there is no
-                # new table to attach. Apply the extra key equality as a
-                # residual WHERE predicate — only valid for inner joins, since
-                # a top-level WHERE on the keys would filter out the null rows
-                # an outer join is meant to keep.
-                if join.how not in ("inner",):
-                    raise ForgeEngineError(
-                        f"Join {join.left_source}->{join.right_source} closes a "
-                        f"join cycle (both Sources already joined) with "
-                        f"how={join.how!r}; only inner joins are supported on "
-                        f"such extra edges. Remove the redundant relationship "
-                        f"or make it inner.")
-                residual_preds.append(_join_on_clause(join))
-                continue
-            # If we are attaching the join's LEFT Source onto a chain that holds
-            # its RIGHT Source, mirror LEFT/RIGHT so the correct side is kept.
-            how = _swap_how(join.how) if new == join.left_source else join.how
-            kw = _JOIN_SQL[how]
-            lines.append(f"{kw} {_qi(new)} ON {_join_on_clause(join)}")
-            already_joined.add(new)
-        from_clause = "\n".join(lines)
-
-    select_exprs, column_sources, group_by_exprs, order_by_exprs = _resolve_outputs(
-        sources, schemas, outputs)
-    select_clause = "SELECT\n  " + ",\n  ".join(select_exprs)
-
-    sql = f"{with_clause}\n{select_clause}\n{from_clause}"
-    if residual_preds:
-        sql += "\nWHERE " + " AND ".join(residual_preds)
-    if group_by_exprs:
-        sql += "\nGROUP BY " + ", ".join(group_by_exprs)
-
-    # Result-scope filters apply to the joined, aliased output. WHERE cannot
-    # reference SELECT aliases, so wrap the join in an outer SELECT whose
-    # columns are the output names.
-    if result_filters:
-        outer = "_forge"
-        preds = []
-        for rf in result_filters:
-            if rf.column not in column_sources:
-                raise ForgeEngineError(
-                    f"Result filter references unknown output column "
-                    f"{rf.column!r}; available: {sorted(column_sources)}.")
-            p = _filter_to_sql(rf, _qi(outer))
-            if p:
-                preds.append(p)
-        if preds:
-            sql = (f"SELECT * FROM (\n{sql}\n) AS {_qi(outer)}"
-                   f"\nWHERE " + " AND ".join(preds))
-
-    # ORDER BY references output column names, which survive the result-filter
-    # wrap (SELECT *), so it applies last to the final query.
-    if order_by_exprs:
-        sql += "\nORDER BY " + ", ".join(order_by_exprs)
-
-    if limit is not None and int(limit) > 0:
-        sql += f"\nLIMIT {int(limit)}"
-    return sql, column_sources
+    join_graph = order_join_graph(list(joins), join_sources)
+    resolved = resolve_outputs(join_sources, join_schemas, outputs)
+    sql = render_sql(
+        source_names=sources,
+        physical_names=physical_names,
+        normalized_appends=normalized,
+        bound_filters=bound,
+        join_graph=join_graph,
+        outputs=resolved,
+        result_filters=result_filters,
+        limit=limit,
+    )
+    return sql, resolved.column_sources
 
 
 def prepare_manual_statement(sql: str, limit: int | None = None) -> str:
@@ -607,7 +696,7 @@ def run_manual_sql(
     sql: str,
     *,
     limit: int | None = None,
-    connection: "duckdb.DuckDBPyConnection | None" = None,
+    connection: duckdb.DuckDBPyConnection | None = None,
 ) -> ForgeResult:
     """Execute hand-written DuckDB SQL against Source Snapshots (Manual mode).
 
@@ -653,7 +742,7 @@ def run_forge(
     outputs: list[OutputColumn] | None = None,
     appends: list[AppendSpec] = (),
     limit: int | None = None,
-    connection: "duckdb.DuckDBPyConnection | None" = None,
+    connection: duckdb.DuckDBPyConnection | None = None,
 ) -> ForgeResult:
     """Execute a Forge against in-memory Snapshots and return a ForgeResult.
 
