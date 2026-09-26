@@ -16,7 +16,7 @@ Quick start (as a library):
 
     # Headless data access — no UI required
     pol = load_policy("U0532652", region="CKPR")
-    print(pol.status_description, pol.base_plancode)
+    (pol.status_description, pol.base_plancode)
 
 Shared infrastructure:
     - DB2 connections:  suiteview.core.db2_connection

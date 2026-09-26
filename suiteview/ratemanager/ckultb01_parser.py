@@ -115,15 +115,12 @@ def _apply_line2(record: Dict, parts: List[str]) -> None:
     if len(parts) >= 5:
         max_raw += parts[0]
         rest = parts[1:]
-    try:
-        record["MAXIMUM"] = _num(max_raw)
-    except ValueError:
-        record["MAXIMUM"] = 0.0
+    record["MAXIMUM"] = _num(max_raw)
     try:
         record["GUAR_CHARGE"] = _num(rest[0])
         record["GUAR_MAX"] = _num(rest[1])
-    except (ValueError, IndexError):
-        pass
+    except (ValueError, IndexError) as exc:
+        raise ValueError("Invalid CKULTB01 continuation rate fields") from exc
     if len(rest) >= 3:
         record["AUDIT_NUM"] = rest[2]
     if len(rest) >= 4:

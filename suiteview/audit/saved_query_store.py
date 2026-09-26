@@ -31,8 +31,9 @@ def list_queries() -> list[SavedQuery]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 queries.append(SavedQuery.from_dict(json.load(fh)))
-        except Exception:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             logger.exception("Failed to load saved query: %s", f)
+            raise RuntimeError(f"Failed to load saved query: {f}") from exc
     queries.sort(key=lambda q: q.created_at, reverse=True)
     return queries
 
@@ -45,9 +46,9 @@ def load_query(name: str) -> SavedQuery | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return SavedQuery.from_dict(json.load(f))
-    except Exception:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         logger.exception("Failed to load query: %s", name)
-        return None
+        raise RuntimeError(f"Failed to load query: {name}") from exc
 
 
 def save_query(sq: SavedQuery) -> None:

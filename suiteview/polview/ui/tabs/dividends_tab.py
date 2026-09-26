@@ -2,12 +2,16 @@
 Dividends tab – Unapplied, PUA, OYT, and On Deposit dividend sections.
 """
 
+import logging
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame, QTableWidgetItem,
 )
 
 from ..formatting import format_date, US_DATE_FMT
 from ..widgets import StyledTableGroup
+
+logger = logging.getLogger(__name__)
 
 
 class DividendsTab(QWidget):
@@ -106,10 +110,8 @@ class DividendsTab(QWidget):
             self._load_oyt(policy, issue_day)
             self._load_deposit(policy, issue_day)
 
-        except Exception as e:
-            import traceback, sys
-            print(f"[DividendsTab] Error loading data: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
+        except Exception:
+            logger.exception("DividendsTab failed to load policy data")
             raise
 
     # ── private helpers ──────────────────────────────────────────────────

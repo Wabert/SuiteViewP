@@ -206,7 +206,9 @@ def _riders_and_policy_info(policy_number: str, region: str, company: Optional[s
         active_rider_benefit_codes,
     )
     pi = get_policy_info(policy_number, region, company)
-    riders = active_rider_benefit_codes(pi) if pi is not None else ""
+    if pi is None or not pi.exists:
+        raise ValueError(f"Policy {policy_number} not found in region {region}")
+    riders = active_rider_benefit_codes(pi)
     return riders, pi
 
 
@@ -345,7 +347,7 @@ def run_glp_forecast_policy(
             policy = build_illustration_data(
                 policy_number, region=region, company_code=company)
         except Exception as exc:  # not found / load failure
-            return result("bypass (load error)", str(exc))
+            return result(STATUS_ERROR, str(exc))
 
         values.update(_glp_snapshot(policy))
 
@@ -361,7 +363,7 @@ def run_glp_forecast_policy(
             engine, policy)
         values["md_diff"] = md_diff
         if check_error is not None:
-            return result("bypass (check error)", check_error)
+            return result(STATUS_ERROR, check_error)
 
         # ── Bypass gates ───────────────────────────────────────────────
         bypass = []
@@ -403,8 +405,8 @@ def run_glp_forecast_policy(
                 base_future_inputs=current_future,
                 base_options=options,
                 engine=engine)
-        except Exception:  # bridge solve failed — run without it
-            lump = None
+        except Exception as exc:  # bridge solve failed — do not hide it
+            return result(STATUS_ERROR, f"Lumpsum bridge solve failed: {exc}")
         if lump is not None and lump.lumpsum > 0:
             lumpsum_amount = lump.lumpsum
             lumpsum_date = lump.forecast_date
@@ -597,13 +599,13 @@ def run_billable_to_md_policy(
             policy = build_illustration_data(
                 policy_number, region=region, company_code=company)
         except Exception as exc:  # not found / load failure
-            return result("bypass (load error)", str(exc))
+            return result(STATUS_ERROR, str(exc))
 
         # ── MD diff + rate availability, then the shared bypass gates ──
         md_diff, _system_md, missing_rates, check_error = _md_and_rate_check(
             engine, policy)
         if check_error is not None:
-            return result("bypass (check error)", check_error)
+            return result(STATUS_ERROR, check_error)
 
         bypass = []
         if policy.has_shadow_account:
@@ -642,8 +644,8 @@ def run_billable_to_md_policy(
                     base_future_inputs=future,
                     base_options=options,
                     engine=engine)
-            except Exception:  # bridge solve failed — run without it
-                lump = None
+            except Exception as exc:  # bridge solve failed — do not hide it
+                return result(STATUS_ERROR, f"Lumpsum bridge solve failed: {exc}")
             if lump is not None and lump.lumpsum > 0:
                 dated = list(future.dated_transactions)
                 dated.append(DatedTransaction(
@@ -835,8 +837,8 @@ def run_min_level_policy(
         # ── Absolute Max Prem forecast (runs for every loaded policy) ──
         try:
             abs_max, abs_max_av = _absolute_max_result(engine, deepcopy(policy))
-        except Exception:
-            abs_max, abs_max_av = None, None
+        except Exception as exc:
+            return result(STATUS_ERROR, f"Absolute max forecast failed: {exc}")
         values["abs_max"] = abs_max
         values["abs_max_av"] = abs_max_av
 
@@ -899,8 +901,8 @@ def run_min_level_policy(
                 base_options=level_options,
                 engine=engine,
             )
-        except Exception:  # bridge solve failed — report the level solve alone
-            lump = None
+        except Exception as exc:  # bridge solve failed — do not hide it
+            return result(STATUS_ERROR, f"Lumpsum bridge solve failed: {exc}")
         if lump is not None and lump.lumpsum > 0:
             lumpsum_amount = lump.lumpsum
             final_future = IllustrationInputSet(

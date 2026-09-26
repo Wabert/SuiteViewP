@@ -114,6 +114,22 @@ def test_run_batch_isolates_one_policy_error():
     assert results[2].status == "Complete"
 
 
+def test_glp_forecast_records_policy_load_failure(monkeypatch):
+    from suiteview.illustration.core import illustration_policy_service
+    from suiteview.illustration.core.batch_runner import run_glp_forecast_policy
+
+    def fail_load(*args, **kwargs):
+        raise RuntimeError("policy lookup failed")
+
+    monkeypatch.setattr(illustration_policy_service, "build_illustration_data", fail_load)
+
+    result = run_glp_forecast_policy("BAD", company="01", engine=object())
+
+    assert result.status == "Error"
+    assert result.values["run_status"] == "Error"
+    assert "policy lookup failed" in result.error
+
+
 def test_run_batch_fires_progress_with_one_based_index_and_total():
     seen = []
 

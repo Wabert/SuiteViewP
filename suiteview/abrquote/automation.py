@@ -508,12 +508,8 @@ def quote_abr(request: QuoteRequest | dict) -> dict:
     for field in ("age_at_maturity", "billing_frequency", "policy_month", "policy_year"):
         if getattr(pi, field) <= 0:
             raise QuoteError(f"Invalid CyberLife input: {field}")
-    # The builder has UI-friendly catch-and-default paths. Re-read these cached
-    # domain collections so retrieval failures cannot become empty rider lists.
-    pi.get_substandard_ratings(1)
     coverages = pi.get_coverages()
     benefits = pi.get_benefits()
-    pi.primary_insured_db_layers
     if p.product_type in {"UL", "IUL", "ISWL"}:
         if pi.mv_monthly_deduction() is None:
             raise QuoteError("UL monthly deduction is missing")

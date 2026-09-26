@@ -17,6 +17,7 @@ Structure:
 
 from __future__ import annotations
 
+import logging
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
@@ -56,6 +57,8 @@ from .cl_polrec import (
 # Use the shared database connection module instead of a duplicate manager
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
 
+logger = logging.getLogger(__name__)
+
 # Data access layer — PolicyData owns DB2 access and table caching
 from .policy_data import PolicyData as _PolicyData, _ConnectionManager
 
@@ -94,8 +97,8 @@ class PolicyInformation:
     Example:
         pol = PolicyInformation("1234567", region="CKPR")
         if pol.exists:
-            print(f"Status: {pol.status_description}")
-            print(f"Plancode: {pol.base_plancode}")
+            status = pol.status_description
+            plancode = pol.base_plancode
             
             # Direct table access
             sus_cd = pol.data_item("LH_BAS_POL", "SUS_CD")
@@ -964,8 +967,10 @@ class PolicyInformation:
                 if phase not in all_ratings:
                     all_ratings[phase] = []
                 all_ratings[phase].append(rating)
-        except Exception:
-            pass
+        except (ArithmeticError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid COI renewal rate {raw_rate!r}"
+            ) from exc
         
         # Determine base plancode from first coverage row
         lh_rows = self.fetch_table("LH_COV_PHA")
@@ -1122,12 +1127,16 @@ class PolicyInformation:
 
                 built.append(cov)
             except Exception as _cov_exc:
-                import sys as _sys
-                print(
-                    f"[get_coverages] ERROR building coverage row {i} "
-                    f"(COV_PHA_NBR={row.get('COV_PHA_NBR','?')}): {_cov_exc}",
-                    file=_sys.stderr,
+                logger.error(
+                    "Failed to build coverage row %s (COV_PHA_NBR=%s)",
+                    i,
+                    row.get("COV_PHA_NBR", "?"),
+                    exc_info=True,
                 )
+                raise RuntimeError(
+                    f"Failed to build coverage row {i} "
+                    f"(COV_PHA_NBR={row.get('COV_PHA_NBR', '?')})"
+                ) from _cov_exc
         
         self._coverages = built
         return self._coverages
