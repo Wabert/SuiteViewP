@@ -24,6 +24,13 @@ from suiteview.audit.transaction_filters import transaction_predicates
 
 
 def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_initial_where(ctx, parts)
+    _add_identifier_where(ctx, parts)
+    _add_market_company_where(ctx, parts)
+    _add_policy_code_where(ctx, parts)
+
+
+def _add_initial_where(ctx: QueryContext, parts: SqlParts) -> None:
     emit_rider_joins(ctx, parts, ctx.rider1_info, 'RIDER1', 1)
     emit_rider_joins(ctx, parts, ctx.rider2_info, 'RIDER2', 2)
     parts.sql_parts.extend(ctx.custom_join_lines)
@@ -35,6 +42,9 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
         parts.wheres.extend(transaction_predicates(first_transaction, second_transaction, ctx.schema))
     if ctx.sys_code:
         parts.wheres.append(f"POLICY1.CK_SYS_CD = '{esc(ctx.sys_code)}'")
+
+
+def _add_identifier_where(ctx: QueryContext, parts: SqlParts) -> None:
     plancode = ctx.pt.txt_plancode.strip().upper()
     if plancode:
         cov_filter_alias = 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL'
@@ -46,22 +56,6 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
     policy_list = ctx.plancode_tab.policies
     if policy_list:
         parts.wheres.append(f'POLICY1.CK_POLICY_NBR IN ({in_list(policy_list)})')
-    mkt_org_map = {'MLM': '1', 'CSSD': '2', 'IMG': '7', 'DIRECT': 'D'}
-    mkt_company_map = {'CSSD': ['01'], 'IMG': ['01', '26'], 'MLM': ['01', '26'], 'DIRECT': ['01', '26']}
-    market_org = ctx.pt.cmb_market.strip()
-    if market_org and market_org in mkt_org_map:
-        parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR,1,1) = '{mkt_org_map[market_org]}'")
-    company = ctx.pt.cmb_company.strip()
-    if company:
-        co_code = company.split(' - ')[0].strip() if ' - ' in company else company
-        parts.wheres.append(f"POLICY1.CK_CMP_CD = '{esc(co_code)}'")
-    elif market_org and market_org in mkt_company_map:
-        co_codes = mkt_company_map[market_org]
-        if len(co_codes) == 1:
-            parts.wheres.append(f"POLICY1.CK_CMP_CD = '{co_codes[0]}'")
-        else:
-            company_conditions = ' OR '.join((f"POLICY1.CK_CMP_CD = '{c}'" for c in co_codes))
-            parts.wheres.append(f'({company_conditions})')
     form_num = ctx.pt.txt_form_number.strip()
     if form_num:
         parts.wheres.append(f"{ctx.result_cov_alias}.POL_FRM_NBR LIKE '{esc(form_num)}%'")
@@ -79,6 +73,28 @@ def add_base_where(ctx: QueryContext, parts: SqlParts) -> None:
             parts.wheres.append(f"POLICY1.CK_POLICY_NBR LIKE '%{esc(polnum)}%'")
     if ctx.pt.chk_rga:
         parts.wheres.append("USERGEN.FUZGREIN_IND = 'R'")
+
+
+def _add_market_company_where(ctx: QueryContext, parts: SqlParts) -> None:
+    mkt_org_map = {'MLM': '1', 'CSSD': '2', 'IMG': '7', 'DIRECT': 'D'}
+    mkt_company_map = {'CSSD': ['01'], 'IMG': ['01', '26'], 'MLM': ['01', '26'], 'DIRECT': ['01', '26']}
+    market_org = ctx.pt.cmb_market.strip()
+    if market_org and market_org in mkt_org_map:
+        parts.wheres.append(f"SUBSTR(POLICY1.SVC_AGC_NBR,1,1) = '{mkt_org_map[market_org]}'")
+    company = ctx.pt.cmb_company.strip()
+    if company:
+        co_code = company.split(' - ')[0].strip() if ' - ' in company else company
+        parts.wheres.append(f"POLICY1.CK_CMP_CD = '{esc(co_code)}'")
+    elif market_org and market_org in mkt_company_map:
+        co_codes = mkt_company_map[market_org]
+        if len(co_codes) == 1:
+            parts.wheres.append(f"POLICY1.CK_CMP_CD = '{co_codes[0]}'")
+        else:
+            company_conditions = ' OR '.join((f"POLICY1.CK_CMP_CD = '{c}'" for c in co_codes))
+            parts.wheres.append(f'({company_conditions})')
+
+
+def _add_policy_code_where(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.pt.chk_status_code:
         codes = selected_codes(ctx.pt.list_status)
         if codes:

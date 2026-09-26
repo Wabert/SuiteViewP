@@ -128,6 +128,12 @@ def derive_audit_flags(criteria: AuditCriteria) -> DerivedAuditContext:
 
 
 def collect_policy2_and_flag_context(ctx: QueryContext, parts: SqlParts) -> None:
+    _collect_display2_flags(ctx)
+    _collect_policy2_flags(ctx, parts)
+    _collect_people_and_adv_flags(ctx)
+
+
+def _collect_display2_flags(ctx: QueryContext) -> None:
     ctx.disp_sex_rateclass = ctx.dt.chk_disp_sex_rateclass
     ctx.disp_tamra = ctx.dt.chk_tamra
     ctx.disp_gsp = ctx.dt.chk_gsp
@@ -150,17 +156,41 @@ def collect_policy2_and_flag_context(ctx: QueryContext, parts: SqlParts) -> None
     ctx.disp_monthly_deduction = ctx.dt.chk_monthly_deduction
     ctx.disp_active_benefits = ctx.dt.chk_active_benefits
     ctx.disp_active_riders = ctx.dt.chk_active_riders
+
+
+def _collect_policy2_flags(ctx: QueryContext, parts: SqlParts) -> None:
     ctx.needs_grace_table = ctx.has_gpe_date or ctx.grace_indicator or ctx.disp_gpe_date
     parts.sql_parts = ['WITH COVERAGE1 AS', f'  (SELECT * FROM {ctx.schema}.LH_COV_PHA C1 WHERE C1.COV_PHA_NBR = 1)']
+    _collect_target_total_flags(ctx)
+    _collect_policy2_join_flags(ctx)
+    _collect_termination_flags(ctx)
+
+
+def _collect_target_total_flags(ctx: QueryContext) -> None:
     ctx.has_tamra = bool(ctx.p2t.txt_tamra_7pay_prem_lo.strip() or ctx.p2t.txt_tamra_7pay_prem_hi.strip() or ctx.p2t.txt_tamra_7pay_av_lo.strip() or ctx.p2t.txt_tamra_7pay_av_hi.strip() or ctx.p2t.chk_1035_amt or ctx.p2t.chk_mec)
     ctx.has_pol_totals = bool(ctx.p2t.txt_total_addl_prem_lo.strip() or ctx.p2t.txt_total_addl_prem_hi.strip() or ctx.p2t.txt_total_prem_addl_reg_lo.strip() or ctx.p2t.txt_total_prem_addl_reg_hi.strip() or ctx.p2t.txt_accum_wd_lo.strip() or ctx.p2t.txt_accum_wd_hi.strip() or ctx.disp_accum_wd or ctx.disp_cost_basis or ctx.at.chk_prem_wd_gt_face)
     ctx.needs_pol_yr_tot = bool(ctx.p2t.txt_prem_ytd_lo.strip() or ctx.p2t.txt_prem_ytd_hi.strip() or ctx.disp_prem_ytd)
+
+
+def _collect_policy2_join_flags(ctx: QueryContext) -> None:
     ctx.has_nontrad = bool(ctx.p2t.txt_bil_commence_dt_lo.strip() or ctx.p2t.txt_bil_commence_dt_hi.strip() or ctx.p2t.chk_billing_suspended or ctx.p2t.chk_failed_guideline or ctx.p2t.chk_def_life or (ctx.at.chk_grace_rule and ctx.at.list_grace_rule) or (ctx.at.chk_db_option and ctx.at.list_db_option))
     ctx.has_modcovsall = bool(ctx.p2t.chk_cov_gio or ctx.p2t.chk_cov_cola or ctx.policy_has_product_indicator)
     ctx.has_52r = bool(ctx.p2t.chk_is_replacement or ctx.p2t.chk_has_replacement_pol)
     ctx.has_skipped_rein = ctx.p2t.chk_skipped_cov_rein
     ctx.has_slr = bool(ctx.p2t.chk_std_loan_payment and ctx.p2t.list_std_loan_payment)
     ctx.has_overloan = bool(ctx.p2t.chk_trad_overloan and ctx.p2t.list_trad_overloan)
+    _collect_loan_and_change_flags(ctx)
+
+
+def _collect_loan_and_change_flags(ctx: QueryContext) -> None:
+    ctx.has_77_segment = bool(ctx.p2t.chk_has_loan or ctx.p2t.txt_total_loan_prin_lo.strip() or ctx.p2t.txt_total_loan_prin_hi.strip() or ctx.p2t.txt_total_accured_lint_lo.strip() or ctx.p2t.txt_total_accured_lint_hi.strip())
+    ctx.has_preferred_loan = ctx.p2t.chk_has_preferred_loan
+    if ctx.has_77_segment or ctx.has_preferred_loan:
+        ctx.disp_policy_debt = True
+    ctx.has_change_seq = bool(ctx.p2t.chk_change_seq and ctx.p2t.list_change_seq)
+
+
+def _collect_termination_flags(ctx: QueryContext) -> None:
     ctx.has_term_entry = bool(ctx.p2t.txt_term_entry_date_lo.strip() or ctx.p2t.txt_term_entry_date_hi.strip())
     ctx.term_fin_date = termination_financial_date()
     ctx.term_both_date = f'COALESCE(TDB.TERM_ENTRY_DT, {ctx.term_fin_date})'
@@ -168,11 +198,9 @@ def collect_policy2_and_flag_context(ctx: QueryContext, parts: SqlParts) -> None
     ctx.term_both_predicates = strict_range_predicates(ctx.term_both_date, ctx.p2t.txt_term_date_both_lo, ctx.p2t.txt_term_date_both_hi, 'date', 'Termination Date (both)')
     ctx.has_term_fin = bool(ctx.term_fin_predicates)
     ctx.has_term_both = bool(ctx.term_both_predicates)
-    ctx.has_77_segment = bool(ctx.p2t.chk_has_loan or ctx.p2t.txt_total_loan_prin_lo.strip() or ctx.p2t.txt_total_loan_prin_hi.strip() or ctx.p2t.txt_total_accured_lint_lo.strip() or ctx.p2t.txt_total_accured_lint_hi.strip())
-    ctx.has_preferred_loan = ctx.p2t.chk_has_preferred_loan
-    if ctx.has_77_segment or ctx.has_preferred_loan:
-        ctx.disp_policy_debt = True
-    ctx.has_change_seq = bool(ctx.p2t.chk_change_seq and ctx.p2t.list_change_seq)
+
+
+def _collect_people_and_adv_flags(ctx: QueryContext) -> None:
     ctx.person_name_conds = []
     if ctx.ppl is not None:
         ctx._person_first_name = ctx.ppl.txt_first_name.strip()

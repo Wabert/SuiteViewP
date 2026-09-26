@@ -199,6 +199,12 @@ def add_policy_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_coverage_value_selects(ctx, parts)
+    _add_coverage_flag_selects(ctx, parts)
+    _add_base_coverage_selects(ctx, parts)
+
+
+def _add_coverage_value_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.disp_trad_rates:
         parts.sql_parts.append('  , FXD_PRM.POL_FEE_AMT PolFee')
         parts.sql_parts.append('  , FXD_PRM.SAN_MD_FCT SemiAnnModalFactor')
@@ -226,6 +232,9 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , COVSUMMARY.TOTAL_SA CurrSpecAmt')
     if ctx.cov_init_term and (not ctx.disp_init_term):
         parts.sql_parts.append('  , COVERAGE1.INT_RNL_PER InitTermPeriod')
+
+
+def _add_coverage_flag_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_val_class_ne:
         if not (ctx.cov_val_classes or ctx.cov_val_class):
             parts.sql_parts.append('  , COVERAGE1.INS_CLS_CD ValClass')
@@ -240,6 +249,15 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_gcv_gt_cv or ctx.cov_gcv_lt_cv:
         parts.sql_parts.append('  , ISWL_INTERPOLATED_GCV.ISWL_GCV GCV')
         parts.sql_parts.append('  , MVVAL.CSV_AMT CurrentCV')
+
+
+def _add_base_coverage_selects(ctx: QueryContext, parts: SqlParts) -> None:
+    _add_base_identity_selects(ctx, parts)
+    _add_base_mod_selects(ctx, parts)
+    _add_base_rating_selects(ctx, parts)
+
+
+def _add_base_identity_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_prod_line and (not ctx.disp_prod_line):
         parts.sql_parts.append('  , COVERAGE1.PRD_LIN_TYP_CD ProdLine')
     if ctx.cov_base_sex02 and (not ctx.disp_sex_02):
@@ -252,12 +270,18 @@ def add_accumulator_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , COVERAGE1.NXT_CHG_TYP_CD ChangeType')
     if ctx.cov_base_change_set and (not ctx.disp_next_change):
         parts.sql_parts.append("  , VARCHAR_FORMAT(COVERAGE1.NXT_CHG_DT, 'MM/DD/YYYY') ChangeDate")
+
+
+def _add_base_mod_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_prod_ind:
         parts.sql_parts.append('  , MODCOV1.AN_PRD_ID ProdInd')
     if ctx.cov_base_cola_ind:
         parts.sql_parts.append('  , MODCOV1.COLA_INCR_IND ColaInd')
     if ctx.cov_base_gio_fio:
         parts.sql_parts.append('  , MODCOV1.OPT_EXER_IND GioFio')
+
+
+def _add_base_rating_selects(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.cov_base_rateclass and (not ctx.disp_sex_rateclass):
         parts.sql_parts.append('  , COV1_RENEWALS.RT_CLS_CD RateClass')
     if ctx.cov_base_sex67 and (not ctx.disp_sex_rateclass):
