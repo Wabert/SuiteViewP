@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+import datetime
 from typing import Dict, Optional
 
 
@@ -27,7 +27,7 @@ class MonthlyState:
     """
 
     # ── 0. Counters (CalcEngine cols 2-21) ────
-    date: Optional[date] = None
+    date: Optional[datetime.date] = None
     policy_year: int = 0
     policy_month: int = 0           # 1-12 within year
     duration: int = 0               # Total months from issue
@@ -147,7 +147,7 @@ class MonthlyState:
     amount_in_7pay: float = 0.0            # begin-of-month cumulative (LE; 0 in a new period's month 1)
     tamra_year: int = 0                    # year within the 7-pay window (LD)
     tamra_month_of_year: int = 0           # month within the current TAMRA year (LC)
-    tamra_7pay_start_date: Optional[date] = None  # start of the active 7-pay period
+    tamra_7pay_start_date: Optional[datetime.date] = None  # start of the active 7-pay period
     tamra_7pay_level: float = 0.0          # 7-pay annual premium level (KY)
     lowest_7yr_face: float = 0.0           # lowest specified amount over the 7-pay period
     is_mec: bool = False                   # permanent MEC status as of this month

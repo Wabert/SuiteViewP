@@ -93,12 +93,6 @@ Always use the maintained virtual environment:
 venv\Scripts\python.exe <script_or_module>
 ```
 
-In the solid-foundation worktrees, the shared interpreter is:
-
-```powershell
-C:\Users\ab7y02\Dev\SuiteViewP\venv\Scripts\python.exe
-```
-
 Never install packages into it unless the task explicitly changes dependency
 manifests or a required validation command fails because a dependency is absent.
 
@@ -281,14 +275,15 @@ tests when those files changed.
 
 ## Verification gate
 
-Before final report on solid-foundation branches:
+Before reporting a refactor or merging a branch, run the structural gate:
 
 ```powershell
-& C:\Users\ab7y02\Dev\SuiteViewP.worktrees\_tools\lintenv\Scripts\python.exe -B -W ignore C:\Users\ab7y02\Dev\SuiteViewP.worktrees\_tools\verify_branch.py <worktree> <base-commit>
+venv\Scripts\python.exe tools\app\verify_branch.py <worktree> <base-commit>
 ```
 
-The gate checks ruff hard errors, unused imports in changed files, decorator
-drift, signals in mixins, unresolved `suiteview` imports and garbled text.
+It fails on lint hard errors (flake8 F403/F405/F811/F821/E722), unused imports
+in changed files, decorator drift, signals declared in mixins, unresolved
+`suiteview` imports and garbled (mojibake) text.
 
 ## Characterization and golden tests
 
