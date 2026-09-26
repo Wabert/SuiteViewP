@@ -189,7 +189,7 @@ class DB2Connection:
         if self._connection:
             try:
                 self._connection.close()
-            except (pyodbc.Error, sqlite3.Error, OSError):
+            except (pyodbc.Error, sqlite3.Error, OSError, AttributeError):
                 logger.debug("Ignoring DB2 connection close failure during cleanup", exc_info=True)
             finally:
                 self._connection = None
@@ -202,7 +202,7 @@ class DB2Connection:
         for region, conn in list(DB2Connection._connections.items()):
             try:
                 conn.close()
-            except (pyodbc.Error, sqlite3.Error, OSError):
+            except (pyodbc.Error, sqlite3.Error, OSError, AttributeError):
                 logger.debug("Ignoring cached DB2 connection close failure during cleanup", exc_info=True)
         DB2Connection._connections.clear()
     
@@ -330,7 +330,7 @@ class DB2Connection:
         finally:
             try:
                 conn.close()
-            except (pyodbc.Error, sqlite3.Error, OSError):
+            except (pyodbc.Error, sqlite3.Error, OSError, AttributeError):
                 logger.debug("Ignoring one-shot DB2 connection close failure during cleanup", exc_info=True)
 
     def execute_query(self, sql: str, params: tuple = None) -> List[Tuple]:
