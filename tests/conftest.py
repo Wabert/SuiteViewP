@@ -32,6 +32,36 @@ def _isolated_profile(tmp_path_factory, monkeypatch):
     yield
 
 
+_LIVE_MARKERS = ("live_db2", "integration", "outlook")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_odbc(request, monkeypatch):
+    """Block real ODBC connections in unit tests.
+
+    This machine has live DSNs (UL_Rates, VRD Prod, NEON_DSN, …); a unit test
+    that forgets to fake its data access must fail loudly instead of reading
+    from — or writing to — a real database. Tests that genuinely need a live
+    source carry one of the live markers (deselected by default in pytest.ini).
+    Tests that fake connections monkeypatch pyodbc.connect or the
+    core.odbc_utils factory themselves, which overrides this guard.
+    """
+    if any(request.node.get_closest_marker(name) for name in _LIVE_MARKERS):
+        yield
+        return
+    import pyodbc
+
+    def _blocked(connection_string, *args, **kwargs):
+        raise pyodbc.InterfaceError(
+            "IM002",
+            f"Live ODBC connection blocked in a unit test ({connection_string!r}); "
+            "fake the connection or mark the test live_db2/integration.",
+        )
+
+    monkeypatch.setattr(pyodbc, "connect", _blocked)
+    yield
+
+
 _INTEGRATION_MODULES = {
     "test_access_unique.py",
     "test_attachment_manager.py",
