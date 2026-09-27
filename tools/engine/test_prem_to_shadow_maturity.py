@@ -36,7 +36,7 @@ def main() -> None:
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.core.solve_level_to_exception import (
         LevelToExceptionError, level_to_exception_options, solve_level_to_exception,

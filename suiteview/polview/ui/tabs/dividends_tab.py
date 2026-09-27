@@ -101,7 +101,7 @@ class DividendsTab(QWidget):
 
         try:
             # Get coverage issue date for date calculations
-            cov_issue_date = policy.cov_issue_date(1) if policy.coverage_count > 0 else None
+            cov_issue_date = policy.coverages.cov_issue_date(1) if policy.coverages.coverage_count > 0 else None
             issue_day = cov_issue_date.day if cov_issue_date else 1
 
             # Load each section

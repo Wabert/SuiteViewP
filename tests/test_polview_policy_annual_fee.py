@@ -18,7 +18,7 @@ def test_annual_policy_fee_reads_traditional_fixed_premium_policy():
 
     policy.data_item = data_item
 
-    assert policy.annual_policy_fee == Decimal("7.50")
+    assert policy.billing.annual_policy_fee == Decimal("7.50")
     assert calls == [
         ("LH_BAS_POL", "NON_TRD_POL_IND"),
         ("LH_FXD_PRM_POL", "POL_FEE_AMT"),
@@ -35,7 +35,7 @@ def test_annual_policy_fee_skips_traditional_table_for_advanced_product():
 
     policy.data_item = data_item
 
-    assert policy.annual_policy_fee is None
+    assert policy.billing.annual_policy_fee is None
     assert calls == [("LH_BAS_POL", "NON_TRD_POL_IND")]
 
 

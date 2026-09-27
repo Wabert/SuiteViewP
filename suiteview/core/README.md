@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Cross-cutting infrastructure: access control, data sources, DB2/ODBC helpers, Excel export, policy-service cache, profile paths and shared utilities.
+Cross-cutting infrastructure: access control, data sources, DB2/ODBC helpers, Excel export, profile paths and shared utilities.
 
 ## Layer
 
@@ -10,7 +10,7 @@ Cross-cutting infrastructure: access control, data sources, DB2/ODBC helpers, Ex
 
 ## Main entry points
 
-`policy_service.py`, `db2_connection.py`, `data_sources.py`, `excel_export.py`, `access_control.py`, `profile_paths.py`.
+`db2_connection.py`, `data_sources.py`, `excel_export.py`, `access_control.py`, `profile_paths.py`.
 
 ## Key modules
 

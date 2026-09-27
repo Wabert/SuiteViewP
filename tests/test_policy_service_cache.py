@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from suiteview.core import policy_service
+from suiteview.polview.services import policy_service
 from suiteview.polview.models import policy_information
 
 

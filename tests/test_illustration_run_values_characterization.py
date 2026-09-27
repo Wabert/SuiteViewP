@@ -170,6 +170,10 @@ class _LoadedPolicy:
     policy_id = "UGOLD001 QXXX"
     status_description = "Active"
 
+    def __init__(self):
+        self.identity = self
+        self.status = self
+
 
 class _NoDb:
     def __init__(self, region):

@@ -496,13 +496,13 @@ def _resolve_policy(policy_number: str, region: str, company: str | None, system
         system_code=system_code,
         region=region,
     )
-    if policy.available_companies:
-        choices = ", ".join(policy.available_companies)
+    if policy.identity.available_companies:
+        choices = ", ".join(policy.identity.available_companies)
         raise RuntimeError(
             f"Policy {policy_number} exists in multiple companies ({choices}). "
             "Rerun with --company."
         )
-    if not policy.exists:
+    if not policy.identity.exists:
         raise RuntimeError(f"Policy {policy_number} not found in {region}/{system_code}")
     return policy
 
@@ -531,10 +531,10 @@ def main() -> None:
 
         for policy_number in args.policy_numbers:
             policy = _resolve_policy(policy_number, args.region, args.company, args.system)
-            policy_id = policy.policy_id
-            company_code = policy.company_code
-            system_code = policy.system_code
-            issue_date = policy.issue_date  # base-coverage LH_COV_PHA.ISSUE_DT
+            policy_id = policy.identity.policy_id
+            company_code = policy.identity.company_code
+            system_code = policy.identity.system_code
+            issue_date = policy.activity.issue_date  # base-coverage LH_COV_PHA.ISSUE_DT
             where_clause = (
                 f"CK_SYS_CD = '{system_code}' "
                 f"AND TCH_POL_ID = '{policy_id}' "
@@ -559,7 +559,7 @@ def main() -> None:
                 columns = [str(column).upper() for column in columns]
                 _append_table(
                     out_conn, table, columns, rows,
-                    policy.policy_number, policy_id, company_code, system_code,
+                    policy.identity.policy_number, policy_id, company_code, system_code,
                     issue_date=issue_date,
                 )
                 exported.append({"table": table, "rows": len(rows)})
@@ -567,7 +567,7 @@ def main() -> None:
             exported_at = datetime.now().isoformat(timespec="seconds")
             _record_policy_export(
                 out_conn,
-                policy.policy_number,
+                policy.identity.policy_number,
                 company_code,
                 system_code,
                 policy_id,
@@ -575,7 +575,7 @@ def main() -> None:
                 exported_at,
             )
             policies_exported.append({
-                "policy_number": policy.policy_number,
+                "policy_number": policy.identity.policy_number,
                 "company_code": company_code,
                 "system_code": system_code,
                 "policy_id": policy_id,

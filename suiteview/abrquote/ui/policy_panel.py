@@ -912,7 +912,7 @@ class PolicyPanel(QWidget):
 
         # All coverages — base first, then riders
         try:
-            coverages = pi.get_coverages()
+            coverages = pi.coverages.get_coverages()
             for cov in coverages:
                 form = cov.form_number or cov.plancode
                 items.append((form, {"type": "coverage", "cov": cov}))
@@ -921,7 +921,7 @@ class PolicyPanel(QWidget):
 
         # Benefits
         try:
-            benefits = pi.get_benefits()
+            benefits = pi.benefits.get_benefits()
             for bnf in benefits:
                 form = bnf.form_number or bnf.benefit_code
                 items.append((form, {"type": "benefit", "bnf": bnf}))

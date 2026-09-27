@@ -11,7 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.ui.policy_record_viewer import build_screen
 
 
@@ -29,7 +29,7 @@ def main() -> int:
         args.policy.strip().upper(), region=args.region.strip().upper(),
         company_code=args.company.strip().upper(),
     )
-    if pi is None or not pi.exists:
+    if pi is None or not pi.identity.exists:
         raise RuntimeError(f"Policy {args.policy} was not found.")
     sources = {}
     for table in ("LH_POL_TOTALS", "LH_MO_ADD_PMT"):
@@ -44,7 +44,7 @@ def main() -> int:
         "".join(run["text"] for run in line)
         for line in screen["lines"]
     ]
-    result = {"policy": pi.policy_number, "sources": sources, "screen": screen, "text": text}
+    result = {"policy": pi.identity.policy_number, "sources": sources, "screen": screen, "text": text}
     if args.expect_ul045809:
         expected = [
             "60 0139 00000000 00000000 46726.00 1365.25 3 4458.28 2316.00 .00 .00 .00",

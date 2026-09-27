@@ -355,7 +355,7 @@ class ABRQuoteWindow(FramelessWindowBase):
         pi = self.policy_panel._policy_info
         if pi:
             try:
-                for ben in pi.get_benefits():
+                for ben in pi.benefits.get_benefits():
                     bt = (ben.benefit_type_cd or "").strip()
                     bs = (ben.benefit_subtype_cd or "").strip()
                     if bt == "#" and bs:

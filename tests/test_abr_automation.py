@@ -285,6 +285,22 @@ def test_live_adapter_with_injected_external_reads(request_data, policy, monkeyp
         get_benefits=lambda: benefits,
         data_item=lambda *args: "01",
     )
+    pi.status = SimpleNamespace(status_code="10", is_active=True)
+    pi.coverages = SimpleNamespace(
+        base_issue_age=40,
+        base_rate_class="N",
+        age_at_maturity=75,
+        primary_insured_face_amount=100000,
+        get_coverages=pi.get_coverages,
+    )
+    pi.benefits = SimpleNamespace(get_benefits=pi.get_benefits)
+    pi.billing = SimpleNamespace(billing_frequency=12, total_premiums_paid=0)
+    pi.activity = SimpleNamespace(policy_year=7, policy_month=8, issue_date=date(2020, 1, 15))
+    pi.values = SimpleNamespace(
+        mv_monthly_deduction=lambda: 0,
+        mv_av=lambda _index: 1,
+        accumulation_value=1,
+    )
     monkeypatch.setattr("suiteview.abrquote.core.abr_policy_service.build_abr_policy",
                         lambda *a, **kw: (deepcopy(policy), pi))
     reinsurance_calls = []
@@ -307,6 +323,7 @@ def test_live_adapter_with_injected_external_reads(request_data, policy, monkeyp
         quote_abr(request_data)
     assert closed == [True, True]
     pi.is_active = False
+    pi.status.is_active = False
     with pytest.raises(QuoteError, match="not active"):
         quote_abr(request_data)
 
@@ -378,6 +395,7 @@ def test_activity_uses_actual_status_fields_without_fabricated_defaults(paying, 
     fields = {"PRM_PAY_STA_REA_CD": paying, "SUS_CD": suspense}
     pi = SimpleNamespace(status_code="", is_active=False,
                          data_item=lambda table, field: fields.get(field))
+    pi.status = SimpleNamespace(status_code="", is_active=False)
     result = policy_activity(pi)
     assert result["verified_active"] is expected
     assert "status_code" not in result

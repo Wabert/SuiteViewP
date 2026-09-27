@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtWidgets import QApplication
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs import reinstatement_tab
 
@@ -33,7 +33,7 @@ def main() -> int:
             policy = get_policy_info(
                 args.policy, company_code=args.company, region=args.region, use_cache=False,
             )
-            if policy is None or not policy.exists:
+            if policy is None or not policy.identity.exists:
                 raise RuntimeError("Live policy was not found.")
         else:
             policy = SimpleNamespace(
@@ -77,7 +77,7 @@ def main() -> int:
         window = GetPolicyWindow(enable_policy_list=False)
         window._policy = policy
         window.lookup_bar.set_policy_display(
-            policy.company_code, policy.policy_number, args.region,
+            policy.identity.company_code, policy.identity.policy_number, args.region,
         )
         window.resize(1200, 780)
         window.show()

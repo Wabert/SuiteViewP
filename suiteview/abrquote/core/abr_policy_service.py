@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import List, Optional, Tuple
 
-from ...core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from ..models.abr_constants import NON_STANDARD_MODE_MAP
 from ..models.abr_data import ABRPolicyData, DBLayer, PremiumResult, RiderInfo
 
@@ -133,16 +133,16 @@ def _read_surrender_value(pi):
     # CKPR UL monthliversary rows are in LH_POL_MVRY_VAL. The generic
     # cash_surrender_value accessor first probes an undefined TH table.
     value = pi.data_item("LH_POL_MVRY_VAL", "CSV_AMT")
-    return value if value is not None else pi.cash_surrender_value
+    return value if value is not None else pi.values.cash_surrender_value
 
 
 def _billing_mode(pi) -> int:
-    nsd_code = pi.non_standard_mode_code
+    nsd_code = pi.billing.non_standard_mode_code
     if nsd_code and nsd_code in NON_STANDARD_MODE_MAP:
         return NON_STANDARD_MODE_MAP[nsd_code]
-    freq = pi.billing_frequency or 12
+    freq = pi.billing.billing_frequency or 12
     billing_mode = _FREQ_TO_MODE.get(freq, 1)
-    if freq == 1 and pi.is_eft:
+    if freq == 1 and pi.billing.is_eft:
         billing_mode = 5
     return billing_mode
 
@@ -152,13 +152,13 @@ def _sex_from_code(raw_sex: str) -> str:
 
 
 def _rate_sex(pi, fallback: str) -> str:
-    raw_rate_sex = pi.renewal_cov_sex_code(1)
+    raw_rate_sex = pi.rates.renewal_cov_sex_code(1)
     return {"1": "M", "2": "F"}.get(raw_rate_sex, raw_rate_sex) or fallback
 
 
 def _base_maturity_date(policy_num: str, pi) -> date | None:
     try:
-        base_covs = pi.get_base_coverages()
+        base_covs = pi.coverages.get_base_coverages()
     except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
         raise ABRPolicyLookupError(
             f"Base coverage lookup failed for {policy_num}"
@@ -177,31 +177,31 @@ def extract_policy_identity(policy_num: str, region: str, pi) -> PolicyIdentity:
     for demographics/plan/face, LH_COV_INS_RNL_RT for rate sex, and the
     canonical PolicyInformation properties that wrap those DB2 rows.
     """
-    sex = _sex_from_code(pi.base_sex_code or "")
+    sex = _sex_from_code(pi.coverages.base_sex_code or "")
     return PolicyIdentity(
         policy_number=policy_num,
         region=region,
-        insured_name=pi.primary_insured_name or "",
-        issue_age=int(pi.base_issue_age or 0),
-        attained_age=int(pi.attained_age or 0),
+        insured_name=pi.persons.primary_insured_name or "",
+        issue_age=int(pi.coverages.base_issue_age or 0),
+        attained_age=int(pi.coverages.attained_age or 0),
         sex=sex,
         rate_sex=_rate_sex(pi, sex),
-        rate_class=pi.base_rate_class or "N",
-        face_amount=float(pi.primary_insured_face_amount or 0),
-        db_option=pi.db_option_code or "",
-        issue_date=pi.issue_date,
-        maturity_age=pi.age_at_maturity or 95,
+        rate_class=pi.coverages.base_rate_class or "N",
+        face_amount=float(pi.coverages.primary_insured_face_amount or 0),
+        db_option=pi.product.db_option_code or "",
+        issue_date=pi.activity.issue_date,
+        maturity_age=pi.coverages.age_at_maturity or 95,
         maturity_date=_base_maturity_date(policy_num, pi),
-        issue_state=pi.issue_state or pi.issue_state_code or "",
-        plan_code=pi.base_plancode or "",
-        product_type=pi.product_type or "",
+        issue_state=pi.product.issue_state or pi.product.issue_state_code or "",
+        plan_code=pi.coverages.base_plancode or "",
+        product_type=pi.product.product_type or "",
         base_plancode=_base_plancode_from_data_item(pi),
         billing_mode=_billing_mode(pi),
-        policy_month=pi.policy_month or 1,
-        policy_year=pi.policy_year or 1,
-        paid_to_date=pi.paid_to_date,
-        modal_premium=float(pi.modal_premium or 0),
-        annual_premium=float(pi.annual_premium or 0),
+        policy_month=pi.activity.policy_month or 1,
+        policy_year=pi.activity.policy_year or 1,
+        paid_to_date=pi.activity.paid_to_date,
+        modal_premium=float(pi.billing.modal_premium or 0),
+        annual_premium=float(pi.billing.annual_premium or 0),
     )
 
 
@@ -211,7 +211,7 @@ def extract_policy_substandard(policy_num: str, pi) -> PolicySubstandard:
     Source: LH_SST_XTR_CRG through ``get_substandard_ratings(1)``.
     """
     try:
-        ratings = pi.get_substandard_ratings(1)
+        ratings = pi.coverages.get_substandard_ratings(1)
     except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
         raise ABRPolicyLookupError(
             f"Substandard rating lookup failed for {policy_num}"
@@ -231,9 +231,9 @@ def extract_policy_substandard(policy_num: str, pi) -> PolicySubstandard:
         if rating.type_code == "F":
             flat_extra = float(rating.flat_amount or 0)
             flat_cease_date = rating.flat_cease_date
-            if flat_cease_date and pi.issue_date and pi.base_issue_age is not None:
-                flat_to_age = pi.base_issue_age + (
-                    flat_cease_date.year - pi.issue_date.year
+            if flat_cease_date and pi.activity.issue_date and pi.coverages.base_issue_age is not None:
+                flat_to_age = pi.coverages.base_issue_age + (
+                    flat_cease_date.year - pi.activity.issue_date.year
                 )
     return PolicySubstandard(
         table_rating=table_numeric,
@@ -310,8 +310,8 @@ def extract_riders_and_layers(
     ``as_of_date`` so tests and quote retrieval are clock-independent.
     """
     try:
-        coverages = pi.get_coverages()
-        all_benefits = pi.get_benefits()
+        coverages = pi.coverages.get_coverages()
+        all_benefits = pi.benefits.get_benefits()
     except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
         raise ABRPolicyLookupError(
             f"Coverage/benefit lookup failed for {policy_num}"
@@ -336,7 +336,7 @@ def extract_riders_and_layers(
             riders.append(_make_benefit_rider(cov, benefit, cov_sex, cov_rc))
     db_layers: List[DBLayer] = []
     try:
-        layer_rows = pi.primary_insured_db_layers
+        layer_rows = pi.coverages.primary_insured_db_layers
     except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
         raise ABRPolicyLookupError(
             f"Death-benefit layer lookup failed for {policy_num}"
@@ -358,7 +358,7 @@ def extract_policy_values(policy_num: str, pi) -> PolicyValues:
     LH_POL_TOTALS-derived premium totals, and the monthliversary deduction row.
     """
     try:
-        mv_account_value = pi.mv_av(0)
+        mv_account_value = pi.values.mv_av(0)
     except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
         raise ABRPolicyLookupError(
             f"Account value lookup failed for {policy_num}"
@@ -366,7 +366,7 @@ def extract_policy_values(policy_num: str, pi) -> PolicyValues:
     account_value = (
         float(mv_account_value)
         if mv_account_value is not None
-        else float(pi.accumulation_value or 0)
+        else float(pi.values.accumulation_value or 0)
     )
     try:
         surrender_value = float(_read_surrender_value(pi) or 0)
@@ -375,18 +375,18 @@ def extract_policy_values(policy_num: str, pi) -> PolicyValues:
             f"Surrender value lookup failed for {policy_num}"
         ) from exc
     try:
-        mv_date = pi.mv_date(0)
+        mv_date = pi.values.mv_date(0)
     except (AttributeError, LookupError, RuntimeError, ValueError) as exc:
         raise ABRPolicyLookupError(
             f"Valuation date lookup failed for {policy_num}"
         ) from exc
-    valuation_date = mv_date if mv_date and mv_date.year < 9999 else pi.valuation_date
+    valuation_date = mv_date if mv_date and mv_date.year < 9999 else pi.values.valuation_date
     return PolicyValues(
         account_value=account_value,
         surrender_value=surrender_value,
-        premiums_paid_to_date=float(pi.total_premiums_paid or 0),
+        premiums_paid_to_date=float(pi.billing.total_premiums_paid or 0),
         valuation_date=valuation_date,
-        monthly_deduction=float(pi.mv_monthly_deduction() or 0),
+        monthly_deduction=float(pi.values.mv_monthly_deduction() or 0),
     )
 
 

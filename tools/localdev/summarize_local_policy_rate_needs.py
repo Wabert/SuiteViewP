@@ -32,7 +32,7 @@ def main() -> None:
     args = _parse_args()
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache, get_policy_info
+    from suiteview.polview.services.policy_service import clear_cache, get_policy_info
 
     clear_cache()
     policy = get_policy_info(
@@ -41,22 +41,22 @@ def main() -> None:
         company_code=args.company,
         use_cache=False,
     )
-    if policy is None or not policy.exists:
+    if policy is None or not policy.identity.exists:
         raise RuntimeError(f"Policy {args.policy_number} not found in local offline data")
 
-    coverages = policy.get_coverages()
-    riders = policy.get_riders()
-    benefits = policy.get_benefits()
+    coverages = policy.coverages.get_coverages()
+    riders = policy.coverages.get_riders()
+    benefits = policy.benefits.get_benefits()
 
     plancodes = sorted({str(cov.plancode or "").strip() for cov in coverages if str(cov.plancode or "").strip()})
     benefit_types = sorted({key for benefit in benefits if (key := _active_benefit_key(benefit)) and not key.startswith("#")})
 
     print(json.dumps({
-        "policy_number": policy.policy_number,
-        "company_code": policy.company_code,
-        "system_code": policy.system_code,
-        "policy_id": policy.policy_id,
-        "base_plancode": policy.base_plancode,
+        "policy_number": policy.identity.policy_number,
+        "company_code": policy.identity.company_code,
+        "system_code": policy.identity.system_code,
+        "policy_id": policy.identity.policy_id,
+        "base_plancode": policy.coverages.base_plancode,
         "plancodes": plancodes,
         "rider_plancodes": sorted({str(rider.plancode or "").strip() for rider in riders if str(rider.plancode or "").strip()}),
         "benefit_types": benefit_types,

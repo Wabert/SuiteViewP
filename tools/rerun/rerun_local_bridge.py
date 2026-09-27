@@ -53,7 +53,7 @@ _NOT_RANGE_NAMES = {"TimeStamp", "sUID"}
 
 def _policy_mode(cmd: dict) -> tuple[Path, list[str]]:
     from rerun_build_case_inputs import build_mapping
-    from suiteview.core.policy_service import get_policy_info
+    from suiteview.polview.services.policy_service import get_policy_info
 
     policy = cmd["policy"]
     region = cmd.get("region") or "CKPR"
@@ -65,7 +65,7 @@ def _policy_mode(cmd: dict) -> tuple[Path, list[str]]:
     # INPUT-only fields PopulateInputSheet sets that aren't Saved Cases rows.
     pi = get_policy_info(policy, region=region)
     mapping["sCompany"] = data.company_code
-    mapping["sStatus"] = (pi.status_code if pi is not None else "") or ""
+    mapping["sStatus"] = (pi.status.status_code if pi is not None else "") or ""
     mapping["sMD_From_Cyberlife"] = (
         data.system_coi_charge + data.system_expense_charge + data.system_other_charge)
     mapping["sblnPrintMode"] = False

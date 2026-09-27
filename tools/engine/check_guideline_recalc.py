@@ -46,7 +46,7 @@ def run(cmd: dict) -> dict:
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,

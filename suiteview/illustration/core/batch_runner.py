@@ -205,12 +205,12 @@ def _md_and_rate_check(engine, policy):
 
 def _riders_and_policy_info(policy_number: str, region: str, company: Optional[str]):
     """Active premium-paying rider/benefit codes + the PolicyInformation used."""
-    from suiteview.core.policy_service import get_policy_info
+    from suiteview.polview.services.policy_service import get_policy_info
     from suiteview.illustration.core.illustration_policy_service import (
         active_rider_benefit_codes,
     )
     pi = get_policy_info(policy_number, region, company)
-    if pi is None or not pi.exists:
+    if pi is None or not pi.identity.exists:
         raise ValueError(f"Policy {policy_number} not found in region {region}")
     riders = active_rider_benefit_codes(pi)
     return riders, pi
@@ -357,8 +357,8 @@ def run_glp_forecast_policy(
         riders, pi = _riders_and_policy_info(policy_number, region, company)
         values["riders"] = riders or None
         if pi is not None:
-            values["billing_mode"] = pi.billing_mode
-            values["suspense_code"] = f"{pi.suspense_code} - {pi.suspense_description}"
+            values["billing_mode"] = pi.billing.billing_mode
+            values["suspense_code"] = f"{pi.status.suspense_code} - {pi.status.suspense_description}"
 
         # ── MD diff + rate availability ────────────────────────────────
         md_diff, _system_md, missing_rates, check_error = _md_and_rate_check(
@@ -466,7 +466,7 @@ def run_glp_forecast_policy(
     except Exception as exc:  # unexpected engine/solve failure — isolate it
         return result(STATUS_ERROR, str(exc))
     finally:
-        from suiteview.core.policy_service import clear_cache as _clear
+        from suiteview.polview.services.policy_service import clear_cache as _clear
         _clear()
 
 
@@ -678,7 +678,7 @@ def run_billable_to_md_policy(
     except Exception as exc:  # unexpected engine/solve failure — isolate it
         return result(STATUS_ERROR, str(exc))
     finally:
-        from suiteview.core.policy_service import clear_cache as _clear
+        from suiteview.polview.services.policy_service import clear_cache as _clear
         _clear()
 
 
@@ -849,7 +849,7 @@ def run_min_level_policy(
         riders, pi = _riders_and_policy_info(policy_number, region, company)
         values["riders"] = riders or None
         if pi is not None:
-            values["suspense_code"] = f"{pi.suspense_code} - {pi.suspense_description}"
+            values["suspense_code"] = f"{pi.status.suspense_code} - {pi.status.suspense_description}"
 
         # ── MD + MD diff + rate availability ───────────────────────────
         md_diff, system_md, missing_rates, check_error = _md_and_rate_check(
@@ -935,7 +935,7 @@ def run_min_level_policy(
     except Exception as exc:  # unexpected engine/solve failure — isolate it
         return result(STATUS_ERROR, str(exc))
     finally:
-        from suiteview.core.policy_service import clear_cache as _clear
+        from suiteview.polview.services.policy_service import clear_cache as _clear
         _clear()
 
 

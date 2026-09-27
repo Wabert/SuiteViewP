@@ -118,6 +118,10 @@ class _StubPolicy:
         self.policy_id = f"{policy_number}  QXXX"
         self.status_description = "Active"
         self.status_code = "0"
+        self.identity = self
+        self.status = self
+        self.coverages = SimpleNamespace(get_coverages=lambda: self.get_coverages())
+        self.benefits = SimpleNamespace(get_benefits=lambda: self.get_benefits())
         self.issue_date = date(2010, 5, 15)
         self.base_issue_age = 40
         self.valuation_date = date(2026, 6, 15)
@@ -129,6 +133,12 @@ class _StubPolicy:
         self.modal_premium = 100.0
         self.base_plancode = ""
         self.total_loan_balance = 0
+
+    def get_coverages(self):
+        return []
+
+    def get_benefits(self):
+        return []
 
 
 class _StubDB:

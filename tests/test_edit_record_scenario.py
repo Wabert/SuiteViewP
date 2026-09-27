@@ -205,12 +205,12 @@ def test_canonical_capture_keeps_status_split_funds_rates_and_tamra(monkeypatch)
     from types import SimpleNamespace
 
     pi = _FakePolicyInfo()
-    pi.premium_pay_status_code = "22"
-    pi.fixed_loan_interest_rate = 0.5
-    pi.preferred_loan_interest_rate = 6
-    pi.tamra_7pay_av = 1_234.56
-    pi.tamra_7pay_specified_amount = 80_000
-    pi.get_fund_values_dict = lambda: {"SW": 8_000, "ZERO": 0}
+    pi.status.premium_pay_status_code = "22"
+    pi.loans.fixed_loan_interest_rate = 0.5
+    pi.loans.preferred_loan_interest_rate = 6
+    pi.values.tamra_7pay_av = 1_234.56
+    pi.values.tamra_7pay_specified_amount = 80_000
+    pi.values.get_fund_values_dict = lambda: {"SW": 8_000, "ZERO": 0}
     def buckets(*, current_only):
         assert current_only is True
         return [
@@ -218,9 +218,9 @@ def test_canonical_capture_keeps_status_split_funds_rates_and_tamra(monkeypatch)
             SimpleNamespace(fund_id="SW", csv_amount=5_000),
             SimpleNamespace(fund_id="ZERO", csv_amount=None),
         ]
-    pi.get_fund_buckets = buckets
-    pi.get_loan_values_dict = lambda: {"SW": 2_000}
-    pi.get_premium_allocation_dict = lambda: {"SW": 75, "M1": 25, "ZERO": 0}
+    pi.values.get_fund_buckets = buckets
+    pi.values.get_loan_values_dict = lambda: {"SW": 2_000}
+    pi.values.get_premium_allocation_dict = lambda: {"SW": 75, "M1": 25, "ZERO": 0}
     monkeypatch.setattr(service, "get_policy_info", lambda *_args: pi)
     monkeypatch.setattr(service, "Rates", _FakeRates)
     monkeypatch.setattr(service, "load_plancode", lambda _: PlancodeConfig(plancode="TESTUL"))
@@ -245,7 +245,7 @@ def test_failed_fund_capture_is_not_silently_replaced_with_empty_maps(monkeypatc
     def failed():
         raise RuntimeError("Fund source unavailable")
 
-    pi.get_loan_values_dict = failed
+    pi.values.get_loan_values_dict = failed
     monkeypatch.setattr(service, "get_policy_info", lambda *_args: pi)
     monkeypatch.setattr(service, "Rates", _FakeRates)
     monkeypatch.setattr(service, "load_plancode", lambda _: PlancodeConfig(plancode="TESTUL"))

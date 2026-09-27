@@ -48,7 +48,7 @@ def build_inputs(policy: str, region: str, company, endow: int):
     """
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.models.plancode_config import load_plancode
     from suiteview.illustration.core.guideline_calc import policy_to_guideline_inputs
 

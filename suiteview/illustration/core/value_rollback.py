@@ -391,9 +391,9 @@ def _processed_history(history, tables):
     Ignoring the flag would subtract a receipt never included in the anchor.
     A retained/purged history that cannot prove this relationship is blocked.
     """
-    from suiteview.polview.models.policy_information import PolicyInformation
+    from suiteview.polview.models.policy_sections.activity import ActivitySection
 
-    premium_codes = PolicyInformation.PREMIUM_TRANSACTION_CODES
+    premium_codes = ActivitySection.PREMIUM_TRANSACTION_CODES
     pending = [
         item for item in history
         if item[1] in premium_codes and str(item[2].get("FBB3_PROCD_IND", "")).strip() == "0"
@@ -958,7 +958,7 @@ def build_value_rollback_snapshots(
     if not dated:
         return []
     tables = _rollback_source_tables(pi)
-    coverages = pi.get_coverages()
+    coverages = pi.coverages.get_coverages()
     history, history_error, excluded_pending = _rollback_history_context(tables)
     snapshots = []
     for when, matching in sorted(dated.items(), reverse=True):

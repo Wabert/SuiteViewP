@@ -43,7 +43,7 @@ def main() -> None:
 
     app = QApplication.instance() or QApplication(sys.argv)
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.core.report_builder import build_ul_report
     from suiteview.illustration.models.input_set import (

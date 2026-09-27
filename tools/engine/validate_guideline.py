@@ -28,7 +28,7 @@ def main() -> None:
     cmd = json.loads(sys.argv[1])
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.rate_loader import load_rates
     from suiteview.illustration.models.plancode_config import load_plancode
     from suiteview.illustration.core.guideline_calc import calculate_glp_iterative

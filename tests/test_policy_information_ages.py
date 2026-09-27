@@ -1,6 +1,7 @@
 from datetime import date
 
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.values import ValuesSection
 
 
 def test_coverage_issue_age_zero_drives_attained_age(monkeypatch):
@@ -28,18 +29,18 @@ def test_coverage_issue_age_zero_drives_attained_age(monkeypatch):
         return []
 
     policy.fetch_table = fetch_table
-    policy.get_substandard_ratings = lambda: []
-    policy.cov_renewal_index = lambda *_args: -1
+    policy.coverages.get_substandard_ratings = lambda: []
+    policy.rates.cov_renewal_index = lambda *_args: -1
     policy.data_item = lambda *_args: None
 
-    monkeypatch.setattr(PolicyInformation, "valuation_date", property(lambda _self: date(2022, 6, 1)))
+    monkeypatch.setattr(ValuesSection, "valuation_date", property(lambda _self: date(2022, 6, 1)))
 
-    coverages = policy.get_coverages()
+    coverages = policy.coverages.get_coverages()
 
     assert coverages[0].issue_age == 0
-    assert policy.base_issue_age == 0
-    assert policy.policy_year == 3
-    assert policy.attained_age == 2
+    assert policy.coverages.base_issue_age == 0
+    assert policy.activity.policy_year == 3
+    assert policy.coverages.attained_age == 2
 
 
 def test_optional_int_parser_preserves_zero():
@@ -53,4 +54,4 @@ def test_tamra_7pay_start_date_treats_9999_sentinel_as_missing():
     policy = object.__new__(PolicyInformation)
     policy.data_item = lambda *_args: date(9999, 12, 31)
 
-    assert policy.tamra_7pay_start_date is None
+    assert policy.values.tamra_7pay_start_date is None

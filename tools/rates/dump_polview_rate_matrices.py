@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.core.local_dev import local_data_enabled
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 
 
 def _cell(value):
@@ -32,23 +32,23 @@ def main():
         config["policy"], region=config.get("region", "CKPR"),
         company_code=config.get("company"), use_cache=False,
     )
-    if policy is None or not policy.exists:
+    if policy is None or not policy.identity.exists:
         raise RuntimeError("Policy was not found or live policy access failed.")
     limit = int(config.get("rows", 40))
     print(json.dumps({
-        "policy": policy.policy_number, "company": policy.company_code,
-        "product_type": policy.product_type, "advanced": policy.is_advanced_product,
-        "coverages": policy.coverage_count, "benefits": policy.benefit_count,
+        "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+        "product_type": policy.product.product_type, "advanced": policy.product.is_advanced_product,
+        "coverages": policy.coverages.coverage_count, "benefits": policy.benefits.benefit_count,
     }))
-    leaves = [("Coverages", i, policy.build_coverage_rate_matrix) for i in range(1, policy.coverage_count + 1)]
-    leaves += [("Benefits", i, policy.build_benefit_rate_matrix) for i in range(1, policy.benefit_count + 1)]
-    if policy.has_fixed_premium_rates:
-        for i in range(1, policy.coverage_count + 1):
-            leaves.append(("Cash Values", i, policy.build_whole_life_coverage_rate_matrix))
-            leaves.append(("Premium Rates", i, policy.build_premium_rate_matrix))
-        leaves.append(("Modal Premium", 1, lambda _i: policy.build_modal_premium_matrix()))
-    leaves.append(("Policy", 1, lambda _i: policy.build_policy_rate_matrix()))
-    rates = policy._get_rates()
+    leaves = [("Coverages", i, policy.rates.build_coverage_rate_matrix) for i in range(1, policy.coverages.coverage_count + 1)]
+    leaves += [("Benefits", i, policy.rates.build_benefit_rate_matrix) for i in range(1, policy.benefits.benefit_count + 1)]
+    if policy.rates.has_fixed_premium_rates:
+        for i in range(1, policy.coverages.coverage_count + 1):
+            leaves.append(("Cash Values", i, policy.rates.build_whole_life_coverage_rate_matrix))
+            leaves.append(("Premium Rates", i, policy.rates.build_premium_rate_matrix))
+        leaves.append(("Modal Premium", 1, lambda _i: policy.rates.build_modal_premium_matrix()))
+    leaves.append(("Policy", 1, lambda _i: policy.rates.build_policy_rate_matrix()))
+    rates = policy.rates._get_rates()
     only = set(config.get("only") or [])
     try:
         for category, index, build in leaves:

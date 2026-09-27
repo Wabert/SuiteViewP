@@ -395,7 +395,14 @@ class IllustrationPolicyTab(QWidget):
             self._record_editors[name] = (group, attr, kind, editor)
 
     def set_record_values(self, policy):
-        key = (policy.policy_number, policy.company_code, policy.region, policy.valuation_date)
+        identity = getattr(policy, "identity", policy)
+        values = getattr(policy, "values", policy)
+        key = (
+            identity.policy_number,
+            identity.company_code,
+            identity.region,
+            values.valuation_date,
+        )
         if key != self._record_key:
             self._fund_drafts.clear()
         self._record_key = key
@@ -672,19 +679,19 @@ class IllustrationPolicyTab(QWidget):
         self._policy = policy
         self.set_rollback_editing(False)
         self._clear_all()
-        if not policy or not policy.exists:
+        if not policy or not policy.identity.exists:
             return
 
         if policy_info is None:
             policy_info = {
-                "PolicyNumber": policy.policy_number,
-                "CompanyCode": policy.company_code,
-                "SystemCode": policy.system_code,
-                "Region": policy.region,
+                "PolicyNumber": policy.identity.policy_number,
+                "CompanyCode": policy.identity.company_code,
+                "SystemCode": policy.identity.system_code,
+                "Region": policy.identity.region,
             }
 
-        self._coverages = list(policy.get_coverages())
-        self._benefits = list(policy.get_benefits())
+        self._coverages = list(policy.coverages.get_coverages())
+        self._benefits = list(policy.benefits.get_benefits())
         self._as_of = getattr(policy, "valuation_date", None) or date.today()
         self._populate_policy_info(policy, policy_info)
         self.set_monthly_deduction_check(md_check)
@@ -1043,39 +1050,39 @@ class IllustrationPolicyTab(QWidget):
 
     def _populate_policy_info(self, policy, policy_info: dict):
         base_cov = next((cov for cov in self._coverages if cov.is_base), self._coverages[0] if self._coverages else None)
-        self.policy_info.set_value("policy_label", policy_info.get("PolicyNumber", policy.policy_number))
-        self.policy_info.set_value("company_label", policy.company_code)
-        self.policy_info.set_value("plancode_label", policy.base_plancode)
-        self.policy_info.set_value("market_org_label", policy.servicing_market_org)
-        self.policy_info.set_value("issue_state_label", policy.issue_state)
-        self.policy_info.set_value("billing_mode_label", policy.billing_mode)
-        self.policy_info.set_value("premium_label", format_currency(policy.modal_premium, "$"))
-        self.policy_info.set_value("joint_label", policy.insured_lives_description)
-        self.policy_info.set_value("suspense_label", f"{policy.suspense_code} - {policy.suspense_description}")
-        self.policy_info.set_value("grace_label", "In Grace" if policy.in_grace else "Not in Grace")
-        self.policy_info.set_value("eff_date_label", format_date(policy.valuation_date))
-        self.policy_info.set_value("policy_year_label", policy.policy_year)
-        self.policy_info.set_value("att_age_label", policy.attained_age)
-        self.policy_info.set_value("maturity_age", policy.age_at_maturity or "")
-        self.policy_info.set_value("insured_dob", format_date(policy.primary_insured_birth_date))
+        self.policy_info.set_value("policy_label", policy_info.get("PolicyNumber", policy.identity.policy_number))
+        self.policy_info.set_value("company_label", policy.identity.company_code)
+        self.policy_info.set_value("plancode_label", policy.coverages.base_plancode)
+        self.policy_info.set_value("market_org_label", policy.agents.servicing_market_org)
+        self.policy_info.set_value("issue_state_label", policy.product.issue_state)
+        self.policy_info.set_value("billing_mode_label", policy.billing.billing_mode)
+        self.policy_info.set_value("premium_label", format_currency(policy.billing.modal_premium, "$"))
+        self.policy_info.set_value("joint_label", policy.coverages.insured_lives_description)
+        self.policy_info.set_value("suspense_label", f"{policy.status.suspense_code} - {policy.status.suspense_description}")
+        self.policy_info.set_value("grace_label", "In Grace" if policy.status.in_grace else "Not in Grace")
+        self.policy_info.set_value("eff_date_label", format_date(policy.values.valuation_date))
+        self.policy_info.set_value("policy_year_label", policy.activity.policy_year)
+        self.policy_info.set_value("att_age_label", policy.coverages.attained_age)
+        self.policy_info.set_value("maturity_age", policy.coverages.age_at_maturity or "")
+        self.policy_info.set_value("insured_dob", format_date(policy.persons.primary_insured_birth_date))
         self.policy_info.set_value("cyberlife_md", format_currency(self._policy_cyberlife_monthly_deduction(policy), "$"))
-        self.policy_info.set_value("policy_debt_label", format_currency(policy.policy_debt, "$"))
-        self.policy_info.set_value("total_face_label", format_amount(policy.base_total_face_amount))
-        self.policy_info.set_value("total_death_benefit_label", format_amount(policy.total_death_benefit))
-        status_code = policy.premium_pay_status_code
-        self.policy_info.set_value("status_label", f"{status_code} - {policy.premium_pay_status_description}")
-        db_option = {"1": "A-Level", "2": "B-Increasing", "3": "C-ROP"}.get(str(policy.db_option_code or ""), "")
-        self.policy_info.set_value("db_option_label", db_option if policy.is_advanced_product else "")
+        self.policy_info.set_value("policy_debt_label", format_currency(policy.loans.policy_debt, "$"))
+        self.policy_info.set_value("total_face_label", format_amount(policy.coverages.base_total_face_amount))
+        self.policy_info.set_value("total_death_benefit_label", format_amount(policy.coverages.total_death_benefit))
+        status_code = policy.status.premium_pay_status_code
+        self.policy_info.set_value("status_label", f"{status_code} - {policy.status.premium_pay_status_description}")
+        db_option = {"1": "A-Level", "2": "B-Increasing", "3": "C-ROP"}.get(str(policy.product.db_option_code or ""), "")
+        self.policy_info.set_value("db_option_label", db_option if policy.product.is_advanced_product else "")
         self.rollback_dbo_combo.setCurrentIndex(
             self.rollback_dbo_combo.findData(
-                {"1": "A", "2": "B", "3": "C"}.get(str(policy.db_option_code or ""))))
+                {"1": "A", "2": "B", "3": "C"}.get(str(policy.product.db_option_code or ""))))
         self.policy_info.set_value(
-            "guar_int_rate_label", self._format_rate(policy.guaranteed_interest_rate))
+            "guar_int_rate_label", self._format_rate(policy.product.guaranteed_interest_rate))
 
         if not base_cov:
             return
 
-        self.policy_info.set_value("issue_date", format_date(base_cov.issue_date or policy.issue_date))
+        self.policy_info.set_value("issue_date", format_date(base_cov.issue_date or policy.activity.issue_date))
         self.policy_info.set_value("maturity_date", format_date(base_cov.maturity_date))
         self.policy_info.set_value("issue_age", base_cov.issue_age)
         self.policy_info.set_value("sex", base_cov.sex_desc or base_cov.sex_code)
@@ -1088,9 +1095,9 @@ class IllustrationPolicyTab(QWidget):
     def _policy_cyberlife_monthly_deduction(policy):
         if hasattr(policy, "mv_monthly_deduction"):
             try:
-                return policy.mv_monthly_deduction(0)
+                return policy.values.mv_monthly_deduction(0)
             except TypeError:
-                return policy.mv_monthly_deduction()
+                return policy.values.mv_monthly_deduction()
             except Exception:
                 return None
         return getattr(policy, "system_monthly_deduction", None)
@@ -1105,31 +1112,31 @@ class IllustrationPolicyTab(QWidget):
         return f"{value:.2f}%" if value > 1 else f"{value * 100:.2f}%"
 
     def _populate_value_groups(self, policy):
-        definition = "GP" if policy.gpt_cvat == "GPT" else policy.gpt_cvat
-        self.fund_values.set_value("fund_account_value", format_currency(policy.mv_av(0), "$"))
-        self.account_value_input.set_amount(policy.mv_av(0))
-        self.shadow_value_input.set_amount(policy.shadow_account_value)
+        definition = "GP" if policy.product.gpt_cvat == "GPT" else policy.product.gpt_cvat
+        self.fund_values.set_value("fund_account_value", format_currency(policy.values.mv_av(0), "$"))
+        self.account_value_input.set_amount(policy.values.mv_av(0))
+        self.shadow_value_input.set_amount(policy.targets.shadow_account_value)
         self.fund_values.set_value(
             "shadow_account_value",
-            format_currency(policy.shadow_account_value, "$"),
+            format_currency(policy.targets.shadow_account_value, "$"),
         )
         # Sweep Account Min: DB2 source still unknown (work laptop item) — the
         # Input tab carries an editable override meanwhile. "—" = not loaded.
         self.fund_values.set_value("sweep_account_min", "—")
         self.fund_values.set_value(
-            "guaranteed_int_rate", self._format_rate(policy.guaranteed_interest_rate))
-        self.mec_values.set_value("deemed_cash_value", format_currency(policy.mv_av(0), "$"))
+            "guaranteed_int_rate", self._format_rate(policy.product.guaranteed_interest_rate))
+        self.mec_values.set_value("deemed_cash_value", format_currency(policy.values.mv_av(0), "$"))
         self.mec_values.set_value("nsp", format_currency(self._nsp_total(policy), "$"))
         for attr in ["deemed_cash_value", "nsp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "CVAT")
 
-        self.premium_values.set_value("premium_ytd", format_currency(policy.premium_ytd, "$"))
-        self.premium_values.set_value("premium_td", format_currency(policy.premium_td, "$"))
-        self.premium_values.set_value("withdrawal_td", format_currency(policy.total_withdrawals, "$"))
-        self.premium_values.set_value("accum_minimum", format_currency(policy.accumulated_mtp_target, "$"))
-        self.premium_values.set_value("map_cease_date", format_date(policy.map_date))
-        self.premium_values.set_value("monthly_mtp", format_currency(policy.mtp, "$"))
-        self.premium_values.set_value("commission_target_premium", format_currency(policy.ctp, "$"))
+        self.premium_values.set_value("premium_ytd", format_currency(policy.billing.premium_ytd, "$"))
+        self.premium_values.set_value("premium_td", format_currency(policy.billing.premium_td, "$"))
+        self.premium_values.set_value("withdrawal_td", format_currency(policy.values.total_withdrawals, "$"))
+        self.premium_values.set_value("accum_minimum", format_currency(policy.targets.accumulated_mtp_target, "$"))
+        self.premium_values.set_value("map_cease_date", format_date(policy.targets.map_date))
+        self.premium_values.set_value("monthly_mtp", format_currency(policy.targets.mtp, "$"))
+        self.premium_values.set_value("commission_target_premium", format_currency(policy.targets.ctp, "$"))
 
         # Loan balances = principal + accrued; the charge rate shows only
         # when the loan exists.
@@ -1140,8 +1147,8 @@ class IllustrationPolicyTab(QWidget):
         def _rate_text(rate, has_loan: bool) -> str:
             return self._format_rate(rate) if has_loan else ""
 
-        fixed = _balance(policy.total_regular_loan_principal, policy.total_regular_loan_accrued)
-        pref = _balance(policy.total_preferred_loan_principal, policy.total_preferred_loan_accrued)
+        fixed = _balance(policy.loans.total_regular_loan_principal, policy.loans.total_regular_loan_accrued)
+        pref = _balance(policy.loans.total_preferred_loan_principal, policy.loans.total_preferred_loan_accrued)
         for field in (
             "regular_loan_principal", "regular_loan_accrued",
             "preferred_loan_principal", "preferred_loan_accrued",
@@ -1149,24 +1156,24 @@ class IllustrationPolicyTab(QWidget):
         ):
             self.loan_values.set_value(field, format_currency(getattr(policy, "total_" + field), "$"))
         self.loan_values.set_value(
-            "fixed_loan_rate", _rate_text(policy.fixed_loan_interest_rate, fixed > 0))
+            "fixed_loan_rate", _rate_text(policy.loans.fixed_loan_interest_rate, fixed > 0))
         self.loan_values.set_value(
-            "pref_loan_rate", _rate_text(policy.preferred_loan_interest_rate, pref > 0))
+            "pref_loan_rate", _rate_text(policy.loans.preferred_loan_interest_rate, pref > 0))
         self.loan_values.set_value("vbl_loan_rate", "")
 
-        self.tax_values.set_value("cost_basis", format_currency(policy.cost_basis, "$"))
-        self.tax_values.set_value("seven_pay_start_date", format_date(policy.tamra_7pay_start_date))
+        self.tax_values.set_value("cost_basis", format_currency(policy.values.cost_basis, "$"))
+        self.tax_values.set_value("seven_pay_start_date", format_date(policy.values.tamra_7pay_start_date))
         for year in range(1, 8):
-            self.tax_values.set_value(f"tamra_y{year}", format_currency(policy.tamra_7pay_premium_paid(year), "$"))
-        self.tax_values.set_value("seven_pay_cash_value", format_currency(policy.tamra_7pay_av, "$"))
-        self.tax_values.set_value("seven_pay_premium", format_currency(policy.tamra_7pay_level, "$"))
-        self.tax_values.set_value("seven_yr_lowest_db", format_currency(policy.tamra_7pay_specified_amount, "$"))
-        self.tax_values.set_value("is_mec", "Yes" if policy.is_mec else "No")
+            self.tax_values.set_value(f"tamra_y{year}", format_currency(policy.values.tamra_7pay_premium_paid(year), "$"))
+        self.tax_values.set_value("seven_pay_cash_value", format_currency(policy.values.tamra_7pay_av, "$"))
+        self.tax_values.set_value("seven_pay_premium", format_currency(policy.values.tamra_7pay_level, "$"))
+        self.tax_values.set_value("seven_yr_lowest_db", format_currency(policy.values.tamra_7pay_specified_amount, "$"))
+        self.tax_values.set_value("is_mec", "Yes" if policy.values.is_mec else "No")
 
         self.mec_values.set_value("policy_definition", definition)
-        self.mec_values.set_value("guideline_single", format_currency(policy.gsp, "$"))
-        self.mec_values.set_value("guideline_level", format_currency(policy.glp, "$"))
-        self.mec_values.set_value("accum_glp", format_currency(policy.accumulated_glp_target, "$"))
+        self.mec_values.set_value("guideline_single", format_currency(policy.targets.gsp, "$"))
+        self.mec_values.set_value("guideline_level", format_currency(policy.targets.glp, "$"))
+        self.mec_values.set_value("accum_glp", format_currency(policy.targets.accumulated_glp_target, "$"))
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
 
@@ -1180,8 +1187,9 @@ class IllustrationPolicyTab(QWidget):
 
     def _fill_allocation_table(self, policy):
         """Premium allocation % by fund (IUL — empty on declared-rate plans)."""
+        values = getattr(policy, "values", policy)
         try:
-            allocations = policy.get_premium_allocation_dict()
+            allocations = values.get_premium_allocation_dict()
         except Exception:
             allocations = {}
         self._fill_allocation_from_dict(allocations)
@@ -1212,15 +1220,17 @@ class IllustrationPolicyTab(QWidget):
         return str(fund_id or "").strip()
 
     def _impaired_fund_values_by_fund(self, policy):
+        values = getattr(policy, "values", policy)
         try:
-            return policy.get_loan_values_dict()
+            return values.get_loan_values_dict()
         except Exception:
             return {}
 
     def _current_fund_values_by_fund(self, policy):
+        values = getattr(policy, "values", policy)
         fund_values = {}
         try:
-            buckets = policy.get_fund_buckets(current_only=True)
+            buckets = values.get_fund_buckets(current_only=True)
             for bucket in buckets:
                 fund_id = str(getattr(bucket, "fund_id", "") or "").strip()
                 if not fund_id:
@@ -1229,13 +1239,13 @@ class IllustrationPolicyTab(QWidget):
                 fund_values[fund_id] = fund_values.get(fund_id, Decimal("0")) + Decimal(str(amount))
         except Exception:
             try:
-                fund_values = policy.get_fund_values_dict()
+                fund_values = values.get_fund_values_dict()
             except Exception:
                 fund_values = {}
         return fund_values
 
     def _nsp_total(self, policy):
-        values = [policy.nsp_base, policy.nsp_other]
+        values = [policy.targets.nsp_base, policy.targets.nsp_other]
         return sum((Decimal(str(value)) for value in values if value is not None), Decimal("0"))
 
     def _set_group_field_visible(self, group, attr_name: str, visible: bool):

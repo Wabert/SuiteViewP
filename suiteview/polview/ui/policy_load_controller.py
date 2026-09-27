@@ -201,10 +201,10 @@ class PolicyLoadController(QObject):
             self.failed.emit(token, stage, error)
         else:
             self.states[stage] = "ready"
-            if stage == "coverages" and result.policy.exists:
+            if stage == "coverages" and result.policy.identity.exists:
                 self._pending = [
                     key for key in DETAIL_STAGES
-                    if key != "advprod" or result.policy.is_advanced_product
+                    if key != "advprod" or result.policy.product.is_advanced_product
                 ]
                 self.states.update({key: "queued" for key in self._pending})
             self.ready.emit(token, stage, result)

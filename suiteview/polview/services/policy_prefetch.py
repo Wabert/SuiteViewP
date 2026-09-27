@@ -15,7 +15,7 @@ from threading import get_ident
 
 import pyodbc
 
-from suiteview.core import policy_service
+from suiteview.polview.services import policy_service
 from suiteview.core.odbc_utils import connect_dsn
 from suiteview.core.rates import owned_rate_connections
 from suiteview.polview.models.policy_data import connection_provider_scope
@@ -78,42 +78,57 @@ STAGE_TABLES = {
 
 STAGE_PROPERTIES = {
     "coverages": (
-        "servicing_market_org", "issue_state", "gpt_cvat", "billing_mode",
-        "modal_premium", "suspense_code", "suspense_description", "in_grace",
-        "valuation_date", "policy_year", "attained_age", "premium_pay_status_code",
-        "premium_pay_status_description", "reins_partner", "db_option_code",
-        "standard_death_benefit", "corridor_death_benefit", "total_death_benefit",
-        "insured_lives_description",
+        "agents.servicing_market_org", "product.issue_state", "product.gpt_cvat",
+        "billing.billing_mode", "billing.modal_premium", "status.suspense_code",
+        "status.suspense_description", "status.in_grace", "values.valuation_date",
+        "activity.policy_year", "coverages.attained_age",
+        "status.premium_pay_status_code", "status.premium_pay_status_description",
+        "support.reins_partner", "product.db_option_code",
+        "coverages.standard_death_benefit", "coverages.corridor_death_benefit",
+        "coverages.total_death_benefit", "coverages.insured_lives_description",
     ),
     "policy": (
-        "base_plancode", "product_line_code", "issue_state_code",
-        "grace_period_expiry_date", "paid_to_date", "last_anniversary",
-        "next_bill_date", "mec_indicator", "nfo_code", "nfo_description",
-        "div_option_code", "div_option_description", "annual_policy_fee",
-        "decrease_charge_rule",
+        "coverages.base_plancode", "product.product_line_code",
+        "product.issue_state_code", "status.grace_period_expiry_date",
+        "activity.paid_to_date", "activity.last_anniversary",
+        "billing.next_bill_date", "values.mec_indicator", "dividends.nfo_code",
+        "dividends.nfo_description", "dividends.div_option_code",
+        "dividends.div_option_description", "billing.annual_policy_fee",
+        "support.decrease_charge_rule",
     ),
     "targets": (
-        "is_advanced_product", "gsp", "glp", "accumulated_glp_target",
-        "corridor_percent", "gpt_cvat", "tefra_defra", "status_code",
-        "valuation_date", "age_at_maturity", "attained_age", "premium_td",
-        "total_withdrawals", "nsp_base", "nsp_other", "total_regular_premium",
-        "total_additional_premium", "premium_ytd", "cost_basis",
-        "policy_totals_count",
+        "product.is_advanced_product", "targets.gsp", "targets.glp",
+        "targets.accumulated_glp_target", "product.corridor_percent",
+        "product.gpt_cvat", "product.tefra_defra", "status.status_code",
+        "values.valuation_date", "coverages.age_at_maturity",
+        "coverages.attained_age", "billing.premium_td",
+        "values.total_withdrawals", "targets.nsp_base", "targets.nsp_other",
+        "billing.total_regular_premium", "billing.total_additional_premium",
+        "billing.premium_ytd", "values.cost_basis", "values.policy_totals_count",
     ),
     "loans": (
-        "is_advanced_product", "product_type", "status_code",
-        "fixed_loan_interest_rate", "preferred_loan_interest_rate",
+        "product.is_advanced_product", "product.product_type", "status.status_code",
+        "loans.fixed_loan_interest_rate", "loans.preferred_loan_interest_rate",
     ),
     "advprod": (
-        "gav", "guaranteed_interest_rate", "grace_rule_code", "corridor_percent",
-        "short_pay_premium", "short_pay_duration", "short_pay_mode",
-        "sp_billing_cease_date", "sp_prem_cease_age", "db_dial_to_age",
+        "targets.gav", "product.guaranteed_interest_rate",
+        "product.grace_rule_code", "product.corridor_percent",
+        "billing.short_pay_premium", "billing.short_pay_duration",
+        "billing.short_pay_mode", "billing.sp_billing_cease_date",
+        "billing.sp_prem_cease_age", "targets.db_dial_to_age",
     ),
     "support": (
-        "product_type", "def_of_life_ins_code", "def_of_life_ins_description",
-        "has_annuity_rider",
+        "product.product_type", "product.def_of_life_ins_code",
+        "product.def_of_life_ins_description", "coverages.has_annuity_rider",
     ),
 }
+
+
+def _read_policy_path(policy, path):
+    value = policy
+    for part in path.split("."):
+        value = getattr(value, part)
+    return value
 
 
 def _open_connection(region):
@@ -192,16 +207,16 @@ class PolicyLoadSession:
         self._closed = False
         if seed is not None:
             if (
-                not seed.exists
-                or seed.policy_number.strip().upper() != self.policy_number
-                or seed.region.strip().upper() != self.region
-                or (self.company_code and seed.company_code.strip().upper() != self.company_code)
-                or (self.system_code and seed.system_code.strip().upper() != self.system_code)
+                not seed.identity.exists
+                or seed.identity.policy_number.strip().upper() != self.policy_number
+                or seed.identity.region.strip().upper() != self.region
+                or (self.company_code and seed.identity.company_code.strip().upper() != self.company_code)
+                or (self.system_code and seed.identity.system_code.strip().upper() != self.system_code)
             ):
                 raise ValueError("Seed must be the same resolved policy/company/region/system")
             self._policy = seed.detached_copy()
-            self.company_code = self._policy.company_code
-            self.system_code = self._policy.system_code
+            self.company_code = self._policy.identity.company_code
+            self.system_code = self._policy.identity.system_code
 
     def _check_thread(self):
         # Binding on first use permits constructing the inert session in the GUI.
@@ -251,13 +266,13 @@ class PolicyLoadSession:
                     system_code=self.system_code or "I",
                     include_unresolved=True,
                 )
-                if self.system_code is None and not policy.exists and not policy.available_companies:
+                if self.system_code is None and not policy.identity.exists and not policy.identity.available_companies:
                     policy = policy_service.get_policy_info(
                         self.policy_number, self.region, self.company_code,
                         system_code="P", include_unresolved=True,
                     )
                 self._policy = policy
-            if not self._policy.exists:
+            if not self._policy.identity.exists:
                 return PreparedPolicy(self._policy.detached_copy(), "coverages", False)
             return self._prepare("coverages")
 
@@ -265,7 +280,7 @@ class PolicyLoadSession:
         if stage not in STAGE_TABLES:
             raise ValueError(f"Unknown PolView stage: {stage}")
         with self._scope():
-            if self._policy is None or not self._policy.exists:
+            if self._policy is None or not self._policy.identity.exists:
                 raise RuntimeError("Load and resolve the policy before preparing a stage")
             return self._prepare(stage)
 
@@ -274,27 +289,27 @@ class PolicyLoadSession:
         policy._data.clear_failed_tables()
         if stage == "tables":
             return self._table_presence()
-        if stage == "advprod" and not policy.is_advanced_product:
+        if stage == "advprod" and not policy.product.is_advanced_product:
             return PreparedPolicy(policy.detached_copy(), stage, False)
         # A swallowed failure in a collection builder may have left partial data.
-        policy._coverages = None
-        policy._benefits = None
+        policy._sections.pop("coverages", None)
+        policy._sections.pop("benefits", None)
         policy.loan_records.invalidate()
         for table in STAGE_TABLES[stage]:
             policy.fetch_table(table)
         for name in STAGE_PROPERTIES.get(stage, ()):
-            getattr(policy, name)
+            _read_policy_path(policy, name)
         available = True
         payload = None
         if stage == "coverages":
-            policy.get_coverages()
-            policy.get_benefits()
+            policy.coverages.get_coverages()
+            policy.benefits.get_benefits()
         elif stage == "targets":
             # Guaranteed cash value matches stored rates to coverage records.
-            policy.get_coverages()
+            policy.coverages.get_coverages()
         elif stage == "dividends":
             available = any(policy.data_item_count(t) for t in STAGE_TABLES[stage])
-            policy.cov_issue_date(1)
+            policy.coverages.cov_issue_date(1)
         elif stage == "loans":
             available = any(policy.data_item_count(t) for t in STAGE_TABLES[stage])
             # LoanRecords' summaries read both loan kinds even on a trad page.
@@ -306,9 +321,9 @@ class PolicyLoadSession:
             ):
                 getattr(policy.loan_records, name)
         elif stage == "advprod":
-            available = policy.is_advanced_product
+            available = policy.product.is_advanced_product
             if available:
-                policy.get_premium_allocation_dict()
+                policy.values.get_premium_allocation_dict()
                 policy._data.raise_table_errors()
                 record_snapshot = policy.detached_copy()
                 try:
@@ -319,7 +334,7 @@ class PolicyLoadSession:
                         "Policy record values are still available."
                     )
                     logger.warning(
-                        "PolView %s: %s", policy.policy_number, reason, exc_info=True,
+                        "PolView %s: %s", policy.identity.policy_number, reason, exc_info=True,
                     )
                     # Illustration-only reads may have failed or cached partial data.
                     # Keep the already validated record view independent of that work.
@@ -328,7 +343,7 @@ class PolicyLoadSession:
                     )
         elif stage == "reinsurance":
             payload = self._reinsurance()
-        elif stage == "support" and policy.has_annuity_rider:
+        elif stage == "support" and policy.coverages.has_annuity_rider:
             # Only the rider's embedded transaction view needs history.
             # Filesystem/SharePoint and forecast actions are deliberately absent.
             policy.fetch_table("FH_FIXED")
@@ -367,22 +382,22 @@ class PolicyLoadSession:
 
         policy = self._policy
         try:
-            config = load_plancode(policy.base_plancode)
+            config = load_plancode(policy.coverages.base_plancode)
         except MissingPlancodeError:
             reason = (
                 f"Surrender charge and value cannot be calculated: plan "
-                f"{policy.base_plancode} has no illustration configuration. "
+                f"{policy.coverages.base_plancode} has no illustration configuration. "
                 "Other values below are available policy data."
             )
-            logger.warning("PolView %s: %s", policy.policy_number, reason)
+            logger.warning("PolView %s: %s", policy.identity.policy_number, reason)
             return SurrenderValuesUnavailable(reason)
         policy_service.cache_policy_info(policy)
         # The projection façade requests the inforce key. A resolved pending
         # session must still use its own canonical instance, not do a new lookup.
-        self._cache[(self.policy_number, policy.company_code, "I", self.region)] = policy
+        self._cache[(self.policy_number, policy.identity.company_code, "I", self.region)] = policy
         basis_data = load_projection_basis(
-            policy.policy_number, region=policy.region,
-            company_code=policy.company_code, config=config,
+            policy.identity.policy_number, region=policy.identity.region,
+            company_code=policy.identity.company_code, config=config,
         )
         basis = basis_data.policy
         policy._data.raise_table_errors()
@@ -411,7 +426,7 @@ class PolicyLoadSession:
         if result.error:
             raise RuntimeError(result.error)
         companies = PolicyInformation.find_companies(
-            self.policy_number, self.region, self._policy.system_code,
+            self.policy_number, self.region, self._policy.identity.system_code,
         )
         return ReinsuranceInformation(
             self.policy_number, self.region, deepcopy(result), tuple(companies),

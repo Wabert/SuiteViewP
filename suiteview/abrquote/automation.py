@@ -176,9 +176,9 @@ def policy_activity(pi):
     from suiteview.polview.models.cl_polrec.policy_translations import (
         PREMIUM_PAY_STATUS_CODES, SUSPENSE_CODES,
     )
-    if str(pi.status_code).strip():
-        return {"verified_active": bool(pi.is_active), "source": "PolicyInformation.status_code",
-                "status_code": pi.status_code}
+    if str(pi.status.status_code).strip():
+        return {"verified_active": bool(pi.status.is_active), "source": "PolicyInformation.status_code",
+                "status_code": pi.status.status_code}
     paying = str(pi.data_item("LH_BAS_POL", "PRM_PAY_STA_REA_CD") or "").strip()
     raw_suspense = pi.data_item("LH_BAS_POL", "SUS_CD")
     suspense = "" if raw_suspense is None else str(raw_suspense).strip()
@@ -448,7 +448,7 @@ def _quote_response(
              root / "models" / "abr_odbc_database.py", root / "models" / "abr_database.py",
              root / "ui" / "abr_window.py", root / "ui" / "assessment_panel.py",
              root / "ui" / "email_print_dialog.py",
-             root.parent / "core" / "policy_service.py",
+             root.parent / "polview" / "services" / "policy_service.py",
              root.parent / "core" / "reinsurance.py",
              root.parent / "polview" / "models" / "policy_information.py",
              root.parents[1] / "tools" / "abrquote" / "quote.py"]
@@ -486,7 +486,7 @@ def quote_abr(request: QuoteRequest | dict) -> dict:
         raise QuoteError("Live ABR quoting requires local-data mode to be disabled; "
                          "use calculate_quote for explicit offline fixtures")
     p, pi, activity, benefits, actual_company = _load_live_policy(req)
-    eligible = _eligible_live_riders(req, pi.get_coverages(), benefits)
+    eligible = _eligible_live_riders(req, pi.coverages.get_coverages(), benefits)
     db, queries = _open_live_rate_database(p.product_type)
     try:
         response = calculate_quote(
@@ -524,21 +524,29 @@ def _load_live_policy(req: QuoteRequest):
         raise QuoteError("Live policy retrieval failed; manual/default policy is forbidden")
     activity = policy_activity(pi)
     if not activity["verified_active"]:
-        raise QuoteError(f"Policy is not active (status {pi.status_code}); "
+        raise QuoteError(f"Policy is not active (status {pi.status.status_code}); "
                          "historical in-force reconstruction is unsupported")
     actual_company = str(pi.data_item("LH_BAS_POL", "CK_CMP_CD") or "").strip()
     if actual_company != req.company_code:
         raise QuoteError("Live company identity mismatch")
-    for field in ("base_issue_age", "base_rate_class", "age_at_maturity",
-                  "billing_frequency", "policy_month", "policy_year",
-                  "primary_insured_face_amount", "issue_date"):
-        if getattr(pi, field) in (None, ""):
+    required = {
+        "base_issue_age": pi.coverages.base_issue_age,
+        "base_rate_class": pi.coverages.base_rate_class,
+        "age_at_maturity": pi.coverages.age_at_maturity,
+        "billing_frequency": pi.billing.billing_frequency,
+        "policy_month": pi.activity.policy_month,
+        "policy_year": pi.activity.policy_year,
+        "primary_insured_face_amount": pi.coverages.primary_insured_face_amount,
+        "issue_date": pi.activity.issue_date,
+    }
+    for field, value in required.items():
+        if value in (None, ""):
             raise QuoteError(f"Required CyberLife input missing: {field}")
     for field in ("age_at_maturity", "billing_frequency", "policy_month", "policy_year"):
-        if getattr(pi, field) <= 0:
+        if required[field] <= 0:
             raise QuoteError(f"Invalid CyberLife input: {field}")
-    coverages = pi.get_coverages()
-    benefits = pi.get_benefits()
+    coverages = pi.coverages.get_coverages()
+    benefits = pi.benefits.get_benefits()
     _validate_live_ul_values(p, pi)
     p.company = actual_company
     with reject_lookup_warnings("suiteview.core.reinsurance"):
@@ -549,11 +557,11 @@ def _load_live_policy(req: QuoteRequest):
 def _validate_live_ul_values(p: ABRPolicyData, pi) -> None:
     if p.product_type not in {"UL", "IUL", "ISWL"}:
         return
-    if pi.mv_monthly_deduction() is None:
+    if pi.values.mv_monthly_deduction() is None:
         raise QuoteError("UL monthly deduction is missing")
-    if str(p.db_option).upper() in {"2", "B"} and pi.mv_av(0) is None and pi.accumulation_value is None:
+    if str(p.db_option).upper() in {"2", "B"} and pi.values.mv_av(0) is None and pi.values.accumulation_value is None:
         raise QuoteError("Option B account value is missing")
-    if str(p.db_option).upper() in {"3", "C"} and pi.total_premiums_paid is None:
+    if str(p.db_option).upper() in {"3", "C"} and pi.billing.total_premiums_paid is None:
         raise QuoteError("Option C premiums paid is missing")
 
 
@@ -592,7 +600,7 @@ def _live_policy_provenance(req, p, pi, activity, benefits, actual_company) -> d
         "region": req.region,
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
         "valuation_date": _json_value(p.valuation_date),
-        "policy_status": pi.status_code,
+        "policy_status": pi.status.status_code,
         "activity_resolution": activity,
         "abr_benefits": [
             {"type": b.benefit_type_cd, "subtype": b.benefit_subtype_cd,

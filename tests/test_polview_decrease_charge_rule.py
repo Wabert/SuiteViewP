@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.ui.tabs.policy_tab import PolicyTab
@@ -24,8 +25,8 @@ def _policy_with_rule(raw):
 def test_decrease_charge_rule_reads_th_non_trd_pol(raw, rule, allowed):
     policy, calls = _policy_with_rule(raw)
 
-    assert policy.decrease_charge_rule == rule
-    assert policy.decrease_charge_allowed is allowed
+    assert policy.support.decrease_charge_rule == rule
+    assert policy.support.decrease_charge_allowed is allowed
     assert set(calls) == {("TH_NON_TRD_POL", "DECR_CHRG_ALLOW")}
 
 
@@ -43,6 +44,13 @@ class _FakePolicy:
 
     def __init__(self, rule):
         self.decrease_charge_rule = rule
+        self.identity = self
+        self.coverages = SimpleNamespace(base_plancode=self.base_plancode)
+        self.product = self
+        self.status = self
+        self.activity = self
+        self.billing = self
+        self.support = self
 
     @staticmethod
     def data_item(*_args):

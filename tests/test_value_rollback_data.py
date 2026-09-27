@@ -58,6 +58,7 @@ def _transaction(day, code, amount, sequence):
 class _Source:
     def __init__(self):
         self.errors = {}
+        self.coverages = SimpleNamespace(get_coverages=lambda: self.get_coverages())
         self.tables = {
             "LH_POL_MVRY_VAL": [{
                 "MVRY_DT": WHEN, "CSV_AMT": 10_000, "POL_DUR_NBR": 7,

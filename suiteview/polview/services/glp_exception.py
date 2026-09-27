@@ -129,7 +129,7 @@ def is_glp_exception_eligible(policy) -> bool:
 def _load_forecast_policy(policy) -> tuple[IllustrationPolicyData, object, object] | str:
     try:
         run = project_policy(
-            policy.policy_number,
+            policy.identity.policy_number,
             region=getattr(policy, "region", "CKPR") or "CKPR",
             company_code=getattr(policy, "company_code", "") or None,
             months=0,

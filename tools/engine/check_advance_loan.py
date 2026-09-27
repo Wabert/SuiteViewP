@@ -45,7 +45,7 @@ def main() -> None:
 
     from dateutil.relativedelta import relativedelta
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import (
         IllustrationEngine, _advance_loan_factors, _days_to_next_anniversary)
     from suiteview.illustration.models.plancode_config import load_plancode

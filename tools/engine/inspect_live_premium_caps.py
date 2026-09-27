@@ -33,7 +33,7 @@ os.environ.pop("SUITEVIEW_LOCAL_DATA", None)
 
 from PyQt6.QtWidgets import QApplication
 
-from suiteview.core.policy_service import clear_cache, get_policy_info
+from suiteview.polview.services.policy_service import clear_cache, get_policy_info
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab

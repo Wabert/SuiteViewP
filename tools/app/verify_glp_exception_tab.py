@@ -51,7 +51,7 @@ def main() -> int:
     tab._glp_target_date.setText(date.fromisoformat(args.target).strftime("%m/%d/%Y"))
 
     if args.policy:
-        from suiteview.core.policy_service import get_policy_info
+        from suiteview.polview.services.policy_service import get_policy_info
 
         policy = get_policy_info(
             args.policy, company_code=args.company, region=args.region, use_cache=False)

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from suiteview.core.band_rules import rider_bands_as_base
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
 from suiteview.illustration.core.target_premium import floor_monthly_cent
@@ -145,13 +145,13 @@ def _load_policy_source_snapshot(
     _validate_source_policy(pi, policy_number, region, reinstatement_date)
     rates_db = Rates()
     illustration_date = illustration_date or date.today()  # noqa: DTZ011
-    plancode = pi.base_plancode or ""
-    valuation_date = pi.valuation_date
+    plancode = pi.coverages.base_plancode or ""
+    valuation_date = pi.values.valuation_date
     as_of_date = valuation_date or date.today()  # noqa: DTZ011
     raw_riders, base_coverages = _restored_coverage_sources(pi, reinstatement_date)
     active_base_coverages = _active_base_coverages(base_coverages, as_of_date)
     face_amount, units, band = _source_face_units_band(
-        pi, rates_db, plancode, pi.issue_date, active_base_coverages,
+        pi, rates_db, plancode, pi.activity.issue_date, active_base_coverages,
         base_coverages, raw_riders, as_of_date, reinstatement_date)
     return PolicySourceSnapshot(
         policy_number=policy_number,
@@ -162,9 +162,9 @@ def _load_policy_source_snapshot(
         reinstatement_date=reinstatement_date,
         plancode=plancode,
         plancode_config=load_plancode(plancode),
-        issue_date=pi.issue_date,
-        issue_age=pi.base_issue_age if pi.base_issue_age is not None else 0,
-        rate_sex=_translate_sex(pi.base_sex_code),
+        issue_date=pi.activity.issue_date,
+        issue_age=pi.coverages.base_issue_age if pi.coverages.base_issue_age is not None else 0,
+        rate_sex=_translate_sex(pi.coverages.base_sex_code),
         rate_class=getattr(pi, "base_rate_class", "") or "",
         valuation_date=valuation_date,
         as_of_date=as_of_date,
@@ -175,16 +175,16 @@ def _load_policy_source_snapshot(
         base_coverages=base_coverages,
         active_base_coverages=active_base_coverages,
         substandard_by_phase=_substandard_by_phase(pi),
-        raw_benefits=pi.get_benefits(),
+        raw_benefits=pi.benefits.get_benefits(),
         raw_riders=raw_riders,
     )
 
 
 def _validate_source_policy(pi, policy_number: str, region: str, reinstatement_date) -> None:
-    if pi is None or not pi.exists:
+    if pi is None or not pi.identity.exists:
         raise ValueError(f"Policy {policy_number} not found in region {region}")
     if reinstatement_date is not None and (
-        pi.last_entry_code.strip().upper() != "Q" or pi.terminate_date != reinstatement_date
+        pi.status.last_entry_code.strip().upper() != "Q" or pi.activity.terminate_date != reinstatement_date
     ):
         raise ValueError("Coverage restoration requires the policy's confirmed lapse effective date.")
 
@@ -192,11 +192,11 @@ def _validate_source_policy(pi, policy_number: str, region: str, reinstatement_d
 def _restored_coverage_sources(pi, reinstatement_date) -> tuple[list, list]:
     raw_riders = [
         restore_lapse_coverage(rider, reinstatement_date)
-        for rider in pi.get_riders()
+        for rider in pi.coverages.get_riders()
     ]
     base_coverages = [
         restore_lapse_coverage(cov, reinstatement_date)
-        for cov in pi.get_base_coverages()
+        for cov in pi.coverages.get_base_coverages()
     ]
     return raw_riders, base_coverages
 
@@ -218,9 +218,9 @@ def _source_face_units_band(
     active_base_coverages: list, base_coverages: list, raw_riders: list,
     as_of_date: date, reinstatement_date,
 ) -> tuple[float, float, int]:
-    face_amount = float(pi.base_total_face_amount) if pi.base_total_face_amount else 0.0
+    face_amount = float(pi.coverages.base_total_face_amount) if pi.coverages.base_total_face_amount else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
-    band_face = float(pi.base_band_specified_amount)
+    band_face = float(pi.coverages.base_band_specified_amount)
     if base_coverages:
         face_amount, units = _base_face_units(active_base_coverages)
         band_face = _base_band_face(
@@ -240,7 +240,7 @@ def _base_face_units(active_base_coverages: list) -> tuple[float, float]:
 
 def _base_band_face(pi, face_amount: float, raw_riders: list, as_of_date, reinstatement_date) -> float:
     if reinstatement_date is None:
-        return float(pi.base_band_specified_amount)
+        return float(pi.coverages.base_band_specified_amount)
     return face_amount + sum(
         float(rider.face_amount)
         for rider in raw_riders
@@ -251,7 +251,7 @@ def _base_band_face(pi, face_amount: float, raw_riders: list, as_of_date, reinst
 
 def _substandard_by_phase(pi) -> dict:
     result = {}
-    for rating in pi.get_substandard_ratings():
+    for rating in pi.coverages.get_substandard_ratings():
         result.setdefault(rating.coverage_phase, []).append(rating)
     return result
 
@@ -259,45 +259,45 @@ def _substandard_by_phase(pi) -> dict:
 def build_core_identity(source: PolicySourceSnapshot) -> dict:
     """Map LH_BAS_POL/base coverage identity, timing and DBO fields."""
     pi = source.pi
-    policy_year = pi.policy_year or 1
-    policy_month = pi.policy_month or 1
+    policy_year = pi.activity.policy_year or 1
+    policy_month = pi.activity.policy_month or 1
     if source.issue_date and source.valuation_date:
         months_since_issue = _completed_months(source.issue_date, source.valuation_date)
         policy_month = (months_since_issue % 12) + 1
     duration = (policy_year - 1) * 12 + policy_month
     attained_age = (
-        pi.attained_age
-        if pi.attained_age is not None
+        pi.coverages.attained_age
+        if pi.coverages.attained_age is not None
         else (source.issue_age + policy_year - 1)
     )
     return {
         "policy_number": source.policy_number.strip(),
         "region": source.region,
-        "company_code": pi.company_code or "",
+        "company_code": pi.identity.company_code or "",
         "reins_partner": str(getattr(pi, "reins_partner", "") or "").strip().upper(),
-        "insured_name": pi.primary_insured_name or "",
+        "insured_name": pi.persons.primary_insured_name or "",
         "premium_pay_status_code": str(getattr(pi, "premium_pay_status_code", "") or ""),
         "plancode": source.plancode,
-        "product_type": pi.product_type or "",
+        "product_type": pi.product.product_type or "",
         "form_number": source.form_number,
-        "issue_state": pi.issue_state or "",
-        "company_sub": pi.company_name or "",
+        "issue_state": pi.product.issue_state or "",
+        "company_sub": pi.identity.company_name or "",
         "issue_date": source.issue_date,
         "issue_age": source.issue_age,
         "attained_age": attained_age,
-        "insured_birth_date": pi.primary_insured_birth_date,
+        "insured_birth_date": pi.persons.primary_insured_birth_date,
         "rate_sex": source.rate_sex,
         "rate_class": source.rate_class,
         "face_amount": source.face_amount,
         "units": source.units,
-        "db_option": _translate_dbo(pi.db_option_code or ""),
+        "db_option": _translate_dbo(pi.product.db_option_code or ""),
         "band": source.band,
         "illustration_date": source.illustration_date,
         "policy_year": policy_year,
         "policy_month": policy_month,
         "duration": duration,
         "valuation_date": source.valuation_date,
-        "maturity_age": pi.age_at_maturity or 121,
+        "maturity_age": pi.coverages.age_at_maturity or 121,
     }
 
 
@@ -312,7 +312,7 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
     index_market_returns = None
     if is_iul_plan(source.plancode):
         index_illustration_rates = source.rates_db.get_index_illustration_rates(
-            pi.company_code or "",
+            pi.identity.company_code or "",
             source.plancode,
             source.illustration_date,
             reins_partner,
@@ -333,18 +333,18 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
             index_benchmark_maximum = benchmark["maximum"]
 
     fund_values = {}
-    for bucket in pi.get_fund_buckets(current_only=True):
+    for bucket in pi.values.get_fund_buckets(current_only=True):
         fund = str(bucket.fund_id or "").strip()
         if fund:
             value = float(bucket.csv_amount) if bucket.csv_amount is not None else 0.0
             fund_values[fund] = fund_values.get(fund, 0.0) + value
     impaired_fund_values = {
         str(fund): float(value)
-        for fund, value in pi.get_loan_values_dict().items()
+        for fund, value in pi.values.get_loan_values_dict().items()
     }
     premium_allocations = {
         str(fund): float(pct)
-        for fund, pct in pi.get_premium_allocation_dict().items()
+        for fund, pct in pi.values.get_premium_allocation_dict().items()
     }
     if sum(premium_allocations.values()) > 1.5:
         premium_allocations = {fund: pct / 100 for fund, pct in premium_allocations.items()}
@@ -365,48 +365,48 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
 def build_financial_basis(source: PolicySourceSnapshot) -> dict:
     """Map monthliversary values, premiums, targets, loans and TAMRA fields."""
     pi = source.pi
-    modal_premium = float(pi.modal_premium) if pi.modal_premium is not None else 0.0
-    billing_frequency = pi.billing_frequency or 1
+    modal_premium = float(pi.billing.modal_premium) if pi.billing.modal_premium is not None else 0.0
+    billing_frequency = pi.billing.billing_frequency or 1
     if billing_frequency <= 0:
         billing_frequency = 1
-    av_raw = pi.mv_av(0)
-    glp_raw = pi.glp
-    gsp_raw = pi.gsp
-    tamra_level_raw = pi.tamra_7pay_level
-    tamra_start_av_raw = pi.tamra_7pay_av
+    av_raw = pi.values.mv_av(0)
+    glp_raw = pi.targets.glp
+    gsp_raw = pi.targets.gsp
+    tamra_level_raw = pi.values.tamra_7pay_level
+    tamra_start_av_raw = pi.values.tamra_7pay_av
     return {
         "account_value": float(av_raw) if av_raw is not None else 0.0,
-        "cost_basis": float(pi.cost_basis) if pi.cost_basis is not None else 0.0,
-        "system_coi_charge": float(pi.mv_coi_charge(0) or 0),
-        "system_expense_charge": float(pi.mv_expense_charge(0) or 0),
-        "system_other_charge": float(pi.mv_other_charge(0) or 0),
-        "system_monthly_deduction": float(pi.mv_monthly_deduction(0) or 0),
+        "cost_basis": float(pi.values.cost_basis) if pi.values.cost_basis is not None else 0.0,
+        "system_coi_charge": float(pi.values.mv_coi_charge(0) or 0),
+        "system_expense_charge": float(pi.values.mv_expense_charge(0) or 0),
+        "system_other_charge": float(pi.values.mv_other_charge(0) or 0),
+        "system_monthly_deduction": float(pi.values.mv_monthly_deduction(0) or 0),
         "modal_premium": modal_premium,
         "annual_premium": modal_premium * (12.0 / billing_frequency),
         "billing_frequency": billing_frequency,
-        "premiums_paid_to_date": float(pi.premium_td) if pi.premium_td is not None else 0.0,
-        "premiums_ytd": float(pi.premium_ytd) if pi.premium_ytd is not None else 0.0,
+        "premiums_paid_to_date": float(pi.billing.premium_td) if pi.billing.premium_td is not None else 0.0,
+        "premiums_ytd": float(pi.billing.premium_ytd) if pi.billing.premium_ytd is not None else 0.0,
         "premium_transactions": _premium_transactions(pi),
-        "def_of_life_ins": _translate_doli(str(pi.def_of_life_ins_code or "")),
+        "def_of_life_ins": _translate_doli(str(pi.product.def_of_life_ins_code or "")),
         "glp": floor_monthly_cent(float(glp_raw)) if glp_raw is not None else 0.0,
         "glp_is_known": glp_raw is not None,
         "gsp": floor_monthly_cent(float(gsp_raw)) if gsp_raw is not None else 0.0,
-        "accumulated_glp": _float_or_zero(pi.accumulated_glp_target),
-        "corridor_percent": _float_or_default(pi.corridor_percent, 100.0),
-        "mtp": _float_or_zero(pi.mtp),
-        "accumulated_mtp": _float_or_zero(pi.accumulated_mtp_target),
+        "accumulated_glp": _float_or_zero(pi.targets.accumulated_glp_target),
+        "corridor_percent": _float_or_default(pi.product.corridor_percent, 100.0),
+        "mtp": _float_or_zero(pi.targets.mtp),
+        "accumulated_mtp": _float_or_zero(pi.targets.accumulated_mtp_target),
         "map_cease_date": getattr(pi, "map_date", None),
-        "ctp": _float_or_zero(pi.ctp),
-        "is_mec": pi.is_mec,
+        "ctp": _float_or_zero(pi.targets.ctp),
+        "is_mec": pi.values.is_mec,
         "tamra_7pay_level": _float_or_zero(tamra_level_raw),
-        "tamra_7pay_start_date": pi.tamra_7pay_start_date,
+        "tamra_7pay_start_date": pi.values.tamra_7pay_start_date,
         "tamra_7pay_start_av": _float_or_zero(tamra_start_av_raw),
         "tamra_7pay_cash_value": _float_or_zero(tamra_start_av_raw),
         "tamra_7year_lowest_db": float(getattr(pi, "tamra_7pay_specified_amount", None) or 0.0),
         "tamra_7year_contributions": _tamra_contributions(pi),
-        "withdrawals_to_date": float(pi.total_withdrawals or 0),
-        "decrease_charge_allowed": pi.decrease_charge_allowed,
-        "shadow_account_value": _float_or_zero(pi.shadow_account_value),
+        "withdrawals_to_date": float(pi.values.total_withdrawals or 0),
+        "decrease_charge_allowed": pi.support.decrease_charge_allowed,
+        "shadow_account_value": _float_or_zero(pi.targets.shadow_account_value),
         **_loan_basis(pi),
     }
 
@@ -426,14 +426,14 @@ def _premium_transactions(pi) -> list[PremiumTransaction]:
             amount=float(transaction.gross_amount),
             transaction_type=transaction.trans_code,
         )
-        for transaction in pi.get_premium_transactions()
+        for transaction in pi.activity.get_premium_transactions()
     ]
 
 
 def _tamra_contributions(pi) -> list[float]:
     return [
-        float(pi.tamra_7pay_premium_paid(tamra_year) or 0.0)
-        - float(pi.tamra_7pay_withdrawals(tamra_year) or 0.0)
+        float(pi.values.tamra_7pay_premium_paid(tamra_year) or 0.0)
+        - float(pi.values.tamra_7pay_withdrawals(tamra_year) or 0.0)
         for tamra_year in range(1, 8)
     ]
 
@@ -448,19 +448,19 @@ def _loan_basis(pi) -> dict:
     regular_rate_raw = getattr(pi, "fixed_loan_interest_rate", None)
     preferred_rate_raw = getattr(pi, "preferred_loan_interest_rate", None)
     return {
-        "regular_loan_principal": float(pi.total_regular_loan_principal or 0),
-        "regular_loan_accrued": float(pi.total_regular_loan_accrued or 0),
-        "preferred_loan_principal": float(pi.total_preferred_loan_principal or 0),
-        "preferred_loan_accrued": float(pi.total_preferred_loan_accrued or 0),
-        "preferred_loans_available": bool(pi.preferred_loans_available),
+        "regular_loan_principal": float(pi.loans.total_regular_loan_principal or 0),
+        "regular_loan_accrued": float(pi.loans.total_regular_loan_accrued or 0),
+        "preferred_loan_principal": float(pi.loans.total_preferred_loan_principal or 0),
+        "preferred_loan_accrued": float(pi.loans.total_preferred_loan_accrued or 0),
+        "preferred_loans_available": bool(pi.loans.preferred_loans_available),
         "regular_loan_charge_rate": (
             float(regular_rate_raw) / 100 if regular_rate_raw is not None else None
         ),
         "preferred_loan_charge_rate": (
             float(preferred_rate_raw) / 100 if preferred_rate_raw is not None else None
         ),
-        "variable_loan_principal": float(pi.total_variable_loan_principal or 0),
-        "variable_loan_accrued": float(pi.total_variable_loan_accrued or 0),
+        "variable_loan_principal": float(pi.loans.total_variable_loan_principal or 0),
+        "variable_loan_accrued": float(pi.loans.total_variable_loan_accrued or 0),
         "variable_loan_charge_rate": var_loan_charge_rate,
     }
 
@@ -485,7 +485,7 @@ def _coverage_segment_from_source(source: PolicySourceSnapshot, cov) -> Coverage
     seg_table, seg_table_cease, seg_flat, seg_flat_cease = _substandard_basis(source, cov)
     seg_band = source.band
     original_band = (
-        source.pi.cov_mtp_band(cov.cov_pha_nbr)
+        source.pi.rates.cov_mtp_band(cov.cov_pha_nbr)
         if source.plancode_config.sa_basis == "OriginalSA"
         else seg_band
     )
@@ -634,7 +634,7 @@ def _rider_info(source: PolicySourceSnapshot, rider, occurrence: int) -> RiderIn
         premium_rate=float(rider.premium_rate) if rider.premium_rate else None,
         coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
         is_active=True,
-        on_primary_insured=source.pi._covers_primary_insured(rider),
+        on_primary_insured=source.pi.coverages._covers_primary_insured(rider),
         cov_type=rider_config.cov_type if rider_config is not None else "",
         cease_age_dur=rider_config.cease_age_dur if rider_config is not None else None,
         cease_use_code=rider_config.cease_use_code if rider_config is not None else "",
@@ -659,10 +659,10 @@ def active_rider_benefit_codes(pi) -> str:
     date is on/after the valuation date. ``"#"``-type benefits (the ABR accelerated
     riders) are excluded — they carry no premium and load no rate.
     """
-    as_of_date = pi.valuation_date or pi.issue_date
+    as_of_date = pi.values.valuation_date or pi.activity.issue_date
     codes: list[str] = []
 
-    riders = pi.get_riders()
+    riders = pi.coverages.get_riders()
     for rider in riders:
         if as_of_date is not None and not _active_as_of(rider, as_of_date):
             continue
@@ -670,7 +670,7 @@ def active_rider_benefit_codes(pi) -> str:
         if code:
             codes.append(code)
 
-    benefits = pi.get_benefits()
+    benefits = pi.benefits.get_benefits()
     for benefit in benefits:
         if as_of_date is not None and not _active_as_of(benefit, as_of_date):
             continue
@@ -685,10 +685,10 @@ def active_rider_benefit_codes(pi) -> str:
 
 def coverage_segment_data_warnings(pi) -> list[str]:
     """Flag blank CyberLife fields before illustration defaults mask them."""
-    as_of_date = pi.valuation_date or date.today()  # noqa: DTZ011
+    as_of_date = pi.values.valuation_date or date.today()  # noqa: DTZ011
     incomplete_segments: list[str] = []
 
-    for coverage in pi.get_base_coverages():
+    for coverage in pi.coverages.get_base_coverages():
         if _coverage_is_terminated(coverage, as_of_date):
             continue
 

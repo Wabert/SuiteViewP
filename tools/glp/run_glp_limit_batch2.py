@@ -172,7 +172,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
     """
     from dataclasses import replace
 
-    from suiteview.core.policy_service import get_policy_info
+    from suiteview.polview.services.policy_service import get_policy_info
     from suiteview.illustration.core.batch_runner import (
         DB_OPTION_DISPLAY, _billable_to_md_run, _md_and_rate_check,
         billing_mode_code,
@@ -224,16 +224,16 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
 
     # ── Snapshot ───────────────────────────────────────────────────────
     values["run_date"] = date.today()
-    values["valuation_date"] = policy.valuation_date
+    values["valuation_date"] = policy.values.valuation_date
     values["av"] = round(float(policy.account_value or 0.0), 2)
-    values["loans"] = round(float(policy.total_loan_balance or 0.0), 2)
+    values["loans"] = round(float(policy.loans.total_loan_balance or 0.0), 2)
     face = float(policy.face_amount or 0.0) + _primary_insured_rider_face(
-        policy, policy.valuation_date)
+        policy, policy.values.valuation_date)
     values["face"] = round(face, 2)
     db = str(getattr(policy, "db_option", "") or "").strip().upper()
     values["db_option"] = DB_OPTION_DISPLAY.get(db, db or None)
-    values["billing_prem"] = round(float(policy.modal_premium or 0.0), 2)
-    values["billing_mode"] = pi.billing_mode if pi is not None else None
+    values["billing_prem"] = round(float(policy.billing.modal_premium or 0.0), 2)
+    values["billing_mode"] = pi.billing.billing_mode if pi is not None else None
     values["riders"] = (active_rider_benefit_codes(pi) or None) if pi is not None else None
 
     md_diff, _system_md, _missing, check_error = _md_and_rate_check(engine, policy)
@@ -241,7 +241,7 @@ def compute_policy(policy_number: str, company: Optional[str], region: str,
     if check_error is not None:
         errors.append(check_error)
 
-    modal = float(policy.modal_premium or 0.0)
+    modal = float(policy.billing.modal_premium or 0.0)
     mode = billing_mode_code(policy)
     maturity_age = int(policy.maturity_age or 121)
     no_restrict = IllustrationOptions(
@@ -359,7 +359,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
 
     wb = openpyxl.load_workbook(args.workbook)

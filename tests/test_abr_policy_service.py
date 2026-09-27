@@ -113,6 +113,11 @@ def test_rider_extraction_uses_explicit_as_of_date():
         get_benefits=lambda: [benefit(date(2026, 9, 2)), benefit(date(2026, 9, 3))],
         primary_insured_db_layers=[],
     )
+    pi.coverages = SimpleNamespace(
+        get_coverages=pi.get_coverages,
+        primary_insured_db_layers=pi.primary_insured_db_layers,
+    )
+    pi.benefits = SimpleNamespace(get_benefits=pi.get_benefits)
     result = abr_policy_service.extract_riders_and_layers(
         "U1234567",
         pi,

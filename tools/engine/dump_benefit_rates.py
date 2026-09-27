@@ -20,12 +20,12 @@ from suiteview.polview.models.policy_information import PolicyInformation
 def main():
     cmd = json.loads(sys.argv[1])
     pi = PolicyInformation(cmd["policy"], region=cmd.get("region", "CKPR"))
-    if not pi.exists:
+    if not pi.identity.exists:
         print(json.dumps({"ok": False, "error": "policy not found"}))
         sys.exit(1)
 
     benefits = []
-    for ben in pi.get_benefits() or []:
+    for ben in pi.benefits.get_benefits() or []:
         benefit_type = str(ben.benefit_type_cd or "")
         has_charge = bool(ben.coi_rate) or bool(ben.renewal_rate)
         benefits.append({

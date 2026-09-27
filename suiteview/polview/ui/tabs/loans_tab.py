@@ -123,7 +123,7 @@ class LoansTab(QWidget):
             return
 
         try:
-            is_advanced = policy.is_advanced_product
+            is_advanced = policy.product.is_advanced_product
             product_type = getattr(policy, "product_type", "")
             status_code = getattr(policy, "status_code", "")
 
@@ -198,7 +198,7 @@ class LoansTab(QWidget):
         is_variable = ln_typ in ("6", "7")
         if not is_variable:
             self._reg_group.set_value(
-                "reg_charge", _format_rate(policy.fixed_loan_interest_rate)
+                "reg_charge", _format_rate(policy.loans.fixed_loan_interest_rate)
             )
         else:
             self._reg_group.set_value("reg_charge", "")
@@ -277,7 +277,7 @@ class LoansTab(QWidget):
         # Credit rate is non-traditional data; the charge rate is base-policy data.
         self._reg_group.set_value("reg_impaired", _format_rate(reg_credit))
         self._reg_group.set_value(
-            "reg_charge", _format_rate(policy.fixed_loan_interest_rate)
+            "reg_charge", _format_rate(policy.loans.fixed_loan_interest_rate)
         )
 
         # Loan type
@@ -294,7 +294,7 @@ class LoansTab(QWidget):
             self._pref_group.set_value("pref_accrued", format_currency(pref_acc))
             self._pref_group.set_value("pref_impaired", _format_rate(pref_credit))
             self._pref_group.set_value(
-                "pref_charge", _format_rate(policy.preferred_loan_interest_rate)
+                "pref_charge", _format_rate(policy.loans.preferred_loan_interest_rate)
             )
         else:
             self._pref_group.setVisible(False)

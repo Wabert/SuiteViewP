@@ -3,6 +3,32 @@
 Generated from `suiteview.polview.models.policy_fields.FIELD_SPECS`.
 Do not hand-edit table rows; update the registry and re-run this script.
 
+## Section map
+
+`PolicyInformation` is a facade returned by
+`suiteview.polview.services.policy_service.get_policy_info()`. Scalar
+registry entries below are consumed by lazy section objects.
+
+| Section | Responsibility |
+| --- | --- |
+| `pi.identity` | Policy/company/system/region identity and lookup state. |
+| `pi.status` | Policy, suspense, premium-pay and grace status. |
+| `pi.product` | Product family, issue state, product rules and tax-test flags. |
+| `pi.billing` | Billing modes, bill form, premiums, fees and short-pay values. |
+| `pi.coverages` | Coverage/rider rows, death benefits and underwriting. |
+| `pi.benefits` | Supplemental benefit rows. |
+| `pi.loans` | Traditional/fund loans, repayments and debt totals. |
+| `pi.values` | Monthliversary values, fund buckets, totals, MEC/TAMRA. |
+| `pi.targets` | MTP/GLP/GSP/GAV/NSP and target accumulators. |
+| `pi.dividends` | Dividend options and OYT/PUA/deposit/applied rows. |
+| `pi.persons` | Persons, insureds and addresses. |
+| `pi.agents` | Writing/servicing agents, branch and market organization. |
+| `pi.activity` | Policy timing and financial transactions. |
+| `pi.rates` | Renewal-rate lookups and UL/WL/fixed-premium matrices. |
+| `pi.support` | Support-tool export and reinstatement/reinsurance helpers. |
+
+## Scalar FieldSpec entries
+
 | Property | Table | Column | Converter | Default | Applies to | Required |
 | --- | --- | --- | --- | --- | --- | --- |
 | application_written_date | LH_BAS_POL | APP_WRT_DT | date |  | Trad, Adv, WL, ISWL, DI | optional |

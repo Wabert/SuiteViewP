@@ -272,7 +272,7 @@ def test_receipt_on_snapshot_day_is_after_opening_deduction(projection):
 
 
 def live_source():
-    return source(
+    p = source(
         policy_number="SYNTHETIC", company_code="01", region="CKPR",
         valuation_date=date(2026, 1, 15), mv_date=lambda _: date(2026, 1, 15),
         mv_av=lambda _: Decimal("10"), premium_td=Decimal("1000"),
@@ -289,6 +289,32 @@ def live_source():
             face_amount=100000.0, units=100.0, issue_age=30,
             issue_date=date(2000, 1, 15), sex_code="1", rate_class="N")],
     )
+    p.identity = SimpleNamespace(
+        policy_number=p.policy_number, company_code=p.company_code, region=p.region,
+    )
+    p.values = SimpleNamespace(
+        valuation_date=p.valuation_date,
+        mv_date=lambda index: p.mv_date(index),
+        mv_av=lambda index: p.mv_av(index),
+        total_withdrawals=p.total_withdrawals,
+        cost_basis=p.cost_basis,
+    )
+    p.billing = SimpleNamespace(premium_td=p.premium_td, premium_ytd=p.premium_ytd)
+    p.targets = SimpleNamespace(
+        mtp=p.mtp,
+        accumulated_mtp_target=p.accumulated_mtp_target,
+        glp=p.glp,
+        gsp=p.gsp,
+        accumulated_glp_target=p.accumulated_glp_target,
+    )
+    p.activity = SimpleNamespace(get_transactions=lambda: p.get_transactions())
+    p.coverages = SimpleNamespace(
+        get_riders=lambda: p.get_riders(),
+        get_base_coverages=lambda: p.get_base_coverages(),
+        get_substandard_ratings=lambda: p.get_substandard_ratings(),
+    )
+    p.benefits = SimpleNamespace(get_benefits=lambda: p.get_benefits())
+    return p
 
 
 def test_live_missing_av_is_not_zero(monkeypatch):

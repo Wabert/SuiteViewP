@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.models.policy_record_annual_totals import (
     TABLES, build_segment_63, build_segment_64,
 )
@@ -27,9 +27,9 @@ def main():
         raise RuntimeError("Live verification requires local data disabled.")
     pi = get_policy_info(args.policy.strip().upper(), region=args.region.strip().upper(),
                          company_code=args.company.strip().upper())
-    if pi is None or not pi.exists:
+    if pi is None or not pi.identity.exists:
         raise ValueError(f"Policy {args.policy} not found")
-    result = {"policy": pi.policy_number, "sources": {}, "text": {}, "lines": {}}
+    result = {"policy": pi.identity.policy_number, "sources": {}, "text": {}, "lines": {}}
     for segment, builder in (("63", build_segment_63), ("64", build_segment_64)):
         lines = builder(pi)
         result["sources"][TABLES[segment]] = pi.fetch_table(TABLES[segment])

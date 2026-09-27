@@ -41,10 +41,6 @@ LAYERS: tuple[tuple[str, int, str], ...] = (
 # current wave cannot remove the dependency.
 ALLOWLIST: dict[tuple[str, str], str] = {
     (
-        "suiteview.core.policy_service",
-        "suiteview.polview.models.policy_information",
-    ): "Wave 3 will move policy_service behind a polview service/protocol boundary.",
-    (
         "suiteview.core.connection_manager",
         "suiteview.data.repositories",
     ): "Wave R1 will move connection ownership into core/data_access and break core<->data coupling.",

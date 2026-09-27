@@ -488,14 +488,14 @@ def calculate_home_office_reinstatement(policy, today: date | None = None) -> Re
         summary = reinstatement_summary(policy, today)
         if not summary.eligible:
             raise ReinstatementError(summary.message)
-        snapshot = policy.mv_date(0)
-        if snapshot is None or snapshot != policy.valuation_date:
+        snapshot = policy.values.mv_date(0)
+        if snapshot is None or snapshot != policy.values.valuation_date:
             raise ReinstatementError("An actual monthliversary snapshot is required; derived dates are not sufficient.")
         _validate_policy_snapshot_sources(policy)
         selected = _restored_coverage_basis(policy, summary, snapshot)
         _validate_benefit_continuation(policy, summary)
         ill_policy = load_projection_basis(
-            policy.policy_number, region=policy.region, company_code=policy.company_code,
+            policy.identity.policy_number, region=policy.identity.region, company_code=policy.identity.company_code,
             illustration_date=summary.current_date,
             reinstatement_date=summary.termination_date,
         ).policy
@@ -525,10 +525,10 @@ def _validate_policy_snapshot_sources(policy) -> None:
         for field in ("LN_PRI_AMT", "POL_LN_ITS_AMT"):
             _number(row.get(field), f"Loan {field}")
     for name, value in (
-        ("Opening account value", policy.mv_av(0)),
-        ("Premiums paid", policy.premium_td), ("Premiums YTD", policy.premium_ytd),
-        ("Withdrawals", policy.total_withdrawals), ("Cost basis", policy.cost_basis),
-        ("MTP", policy.mtp), ("Accumulated MTP", policy.accumulated_mtp_target),
+        ("Opening account value", policy.values.mv_av(0)),
+        ("Premiums paid", policy.billing.premium_td), ("Premiums YTD", policy.billing.premium_ytd),
+        ("Withdrawals", policy.values.total_withdrawals), ("Cost basis", policy.values.cost_basis),
+        ("MTP", policy.targets.mtp), ("Accumulated MTP", policy.targets.accumulated_mtp_target),
     ):
         _number(value, name)
 
@@ -536,7 +536,7 @@ def _validate_policy_snapshot_sources(policy) -> None:
 def _restored_coverage_basis(policy, summary: ReinstatementSummary, snapshot: date):
     restored = [
         restore_lapse_coverage(coverage, summary.termination_date)
-        for coverage in policy.get_base_coverages()
+        for coverage in policy.coverages.get_base_coverages()
     ]
     selected = [coverage for coverage in restored if not _coverage_is_terminated(coverage, snapshot)]
     if not selected:
@@ -544,13 +544,13 @@ def _restored_coverage_basis(policy, summary: ReinstatementSummary, snapshot: da
             "The pre-lapse coverage basis cannot be established. "
             "Undated or unrelated terminations cannot be restored.")
     selected_riders = [
-        restore_lapse_coverage(rider, summary.termination_date) for rider in policy.get_riders()
+        restore_lapse_coverage(rider, summary.termination_date) for rider in policy.coverages.get_riders()
     ]
     selected_riders = [
         rider for rider in selected_riders if not _coverage_is_terminated(rider, snapshot)
     ]
     _validate_reinstatement_coverages(selected + selected_riders)
-    policy.get_substandard_ratings()
+    policy.coverages.get_substandard_ratings()
     return selected
 
 
@@ -565,7 +565,7 @@ def _validate_reinstatement_coverages(coverages) -> None:
 
 
 def _validate_benefit_continuation(policy, summary: ReinstatementSummary) -> None:
-    for benefit in policy.get_benefits():
+    for benefit in policy.benefits.get_benefits():
         if benefit.benefit_type_cd != "#" and benefit.cease_date == summary.termination_date:
             raise ReinstatementError(
                 "A benefit ceases on the lapse date without a separate termination indicator. "
@@ -576,11 +576,11 @@ def _validate_loaded_reinstatement_basis(policy, ill_policy, selected, snapshot:
     if len(ill_policy.segments) != len(selected) or ill_policy.valuation_date != snapshot:
         raise ReinstatementError("The loaded coverage basis is incomplete.")
     if ill_policy.has_shadow_account:
-        _number(policy.shadow_account_value, "Starting shadow account value")
+        _number(policy.targets.shadow_account_value, "Starting shadow account value")
     if ill_policy.is_gpt:
         for name in ("glp", "gsp", "accumulated_glp_target"):
-            _number(getattr(policy, name, None), name)
-    if any(t.trans_date is None or t.trans_date > snapshot for t in policy.get_transactions()):
+            _number(getattr(policy.targets, name, None), name)
+    if any(t.trans_date is None or t.trans_date > snapshot for t in policy.activity.get_transactions()):
         raise ReinstatementError(
             "Financial history extends beyond the opening snapshot or has undated entries. "
             "Reconcile accumulator, loan and shadow balances before quoting; no receipts were backdated.")

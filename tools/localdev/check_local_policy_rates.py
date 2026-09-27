@@ -53,7 +53,7 @@ def main() -> None:
     args = _parse_args()
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache, get_policy_info
+    from suiteview.polview.services.policy_service import clear_cache, get_policy_info
     from suiteview.core.rates import Rates
 
     clear_cache()
@@ -63,13 +63,13 @@ def main() -> None:
         company_code=args.company,
         use_cache=False,
     )
-    if policy is None or not policy.exists:
+    if policy is None or not policy.identity.exists:
         raise RuntimeError(f"Policy {args.policy_number} not found in local offline data")
 
     rates = Rates()
     checks = []
 
-    for cov in policy.get_coverages():
+    for cov in policy.coverages.get_coverages():
         plancode = str(cov.plancode or "").strip()
         if not plancode:
             continue
@@ -93,8 +93,8 @@ def main() -> None:
         })
 
     print(json.dumps({
-        "policy_number": policy.policy_number,
-        "base_plancode": policy.base_plancode,
+        "policy_number": policy.identity.policy_number,
+        "base_plancode": policy.coverages.base_plancode,
         "checks": checks,
     }, indent=2))
 

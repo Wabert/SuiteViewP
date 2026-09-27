@@ -9,6 +9,7 @@ import pytest
 
 from suiteview.core.rates import Rates, RatesError
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.product import ProductSection
 
 
 def test_cash_values_bind_all_natural_keys_and_keep_zero(monkeypatch):
@@ -121,11 +122,11 @@ def policy(monkeypatch):
         plancode="201WL500", issue_age=59, issue_date=date(2000, 1, 22),
         maturity_date=date(2041, 1, 22), vpu=Decimal("1000.00"),
     )
-    policy.get_coverages = lambda: [coverage]
+    policy.coverages.get_coverages = lambda: [coverage]
     fields = {"INS_CLS_CD": "1", "PLN_BSE_SRE_CD": "WL5", "LIF_PLN_SUB_SRE_CD": "11"}
     policy.data_item = lambda table, field, index=0: fields.get(field)
     policy.data_item_count = lambda table: 1
-    monkeypatch.setattr(PolicyInformation, "product_type", property(lambda self: "WL"))
+    monkeypatch.setattr(ProductSection, "product_type", property(lambda self: "WL"))
     monkeypatch.setattr(policy._rates, "_fetch_rates", Mock(return_value=[
         (duration, Decimal(duration).quantize(Decimal("0.00")), 0, 41)
         for duration in range(42)
@@ -134,9 +135,9 @@ def policy(monkeypatch):
 
 
 def test_policy_uses_verified_coverage_fields_not_plancode_or_band(policy):
-    policy.cov_band = Mock(side_effect=AssertionError("WL has no UL band lookup"))
-    assert policy.cov_cash_value_key(1) == "1WL511"
-    values = policy.rates_wl_cv(1)
+    policy.rates.cov_band = Mock(side_effect=AssertionError("WL has no UL band lookup"))
+    assert policy.rates.cov_cash_value_key(1) == "1WL511"
+    values = policy.rates.rates_wl_cv(1)
     assert len(values) == 42
     assert policy._rates._fetch_rates.call_args.args[1] == ["08", "1WL511", 59, ""]
 
@@ -144,14 +145,14 @@ def test_policy_uses_verified_coverage_fields_not_plancode_or_band(policy):
 @pytest.mark.parametrize("company,user", [("01", "00"), ("04", "04"), ("06", "06"), ("08", "08")])
 def test_policy_cash_values_use_the_cyberlife_rate_user_not_the_company(policy, company, user):
     policy._data.company_code = company
-    policy.rates_wl_cv(1)
+    policy.rates.rates_wl_cv(1)
     assert policy._rates._fetch_rates.call_args.args[1][0] == user
 
 
 def test_unmapped_company_fails_instead_of_querying_its_own_code(policy):
     policy._data.company_code = "26"
     with pytest.raises(RatesError, match="26 has no verified CyberLife rate-file user"):
-        policy.rates_wl_cv(1)
+        policy.rates.rates_wl_cv(1)
     policy._rates._fetch_rates.assert_not_called()
 
 
@@ -160,11 +161,11 @@ def test_cash_value_matrix_compares_the_stored_02_segment_window(policy):
               "LOW_DUR_2_CSV_AMT": "33.50", "INS_CLS_CD": "1", "PLN_BSE_SRE_CD": "WL5",
               "LIF_PLN_SUB_SRE_CD": "11"}
     policy.data_item = lambda table, field, index=0: stored.get(field)
-    info = {row[0]: row[1] for row in policy.build_whole_life_coverage_rate_matrix(1)[1:] if row[0]}
+    info = {row[0]: row[1] for row in policy.rates.build_whole_life_coverage_rate_matrix(1)[1:] if row[0]}
     assert info["Rate User"] == "08"
     assert info["02 Stored CV"] == "Differs: dur 33: 33.50 vs 33.00"
     stored["LOW_DUR_2_CSV_AMT"] = "33.00"
-    info = {row[0]: row[1] for row in policy.build_whole_life_coverage_rate_matrix(1)[1:] if row[0]}
+    info = {row[0]: row[1] for row in policy.rates.build_whole_life_coverage_rate_matrix(1)[1:] if row[0]}
     assert info["02 Stored CV"] == "Durations 31-33 match"
 
 
@@ -177,14 +178,14 @@ def test_policy_cash_key_uses_requested_coverage_row_and_padding(policy):
         return {"INS_CLS_CD": " 1 ", "PLN_BSE_SRE_CD": " ab ", "LIF_PLN_SUB_SRE_CD": "x"}[field]
 
     policy.data_item = data_item
-    assert policy.cov_cash_value_key(2) == "1AB X "
+    assert policy.rates.cov_cash_value_key(2) == "1AB X "
     assert {call[2] for call in calls} == {1}
 
 
 @pytest.mark.parametrize("index", [0, -1, 2])
 def test_policy_cash_key_rejects_invalid_coverage(policy, index):
     with pytest.raises(ValueError, match="out of range"):
-        policy.cov_cash_value_key(index)
+        policy.rates.cov_cash_value_key(index)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -196,19 +197,19 @@ def test_policy_cash_key_missing_or_invalid_parts_are_not_guessed(policy, field,
         "INS_CLS_CD": "1", "PLN_BSE_SRE_CD": "WL5", "LIF_PLN_SUB_SRE_CD": "11",
     }[name]
     with pytest.raises(ValueError, match=field):
-        policy.rates_wl_cv(1)
+        policy.rates.rates_wl_cv(1)
     policy._rates._fetch_rates.assert_not_called()
 
 
 def test_policy_missing_issue_age_fails_without_query(policy):
-    policy.get_coverages()[0].issue_age = None
+    policy.coverages.get_coverages()[0].issue_age = None
     with pytest.raises(ValueError, match="issue age"):
-        policy.rates_wl_cv(1)
+        policy.rates.rates_wl_cv(1)
     policy._rates._fetch_rates.assert_not_called()
 
 
 def test_whole_life_matrix_keeps_duration_zero_and_maturity(policy):
-    matrix = policy.build_coverage_rate_matrix(1)
+    matrix = policy.rates.build_coverage_rate_matrix(1)
     assert matrix[0] == ["RateFields", "RateInfo", "Date", "Age", "Duration", "CV"]
     assert len(matrix) == 43
     assert matrix[1][2:] == ["01/22/2000", 59, 0, Decimal("0.00")]
@@ -224,44 +225,44 @@ def test_whole_life_matrix_keeps_duration_zero_and_maturity(policy):
 
 def test_whole_life_short_schedule_does_not_invent_rates_or_shift_nonzero_start(policy):
     policy._rates._fetch_rates.return_value = [(5, Decimal("12.34"), 5, 5)]
-    matrix = policy.build_coverage_rate_matrix(1)
+    matrix = policy.rates.build_coverage_rate_matrix(1)
     assert matrix[1][2:] == ["01/22/2005", 64, 5, Decimal("12.34")]
     assert all(row[2:] == ["", "", "", ""] for row in matrix[2:])
 
 
 def test_whole_life_rates_do_not_require_issue_date_and_preserve_issue_age_zero(policy):
-    coverage = policy.get_coverages()[0]
+    coverage = policy.coverages.get_coverages()[0]
     coverage.issue_age = 0
     coverage.issue_date = None
-    matrix = policy.build_coverage_rate_matrix(1)
+    matrix = policy.rates.build_coverage_rate_matrix(1)
     assert matrix[1][2:] == ["", 0, 0, Decimal("0.00")]
     assert policy._rates._fetch_rates.call_args.args[1][2] == 0
 
 
 def test_whole_life_no_match_does_not_create_na_matrix(policy):
     policy._rates._fetch_rates.return_value = None
-    assert policy.build_coverage_rate_matrix(1) is None
+    assert policy.rates.build_coverage_rate_matrix(1) is None
 
 
 @pytest.mark.parametrize("product,advanced", [("UL", True), ("ISWL", True), ("TERM", False)])
 def test_other_products_keep_existing_coverage_rate_path(policy, monkeypatch, product, advanced):
-    monkeypatch.setattr(PolicyInformation, "product_type", property(lambda self: product))
-    monkeypatch.setattr(PolicyInformation, "is_advanced_product", property(lambda self: advanced))
-    policy.build_whole_life_coverage_rate_matrix = Mock(side_effect=AssertionError("Wrong route"))
+    monkeypatch.setattr(ProductSection, "product_type", property(lambda self: product))
+    monkeypatch.setattr(ProductSection, "is_advanced_product", property(lambda self: advanced))
+    policy.rates.build_whole_life_coverage_rate_matrix = Mock(side_effect=AssertionError("Wrong route"))
     for name in ("rates_mtp", "rates_ctp", "rates_tbl1_mtp", "rates_tbl1_ctp"):
-        setattr(policy, name, Mock(return_value=12.34))
+        setattr(policy.rates, name, Mock(return_value=12.34))
     for name in ("rates_coi", "rates_epu", "rates_scr"):
-        setattr(policy, name, Mock(return_value=[None] + [1.25] * 42))
+        setattr(policy.rates, name, Mock(return_value=[None] + [1.25] * 42))
     for name in ("cov_flat_extra", "cov_amount", "cov_orig_amount"):
-        setattr(policy, name, Mock(return_value=Decimal("0")))
-    policy.renewal_cov_sex_code = lambda index: "1"
-    policy.renewal_cov_rateclass_by_cov = lambda index: "N"
-    policy.cov_band = lambda index: 1
-    policy.cov_table_rating = lambda index: 0
-    policy._iswl_coverage_rate_extras = Mock(return_value=(
+        setattr(policy.coverages, name, Mock(return_value=Decimal("0")))
+    policy.rates.renewal_cov_sex_code = lambda index: "1"
+    policy.rates.renewal_cov_rateclass_by_cov = lambda index: "N"
+    policy.rates.cov_band = lambda index: 1
+    policy.coverages.cov_table_rating = lambda index: 0
+    policy.rates._iswl_coverage_rate_extras = Mock(return_value=(
         [("Prem Cease Age", 95)], {"GINT": [None] + [0.04] * 42},
     ))
-    matrix = policy.build_coverage_rate_matrix(1)
+    matrix = policy.rates.build_coverage_rate_matrix(1)
     ul_columns = ["COI", "EPU", "SCR", "GuarCOI", "GuarEPU"]
     assert matrix[0][5:10] == ul_columns
     assert matrix[1][5:10] == [1.25] * 5
@@ -271,5 +272,5 @@ def test_other_products_keep_existing_coverage_rate_path(policy, monkeypatch, pr
         assert ["Prem Cease Age", 95] in [row[:2] for row in matrix]
     else:
         assert matrix[0][5:] == ul_columns
-        policy._iswl_coverage_rate_extras.assert_not_called()
+        policy.rates._iswl_coverage_rate_extras.assert_not_called()
     policy._rates._fetch_rates.assert_not_called()

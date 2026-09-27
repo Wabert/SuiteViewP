@@ -49,7 +49,7 @@ def main() -> None:
 
     from dateutil.relativedelta import relativedelta
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.core.solve_loan_payoff import (
         PAYOFF_SUBTYPE, solve_loan_payoff,

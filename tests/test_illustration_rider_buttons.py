@@ -46,10 +46,13 @@ def _ben(**kw):
 
 
 def _policy(coverages=(), benefits=()):
-    return SimpleNamespace(
+    policy = SimpleNamespace(
         get_coverages=lambda: list(coverages),
         get_benefits=lambda: list(benefits),
     )
+    policy.coverages = SimpleNamespace(get_coverages=policy.get_coverages)
+    policy.benefits = SimpleNamespace(get_benefits=policy.get_benefits)
+    return policy
 
 
 def test_rider_matured_predicate():

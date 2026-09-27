@@ -14,6 +14,8 @@ from suiteview.core.modal_premium import ModalPremiumError, billing_mode, calcul
 from suiteview.core.rates import Rates, RatesError, cyberlife_rate_user
 from suiteview.polview.models import fixed_premium_rates as fpr
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.rates import RatesSection
+from suiteview.polview.models.policy_sections.status import StatusSection
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab
 from suiteview.polview.ui.tree_panel import PolicyRecordTreeWidget
@@ -189,7 +191,7 @@ class FakePolicy:
             table_rating=None, table_rating_code="", table_cease_date=None,
             flat_extra=None, flat_cease_date=None,
         )
-        self.benefits = [
+        self.benefit_rows = [
             SimpleNamespace(cov_pha_nbr=1, benefit_type_cd="1", benefit_subtype_cd="0", issue_age=33,
                             issue_date=date(1994, 7, 6), units=Decimal("25.000"), coi_rate=Decimal("0.98"),
                             cease_date=date(2056, 7, 6), rating_factor=None),
@@ -206,12 +208,37 @@ class FakePolicy:
                         "iaf_version": "", "effective_date": date(1900, 1, 1), "versions": []}
         self.factors = {"index": "00-048", "factors": MODEFACT_00_048} if factors is None else factors
         self.rates_wl_premium = Mock(side_effect=lambda plancode, age, issued: self.premium)
+        self.identity = SimpleNamespace(
+            policy_number=self.policy_number,
+            company_code=self.company_code,
+        )
+        self.values = SimpleNamespace(valuation_date=self.valuation_date)
+        self.status = SimpleNamespace(premium_pay_status_code=self.premium_pay_status_code)
+        self.billing = SimpleNamespace(
+            billing_frequency=self.billing_frequency,
+            non_standard_mode_code=self.non_standard_mode_code,
+            bill_form_code=self.bill_form_code,
+            modal_premium=self.modal_premium,
+        )
+        self.coverages = SimpleNamespace(
+            get_coverages=self.get_coverages,
+            _coverage_is_active=self._coverage_is_active,
+            cov_plancode=self.cov_plancode,
+        )
+        self.benefits = SimpleNamespace(get_benefits=self.get_benefits)
+        self.rates = SimpleNamespace(
+            rates_wl_premium=self.rates_wl_premium,
+            cyberlife_rate_user_code=self.cyberlife_rate_user_code,
+            cov_rate_sex_code=self.cov_rate_sex_code,
+            renewal_cov_rateclass_by_cov=self.renewal_cov_rateclass_by_cov,
+            rates_modal_factors=self.rates_modal_factors,
+        )
 
     def get_coverages(self):
         return [self.coverage]
 
     def get_benefits(self):
-        return self.benefits
+        return self.benefit_rows
 
     def cov_plancode(self, index):
         return self.coverage.plancode
@@ -277,15 +304,15 @@ def test_missing_premium_rows_are_explicit_not_zero():
 
 def test_eti_rpu_has_no_billed_premium():
     policy = FakePolicy()
-    policy.premium_pay_status_code = "44"
+    policy.status.premium_pay_status_code = "44"
     lines = _lines(fpr.build_modal_premium_matrix(policy))
     assert "ETI/RPU" in lines["Calculated modal premium"][7]
-    policy.rates_wl_premium.assert_not_called()
+    policy.rates.rates_wl_premium.assert_not_called()
 
 
 def test_unverified_bill_form_is_explained():
     policy = FakePolicy()
-    policy.bill_form_code = "H"
+    policy.billing.bill_form_code = "H"
     lines = _lines(fpr.build_modal_premium_matrix(policy))
     assert "Bill form H has no verified mode factor mapping" in lines["Calculated modal premium"][7]
 
@@ -322,14 +349,14 @@ def test_iswl_coverage_extras_add_scales_gint_and_cease_ages():
         get_age_limits=Mock(return_value={"premium_cease": 95, "benefit_cease": None}),
         get_gint=Mock(return_value=[None, 0.04, 0.04]),
     )
-    policy._get_rates = lambda: rates
-    policy.cov_plancode = lambda index: "81335200"
-    policy.rates_coi = Mock(side_effect=lambda index, scale: [None, float(scale)])
-    policy._iswl_cash_value_column = Mock(return_value=(("CVR", "WL_RATE_CV 235211 at Date"), [None, "0.00"]))
-    policy._iswl_premium_rate_column = Mock(return_value=(("Prem Rate", "WL_RATE_PREM ** to age 95"), [None, "11.76"]))
-    meta, extra = policy._iswl_coverage_rate_extras(1)
+    policy.rates._get_rates = lambda: rates
+    policy.coverages.cov_plancode = lambda index: "81335200"
+    policy.rates.rates_coi = Mock(side_effect=lambda index, scale: [None, float(scale)])
+    policy.rates._iswl_cash_value_column = Mock(return_value=(("CVR", "WL_RATE_CV 235211 at Date"), [None, "0.00"]))
+    policy.rates._iswl_premium_rate_column = Mock(return_value=(("Prem Rate", "WL_RATE_PREM ** to age 95"), [None, "11.76"]))
+    meta, extra = policy.rates._iswl_coverage_rate_extras(1)
     assert list(extra) == ["GINT", "CVR", "Prem Rate"]
-    policy.rates_coi.assert_not_called()
+    policy.rates.rates_coi.assert_not_called()
     assert ("COI", "Scale 1 (current from 1998-05-01)") in meta and ("GuarCOI", "Scale 0") in meta
     assert ("Prem Cease Age", 95) in meta and ("Ben Cease Age", "Not loaded") in meta
     assert ("  PLNCRG", "8%") in meta and ("  PLNCRD", "4%") in meta
@@ -338,18 +365,18 @@ def test_iswl_coverage_extras_add_scales_gint_and_cease_ages():
 
 @pytest.fixture
 def column_policy(monkeypatch):
-    monkeypatch.setattr(PolicyInformation, "premium_pay_status_code", property(lambda self: self._status))
+    monkeypatch.setattr(StatusSection, "premium_pay_status_code", property(lambda self: self.policy._status))
     policy = object.__new__(PolicyInformation)
     policy._status = "22"
-    policy.rates_wl_cv = Mock(return_value={0: Decimal("0.00"), 31: Decimal("333.00")})
-    policy.cov_cash_value_key = lambda index: "235211"
-    policy.cov_issue_age = lambda index: 33
+    policy.rates.rates_wl_cv = Mock(return_value={0: Decimal("0.00"), 31: Decimal("333.00")})
+    policy.rates.cov_cash_value_key = lambda index: "235211"
+    policy.coverages.cov_issue_age = lambda index: 33
     return policy
 
 
 def test_cvr_column_aligns_duration_with_the_date_column(column_policy):
-    column_policy.rates_wl_cv.return_value = {d: Decimal(d) for d in range(0, 63)}
-    meta, column = column_policy._iswl_cash_value_column(1)
+    column_policy.rates.rates_wl_cv.return_value = {d: Decimal(d) for d in range(0, 63)}
+    meta, column = column_policy.rates._iswl_cash_value_column(1)
     assert meta == ("CVR", "WL_RATE_CV 235211 at Date")
     assert column[1] == Decimal(0) and column[32] == Decimal(31) and len(column) == 64
 
@@ -357,43 +384,44 @@ def test_cvr_column_aligns_duration_with_the_date_column(column_policy):
 @pytest.mark.parametrize("status", ["44", "45"])
 def test_cvr_column_is_not_available_on_eti_rpu(column_policy, status):
     column_policy._status = status
-    assert column_policy._iswl_cash_value_column(1) == (("CVR", "Not available on ETI/RPU"), None)
-    column_policy.rates_wl_cv.assert_not_called()
+    assert column_policy.rates._iswl_cash_value_column(1) == (("CVR", "Not available on ETI/RPU"), None)
+    column_policy.rates.rates_wl_cv.assert_not_called()
 
 
 def test_cvr_column_missing_and_errors_are_explicit(column_policy):
-    column_policy.rates_wl_cv.return_value = {}
-    assert column_policy._iswl_cash_value_column(1) == (("CVR", "Not loaded (WL_RATE_CV 235211)"), None)
-    column_policy.rates_wl_cv.side_effect = RatesError("Company 26 has no verified CyberLife rate-file user mapping.")
-    meta, column = column_policy._iswl_cash_value_column(1)
+    column_policy.rates.rates_wl_cv.return_value = {}
+    assert column_policy.rates._iswl_cash_value_column(1) == (("CVR", "Not loaded (WL_RATE_CV 235211)"), None)
+    column_policy.rates.rates_wl_cv.side_effect = RatesError("Company 26 has no verified CyberLife rate-file user mapping.")
+    meta, column = column_policy.rates._iswl_cash_value_column(1)
     assert column is None and meta[1].startswith("Error: Company 26")
 
 
 def test_prem_rate_column_runs_to_the_pay_age(column_policy, monkeypatch):
     row = {"RATE": Decimal("11.76000000"), "PAY_AGE": 95, "PAY_AGE_USE": 1}
     monkeypatch.setattr(fpr, "premium_items", lambda policy, index: [SimpleNamespace(rate_row=row, reason="")])
-    meta, column = column_policy._iswl_premium_rate_column(1)
+    meta, column = column_policy.rates._iswl_premium_rate_column(1)
     assert meta == ("Prem Rate", "WL_RATE_PREM ** to age 95")
     assert column[1:] == ["11.76"] * 62
     monkeypatch.setattr(fpr, "premium_items", lambda policy, index: [
         SimpleNamespace(rate_row=None, reason="Not loaded: no WL_RATE_PREM rows")])
-    assert column_policy._iswl_premium_rate_column(1) == (("Prem Rate", "Not loaded: no WL_RATE_PREM rows"), None)
+    assert column_policy.rates._iswl_premium_rate_column(1) == (("Prem Rate", "Not loaded: no WL_RATE_PREM rows"), None)
 
 
 @pytest.mark.parametrize("amount,text", [
     (Decimal("25000.00000"), "25,000"), (Decimal("1234567.50"), "1,234,568"), (Decimal("0"), "0"), (None, ""),
 ])
 def test_rates_grid_amounts_are_whole_dollars_with_commas(amount, text):
-    assert PolicyInformation._whole_dollars(amount) == text
+    assert RatesSection._whole_dollars(amount) == text
 
 
 # -- Rates tree and routing -----------------------------------------------------
 
 def _tree_policy(product, advanced, fixed):
     return SimpleNamespace(
-        is_advanced_product=advanced, product_type=product, has_fixed_premium_rates=fixed,
-        coverage_count=1, benefit_count=0, cov_plancode=lambda index: "81335200",
-        get_benefits=lambda: [],
+        product=SimpleNamespace(is_advanced_product=advanced, product_type=product),
+        rates=SimpleNamespace(has_fixed_premium_rates=fixed),
+        coverages=SimpleNamespace(coverage_count=1, cov_plancode=lambda index: "81335200"),
+        benefits=SimpleNamespace(benefit_count=0, get_benefits=lambda: []),
     )
 
 
@@ -426,12 +454,17 @@ def display(qtbot):
     tabs.addTab(raw, "Data")
     qtbot.addWidget(tabs)
     policy = SimpleNamespace(
-        is_advanced_product=True, product_type="ISWL", company_code="01",
-        cyberlife_rate_user_code="00", premium_pay_status_code="22",
-        cov_cash_value_key=lambda index: "235211", cov_issue_age=lambda index: 33,
-        build_whole_life_coverage_rate_matrix=Mock(return_value=[["Duration", "CV"], [31, "333.00"]]),
-        build_premium_rate_matrix=Mock(return_value=[["Item", "Rate"], ["Cov 01 base", "11.76"]]),
-        build_modal_premium_matrix=Mock(return_value=[["Line", "Amount"], ["Modal", "33.02"]]),
+        identity=SimpleNamespace(company_code="01"),
+        status=SimpleNamespace(premium_pay_status_code="22"),
+        product=SimpleNamespace(is_advanced_product=True, product_type="ISWL"),
+        coverages=SimpleNamespace(cov_issue_age=lambda index: 33),
+        rates=SimpleNamespace(
+            cyberlife_rate_user_code="00",
+            cov_cash_value_key=lambda index: "235211",
+            build_whole_life_coverage_rate_matrix=Mock(return_value=[["Duration", "CV"], [31, "333.00"]]),
+            build_premium_rate_matrix=Mock(return_value=[["Item", "Rate"], ["Cov 01 base", "11.76"]]),
+            build_modal_premium_matrix=Mock(return_value=[["Line", "Amount"], ["Modal", "33.02"]]),
+        ),
     )
     return SimpleNamespace(_policy=policy, tabs=tabs, raw_table_tab=raw, _show_status=Mock())
 
@@ -445,11 +478,11 @@ def test_fixed_premium_leaves_route_to_their_builders(display, category, builder
     GetPolicyWindow._on_rate_selected(display, category, category, 1)
     assert display.raw_table_tab._current_rows == rows
     assert display.raw_table_tab.table_label.text() == title
-    getattr(display._policy, builder).assert_called_once()
+    getattr(display._policy.rates, builder).assert_called_once()
 
 
 def test_iswl_cash_values_missing_names_the_user_key(display):
-    display._policy.build_whole_life_coverage_rate_matrix.return_value = None
+    display._policy.rates.build_whole_life_coverage_rate_matrix.return_value = None
     GetPolicyWindow._on_rate_selected(display, "Cash Values", "Cash Values Cov 01", 1)
     message = display._show_status.call_args.args[0]
     assert all(text in message for text in ("WL_RATE_CV", "user=00", "company 01", "235211", "33"))
@@ -457,7 +490,7 @@ def test_iswl_cash_values_missing_names_the_user_key(display):
 
 @pytest.mark.parametrize("status", ["44", "45"])
 def test_iswl_eti_rpu_cash_values_are_unavailable(display, status):
-    display._policy.premium_pay_status_code = status
+    display._policy.status.premium_pay_status_code = status
     GetPolicyWindow._on_rate_selected(display, "Cash Values", "Cash Values Cov 01", 1)
-    display._policy.build_whole_life_coverage_rate_matrix.assert_not_called()
+    display._policy.rates.build_whole_life_coverage_rate_matrix.assert_not_called()
     assert "ETI or RPU" in display._show_status.call_args.args[0]

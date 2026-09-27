@@ -43,7 +43,7 @@ PW_RERUN_RATE = 0.044
 
 
 def run_case(patch_pw: bool) -> dict:
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.core import rates as rates_module
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.models.input_set import (
