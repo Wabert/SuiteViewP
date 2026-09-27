@@ -1,7 +1,7 @@
 """Profile migrations use synthetic data and never touch the real user's profile."""
 
 import ast
-from contextlib import closing
+from contextlib import closing, nullcontext
 import json
 import os
 from pathlib import Path
@@ -101,6 +101,10 @@ def test_legacy_policy_support_tasks_moves_from_appdata(profile, tmp_path, monke
     monkeypatch.delenv("SUITEVIEW_PROFILE_DIR", raising=False)
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.setenv("APPDATA", str(appdata))
+    # The fake home is the "default" profile, so the real launcher-mutex guard
+    # would see a SuiteView instance running on this machine; the guard has
+    # its own tests below.
+    monkeypatch.setattr(maintenance, "_app_guard", lambda _root: nullcontext())
 
     result = maintenance.maintain_profile(root)
 
