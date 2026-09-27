@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from suiteview.polview.models.policy_fields import FIELD_SPECS
 
 SECTION_ROWS = (
-    ("identity", "Policy/company/system/region identity and lookup state."),
     ("status", "Policy, suspense, premium-pay and grace status."),
     ("product", "Product family, issue state, product rules and tax-test flags."),
     ("billing", "Billing modes, bill form, premiums, fees and short-pay values."),

@@ -42,7 +42,7 @@ def _load_policy_data(*args, **kwargs):
 
 def _first_float(source, *names: str) -> float:
     for name in names:
-        value = getattr(source, name, None)
+        value = policy_attr(source, name, None)
         if value is not None:
             return float(value or 0.0)
     return 0.0
