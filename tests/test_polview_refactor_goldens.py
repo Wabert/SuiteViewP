@@ -61,7 +61,7 @@ class _MatrixPolicy:
     issue_state = "TX"
 
     @property
-    def identity(self):
+    def policy(self):
         return self
 
     @property
