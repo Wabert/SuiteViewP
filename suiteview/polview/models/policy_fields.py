@@ -50,7 +50,10 @@ def _spec(
 
 
 FIELD_SPECS: tuple[FieldSpec, ...] = (
-    _spec("status_code", "LH_BAS_POL", "POL_STS_CD", default=""),
+    # POL_STS_CD is a legacy column absent from the live CKPR LH_BAS_POL table
+    # (September 26, 2026), so status_code has always read blank there; the
+    # premium-pay and suspense codes carry the real status.
+    _spec("status_code", "LH_BAS_POL", "POL_STS_CD", default="", required=False),
     _spec("suspense_code", "LH_BAS_POL", "SUS_CD", default="0"),
     _spec("premium_pay_status_code", "LH_BAS_POL", "PRM_PAY_STA_REA_CD", default=""),
     _spec("paid_to_date", "LH_BAS_POL", "PRM_PAID_TO_DT", "date"),

@@ -39,3 +39,26 @@ def test_optional_fieldspec_column_absence_is_handled_by_policy_information():
 
     assert policy._field("forced_premium_indicator") == ""
     data_item.assert_called_once_with("TH_BAS_POL", "FORCED_PREM_IND", 0)
+
+
+# Live CKPR LH_BAS_POL columns (policy UE215622, September 26, 2026). The table
+# has no POL_STS_CD, so status_code must stay blank as it was before strict
+# column reads, instead of failing every PolView tab that reads status.
+_LIVE_LH_BAS_POL_COLUMNS = (
+    "TCH_POL_ID CK_CMP_CD CK_SYS_CD CK_POLICY_NBR NON_TRD_POL_IND PRM_PAID_TO_DT "
+    "PRM_BILL_TO_DT SUS_CD PRM_PAY_STA_REA_CD PMT_FQY_PER OGN_ETR_CD LST_ETR_CD "
+    "POL_ISS_ST_CD NXT_BIL_DT PLN_TMN_DT NXT_MVRY_PRC_DT NXT_YR_END_PRC_DT"
+).split()
+
+
+def test_status_code_is_blank_when_live_table_lacks_pol_sts_cd():
+    from suiteview.polview.models.policy_information import PolicyInformation
+
+    row = tuple("22" if name == "PRM_PAY_STA_REA_CD" else "1" for name in _LIVE_LH_BAS_POL_COLUMNS)
+    policy = object.__new__(PolicyInformation)
+    policy._data = _loaded_policy_data(columns=_LIVE_LH_BAS_POL_COLUMNS, rows=(row,))
+    policy._sections = {}
+
+    assert policy.status.status_code == ""
+    assert policy.status.is_active is False
+    assert policy.status.premium_pay_status_code == "22"

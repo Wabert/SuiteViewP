@@ -54,7 +54,7 @@ registry entries below are consumed by lazy section objects.
 | policy_1035_indicator | LH_BAS_POL | POL_1035_XCG_IND | text |  | Trad, Adv, WL, ISWL, DI | yes |
 | issue_state_code | LH_BAS_POL | POL_ISS_ST_CD | text |  | Trad, Adv, WL, ISWL, DI | yes |
 | modal_premium | LH_BAS_POL | POL_PRM_AMT | decimal |  | Trad, Adv, WL, ISWL, DI | yes |
-| status_code | LH_BAS_POL | POL_STS_CD | text |  | Trad, Adv, WL, ISWL, DI | yes |
+| status_code | LH_BAS_POL | POL_STS_CD | text |  | Trad, Adv, WL, ISWL, DI | optional |
 | div_option_code | LH_BAS_POL | PRI_DIV_OPT_CD | text | 0 | Trad, Adv, WL, ISWL, DI | yes |
 | premium_paid_to_date | LH_BAS_POL | PRM_BILL_TO_DT | date |  | Trad, Adv, WL, ISWL, DI | yes |
 | paid_to_date | LH_BAS_POL | PRM_PAID_TO_DT | date |  | Trad, Adv, WL, ISWL, DI | yes |
