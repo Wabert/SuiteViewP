@@ -1404,7 +1404,8 @@ class GetPolicyWindow(FramelessWindowBase):
                 data_rows = [tuple(row) for row in matrix[1:]]
 
                 self.raw_table_tab.set_data(
-                    headers, data_rows, table_name=display_title, transposed=False
+                    headers, data_rows, table_name=display_title, transposed=False,
+                    header_labels=selection.header_labels, column_groups=selection.column_groups,
                 )
 
                 rate_col_start = next(

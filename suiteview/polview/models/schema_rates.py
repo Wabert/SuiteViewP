@@ -4,7 +4,8 @@ Where a rate is shown follows its assignment table and ``RATE_TYPE.STRUCTURE``:
 
 * **Coverage** - CELL rates with ``BENEFIT = ''`` for the coverage's plancode, the
   coverage's dividends (DIV), and, for a coverage whose plancode is not the base
-  plan's, that plancode's PLAN rates.
+  plan's, that plancode's PLAN rates. The coverages' **Scales** sheet lists every
+  scale and dated schedule behind those rates, with the cell each one came from.
 * **Benefit** - CELL rates whose ``BENEFIT`` is the benefit's type + subtype, on the
   plancode of the coverage the benefit is attached to.
 * **Policy** - PLAN rates of the base plancode, its FUND rates and mode factors.
@@ -14,12 +15,13 @@ codes kept as they are, as the loaders store them), its renewal rate class, the 
 its amount falls in (``PLAN_BAND``), the issue state and, for sub-series keyed rates
 (CV), the coverage's life sub-series. When the exact cell is not loaded the lookup
 falls back, in order, to unisex ``U``, class ``0`` then ``*``, band ``0`` and state
-``**``; every fallback used is listed in the grid. Nothing else is guessed: a rate
-with no cell is reported as missing.
+``**``; every fallback used is listed on the Scales sheet. Nothing else is guessed:
+a rate with no cell is reported as missing.
 
 ``DATE_MEANING`` ``ISSUE`` rates use the schedule window in effect on the issue date;
 ``CALENDAR`` rates use the window in effect on each row's Date (the start of that
-policy year). Scales are shown as stored: C current, G guaranteed, S shadow account.
+policy year). Rate columns are grouped by scale - C current, G guaranteed, S shadow
+account - with the scale in the band above the column and the rate type below it.
 """
 
 from __future__ import annotations
@@ -49,6 +51,7 @@ CLASS_FALLBACKS = ("0", "*")
 UNBANDED = "0"
 ALL_STATES = "**"
 SCALE_ORDER = ("C", "G", "S")
+SCALE_NAMES = {"C": "Current", "G": "Guaranteed", "S": "Shadow account"}
 SINGLE_VALUE_GRAINS = frozenset({"IA", "SCALAR"})
 # Point-in-time values: duration 0 is the issue date, so a row's Year n shows duration n - 1
 # (the value at the row's Date), as the WL cash-value display does.
@@ -63,7 +66,12 @@ RATE_TYPE_ORDER = (
     "ANN_FREE_WD_PCT",
 )
 DIV_RECORD_LABELS = {"D": "", "R": " RPU", "L": " DR-L", "P": " DR-P", "T": " TERM"}
+DIV_GROUPS = tuple(f"Dividend{suffix}" for suffix in DIV_RECORD_LABELS.values())
+# Top header band of a rate column, in display order: scales first, then dividends.
+COLUMN_GROUPS = (*SCALE_ORDER, *DIV_GROUPS)
 GAP = (" ", " ")
+SCALES_HEADER = ["Coverage", "Plancode", "Rate Type", "Scale", "Scale Name", "Effective From",
+                 "Effective To", "Rates By", "Policy Years", "Cell", "Notes"]
 
 
 class RatesNotLoaded(Exception):
@@ -91,35 +99,49 @@ class CellContext:
     issue_age: int
     years: Optional[int]
     key: RateKey
-    raw_sex: str
-    band_text: str
-    stored_band: str = ""
+    band_display: str
+    system_band: str
     rein: str = ""
     extra_meta: List[tuple] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class Column:
-    name: str
+    """One rate column: ``group`` (C/G/S or a dividend group) above ``label`` (the rate type)."""
+    group: str
+    label: str
     value: Callable[[int, date], object]
+
+    @property
+    def key(self) -> str:
+        return f"{self.group} {self.label}"
+
+
+@dataclass
+class ScaleEntry:
+    """One scale of one rate type behind a coverage grid (a row group on the Scales sheet)."""
+    rate_type: str
+    scale: str
+    windows: List[object]          # ScheduleWindow / DivSchedule rows; [] = no dates (PLAN)
+    date_meaning: str              # ISSUE / CALENDAR / NONE
+    cell: str
+    notes: str = ""
 
 
 @dataclass
 class Parts:
-    """Metadata lines and duration columns contributed by one rate source."""
-    single: List[tuple] = field(default_factory=list)
-    used: List[tuple] = field(default_factory=list)
-    missing: List[tuple] = field(default_factory=list)
-    windows: List[tuple] = field(default_factory=list)
+    """Single values, missing rates, duration columns and scales from one rate source."""
+    single: List[tuple] = field(default_factory=list)   # (scale, rate type, value)
+    missing: List[tuple] = field(default_factory=list)  # (name, reason)
     columns: List[Column] = field(default_factory=list)
+    scales: List[ScaleEntry] = field(default_factory=list)
     max_year: int = 0
 
     def extend(self, other: "Parts") -> None:
         self.single += other.single
-        self.used += other.used
         self.missing += other.missing
-        self.windows += other.windows
         self.columns += other.columns
+        self.scales += other.scales
         self.max_year = max(self.max_year, other.max_year)
 
 
@@ -136,6 +158,41 @@ def rate_type_sort_key(rate_type: str) -> tuple:
         return (RATE_TYPE_ORDER.index(rate_type), rate_type)
     except ValueError:
         return (len(RATE_TYPE_ORDER), rate_type)
+
+
+def _scale_index(scale: str) -> int:
+    return SCALE_ORDER.index(scale) if scale in SCALE_ORDER else len(SCALE_ORDER)
+
+
+def ordered_columns(columns: Sequence[Column]) -> List[Column]:
+    """All C columns, then G, then S (rate types in house order), then dividend groups."""
+    def key(pair):
+        position, column = pair
+        group = COLUMN_GROUPS.index(column.group) if column.group in COLUMN_GROUPS else len(COLUMN_GROUPS)
+        within = rate_type_sort_key(column.label) if column.group in SCALE_ORDER else (0, "")
+        return (group, within, position)
+    return [column for _, column in sorted(enumerate(columns), key=key)]
+
+
+def column_layout(header: Sequence[str]) -> Tuple[Dict[str, str], List[tuple]]:
+    """Header labels and scale groups for a schema grid's column keys (``"C COI"``).
+
+    Returns ``({key: rate type}, [(group, [keys])])`` for ``FilterTableView``'s
+    ``set_header_labels`` / ``set_column_groups``; other columns are left as they are.
+    """
+    labels: Dict[str, str] = {}
+    groups: List[tuple] = []
+    for key in header:
+        group = next((g for g in sorted(COLUMN_GROUPS, key=len, reverse=True)
+                      if str(key).startswith(g + " ")), None)
+        if group is None:
+            continue
+        labels[key] = str(key)[len(group) + 1:]
+        if groups and groups[-1][0] == group:
+            groups[-1][1].append(key)
+        else:
+            groups.append((group, [key]))
+    return labels, groups
 
 
 def fmt(value) -> object:
@@ -314,6 +371,17 @@ def _window_on(windows: Sequence, on: date):
     return next((w for w in windows if w.covers(on)), None)
 
 
+def _year_ranges(years: Sequence[int]) -> str:
+    """``[1, 2, 3, 7]`` -> ``"1-3, 7"``."""
+    ranges: List[list] = []
+    for year in years:
+        if ranges and year == ranges[-1][1] + 1:
+            ranges[-1][1] = year
+        else:
+            ranges.append([year, year])
+    return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in ranges)
+
+
 # -- policy facts ------------------------------------------------------------------
 
 def _plan_for(repo: RatesSchemaRepository, policy: "PolicyInformation", plancode: str) -> Tuple[PlanDef, str]:
@@ -361,8 +429,12 @@ def _stored_band_code(policy: "PolicyInformation", phase: int) -> str:
     return ""
 
 
-def _band_context(repo, policy, cov, plan: PlanDef) -> Tuple[str, str, str, List[BandSpec]]:
-    """(band, description, stored band text, band specs) for a coverage, as ``cov_band`` bands it."""
+def _band_context(repo, policy, cov, plan: PlanDef) -> Tuple[str, str, str]:
+    """(band, band display, system band) for a coverage, banded as ``cov_band`` bands it.
+
+    The system band is the CyberLife band code (``PLAN_BAND.SOURCE_BAND``); when the
+    coverage's stored ``RT_BAN_CD`` differs from it, the stored code is shown beside it.
+    """
     from suiteview.core.band_rules import rider_bands_as_base
 
     base_plancode = policy.coverages.base_plancode
@@ -375,28 +447,20 @@ def _band_context(repo, policy, cov, plan: PlanDef) -> Tuple[str, str, str, List
     on = on or cov.issue_date
     bands = repo.plan_bands(band_plan.company, band_plan.plancode)
     spec, note = band_for_amount(bands, on, amount)
-    amount_text = "" if amount is None else f"{Decimal(str(amount)):,.0f}"
-    where = f" on {band_plan.plancode}" if band_plan.plancode != plan.plancode else ""
+    where = f" (on {band_plan.plancode})" if band_plan.plancode != plan.plancode else ""
     stored = _stored_band_code(policy, cov.cov_pha_nbr)
     if spec is None:
         by_stored = _band_for_source(bands, on, stored)
         if by_stored is not None:
             # No usable limits: the coverage's own CyberLife band code, mapped by PLAN_BAND.SOURCE_BAND.
-            text = f"{by_stored.band} (CyberLife {stored}, stored RT_BAN_CD){where}; {note}"
-            return by_stored.band, text, "", bands
-        return "", f"Not found{where}: {note}", "", bands
-    text = f"{spec.band} (CyberLife {spec.source_band}) for {amount_text}{where}"
-    if note:
-        text = f"{spec.band} ({note})"
-    stored_text = ""
-    if stored and note == "unbanded":
-        stored_text = "" if stored == UNBANDED else f"{stored} (plan is unbanded)"
-    elif stored:
-        same_spec = [b for b in bands if b.issue_date_from == spec.issue_date_from and b.source_band == stored]
-        mapped = same_spec[0].band if same_spec else "not in PLAN_BAND"
-        flag = "" if mapped == spec.band else "  <-- differs"
-        stored_text = f"{stored} -> {mapped}{flag}"
-    return spec.band, text, stored_text, bands
+            return by_stored.band, by_stored.band + where, stored
+        return "", f"Not found{where}: {note}", stored
+    if note == "unbanded":
+        system = spec.source_band if not stored or stored == UNBANDED else f"{stored} (plan is unbanded)"
+        return spec.band, spec.band + where, system
+    system = spec.source_band if not stored or stored == spec.source_band else \
+        f"{spec.source_band} (policy record {stored})"
+    return spec.band, spec.band + where, system
 
 
 def _band_for_source(bands: Sequence[BandSpec], on: Optional[date], source_band: str) -> Optional[BandSpec]:
@@ -419,7 +483,7 @@ def coverage_context(repo: RatesSchemaRepository, policy: "PolicyInformation", c
         raise RatesNotLoaded(f"Coverage {cov_index} has no issue date or issue age for a rate lookup.")
     raw_sex = policy.rates.cov_rate_sex_code(cov_index)
     rate_class = str(policy.rates.renewal_cov_rateclass_by_cov(cov_index) or "").strip().upper()
-    band, band_text, stored_band, _ = _band_context(repo, policy, cov, plan)
+    band, band_display, system_band = _band_context(repo, policy, cov, plan)
     subseries = str(policy.rates.data_item("LH_COV_PHA", "LIF_PLN_SUB_SRE_CD", cov_index - 1) or "").strip()
     key = RateKey(rates_sex(raw_sex), rate_class, band, str(policy.product.issue_state or "").strip().upper(),
                   subseries)
@@ -427,8 +491,8 @@ def coverage_context(repo: RatesSchemaRepository, policy: "PolicyInformation", c
     return CellContext(
         label=f"Cov {cov_index:02d}", plan=plan, plan_note=plan_note, plancode=cov.plancode, benefit="",
         issue_date=cov.issue_date, issue_age=int(cov.issue_age),
-        years=_years_between(cov.issue_date, cov.maturity_date), key=key, raw_sex=raw_sex,
-        band_text=band_text, stored_band=stored_band, rein=_rein_for(policy), extra_meta=extra,
+        years=_years_between(cov.issue_date, cov.maturity_date), key=key,
+        band_display=band_display, system_band=system_band, rein=_rein_for(policy), extra_meta=extra,
     )
 
 
@@ -468,7 +532,7 @@ def benefit_context(repo: RatesSchemaRepository, policy: "PolicyInformation", be
         label=f"Ben {ben_index:02d}", plan=cov_ctx.plan, plan_note=cov_ctx.plan_note,
         plancode=cov_ctx.plancode, benefit=str(ben.benefit_code or "").strip(), issue_date=issue_date,
         issue_age=int(ben.issue_age), years=_years_between(issue_date, ben.cease_date) or cov_ctx.years,
-        key=key, raw_sex=cov_ctx.raw_sex, band_text=cov_ctx.band_text, stored_band=cov_ctx.stored_band,
+        key=key, band_display=cov_ctx.band_display, system_band=cov_ctx.system_band,
         rein=cov_ctx.rein, extra_meta=extra,
     )
 
@@ -477,7 +541,7 @@ def benefit_context(repo: RatesSchemaRepository, policy: "PolicyInformation", be
 
 def cell_parts(repo: RatesSchemaRepository, ctx: CellContext,
                assignments: Optional[Sequence[CellAssignment]] = None) -> Parts:
-    """CELL rates for a coverage (benefit '') or benefit: single values, columns and notes."""
+    """CELL rates for a coverage (benefit '') or benefit: single values, columns and scales."""
     if assignments is None:
         assignments = repo.cell_assignments(ctx.plan.company, ctx.plancode)
     rows = [a for a in assignments if a.benefit == ctx.benefit]
@@ -486,53 +550,53 @@ def cell_parts(repo: RatesSchemaRepository, ctx: CellContext,
         return parts
     subseries = repo.plan_subseries(ctx.plan.company, ctx.plancode) if any(a.subseries for a in rows) else ()
     rate_types = repo.rate_types()
-    chosen: Dict[str, CellAssignment] = {}
+    chosen: Dict[str, Tuple[CellAssignment, List[str]]] = {}
     for rate_type in sorted({a.rate_type for a in rows}, key=rate_type_sort_key):
         assignment, notes = choose_cell(rows, rate_type, ctx.key, subseries)
         if assignment is None:
             parts.missing.append((rate_type, "; ".join(notes)))
             continue
-        chosen[rate_type] = assignment
-        parts.used.append((rate_type, cell_key_text(assignment) + (f"  [{'; '.join(notes)}]" if notes else "")))
-    windows = repo.schedule_windows([a.schedule_id for a in chosen.values()])
+        chosen[rate_type] = (assignment, notes)
+    windows = repo.schedule_windows([a.schedule_id for a, _ in chosen.values()])
     set_ids = [w.rate_set_id for w in windows]
     sets = repo.rate_sets(set_ids)
     values = repo.rate_values(set_ids, ctx.issue_age)
     by_schedule: Dict[int, List[ScheduleWindow]] = {}
     for window in windows:
         by_schedule.setdefault(window.schedule_id, []).append(window)
-    for rate_type, assignment in chosen.items():
+    for rate_type, (assignment, notes) in chosen.items():
         definition = rate_types.get(rate_type)
-        calendar = definition is not None and definition.date_meaning == "CALENDAR"
+        date_meaning = definition.date_meaning if definition is not None else "ISSUE"
         schedule = by_schedule.get(assignment.schedule_id, [])
         for scale in SCALE_ORDER:
             scale_windows = sorted((w for w in schedule if w.scale == scale), key=lambda w: w.effective_from)
-            if scale_windows:
-                _add_scaled(parts, f"{rate_type} {scale}", rate_type, scale_windows, sets, values, ctx, calendar)
+            if not scale_windows:
+                continue
+            parts.scales.append(ScaleEntry(rate_type, scale, scale_windows, date_meaning,
+                                           cell_key_text(assignment), "; ".join(notes)))
+            _add_scaled(parts, scale, rate_type, scale_windows, sets, values, ctx, date_meaning == "CALENDAR")
     return parts
 
 
-def _add_scaled(parts: Parts, name: str, rate_type: str, windows: List[ScheduleWindow],
+def _add_scaled(parts: Parts, scale: str, rate_type: str, windows: List[ScheduleWindow],
                 sets: Dict[int, RateSetInfo], values: Dict[int, dict], ctx: CellContext, calendar: bool) -> None:
     point = rate_type in POINT_IN_TIME_RATE_TYPES
     grains = {sets[w.rate_set_id].grain for w in windows if w.rate_set_id in sets}
-    if len(windows) > 1 or windows[0].effective_from > date(1900, 1, 1):
-        basis = "each row's Date" if calendar else f"issue date {_iso(ctx.issue_date)}"
-        parts.windows.append((name, f"{_window_text(windows)} (by {basis})"))
     if not calendar:
         window = _window_on(windows, ctx.issue_date)
         if window is None:
-            parts.missing.append((name, f"no window covers issue date {_iso(ctx.issue_date)} "
-                                        f"({_window_text(windows)})"))
+            parts.missing.append((f"{scale} {rate_type}", f"no window covers issue date {_iso(ctx.issue_date)} "
+                                                          f"({_window_text(windows)})"))
             return
         grain = sets[window.rate_set_id].grain
         data = values.get(window.rate_set_id, {})
         if grain in SINGLE_VALUE_GRAINS:
             value = rate_at(grain, data, ctx.issue_age, 1)
-            parts.single.append((name, fmt(value) if value is not None else f"none at issue age {ctx.issue_age}"))
+            parts.single.append((scale, rate_type,
+                                 fmt(value) if value is not None else f"none at issue age {ctx.issue_age}"))
             return
         parts.max_year = max(parts.max_year, last_year(grain, data, ctx.issue_age, point))
-        parts.columns.append(Column(name, lambda year, _on, g=grain, d=data: fmt(
+        parts.columns.append(Column(scale, rate_type, lambda year, _on, g=grain, d=data: fmt(
             rate_at(g, d, ctx.issue_age, year, point))))
         return
     for window in windows:
@@ -555,7 +619,7 @@ def _add_scaled(parts: Parts, name: str, rate_type: str, windows: List[ScheduleW
                        1 if grain in SINGLE_VALUE_GRAINS else year, point)
         return fmt(rate)
 
-    parts.columns.append(Column(name, value))
+    parts.columns.append(Column(scale, rate_type, value))
 
 
 def plan_parts(repo: RatesSchemaRepository, plan: PlanDef, state: str, issue_age: int) -> Parts:
@@ -570,22 +634,21 @@ def plan_parts(repo: RatesSchemaRepository, plan: PlanDef, state: str, issue_age
             chosen.setdefault((a.rate_type, a.scale), a)
     sets = repo.rate_sets([a.rate_set_id for a in chosen.values()])
     values = repo.rate_values([a.rate_set_id for a in chosen.values()], issue_age)
-    ordered = sorted(chosen.items(), key=lambda item: (rate_type_sort_key(item[0][0]),
-                                                       SCALE_ORDER.index(item[0][1])))
+    ordered = sorted(chosen.items(), key=lambda item: (_scale_index(item[0][1]), rate_type_sort_key(item[0][0])))
     for (rate_type, scale), a in ordered:
-        name = f"{rate_type} {scale}"
         info = sets.get(a.rate_set_id)
         data = values.get(a.rate_set_id, {})
-        parts.used.append((name, f"state {a.state}, rate set {a.rate_set_id}"))
+        parts.scales.append(ScaleEntry(rate_type, scale, [], "NONE", f"plan rate, state {a.state}"))
         if info is None:
-            parts.missing.append((name, f"rate set {a.rate_set_id} not found"))
+            parts.missing.append((f"{scale} {rate_type}", f"rate set {a.rate_set_id} not found"))
             continue
         if info.grain in SINGLE_VALUE_GRAINS:
             value = rate_at(info.grain, data, issue_age, 1)
-            parts.single.append((name, fmt(value) if value is not None else f"none at issue age {issue_age}"))
+            parts.single.append((scale, rate_type,
+                                 fmt(value) if value is not None else f"none at issue age {issue_age}"))
             continue
         parts.max_year = max(parts.max_year, last_year(info.grain, data, issue_age))
-        parts.columns.append(Column(name, lambda year, _on, g=info.grain, d=data: fmt(
+        parts.columns.append(Column(scale, rate_type, lambda year, _on, g=info.grain, d=data: fmt(
             rate_at(g, d, issue_age, year))))
     return parts
 
@@ -633,9 +696,7 @@ def div_parts(repo: RatesSchemaRepository, ctx: CellContext) -> Parts:
     if chosen is None:
         parts.missing.append(("DIV", "; ".join(notes)))
         return parts
-    parts.used.append(("DIV", f"{chosen.div_key} user key '{chosen.user_key}' "
-                              f"({chosen.sex}/{chosen.rate_class}/{chosen.band}/{chosen.state})"
-                              + (f"  [{'; '.join(notes)}]" if notes else "")))
+    cell = f"{chosen.div_key} '{chosen.user_key}' ({chosen.sex}/{chosen.rate_class}/{chosen.band}/{chosen.state})"
     schedules = [s for s in repo.div_schedules([chosen.div_key]) if s.user_key == chosen.user_key]
     by_record: Dict[str, List[DivSchedule]] = {}
     for schedule in schedules:
@@ -649,12 +710,13 @@ def div_parts(repo: RatesSchemaRepository, ctx: CellContext) -> Parts:
     values = repo.div_values(set_ids, [ctx.issue_age, 0])
     for record in sorted(cohorts, key=lambda r: list(DIV_RECORD_LABELS).index(r) if r in DIV_RECORD_LABELS else 9):
         cohort = cohorts[record]
-        suffix = DIV_RECORD_LABELS.get(record, f" {record}")
+        group = f"Dividend{DIV_RECORD_LABELS.get(record, f' {record}')}"
         if not cohort:
-            parts.missing.append((f"DIV{suffix}", f"no cohort on or before issue date {_iso(ctx.issue_date)}"))
+            parts.missing.append((group, f"no cohort on or before issue date {_iso(ctx.issue_date)}"))
             continue
-        parts.windows.append((f"DIV{suffix}", f"cohort from {_iso(cohort[0].issue_date_from)}; scales "
-                                              f"{_window_text(cohort)} (by each row's Date)"))
+        parts.scales.append(ScaleEntry(
+            f"DIV{DIV_RECORD_LABELS.get(record, f' {record}')}", "Dividend", cohort, "CALENDAR",
+            f"{cell}, cohort from {_iso(cohort[0].issue_date_from)}", "; ".join(notes)))
         for schedule in cohort:
             data = values.get(schedule.rate_set_id, {})
             if data:
@@ -663,15 +725,15 @@ def div_parts(repo: RatesSchemaRepository, ctx: CellContext) -> Parts:
             if not any(getattr(v, attr) is not None for s in cohort for (a, _), v in values.get(s.rate_set_id, {}).items()
                        if a == ctx.issue_age):
                 continue
-            parts.columns.append(Column(f"{label}{suffix}", _div_value(cohort, values, ctx.issue_age, attr)))
+            parts.columns.append(Column(group, label, _div_value(cohort, values, ctx.issue_age, attr)))
         participating = {s.pua_participating for s in cohort}
         if participating == {"0"}:
-            parts.single.append((f"PUA DIV{suffix}", "PUAs earn no dividend"))
+            parts.single.append((group, "PUA DIV", "PUAs earn no dividend"))
         elif participating == {"1"}:
-            parts.single.append((f"PUA DIV{suffix}", "PUAs use the base rates"))
+            parts.single.append((group, "PUA DIV", "PUAs use the base rates"))
         elif "2" in participating:
-            parts.columns.append(Column(f"PUA DIV{suffix}", _pua_div_value(cohort, pua_schedules, values,
-                                                                           ctx.issue_date, ctx.issue_age)))
+            parts.columns.append(Column(group, "PUA DIV", _pua_div_value(cohort, pua_schedules, values,
+                                                                         ctx.issue_date, ctx.issue_age)))
     return parts
 
 
@@ -703,18 +765,12 @@ def _pua_div_value(cohort, pua_schedules, values, issue_date, issue_age):
 # -- matrices ----------------------------------------------------------------------
 
 def _context_meta(policy, ctx: CellContext) -> List[tuple]:
-    company = ctx.plan.company + (f" ({ctx.plan_note})" if ctx.plan_note else "")
-    raw = ctx.raw_sex or "blank"
     meta = [
-        GAP, ("Source", SOURCE_LABEL), ("Policy", policy.policy_number), ("Leaf", ctx.label),
-        ("Plancode", ctx.plancode), ("Rates company", company), ("Family", ctx.plan.product_family),
-        ("Description", ctx.plan.description), ("IssueDate", _iso(ctx.issue_date)), ("IssueAge", ctx.issue_age),
-        ("Sex", f"{ctx.key.sex or 'blank'} (CyberLife {raw})"), ("Rateclass", ctx.key.rate_class or "blank"),
-        ("Band", ctx.band_text),
+        GAP, ("Policy", policy.policy_number), ("Plancode", ctx.plancode), ("Family", ctx.plan.product_family),
+        ("IssueDate", _iso(ctx.issue_date)), ("IssueAge", ctx.issue_age), ("Sex", ctx.key.sex or "blank"),
+        ("Rateclass", ctx.key.rate_class or "blank"), ("Band", ctx.band_display),
+        ("System Band", ctx.system_band or "blank"), ("State", ctx.key.state or "blank"),
     ]
-    if ctx.stored_band:
-        meta.append(("Stored band", ctx.stored_band))
-    meta.append(("State", ctx.key.state or "blank"))
     if ctx.key.subseries:
         meta.append(("Sub-series", ctx.key.subseries))
     if ctx.rein:
@@ -723,21 +779,33 @@ def _context_meta(policy, ctx: CellContext) -> List[tuple]:
     return meta
 
 
+def single_rates_title(group: str) -> str:
+    return f"Single rates ({group})"
+
+
 def _parts_meta(parts: Parts) -> List[tuple]:
     meta: List[tuple] = []
-    for title, lines in (("Single rates", parts.single), ("Cells used", parts.used),
-                         ("Missing", parts.missing), ("Dated schedules", parts.windows)):
-        if lines:
-            meta += [GAP, (title, "")] + [(f"  {name}", value) for name, value in lines]
-    meta += [GAP, ("Scales", "C current, G guaranteed, S shadow account")]
+    by_group: Dict[str, List[tuple]] = {}
+    for group, rate_type, value in parts.single:
+        by_group.setdefault(group, []).append((rate_type, value))
+    for group in sorted(by_group, key=lambda g: COLUMN_GROUPS.index(g) if g in COLUMN_GROUPS else len(COLUMN_GROUPS)):
+        lines = sorted(by_group[group], key=lambda line: rate_type_sort_key(line[0]))
+        meta += [GAP, (single_rates_title(group), "")] + [(f"  {name}", value) for name, value in lines]
+    if parts.missing:
+        meta += [GAP, ("Missing", "")] + [(f"  {name}", reason) for name, reason in parts.missing]
     return meta
 
 
 def assemble(meta: List[tuple], columns: List[Column], start: date, issue_age: Optional[int],
              years: Optional[int], attained_label: str = "Age") -> List[List]:
-    """The house layout: RateFields/RateInfo metadata beside Date/Age/Year and rate columns."""
+    """The house layout: RateFields/RateInfo metadata beside Date/Age/Year and rate columns.
+
+    Rate columns are keyed ``"<group> <rate type>"`` (e.g. ``"C COI"``); ``column_layout``
+    turns the keys into the scale band and rate-type labels the grid shows.
+    """
+    columns = ordered_columns(columns)
     rows = max(years or 0, len(meta), 1)
-    matrix = [["RateFields", "RateInfo", "Date", attained_label, "Year", *[c.name for c in columns]]]
+    matrix = [["RateFields", "RateInfo", "Date", attained_label, "Year", *[c.key for c in columns]]]
     for year in range(1, rows + 1):
         on = _row_date(start, year)
         field_name, info = meta[year - 1] if year - 1 < len(meta) else ("", "")
@@ -747,13 +815,17 @@ def assemble(meta: List[tuple], columns: List[Column], start: date, issue_age: O
     return matrix
 
 
-def build_coverage_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation", cov_index: int) -> List[List]:
+def _coverage_parts(repo: RatesSchemaRepository, policy: "PolicyInformation", cov_index: int):
     ctx = coverage_context(repo, policy, cov_index)
     parts = cell_parts(repo, ctx)
     parts.extend(div_parts(repo, ctx))
-    base_plancode = policy.coverages.base_plancode
-    if ctx.plancode != base_plancode:
+    if ctx.plancode != policy.coverages.base_plancode:
         parts.extend(plan_parts(repo, ctx.plan, ctx.key.state, ctx.issue_age))
+    return ctx, parts
+
+
+def build_coverage_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation", cov_index: int) -> List[List]:
+    ctx, parts = _coverage_parts(repo, policy, cov_index)
     if not parts.columns and not parts.single and not parts.missing:
         raise RatesNotLoaded(
             f"No coverage-level rates (CELL with benefit blank, DIV) are loaded for {ctx.plancode} in "
@@ -762,6 +834,51 @@ def build_coverage_matrix(repo: RatesSchemaRepository, policy: "PolicyInformatio
     years = ctx.years or parts.max_year
     return assemble(_context_meta(policy, ctx) + _parts_meta(parts), parts.columns,
                     ctx.issue_date, ctx.issue_age, years)
+
+
+def _policy_years(entry: ScaleEntry, start: date, issue_date: date, rows: int) -> str:
+    """The policy years (grid rows) that use this scale entry's windows."""
+    if not entry.windows:
+        return "all"
+    if entry.date_meaning != "CALENDAR":
+        return "all (issue date)" if _window_on(entry.windows, issue_date) is not None else "none"
+    years = [year for year in range(1, rows + 1) if _window_on(entry.windows, _row_date(start, year)) is not None]
+    return _year_ranges(years) if years else "none"
+
+
+def build_scales_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
+    """Every scale and dated schedule behind the Coverages grids, one row per window."""
+    body = []
+    rates_by = {"CALENDAR": "each policy year's date", "ISSUE": "issue date", "NONE": "no dates"}
+    for cov_index, cov in enumerate(policy.coverages.get_coverages(), start=1):
+        try:
+            ctx, parts = _coverage_parts(repo, policy, cov_index)
+        except RatesNotLoaded as exc:
+            body.append([f"Cov {cov_index:02d}", cov.plancode, "", "", "", "", "", "", "", "", str(exc)])
+            continue
+        rows = max(ctx.years or parts.max_year, 1)
+        entries = sorted(parts.scales, key=lambda e: (
+            COLUMN_GROUPS.index(e.scale) if e.scale in COLUMN_GROUPS else len(COLUMN_GROUPS),
+            rate_type_sort_key(e.rate_type)))
+        for entry in entries:
+            name = SCALE_NAMES.get(entry.scale, entry.scale)
+            used = _policy_years(entry, ctx.issue_date, ctx.issue_date, rows)
+            windows = entry.windows or [None]
+            for window in windows:
+                years = used if window is None or len(windows) == 1 else _policy_years(
+                    ScaleEntry(entry.rate_type, entry.scale, [window], entry.date_meaning, ""),
+                    ctx.issue_date, ctx.issue_date, rows)
+                body.append([
+                    ctx.label, ctx.plancode, entry.rate_type, entry.scale if entry.scale in SCALE_ORDER else "",
+                    name, _iso(window.effective_from) if window else "",
+                    (_iso(window.effective_to) or "open") if window else "",
+                    rates_by.get(entry.date_meaning, entry.date_meaning), years, entry.cell, entry.notes,
+                ])
+        for name, reason in parts.missing:
+            body.append([ctx.label, ctx.plancode, name, "", "", "", "", "", "", "", f"Missing: {reason}"])
+    if not body:
+        raise RatesNotLoaded(f"No coverage rates are loaded in {SOURCE_LABEL} for this policy.")
+    return [SCALES_HEADER, *body]
 
 
 def build_benefit_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation", ben_index: int) -> List[List]:
@@ -782,16 +899,14 @@ def build_benefit_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation
 def build_policy_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
     cov = _coverage(policy, 1)
     plancode = policy.coverages.base_plancode or cov.plancode
-    plan, plan_note = _plan_for(repo, policy, plancode)
+    plan, _plan_note = _plan_for(repo, policy, plancode)
     if cov.issue_date is None or cov.issue_age is None:
         raise RatesNotLoaded("Coverage 1 has no issue date or issue age for a rate lookup.")
     state = str(policy.product.issue_state or "").strip().upper()
     parts = plan_parts(repo, plan, state, int(cov.issue_age))
     meta = [
-        GAP, ("Source", SOURCE_LABEL), ("Policy", policy.policy_number), ("Plancode", plancode),
-        ("Rates company", plan.company + (f" ({plan_note})" if plan_note else "")),
-        ("Family", plan.product_family), ("Role", plan.coverage_role), ("Description", plan.description),
-        ("User code", plan.user_code), ("IssueDate", _iso(cov.issue_date)), ("IssueAge", cov.issue_age),
+        GAP, ("Policy", policy.policy_number), ("Plancode", plancode), ("Family", plan.product_family),
+        ("Role", plan.coverage_role), ("IssueDate", _iso(cov.issue_date)), ("IssueAge", cov.issue_age),
         ("State", state or "blank"),
     ]
     if plan.facts:
@@ -799,7 +914,7 @@ def build_policy_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation"
     attrs = repo.plan_attrs(plan.company, plan.plancode)
     if attrs:
         meta += [GAP, ("Plan attributes", "PLAN_ATTR")] + [(f"  {a.attr}", a.value) for a in attrs]
-    if not parts.used:
+    if not parts.scales:
         parts.missing.append(("PLAN", f"no PLAN rates are loaded for {plancode}"))
     years = _years_between(cov.issue_date, cov.maturity_date) or parts.max_year
     return assemble(meta + _parts_meta(parts), parts.columns, cov.issue_date, int(cov.issue_age), years,
@@ -824,7 +939,7 @@ def build_fund_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") 
     """Every FUND rate assigned to the policy's loaded plancodes, newest rate start first."""
     held = {fund.strip() for fund in policy.values.get_fund_values_dict()}
     header = ["Plancode", "Fund", "Held", "Rein Block", "Fund Key", "Fund Type", "Rate Type", "Scale",
-              "Rate Start", "Period", "Guar Months", "Guar End", "Rate", "Description"]
+              "Rate Start", "Period", "Guar Months", "Guar End", "Rate"]
     body = []
     for plancode, plan, _note in _loaded_plans(repo, policy):
         assignments = repo.fund_assignments(plan.company, plancode)
@@ -834,7 +949,8 @@ def build_fund_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") 
             by_key.setdefault(rate.fund_key, []).append(rate)
         for a in assignments:
             rows = sorted(by_key.get(a.fund_key, []),
-                          key=lambda r: (rate_type_sort_key(r.rate_type), r.scale, -r.rate_start.toordinal(), r.period))
+                          key=lambda r: (_scale_index(r.scale), rate_type_sort_key(r.rate_type),
+                                         -r.rate_start.toordinal(), r.period))
             for r in rows or [None]:
                 body.append([
                     plancode, a.fund, "Yes" if a.fund in held else "", a.rein_block or "direct", a.fund_key,
@@ -842,7 +958,6 @@ def build_fund_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") 
                     *(["", "", "", "", "", "", "no rates loaded"] if r is None else [
                         r.rate_type, r.scale, _iso(r.rate_start), r.period, fmt(r.guarantee_months),
                         _iso(r.guarantee_end_date), fmt(r.rate)]),
-                    a.description,
                 ])
     if not body:
         raise RatesNotLoaded(f"No FUND rates are loaded in {SOURCE_LABEL} for this policy's plancodes.")

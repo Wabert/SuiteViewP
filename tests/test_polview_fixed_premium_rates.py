@@ -17,7 +17,7 @@ from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.models.policy_sections.rates import RatesSection
 from suiteview.polview.models.policy_sections.status import StatusSection
 from suiteview.polview.services.rate_selection import (
-    SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SPACE,
+    SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SCALES, SCHEMA_SPACE,
 )
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab
@@ -445,7 +445,7 @@ def test_fixed_premium_leaves_only_for_iswl_and_wl_under_legacy(qtbot, product, 
     assert _branch(tree, "Fixed Premium") is None
     assert [leaf["category"] for leaf in _branch(tree, "Policy")] == [
         SCHEMA_POLICY, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_SPACE]
-    assert [leaf["category"] for leaf in _branch(tree, "Coverages")] == [SCHEMA_COVERAGE]
+    assert [leaf["category"] for leaf in _branch(tree, "Coverages")] == [SCHEMA_COVERAGE, SCHEMA_SCALES]
 
 
 @pytest.fixture

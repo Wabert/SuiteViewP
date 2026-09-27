@@ -169,6 +169,11 @@ class RatesSection(RateMatrixMixin, PolicySection):
         from ..schema_rates import build_coverage_matrix
         return self._schema_matrix(build_coverage_matrix, cov_index)
 
+    def build_schema_scales_matrix(self) -> List[List]:
+        """Every scale and dated schedule behind the schema Coverages grids."""
+        from ..schema_rates import build_scales_matrix
+        return self._schema_matrix(build_scales_matrix)
+
     def build_schema_benefit_matrix(self, ben_index: int) -> List[List]:
         """Benefit CELL rates from UL_Rates schema ``rates``."""
         from ..schema_rates import build_benefit_matrix

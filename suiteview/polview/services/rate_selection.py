@@ -2,37 +2,47 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 
 @dataclass(frozen=True)
 class RateSelection:
+    """A Rates-tree grid: title, matrix (header row first) or a not-available message.
+
+    ``header_labels`` / ``column_groups`` are the two-level header of the schema grids:
+    each rate column's key (``"C COI"``) shows its rate type, under a band naming its
+    scale group, for ``FilterTableView.set_header_labels`` / ``set_column_groups``.
+    """
     display_title: str
     matrix: list[list] | None = None
     message: str = ""
+    header_labels: dict = field(default_factory=dict)
+    column_groups: list = field(default_factory=list)
 
 
 # Rates-tree categories read from UL_Rates schema ``rates``. The older categories
 # (Coverages, Benefits, Cash Values, Premium Rates, Modal Premium, Policy) read the
 # legacy dbo rate tables and are listed under the tree's "Legacy (dbo)" branch.
 SCHEMA_COVERAGE = "Schema Coverage"
+SCHEMA_SCALES = "Schema Scales"
 SCHEMA_BENEFIT = "Schema Benefit"
 SCHEMA_POLICY = "Schema Policy"
 SCHEMA_FUNDS = "Schema Funds"
 SCHEMA_MODAL = "Schema Modal"
 SCHEMA_SPACE = "Schema Rate Space"
 SCHEMA_CATEGORIES = (
-    SCHEMA_COVERAGE, SCHEMA_BENEFIT, SCHEMA_POLICY, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_SPACE,
+    SCHEMA_COVERAGE, SCHEMA_SCALES, SCHEMA_BENEFIT, SCHEMA_POLICY, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_SPACE,
 )
 
 
 def _schema_selection(policy, category: str, index: int) -> RateSelection:
-    from suiteview.polview.models.schema_rates import RatesNotLoaded
+    from suiteview.polview.models.schema_rates import RatesNotLoaded, column_layout
 
     rates = policy.rates
     builders = {
         SCHEMA_COVERAGE: (f"Rates for Coverage {index}", "build_schema_coverage_matrix", (index,)),
+        SCHEMA_SCALES: ("Coverage Rate Scales", "build_schema_scales_matrix", ()),
         SCHEMA_BENEFIT: (f"Rates for Benefit {index}", "build_schema_benefit_matrix", (index,)),
         SCHEMA_POLICY: ("Policy Level Rates", "build_schema_policy_matrix", ()),
         SCHEMA_FUNDS: ("Fund Rates", "build_schema_fund_matrix", ()),
@@ -41,9 +51,13 @@ def _schema_selection(policy, category: str, index: int) -> RateSelection:
     }
     title, builder, args = builders[category]
     try:
-        return RateSelection(title, getattr(rates, builder)(*args))
+        matrix = getattr(rates, builder)(*args)
     except RatesNotLoaded as exc:
         return RateSelection(title, message=str(exc))
+    if category in (SCHEMA_COVERAGE, SCHEMA_BENEFIT, SCHEMA_POLICY) and matrix:
+        labels, groups = column_layout(matrix[0])
+        return RateSelection(title, matrix, header_labels=labels, column_groups=groups)
+    return RateSelection(title, matrix)
 
 
 def _product_rules(policy):

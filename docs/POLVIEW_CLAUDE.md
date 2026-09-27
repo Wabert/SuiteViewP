@@ -395,36 +395,49 @@ Where a rate appears follows its assignment table and `RATE_TYPE.STRUCTURE`:
 | Leaf | Rates |
 |---|---|
 | Coverages > Cov NN | `RATE_ASSIGN_CELL` rows with `BENEFIT = ''` for the coverage's plancode; its dividends (`RATE_ASSIGN_DIV`); for a coverage whose plancode is not the base plan's, that plancode's `RATE_ASSIGN_PLAN` rates |
+| Coverages > Scales | one row per scale and dated schedule window behind the Cov NN grids: rate type, scale, effective from/to, whether it is read by issue date or each policy year's date, the policy years it covers, the cell used and any lookup fallback; missing rates are listed at the end |
 | Benefits > Ben NN | `RATE_ASSIGN_CELL` rows whose `BENEFIT` is the benefit's `SPM_BNF_TYP_CD + SPM_BNF_SBY_CD`, on the plancode of the coverage the benefit is on |
 | Policy > Policy Rates | base plancode `RATE_ASSIGN_PLAN` rates, `PLAN_DEF` facts and `PLAN_ATTR` attributes |
 | Policy > Fund Rates | `RATE_ASSIGN_FUND` → `RATE_VALUE_FUND` for the policy's loaded plancodes (Held = a current fund bucket) |
 | Policy > Modal Factors | `PLAN_MODEFACT` |
 | Policy > Rate Space | every CELL/PLAN/FUND/DIV assignment of the policy's loaded plancodes, with the leaves that use it |
 
-Lookup rules (all shown in the grid's RateFields/RateInfo block):
+Grid layout (Robert Haessly, 9/27/2026): the RateFields/RateInfo block shows only
+business facts (policy, plancode, family, issue date/age, **Sex** as the rates sex,
+e.g. `F`, rate class, **Band** as the numbered band, e.g. `1`, **System Band** as the
+CyberLife band code, e.g. `A`, state, sub-series, table), then *Single rates (C/G/S)*
+and *Missing*. Source, rates company, description and the cell/schedule detail are
+not shown there; the schedule detail is on the Scales sheet. Rate columns are keyed
+`"<scale> <rate type>"` (`C COI`, `G COI`); `schema_rates.column_layout` turns the
+keys into a band row (C, G, S, Dividend, Dividend RPU ...) over rate-type labels
+(`RateSelection.header_labels` / `column_groups` → `FilterTableView.set_header_labels`
+/ `set_column_groups`). All C columns come first, then G, then S, then dividends.
+
+Lookup rules:
 
 - **Company.** The policy company's `PLAN_DEF` row; else the verified CyberLife
   rate-file user (`cyberlife_rate_user`, 01 → 00); else a plancode loaded under a
-  single company, labelled "the only company loaded".
+  single company.
 - **Key.** Sex from the 67 segment (`1` → `M`, `2` → `F`, other codes verbatim, as
   the loaders store them), the renewal rate class, the issue state, and the band:
   `rates.fn_BAND` over `PLAN_BAND` (latest spec on/before the issue date, lowest
   upper limit at or above the amount; amounts as `cov_band`). When `PLAN_BAND` has
   bands without limits, the coverage's stored `RT_BAN_CD` is mapped through
-  `SOURCE_BAND`. The stored band is always shown beside the computed one.
+  `SOURCE_BAND`. When the stored `RT_BAN_CD` differs from the computed band's code,
+  System Band shows both (`A (policy record B)`).
   Sub-series keyed rates (CV) use `LH_COV_PHA.LIF_PLN_SUB_SRE_CD` (`fn_RATE_SUB`),
   else `PLAN_SUBSERIES`.
 - **Fallbacks.** Exact cell first; then unisex `U`, class `0` then `*`, band `0`,
-  state `**`. Every fallback used is listed under *Cells used*; a rate type with no
+  state `**`. Every fallback used is in the Scales sheet's Notes; a rate type with no
   cell is listed under *Missing* with the loaded sexes/classes/bands. Dividends use
   REIN `RGA` for Orion/RGA policies (`FUZGREIN_IND = R`), else `''`.
 - **Dates and scales.** `DATE_MEANING = ISSUE` uses the schedule window in effect on
   the issue date; `CALENDAR` uses the window in effect on each row's Date (the
   start of that policy year), so a scale change shows mid-grid. Every stored scale
-  gets its own column (`COI C`, `COI G`, `COI S`); there is no C → G substitution in
-  the grid. `NA` = no window covers that date; blank = past the rate set.
+  gets its own column; there is no C → G substitution in the grid. `NA` = no window
+  covers that date; blank = past the rate set.
 - **Grains.** `IA_DUR`/`DUR` by policy year; `AA` by attained age; `IA`/`SCALAR`
-  ISSUE rates are single values under *Single rates*. CV and FACE_AMT are
+  ISSUE rates are single values under *Single rates (scale)*. CV and FACE_AMT are
   point-in-time (duration 0 = issue), so Year *n* shows duration *n* - 1.
 
 Tools (read-only, live): `tools/rates/dump_polview_schema_rates.py` prints every

@@ -4,10 +4,10 @@ Usage: venv\\Scripts\\python.exe tools\\rates\\dump_polview_schema_rates.py '<js
 JSON: {"policies": [{"policy": "UE063797", "company": "01"}], "region": "CKPR",
        "rows": 12, "summary": false, "only": ["Schema Coverage"]}
 
-Each policy's schema leaves (Coverages, Benefits, Policy Rates, Fund Rates, Modal
+Each policy's schema leaves (Coverages, Scales, Benefits, Policy Rates, Fund Rates, Modal
 Factors, Rate Space) go through ``build_rate_selection`` exactly as the Rates tree
 does. ``summary`` prints only each leaf's header, row count and the metadata lines
-under "Cells used", "Missing" and "Dated schedules"; otherwise the first ``rows``
+under "Single rates (X)" and "Missing" (and every Scales row); otherwise the first ``rows``
 data rows are printed too. A failing leaf prints its error and the run continues.
 ``@path.json`` reads the JSON from a file.
 """
@@ -22,11 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from suiteview.core.local_dev import local_data_enabled
 from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.services.rate_selection import (
-    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SPACE,
+    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SCALES, SCHEMA_SPACE,
     build_rate_selection,
 )
-
-SECTIONS = ("Cells used", "Missing", "Dated schedules", "Single rates")
 
 
 def _cell(value):
@@ -37,7 +35,7 @@ def _summary_lines(matrix):
     lines, section = [], None
     for row in matrix[1:]:
         name, info = str(row[0]), row[1]
-        if name in SECTIONS:
+        if name.startswith("Single rates") or name == "Missing":
             section = name
             continue
         if section and name.startswith("  "):
@@ -49,6 +47,7 @@ def _summary_lines(matrix):
 
 def _leaves(policy):
     leaves = [(SCHEMA_COVERAGE, i) for i in range(1, policy.coverages.coverage_count + 1)]
+    leaves += [(SCHEMA_SCALES, 1)]
     leaves += [(SCHEMA_BENEFIT, i) for i in range(1, policy.benefits.benefit_count + 1)]
     leaves += [(SCHEMA_POLICY, 1), (SCHEMA_FUNDS, 1), (SCHEMA_MODAL, 1), (SCHEMA_SPACE, 1)]
     return leaves
@@ -90,6 +89,9 @@ def _dump(entry, config):
             if category in (SCHEMA_COVERAGE, SCHEMA_BENEFIT, SCHEMA_POLICY):
                 for line in _summary_lines(matrix):
                     print("   " + line)
+            elif category == SCHEMA_SCALES:
+                for row in matrix[1:]:
+                    print("   " + json.dumps([_cell(value) for value in row]))
             continue
         for row in matrix[1:limit + 1]:
             print(json.dumps([_cell(value) for value in row]))

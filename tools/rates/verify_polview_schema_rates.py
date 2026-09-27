@@ -4,16 +4,19 @@ Usage: venv\\Scripts\\python.exe tools\\rates\\verify_polview_schema_rates.py '<
 JSON: {"policies": [{"policy": "UE063797", "company": "01"}], "region": "CKPR"}
 
 For every coverage and benefit leaf, each duration column built by
-``polview.models.schema_rates`` is compared row by row with ``rates.fn_RATE`` /
+``polview.models.schema_rates`` (keyed ``"<scale> <rate type>"``) is compared row by row with ``rates.fn_RATE`` /
 ``rates.fn_RATE_SUB`` (CELL), ``rates.fn_PLAN_RATE`` (PLAN) and ``rates.fn_DIV_RATE``
 (base dividends), called with the cell the grid chose, the row's date (CALENDAR) or
 the issue date (ISSUE), and the row's duration. Single-value rates are checked the
-same way at duration 0. Read-only; prints a summary per leaf and every difference.
+same way at duration 0. Read-only; prints a summary per leaf and each difference as it
+is found. A lock timeout or deadlock (a rate load in progress) is retried; a policy that
+still fails is reported as not checked and the run continues.
 ``@path.json`` reads the JSON from a file.
 """
 
 import json
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -26,6 +29,9 @@ from suiteview.core.local_dev import local_data_enabled
 from suiteview.core.rates_schema import RatesSchemaRepository
 from suiteview.polview.models import schema_rates as sr
 from suiteview.polview.services.policy_service import get_policy_info
+
+RETRIES = 4
+RETRY_SECONDS = 15
 
 
 def _norm(value):
@@ -46,13 +52,22 @@ class Checker:
     def one(self, sql, params):
         # The legacy SQL Server ODBC driver cannot bind datetime.date; pass ISO text.
         params = [p.isoformat() if hasattr(p, "isoformat") else p for p in params]
-        row = self.cursor.execute(sql, params).fetchone()
-        return None if row is None else row[0]
+        for attempt in range(1, RETRIES + 1):
+            try:
+                row = self.cursor.execute(sql, params).fetchone()
+                return None if row is None else row[0]
+            except Exception as exc:
+                # A rate load in progress (lock timeout HYT00 / deadlock victim 40001) is retried.
+                if attempt == RETRIES or not any(code in str(exc) for code in ("HYT00", "40001")):
+                    raise
+                time.sleep(RETRY_SECONDS * attempt)
 
     def compare(self, label, column, year, grid_value, expected):
         self.checked += 1
         if _norm(grid_value) != (None if expected is None else Decimal(str(expected)).normalize()):
-            self.differences.append(f"{label} {column} year {year}: grid {grid_value!r} vs function {expected!r}")
+            line = f"{label} {column} year {year}: grid {grid_value!r} vs function {expected!r}"
+            self.differences.append(line)
+            print("DIFF", line, flush=True)
 
 
 def _cell_expected(checker, ctx, assignment, rate_type, scale, on, year, point):
@@ -71,16 +86,16 @@ def _cell_expected(checker, ctx, assignment, rate_type, scale, on, year, point):
 
 
 def _single_rates(rows):
-    """``{name: value}`` from the grid's *Single rates* metadata section."""
-    values, inside = {}, False
+    """``{"<scale> <rate type>": value}`` from the grid's *Single rates (X)* metadata sections."""
+    values, group = {}, None
     for row in rows:
         name = str(row[0])
-        if name == "Single rates":
-            inside = True
-        elif inside and name.startswith("  "):
-            values[name.strip()] = row[1]
-        elif inside:
-            break
+        if name.startswith("Single rates (") and name.endswith(")"):
+            group = name[len("Single rates ("):-1]
+        elif group and name.startswith("  "):
+            values[f"{group} {name.strip()}"] = row[1]
+        else:
+            group = None
     return values
 
 
@@ -100,7 +115,7 @@ def _check_leaf(checker, repo, policy, ctx, matrix, include_plan: bool):
         calendar = rate_types[rate_type].date_meaning == "CALENDAR"
         point = rate_type in sr.POINT_IN_TIME_RATE_TYPES
         for scale in sr.SCALE_ORDER:
-            name = f"{rate_type} {scale}"
+            name = f"{scale} {rate_type}"
             if name in header:
                 column = header.index(name)
                 for row in rows:
@@ -113,8 +128,8 @@ def _check_leaf(checker, repo, policy, ctx, matrix, include_plan: bool):
                 checker.compare(ctx.label, name, "single", meta[name], expected)
     if include_plan:
         _check_plan(checker, ctx.label, ctx.plan, ctx.key.state, ctx.issue_age, header, rows, meta)
-    if "DIV" in header:
-        column = header.index("DIV")
+    if "Dividend DIV" in header:
+        column = header.index("Dividend DIV")
         for row in rows:
             year = row[4]
             on = ctx.issue_date + relativedelta(years=year - 1)
@@ -123,7 +138,7 @@ def _check_leaf(checker, repo, policy, ctx, matrix, include_plan: bool):
                 [ctx.plan.company, ctx.plancode, *_div_key(repo, ctx), "D", ctx.issue_date, on,
                  ctx.issue_age, year],
             )
-            checker.compare(ctx.label, "DIV", year, row[column], expected)
+            checker.compare(ctx.label, "Dividend DIV", year, row[column], expected)
     return checker.checked - before
 
 
@@ -134,7 +149,7 @@ def _div_key(repo, ctx):
 
 def _check_plan(checker, label, plan, state, issue_age, header, rows, meta):
     for name in [h for h in header if " " in h] + list(meta):
-        rate_type, _, scale = name.partition(" ")
+        scale, _, rate_type = name.partition(" ")
         if scale not in sr.SCALE_ORDER:
             continue
         exists = checker.one(
@@ -202,17 +217,21 @@ def main():
         raise RuntimeError("This helper requires live data, not SUITEVIEW_LOCAL_DATA.")
     connection = connection_factory.connect_ul_rates(autocommit=True, timeout=30)
     checker = Checker(connection)
+    failed = []
     try:
         with RatesSchemaRepository() as repo:
             for entry in config["policies"]:
-                _verify(entry, config, checker, repo)
+                try:
+                    _verify(entry, config, checker, repo)
+                except Exception as exc:  # one locked or failing policy must not end the run
+                    failed.append(entry["policy"])
+                    print(f"{entry['policy']}: NOT CHECKED - {type(exc).__name__}: {exc}")
                 sys.stdout.flush()
     finally:
         connection.close()
-    print(json.dumps({"checked": checker.checked, "differences": len(checker.differences)}))
-    for line in checker.differences[:200]:
-        print("DIFF", line)
-    return 1 if checker.differences else 0
+    print(json.dumps({"checked": checker.checked, "differences": len(checker.differences),
+                      "policies_not_checked": failed}))
+    return 1 if checker.differences or failed else 0
 
 
 if __name__ == "__main__":

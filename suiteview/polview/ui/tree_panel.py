@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 
 from ..config.policy_records import POLICY_RECORD_TABLES, get_sorted_policy_records
 from ..services.rate_selection import (
-    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SPACE,
+    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SCALES, SCHEMA_SPACE,
 )
 from .styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_PRIMARY, BLUE_DARK,
@@ -183,6 +183,10 @@ class PolicyRecordTreeWidget(QTreeWidget):
              "UL_Rates schema rates: CELL rates (benefit blank) for this coverage's plancode,\n"
              "its dividends, and PLAN rates when the plancode is a rider's.")
             for i, label in enumerate(coverage_labels, start=1)
+        ] + [
+            (SCHEMA_SCALES, "Scales", 1,
+             "Every scale (C current, G guaranteed, S shadow account) and dated schedule\n"
+             "behind the coverage rates, with the policy years each one covers.")
         ])
         self._add_rate_branch("Benefits", [
             (SCHEMA_BENEFIT, label, i,

@@ -35,6 +35,8 @@ class RawTableTab(QWidget):
         self._current_cols = []
         self._current_rows = []
         self._current_table_name = ""
+        self._header_labels: dict = {}
+        self._column_groups: list = []
         self._search_result: TableSearchResult | None = None
         # Cached DataFrames per orientation so repeated transposing never
         # rebuilds the frame or recomputes each grid's unique-value filters.
@@ -149,6 +151,7 @@ class RawTableTab(QWidget):
         self._current_table_name = ""
         self._df_normal = None
         self._df_transposed = None
+        self._set_column_layout(None, None)
         self._leave_search_mode()
         self.table_label.setText("Select a table from the left panel")
         empty = pd.DataFrame()
@@ -190,6 +193,8 @@ class RawTableTab(QWidget):
         if self._df_normal is None:
             self._df_normal = self._build_normal_df()
             self._normal_grid.set_dataframe(self._df_normal, limit_rows=False)
+            self._normal_grid.set_header_labels(self._header_labels)
+            self._normal_grid.set_column_groups(self._column_groups)
             self._normal_grid.autofit_columns_to_data()
 
         if self._df_transposed is None:
@@ -223,18 +228,22 @@ class RawTableTab(QWidget):
         self._current_rows = []
         self._df_normal = None
         self._df_transposed = None
+        self._set_column_layout(None, None)
         df = pd.DataFrame({"Result": [message]})
         for grid in (self._normal_grid, self._transposed_grid):
             grid.set_dataframe(df, limit_rows=False)
             grid.autofit_columns_to_data(max_width=1000)
         self._update_active_grid()
 
-    def set_data(self, cols, rows, table_name: str = None, transposed: bool = None):
+    def set_data(self, cols, rows, table_name: str = None, transposed: bool = None,
+                 header_labels: dict = None, column_groups: list = None):
         """Load column/row data directly (e.g. the Rates view builds a matrix).
 
         Unlike setting the internal attributes by hand, this resets the cached
         orientation frames so a new selection always rebuilds and displays
-        instead of re-showing the previously cached grids.
+        instead of re-showing the previously cached grids. ``header_labels`` and
+        ``column_groups`` give the normal orientation a two-level header (a group
+        band over each run of columns, e.g. the rate scale over its rate types).
         """
         self._current_cols = list(cols)
         self._current_rows = [tuple(r) for r in rows]
@@ -246,10 +255,17 @@ class RawTableTab(QWidget):
             self._is_transposed = transposed
         self._df_normal = None
         self._df_transposed = None
+        self._set_column_layout(header_labels, column_groups)
         if self._current_cols and self._current_rows:
             self._display_data()
         else:
             self.show_message("No data")
+
+    def _set_column_layout(self, header_labels, column_groups):
+        self._header_labels = dict(header_labels or {})
+        self._column_groups = list(column_groups or [])
+        if not self._column_groups:
+            self._normal_grid.set_column_groups(None)
 
     # ── Tables search results ────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from PyQt6.QtCore import Qt
 
 from suiteview.core.rates_schema import (
     BandSpec, CellAssignment, DivAssignment, DivSchedule, DivValue, PlanAssignment, PlanDef,
@@ -12,7 +13,7 @@ from suiteview.core.rates_schema import (
 )
 from suiteview.polview.models import schema_rates as sr
 from suiteview.polview.services.rate_selection import (
-    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_POLICY, build_rate_selection,
+    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_POLICY, SCHEMA_SCALES, build_rate_selection,
 )
 
 def D(value) -> Decimal:
@@ -262,19 +263,68 @@ def test_rate_at_reads_each_grain(grain, values, year, point, expected):
 def test_coverage_matrix_places_rates_by_structure_scale_and_date_meaning():
     matrix = sr.build_coverage_matrix(FakeRepo(), _policy(), 1)
     assert matrix[0][:5] == ["RateFields", "RateInfo", "Date", "Age", "Year"]
-    assert matrix[0][5:] == ["COI C", "COI G", "SCR G"]
+    assert matrix[0][5:] == ["C COI", "G COI", "G SCR"]
     # CALENDAR: each row's Date picks the COI C window (2021-01-01 split).
-    assert _column(matrix, "COI C")[:3] == ["1.00", "2.00", "103.00"]
-    assert _column(matrix, "COI G")[:3] == ["201.00", "202.00", "203.00"]
+    assert _column(matrix, "C COI")[:3] == ["1.00", "2.00", "103.00"]
+    assert _column(matrix, "G COI")[:3] == ["201.00", "202.00", "203.00"]
     # ISSUE, issue age x duration: a column; blank past the schedule.
-    assert _column(matrix, "SCR G")[:3] == ["37.50", "30.00", ""]
+    assert _column(matrix, "G SCR")[:3] == ["37.50", "30.00", ""]
     meta = _meta(matrix)
-    assert meta["MTP G"].startswith("14.92 | ")
-    assert meta["Band"].startswith("2 (CyberLife B) for 75,000")
-    assert meta["Stored band"] == "B -> 2"
-    assert meta["Sex"] == "M (CyberLife 1)"
-    assert meta["COI"] == "M/N/2/**"
-    assert "2000-01-01..2021-01-01, 2021-01-01.." in meta["COI C"]
+    assert meta["Single rates (G)"] == "" and meta["MTP"] == "14.92"
+    assert meta["Band"] == "2" and meta["System Band"] == "B"
+    assert meta["Sex"] == "M"
+
+
+def test_coverage_matrix_keeps_business_metadata_only():
+    names = {str(row[0]).strip() for row in sr.build_coverage_matrix(FakeRepo(), _policy(), 1)[1:]}
+    assert {"Policy", "Plancode", "Sex", "Rateclass", "Band", "System Band", "State"} <= names
+    assert not names & {"Source", "Rates company", "Description", "Leaf", "Cells used", "Dated schedules",
+                        "Stored band", "Scales"}
+
+
+def test_system_band_flags_a_policy_record_that_differs():
+    policy = _policy()
+    policy.rates.fetch_table = lambda name: [{"COV_PHA_NBR": 1, "JT_INS_IND": "0", "PRM_RT_TYP_CD": "C",
+                                              "RT_BAN_CD": "C"}]
+    meta = _meta(sr.build_coverage_matrix(FakeRepo(), policy, 1))
+    assert meta["Band"] == "2" and meta["System Band"] == "B (policy record C)"
+
+
+def test_columns_group_all_current_then_guaranteed_then_shadow_then_dividends():
+    cols = [sr.Column("G", "SCR", None), sr.Column("Dividend", "DIV", None), sr.Column("S", "COI", None),
+            sr.Column("C", "EPU", None), sr.Column("G", "COI", None), sr.Column("C", "COI", None),
+            sr.Column("Dividend", "PUA", None)]
+    assert [c.key for c in sr.ordered_columns(cols)] == [
+        "C COI", "C EPU", "G COI", "G SCR", "S COI", "Dividend DIV", "Dividend PUA"]
+    labels, groups = sr.column_layout(["RateFields", "Year", "C COI", "C EPU", "G COI", "Dividend RPU DIV"])
+    assert labels == {"C COI": "COI", "C EPU": "EPU", "G COI": "COI", "Dividend RPU DIV": "DIV"}
+    assert groups == [("C", ["C COI", "C EPU"]), ("G", ["G COI"]), ("Dividend RPU", ["Dividend RPU DIV"])]
+
+
+def test_scales_sheet_lists_every_scale_window_with_its_policy_years_and_cell():
+    matrix = sr.build_scales_matrix(FakeRepo(), _policy())
+    assert matrix[0] == sr.SCALES_HEADER
+    rows = [dict(zip(matrix[0], row)) for row in matrix[1:]]
+    summary = [(r["Rate Type"], r["Scale"], r["Effective From"], r["Effective To"], r["Policy Years"])
+               for r in rows]
+    assert summary == [
+        ("COI", "C", "2000-01-01", "2021-01-01", "1-2"),
+        ("COI", "C", "2021-01-01", "open", "3"),
+        ("COI", "G", "2000-01-01", "open", "1-3"),
+        ("SCR", "G", "2000-01-01", "open", "all (issue date)"),
+        ("MTP", "G", "2000-01-01", "open", "all (issue date)"),
+    ]
+    assert {r["Coverage"] for r in rows} == {"Cov 01"}
+    assert rows[0]["Cell"] == "M/N/2/**" and rows[0]["Rates By"] == "each policy year's date"
+    assert rows[3]["Rates By"] == "issue date" and rows[0]["Scale Name"] == "Current"
+
+
+def test_scales_sheet_shows_fallbacks_and_missing_cells():
+    repo = FakeRepo()
+    repo.cells = [_cell("COI", 1, sex="U", band="0"), _cell("CV", 7, sex="F")]
+    rows = [dict(zip(sr.SCALES_HEADER, row)) for row in sr.build_scales_matrix(repo, _policy())[1:]]
+    assert rows[0]["Notes"] == "sex U (policy M); band 0 (policy 2)"
+    assert rows[-1]["Rate Type"] == "CV" and rows[-1]["Notes"].startswith("Missing: no cell for M/N/2")
 
 
 def test_coverage_matrix_marks_missing_windows_and_cells():
@@ -283,7 +333,7 @@ def test_coverage_matrix_marks_missing_windows_and_cells():
                     ScheduleWindow(1, "G", date(2021, 1, 1), None, 12) for w in repo.windows]
     repo.cells.append(_cell("CV", 7, sex="F"))
     matrix = sr.build_coverage_matrix(repo, _policy(), 1)
-    assert _column(matrix, "COI G")[:3] == ["NA", "NA", "203.00"]
+    assert _column(matrix, "G COI")[:3] == ["NA", "NA", "203.00"]
     assert "no cell for M/N/2" in _meta(matrix)["CV"]
 
 
@@ -292,7 +342,7 @@ def test_uncovered_issue_date_for_an_issue_rate_is_missing_not_blank():
     repo.windows = [w if w.schedule_id != 3 else ScheduleWindow(3, "G", date(2020, 1, 1), None, 30)
                     for w in repo.windows]
     meta = _meta(sr.build_coverage_matrix(repo, _policy(), 1))
-    assert "MTP G" in meta and "no window covers issue date 2019-03-14" in meta["MTP G"]
+    assert "G MTP" in meta and "no window covers issue date 2019-03-14" in meta["G MTP"]
 
 
 def test_point_in_time_cash_values_show_duration_n_minus_1():
@@ -302,7 +352,7 @@ def test_point_in_time_cash_values_show_duration_n_minus_1():
     repo.sets[50] = RateSetInfo(50, "CV", "IA_DUR", "", "")
     repo.values[50] = {(40, 0): D("0"), (40, 1): D("15"), (40, 2): D("31")}
     matrix = sr.build_coverage_matrix(repo, _policy(), 1)
-    assert _column(matrix, "CV G")[:3] == ["0.00", "15.00", "31.00"]
+    assert _column(matrix, "G CV")[:3] == ["0.00", "15.00", "31.00"]
 
 
 def test_not_loaded_plancode_names_the_legacy_view():
@@ -321,8 +371,8 @@ def _benefit(code="39", phase=1):
 
 def test_benefit_matrix_reads_the_benefit_cells_on_its_coverage_plancode():
     matrix = sr.build_benefit_matrix(FakeRepo(), _policy(benefits=[_benefit()]), 1)
-    assert matrix[0][5:] == ["COI C"]
-    assert _column(matrix, "COI C")[0] == "0.50"
+    assert matrix[0][5:] == ["C COI"]
+    assert _column(matrix, "C COI")[0] == "0.50"
     assert _meta(matrix)["Benefit"].startswith("39")
 
 
@@ -343,11 +393,12 @@ def test_benefit_not_loaded_lists_the_loaded_benefits():
 def test_policy_matrix_plan_rates_state_first_single_values_and_attained_age():
     matrix = sr.build_policy_matrix(FakeRepo(), _policy())
     assert matrix[0][:5] == ["RateFields", "RateInfo", "Date", "AttainedAge", "Year"]
-    assert _column(matrix, "CORR G")[:3] == ["2.50", "2.40", "2.30"]
-    assert _column(matrix, "GINT G")[:3] == ["0.03", "0.03", ""]
+    assert matrix[0][5:] == ["G CORR", "G GINT"]
+    assert _column(matrix, "G CORR")[:3] == ["2.50", "2.40", "2.30"]
+    assert _column(matrix, "G GINT")[:3] == ["0.03", "0.03", ""]
     meta = _meta(matrix)
-    assert meta["LOAN_REG_CHG G"].startswith("0.08 | state TX")  # TX row wins over **
-    assert meta["Rates company"].startswith("00 (CyberLife rate user of policy company 01)")
+    assert meta["LOAN_REG_CHG"] == "0.08"  # TX row wins over **
+    assert not {"Source", "Rates company", "Description"} & set(meta)
 
 
 def test_dividends_use_the_cohort_and_each_rows_scale_window():
@@ -360,10 +411,14 @@ def test_dividends_use_the_cohort_and_each_rows_scale_window():
     repo.div_data = {70: {(40, 1): DivValue(D("1"), None, None), (40, 2): DivValue(D("2"), None, None)},
                      71: {(40, 3): DivValue(D("30"), None, None)}}
     matrix = sr.build_coverage_matrix(repo, _policy(), 1)
-    assert _column(matrix, "DIV")[:3] == ["1.00", "2.00", "30.00"]
+    assert matrix[0][-1] == "Dividend DIV"
+    assert _column(matrix, "Dividend DIV")[:3] == ["1.00", "2.00", "30.00"]
     meta = _meta(matrix)
-    assert meta["DIV"].startswith("11E1MN") and "band 0" in meta["DIV"]
-    assert meta["PUA DIV"] == "PUAs use the base rates"
+    assert meta["Single rates (Dividend)"] == "" and meta["PUA DIV"] == "PUAs use the base rates"
+    scales = [dict(zip(sr.SCALES_HEADER, row)) for row in sr.build_scales_matrix(repo, _policy())[1:]]
+    div = [r for r in scales if r["Rate Type"] == "DIV"]
+    assert [(r["Effective From"], r["Policy Years"]) for r in div] == [("1900-01-01", "1-2"), ("2021-01-01", "3")]
+    assert div[0]["Cell"].startswith("11E1MN") and "band 0" in div[0]["Notes"]
 
 
 # -- selection routing -----------------------------------------------------------------
@@ -373,12 +428,32 @@ def test_schema_selection_routes_and_turns_not_loaded_into_a_message():
         raise sr.RatesNotLoaded("Plancode X is not loaded")
 
     policy = SimpleNamespace(rates=SimpleNamespace(
-        build_schema_coverage_matrix=lambda index: [["RateFields"], [index]],
+        build_schema_coverage_matrix=lambda index: [["RateFields", "C COI", "G COI"], [index, 1, 2]],
         build_schema_benefit_matrix=not_loaded,
         build_schema_policy_matrix=lambda: [["RateFields"], ["p"]],
+        build_schema_scales_matrix=lambda: [sr.SCALES_HEADER, ["Cov 01"] + [""] * 10],
     ))
     selection = build_rate_selection(policy, SCHEMA_COVERAGE, 2)
-    assert selection.display_title == "Rates for Coverage 2" and selection.matrix == [["RateFields"], [2]]
+    assert selection.display_title == "Rates for Coverage 2" and selection.matrix[1] == [2, 1, 2]
+    assert selection.header_labels == {"C COI": "COI", "G COI": "COI"}
+    assert selection.column_groups == [("C", ["C COI"]), ("G", ["G COI"])]
     selection = build_rate_selection(policy, SCHEMA_BENEFIT, 1)
     assert selection.matrix is None and selection.message == "Plancode X is not loaded"
     assert build_rate_selection(policy, SCHEMA_POLICY, 1).display_title == "Policy Level Rates"
+    scales = build_rate_selection(policy, SCHEMA_SCALES, 1)
+    assert scales.display_title == "Coverage Rate Scales" and scales.column_groups == []
+
+
+def test_raw_table_tab_shows_the_scale_band_over_rate_type_labels(qtbot):
+    from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab
+
+    tab = RawTableTab()
+    qtbot.addWidget(tab)
+    tab.set_data(["RateFields", "C COI", "G COI"], [("x", "1", "2")], transposed=False,
+                 header_labels={"C COI": "COI", "G COI": "COI"},
+                 column_groups=[("C", ["C COI"]), ("G", ["G COI"])])
+    grid = tab._normal_grid
+    assert [grid.model.headerData(i, Qt.Orientation.Horizontal) for i in range(3)] == ["RateFields", "COI", "COI"]
+    assert grid._column_groups == [("C", ["C COI"]), ("G", ["G COI"])]
+    tab.set_data(["A"], [("1",)], transposed=False)
+    assert tab._normal_grid._column_groups == []
