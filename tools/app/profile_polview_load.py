@@ -255,8 +255,8 @@ def main() -> int:
                         if window.tabs.indexOf(tab) >= 0
                     ),
                     "shared_policy_instance": get_policy_info(
-                        window._policy.identity.policy_number, window._policy.identity.region,
-                        window._policy.identity.company_code, window._policy.identity.system_code,
+                        window._policy.policy_number, window._policy.region,
+                        window._policy.company_code, window._policy.system_code,
                     ) is window._policy,
                     "each_table_fetched_once": len(report["table_reads"]) == len({
                         read["table"] for read in report["table_reads"]
@@ -340,7 +340,7 @@ def main() -> int:
                             "requested_heading": number.upper() in pending_heading,
                             "correct_policy": (
                                 window._policy is not None
-                                and window._policy.identity.policy_number == number.upper()
+                                and window._policy.policy_number == number.upper()
                             ),
                             "all_visible_tabs_ready": all(
                                 window._tab_states[stage] == "ready"

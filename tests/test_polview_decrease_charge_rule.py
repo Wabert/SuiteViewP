@@ -44,7 +44,6 @@ class _FakePolicy:
 
     def __init__(self, rule):
         self.decrease_charge_rule = rule
-        self.identity = self
         self.coverages = SimpleNamespace(base_plancode=self.base_plancode)
         self.product = self
         self.status = self

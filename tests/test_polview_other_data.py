@@ -59,7 +59,6 @@ def policy():
         valuation_date=date(2026, 9, 18),
         get_coverages=lambda: [SimpleNamespace(plancode="DEMO")],
     )
-    item.identity = item
     item.values = item
     item.coverages = SimpleNamespace(get_coverages=item.get_coverages)
     return item

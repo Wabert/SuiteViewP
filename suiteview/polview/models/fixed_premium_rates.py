@@ -230,9 +230,9 @@ def build_premium_rate_matrix(policy: "PolicyInformation", cov_index: int) -> Li
                "Identifier", "Scale Start", "Scale Stop", "Rate", "Units", "Annual Premium",
                "Stored Rate", "Check", "Status"]
     metadata = [
-        ("Policy", policy.identity.policy_number), ("Cov Index", cov_index), ("Plancode", base.plancode),
+        ("Policy", policy.policy_number), ("Cov Index", cov_index), ("Plancode", base.plancode),
         ("Source", "WL_RATE_PREM"),
-        ("Rate User", f"{policy.rates.cyberlife_rate_user_code} (company {policy.identity.company_code})"),
+        ("Rate User", f"{policy.rates.cyberlife_rate_user_code} (company {policy.company_code})"),
         ("IAF Version", (lookup.get("iaf_version") or "(blank)") if lookup.get("rows") else "Not loaded"),
         ("IAF Effective", _cell(lookup.get("effective_date")) if lookup.get("rows") else "Not loaded"),
         ("Issue Date", _cell(base.issue_date)), ("Issue Age", _cell(base.issue_age)),
@@ -389,10 +389,10 @@ def _modal_metadata(policy: "PolicyInformation", plancode: str, as_of: date,
                     mode, lookup: Dict[str, Any]) -> List[tuple]:
     factors = lookup["factors"]
     metadata = [
-        ("Policy", policy.identity.policy_number), ("Plancode", plancode), ("As of", _cell(as_of)),
+        ("Policy", policy.policy_number), ("Plancode", plancode), ("As of", _cell(as_of)),
         ("Mode", _mode_text(mode, policy.billing.billing_frequency, policy.billing.non_standard_mode_code)),
         ("Bill Form", describe_bill_form(policy.billing.bill_form_code)),
-        ("Rate User", f"{policy.rates.cyberlife_rate_user_code} (company {policy.identity.company_code})"),
+        ("Rate User", f"{policy.rates.cyberlife_rate_user_code} (company {policy.company_code})"),
         ("Premiums", "WL_RATE_PREM (N)"),
         ("Factors", lookup["index"] or "No POINT_MODEFACT pointer"),
     ]

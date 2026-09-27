@@ -1,6 +1,5 @@
 """PolicyInformation section objects."""
 
-from .identity import IdentitySection
 from .status import StatusSection
 from .product import ProductSection
 from .billing import BillingSection
@@ -17,7 +16,6 @@ from .rates import RatesSection
 from .support import SupportSection
 
 __all__ = [
-    'IdentitySection',
     'StatusSection',
     'ProductSection',
     'BillingSection',

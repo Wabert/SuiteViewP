@@ -108,13 +108,13 @@ def capture_ui(policy, pi, folder, *, when=None, exercise_edits=False, exercise_
     window._illustration_data = policy
     window._policy = pi
     window._policy_info = {
-        "PolicyNumber": policy.identity.policy_number, "CompanyCode": policy.identity.company_code,
-        "Region": policy.identity.region,
+        "PolicyNumber": policy.policy_number, "CompanyCode": policy.company_code,
+        "Region": policy.region,
     }
-    window.lookup_bar.set_policy_display(policy.identity.company_code, policy.identity.policy_number, policy.identity.region)
-    window.lookup_bar.region_input.setText(policy.identity.region)
-    window.lookup_bar.company_input.setText(policy.identity.company_code)
-    window.lookup_bar.policy_input.setText(policy.identity.policy_number)
+    window.lookup_bar.set_policy_display(policy.company_code, policy.policy_number, policy.region)
+    window.lookup_bar.region_input.setText(policy.region)
+    window.lookup_bar.company_input.setText(policy.company_code)
+    window.lookup_bar.policy_input.setText(policy.policy_number)
     window.policy_tab.load_data_from_policy(pi, window._policy_info)
     window.inputs_tab.load_data_from_policy(policy)
     window._set_active_inputs_tab(window.inputs_tab)

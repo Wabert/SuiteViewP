@@ -27,9 +27,9 @@ def main():
         raise RuntimeError("Live verification requires local data disabled.")
     pi = get_policy_info(args.policy.strip().upper(), region=args.region.strip().upper(),
                          company_code=args.company.strip().upper())
-    if pi is None or not pi.identity.exists:
+    if pi is None or not pi.exists:
         raise ValueError(f"Policy {args.policy} not found")
-    result = {"policy": pi.identity.policy_number, "sources": {}, "text": {}, "lines": {}}
+    result = {"policy": pi.policy_number, "sources": {}, "text": {}, "lines": {}}
     for segment, builder in (("63", build_segment_63), ("64", build_segment_64)):
         lines = builder(pi)
         result["sources"][TABLES[segment]] = pi.fetch_table(TABLES[segment])

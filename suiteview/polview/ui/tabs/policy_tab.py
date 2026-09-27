@@ -247,15 +247,15 @@ class PolicyTab(QWidget):
 
     def load_data_from_policy(self, policy: 'PolicyInformation', policy_info: dict = None):
         try:
-            if not policy.identity.exists:
+            if not policy.exists:
                 return
             if policy_info is None:
                 policy_info = {
-                    "PolicyID": policy.identity.policy_id,
-                    "PolicyNumber": policy.identity.policy_number,
-                    "CompanyCode": policy.identity.company_code,
-                    "SystemCode": policy.identity.system_code,
-                    "Region": policy.identity.region,
+                    "PolicyID": policy.policy_id,
+                    "PolicyNumber": policy.policy_number,
+                    "CompanyCode": policy.company_code,
+                    "SystemCode": policy.system_code,
+                    "Region": policy.region,
                 }
             self._populate_column1_from_policy(policy, policy_info)
             self._populate_column2_from_policy(policy)
@@ -267,8 +267,8 @@ class PolicyTab(QWidget):
 
     def _populate_column1_from_policy(self, policy, policy_info: dict):
         c = self.col1
-        c.set_value("pol_number", policy_info.get("PolicyNumber", policy.identity.policy_number))
-        c.set_value("company", translate_company_code(str(policy.identity.company_code)))
+        c.set_value("pol_number", policy_info.get("PolicyNumber", policy.policy_number))
+        c.set_value("company", translate_company_code(str(policy.company_code)))
         c.set_value("plancode", policy.coverages.base_plancode)
         c.set_value("maj_lob", _registered_field(policy, "major_line_of_business"))
         prod_line = policy.product.product_line_code
@@ -400,7 +400,7 @@ class PolicyTab(QWidget):
     def _populate_column3_from_policy(self, policy, policy_info: dict):
         c = self.col3
         svc_agc = str(policy.data_item("LH_BAS_POL", "SVC_AGC_NBR") or "").strip()
-        company_code = str(policy.identity.company_code)
+        company_code = str(policy.company_code)
         mkt_org_code = svc_agc[:1] if svc_agc else ""
         c.set_value("mkt_org", translate_market_org(company_code, mkt_org_code))
         c.set_value("svc_branch", svc_agc)

@@ -14,6 +14,7 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 
 @dataclass
@@ -115,21 +116,21 @@ class GlpResultInputs:
 def is_glp_exception_eligible(policy) -> bool:
     if not policy or not getattr(policy, "exists", False):
         return False
-    rules = getattr(policy, "product_rules", None)
+    rules = policy_attr(policy, "product_rules", None)
     if rules is not None and not getattr(rules, "supports_glp_exception", False):
         return False
-    product_type = str(getattr(policy, "product_type", "") or "").upper()
+    product_type = str(policy_attr(policy, "product_type", "") or "").upper()
     if product_type not in {"UL", "IUL", "ISWL", "SGUL", "VUL"}:
         return False
-    doli_code = str(getattr(policy, "def_of_life_ins_code", "") or "").strip()
-    doli_desc = str(getattr(policy, "def_of_life_ins_description", "") or "").upper()
+    doli_code = str(policy_attr(policy, "def_of_life_ins_code", "") or "").strip()
+    doli_desc = str(policy_attr(policy, "def_of_life_ins_description", "") or "").upper()
     return doli_code in {"1", "2", "4"} or "GUIDELINE" in doli_desc or doli_desc.startswith("GP")
 
 
 def _load_forecast_policy(policy) -> tuple[IllustrationPolicyData, object, object] | str:
     try:
         run = project_policy(
-            policy.identity.policy_number,
+            policy.policy_number,
             region=getattr(policy, "region", "CKPR") or "CKPR",
             company_code=getattr(policy, "company_code", "") or None,
             months=0,

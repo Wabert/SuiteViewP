@@ -210,7 +210,7 @@ def _riders_and_policy_info(policy_number: str, region: str, company: Optional[s
         active_rider_benefit_codes,
     )
     pi = get_policy_info(policy_number, region, company)
-    if pi is None or not pi.identity.exists:
+    if pi is None or not pi.exists:
         raise ValueError(f"Policy {policy_number} not found in region {region}")
     riders = active_rider_benefit_codes(pi)
     return riders, pi

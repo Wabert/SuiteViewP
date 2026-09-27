@@ -20,7 +20,6 @@ from typing import Optional
 class DividendsSection(PolicySection):
     """Cohesive PolicyInformation dividends view."""
 
-    TABLES = frozenset(('COV_PHA_NBR', 'CUM_DEP_AMT', 'DEP_DT', 'DIV_OPTION_CODE', 'ITS_AMT', 'LH_APPLIED_PTP', 'LH_ONE_YR_TRM_ADD', 'LH_PAID_UP_ADD', 'LH_PTP_ON_DEP', 'LH_UNAPPLIED_PTP', 'NFO_CODE', 'OYT_CSV_AMT', 'OYT_FCE_AMT', 'OYT_ISS_DT', 'POL_DUR_NBR', 'PTP_APL_DT', 'PTP_APL_TYP_CD', 'PTP_GRS_AMT', 'PTP_NET_AMT', 'PTP_PRO_DT', 'PTP_TYP_CD', 'PUA_CSV_AMT', 'PUA_FCE_AMT', 'PUA_ISS_DT',))
     CACHE_ATTRS = ()
 
     @property

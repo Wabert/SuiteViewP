@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -82,8 +83,8 @@ def main() -> None:
         raise SystemExit(f"Policy not found: {policy_number}")
 
     ctx = build_policy_context(policy)
-    attained_age = int(getattr(policy, "attained_age", 0) or 0)
-    maturity_age = int(getattr(policy, "maturity_age", None) or getattr(policy, "age_at_maturity", None) or 0)
+    attained_age = int(policy_attr(policy, "attained_age", 0) or 0)
+    maturity_age = int(getattr(policy, "maturity_age", None) or policy_attr(policy, "age_at_maturity", None) or 0)
     max_level_end_age = min(maturity_age, 100)
     glp = floor_monthly_cent(_first_float(policy, "glp"))  # monthly-normalized, matches the app
     accumulated_glp = _first_float(policy, "accumulated_glp", "accumulated_glp_target")
@@ -97,9 +98,9 @@ def main() -> None:
         "region": region,
         "company": getattr(policy, "company_code", None),
         "def_of_life_ins": getattr(policy, "def_of_life_ins", None)
-            or getattr(policy, "def_of_life_ins_description", None)
-            or getattr(policy, "def_of_life_ins_code", None),
-        "issue_age": int(getattr(policy, "base_issue_age", None) or getattr(policy, "issue_age", 0) or 0),
+            or policy_attr(policy, "def_of_life_ins_description", None)
+            or policy_attr(policy, "def_of_life_ins_code", None),
+        "issue_age": int(policy_attr(policy, "base_issue_age", None) or getattr(policy, "issue_age", 0) or 0),
         "attained_age": attained_age,
         "maturity_age": maturity_age,
         "max_level_end_age": max_level_end_age,

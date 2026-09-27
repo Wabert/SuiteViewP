@@ -12,7 +12,6 @@ and services read named facts from lazy cached section objects:
 
 | Section | Reads |
 | --- | --- |
-| `pi.identity` | policy/company/system/region identity and lookup state |
 | `pi.status` | policy status, suspense, premium-pay and grace values |
 | `pi.product` | product family, issue state, product rules and tax-test flags |
 | `pi.billing` | modes, bill form, premiums, fees and short-pay values |

@@ -50,7 +50,6 @@ class _SectionProxy:
 
 class _FakePolicyInfo:
     def __init__(self):
-        self.identity = _SectionProxy(self)
         self.status = _SectionProxy(self)
         self.product = _SectionProxy(self)
         self.billing = _SectionProxy(self)

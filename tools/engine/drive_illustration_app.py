@@ -52,7 +52,7 @@ def main() -> int:
     app.processEvents()
 
     result: dict = {"policy": policy, "region": region, "company": company}
-    if not (window._policy and window._policy.identity.exists):
+    if not (window._policy and window._policy.exists):
         result.update(ok=False, error=f"Policy {policy} did not load")
         print(json.dumps(result))
         return 1

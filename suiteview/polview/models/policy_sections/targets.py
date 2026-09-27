@@ -14,7 +14,6 @@ from typing import Optional
 class TargetsSection(PolicySection):
     """Cohesive PolicyInformation targets view."""
 
-    TABLES = frozenset(('COV_PHA_NBR', 'DIAL_TO_PREM_AGE', 'GDL_PRM_AMT', 'LH_COM_TARGET', 'LH_COV_INS_GDL_PRM', 'LH_COV_TARGET', 'LH_POL_TARGET', 'PRM_RT_TYP_CD', 'TAR_DT', 'TAR_PRM_AMT', 'TAR_TYP_CD', 'TAR_VAL_AMT', 'TH_USER_GENERIC',))
     CACHE_ATTRS = ()
 
     def _get_target_amount(self, target_type: str) -> Optional[Decimal]:

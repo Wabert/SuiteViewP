@@ -41,7 +41,7 @@ def main() -> None:
         company_code=args.company,
         use_cache=False,
     )
-    if policy is None or not policy.identity.exists:
+    if policy is None or not policy.exists:
         raise RuntimeError(f"Policy {args.policy_number} not found in local offline data")
 
     coverages = policy.coverages.get_coverages()
@@ -52,10 +52,10 @@ def main() -> None:
     benefit_types = sorted({key for benefit in benefits if (key := _active_benefit_key(benefit)) and not key.startswith("#")})
 
     print(json.dumps({
-        "policy_number": policy.identity.policy_number,
-        "company_code": policy.identity.company_code,
-        "system_code": policy.identity.system_code,
-        "policy_id": policy.identity.policy_id,
+        "policy_number": policy.policy_number,
+        "company_code": policy.company_code,
+        "system_code": policy.system_code,
+        "policy_id": policy.policy_id,
         "base_plancode": policy.coverages.base_plancode,
         "plancodes": plancodes,
         "rider_plancodes": sorted({str(rider.plancode or "").strip() for rider in riders if str(rider.plancode or "").strip()}),

@@ -33,7 +33,7 @@ def main() -> int:
             policy = get_policy_info(
                 args.policy, company_code=args.company, region=args.region, use_cache=False,
             )
-            if policy is None or not policy.identity.exists:
+            if policy is None or not policy.exists:
                 raise RuntimeError("Live policy was not found.")
         else:
             policy = SimpleNamespace(
@@ -77,7 +77,7 @@ def main() -> int:
         window = GetPolicyWindow(enable_policy_list=False)
         window._policy = policy
         window.lookup_bar.set_policy_display(
-            policy.identity.company_code, policy.identity.policy_number, args.region,
+            policy.company_code, policy.policy_number, args.region,
         )
         window.resize(1200, 780)
         window.show()

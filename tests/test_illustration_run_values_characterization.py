@@ -171,7 +171,6 @@ class _LoadedPolicy:
     status_description = "Active"
 
     def __init__(self):
-        self.identity = self
         self.status = self
 
 

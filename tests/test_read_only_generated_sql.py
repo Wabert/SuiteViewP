@@ -47,7 +47,7 @@ def test_policy_information_generates_read_only_header_and_segment_queries(regio
     cursor.execute.side_effect = execute
     monkeypatch.setattr(policy_data, '_ConnectionManager', lambda: manager)
     policy = PolicyInformation('TEST0001', company_code='01', region=region)
-    assert policy.identity.exists
+    assert policy.exists
     tables = ['LH_BAS_POL', 'TH_BAS_POL', 'LH_COV_PHA', 'LH_SPM_BNF', 'LH_POL_MVRY_VAL', 'LH_COV_INS_RNL_RT', 'LH_POL_TARGET', 'LH_FND_VAL_LOAN', 'FH_FIXED']
     for table in tables:
         assert policy.fetch_table(table)

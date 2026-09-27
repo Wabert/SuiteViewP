@@ -71,7 +71,7 @@ def verify_native(policy):
         window = IllustrationWindow()
         try:
             window._on_get_policy(policy.policy_number, policy.region, policy.company_code)
-            assert window._policy is not None and window._policy.identity.exists
+            assert window._policy is not None and window._policy.exists
             window._on_run_values()
             app.processEvents()
             assert not messages, messages

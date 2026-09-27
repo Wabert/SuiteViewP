@@ -461,6 +461,21 @@ def test_merge_keeps_identity_and_rejects_cross_policy(source):
     session.close()
 
 
+def test_merge_rebuilds_every_section_even_when_tables_are_unchanged(source):
+    # A section built while a table read failed (e.g. an empty benefit list)
+    # must not survive a merge; the old merge always rebuilt every collection.
+    session = prefetch.PolicyLoadSession("TEST")
+    gui = session.load_initial().policy
+    stale_benefits = gui.benefits
+    stale_loans = gui.loans
+    gui._band_cache[1] = 5
+    gui.merge_prefetched(gui.detached_copy())
+    assert gui.benefits is not stale_benefits
+    assert gui.loans is not stale_loans
+    assert gui._band_cache == {}
+    session.close()
+
+
 def test_connection_failure_does_not_fall_back_to_pending(source, monkeypatch):
     calls = []
 
@@ -485,15 +500,15 @@ def test_company_chooser_pending_and_not_found(source, monkeypatch, companies, s
     session = prefetch.PolicyLoadSession("TEST")
     result = session.load_initial()
     if len(companies) > 1:
-        assert result.policy.identity.available_companies == companies
-        assert not result.policy.identity.exists
+        assert result.policy.available_companies == companies
+        assert not result.policy.exists
         assert len(connection.calls) == 1
     elif companies:
-        assert result.policy.identity.exists
-        assert result.policy.identity.system_code == "P"
+        assert result.policy.exists
+        assert result.policy.system_code == "P"
     else:
-        assert not result.policy.identity.exists
-        assert "not found" in result.policy.identity.last_error
+        assert not result.policy.exists
+        assert "not found" in result.policy.last_error
     session.close()
 
 
@@ -553,7 +568,7 @@ def test_pending_seed_preserves_system_and_catches_swallowed_render_reads(source
         "test", "ckpr", "01", seed=seed, system_code="p",
     )
     result = session.load_initial()
-    assert result.policy.identity.system_code == "P"
+    assert result.policy.system_code == "P"
     assert ("TEST", "01", "P", "CKPR") in session._cache
     assert ("TEST", "01", "I", "CKPR") not in session._cache
     assert len(source.connections) == 1
@@ -570,7 +585,7 @@ def test_pending_seed_preserves_system_and_catches_swallowed_render_reads(source
 def test_explicit_system_without_seed_does_not_fallback(source):
     session = prefetch.PolicyLoadSession("TEST", system_code="P")
     result = session.load_initial()
-    assert not result.policy.identity.exists
+    assert not result.policy.exists
     connection = source.connections[0]
     assert len(connection.calls) == 1
     assert connection.calls[0][1][0] == "P"

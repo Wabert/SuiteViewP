@@ -34,7 +34,7 @@ def main():
         region=config.get("region", "CKPR"),
         use_cache=False,
     )
-    if policy is None or not policy.identity.exists:
+    if policy is None or not policy.exists:
         raise RuntimeError("Policy not found or live DB2 access failed.")
 
     rows = policy.fetch_table("LH_COV_PHA")
@@ -89,8 +89,8 @@ def main():
             if not tab.cov_group.grab().save(str(target), "PNG"):
                 raise RuntimeError(f"Could not save screenshot: {target}")
         report = {
-            "all_ok": True, "policy": policy.identity.policy_number,
-            "company": policy.identity.company_code, "coverage_count": len(coverages),
+            "all_ok": True, "policy": policy.policy_number,
+            "company": policy.company_code, "coverage_count": len(coverages),
             "zero_current_amounts": zero_amounts, "checks": checks,
         }
         if config.get("output"):

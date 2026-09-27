@@ -11,7 +11,6 @@ from typing import List
 class BenefitsSection(PolicySection):
     """Cohesive PolicyInformation benefits view."""
 
-    TABLES = frozenset(('BNF_ANN_PPU_AMT', 'BNF_CEA_DT', 'BNF_FRM_NBR', 'BNF_ISS_AGE', 'BNF_ISS_DT', 'BNF_OGN_CEA_DT', 'BNF_PAY_UP_DT', 'BNF_RT_FCT', 'BNF_UNT_QTY', 'BNF_VPU_AMT', 'COV_PHA_NBR', 'LH_SPM_BNF', 'RNL_RT_IND', 'SPM_BNF_SBY_CD', 'SPM_BNF_TYP_CD',))
     CACHE_ATTRS = ('_benefits',)
 
     @property

@@ -61,6 +61,7 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from .glp_exception import (
     check_forecast_availability,
 )
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 
 @dataclass
@@ -360,9 +361,9 @@ def _summarize(
     The exception adjustment uses current AccumGLP and withdrawals, with
     future GLP set to zero.
     """
-    accum_glp = _f(getattr(policy, "accumulated_glp_target", None))
-    accum_wds = _f(getattr(policy, "total_withdrawals", None))
-    premiums_paid = _f(getattr(policy, "premium_td", None))
+    accum_glp = _f(policy_attr(policy, "accumulated_glp_target", None))
+    accum_wds = _f(policy_attr(policy, "total_withdrawals", None))
+    premiums_paid = _f(policy_attr(policy, "premium_td", None))
 
     room = max(0.0, accum_glp - premiums_paid + accum_wds)
     adjustment = max(0.0, premiums_paid + total_premium_needed - accum_wds - accum_glp)

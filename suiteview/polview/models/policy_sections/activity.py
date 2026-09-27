@@ -14,7 +14,6 @@ from typing import Optional
 class ActivitySection(PolicySection):
     """Cohesive PolicyInformation activity view."""
 
-    TABLES = frozenset(('ACC_VAL_GRS_AMT', 'ASOF_DT', 'COV_PHA_NBR', 'FCB0_REV_IND', 'FCB2_REV_APPL_IND', 'FH_FIXED', 'FND_ID_CD', 'GROSS_AMT', 'ISSUE_DT', 'LAST_ANNIVERSARY', 'LAST_FINANCIAL_DATE', 'LH_COV_PHA', 'NET_AMT', 'NEXT_ANNIVERSARY_DATE', 'NEXT_MONTHLIVERSARY_DATE', 'PAID_TO_DATE', 'SEQ_NO', 'TERMINATE_DATE', 'TOT_TRS_AMT', 'TRN_SBY_CD', 'TRN_TYP_CD',))
     CACHE_ATTRS = ('_activities',)
     PREMIUM_TRANSACTION_CODES = frozenset({"PR", "PI", "PA", "PF", "PT", "PB", "PW"})
 

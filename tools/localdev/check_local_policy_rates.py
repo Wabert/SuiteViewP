@@ -63,7 +63,7 @@ def main() -> None:
         company_code=args.company,
         use_cache=False,
     )
-    if policy is None or not policy.identity.exists:
+    if policy is None or not policy.exists:
         raise RuntimeError(f"Policy {args.policy_number} not found in local offline data")
 
     rates = Rates()
@@ -93,7 +93,7 @@ def main() -> None:
         })
 
     print(json.dumps({
-        "policy_number": policy.identity.policy_number,
+        "policy_number": policy.policy_number,
         "base_plancode": policy.coverages.base_plancode,
         "checks": checks,
     }, indent=2))

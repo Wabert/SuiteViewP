@@ -39,7 +39,7 @@ def capture(policy, selections, screenshot_dir):
     shots = {}
     try:
         window._policy = policy
-        window.lookup_bar.set_policy_display(policy.identity.company_code, policy.identity.policy_number, policy.identity.region)
+        window.lookup_bar.set_policy_display(policy.company_code, policy.policy_number, policy.region)
         window.records_tree.enable_rates_tab(policy)
         window.records_tree.show_rates_tab()
         window._toggle_tree_panel()
@@ -67,7 +67,7 @@ def capture(policy, selections, screenshot_dir):
             window.repaint()
             app.processEvents()
             if screenshot_dir:
-                target = Path(screenshot_dir) / f"{policy.identity.policy_number}_{name}.png"
+                target = Path(screenshot_dir) / f"{policy.policy_number}_{name}.png"
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if not window.grab().save(str(target), "PNG"):
                     raise RuntimeError(f"Could not save screenshot: {target}")
@@ -90,7 +90,7 @@ def main():
         config["policy"], region=config.get("region", "CKPR"),
         company_code=config.get("company"), use_cache=False,
     )
-    if policy is None or not policy.identity.exists:
+    if policy is None or not policy.exists:
         raise RuntimeError("Policy was not found or live policy access failed.")
     if not policy.rates.has_fixed_premium_rates:
         raise RuntimeError("Select an ISWL or traditional Whole Life policy.")
@@ -157,7 +157,7 @@ def main():
         shots = capture(policy, selections, config.get("screenshot_dir"))
         report = {
             "all_ok": not failures, "failures": failures,
-            "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+            "policy": policy.policy_number, "company": policy.company_code,
             "user_code": policy.rates.cyberlife_rate_user_code, "product_type": policy.product.product_type,
             "coverage": index, "plancode": policy.coverages.cov_plancode(index),
             "coverage_columns": coverage_columns,

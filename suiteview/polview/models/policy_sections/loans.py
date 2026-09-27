@@ -18,7 +18,6 @@ from typing import Optional
 class LoansSection(PolicySection):
     """Cohesive PolicyInformation loans view."""
 
-    TABLES = frozenset(('LH_FND_VAL_LOAN', 'LN_CRG_ITS_RT', 'LN_ITS_AMT_TYP_CD', 'LN_PRI_AMT', 'LN_TYP_CD', 'LOAN_INTEREST_RATE', 'POL_LN_ITS_AMT', 'PREFERRED_LOAN_INTEREST_RATE', 'PRF_LN_IND',))
     CACHE_ATTRS = ('_loans',)
 
     def get_loans(self) -> List[LoanInfo]:

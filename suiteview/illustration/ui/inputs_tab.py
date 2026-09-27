@@ -70,6 +70,7 @@ from .styles import (
     TAB_WIDGET_STYLE,
     apply_input_checkbox_style,
 )
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 logger = logging.getLogger(__name__)
 
@@ -1257,7 +1258,7 @@ class IllustrationInputsTab(QWidget):
     def load_data_from_policy(self, policy, *, has_shadow: bool = False,
                               shadow_ceased: bool = False):
         self._loaded_policy = policy
-        self._valuation_date = getattr(policy, "valuation_date", None)
+        self._valuation_date = policy_attr(policy, "valuation_date", None)
         self._rollback_overrides = None
         self._rollback_live_inputs = None
         self._inforce_shadow = (has_shadow, shadow_ceased)
@@ -1273,7 +1274,7 @@ class IllustrationInputsTab(QWidget):
             self.issue_conditions.assumptions.setText(str(exc))
             logger.warning("Issue conditions unavailable: %s", exc)
         self.issue_conditions.set_issue_mode(False)
-        self._issue_date = getattr(policy, "issue_date", None)
+        self._issue_date = policy_attr(policy, "issue_date", None)
         self._maturity_date = self._maturity_date_from_policy(policy)
         if self._maturity_date is not None:
             self.illustration_to_date_edit.setDate(QDate(
@@ -1286,7 +1287,7 @@ class IllustrationInputsTab(QWidget):
             label.setText(self._warning_text(base_text))
 
         self._update_valuation_banner(policy)
-        plancode = str(getattr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
+        plancode = str(policy_attr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
         self._set_iul_crediting_applicable(is_iul_plan(plancode))
         self._update_ag49_regime_panel()
         self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow,
@@ -1378,7 +1379,7 @@ class IllustrationInputsTab(QWidget):
             (policy.has_shadow_account, policy.ccv_ceased)
             if enabled or self._rollback_overrides is not None
             else self._inforce_shadow)
-        self._valuation_date = getattr(policy, "valuation_date", None)
+        self._valuation_date = policy_attr(policy, "valuation_date", None)
         self.dynamic_panel.load_from_policy(
             policy, has_shadow=has_shadow, shadow_ceased=shadow_ceased)
         self._basis_default_dynamic = self.dynamic_panel.capture_state()
@@ -1457,7 +1458,7 @@ class IllustrationInputsTab(QWidget):
         self.issue_conditions_changed.emit()
 
     def _update_valuation_banner(self, policy):
-        valuation_date = getattr(policy, "valuation_date", None)
+        valuation_date = policy_attr(policy, "valuation_date", None)
         if self.run_from_issue_enabled() and self._issue_date is not None:
             self.banner_valuation_label.setText("Not applicable")
             self.banner_first_forecast_label.setText(format_date(self._issue_date))
@@ -1475,20 +1476,20 @@ class IllustrationInputsTab(QWidget):
         else:
             self.banner_monthliversary_label.setText("—")
         if not self.run_from_issue_enabled():
-            policy_year = getattr(policy, "policy_year", None)
+            policy_year = policy_attr(policy, "policy_year", None)
             self.banner_policy_year_label.setText(str(policy_year) if policy_year else "—")
-        face = (getattr(policy, "base_total_face_amount", None)
-                or getattr(policy, "base_face_amount", None)
+        face = (policy_attr(policy, "base_total_face_amount", None)
+                or policy_attr(policy, "base_face_amount", None)
                 or getattr(policy, "face_amount", None))
         try:
             self.banner_face_label.setText(f"{float(face):,.0f}" if face else "—")
         except (TypeError, ValueError):
             self.banner_face_label.setText("—")
-        rateclass = (getattr(policy, "base_rate_class", None)
+        rateclass = (policy_attr(policy, "base_rate_class", None)
                      or getattr(policy, "rate_class", None))
         self.banner_rateclass_label.setText(str(rateclass) if rateclass else "—")
         # DTH_BNF_PLN_OPT_CD "1"/"2"/"3" -> Option A/B/C
-        db_code = str(getattr(policy, "db_option_code", "") or
+        db_code = str(policy_attr(policy, "db_option_code", "") or
                       getattr(policy, "db_option", "") or "").strip().upper()
         db_display = {"1": "A - Level", "A": "A - Level",
                       "2": "B - Increasing", "B": "B - Increasing",
@@ -1500,7 +1501,7 @@ class IllustrationInputsTab(QWidget):
         # (Decimal) and a frozen IllustrationPolicyData snapshot (float) both
         # expose it, so live and snapshot modes read the same way.
         try:
-            debt = float(getattr(policy, "total_loan_balance", 0) or 0)
+            debt = float(policy_attr(policy, "total_loan_balance", 0) or 0)
         except (TypeError, ValueError):
             debt = 0.0
         self.banner_policy_debt_label.setText(f"{debt:,.0f}")
@@ -2048,7 +2049,7 @@ class IllustrationInputsTab(QWidget):
                 if maturity_date is not None:
                     return maturity_date
 
-        get_base_coverages = getattr(policy, "get_base_coverages", None)
+        get_base_coverages = policy_attr(policy, "get_base_coverages", None)
         if callable(get_base_coverages):
             try:
                 for coverage in get_base_coverages():
@@ -2058,9 +2059,9 @@ class IllustrationInputsTab(QWidget):
             except Exception:
                 pass
 
-        issue_date = getattr(policy, "issue_date", None)
-        issue_age = getattr(policy, "base_issue_age", None) or getattr(policy, "issue_age", None)
-        maturity_age = getattr(policy, "maturity_age", None) or getattr(policy, "age_at_maturity", None)
+        issue_date = policy_attr(policy, "issue_date", None)
+        issue_age = policy_attr(policy, "base_issue_age", None) or getattr(policy, "issue_age", None)
+        maturity_age = getattr(policy, "maturity_age", None) or policy_attr(policy, "age_at_maturity", None)
         if issue_date is not None and issue_age is not None and maturity_age is not None:
             try:
                 years_to_maturity = int(maturity_age) - int(issue_age)
@@ -2082,7 +2083,7 @@ class IllustrationInputsTab(QWidget):
             if target_date < issue + relativedelta(months=months):
                 months -= 1
             return months + 1
-        start_date = getattr(policy, "valuation_date", None) or getattr(policy, "issue_date", None)
+        start_date = policy_attr(policy, "valuation_date", None) or policy_attr(policy, "issue_date", None)
         if start_date is None:
             raise ValueError("Illustration to Date requires a policy valuation date or issue date.")
         if target_date <= start_date:
@@ -2094,8 +2095,8 @@ class IllustrationInputsTab(QWidget):
 
     @staticmethod
     def _months_to_age(policy, target_age: int) -> int:
-        attained_age = getattr(policy, "attained_age", None)
-        policy_month = getattr(policy, "policy_month", 1) or 1
+        attained_age = policy_attr(policy, "attained_age", None)
+        policy_month = policy_attr(policy, "policy_month", 1) or 1
         if attained_age is None:
             raise ValueError("Age-based illustration duration requires attained age.")
         return max(0, (target_age - int(attained_age)) * 12 - int(policy_month) + 1)

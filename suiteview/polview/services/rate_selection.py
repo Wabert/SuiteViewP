@@ -71,7 +71,7 @@ def missing_rate_diagnostic(policy, category: str, index: int) -> str:
     def wl_cv() -> str:
         return (
             f" (WL_RATE_CV: user={policy.rates.cyberlife_rate_user_code} "
-            f"(company {policy.identity.company_code}), "
+            f"(company {policy.company_code}), "
             f"key={policy.rates.cov_cash_value_key(index)!r}, "
             f"issue_age={policy.coverages.cov_issue_age(index)}, user_defined=blank)"
         )

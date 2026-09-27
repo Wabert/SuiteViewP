@@ -13,7 +13,6 @@ from typing import Optional
 class StatusSection(PolicySection):
     """Cohesive PolicyInformation status view."""
 
-    TABLES = frozenset(('ADVANCED_GRACE_EXPIRY', 'ADVANCED_GRACE_INDICATOR', 'LAST_ENTRY_CODE', 'ORIGINAL_ENTRY_CODE', 'PREMIUM_PAY_STATUS_CODE', 'STATUS_CODE', 'SUSPENSE_CODE', 'TRADITIONAL_GRACE_EXPIRY', 'TRADITIONAL_GRACE_INDICATOR',))
     CACHE_ATTRS = ()
 
     @property

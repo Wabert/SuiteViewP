@@ -49,7 +49,7 @@ class RateMatrixMixin:
     def cyberlife_rate_user_code(self) -> str:
         """CyberLife rate-file user for source-keyed WL/ISWL rates (01 -> 00)."""
         from suiteview.core.rates import cyberlife_rate_user
-        return cyberlife_rate_user(self.identity.company_code)
+        return cyberlife_rate_user(self.policy.company_code)
 
     @property
     def has_fixed_premium_rates(self) -> bool:
@@ -265,7 +265,7 @@ class RateMatrixMixin:
         issue_age = self.coverages.cov_issue_age(cov_index)
         coverage = self.coverages.get_coverages()[cov_index - 1]
         metadata = [
-            ("Policy", self.identity.policy_number), ("Company", self.identity.company_code),
+            ("Policy", self.policy.policy_number), ("Company", self.policy.company_code),
             ("Rate User", self.cyberlife_rate_user_code),
             ("Cov Index", cov_index), ("Plancode", coverage.plancode),
             ("Rate Key", self.cov_cash_value_key(cov_index)),
@@ -362,7 +362,7 @@ class RateMatrixMixin:
         ]
 
         rate_info = [
-            " ", self.identity.policy_number, cov_index, self.coverages.cov_plancode(cov_index),
+            " ", self.policy.policy_number, cov_index, self.coverages.cov_plancode(cov_index),
             issue_date.strftime("%Y-%m-%d") if issue_date else "",
             issue_age, sex_display,
             self.renewal_cov_rateclass_by_cov(cov_index),
@@ -532,7 +532,7 @@ class RateMatrixMixin:
         ]
 
         rate_info = [
-            " ", self.identity.policy_number, ben_index,
+            " ", self.policy.policy_number, ben_index,
             ben.benefit_code,
             ben.benefit_type_cd,
             ben_iss_age, sex_display,
@@ -601,7 +601,7 @@ class RateMatrixMixin:
         ]
 
         rate_info = [
-            " ", self.identity.policy_number, self.product.product_type,
+            " ", self.policy.policy_number, self.product.product_type,
             self.coverages.cov_plancode(1),
             issue_date.strftime("%Y-%m-%d") if issue_date else "",
             issue_age, sex_display,

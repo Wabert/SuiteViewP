@@ -20,7 +20,7 @@ from suiteview.polview.models.policy_information import PolicyInformation
 def main():
     cmd = json.loads(sys.argv[1])
     pi = PolicyInformation(cmd["policy"], region=cmd.get("region", "CKPR"))
-    if not pi.identity.exists:
+    if not pi.exists:
         print(json.dumps({"ok": False, "error": "policy not found"}))
         sys.exit(1)
 

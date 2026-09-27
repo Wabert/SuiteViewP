@@ -22,7 +22,6 @@ except ImportError:
 class RatesSection(RateMatrixMixin, PolicySection):
     """Cohesive PolicyInformation rates view."""
 
-    TABLES = frozenset(('AS_OF', 'BAN_STRUCTURE_CD', 'BENEFIT_CEASE', 'BOY_RATE', 'COI_SCALE', 'COV_INDEX', 'COV_PHA_NBR', 'COV_UNT_QTY', 'COV_VPU_AMT', 'EOY_RATE', 'INS_CLS_CD', 'INS_SEX_CD', 'ISS_AGE', 'JT_INS_IND', 'LH_BNF_INS_RNL_RT', 'LH_COV_INS_RNL_RT', 'LH_COV_PHA', 'LIF_PLN_SUB_SRE_CD', 'LOW_DURATION', 'PAY_AGE', 'PAY_AGE_USE', 'PLN_BSE_SRE_CD', 'PLN_DES_SER_CD', 'PREMIUM_CEASE', 'PRM_RT_TYP_CD', 'RATE_LOAN', 'RNL_RT', 'RT_BAN_CD', 'RT_CLS_CD', 'RT_SEX_CD', 'SPM_BNF_SBY_CD', 'SPM_BNF_TYP_CD', 'STORED_CV_LOW_DURATION', 'WL_RATE_CV',))
     CACHE_ATTRS = ()
 
     def get_coverage_renewal_rates(self, cov_pha_nbr: int = None) -> List[RenewalCovRateInfo]:

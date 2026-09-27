@@ -79,6 +79,7 @@ from .styles import (
     PURPLE_DARK,
     apply_input_checkbox_style,
 )
+from suiteview.polview.models.policy_sections.lookup import policy_attr, policy_hasattr
 
 _INDEX_ALLOC_BTN_STYLE = (
     "QPushButton { background-color: #F3ECFC; color: #4B2383;"
@@ -1218,7 +1219,7 @@ class RiderButtonsPanel(QGroupBox):
                 widget.deleteLater()
         self._buttons = {}
 
-        if not hasattr(policy, "get_coverages"):
+        if not policy_hasattr(policy, "get_coverages"):
             # IllustrationPolicyData (a saved-case snapshot): riders/benefits
             # are already-materialized dataclasses. Build the same items —
             # with the SAME keys — so saved rider decisions land identically.
@@ -1232,13 +1233,13 @@ class RiderButtonsPanel(QGroupBox):
             # Riders only — base coverage segments (is_base, or phase 1 as a
             # fallback) belong to the base policy, not the rider adjustments.
             coverages = [
-                c for c in (policy.coverages.get_coverages() or [])
+                c for c in (policy_attr(policy, "get_coverages")() or [])
                 if not (getattr(c, "is_base", False) or c.cov_pha_nbr == 1)
             ]
         except Exception:
             pass
         try:
-            benefits = list(policy.benefits.get_benefits() or [])
+            benefits = list(policy_attr(policy, "get_benefits")() or [])
         except Exception:
             pass
 

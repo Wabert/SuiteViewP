@@ -11,7 +11,6 @@ registry entries below are consumed by lazy section objects.
 
 | Section | Responsibility |
 | --- | --- |
-| `pi.identity` | Policy/company/system/region identity and lookup state. |
 | `pi.status` | Policy, suspense, premium-pay and grace status. |
 | `pi.product` | Product family, issue state, product rules and tax-test flags. |
 | `pi.billing` | Billing modes, bill form, premiums, fees and short-pay values. |

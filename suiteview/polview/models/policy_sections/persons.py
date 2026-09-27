@@ -10,7 +10,6 @@ from typing import Optional
 class PersonsSection(PolicySection):
     """Cohesive PolicyInformation persons view."""
 
-    TABLES = frozenset(('ADR_LIN_1', 'ADR_LIN_2', 'BIR_DT', 'CIT_TXT', 'CK_FST_NM', 'CK_LST_NM', 'CK_ST_CD', 'GENDER_CD', 'LH_CTT_CLIENT', 'LH_LOC_CLT_ADR', 'PRS_CD', 'PRS_SEQ_NBR', 'VH_POL_HAS_LOC_CLT', 'ZIP_CD',))
     CACHE_ATTRS = ()
 
     @property

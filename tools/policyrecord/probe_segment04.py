@@ -37,14 +37,14 @@ def main() -> int:
         args.policy.strip().upper(), region=args.region.strip().upper(),
         company_code=args.company.strip().upper(),
     )
-    if pi is None or not pi.identity.exists:
+    if pi is None or not pi.exists:
         raise RuntimeError(f"Policy {args.policy} was not found.")
     sources = {}
     for table in POLICY_RECORD_TABLES["Policy Record 04"]:
         sources[table] = pi.fetch_table(table)
         if error := pi.table_error(table):
             raise RuntimeError(f"{table}: {error}")
-    result = {"policy": pi.identity.policy_number, "sources": sources}
+    result = {"policy": pi.policy_number, "sources": sources}
     if not args.sources_only:
         screen = build_screen("04", pi)
         if not screen or not screen.get("live"):

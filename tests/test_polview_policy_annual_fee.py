@@ -1,4 +1,5 @@
 from decimal import Decimal
+from types import SimpleNamespace
 
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.ui.tabs.policy_tab import PolicyTab
@@ -42,7 +43,7 @@ def test_annual_policy_fee_skips_traditional_table_for_advanced_product():
 def test_policy_tab_displays_formatted_traditional_annual_fee(qtbot):
     class FakePolicy:
         company_code = "01"
-        annual_policy_fee = Decimal("7.5")
+        billing = SimpleNamespace(annual_policy_fee=Decimal("7.5"))
 
         @staticmethod
         def data_item(*_args):

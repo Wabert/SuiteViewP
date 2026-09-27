@@ -289,9 +289,6 @@ def live_source():
             face_amount=100000.0, units=100.0, issue_age=30,
             issue_date=date(2000, 1, 15), sex_code="1", rate_class="N")],
     )
-    p.identity = SimpleNamespace(
-        policy_number=p.policy_number, company_code=p.company_code, region=p.region,
-    )
     p.values = SimpleNamespace(
         valuation_date=p.valuation_date,
         mv_date=lambda index: p.mv_date(index),

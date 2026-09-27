@@ -234,7 +234,7 @@ class CoveragesTab(QWidget):
         self.bnf_table.setRowCount(0)
 
         try:
-            if not policy.identity.exists:
+            if not policy.exists:
                 return
             self._populate_status_labels_from_policy(policy)
             coverages = policy.coverages.get_coverages()
@@ -249,15 +249,15 @@ class CoveragesTab(QWidget):
             raise
 
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):
-        self.policy_label.setText(policy.identity.policy_number)
-        self.company_label.setText(policy.identity.company_code)
+        self.policy_label.setText(policy.policy_number)
+        self.company_label.setText(policy.company_code)
         self.market_org_label.setText(policy.agents.servicing_market_org)
         self.issue_state_label.setText(policy.product.issue_state)
         self.definition_of_life_label.setText(policy.product.gpt_cvat)
         self.billing_mode_label.setText(policy.billing.billing_mode)
         self.premium_label.setText(format_amount(policy.billing.modal_premium))
-        self.region_label.setText(policy.identity.region)
-        self.system_cd_label.setText(policy.identity.system_code)
+        self.region_label.setText(policy.region)
+        self.system_cd_label.setText(policy.system_code)
 
         self.joint_label.setText(policy.coverages.insured_lives_description)
 

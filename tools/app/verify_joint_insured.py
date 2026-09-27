@@ -43,8 +43,8 @@ def main():
             "policy": policy.policy_number,
             "company": policy.company_code,
             "source": "LH_COV_PHA.NBR_OF_LIVES_CD (phase 1), FCVLIVES-LIVES",
-            "number_of_lives_code": policy.number_of_lives_code,
-            "is_joint_insured": policy.is_joint_insured,
+            "number_of_lives_code": policy.coverages.number_of_lives_code,
+            "is_joint_insured": policy.coverages.is_joint_insured,
             "display": tab.joint_label.text(),
         }
         tab.resize(1160, 620)

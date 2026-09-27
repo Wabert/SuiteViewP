@@ -122,7 +122,7 @@ def forecast_termination(policy_number: str, *, exact_days_interest: bool):
 
     rider_benefit_codes = active_rider_benefit_codes(pi)
 
-    policy_data = _load_policy_data(policy_number, region=REGION, company_code=pi.identity.company_code)
+    policy_data = _load_policy_data(policy_number, region=REGION, company_code=pi.company_code)
 
     tab = IllustrationInputsTab()
     tab.load_data_from_policy(pi)

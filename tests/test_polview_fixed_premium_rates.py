@@ -208,10 +208,6 @@ class FakePolicy:
                         "iaf_version": "", "effective_date": date(1900, 1, 1), "versions": []}
         self.factors = {"index": "00-048", "factors": MODEFACT_00_048} if factors is None else factors
         self.rates_wl_premium = Mock(side_effect=lambda plancode, age, issued: self.premium)
-        self.identity = SimpleNamespace(
-            policy_number=self.policy_number,
-            company_code=self.company_code,
-        )
         self.values = SimpleNamespace(valuation_date=self.valuation_date)
         self.status = SimpleNamespace(premium_pay_status_code=self.premium_pay_status_code)
         self.billing = SimpleNamespace(
@@ -454,7 +450,7 @@ def display(qtbot):
     tabs.addTab(raw, "Data")
     qtbot.addWidget(tabs)
     policy = SimpleNamespace(
-        identity=SimpleNamespace(company_code="01"),
+        company_code="01",
         status=SimpleNamespace(premium_pay_status_code="22"),
         product=SimpleNamespace(is_advanced_product=True, product_type="ISWL"),
         coverages=SimpleNamespace(cov_issue_age=lambda index: 33),

@@ -11,7 +11,6 @@ from typing import Optional
 class SupportSection(PolicySection):
     """Cohesive PolicyInformation support view."""
 
-    TABLES = frozenset(('DECREASE_CHARGE_RULE', 'FUZGREIN_IND', 'TH_USER_GENERIC',))
     CACHE_ATTRS = ()
 
     @property
@@ -53,9 +52,9 @@ class SupportSection(PolicySection):
         """
         return {
             "Policy": {
-                "Policynumber": self.identity.policy_number,
-                "CompanyCode": self.identity.company_code,
-                "Company": self.identity.company_name,
+                "Policynumber": self.policy.policy_number,
+                "CompanyCode": self.policy.company_code,
+                "Company": self.policy.company_name,
                 "StatusCode": self.status.status_code,
                 "MarketOrg": self.agents.servicing_market_org,
                 "ProductType": self.product.product_type,

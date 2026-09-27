@@ -13,7 +13,6 @@ from typing import Optional
 class BillingSection(PolicySection):
     """Cohesive PolicyInformation billing view."""
 
-    TABLES = frozenset(('ANNUAL_POLICY_FEE', 'BILLING_FREQUENCY', 'BILL_DAY', 'BILL_FORM_CODE', 'FORCED_PREMIUM_INDICATOR', 'INITIAL_MODE', 'INITIAL_PAY_DUR', 'MDO_CODE', 'MODAL_PREMIUM', 'NEXT_BILL_DATE', 'NON_STANDARD_MODE_CODE', 'NON_TRADITIONAL_INDICATOR', 'PREMIUM_PAID_TO_DATE', 'TARGET_PREMIUM', 'TH_USER_GENERIC',))
     CACHE_ATTRS = ()
 
     @property

@@ -57,6 +57,7 @@ from ...services.guideline_exception_adjustment import (
 from ...services.support_tools import build_support_tool_state
 
 from typing import TYPE_CHECKING
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
 
@@ -944,8 +945,8 @@ class PolicySupportTab(QWidget):
             self._populate_category_list()
 
         product_type = policy.product.product_type
-        company_code = policy.identity.company_code
-        policy_number = policy.identity.policy_number
+        company_code = policy.company_code
+        policy_number = policy.policy_number
 
         if self._current_mode == self.MODE_ABR:
             # ABR mode: point to the ABR Policies folder
@@ -1113,7 +1114,7 @@ class PolicySupportTab(QWidget):
         if not hasattr(self, "_glp_forecast_status_label"):
             return
         self._clear_glp_exception_results()
-        if not self._policy or not self._policy.identity.exists:
+        if not self._policy or not self._policy.exists:
             self._set_glp_status("Load an eligible policy to check forecast data")
             self._glp_calculate_btn.setEnabled(False)
             return
@@ -1138,7 +1139,7 @@ class PolicySupportTab(QWidget):
         if not hasattr(self, "_forecast_status_label"):
             return
         self._clear_forecast_results()
-        if not self._policy or not self._policy.identity.exists:
+        if not self._policy or not self._policy.exists:
             self._set_forecast_status("Load an eligible policy to check forecast data")
             self._forecast_calculate_btn.setEnabled(False)
             return
@@ -1275,7 +1276,7 @@ class PolicySupportTab(QWidget):
     def _glp_allowed_target_dates(policy: Optional['PolicyInformation']) -> List[date]:
         if not policy:
             return []
-        issue_date = getattr(policy, "issue_date", None)
+        issue_date = policy_attr(policy, "issue_date", None)
         today = date.today()
         if not issue_date:
             return []
@@ -1784,7 +1785,7 @@ class PolicySupportTab(QWidget):
     def _glp_exception_folder_path(self) -> str:
         if not self._policy:
             return ""
-        product_type = str(getattr(self._policy, "product_type", "") or "").strip()
+        product_type = str(policy_attr(self._policy, "product_type", "") or "").strip()
         company_code = str(getattr(self._policy, "company_code", "") or "").strip()
         policy_number = str(getattr(self._policy, "policy_number", "") or "").strip()
         if not product_type or not company_code or not policy_number:
@@ -1908,7 +1909,7 @@ class PolicySupportTab(QWidget):
 
     @staticmethod
     def _has_annuity_rider(policy: Optional['PolicyInformation']) -> bool:
-        if not policy or not policy.identity.exists:
+        if not policy or not policy.exists:
             return False
         try:
             return any(
@@ -2096,7 +2097,7 @@ class PolicySupportTab(QWidget):
                 self._subfolder_explorer.set_root(self._policy_support_folder_path)
                 self._create_folder_btn.setVisible(False)
                 if self._policy:
-                    cc, pn = self._policy.identity.company_code, self._policy.identity.policy_number
+                    cc, pn = self._policy.company_code, self._policy.policy_number
                     self._policy_folder_label.setText(f"{cc}_{pn}")
                     self._policy_folder_label.setStyleSheet(
                         f"font-size: 11px; color: {GREEN_DARK}; font-weight: bold; "
@@ -2129,7 +2130,7 @@ class PolicySupportTab(QWidget):
 
         filename = workbook_filename(os.path.basename(source_path))
         if self._policy:
-            dest_filename = f"{self._policy.identity.policy_number} - {filename}"
+            dest_filename = f"{self._policy.policy_number} - {filename}"
         else:
             dest_filename = filename
 
@@ -2167,7 +2168,7 @@ class PolicySupportTab(QWidget):
             )
             self._create_folder_btn.setVisible(False)
             if self._policy:
-                cc, pn = self._policy.identity.company_code, self._policy.identity.policy_number
+                cc, pn = self._policy.company_code, self._policy.policy_number
                 self._policy_folder_label.setText(f"{cc}_{pn}")
                 self._policy_folder_label.setStyleSheet(
                     f"font-size: 11px; color: {GREEN_DARK}; font-weight: bold; "

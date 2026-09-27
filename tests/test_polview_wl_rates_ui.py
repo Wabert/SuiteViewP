@@ -20,10 +20,15 @@ def display(qtbot):
     tabs.addTab(raw, "Data")
     qtbot.addWidget(tabs)
     policy = SimpleNamespace(
-        is_advanced_product=False, product_type="WL", company_code="08",
-        cyberlife_rate_user_code="08", premium_pay_status_code="22",
-        cov_cash_value_key=lambda index: "1WL511", cov_issue_age=lambda index: 59,
-        build_coverage_rate_matrix=Mock(),
+        company_code="08",
+        product=SimpleNamespace(is_advanced_product=False, product_type="WL"),
+        status=SimpleNamespace(premium_pay_status_code="22"),
+        coverages=SimpleNamespace(cov_issue_age=lambda index: 59),
+        rates=SimpleNamespace(
+            cyberlife_rate_user_code="08",
+            cov_cash_value_key=lambda index: "1WL511",
+            build_coverage_rate_matrix=Mock(),
+        ),
     )
     raw.set_data(["Old rate"], [(999,)], table_name="Previous coverage")
     return SimpleNamespace(_policy=policy, tabs=tabs, raw_table_tab=raw, _show_status=Mock())
@@ -102,7 +107,7 @@ def test_eti_rpu_message_does_not_block_other_product_rates(display, product, ad
 def test_eti_message_does_not_block_other_rate_categories(display, category, builder):
     display._policy.status.premium_pay_status_code = "44"
     build = Mock(return_value=[["Year", "Rate"], [1, 1.25]])
-    setattr(display._policy, builder, build)
+    setattr(display._policy.rates, builder, build)
 
     GetPolicyWindow._on_rate_selected(display, category, category, 1)
 
@@ -130,10 +135,10 @@ def test_rate_database_error_is_visible_and_does_not_leave_stale_data(display, c
 @pytest.mark.parametrize("product,advanced", [("WL", False), ("UL", True), ("TERM", False)])
 def test_rates_tree_retains_selection_and_wl_tooltip_across_tab_switch(qtbot, product, advanced):
     policy = SimpleNamespace(
-        is_advanced_product=advanced, product_type=product,
-        has_fixed_premium_rates=product == "WL",
-        coverage_count=1, benefit_count=0, cov_plancode=lambda index: "201WL500",
-        get_benefits=lambda: [],
+        product=SimpleNamespace(is_advanced_product=advanced, product_type=product),
+        rates=SimpleNamespace(has_fixed_premium_rates=product == "WL"),
+        coverages=SimpleNamespace(coverage_count=1, cov_plancode=lambda index: "201WL500"),
+        benefits=SimpleNamespace(benefit_count=0, get_benefits=lambda: []),
     )
     tree = PolicyRecordTreeWidget()
     qtbot.addWidget(tree)

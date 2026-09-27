@@ -30,7 +30,6 @@ class Policy:
     def __init__(self, tables=None, errors=None):
         self.tables = tables or {}
         self.errors = errors or {}
-        self.identity = self
 
     def fetch_table(self, table):
         return self.tables.get(table, [])
@@ -105,7 +104,7 @@ def test_supported_live_screen_keeps_layout_and_does_not_mutate_template(monkeyp
 def test_window_omits_populated_unsupported_segments(app, monkeypatch):
     pi = Policy({"LH_SST_XTR_CRG": [{"value": 0}], "LH_POL_MVRY_VAL": [{"value": 0}]})
     monkeypatch.setattr(viewer.PolicyRecordViewerWindow, "_load_policy", lambda self: pi)
-    window = viewer.PolicyRecordViewerWindow(policy_number=pi.identity.policy_number)
+    window = viewer.PolicyRecordViewerWindow(policy_number=pi.policy_number)
     try:
         assert window.tabs.count() == 0
         assert not window.findChildren(viewer._MainframeToken)
@@ -119,7 +118,7 @@ def test_window_omits_populated_unsupported_segments(app, monkeypatch):
 def test_window_retains_supported_error_tabs(app, monkeypatch):
     pi = Policy(errors={"LH_MKT_VAL_ADJ_RLE": "SELECT denied"})
     monkeypatch.setattr(viewer.PolicyRecordViewerWindow, "_load_policy", lambda self: pi)
-    window = viewer.PolicyRecordViewerWindow(policy_number=pi.identity.policy_number)
+    window = viewer.PolicyRecordViewerWindow(policy_number=pi.policy_number)
     try:
         assert [window.tabs.tabText(index) for index in range(window.tabs.count())] == ["56"]
         tab = window.tabs.widget(0)

@@ -7,6 +7,7 @@ Usage:
     venv\\Scripts\\python.exe tools/engine/inspect_illustration_inputs.py '{"policy":"U0492070","region":"CKPR","company":"01"}'
 """
 from __future__ import annotations
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 def _load_policy_data(*args, **kwargs):
     from suiteview.illustration.api import load_policy_data
@@ -43,13 +44,13 @@ def main() -> None:
         "gav (IX target)": f(pi.targets.gav),
         "ccv_target (CV)": f(pi.targets.ccv_target),
         "accumulation_value": f(pi.values.accumulation_value),
-        "cash_surrender_value": f(getattr(pi, "cash_surrender_value", None)),
+        "cash_surrender_value": f(policy_attr(pi, "cash_surrender_value", None)),
         "glp": f(pi.targets.glp),
         "gsp": f(pi.targets.gsp),
         "accumulated_glp_target": f(pi.targets.accumulated_glp_target),
         "mtp": f(pi.targets.mtp),
         "accumulated_mtp_target": f(pi.targets.accumulated_mtp_target),
-        "total_loan_balance": f(getattr(pi, "total_loan_balance", None)),
+        "total_loan_balance": f(policy_attr(pi, "total_loan_balance", None)),
     }
 
     pd = _load_policy_data(policy, region=region, company_code=company)

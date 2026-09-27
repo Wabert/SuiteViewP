@@ -176,7 +176,6 @@ cached section objects:
 
 | Section | Responsibility |
 | --- | --- |
-| `pi.identity` | policy/company/system/region identity and lookup state |
 | `pi.status` | policy, suspense, premium-pay and grace status |
 | `pi.product` | product family, issue state, product rules and tax-test flags |
 | `pi.billing` | billing mode, bill form, premiums and short-pay values |
@@ -193,7 +192,14 @@ cached section objects:
 | `pi.support` | support-tool export facts and reinstatement/reinsurance helpers |
 
 If a field is missing, add it to the appropriate section rather than writing a
-one-off query elsewhere.
+one-off query elsewhere. Identity (`policy_number`, `company_code`, `region`,
+`system_code`, `policy_id`, `exists`) stays on the facade itself.
+
+Code that reads facts by name from either a live `PolicyInformation` or a flat
+snapshot such as `IllustrationPolicyData` must use `policy_attr`/`policy_hasattr`
+from `polview/models/policy_sections/lookup.py`. A plain
+`getattr(pi, "product_type", default)` silently returns the default, because
+that fact now lives on `pi.product`.
 
 Rules:
 

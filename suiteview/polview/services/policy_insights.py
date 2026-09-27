@@ -18,6 +18,7 @@ from decimal import Decimal
 from typing import Any, Callable, Optional
 
 from suiteview.polview.models.policy_data import CachedReadError
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +102,9 @@ class _Reader:
         guard = getattr(self.policy, "cached_reads_only", None)
         try:
             if guard is None:
-                return getter(self.policy) if getter else getattr(self.policy, name)
+                return getter(self.policy) if getter else policy_attr(self.policy, name)
             with guard():
-                return getter(self.policy) if getter else getattr(self.policy, name)
+                return getter(self.policy) if getter else policy_attr(self.policy, name)
         except CachedReadError:
             self.pending.append(name)
             return None
@@ -172,7 +173,7 @@ def _summary_basis(policy, read: _Reader) -> PolicySummaryBasis:
     region = str(getattr(policy, "region", "") or "")
     company = str(getattr(policy, "company_code", "") or "")
     system = str(getattr(policy, "system_code", "") or "")
-    coverages = read.get("coverages", lambda p: p.get_coverages()) or []
+    coverages = read.get("coverages", lambda p: policy_attr(p, "get_coverages")()) or []
     base = coverages[0] if coverages else None
     rules = read.get("product_rules")
     advanced = getattr(rules, "is_advanced", None)
@@ -466,7 +467,7 @@ def _annuity_rider_available(policy, read: _Reader, loaded: bool) -> bool:
         return False
     return bool(read.get("annuity", lambda p: any(
         str(getattr(c, "plancode", "")).strip().upper() == "0699830R"
-        for c in p.get_coverages())))
+        for c in policy_attr(p, "get_coverages")())))
 
 
 def suggested_actions(policy, summary: PolicySummary,

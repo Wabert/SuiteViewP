@@ -15,7 +15,6 @@ from typing import Optional
 class ValuesSection(PolicySection):
     """Cohesive PolicyInformation values view."""
 
-    TABLES = frozenset(('BKT_STR_DT', 'CINS_AMT', 'COV_PHA_NBR', 'CRE_ITS_RT', 'CSV_AMT', 'EXP_CRG_AMT', 'FND_ALC_PCT', 'FND_ALC_SEQ_NBR', 'FND_ALC_TYP_CD', 'FND_ID_CD', 'FND_TRS_TYP_CD', 'FND_UNT_QTY', 'LH_FND_ALC', 'LH_FND_TRS_ALC_SET', 'LH_FND_VAL_LOAN', 'LH_POL_FND_VAL_TOT', 'LH_POL_MVRY_VAL', 'LH_TAMRA_7_PY_PER', 'LH_TAMRA_7_PY_YR', 'LN_PRI_AMT', 'MEC_STA_CD', 'MVRY_DT', 'NAR_AMT', 'OTH_PRM_AMT', 'POL_DUR_NBR', 'SVPY_BEG_CSV_AMT', 'SVPY_BEG_FCE_AMT', 'SVPY_LVL_PRM_AMT', 'SVPY_PER_STR_DT', 'SVPY_PRM_PAY_AMT', 'SVPY_WTD_AMT', 'XCG_1035_PMT_QTY',))
     CACHE_ATTRS = ('_mv_values',)
 
     @property

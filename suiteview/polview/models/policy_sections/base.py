@@ -10,7 +10,6 @@ from ..policy_data import PolicyData as _PolicyData
 class PolicySection:
     """Base object for one cohesive PolicyInformation section."""
 
-    TABLES: frozenset[str] = frozenset()
     CACHE_ATTRS: tuple[str, ...] = ()
 
     def __init__(self, policy):
@@ -21,10 +20,6 @@ class PolicySection:
     @property
     def policy(self):
         return self._policy
-
-    @property
-    def identity(self):
-        return self.policy.identity
 
     @property
     def status(self):

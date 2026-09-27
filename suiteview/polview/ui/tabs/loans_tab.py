@@ -23,6 +23,7 @@ from PyQt6.QtCore import Qt
 
 from ..formatting import format_currency, format_date, US_DATE_FMT
 from ..widgets import StyledInfoTableGroup, StyledTableGroup
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +125,8 @@ class LoansTab(QWidget):
 
         try:
             is_advanced = policy.product.is_advanced_product
-            product_type = getattr(policy, "product_type", "")
-            status_code = getattr(policy, "status_code", "")
+            product_type = policy_attr(policy, "product_type", "")
+            status_code = policy_attr(policy, "status_code", "")
 
             # Determine whether to use trad or fund loans
             # VBA rule: advanced products use fund loans except ISWL in RPU (status 45)
@@ -300,7 +301,7 @@ class LoansTab(QWidget):
             self._pref_group.setVisible(False)
 
         # Variable (IUL only)
-        product_type = getattr(policy, "product_type", "")
+        product_type = policy_attr(policy, "product_type", "")
         if product_type == "IUL" and (var_pri != 0 or var_acc != 0):
             self._var_group.setVisible(True)
             self._var_group.set_value("var_principal", format_currency(var_pri))

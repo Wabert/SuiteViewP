@@ -89,7 +89,7 @@ def main() -> None:
     policy_tab._show_detail_dialog("coverage", cola_coverage)
     values_tab.close()
     print(json.dumps({
-        "all_ok": True, "policy": args.policy, "company": policy.identity.company_code,
+        "all_ok": True, "policy": args.policy, "company": policy.company_code,
         "plancode": policy.plancode, "is_ffl": config.is_ffl,
         "coverages": coverage_rows, "columns": expected,
         "screenshots": [str(values_path), str(detail_path)],

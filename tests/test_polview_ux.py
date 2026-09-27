@@ -40,20 +40,32 @@ def test_parse_policy_reference_rejects_text_without_a_policy():
 
 # ── summary ──────────────────────────────────────────────────────────────────
 
+_SECTION_NAMES = frozenset((
+    "status", "product", "billing", "coverages", "benefits", "loans", "values", "targets",
+    "dividends", "persons", "agents", "activity", "rates", "support",
+))
+
+
 class SummaryPolicy(SimpleNamespace):
-    """PolicyInformation stand-in; names in ``pending`` behave as not prefetched."""
+    """PolicyInformation stand-in; names in ``pending`` behave as not prefetched.
+
+    Section properties (``policy.product`` ...) return the stand-in itself so
+    real section reads find the same flat facts.
+    """
 
     def __getattribute__(self, name):
         pending = object.__getattribute__(self, "__dict__").get("pending", set())
         if name in pending:
             raise CachedReadError(f"{name} was not prefetched")
+        if name in _SECTION_NAMES:
+            return self
         return object.__getattribute__(self, name)
 
     def cached_reads_only(self):
         return nullcontext()
 
     def get_coverages(self):
-        return self.coverages
+        return self.coverage_rows
 
 
 def summary_policy(**overrides):
@@ -61,7 +73,7 @@ def summary_policy(**overrides):
                            issue_date=date(2009, 10, 19), issue_age=38, cov_pha_nbr=1)
     values = dict(
         exists=True, policy_number="U0613620", company_code="01", region="CKPR",
-        system_code="I", coverages=[base], premium_pay_status_code="22",
+        system_code="I", coverage_rows=[base], premium_pay_status_code="22",
         premium_pay_status_description="Premium Paying", is_advanced_product=True,
         product_type="UL", in_grace=False, grace_period_expiry_date=None,
         valuation_date=date(2026, 9, 15), paid_to_date=date(2026, 9, 15), policy_year=17,
@@ -136,7 +148,7 @@ def test_traditional_paid_to_behind_valuation_is_a_badge():
 def test_anniversary_and_vintage_easter_eggs():
     base = SimpleNamespace(plancode="OLDWL", form_number="", face_amount=Decimal("5000"),
                            issue_date=date(1970, 9, 24), issue_age=20)
-    policy = summary_policy(coverages=[base], policy_year=57, primary_insured_birth_date=date(1950, 9, 24))
+    policy = summary_policy(coverage_rows=[base], policy_year=57, primary_insured_birth_date=date(1950, 9, 24))
     keys = chip_keys(insights.build_policy_summary(policy, today=date(2026, 9, 24)))
     assert {"anniversary", "birthday", "vintage"} <= set(keys)
 
@@ -397,9 +409,9 @@ def test_timeline_orders_events_names_sources_and_skips_sentinels():
                           maturity_date=date(2092, 10, 19), terminate_date=None,
                           table_rating=2, table_cease_date=date(2030, 1, 1), flat_extra=None)
     policy = summary_policy(in_grace=True, grace_period_expiry_date=date(2026, 10, 15),
-                            coverages=[cov])
+                            coverage_rows=[cov])
     policy.data_item = lambda table, field, index=0: tables.get((table, field))
-    policy.benefits.get_benefits = lambda: [SimpleNamespace(benefit_code="39", cov_pha_nbr=1,
+    policy.get_benefits = lambda: [SimpleNamespace(benefit_code="39", cov_pha_nbr=1,
                                                    issue_date=None, pay_up_date=None,
                                                    cease_date=date(2031, 10, 19))]
     events = build_policy_timeline(policy)
@@ -552,7 +564,7 @@ def test_window_badges_copy_and_recent_policies(window, qtbot):
 
     window.load_policy("SECOND")
     settle(qtbot, window)
-    assert window._policy.identity.policy_number == "SECOND"
+    assert window._policy.policy_number == "SECOND"
 
     # Recent policies feed the completer and persist.
     assert window.lookup_bar._recent_model.rowCount() == 2
@@ -668,7 +680,7 @@ def test_timeline_dialog_opens_from_the_window(window, qtbot):
     window.load_policy("ONE1")
     settle(qtbot, window)
     window._policy.data_item = lambda table, field, index=0: None
-    window._policy.benefits.get_benefits = lambda: []
+    window._policy.get_benefits = lambda: []
     window._open_timeline()
     assert any(isinstance(d, TimelineDialog) for d in window._dialogs)
 

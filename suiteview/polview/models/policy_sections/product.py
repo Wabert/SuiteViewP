@@ -22,7 +22,6 @@ except ImportError:
 class ProductSection(PolicySection):
     """Cohesive PolicyInformation product view."""
 
-    TABLES = frozenset(('CORRIDOR_PERCENT', 'DB_OPTION_CODE', 'DEFINITION_OF_LIFE_CODE', 'GRACE_RULE_CODE', 'GUARANTEED_INTEREST_RATE', 'ISSUE_STATE_CODE', 'LH_COV_PHA', 'LH_NON_TRD_POL', 'MAJOR_LINE_OF_BUSINESS', 'NON_TRADITIONAL_INDICATOR', 'PLN_DES_SER_CD', 'PRODUCT_LINE_CODE', 'RESIDENT_STATE_CODE', 'TFDF_CD',))
     CACHE_ATTRS = ('_product_rules',)
 
     @property

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Optional
 
+from suiteview.polview.models.policy_sections.lookup import policy_attr
+
 from .policy_insights import _Reader
 
 
@@ -79,7 +81,7 @@ def build_policy_timeline(policy) -> list[TimelineEvent]:
         add(_add_years(tamra_start, 7), "7-pay period ends (start + 7 years)",
             "Derived from LH_TAMRA_7_PY_PER.SVPY_PER_STR_DT", "Tax")
 
-    for cov in read.get("coverages", lambda p: p.get_coverages()) or []:
+    for cov in read.get("coverages", lambda p: policy_attr(p, "get_coverages")()) or []:
         name = f"Coverage {cov.cov_pha_nbr} ({cov.plancode})"
         add(cov.issue_date, f"{name} issued" if cov.cov_pha_nbr != 1 else f"Policy issued · {name}",
             "LH_COV_PHA.ISSUE_DT", "Coverage")
@@ -91,7 +93,7 @@ def build_policy_timeline(policy) -> list[TimelineEvent]:
         if getattr(cov, "flat_extra", None):
             add(getattr(cov, "flat_cease_date", None), f"{name} flat extra ceases",
                 "LH_SST_XTR_CRG.SST_XTR_CEA_DT", "Rating")
-    for bnf in read.get("benefits", lambda p: p.get_benefits()) or []:
+    for bnf in read.get("benefits", lambda p: policy_attr(p, "get_benefits")()) or []:
         name = f"Benefit {bnf.benefit_code} (phase {bnf.cov_pha_nbr})"
         add(getattr(bnf, "issue_date", None), f"{name} issued", "LH_SPM_BNF.BNF_ISS_DT", "Benefit")
         add(getattr(bnf, "pay_up_date", None), f"{name} pays up", "LH_SPM_BNF.BNF_PAY_UP_DT", "Benefit")

@@ -36,6 +36,7 @@ from suiteview.illustration.models.plancode_config import PlancodeConfig, load_p
 from suiteview.illustration.models.policy_data import IllustrationPolicyData, benefit_rate_keys
 from suiteview.polview.models.cl_polrec.policy_translations import LAST_ENTRY_CODES
 from .reinstatement_receipt import project_receipt
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 
 class ReinstatementError(ValueError):
@@ -85,10 +86,10 @@ class ReinstatementProjectionContext:
 def is_ul_policy(policy) -> bool:
     if not bool(policy is not None and getattr(policy, "exists", False)):
         return False
-    rules = getattr(policy, "product_rules", None)
+    rules = policy_attr(policy, "product_rules", None)
     if rules is not None:
         return bool(getattr(rules, "supports_reinstatement", False))
-    return str(getattr(policy, "product_type", "")).strip().upper() in {"UL", "IUL", "SGUL"}
+    return str(policy_attr(policy, "product_type", "")).strip().upper() in {"UL", "IUL", "SGUL"}
 
 
 def _months(start: date, end: date) -> int:
@@ -99,9 +100,9 @@ def _months(start: date, end: date) -> int:
 def reinstatement_summary(policy, today: date | None = None) -> ReinstatementSummary:
     today = today or date.today()
     try:
-        code = str(getattr(policy, "last_entry_code", "") or "").strip().upper()
-        termination = getattr(policy, "terminate_date", None)
-        issue = getattr(policy, "issue_date", None)
+        code = str(policy_attr(policy, "last_entry_code", "") or "").strip().upper()
+        termination = policy_attr(policy, "terminate_date", None)
+        issue = policy_attr(policy, "issue_date", None)
         years = months = None
         if termination is not None and termination <= today:
             years, months = divmod(_months(termination, today), 12)
@@ -495,7 +496,7 @@ def calculate_home_office_reinstatement(policy, today: date | None = None) -> Re
         selected = _restored_coverage_basis(policy, summary, snapshot)
         _validate_benefit_continuation(policy, summary)
         ill_policy = load_projection_basis(
-            policy.identity.policy_number, region=policy.identity.region, company_code=policy.identity.company_code,
+            policy.policy_number, region=policy.region, company_code=policy.company_code,
             illustration_date=summary.current_date,
             reinstatement_date=summary.termination_date,
         ).policy

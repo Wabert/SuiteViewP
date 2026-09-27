@@ -207,16 +207,16 @@ class PolicyLoadSession:
         self._closed = False
         if seed is not None:
             if (
-                not seed.identity.exists
-                or seed.identity.policy_number.strip().upper() != self.policy_number
-                or seed.identity.region.strip().upper() != self.region
-                or (self.company_code and seed.identity.company_code.strip().upper() != self.company_code)
-                or (self.system_code and seed.identity.system_code.strip().upper() != self.system_code)
+                not seed.exists
+                or seed.policy_number.strip().upper() != self.policy_number
+                or seed.region.strip().upper() != self.region
+                or (self.company_code and seed.company_code.strip().upper() != self.company_code)
+                or (self.system_code and seed.system_code.strip().upper() != self.system_code)
             ):
                 raise ValueError("Seed must be the same resolved policy/company/region/system")
             self._policy = seed.detached_copy()
-            self.company_code = self._policy.identity.company_code
-            self.system_code = self._policy.identity.system_code
+            self.company_code = self._policy.company_code
+            self.system_code = self._policy.system_code
 
     def _check_thread(self):
         # Binding on first use permits constructing the inert session in the GUI.
@@ -266,13 +266,13 @@ class PolicyLoadSession:
                     system_code=self.system_code or "I",
                     include_unresolved=True,
                 )
-                if self.system_code is None and not policy.identity.exists and not policy.identity.available_companies:
+                if self.system_code is None and not policy.exists and not policy.available_companies:
                     policy = policy_service.get_policy_info(
                         self.policy_number, self.region, self.company_code,
                         system_code="P", include_unresolved=True,
                     )
                 self._policy = policy
-            if not self._policy.identity.exists:
+            if not self._policy.exists:
                 return PreparedPolicy(self._policy.detached_copy(), "coverages", False)
             return self._prepare("coverages")
 
@@ -280,7 +280,7 @@ class PolicyLoadSession:
         if stage not in STAGE_TABLES:
             raise ValueError(f"Unknown PolView stage: {stage}")
         with self._scope():
-            if self._policy is None or not self._policy.identity.exists:
+            if self._policy is None or not self._policy.exists:
                 raise RuntimeError("Load and resolve the policy before preparing a stage")
             return self._prepare(stage)
 
@@ -334,7 +334,7 @@ class PolicyLoadSession:
                         "Policy record values are still available."
                     )
                     logger.warning(
-                        "PolView %s: %s", policy.identity.policy_number, reason, exc_info=True,
+                        "PolView %s: %s", policy.policy_number, reason, exc_info=True,
                     )
                     # Illustration-only reads may have failed or cached partial data.
                     # Keep the already validated record view independent of that work.
@@ -389,15 +389,15 @@ class PolicyLoadSession:
                 f"{policy.coverages.base_plancode} has no illustration configuration. "
                 "Other values below are available policy data."
             )
-            logger.warning("PolView %s: %s", policy.identity.policy_number, reason)
+            logger.warning("PolView %s: %s", policy.policy_number, reason)
             return SurrenderValuesUnavailable(reason)
         policy_service.cache_policy_info(policy)
         # The projection façade requests the inforce key. A resolved pending
         # session must still use its own canonical instance, not do a new lookup.
-        self._cache[(self.policy_number, policy.identity.company_code, "I", self.region)] = policy
+        self._cache[(self.policy_number, policy.company_code, "I", self.region)] = policy
         basis_data = load_projection_basis(
-            policy.identity.policy_number, region=policy.identity.region,
-            company_code=policy.identity.company_code, config=config,
+            policy.policy_number, region=policy.region,
+            company_code=policy.company_code, config=config,
         )
         basis = basis_data.policy
         policy._data.raise_table_errors()
@@ -426,7 +426,7 @@ class PolicyLoadSession:
         if result.error:
             raise RuntimeError(result.error)
         companies = PolicyInformation.find_companies(
-            self.policy_number, self.region, self._policy.identity.system_code,
+            self.policy_number, self.region, self._policy.system_code,
         )
         return ReinsuranceInformation(
             self.policy_number, self.region, deepcopy(result), tuple(companies),

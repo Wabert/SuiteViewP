@@ -17,13 +17,14 @@ from dateutil.relativedelta import relativedelta
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.plancode_config import load_plancode
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
 
 
 def _first_float(source, *names: str) -> float:
     for name in names:
-        value = getattr(source, name, None)
+        value = policy_attr(source, name, None)
         if value is not None:
             return float(value or 0.0)
     return 0.0
@@ -166,15 +167,15 @@ def build_policy_context(policy) -> PolicyContext:
         forecast_date=timing.forecast_date,
         maturity_age=timing.maturity_age,
         default_mode=mode,
-        modal_premium=float(getattr(policy, "modal_premium", 0.0) or 0.0),
+        modal_premium=float(policy_attr(policy, "modal_premium", 0.0) or 0.0),
         form_number=str(getattr(policy, "form_number", "")
                         or getattr(policy, "base_form_number", "") or ""),
         max_level_premium_room=premium_room,
         max_level_years=max_level_years,
         is_cvat=is_cvat,
         in_exception_period=bool(getattr(policy, "in_exception_period", False)),
-        has_loans=bool(getattr(policy, "total_loan_balance", 0) or 0),
-        rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
+        has_loans=bool(policy_attr(policy, "total_loan_balance", 0) or 0),
+        rate_class=str(policy_attr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
         table_rating=table_rating,
         illustrated_rate=illustrated_rate,
         plancode=plancode,
@@ -190,16 +191,16 @@ def build_policy_context(policy) -> PolicyContext:
 
 
 def _policy_timing(policy) -> _PolicyTiming:
-    issue_date = getattr(policy, "issue_date", None) or getattr(policy, "base_issue_date", None)
-    issue_age = int(getattr(policy, "base_issue_age", None)
+    issue_date = policy_attr(policy, "issue_date", None) or getattr(policy, "base_issue_date", None)
+    issue_age = int(policy_attr(policy, "base_issue_age", None)
                     or getattr(policy, "issue_age", 0) or 0)
-    valuation = getattr(policy, "valuation_date", None) or getattr(
+    valuation = policy_attr(policy, "valuation_date", None) or getattr(
         policy, "last_valuation_date", None)
     forecast = _forecast_date(policy, issue_date, valuation)
     forecast_year = _forecast_year(policy, issue_date, forecast)
     maturity_age = int(getattr(policy, "maturity_age", None)
-                       or getattr(policy, "age_at_maturity", None) or 121)
-    attained_age = int(getattr(policy, "attained_age", None)
+                       or policy_attr(policy, "age_at_maturity", None) or 121)
+    attained_age = int(policy_attr(policy, "attained_age", None)
                        or (issue_age + forecast_year - 1) or 0)
     return _PolicyTiming(
         issue_date=issue_date,
@@ -227,11 +228,11 @@ def _forecast_year(policy, issue_date: Optional[date], forecast: Optional[date])
         if forecast.day < issue_date.day:
             months -= 1
         return max(1, months // 12 + 1)
-    return int(getattr(policy, "policy_year", 1) or 1)
+    return int(policy_attr(policy, "policy_year", 1) or 1)
 
 
 def _default_mode(policy) -> str:
-    frequency = getattr(policy, "billing_frequency", 1)
+    frequency = policy_attr(policy, "billing_frequency", 1)
     try:
         frequency = int(frequency)
     except (TypeError, ValueError):
@@ -240,14 +241,14 @@ def _default_mode(policy) -> str:
 
 
 def _status_code(policy) -> str:
-    return str(getattr(policy, "status_code", "")
-               or getattr(policy, "premium_pay_status_code", "") or "")
+    return str(policy_attr(policy, "status_code", "")
+               or policy_attr(policy, "premium_pay_status_code", "") or "")
 
 
 def _table_rating(policy) -> int:
     table_rating = getattr(policy, "base_table_rating", None)
     if table_rating is None:
-        getter = getattr(policy, "cov_table_rating", None)
+        getter = policy_attr(policy, "cov_table_rating", None)
         if callable(getter):
             try:
                 table_rating = getter(1)
@@ -261,7 +262,7 @@ def _table_rating(policy) -> int:
 
 
 def _interest_assumptions(policy) -> tuple[str, float, float]:
-    plancode = str(getattr(policy, "base_plancode", "")
+    plancode = str(policy_attr(policy, "base_plancode", "")
                    or getattr(policy, "plancode", "") or "")
     illustrated_rate = 0.0
     gint = 0.0
@@ -271,7 +272,7 @@ def _interest_assumptions(policy) -> tuple[str, float, float]:
     if illustrated_rate == 0.0:
         illustrated_rate = float(
             getattr(policy, "current_interest_rate", None)
-            or getattr(policy, "guaranteed_interest_rate", 0.0)
+            or policy_attr(policy, "guaranteed_interest_rate", 0.0)
             or 0.0
         )
         if illustrated_rate > 1.0:
@@ -309,7 +310,7 @@ def _premium_allocations_from_policy(policy) -> Optional[dict]:
     direct = getattr(policy, "premium_allocations", None)
     if direct:
         return dict(direct)
-    getter = getattr(policy, "get_premium_allocation_dict", None)
+    getter = policy_attr(policy, "get_premium_allocation_dict", None)
     if callable(getter):
         try:
             allocations = getter()

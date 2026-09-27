@@ -20,7 +20,6 @@ from suiteview.polview.ui.policy_load_controller import PolicyLoadController, DE
 class FakePolicy(SimpleNamespace):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.identity = self
         self.status = self
         self.product = SimpleNamespace(
             is_advanced_product=getattr(self, "is_advanced_product", False),
@@ -44,7 +43,6 @@ def policy(number="FIRST", *, advanced=True, company="01", system="I"):
         system_code=system, policy_id=f"{number} TEST",
         is_advanced_product=advanced, status_description="Active",
     )
-    item.identity = item
     item.status = item
     item.product = SimpleNamespace(is_advanced_product=advanced)
     return item
@@ -248,7 +246,7 @@ def test_switching_policies_discards_inflight_old_result(host, qtbot):
     assert window._policy is None
     gate.set()
     settled(qtbot, window)
-    assert window._policy.identity.policy_number == "SECOND"
+    assert window._policy.policy_number == "SECOND"
     assert window.tabs.currentWidget() is window.coverages_tab
     window.tabs.setCurrentWidget(window.reinsurance_tab)
     assert window.reinsurance_tab.test_label.text() == "SECOND"
@@ -285,7 +283,7 @@ def test_new_company_for_same_policy_defaults_to_coverages(host, qtbot):
     state.policies["FIRST"] = policy("FIRST", company="26")
     window.load_policy("FIRST", company_code="26")
     settled(qtbot, window)
-    assert window._policy.identity.company_code == "26"
+    assert window._policy.company_code == "26"
     assert window.tabs.currentWidget() is window.coverages_tab
 
 
@@ -297,7 +295,7 @@ def test_second_lookup_cancels_first_before_initial_response(host, qtbot):
     window.load_policy("SECOND")
     gate.set()
     settled(qtbot, window)
-    assert window._policy.identity.policy_number == "SECOND"
+    assert window._policy.policy_number == "SECOND"
     assert all(number == "SECOND" for number, _, _, _ in state.rendered)
 
 
@@ -342,7 +340,7 @@ def test_initial_failure_and_retry_are_nonmodal(host, qtbot):
     assert window._load_overlays["coverages"].retry_button.isVisible()
     window._load_overlays["coverages"].retry_button.click()
     settled(qtbot, window)
-    assert window._policy.identity.policy_number == "FIRST"
+    assert window._policy.policy_number == "FIRST"
 
 
 @pytest.mark.parametrize("origin", ["query", "rerun"])
@@ -380,7 +378,7 @@ def test_handoff_failure_identifies_requested_policy_and_get_recovers(
     assert not window.open_record_btn.isEnabled()
     window.lookup_bar.get_button.click()
     settled(qtbot, window)
-    assert window._policy.identity.policy_number == "SECOND"
+    assert window._policy.policy_number == "SECOND"
     assert window.coverages_tab.test_label.text() == "SECOND"
     assert window.open_record_btn.isEnabled()
 

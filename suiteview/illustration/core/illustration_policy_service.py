@@ -42,6 +42,7 @@ from suiteview.illustration.models.policy_data import (
     RiderInfo,
 )
 from suiteview.illustration.models.rider_config import load_rider_config
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 
 @dataclass(frozen=True)
@@ -165,7 +166,7 @@ def _load_policy_source_snapshot(
         issue_date=pi.activity.issue_date,
         issue_age=pi.coverages.base_issue_age if pi.coverages.base_issue_age is not None else 0,
         rate_sex=_translate_sex(pi.coverages.base_sex_code),
-        rate_class=getattr(pi, "base_rate_class", "") or "",
+        rate_class=policy_attr(pi, "base_rate_class", "") or "",
         valuation_date=valuation_date,
         as_of_date=as_of_date,
         face_amount=face_amount,
@@ -181,7 +182,7 @@ def _load_policy_source_snapshot(
 
 
 def _validate_source_policy(pi, policy_number: str, region: str, reinstatement_date) -> None:
-    if pi is None or not pi.identity.exists:
+    if pi is None or not pi.exists:
         raise ValueError(f"Policy {policy_number} not found in region {region}")
     if reinstatement_date is not None and (
         pi.status.last_entry_code.strip().upper() != "Q" or pi.activity.terminate_date != reinstatement_date
@@ -273,15 +274,15 @@ def build_core_identity(source: PolicySourceSnapshot) -> dict:
     return {
         "policy_number": source.policy_number.strip(),
         "region": source.region,
-        "company_code": pi.identity.company_code or "",
-        "reins_partner": str(getattr(pi, "reins_partner", "") or "").strip().upper(),
+        "company_code": pi.company_code or "",
+        "reins_partner": str(policy_attr(pi, "reins_partner", "") or "").strip().upper(),
         "insured_name": pi.persons.primary_insured_name or "",
-        "premium_pay_status_code": str(getattr(pi, "premium_pay_status_code", "") or ""),
+        "premium_pay_status_code": str(policy_attr(pi, "premium_pay_status_code", "") or ""),
         "plancode": source.plancode,
         "product_type": pi.product.product_type or "",
         "form_number": source.form_number,
         "issue_state": pi.product.issue_state or "",
-        "company_sub": pi.identity.company_name or "",
+        "company_sub": pi.company_name or "",
         "issue_date": source.issue_date,
         "issue_age": source.issue_age,
         "attained_age": attained_age,
@@ -304,7 +305,7 @@ def build_core_identity(source: PolicySourceSnapshot) -> dict:
 def build_iul_basis(source: PolicySourceSnapshot) -> dict:
     """Map IUL fund/allocation tables and UL_Rates index assumptions."""
     pi = source.pi
-    reins_partner = str(getattr(pi, "reins_partner", "") or "").strip().upper()
+    reins_partner = str(policy_attr(pi, "reins_partner", "") or "").strip().upper()
     index_illustration_rates = None
     index_strategy_parameters = None
     index_benchmark_minimum = None
@@ -312,7 +313,7 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
     index_market_returns = None
     if is_iul_plan(source.plancode):
         index_illustration_rates = source.rates_db.get_index_illustration_rates(
-            pi.identity.company_code or "",
+            pi.company_code or "",
             source.plancode,
             source.illustration_date,
             reins_partner,
@@ -395,14 +396,14 @@ def build_financial_basis(source: PolicySourceSnapshot) -> dict:
         "corridor_percent": _float_or_default(pi.product.corridor_percent, 100.0),
         "mtp": _float_or_zero(pi.targets.mtp),
         "accumulated_mtp": _float_or_zero(pi.targets.accumulated_mtp_target),
-        "map_cease_date": getattr(pi, "map_date", None),
+        "map_cease_date": policy_attr(pi, "map_date", None),
         "ctp": _float_or_zero(pi.targets.ctp),
         "is_mec": pi.values.is_mec,
         "tamra_7pay_level": _float_or_zero(tamra_level_raw),
         "tamra_7pay_start_date": pi.values.tamra_7pay_start_date,
         "tamra_7pay_start_av": _float_or_zero(tamra_start_av_raw),
         "tamra_7pay_cash_value": _float_or_zero(tamra_start_av_raw),
-        "tamra_7year_lowest_db": float(getattr(pi, "tamra_7pay_specified_amount", None) or 0.0),
+        "tamra_7year_lowest_db": float(policy_attr(pi, "tamra_7pay_specified_amount", None) or 0.0),
         "tamra_7year_contributions": _tamra_contributions(pi),
         "withdrawals_to_date": float(pi.values.total_withdrawals or 0),
         "decrease_charge_allowed": pi.support.decrease_charge_allowed,
@@ -439,14 +440,14 @@ def _tamra_contributions(pi) -> list[float]:
 
 
 def _loan_basis(pi) -> dict:
-    var_loan_rate_raw = getattr(pi, "variable_loan_charge_rate", None)
+    var_loan_rate_raw = policy_attr(pi, "variable_loan_charge_rate", None)
     var_loan_charge_rate = (
         float(var_loan_rate_raw) if var_loan_rate_raw is not None else None
     )
     if var_loan_charge_rate is not None and var_loan_charge_rate > 1:
         var_loan_charge_rate /= 100.0
-    regular_rate_raw = getattr(pi, "fixed_loan_interest_rate", None)
-    preferred_rate_raw = getattr(pi, "preferred_loan_interest_rate", None)
+    regular_rate_raw = policy_attr(pi, "fixed_loan_interest_rate", None)
+    preferred_rate_raw = policy_attr(pi, "preferred_loan_interest_rate", None)
     return {
         "regular_loan_principal": float(pi.loans.total_regular_loan_principal or 0),
         "regular_loan_accrued": float(pi.loans.total_regular_loan_accrued or 0),

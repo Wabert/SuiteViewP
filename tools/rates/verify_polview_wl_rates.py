@@ -29,7 +29,7 @@ def capture(policy, index, expected_result, output):
     window = GetPolicyWindow(enable_policy_list=False)
     try:
         window._policy = policy
-        window.lookup_bar.set_policy_display(policy.identity.company_code, policy.identity.policy_number, policy.identity.region)
+        window.lookup_bar.set_policy_display(policy.company_code, policy.policy_number, policy.region)
         window.records_tree.enable_rates_tab(policy)
         window.records_tree.show_rates_tab()
         window._toggle_tree_panel()
@@ -75,7 +75,7 @@ def main():
         config["policy"], region=config.get("region", "CKPR"),
         company_code=config.get("company"), use_cache=False,
     )
-    if policy is None or not policy.identity.exists:
+    if policy is None or not policy.exists:
         raise RuntimeError("Policy was not found or live policy access failed.")
     if policy.product.is_advanced_product or policy.product.product_type != "WL":
         raise RuntimeError("Select a traditional Whole Life policy.")
@@ -87,7 +87,7 @@ def main():
             raise ValueError("expected.message must be a nonempty string.")
         capture(policy, index, message, config.get("screenshot"))
         report = {
-            "all_ok": True, "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+            "all_ok": True, "policy": policy.policy_number, "company": policy.company_code,
             "coverage": index, "premium_pay_status": policy.status.premium_pay_status_description,
             "message": message,
         }
@@ -102,7 +102,7 @@ def main():
         if not matrix:
             raise RuntimeError(
                 f"No cash-value schedule for user {policy.rates.cyberlife_rate_user_code} "
-                f"(company {policy.identity.company_code}), key {key}, age {age}."
+                f"(company {policy.company_code}), key {key}, age {age}."
             )
         duration_column = matrix[0].index("Duration")
         rate_column = matrix[0].index("CV")
@@ -130,7 +130,7 @@ def main():
             if actual.get(int(duration)) != Decimal(value):
                 raise RuntimeError(f"Unexpected cash-value rate at duration {duration}.")
         report = {
-            "all_ok": True, "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+            "all_ok": True, "policy": policy.policy_number, "company": policy.company_code,
             "coverage": index, "plancode": policy.coverages.cov_plancode(index), **observed,
             "user_code": policy.rates.cyberlife_rate_user_code,
             "user_defined": "", "source": "WL_RATE_CV",

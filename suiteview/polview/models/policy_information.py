@@ -22,7 +22,6 @@ from .cl_polrec.policy_data_classes import PolicyNotFoundError
 from .cl_polrec.policy_translations import COMPANY_CODES
 from .policy_data import PolicyData as _PolicyData, _ConnectionManager
 from .policy_fields import FIELD_SPECS_BY_NAME, FieldSpec
-from .policy_sections.identity import IdentitySection
 from .policy_sections.status import StatusSection
 from .policy_sections.product import ProductSection
 from .policy_sections.billing import BillingSection
@@ -41,24 +40,6 @@ from .policy_sections.support import SupportSection
 
 class PolicyInformation:
     """Facade returned by policy service; facts live on section objects."""
-
-    _SECTION_TABLES = {
-        'identity': IdentitySection.TABLES,
-        'status': StatusSection.TABLES,
-        'product': ProductSection.TABLES,
-        'billing': BillingSection.TABLES,
-        'coverages': CoveragesSection.TABLES,
-        'benefits': BenefitsSection.TABLES,
-        'loans': LoansSection.TABLES,
-        'values': ValuesSection.TABLES,
-        'targets': TargetsSection.TABLES,
-        'dividends': DividendsSection.TABLES,
-        'persons': PersonsSection.TABLES,
-        'agents': AgentsSection.TABLES,
-        'activity': ActivitySection.TABLES,
-        'rates': RatesSection.TABLES,
-        'support': SupportSection.TABLES,
-    }
 
     def __init__(
         self,
@@ -82,10 +63,6 @@ class PolicyInformation:
             section = factory(self)
             self._sections[name] = section
         return section
-
-    @property
-    def identity(self) -> IdentitySection:
-        return self._section('identity', IdentitySection)
 
     @property
     def status(self) -> StatusSection:
@@ -167,33 +144,16 @@ class PolicyInformation:
         if identity(self) != identity(snapshot):
             raise ValueError("Cannot merge a different policy/company/system/region")
         incoming = snapshot.detached_copy()
-        changed_tables = {
-            table
-            for table, data in incoming._data._table_cache.items()
-            if self._data._table_cache.get(table) != data
-        }
-        changed_tables.update(incoming._data._table_errors)
         self._data._table_cache.update(incoming._data._table_cache)
         for table in incoming._data._table_cache:
             self._data._table_errors.pop(table, None)
         self._data._table_errors.update(incoming._data._table_errors)
-        self._invalidate_sections(changed_tables)
-
-    def _invalidate_sections(self, changed_tables) -> None:
-        if not changed_tables:
-            return
-        changed = {table.upper() for table in changed_tables}
-        for name, tables in self._SECTION_TABLES.items():
-            if not tables or changed & tables:
-                self._sections.pop(name, None)
-        loan_tables = {"LH_CSH_VAL_LOAN", "LH_FND_VAL_LOAN", "LH_LN_RPAY_SCH"}
-        total_tables = {"LH_POL_TOTALS", "LH_POL_YR_TOT", "LH_POL_MVRY_VAL", "LH_TAMRA_7_PY_YR", "LH_TAMRA_7_PY_PER"}
-        if changed & loan_tables:
-            self.loan_records.invalidate()
-        if changed & total_tables:
-            self.total_records.invalidate()
-        if changed & self.rates.TABLES:
-            self._band_cache.clear()
+        # Every section cache built against older rows must be rebuilt; the
+        # sections rebuild lazily from the merged table cache.
+        self._sections.clear()
+        self.loan_records.invalidate()
+        self.total_records.invalidate()
+        self._band_cache.clear()
 
     @property
     def exists(self) -> bool:
@@ -230,32 +190,37 @@ class PolicyInformation:
         return self._data.table_error(table_name)
 
     def if_empty(self, value: Any, default: Any = "") -> Any:
-        return default if value is None or value == "" else value
+        """Return default if value is None or empty string."""
+        return self._data.if_empty(value, default)
 
-    def find_row_index(self, table_name: str, field_name: str, value: Any) -> int:
-        return self._data.find_row_index(table_name, field_name, value)
+    def find_row_index(self, table_name: str, filter_field: str, filter_value: Any) -> int:
+        """Find the first row index where filter_field equals filter_value."""
+        return self._data.find_row_index(table_name, filter_field, filter_value)
 
-    def data_item_where(
-        self, table_name: str, field_name: str, where_field: str,
-        where_value: Any, default: Any = None,
-    ) -> Any:
-        return self._data.data_item_where(
-            table_name, field_name, where_field, where_value, default,
-        )
+    def data_item_where(self, table_name: str, return_field: str,
+                        filter_field: str, filter_value: Any,
+                        default: Any = None) -> Any:
+        """Get a field value from the first row matching a filter."""
+        return self._data.data_item_where(table_name, return_field,
+                                          filter_field, filter_value, default)
 
-    def data_item_where_multi(
-        self, table_name: str, field_name: str,
-        conditions: Dict[str, Any], default: Any = None,
-    ) -> Any:
-        return self._data.data_item_where_multi(table_name, field_name, conditions, default)
+    def data_item_where_multi(self, table_name: str, return_field: str,
+                              filters: Dict[str, Any],
+                              default: Any = None) -> Any:
+        """Get a field value from the first row matching multiple filters."""
+        return self._data.data_item_where_multi(table_name, return_field,
+                                                filters, default)
 
-    def data_items_where(
-        self, table_name: str, field_name: str, where_field: str, where_value: Any,
-    ) -> List[Any]:
-        return self._data.data_items_where(table_name, field_name, where_field, where_value)
+    def data_items_where(self, table_name: str, return_field: str,
+                         filter_field: str, filter_value: Any) -> List[Any]:
+        """Get ALL field values from rows where filter matches."""
+        return self._data.data_items_where(table_name, return_field,
+                                           filter_field, filter_value)
 
-    def get_rows_where(self, table_name: str, conditions: Dict[str, Any]) -> list:
-        return self._data.get_rows_where(table_name, conditions)
+    def get_rows_where(self, table_name: str, filter_field: str,
+                       filter_value: Any) -> List[Dict[str, Any]]:
+        """Get all row dictionaries where filter matches."""
+        return self._data.get_rows_where(table_name, filter_field, filter_value)
 
     def _field(self, name: str, index: int = 0):
         spec: FieldSpec = FIELD_SPECS_BY_NAME[name]
@@ -274,16 +239,17 @@ class PolicyInformation:
         return self._data.policy_number
 
     @property
-    def policy_id(self) -> Optional[str]:
-        return self._data.policy_id
+    def policy_id(self) -> str:
+        """Technical policy ID (TCH_POL_ID)."""
+        return self._data.policy_id or ""
 
     @property
-    def company_code(self) -> Optional[str]:
-        return self._data.company_code
+    def company_code(self) -> str:
+        return self._data.company_code or ""
 
     @property
     def company_name(self) -> str:
-        return COMPANY_CODES.get(self.company_code, self.company_code or "")
+        return COMPANY_CODES.get(self.company_code, self.company_code)
 
     @property
     def system_code(self) -> str:

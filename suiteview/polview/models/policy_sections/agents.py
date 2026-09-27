@@ -12,7 +12,6 @@ from typing import List
 class AgentsSection(PolicySection):
     """Cohesive PolicyInformation agents view."""
 
-    TABLES = frozenset(('AGT_COM_PHA_NBR', 'AGT_ID', 'COM_PCT', 'LH_AGT_COM_AMT', 'LH_CTT_COM_PHA_WA', 'MKT_ORG_CD', 'SERVICING_AGENT_NUMBER', 'SERVICING_BRANCH_CODE', 'SVC_AGT_IND', 'WRT_AGT_NM',))
     CACHE_ATTRS = ('_agents',)
 
     @property
@@ -63,7 +62,7 @@ class AgentsSection(PolicySection):
         """Determine market organization from company and agent codes."""
         branch = self.servicing_branch_code
         agent_code = branch[0] if branch else ""
-        return translate_market_org(self.identity.company_code, agent_code)
+        return translate_market_org(self.policy.company_code, agent_code)
 
     @property
     def agency_branch_code(self) -> str:

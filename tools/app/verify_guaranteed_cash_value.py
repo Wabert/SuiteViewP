@@ -77,7 +77,7 @@ def _check_case(app, case, screenshot_dir):
                     raise RuntimeError(f"Could not save screenshot: {path}")
 
         return {
-            "policy": case["policy"], "company": targets_stage.identity.company_code,
+            "policy": case["policy"], "company": targets_stage.company_code,
             "status": targets_stage.status.premium_pay_status_code,
             "ok": not failures, "failures": failures,
             "basis_display": c.get_value("cv_rate_basis"), "rate_rows": rate_rows,

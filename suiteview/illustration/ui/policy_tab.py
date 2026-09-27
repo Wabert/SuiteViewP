@@ -37,6 +37,7 @@ from .styles import (
     VALUE_BUTTON_MATURED_STYLE,
     VALUE_BUTTON_STYLE,
 )
+from suiteview.polview.models.policy_sections.lookup import policy_attr, policy_hasattr
 
 
 RATE_WARNING_STYLE = """
@@ -679,20 +680,20 @@ class IllustrationPolicyTab(QWidget):
         self._policy = policy
         self.set_rollback_editing(False)
         self._clear_all()
-        if not policy or not policy.identity.exists:
+        if not policy or not policy.exists:
             return
 
         if policy_info is None:
             policy_info = {
-                "PolicyNumber": policy.identity.policy_number,
-                "CompanyCode": policy.identity.company_code,
-                "SystemCode": policy.identity.system_code,
-                "Region": policy.identity.region,
+                "PolicyNumber": policy.policy_number,
+                "CompanyCode": policy.company_code,
+                "SystemCode": policy.system_code,
+                "Region": policy.region,
             }
 
         self._coverages = list(policy.coverages.get_coverages())
         self._benefits = list(policy.benefits.get_benefits())
-        self._as_of = getattr(policy, "valuation_date", None) or date.today()
+        self._as_of = policy_attr(policy, "valuation_date", None) or date.today()
         self._populate_policy_info(policy, policy_info)
         self.set_monthly_deduction_check(md_check)
         self._populate_value_groups(policy)
@@ -1050,8 +1051,8 @@ class IllustrationPolicyTab(QWidget):
 
     def _populate_policy_info(self, policy, policy_info: dict):
         base_cov = next((cov for cov in self._coverages if cov.is_base), self._coverages[0] if self._coverages else None)
-        self.policy_info.set_value("policy_label", policy_info.get("PolicyNumber", policy.identity.policy_number))
-        self.policy_info.set_value("company_label", policy.identity.company_code)
+        self.policy_info.set_value("policy_label", policy_info.get("PolicyNumber", policy.policy_number))
+        self.policy_info.set_value("company_label", policy.company_code)
         self.policy_info.set_value("plancode_label", policy.coverages.base_plancode)
         self.policy_info.set_value("market_org_label", policy.agents.servicing_market_org)
         self.policy_info.set_value("issue_state_label", policy.product.issue_state)
@@ -1093,11 +1094,12 @@ class IllustrationPolicyTab(QWidget):
 
     @staticmethod
     def _policy_cyberlife_monthly_deduction(policy):
-        if hasattr(policy, "mv_monthly_deduction"):
+        if policy_hasattr(policy, "mv_monthly_deduction"):
+            mv_monthly_deduction = policy_attr(policy, "mv_monthly_deduction")
             try:
-                return policy.values.mv_monthly_deduction(0)
+                return mv_monthly_deduction(0)
             except TypeError:
-                return policy.values.mv_monthly_deduction()
+                return mv_monthly_deduction()
             except Exception:
                 return None
         return getattr(policy, "system_monthly_deduction", None)

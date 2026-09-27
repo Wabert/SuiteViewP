@@ -18,6 +18,7 @@ from dateutil.relativedelta import relativedelta
 
 from .source_query_tab import SourceQueryTab
 from suiteview.core.data_sources import VRD_PROD_DSN
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
@@ -63,7 +64,7 @@ class SapTab(SourceQueryTab):
 
     def _default_start_date(self, policy: Optional["PolicyInformation"]) -> date:
         """Default the start to two years before valuation date."""
-        base = getattr(policy, "valuation_date", None) if policy is not None else None
+        base = policy_attr(policy, "valuation_date", None) if policy is not None else None
         return (base or date.today()) - relativedelta(years=2)
 
     def _build_query_request(

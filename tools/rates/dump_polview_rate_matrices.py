@@ -32,11 +32,11 @@ def main():
         config["policy"], region=config.get("region", "CKPR"),
         company_code=config.get("company"), use_cache=False,
     )
-    if policy is None or not policy.identity.exists:
+    if policy is None or not policy.exists:
         raise RuntimeError("Policy was not found or live policy access failed.")
     limit = int(config.get("rows", 40))
     print(json.dumps({
-        "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+        "policy": policy.policy_number, "company": policy.company_code,
         "product_type": policy.product.product_type, "advanced": policy.product.is_advanced_product,
         "coverages": policy.coverages.coverage_count, "benefits": policy.benefits.benefit_count,
     }))

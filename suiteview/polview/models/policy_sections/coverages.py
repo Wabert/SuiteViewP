@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 class CoveragesSection(PolicySection):
     """Cohesive PolicyInformation coverages view."""
 
-    TABLES = frozenset(('AH_ACC_BNF_PER_CD', 'AH_ACC_ELM_PER_CD', 'ANN_PRM_UNT_AMT', 'COLA_INCR_IND', 'COV_MT_EXP_DT', 'COV_PHA_NBR', 'COV_UNT_QTY', 'COV_VPU_AMT', 'INS_CLS_CD', 'INS_ISS_AGE', 'INS_SEX_CD', 'ISSUE_DT', 'JT_INS_IND', 'LH_COV_INS_RNL_RT', 'LH_COV_PHA', 'LH_COV_SKIPPED_PER', 'LH_SST_XTR_CRG', 'LIVES_COV_CD', 'NBR_OF_LIVES_CD', 'NXT_CHG_DT', 'NXT_CHG_TYP_CD', 'OGN_SPC_UNT_QTY', 'PLN_DES_SER_CD', 'PLN_TMN_DT', 'POL_FRM_NBR', 'PRD_LIN_TYP_CD', 'PRS_CD', 'PRS_SEQ_NBR', 'RNL_RT', 'RT_CLS_CD', 'RT_SEX_CD', 'SKP_FRM_DT', 'SKP_TO_DT', 'SKP_TYP_CD', 'SST_XTR_CEA_DT', 'SST_XTR_CEA_DUR', 'SST_XTR_RT_TBL_CD', 'SST_XTR_TYP_CD', 'TH_COV_PHA', 'XTR_PER_1000_AMT',))
     CACHE_ATTRS = ('_coverages',)
 
     @property

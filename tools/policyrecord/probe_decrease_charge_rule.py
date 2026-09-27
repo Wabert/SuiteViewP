@@ -122,10 +122,10 @@ def main() -> int:
         pi = get_policy_info(args.policy, args.region, args.company)
         output["policy"] = {
             "policy": args.policy,
-            "exists": bool(pi and pi.identity.exists),
-            "decrease_charge_rule": pi.support.decrease_charge_rule if pi and pi.identity.exists else None,
+            "exists": bool(pi and pi.exists),
+            "decrease_charge_rule": pi.support.decrease_charge_rule if pi and pi.exists else None,
             "decrease_charge_allowed": (
-                pi.support.decrease_charge_allowed if pi and pi.identity.exists else None
+                pi.support.decrease_charge_allowed if pi and pi.exists else None
             ),
         }
     if args.summary_only and "by_plancode" in output:

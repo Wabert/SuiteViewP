@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
+from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def guaranteed_cash_value(policy) -> dict[str, Any]:
     except (ValueError, TypeError, ArithmeticError) as exc:
         logger.warning(
             "Guaranteed cash value not calculated for %s: %s",
-            policy.identity.policy_number,
+            policy.policy_number,
             exc,
             exc_info=True,
         )
@@ -113,7 +114,7 @@ def _prem_allowed_gpt(policy, is_advanced: bool):
 
 def build_targets_view_model(policy) -> TargetsViewModel:
     """Collect policy data for TargetsTab without touching widgets."""
-    rules = getattr(policy, "product_rules", None)
+    rules = policy_attr(policy, "product_rules", None)
     is_advanced = bool(rules.is_advanced if rules is not None else policy.product.is_advanced_product)
     reg_prem = float(policy.billing.total_regular_premium or 0)
     add_prem = float(policy.billing.total_additional_premium or 0)
