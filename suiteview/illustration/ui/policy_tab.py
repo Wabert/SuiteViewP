@@ -396,12 +396,11 @@ class IllustrationPolicyTab(QWidget):
             self._record_editors[name] = (group, attr, kind, editor)
 
     def set_record_values(self, policy):
-        identity = getattr(policy, "identity", policy)
         values = getattr(policy, "values", policy)
         key = (
-            identity.policy_number,
-            identity.company_code,
-            identity.region,
+            policy.policy_number,
+            policy.company_code,
+            policy.region,
             values.valuation_date,
         )
         if key != self._record_key:
@@ -1156,7 +1155,7 @@ class IllustrationPolicyTab(QWidget):
             "preferred_loan_principal", "preferred_loan_accrued",
             "variable_loan_principal", "variable_loan_accrued",
         ):
-            self.loan_values.set_value(field, format_currency(getattr(policy, "total_" + field), "$"))
+            self.loan_values.set_value(field, format_currency(getattr(policy.loans, "total_" + field), "$"))
         self.loan_values.set_value(
             "fixed_loan_rate", _rate_text(policy.loans.fixed_loan_interest_rate, fixed > 0))
         self.loan_values.set_value(

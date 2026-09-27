@@ -253,3 +253,36 @@ def test_7pay_start_date_is_directly_under_cost_basis():
 
     assert start_col == cost_col
     assert start_row == cost_row + 1
+
+
+def test_live_value_groups_read_loans_from_the_loans_section():
+    # A live PolicyInformation has loan totals only on ``policy.loans``; a
+    # flat ``policy.total_regular_loan_principal`` read failed every RERUN
+    # load. The double exposes section objects only, like the real facade.
+    _app()
+    tab = IllustrationPolicyTab()
+    loans = SimpleNamespace(
+        total_regular_loan_principal=36000, total_regular_loan_accrued=157,
+        total_preferred_loan_principal=0, total_preferred_loan_accrued=0,
+        total_variable_loan_principal=0, total_variable_loan_accrued=0,
+        fixed_loan_interest_rate=6.0, preferred_loan_interest_rate=None,
+    )
+    policy = SimpleNamespace(
+        product=SimpleNamespace(gpt_cvat="GPT", guaranteed_interest_rate=3.0),
+        values=SimpleNamespace(
+            mv_av=lambda _index: 33194.45, total_withdrawals=0, cost_basis=0,
+            tamra_7pay_start_date=None, tamra_7pay_premium_paid=lambda _year: 0,
+            tamra_7pay_av=0, tamra_7pay_level=0, tamra_7pay_specified_amount=0, is_mec=False,
+        ),
+        targets=SimpleNamespace(
+            shadow_account_value=0, accumulated_mtp_target=0, map_date=None, mtp=0, ctp=0,
+            nsp_base=None, nsp_other=None, gsp=0, glp=0, accumulated_glp_target=0,
+        ),
+        billing=SimpleNamespace(premium_ytd=0, premium_td=0),
+        loans=loans,
+    )
+
+    tab._populate_value_groups(policy)
+
+    assert tab.loan_values.get_value("regular_loan_principal") == "$36,000.00"
+    assert tab.loan_values.get_value("regular_loan_accrued") == "$157.00"
