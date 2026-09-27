@@ -36,6 +36,16 @@ from suiteview.taskbar_launcher.collaborators import TaskbarCollaborator
 logger = logging.getLogger(__name__)
 
 
+def _drop_checked(handler):
+    """Adapt a no-argument handler for a button's ``clicked`` signal.
+
+    SuiteViewTaskbar's collaborator forwarders accept ``*args``, so PyQt would
+    pass ``clicked``'s ``checked`` flag through them to handlers that take no
+    arguments. (``QMenu.addAction(text, slot)`` does not pass it.)
+    """
+    return lambda _checked=False: handler()
+
+
 class TaskbarChrome(TaskbarCollaborator):
     """Builds taskbar widgets and wires user-facing controls."""
 
@@ -173,7 +183,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: rgba(212, 160, 23, 0.4);
             }
         """)
-        self.quick_screenshot_btn.clicked.connect(lambda _checked=False: self.callbacks._take_quick_screenshot())
+        self.quick_screenshot_btn.clicked.connect(_drop_checked(self.callbacks._take_quick_screenshot))
         header_layout.addWidget(self.quick_screenshot_btn)
         
         # ====== COMPACT MODE: Region combo + Policy input ======
@@ -282,7 +292,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #1B5E20;
             }
         """)
-        self.polview_btn.clicked.connect(lambda _checked=False: self.callbacks._polview_btn_clicked())
+        self.polview_btn.clicked.connect(_drop_checked(self.callbacks._polview_btn_clicked))
         header_layout.addWidget(self.polview_btn)
 
         # ====== FILE NAV BUTTON (gold "F" with blue trim) ======
@@ -311,7 +321,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 border-color: #FFD700;
             }
         """)
-        self.filenav_btn.clicked.connect(lambda _checked=False: self.callbacks._open_file_nav())
+        self.filenav_btn.clicked.connect(_drop_checked(self.callbacks._open_file_nav))
         header_layout.addWidget(self.filenav_btn)
 
         # ====== ABR QUOTE BUTTON (crimson "A" with slate-blue trim) ======
@@ -341,7 +351,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 border-color: #2E4F85;
             }
         """)
-        self.abrquote_btn.clicked.connect(lambda _checked=False: self.callbacks._abrquote_btn_clicked())
+        self.abrquote_btn.clicked.connect(_drop_checked(self.callbacks._abrquote_btn_clicked))
         header_layout.addWidget(self.abrquote_btn)
 
         # ====== RERUN BUTTON (gold "R" on purple) ======
@@ -369,7 +379,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #2A1458;
             }
         """)
-        self.illustration_btn.clicked.connect(lambda _checked=False: self.callbacks._illustration_btn_clicked())
+        self.illustration_btn.clicked.connect(_drop_checked(self.callbacks._illustration_btn_clicked))
         header_layout.addWidget(self.illustration_btn)
         
         # ====== AUDIT BUTTON ("Q" — silver & blue) ======
@@ -397,7 +407,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #909090;
             }
         """)
-        self.audit_btn.clicked.connect(lambda _checked=False: self.callbacks._open_audit())
+        self.audit_btn.clicked.connect(_drop_checked(self.callbacks._open_audit))
         header_layout.addWidget(self.audit_btn)
         self.albert_btn = AlbertButton(self.window)
         header_layout.addWidget(self.albert_btn)
@@ -459,7 +469,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 border-color: #C8A84B;
             }
         """)
-        self.scratchpad_window_btn.clicked.connect(lambda _checked=False: self.callbacks._toggle_scratchpad_window())
+        self.scratchpad_window_btn.clicked.connect(_drop_checked(self.callbacks._toggle_scratchpad_window))
         header_layout.addWidget(self.scratchpad_window_btn)
 
         # ====== FILE OPEN HISTORY BUTTON (teal "H" with gold trim) ======
@@ -487,7 +497,7 @@ class TaskbarChrome(TaskbarCollaborator):
                 background: #0D4A3F;
             }
         """)
-        self.file_history_btn.clicked.connect(lambda _checked=False: self.callbacks._toggle_file_open_history())
+        self.file_history_btn.clicked.connect(_drop_checked(self.callbacks._toggle_file_open_history))
         header_layout.addWidget(self.file_history_btn)
 
     def _build_tools_menu(self, header_layout):
@@ -600,7 +610,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.maximize_btn.setToolTip("Maximize")
-        self.maximize_btn.clicked.connect(lambda _checked=False: self.callbacks._toggle_maximize())
+        self.maximize_btn.clicked.connect(_drop_checked(self.callbacks._toggle_maximize))
         header_layout.addWidget(self.maximize_btn)
         
         # Close button - gold text
@@ -615,7 +625,7 @@ class TaskbarChrome(TaskbarCollaborator):
             }
         """)
         self.close_btn.setToolTip("Close to tray")
-        self.close_btn.clicked.connect(lambda _checked=False: self.callbacks._hide_to_tray())
+        self.close_btn.clicked.connect(_drop_checked(self.callbacks._hide_to_tray))
         header_layout.addWidget(self.close_btn)
 
     def _build_tab_widget(self, layout):

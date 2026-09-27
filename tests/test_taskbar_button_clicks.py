@@ -4,7 +4,8 @@ The collaborator forwarders on SuiteViewTaskbar and FileExplorerTab accept
 ``*args``, so PyQt passes ``clicked``/``triggered``'s ``checked`` flag to
 them. Forwarding that flag to a no-argument handler raised TypeError, and the
 PolView, Illustration, ABR, Audit, FileNav, screenshot, scratchpad, history,
-maximize, close-to-tray and Quit controls did nothing.
+maximize, close-to-tray and Quit controls did nothing. The Tools menu uses
+``QMenu.addAction(text, slot)``, which passes no flag; it is covered as a guard.
 """
 
 from __future__ import annotations
@@ -81,4 +82,22 @@ def test_header_button_click_reaches_handler(taskbar, monkeypatch, button, handl
 def test_tray_quit_action_reaches_handler(taskbar, monkeypatch):
     spy = _spy_on(taskbar, monkeypatch, "_quit_application")
     taskbar.system_tray._quit_action.trigger()
+    spy.assert_called_once_with()
+
+
+@pytest.mark.parametrize("title,handler", [
+    ("View Screenshots", "_open_screenshot"),
+    ("Administrator", "_open_administrator"),
+    ("Mainframe Navigator", "_open_mainframe"),
+    ("Rate Manager", "_open_rate_manager"),
+    ("DB2 Table Check", "_open_db2_table_check"),
+    ("Email Attachments", "_open_email_attachments"),
+    ("Refresh Permissions", "_refresh_permissions"),
+    ("📁 App Data Location", "_open_app_data_location"),
+])
+def test_tools_menu_action_reaches_handler(taskbar, monkeypatch, title, handler):
+    spy = _spy_on(taskbar, monkeypatch, handler)
+    action = next(a for a in taskbar.chrome.tools_menu.actions() if a.text() == title)
+    action.setEnabled(True)
+    action.trigger()
     spy.assert_called_once_with()
