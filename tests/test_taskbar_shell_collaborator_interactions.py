@@ -345,6 +345,18 @@ def test_folders_history_button_is_connected_to_history_panel(explorer_tab):
     assert tab.folders_history_btn.isChecked()
 
 
+def test_bookmarks_toggle_button_reaches_dual_pane_toggle(explorer_tab, monkeypatch):
+    # FileExplorerTab.toggle_dual_pane forwards *args; clicked's checked flag
+    # must not reach QuickLinksController.toggle_dual_pane(self).
+    tab = explorer_tab.tab
+    spy = Mock()
+    monkeypatch.setattr(tab.quick_links, "toggle_dual_pane", spy)
+
+    tab.navigation.bookmarks_toggle_btn.click()
+
+    spy.assert_called_once_with()
+
+
 def test_quick_links_footer_add_bookmark_and_moves_use_tab_state(explorer_tab, monkeypatch):
     tab = explorer_tab.tab
     tab.custom_quick_links = {

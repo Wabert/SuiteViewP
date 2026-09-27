@@ -13,8 +13,25 @@ from suiteview.core.build_env import app_unavailable_reason
 from suiteview.ui import tokens
 
 logger = logging.getLogger(__name__)
-BRIDGE = (Path(__file__).resolve().parents[3] / "Email Manager"
-          / "outlook-albert" / "bridge.py")
+_BRIDGE_RELATIVE = Path("Email Manager") / "outlook-albert" / "bridge.py"
+
+
+def _find_bridge(start: Path) -> Path:
+    """Locate the Email Manager bridge beside the SuiteView checkout.
+
+    The checkout is normally ``Dev\\SuiteViewP``, but a git worktree lives one
+    level deeper (``Dev\\SuiteViewP.worktrees\\<name>``), so search upward
+    rather than assuming a fixed depth. Returns the conventional location when
+    nothing is found, so the error names the expected path.
+    """
+    for folder in start.parents:
+        candidate = folder / _BRIDGE_RELATIVE
+        if candidate.is_file():
+            return candidate
+    return start.parents[3] / _BRIDGE_RELATIVE
+
+
+BRIDGE = _find_bridge(Path(__file__).resolve())
 ALBERT_BUTTON_GRADIENT = ("#247C75", "#103F3C")
 ALBERT_BUTTON_HOVER = ("#2F9188", "#185B57")
 ALBERT_BUTTON_DISABLED = ("#DFE3E8", "#737B85", "#AAB0B7")

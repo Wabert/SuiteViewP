@@ -181,7 +181,7 @@ class SystemTray(TaskbarCollaborator):
         
         # Store as instance variable to prevent garbage collection
         self._quit_action = QAction("Quit SuiteView", self)
-        self._quit_action.triggered.connect(self.callbacks._quit_application)
+        self._quit_action.triggered.connect(lambda _checked=False: self.callbacks._quit_application())
         tray_menu.addAction(self._quit_action)
         
         # Store tray menu as instance variable too

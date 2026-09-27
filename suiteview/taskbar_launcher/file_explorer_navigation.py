@@ -251,7 +251,7 @@ class NavigationController(FileExplorerController):
                     stop:0 #1E5BA8, stop:1 #082B5C);
             }
         """)
-        self.bookmarks_toggle_btn.clicked.connect(self.tab.toggle_dual_pane)
+        self.bookmarks_toggle_btn.clicked.connect(lambda _checked=False: self.tab.toggle_dual_pane())
         breadcrumb_layout.addWidget(self.bookmarks_toggle_btn)
         
         # Connect history button from Folders header

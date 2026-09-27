@@ -39,6 +39,25 @@ def test_missing_bridge_fails_explicitly(tmp_path, monkeypatch):
         albert_launcher.launch_albert()
 
 
+@pytest.mark.parametrize("checkout", [
+    ("SuiteViewP",),
+    ("SuiteViewP.worktrees", "solid-foundation"),
+])
+def test_bridge_is_found_beside_a_checkout_or_a_worktree(tmp_path, checkout):
+    bridge = tmp_path / "Email Manager" / "outlook-albert" / "bridge.py"
+    bridge.parent.mkdir(parents=True)
+    bridge.write_text("# synthetic\n", encoding="utf-8")
+    module = tmp_path.joinpath(*checkout, "suiteview", "taskbar_launcher", "albert_launcher.py")
+    assert albert_launcher._find_bridge(module) == bridge
+
+
+def test_bridge_error_names_the_conventional_location_when_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr(albert_launcher.Path, "is_file", lambda self: False)
+    module = tmp_path / "Dev" / "SuiteViewP" / "suiteview" / "taskbar_launcher" / "albert_launcher.py"
+    expected = tmp_path / "Dev" / "Email Manager" / "outlook-albert" / "bridge.py"
+    assert albert_launcher._find_bridge(module) == expected
+
+
 def test_packaged_launch_is_blocked_before_permissions_or_subprocess(monkeypatch):
     monkeypatch.setattr(build_env.sys, "frozen", True, raising=False)
     def unexpected(*args, **kwargs):
