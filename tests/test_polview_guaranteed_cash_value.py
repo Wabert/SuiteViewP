@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.values import ValuesSection
 from suiteview.polview.ui.tabs.policy_tab import PolicyTab
 from suiteview.polview.ui.tabs.targets_tab import AccumulatorsWidget
 
@@ -29,8 +30,8 @@ def _policy(row, status="22", issue=date(1994, 7, 6), next_mv=date(2026, 10, 6),
 
     policy.data_item = data_item
     policy.data_item_count = lambda table: 1 if table == "LH_COV_PHA" else 0
-    policy.get_coverages = lambda: [SimpleNamespace(cov_pha_nbr=1, issue_date=issue)]
-    policy._coverage_is_active = lambda cov, as_of=None: active
+    policy.coverages.get_coverages = lambda: [SimpleNamespace(cov_pha_nbr=1, issue_date=issue)]
+    policy.coverages._coverage_is_active = lambda cov, as_of=None: active
     return policy
 
 
@@ -47,7 +48,7 @@ def _nsp_row():
 
 
 def test_cv_rates_are_keyed_from_low_duration():
-    info = _policy(_cv_row()).cov_cash_value_rates(1)
+    info = _policy(_cv_row()).rates.cov_cash_value_rates(1)
 
     assert info["basis"] == "CV"
     assert info["rates"] == {31: Decimal("333.00"), 32: Decimal("351.00"),
@@ -55,7 +56,7 @@ def test_cv_rates_are_keyed_from_low_duration():
 
 
 def test_iswl_gcv_interpolates_by_months_since_anniversary():
-    result = _policy(_cv_row()).guaranteed_cash_value(date(2026, 9, 6))
+    result = _policy(_cv_row()).rates.guaranteed_cash_value(date(2026, 9, 6))
 
     # 25 x (351 x 10 + 369 x 2) / 12
     assert result["value"] == Decimal("8850.00")
@@ -65,16 +66,16 @@ def test_iswl_gcv_interpolates_by_months_since_anniversary():
 
 def test_default_date_is_last_processed_monthliversary(monkeypatch):
     policy = _policy(_cv_row())
-    monkeypatch.setattr(PolicyInformation, "valuation_date",
+    monkeypatch.setattr(ValuesSection, "valuation_date",
                         property(lambda self: date(2003, 9, 11)))
 
-    assert policy.guaranteed_cash_value()["as_of"] == date(2026, 9, 6)
+    assert policy.rates.guaranteed_cash_value()["as_of"] == date(2026, 9, 6)
 
 
 def test_nonforfeiture_uses_nsp_rates():
     policy = _policy(_nsp_row(), status="45", issue=date(1994, 6, 11))
-    info = policy.cov_cash_value_rates(1)
-    result = policy.guaranteed_cash_value(date(2026, 9, 11))
+    info = policy.rates.cov_cash_value_rates(1)
+    result = policy.rates.guaranteed_cash_value(date(2026, 9, 11))
 
     assert (info["basis"], info["nonforfeiture"]) == ("NSP", "RPU")
     assert result["value"] == Decimal("2966.85")
@@ -82,7 +83,7 @@ def test_nonforfeiture_uses_nsp_rates():
 
 def test_duration_outside_stored_window_is_not_calculated():
     row = {**_cv_row(), "LOW_DUR_PER": 12}
-    result = _policy(row).guaranteed_cash_value(date(2026, 9, 6))
+    result = _policy(row).rates.guaranteed_cash_value(date(2026, 9, 6))
 
     assert result["value"] is None
     assert "12-15" in result["reason"]
@@ -90,7 +91,7 @@ def test_duration_outside_stored_window_is_not_calculated():
 
 def test_no_rates_reports_reason():
     row = {"LOW_DUR_PER": 0, **_BLANK_CV, **_ZERO_NSP, "COV_UNT_QTY": "1"}
-    result = _policy(row).guaranteed_cash_value(date(2026, 9, 6))
+    result = _policy(row).rates.guaranteed_cash_value(date(2026, 9, 6))
 
     assert result["value"] is None
     assert result["reason"] == "No stored cash value or NSP rates"
@@ -98,7 +99,7 @@ def test_no_rates_reports_reason():
 
 def test_inactive_coverage_is_excluded_with_reason():
     row = {**_cv_row(), "LOW_DUR_PER": 12}
-    result = _policy(row, status="41", active=False).guaranteed_cash_value(date(2026, 9, 6))
+    result = _policy(row, status="41", active=False).rates.guaranteed_cash_value(date(2026, 9, 6))
 
     assert result["value"] is None
     assert result["reason"] == "Cov 1: coverage not active"
@@ -106,7 +107,7 @@ def test_inactive_coverage_is_excluded_with_reason():
 
 def test_negative_nsp_rate_is_used_not_dropped():
     row = {**_nsp_row(), "LOW_DUR_1_NSP_AMT": "-3.81"}
-    info = _policy(row, status="44").cov_cash_value_rates(1)
+    info = _policy(row, status="44").rates.cov_cash_value_rates(1)
 
     assert info["basis"] == "NSP"
     assert info["rates"][33] == Decimal("-3.81")
@@ -117,16 +118,16 @@ def test_month_end_issue_counts_clamped_monthliversaries():
     policy = _policy(row, issue=date(1994, 1, 31))
 
     # Anniversary 2026-01-31; the Feb 28 monthliversary completes month one.
-    result = policy.guaranteed_cash_value(date(2026, 2, 28))
+    result = policy.rates.guaranteed_cash_value(date(2026, 2, 28))
 
     assert result["details"][0]["months"] == 1
 
 
 def test_unmatched_coverage_record_blocks_value():
     policy = _policy(_cv_row())
-    policy.get_coverages = lambda: []
+    policy.coverages.get_coverages = lambda: []
 
-    result = policy.guaranteed_cash_value(date(2026, 9, 6))
+    result = policy.rates.guaranteed_cash_value(date(2026, 9, 6))
 
     assert result["value"] is None
     assert "coverage record unavailable" in result["reason"]
@@ -135,7 +136,7 @@ def test_unmatched_coverage_record_blocks_value():
 def test_accumulators_label_nsp_basis(qtbot):
     widget = AccumulatorsWidget()
     qtbot.addWidget(widget)
-    gcv = _policy(_nsp_row(), status="45", issue=date(1994, 6, 11)).guaranteed_cash_value(
+    gcv = _policy(_nsp_row(), status="45", issue=date(1994, 6, 11)).rates.guaranteed_cash_value(
         date(2026, 9, 11))
 
     widget.load_data({"gcv": gcv})
@@ -149,6 +150,8 @@ class _RatesPolicy:
 
     def __init__(self, info):
         self._info = info
+        self.rates = self
+        self.coverages = self
 
     def cov_cash_value_rates(self, _index):
         return self._info
@@ -158,7 +161,7 @@ def test_policy_tab_shows_rates_in_play(qtbot):
     tab = PolicyTab()
     qtbot.addWidget(tab)
     tab.show()
-    info = _policy(_nsp_row(), status="44").cov_cash_value_rates(1)
+    info = _policy(_nsp_row(), status="44").rates.cov_cash_value_rates(1)
 
     tab._populate_cash_value_rates(_RatesPolicy(info))
 

@@ -46,7 +46,7 @@ class ProductRules:
             mv_dt = policy._parse_date(policy.data_item("LH_POL_MVRY_VAL", "MVRY_DT"))
             if mv_dt and mv_dt.year < 9999:
                 return mv_dt
-        return policy.traditional_valuation_date()
+        return policy.values.traditional_valuation_date()
 
 
 class TraditionalRules(ProductRules):

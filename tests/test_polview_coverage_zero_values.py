@@ -44,9 +44,9 @@ def _policy(value, vpu=1000, advanced=True):
         ("LH_COV_PHA", "PRD_LIN_TYP_CD"): "U" if advanced else "0",
         ("LH_COV_INS_RNL_RT", "RNL_RT"): value,
     }.get((table, field))
-    policy.cov_renewal_index = lambda *_args: 0
-    policy.renewal_cov_rateclass = lambda *_args: ""
-    policy.benefit_renewal_rate = lambda *_args: (
+    policy.rates.cov_renewal_index = lambda *_args: 0
+    policy.rates.renewal_cov_rateclass = lambda *_args: ""
+    policy.rates.benefit_renewal_rate = lambda *_args: (
         Decimal(str(value)) if value is not None and str(value).strip() else None
     )
     return policy
@@ -58,8 +58,8 @@ def test_coverage_and_benefit_numeric_values_preserve_zero(value, advanced):
     policy = _policy(value, advanced=advanced)
     expected = Decimal(str(value)) if value is not None and str(value).strip() else None
     amount = expected * 1000 if expected is not None else None
-    coverage, = policy.get_coverages()
-    benefit, = policy.get_benefits()
+    coverage, = policy.coverages.get_coverages()
+    benefit, = policy.benefits.get_benefits()
 
     assert coverage.units == expected
     assert coverage.orig_units == expected
@@ -80,8 +80,8 @@ def test_zero_and_missing_value_per_unit_are_distinct(vpu):
     policy = _policy(2, vpu=vpu)
     expected_vpu = Decimal(str(vpu)) if vpu is not None and vpu != "" else None
     expected_amount = 2 * expected_vpu if expected_vpu is not None else None
-    coverage, = policy.get_coverages()
-    benefit, = policy.get_benefits()
+    coverage, = policy.coverages.get_coverages()
+    benefit, = policy.benefits.get_benefits()
 
     assert coverage.vpu == expected_vpu
     assert coverage.face_amount == expected_amount
@@ -103,8 +103,8 @@ def test_coverages_tab_displays_zero_without_filling_missing_values(qtbot, value
     policy = _policy(value, advanced=advanced)
     tab = CoveragesTab()
     qtbot.addWidget(tab)
-    tab._populate_coverages_from_policy(policy, policy.get_coverages())
-    tab._populate_benefits_from_policy(policy.get_benefits())
+    tab._populate_coverages_from_policy(policy, policy.coverages.get_coverages())
+    tab._populate_benefits_from_policy(policy.benefits.get_benefits())
 
     coverage = _cells(tab.cov_table)
     benefit = _cells(tab.bnf_table)
@@ -122,7 +122,7 @@ def test_coverages_tab_displays_zero_without_filling_missing_values(qtbot, value
 
 
 def test_nonrenewing_benefit_keeps_renewal_rate_not_applicable(qtbot):
-    benefit, = _policy(0).get_benefits()
+    benefit, = _policy(0).benefits.get_benefits()
     benefit.renewal_indicator = "0"
     tab = CoveragesTab()
     qtbot.addWidget(tab)
@@ -139,7 +139,7 @@ def test_invalid_coi_renewal_rate_fails_loudly():
     )
 
     with pytest.raises(RuntimeError, match="Failed to build coverage row 0") as err:
-        policy.get_coverages()
+        policy.coverages.get_coverages()
 
     assert isinstance(err.value.__cause__, ValueError)
     assert "Invalid COI renewal rate 'not-a-rate'" in str(err.value.__cause__)

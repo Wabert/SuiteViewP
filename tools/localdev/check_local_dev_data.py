@@ -43,7 +43,7 @@ def main() -> None:
     args = _parse_args()
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache, get_policy_info
+    from suiteview.polview.services.policy_service import clear_cache, get_policy_info
     from suiteview.core.db2_connection import DB2Connection
     from suiteview.illustration.core.calc_engine import IllustrationEngine
 
@@ -62,12 +62,12 @@ def main() -> None:
     loaded = []
     for policy_number in policy_numbers:
         policy_info = get_policy_info(policy_number, region=args.region, use_cache=False)
-        if policy_info is None or not policy_info.exists:
+        if policy_info is None or not policy_info.identity.exists:
             raise RuntimeError(f"PolicyInformation failed for {policy_number}")
         result = {
             "policy": policy_number,
-            "company": policy_info.company_code,
-            "policy_id": policy_info.policy_id,
+            "company": policy_info.identity.company_code,
+            "policy_id": policy_info.identity.policy_id,
         }
         if args.policy_only:
             loaded.append(result)
@@ -76,7 +76,7 @@ def main() -> None:
         illustration_policy = _load_policy_data(
             policy_number,
             region=args.region,
-            company_code=policy_info.company_code,
+            company_code=policy_info.identity.company_code,
         )
         states = _project_with_engine(IllustrationEngine(), illustration_policy, months=2)
         result.update({

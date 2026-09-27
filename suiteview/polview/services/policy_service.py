@@ -4,7 +4,7 @@ Shared Policy Information Service.
 Provides clean, cached access to PolicyInformation for all SuiteView apps.
 Any module in SuiteView can retrieve policy data with a single call:
 
-    from suiteview.core.policy_service import get_policy_info
+    from suiteview.polview.services.policy_service import get_policy_info
 
     pi = get_policy_info("E0213651")
     if pi:

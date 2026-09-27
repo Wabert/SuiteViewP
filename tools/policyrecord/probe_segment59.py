@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from suiteview.core.policy_service import clear_cache, get_policy_info
+from suiteview.polview.services.policy_service import clear_cache, get_policy_info
 from suiteview.polview.models.policy_record_builder import build_segment_lines
 from suiteview.polview.ui.policy_record_viewer import load_screen
 

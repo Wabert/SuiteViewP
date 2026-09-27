@@ -1232,13 +1232,13 @@ class RiderButtonsPanel(QGroupBox):
             # Riders only — base coverage segments (is_base, or phase 1 as a
             # fallback) belong to the base policy, not the rider adjustments.
             coverages = [
-                c for c in (policy.get_coverages() or [])
+                c for c in (policy.coverages.get_coverages() or [])
                 if not (getattr(c, "is_base", False) or c.cov_pha_nbr == 1)
             ]
         except Exception:
             pass
         try:
-            benefits = list(policy.get_benefits() or [])
+            benefits = list(policy.benefits.get_benefits() or [])
         except Exception:
             pass
 

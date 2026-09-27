@@ -147,7 +147,7 @@ class AdvProdValuesTab(QWidget):
             self.policy_info._fields[field].setToolTip("")
 
         try:
-            if not policy.is_advanced_product:
+            if not policy.product.is_advanced_product:
                 return
 
             self._load_policy_info_from_policy(policy)
@@ -171,7 +171,7 @@ class AdvProdValuesTab(QWidget):
             raise
 
     def _load_policy_info_from_policy(self, policy):
-        mvav = policy.mv_av(0)
+        mvav = policy.values.mv_av(0)
         if mvav:
             self.policy_info.set_value("total_av", format_currency(mvav))
 
@@ -192,8 +192,8 @@ class AdvProdValuesTab(QWidget):
         )
         self.policy_info.set_value("impaired_av", format_currency(impaired_total))
 
-        if policy.gav:
-            self.policy_info.set_value("gav", format_currency(policy.gav))
+        if policy.targets.gav:
+            self.policy_info.set_value("gav", format_currency(policy.targets.gav))
 
         ccv_total = self._sum_numeric_rows(
             policy.fetch_table("LH_COV_TARGET"),
@@ -203,33 +203,33 @@ class AdvProdValuesTab(QWidget):
         if ccv_total != 0:
             self.policy_info.set_value("ccv", format_currency(ccv_total))
 
-        if policy.guaranteed_interest_rate:
+        if policy.product.guaranteed_interest_rate:
             try:
-                self.policy_info.set_value("guar_int_rate", f"{float(policy.guaranteed_interest_rate)/100:.2%}")
+                self.policy_info.set_value("guar_int_rate", f"{float(policy.product.guaranteed_interest_rate)/100:.2%}")
             except Exception:
-                self.policy_info.set_value("guar_int_rate", str(policy.guaranteed_interest_rate))
+                self.policy_info.set_value("guar_int_rate", str(policy.product.guaranteed_interest_rate))
 
-        if policy.grace_rule_code:
-            self.policy_info.set_value("grace_rule_code", policy.grace_rule_code)
+        if policy.product.grace_rule_code:
+            self.policy_info.set_value("grace_rule_code", policy.product.grace_rule_code)
 
-        if policy.corridor_percent is not None:
+        if policy.product.corridor_percent is not None:
             try:
-                self.policy_info.set_value("corridor_rate", f"{float(policy.corridor_percent) / 100:.2%}")
+                self.policy_info.set_value("corridor_rate", f"{float(policy.product.corridor_percent) / 100:.2%}")
             except Exception:
-                self.policy_info.set_value("corridor_rate", str(policy.corridor_percent))
+                self.policy_info.set_value("corridor_rate", str(policy.product.corridor_percent))
 
-        if policy.short_pay_premium:
-            self.policy_info.set_value("short_pay_prem", format_currency(policy.short_pay_premium))
-        if policy.short_pay_duration:
-            self.policy_info.set_value("short_pay_dur", str(policy.short_pay_duration))
-            if policy.short_pay_mode:
-                self.policy_info.set_value("short_pay_mode", policy.short_pay_mode)
-            if policy.sp_billing_cease_date:
-                self.policy_info.set_value("sp_billing_cease_date", str(policy.sp_billing_cease_date))
-            if policy.short_pay_premium and policy.sp_prem_cease_age:
-                self.policy_info.set_value("sp_prem_cease_age", str(policy.sp_prem_cease_age))
-        if policy.db_dial_to_age:
-            self.policy_info.set_value("db_dial_to_age", str(policy.db_dial_to_age))
+        if policy.billing.short_pay_premium:
+            self.policy_info.set_value("short_pay_prem", format_currency(policy.billing.short_pay_premium))
+        if policy.billing.short_pay_duration:
+            self.policy_info.set_value("short_pay_dur", str(policy.billing.short_pay_duration))
+            if policy.billing.short_pay_mode:
+                self.policy_info.set_value("short_pay_mode", policy.billing.short_pay_mode)
+            if policy.billing.sp_billing_cease_date:
+                self.policy_info.set_value("sp_billing_cease_date", str(policy.billing.sp_billing_cease_date))
+            if policy.billing.short_pay_premium and policy.billing.sp_prem_cease_age:
+                self.policy_info.set_value("sp_prem_cease_age", str(policy.billing.sp_prem_cease_age))
+        if policy.targets.db_dial_to_age:
+            self.policy_info.set_value("db_dial_to_age", str(policy.targets.db_dial_to_age))
 
     @staticmethod
     def _sum_numeric_rows(rows, amount_field: str, predicate) -> float:
@@ -248,7 +248,8 @@ class AdvProdValuesTab(QWidget):
     def _load_monthliversary_from_policy(self, policy):
         mv_rows = policy.fetch_table("LH_POL_MVRY_VAL")
 
-        issue_date = policy.cov_issue_date(1)
+        coverages = getattr(policy, "coverages", policy)
+        issue_date = coverages.cov_issue_date(1)
         issue_month = issue_date.month if issue_date else 1
         mv_rows = sorted(mv_rows, key=lambda x: str(x.get("MVRY_DT", "")), reverse=True)
 
@@ -341,7 +342,7 @@ class AdvProdValuesTab(QWidget):
 
     def _load_premium_allocation_from_policy(self, policy):
         allocation_rows = []
-        for fund_id, percent in sorted(policy.get_premium_allocation_dict().items()):
+        for fund_id, percent in sorted(policy.values.get_premium_allocation_dict().items()):
             clean_fund_id = str(fund_id).strip()
             try:
                 display_percent = f"{float(percent) / 100:.2%}"

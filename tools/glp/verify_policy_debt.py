@@ -12,7 +12,7 @@ import json
 import sys
 
 sys.path.insert(0, ".")
-from suiteview.core.policy_service import get_policy_info  # noqa: E402
+from suiteview.polview.services.policy_service import get_policy_info  # noqa: E402
 
 
 def main() -> None:
@@ -24,18 +24,18 @@ def main() -> None:
     region = sys.argv[3] if len(sys.argv) > 3 else "CKPR"
 
     pi = get_policy_info(policy, company_code=company, region=region)
-    if not pi or not pi.exists:
+    if not pi or not pi.identity.exists:
         print(json.dumps({"policy": policy, "found": False}))
         return
 
     print(json.dumps({
         "policy": policy,
-        "company": pi.company_code,
-        "tch_pol_id": pi.policy_id,
+        "company": pi.identity.company_code,
+        "tch_pol_id": pi.identity.policy_id,
         "found": True,
-        "total_loan_balance": str(pi.total_loan_balance),
-        "total_loan_principal": str(pi.total_loan_principal),
-        "total_loan_interest": str(pi.total_loan_interest),
+        "total_loan_balance": str(pi.loans.total_loan_balance),
+        "total_loan_principal": str(pi.loans.total_loan_principal),
+        "total_loan_interest": str(pi.loans.total_loan_interest),
     }, indent=2))
 
 

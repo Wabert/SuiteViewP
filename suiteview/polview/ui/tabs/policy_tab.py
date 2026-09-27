@@ -247,15 +247,15 @@ class PolicyTab(QWidget):
 
     def load_data_from_policy(self, policy: 'PolicyInformation', policy_info: dict = None):
         try:
-            if not policy.exists:
+            if not policy.identity.exists:
                 return
             if policy_info is None:
                 policy_info = {
-                    "PolicyID": policy.policy_id,
-                    "PolicyNumber": policy.policy_number,
-                    "CompanyCode": policy.company_code,
-                    "SystemCode": policy.system_code,
-                    "Region": policy.region,
+                    "PolicyID": policy.identity.policy_id,
+                    "PolicyNumber": policy.identity.policy_number,
+                    "CompanyCode": policy.identity.company_code,
+                    "SystemCode": policy.identity.system_code,
+                    "Region": policy.identity.region,
                 }
             self._populate_column1_from_policy(policy, policy_info)
             self._populate_column2_from_policy(policy)
@@ -267,34 +267,34 @@ class PolicyTab(QWidget):
 
     def _populate_column1_from_policy(self, policy, policy_info: dict):
         c = self.col1
-        c.set_value("pol_number", policy_info.get("PolicyNumber", policy.policy_number))
-        c.set_value("company", translate_company_code(str(policy.company_code)))
-        c.set_value("plancode", policy.base_plancode)
+        c.set_value("pol_number", policy_info.get("PolicyNumber", policy.identity.policy_number))
+        c.set_value("company", translate_company_code(str(policy.identity.company_code)))
+        c.set_value("plancode", policy.coverages.base_plancode)
         c.set_value("maj_lob", _registered_field(policy, "major_line_of_business"))
-        prod_line = policy.product_line_code
+        prod_line = policy.product.product_line_code
         c.set_value("prod_line", f"{prod_line} - {translate_product_line_code(prod_line)}")
         c.set_value("an_prd_id", str(_registered_field(policy, "annuity_product_id")))
         c.set_value("non_trd_ind", str(_registered_field(policy, "non_traditional_indicator")))
 
-        state_code = str(policy.issue_state_code or "")
+        state_code = str(policy.product.issue_state_code or "")
         try:
             c.set_value("issue_state", translate_state_code(int(state_code)) if state_code else "")
         except (ValueError, TypeError):
             c.set_value("issue_state", state_code)
         c.set_value("prm_pay_sta", _registered_field(policy, "premium_pay_status_code"))
         c.set_value("sus_cd", _registered_field(policy, "suspense_code", "0"))
-        if policy.is_advanced_product:
+        if policy.product.is_advanced_product:
             grace_val = str(_registered_field(policy, "advanced_grace_indicator", "0") or "0")
         else:
             grace_val = str(_registered_field(policy, "traditional_grace_indicator", "0") or "0")
         c.set_value("in_grace", f"{grace_val} - {translate_grace_indicator(grace_val)}")
-        c.set_value("gpe_date", format_date(policy.grace_period_expiry_date, US_DATE_FMT))
+        c.set_value("gpe_date", format_date(policy.status.grace_period_expiry_date, US_DATE_FMT))
 
-        c.set_value("prm_paid_to", format_date(policy.paid_to_date, US_DATE_FMT))
+        c.set_value("prm_paid_to", format_date(policy.activity.paid_to_date, US_DATE_FMT))
         c.set_value("prm_bill_to", format_date(_registered_field(policy, "premium_paid_to_date", None), US_DATE_FMT))
         c.set_value("app_wrt_dt", format_date(_registered_field(policy, "application_written_date", None), US_DATE_FMT))
-        c.set_value("lst_anv_dt", format_date(policy.last_anniversary, US_DATE_FMT))
-        c.set_value("nxt_bil_dt", format_date(policy.next_bill_date, US_DATE_FMT))
+        c.set_value("lst_anv_dt", format_date(policy.activity.last_anniversary, US_DATE_FMT))
+        c.set_value("nxt_bil_dt", format_date(policy.billing.next_bill_date, US_DATE_FMT))
         c.set_value("nxt_sch_not", format_date(_registered_field(policy, "next_schedule_notice_date", None), US_DATE_FMT))
         c.set_value("nxt_sch_stt", format_date(_registered_field(policy, "next_schedule_start_date", None), US_DATE_FMT))
         c.set_value("nxt_mvry_prc", format_date(_registered_field(policy, "next_monthliversary_date", None), US_DATE_FMT))
@@ -305,7 +305,7 @@ class PolicyTab(QWidget):
         c.set_value("idt_prm_ind", str(_registered_field(policy, "identified_premium_indicator")))
         tfdf = str(_registered_field(policy, "tefra_defra_guideline_indicator"))
         c.set_value("tfdf_gdl", f"{tfdf} - {translate_tefra_defra_ind(tfdf)}" if tfdf else "")
-        decr_rule = policy.decrease_charge_rule
+        decr_rule = policy.support.decrease_charge_rule
         c.set_value(
             "decr_chrg_rule",
             f"{decr_rule} - {translate_decrease_charge_rule(decr_rule)}" if decr_rule else "",
@@ -325,11 +325,11 @@ class PolicyTab(QWidget):
 
     def _populate_billing_fields(self, policy, c) -> None:
         prm_mode = translate_bill_mode_from_frequency(
-            str(policy.billing_frequency or ""),
-            str(policy.non_standard_mode_code or ""),
+            str(policy.billing.billing_frequency or ""),
+            str(policy.billing.non_standard_mode_code or ""),
         )
         c.set_value("prm_mode", prm_mode)
-        c.set_value("modal_prm", format_currency(policy.modal_premium, "$"))
+        c.set_value("modal_prm", format_currency(policy.billing.modal_premium, "$"))
         bil_form = str(policy.field_value("bill_form_code") or "")
         c.set_value("bil_form", translate_bill_form_code(bil_form))
         c.set_value("bil_ctl_nbr", str(policy.field_value("billing_control_number") or ""))
@@ -344,16 +344,16 @@ class PolicyTab(QWidget):
         usr_res = str(policy.field_value("mdo_code") or "")
         c.set_value("mdo", usr_res[:1] if usr_res else "")
         c.set_value("bypass_lapse", usr_res[-1:] if len(usr_res) > 1 else "")
-        c.set_value("mec_status", translate_mec_indicator(policy.mec_indicator))
-        nfo = policy.nfo_code
+        c.set_value("mec_status", translate_mec_indicator(policy.values.mec_indicator))
+        nfo = policy.dividends.nfo_code
         c.set_value(
             "nfo_opt",
-            "Surrender value" if policy.is_advanced_product else f"{nfo} - {policy.nfo_description}",
+            "Surrender value" if policy.product.is_advanced_product else f"{nfo} - {policy.dividends.nfo_description}",
         )
 
     def _populate_dividend_and_mortality_fields(self, policy, c) -> None:
-        pri_div = str(policy.div_option_code or "").strip()
-        c.set_value("pri_div_opt", f"{pri_div} - {policy.div_option_description}" if pri_div else "")
+        pri_div = str(policy.dividends.div_option_code or "").strip()
+        c.set_value("pri_div_opt", f"{pri_div} - {policy.dividends.div_option_description}" if pri_div else "")
         div_2nd = str(policy.field_value("second_dividend_option") or "").strip()
         c.set_value("div_2nd_opt", f"{div_2nd} - {translate_div_option_code(div_2nd)}" if div_2nd else "")
         mtl_tbl_cd = str(policy.field_value("mortality_factor_table") or "").strip()
@@ -381,7 +381,7 @@ class PolicyTab(QWidget):
         for attr in self._CV_RATE_FIELDS:
             c.set_value(attr, "")
             c.set_field_visible(attr, False)
-        info = policy.cov_cash_value_rates(1) if policy.coverage_count else None
+        info = policy.rates.cov_cash_value_rates(1) if policy.coverages.coverage_count else None
         if not info or not info["basis"]:
             c.set_value("cv_rate_basis", "None stored")
             return
@@ -400,7 +400,7 @@ class PolicyTab(QWidget):
     def _populate_column3_from_policy(self, policy, policy_info: dict):
         c = self.col3
         svc_agc = str(policy.data_item("LH_BAS_POL", "SVC_AGC_NBR") or "").strip()
-        company_code = str(policy.company_code)
+        company_code = str(policy.identity.company_code)
         mkt_org_code = svc_agc[:1] if svc_agc else ""
         c.set_value("mkt_org", translate_market_org(company_code, mkt_org_code))
         c.set_value("svc_branch", svc_agc)
@@ -414,7 +414,7 @@ class PolicyTab(QWidget):
         c.set_value("sub_cd", str(policy.data_item("LH_COV_PHA", "LIF_PLN_SUB_SRE_CD") or ""))
         self._populate_loan_fields(policy, c)
         self._populate_mode_factor_fields(policy, c)
-        c.set_value("annual_fee", format_currency(policy.annual_policy_fee, "$"))
+        c.set_value("annual_fee", format_currency(policy.billing.annual_policy_fee, "$"))
 
     def _populate_loan_fields(self, policy, c) -> None:
         ln_typ = str(policy.data_item("LH_BAS_POL", "LN_TYP_CD") or "")

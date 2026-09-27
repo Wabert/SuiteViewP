@@ -395,16 +395,16 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
         if not self._policy_number:
             return None
         try:
-            from suiteview.core.policy_service import get_policy_info
+            from suiteview.polview.services.policy_service import get_policy_info
 
             pi = get_policy_info(
                 self._policy_number,
                 self._region,
                 self._company_code or None,
             )
-            if pi is None or not pi.exists:
+            if pi is None or not pi.identity.exists:
                 self._policy_error = (
-                    pi.last_error if pi is not None and pi.last_error
+                    pi.identity.last_error if pi is not None and pi.identity.last_error
                     else f"Policy {self._policy_number} was not found."
                 )
                 return None
@@ -452,7 +452,7 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
             company = str(getattr(pi, "company_name", "") or "")
             who = f"{region}-{company}" if company else region
             return (
-                f"\u25CF  LIVE  \u2014  {title}  \u2014  {pi.policy_number} ({who})",
+                f"\u25CF  LIVE  \u2014  {title}  \u2014  {pi.identity.policy_number} ({who})",
                 "live",
             )
         if screen.get("live_error"):
@@ -468,7 +468,7 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
             company = str(getattr(pi, "company_name", "") or "")
             who = f"{region}-{company}" if company else region
             text = (
-                f"CyberLife policy record \u2014 {pi.policy_number}  ({who}).  "
+                f"CyberLife policy record \u2014 {pi.identity.policy_number}  ({who}).  "
                 "Tabs show implemented screens with policy data; data-load errors are identified. "
                 "Screens not yet supported are omitted. Hover a value for its source "
                 "mapping; right-click to copy. Scroll down for the record layout."

@@ -4,13 +4,42 @@ PolView usability, policy-record, rates, support and GLP exception behavior that
 
 > Source: moved from the former long-form `Agent.md` so that the canonical standards file can stay concise.
 
+## PolicyInformation sections
+
+`policy_service.get_policy_info()` returns the `PolicyInformation` facade.  The
+facade owns identity, cached `PolicyData` reads and merge/refresh lifecycle; UI
+and services read named facts from lazy cached section objects:
+
+| Section | Reads |
+| --- | --- |
+| `pi.identity` | policy/company/system/region identity and lookup state |
+| `pi.status` | policy status, suspense, premium-pay and grace values |
+| `pi.product` | product family, issue state, product rules and tax-test flags |
+| `pi.billing` | modes, bill form, premiums, fees and short-pay values |
+| `pi.coverages` | base/rider coverage rows, death benefits and underwriting |
+| `pi.benefits` | supplemental benefits |
+| `pi.loans` | loan balances, repayments and debt totals |
+| `pi.values` | monthliversary values, fund buckets, totals, MEC/TAMRA |
+| `pi.targets` | MTP/GLP/GSP/GAV/NSP and target accumulators |
+| `pi.dividends` | dividend options and OYT/PUA/deposit/applied rows |
+| `pi.persons` | persons, insureds and addresses |
+| `pi.agents` | writing/servicing agents, branch and market organization |
+| `pi.activity` | policy timing and financial transactions |
+| `pi.rates` | renewal-rate lookups and UL/WL/fixed-premium matrices |
+| `pi.support` | support-tool export and reinstatement/reinsurance helpers |
+
+`merge_prefetched()` merges the detached worker snapshot into the GUI facade and
+invalidates only sections whose source tables changed. Rendering stages must use
+`policy.cached_reads_only()` so a missing prefetch fails loudly instead of doing
+a GUI-thread database read.
+
 
 ## PolView usability layer
 
 A **badge strip** under the lookup bar shows status badges (non-production
 region code, grace, MEC, loan, reinsurance, product, GPT/CVAT, joint) and
 context-aware suggested support actions — no text summary. It is built from
-named `PolicyInformation` properties read under per-fact `cached_reads_only()`
+named `PolicyInformation` section properties read under per-fact `cached_reads_only()`
 guards (`polview/services/policy_insights.py`): facts not yet prefetched stay
 pending, never a GUI-thread query or a guess. Show the definition of life as
 **GPT**, never "GP" (reads as Grace Period). Optional tabs keep a fixed
@@ -113,7 +142,7 @@ Regressions: N0100046 / FN2VN300 and S1360299 / 1S134F00,
 The Policy tab shows the base coverage's stored 02-segment per-unit window
 (`LH_COV_PHA.LOW_DUR_*_CSV_AMT`, else `LOW_DUR_*_NSP_AMT` for ETI/RPU/paid-up),
 keyed from `LOW_DUR_PER`. Targets & Accumulators interpolates **Guaranteed Cash
-Value** from it through `PolicyInformation.guaranteed_cash_value()`; this serves
+Value** from it through `PolicyInformation.rates.guaranteed_cash_value()`; this serves
 ISWL, where CyberLife 62Q1 errors. Any unvaluable active coverage yields N/A
 with a reason, never a partial total. NSP-basis values are labelled `(NSP)` and
 are not reconciled to a CyberLife nonforfeiture quote. See `docs/POLVIEW_CLAUDE.md`,
@@ -133,7 +162,7 @@ Location persists in the profile's `settings/polview_other_data.json`. See
 ## PolView Single/Joint insured display
 
 PolView Coverages and RERUN's live Policy Single/Joint labels share
-`PolicyInformation.insured_lives_description`, using base phase 1's
+`PolicyInformation.coverages.insured_lives_description`, using base phase 1's
 `LH_COV_PHA.NBR_OF_LIVES_CD` / `FCVLIVES-LIVES`: 1 = Single,
 2 = Joint First to Die, 3 = Joint Second to Die. `number_of_lives_code`
 and `is_joint_insured` use this same source; never infer from person roles
@@ -144,7 +173,7 @@ Live-verified 000321709 / 26 has code 3 and shows Joint Second to Die; see
 
 ## PolView / RERUN Decrease Charge Rule
 
-`PolicyInformation.decrease_charge_rule` reads live-verified
+`PolicyInformation.support.decrease_charge_rule` reads live-verified
 `TH_NON_TRD_POL.DECR_CHRG_ALLOW` (CyberLife FULDRRUL, segment 66):
 `1` = specified decreases assess a partial surrender charge, `0` = they do not.
 Blank/NUL-padded rows are unset (`""`); `decrease_charge_allowed` returns

@@ -10,7 +10,7 @@ import pytest
 import pyodbc
 from PyQt6.QtCore import Qt
 
-from suiteview.core import policy_service
+from suiteview.polview.services import policy_service
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.polview.models.policy_data import CachedReadError, _ConnectionManager
 from suiteview.polview.services import policy_prefetch as prefetch
@@ -244,8 +244,8 @@ def test_worker_owns_connections_and_snapshots_are_plain_independent(source):
     assert "LH_CTT_CLIENT" not in initial.policy._data._table_cache
     assert "VH_POL_HAS_LOC_CLT" not in initial.policy._data._table_cache
     assert "VH_POL_HAS_LOC_CLT" in later.policy._data._table_cache
-    initial.policy.get_coverages()[0].raw_data["COV_UNT_QTY"] = 999
-    assert later.policy.get_coverages()[0].raw_data["COV_UNT_QTY"] == 100
+    initial.policy.coverages.get_coverages()[0].raw_data["COV_UNT_QTY"] = 999
+    assert later.policy.coverages.get_coverages()[0].raw_data["COV_UNT_QTY"] == 100
     assert not {"FH_FIXED", "LH_CSH_VAL_LOAN", "LH_FND_VAL_LOAN",
                 "LH_UNAPPLIED_PTP", "LH_TAMRA_7_PY_YR"} & initial.policy._data._table_cache.keys()
 
@@ -283,10 +283,10 @@ def test_missing_monthliversary_value_never_probes_an_invented_table(source, qtb
         widget = CoveragesTab()
         qtbot.addWidget(widget)
         with policy.cached_reads_only():
-            assert policy.accumulation_value == expected
-            assert policy.current_account_value == expected
-            assert policy.cash_surrender_value == expected
-            assert policy.net_amount_at_risk is None
+            assert policy.values.accumulation_value == expected
+            assert policy.coverages.current_account_value == expected
+            assert policy.values.cash_surrender_value == expected
+            assert policy.values.net_amount_at_risk is None
             widget.load_data_from_policy(policy)
         assert not policy._data._table_errors
         assert all("TH_POL_MVRY_VAL" not in sql
@@ -304,8 +304,8 @@ def test_net_amount_at_risk_reads_recorded_monthliversary_nar(source):
         session.load_initial()
         policy = session.prepare("advprod").policy
         with policy.cached_reads_only():
-            assert policy.net_amount_at_risk == 99875
-            assert policy.cash_surrender_value == 125
+            assert policy.values.net_amount_at_risk == 99875
+            assert policy.values.cash_surrender_value == 125
         assert all("TH_POL_MVRY_VAL" not in sql
                    for sql, _, _ in source.connections[0].calls)
     finally:
@@ -338,8 +338,8 @@ def test_single_joint_uses_number_of_lives_in_both_policy_displays(
         qtbot.addWidget(tab)
         calls_before_render = len(source.connections[0].calls)
         with policy.cached_reads_only():
-            assert policy.number_of_lives_code == str(number_of_lives).strip()
-            assert policy.is_joint_insured == (expected != "Single")
+            assert policy.coverages.number_of_lives_code == str(number_of_lives).strip()
+            assert policy.coverages.is_joint_insured == (expected != "Single")
             tab.load_data_from_policy(policy)
         assert tab.joint_label.text() == expected
         assert "LH_CTT_CLIENT" not in policy._data._table_cache
@@ -348,7 +348,7 @@ def test_single_joint_uses_number_of_lives_in_both_policy_displays(
         rerun = IllustrationPolicyTab()
         qtbot.addWidget(rerun)
         with session._scope():
-            rerun._coverages = policy.get_coverages()
+            rerun._coverages = policy.coverages.get_coverages()
             rerun._populate_policy_info(policy, {})
         assert rerun.policy_info.get_value("joint_label") == expected
         for widget, label in (
@@ -373,7 +373,7 @@ def test_missing_or_invalid_number_of_lives_is_not_assumed_single(source, code):
             session.load_initial()
         with session._scope():
             with pytest.raises(ValueError, match="NBR_OF_LIVES_CD"):
-                _ = session._policy.is_joint_insured
+                _ = session._policy.coverages.is_joint_insured
     finally:
         session.close()
 
@@ -388,9 +388,9 @@ def test_number_of_lives_uses_phase_one_not_first_row_or_riders(source):
     try:
         policy = session.load_initial().policy
         with policy.cached_reads_only():
-            assert policy.number_of_lives_code == "3"
-            assert policy.is_joint_insured
-            assert policy.insured_lives_description == "Joint Second to Die"
+            assert policy.coverages.number_of_lives_code == "3"
+            assert policy.coverages.is_joint_insured
+            assert policy.coverages.insured_lives_description == "Joint Second to Die"
     finally:
         session.close()
 
@@ -436,7 +436,7 @@ def test_guard_raises_when_loader_swallows_missing_or_failed_table(source):
                 pass
     with pytest.raises(CachedReadError, match="Rates"):
         with policy.cached_reads_only():
-            policy._get_rates()
+            policy.rates._get_rates()
     session.close()
 
 
@@ -485,15 +485,15 @@ def test_company_chooser_pending_and_not_found(source, monkeypatch, companies, s
     session = prefetch.PolicyLoadSession("TEST")
     result = session.load_initial()
     if len(companies) > 1:
-        assert result.policy.available_companies == companies
-        assert not result.policy.exists
+        assert result.policy.identity.available_companies == companies
+        assert not result.policy.identity.exists
         assert len(connection.calls) == 1
     elif companies:
-        assert result.policy.exists
-        assert result.policy.system_code == "P"
+        assert result.policy.identity.exists
+        assert result.policy.identity.system_code == "P"
     else:
-        assert not result.policy.exists
-        assert "not found" in result.policy.last_error
+        assert not result.policy.identity.exists
+        assert "not found" in result.policy.identity.last_error
     session.close()
 
 
@@ -553,7 +553,7 @@ def test_pending_seed_preserves_system_and_catches_swallowed_render_reads(source
         "test", "ckpr", "01", seed=seed, system_code="p",
     )
     result = session.load_initial()
-    assert result.policy.system_code == "P"
+    assert result.policy.identity.system_code == "P"
     assert ("TEST", "01", "P", "CKPR") in session._cache
     assert ("TEST", "01", "I", "CKPR") not in session._cache
     assert len(source.connections) == 1
@@ -570,7 +570,7 @@ def test_pending_seed_preserves_system_and_catches_swallowed_render_reads(source
 def test_explicit_system_without_seed_does_not_fallback(source):
     session = prefetch.PolicyLoadSession("TEST", system_code="P")
     result = session.load_initial()
-    assert not result.policy.exists
+    assert not result.policy.identity.exists
     connection = source.connections[0]
     assert len(connection.calls) == 1
     assert connection.calls[0][1][0] == "P"
@@ -578,10 +578,12 @@ def test_explicit_system_without_seed_does_not_fallback(source):
 
 
 def test_swallowed_dependency_error_still_fails_initial_and_retries(source, monkeypatch):
+    from suiteview.polview.models.policy_sections.coverages import CoveragesSection
+
     connection = Connection(source.tables)
     connection.fail.add("TH_SST_XTR_CRG")
     monkeypatch.setattr(prefetch, "_open_connection", lambda region: connection)
-    original = prefetch.PolicyInformation.get_coverages
+    original = CoveragesSection.get_coverages
 
     def swallow(self):
         try:
@@ -590,13 +592,13 @@ def test_swallowed_dependency_error_still_fails_initial_and_retries(source, monk
             pass
         return original(self)
 
-    monkeypatch.setattr(prefetch.PolicyInformation, "get_coverages", swallow)
+    monkeypatch.setattr(CoveragesSection, "get_coverages", swallow)
     session = prefetch.PolicyLoadSession("TEST")
     with pytest.raises(RuntimeError, match="TH_SST_XTR_CRG offline"):
         session.load_initial()
     connection.fail.clear()
     result = session.load_initial()
-    assert result.policy.get_coverages()
+    assert result.policy.coverages.get_coverages()
     assert not result.policy._data._table_errors
     session.close()
 
@@ -666,7 +668,7 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
     unavailable = session.prepare("advprod")
     assert isinstance(unavailable.payload, prefetch.SurrenderValuesUnavailable)
     assert "Missing surrender rates" in unavailable.payload.reason
-    assert unavailable.policy.mv_av(0) == 200
+    assert unavailable.policy.values.mv_av(0) == 200
     assert observed == ["build", "project", "build"]
     session.close()
 
@@ -869,7 +871,7 @@ def test_support_prefetch_only_eligibility_and_applicable_annuity(source, monkey
     assert ("FH_FIXED" in result.policy._data._table_cache) is annuity_rider
     with result.policy.cached_reads_only():
         glp_exception.is_glp_exception_eligible(result.policy)
-        assert result.policy.has_annuity_rider is annuity_rider
+        assert result.policy.coverages.has_annuity_rider is annuity_rider
         if annuity_rider:
             widget = AnnuityRiderTab()
             qtbot.addWidget(widget)

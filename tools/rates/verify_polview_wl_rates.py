@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.core.json_store import write_json
 from suiteview.core.local_dev import local_data_enabled
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 
 
 def capture(policy, index, expected_result, output):
@@ -29,7 +29,7 @@ def capture(policy, index, expected_result, output):
     window = GetPolicyWindow(enable_policy_list=False)
     try:
         window._policy = policy
-        window.lookup_bar.set_policy_display(policy.company_code, policy.policy_number, policy.region)
+        window.lookup_bar.set_policy_display(policy.identity.company_code, policy.identity.policy_number, policy.identity.region)
         window.records_tree.enable_rates_tab(policy)
         window.records_tree.show_rates_tab()
         window._toggle_tree_panel()
@@ -75,9 +75,9 @@ def main():
         config["policy"], region=config.get("region", "CKPR"),
         company_code=config.get("company"), use_cache=False,
     )
-    if policy is None or not policy.exists:
+    if policy is None or not policy.identity.exists:
         raise RuntimeError("Policy was not found or live policy access failed.")
-    if policy.is_advanced_product or policy.product_type != "WL":
+    if policy.product.is_advanced_product or policy.product.product_type != "WL":
         raise RuntimeError("Select a traditional Whole Life policy.")
     index = config.get("coverage", 1)
     expected = config.get("expected", {})
@@ -87,22 +87,22 @@ def main():
             raise ValueError("expected.message must be a nonempty string.")
         capture(policy, index, message, config.get("screenshot"))
         report = {
-            "all_ok": True, "policy": policy.policy_number, "company": policy.company_code,
-            "coverage": index, "premium_pay_status": policy.premium_pay_status_description,
+            "all_ok": True, "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+            "coverage": index, "premium_pay_status": policy.status.premium_pay_status_description,
             "message": message,
         }
         if config.get("output"):
             write_json(config["output"], report)
         print(json.dumps(report, indent=2))
         return
-    key, age = policy.cov_cash_value_key(index), policy.cov_issue_age(index)
-    rates = policy._get_rates()
+    key, age = policy.rates.cov_cash_value_key(index), policy.coverages.cov_issue_age(index)
+    rates = policy.rates._get_rates()
     try:
-        matrix = policy.build_coverage_rate_matrix(index)
+        matrix = policy.rates.build_coverage_rate_matrix(index)
         if not matrix:
             raise RuntimeError(
-                f"No cash-value schedule for user {policy.cyberlife_rate_user_code} "
-                f"(company {policy.company_code}), key {key}, age {age}."
+                f"No cash-value schedule for user {policy.rates.cyberlife_rate_user_code} "
+                f"(company {policy.identity.company_code}), key {key}, age {age}."
             )
         duration_column = matrix[0].index("Duration")
         rate_column = matrix[0].index("CV")
@@ -116,7 +116,7 @@ def main():
                 "SELECT [DURATION], [RATE] FROM [WL_RATE_CV] "
                 "WHERE [USER_CODE] = ? AND [RATE_KEY] = ? AND [ISSUE_AGE] = ? "
                 "AND [USER_DEFINED] = ? ORDER BY [DURATION]",
-                [policy.cyberlife_rate_user_code, key, age, ""],
+                [policy.rates.cyberlife_rate_user_code, key, age, ""],
             ).fetchall()
         finally:
             cursor.close()
@@ -130,9 +130,9 @@ def main():
             if actual.get(int(duration)) != Decimal(value):
                 raise RuntimeError(f"Unexpected cash-value rate at duration {duration}.")
         report = {
-            "all_ok": True, "policy": policy.policy_number, "company": policy.company_code,
-            "coverage": index, "plancode": policy.cov_plancode(index), **observed,
-            "user_code": policy.cyberlife_rate_user_code,
+            "all_ok": True, "policy": policy.identity.policy_number, "company": policy.identity.company_code,
+            "coverage": index, "plancode": policy.coverages.cov_plancode(index), **observed,
+            "user_code": policy.rates.cyberlife_rate_user_code,
             "user_defined": "", "source": "WL_RATE_CV",
             "first_duration": min(actual), "last_duration": max(actual),
             "database_matches_display": True,

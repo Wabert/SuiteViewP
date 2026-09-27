@@ -45,8 +45,8 @@ def _check_case(app, case, screenshot_dir):
             policy_tab.load_data_from_policy(policy_stage)
         with targets_stage.cached_reads_only():
             targets_tab.load_data_from_policy(targets_stage)
-            gcv = targets_stage.guaranteed_cash_value()
-            rates = targets_stage.cov_cash_value_rates(1)
+            gcv = targets_stage.rates.guaranteed_cash_value()
+            rates = targets_stage.rates.cov_cash_value_rates(1)
 
         c = policy_tab.col2
         rate_rows = [
@@ -77,8 +77,8 @@ def _check_case(app, case, screenshot_dir):
                     raise RuntimeError(f"Could not save screenshot: {path}")
 
         return {
-            "policy": case["policy"], "company": targets_stage.company_code,
-            "status": targets_stage.premium_pay_status_code,
+            "policy": case["policy"], "company": targets_stage.identity.company_code,
+            "status": targets_stage.status.premium_pay_status_code,
             "ok": not failures, "failures": failures,
             "basis_display": c.get_value("cv_rate_basis"), "rate_rows": rate_rows,
             "gcv_display": displayed, "as_of": str(gcv["as_of"]),

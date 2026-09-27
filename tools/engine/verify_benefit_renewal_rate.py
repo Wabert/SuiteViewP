@@ -42,22 +42,22 @@ def main():
     results = {}
 
     # Exact match -> 0.34 / 100000 (RNL_RT is stored scaled)
-    r = pi.benefit_renewal_rate(1, "7", "6", "B")
+    r = pi.rates.benefit_renewal_rate(1, "7", "6", "B")
     results["match_7_6_phase1_B"] = str(r)
     assert r == Decimal("0.34") / 100000, r
 
     # ABR14-style benefit with no B row -> None (blank)
-    r = pi.benefit_renewal_rate(1, "4", "1", "B")
+    r = pi.rates.benefit_renewal_rate(1, "4", "1", "B")
     results["no_B_row_for_4_1_phase1"] = r
     assert r is None, r
 
     # Different phase benefit that does have a B row
-    r = pi.benefit_renewal_rate(2, "4", "1", "B")
+    r = pi.rates.benefit_renewal_rate(2, "4", "1", "B")
     results["match_4_1_phase2_B"] = str(r)
     assert r == Decimal("2.22") / 100000, r
 
     # Wrong rate type only (C exists, no B) for a fabricated benefit -> None
-    r = pi.benefit_renewal_rate(1, "7", "9", "B")
+    r = pi.rates.benefit_renewal_rate(1, "7", "9", "B")
     results["no_match_7_9"] = r
     assert r is None, r
 

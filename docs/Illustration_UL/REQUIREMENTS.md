@@ -647,7 +647,7 @@ suiteview/illustration/
 ### 11.3 Existing Infrastructure to Leverage
 | Component | Module | Status |
 |---|---|---|
-| Policy data retrieval | `suiteview.core.policy_service` | ✅ Ready |
+| Policy data retrieval | `suiteview.polview.services.policy_service` | ✅ Ready |
 | UL rate lookups (20+ types) | `suiteview.core.rates` | ✅ Ready |
 | DB2 connectivity | `suiteview.core.db2_connection` | ✅ Ready |
 | PyQt6 UI framework | `suiteview.ui.*` | ✅ Ready |

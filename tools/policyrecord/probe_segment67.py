@@ -11,7 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.models.policy_record_builder import build_segment_lines
 from suiteview.polview.ui.policy_record_viewer import load_screen
 
@@ -33,7 +33,7 @@ def main() -> int:
         args.policy.strip().upper(), region=args.region.strip().upper(),
         company_code=args.company.strip().upper(),
     )
-    if pi is None or not pi.exists:
+    if pi is None or not pi.identity.exists:
         raise RuntimeError(f"Policy {args.policy} was not found.")
     tables = (
         "LH_COV_INS_RNL_PER", "LH_COV_INS_RNL_RT", "LH_BNF_INS_RNL_RT",
@@ -43,7 +43,7 @@ def main() -> int:
     sources = {table: pi.fetch_table(table) for table in tables}
     lines = build_segment_lines("67", pi, load_screen("67"))
     result = {
-        "policy": pi.policy_number,
+        "policy": pi.identity.policy_number,
         "sources": sources,
         "live": lines is not None,
         "lines": lines,

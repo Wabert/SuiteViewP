@@ -20,7 +20,7 @@ from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
-from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.rates import RatesSection
 from suiteview.polview.services import glp_exception
 from suiteview.polview.services import policy_insights
 from suiteview.polview.services import reinstatement as rein
@@ -47,11 +47,11 @@ def _golden_text(value) -> str:
 
 
 class _MatrixPolicy:
-    build_coverage_rate_matrix = PolicyInformation.build_coverage_rate_matrix
-    build_policy_rate_matrix = PolicyInformation.build_policy_rate_matrix
-    build_benefit_rate_matrix = PolicyInformation.build_benefit_rate_matrix
-    _whole_dollars = staticmethod(PolicyInformation._whole_dollars)
-    _translate_sex_for_rates = PolicyInformation._translate_sex_for_rates
+    build_coverage_rate_matrix = RatesSection.build_coverage_rate_matrix
+    build_policy_rate_matrix = RatesSection.build_policy_rate_matrix
+    build_benefit_rate_matrix = RatesSection.build_benefit_rate_matrix
+    _whole_dollars = staticmethod(RatesSection._whole_dollars)
+    _translate_sex_for_rates = RatesSection._translate_sex_for_rates
 
     policy_number = "U9990001"
     company_code = "01"
@@ -59,6 +59,33 @@ class _MatrixPolicy:
     is_advanced_product = True
     product_rules = SimpleNamespace(rate_family="UL", is_advanced=True)
     issue_state = "TX"
+
+    @property
+    def identity(self):
+        return self
+
+    @property
+    def product(self):
+        return self
+
+    @property
+    def coverages(self):
+        return self
+
+    @property
+    def benefits(self):
+        return self
+
+    @property
+    def rates(self):
+        return self
+
+    @property
+    def status(self):
+        return self
+
+    def _product_rules_for_rate_display(self):
+        return self.product_rules
 
     def cov_issue_date(self, _index):
         return date(2020, 1, 15)
@@ -152,9 +179,9 @@ class _MatrixPolicy:
 def _matrix_payload():
     policy = _MatrixPolicy()
     return {
-        "coverage": policy.build_coverage_rate_matrix(1),
-        "policy": policy.build_policy_rate_matrix(),
-        "benefit": policy.build_benefit_rate_matrix(1),
+        "coverage": policy.rates.build_coverage_rate_matrix(1),
+        "policy": policy.rates.build_policy_rate_matrix(),
+        "benefit": policy.rates.build_benefit_rate_matrix(1),
     }
 
 

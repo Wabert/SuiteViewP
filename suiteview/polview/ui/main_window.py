@@ -30,7 +30,7 @@ from suiteview.ui.access_control import requires_app_access
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import REGION_DSN_MAP
 from suiteview.core.odbc_utils import is_password_error
-from suiteview.core.policy_service import cache_policy_info, remove_from_cache
+from suiteview.polview.services.policy_service import cache_policy_info, remove_from_cache
 from ..models.policy_information import PolicyInformation
 
 from .styles import (
@@ -543,24 +543,24 @@ class GetPolicyWindow(FramelessWindowBase):
     def _refresh_summary(self):
         """Rebuild the at-a-glance strip from whatever data has arrived."""
         policy = self._policy
-        if policy is None or not policy.exists:
+        if policy is None or not policy.identity.exists:
             return
         summary = build_policy_summary(policy)
         tools = support_tool_availability(policy)
         self.summary_strip.set_summary(summary, suggested_actions(policy, summary, tools))
         self.summary_strip.set_notes_count(
-            self._notes_store.count(policy.company_code, policy.policy_number))
+            self._notes_store.count(policy.identity.company_code, policy.identity.policy_number))
         self.policy_support_tab.apply_tool_availability(tools)
-        region = policy.region or ""
+        region = policy.identity.region or ""
         base_title = "SuiteView:  PolView"
         self.set_title(base_title if region in ("", "CKPR") else f"{base_title}   ·   {region} (non-production)")
-        marker = (policy.policy_number, policy.company_code, policy.region, summary.insured_name)
+        marker = (policy.identity.policy_number, policy.identity.company_code, policy.identity.region, summary.insured_name)
         if marker != self._recent_recorded:
             self._recent_recorded = marker
             try:
                 self._recent_store.record(
-                    policy=policy.policy_number, company=policy.company_code,
-                    region=policy.region, insured=summary.insured_name or "",
+                    policy=policy.identity.policy_number, company=policy.identity.company_code,
+                    region=policy.identity.region, insured=summary.insured_name or "",
                     plancode=summary.plancode or "",
                 )
                 self._refresh_recent_completer()
@@ -589,12 +589,12 @@ class GetPolicyWindow(FramelessWindowBase):
 
     @pyqtSlot()
     def _open_policy_notes(self):
-        if self._policy is None or not self._policy.exists:
+        if self._policy is None or not self._policy.identity.exists:
             self._show_status("Load a policy to see its notes")
             return
         from .polview_dialogs import PolicyNotesDialog
 
-        dialog = PolicyNotesDialog(self._policy.company_code, self._policy.policy_number,
+        dialog = PolicyNotesDialog(self._policy.identity.company_code, self._policy.identity.policy_number,
                                    self, store=self._notes_store)
         dialog.notes_changed.connect(self.summary_strip.set_notes_count)
         self._keep_dialog(dialog)
@@ -607,7 +607,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
     @pyqtSlot()
     def _open_timeline(self):
-        if self._policy is None or not self._policy.exists:
+        if self._policy is None or not self._policy.identity.exists:
             self._show_status("Load a policy to see its timeline")
             return
         from datetime import date as _date
@@ -616,7 +616,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
         policy = self._policy
         dialog = TimelineDialog(
-            f"Timeline · {policy.company_code} - {policy.policy_number}",
+            f"Timeline · {policy.identity.company_code} - {policy.identity.policy_number}",
             build_policy_timeline(policy), _date.today(), self,
         )
         self._keep_dialog(dialog)
@@ -763,7 +763,7 @@ class GetPolicyWindow(FramelessWindowBase):
                 self.list_toggle_btn.setChecked(True)
 
     def _is_current_policy(self, region: str, company: str, policy: str) -> bool:
-        if not self._policy or not self._policy.exists:
+        if not self._policy or not self._policy.identity.exists:
             return False
         current_company = str(self._policy_info.get("CompanyCode", "")).strip()
         return (
@@ -818,7 +818,7 @@ class GetPolicyWindow(FramelessWindowBase):
         for k in keys_to_remove:
             remove_from_cache(
                 k[0], region=k[1], company_code=k[2],
-                system_code=self._policy_cache[k]["policy"].system_code,
+                system_code=self._policy_cache[k]['policy'].identity.system_code,
             )
             del self._policy_cache[k]
 
@@ -898,7 +898,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self._show_status("Policy Library tab opened")
 
     def _show_reinstatement_tab(self):
-        if self._policy is None or not self._policy.exists:
+        if self._policy is None or not self._policy.identity.exists:
             QMessageBox.information(self, "UL Reinstatement", "Please load a policy first.")
             return
         if not is_ul_policy(self._policy):
@@ -961,7 +961,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
     def _show_annuity_rider_tab(self, coverage=None):
         """Focus the embedded Annuity Rider section for eligible rider coverage."""
-        if not self._policy or not self._policy.exists:
+        if not self._policy or not self._policy.identity.exists:
             return
 
         if coverage is not None:
@@ -1086,27 +1086,27 @@ class GetPolicyWindow(FramelessWindowBase):
         policy = prepared.policy
         if stage == "coverages":
             number, region, _company = self._requested_policy
-            if policy.available_companies:
+            if policy.identity.available_companies:
                 self.lookup_bar.show_company_chooser(
-                    policy.available_companies, number, region,
+                    policy.identity.available_companies, number, region,
                 )
                 self._show_initial_notice("Select a company above to finish loading this policy.")
                 return
-            if not policy.exists:
-                self._on_load_failed(token, stage, policy.last_error or "Policy not found.")
+            if not policy.identity.exists:
+                self._on_load_failed(token, stage, policy.identity.last_error or "Policy not found.")
                 return
             self._policy = policy
-            self._current_policy = policy.policy_number
-            self._current_region = policy.region
+            self._current_policy = policy.identity.policy_number
+            self._current_region = policy.identity.region
             self._policy_info = {
-                "PolicyID": policy.policy_id, "PolicyNumber": policy.policy_number,
-                "CompanyCode": policy.company_code, "SystemCode": policy.system_code,
-                "Region": policy.region,
+                "PolicyID": policy.identity.policy_id, "PolicyNumber": policy.identity.policy_number,
+                "CompanyCode": policy.identity.company_code, "SystemCode": policy.identity.system_code,
+                "Region": policy.identity.region,
             }
             self._where_clause = (
-                f"CK_SYS_CD = '{policy.system_code}' "
-                f"AND TCH_POL_ID = '{policy.policy_id}' "
-                f"AND CK_CMP_CD = '{policy.company_code}'"
+                f"CK_SYS_CD = '{policy.identity.system_code}' "
+                f"AND TCH_POL_ID = '{policy.identity.policy_id}' "
+                f"AND CK_CMP_CD = '{policy.identity.company_code}'"
             )
             store_key = self._current_aux_key()
             was_viewed = store_key in self._policy_cache
@@ -1116,11 +1116,11 @@ class GetPolicyWindow(FramelessWindowBase):
                 "where_clause": self._where_clause,
             }
             cache_policy_info(policy)
-            self._db = DB2Connection(policy.region)
-            self._add_policy_to_history(policy.region, policy.company_code, policy.policy_number)
+            self._db = DB2Connection(policy.identity.region)
+            self._add_policy_to_history(policy.identity.region, policy.identity.company_code, policy.identity.policy_number)
             self.lookup_bar.set_policy_display(
-                policy.company_code, policy.policy_number, policy.region,
-                is_pending=policy.system_code == "P",
+                policy.identity.company_code, policy.identity.policy_number, policy.identity.region,
+                is_pending=policy.identity.system_code == "P",
             )
             self.records_tree.reset_for_new_policy()
             self.records_tree.enable_rates_tab(policy)
@@ -1151,7 +1151,7 @@ class GetPolicyWindow(FramelessWindowBase):
             logger.info("PolView Coverages ready in %.3fs; details loading asynchronously", elapsed)
             flash = " ⚡" if elapsed < 1.0 else ""
             self._show_status(
-                f"{policy.policy_number} ({policy.company_code}) ready in {elapsed:.1f}s{flash}"
+                f"{policy.identity.policy_number} ({policy.identity.company_code}) ready in {elapsed:.1f}s{flash}"
                 " - loading details in background"
             )
             self._refresh_summary()
@@ -1177,14 +1177,14 @@ class GetPolicyWindow(FramelessWindowBase):
         """No data queries: optional tabs remain pending until their worker result."""
         with QSignalBlocker(self.tabs):
             self._clear_reinstatement_tab()
-        if not self._policy or not self._policy.exists:
+        if not self._policy or not self._policy.identity.exists:
             return False
         selected = self.tabs.currentWidget()
         with QSignalBlocker(self.tabs):
             for index in range(self.tabs.count()):
                 self.tabs.setTabEnabled(index, True)
             rules = getattr(self._policy, "product_rules", None)
-            advanced = rules.is_advanced if rules is not None else self._policy.is_advanced_product
+            advanced = rules.is_advanced if rules is not None else self._policy.product.is_advanced_product
             if not advanced:
                 self._mark_tab_unavailable("advprod")
             if not self.tabs.isTabEnabled(self.tabs.indexOf(selected)):
@@ -1325,7 +1325,7 @@ class GetPolicyWindow(FramelessWindowBase):
             return
         failures = [key for key, state in self._tab_states.items() if state == "failed"]
         self._show_status(
-            f"{self._policy.policy_number} - "
+            f"{self._policy.identity.policy_number} - "
             + (f"{len(failures)} tab(s) unavailable; open a marked tab to retry"
                if failures else "Background data ready")
         )

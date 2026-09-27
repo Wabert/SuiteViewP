@@ -943,9 +943,9 @@ class PolicySupportTab(QWidget):
             self._category_list.setEnabled(True)
             self._populate_category_list()
 
-        product_type = policy.product_type
-        company_code = policy.company_code
-        policy_number = policy.policy_number
+        product_type = policy.product.product_type
+        company_code = policy.identity.company_code
+        policy_number = policy.identity.policy_number
 
         if self._current_mode == self.MODE_ABR:
             # ABR mode: point to the ABR Policies folder
@@ -1113,7 +1113,7 @@ class PolicySupportTab(QWidget):
         if not hasattr(self, "_glp_forecast_status_label"):
             return
         self._clear_glp_exception_results()
-        if not self._policy or not self._policy.exists:
+        if not self._policy or not self._policy.identity.exists:
             self._set_glp_status("Load an eligible policy to check forecast data")
             self._glp_calculate_btn.setEnabled(False)
             return
@@ -1138,7 +1138,7 @@ class PolicySupportTab(QWidget):
         if not hasattr(self, "_forecast_status_label"):
             return
         self._clear_forecast_results()
-        if not self._policy or not self._policy.exists:
+        if not self._policy or not self._policy.identity.exists:
             self._set_forecast_status("Load an eligible policy to check forecast data")
             self._forecast_calculate_btn.setEnabled(False)
             return
@@ -1908,12 +1908,12 @@ class PolicySupportTab(QWidget):
 
     @staticmethod
     def _has_annuity_rider(policy: Optional['PolicyInformation']) -> bool:
-        if not policy or not policy.exists:
+        if not policy or not policy.identity.exists:
             return False
         try:
             return any(
                 str(getattr(coverage, "plancode", "")).strip().upper() == RIDER_PLANCODE
-                for coverage in policy.get_coverages()
+                for coverage in policy.coverages.get_coverages()
             )
         except Exception:
             return False
@@ -2096,7 +2096,7 @@ class PolicySupportTab(QWidget):
                 self._subfolder_explorer.set_root(self._policy_support_folder_path)
                 self._create_folder_btn.setVisible(False)
                 if self._policy:
-                    cc, pn = self._policy.company_code, self._policy.policy_number
+                    cc, pn = self._policy.identity.company_code, self._policy.identity.policy_number
                     self._policy_folder_label.setText(f"{cc}_{pn}")
                     self._policy_folder_label.setStyleSheet(
                         f"font-size: 11px; color: {GREEN_DARK}; font-weight: bold; "
@@ -2129,7 +2129,7 @@ class PolicySupportTab(QWidget):
 
         filename = workbook_filename(os.path.basename(source_path))
         if self._policy:
-            dest_filename = f"{self._policy.policy_number} - {filename}"
+            dest_filename = f"{self._policy.identity.policy_number} - {filename}"
         else:
             dest_filename = filename
 
@@ -2167,7 +2167,7 @@ class PolicySupportTab(QWidget):
             )
             self._create_folder_btn.setVisible(False)
             if self._policy:
-                cc, pn = self._policy.company_code, self._policy.policy_number
+                cc, pn = self._policy.identity.company_code, self._policy.identity.policy_number
                 self._policy_folder_label.setText(f"{cc}_{pn}")
                 self._policy_folder_label.setStyleSheet(
                     f"font-size: 11px; color: {GREEN_DARK}; font-weight: bold; "

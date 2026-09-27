@@ -43,7 +43,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import openpyxl
 from PyQt6.QtWidgets import QApplication
 
-from suiteview.core.policy_service import get_policy_info, clear_cache
+from suiteview.polview.services.policy_service import get_policy_info, clear_cache
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
     active_rider_benefit_codes,
@@ -122,7 +122,7 @@ def forecast_termination(policy_number: str, *, exact_days_interest: bool):
 
     rider_benefit_codes = active_rider_benefit_codes(pi)
 
-    policy_data = _load_policy_data(policy_number, region=REGION, company_code=pi.company_code)
+    policy_data = _load_policy_data(policy_number, region=REGION, company_code=pi.identity.company_code)
 
     tab = IllustrationInputsTab()
     tab.load_data_from_policy(pi)

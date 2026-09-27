@@ -33,7 +33,7 @@ def main() -> None:
 
     import datetime
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import _append_face_increase_segment
     from suiteview.illustration.core.guideline_pv import guideline_glp_detail
     from suiteview.illustration.core.monthly_guideline import (

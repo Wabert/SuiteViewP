@@ -399,7 +399,7 @@ def test_timeline_orders_events_names_sources_and_skips_sentinels():
     policy = summary_policy(in_grace=True, grace_period_expiry_date=date(2026, 10, 15),
                             coverages=[cov])
     policy.data_item = lambda table, field, index=0: tables.get((table, field))
-    policy.get_benefits = lambda: [SimpleNamespace(benefit_code="39", cov_pha_nbr=1,
+    policy.benefits.get_benefits = lambda: [SimpleNamespace(benefit_code="39", cov_pha_nbr=1,
                                                    issue_date=None, pay_up_date=None,
                                                    cease_date=date(2031, 10, 19))]
     events = build_policy_timeline(policy)
@@ -552,7 +552,7 @@ def test_window_badges_copy_and_recent_policies(window, qtbot):
 
     window.load_policy("SECOND")
     settle(qtbot, window)
-    assert window._policy.policy_number == "SECOND"
+    assert window._policy.identity.policy_number == "SECOND"
 
     # Recent policies feed the completer and persist.
     assert window.lookup_bar._recent_model.rowCount() == 2
@@ -668,7 +668,7 @@ def test_timeline_dialog_opens_from_the_window(window, qtbot):
     window.load_policy("ONE1")
     settle(qtbot, window)
     window._policy.data_item = lambda table, field, index=0: None
-    window._policy.get_benefits = lambda: []
+    window._policy.benefits.get_benefits = lambda: []
     window._open_timeline()
     assert any(isinstance(d, TimelineDialog) for d in window._dialogs)
 

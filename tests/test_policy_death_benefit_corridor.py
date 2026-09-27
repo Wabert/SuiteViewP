@@ -6,8 +6,16 @@ CyberLife/VBA rule (frmAudit "CV * CORR% > Specified Amount + OPTDB"):
     total DB    = MAX(face + DB-option amount, corridor DB)
 """
 from decimal import Decimal
+from types import SimpleNamespace
 
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.coverages import CoveragesSection
+
+
+class _StubCoverages(CoveragesSection):
+    @property
+    def primary_insured_face_amount(self):
+        return self.policy._face
 
 
 class _StubPolicy(PolicyInformation):
@@ -21,31 +29,20 @@ class _StubPolicy(PolicyInformation):
         self._corridor_pct = None if corridor_pct is None else Decimal(corridor_pct)
         self._advanced = advanced
         self._premiums_paid = Decimal(premiums_paid)
-
-    @property
-    def primary_insured_face_amount(self):
-        return self._face
-
-    @property
-    def db_option_code(self):
-        return self._db_option
-
-    @property
-    def is_advanced_product(self):
-        return self._advanced
-
-    @property
-    def corridor_percent(self):
-        # Mirrors the real property: missing CDR_PCT defaults to 100%.
-        return self._corridor_pct if self._corridor_pct is not None else Decimal("100")
-
-    @property
-    def accumulation_value(self):
-        return self._account_value
-
-    @property
-    def total_premiums_paid(self):
-        return self._premiums_paid
+        self._sections = {
+            "coverages": _StubCoverages(self),
+            "product": SimpleNamespace(
+                db_option_code=self._db_option,
+                is_advanced_product=self._advanced,
+                # Mirrors the real property: missing CDR_PCT defaults to 100%.
+                corridor_percent=(
+                    self._corridor_pct if self._corridor_pct is not None
+                    else Decimal("100")
+                ),
+            ),
+            "values": SimpleNamespace(mv_av=self.mv_av, accumulation_value=self._account_value),
+            "billing": SimpleNamespace(total_premiums_paid=self._premiums_paid),
+        }
 
     def mv_av(self, index: int = 0):
         return self._account_value
@@ -54,20 +51,20 @@ class _StubPolicy(PolicyInformation):
 def test_corridor_raises_death_benefit_above_face():
     policy = _StubPolicy(face=100_000, account_value=50_000, corridor_pct=250)
 
-    assert policy.standard_death_benefit == Decimal("100000")
-    assert policy.corridor_death_benefit == Decimal("125000.00")
-    assert policy.is_in_corridor
-    assert policy.corridor_amount == Decimal("25000.00")
-    assert policy.total_death_benefit == Decimal("125000.00")
+    assert policy.coverages.standard_death_benefit == Decimal("100000")
+    assert policy.coverages.corridor_death_benefit == Decimal("125000.00")
+    assert policy.coverages.is_in_corridor
+    assert policy.coverages.corridor_amount == Decimal("25000.00")
+    assert policy.coverages.total_death_benefit == Decimal("125000.00")
 
 
 def test_face_wins_when_corridor_is_lower():
     policy = _StubPolicy(face=173_373, account_value=20_000, corridor_pct=250)
 
-    assert policy.corridor_death_benefit == Decimal("50000.00")
-    assert not policy.is_in_corridor
-    assert policy.corridor_amount == Decimal("0")
-    assert policy.total_death_benefit == Decimal("173373")
+    assert policy.coverages.corridor_death_benefit == Decimal("50000.00")
+    assert not policy.coverages.is_in_corridor
+    assert policy.coverages.corridor_amount == Decimal("0")
+    assert policy.coverages.total_death_benefit == Decimal("173373")
 
 
 def test_corridor_compared_against_option_b_death_benefit():
@@ -75,18 +72,18 @@ def test_corridor_compared_against_option_b_death_benefit():
     policy = _StubPolicy(face=100_000, db_option="2", account_value=50_000,
                          corridor_pct=250)
 
-    assert policy.standard_death_benefit == Decimal("150000")
-    assert policy.corridor_death_benefit == Decimal("125000.00")
-    assert not policy.is_in_corridor
-    assert policy.total_death_benefit == Decimal("150000")
+    assert policy.coverages.standard_death_benefit == Decimal("150000")
+    assert policy.coverages.corridor_death_benefit == Decimal("125000.00")
+    assert not policy.coverages.is_in_corridor
+    assert policy.coverages.total_death_benefit == Decimal("150000")
 
 
 def test_corridor_compared_against_option_c_death_benefit():
     policy = _StubPolicy(face=100_000, db_option="3", account_value=50_000,
                          corridor_pct=250, premiums_paid=60_000)
 
-    assert policy.standard_death_benefit == Decimal("160000")
-    assert policy.total_death_benefit == Decimal("160000")
+    assert policy.coverages.standard_death_benefit == Decimal("160000")
+    assert policy.coverages.total_death_benefit == Decimal("160000")
 
 
 def test_corridor_percent_is_rounded_to_the_cent():
@@ -94,21 +91,21 @@ def test_corridor_percent_is_rounded_to_the_cent():
                          corridor_pct=Decimal("182.500"))
 
     # 33333.33 * 1.825 = 60833.32725 -> 60,833.33
-    assert policy.corridor_death_benefit == Decimal("60833.33")
-    assert policy.total_death_benefit == Decimal("60833.33")
+    assert policy.coverages.corridor_death_benefit == Decimal("60833.33")
+    assert policy.coverages.total_death_benefit == Decimal("60833.33")
 
 
 def test_traditional_product_has_no_corridor():
     policy = _StubPolicy(face=100_000, account_value=50_000, corridor_pct=250,
                          advanced=False)
 
-    assert policy.corridor_death_benefit is None
-    assert not policy.is_in_corridor
-    assert policy.total_death_benefit == Decimal("100000")
+    assert policy.coverages.corridor_death_benefit is None
+    assert not policy.coverages.is_in_corridor
+    assert policy.coverages.total_death_benefit == Decimal("100000")
 
 
 def test_no_account_value_means_no_corridor():
     policy = _StubPolicy(face=100_000, account_value=None, corridor_pct=250)
 
-    assert policy.corridor_death_benefit is None
-    assert policy.total_death_benefit == Decimal("100000")
+    assert policy.coverages.corridor_death_benefit is None
+    assert policy.coverages.total_death_benefit == Decimal("100000")

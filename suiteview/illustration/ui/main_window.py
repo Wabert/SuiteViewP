@@ -767,7 +767,7 @@ class IllustrationWindow(FramelessWindowBase):
                 "Policy data was not retrieved live - effective as of "
                 f"{format_saved_stamp(self._snapshot_case.saved_at)}. "
                 "Get the policy to return to live data.")
-        elif self._policy is not None and self._policy.exists:
+        elif self._policy is not None and self._policy.identity.exists:
             checks = self._live_policy_checks
             warnings, md_check = (
                 checks[1:] if checks is not None and checks[0] is self._policy
@@ -887,19 +887,19 @@ class IllustrationWindow(FramelessWindowBase):
             QApplication.processEvents()
             self._policy = PolicyInformation(policy_number, company_code=company_code or None, region=region)
 
-            if self._policy.available_companies:
-                self.lookup_bar.show_company_chooser(self._policy.available_companies, policy_number, region)
-                self._show_status(f"Policy {policy_number} found in {len(self._policy.available_companies)} companies - select one above")
+            if self._policy.identity.available_companies:
+                self.lookup_bar.show_company_chooser(self._policy.identity.available_companies, policy_number, region)
+                self._show_status(f"Policy {policy_number} found in {len(self._policy.identity.available_companies)} companies - select one above")
                 return
 
-            if not self._policy.exists:
+            if not self._policy.identity.exists:
                 self._policy = PolicyInformation(policy_number, company_code=company_code or None, system_code="P", region=region)
-                if self._policy.available_companies:
-                    self.lookup_bar.show_company_chooser(self._policy.available_companies, policy_number, region)
-                    self._show_status(f"Policy {policy_number} (Pending) found in {len(self._policy.available_companies)} companies - select one above")
+                if self._policy.identity.available_companies:
+                    self.lookup_bar.show_company_chooser(self._policy.identity.available_companies, policy_number, region)
+                    self._show_status(f"Policy {policy_number} (Pending) found in {len(self._policy.identity.available_companies)} companies - select one above")
                     return
 
-            if not self._policy.exists:
+            if not self._policy.identity.exists:
                 QMessageBox.warning(self, "Not Found", f"Policy {policy_number} not found in {region}")
                 self._show_status("Policy not found")
                 self._default_inputs_on_next_get = False
@@ -914,9 +914,9 @@ class IllustrationWindow(FramelessWindowBase):
                     [], None, enabled=False, reason="Policy not found - reload")
                 return
 
-            company_code = self._policy.company_code
-            system_code = self._policy.system_code
-            policy_id = self._policy.policy_id
+            company_code = self._policy.identity.company_code
+            system_code = self._policy.identity.system_code
+            policy_id = self._policy.identity.policy_id
             self._where_clause = f"CK_SYS_CD = '{system_code}' AND TCH_POL_ID = '{policy_id}' AND CK_CMP_CD = '{company_code}'"
             self._policy_info = {
                 "PolicyID": policy_id,
@@ -952,7 +952,7 @@ class IllustrationWindow(FramelessWindowBase):
     def _load_policy_into_ui(
             self, region: str, cached: bool = False,
             default_inputs: bool = False):
-        if not self._policy or not self._policy.exists:
+        if not self._policy or not self._policy.identity.exists:
             return
         self._snapshot_case = None
         self._rollback_projection_blocked = False
@@ -960,7 +960,7 @@ class IllustrationWindow(FramelessWindowBase):
         self.policy_tab.set_snapshot_notice(None)
         self.policy_tab.set_snapshot_banner(None)
         self.open_polview_btn.setEnabled(True)
-        company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
+        company_code = self._policy_info.get("CompanyCode", self._policy.identity.company_code)
         if not self._db or self._db.region != region:
             if self._db:
                 self._db.close()
@@ -968,13 +968,13 @@ class IllustrationWindow(FramelessWindowBase):
             self._db.connect()
         self.lookup_bar.set_policy_display(
             company_code,
-            self._policy_info.get("PolicyNumber", self._policy.policy_number),
+            self._policy_info.get("PolicyNumber", self._policy.identity.policy_number),
             region,
-            is_pending=self._policy.system_code == "P",
+            is_pending=self._policy.identity.system_code == "P",
         )
         self._live_policy_checks = None
         warnings, md_check = self._policy_load_checks(
-            policy_number=self._policy_info.get("PolicyNumber", self._policy.policy_number),
+            policy_number=self._policy_info.get("PolicyNumber", self._policy.identity.policy_number),
             region=region,
             company_code=company_code,
         )
@@ -986,11 +986,11 @@ class IllustrationWindow(FramelessWindowBase):
         form_number = getattr(self._illustration_data, "form_number", "") or ""
         if form_number:
             self.policy_list_window.set_policy_form(
-                self._policy_info.get("PolicyNumber", self._policy.policy_number),
+                self._policy_info.get("PolicyNumber", self._policy.identity.policy_number),
                 form_number)
 
         key = (
-            self._policy_info.get("PolicyNumber", self._policy.policy_number),
+            self._policy_info.get("PolicyNumber", self._policy.identity.policy_number),
             region,
             company_code,
         )
@@ -1050,7 +1050,7 @@ class IllustrationWindow(FramelessWindowBase):
             self._show_status(session.status)
         else:
             cache_note = " (cached)" if cached else ""
-            self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
+            self._show_status(f"Loaded policy {self._policy.identity.policy_number} ({company_code}) - {self._policy.status.status_description}{cache_note}")
 
         # Distribution builds gate illustration by plancode (no-op in dev).
         self._apply_illustration_gate()
@@ -1432,13 +1432,13 @@ class IllustrationWindow(FramelessWindowBase):
             snapshot_status = (
                 f"Saved case '{snapshot_case.name}' — policy data as of "
                 f"{format_saved_stamp(snapshot_case.saved_at)}")
-        elif not self._policy or not self._policy.exists:
+        elif not self._policy or not self._policy.identity.exists:
             raise RunFlowError(
                 "Run Values", "Load a policy before running illustrated values.")
         else:
-            policy_number = self._policy_info.get("PolicyNumber", self._policy.policy_number)
+            policy_number = self._policy_info.get("PolicyNumber", self._policy.identity.policy_number)
             region = self._policy_info.get("Region", self._current_region or "CKPR")
-            company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
+            company_code = self._policy_info.get("CompanyCode", self._policy.identity.company_code)
             if rollback is not None:
                 policy_data = self._illustration_data
 

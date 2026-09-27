@@ -160,16 +160,38 @@ independent ctypes AppBar declarations or hidden not-applicable panels.
 ## `PolicyInformation` is the central policy data layer
 
 Location: [`suiteview/polview/models/policy_information.py`](suiteview/polview/models/policy_information.py).
-Shared service: [`suiteview/core/policy_service.py`](suiteview/core/policy_service.py).
+Shared service: [`suiteview/polview/services/policy_service.py`](suiteview/polview/services/policy_service.py).
 
 Every app that needs policy data — PolView, ABR Quote, Audit, Illustration and
 future tools — must use `policy_service.get_policy_info()` and named
-`PolicyInformation` properties. If a field is missing, add a property there
-rather than writing a one-off query elsewhere.
+`PolicyInformation` section properties. `PolicyInformation` is the facade for
+identity, raw cached table reads and lifecycle helpers; cohesive facts live on
+cached section objects:
+
+| Section | Responsibility |
+| --- | --- |
+| `pi.identity` | policy/company/system/region identity and lookup state |
+| `pi.status` | policy, suspense, premium-pay and grace status |
+| `pi.product` | product family, issue state, product rules and tax-test flags |
+| `pi.billing` | billing mode, bill form, premiums and short-pay values |
+| `pi.coverages` | coverage/rider rows, death benefits, underwriting and coverage targets |
+| `pi.benefits` | supplemental benefit rows |
+| `pi.loans` | traditional/fund loans, repayments and debt totals |
+| `pi.values` | monthliversary values, fund buckets, TAMRA/MEC and policy totals |
+| `pi.targets` | MTP/GLP/GSP/GAV, NSP and target accumulators |
+| `pi.dividends` | dividend options, OYT/PUA/deposit/applied/unapplied rows |
+| `pi.persons` | insured/person/address values |
+| `pi.agents` | writing/servicing agent and market-organization values |
+| `pi.activity` | issue/valuation timing and transaction history |
+| `pi.rates` | renewal, UL, WL and fixed-premium rate matrices |
+| `pi.support` | support-tool export facts and reinstatement/reinsurance helpers |
+
+If a field is missing, add it to the appropriate section rather than writing a
+one-off query elsewhere.
 
 Rules:
 
-1. Do not use `pi.get_value()`; use named properties.
+1. Do not use `pi.get_value()`; use named section properties.
 2. Do not pass a `DB2Connection` into the constructor. Use
    `PolicyInformation(policy_number, company_code=None, system_code="I", region="CKPR")`
    through the service wrapper from app code.

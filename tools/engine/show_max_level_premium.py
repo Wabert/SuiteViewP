@@ -28,7 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 if os.environ.get("SUITEVIEW_LOCAL_DATA") != "1":
     os.environ.pop("SUITEVIEW_LOCAL_DATA", None)
 
-from suiteview.core.policy_service import clear_cache, get_policy_info
+from suiteview.polview.services.policy_service import clear_cache, get_policy_info
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.input_context import build_policy_context
 

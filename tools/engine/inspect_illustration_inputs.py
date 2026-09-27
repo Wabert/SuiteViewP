@@ -27,7 +27,7 @@ def main() -> None:
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache, get_policy_info
+    from suiteview.polview.services.policy_service import clear_cache, get_policy_info
 
     policy = cmd["policy"]
     region = cmd.get("region", "CKPR")
@@ -40,15 +40,15 @@ def main() -> None:
         return None if v is None else float(v)
 
     raw = {
-        "gav (IX target)": f(pi.gav),
-        "ccv_target (CV)": f(pi.ccv_target),
-        "accumulation_value": f(pi.accumulation_value),
+        "gav (IX target)": f(pi.targets.gav),
+        "ccv_target (CV)": f(pi.targets.ccv_target),
+        "accumulation_value": f(pi.values.accumulation_value),
         "cash_surrender_value": f(getattr(pi, "cash_surrender_value", None)),
-        "glp": f(pi.glp),
-        "gsp": f(pi.gsp),
-        "accumulated_glp_target": f(pi.accumulated_glp_target),
-        "mtp": f(pi.mtp),
-        "accumulated_mtp_target": f(pi.accumulated_mtp_target),
+        "glp": f(pi.targets.glp),
+        "gsp": f(pi.targets.gsp),
+        "accumulated_glp_target": f(pi.targets.accumulated_glp_target),
+        "mtp": f(pi.targets.mtp),
+        "accumulated_mtp_target": f(pi.targets.accumulated_mtp_target),
         "total_loan_balance": f(getattr(pi, "total_loan_balance", None)),
     }
 

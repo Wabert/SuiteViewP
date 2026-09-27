@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.services import guideline_exception_adjustment as gea
 
 

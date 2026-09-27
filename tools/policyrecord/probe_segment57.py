@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.models.policy_record_builder import build_segment_lines
 from suiteview.polview.ui.policy_record_viewer import load_screen
 
@@ -28,7 +28,7 @@ def main():
         args.policy.strip().upper(), region=args.region.strip().upper(),
         company_code=args.company.strip().upper(),
     )
-    if pi is None or not pi.exists:
+    if pi is None or not pi.identity.exists:
         raise RuntimeError(f"Policy {args.policy} was not found.")
     sources = {}
     for table in ("LH_FND_TRS_ALC_SET", "LH_FND_ALC"):
@@ -38,7 +38,7 @@ def main():
             raise RuntimeError(f"{table}: {error}")
     lines = build_segment_lines("57", pi, load_screen("57"))
     text = ["".join(run["text"] for run in line) for line in lines or []]
-    result = {"policy": pi.policy_number, "sources": sources, "lines": lines, "text": text}
+    result = {"policy": pi.identity.policy_number, "sources": sources, "lines": lines, "text": text}
     if args.expect_ul045809:
         expected = "57 0046 10000000 00000000 P 1 12/15/1984 1 1 U1 P 100.00"
         body = []

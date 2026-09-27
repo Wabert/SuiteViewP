@@ -2380,11 +2380,11 @@ class AuditWindow(FramelessWindowBase):
             return False
         region = self.cmb_region.currentText()
         try:
-            from suiteview.core.policy_service import get_policy_info
+            from suiteview.polview.services.policy_service import get_policy_info
             pi = get_policy_info(
                 policy_number, region=region,
                 company_code=(company_code or "").strip() or None)
-            return bool(pi and pi.is_advanced_product)
+            return bool(pi and pi.product.is_advanced_product)
         except Exception:
             logger.exception("Failed to determine product type for %s",
                              policy_number)

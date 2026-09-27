@@ -61,19 +61,19 @@ def inspect(policy_number, region, quote_date, assessment_request):
         "input_provenance": assessment_request,
         "policy": asdict(policy),
         "source_values": {
-            "status_code": pi.status_code, "status_description": pi.status_description,
+            "status_code": pi.status.status_code, "status_description": pi.status.status_description,
             "is_active": policy_activity(pi)["verified_active"],
             "activity_resolution": policy_activity(pi),
-            "legacy_is_active": pi.is_active, "is_joint_insured": pi.is_joint_insured,
-            "total_loan_balance": pi.total_loan_balance,
-            "total_loan_principal": pi.total_loan_principal,
-            "total_loan_interest": pi.total_loan_interest,
+            "legacy_is_active": pi.status.is_active, "is_joint_insured": pi.coverages.is_joint_insured,
+            "total_loan_balance": pi.loans.total_loan_balance,
+            "total_loan_principal": pi.loans.total_loan_principal,
+            "total_loan_interest": pi.loans.total_loan_interest,
             "cash_surrender_value": policy.surrender_value,
-            "monthliversary_account_value": pi.mv_av(0),
+            "monthliversary_account_value": pi.values.mv_av(0),
             "value_source": "LH_POL_MVRY_VAL.CSV_AMT via maintained ABR policy service / mv_av",
-            "annual_premium": pi.annual_premium, "modal_premium": pi.modal_premium,
-            "monthly_deduction": pi.mv_monthly_deduction(),
-            "valuation_date": pi.valuation_date, "mv_date": pi.mv_date(0),
+            "annual_premium": pi.billing.annual_premium, "modal_premium": pi.billing.modal_premium,
+            "monthly_deduction": pi.values.mv_monthly_deduction(),
+            "valuation_date": pi.values.valuation_date, "mv_date": pi.values.mv_date(0),
             "current_fund_loan_buckets": {
                 loan_type: {
                     amount_type: pi.loan_records.calc_fund_loan_total(loan_type, amount_type)
@@ -91,7 +91,7 @@ def inspect(policy_number, region, quote_date, assessment_request):
             for row in pi.fetch_table("LH_BAS_POL")
         ],
         "abr_benefits": [
-            asdict(b) for b in pi.get_benefits() if str(b.benefit_type_cd).strip() == "#"
+            asdict(b) for b in pi.benefits.get_benefits() if str(b.benefit_type_cd).strip() == "#"
         ],
         "source_diagnostics": discovery_diagnostics + policy_diagnostics,
         "source_table_errors": {
@@ -109,16 +109,16 @@ def inspect(policy_number, region, quote_date, assessment_request):
         "calculation_blockers": ["Explicit UL level annual premium to maturity is not supplied by the email.",
                                  "Quote options/minimum remaining face require sourced values or explicit approval."],
     }
-    if not pi.is_active:
+    if not pi.status.is_active:
         output["calculation_blockers"].append(
-            f"Canonical active policy status cannot be verified: {pi.status_code!r}")
+            f"Canonical active policy status cannot be verified: {pi.status.status_code!r}")
     if output["source_diagnostics"]:
         output["calculation_blockers"].append("Policy retrieval produced source diagnostics; review completeness.")
-    db, queries = open_rate_database(policy.product_type)
+    db, queries = open_rate_database(policy.product.product_type)
     try:
         output["canonical_rate_observations"] = {
             "interest": db.get_effective_interest_rate(quote_date.strftime("%Y-%m")),
-            "admin_fee": db.get_admin_fee(policy.issue_state),
+            "admin_fee": db.get_admin_fee(policy.product.issue_state),
             "per_diem": db.get_per_diem(quote_date.year),
             "minimum_face_rule": db.get_min_face(policy.plan_code),
             "minimum_face_rule_source": "ABROdbcDatabase.get_min_face: canonical hardcoded rule; not a requested amount",

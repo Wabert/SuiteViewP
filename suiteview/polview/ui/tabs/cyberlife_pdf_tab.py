@@ -88,7 +88,7 @@ class CyberlifePdfTab(SourceQueryTab):
         ordered: list[str] = []
         seen: set[str] = set()
         try:
-            coverages = policy.get_coverages()
+            coverages = policy.coverages.get_coverages()
         except Exception:
             coverages = []
         for cov in coverages:

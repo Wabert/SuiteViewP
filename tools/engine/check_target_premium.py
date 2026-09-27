@@ -28,7 +28,7 @@ def main() -> None:
     cmd = json.loads(sys.argv[1])
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.core.rates import Rates
     from suiteview.illustration.core.target_premium import compute_target_premiums
     from suiteview.illustration.models.plancode_config import load_plancode

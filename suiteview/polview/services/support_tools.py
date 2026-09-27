@@ -21,6 +21,6 @@ def build_support_tool_state(policy) -> SupportToolState:
         return SupportToolState(False, False, False)
     has_annuity = any(
         str(getattr(coverage, "plancode", "")).strip().upper() == "0699830R"
-        for coverage in policy.get_coverages()
+        for coverage in policy.coverages.get_coverages()
     )
     return SupportToolState(loaded, has_annuity, is_glp_exception_eligible(policy))

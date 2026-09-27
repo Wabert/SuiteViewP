@@ -172,9 +172,9 @@ class PolicyRecordTreeWidget(QTreeWidget):
         cov_node = QTreeWidgetItem([f"▶  Coverages"])
         cov_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Coverages"})
         self.addTopLevelItem(cov_node)
-        whole_life = not policy.is_advanced_product and policy.product_type == "WL"
-        for i in range(1, policy.coverage_count + 1):
-            plancode = policy.cov_plancode(i)
+        whole_life = not policy.product.is_advanced_product and policy.product.product_type == "WL"
+        for i in range(1, policy.coverages.coverage_count + 1):
+            plancode = policy.coverages.cov_plancode(i)
             label = f"Cov {i:02d} ({plancode})"
             cov_item = QTreeWidgetItem([f"      {label}"])
             cov_item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -188,7 +188,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
                     0, "Cash values from WL_RATE_CV by CyberLife user, class/base/sub and issue age.\n"
                     "NSP, PUI and dividend rate lookups are not yet available."
                 )
-            elif policy.product_type == "ISWL":
+            elif policy.product.product_type == "ISWL":
                 cov_item.setToolTip(
                     0, "UL-style rates (current-scale COI), GINT, CVR, premium rate, loans and cease ages.\n"
                     "Cash values, premium rates and modal factors are under Fixed Premium."
@@ -200,8 +200,8 @@ class PolicyRecordTreeWidget(QTreeWidget):
         ben_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Benefits"})
         self.addTopLevelItem(ben_node)
         
-        benefits = policy.get_benefits()
-        for i in range(1, policy.benefit_count + 1):
+        benefits = policy.benefits.get_benefits()
+        for i in range(1, policy.benefits.benefit_count + 1):
             type_code = benefits[i - 1].benefit_type_cd if i <= len(benefits) else ""
             label = f"Ben {i:02d} ({type_code})"
             ben_item = QTreeWidgetItem([f"      {label}"])
@@ -213,7 +213,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
             })
             ben_node.addChild(ben_item)
 
-        if policy.has_fixed_premium_rates:
+        if policy.rates.has_fixed_premium_rates:
             self._add_fixed_premium_branch(policy, whole_life)
         
         # Policy node (top-level leaf)
@@ -234,7 +234,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
         node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Fixed Premium"})
         self.addTopLevelItem(node)
         leaves = []
-        for i in range(1, policy.coverage_count + 1):
+        for i in range(1, policy.coverages.coverage_count + 1):
             if not whole_life:
                 leaves.append(("Cash Values", f"Cash Values Cov {i:02d}", i,
                                "Guaranteed cash values from WL_RATE_CV (CVF) by duration."))

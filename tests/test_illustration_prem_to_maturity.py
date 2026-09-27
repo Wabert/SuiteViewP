@@ -55,6 +55,8 @@ class _StubPolicy:
         self.policy_id = f"{policy_number}  QXXX"
         self.status_description = "Active"
         self.status_code = "0"
+        self.identity = self
+        self.status = self
         self.issue_date = date(2010, 5, 15)
         self.base_issue_age = 40
         self.valuation_date = date(2026, 6, 15)

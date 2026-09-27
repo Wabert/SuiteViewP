@@ -68,7 +68,7 @@ def main() -> int:
     # ── Load A and edit inputs ──
     window._on_get_policy(policy_a, region, company)
     app.processEvents()
-    if not (window._policy and window._policy.exists):
+    if not (window._policy and window._policy.identity.exists):
         result.update(ok=False, error=f"Policy {policy_a} did not load")
         print(json.dumps(result))
         return 1
@@ -95,7 +95,7 @@ def main() -> int:
     # ── Switch to B ──
     window._on_get_policy(policy_b, region, company)
     app.processEvents()
-    if not (window._policy and window._policy.exists):
+    if not (window._policy and window._policy.identity.exists):
         result.update(ok=False, error=f"Policy {policy_b} did not load")
         print(json.dumps(result))
         return 1

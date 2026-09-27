@@ -37,7 +37,34 @@ class _FakeRates:
         return {"SP500": [{"date": date(2023, 12, 31), "return": 0.2423}]}
 
 
+class _SectionProxy:
+    def __init__(self, source):
+        object.__setattr__(self, "_source", source)
+
+    def __getattr__(self, name):
+        return getattr(self._source, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._source, name, value)
+
+
 class _FakePolicyInfo:
+    def __init__(self):
+        self.identity = _SectionProxy(self)
+        self.status = _SectionProxy(self)
+        self.product = _SectionProxy(self)
+        self.billing = _SectionProxy(self)
+        self.coverages = _SectionProxy(self)
+        self.benefits = _SectionProxy(self)
+        self.loans = _SectionProxy(self)
+        self.values = _SectionProxy(self)
+        self.targets = _SectionProxy(self)
+        self.persons = _SectionProxy(self)
+        self.agents = _SectionProxy(self)
+        self.activity = _SectionProxy(self)
+        self.rates = _SectionProxy(self)
+        self.support = _SectionProxy(self)
+
     def fetch_table(self, _table):
         return []
 
@@ -205,6 +232,10 @@ def test_active_rider_benefit_codes_excludes_hash_and_ceased():
             SimpleNamespace(benefit_code="76", benefit_type_cd="7", cease_date=date(2099, 1, 1), terminate_date=None),
         ],
     )
+    pi.values = SimpleNamespace(valuation_date=pi.valuation_date)
+    pi.activity = SimpleNamespace(issue_date=pi.issue_date)
+    pi.coverages = SimpleNamespace(get_riders=pi.get_riders)
+    pi.benefits = SimpleNamespace(get_benefits=pi.get_benefits)
 
     assert illustration_policy_service.active_rider_benefit_codes(pi) == "RIDER1, 12, 3#, 76"
 
@@ -341,12 +372,12 @@ def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch)
 
 def test_coverage_segment_data_warnings_identifies_blank_active_fields():
     policy = _FakePolicyInfo()
-    coverages = policy.get_base_coverages()
+    coverages = policy.coverages.get_base_coverages()
     coverages[1].face_amount = None
     coverages[1].rate_class = " "
     coverages[1].issue_age = None
     coverages[2].face_amount = None
-    policy.get_base_coverages = lambda: coverages
+    policy.coverages.get_base_coverages = lambda: coverages
 
     warnings = illustration_policy_service.coverage_segment_data_warnings(policy)
 

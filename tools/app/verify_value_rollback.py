@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.illustration.core.value_rollback import available_rollback_dates, apply_value_rollback
 
 
@@ -108,13 +108,13 @@ def capture_ui(policy, pi, folder, *, when=None, exercise_edits=False, exercise_
     window._illustration_data = policy
     window._policy = pi
     window._policy_info = {
-        "PolicyNumber": policy.policy_number, "CompanyCode": policy.company_code,
-        "Region": policy.region,
+        "PolicyNumber": policy.identity.policy_number, "CompanyCode": policy.identity.company_code,
+        "Region": policy.identity.region,
     }
-    window.lookup_bar.set_policy_display(policy.company_code, policy.policy_number, policy.region)
-    window.lookup_bar.region_input.setText(policy.region)
-    window.lookup_bar.company_input.setText(policy.company_code)
-    window.lookup_bar.policy_input.setText(policy.policy_number)
+    window.lookup_bar.set_policy_display(policy.identity.company_code, policy.identity.policy_number, policy.identity.region)
+    window.lookup_bar.region_input.setText(policy.identity.region)
+    window.lookup_bar.company_input.setText(policy.identity.company_code)
+    window.lookup_bar.policy_input.setText(policy.identity.policy_number)
     window.policy_tab.load_data_from_policy(pi, window._policy_info)
     window.inputs_tab.load_data_from_policy(policy)
     window._set_active_inputs_tab(window.inputs_tab)
@@ -144,7 +144,7 @@ def capture_ui(policy, pi, folder, *, when=None, exercise_edits=False, exercise_
     capture("rerun-loaded-values.png")
     errors = []
     checks.update({
-        "current_date_default": window.rollback_controls.dates.currentData() == policy.valuation_date,
+        "current_date_default": window.rollback_controls.dates.currentData() == policy.values.valuation_date,
         "current_values_editable": window.policy_tab.account_value_input.isEnabled(),
         "db_option_inline": window.policy_tab.policy_info.isAncestorOf(window.policy_tab.rollback_dbo_combo),
         "aligned_controls": len({
@@ -183,19 +183,19 @@ def capture_ui(policy, pi, folder, *, when=None, exercise_edits=False, exercise_
                     "premiums_ytd": 125,
                     "premiums_paid_to_date": policy.premiums_paid_to_date + 10,
                     "withdrawals_to_date": 10,
-                    "accumulated_mtp": policy.accumulated_mtp + 1,
+                    "accumulated_mtp": policy.values.accumulated_mtp + 1,
                     "map_cease_date": date(2038, 4, 10),
-                    "mtp": policy.mtp + 0.01,
-                    "ctp": policy.ctp + 0.01,
-                    "cost_basis": policy.cost_basis + 10,
+                    "mtp": policy.targets.mtp + 0.01,
+                    "ctp": policy.targets.ctp + 0.01,
+                    "cost_basis": policy.values.cost_basis + 10,
                     "is_mec": True,
                     "tamra_7pay_start_date": date(2023, 4, 10),
                     "tamra_7pay_cash_value": 123,
-                    "tamra_7pay_level": policy.tamra_7pay_level + 1,
+                    "tamra_7pay_level": policy.values.tamra_7pay_level + 1,
                     "tamra_7year_lowest_db": new_face,
-                    "gsp": policy.gsp + 1,
-                    "glp": policy.glp + 1,
-                    "accumulated_glp": policy.accumulated_glp + 1,
+                    "gsp": policy.targets.gsp + 1,
+                    "glp": policy.targets.glp + 1,
+                    "accumulated_glp": policy.values.accumulated_glp + 1,
                     "regular_loan_principal": 1_000,
                     "regular_loan_accrued": 10,
                     "preferred_loan_principal": 500,
@@ -290,7 +290,7 @@ def capture_ui(policy, pi, folder, *, when=None, exercise_edits=False, exercise_
         window.rollback_controls.dates.setCurrentIndex(0)
         window.rollback_controls.update.click()
     with patch.object(QMessageBox, "warning", side_effect=lambda *a: errors.append(a[-1])):
-        choices = [policy.valuation_date, *available_rollback_dates(policy)]
+        choices = [policy.values.valuation_date, *available_rollback_dates(policy)]
         window.rollback_controls.dates.setCurrentIndex(
             choices.index(when) if when is not None else 1)
         window.rollback_controls.update.click()

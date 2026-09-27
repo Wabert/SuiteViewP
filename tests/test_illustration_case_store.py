@@ -8,6 +8,7 @@ what a run actually uses.
 """
 import os
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
@@ -466,6 +467,10 @@ class _FakePolicy:
     base_table_rating = 2
     base_plancode = "1U135D00"
     status_code = "0"
+
+    def __init__(self):
+        self.coverages = SimpleNamespace(get_coverages=self.get_coverages)
+        self.benefits = SimpleNamespace(get_benefits=self.get_benefits)
 
     def get_coverages(self):
         return []

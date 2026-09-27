@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QApplication
 
 from suiteview.core.json_store import write_json
 from suiteview.core.local_dev import local_data_enabled
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.ui.formatting import format_amount
 from suiteview.polview.ui.tabs.coverages_tab import CoveragesTab
 
@@ -34,11 +34,11 @@ def main():
         region=config.get("region", "CKPR"),
         use_cache=False,
     )
-    if policy is None or not policy.exists:
+    if policy is None or not policy.identity.exists:
         raise RuntimeError("Policy not found or live DB2 access failed.")
 
     rows = policy.fetch_table("LH_COV_PHA")
-    coverages = policy.get_coverages()
+    coverages = policy.coverages.get_coverages()
     if not rows or len(coverages) != len(rows):
         raise RuntimeError("Coverage model does not contain every DB2 row.")
     app = QApplication.instance() or QApplication([])
@@ -89,8 +89,8 @@ def main():
             if not tab.cov_group.grab().save(str(target), "PNG"):
                 raise RuntimeError(f"Could not save screenshot: {target}")
         report = {
-            "all_ok": True, "policy": policy.policy_number,
-            "company": policy.company_code, "coverage_count": len(coverages),
+            "all_ok": True, "policy": policy.identity.policy_number,
+            "company": policy.identity.company_code, "coverage_count": len(coverages),
             "zero_current_amounts": zero_amounts, "checks": checks,
         }
         if config.get("output"):

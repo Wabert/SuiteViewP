@@ -65,7 +65,7 @@ def main() -> int:
         import pyodbc
         from PyQt6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
         from PyQt6.QtWidgets import QApplication, QMessageBox
-        from suiteview.core.policy_service import clear_cache, get_policy_info
+        from suiteview.polview.services.policy_service import clear_cache, get_policy_info
         from suiteview.core.db2_connection import DB2Connection
         from suiteview.polview.models.policy_data import PolicyData
         from suiteview.polview.services.policy_prefetch import PolicyLoadSession
@@ -255,14 +255,14 @@ def main() -> int:
                         if window.tabs.indexOf(tab) >= 0
                     ),
                     "shared_policy_instance": get_policy_info(
-                        window._policy.policy_number, window._policy.region,
-                        window._policy.company_code, window._policy.system_code,
+                        window._policy.identity.policy_number, window._policy.identity.region,
+                        window._policy.identity.company_code, window._policy.identity.system_code,
                     ) is window._policy,
                     "each_table_fetched_once": len(report["table_reads"]) == len({
                         read["table"] for read in report["table_reads"]
                     }),
                 }
-                if args.all_tabs and window._policy.is_advanced_product:
+                if args.all_tabs and window._policy.product.is_advanced_product:
                     fields = window.advprod_tab.policy_info._fields
                     if args.expect_surrender_unavailable:
                         reason = window.advprod_tab.surrender_notice.text()
@@ -340,7 +340,7 @@ def main() -> int:
                             "requested_heading": number.upper() in pending_heading,
                             "correct_policy": (
                                 window._policy is not None
-                                and window._policy.policy_number == number.upper()
+                                and window._policy.identity.policy_number == number.upper()
                             ),
                             "all_visible_tabs_ready": all(
                                 window._tab_states[stage] == "ready"

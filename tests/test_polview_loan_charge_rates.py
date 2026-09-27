@@ -12,6 +12,9 @@ class _AdvancedLoanPolicy:
     preferred_loan_interest_rate = Decimal("5")
 
     def __init__(self):
+        self.product = self
+        self.status = self
+        self.loans = self
         self.loan_records = SimpleNamespace(
             total_regular_loan_principal=Decimal("1000"),
             total_regular_loan_accrued=Decimal("25"),

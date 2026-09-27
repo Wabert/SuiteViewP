@@ -448,7 +448,7 @@ def build_illustration_data(
 ) -> IllustrationPolicyData:
     """Load policy data from DB2 and return a ready-to-project IllustrationPolicyData.
     
-    Uses the shared PolicyInformation class (suiteview.core.policy_service)
+    Uses the shared PolicyInformation class (suiteview.polview.services.policy_service)
     to fetch all tables from DB2, then maps fields into the illustration
     data model.
     

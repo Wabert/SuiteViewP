@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from suiteview.core.policy_service import get_policy_info
+from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.models.case_store import decode_policy_snapshot, encode_policy_snapshot
 from suiteview.illustration.models.plancode_config import load_plancode
@@ -44,7 +44,7 @@ def main() -> None:
     policy_tab = IllustrationPolicyTab()
     coverage_rows = []
     for index, segment in enumerate(policy.segments, 1):
-        coverage = next(c for c in pi.get_base_coverages() if c.cov_pha_nbr == segment.coverage_phase)
+        coverage = next(c for c in pi.coverages.get_base_coverages() if c.cov_pha_nbr == segment.coverage_phase)
         indicator = dict(policy_tab._coverage_detail_rows(coverage))["Added by COLA:"]
         assert (indicator == "Yes") == segment.is_cola
         exempt = args.company == "26" and config.is_ffl and segment.is_cola
@@ -76,7 +76,7 @@ def main() -> None:
     values_path = args.out_dir / "policy_values.png"
     assert values_tab.grab().save(str(values_path))
 
-    cola_coverage = next(c for c in pi.get_base_coverages() if str(c.cola_indicator).strip() == "1")
+    cola_coverage = next(c for c in pi.coverages.get_base_coverages() if str(c.cola_indicator).strip() == "1")
     detail_path = args.out_dir / "cola_coverage_detail.png"
 
     def capture_detail():
@@ -89,7 +89,7 @@ def main() -> None:
     policy_tab._show_detail_dialog("coverage", cola_coverage)
     values_tab.close()
     print(json.dumps({
-        "all_ok": True, "policy": args.policy, "company": policy.company_code,
+        "all_ok": True, "policy": args.policy, "company": policy.identity.company_code,
         "plancode": policy.plancode, "is_ffl": config.is_ffl,
         "coverages": coverage_rows, "columns": expected,
         "screenshots": [str(values_path), str(detail_path)],

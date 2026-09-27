@@ -10,6 +10,7 @@ from suiteview.illustration.models.policy_data import (
     PremiumTransaction,
 )
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.models.policy_sections.activity import ActivitySection
 
 
 def test_get_premium_transactions_filters_reversals_and_nonpremium_codes():
@@ -58,9 +59,9 @@ def test_get_premium_transactions_filters_reversals_and_nonpremium_codes():
     ]
     policy = PolicyInformation.__new__(PolicyInformation)
     policy.fetch_table = lambda table: rows
-    policy.get_transactions = MethodType(PolicyInformation.get_transactions, policy)
+    policy.activity.get_transactions = MethodType(ActivitySection.get_transactions, policy.activity)
 
-    transactions = PolicyInformation.get_premium_transactions(policy)
+    transactions = policy.activity.get_premium_transactions()
 
     assert [
         (item.trans_date, item.trans_code, item.gross_amount)
@@ -69,7 +70,7 @@ def test_get_premium_transactions_filters_reversals_and_nonpremium_codes():
         (date(2020, 1, 1), "PI", 100),
         (date(2020, 3, 1), "PW", 300),
     ]
-    assert PolicyInformation.PREMIUM_TRANSACTION_CODES == {
+    assert ActivitySection.PREMIUM_TRANSACTION_CODES == {
         "PR", "PI", "PA", "PF", "PT", "PB", "PW",
     }
 

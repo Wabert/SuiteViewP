@@ -234,13 +234,13 @@ class CoveragesTab(QWidget):
         self.bnf_table.setRowCount(0)
 
         try:
-            if not policy.exists:
+            if not policy.identity.exists:
                 return
             self._populate_status_labels_from_policy(policy)
-            coverages = policy.get_coverages()
+            coverages = policy.coverages.get_coverages()
             self._cov_data = list(coverages)
             self._populate_coverages_from_policy(policy, coverages)
-            benefits = policy.get_benefits()
+            benefits = policy.benefits.get_benefits()
             self._bnf_data = list(benefits)
             self._populate_benefits_from_policy(benefits)
             self._balance_sections(len(coverages), len(benefits))
@@ -249,44 +249,44 @@ class CoveragesTab(QWidget):
             raise
 
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):
-        self.policy_label.setText(policy.policy_number)
-        self.company_label.setText(policy.company_code)
-        self.market_org_label.setText(policy.servicing_market_org)
-        self.issue_state_label.setText(policy.issue_state)
-        self.definition_of_life_label.setText(policy.gpt_cvat)
-        self.billing_mode_label.setText(policy.billing_mode)
-        self.premium_label.setText(format_amount(policy.modal_premium))
-        self.region_label.setText(policy.region)
-        self.system_cd_label.setText(policy.system_code)
+        self.policy_label.setText(policy.identity.policy_number)
+        self.company_label.setText(policy.identity.company_code)
+        self.market_org_label.setText(policy.agents.servicing_market_org)
+        self.issue_state_label.setText(policy.product.issue_state)
+        self.definition_of_life_label.setText(policy.product.gpt_cvat)
+        self.billing_mode_label.setText(policy.billing.billing_mode)
+        self.premium_label.setText(format_amount(policy.billing.modal_premium))
+        self.region_label.setText(policy.identity.region)
+        self.system_cd_label.setText(policy.identity.system_code)
 
-        self.joint_label.setText(policy.insured_lives_description)
+        self.joint_label.setText(policy.coverages.insured_lives_description)
 
-        self.suspense_label.setText(f"{policy.suspense_code} - {policy.suspense_description}")
+        self.suspense_label.setText(f"{policy.status.suspense_code} - {policy.status.suspense_description}")
 
-        if policy.in_grace:
+        if policy.status.in_grace:
             self.grace_label.setText("In Grace")
             self.grace_label.setStyleSheet("font-size: 10px; color: #C00000; font-weight: bold;")
         else:
             self.grace_label.setText("Not in Grace")
             self.grace_label.setStyleSheet("font-size: 10px;")
 
-        if policy.valuation_date:
-            self.eff_date_label.setText(policy.valuation_date.strftime("%m/%d/%Y"))
+        if policy.values.valuation_date:
+            self.eff_date_label.setText(policy.values.valuation_date.strftime("%m/%d/%Y"))
         else:
             self.eff_date_label.setText("")
 
-        self.policy_year_label.setText(str(policy.policy_year))
+        self.policy_year_label.setText(str(policy.activity.policy_year))
 
         self._populate_death_benefit(policy)
 
-        att_age = policy.attained_age
+        att_age = policy.coverages.attained_age
         if att_age is not None:
             self.att_age_label.setText(str(att_age))
         else:
             self.att_age_label.setText("")
 
-        status_code = policy.premium_pay_status_code
-        self.status_label.setText(f"{status_code} - {policy.premium_pay_status_description}")
+        status_code = policy.status.premium_pay_status_code
+        self.status_label.setText(f"{status_code} - {policy.status.premium_pay_status_description}")
 
         try:
             if status_code and int(status_code) >= 40:
@@ -297,13 +297,13 @@ class CoveragesTab(QWidget):
             self.status_label.setStyleSheet("font-size: 10px;")
 
         # Reinsurance partner code — from TH_USER_GENERIC.FUZGREIN_IND
-        rein_raw = (policy.reins_partner or "").strip()
+        rein_raw = (policy.support.reins_partner or "").strip()
         self.reins_partner_label.setText("RGA" if rein_raw == "R" else "ANICO" if rein_raw else "(none)")
 
         # Death Benefit Option — UL products only
         _DB_OPT_DISPLAY = {"1": "A-Level", "2": "B-Increasing", "3": "C-ROP"}
-        if policy.is_advanced_product:
-            self.db_option_label.setText(_DB_OPT_DISPLAY.get(policy.db_option_code, ""))
+        if policy.product.is_advanced_product:
+            self.db_option_label.setText(_DB_OPT_DISPLAY.get(policy.product.db_option_code, ""))
         else:
             self.db_option_label.setText("")
 
@@ -314,9 +314,9 @@ class CoveragesTab(QWidget):
         standard face + DB-option amount whenever it is larger; the Corridor
         field says so and the tooltip shows the full comparison.
         """
-        standard_db = policy.standard_death_benefit
-        corridor_db = policy.corridor_death_benefit
-        total_db = policy.total_death_benefit
+        standard_db = policy.coverages.standard_death_benefit
+        corridor_db = policy.coverages.corridor_death_benefit
+        total_db = policy.coverages.total_death_benefit
         in_corridor = corridor_db is not None and corridor_db > standard_db
 
         self.total_death_benefit_label.setText(format_amount(total_db))
@@ -325,18 +325,18 @@ class CoveragesTab(QWidget):
 
         db_option_note = {
             "2": " + account value", "3": " + premiums paid",
-        }.get(str(policy.db_option_code or "").strip(), "")
+        }.get(str(policy.product.db_option_code or "").strip(), "")
         lines = [f"Standard DB (face{db_option_note}): {format_amount(standard_db)}"]
 
         if corridor_db is None:
             self.corridor_label.setText("N/A")
             self.corridor_label.setStyleSheet(_VAL_STYLE_NA)
-            reason = ("traditional product" if not policy.is_advanced_product
+            reason = ("traditional product" if not policy.product.is_advanced_product
                       else "no account value on file")
             lines.append(f"Corridor: not applicable ({reason})")
         else:
-            account_value = policy.current_account_value
-            percent_text = self._format_percent(policy.corridor_percent)
+            account_value = policy.coverages.current_account_value
+            percent_text = self._format_percent(policy.product.corridor_percent)
             lines.append(
                 f"Corridor DB ({format_amount(account_value)} AV × {percent_text}): "
                 f"{format_amount(corridor_db)}"
@@ -345,7 +345,7 @@ class CoveragesTab(QWidget):
                 self.corridor_label.setText("In Corridor")
                 self.corridor_label.setStyleSheet(_VAL_STYLE_CORRIDOR)
                 lines.append(
-                    f"Corridor adds {format_amount(policy.corridor_amount)} "
+                    f"Corridor adds {format_amount(policy.coverages.corridor_amount)} "
                     "over the standard DB")
             else:
                 self.corridor_label.setText("Not in Corridor")
@@ -361,7 +361,7 @@ class CoveragesTab(QWidget):
             self.cov_table.setRowCount(0)
             return
 
-        is_ul_product = policy.product_line_code == "U"
+        is_ul_product = policy.product.product_line_code == "U"
         columns = self._coverage_columns(is_ul_product)
         self.cov_table.setColumnCount(len(columns))
         self.cov_table.setHorizontalHeaderLabels(columns)
@@ -372,10 +372,10 @@ class CoveragesTab(QWidget):
         self.cov_table.setRowCount(len(coverages))
 
         base_issue_date = coverages[0].issue_date if coverages else None
-        val_date = policy.valuation_date
+        val_date = policy.values.valuation_date
         years_base_to_val = 0
         if base_issue_date and val_date:
-            years_base_to_val = policy._completed_date_parts_years(base_issue_date, val_date)
+            years_base_to_val = policy.activity._completed_date_parts_years(base_issue_date, val_date)
 
         for row_idx, cov in enumerate(coverages):
             self._populate_coverage_row(
@@ -399,9 +399,9 @@ class CoveragesTab(QWidget):
     def _coverage_rate_class(self, policy, cov) -> str:
         rate_class = cov.rate_class
         if not rate_class:
-            rnl_idx = policy.cov_renewal_index(cov.cov_pha_nbr, "C", "0")
+            rnl_idx = policy.rates.cov_renewal_index(cov.cov_pha_nbr, "C", "0")
             if rnl_idx >= 0:
-                rate_class = policy.renewal_cov_rateclass(rnl_idx)
+                rate_class = policy.rates.renewal_cov_rateclass(rnl_idx)
         return rate_class
 
     def _coverage_attained_age(
@@ -411,7 +411,7 @@ class CoveragesTab(QWidget):
             return ""
         years_base_to_cov = 0
         if cov.issue_date and base_issue_date:
-            years_base_to_cov = policy._completed_date_parts_years(base_issue_date, cov.issue_date)
+            years_base_to_cov = policy.activity._completed_date_parts_years(base_issue_date, cov.issue_date)
         return cov.issue_age + years_base_to_val - years_base_to_cov
 
     def _set_coverage_status_item(self, row_idx: int, col: int, status) -> None:

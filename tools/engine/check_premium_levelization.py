@@ -121,7 +121,7 @@ def main() -> int:
     if args.local_data:
         os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
-    from suiteview.core.policy_service import clear_cache
+    from suiteview.polview.services.policy_service import clear_cache
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet,

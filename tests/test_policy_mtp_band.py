@@ -25,24 +25,24 @@ def _policy(structure="1", code="B"):
 ])
 def test_mtp_band_uses_phase_type_primary_person_and_structure(structure, code, expected):
     policy, _ = _policy(structure, code)
-    assert policy.cov_mtp_band(5) == expected
+    assert policy.rates.cov_mtp_band(5) == expected
 
 
 @pytest.mark.parametrize("code", [None, "", "AB", "Z"])
 def test_invalid_mtp_band_is_not_replaced_with_current_band(code):
     policy, _ = _policy(code=code)
     with pytest.raises(ValueError, match="invalid stored MTP band"):
-        policy.cov_mtp_band(5)
+        policy.rates.cov_mtp_band(5)
 
 
 def test_missing_or_conflicting_mtp_bands_are_explicit():
     policy, tables = _policy()
     row = tables["LH_COV_INS_RNL_RT"].pop()
     with pytest.raises(ValueError, match="missing or ambiguous stored MTP band"):
-        policy.cov_mtp_band(5)
+        policy.rates.cov_mtp_band(5)
     tables["LH_COV_INS_RNL_RT"].extend([row, {**row, "RT_BAN_CD": "C"}])
     with pytest.raises(ValueError, match="missing or ambiguous stored MTP band"):
-        policy.cov_mtp_band(5)
+        policy.rates.cov_mtp_band(5)
 
 
 def test_band_lookup_propagates_data_access_errors():
@@ -53,4 +53,4 @@ def test_band_lookup_propagates_data_access_errors():
 
     policy.fetch_table = failed_fetch
     with pytest.raises(RuntimeError, match="DB2 unavailable"):
-        policy.cov_mtp_band(5)
+        policy.rates.cov_mtp_band(5)

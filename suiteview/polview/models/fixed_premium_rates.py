@@ -94,7 +94,7 @@ def _money(value: Optional[Decimal]) -> str:
 
 
 def _as_of(policy: "PolicyInformation") -> date:
-    return policy.valuation_date or date.today()
+    return policy.values.valuation_date or date.today()
 
 
 def _matrix(columns: List[str], metadata: List[tuple], body: List[list]) -> List[List]:
@@ -159,7 +159,7 @@ def premium_items(policy: "PolicyInformation", cov_index: Optional[int] = None) 
     ``cov_index`` limits the list to one coverage (1-based) and its benefits.
     """
     as_of = _as_of(policy)
-    coverages = policy.get_coverages()
+    coverages = policy.coverages.get_coverages()
     indexes = [cov_index] if cov_index else range(1, len(coverages) + 1)
     lookups: Dict[tuple, Dict[str, Any]] = {}
     items: List[PremiumItem] = []
@@ -167,7 +167,7 @@ def premium_items(policy: "PolicyInformation", cov_index: Optional[int] = None) 
     def lookup(plancode, age, issue_date):
         key = (plancode, age, issue_date)
         if key not in lookups:
-            lookups[key] = policy.rates_wl_premium(plancode, age, issue_date)
+            lookups[key] = policy.rates.rates_wl_premium(plancode, age, issue_date)
         return lookups[key]
 
     def resolve(item: PremiumItem):
@@ -181,15 +181,15 @@ def premium_items(policy: "PolicyInformation", cov_index: Optional[int] = None) 
                                f"effective by {_cell(item.issue_date)}")
             else:
                 item.reason = (f"Not loaded: no WL_RATE_PREM rows for {item.plancode}, "
-                               f"user {policy.cyberlife_rate_user_code}, age {item.issue_age}")
+                               f"user {policy.rates.cyberlife_rate_user_code}, age {item.issue_age}")
             return
         item.rate_row, item.reason = select_premium_row(
             item.lookup["rows"], item.option, item.sex, item.rateclass)
 
     for index in indexes:
         cov = coverages[index - 1]
-        sex, rateclass = policy.cov_rate_sex_code(index), policy.renewal_cov_rateclass_by_cov(index)
-        active = policy._coverage_is_active(cov, as_of)
+        sex, rateclass = policy.rates.cov_rate_sex_code(index), policy.rates.renewal_cov_rateclass_by_cov(index)
+        active = policy.coverages._coverage_is_active(cov, as_of)
         cov_item = PremiumItem(
             label=f"Cov {index:02d} base", plancode=cov.plancode, option=BASE_OPTION,
             issue_age=cov.issue_age, issue_date=cov.issue_date, units=cov.units,
@@ -199,7 +199,7 @@ def premium_items(policy: "PolicyInformation", cov_index: Optional[int] = None) 
         )
         resolve(cov_item)
         items.append(cov_item)
-        for ben_number, ben in enumerate(policy.get_benefits(), start=1):
+        for ben_number, ben in enumerate(policy.benefits.get_benefits(), start=1):
             if ben.cov_pha_nbr != cov.cov_pha_nbr:
                 continue
             ceased = ben.cease_date is not None and ben.cease_date <= as_of
@@ -230,9 +230,9 @@ def build_premium_rate_matrix(policy: "PolicyInformation", cov_index: int) -> Li
                "Identifier", "Scale Start", "Scale Stop", "Rate", "Units", "Annual Premium",
                "Stored Rate", "Check", "Status"]
     metadata = [
-        ("Policy", policy.policy_number), ("Cov Index", cov_index), ("Plancode", base.plancode),
+        ("Policy", policy.identity.policy_number), ("Cov Index", cov_index), ("Plancode", base.plancode),
         ("Source", "WL_RATE_PREM"),
-        ("Rate User", f"{policy.cyberlife_rate_user_code} (company {policy.company_code})"),
+        ("Rate User", f"{policy.rates.cyberlife_rate_user_code} (company {policy.identity.company_code})"),
         ("IAF Version", (lookup.get("iaf_version") or "(blank)") if lookup.get("rows") else "Not loaded"),
         ("IAF Effective", _cell(lookup.get("effective_date")) if lookup.get("rows") else "Not loaded"),
         ("Issue Date", _cell(base.issue_date)), ("Issue Age", _cell(base.issue_age)),
@@ -272,7 +272,7 @@ def build_premium_rate_matrix(policy: "PolicyInformation", cov_index: int) -> Li
 
 
 def _modal_policy_blockers(policy: "PolicyInformation") -> List[str]:
-    status = policy.premium_pay_status_code.strip()
+    status = policy.status.premium_pay_status_code.strip()
     if status in ("44", "45"):
         return ["Policy is on ETI/RPU: no fixed premium is billed"]
     return []
@@ -315,9 +315,9 @@ def _modal_lookup_blockers(plancode: str, lookup: Dict[str, Any]) -> List[str]:
 
 
 def _modal_mode_and_family(policy: "PolicyInformation", blockers: List[str]):
-    frequency = policy.billing_frequency
-    nsd = policy.non_standard_mode_code
-    form = policy.bill_form_code
+    frequency = policy.billing.billing_frequency
+    nsd = policy.billing.non_standard_mode_code
+    form = policy.billing.bill_form_code
     try:
         return billing_mode(frequency, nsd), factor_family(form), form
     except ModalPremiumError as exc:
@@ -389,10 +389,10 @@ def _modal_metadata(policy: "PolicyInformation", plancode: str, as_of: date,
                     mode, lookup: Dict[str, Any]) -> List[tuple]:
     factors = lookup["factors"]
     metadata = [
-        ("Policy", policy.policy_number), ("Plancode", plancode), ("As of", _cell(as_of)),
-        ("Mode", _mode_text(mode, policy.billing_frequency, policy.non_standard_mode_code)),
-        ("Bill Form", describe_bill_form(policy.bill_form_code)),
-        ("Rate User", f"{policy.cyberlife_rate_user_code} (company {policy.company_code})"),
+        ("Policy", policy.identity.policy_number), ("Plancode", plancode), ("As of", _cell(as_of)),
+        ("Mode", _mode_text(mode, policy.billing.billing_frequency, policy.billing.non_standard_mode_code)),
+        ("Bill Form", describe_bill_form(policy.billing.bill_form_code)),
+        ("Rate User", f"{policy.rates.cyberlife_rate_user_code} (company {policy.identity.company_code})"),
         ("Premiums", "WL_RATE_PREM (N)"),
         ("Factors", lookup["index"] or "No POINT_MODEFACT pointer"),
     ]
@@ -423,15 +423,15 @@ def _modal_metadata(policy: "PolicyInformation", plancode: str, as_of: date,
 def build_modal_premium_matrix(policy: "PolicyInformation") -> List[List]:
     """Annual premium from IAF rates, mode factors, policy fee and POL_PRM_AMT."""
     as_of = _as_of(policy)
-    plancode = policy.cov_plancode(1)
-    stored = policy.modal_premium
+    plancode = policy.coverages.cov_plancode(1)
+    stored = policy.billing.modal_premium
     columns = ["RateFields", "RateInfo", "Line", "Item", "Units", "Rate", "Amount", "Note"]
     blockers = _modal_policy_blockers(policy)
     items = premium_items(policy) if not blockers else []
     body, premium_blockers, annual, substandard = _modal_premium_rows(items)
     blockers.extend(premium_blockers)
 
-    lookup = policy.rates_modal_factors()
+    lookup = policy.rates.rates_modal_factors()
     factors = lookup["factors"]
     blockers.extend(_modal_lookup_blockers(plancode, lookup))
     mode, family, form = _modal_mode_and_family(policy, blockers)
