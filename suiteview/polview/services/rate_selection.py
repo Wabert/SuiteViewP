@@ -13,6 +13,39 @@ class RateSelection:
     message: str = ""
 
 
+# Rates-tree categories read from UL_Rates schema ``rates``. The older categories
+# (Coverages, Benefits, Cash Values, Premium Rates, Modal Premium, Policy) read the
+# legacy dbo rate tables and are listed under the tree's "Legacy (dbo)" branch.
+SCHEMA_COVERAGE = "Schema Coverage"
+SCHEMA_BENEFIT = "Schema Benefit"
+SCHEMA_POLICY = "Schema Policy"
+SCHEMA_FUNDS = "Schema Funds"
+SCHEMA_MODAL = "Schema Modal"
+SCHEMA_SPACE = "Schema Rate Space"
+SCHEMA_CATEGORIES = (
+    SCHEMA_COVERAGE, SCHEMA_BENEFIT, SCHEMA_POLICY, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_SPACE,
+)
+
+
+def _schema_selection(policy, category: str, index: int) -> RateSelection:
+    from suiteview.polview.models.schema_rates import RatesNotLoaded
+
+    rates = policy.rates
+    builders = {
+        SCHEMA_COVERAGE: (f"Rates for Coverage {index}", "build_schema_coverage_matrix", (index,)),
+        SCHEMA_BENEFIT: (f"Rates for Benefit {index}", "build_schema_benefit_matrix", (index,)),
+        SCHEMA_POLICY: ("Policy Level Rates", "build_schema_policy_matrix", ()),
+        SCHEMA_FUNDS: ("Fund Rates", "build_schema_fund_matrix", ()),
+        SCHEMA_MODAL: ("Modal Factors", "build_schema_modal_matrix", ()),
+        SCHEMA_SPACE: ("Rate Space", "build_schema_rate_space_matrix", ()),
+    }
+    title, builder, args = builders[category]
+    try:
+        return RateSelection(title, getattr(rates, builder)(*args))
+    except RatesNotLoaded as exc:
+        return RateSelection(title, message=str(exc))
+
+
 def _product_rules(policy):
     try:
         rules = getattr(getattr(policy, "product", None), "product_rules", None)
@@ -31,6 +64,8 @@ def _product_rules(policy):
 
 def build_rate_selection(policy, category: str, index: int) -> RateSelection:
     """Build the selected rates matrix or the user-facing not-available message."""
+    if category in SCHEMA_CATEGORIES:
+        return _schema_selection(policy, category, index)
     if category == "Coverages":
         rules = _product_rules(policy)
         if (rules.rate_family == "WL" and not rules.is_advanced

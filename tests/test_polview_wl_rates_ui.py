@@ -8,9 +8,10 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTabWidget
 
 from suiteview.core.rates import RatesError
+from suiteview.polview.services.rate_selection import SCHEMA_COVERAGE
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab
-from suiteview.polview.ui.tree_panel import PolicyRecordTreeWidget
+from suiteview.polview.ui.tree_panel import LEGACY_BRANCH, PolicyRecordTreeWidget
 
 
 @pytest.fixture
@@ -143,7 +144,13 @@ def test_rates_tree_retains_selection_and_wl_tooltip_across_tab_switch(qtbot, pr
     tree = PolicyRecordTreeWidget()
     qtbot.addWidget(tree)
     tree.build_rates_tree(policy)
-    item = tree.topLevelItem(0).child(0)
+    schema_item = tree.topLevelItem(0).child(0)
+    with qtbot.waitSignal(tree.rate_selected) as signal:
+        tree._on_item_clicked(schema_item, 0)
+    assert signal.args == [SCHEMA_COVERAGE, "Cov 01 (201WL500)", 1]
+    legacy = tree.topLevelItem(tree.topLevelItemCount() - 1)
+    assert legacy.data(0, Qt.ItemDataRole.UserRole)["name"] == LEGACY_BRANCH
+    item = legacy.child(0)
     assert ("WL_RATE_CV" in item.toolTip(0)) == (product == "WL")
     assert item.data(0, Qt.ItemDataRole.UserRole)["index"] == 1
     with qtbot.waitSignal(tree.rate_selected) as signal:
@@ -152,4 +159,5 @@ def test_rates_tree_retains_selection_and_wl_tooltip_across_tab_switch(qtbot, pr
     tooltip = item.toolTip(0)
     tree.switch_to_tables_mode()
     tree.switch_to_rates_mode(policy)
-    assert tree.topLevelItem(0).child(0).toolTip(0) == tooltip
+    restored = tree.topLevelItem(tree.topLevelItemCount() - 1).child(0)
+    assert restored.toolTip(0) == tooltip

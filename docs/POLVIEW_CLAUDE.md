@@ -379,9 +379,64 @@ Read-only live check for UL054808:
 `tools/app/verify_coverage_zero_values.py` compares the coverage grid to DB2
 amounts and can save a screenshot and JSON report.
 
+### Rates tree: UL_Rates schema `rates` (the new rate tables)
+
+The Rates tree's first three branches read the four-structure tables in UL_Rates
+schema **`rates`**, built and loaded by `Cyberlife_Rates\Rates_Database` (DDL:
+its `sql\rates_schema.sql`). SuiteView only reads them
+(`suiteview/core/rates_schema.py`, `RatesSchemaRepository`); the grids are built
+by `suiteview/polview/models/schema_rates.py` and routed by
+`polview/services/rate_selection.py` (`SCHEMA_*` categories). The older dbo views
+are kept, unchanged, under **Legacy (dbo)** for comparison while the new tables are
+loaded plan by plan; a plancode not yet in `rates.PLAN_DEF` says so and points there.
+
+Where a rate appears follows its assignment table and `RATE_TYPE.STRUCTURE`:
+
+| Leaf | Rates |
+|---|---|
+| Coverages > Cov NN | `RATE_ASSIGN_CELL` rows with `BENEFIT = ''` for the coverage's plancode; its dividends (`RATE_ASSIGN_DIV`); for a coverage whose plancode is not the base plan's, that plancode's `RATE_ASSIGN_PLAN` rates |
+| Benefits > Ben NN | `RATE_ASSIGN_CELL` rows whose `BENEFIT` is the benefit's `SPM_BNF_TYP_CD + SPM_BNF_SBY_CD`, on the plancode of the coverage the benefit is on |
+| Policy > Policy Rates | base plancode `RATE_ASSIGN_PLAN` rates, `PLAN_DEF` facts and `PLAN_ATTR` attributes |
+| Policy > Fund Rates | `RATE_ASSIGN_FUND` → `RATE_VALUE_FUND` for the policy's loaded plancodes (Held = a current fund bucket) |
+| Policy > Modal Factors | `PLAN_MODEFACT` |
+| Policy > Rate Space | every CELL/PLAN/FUND/DIV assignment of the policy's loaded plancodes, with the leaves that use it |
+
+Lookup rules (all shown in the grid's RateFields/RateInfo block):
+
+- **Company.** The policy company's `PLAN_DEF` row; else the verified CyberLife
+  rate-file user (`cyberlife_rate_user`, 01 → 00); else a plancode loaded under a
+  single company, labelled "the only company loaded".
+- **Key.** Sex from the 67 segment (`1` → `M`, `2` → `F`, other codes verbatim, as
+  the loaders store them), the renewal rate class, the issue state, and the band:
+  `rates.fn_BAND` over `PLAN_BAND` (latest spec on/before the issue date, lowest
+  upper limit at or above the amount; amounts as `cov_band`). When `PLAN_BAND` has
+  bands without limits, the coverage's stored `RT_BAN_CD` is mapped through
+  `SOURCE_BAND`. The stored band is always shown beside the computed one.
+  Sub-series keyed rates (CV) use `LH_COV_PHA.LIF_PLN_SUB_SRE_CD` (`fn_RATE_SUB`),
+  else `PLAN_SUBSERIES`.
+- **Fallbacks.** Exact cell first; then unisex `U`, class `0` then `*`, band `0`,
+  state `**`. Every fallback used is listed under *Cells used*; a rate type with no
+  cell is listed under *Missing* with the loaded sexes/classes/bands. Dividends use
+  REIN `RGA` for Orion/RGA policies (`FUZGREIN_IND = R`), else `''`.
+- **Dates and scales.** `DATE_MEANING = ISSUE` uses the schedule window in effect on
+  the issue date; `CALENDAR` uses the window in effect on each row's Date (the
+  start of that policy year), so a scale change shows mid-grid. Every stored scale
+  gets its own column (`COI C`, `COI G`, `COI S`); there is no C → G substitution in
+  the grid. `NA` = no window covers that date; blank = past the rate set.
+- **Grains.** `IA_DUR`/`DUR` by policy year; `AA` by attained age; `IA`/`SCALAR`
+  ISSUE rates are single values under *Single rates*. CV and FACE_AMT are
+  point-in-time (duration 0 = issue), so Year *n* shows duration *n* - 1.
+
+Tools (read-only, live): `tools/rates/dump_polview_schema_rates.py` prints every
+schema leaf for a list of policies; `tools/rates/verify_polview_schema_rates.py`
+compares every grid value with the database's own `fn_RATE`, `fn_RATE_SUB`,
+`fn_PLAN_RATE` and `fn_DIV_RATE`. Tests: `tests/test_polview_schema_rates.py`.
+
 ### Whole Life Rates view
 
-In the left **Rates > Coverages** tree, selecting a coverage on a traditional
+This and the next section describe the **Legacy (dbo)** branch.
+
+In the left **Rates > Legacy (dbo)** tree, selecting a coverage on a traditional
 `WL` policy now displays cash values from `UL_Rates.WL_RATE_CV`, not UL COI
 tables. `PolicyInformation.build_coverage_rate_matrix()` dispatches to the
 separate Whole Life matrix builder; the UL/Term route is unchanged (ISWL adds

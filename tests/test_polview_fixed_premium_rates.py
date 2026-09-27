@@ -16,9 +16,12 @@ from suiteview.polview.models import fixed_premium_rates as fpr
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.models.policy_sections.rates import RatesSection
 from suiteview.polview.models.policy_sections.status import StatusSection
+from suiteview.polview.services.rate_selection import (
+    SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SPACE,
+)
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab
-from suiteview.polview.ui.tree_panel import PolicyRecordTreeWidget
+from suiteview.polview.ui.tree_panel import LEGACY_BRANCH, PolicyRecordTreeWidget
 
 MODEFACT_00_048 = {
     "Index(MODEFACT)": "00-048",
@@ -430,17 +433,19 @@ def _branch(tree, name):
 
 
 @pytest.mark.parametrize("product,advanced,fixed,expected", [
-    ("ISWL", True, True, ["Cash Values", "Premium Rates", "Modal Premium"]),
-    ("WL", False, True, ["Premium Rates", "Modal Premium"]),
-    ("UL", True, False, None), ("TERM", False, False, None),
+    ("ISWL", True, True, ["Coverages", "Cash Values", "Premium Rates", "Modal Premium", "Policy"]),
+    ("WL", False, True, ["Coverages", "Premium Rates", "Modal Premium", "Policy"]),
+    ("UL", True, False, ["Coverages", "Policy"]), ("TERM", False, False, ["Coverages", "Policy"]),
 ])
-def test_fixed_premium_branch_only_for_iswl_and_wl(qtbot, product, advanced, fixed, expected):
+def test_fixed_premium_leaves_only_for_iswl_and_wl_under_legacy(qtbot, product, advanced, fixed, expected):
     tree = PolicyRecordTreeWidget()
     qtbot.addWidget(tree)
     tree.build_rates_tree(_tree_policy(product, advanced, fixed))
-    leaves = _branch(tree, "Fixed Premium")
-    assert (None if leaves is None else [leaf["category"] for leaf in leaves]) == expected
-    assert tree.topLevelItem(tree.topLevelItemCount() - 1).data(0, Qt.ItemDataRole.UserRole)["category"] == "Policy"
+    assert [leaf["category"] for leaf in _branch(tree, LEGACY_BRANCH)] == expected
+    assert _branch(tree, "Fixed Premium") is None
+    assert [leaf["category"] for leaf in _branch(tree, "Policy")] == [
+        SCHEMA_POLICY, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_SPACE]
+    assert [leaf["category"] for leaf in _branch(tree, "Coverages")] == [SCHEMA_COVERAGE]
 
 
 @pytest.fixture

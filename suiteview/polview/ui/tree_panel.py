@@ -14,6 +14,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 
 from ..config.policy_records import POLICY_RECORD_TABLES, get_sorted_policy_records
+from ..services.rate_selection import (
+    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SPACE,
+)
 from .styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_PRIMARY, BLUE_DARK,
     GOLD_PRIMARY, GOLD_LIGHT, GOLD_TEXT,
@@ -24,6 +27,8 @@ from .styles import (
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..models.policy_information import PolicyInformation
+
+LEGACY_BRANCH = "Legacy (dbo)"
 
 
 class PolicyRecordTreeWidget(QTreeWidget):
@@ -149,90 +154,92 @@ class PolicyRecordTreeWidget(QTreeWidget):
     
     def build_rates_tree(self, policy: 'PolicyInformation'):
         """Build the rates tree from PolicyInformation coverage/benefit data.
-        
-        Tree structure (top-level nodes, no wrapper):
-          ▶ Coverages
-          │   ├── Cov 01 (plancode)
-          │   ├── Cov 02 (plancode)
-          │   └── ...
-          ▶ Benefits
-          │   ├── Ben 01 (typecode)
-          │   └── ...
-          ▶ Fixed Premium        (ISWL / traditional WL only)
-          │   ├── Cash Values Cov 01   (ISWL; WL shows CVs on Coverages)
-          │   ├── Premium Rates Cov 01
-          │   └── Modal Premium
-          Policy
+
+        The first three branches read UL_Rates schema ``rates``; each rate appears
+        where its assignment table puts it (see ``polview.models.schema_rates``).
+        The legacy dbo views stay under "Legacy (dbo)" for comparison.
+
+          ▶ Coverages       Cov 01 (plancode) ...          CELL, DIV, rider PLAN rates
+          ▶ Benefits        Ben 01 (type+subtype) ...      benefit CELL rates
+          ▶ Policy          Policy Rates, Fund Rates, Modal Factors, Rate Space
+          ▶ Legacy (dbo)    Cov/Ben leaves, Fixed Premium (ISWL/WL), Policy
         """
         self.clear()
         self._mode = self.MODE_RATES
         self.setHeaderLabel("Rates")
-        
-        # Coverages branch (top-level)
-        cov_node = QTreeWidgetItem([f"▶  Coverages"])
-        cov_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Coverages"})
-        self.addTopLevelItem(cov_node)
-        whole_life = not policy.product.is_advanced_product and policy.product.product_type == "WL"
-        for i in range(1, policy.coverages.coverage_count + 1):
-            plancode = policy.coverages.cov_plancode(i)
-            label = f"Cov {i:02d} ({plancode})"
-            cov_item = QTreeWidgetItem([f"      {label}"])
-            cov_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "rate_leaf",
-                "category": "Coverages",
-                "label": label,
-                "index": i
-            })
-            if whole_life:
-                cov_item.setToolTip(
-                    0, "Cash values from WL_RATE_CV by CyberLife user, class/base/sub and issue age.\n"
-                    "NSP, PUI and dividend rate lookups are not yet available."
-                )
-            elif policy.product.product_type == "ISWL":
-                cov_item.setToolTip(
-                    0, "UL-style rates (current-scale COI), GINT, CVR, premium rate, loans and cease ages.\n"
-                    "Cash values, premium rates and modal factors are under Fixed Premium."
-                )
-            cov_node.addChild(cov_item)
-        
-        # Benefits branch (top-level)
-        ben_node = QTreeWidgetItem([f"▶  Benefits"])
-        ben_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Benefits"})
-        self.addTopLevelItem(ben_node)
-        
-        benefits = policy.benefits.get_benefits()
-        for i in range(1, policy.benefits.benefit_count + 1):
-            type_code = benefits[i - 1].benefit_type_cd if i <= len(benefits) else ""
-            label = f"Ben {i:02d} ({type_code})"
-            ben_item = QTreeWidgetItem([f"      {label}"])
-            ben_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "rate_leaf",
-                "category": "Benefits",
-                "label": label,
-                "index": i
-            })
-            ben_node.addChild(ben_item)
 
+        benefits = policy.benefits.get_benefits()
+        coverage_labels = [
+            f"Cov {i:02d} ({policy.coverages.cov_plancode(i)})"
+            for i in range(1, policy.coverages.coverage_count + 1)
+        ]
+        benefit_labels = [
+            f"Ben {i:02d} ({benefits[i - 1].benefit_code if i <= len(benefits) else ''})"
+            for i in range(1, policy.benefits.benefit_count + 1)
+        ]
+
+        self._add_rate_branch("Coverages", [
+            (SCHEMA_COVERAGE, label, i,
+             "UL_Rates schema rates: CELL rates (benefit blank) for this coverage's plancode,\n"
+             "its dividends, and PLAN rates when the plancode is a rider's.")
+            for i, label in enumerate(coverage_labels, start=1)
+        ])
+        self._add_rate_branch("Benefits", [
+            (SCHEMA_BENEFIT, label, i,
+             "UL_Rates schema rates: CELL rates keyed by this benefit's type + subtype\n"
+             "on the plancode of the coverage it is attached to.")
+            for i, label in enumerate(benefit_labels, start=1)
+        ])
+        self._add_rate_branch("Policy", [
+            (SCHEMA_POLICY, "Policy Rates", 1,
+             "UL_Rates schema rates: PLAN rates of the base plancode (corridor, interest,\n"
+             "loans, ...) with its PLAN_DEF facts and PLAN_ATTR attributes."),
+            (SCHEMA_FUNDS, "Fund Rates", 1,
+             "UL_Rates schema rates: FUND rates (CIRF interest and index parameters)\n"
+             "assigned to the policy's plancodes. Held = the policy has a current bucket."),
+            (SCHEMA_MODAL, "Modal Factors", 1, "UL_Rates schema rates: PLAN_MODEFACT mode factors and fees."),
+            (SCHEMA_SPACE, "Rate Space", 1,
+             "Every CELL assignment loaded for the policy's plancodes,\n"
+             "with the coverage/benefit leaves that use it."),
+        ])
+
+        whole_life = not policy.product.is_advanced_product and policy.product.product_type == "WL"
+        legacy = []
+        for i, label in enumerate(coverage_labels, start=1):
+            if whole_life:
+                tooltip = ("Cash values from WL_RATE_CV by CyberLife user, class/base/sub and issue age.\n"
+                           "NSP, PUI and dividend rate lookups are not yet available.")
+            elif policy.product.product_type == "ISWL":
+                tooltip = ("UL-style rates (current-scale COI), GINT, CVR, premium rate, loans and cease ages.\n"
+                           "Cash values, premium rates and modal factors are the Fixed Premium leaves.")
+            else:
+                tooltip = "Legacy dbo coverage rates (COI, EPU, SCR, targets)."
+            legacy.append(("Coverages", label, i, tooltip))
+        legacy += [("Benefits", label, i, "Legacy dbo benefit rates (COI, targets).")
+                   for i, label in enumerate(benefit_labels, start=1)]
         if policy.rates.has_fixed_premium_rates:
-            self._add_fixed_premium_branch(policy, whole_life)
-        
-        # Policy node (top-level leaf)
-        policy_node = QTreeWidgetItem(["  Policy"])
-        policy_node.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "rate_leaf",
-            "category": "Policy",
-            "label": "Policy",
-            "index": 1
-        })
-        self.addTopLevelItem(policy_node)
-        
+            legacy += self._fixed_premium_leaves(policy, whole_life)
+        legacy.append(("Policy", "Policy", 1, "Legacy dbo policy rates (TPP, EPP, MFEE, CORR)."))
+        self._add_rate_branch(LEGACY_BRANCH, legacy)
+
         self._rates_loaded = True
 
-    def _add_fixed_premium_branch(self, policy: 'PolicyInformation', whole_life: bool):
-        """ISWL/WL fixed-premium sources. WL cash values stay on the Coverages leaves."""
-        node = QTreeWidgetItem(["▶  Fixed Premium"])
-        node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": "Fixed Premium"})
+    def _add_rate_branch(self, name: str, leaves):
+        """A collapsible top-level branch of rate leaves ``(category, label, index, tooltip)``."""
+        node = QTreeWidgetItem([f"▶  {name}"])
+        node.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": name})
         self.addTopLevelItem(node)
+        for category, label, index, tooltip in leaves:
+            item = QTreeWidgetItem([f"      {label}"])
+            item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "rate_leaf", "category": category, "label": label, "index": index,
+            })
+            item.setToolTip(0, tooltip)
+            node.addChild(item)
+
+    @staticmethod
+    def _fixed_premium_leaves(policy: 'PolicyInformation', whole_life: bool):
+        """ISWL/WL fixed-premium dbo sources. WL cash values stay on the Coverages leaves."""
         leaves = []
         for i in range(1, policy.coverages.coverage_count + 1):
             if not whole_life:
@@ -243,14 +250,8 @@ class PolicyRecordTreeWidget(QTreeWidget):
         leaves.append(("Modal Premium", "Modal Premium", 1,
                        "Annual premium x RATE_MODEFACT mode factor plus policy fee,\n"
                        "compared with LH_BAS_POL.POL_PRM_AMT."))
-        for category, label, index, tooltip in leaves:
-            item = QTreeWidgetItem([f"      {label}"])
-            item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "rate_leaf", "category": category, "label": label, "index": index,
-            })
-            item.setToolTip(0, tooltip)
-            node.addChild(item)
-    
+        return leaves
+
     def _save_tree_snapshot(self):
         """Save the current tree items as a serializable snapshot."""
         snapshot = []

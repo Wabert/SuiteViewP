@@ -24,7 +24,7 @@ and services read named facts from lazy cached section objects:
 | `pi.persons` | persons, insureds and addresses |
 | `pi.agents` | writing/servicing agents, branch and market organization |
 | `pi.activity` | policy timing and financial transactions |
-| `pi.rates` | renewal-rate lookups and UL/WL/fixed-premium matrices |
+| `pi.rates` | renewal-rate lookups, UL/WL/fixed-premium matrices (legacy dbo) and the UL_Rates schema `rates` grids (`build_schema_*_matrix`, see `docs/POLVIEW_CLAUDE.md`) |
 | `pi.support` | support-tool export and reinstatement/reinsurance helpers |
 
 `merge_prefetched()` merges the detached worker snapshot into the GUI facade and

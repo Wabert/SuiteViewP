@@ -156,6 +156,44 @@ class RatesSection(RateMatrixMixin, PolicySection):
                 self.policy._rates = Rates()
         return self.policy._rates
 
+    def _schema_matrix(self, build, *args) -> List[List]:
+        """Run a ``schema_rates`` builder on a short-lived UL_Rates schema-rates connection."""
+        from suiteview.core.rates_schema import RatesSchemaRepository
+
+        self.policy._data.reject_uncached_read("Rates-schema lookup during cached rendering")
+        with RatesSchemaRepository() as repository:
+            return build(repository, self.policy, *args)
+
+    def build_schema_coverage_matrix(self, cov_index: int) -> List[List]:
+        """Coverage rates from UL_Rates schema ``rates`` (CELL, DIV and rider PLAN rates)."""
+        from ..schema_rates import build_coverage_matrix
+        return self._schema_matrix(build_coverage_matrix, cov_index)
+
+    def build_schema_benefit_matrix(self, ben_index: int) -> List[List]:
+        """Benefit CELL rates from UL_Rates schema ``rates``."""
+        from ..schema_rates import build_benefit_matrix
+        return self._schema_matrix(build_benefit_matrix, ben_index)
+
+    def build_schema_policy_matrix(self) -> List[List]:
+        """Base-plan PLAN rates, plan facts and attributes from UL_Rates schema ``rates``."""
+        from ..schema_rates import build_policy_matrix
+        return self._schema_matrix(build_policy_matrix)
+
+    def build_schema_fund_matrix(self) -> List[List]:
+        """FUND rates of the policy's loaded plancodes from UL_Rates schema ``rates``."""
+        from ..schema_rates import build_fund_matrix
+        return self._schema_matrix(build_fund_matrix)
+
+    def build_schema_modal_matrix(self) -> List[List]:
+        """PLAN_MODEFACT mode factors of the policy's loaded plancodes."""
+        from ..schema_rates import build_modal_matrix
+        return self._schema_matrix(build_modal_matrix)
+
+    def build_schema_rate_space_matrix(self) -> List[List]:
+        """Every CELL assignment of the policy's loaded plancodes, marked where used."""
+        from ..schema_rates import build_rate_space_matrix
+        return self._schema_matrix(build_rate_space_matrix)
+
     def _translate_sex_for_rates(self, sex_code: str) -> str:
         """Translate sex code for rate lookups (1->M, 2->F)."""
         if sex_code == "1":

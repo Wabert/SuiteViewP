@@ -36,6 +36,10 @@ tabs, loaders or services.
   PolView/Illustration behavior, but it opens them through the factory.
 - `Rates`, RateManager repositories and schema discovery open their ODBC handles
   through the same factory.
+- `suiteview.core.rates_schema.RatesSchemaRepository` reads UL_Rates schema
+  `rates` (the four-structure rate tables owned by `Cyberlife_Rates\Rates_Database`)
+  read-only through the same factory. Local development data has no `rates`
+  schema, so it raises `ConnectionUnavailable` when `SUITEVIEW_LOCAL_DATA=1`.
 - `suiteview.data.database` and `suiteview.data.repositories` are only local
   profile SQLite storage (`~/.suiteview/data/suiteview.db`): saved connections,
   cached metadata, bookmarks and email helper data. They are not live-source

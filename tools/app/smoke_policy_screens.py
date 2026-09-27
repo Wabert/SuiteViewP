@@ -92,9 +92,16 @@ def _polview(app, rec, number, company, region, timeout):
     _pump(app)
     rec.step = f"{number} PolView rates tree"
     policy = window._policy
-    leaves = [("Coverages", f"Cov {i:02d}", i) for i in range(1, policy.coverages.coverage_count + 1)]
-    leaves += [("Benefits", f"Ben {i:02d}", i) for i in range(1, policy.benefits.benefit_count + 1)]
-    leaves.append(("Policy", "Policy", 1))
+    from suiteview.polview.services.rate_selection import (
+        SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SPACE,
+    )
+    leaves = [(SCHEMA_COVERAGE, f"Cov {i:02d}", i) for i in range(1, policy.coverages.coverage_count + 1)]
+    leaves += [(SCHEMA_BENEFIT, f"Ben {i:02d}", i) for i in range(1, policy.benefits.benefit_count + 1)]
+    leaves += [(SCHEMA_POLICY, "Policy Rates", 1), (SCHEMA_FUNDS, "Fund Rates", 1),
+               (SCHEMA_MODAL, "Modal Factors", 1), (SCHEMA_SPACE, "Rate Space", 1)]
+    leaves += [("Coverages", f"Legacy Cov {i:02d}", i) for i in range(1, policy.coverages.coverage_count + 1)]
+    leaves += [("Benefits", f"Legacy Ben {i:02d}", i) for i in range(1, policy.benefits.benefit_count + 1)]
+    leaves.append(("Policy", "Legacy Policy", 1))
     for category, label, index in leaves:
         rec.step = f"{number} PolView rates {label}"
         try:

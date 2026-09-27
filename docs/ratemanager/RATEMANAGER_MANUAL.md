@@ -41,7 +41,7 @@ zero but retains `0.94`. It is an assumption, not recovered signs. The option
 override explicit `+` signs, and preserve raw validation. The rule version and
 per-row adjustments must remain in source metadata and load receipts.
 
-PolView's Rates > Coverages view routes traditional `WL` policies to cash values
+PolView's Rates > Legacy (dbo) coverage leaves route traditional `WL` policies to cash values
 through `PolicyInformation.rates_wl_cv()` and `Rates.get_wl_cash_values()`.
 The key is coverage `INS_CLS_CD` + `PLN_BSE_SRE_CD` + `LIF_PLN_SUB_SRE_CD`
 (1/3/2 characters), plus the CyberLife rate-file user (company 01 shares user
