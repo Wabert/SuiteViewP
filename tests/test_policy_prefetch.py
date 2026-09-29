@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 
 from suiteview.polview.services import policy_service
 from suiteview.core.db2_connection import DB2Connection
+from suiteview.illustration.core.interim_value import InterimAccountValue, InterimPremium
 from suiteview.polview.models.policy_data import CachedReadError, _ConnectionManager
 from suiteview.polview.services import policy_prefetch as prefetch
 from suiteview.polview.services.policy_prefetch import _open_connection
@@ -644,16 +645,27 @@ def test_reinsurance_is_detached_explicit_and_retries(source, monkeypatch, qtbot
     session.close()
 
 
+def _projection_basis(**overrides):
+    """Minimal projection-basis double for the Account Values calculations."""
+    segment = SimpleNamespace(coverage_phase=1)
+    values = dict(
+        plancode="SYNTH", base_segment=segment, segments=[segment],
+        valuation_date=date(2026, 9, 15), issue_date=date(2020, 1, 15), duration=81,
+        account_value=200.0, run_from_issue=False, policy_year=7, attained_age=36,
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
 def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
     from suiteview import illustration
     from suiteview.illustration import api as illustration_api
     from suiteview.illustration.core import rate_loader
     from suiteview.illustration.models import plancode_config
 
-    session = prefetch.PolicyLoadSession("TEST")
+    session = prefetch.PolicyLoadSession("TEST", as_of=date(2026, 9, 15))
     session.load_initial()
-    segment = SimpleNamespace(coverage_phase=1)
-    basis = SimpleNamespace(plancode="SYNTH", base_segment=segment, segments=[segment])
+    basis = _projection_basis()
     rates = SimpleNamespace(segment_scr={1: [0, 1]}, scr=[0, 1])
     observed = []
 
@@ -677,12 +689,16 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
     monkeypatch.setattr(plancode_config, "load_plancode", lambda code: object())
     monkeypatch.setattr(rate_loader, "load_rates", lambda *args: rates)
     prepared = session.prepare("advprod")
-    assert prepared.payload == prefetch.SurrenderValues(100, 75)
+    assert prepared.payload.surrender == prefetch.SurrenderValues(100, 75)
+    interim = prepared.payload.interim
+    assert interim.quote_date == date(2026, 9, 15)
+    assert interim.account_value == 200.0 and interim.premiums == ()
     assert observed == ["build", "project"]
     rates.segment_scr[1] = []
     unavailable = session.prepare("advprod")
-    assert isinstance(unavailable.payload, prefetch.SurrenderValuesUnavailable)
-    assert "Missing surrender rates" in unavailable.payload.reason
+    assert isinstance(unavailable.payload.surrender, prefetch.SurrenderValuesUnavailable)
+    assert "Missing surrender rates" in unavailable.payload.surrender.reason
+    assert isinstance(unavailable.payload.interim, prefetch.InterimAccountValueUnavailable)
     assert unavailable.policy.values.mv_av(0) == 200
     assert observed == ["build", "project", "build"]
     session.close()
@@ -704,25 +720,40 @@ def test_missing_illustration_plan_keeps_advanced_policy_values_available(source
     try:
         prepared = session.prepare("advprod")
         assert prepared.available
-        assert isinstance(prepared.payload, prefetch.SurrenderValuesUnavailable)
-        assert "SYNTH" in prepared.payload.reason
+        assert isinstance(prepared.payload.surrender, prefetch.SurrenderValuesUnavailable)
+        assert "SYNTH" in prepared.payload.surrender.reason
+        assert "SYNTH" in prepared.payload.interim.reason
         tab = AdvProdValuesTab()
         qtbot.addWidget(tab)
         with prepared.policy.cached_reads_only():
             tab.load_data_from_policy(prepared.policy, prepared.payload)
         assert tab.policy_info._fields["total_av"].text() == "200.00"
-        for field in ("surrender_charge", "surrender_value"):
+        for field in ("surrender_charge", "surrender_value", "interim_av_quote"):
             assert tab.policy_info._fields[field].text() == "N/A"
             assert "no illustration configuration" in tab.policy_info._fields[field].toolTip()
+        assert tab.policy_info._labels["interim_av_quote"].text() == "Interim AV Quote:"
         assert not tab.surrender_notice.isHidden()
         assert tab.mv_values.table._data_table.rowCount() == 1
 
+        interim = InterimAccountValue(
+            valuation_date=date(2026, 9, 15), quote_date=date(2026, 9, 28),
+            next_monthliversary=date(2026, 10, 15), valuation_account_value=200.0,
+            premiums=(InterimPremium(date(2026, 9, 20), 100.0, 95.0),),
+            interest=0.12, account_value=295.12,
+        )
         with prepared.policy.cached_reads_only():
-            tab.load_data_from_policy(prepared.policy, prefetch.SurrenderValues(0, 200))
+            tab.load_data_from_policy(prepared.policy, prefetch.AccountValueCalculations(
+                prefetch.SurrenderValues(0, 200), interim))
         assert tab.policy_info._fields["surrender_charge"].text() == "0.00"
         assert tab.policy_info._fields["surrender_value"].text() == "200.00"
         assert tab.surrender_notice.isHidden()
         assert tab.policy_info._fields["surrender_value"].toolTip() == ""
+        interim_field = tab.policy_info._fields["interim_av_quote"]
+        assert tab.policy_info._labels["interim_av_quote"].text() == (
+            "Interim AV Quote (09/28/2026):")
+        assert interim_field.text() == "295.12"
+        assert "(09/28/2026)" in interim_field.toolTip()
+        assert "95.00 net" in interim_field.toolTip()
     finally:
         session.close()
 
@@ -746,7 +777,7 @@ def test_optional_surrender_failures_do_not_block_policy_records(
         raise error
 
     segment = SimpleNamespace(coverage_phase=1)
-    basis = SimpleNamespace(plancode="SYNTH", base_segment=segment, segments=[segment])
+    basis = _projection_basis(base_segment=segment, segments=[segment])
     monkeypatch.setattr(plancode_config, "load_plancode", lambda code: object())
     monkeypatch.setattr(illustration_api, "build_illustration_data", lambda *args, **kwargs: basis)
     monkeypatch.setattr(
@@ -760,13 +791,14 @@ def test_optional_surrender_failures_do_not_block_policy_records(
         "projection": (illustration.IllustrationEngine, "project"),
     }[step]
     monkeypatch.setattr(target, attribute, fail)
-    session = prefetch.PolicyLoadSession("TEST")
+    session = prefetch.PolicyLoadSession("TEST", as_of=date(2026, 9, 15))
     session.load_initial()
     try:
         prepared = session.prepare("advprod")
         assert prepared.available
-        assert isinstance(prepared.payload, prefetch.SurrenderValuesUnavailable)
-        assert str(error) in prepared.payload.reason
+        assert isinstance(prepared.payload.surrender, prefetch.SurrenderValuesUnavailable)
+        assert str(error) in prepared.payload.surrender.reason
+        assert str(error) in prepared.payload.interim.reason
         assert str(error) in caplog.text
         tab = AdvProdValuesTab()
         qtbot.addWidget(tab)
@@ -775,7 +807,7 @@ def test_optional_surrender_failures_do_not_block_policy_records(
         assert tab.policy_info._fields["total_av"].text() == "200.00"
         assert tab.mv_values.table._data_table.rowCount() == 1
         assert not tab.surrender_notice.isHidden()
-        for field in ("surrender_charge", "surrender_value"):
+        for field in ("surrender_charge", "surrender_value", "interim_av_quote"):
             assert tab.policy_info._fields[field].text() == "N/A"
             assert str(error) in tab.policy_info._fields[field].toolTip()
     finally:
@@ -798,8 +830,8 @@ def test_illustration_only_table_failure_does_not_poison_record_snapshot(source,
     monkeypatch.setattr(illustration_api, "build_illustration_data", build)
     try:
         prepared = session.prepare("advprod")
-        assert isinstance(prepared.payload, prefetch.SurrenderValuesUnavailable)
-        assert "LH_TAMRA_7_PY_YR offline" in prepared.payload.reason
+        assert isinstance(prepared.payload.surrender, prefetch.SurrenderValuesUnavailable)
+        assert "LH_TAMRA_7_PY_YR offline" in prepared.payload.surrender.reason
         assert not prepared.policy._data._table_errors
         tab = AdvProdValuesTab()
         qtbot.addWidget(tab)
@@ -820,7 +852,7 @@ def test_required_advanced_policy_record_failure_remains_explicit(source, monkey
     session._policy._data.invalidate_table("LH_POL_MVRY_VAL")
     source.connections[0].fail.add("LH_POL_MVRY_VAL")
     monkeypatch.setattr(
-        session, "_surrender_values",
+        session, "_account_value_calculations",
         lambda: pytest.fail("Record failure must be detected before optional calculation"),
     )
     try:
@@ -1019,8 +1051,10 @@ def test_stage_manifest_renders_without_database_reads(source, monkeypatch, qtbo
     ))
     source.tables["LH_BAS_POL"][0]["NON_TRD_POL_IND"] = "1" if advanced else "0"
     monkeypatch.setattr(
-        prefetch.PolicyLoadSession, "_surrender_values",
-        lambda self: prefetch.SurrenderValues(10, 190),
+        prefetch.PolicyLoadSession, "_account_value_calculations",
+        lambda self: prefetch.AccountValueCalculations(
+            prefetch.SurrenderValues(10, 190),
+            prefetch.InterimAccountValueUnavailable("not calculated in this test")),
     )
     session = prefetch.PolicyLoadSession("TEST")
     initial = session.load_initial()

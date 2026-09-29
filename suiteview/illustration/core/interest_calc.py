@@ -46,12 +46,18 @@ def credit_interest(
     reg_loan_balance: float = 0.0,
     pref_loan_balance: float = 0.0,
     exact_days_interest: bool | None = None,
+    period_days: float | None = None,
 ) -> InterestResult:
     """Credit interest to account value.
 
     When loans exist, AV is split into free and loaned portions.
     The loaned portion earns a reduced loan credit rate; the free
     portion earns the full declared + bonus rate.
+
+    ``period_days`` credits a partial period of that many days at
+    ``(1 + rate) ** (days / 365) - 1`` instead of a whole monthiversary span
+    (interim roll-forwards between monthliversaries); it overrides the
+    exact-days / monthly-compounding choice.
 
     Args:
         av_after_deduction: AV after monthly deduction.
@@ -89,16 +95,20 @@ def credit_interest(
     actual_days = _days_in_month(month_date)
     use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
     display_days = float(actual_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
+    if period_days is not None:
+        display_days = float(period_days)
 
-    if use_exact_days:
-        # Exact-days: credit interest on the ACTUAL calendar days in the month
-        # (matches CyberLife / RERUN, and the shadow side, which already use
-        # days/365). Previously this used a fixed 365/12 exponent and ignored the
-        # real day count, drifting ~0.3/mo vs RERUN on 28/31-day months.
-        monthly_rate = (1.0 + effective_annual_rate) ** (actual_days / DAYS_PER_YEAR) - 1.0
-    else:
-        # Monthly compounding
-        monthly_rate = (1.0 + effective_annual_rate) ** (1.0 / MONTHS_PER_YEAR) - 1.0
+    def period_rate(annual: float) -> float:
+        if period_days is not None:
+            return (1.0 + annual) ** (period_days / DAYS_PER_YEAR) - 1.0
+        if use_exact_days:
+            # Exact-days: credit interest on the ACTUAL calendar days in the month
+            # (matches CyberLife / RERUN, and the shadow side, which already use
+            # days/365).
+            return (1.0 + annual) ** (actual_days / DAYS_PER_YEAR) - 1.0
+        return (1.0 + annual) ** (1.0 / MONTHS_PER_YEAR) - 1.0
+
+    monthly_rate = period_rate(effective_annual_rate)
 
     # ── 3.3.4 Interest on AV (split free / loaned) ─────────
     total_loaned = reg_loan_balance + pref_loan_balance
@@ -124,12 +134,8 @@ def credit_interest(
             reg_loaned_av = 0.0
             pref_loaned_av = 0.0
 
-        if use_exact_days:
-            reg_credit_monthly = (1.0 + reg_credit_annual) ** (actual_days / DAYS_PER_YEAR) - 1.0
-            pref_credit_monthly = (1.0 + pref_credit_annual) ** (actual_days / DAYS_PER_YEAR) - 1.0
-        else:
-            reg_credit_monthly = (1.0 + reg_credit_annual) ** (1.0 / MONTHS_PER_YEAR) - 1.0
-            pref_credit_monthly = (1.0 + pref_credit_annual) ** (1.0 / MONTHS_PER_YEAR) - 1.0
+        reg_credit_monthly = period_rate(reg_credit_annual)
+        pref_credit_monthly = period_rate(pref_credit_annual)
 
         reg_impaired_int = reg_loaned_av * reg_credit_monthly
         pref_impaired_int = pref_loaned_av * pref_credit_monthly
@@ -180,3 +186,17 @@ def _days_in_month(d: date) -> int:
 def _leap_day_in_span(d: date) -> bool:
     """True when Feb 29 falls inside (d, d + 1 month] (CalcEngine U)."""
     return calendar.isleap(d.year) and d.month == 2 and d.day < 29
+
+
+def interest_days(start: date, end: date) -> int:
+    """Interest-earning days in ``(start, end]`` on CyberLife's 365-day year.
+
+    Feb 29 never earns interest, matching :func:`_days_in_month`.
+    """
+    if end <= start:
+        return 0
+    days = (end - start).days
+    for year in range(start.year, end.year + 1):
+        if calendar.isleap(year) and start < date(year, 2, 29) <= end:
+            days -= 1
+    return days

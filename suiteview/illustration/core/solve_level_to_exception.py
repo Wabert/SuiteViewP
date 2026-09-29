@@ -94,7 +94,8 @@ def level_to_exception_options(
     survives; False requires the level premium to endow on its own, with no
     exception rescue (the solve then reports no solution for a guideline-bound
     policy). The
-    interest-day convention, forceout choice and premium-levelizing choice are inherited so
+    interest-day convention, interim opening value, forceout choice and
+    premium-levelizing choice are inherited so
     the applied premium is shown consistently with the rest of the app; both the
     solve and the displayed run must use this same basis, or the solved premium
     won't behave as solved. Levelizing also applies in the first guideline-capped
@@ -123,6 +124,7 @@ def level_to_exception_options(
         guideline_forceouts=base.guideline_forceouts if base is not None else True,
         recognize_inforce_exception_period=(
             base.recognize_inforce_exception_period if base is not None else True),
+        interim_opening=base.interim_opening if base is not None else None,
     )
 
 
@@ -180,9 +182,10 @@ def solve_level_to_exception(
             funding the account value (sInput_ApplyPremToLoan) — needed to solve a
             policy that carries a loan. ``None`` inherits it from ``base_options``;
             a bool forces it.
-        base_options: only ``exact_days_interest``, ``levelizing_premium`` and
-            ``apply_prem_to_loan`` are read from it; the guideline and exception
-            toggles are forced on.
+        base_options: only ``exact_days_interest``, ``levelizing_premium``,
+            ``apply_prem_to_loan``, ``guideline_forceouts``,
+            ``recognize_inforce_exception_period`` and ``interim_opening``
+            are read from it; the guideline and exception toggles are forced on.
     """
     if horizon_months is not None and horizon_months < 0:
         raise LevelToExceptionError("The projection horizon cannot be negative.")

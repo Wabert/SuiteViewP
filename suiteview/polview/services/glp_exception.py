@@ -22,6 +22,8 @@ class GlpForecastAvailability:
     available: bool
     message: str
     policy: IllustrationPolicyData | None = None
+    rates: object | None = None
+    config: object | None = None
 
 
 @dataclass
@@ -195,8 +197,9 @@ def check_forecast_availability(policy) -> GlpForecastAvailability:
     missing.extend(_missing_table_rates(ill_policy, rates, config))
 
     if missing:
-        return GlpForecastAvailability(False, "; ".join(missing), ill_policy)
-    return GlpForecastAvailability(True, "Data for forecasting is available", ill_policy)
+        return GlpForecastAvailability(False, "; ".join(missing), ill_policy, rates, config)
+    return GlpForecastAvailability(
+        True, "Data for forecasting is available", ill_policy, rates, config)
 
 
 def calculate_glp_exception(policy, target_date: date) -> GlpExceptionResult:

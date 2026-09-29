@@ -10,7 +10,11 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLab
 
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
-from ...services.policy_prefetch import SurrenderValues, SurrenderValuesUnavailable
+from ...services.policy_prefetch import (
+    AccountValueCalculations,
+    InterimAccountValueUnavailable,
+    SurrenderValuesUnavailable,
+)
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -127,12 +131,21 @@ class AdvProdValuesTab(QWidget):
         place(4, 1, "SP Prem Cease Age", "sp_prem_cease_age", lwidth=115)
         place(5, 1, "DB Dial-To Age", "db_dial_to_age", lwidth=115)
         place(6, 1, "Corridor Rate", "corridor_rate", lwidth=115)
+        # Sized for the dated label so loading a quote never shifts the layout.
+        place(7, 1, "Interim AV Quote (00/00/0000)", "interim_av_quote",
+              lwidth=115, italic=True)
+        self._set_interim_label(None)
+
+    def _set_interim_label(self, quote_date):
+        """Label the Interim AV Quote with the date it is quoted as of."""
+        suffix = f" ({quote_date:%m/%d/%Y})" if quote_date is not None else ""
+        self.policy_info._labels["interim_av_quote"].setText(f"Interim AV Quote{suffix}:")
 
     # ── PolicyInformation path ───────────────────────────────────────────
 
     def load_data_from_policy(
         self, policy: 'PolicyInformation',
-        surrender_values: SurrenderValues | SurrenderValuesUnavailable,
+        calculations: AccountValueCalculations,
     ):
         # Clear old data first so stale values never remain when switching policies
         self.policy_info.clear_info()
@@ -143,14 +156,16 @@ class AdvProdValuesTab(QWidget):
         self.allocation_percent.load_table_data([])
         self.surrender_notice.clear()
         self.surrender_notice.hide()
-        for field in ("surrender_charge", "surrender_value"):
+        for field in ("surrender_charge", "surrender_value", "interim_av_quote"):
             self.policy_info._fields[field].setToolTip("")
+        self._set_interim_label(None)
 
         try:
             if not policy.product.is_advanced_product:
                 return
 
             self._load_policy_info_from_policy(policy)
+            surrender_values = calculations.surrender
             if isinstance(surrender_values, SurrenderValuesUnavailable):
                 for field in ("surrender_charge", "surrender_value"):
                     self.policy_info.set_value(field, "N/A")
@@ -162,6 +177,7 @@ class AdvProdValuesTab(QWidget):
                     "surrender_charge", format_currency(surrender_values.surrender_charge))
                 self.policy_info.set_value(
                     "surrender_value", format_currency(surrender_values.surrender_value))
+            self._load_interim_quote(calculations.interim)
             self._load_monthliversary_from_policy(policy)
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
@@ -169,6 +185,28 @@ class AdvProdValuesTab(QWidget):
         except Exception:
             logger.exception("AdvProdValuesTab failed to load policy data")
             raise
+
+    def _load_interim_quote(self, interim):
+        """Show the Interim AV Quote with its roll-forward in the tooltip."""
+        field = self.policy_info._fields["interim_av_quote"]
+        if isinstance(interim, InterimAccountValueUnavailable):
+            self.policy_info.set_value("interim_av_quote", "N/A")
+            field.setToolTip(interim.reason)
+            return
+        self._set_interim_label(interim.quote_date)
+        self.policy_info.set_value("interim_av_quote", format_currency(interim.account_value))
+        lines = [
+            f"Interim AV Quote ({interim.quote_date:%m/%d/%Y})",
+            f"MV AV {interim.valuation_date:%m/%d/%Y}: {format_currency(interim.valuation_account_value)}",
+        ]
+        lines.extend(
+            f"+ Premium {premium.received:%m/%d/%Y}: {format_currency(premium.net)} net"
+            f" ({format_currency(premium.gross)} gross)"
+            for premium in interim.premiums
+        )
+        lines.append(f"+ Interest: {format_currency(interim.interest)}")
+        lines.append(f"= {format_currency(interim.account_value)}")
+        field.setToolTip("\n".join(lines))
 
     def _load_policy_info_from_policy(self, policy):
         mvav = policy.values.mv_av(0)

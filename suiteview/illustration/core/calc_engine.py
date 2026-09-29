@@ -64,7 +64,7 @@ from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_conf
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
-from suiteview.illustration.core.interest_calc import credit_interest
+from suiteview.illustration.core.interest_calc import credit_interest, interest_days
 from suiteview.illustration.core.iul_crediting import (
     IULCreditingContext,
     TavInput,
@@ -125,6 +125,7 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
     IllustrationOptions,
+    InterimOpening,
     PolicyChangeEvent,
     PolicyChangeKind,
 )
@@ -235,6 +236,7 @@ class InforceWork:
     mtp_detail: Dict[str, object] = dataclass_field(default_factory=dict)
     ctp_detail: Dict[str, object] = dataclass_field(default_factory=dict)
     md_check_av_before_deduction: float = 0.0
+    month_days: float = 0.0
     ded: object | None = None
     intr: object | None = None
     wair_held: float = 0.0
@@ -1544,9 +1546,12 @@ def _initialize_inforce_work(
     work.mtp_detail, work.ctp_detail = build_target_detail_snapshots(
         policy, compute_target_premiums(policy, config, as_of=work.month_date)
     )
-    work.md_check_av_before_deduction = (
-        policy.account_value + policy.system_monthly_deduction
-    )
+    opening = options.interim_opening
+    # The valuation month's deduction was taken on the monthliversary AV, even
+    # when the account value now opens on a later interim date.
+    valuation_av = (
+        opening.valuation_account_value if opening is not None else policy.account_value)
+    work.md_check_av_before_deduction = valuation_av + policy.system_monthly_deduction
     work.ded = calculate_deduction(
         work.md_check_av_before_deduction,
         policy,
@@ -1566,8 +1571,39 @@ def _initialize_inforce_work(
         pref_loan_balance=policy.preferred_loan_principal,
         exact_days_interest=options.exact_days_interest,
     )
+    # Loans and the shadow account stay on the valuation date and accrue for
+    # the whole month even when the account value opens on an interim date.
+    work.month_days = work.intr.days_in_month
+    interim_days = _inforce_interim_days(policy, opening, work.month_date)
+    if interim_days is not None:
+        work.intr = credit_interest(
+            policy.account_value, policy, config, rates, bonus,
+            work.rate_year, policy.attained_age, work.month_date,
+            reg_loan_balance=policy.regular_loan_principal,
+            pref_loan_balance=policy.preferred_loan_principal,
+            exact_days_interest=options.exact_days_interest,
+            period_days=interim_days,
+        )
     _apply_inforce_wair(policy, iul_ctx, work)
     return work
+
+
+def _inforce_interim_days(
+    policy: IllustrationPolicyData, opening: Optional[InterimOpening], valuation: date,
+) -> Optional[int]:
+    """Days from an interim opening date to the next monthliversary, if any."""
+    if opening is None:
+        return None
+    start = opening.as_of
+    if policy.run_from_issue or policy.issue_date is None:
+        raise ValueError("An interim opening value requires an inforce projection.")
+    next_monthliversary = policy.issue_date + relativedelta(months=policy.duration)
+    if not valuation <= start < next_monthliversary:
+        raise ValueError(
+            f"Interim opening date {start:%m/%d/%Y} must fall between the valuation "
+            f"date {valuation:%m/%d/%Y} and the next monthliversary "
+            f"{next_monthliversary:%m/%d/%Y}.")
+    return interest_days(start, next_monthliversary)
 
 
 def _apply_inforce_wair(
@@ -1631,7 +1667,7 @@ def _add_inforce_loan_shadow_lapse(
         is_inforce=True,
         shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, work.ded),
         projection_date=work.month_date,
-        display_days_in_month=work.intr.days_in_month,
+        display_days_in_month=work.month_days,
     ))
     _set_inforce_lapse_fields(policy, config, rates, work)
 
@@ -1653,7 +1689,7 @@ def _inforce_accrued_loan(
     return accrue_loan_interest(
         loan,
         config,
-        work.intr.days_in_month,
+        work.month_days,
         variable_loan_accrual_rate(
             iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate
         ),

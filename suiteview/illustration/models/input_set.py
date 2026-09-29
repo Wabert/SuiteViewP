@@ -218,6 +218,18 @@ class IllustrationInputSet:
         )
 
 
+@dataclass(frozen=True)
+class InterimOpening:
+    """An opening account value rolled forward past the valuation monthliversary.
+
+    ``as_of`` is the interim date the policy's account value is stated at;
+    ``valuation_account_value`` is the monthliversary AV it was rolled from.
+    """
+
+    as_of: date
+    valuation_account_value: float
+
+
 @dataclass
 class IllustrationOptions:
     """Per-run illustration toggles (mirror the RERUN sINPUT_* booleans).
@@ -273,6 +285,14 @@ class IllustrationOptions:
     # None keeps the plancode interest method. True/False force exact-days or
     # monthly compounding for what-if illustration runs.
     exact_days_interest: Optional[bool] = None
+
+    # Interim opening value: the policy's account value has been rolled forward
+    # from the valuation monthliversary to ``interim_opening.as_of`` (strictly
+    # before the next monthliversary), so the inforce month credits interest
+    # only from then to the next monthliversary; the valuation month's deduction
+    # is still calculated on the monthliversary account value. None credits the
+    # whole valuation month.
+    interim_opening: Optional[InterimOpening] = None
 
     # Find GP/TAMRA by Search Routine — solve GLP/GSP/7-pay by premium search
     # on the calc engine (guaranteed COIs, statutory interest floors, current

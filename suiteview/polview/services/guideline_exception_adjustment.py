@@ -19,12 +19,24 @@ Solving to the target date (not to maturity) is the point: a maturity solve
 answers "what premium sustains this policy forever", which can demand guideline
 room the policy never actually needs by the target.
 
+Interim opening value: the projection opens on the **quote date**, not the
+valuation monthliversary. Premiums received since the monthliversary are rolled
+into an Interim AV Quote (net premium plus interest from each effective date),
+and their gross amounts are added to premiums-to-date, the policy-year total,
+cost basis and TAMRA contributions (CyberLife's totals are as of the
+monthliversary). New premium is assumed received on the quote date — it takes
+the place of the next monthliversary's payment — and then on each later
+monthliversary. The engine credits the interim AV interest from the quote date
+to the next monthliversary; the first new payment is credited at that
+monthliversary. When the next monthliversary has already passed without being
+processed, the quote falls back to the monthliversary values and says why.
+
 Room and adjustment:
 
 * ``room = max(0, AccumGLP - PremiumsPaidToDate + AccumWDs)`` — the same
-  "Prem Allowed by GPT" figure shown on the Targets & Accumulators tab, but with
-  the valuation-date ``PremiumsPaidToDate``. Later financial history is not
-  injected into an earlier snapshot.
+  "Prem Allowed by GPT" figure shown on the Targets & Accumulators tab, with
+  ``PremiumsPaidToDate`` including the premiums received since the valuation
+  monthliversary.
 * ``total_premium_needed`` — the gross premium actually paid into the policy
   (ordinary + exception premiums, not loan repayments), summed for
   every projected month **strictly before** the target date (the target date
@@ -39,7 +51,7 @@ does not chain intermediate anniversary adjustments.
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from datetime import date
 
 from dateutil.relativedelta import relativedelta
@@ -47,6 +59,11 @@ from dateutil.relativedelta import relativedelta
 from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.input_compiler import compile_month_inputs
+from suiteview.illustration.core.interim_value import (
+    InterimAccountValue,
+    InterimValueUnavailable,
+    apply_interim_value,
+)
 from suiteview.illustration.core.solve_level_to_exception import (
     LevelToExceptionError,
     default_premium_mode,
@@ -54,19 +71,24 @@ from suiteview.illustration.core.solve_level_to_exception import (
     level_to_exception_options,
     solve_level_to_exception,
 )
-from suiteview.illustration.models.input_set import IllustrationOptions
+from suiteview.illustration.models.input_set import IllustrationOptions, InterimOpening
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.illustration.models.calc_state import MonthlyState
 
 from .glp_exception import (
     check_forecast_availability,
 )
+from .interim_account_value import interim_account_value_quote
 from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 
 @dataclass
 class GuidelineExceptionAdjustmentResult:
-    """Outcome of a Guideline Exception Adjustment solve."""
+    """Outcome of a Guideline Exception Adjustment solve.
+
+    ``premiums_paid_to_date`` includes ``premiums_since_valuation`` — the gross
+    premiums received after the valuation monthliversary.
+    """
 
     current_valuation_date: date | None
     target_date: date
@@ -79,6 +101,7 @@ class GuidelineExceptionAdjustmentResult:
     adjustment_to_accum_glp: float
     new_accum_glp: float
     message: str
+    premiums_since_valuation: float = 0.0
 
     @property
     def premiums_to_date_on_target(self) -> float:
@@ -146,6 +169,9 @@ class GuidelineExceptionTargetForecastResult:
     its summary is comparison-only, not the recommended adjustment.
     ``lump_sum`` is the accepted one-time top-up on ``lump_sum_date``, in addition
     to any ongoing premium due that month, already included in the ledger outlay.
+    ``interim`` is the Interim AV Quote the projection opened from; when it is
+    ``None`` ``interim_unavailable_reason`` says why the monthliversary values
+    were used instead.
     """
 
     premium: float
@@ -157,6 +183,8 @@ class GuidelineExceptionTargetForecastResult:
     current_glp: float = 0.0
     lump_sum: float = 0.0
     lump_sum_date: date | None = None
+    interim: InterimAccountValue | None = None
+    interim_unavailable_reason: str = ""
 
     @property
     def exception_before_target(self) -> bool:
@@ -166,6 +194,8 @@ class GuidelineExceptionTargetForecastResult:
 def project_guideline_exception_target_forecast(
     policy,
     target_date: date,
+    *,
+    quote_date: date,
 ) -> GuidelineExceptionTargetForecastResult:
     """Solve the minimum premium that holds the policy to ``target_date``.
 
@@ -184,23 +214,30 @@ def project_guideline_exception_target_forecast(
     Solving the *minimum* is what makes that test fair: a
     larger premium could hit the guideline for reasons the policy never actually
     has to incur.
+
+    ``quote_date`` is the day the quote is run: the projection opens from the
+    Interim AV Quote on that date and assumes new premium arrives then.
     """
-    ill_policy, valuation_date, months_to_target = (
-        _prepare_projection(policy, target_date))
+    basis = _prepare_projection(policy, target_date, quote_date)
+    ill_policy = basis.policy
+    valuation_date = basis.valuation_date
+    months_to_target = basis.months_to_target
+    since_valuation = basis.interim.gross_premium if basis.interim is not None else 0.0
     solved, rows, exception_start, lump_sum, lump_sum_date = _solve_and_project_target(
-        ill_policy, months_to_target, target_date)
+        ill_policy, months_to_target, target_date, interim_opening=basis.interim_opening)
     zero_glp_policy = copy.deepcopy(ill_policy)
     zero_glp_policy.glp = 0.0
     zero_solved, zero_rows, zero_exception_start, zero_lump, zero_lump_date = _solve_and_project_target(
-        zero_glp_policy, months_to_target, target_date)
+        zero_glp_policy, months_to_target, target_date, interim_opening=basis.interim_opening)
     summary = _summarize(
         policy, valuation_date, target_date, months_to_target,
         sum(row.premium for row in zero_rows),
+        premiums_since_valuation=since_valuation,
     )
     no_forceout_solved, no_forceout_rows, no_forceout_exception_start, no_forceout_lump, no_forceout_lump_date = (
         _solve_and_project_target(
             zero_glp_policy, months_to_target, target_date,
-            guideline_forceouts=False))
+            guideline_forceouts=False, interim_opening=basis.interim_opening))
     return GuidelineExceptionTargetForecastResult(
         premium=solved.premium,
         premium_mode=solved.mode,
@@ -214,20 +251,29 @@ def project_guideline_exception_target_forecast(
         no_forceout=GuidelineExceptionZeroGlpForecastResult(
             summary=_summarize(
                 policy, valuation_date, target_date, months_to_target,
-                sum(row.premium for row in no_forceout_rows)),
+                sum(row.premium for row in no_forceout_rows),
+                premiums_since_valuation=since_valuation),
             rows=no_forceout_rows, premium=no_forceout_solved.premium,
             premium_mode=no_forceout_solved.mode,
             exception_start=no_forceout_exception_start,
             lump_sum=no_forceout_lump, lump_sum_date=no_forceout_lump_date),
         current_glp=_f(ill_policy.glp),
+        interim=basis.interim,
+        interim_unavailable_reason=basis.interim_unavailable_reason,
     )
 
 
 def _solve_and_project_target(
     policy: IllustrationPolicyData, months_to_target: int, target_date: date,
-    *, guideline_forceouts: bool = True,
+    *, guideline_forceouts: bool = True, interim_opening: InterimOpening | None = None,
 ):
-    """Use the same scenario basis in each independent solve and displayed run."""
+    """Use the same scenario basis in each independent solve and displayed run.
+
+    ``interim_opening`` opens the projection on an interim date: the inforce row
+    is relabelled to it, and a lump sum paid in the first projected month is
+    dated on it (the new premium is received on the quote date).
+    """
+    interim_start = interim_opening.as_of if interim_opening is not None else None
     ill_policy = copy.deepcopy(policy)
     engine = IllustrationEngine()
 
@@ -235,7 +281,8 @@ def _solve_and_project_target(
     # Match RERUN's unchecked Exact Days Interest control: monthly compounding.
     base_options = IllustrationOptions(
         exact_days_interest=False, guideline_forceouts=guideline_forceouts,
-        recognize_inforce_exception_period=False)
+        recognize_inforce_exception_period=False,
+        interim_opening=interim_opening)
     first_month_floor = 0.0
     try:
         if ill_policy.account_value < 0 and months_to_target > 0:
@@ -298,6 +345,8 @@ def _solve_and_project_target(
         engine=engine,
         **projection_overrides,
     ).states
+    if interim_start is not None and states:
+        states = [_with_date(states[0], interim_start), *states[1:]]
     rows = [
         _forecast_row(state)
         for state in states
@@ -311,18 +360,51 @@ def _solve_and_project_target(
     lump_sum = sum(getattr(row.state, "applied_lumpsum", 0.0) for row in rows)
     lump_sum_date = next(
         (row.date for row in rows if getattr(row.state, "applied_lumpsum", 0.0) > 0), None)
+    if (interim_start is not None and len(states) > 1
+            and lump_sum_date is not None and lump_sum_date == states[1].date):
+        lump_sum_date = interim_start
     return solved, rows, exception_start, lump_sum, lump_sum_date
+
+
+def _with_date(state, when: date):
+    """Copy a ledger state with a new display date."""
+    if is_dataclass(state):
+        return replace(state, date=when)
+    relabelled = copy.copy(state)
+    relabelled.date = when
+    return relabelled
+
+
+@dataclass(frozen=True)
+class _ProjectionBasis:
+    policy: IllustrationPolicyData
+    valuation_date: date
+    months_to_target: int
+    interim: InterimAccountValue | None
+    interim_unavailable_reason: str = ""
+
+    @property
+    def interim_opening(self) -> InterimOpening | None:
+        """The interim opening, when the AV was actually rolled forward."""
+        if self.interim is None or not self.interim.is_rolled_forward:
+            return None
+        return InterimOpening(
+            as_of=self.interim.quote_date,
+            valuation_account_value=self.interim.valuation_account_value)
 
 
 def _prepare_projection(
     policy,
     target_date: date,
-) -> tuple[IllustrationPolicyData, date, int]:
+    quote_date: date,
+) -> _ProjectionBasis:
     """Shared setup for the solve and the forecast.
 
-    Preserve the same valuation-date snapshot RERUN loads: account value is
-    already after the valuation month's deduction. Later receipts must not be
-    backdated into that AV or its premium/cost-basis accumulators.
+    Opens from the Interim AV Quote on ``quote_date``: the valuation-date AV
+    (already after that month's deduction) plus premiums received since, with
+    interest, and their gross amounts added to the premium accumulators. When
+    the next monthliversary has passed unprocessed, the monthliversary values
+    are used unchanged and the reason is returned.
     """
     availability = check_forecast_availability(policy)
     if not availability.available or availability.policy is None:
@@ -342,7 +424,17 @@ def _prepare_projection(
             months=ill_policy.duration + months_to_target)) < target_date:
         months_to_target += 1
 
-    return ill_policy, valuation_date, months_to_target
+    try:
+        interim = interim_account_value_quote(
+            policy, ill_policy, availability.config, availability.rates, quote_date)
+    except InterimValueUnavailable as exc:
+        return _ProjectionBasis(
+            ill_policy, valuation_date, months_to_target, None,
+            f"Interim AV Quote unavailable: {exc} This quote uses the "
+            f"{valuation_date:%m/%d/%Y} monthliversary values and ignores "
+            "premiums received since.")
+    return _ProjectionBasis(
+        apply_interim_value(ill_policy, interim), valuation_date, months_to_target, interim)
 
 
 def _summarize(
@@ -351,6 +443,8 @@ def _summarize(
     target_date: date,
     months_to_target: int,
     total_premium_needed: float,
+    *,
+    premiums_since_valuation: float = 0.0,
 ) -> GuidelineExceptionAdjustmentResult:
     """Build the adjustment summary from the projected premium needed.
 
@@ -359,11 +453,13 @@ def _summarize(
     clamped room from the new premium, which would lose any existing excess.
 
     The exception adjustment uses current AccumGLP and withdrawals, with
-    future GLP set to zero.
+    future GLP set to zero. ``premiums_since_valuation`` (gross premiums
+    received after the valuation monthliversary) is added to the
+    monthliversary premiums-to-date.
     """
     accum_glp = _f(policy_attr(policy, "accumulated_glp_target", None))
     accum_wds = _f(policy_attr(policy, "total_withdrawals", None))
-    premiums_paid = _f(policy_attr(policy, "premium_td", None))
+    premiums_paid = _f(policy_attr(policy, "premium_td", None)) + premiums_since_valuation
 
     room = max(0.0, accum_glp - premiums_paid + accum_wds)
     adjustment = max(0.0, premiums_paid + total_premium_needed - accum_wds - accum_glp)
@@ -383,6 +479,7 @@ def _summarize(
         adjustment_to_accum_glp=adjustment,
         new_accum_glp=accum_glp + adjustment,
         message=message,
+        premiums_since_valuation=premiums_since_valuation,
     )
 
 

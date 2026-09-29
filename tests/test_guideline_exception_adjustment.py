@@ -1,11 +1,18 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
 from dateutil.relativedelta import relativedelta
 
+from suiteview.illustration.core.rate_loader import IllustrationRates
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.services import glp_exception
 from suiteview.polview.services import guideline_exception_adjustment as gea
+
+# The fixture policy values on its 2026-05-01 monthliversary; quoting on that
+# day opens from the monthliversary values unchanged.
+VALUATION = date(2026, 5, 1)
 
 
 def _stub_dependencies(monkeypatch, ill_policy, states):
@@ -13,7 +20,8 @@ def _stub_dependencies(monkeypatch, ill_policy, states):
     monkeypatch.setattr(
         gea,
         "check_forecast_availability",
-        lambda _policy: glp_exception.GlpForecastAvailability(True, "available", ill_policy),
+        lambda _policy: glp_exception.GlpForecastAvailability(
+            True, "available", ill_policy, IllustrationRates(), PlancodeConfig()),
     )
 
     class FakeEngine:
@@ -48,40 +56,90 @@ def _ill_policy():
     )
 
 
-def _source_policy(accum_glp, premium_td, withdrawals):
+def _source_policy(accum_glp, premium_td, withdrawals, premiums=()):
     return SimpleNamespace(
         accumulated_glp_target=accum_glp,
         premium_td=premium_td,
         total_withdrawals=withdrawals,
-        fetch_table=lambda _name: [],   # no post-valuation premiums
+        get_premium_transactions=lambda: list(premiums),
     )
 
 
-def test_later_premiums_do_not_change_valuation_date_room(monkeypatch):
+def _premium(when, gross, net):
+    return SimpleNamespace(trans_date=when, trans_code="PR", gross_amount=gross, net_amount=net)
+
+
+def test_premiums_since_valuation_open_the_quote_on_the_quote_date(monkeypatch):
+    ill_policy = _ill_policy()
+    ill_policy.current_interest_rate = 0.04
+    target = date(2027, 5, 1)
+    quote = date(2026, 5, 20)
+    inforce = SimpleNamespace(
+        date=VALUATION, premium_outlay=0.0, policy_year=7, policy_month=1,
+        interest_credited=0.0, total_deduction=40.0, av_end_of_month=2_904.0,
+        glp=1000.0, accumulated_glp=8000.0, applied_lumpsum=0.0,
+        premiums_to_date_after_exception=2_000.0, withdrawals_to_date=0.0,
+        policy_debt=0.0)
+    states = [inforce, *_rich_states(date(2026, 6, 1), 11, 500.0, target, 9_999.0)]
+    states[1].applied_lumpsum = 250.0
+    _stub_dependencies(monkeypatch, ill_policy, states)
+    solved_on = []
+    monkeypatch.setattr(
+        gea, "solve_level_to_exception",
+        lambda policy, **kwargs: solved_on.append((policy, kwargs["base_options"]))
+        or SimpleNamespace(premium=500.0, mode="M"),
+    )
+
+    source = _source_policy(8_000.0, 0.0, 0.0, premiums=[
+        _premium(date(2026, 5, 1), 999.0, 999.0),    # on the MV: already in the AV
+        _premium(date(2026, 5, 10), 2_000.0, 1_900.0),
+        _premium(date(2026, 5, 25), 777.0, 777.0),   # after the quote date
+    ])
+    result = gea.project_guideline_exception_target_forecast(source, target, quote_date=quote)
+
+    first = 1_000.0 * (1.04 ** (9 / 365) - 1)
+    second = (1_000.0 + first + 1_900.0) * (1.04 ** (10 / 365) - 1)
+    interim = result.interim
+    assert interim.quote_date == quote
+    assert interim.next_monthliversary == date(2026, 6, 1)
+    assert [p.received for p in interim.premiums] == [date(2026, 5, 10)]
+    assert interim.interest == round(first + second, 2)
+    assert interim.account_value == round(2_900.0 + first + second, 2)
+    assert result.interim_unavailable_reason == ""
+
+    basis, options = solved_on[0]
+    assert basis.account_value == interim.account_value
+    assert basis.premiums_paid_to_date == 2_000.0
+    assert basis.premiums_ytd == 2_000.0 and basis.cost_basis == 2_000.0
+    assert options.interim_opening == gea.InterimOpening(quote, 1_000.0)
+
+    summary = result.zero_glp.summary
+    assert summary.premiums_since_valuation == 2_000.0
+    assert summary.premiums_paid_to_date == 2_000.0
+    assert summary.room_available == 6_000.0
+    # New premium needed excludes the premium already received.
+    assert summary.total_premium_needed == 5_500.0
+    assert summary.adjustment_to_accum_glp == 0.0
+    # The opening row and the first-payment lump sum are dated on the quote date.
+    assert result.rows[0].date == quote
+    assert result.lump_sum_date == quote
+
+
+def test_unprocessed_monthliversary_falls_back_to_valuation_values(monkeypatch):
     ill_policy = _ill_policy()
     target = date(2027, 5, 1)
     states = _rich_states(date(2026, 6, 1), 11, 500.0, target, 9_999.0)
     _stub_dependencies(monkeypatch, ill_policy, states)
+    source = _source_policy(8_000.0, 0.0, 0.0, premiums=[
+        _premium(date(2026, 5, 10), 2_000.0, 1_900.0)])
 
-    # A later receipt cannot change a quote's valuation-date opening balances.
-    source = SimpleNamespace(
-        accumulated_glp_target=8_000.0,
-        premium_td=0.0,
-        total_withdrawals=0.0,
-        fetch_table=lambda name: (
-            [{
-                "ASOF_DT": "2026-08-01",
-                "TRN_TYP_CD": "PR",
-                "GROSS_AMT": "2000",
-                "NET_AMT": "1900",
-            }] if name == "FH_FIXED" else []
-        ),
-    )
-    summary = gea.project_guideline_exception_target_forecast(source, target).zero_glp.summary
+    result = gea.project_guideline_exception_target_forecast(
+        source, target, quote_date=date(2026, 6, 3))
 
-    assert summary.premiums_paid_to_date == 0.0
-    assert summary.room_available == 8_000.0
-    assert summary.adjustment_to_accum_glp == 0.0
+    assert result.interim is None
+    assert "06/01/2026 monthliversary has not been processed" in result.interim_unavailable_reason
+    assert result.zero_glp.summary.premiums_paid_to_date == 0.0
+    assert result.rows[0].date == date(2026, 6, 1)
 
 
 def test_target_before_valuation_raises(monkeypatch):
@@ -90,10 +148,9 @@ def test_target_before_valuation_raises(monkeypatch):
     _stub_dependencies(monkeypatch, ill_policy, states)
     source = _source_policy(1.0, 0.0, 0.0)
 
-    import pytest
-
     with pytest.raises(ValueError):
-        gea.project_guideline_exception_target_forecast(source, date(2026, 4, 1))
+        gea.project_guideline_exception_target_forecast(
+            source, date(2026, 4, 1), quote_date=VALUATION)
 
 
 def _rich_states(start: date, count: int, outlay: float, target: date, target_outlay: float):
@@ -145,7 +202,7 @@ def test_forecast_rows_exclude_target_and_summary_matches(monkeypatch):
     _stub_dependencies(monkeypatch, ill_policy, states)
 
     source = _source_policy(3_500.0, 0.0, 0.0)
-    result = gea.project_guideline_exception_target_forecast(source, target).zero_glp
+    result = gea.project_guideline_exception_target_forecast(source, target, quote_date=VALUATION).zero_glp
 
     assert len(result.rows) == 11
     assert result.rows[-1].date < target
@@ -168,7 +225,7 @@ def test_forecast_no_adjustment_when_room_covers(monkeypatch):
     _stub_dependencies(monkeypatch, ill_policy, states)
 
     source = _source_policy(6_000.0, 0.0, 0.0)
-    result = gea.project_guideline_exception_target_forecast(source, target).zero_glp
+    result = gea.project_guideline_exception_target_forecast(source, target, quote_date=VALUATION).zero_glp
 
     assert result.summary.adjustment_to_accum_glp == 0.0
     assert result.summary.message == "No adjustment needed"
@@ -194,7 +251,7 @@ def test_forecast_rows_include_guideline_force_out(monkeypatch):
     _stub_dependencies(monkeypatch, ill_policy, states)
 
     result = gea.project_guideline_exception_target_forecast(
-        _source_policy(6_000.0, 0.0, 0.0), target).zero_glp
+        _source_policy(6_000.0, 0.0, 0.0), target, quote_date=VALUATION).zero_glp
 
     assert result.rows[3].force_out == 123.45
 
@@ -255,7 +312,7 @@ def test_solve_horizon_is_the_target_date_not_maturity(monkeypatch):
     calls = _stub_min_prem_to_target(monkeypatch, ill_policy, states, premium=0.0)
 
     gea.project_guideline_exception_target_forecast(
-        _source_policy(9_000.0, 0.0, 0.0), target)
+        _source_policy(9_000.0, 0.0, 0.0), target, quote_date=VALUATION)
 
     # valuation 2026-05-01 → target 2027-05-01 is 11 deductions strictly before.
     assert calls and calls[0]["horizon_months"] == 11
@@ -286,7 +343,7 @@ def test_zero_solved_premium_explicitly_overrides_billing(monkeypatch):
     monkeypatch.setattr(gea, "IllustrationEngine", CapturingEngine)
 
     result = gea.project_guideline_exception_target_forecast(
-        _source_policy(9_000.0, 0.0, 0.0), target)
+        _source_policy(9_000.0, 0.0, 0.0), target, quote_date=VALUATION)
 
     assert result.premium == 0.0
     scheduled = captured["future_inputs"].scheduled_transactions
@@ -317,7 +374,7 @@ def test_positive_solved_premium_schedules_a_premium_row(monkeypatch):
     monkeypatch.setattr(gea, "IllustrationEngine", CapturingEngine)
 
     gea.project_guideline_exception_target_forecast(
-        _source_policy(9_000.0, 0.0, 0.0), target)
+        _source_policy(9_000.0, 0.0, 0.0), target, quote_date=VALUATION)
 
     scheduled = captured["future_inputs"].scheduled_transactions
     assert len(scheduled) == 1
@@ -335,7 +392,7 @@ def test_min_prem_to_target_shows_values_and_runs_zero_glp_after_exception(monke
     _stub_min_prem_to_target(monkeypatch, ill_policy, states, premium=321.0)
 
     result = gea.project_guideline_exception_target_forecast(
-        _source_policy(3_500.0, 0.0, 0.0), target)
+        _source_policy(3_500.0, 0.0, 0.0), target, quote_date=VALUATION)
 
     assert result.premium == 321.0
     assert result.premium_mode == "M"
@@ -355,7 +412,7 @@ def test_min_prem_to_target_runs_zero_glp_without_exception_before_target(monkey
     _stub_min_prem_to_target(monkeypatch, ill_policy, states)
 
     result = gea.project_guideline_exception_target_forecast(
-        _source_policy(9_000.0, 0.0, 0.0), target)
+        _source_policy(9_000.0, 0.0, 0.0), target, quote_date=VALUATION)
 
     assert result.exception_start is None
     assert result.exception_before_target is False
@@ -371,7 +428,7 @@ def test_min_prem_to_target_runs_zero_glp_when_exception_is_on_target(monkeypatc
     _stub_min_prem_to_target(monkeypatch, ill_policy, states)
 
     result = gea.project_guideline_exception_target_forecast(
-        _source_policy(9_000.0, 0.0, 0.0), target)
+        _source_policy(9_000.0, 0.0, 0.0), target, quote_date=VALUATION)
 
     assert result.exception_start is None
     assert result.exception_before_target is False
@@ -430,7 +487,7 @@ def test_all_solves_preserve_targets_and_count_premium_without_loan_repayment(mo
     monkeypatch.setattr(gea, "solve_level_to_exception", solve)
     monkeypatch.setattr(gea, "IllustrationEngine", Engine)
     result = gea.project_guideline_exception_target_forecast(
-        _source_policy(9000.0, 9000.0, 100.0), target)
+        _source_policy(9000.0, 9000.0, 100.0), target, quote_date=VALUATION)
     assert [call[:5] for call in solves] == [
         (1200.0, 5000.0, 9000.0, 9000.0, 100.0),
         (0.0, 5000.0, 9000.0, 9000.0, 100.0),

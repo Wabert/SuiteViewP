@@ -12,6 +12,7 @@ Folder structure:
     <Process_Control>/Policy Support/POLICY_LIBRARY/<ProductType>/<Co>_<PolicyNo>/<TaskCategory>/
 """
 
+import html
 import os
 import shutil
 from datetime import date, datetime
@@ -1164,6 +1165,11 @@ class PolicySupportTab(QWidget):
             self._forecast_premium_amount.setText("0.00")
             self._forecast_premium_mode.setCurrentText("Monthly")
 
+    @staticmethod
+    def _glp_quote_date() -> date:
+        """The GLP quote is run as of today: new premium is assumed received today."""
+        return date.today()
+
     def _on_calculate_glp_exception(self):
         if not self._policy:
             return
@@ -1179,7 +1185,8 @@ class PolicySupportTab(QWidget):
             self._clear_glp_exception_results()
             return
         try:
-            result = project_guideline_exception_target_forecast(self._policy, target_date)
+            result = project_guideline_exception_target_forecast(
+                self._policy, target_date, quote_date=self._glp_quote_date())
         except Exception as exc:
             self._set_glp_status(str(exc), is_error=True)
             self._clear_glp_exception_results()
@@ -1339,6 +1346,7 @@ class PolicySupportTab(QWidget):
         """
         target_text = self._glp_target_date.text().strip()
         funding_html = "".join(f"<br>{line}" for line in self._glp_funding_lines(result))
+        funding_html += self._glp_interim_html(result)
         if not result.exception_before_target:
             self._glp_formula_label.setVisible(False)
             self._glp_plugged_label.setText(
@@ -1418,7 +1426,39 @@ class PolicySupportTab(QWidget):
                 v["new_accum"], v["current_accum"], result.current_glp)
         )
         lines.extend(self._glp_funding_lines(result))
+        lines.extend(self._glp_interim_lines(result))
         return lines
+
+    @staticmethod
+    def _glp_interim_lines(result: GuidelineExceptionTargetForecastResult) -> list[str]:
+        """How the quote's opening value was built from the Interim AV Quote."""
+        interim = result.interim
+        if interim is None:
+            return [result.interim_unavailable_reason] if result.interim_unavailable_reason else []
+        opening = (
+            f"Interim AV Quote ({interim.quote_date:%m/%d/%Y}) = {interim.account_value:,.2f} "
+            f"(MV AV {interim.valuation_account_value:,.2f} on "
+            f"{interim.valuation_date:%m/%d/%Y} + net premiums since MV "
+            f"{interim.net_premium:,.2f} + interest {interim.interest:,.2f})"
+        )
+        if interim.premiums:
+            opening += (
+                f"; premiums to date include {interim.gross_premium:,.2f} "
+                "received since the MV.")
+        lines = [opening]
+        if interim.is_rolled_forward:
+            lines.append(
+                f"New premium assumed received {interim.quote_date:%m/%d/%Y} (in place "
+                f"of the {interim.next_monthliversary:%m/%d/%Y} payment), then on each "
+                "later monthliversary.")
+        return lines
+
+    def _glp_interim_html(self, result: GuidelineExceptionTargetForecastResult) -> str:
+        lines = self._glp_interim_lines(result)
+        if result.interim is None and lines:
+            return "".join(
+                f"<br><b style='color:#C00000;'>{html.escape(line)}</b>" for line in lines)
+        return "".join(f"<br>{html.escape(line)}" for line in lines)
 
     @staticmethod
     def _glp_funding_lines(result: GuidelineExceptionTargetForecastResult) -> list[str]:
@@ -1447,7 +1487,8 @@ class PolicySupportTab(QWidget):
                 f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
                 f"DO NOT ADJUST THE ACCUM GLP."
             )
-            return "\n".join([message, *self._glp_funding_lines(result)])
+            return "\n".join([
+                message, *self._glp_funding_lines(result), *self._glp_interim_lines(result)])
         return "\n".join(self._glp_summary_lines(result))
 
     @staticmethod
@@ -1641,7 +1682,11 @@ class PolicySupportTab(QWidget):
                 else "Not before target date"
             ),
         )
-        return row_num + 1
+        row_num += 1
+        for line in self._glp_interim_lines(result):
+            ws.cell(row=row_num, column=1, value=line)
+            row_num += 1
+        return row_num
 
     @staticmethod
     def _write_glp_scenario_row(ws, row_num: int, label: str, scenario, bold_font) -> int:

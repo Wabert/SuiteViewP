@@ -9,9 +9,11 @@ from __future__ import annotations
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import date
 import logging
 import ntpath
 from threading import get_ident
+from typing import TYPE_CHECKING
 
 import pyodbc
 
@@ -21,6 +23,9 @@ from suiteview.core.rates import owned_rate_connections
 from suiteview.polview.models.policy_data import connection_provider_scope
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.models.reinsurance_information import ReinsuranceInformation
+
+if TYPE_CHECKING:
+    from suiteview.illustration.core.interim_value import InterimAccountValue
 
 
 CONNECTION_TIMEOUT_SECONDS = 15
@@ -40,11 +45,24 @@ class SurrenderValuesUnavailable:
 
 
 @dataclass(frozen=True)
+class InterimAccountValueUnavailable:
+    reason: str
+
+
+@dataclass(frozen=True)
+class AccountValueCalculations:
+    """Calculated (not stored) values shown on the Account Values tab."""
+
+    surrender: SurrenderValues | SurrenderValuesUnavailable
+    interim: InterimAccountValue | InterimAccountValueUnavailable
+
+
+@dataclass(frozen=True)
 class PreparedPolicy:
     policy: PolicyInformation
     stage: str
     available: bool = True
-    payload: SurrenderValues | SurrenderValuesUnavailable | ReinsuranceInformation | dict | None = None
+    payload: AccountValueCalculations | ReinsuranceInformation | dict | None = None
 
 
 # Direct table dependencies of the matching tab loaders. Named-property reads
@@ -195,11 +213,14 @@ class PolicyLoadSession:
         *,
         seed: PolicyInformation | None = None,
         system_code: str | None = None,
+        as_of: date | None = None,
     ):
         self.policy_number = policy_number.strip().upper()
         self.region = region.strip().upper()
         self.company_code = company_code.strip().upper() if company_code else None
         self.system_code = system_code.strip().upper() if system_code else None
+        # Quote date for the Interim AV Quote; None means the day it is prepared.
+        self._as_of = as_of
         self._thread_id = None
         self._connections = {}
         self._cache = {}
@@ -327,7 +348,7 @@ class PolicyLoadSession:
                 policy._data.raise_table_errors()
                 record_snapshot = policy.detached_copy()
                 try:
-                    payload = self._surrender_values()
+                    payload = self._account_value_calculations()
                 except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
                     reason = (
                         f"Calculated surrender charge and value are unavailable: {exc}. "
@@ -339,7 +360,11 @@ class PolicyLoadSession:
                     # Illustration-only reads may have failed or cached partial data.
                     # Keep the already validated record view independent of that work.
                     return PreparedPolicy(
-                        record_snapshot, stage, available, SurrenderValuesUnavailable(reason),
+                        record_snapshot, stage, available, AccountValueCalculations(
+                            SurrenderValuesUnavailable(reason),
+                            InterimAccountValueUnavailable(
+                                f"Interim AV Quote is unavailable: {exc}."),
+                        ),
                     )
         elif stage == "reinsurance":
             payload = self._reinsurance()
@@ -374,11 +399,13 @@ class PolicyLoadSession:
         policy._data.clear_failed_tables()
         return PreparedPolicy(policy.detached_copy(), "tables", True, presence)
 
-    def _surrender_values(self):
+    def _account_value_calculations(self) -> AccountValueCalculations:
         from suiteview.illustration import (
             IllustrationEngine, load_projection_basis, project_policy,
         )
+        from suiteview.illustration.core.interim_value import InterimValueUnavailable
         from suiteview.illustration.models.plancode_config import MissingPlancodeError, load_plancode
+        from suiteview.polview.services.interim_account_value import interim_account_value_quote
 
         policy = self._policy
         try:
@@ -390,7 +417,12 @@ class PolicyLoadSession:
                 "Other values below are available policy data."
             )
             logger.warning("PolView %s: %s", policy.policy_number, reason)
-            return SurrenderValuesUnavailable(reason)
+            return AccountValueCalculations(
+                SurrenderValuesUnavailable(reason),
+                InterimAccountValueUnavailable(
+                    f"Interim AV Quote cannot be calculated: plan "
+                    f"{policy.coverages.base_plancode} has no illustration configuration."),
+            )
         policy_service.cache_policy_info(policy)
         # The projection façade requests the inforce key. A resolved pending
         # session must still use its own canonical instance, not do a new lookup.
@@ -404,6 +436,12 @@ class PolicyLoadSession:
         if basis.base_segment is None:
             raise ValueError("Surrender calculation requires a base coverage")
         rates = basis_data.rates
+        try:
+            interim = interim_account_value_quote(
+                policy, basis, config, rates, self._as_of or date.today())
+        except InterimValueUnavailable as exc:
+            interim = InterimAccountValueUnavailable(f"Interim AV Quote unavailable: {exc}")
+        policy._data.raise_table_errors()
         for segment in basis.segments or [basis.base_segment]:
             schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
             if not schedule:
@@ -416,7 +454,10 @@ class PolicyLoadSession:
             engine=IllustrationEngine()).states
         if not results:
             raise RuntimeError("Surrender calculation returned no inforce values")
-        return SurrenderValues(results[0].surrender_charge, results[0].surrender_value)
+        return AccountValueCalculations(
+            SurrenderValues(results[0].surrender_charge, results[0].surrender_value),
+            interim,
+        )
 
     def _reinsurance(self):
         from suiteview.core.reinsurance import fetch_tai_cession

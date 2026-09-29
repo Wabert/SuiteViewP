@@ -136,6 +136,14 @@ Regressions: N0100046 / FN2VN300 and S1360299 / 1S134F00,
 `tests/test_policy_prefetch.py`; native profiler supports
 `--expect-surrender-unavailable` and `--expect-surrender-reason` with `--all-tabs`.
 
+Policy Info also shows **Interim AV Quote (MM/DD/YYYY)**, labelled with its quote
+date: the monthliversary AV rolled forward
+to the day the tab is prepared with premiums received since the MV (net amount
+plus interest from each effective date; see the GLP Exception section). Its
+tooltip lists the build-up. It is calculated with the surrender values
+(`AccountValueCalculations` payload) and shows `N/A` with the reason when the
+calculation fails or the next monthliversary has passed unprocessed.
+
 ## PolView stored CV/NSP rates and Guaranteed Cash Value
 
 The Policy tab shows the base coverage's stored 02-segment per-unit window
@@ -351,9 +359,27 @@ is comparison-only: the regular GLP=0 scenario still sizes the adjustment.
 
 Only an exception requirement in the original scenario warrants adjustment.
 Size that adjustment from the GLP=0 scenario's total outlay before the target,
-against valuation-date AccumGLP, accumulated withdrawals and premiums paid.
-Never add later financial-history receipts to the valuation-date starting AV,
-premium accumulator or cost basis. Opening AV is already post-deduction.
+against AccumGLP, accumulated withdrawals and premiums paid.
+
+**Interim AV Quote opening.** The quote opens on the day it is calculated, not
+on the valuation monthliversary. CyberLife's AV and premium totals are as of the
+monthliversary (verified live 2026-09: `LH_POL_YR_TOT` YTD premium excludes
+premiums received after the last MV), so premiums received since then are rolled
+forward: net amount (after load) plus interest from each effective date, via
+`suiteview/illustration/core/interim_value.py`, and their gross amounts are added
+to premiums-to-date, YTD, cost basis and the current TAMRA year. The projection
+passes `IllustrationOptions.interim_opening`: the inforce row is dated on the
+quote date and credits interest only to the next monthliversary, while the
+valuation month's deduction, loans and shadow account stay on the monthliversary
+basis. New premium is assumed received on the quote date in place of the next
+monthliversary's payment (lump sums are dated then), then on each later
+monthliversary; that first payment is credited at the next monthliversary. The
+summary, clipboard and workbook show the Interim AV Quote build-up. If the next
+monthliversary has passed unprocessed, the quote uses the monthliversary values
+and says so in red. Premiums received are never counted as new premium needed.
+Stub-period interest is `(1 + rate) ** (days / 365) - 1` (Feb 29 excluded) at
+the engine's credited rate; indexed segment credits are not accrued mid-month.
+
 All three solves and displayed projections explicitly use monthly compounding
 (`exact_days_interest=False`), matching RERUN's unchecked Exact Days Interest
 control. Count **Prem + Exception Prem** once, excluding loan

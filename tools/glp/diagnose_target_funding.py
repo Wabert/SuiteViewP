@@ -19,9 +19,12 @@ def main() -> int:
     parser.add_argument("--policy", required=True)
     parser.add_argument("--company", default="01")
     parser.add_argument("--target", required=True)
+    parser.add_argument("--quote", default=None, help="Quote date (default: today)")
     args = parser.parse_args()
+    quote = date.fromisoformat(args.quote) if args.quote else date.today()
     source = get_policy_info(args.policy, company_code=args.company, use_cache=False)
-    policy, _, months = gea._prepare_projection(source, date.fromisoformat(args.target))
+    basis = gea._prepare_projection(source, date.fromisoformat(args.target), quote)
+    policy, months = basis.policy, basis.months_to_target
     output = {
         "policy": {key: getattr(policy, key) for key in (
             "policy_number", "plancode", "issue_date", "valuation_date", "duration",
@@ -29,6 +32,8 @@ def main() -> int:
             "modal_premium", "glp", "gsp", "accumulated_glp", "premiums_paid_to_date",
             "withdrawals_to_date", "regular_loan_principal",
         )},
+        "interim": basis.interim,
+        "interim_unavailable_reason": basis.interim_unavailable_reason,
         "months": months,
         "solves": [],
     }
@@ -73,7 +78,7 @@ def main() -> int:
     try:
         with patch.object(gea, "solve_level_to_exception", trace_solve):
             gea.project_guideline_exception_target_forecast(
-                source, date.fromisoformat(args.target))
+                source, date.fromisoformat(args.target), quote_date=quote)
         output["all_ok"] = True
     except ValueError as exc:
         output["all_ok"] = False

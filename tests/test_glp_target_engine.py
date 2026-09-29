@@ -44,18 +44,28 @@ def forecast(monkeypatch):
     monkeypatch.setattr(calc_engine.IllustrationEngine, "_load_rates",
                         lambda *_: rates)
     monkeypatch.setattr(gea, "check_forecast_availability",
-                        lambda _: GlpForecastAvailability(True, "test", policy))
+                        lambda _: GlpForecastAvailability(True, "test", policy, rates, config))
 
-    def run(target=date(2027, 1, 15)):
-        source = SimpleNamespace(
-            accumulated_glp_target=policy.accumulated_glp,
-            premium_td=policy.premiums_paid_to_date,
-            total_withdrawals=policy.withdrawals_to_date,
-            fetch_table=lambda _: [],
-        )
-        return gea.project_guideline_exception_target_forecast(source, target)
+    def run(target=date(2027, 1, 15), quote_date=None, premiums=()):
+        source = _source(policy, premiums)
+        return gea.project_guideline_exception_target_forecast(
+            source, target, quote_date=quote_date or policy.valuation_date)
 
     return policy, config, rates, run
+
+
+def _source(policy, premiums=()):
+    return SimpleNamespace(
+        policy_number="GLPTEST", company_code="01",
+        accumulated_glp_target=policy.accumulated_glp,
+        premium_td=policy.premiums_paid_to_date,
+        total_withdrawals=policy.withdrawals_to_date,
+        get_premium_transactions=lambda: list(premiums),
+    )
+
+
+def _premium(when, gross, net):
+    return SimpleNamespace(trans_date=when, trans_code="PR", gross_amount=gross, net_amount=net)
 
 
 def test_zero_solve_never_reinstates_300_billing(forecast):
@@ -72,28 +82,73 @@ def test_zero_solve_never_reinstates_300_billing(forecast):
 
 
 def test_valuation_snapshot_and_monthly_interest_match_rerun(forecast):
-    policy, config, _, _ = forecast
+    policy, config, _, run = forecast
     policy.account_value = 4494.38
     policy.current_interest_rate = 0.04
     config.interest_method = "ExactDays"
-    source = SimpleNamespace(
-        accumulated_glp_target=policy.accumulated_glp,
-        premium_td=policy.premiums_paid_to_date,
-        total_withdrawals=policy.withdrawals_to_date,
-        fetch_table=lambda _: [{
-            "ENTRY_DT": "2026-03-01", "TRN_TYP_CD": "PR",
-            "GROSS_AMT": 300.0, "NET_AMT": 271.5,
-        }],
-    )
-    result = gea.project_guideline_exception_target_forecast(source, date(2027, 1, 15))
+    # Quoted on the monthliversary: a premium received later is not in the quote.
+    result = run(date(2027, 1, 15), premiums=[_premium(date(2026, 3, 1), 300.0, 271.5)])
+    assert result.interim.premiums == ()
+    assert result.interim.account_value == 4494.38
     for scenario in (result, result.zero_glp, result.no_forceout):
         opening = scenario.rows[0].state
+        assert opening.date == date(2026, 2, 15)
         assert opening.av_after_deduction == 4494.38
         assert opening.premiums_to_date == policy.premiums_paid_to_date
         assert opening.interest_credited == pytest.approx(14.71, abs=0.005)
         assert opening.av_end_of_month == pytest.approx(4509.09, abs=0.005)
         assert scenario.rows[1].state.av_after_premium == pytest.approx(opening.av_end_of_month)
         assert all(r.premium == 0.0 for r in scenario.rows)
+
+
+def test_interim_quote_opens_on_quote_date_with_received_premium(forecast):
+    policy, config, _, run = forecast
+    policy.account_value = 4494.38
+    policy.current_interest_rate = 0.04
+    config.interest_method = "ExactDays"
+    quote = date(2026, 2, 25)
+    result = run(date(2027, 1, 15), quote_date=quote,
+                 premiums=[_premium(date(2026, 2, 20), 300.0, 271.5)])
+    first = 4494.38 * (1.04 ** (5 / 365) - 1)
+    second = (4494.38 + first + 271.5) * (1.04 ** (5 / 365) - 1)
+    interim = result.interim
+    assert interim.interest == round(first + second, 2)
+    assert interim.account_value == round(4494.38 + 271.5 + first + second, 2)
+    monthliversary = run(date(2027, 1, 15))
+    for scenario in (result, result.zero_glp, result.no_forceout):
+        opening = scenario.rows[0].state
+        assert opening.date == quote
+        assert opening.av_after_deduction == interim.account_value
+        # The valuation month's deduction was taken on the monthliversary AV.
+        assert opening.total_deduction == monthliversary.rows[0].state.total_deduction
+        assert opening.premiums_to_date == policy.premiums_paid_to_date + 300.0
+        # Interest from the quote date to the 03/15 monthliversary only.
+        assert opening.interest_credited == pytest.approx(
+            interim.account_value * (1.04 ** (18 / 365) - 1), abs=1e-9)
+        assert scenario.rows[1].date == date(2026, 3, 15)
+        assert scenario.rows[1].state.av_after_premium == pytest.approx(opening.av_end_of_month)
+    assert result.zero_glp.summary.premiums_since_valuation == 300.0
+    assert result.zero_glp.summary.premiums_paid_to_date == policy.premiums_paid_to_date + 300.0
+
+
+def test_negative_interim_value_funds_lump_sum_on_quote_date(forecast):
+    policy, _, _, run = forecast
+    policy.account_value = -817.16
+    quote = date(2026, 2, 28)
+    result = run(date(2026, 5, 15), quote_date=quote,
+                 premiums=[_premium(date(2026, 2, 19), 420.0, 420.0)])
+    assert result.interim.account_value == pytest.approx(-397.16)
+    assert result.interim.interest == 0.0  # a negative AV earns no interest
+    baseline = run(date(2026, 5, 15))
+    for scenario, before in ((result, baseline), (result.zero_glp, baseline.zero_glp)):
+        assert scenario.lump_sum_date == quote
+        assert scenario.rows[0].account_value == pytest.approx(-397.16)
+        assert scenario.lump_sum == pytest.approx(before.lump_sum - 420.0, abs=0.02)
+        assert not any(row.state.lapsed for row in scenario.rows)
+    assert result.zero_glp.summary.total_premium_needed == pytest.approx(
+        baseline.zero_glp.summary.total_premium_needed - 420.0, abs=0.02)
+    assert result.zero_glp.summary.adjustment_to_accum_glp == pytest.approx(
+        baseline.zero_glp.summary.adjustment_to_accum_glp, abs=0.02)
 
 
 def test_target_month_deduction_is_not_projected(forecast):
@@ -445,17 +500,15 @@ def test_calculate_renders_and_exports_zero_after_exception_quote(forecast, monk
     global _QT_APP
     _QT_APP = app = QApplication.instance() or QApplication([])
     policy, _, _, _ = forecast
+    monkeypatch.setattr(PolicySupportTab, "_glp_quote_date",
+                        staticmethod(lambda: policy.valuation_date))
     tab = PolicySupportTab()
     tab._glp_target_date.setText("01/15/2027")
     try:
         policy.account_value = 100.0
         policy.accumulated_glp = policy.gsp = policy.premiums_paid_to_date = 1_000.0
         policy.withdrawals_to_date = 0.0
-        tab._policy = SimpleNamespace(
-            policy_number="GLPTEST", company_code="01",
-            accumulated_glp_target=1_000.0, premium_td=1_000.0,
-            total_withdrawals=0.0, fetch_table=lambda _: [],
-        )
+        tab._policy = _source(policy)
         tab._on_calculate_glp_exception()
         assert tab._glp_zero_glp_table.rowCount() > 0
         assert tab._glp_no_forceout_table.rowCount() > 0
@@ -570,6 +623,50 @@ def test_lump_sum_summary_clipboard_and_export(forecast, monkeypatch):
         tab._display_glp_exception_result(run(date(2026, 5, 15)))
         assert "Lump sum needed" not in tab._glp_summary_copy_text()
         assert "Lump sum needed" not in tab._glp_plugged_label.text()
+    finally:
+        tab.close()
+        tab.deleteLater()
+        app.processEvents()
+
+
+def test_interim_quote_is_explained_in_summary_copy_and_export(forecast, monkeypatch):
+    from PyQt6.QtWidgets import QApplication
+    from suiteview.polview.ui.tabs.policy_support_tab import PolicySupportTab
+
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    global _QT_APP
+    _QT_APP = app = QApplication.instance() or QApplication([])
+    policy, _, _, run = forecast
+    policy.account_value = -817.16
+    premiums = [_premium(date(2026, 2, 19), 420.0, 420.0)]
+    result = run(date(2026, 5, 15), quote_date=date(2026, 2, 28), premiums=premiums)
+    tab = PolicySupportTab()
+    tab._glp_target_date.setText("05/15/2026")
+    try:
+        tab._display_glp_exception_result(result)
+        lines = tab._glp_interim_lines(result)
+        assert lines[0].startswith("Interim AV Quote (02/28/2026) = -397.16")
+        assert "premiums to date include 420.00" in lines[0]
+        assert "received 02/28/2026 (in place of the 03/15/2026 payment)" in lines[1]
+        assert "once on 02/28/2026" in tab._glp_funding_lines(result)[0]
+        for line in lines:
+            assert line in tab._glp_summary_copy_text()
+        assert "Interim AV Quote (02/28/2026)" in tab._glp_plugged_label.text()
+        wb = tab._build_glp_quote_workbook()
+        try:
+            assert any(str(row[0]).startswith("Interim AV Quote (02/28/2026)")
+                       for row in wb.active.values)
+        finally:
+            wb.close()
+
+        stale = run(date(2026, 5, 15), quote_date=date(2026, 3, 20), premiums=premiums)
+        tab._display_glp_exception_result(stale)
+        assert stale.interim is None
+        reason = stale.interim_unavailable_reason
+        assert "03/15/2026 monthliversary has not been processed" in reason
+        assert tab._glp_interim_lines(stale) == [reason]
+        assert "#C00000" in tab._glp_plugged_label.text()
+        assert reason in tab._glp_summary_copy_text()
     finally:
         tab.close()
         tab.deleteLater()

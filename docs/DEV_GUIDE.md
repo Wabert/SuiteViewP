@@ -441,7 +441,8 @@ get_tooltip_manager().reload()
 
 #### AdvProdValuesTab Layout
 Five sections matching VBA SuiteView:
-1. **Policy Info** (left) - Info fields with clickable tooltips
+1. **Policy Info** (left) - Info fields with clickable tooltips, including the
+   calculated Surrender Charge / Value and Interim AV Quote (italic)
 2. **Monthliversary Values** (center) - Table with MV history
 3. **Fund Value History** (right top) - Bucket detail table
 4. **Unimpaired Fund Values** (right middle) - Fund summary
