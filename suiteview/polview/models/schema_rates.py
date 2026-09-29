@@ -62,7 +62,8 @@ SINGLE_VALUE_GRAINS = frozenset({"IA", "SCALAR"})
 # (the value at the row's Date), as the WL cash-value display does.
 POINT_IN_TIME_RATE_TYPES = frozenset({"CV", "FACE_AMT"})
 RATE_TYPE_ORDER = (
-    "COI", "EPU", "MFEE", "SCR", "SCR_PCT", "PREMLOAD_PCT", "PREMLOAD_EXS", "PREMLOAD_FLAT",
+    "COI", "JointCOI", "JS_Q", "JS_Q 01", "Rated q 00", "Rated q 01",
+    "EPU", "MFEE", "SCR", "SCR_PCT", "PREMLOAD_PCT", "PREMLOAD_EXS", "PREMLOAD_FLAT",
     "SHADOW_INT", "CV", "FACE_AMT", "PREM", "ADJ_PREM", "PUI", "PUI_A", "PUI_B", "PUI_C",
     "PUI_D", "PUI_E", "PUI_F", "MTP", "CTP", "PTP", "STP", "MTP_TBL1", "CTP_TBL1", "PTP_TBL1",
     "GCO_MIN", "GLP", "GSP", "SEVEN_PAY", "SEVEN_NSP", "LIFETIME_PREM", "ANN_BEN_PREM",
@@ -80,8 +81,10 @@ INDEX_PARAMETER_PREFIX = "IDX_"
 INDEX_PARAMETER_ORDER = ("CAP", "FLOOR", "PART", "SPREAD", "MULT", "ASSET", "SPEC")
 DIV_RECORD_LABELS = {"D": "", "R": " RPU", "L": " DR-L", "P": " DR-P", "T": " TERM"}
 DIV_GROUPS = tuple(f"Dividend{suffix}" for suffix in DIV_RECORD_LABELS.values())
-# Top header band of a rate column, in display order: scales first, then dividends.
-COLUMN_GROUPS = (*SCALE_ORDER, *DIV_GROUPS)
+# Top header band of a rate column, in display order: scales first, then dividends,
+# then CyberLife's stored joint survivor rate and check.
+JOINT_GROUP = "CyberLife"
+COLUMN_GROUPS = (*SCALE_ORDER, *DIV_GROUPS, JOINT_GROUP)
 GAP = (" ", " ")
 SCALES_HEADER = ["Coverage", "Plancode", "Rate Type", "Scale", "Scale Name", "Effective From",
                  "Effective To", "Rates By", "Policy Years", "Cell", "Notes"]
@@ -859,9 +862,53 @@ def build_coverage_matrix(repo: RatesSchemaRepository, policy: "PolicyInformatio
             f"{SOURCE_LABEL}. Its PLAN rates and policy-level charges (MFEE, premium loads) are under "
             "Policy and its benefit rates under Benefits."
         )
+    joint_meta: List[tuple] = []
+    if policy.rates.cov_is_joint_survivor(cov_index):
+        joint, joint_meta = joint_survivor_parts(policy, cov_index)
+        parts.extend(joint)
     years = ctx.years or parts.max_year
-    return assemble(_context_meta(policy, ctx) + _parts_meta(parts), parts.columns,
+    return assemble(_context_meta(policy, ctx) + joint_meta + _parts_meta(parts), parts.columns,
                     ctx.issue_date, ctx.issue_age, years)
+
+
+def joint_survivor_parts(policy: "PolicyInformation", cov_index: int) -> Tuple[Parts, List[tuple]]:
+    """A joint survivor coverage's blended COI (VP/MS JSURVCOI) beside its schema rates.
+
+    The 12 FFL second-to-die plans have no base COI cell: the grid's own ``JS_Q``
+    column is the primary insured's (person 00) single-life rate. This adds the
+    joint insured's JS_Q, the blended ``JointCOI`` per scale (and each life's rated q
+    when extras apply), and CyberLife's stored rate and check on the current policy
+    year row, which PolView highlights.
+    """
+    js = policy.rates.rates_joint_survivor(cov_index)
+
+    def by_year(series, rounding: Optional[int] = None):
+        def value(year: int, _on: date) -> object:
+            if not 1 <= year <= js.horizon:
+                return ""
+            item = series[year - 1]
+            return round(item, rounding) if rounding is not None else item
+        return value
+
+    columns = []
+    for scale in ("C", "G"):
+        schedule = js.schedule.current if scale == "C" else js.schedule.guaranteed
+        years = js.schedule.current_years if scale == "C" else js.schedule.guaranteed_years
+        columns += [Column(scale, "JointCOI", by_year(schedule)),
+                    Column(scale, "JS_Q 01", by_year(js.js_q[scale][1]))]
+        if js.ratings:
+            # Display-only rounding of float noise (e.g. 0.0372626999999...).
+            columns += [Column(scale, "Rated q 00", by_year([y.qx for y in years], 9)),
+                        Column(scale, "Rated q 01", by_year([y.qy for y in years], 9))]
+
+    def on_policy_year(value_now):
+        return lambda year, _on: value_now if year == js.policy_year else ""
+
+    stored = js.stored_rate if js.stored_rate is not None else "NULL"
+    columns += [Column(JOINT_GROUP, "RNL_RT", on_policy_year(stored)),
+                Column(JOINT_GROUP, "Check", on_policy_year(js.comparison_text))]
+    meta = [GAP, *policy.rates.joint_survivor_fields(cov_index, js)]
+    return Parts(columns=columns, max_year=js.horizon), meta
 
 
 def _policy_years(entry: ScaleEntry, start: date, issue_date: date, rows: int) -> str:

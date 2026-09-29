@@ -102,6 +102,21 @@ class TargetsSection(PolicySection):
         val = self.data_item_where("LH_COV_INS_GDL_PRM", "GDL_PRM_AMT", "PRM_RT_TYP_CD", "S")
         return Decimal(str(val)) if val is not None else None
 
+    def cov_surrender_target(self, cov_pha_nbr: int) -> Optional[Decimal]:
+        """Stored surrender target (LH_COV_TARGET TAR_TYP_CD 'ST', TAR_PRM_AMT) for a phase.
+
+        Percent-of-target surrender charges (FFL EP/EP2 joint plans) apply to
+        it. None when the phase has no ST row; several rows raise.
+        """
+        amounts = [
+            row.get("TAR_PRM_AMT") for row in self.fetch_table("LH_COV_TARGET")
+            if int(row.get("COV_PHA_NBR") or 0) == cov_pha_nbr
+            and str(row.get("TAR_TYP_CD") or "").strip() == "ST"
+        ]
+        if len(amounts) > 1:
+            raise ValueError(f"Coverage phase {cov_pha_nbr}: several stored surrender targets")
+        return self._parse_optional_decimal(amounts[0]) if amounts else None
+
     def get_coverage_targets(self, cov_pha_nbr: int = None) -> List[CoverageTargetInfo]:
         """Get coverage-level targets, optionally filtered by coverage."""
         targets = []

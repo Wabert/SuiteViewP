@@ -111,6 +111,17 @@ HEADER_ILLUSTRATOR_BUTTON_STYLE = """
 """
 
 
+# Joint survivor columns: (joint COI, CyberLife stored rate, check) in the schema
+# grid ("C JointCOI", "CyberLife RNL_RT", ...) and the legacy grid.
+_JOINT_COLUMNS = (("C JointCOI", "CyberLife RNL_RT", "CyberLife Check"),
+                  ("JointCOI", "CyberLife", "Check"))
+
+
+def joint_survivor_columns(headers):
+    """The joint survivor (COI, stored rate, check) column names in a rate grid, else None."""
+    return next((names for names in _JOINT_COLUMNS if all(n in headers for n in names)), None)
+
+
 def _alive(obj) -> bool:
     from PyQt6 import sip
     try:
@@ -1408,6 +1419,10 @@ class GetPolicyWindow(FramelessWindowBase):
                     header_labels=selection.header_labels, column_groups=selection.column_groups,
                 )
 
+                if joint_survivor_columns(headers) is not None:
+                    self._show_joint_survivor_status(display_title, headers, data_rows)
+                    return
+
                 rate_col_start = next(
                     (i for i, h in enumerate(headers) if h in ("COI", "TPP")), -1
                 )
@@ -1439,3 +1454,24 @@ class GetPolicyWindow(FramelessWindowBase):
             logger.exception("Rate display failed for %s", label)
             self.raw_table_tab.show_message(f"Error loading rates: {e}", table_name=label)
             self._show_status(f"Error loading rates: {e}")
+
+    def _show_joint_survivor_status(self, title: str, headers, rows):
+        """Highlight the current policy year and report the CyberLife comparison."""
+        coi_name, stored_name, check_name = joint_survivor_columns(headers)
+        stored_col, check_col = headers.index(stored_name), headers.index(check_name)
+        year_col, coi_col = headers.index("Year"), headers.index(coi_name)
+        current = next((i for i, row in enumerate(rows) if row[check_col] != ""), None)
+        if current is None:
+            self._show_status(f"{title} - current policy year is outside the calculated horizon")
+            return
+        row = rows[current]
+        check = row[check_col]
+        color = ("#D4EDDA" if check == "Match"
+                 else "#FFE8A1" if check.startswith("Matches year") else "#F8D7DA")
+        self.raw_table_tab.highlight_row(current, color)
+        stored = row[stored_col]
+        stored_text = f"{stored:.5f}" if isinstance(stored, float) else str(stored)
+        self._show_status(
+            f"{title} - year {row[year_col]}: calculated {row[coi_col]:.5f}, "
+            f"CyberLife {stored_text} - {check}"
+        )

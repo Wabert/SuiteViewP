@@ -4,6 +4,22 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, List, Optional
 
+from suiteview.core.joint_survivor_coi import Insured, Rating
+
+
+@dataclass
+class JointLives:
+    """Both insureds of a joint survivor (second-to-die) coverage phase.
+
+    The phase's COI is the blended VP/MS JointCOI of these lives with their
+    extra-life ratings built in, so the segment's single-life table rating and
+    flat extra stay 0 (they would otherwise be charged twice).
+    """
+
+    primary: Insured                                   # person 00, the younger insured
+    joint: Insured                                     # person 01
+    ratings: List[Rating] = field(default_factory=list)
+
 
 @dataclass
 class CoverageSegment:
@@ -43,6 +59,11 @@ class CoverageSegment:
 
     # COI
     coi_renewal_rate: Optional[float] = None
+
+    # Joint survivor (second-to-die) phase: both insureds; None = single life.
+    joint_lives: Optional[JointLives] = None
+    # Stored surrender target (LH_COV_TARGET 'ST') for percent-of-target SCR.
+    surrender_target: Optional[float] = None
 
 
 @dataclass
@@ -378,6 +399,11 @@ class IllustrationPolicyData:
     @property
     def base_segment(self) -> Optional[CoverageSegment]:
         return self.segments[0] if self.segments else None
+
+    @property
+    def is_joint_survivor(self) -> bool:
+        """Second-to-die policy: its base segments carry both insureds."""
+        return any(seg.joint_lives is not None for seg in self.segments)
 
     def segment_for_phase(self, coverage_phase: int) -> Optional[CoverageSegment]:
         """Return the coverage segment for a phase, falling back to the base."""

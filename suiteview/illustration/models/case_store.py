@@ -34,10 +34,12 @@ from typing import Optional
 from suiteview.core.json_store import write_json
 
 from suiteview import __version__ as _APP_VERSION
+from suiteview.core.joint_survivor_coi import Insured, Rating
 from suiteview.illustration.models.policy_data import (
     BenefitInfo,
     CoverageSegment,
     IllustrationPolicyData,
+    JointLives,
     PremiumTransaction,
     RiderInfo,
     ValueRollbackSnapshot,
@@ -369,6 +371,9 @@ _SNAPSHOT_TYPES = {
     for cls in (
         IllustrationPolicyData,
         CoverageSegment,
+        JointLives,
+        Insured,
+        Rating,
         BenefitInfo,
         PremiumTransaction,
         RiderInfo,

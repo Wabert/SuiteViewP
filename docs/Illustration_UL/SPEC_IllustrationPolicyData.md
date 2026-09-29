@@ -85,7 +85,18 @@ class CoverageSegment:
     
     # COI
     coi_renewal_rate: Optional[float] = None  # Current COI rate from DB2 (for reference/validation)
+
+    # Joint survivor (second-to-die) phase; None = single life
+    joint_lives: Optional[JointLives] = None  # both insureds + per-insured extras
+    surrender_target: Optional[float] = None  # LH_COV_TARGET 'ST' (percent-of-target SCR)
 ```
+
+**Joint survivor phases** (`LH_COV_PHA.NBR_OF_LIVES_CD` 3 on a UL_Rates
+`rates.PLAN_ATTR` LIVES=3 plan): `JointLives.primary` is person 00 (the younger
+insured, `INS_ISS_AGE`, type C renewal row `JT_INS_IND` 0) and `joint` is person
+01 (`JNT_ISU_ISS_AGE`, `JT_INS_IND` 1). `ratings` holds each insured's
+`LH_SST_XTR_CRG` extras by `PRS_CD`. The segment's `table_rating`/`flat_extra`
+stay 0 because the extras are inside the blended JointCOI.
 
 **DB2 Source Mapping:**
 

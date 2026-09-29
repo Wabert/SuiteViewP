@@ -1258,16 +1258,32 @@ def _build_ul_report_from_facts(
             "MARKET INVESTMENT AND DOES NOT DIRECTLY PARTICIPATE IN ANY STOCK OR INDEX.",
         ])
     report.insured_lines = [line for line in [policy.insured_name] if line]
-    rated = "RATED " if (policy.base_segment and policy.base_segment.table_rating > 0) else ""
-    class_code = (policy.rate_class or "").upper()
-    class_desc = rate_class_description(class_code, policy.plancode).upper()
-    if not class_desc:
-        class_desc = (
-            "NICOTINE USER"
-            if class_code in _NICOTINE_CLASSES
-            else "NON-NICOTINE USER"
-        )
-    sex = {"M": "MALE", "F": "FEMALE"}.get((policy.rate_sex or "").upper(), "UNISEX")
+    joint = policy.base_segment.joint_lives if policy.base_segment else None
+
+    def premium_class(rate_class: str, is_rated: bool) -> str:
+        code = (rate_class or "").upper()
+        desc = rate_class_description(code, policy.plancode).upper()
+        if not desc:
+            desc = "NICOTINE USER" if code in _NICOTINE_CLASSES else "NON-NICOTINE USER"
+        return f"{'RATED ' if is_rated else ''}{desc}"
+
+    def sex_text(code: str) -> str:
+        return {"M": "MALE", "F": "FEMALE"}.get((code or "").upper(), "UNISEX")
+
+    def joint_rated(person: str) -> bool:
+        return any(r.person == person and r.type_code in ("0", "1", "3") for r in joint.ratings)
+
+    primary_rated = (
+        joint_rated("00") if joint is not None
+        else bool(policy.base_segment and policy.base_segment.table_rating > 0))
+    class_text = premium_class(policy.rate_class, primary_rated)
+    sex = sex_text(policy.rate_sex)
+    if report.is_iul:
+        product_line = "INDEXED UNIVERSAL LIFE"
+    elif joint is not None:
+        product_line = "JOINT SURVIVOR FLEXIBLE PREMIUM UNIVERSAL LIFE"
+    else:
+        product_line = "FLEXIBLE PREMIUM UNIVERSAL LIFE"
     mode_label = _MODE_LABELS.get(policy.billing_frequency, "MONTHLY")
     issue_date_long = (
         f"{policy.issue_date:%B} {policy.issue_date.day}, {policy.issue_date.year}"
@@ -1287,15 +1303,24 @@ def _build_ul_report_from_facts(
          f"{'CURRENT BILLING MODE:':<27}{mode_label}"),
         (f"{'ISSUE AGE:':<17}{policy.issue_age}",
          f"{'CURRENT BILLABLE PREMIUM:':<27}{_money(policy.modal_premium)}"),
-        ("INDEXED UNIVERSAL LIFE" if report.is_iul else "FLEXIBLE PREMIUM UNIVERSAL LIFE",
+        (product_line,
          f"{'ACTUAL PREMIUMS PAID:':<27}{_money(policy.premiums_paid_to_date)}"),
         (f"FORM {(policy.form_number or '').upper()}",
          f"{'':<27}(AS OF {as_of_short})" if as_of_short else ""),
         ("", ""),
         (f"ATTAINED AGE: {policy.attained_age}", ""),
         (f"SEX: {sex}", ""),
-        (f"{'PREMIUM CLASS:':<17}{rated}{class_desc}", ""),
+        (f"{'PREMIUM CLASS:':<17}{class_text}", ""),
     ]
+    if joint is not None:
+        joint_age = joint.joint.issue_age + policy.attained_age - joint.primary.issue_age
+        report.policy_block += [
+            ("", ""),
+            (f"JOINT INSURED ATTAINED AGE: {joint_age}", ""),
+            (f"SEX: {sex_text(joint.joint.sex)}", ""),
+            (f"{'PREMIUM CLASS:':<17}"
+             f"{premium_class(joint.joint.rate_class, joint_rated('01'))}", ""),
+        ]
     if policy.run_from_issue:
         replacements = {
             "CURRENT SPECIFIED AMOUNT:": "MODELED SPECIFIED AMOUNT:",

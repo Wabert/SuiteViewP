@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from suiteview.core.band_rules import rider_bands_as_base
+from suiteview.core.joint_survivor_coi import load_joint_basis
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.poav_rates import load_poav_schedule
 from suiteview.illustration.models.policy_data import (
@@ -77,6 +78,55 @@ def load_coverage_coi_rates(
         f"Lookup: plancode {plancode or '<blank>'}, issue age {issue_age}, "
         f"sex {sex or '<blank>'}, {attempted}, band {band}, scale {scale}."
     )
+
+
+def load_segment_coi(
+    rates_db: Rates, plancode: str, segment, *, scale: int, band: int,
+) -> List:
+    """A base segment's COI schedule: the blended JointCOI for joint survivor
+    phases, otherwise the plan's IAF COI (with the preferred-class fallback)."""
+    if segment.joint_lives is None:
+        return load_coverage_coi_rates(
+            rates_db, plancode=plancode, issue_age=segment.issue_age,
+            sex=segment.rate_sex, rateclass=segment.rate_class, scale=scale, band=band,
+        )
+    company = rates_db.joint_survivor_company(plancode)
+    if company is None:
+        raise RateLookupError(
+            f"Segment {segment.coverage_phase} carries joint lives, but {plancode} is not a "
+            "joint survivor plan in UL_Rates rates.PLAN_ATTR (LIVES=3).")
+    lives = segment.joint_lives
+    basis = load_joint_basis(
+        rates_db, company, plancode, lives.primary, lives.joint, lives.ratings)
+    # COI scale 1 = current, 0 = guaranteed (same convention as the IAF COI).
+    return [None] + list(basis.schedule.current if scale == 1 else basis.schedule.guaranteed)
+
+
+def load_segment_scr(
+    rates_db: Rates, plancode: str, segment, config: PlancodeConfig, *, state: str = None,
+) -> List:
+    """Per-unit surrender charge schedule for a base segment.
+
+    Percent-of-surrender-target plans (CyberLife SCR rule 6) convert
+    ``pct(year) x stored ST target`` to a per-unit rate on the segment's units
+    at load, so a later face decrease reduces the charge pro rata (the VP/MS
+    target recalculation is not available).
+    """
+    schedule = config.scr_pct_of_surrender_target
+    if schedule is None:
+        state_kwargs = {"state": state} if state is not None else {}
+        return rates_db.get_rates(
+            "SCR", plancode, segment.issue_age, segment.rate_sex, segment.rate_class,
+            scale=1, band=segment.band, **state_kwargs,
+        ) or []
+    if segment.surrender_target is None:
+        raise RateLookupError(
+            f"Coverage phase {segment.coverage_phase}: {plancode} surrender charges are a "
+            "percent of the stored surrender target (LH_COV_TARGET 'ST'), which is missing.")
+    if not segment.units:
+        return [None] + [0.0] * len(schedule)
+    per_unit = segment.surrender_target / segment.units
+    return [None] + [pct * per_unit for pct in schedule] + [0.0]
 
 
 @dataclass
@@ -233,7 +283,7 @@ def load_rates(
     _validate_scales(coi_scale, expense_scale)
     _initialize_dynamic_bands(policy, rates_db)
     segment_rates = _load_base_segment_rate_maps(
-        policy, rates_db, coi_scale=coi_scale, expense_scale=expense_scale)
+        policy, config, rates_db, coi_scale=coi_scale, expense_scale=expense_scale)
     result = _base_rate_bundle(
         policy, config, rates_db, seg, segment_rates,
         coi_scale=coi_scale, expense_scale=expense_scale)
@@ -262,6 +312,7 @@ def _initialize_dynamic_bands(policy: IllustrationPolicyData, rates_db: Rates) -
 
 def _load_base_segment_rate_maps(
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     rates_db: Rates,
     *,
     coi_scale: int,
@@ -271,24 +322,16 @@ def _load_base_segment_rate_maps(
     segment_epu: Dict[int, List] = {}
     segment_scr: Dict[int, List] = {}
     for base_seg in policy.segments:
-        segment_coi[base_seg.coverage_phase] = load_coverage_coi_rates(
-            rates_db,
-            plancode=policy.plancode,
-            issue_age=base_seg.issue_age,
-            sex=base_seg.rate_sex,
-            rateclass=base_seg.rate_class,
-            scale=coi_scale,
-            band=base_seg.band,
+        segment_coi[base_seg.coverage_phase] = load_segment_coi(
+            rates_db, policy.plancode, base_seg, scale=coi_scale, band=base_seg.band,
         )
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
             base_seg.rate_class, scale=expense_scale, band=base_seg.band,
         ) or []
-        segment_scr[base_seg.coverage_phase] = rates_db.get_rates(
-            "SCR", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-            base_seg.rate_class, scale=1, band=base_seg.band,
-            state=policy.issue_state,
-        ) or []
+        segment_scr[base_seg.coverage_phase] = load_segment_scr(
+            rates_db, policy.plancode, base_seg, config, state=policy.issue_state,
+        )
     return {"coi": segment_coi, "epu": segment_epu, "scr": segment_scr}
 
 

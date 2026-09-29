@@ -38,6 +38,7 @@ from suiteview.illustration.models.policy_data import (
 from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
+    JointLives,
     PremiumTransaction,
     RiderInfo,
 )
@@ -77,6 +78,7 @@ class PolicySourceSnapshot:
     substandard_by_phase: dict
     raw_benefits: list
     raw_riders: list
+    joint_company: str | None = None   # rates.PLAN_ATTR LIVES=3 plan's company
 
 
 @dataclass(frozen=True)
@@ -154,6 +156,11 @@ def _load_policy_source_snapshot(
     face_amount, units, band = _source_face_units_band(
         pi, rates_db, plancode, pi.activity.issue_date, active_base_coverages,
         base_coverages, raw_riders, as_of_date, reinstatement_date)
+    joint_company = rates_db.joint_survivor_company(plancode)
+    if joint_company is not None and joint_company != (pi.company_code or "").strip():
+        raise ValueError(
+            f"Joint survivor plan {plancode} is defined for company {joint_company}, "
+            f"not the policy's company {pi.company_code}.")
     return PolicySourceSnapshot(
         policy_number=policy_number,
         region=region,
@@ -178,6 +185,7 @@ def _load_policy_source_snapshot(
         substandard_by_phase=_substandard_by_phase(pi),
         raw_benefits=pi.benefits.get_benefits(),
         raw_riders=raw_riders,
+        joint_company=joint_company,
     )
 
 
@@ -484,6 +492,12 @@ def _coverage_segment_from_source(source: PolicySourceSnapshot, cov) -> Coverage
     except (AttributeError, TypeError, ValueError):
         seg_rate_sex = source.rate_sex
     seg_table, seg_table_cease, seg_flat, seg_flat_cease = _substandard_basis(source, cov)
+    joint_lives = None
+    surrender_target = None
+    if _is_joint_phase(cov, source.joint_company, source.plancode):
+        joint_lives, surrender_target = _joint_segment_inputs(source.pi, cov)
+        # Both insureds' extras are inside the blended JointCOI.
+        seg_table, seg_table_cease, seg_flat, seg_flat_cease = 0, None, 0.0, None
     seg_band = source.band
     original_band = (
         source.pi.rates.cov_mtp_band(cov.cov_pha_nbr)
@@ -511,6 +525,36 @@ def _coverage_segment_from_source(source: PolicySourceSnapshot, cov) -> Coverage
         status=cov.cov_status or "A",
         maturity_date=cov.maturity_date,
         coi_renewal_rate=float(cov.coi_rate) if cov.coi_rate else None,
+        joint_lives=joint_lives,
+        surrender_target=surrender_target,
+    )
+
+
+def _is_joint_phase(cov, joint_company: str | None, plancode: str) -> bool:
+    """A lives-3 phase must be on a plan defined as joint in UL_Rates, and vice versa."""
+    lives = str(getattr(cov, "number_of_lives_code", "") or "").strip()
+    if joint_company is None:
+        if lives == "3":
+            raise ValueError(
+                f"Coverage phase {cov.cov_pha_nbr} is joint survivor (NBR_OF_LIVES_CD 3), but "
+                f"plan {plancode} is not defined as joint in UL_Rates rates.PLAN_ATTR (LIVES=3); "
+                "RERUN cannot illustrate it as a single life.")
+        return False
+    if lives != "3":
+        raise ValueError(
+            f"Coverage phase {cov.cov_pha_nbr} of joint survivor plan {plancode} has "
+            f"NBR_OF_LIVES_CD {lives or 'blank'}, not 3.")
+    return True
+
+
+def _joint_segment_inputs(pi, cov) -> tuple[JointLives, float | None]:
+    """Both insureds, their extras and the stored surrender target for a joint phase."""
+    index = pi.coverages.cov_index_for_phase(cov.cov_pha_nbr)
+    primary, joint = pi.rates.cov_joint_insureds(index)
+    target = pi.targets.cov_surrender_target(cov.cov_pha_nbr)
+    return (
+        JointLives(primary=primary, joint=joint, ratings=list(pi.rates.cov_joint_ratings(index))),
+        float(target) if target is not None else None,
     )
 
 

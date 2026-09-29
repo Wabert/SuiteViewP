@@ -194,6 +194,9 @@ class TargetPremiumResult:
     pwst_ctp_rate: float = 0.0      # KD — PWSTP CTPR (non-FFL)
     pwst_component: float = 0.0     # IK — PWoT MTP
     pwst_ctp_component: float = 0.0  # KE — PWoT CTP
+    # Joint survivor plans: CyberLife calculates MTP/CTP with a VP/MS target
+    # model that is not available, so the stored record targets are held.
+    held_at_record: bool = False
 
     # FFL premium waiver bases (CalcEngine IW..JD) — zero for non-FFL products.
     ffl_min_base: float = 0.0       # IW
@@ -676,6 +679,12 @@ def compute_target_premiums(
     rates_db = Rates()
     result = TargetPremiumResult()
     if not policy.segments:
+        return result
+    if policy.is_joint_survivor:
+        # VP/MS targets: hold the record values (policy.mtp is monthly, ctp annual).
+        result.mtp_annual = float(policy.mtp or 0.0) * 12.0
+        result.ctp_annual = float(policy.ctp or 0.0)
+        result.held_at_record = True
         return result
 
     coverage = _add_coverage_targets(policy, config, rates_db, result, as_of)

@@ -74,6 +74,9 @@ class CoverageInfo:
     # This is the COI rate for Advanced (UL/IUL/VUL) products, already
     # divided by 100 (product line "I") or 100,000 (other product lines).
     coi_rate: Optional[Decimal] = None  # RNL_RT (type C)
+    number_of_lives_code: str = ""      # NBR_OF_LIVES_CD ("3" = joint survivor)
+    joint_issue_age: Optional[int] = None  # JNT_ISU_ISS_AGE (person 01)
+    joint_mortality_table_code: str = ""   # JNT_ISU_MTL_TBL_CD
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
     # Backwards compatibility aliases

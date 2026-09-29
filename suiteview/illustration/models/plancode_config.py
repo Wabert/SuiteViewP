@@ -110,10 +110,19 @@ class PlancodeConfig:
     # CurrentSA plans assess partial surrender charges on withdrawals and
     # specified-amount decreases; OriginalSA plans do not.
     sa_basis: str = SA_BASIS_CURRENT  # "CurrentSA" or "OriginalSA"
+    # Surrender charge as a percent of the coverage's stored surrender target
+    # (LH_COV_TARGET 'ST'), by coverage year 1..n (0 after). FFL EP/EP2 joint
+    # plans: CyberLife SCR rule 6, the target itself is VP/MS. None = the plan's
+    # per-unit SCR rate table.
+    scr_pct_of_surrender_target: Optional[tuple] = None
 
     def __post_init__(self) -> None:
         if self.sa_basis not in (SA_BASIS_CURRENT, SA_BASIS_ORIGINAL):
             raise ValueError(f"{self.plancode}: invalid SA_Basis {self.sa_basis!r}")
+        if self.scr_pct_of_surrender_target is not None and not all(
+            0.0 <= pct <= 1.0 for pct in self.scr_pct_of_surrender_target
+        ):
+            raise ValueError(f"{self.plancode}: SCR_PctOfSurrenderTarget must be fractions 0-1")
 
     @property
     def partial_surrender_charge(self) -> bool:
@@ -250,6 +259,10 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         band_table2_issue_date=_date_or_none(data.get("BandTable2IssueDate")),
         skipped_cov_rein=bool(data.get("SkippedCovRein", False)),
         sa_basis=data["SA_Basis"],
+        scr_pct_of_surrender_target=(
+            tuple(float(pct) for pct in data["SCR_PctOfSurrenderTarget"])
+            if data.get("SCR_PctOfSurrenderTarget") is not None else None
+        ),
         loan_type=data.get("LoanType", "Arrears"),
         loan_charge_rate_guar=float(data.get("LoanChargeRate", data.get("LoanChargeRateGuar", 0))),
         loan_charge_rate_curr=float(data.get("LoanCollateralCreditRate", data.get("LoanChargeRateCurr", 0))),

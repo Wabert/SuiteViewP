@@ -429,6 +429,9 @@ class CoveragesSection(PolicySection):
             nsp_amount=None,
             elimination_period=translate_elimination_period_code(elim_code) if elim_code else "",
             benefit_period=translate_benefit_period_code(bnf_code) if bnf_code else "",
+            number_of_lives_code=str(row.get("NBR_OF_LIVES_CD") or "").strip(),
+            joint_issue_age=self._parse_optional_int(row.get("JNT_ISU_ISS_AGE")),
+            joint_mortality_table_code=str(row.get("JNT_ISU_MTL_TBL_CD") or "").strip(),
             raw_data=row
         )
 
@@ -521,6 +524,13 @@ class CoveragesSection(PolicySection):
     def get_riders(self) -> List[CoverageInfo]:
         """Get rider coverages (different plancode from base)."""
         return [c for c in self.get_coverages() if not c.is_base]
+
+    def cov_index_for_phase(self, cov_pha_nbr: int) -> int:
+        """PolView's 1-based coverage index for a COV_PHA_NBR (phases can have gaps)."""
+        for index, cov in enumerate(self.get_coverages(), start=1):
+            if cov.cov_pha_nbr == cov_pha_nbr:
+                return index
+        raise ValueError(f"Coverage phase {cov_pha_nbr} is not on the policy")
 
     def cov_plancode(self, index: int) -> str:
         """Get plancode for coverage at index (1-based)."""

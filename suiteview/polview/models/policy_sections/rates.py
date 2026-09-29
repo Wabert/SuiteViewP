@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .base import PolicySection
+from ._joint_survivor import JointSurvivorMixin
 from ._rate_matrices import RateMatrixMixin
 from ..cl_polrec.policy_data_classes import RenewalBenRateInfo
 from ..cl_polrec.policy_data_classes import RenewalCovRateInfo
@@ -19,7 +20,7 @@ except ImportError:
     RatesError = RuntimeError  # type: ignore[assignment,misc]
 
 
-class RatesSection(RateMatrixMixin, PolicySection):
+class RatesSection(JointSurvivorMixin, RateMatrixMixin, PolicySection):
     """Cohesive PolicyInformation rates view."""
 
     CACHE_ATTRS = ()

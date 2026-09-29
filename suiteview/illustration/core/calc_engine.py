@@ -48,6 +48,7 @@ from typing import Dict, List, Literal, Optional
 
 from dateutil.relativedelta import relativedelta
 
+from suiteview.core.joint_survivor_coi import policy_year_on
 from suiteview.illustration.constants import (
     DAYS_PER_YEAR,
     DB_OPTION_INCREASING,
@@ -108,6 +109,8 @@ from suiteview.illustration.core.rate_loader import (
     get_rate,
     load_coverage_coi_rates,
     load_rates,
+    load_segment_coi,
+    load_segment_scr,
 )
 from suiteview.illustration.core.shadow_calc import ShadowInput, calculate_shadow
 from suiteview.illustration.core.target_premium import (
@@ -133,6 +136,7 @@ from suiteview.illustration.models.plancode_config import PlancodeConfig, load_p
 from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
+    JointLives,
     rider_active_on,
 )
 
@@ -2132,14 +2136,8 @@ def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
     if band == segment.band:
         return
     segment.band = band
-    rates.segment_coi[segment.coverage_phase] = load_coverage_coi_rates(
-        rates_db,
-        plancode=plancode,
-        issue_age=segment.issue_age,
-        sex=segment.rate_sex,
-        rateclass=segment.rate_class,
-        scale=rates.coi_scale,
-        band=segment.band,
+    rates.segment_coi[segment.coverage_phase] = load_segment_coi(
+        rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
     )
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
@@ -2162,24 +2160,16 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     from suiteview.core.rates import Rates
 
     rates_db = Rates()
-    rates.segment_coi[segment.coverage_phase] = load_coverage_coi_rates(
-        rates_db,
-        plancode=plancode,
-        issue_age=segment.issue_age,
-        sex=segment.rate_sex,
-        rateclass=segment.rate_class,
-        scale=rates.coi_scale,
-        band=segment.band,
+    rates.segment_coi[segment.coverage_phase] = load_segment_coi(
+        rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
     )
-    for attr, kind, scale in (
-        ("segment_epu", "EPU", rates.expense_scale),
-        ("segment_scr", "SCR", 1),
-    ):
-        schedule = rates_db.get_rates(
-            kind, plancode, segment.issue_age, segment.rate_sex,
-            segment.rate_class, scale=scale, band=segment.band,
-        ) or []
-        getattr(rates, attr)[segment.coverage_phase] = schedule
+    rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
+        "EPU", plancode, segment.issue_age, segment.rate_sex,
+        segment.rate_class, scale=rates.expense_scale, band=segment.band,
+    ) or []
+    plan = config if config is not None else load_plancode(plancode)
+    rates.segment_scr[segment.coverage_phase] = load_segment_scr(
+        rates_db, plancode, segment, plan)
     if config is not None and getattr(config, "rachet_banding", False):
         for band, attr in ((1, "segment_coi_band1"), (2, "segment_coi_band2")):
             getattr(rates, attr)[segment.coverage_phase] = load_coverage_coi_rates(
@@ -2461,6 +2451,31 @@ def _age_on_date(birth_date, as_of, age_basis, fallback) -> int:
     return age
 
 
+def _increase_joint_lives(base, increase_age: int, change_date):
+    """Both insureds of a joint face-increase segment, or None for single life.
+
+    Each life is issued at its age on the increase date (the joint insured ages
+    in step with the primary). Ratings still active then carry over, restated
+    in the new segment's policy years — the joint analog of a single-life
+    increase inheriting the base table rating and flat extra.
+    """
+    lives = base.joint_lives
+    if lives is None:
+        return None
+    age_step = increase_age - lives.primary.issue_age
+    shift = policy_year_on(base.issue_date, change_date) - 1
+    ratings = [
+        replace(r, effective_year=max(0, r.effective_year - shift),
+                cease_year=r.cease_year - shift)
+        for r in lives.ratings if r.cease_year - shift >= 1
+    ]
+    return JointLives(
+        primary=replace(lives.primary, issue_age=increase_age),
+        joint=replace(lives.joint, issue_age=lives.joint.issue_age + age_step),
+        ratings=ratings,
+    )
+
+
 def _append_face_increase_segment(policy, rates, delta, attained_age, change_date, config=None) -> None:
     """Append the face-increase segment, issued at the insured's true age.
 
@@ -2512,6 +2527,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         flat_extra=base.flat_extra,
         status="A",
         maturity_date=seg_maturity_date,
+        joint_lives=_increase_joint_lives(base, increase_age, change_date),
     )
     policy.segments.append(new_seg)
     _load_segment_rates(rates, new_seg, policy.plancode, config)

@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
+from suiteview.illustration.models.policy_data import JointLives
 from suiteview.polview.ui.formatting import format_amount, format_currency, format_date
 from suiteview.polview.ui.widgets import FixedHeaderTableWidget, StyledInfoTableGroup
 from suiteview.polview.models.cl_polrec.policy_translations import PREMIUM_PAY_STATUS_CODES
@@ -526,7 +527,7 @@ class IllustrationPolicyTab(QWidget):
             ("Issue State", "issue_state_label"),
             ("Rateclass", "rateclass"),
             ("Total Face", "total_face_label"),
-            ("spacer", "policy_info_spacer_2"),
+            ("Joint Insured", "joint_insured_label"),
             ("Status", "status_label"),
             ("Table Rating", "table_rating"),
             ("DB Option", "db_option_label"),
@@ -538,14 +539,12 @@ class IllustrationPolicyTab(QWidget):
             ("Grace Indicator", "grace_label"),
             ("Flat Cease Date", "flat_cease_date"),
             ("Guaranteed Int Rate", "guar_int_rate_label"),
-            ("spacer", "policy_info_spacer_5"),
+            ("COI Basis", "coi_basis_label"),
         ]
         for label, attr in fields:
-            if label == "spacer":
-                self.policy_info.add_field("-", attr, 1, 1)
-                self._set_group_field_visible(self.policy_info, attr, False)
-            else:
-                self.policy_info.add_field(label, attr, 110, 120 if attr == "joint_label" else 100)
+            self.policy_info.add_field(label, attr, 110, 120 if attr == "joint_label" else 100)
+        for attr in self._JOINT_ONLY_FIELDS:
+            self._set_group_field_visible(self.policy_info, attr, False)
 
     def _make_value_group(self, title: str, fields: list[tuple[str, str]], columns: int = 1):
         group = StyledInfoTableGroup(title, columns=columns, show_table=False)
@@ -711,6 +710,34 @@ class IllustrationPolicyTab(QWidget):
     _BILLING_MODE_LABELS = {1: "Monthly", 3: "Quarterly", 6: "Semi-Annual",
                             12: "Annual"}
     _SEX_DESCS = {"M": "Male", "F": "Female", "U": "Unisex"}
+    _JOINT_ONLY_FIELDS = ("joint_insured_label", "coi_basis_label")
+
+    def _show_joint_lives(self, lives) -> None:
+        """Second-to-die: the joint insured and each insured's own extras.
+
+        ``lives`` is a JointLives, or an error message when the policy's joint
+        data could not be read (shown, never hidden).
+        """
+        info = self.policy_info
+        for attr in self._JOINT_ONLY_FIELDS:
+            self._set_group_field_visible(info, attr, True)
+        info.set_value("coi_basis_label", "Joint (VP/MS)")
+        if isinstance(lives, str):
+            info.set_value("joint_insured_label", lives)
+            return
+        joint = lives.joint
+        info.set_value(
+            "joint_insured_label",
+            f"{self._sex_desc(joint.sex)} / {joint.rate_class} / age {joint.issue_age}")
+
+        def extras(flat: bool) -> str:
+            return "; ".join(
+                f"{r.person}: {r.description}" for r in lives.ratings
+                if (r.type_code in ("2", "4")) == flat) or "None"
+
+        info.set_value("table_rating", extras(flat=False))
+        info.set_value("flat_extra", extras(flat=True))
+        info.set_value("flat_cease_date", "")
 
     def load_data_from_snapshot(self, snapshot):
         """Populate the Policy tab from a saved case's frozen policy data.
@@ -818,6 +845,9 @@ class IllustrationPolicyTab(QWidget):
             info.set_value(
                 "flat_cease_date",
                 format_date(base_seg.flat_cease_date) if base_seg.flat_extra else "")
+            if base_seg.joint_lives is not None:
+                info.set_value("joint_label", "Joint Second to Die")
+                self._show_joint_lives(base_seg.joint_lives)
         else:
             info.set_value("issue_date", format_date(s.issue_date))
             info.set_value("issue_age", s.issue_age)
@@ -1041,6 +1071,8 @@ class IllustrationPolicyTab(QWidget):
             self.fund_values,
         ]:
             group.clear_info()
+        for attr in self._JOINT_ONLY_FIELDS:
+            self._set_group_field_visible(self.policy_info, attr, False)
         self.set_rate_warnings([])
         self.unimpaired_table.setRowCount(0)
         self.impaired_table.setRowCount(0)
@@ -1090,6 +1122,14 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("table_rating", base_cov.table_rating if base_cov.table_rating else "")
         self.policy_info.set_value("flat_extra", format_currency(base_cov.flat_extra, "$"))
         self.policy_info.set_value("flat_cease_date", format_date(base_cov.flat_cease_date) if base_cov.flat_extra else "")
+        if base_cov.number_of_lives_code == "3":
+            try:
+                index = policy.coverages.cov_index_for_phase(base_cov.cov_pha_nbr)
+                primary, joint = policy.rates.cov_joint_insureds(index)
+                lives = JointLives(primary, joint, list(policy.rates.cov_joint_ratings(index)))
+            except Exception as exc:
+                lives = f"Unavailable: {exc}"
+            self._show_joint_lives(lives)
 
     @staticmethod
     def _policy_cyberlife_monthly_deduction(policy):

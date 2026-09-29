@@ -293,7 +293,7 @@ class RateMatrixMixin:
 
     def build_coverage_rate_matrix(self, cov_index: int, scale: int = 1) -> Optional[List[List]]:
         """
-        Build Whole Life cash values or the existing UL coverage-rate matrix.
+        Build Whole Life cash values, the joint survivor view, or the UL coverage-rate matrix.
 
         Returns a 2D list where:
           - Row 0 = column headers (RateFields, RateInfo, Date, Age, Year, COI, EPU, SCR, GuarCOI, GuarEPU)
@@ -310,6 +310,8 @@ class RateMatrixMixin:
         rules = self.product._product_rules_for_rate_display()
         if rules.rate_family == "WL" and not rules.is_advanced:
             return self.build_whole_life_coverage_rate_matrix(cov_index)
+        if self.cov_is_joint_survivor(cov_index):
+            return self.build_joint_survivor_rate_matrix(cov_index)
 
         issue_date = self.coverages.cov_issue_date(cov_index)
         maturity_date = self.coverages.cov_maturity_date(cov_index)

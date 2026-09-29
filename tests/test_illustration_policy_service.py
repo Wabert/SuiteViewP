@@ -12,6 +12,9 @@ class _FakeRates:
     def get_band(self, _plancode, face_amount, issue_date=None):
         return 2 if float(face_amount or 0.0) == 200_000.0 else 9
 
+    def joint_survivor_company(self, _plancode):
+        return None  # single-life plan (not LIVES=3 in rates.PLAN_ATTR)
+
     def get_index_illustration_rates(
         self, company, plancode, illustration_date, rga_indicator
     ):

@@ -440,6 +440,9 @@ def _set_issue_projection_dates(policy: IllustrationPolicyData) -> None:
 
 
 def _reset_issue_values(policy: IllustrationPolicyData) -> None:
+    # Joint survivor MTP/CTP are VP/MS values that cannot be recalculated from
+    # rate tables at issue, so the record targets stay.
+    held_targets = ("mtp", "ctp") if policy.is_joint_survivor else ()
     for name in (
         "account_value", "swam", "glp", "gsp", "mtp", "ctp",
         "tamra_7pay_level", "_debug_csv", "cost_basis",
@@ -452,7 +455,8 @@ def _reset_issue_values(policy: IllustrationPolicyData) -> None:
         "shadow_account_value", "deemed_cash_value", "tamra_7pay_start_av",
         "tamra_7pay_cash_value", "tamra_7year_lowest_db",
     ):
-        setattr(policy, name, 0.0)
+        if name not in held_targets:
+            setattr(policy, name, 0.0)
     policy.fund_values = {fund: 0.0 for fund in policy.fund_values}
     policy.impaired_fund_values = {fund: 0.0 for fund in policy.impaired_fund_values}
     policy.is_mec = False

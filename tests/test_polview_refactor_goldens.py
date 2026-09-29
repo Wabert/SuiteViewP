@@ -64,6 +64,9 @@ class _MatrixPolicy:
     def policy(self):
         return self
 
+    def cov_is_joint_survivor(self, _cov_index):
+        return False
+
     @property
     def product(self):
         return self

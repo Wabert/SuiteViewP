@@ -8,8 +8,10 @@ import pandas as pd
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QMessageBox,
+    QAbstractItemView,
 )
 from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
 
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -165,6 +167,7 @@ class RawTableTab(QWidget):
             selection_bg=GOLD_LIGHT,
             selection_fg=GREEN_DARK,
         )
+        grid.show_cell_highlights()  # current-policy-year highlight in rate views
         return grid
 
     # ── clear / reset ────────────────────────────────────────────────────
@@ -380,6 +383,23 @@ class RawTableTab(QWidget):
             for index in indexes:
                 selection.select(index, QItemSelectionModel.SelectionFlag.Select)
             grid.table_view.scrollTo(anchor, grid.table_view.ScrollHint.PositionAtCenter)
+
+    def highlight_row(self, row: int, color: str):
+        """Tint one data row (a column in the transposed view), e.g. the current policy year."""
+        if not 0 <= row < len(self._current_rows):
+            return
+        brush = QColor(color)
+        self._normal_grid.set_highlighted_cells(
+            {(row, str(col)): brush for col in self._current_cols})
+        self._transposed_grid.set_highlighted_cells(
+            {(field, f"Row {row + 1}"): brush for field in range(len(self._current_cols))})
+        for grid, target_row, column in ((self._normal_grid, row, 0),
+                                         (self._transposed_grid, 0, row + 1)):
+            if grid.model is not None and column < grid.model.columnCount():
+                grid.table_view.scrollTo(
+                    grid.model.index(target_row, column),
+                    QAbstractItemView.ScrollHint.PositionAtCenter,
+                )
 
     # ── Excel export ─────────────────────────────────────────────────────
 

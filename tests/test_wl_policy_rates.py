@@ -120,7 +120,7 @@ def policy(monkeypatch):
     policy._rates = Rates()
     coverage = SimpleNamespace(
         plancode="201WL500", issue_age=59, issue_date=date(2000, 1, 22),
-        maturity_date=date(2041, 1, 22), vpu=Decimal("1000.00"),
+        maturity_date=date(2041, 1, 22), vpu=Decimal("1000.00"), number_of_lives_code="1",
     )
     policy.coverages.get_coverages = lambda: [coverage]
     fields = {"INS_CLS_CD": "1", "PLN_BSE_SRE_CD": "WL5", "LIF_PLN_SUB_SRE_CD": "11"}

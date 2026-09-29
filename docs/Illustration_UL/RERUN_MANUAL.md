@@ -604,3 +604,49 @@ Values > Policy Values builds SCR/SC columns for **every** base segment, retaini
 zero-charge columns. Live verification: `000289393 / 26 / NU1F3H00` has seven
 segments (phase 1 non-COLA; phases 5-10 COLA). Use
 `tools/engine/verify_cola_surrender.py` for a read-only live check and UI captures.
+
+## RERUN joint survivor ULs
+
+RERUN illustrates the 12 FFL joint survivor plans (see the PolView manual's
+"Joint survivor UL rates") with the normal engine: guideline/TAMRA caps and
+recalcs, GEP, loans, withdrawals, face/DB option changes, solves and the Policy
+Support GLP Exception tab. The FFL illustration workbooks (Estate Advantage,
+Estate Pro 2) informed the rules, but CyberLife is the reference: they
+approximate the joint COI and type in 7702 values.
+
+- **Loading**: a lives-3 phase must be on a `PLAN_ATTR` LIVES=3 plan and vice
+  versa (either mismatch raises). Each segment carries `JointLives` (both
+  insureds and per-insured extras) and its `LH_COV_TARGET` ST target
+  (`pi.targets.cov_surrender_target`); the single-life table/flat stay 0.
+- **COI**: `rate_loader.load_segment_coi()` returns the JointCOI (scale 1
+  current, 0 guaranteed); every COI path uses it. Face increases get both lives
+  aged in step with still-active ratings restated.
+- **Other rates**: the plans have no dbo rows, so on a dbo miss
+  `Rates.get_rates()` answers MFEE, TPP/EPP (PREMLOAD_PCT), SCR, GINT and BENCOI
+  from schema `rates` in dbo shapes (units verified equal); base COI raises and
+  targets/EPU/bands return None.
+- **Plan rows**: loads, fees, loans, GINT and maturity (N91/N71EP 100,
+  N71EMR/EMJ 117, B11 121) come from `rates`. N91 SCR is the IAF per-unit table;
+  B11/N71 use `SCR_PctOfSurrenderTarget` x ST (converted per unit at load).
+  Corridor set 4 is standard to 94 and 1.00 from 95 (the plans' IAF CORR and
+  CyberLife's negative NAR at 95); the corridor COI rate follows
+  "RERUN corridor COI rate" above.
+- **Targets**: MTP/CTP are VP/MS. `compute_target_premiums` and from-issue
+  scenarios hold the record values (`held_at_record`).
+- **7702/TAMRA/GEP**: the guaranteed joint COI is the mortality basis (approved;
+  as single-life UL uses guaranteed COI). At issue it reproduces CyberLife's
+  GLP/GSP to a median 0.01% (N71) and 0.09% (B11). N91 runs about 5% low (the
+  year-1 87.5% PREMLOAD rule 5 is not modeled) and some rated policies differ
+  2-20%; in-force runs start from the record values.
+- **UI/report**: the Policy tab adds the joint insured, per-insured extras and
+  COI basis; the report adds the joint insured.
+
+Verified 9/28/2026 (87 in-force joint policies): month-0 COI/MD match CyberLife
+to the cent for 77, the rest within $0.22 (stored rates differing slightly from
+VP/MS). Current and guaranteed projections run to maturity for all. B11 surrender
+charges are not DB-verifiable (UL `LH_POL_MVRY_VAL.CSV_AMT` is the AV).
+Tests: `tests/test_illustration_joint_survivor.py` and the RERUN cases in
+`tests/test_joint_survivor_live.py`. Read-only tools:
+`tools/rates/verify_rerun_joint_survivor.py '{}'`,
+`tools/rates/exercise_rerun_joint_features.py` and
+`tools/app/verify_rerun_joint_window.py`.

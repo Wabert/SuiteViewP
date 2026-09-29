@@ -178,6 +178,38 @@ Initial Coverages prefetch validates the description for cache-only rendering.
 Live-verified 000321709 / 26 has code 3 and shows Joint Second to Die; see
 `docs/POLVIEW_CLAUDE.md` and `tools/app/verify_joint_insured.py`.
 
+## PolView joint survivor UL rates
+
+The 12 company-26 FFL second-to-die plans (N91EAA00/EAB00/EAJ00/EAN00/EMA00/
+EMB00, N71EP100/EP300/EMR00/EMJ00, B11EP200/EP400) have no base COI cell:
+CyberLife charges the blended VP/MS JSURVCOI rate of both insureds every policy
+year and stores it in type-C `LH_COV_INS_RNL_RT` `JT_INS_IND` 0 `RNL_RT`.
+`core/joint_survivor_coi.py` ports that calculation (independent-lives last
+survivor, every step rounded like VP/MS on 15 significant digits). Its inputs
+are schema `rates` `JS_Q` (each life's single-life annual q) and `PLAN_ATTR`
+`JS_*` rules, read through `RatesSchemaRepository` with **exact** sex/class cells
+(no unisex/class fallback: a wrong life's rate would be quietly wrong).
+
+A phase is joint when `LH_COV_PHA.NBR_OF_LIVES_CD` is 3 **and** `PLAN_ATTR`
+`LIVES` is 3 (`pi.rates.cov_is_joint_survivor`). `pi.rates` gathers both
+insureds (type-C renewal rows `JT_INS_IND` 0/1; `INS_ISS_AGE` /
+`JNT_ISU_ISS_AGE`), each insured's `LH_SST_XTR_CRG` extras by `PRS_CD`, and the
+stored rate (`JointSurvivorMixin`). The **schema Coverage grid** adds, per scale,
+`JointCOI`, the joint insured's `JS_Q 01` and each life's rated q beside the
+primary's `JS_Q`, plus a **CyberLife** band (`RNL_RT`, `Check`) on the
+valuation-date policy year, which PolView highlights (green match, amber prior
+year, pink differs) and reports in the status bar. The legacy dbo Coverages view
+shows the same joint matrix. MTP/CTP/PTP (N91) and MTP/CTP/STP/SCR (B11/N71) are
+listed as "calculated by VP/MS; not available". `FilterTableView.show_cell_highlights()`
+makes the highlight visible under the ledger stylesheet (the same delegate paints
+the clicked-row tint and group tints; the clicked row wins, then the highlight).
+
+Verified 9/28/2026 (CKPR, 231 in-force phases): 217 exact (199 unrated, 18 of 19
+rated), 14 within 0.08%. Tests: `tests/test_joint_survivor_coi.py` (offline,
+reference-implementation values) and `tests/test_joint_survivor_live.py`
+(`-m live_db2`). Read-only check: `tools/rates/verify_polview_joint_survivor.py
+'{"all": true}'` or `{"policy": "000335148", "coverage": 1, "screenshot": "<png>"}`.
+
 ## PolView / RERUN Decrease Charge Rule
 
 `PolicyInformation.support.decrease_charge_rule` reads live-verified

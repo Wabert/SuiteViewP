@@ -45,11 +45,13 @@ class _SolidColumnDelegate(QStyledItemDelegate):
 
 
 class _RowAndGroupDelegate(QStyledItemDelegate):
-    """Opt-in current-row tint and column-group divider rules for one pane.
+    """Opt-in current-row tint, cell highlights and column-group rules for one pane.
 
     A delegate for the same reason as ``_SolidColumnDelegate``: the ledger QSS
-    ignores the model's ``BackgroundRole``. The tint is painted under the normal
+    ignores the model's ``BackgroundRole``. Tints are painted under the normal
     item so a selected cell still shows the selection color on top of it.
+    Precedence: clicked-row tint, then ``set_highlighted_cells`` highlights,
+    then group backgrounds.
     """
 
     def __init__(self, owner: "FilterTableView", view: QTableView):
@@ -59,8 +61,11 @@ class _RowAndGroupDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         owner = self._owner
+        highlight = owner.model.cell_highlight(index) if owner.model is not None else None
         if owner._row_highlight is not None and index.row() == owner._highlighted_row():
             painter.fillRect(option.rect, owner._row_highlight)
+        elif highlight is not None:
+            painter.fillRect(option.rect, highlight)
         elif owner._group_backgrounds and owner.model is not None:
             group = owner._column_group_of.get(owner.model.column_name(index.column()))
             tint = owner._group_backgrounds.get(group)
@@ -412,11 +417,23 @@ class PandasTableModel(QAbstractTableModel):
             self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
 
     def set_highlighted_cells(self, highlighted_cells: Dict[tuple[int, str], QColor]):
+        """Tint cells keyed by (original frame row position, column name)."""
         self._highlighted_cells = dict(highlighted_cells)
         if self.rowCount() > 0 and self.columnCount() > 0:
             top_left = self.index(0, 0)
             bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
             self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
+
+    def cell_highlight(self, index: QModelIndex) -> Optional[QColor]:
+        """The ``set_highlighted_cells`` color of a displayed cell, if any.
+
+        Keyed by original frame row position, so highlights follow their data
+        through sorting, filtering and search.
+        """
+        if not self._highlighted_cells or not index.isValid():
+            return None
+        source_row = self._original_df.index.get_loc(self._display_indices[index.row()])
+        return self._highlighted_cells.get((source_row, self.column_name(index.column())))
 
     def set_column_backgrounds(self, colors: Dict[str, QColor]):
         """Paint every cell of the named columns with a background color.
@@ -510,7 +527,7 @@ class PandasTableModel(QAbstractTableModel):
             column_name = self.column_name(index.column())
             if self.is_not_computed_column(column_name):
                 return self.NOT_COMPUTED_BG
-            highlight = self._highlighted_cells.get((index.row(), column_name))
+            highlight = self.cell_highlight(index)
             if highlight is not None:
                 return highlight
             return self._column_backgrounds.get(column_name)
@@ -1867,6 +1884,15 @@ class FilterTableView(QWidget):
     def set_highlighted_cells(self, highlighted_cells: Dict[tuple[int, str], QColor]):
         if self.model is not None:
             self.model.set_highlighted_cells(highlighted_cells)
+
+    def show_cell_highlights(self):
+        """Make ``set_highlighted_cells`` visible under ``apply_ledger_style`` (opt-in).
+
+        Installs the shared row/group delegate on both panes; the ledger QSS
+        otherwise hides the model's ``BackgroundRole``. Column dividers set
+        later still win.
+        """
+        self._ensure_row_group_delegates()
 
     def set_column_backgrounds(self, colors: Dict[str, QColor]):
         """Tint whole columns (e.g. a separator column). Call after

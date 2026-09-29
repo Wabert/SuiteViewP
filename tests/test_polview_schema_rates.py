@@ -154,6 +154,7 @@ def _policy(sex="1", rate_class="N", amount=D("75000"), benefits=(), plancode="1
             data_item=lambda table, column, index: "MN",
             fetch_table=lambda name: [{"COV_PHA_NBR": 1, "JT_INS_IND": "0", "PRM_RT_TYP_CD": "C", "RT_BAN_CD": "B"}],
             get_benefit_renewal_rates=lambda phase: [],
+            cov_is_joint_survivor=lambda index: False,
         ),
         benefits=SimpleNamespace(get_benefits=lambda: list(benefits)),
         support=SimpleNamespace(reins_partner=""),

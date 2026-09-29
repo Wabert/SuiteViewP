@@ -95,6 +95,8 @@ def build_rate_selection(policy, category: str, index: int) -> RateSelection:
         title = f"Rates for Coverage {index}"
         if matrix and "CV" in matrix[0]:
             title = f"Whole Life Cash Value Rates - Coverage {index}"
+        elif matrix and "JointCOI" in matrix[0]:
+            title = f"Joint Survivor Rates - Coverage {index}"
         return RateSelection(title, matrix)
     if category == "Cash Values":
         title = f"Cash Value Rates - Coverage {index}"
