@@ -215,6 +215,11 @@ class MonthlyState:
     coi_charge: float = 0.0
     total_coi_charge: float = 0.0
 
+    # Joint survivor phases: the JSURVCOI year behind each coverage's COI rate
+    # (both lives' JS_Q, rated q, survival steps, joint COI), keyed like
+    # coi_rates_by_coverage. Empty for single-life policies.
+    joint_coi_detail: Dict[str, Dict[str, float]] = field(default_factory=dict)
+
     # Ratchet banding (RERUN CalcEngine PP-QX) — populated only when the plancode
     # is ratchet-banded. NAR up to band_break is charged at the band-1 rate, the
     # excess at the band-2 rate. Keys mirror coi_charges_by_coverage plus "corr".

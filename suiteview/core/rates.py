@@ -765,6 +765,18 @@ class Rates:
             company.strip(), plancode.strip(), "JS_Q", scale, int(issue_age))
         return dict(cells.get((sex, rate_class), {}))
 
+    def joint_survivor_rate_classes(self, company: str, plancode: str) -> List[str]:
+        """Rate classes a joint plan loads JS_Q cells for (either sex), sorted."""
+        company, plancode = company.strip(), plancode.strip()
+        assign_key = ("RATES_ASSIGN", company, plancode)
+        if assign_key not in self._cache:
+            self._cache[assign_key] = self._schema().cell_assignments(company, plancode)
+        return sorted({
+            a.rate_class for a in self._cache[assign_key]
+            if a.rate_type == "JS_Q" and not a.benefit and a.state == "**"
+            and a.band == "0" and not a.subseries
+        })
+
     def _rates_schema_cells(
         self, company: str, plancode: str, rate_type: str, scale: str, issue_age: int,
         benefit: str = "",

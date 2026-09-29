@@ -153,6 +153,7 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Accumulation",
         "Ending Values",
         "Shadow Account",
+        "Joint COI",
         "Testing",
         "TEFRA/TAMRA Recalc",
     ]
@@ -610,7 +611,7 @@ def test_tefra_tamra_recalc_detail_page_renders_summary_and_pv_tabs():
     recalc_tabs = detail_view.tabs
     assert [recalc_tabs.tabText(index) for index in range(recalc_tabs.count())] == [
         "Summary", "GLP Before", "GLP After", "GSP Before", "GSP After",
-        "TAMRA Calc", "MEC Back-Test", "New 7-Pay Period",
+        "TAMRA Calc", "MEC Back-Test", "New 7-Pay Period", "Joint COI",
     ]
     assert detail_view.pv_views[("glp", "before")]._detail["premium_label"] == "GLP"
     assert detail_view.pv_views[("gsp", "after")]._detail["premium_label"] == "GSP"

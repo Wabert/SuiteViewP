@@ -127,6 +127,7 @@
     "coi_charge_corr",
     "coi_charge",
     "total_coi_charge",
+    "joint_coi_detail",
     "ratchet_active",
     "band_break",
     "coi_band1_nar_by_coverage",
@@ -418,6 +419,7 @@
       "interest_credited": 294.6365803979023,
       "is_anniversary": false,
       "is_mec": false,
+      "joint_coi_detail": {},
       "lapsed": false,
       "levelized_max_premium": 0.0,
       "loan_cap_repay": {
@@ -757,6 +759,7 @@
       "interest_credited": 295.28918030163425,
       "is_anniversary": false,
       "is_mec": false,
+      "joint_coi_detail": {},
       "lapsed": false,
       "levelized_max_premium": 0.0,
       "loan_cap_repay": {
@@ -1122,6 +1125,7 @@
       "interest_credited": 295.9432618764556,
       "is_anniversary": false,
       "is_mec": false,
+      "joint_coi_detail": {},
       "lapsed": false,
       "levelized_max_premium": 0.0,
       "loan_cap_repay": {

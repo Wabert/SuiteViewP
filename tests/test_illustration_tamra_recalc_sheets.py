@@ -322,7 +322,9 @@ def _base_detail(**extra):
 def test_view_carries_the_three_tamra_sheets():
     view = _view()
     labels = [view.tabs.tabText(i) for i in range(view.tabs.count())]
-    assert labels[-3:] == ["TAMRA Calc", "MEC Back-Test", "New 7-Pay Period"]
+    # The trailing Joint COI sheet shows only for joint survivor policies.
+    assert labels[-4:] == ["TAMRA Calc", "MEC Back-Test", "New 7-Pay Period", "Joint COI"]
+    assert not view.tabs.isTabVisible(labels.index("Joint COI"))
 
 
 def test_no_recalc_sheet_states_no_recalc_needed():

@@ -640,12 +640,43 @@ approximate the joint COI and type in 7702 values.
   2-20%; in-force runs start from the record values.
 - **UI/report**: the Policy tab adds the joint insured, per-insured extras and
   COI basis; the report adds the joint insured.
+- **Rate class / table changes** (Robert Haessly, 9/29/2026): on a joint policy
+  the Rate Class Change and Table Rating Change dropdowns name the insured
+  ("Primary: S", "Joint: B (150%)") and offer the plan's own JS_Q classes
+  (`Rates.joint_survivor_rate_classes`) and `JS_TABLE_PCT` codes; the change
+  carries `metadata["person"]` ("00"/"01") and a joint change without it raises.
+  The engine re-rates that insured in every joint phase (`JointLives` class, or
+  its percent/table ratings replaced by `joint_survivor_coi.ratings_with_table`
+  with flats kept) and reloads the phase's JointCOI. The blended COI is annual
+  by coverage year, so a table applies from the coverage year starting on or
+  after the change date. Before this, a joint rate class change had no effect
+  and a table change added a single-life table on top of the blended COI.
+- **Values > Joint COI** (joint policies only; the group sits after Shadow
+  Account): per joint phase and month, the JSURVCOI year behind the COI on the
+  run's scale (current, or guaranteed on the Guaranteed view): both lives'
+  JS_Q, rated q, tpx/tpy/tpxy/tqxy, monthly p and the joint COI, beside the
+  charged `COI Rate` (`MonthlyState.joint_coi_detail`, from
+  `IllustrationRates.segment_joint`).
+- **TEFRA/TAMRA Recalc > Joint COI sheet** (joint policies only): when the
+  change re-rates a phase (rate class, table, or a face increase's new phase) it
+  lists what changed and, from the coverage year of the change to the horizon,
+  each life's guaranteed rated q (the 7702 basis) and the guaranteed and current
+  joint COI before and after (`guideline_recalc["joint_coi"]`,
+  `calc_engine.joint_coi_recalc_detail`). Other changes grey the sheet with a
+  note: they keep both insureds' classes, ratings and ages, and the plans are
+  unbanded, so a band change never moves the joint COI.
+- **Known limitation**: a face increase on B11/N71 (percent-of-ST surrender
+  charges) raises because the new phase's ST target is VP/MS-calculated.
 
 Verified 9/28/2026 (87 in-force joint policies): month-0 COI/MD match CyberLife
 to the cent for 77, the rest within $0.22 (stored rates differing slightly from
 VP/MS). Current and guaranteed projections run to maturity for all. B11 surrender
 charges are not DB-verifiable (UL `LH_POL_MVRY_VAL.CSV_AMT` is the AV).
-Tests: `tests/test_illustration_joint_survivor.py` and the RERUN cases in
+Verified 9/29/2026 on 000335148 (B11) and 000231979 (N91, four phases): the Joint
+COI group equals the charged COI rate every month of every scenario; rate class,
+table and face-increase changes produce the recalc sheet.
+Tests: `tests/test_illustration_joint_survivor.py`,
+`tests/test_illustration_joint_coi_changes.py` and the RERUN cases in
 `tests/test_joint_survivor_live.py`. Read-only tools:
 `tools/rates/verify_rerun_joint_survivor.py '{}'`,
 `tools/rates/exercise_rerun_joint_features.py` and

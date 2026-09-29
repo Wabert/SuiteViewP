@@ -2,9 +2,11 @@
 
 Runs one in-force company-26 joint policy through the engine with: a face
 decrease (7702 GLP/GSP/7-pay recalc), a DB option change, a new loan plus a
-withdrawal, a large lump sum (guideline/TAMRA caps and MEC status) and the
-premium solve to a target age. Each scenario reports its key results and any
-failure. Nothing is written to DB2 or UL_Rates.
+withdrawal, a large lump sum (guideline/TAMRA caps and MEC status), a joint
+insured rate class change, a primary table rating, a face increase and the
+premium solve to a target age. Each scenario reports its key results, the
+Joint COI Values-group detail against the charged COI rate and each recalc's
+Joint COI sheet, and any failure. Nothing is written to DB2 or UL_Rates.
 
 Usage (venv\\Scripts\\python.exe):
     tools\\rates\\exercise_rerun_joint_features.py '{"policy": "000335148", "output": "<report.json>"}'
@@ -27,6 +29,7 @@ from suiteview.core.local_dev import local_data_enabled  # noqa: E402
 from suiteview.illustration.core.calc_engine import IllustrationEngine  # noqa: E402
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection  # noqa: E402
 from suiteview.illustration.core.illustration_policy_service import build_illustration_data  # noqa: E402
+from suiteview.illustration.core.input_context import build_policy_context  # noqa: E402
 from suiteview.illustration.core.solve_premium_to_target import solve_premium_to_target  # noqa: E402
 from suiteview.illustration.models.input_set import (  # noqa: E402
     DatedTransaction, IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,
@@ -52,6 +55,30 @@ def _summary(states) -> dict:
     }
 
 
+def _joint_checks(states) -> dict:
+    """Joint COI detail vs the charged rate, and each recalc's Joint COI sheet data."""
+    mismatches = [
+        (str(s.date), key, detail["joint_coi"], s.coi_rates_by_coverage.get(key))
+        for s in states for key, detail in s.joint_coi_detail.items()
+        if abs(detail["joint_coi"] - s.coi_rates_by_coverage.get(key, 0.0)) > 5e-6
+    ]
+    first = next((s for s in states if s.joint_coi_detail), None)
+    return {
+        "months_with_detail": sum(1 for s in states if s.joint_coi_detail),
+        "first_detail": first.joint_coi_detail if first else None,
+        "detail_vs_charged_rate_mismatches": mismatches[:5],
+        "recalc_sheets": [
+            {"date": str(s.date), "recalculated": s.guideline_recalc["joint_coi"]["recalculated"],
+             "changes": s.guideline_recalc["joint_coi"]["changes"],
+             "reason": s.guideline_recalc["joint_coi"]["reason"],
+             "first_rows": s.guideline_recalc["joint_coi"]["rows"][:2],
+             "glp": [s.guideline_recalc.get("glp_prior"), s.guideline_recalc.get("glp_new")],
+             "gsp": [s.guideline_recalc.get("gsp_prior"), s.guideline_recalc.get("gsp_new")]}
+            for s in states if "joint_coi" in (s.guideline_recalc or {})
+        ],
+    }
+
+
 def main() -> None:
     arg = sys.argv[1]
     config = json.loads(Path(arg[1:]).read_text(encoding="utf-8-sig")) if arg.startswith("@") else json.loads(arg)
@@ -65,6 +92,10 @@ def main() -> None:
     anniversary = policy.issue_date + relativedelta(years=policy.policy_year)
     next_month = policy.valuation_date + relativedelta(months=1)
     face = policy.total_face
+    context = build_policy_context(policy)
+    joint_class = policy.base_segment.joint_lives.joint.rate_class
+    other_class = next(c for c in context.joint_rate_classes if c != joint_class)
+    table = next(code for code, _mult in context.joint_table_codes if code != "0")
     scenarios = {
         "base": IllustrationInputSet(),
         "face_decrease": IllustrationInputSet(policy_changes=[PolicyChangeEvent(
@@ -80,6 +111,15 @@ def main() -> None:
         ]),
         "large_lump_sum": IllustrationInputSet(dated_transactions=[DatedTransaction(
             kind=TransactionKind.PREMIUM, effective_date=next_month, amount=round(face, 2))]),
+        "joint_insured_rate_class": IllustrationInputSet(policy_changes=[PolicyChangeEvent(
+            kind=PolicyChangeKind.RATE_CLASS, effective_date=anniversary, value=other_class,
+            metadata={"person": "01"})]),
+        "primary_table_rating": IllustrationInputSet(policy_changes=[PolicyChangeEvent(
+            kind=PolicyChangeKind.SUBSTANDARD, effective_date=anniversary, value=table,
+            metadata={"person": "00"})]),
+        "face_increase": IllustrationInputSet(policy_changes=[PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT, effective_date=anniversary,
+            value=round(face * 1.2, 2))]),
     }
     engine = IllustrationEngine()
     report = {
@@ -94,6 +134,7 @@ def main() -> None:
             guaranteed = run_guaranteed_projection(
                 policy, current, base_future_inputs=inputs, engine=engine)
             report["scenarios"][name] = {"current": _summary(current),
+                                         "joint": _joint_checks(current),
                                          "guaranteed": _summary(guaranteed) if guaranteed else None}
         except Exception as exc:  # reported, never hidden
             report["scenarios"][name] = {"error": f"{type(exc).__name__}: {exc}"}

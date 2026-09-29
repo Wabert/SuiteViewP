@@ -95,6 +95,9 @@ _RATE_CLASSES = [
     ("R", "Pref+ NS"), ("P", "Pref NS"), ("T", "Std+ NS"),
     ("N", "NS"), ("Q", "Pref S"), ("S", "Smoker"),
 ]
+_RATE_CLASS_OPTIONS = [(c, f"{c} — {label}") for c, label in _RATE_CLASSES]
+_TABLE_OPTIONS = [("0", "0 — Standard")] + [
+    (str(n), f"{n} — Table {chr(64 + n)}") for n in range(1, 17)]
 
 # Shared editor/caption widths so the InputRow fields line up with the section
 # caption row. Year/Age only ever hold a 2–3 digit number, so they stay narrow;
@@ -293,8 +296,7 @@ class InputRow(QWidget):
         self.amount_edit: Optional[_Field] = None
         if spec.value_options is not None:
             self.value_combo = QComboBox(self)
-            for code, label in spec.value_options:
-                self.value_combo.addItem(label, code)
+            self.set_value_options(section.value_options)
             self.value_combo.setStyleSheet(_COMBO_STYLE)
             self.value_combo.setMinimumWidth(80)
             self.value_combo.setMaximumWidth(spec.value_width)
@@ -741,6 +743,17 @@ class InputRow(QWidget):
             return None
         return self.value_combo.currentData()
 
+    def set_value_options(self, options) -> None:
+        """Replace the value dropdown's (code, label) choices, keeping the
+        chosen code when it is still offered."""
+        chosen = self.value_combo.currentData()
+        with muted_signals(self.value_combo):
+            self.value_combo.clear()
+            for code, label in options:
+                self.value_combo.addItem(label, code)
+            index = self.value_combo.findData(chosen)
+            self.value_combo.setCurrentIndex(max(index, 0))
+
     def mode(self) -> str:
         return self.mode_combo.currentText() if self.mode_combo is not None else "A"
 
@@ -876,6 +889,9 @@ class DynamicSection(QGroupBox):
     def __init__(self, spec: SectionSpec, parent=None):
         super().__init__(spec.title, parent)
         self.spec = spec
+        # The value dropdown's (code, label) choices; a loaded policy may
+        # replace them (joint survivor rate class / table changes).
+        self.value_options = list(spec.value_options or [])
         self.setStyleSheet(INPUT_SECTION_GROUP_STYLE)
         self._ctx: Optional[PolicyContext] = None
         self._rows: list[InputRow] = []
@@ -992,6 +1008,13 @@ class DynamicSection(QGroupBox):
 
     def rows(self) -> list[InputRow]:
         return self._rows
+
+    def set_value_options(self, options) -> None:
+        """Offer new value choices on every row (and rows added later)."""
+        self.value_options = list(options)
+        for row in self._rows:
+            if row.value_combo is not None:
+                row.set_value_options(self.value_options)
 
     def set_context(self, ctx: PolicyContext):
         self._ctx = ctx
@@ -1908,12 +1931,10 @@ class DynamicInputsPanel(QWidget):
             value_options=[("A", "A — Level"), ("B", "B — Increasing")]))
         self.rateclass_section = DynamicSection(SectionSpec(
             "Rate Class Change", has_span=False, value_caption="New Rate Class",
-            value_width=120, value_options=[(c, f"{c} — {label}") for c, label in _RATE_CLASSES]))
+            value_width=120, value_options=_RATE_CLASS_OPTIONS))
         self.table_section = DynamicSection(SectionSpec(
             "Table Rating Change", has_span=False, value_caption="New Table",
-            value_width=110,
-            value_options=[("0", "0 — Standard")] + [
-                (str(n), f"{n} — Table {chr(64 + n)}") for n in range(1, 17)]))
+            value_width=110, value_options=_TABLE_OPTIONS))
         changes_row = QHBoxLayout()
         changes_row.setSpacing(10)
         changes_row.addWidget(self.face_section, 1)
@@ -1938,6 +1959,7 @@ class DynamicInputsPanel(QWidget):
         self._ctx = build_policy_context(policy)
         self._ctx.has_shadow = has_shadow
         self._ctx.shadow_ceased = shadow_ceased
+        self._apply_change_value_options()
         # A freshly retrieved policy starts with an empty lump sum.
         self.lumpsum_edit.clear()
         self.forecast_loan_edit.clear()
@@ -2003,6 +2025,43 @@ class DynamicInputsPanel(QWidget):
 
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
+
+    def _apply_change_value_options(self):
+        """Joint survivor policies name the insured a rate class / table change
+        re-rates (codes "00:<value>" primary, "01:<value>" joint) and offer the
+        plan's own JS_Q classes and JS_TABLE_PCT codes."""
+        ctx = self._ctx
+        if not ctx.is_joint:
+            self.rateclass_section.set_value_options(_RATE_CLASS_OPTIONS)
+            self.table_section.set_value_options(_TABLE_OPTIONS)
+            self.rateclass_section.setToolTip("")
+            self.table_section.setToolTip("")
+            return
+        classes, tables = [], []
+        for person, role, _life in ctx.joint_insureds:
+            classes += [(f"{person}:{c}", f"{role}: {c}") for c in ctx.joint_rate_classes]
+            tables += [
+                (f"{person}:{code}",
+                 f"{role}: " + ("Standard" if code == "0" else f"{code} ({mult * 100:g}%)"))
+                for code, mult in ctx.joint_table_codes
+            ]
+        self.rateclass_section.set_value_options(classes)
+        self.table_section.set_value_options(tables)
+        insureds = "   ".join(
+            f"{role}: {life.sex} / {life.rate_class} / age {life.issue_age}"
+            for _person, role, life in ctx.joint_insureds)
+        note = ("Joint survivor: pick the insured the change applies to. The blended "
+                "joint COI is recalculated from the coverage year starting on the "
+                f"change date.\n{insureds}")
+        self.rateclass_section.setToolTip(note)
+        self.table_section.setToolTip(note)
+
+    def _change_value(self, code, *, table: bool) -> tuple:
+        """(PolicyChangeEvent value, metadata) for a rate class / table row."""
+        if self._ctx.is_joint:
+            person, _sep, value = str(code).partition(":")
+            return value, {"person": person}
+        return (int(code) if table else code), {}
 
     def set_abr_quote_mode(self, enabled: bool):
         """ABR Quote (Options menu): lock every input here except the
@@ -2770,15 +2829,17 @@ class DynamicInputsPanel(QWidget):
         for entry in self.rateclass_section.entries():
             when = ctx.effective_date(entry["year"])
             if when is not None and entry["value"]:
+                value, metadata = self._change_value(entry["value"], table=False)
                 input_set.policy_changes.append(PolicyChangeEvent(
                     kind=PolicyChangeKind.RATE_CLASS, effective_date=when,
-                    value=entry["value"]))
+                    value=value, metadata=metadata))
         for entry in self.table_section.entries():
             when = ctx.effective_date(entry["year"])
             if when is not None and entry["value"] is not None:
+                value, metadata = self._change_value(entry["value"], table=True)
                 input_set.policy_changes.append(PolicyChangeEvent(
                     kind=PolicyChangeKind.SUBSTANDARD, effective_date=when,
-                    value=int(entry["value"])))
+                    value=value, metadata=metadata))
         input_set.policy_changes.extend(self.riders_panel.collect_changes(ctx))
 
     def _collect_face_dbo_changes(self, input_set: IllustrationInputSet):

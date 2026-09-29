@@ -627,6 +627,34 @@ class GuidelineRecalcDetailView(QWidget):
         new_period_layout.addStretch(2)
         self.tabs.addTab(new_period_page, "New 7-Pay Period")
 
+        # ── Joint COI: the blended joint COI before/after a re-rating change
+        # (joint survivor policies only; greyed note when the change keeps it) ──
+        self.joint_page = QWidget(self.tabs)
+        joint_layout = QVBoxLayout(self.joint_page)
+        joint_layout.setContentsMargins(4, 4, 4, 4)
+        joint_layout.setSpacing(4)
+        self.joint_note = QLabel("", self.joint_page)
+        self.joint_note.setWordWrap(True)
+        self.joint_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.joint_note.setStyleSheet(_NA_NOTE_STYLE)
+        joint_layout.addWidget(self.joint_note)
+        self.joint_info = QLabel("", self.joint_page)
+        self.joint_info.setWordWrap(True)
+        self.joint_info.setStyleSheet(
+            "background-color: #2A1458; color: #FFD54F; border: 1px solid #5E35A5;"
+            " border-radius: 4px; font-size: 11px; font-weight: bold; padding: 4px 8px;"
+        )
+        joint_layout.addWidget(self.joint_info)
+        self.joint_grid = FilterTableView(self.joint_page)
+        self.joint_grid.set_search_visible(False)
+        self.joint_grid.apply_ledger_style()
+        self.joint_grid.set_sort_enabled(False)
+        self.joint_grid.set_filtering_enabled(False)
+        self.joint_grid.set_full_row_selection(True)
+        joint_layout.addWidget(self.joint_grid, 1)
+        self.tabs.addTab(self.joint_page, "Joint COI")
+        self.tabs.setTabVisible(self.tabs.indexOf(self.joint_page), False)
+
         layout.addWidget(self.tabs, 1)
 
     def show_recalc(self, detail: dict):
@@ -716,7 +744,38 @@ class GuidelineRecalcDetailView(QWidget):
         for (basis, side), view in self.pv_views.items():
             view.show_detail(((pv.get(side) or {}).get(basis)) or None)
         self._show_tamra_sheets(detail)
+        self._show_joint_coi_sheet(detail.get("joint_coi"))
         self.tabs.setCurrentIndex(0)
+
+    JOINT_COI_DECIMALS = {
+        "Year": 0, "Primary Age": 0,
+        "Primary q Before": 9, "Primary q After": 9, "Joint q Before": 9, "Joint q After": 9,
+        "Guar COI Before": 5, "Guar COI After": 5, "Curr COI Before": 5, "Curr COI After": 5,
+    }
+
+    def _show_joint_coi_sheet(self, joint: dict | None):
+        """Joint survivor policies: the re-rated blended COI, or why none was needed."""
+        self.tabs.setTabVisible(self.tabs.indexOf(self.joint_page), joint is not None)
+        if joint is None:
+            return
+        recalculated = bool(joint.get("recalculated"))
+        self.joint_note.setVisible(not recalculated)
+        self.joint_info.setVisible(recalculated)
+        self.joint_grid.setEnabled(recalculated)
+        if not recalculated:
+            self.joint_note.setText(joint.get("reason") or "No joint COI recalculation.")
+            self.joint_grid.set_dataframe(pd.DataFrame(), limit_rows=False)
+            return
+        self.joint_info.setText(
+            "   ·   ".join(joint.get("changes") or [])
+            + "\nq = each life's guaranteed rated JS_Q (the 7702 mortality basis);"
+              " COI = blended monthly joint COI per $1,000.")
+        self.joint_grid.set_dataframe(pd.DataFrame(joint.get("rows") or []), limit_rows=False)
+        self.joint_grid.set_numeric_formatting(
+            default_decimals=5, column_decimals=self.JOINT_COI_DECIMALS)
+        if self.joint_grid.model is not None:
+            self.joint_grid.model._left_align_columns = {0}
+        self.joint_grid.autofit_columns_to_data()
 
     def _show_tamra_sheets(self, detail: dict):
         """Populate the TAMRA Calc / MEC Back-Test / New 7-Pay Period sheets.
@@ -988,6 +1047,8 @@ class IllustrationValuesTab(QWidget):
         **{column: column for column in SHADOW_SUMMARY_COLUMNS},
     }
     TESTING_GROUP = "Testing"
+    # Joint survivor plans only: the blended JointCOI by month (omitted otherwise).
+    JOINT_COI_GROUP = "Joint COI"
     TESTING_COLUMNS = [
         "7-Pay Yr 1",
         "7-Pay Yr 2",
@@ -1280,6 +1341,7 @@ class IllustrationValuesTab(QWidget):
         ACCUMULATION_GROUP,
         ENDING_VALUES_GROUP,
         SHADOW_ACCOUNT_GROUP,
+        JOINT_COI_GROUP,
         TESTING_GROUP,
     ]
 
@@ -1299,6 +1361,8 @@ class IllustrationValuesTab(QWidget):
         self._ctp_columns = self._ctp_column_names([1], [], False)
         self._policy_values_columns = self._policy_values_column_names([1])
         self._cov_after_change_columns = self._cov_after_change_column_names([1], False)
+        self._joint_coi_keys: list[str] = []
+        self._joint_coi_columns: list[str] = []
         self._tab_grids: dict[str, FilterTableView] = {}
         self._content_widgets_by_title: dict[str, QWidget] = {}
         self._content_titles: list[str] = []
@@ -1496,6 +1560,8 @@ class IllustrationValuesTab(QWidget):
             jump.setData(0, Qt.ItemDataRole.UserRole, (title, None))
             self.nav_tree.addTopLevelItem(jump)
         for title, columns in tab_columns_by_title.items():
+            if title == self.JOINT_COI_GROUP and not self._joint_coi_columns:
+                continue
             labels = self._header_labels_for_tab(title)
             stage = QTreeWidgetItem([title])
             stage.setData(0, Qt.ItemDataRole.UserRole, (title, None))
@@ -1588,6 +1654,7 @@ class IllustrationValuesTab(QWidget):
             self.ACCUMULATION_GROUP: self.ACCUMULATION_COLUMNS,
             self.ENDING_VALUES_GROUP: self.ENDING_VALUES_COLUMNS,
             self.SHADOW_ACCOUNT_GROUP: self.SHADOW_ACCOUNT_COLUMNS,
+            self.JOINT_COI_GROUP: self._joint_coi_columns,
             self.TESTING_GROUP: self.TESTING_COLUMNS,
         }.get(title, [])
 
@@ -1802,11 +1869,15 @@ class IllustrationValuesTab(QWidget):
         self._mtp_columns = self._mtp_column_names(target_slots, rider_keys, show_apb, show_ffl)
         self._ctp_columns = self._ctp_column_names(target_slots, rider_keys, show_apb)
         self._cov_after_change_columns = self._cov_after_change_column_names(cov_slots, show_apb)
+        # Joint survivor plans: the JSURVCOI year behind each joint phase's COI.
+        self._joint_coi_keys = self._detail_keys(result_list, "joint_coi_detail")
+        self._joint_coi_columns = self._joint_coi_column_names(self._joint_coi_keys)
         rows = [self._state_to_row(policy, state, coverage_keys, benefit_keys, rider_keys) for state in result_list]
         frame = pd.DataFrame(rows)
         self._all_columns = list(frame.columns)
         column_decimals = {"Face Amount": 0, "Year": 0, "Month": 0, "Attained Age": 0, "EPU Rate": 6,
                            "TPP Rate": 4, "EPP Rate": 4, "Interest Rate": 4}
+        column_decimals.update(self._joint_coi_decimals(self._joint_coi_keys))
         column_decimals.update({column: 6 for column in self._rate_columns})
         column_decimals.update({column: 6 for column in self._benefit_columns if " Rate " in column})
         column_decimals.update({column: 6 for column in self._rider_columns if " Rate " in column})
@@ -1995,7 +2066,51 @@ class IllustrationValuesTab(QWidget):
         row.update(self._surrender_values(state, coverage_keys))
         row.update(self._summary_values(policy, state))
         row.update(self._testing_values(state))
+        row.update(self._joint_coi_values(state, self._joint_coi_keys))
         return row
+
+    # Joint COI group: (detail key, column prefix, decimals) per joint phase.
+    JOINT_COI_FIELDS = (
+        ("year", "JS Year", 0),
+        ("js_q_primary", "Primary JS_Q", 5),
+        ("js_q_joint", "Joint JS_Q", 5),
+        ("q_primary", "Primary q", 9),
+        ("q_joint", "Joint q", 9),
+        ("tpx", "tpx", 9),
+        ("tpy", "tpy", 9),
+        ("tpxy", "tpxy", 9),
+        ("tqxy", "tqxy", 9),
+        ("monthly_p", "Monthly p", 9),
+        ("joint_coi", "Joint COI", 5),
+    )
+
+    @classmethod
+    def _joint_coi_column_names(cls, keys: list[str]) -> list[str]:
+        columns: list[str] = []
+        for key in keys:
+            label = cls._coverage_label(key)
+            columns.extend(f"{prefix} {label}" for _field, prefix, _dec in cls.JOINT_COI_FIELDS)
+            # The charged rate, to check it against the joint COI.
+            columns.append(f"COI Rate {label}")
+        return columns
+
+    @classmethod
+    def _joint_coi_decimals(cls, keys: list[str]) -> dict[str, int]:
+        return {
+            f"{prefix} {cls._coverage_label(key)}": decimals
+            for key in keys for _field, prefix, decimals in cls.JOINT_COI_FIELDS
+        }
+
+    @classmethod
+    def _joint_coi_values(cls, state: MonthlyState, keys: list[str]) -> dict:
+        """Blank (NaN) past a phase's joint horizon and on rows without a deduction."""
+        values: dict[str, float] = {}
+        for key in keys:
+            label = cls._coverage_label(key)
+            detail = state.joint_coi_detail.get(key, {})
+            for field_name, prefix, _decimals in cls.JOINT_COI_FIELDS:
+                values[f"{prefix} {label}"] = detail.get(field_name, float("nan"))
+        return values
 
     @classmethod
     def _summary_values(cls, policy: IllustrationPolicyData, state: MonthlyState) -> dict:

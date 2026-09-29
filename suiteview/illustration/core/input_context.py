@@ -14,6 +14,8 @@ from typing import Optional
 
 from dateutil.relativedelta import relativedelta
 
+from suiteview.core.joint_survivor_coi import JointRules
+from suiteview.core.rates import Rates
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.plancode_config import load_plancode
@@ -73,6 +75,16 @@ class PolicyContext:
     index_illustration_rates: Optional[dict] = None
     index_strategy_parameters: Optional[dict] = None
     forecast_date: Optional[date] = None
+    # Joint survivor policies: rate class / table changes name the insured.
+    # ((person, "Primary"/"Joint", Insured) ...), the plan's JS_Q rate classes
+    # and its JS_TABLE_PCT (code, multiplier) pairs ("0" = standard).
+    joint_insureds: tuple = ()
+    joint_rate_classes: tuple = ()
+    joint_table_codes: tuple = ()
+
+    @property
+    def is_joint(self) -> bool:
+        return bool(self.joint_insureds)
 
     @property
     def is_spl87(self) -> bool:
@@ -187,7 +199,28 @@ def build_policy_context(policy) -> PolicyContext:
         valuation_date=timing.valuation_date,
         index_illustration_rates=getattr(policy, "index_illustration_rates", None),
         index_strategy_parameters=getattr(policy, "index_strategy_parameters", None),
+        **_joint_change_options(policy, plancode),
     )
+
+
+def _joint_change_options(policy, plancode: str) -> dict:
+    """Both insureds and the plan's JS_Q classes / table codes for a joint policy."""
+    base = getattr(policy, "base_segment", None)
+    lives = getattr(base, "joint_lives", None)
+    if lives is None:
+        return {}
+    rates_db = Rates()
+    company = rates_db.joint_survivor_company(plancode)
+    if company is None:
+        raise ValueError(
+            f"Plan {plancode} carries joint lives but is not a joint survivor plan in "
+            "UL_Rates rates.PLAN_ATTR (LIVES=3).")
+    rules = JointRules.from_plan_attributes(rates_db.get_plan_attributes(company, plancode))
+    return {
+        "joint_insureds": (("00", "Primary", lives.primary), ("01", "Joint", lives.joint)),
+        "joint_rate_classes": tuple(rates_db.joint_survivor_rate_classes(company, plancode)),
+        "joint_table_codes": tuple(rules.table_pct.items()),
+    }
 
 
 def _policy_timing(policy) -> _PolicyTiming:

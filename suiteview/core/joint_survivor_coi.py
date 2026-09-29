@@ -18,7 +18,7 @@ Every intermediate is rounded exactly like the model; see :func:`vround`.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -148,6 +148,44 @@ def rated_q(base: float, primary_base: float, person: str, year: int,
     flat = sum(rules.flat_factor * r.flat_per_1000 for r in active if r.type_code in ("2", "4"))
     # Model quirk: flats on either life are tested against the PRIMARY's base rate.
     return min(1.0, base * (1 + pct) + (flat if primary_base > 0 else 0.0))
+
+
+# Extra types that multiply a life's base rate (percent or table); flats (2/4) add.
+MULTIPLE_RATING_TYPES = ("0", "1", "3")
+
+
+def active_table_code(ratings: Sequence[Rating], person: str, year: int) -> str:
+    """The table rating ``person`` in policy ``year``: "0" when standard, the
+    JS_TABLE_PCT code of a single active table, "" for a percent rating or
+    several multiple ratings at once."""
+    active = [r for r in ratings
+              if r.person == person and r.type_code in MULTIPLE_RATING_TYPES and r.active(year)]
+    if not active:
+        return "0"
+    if len(active) == 1 and active[0].type_code in ("1", "3"):
+        return active[0].table_code
+    return ""
+
+
+def ratings_with_table(ratings: Sequence[Rating], person: str, table_code: str,
+                       from_year: int) -> List[Rating]:
+    """``person``'s percent/table ratings replaced by ``table_code`` after policy year ``from_year``.
+
+    Ratings in force cease at ``from_year``; ones starting later are dropped;
+    flat extras and the other life's ratings are kept. ``table_code`` "0" is
+    standard (no new rating).
+    """
+    out: List[Rating] = []
+    for rating in ratings:
+        if rating.person == person and rating.type_code in MULTIPLE_RATING_TYPES:
+            if rating.effective_year >= from_year:
+                continue
+            if rating.cease_year > from_year:
+                rating = replace(rating, cease_year=from_year)
+        out.append(rating)
+    if table_code != "0":
+        out.append(Rating(person, "1", table_code, effective_year=from_year, cease_year=999))
+    return out
 
 
 @dataclass(frozen=True)

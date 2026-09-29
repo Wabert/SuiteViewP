@@ -14,10 +14,10 @@ Rate loading is intentionally a copy/read boundary:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from suiteview.core.band_rules import rider_bands_as_base
-from suiteview.core.joint_survivor_coi import load_joint_basis
+from suiteview.core.joint_survivor_coi import JointBasis, load_joint_basis
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.poav_rates import load_poav_schedule
 from suiteview.illustration.models.policy_data import (
@@ -82,10 +82,18 @@ def load_coverage_coi_rates(
 
 def load_segment_coi(
     rates_db: Rates, plancode: str, segment, *, scale: int, band: int,
+    joint_bases: Optional[Dict[int, JointBasis]] = None,
 ) -> List:
     """A base segment's COI schedule: the blended JointCOI for joint survivor
-    phases, otherwise the plan's IAF COI (with the preferred-class fallback)."""
+    phases, otherwise the plan's IAF COI (with the preferred-class fallback).
+
+    ``joint_bases`` (``IllustrationRates.segment_joint``) receives a joint
+    phase's basis, the year-by-year detail behind its schedule; a single-life
+    phase's entry is removed.
+    """
     if segment.joint_lives is None:
+        if joint_bases is not None:
+            joint_bases.pop(segment.coverage_phase, None)
         return load_coverage_coi_rates(
             rates_db, plancode=plancode, issue_age=segment.issue_age,
             sex=segment.rate_sex, rateclass=segment.rate_class, scale=scale, band=band,
@@ -98,6 +106,8 @@ def load_segment_coi(
     lives = segment.joint_lives
     basis = load_joint_basis(
         rates_db, company, plancode, lives.primary, lives.joint, lives.ratings)
+    if joint_bases is not None:
+        joint_bases[segment.coverage_phase] = basis
     # COI scale 1 = current, 0 = guaranteed (same convention as the IAF COI).
     return [None] + list(basis.schedule.current if scale == 1 else basis.schedule.guaranteed)
 
@@ -139,6 +149,9 @@ class IllustrationRates:
     # Duration-based arrays
     coi: List = field(default_factory=list)
     segment_coi: Dict[int, List] = field(default_factory=dict)
+    # Joint survivor phases: the basis behind segment_coi (both lives' JS_Q,
+    # rated q and survival steps by coverage year), keyed by coverage phase.
+    segment_joint: Dict[int, JointBasis] = field(default_factory=dict)
 
     # Ratchet banding (RERUN CalcEngine PP-QX): the COI schedules for BOTH bands
     # per base segment, plus the band-2 break amount. Populated only when the
@@ -319,11 +332,13 @@ def _load_base_segment_rate_maps(
     expense_scale: int,
 ) -> dict[str, Dict[int, List]]:
     segment_coi: Dict[int, List] = {}
+    segment_joint: Dict[int, JointBasis] = {}
     segment_epu: Dict[int, List] = {}
     segment_scr: Dict[int, List] = {}
     for base_seg in policy.segments:
         segment_coi[base_seg.coverage_phase] = load_segment_coi(
             rates_db, policy.plancode, base_seg, scale=coi_scale, band=base_seg.band,
+            joint_bases=segment_joint,
         )
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
@@ -332,7 +347,7 @@ def _load_base_segment_rate_maps(
         segment_scr[base_seg.coverage_phase] = load_segment_scr(
             rates_db, policy.plancode, base_seg, config, state=policy.issue_state,
         )
-    return {"coi": segment_coi, "epu": segment_epu, "scr": segment_scr}
+    return {"coi": segment_coi, "joint": segment_joint, "epu": segment_epu, "scr": segment_scr}
 
 
 def _base_rate_bundle(
@@ -348,6 +363,7 @@ def _base_rate_bundle(
     return IllustrationRates(
         coi=segment_rates["coi"].get(seg.coverage_phase, []),
         segment_coi=segment_rates["coi"],
+        segment_joint=segment_rates["joint"],
         epu=segment_rates["epu"].get(seg.coverage_phase, []),
         segment_epu=segment_rates["epu"],
         scr=segment_rates["scr"].get(seg.coverage_phase, []),

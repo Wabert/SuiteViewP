@@ -48,7 +48,14 @@ from typing import Dict, List, Literal, Optional
 
 from dateutil.relativedelta import relativedelta
 
-from suiteview.core.joint_survivor_coi import policy_year_on
+from suiteview.core.joint_survivor_coi import (
+    active_table_code,
+    anniversary_year,
+    load_joint_basis,
+    policy_year_on,
+    ratings_with_table,
+    ymd,
+)
 from suiteview.illustration.constants import (
     DAYS_PER_YEAR,
     DB_OPTION_INCREASING,
@@ -92,6 +99,7 @@ from suiteview.illustration.core.loan_handler import (
 from suiteview.illustration.core.mec import seven_pay_backtest, seven_pay_limit_exceeded
 from suiteview.illustration.core.monthly_deduction import (
     _at_or_after_policy_maturity,
+    _coi_rate_year,
     _coverage_year,
     _rate_from_schedule,
     _round_near,
@@ -491,7 +499,9 @@ def apply_policy_changes(
     work.dbo_change_detail = {}
     work.face_change_detail = {}
     work.guideline_recalc = dict(work.wd.guideline_recalc)
+    joint_before = _joint_lives_by_phase(policy)
     if not convention.supports_policy_changes:
+        _attach_joint_coi_recalc(ctx, work, joint_before)
         _capture_coverage_after_change(ctx, work)
         return
 
@@ -501,9 +511,120 @@ def apply_policy_changes(
     _recalc_policy_change_guidelines(
         ctx, work, guideline_changes, recalc_change, before, before_pv
     )
+    _attach_joint_coi_recalc(ctx, work, joint_before)
     if work.tamra_reset:
         policy.tamra_7pay_start_date = work.month_date
     _capture_coverage_after_change(ctx, work)
+
+
+def _joint_lives_by_phase(policy) -> Dict[int, JointLives]:
+    """Copies of each joint phase's lives, before this month's changes."""
+    return {
+        seg.coverage_phase: replace(seg.joint_lives, ratings=list(seg.joint_lives.ratings))
+        for seg in policy.segments if seg.joint_lives is not None
+    }
+
+
+def _attach_joint_coi_recalc(ctx: MonthContext, work: MonthWork, joint_before) -> None:
+    """Add the Joint COI sheet data to a joint policy's guideline recalc."""
+    if not (work.guideline_recalc and ctx.policy.is_joint_survivor):
+        return
+    kinds = [_CHANGE_KIND_LABELS.get(change.kind, str(change.kind))
+             for change in ctx.policy_changes or []]
+    if work.wd.face_decrease > MONEY_EPSILON:
+        kinds.insert(0, "Withdrawal Face Decrease")
+    work.guideline_recalc["joint_coi"] = joint_coi_recalc_detail(
+        ctx.policy, joint_before, work.month_date, kinds)
+
+
+def joint_coi_recalc_detail(policy, joint_before, change_date, change_kinds) -> Dict[str, object]:
+    """Before/after blended joint COI of every joint phase a change re-rated.
+
+    A phase is recalculated when an insured's rate class or extra ratings
+    changed, or it is a new face-increase phase. Rows run from the coverage
+    year containing the change to the joint horizon: each life's guaranteed
+    rated q (the 7702 mortality basis) and the guaranteed and current joint COI.
+    """
+    from suiteview.core.rates import Rates
+
+    rates_db = Rates()
+    company = rates_db.joint_survivor_company(policy.plancode)
+    changes: List[str] = []
+    rows: List[Dict[str, object]] = []
+    for index, seg in enumerate(policy.segments, start=1):
+        after = seg.joint_lives
+        before = joint_before.get(seg.coverage_phase)
+        if after is None or before == after:
+            continue
+        label = f"Cov {index}"
+        first_year = policy_year_on(seg.issue_date, change_date)
+        rated_from = _joint_table_from_year(seg, change_date) + 1
+        changes.extend(_joint_life_changes(label, before, after, rated_from))
+        after_basis = load_joint_basis(
+            rates_db, company, policy.plancode, after.primary, after.joint, after.ratings)
+        before_basis = None if before is None else load_joint_basis(
+            rates_db, company, policy.plancode, before.primary, before.joint, before.ratings)
+        rows.extend(_joint_recalc_rows(
+            label, after.primary.issue_age, first_year, before_basis, after_basis))
+    kinds = ", ".join(dict.fromkeys(change_kinds)) or "this change"
+    reason = "" if rows else (
+        f"No joint COI recalculation: {kinds} leaves both insureds' rate classes, extra "
+        "ratings and issue ages as they were, so the blended joint COI is unchanged. "
+        "Joint survivor plans are unbanded, so a band change does not move it either.")
+    return {"recalculated": bool(rows), "changes": changes, "rows": rows, "reason": reason}
+
+
+def _joint_life_changes(label: str, before, after, rated_from: int) -> List[str]:
+    """What changed for each insured; ``rated_from`` is the first coverage year
+    a table change applies to."""
+    if before is None:
+        return [f"{label}: new joint phase (face increase), insureds issued at ages "
+                f"{after.primary.issue_age} / {after.joint.issue_age}"]
+    out = []
+    for person, name in JOINT_PERSONS.items():
+        old, new = _joint_life(before, person), _joint_life(after, person)
+        if old.rate_class != new.rate_class:
+            out.append(f"{label}: {name} rate class {old.rate_class} → {new.rate_class}")
+        old_table = active_table_code(before.ratings, person, rated_from)
+        new_table = active_table_code(after.ratings, person, rated_from)
+        if old_table != new_table:
+            out.append(
+                f"{label}: {name} table {_table_text(old_table)} → {_table_text(new_table)}"
+                f" from coverage year {rated_from}")
+    return out
+
+
+def _table_text(code: str) -> str:
+    return {"0": "Standard", "": "percent rating"}.get(code, code)
+
+
+def _joint_recalc_rows(label: str, primary_issue_age: int, first_year: int,
+                       before_basis, after_basis) -> List[Dict[str, object]]:
+    rows = []
+    for year in range(max(1, first_year), after_basis.horizon + 1):
+        after_g = after_basis.schedule.guaranteed_years[year - 1]
+        before_g = (before_basis.schedule.guaranteed_years[year - 1]
+                    if before_basis is not None and year <= before_basis.horizon else None)
+
+        def prior(series):
+            if before_basis is None or year > before_basis.horizon:
+                return None
+            return series[year - 1]
+
+        rows.append({
+            "Coverage": label,
+            "Year": year,
+            "Primary Age": primary_issue_age + year - 1,
+            "Primary q Before": before_g.qx if before_g is not None else None,
+            "Primary q After": after_g.qx,
+            "Joint q Before": before_g.qy if before_g is not None else None,
+            "Joint q After": after_g.qy,
+            "Guar COI Before": prior(before_basis.schedule.guaranteed) if before_basis else None,
+            "Guar COI After": after_basis.schedule.guaranteed[year - 1],
+            "Curr COI Before": prior(before_basis.schedule.current) if before_basis else None,
+            "Curr COI After": after_basis.schedule.current[year - 1],
+        })
+    return rows
 
 
 def _apply_policy_change_loop(ctx: MonthContext, work: MonthWork) -> tuple:
@@ -1333,7 +1454,46 @@ def _deduction_fields(
         "total_nar": ded.total_nar,
         **_coi_deduction_fields(ded),
         **_expense_deduction_fields(ctx, ded, work),
+        "joint_coi_detail": joint_coi_month_detail(
+            ctx.policy, ctx.rates, work.month_date, work.rate_year),
     }
+
+
+def joint_coi_month_detail(policy, rates, month_date, rate_year: int) -> Dict[str, Dict[str, float]]:
+    """Each joint phase's JSURVCOI year behind this month's COI, keyed like
+    ``coi_rates_by_coverage`` ("cov1" ...). Empty for single-life policies.
+
+    The values are the run's scale (current, or guaranteed on a guaranteed run):
+    both lives' JS_Q, rated q, the survival steps and the capped monthly COI.
+    A coverage year past the joint horizon has no entry.
+    """
+    detail: Dict[str, Dict[str, float]] = {}
+    scale = "C" if rates.coi_scale == 1 else "G"
+    for index, segment in enumerate(policy.segments, start=1):
+        basis = rates.segment_joint.get(segment.coverage_phase)
+        if basis is None:
+            continue
+        year = _coi_rate_year(segment, policy, month_date, rate_year)
+        if not 1 <= year <= basis.horizon:
+            continue
+        joint_year = (basis.schedule.current_years if scale == "C"
+                      else basis.schedule.guaranteed_years)[year - 1]
+        primary_q, joint_q = basis.js_q[scale]
+        detail[f"cov{index}"] = {
+            "year": year,
+            "js_q_primary": primary_q[year - 1],
+            "js_q_joint": joint_q[year - 1],
+            "q_primary": joint_year.qx,
+            "q_joint": joint_year.qy,
+            "tpx": joint_year.tpx,
+            "tpy": joint_year.tpy,
+            "tpxy": joint_year.tpxy,
+            "tqxy": joint_year.tqxy,
+            "monthly_p": joint_year.monthly_p,
+            "joint_coi": (basis.schedule.current if scale == "C"
+                          else basis.schedule.guaranteed)[year - 1],
+        }
+    return detail
 
 
 def _coi_deduction_fields(ded) -> dict:
@@ -2138,6 +2298,7 @@ def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
     segment.band = band
     rates.segment_coi[segment.coverage_phase] = load_segment_coi(
         rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
+        joint_bases=rates.segment_joint,
     )
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
@@ -2162,6 +2323,7 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     rates_db = Rates()
     rates.segment_coi[segment.coverage_phase] = load_segment_coi(
         rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
+        joint_bases=rates.segment_joint,
     )
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
@@ -2706,7 +2868,7 @@ def _capture_policy_change_before(
         and not fully_injected
         and (
             _will_alter_coverage(policy, change, face_before, av)
-            or _will_alter_guideline_charge_basis(policy, change)
+            or _will_alter_guideline_charge_basis(policy, change, change_date)
         )
     )
     if not should_capture:
@@ -2844,6 +3006,9 @@ def _record_face_decrease(detail, cuts, decrease: float, outcome) -> None:
 
 
 def _apply_rate_class_change(policy, config, change, rates, outcome) -> None:
+    if policy.is_joint_survivor:
+        _apply_joint_rate_class_change(policy, config, change, rates, outcome)
+        return
     new_class = str(change.value or "").strip().upper()
     base = policy.base_segment
     if not (new_class and base is not None):
@@ -2859,7 +3024,10 @@ def _apply_rate_class_change(policy, config, change, rates, outcome) -> None:
     outcome.coverage_changed = True
 
 
-def _apply_substandard_change(policy, config, change, change_date, outcome) -> None:
+def _apply_substandard_change(policy, config, change, change_date, rates, outcome) -> None:
+    if policy.is_joint_survivor:
+        _apply_joint_table_change(policy, config, change, change_date, rates, outcome)
+        return
     new_table = int(change.value or 0)
     base = policy.base_segment
     if base is None or new_table == base.table_rating:
@@ -2870,6 +3038,89 @@ def _apply_substandard_change(policy, config, change, change_date, outcome) -> N
         if benefit.benefit_type in ("3", "4"):
             benefit.rating_factor = 1.0 + config.table_rating_factor * new_table
     outcome.coverage_changed = True
+
+
+# ── Joint survivor rate class / table changes ─────────────────────────────
+# A joint phase's COI is the blended JointCOI of both insureds, so a rate class
+# or table change names the insured it applies to (metadata "person": "00"
+# primary, "01" joint) and rebuilds the schedule. The table value is the plan's
+# JS_TABLE_PCT code ("0" = standard). The blended COI is annual by coverage
+# year, so a table change applies from the coverage year starting on or after
+# the change date (the model's f_anniversary of the rating's effective date).
+
+JOINT_PERSONS = {"00": "Primary insured", "01": "Joint insured"}
+
+
+def _joint_change_person(change) -> str:
+    person = str((change.metadata or {}).get("person") or "").strip()
+    if person not in JOINT_PERSONS:
+        raise ValueError(
+            f"{_CHANGE_KIND_LABELS.get(change.kind, change.kind)} on a joint survivor policy "
+            "must name the insured it applies to (person 00 primary or 01 joint).")
+    return person
+
+
+def _joint_life(lives, person: str):
+    return lives.primary if person == "00" else lives.joint
+
+
+def _with_joint_life(lives, person: str, life):
+    return replace(lives, primary=life) if person == "00" else replace(lives, joint=life)
+
+
+def _joint_table_from_year(segment, change_date) -> int:
+    return anniversary_year(ymd(change_date), ymd(segment.issue_date))
+
+
+def _joint_rate_class_segments(policy, change) -> list:
+    """Joint segments whose named insured's class differs from the new class."""
+    person = _joint_change_person(change)
+    new_class = str(change.value or "").strip().upper()
+    if not new_class:
+        return []
+    return [
+        seg for seg in policy.segments
+        if seg.joint_lives is not None
+        and _joint_life(seg.joint_lives, person).rate_class.upper() != new_class
+    ]
+
+
+def _joint_table_segments(policy, change, change_date) -> list:
+    """Joint segments whose named insured's table differs after the change date."""
+    person = _joint_change_person(change)
+    code = str(change.value if change.value is not None else "0").strip().upper() or "0"
+    return [
+        seg for seg in policy.segments
+        if seg.joint_lives is not None
+        and active_table_code(
+            seg.joint_lives.ratings, person,
+            _joint_table_from_year(seg, change_date) + 1) != code
+    ]
+
+
+def _apply_joint_rate_class_change(policy, config, change, rates, outcome) -> None:
+    person = _joint_change_person(change)
+    new_class = str(change.value or "").strip().upper()
+    for seg in _joint_rate_class_segments(policy, change):
+        life = replace(_joint_life(seg.joint_lives, person), rate_class=new_class)
+        seg.joint_lives = _with_joint_life(seg.joint_lives, person, life)
+        if person == "00":
+            seg.rate_class = new_class
+        _load_segment_rates(rates, seg, policy.plancode, config)
+        outcome.coverage_changed = True
+    if outcome.coverage_changed and person == "00":
+        policy.rate_class = new_class
+        _reband_benefits(rates, policy)
+
+
+def _apply_joint_table_change(policy, config, change, change_date, rates, outcome) -> None:
+    person = _joint_change_person(change)
+    code = str(change.value if change.value is not None else "0").strip().upper() or "0"
+    for seg in _joint_table_segments(policy, change, change_date):
+        seg.joint_lives = replace(seg.joint_lives, ratings=ratings_with_table(
+            seg.joint_lives.ratings, person, code, _joint_table_from_year(seg, change_date)))
+        _load_segment_rates(rates, seg, policy.plancode, config)
+        outcome.coverage_changed = True
 
 
 def _apply_rider_drop_change(policy, change, outcome) -> None:
@@ -2958,7 +3209,7 @@ def _apply_policy_change(
     elif change.kind == PolicyChangeKind.RATE_CLASS:
         _apply_rate_class_change(policy, config, change, rates, outcome)
     elif change.kind == PolicyChangeKind.SUBSTANDARD:
-        _apply_substandard_change(policy, config, change, change_date, outcome)
+        _apply_substandard_change(policy, config, change, change_date, rates, outcome)
     elif change.kind == PolicyChangeKind.RIDER_DROP:
         _apply_rider_drop_change(policy, change, outcome)
     else:
@@ -2983,12 +3234,16 @@ def _will_alter_coverage(policy, change, face_before: float, av: float) -> bool:
     return False
 
 
-def _will_alter_guideline_charge_basis(policy, change) -> bool:
+def _will_alter_guideline_charge_basis(policy, change, change_date) -> bool:
     if not policy.is_gpt:
         return False
     if change.kind == PolicyChangeKind.RATE_CLASS:
+        if policy.is_joint_survivor:
+            return bool(_joint_rate_class_segments(policy, change))
         return _rate_class_will_change(policy, change.value)
     if change.kind == PolicyChangeKind.SUBSTANDARD:
+        if policy.is_joint_survivor:
+            return bool(_joint_table_segments(policy, change, change_date))
         return _substandard_will_change(policy, change.value)
     return (
         change.kind == PolicyChangeKind.RIDER_DROP
