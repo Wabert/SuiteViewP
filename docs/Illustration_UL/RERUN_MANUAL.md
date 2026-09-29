@@ -5,6 +5,17 @@ RERUN input, engine, regulatory-premium, rollback and output behavior. Engine in
 > Source: moved from the former long-form `Agent.md` so that the canonical standards file can stay concise.
 
 
+## RERUN Tips button
+
+The header **Tips** button opens a non-modal cheat-sheet of hidden-ish features:
+right-click menus, the hidden **Grid Inputs** tab (dated transactions; right-click
+the Illustration Inputs tab bar to show it), double-click drill-downs, drag/drop
+and the Options menu. The content lives in `RERUN_TIPS` in
+`suiteview/illustration/ui/tips.py`; when you add a right-click, double-click,
+drag/drop, shortcut or hidden-by-default feature, add a tip there too.
+Regression: `tests/test_illustration_tips.py`.
+
+
 ## RERUN guideline calculation maturity
 
 GLP calculations end at **min(policy maturity age, 100)**, not an unconditional

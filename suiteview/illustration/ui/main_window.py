@@ -68,6 +68,7 @@ from .policy_tab import IllustrationPolicyTab
 from .compare_tab import IllustrationCompareTab
 from .report_tab import IllustrationReportTab
 from .saved_cases_panel import format_saved_stamp
+from .tips import RerunTipsDialog
 from .values_tab import IllustrationValuesTab
 from .value_rollback import (
     ROLLBACK_COLORS, ROLLBACK_NOTICE_STYLE, ValueRollbackControls,
@@ -157,6 +158,12 @@ class IllustrationWindow(FramelessWindowBase):
         # place it in the title bar via header_widgets.
         self._build_options_menu()
 
+        self.tips_btn = QPushButton("Tips")
+        self.tips_btn.setStyleSheet(HEADER_MENU_BUTTON_STYLE)
+        self.tips_btn.setToolTip(
+            "Hidden-ish features: right-click menus, hidden tabs, drag & drop")
+        self._tips_dialog: Optional[RerunTipsDialog] = None
+
         super().__init__(
             title=WINDOW_TITLE,
             default_size=(1200, 825),
@@ -167,10 +174,12 @@ class IllustrationWindow(FramelessWindowBase):
             header_widgets=[
                 self.open_polview_btn,
                 self.options_btn,
+                self.tips_btn,
                 self.list_toggle_btn,
             ],
         )
         self.open_polview_btn.clicked.connect(self._open_in_polview)
+        self.tips_btn.clicked.connect(self.show_tips)
         self.list_toggle_btn.clicked.connect(self._toggle_list_panel)
         get_illustration_settings().abr_quote_mode_changed.connect(
             self._refresh_rollback_controls)
@@ -179,7 +188,8 @@ class IllustrationWindow(FramelessWindowBase):
         self._normal_header_button_styles = [
             (button, button.styleSheet())
             for button in self.header_bar.findChildren(QPushButton)
-            if button is self.options_btn or button.toolTip() in {"Minimize", "Maximize", "Close"}
+            if button in (self.options_btn, self.tips_btn)
+            or button.toolTip() in {"Minimize", "Maximize", "Close"}
         ]
         self._refresh_rollback_controls()
 
@@ -242,6 +252,14 @@ class IllustrationWindow(FramelessWindowBase):
         menu.addAction(self._rollback_action)
 
         self.options_btn.setMenu(menu)
+
+    def show_tips(self):
+        """Open (or raise) the non-modal RERUN Tips cheat-sheet."""
+        if self._tips_dialog is None:
+            self._tips_dialog = RerunTipsDialog(self)
+        self._tips_dialog.show()
+        self._tips_dialog.raise_()
+        self._tips_dialog.activateWindow()
 
     def _on_rollback_option_changed(self, enabled: bool):
         with muted_signals(self._rollback_action):
