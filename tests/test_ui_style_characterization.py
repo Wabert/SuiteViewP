@@ -80,7 +80,7 @@ EXPECTED_WINDOW_HASHES = {
     "AuditWindow": "db908b23e82937c074d7cc95a93c99a9b6152aece5f559461e5c9ff640d13e17",
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
-    "IllustrationWindow": "42033e5268fd933a9eb6260207a6ac2d7c52c3f4b8d89f5732c99d0d6cfe5610",
+    "IllustrationWindow": "533bc3918c88d64cb8adaab73a94d72b2ab06f771e6247db8d2a226f71b12023",
     "MainframeWindow": "372a0a574cb206b2f252171fa8270e00f137960d83db5fde15b41bb01637a084",
     "PolView": "eda552c76e88b45a94d9ebb8e23d58c26763b6dab3fc67111cc1ca95d0b58ad0",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",

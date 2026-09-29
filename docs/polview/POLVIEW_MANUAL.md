@@ -40,7 +40,10 @@ region code, grace, MEC, loan, reinsurance, product, GPT/CVAT, joint) and
 context-aware suggested support actions — no text summary. It is built from
 named `PolicyInformation` section properties read under per-fact `cached_reads_only()`
 guards (`polview/services/policy_insights.py`): facts not yet prefetched stay
-pending, never a GUI-thread query or a guess. Show the definition of life as
+pending, never a GUI-thread query or a guess. RERUN shows the same strip under
+its lookup bar (same chips, Timeline / Notes / Copy; purple frame, no suggested
+actions), reading facts live because it loads synchronously; see
+`docs/POLVIEW_CLAUDE.md` "Usability layer". Show the definition of life as
 **GPT**, never "GP" (reads as Grace Period). Optional tabs keep a fixed
 position and grey out with the reason instead of disappearing. The lookup bar
 (shared with RERUN) accepts pasted references and completes recent policies by

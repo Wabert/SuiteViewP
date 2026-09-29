@@ -16,6 +16,17 @@ drag/drop, shortcut or hidden-by-default feature, add a tip there too.
 Regression: `tests/test_illustration_tips.py`.
 
 
+## RERUN policy badge strip
+
+Under the lookup bar RERUN shows PolView's badge strip (`PolicySummaryStrip`):
+the same status chips, and Timeline / Notes / Copy, so the policy looks the same
+in both apps. Notes are the same per-policy notes PolView keeps. The frame is
+RERUN purple and PolView's Suggested actions are omitted. Facts are read live
+(`build_policy_summary(..., live_reads=True)`); a saved case clears the strip
+with a note until the policy is fetched live. Details: `docs/POLVIEW_CLAUDE.md`
+"Usability layer". Regression: `tests/test_policy_badge_strip_shared.py`.
+
+
 ## RERUN guideline calculation maturity
 
 GLP calculations end at **min(policy maturity age, 100)**, not an unconditional

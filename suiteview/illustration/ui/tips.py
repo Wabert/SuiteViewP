@@ -39,6 +39,15 @@ class TipSection:
 
 
 RERUN_TIPS: tuple[TipSection, ...] = (
+    TipSection("Policy Badges", (
+        Tip("Badge strip under the policy number",
+            "The same badges as PolView. Hover a badge for its detail; "
+            "right-click to copy its text."),
+        Tip("Timeline / Notes / Copy",
+            "Timeline lists every key policy date. Notes are your private notes "
+            "for the policy, shared with PolView. Copy puts a policy summary on "
+            "the clipboard for email or tickets."),
+    )),
     TipSection("Illustration Inputs", (
         Tip("Transactions by date — Grid Inputs tab",
             "Right-click the Input / Illustration Control tab bar and check "

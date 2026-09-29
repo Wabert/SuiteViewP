@@ -47,8 +47,8 @@ def _add_years(value: date, years: int) -> date:
         return value.replace(year=value.year + years, day=28)
 
 
-def build_policy_timeline(policy) -> list[TimelineEvent]:
-    read = _Reader(policy)
+def build_policy_timeline(policy, *, live_reads: bool = False) -> list[TimelineEvent]:
+    read = _Reader(policy, live=live_reads)
     events: list[TimelineEvent] = []
 
     def add(when, label, source, category):

@@ -51,7 +51,13 @@ from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.input_set import RollbackOverrideSet
 from suiteview.illustration.core.value_rollback import available_rollback_dates
 from suiteview.polview.models.policy_information import PolicyInformation
+from suiteview.polview.services.policy_insights import build_policy_summary
+from suiteview.polview.services.policy_notes import PolicyNotesStore
 from suiteview.polview.ui.formatting import format_amount, format_date
+from suiteview.polview.ui.policy_summary_strip import (
+    PolicySummaryStrip, StripTheme, copy_summary_to_clipboard, open_policy_notes,
+    open_policy_timeline,
+)
 from suiteview.polview.ui.widgets import PolicyLookupBar
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
@@ -85,6 +91,9 @@ from .styles import (
     ISSUE_BLUE_BG,
     ISSUE_TAB_WIDGET_STYLE,
     PURPLE_BG,
+    PURPLE_DARK,
+    PURPLE_PRIMARY,
+    PURPLE_SUBTLE,
     STATUS_BAR_STYLE,
     TAB_WIDGET_STYLE,
     VALUE_BUTTON_STYLE,
@@ -126,6 +135,9 @@ class IllustrationWindow(FramelessWindowBase):
         # defaults. Session-only: never persisted to disk.
         self._session_states: dict[tuple, IllustrationSessionState] = {}
         self._presenter = IllustrationPresenter()
+        # Badge strip: the notes are the same per-policy notes PolView keeps.
+        self._notes_store = PolicyNotesStore()
+        self._policy_dialogs: list = []
         self._current_key: tuple | None = None
         self._default_inputs_on_next_get = False
         # Set while a saved case's FROZEN policy snapshot is loaded instead of
@@ -386,6 +398,21 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.layout().addSpacing(6)
         self.lookup_bar.layout().addWidget(self.save_case_btn)
         main_layout.addWidget(self.lookup_bar)
+
+        # The same policy badge strip as PolView (shared chips, Timeline /
+        # Notes / Copy), framed in RERUN purple; PolView's suggested next
+        # steps navigate PolView tabs, so none are shown here.
+        strip_host = QWidget()
+        strip_host.setStyleSheet(f"background-color: {PURPLE_BG};")
+        strip_layout = QHBoxLayout(strip_host)
+        strip_layout.setContentsMargins(10, 0, 10, 4)
+        self.summary_strip = PolicySummaryStrip(theme=StripTheme(
+            border=PURPLE_PRIMARY, text=PURPLE_DARK, hover_bg=PURPLE_SUBTLE))
+        self.summary_strip.copy_requested.connect(self._copy_policy_summary)
+        self.summary_strip.notes_requested.connect(self._open_policy_notes)
+        self.summary_strip.timeline_requested.connect(self._open_timeline)
+        strip_layout.addWidget(self.summary_strip, 1)
+        main_layout.addWidget(strip_host)
 
         self.projection_mode_notice = QLabel(
             "INFORCE | Projection starts after the loaded valuation date.")
@@ -836,6 +863,52 @@ class IllustrationWindow(FramelessWindowBase):
     def _show_status(self, message: str):
         self._status_label.setText(message)
 
+    # ── Policy badge strip (shared with PolView) ──────────────────
+
+    def _refresh_summary_strip(self):
+        """Badges for the live policy. RERUN loads synchronously, so the facts
+        are read directly; a fact that cannot be read just has no badge."""
+        policy = self._policy
+        if policy is None or not policy.exists:
+            return
+        try:
+            summary = build_policy_summary(policy, live_reads=True)
+        except Exception as exc:  # loud in the strip, never a crash on load
+            logger.exception("Policy badges failed for %s", policy.policy_number)
+            self.summary_strip.clear(f"Policy badges unavailable: {exc}")
+            return
+        self.summary_strip.set_summary(summary)
+        self.summary_strip.set_notes_count(
+            self._notes_store.count(policy.company_code, policy.policy_number))
+
+    def _keep_policy_dialog(self, dialog):
+        from PyQt6 import sip
+
+        self._policy_dialogs = [d for d in self._policy_dialogs if not sip.isdeleted(d)]
+        self._policy_dialogs.append(dialog)
+
+    def _copy_policy_summary(self):
+        summary = self.summary_strip.summary
+        if summary is None:
+            self._show_status("Load a policy to copy its summary")
+            return
+        copy_summary_to_clipboard(summary)
+        self._show_status(f"Copied {summary.policy_number} summary to the clipboard 📋")
+
+    def _open_policy_notes(self):
+        if self._policy is None or not self._policy.exists:
+            self._show_status("Get a live policy to see its notes")
+            return
+        self._keep_policy_dialog(open_policy_notes(
+            self, self._policy.company_code, self._policy.policy_number,
+            self._notes_store, self.summary_strip))
+
+    def _open_timeline(self):
+        if self._policy is None or not self._policy.exists:
+            self._show_status("Get a live policy to see its timeline")
+            return
+        self._keep_policy_dialog(open_policy_timeline(self, self._policy, live_reads=True))
+
     def _mark_next_get_for_default_inputs(self):
         self._default_inputs_on_next_get = True
 
@@ -903,6 +976,7 @@ class IllustrationWindow(FramelessWindowBase):
                 return
 
             self._show_status(f"Loading policy {policy_number} from {region}...")
+            self.summary_strip.clear(f"Loading {policy_number}…")
             QApplication.processEvents()
             self._policy = PolicyInformation(policy_number, company_code=company_code or None, region=region)
 
@@ -921,6 +995,7 @@ class IllustrationWindow(FramelessWindowBase):
             if not self._policy.exists:
                 QMessageBox.warning(self, "Not Found", f"Policy {policy_number} not found in {region}")
                 self._show_status("Policy not found")
+                self.summary_strip.clear("Policy not found")
                 self._default_inputs_on_next_get = False
                 self.run_values_btn.setEnabled(False)
                 self.save_case_btn.setEnabled(False)
@@ -958,6 +1033,7 @@ class IllustrationWindow(FramelessWindowBase):
 
         except Exception as exc:
             self._default_inputs_on_next_get = False
+            self.summary_strip.clear("Policy load failed")
             self.rollback_controls.set_basis(
                 [], None, enabled=False, reason="Policy load failed - reload")
             if is_password_error(str(exc)):
@@ -1000,6 +1076,7 @@ class IllustrationWindow(FramelessWindowBase):
         self._live_policy_checks = (self._policy, warnings, md_check)
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
         self.policy_tab.set_rate_warnings(warnings)
+        self._refresh_summary_strip()
         # Backfill both List views' "| <form>" label segment now that the
         # policy's data (and its base-coverage form number) is loaded.
         form_number = getattr(self._illustration_data, "form_number", "") or ""
@@ -1165,6 +1242,8 @@ class IllustrationWindow(FramelessWindowBase):
         # live. Fields the snapshot never captured stay blank.
         self.policy_tab.load_data_from_snapshot(snapshot)
         self.policy_tab.set_rate_warnings(None)
+        self.summary_strip.clear(
+            "Saved case (not live data) — Get the policy to see its badges")
         self.policy_tab.set_snapshot_banner(
             f"Policy data was not retrieved live — effective as of {stamp}. "
             f"Get the policy to return to live data.")

@@ -2,7 +2,7 @@ r"""Live native check of RERUN on a joint survivor (second-to-die) UL policy.
 
 Opens the real Illustration window on a live company-26 joint policy (read-only
 DB2/UL_Rates), captures the Policy tab (joint insured, per-insured extras,
-monthly-deduction check), runs Run Values and captures the Values overview and
+monthly-deduction check) and the policy badge strip, runs Run Values and captures the Values overview and
 the Joint COI group, then enters a joint-insured table rating next year through
 the input rows, re-runs and captures that recalc's Joint COI sheet.
 
@@ -50,6 +50,7 @@ def main() -> None:
         "plancode_label", "joint_label", "joint_insured_label", "coi_basis_label",
         "sex", "rateclass", "issue_age", "table_rating", "flat_extra",
         "cyberlife_md", "calculated_md")}
+    badges = window.summary_strip.chip_texts()
     outputs = {}
 
     def grab(name: str) -> None:
@@ -105,12 +106,14 @@ def main() -> None:
         "md_matches": fields["cyberlife_md"] == fields["calculated_md"],
         "joint_shown": fields["joint_label"] == "Joint Second to Die" and bool(fields["joint_insured_label"]),
         "joint_coi_group": joint_group_ok,
+        "badges": badges,
         "table_change": table_choice, "recalc_joint_sheet": joint_sheet,
         "outputs": outputs,
     }
     report["all_ok"] = (report["md_matches"] and report["joint_shown"] and len(results) > 1
                         and joint_group_ok and joint_sheet.get("visible")
-                        and joint_sheet.get("rows", 0) > 0)
+                        and joint_sheet.get("rows", 0) > 0
+                        and "Joint Second to Die" in badges)
     print(json.dumps(report, indent=1))
     window.close()
     app.processEvents()

@@ -20,7 +20,7 @@ from time import perf_counter
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QPushButton, QLabel, QMessageBox, QApplication,
+    QTabWidget, QPushButton, QLabel, QMessageBox,
 )
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtCore import QEvent, QTimer, Qt, QSignalBlocker, pyqtSignal, pyqtSlot
@@ -42,14 +42,15 @@ from .widgets import PolicyLookupBar, StyledInfoTableGroup
 from .tree_panel import PolicyRecordTreePanel
 from .loading_overlay import TabLoadingOverlay
 from .policy_load_controller import PolicyLoadController
-from .policy_summary_strip import PolicySummaryStrip
+from .policy_summary_strip import (
+    PolicySummaryStrip, copy_summary_to_clipboard, open_policy_notes, open_policy_timeline,
+)
 from .tooltip_style import use_readable_tooltips
 from .tabs.reinstatement_tab import ReinstatementTab
 from .tabs.other_data_tab import OtherDataTab
 from ..services.reinstatement import is_ul_policy
 from ..services.policy_insights import (
-    build_policy_summary, suggested_actions, summary_html, summary_text,
-    support_tool_availability,
+    build_policy_summary, suggested_actions, support_tool_availability,
 )
 from ..services.policy_notes import PolicyNotesStore, RecentPoliciesStore
 from ..services.rate_selection import build_rate_selection, missing_rate_diagnostic
@@ -591,12 +592,7 @@ class GetPolicyWindow(FramelessWindowBase):
         if summary is None:
             self._show_status("Load a policy to copy its summary")
             return
-        from PyQt6.QtCore import QMimeData
-
-        mime = QMimeData()
-        mime.setText(summary_text(summary))
-        mime.setHtml(summary_html(summary))
-        QApplication.clipboard().setMimeData(mime)
+        copy_summary_to_clipboard(summary)
         self._show_status(f"Copied {summary.policy_number} summary to the clipboard 📋")
 
     @pyqtSlot()
@@ -604,14 +600,9 @@ class GetPolicyWindow(FramelessWindowBase):
         if self._policy is None or not self._policy.exists:
             self._show_status("Load a policy to see its notes")
             return
-        from .polview_dialogs import PolicyNotesDialog
-
-        dialog = PolicyNotesDialog(self._policy.company_code, self._policy.policy_number,
-                                   self, store=self._notes_store)
-        dialog.notes_changed.connect(self.summary_strip.set_notes_count)
-        self._keep_dialog(dialog)
-        dialog.show()
-        dialog.editor.setFocus()
+        self._keep_dialog(open_policy_notes(
+            self, self._policy.company_code, self._policy.policy_number,
+            self._notes_store, self.summary_strip))
 
     def _keep_dialog(self, dialog):
         self._dialogs = [d for d in self._dialogs if _alive(d)]
@@ -622,17 +613,7 @@ class GetPolicyWindow(FramelessWindowBase):
         if self._policy is None or not self._policy.exists:
             self._show_status("Load a policy to see its timeline")
             return
-        from datetime import date as _date
-        from ..services.policy_timeline import build_policy_timeline
-        from .polview_dialogs import TimelineDialog
-
-        policy = self._policy
-        dialog = TimelineDialog(
-            f"Timeline · {policy.company_code} - {policy.policy_number}",
-            build_policy_timeline(policy), _date.today(), self,
-        )
-        self._keep_dialog(dialog)
-        dialog.show()
+        self._keep_dialog(open_policy_timeline(self, self._policy))
 
     @pyqtSlot(str)
     def _on_suggestion_clicked(self, key: str):

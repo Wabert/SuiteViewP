@@ -229,6 +229,16 @@ named properties under per-fact `cached_reads_only()` guards
   reinstatement quote, in-grace GP UL → GLP Exception, annuity rider), then
   Timeline, Notes and Copy. There is no text summary line. Small easter eggs:
   policy anniversary, insured birthday, 50+ year "vintage".
+  **RERUN shows the same strip** under its lookup bar (Robert Haessly,
+  9/29/2026) so the loaded policy looks the same in both apps: identical chips,
+  Timeline / Notes (the same per-policy notes file) / Copy, a purple frame
+  (`StripTheme`) and no Suggested actions (they open PolView tabs). The shared
+  actions are `copy_summary_to_clipboard`, `open_policy_notes` and
+  `open_policy_timeline` in `ui/policy_summary_strip.py`. RERUN loads the policy
+  synchronously (no prefetch), so it calls `build_policy_summary(...,
+  live_reads=True)` / `build_policy_timeline(..., live_reads=True)`, which read
+  each fact directly; an unreadable fact still just has no badge. A saved case
+  (frozen snapshot, no live policy) clears the strip with a note.
 - **Copy** puts both an HTML two-column table (pastes neatly into Outlook, Word,
   Excel) and label-aligned plain text on the clipboard. It lists policy, plan,
   DB option (advanced products only), death benefit, issue date/age, policy year,

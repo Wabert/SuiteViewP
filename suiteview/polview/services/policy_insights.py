@@ -92,14 +92,20 @@ class PolicySummary:
 
 
 class _Reader:
-    """Read named properties under per-fact cached guards."""
+    """Read named properties under per-fact cached guards.
 
-    def __init__(self, policy):
+    ``live=True`` reads without the guard (querying as needed) for callers that
+    load a policy synchronously rather than through PolView's prefetch, e.g.
+    RERUN; a failed read is still logged and left pending.
+    """
+
+    def __init__(self, policy, live: bool = False):
         self.policy = policy
+        self.live = live
         self.pending: list[str] = []
 
     def get(self, name: str, getter: Optional[Callable[[Any], Any]] = None):
-        guard = getattr(self.policy, "cached_reads_only", None)
+        guard = None if self.live else getattr(self.policy, "cached_reads_only", None)
         try:
             if guard is None:
                 return getter(self.policy) if getter else policy_attr(self.policy, name)
@@ -334,10 +340,15 @@ def _append_policy_date_chips(
                           f"In force for {facts.policy_year - 1}+ years. They don't make them like this anymore."))
 
 
-def build_policy_summary(policy, today: Optional[date] = None) -> PolicySummary:
-    """Summarise whatever is already known about *policy* (never queries)."""
+def build_policy_summary(policy, today: Optional[date] = None, *,
+                         live_reads: bool = False) -> PolicySummary:
+    """Summarise what is known about *policy*.
+
+    By default never queries (PolView renders from prefetched data); with
+    ``live_reads`` each fact is read directly (see ``_Reader``).
+    """
     today = today or date.today()
-    read = _Reader(policy)
+    read = _Reader(policy, live=live_reads)
     basis = _summary_basis(policy, read)
     facts = basis.facts
     base = basis.base
