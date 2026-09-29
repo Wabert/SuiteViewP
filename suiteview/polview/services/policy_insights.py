@@ -266,9 +266,13 @@ def _append_reinsurance_and_product_chips(
     if facts.product_type:
         kind = "Advanced" if facts.advanced else "Traditional" if facts.advanced is not None else ""
         product_line = read.get("product_line_description")
+        product = read.get("display_product_type", lambda p: policy_attr(
+            p, "display_product_type", facts.product_type)) or facts.product_type
+        tooltip = f"Product line: {product_line or 'unknown'}"
+        if product == "IUL" and facts.product_type != "IUL":
+            tooltip += "\nIndex UL: TH_COV_PHA.AN_PRD_ID = X"
         chips.append(Chip(
-            "product", " · ".join(p for p in (facts.product_type, kind) if p), NEUTRAL,
-            f"Product line: {product_line or 'unknown'}",
+            "product", " · ".join(p for p in (product, kind) if p), NEUTRAL, tooltip,
         ))
     return partner
 

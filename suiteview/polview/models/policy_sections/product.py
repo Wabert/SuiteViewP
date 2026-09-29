@@ -85,6 +85,19 @@ class ProductSection(PolicySection):
         return self.product_rules.product_type
 
     @property
+    def is_indexed_ul(self) -> bool:
+        """Base coverage's ANICO product indicator (TH_COV_PHA.AN_PRD_ID) is X - Index UL."""
+        return str(self._field("annuity_product_id") or "").strip().upper() == "X"
+
+    @property
+    def display_product_type(self) -> str:
+        """Product type for display: UL policies flagged Index UL show as IUL."""
+        product_type = self.product_type
+        if product_type == "UL" and self.is_indexed_ul:
+            return "IUL"
+        return product_type
+
+    @property
     def product_line_code(self) -> str:
         """Product line type code."""
         return str(self._field("product_line_code") or "")

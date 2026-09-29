@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QTableWidgetItem
 
 from suiteview.core.policy_reference import parse_policy_reference
 from suiteview.polview.models.policy_data import CachedReadError
+from suiteview.polview.models.product_rules import product_rules_for
 from suiteview.polview.services import policy_insights as insights
 from suiteview.polview.services.policy_notes import PolicyNotesStore, RecentPoliciesStore
 
@@ -126,6 +127,42 @@ def test_summary_leaves_unprefetched_facts_pending_rather_than_guessing():
     assert summary.insured_name is None
     assert "loan" not in chip_keys(summary) and "mec" not in chip_keys(summary)
     assert {"primary_insured_name", "policy_debt", "mec_indicator"} <= set(summary.pending)
+
+
+def test_product_chip_shows_iul_for_index_ul_policies():
+    ul = insights.build_policy_summary(summary_policy(), today=date(2026, 9, 24))
+    iul = insights.build_policy_summary(summary_policy(display_product_type="IUL"),
+                                        today=date(2026, 9, 24))
+    ul_chip = next(chip for chip in ul.chips if chip.key == "product")
+    iul_chip = next(chip for chip in iul.chips if chip.key == "product")
+    assert ul_chip.text == "UL · Advanced"
+    assert iul_chip.text == "IUL · Advanced"
+    assert "AN_PRD_ID = X" in iul_chip.tooltip
+    assert iul.product_type == "UL"
+
+
+@pytest.mark.parametrize("an_prd_id,expected", [("X", "IUL"), ("x ", "IUL"), ("", "UL"), ("U", "UL")])
+def test_display_product_type_uses_base_coverage_an_prd_id(an_prd_id, expected):
+    from suiteview.polview.models.policy_sections.product import ProductSection
+
+    policy = SimpleNamespace(_field=lambda name, index=0: {"annuity_product_id": an_prd_id}[name],
+                             data_item=lambda table, column, index=0: "1U147800")
+    section = ProductSection(policy)
+    section._product_rules = product_rules_for(
+        non_traditional_indicator="1", product_line_code="U", plancode="1U147800")
+    assert section.product_type == "UL"
+    assert section.display_product_type == expected
+
+
+def test_display_product_type_ignores_an_prd_id_for_non_ul_products():
+    from suiteview.polview.models.policy_sections.product import ProductSection
+
+    policy = SimpleNamespace(_field=lambda name, index=0: "X",
+                             data_item=lambda table, column, index=0: "ISWLPLAN")
+    section = ProductSection(policy)
+    section._product_rules = product_rules_for(
+        non_traditional_indicator="1", product_line_code="I", plancode="ISWL")
+    assert section.display_product_type == "ISWL"
 
 
 def test_status_tones():
