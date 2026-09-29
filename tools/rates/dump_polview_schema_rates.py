@@ -4,8 +4,8 @@ Usage: venv\\Scripts\\python.exe tools\\rates\\dump_polview_schema_rates.py '<js
 JSON: {"policies": [{"policy": "UE063797", "company": "01"}], "region": "CKPR",
        "rows": 12, "summary": false, "only": ["Schema Coverage"]}
 
-Each policy's schema leaves (Coverages, Scales, Benefits, Policy Rates, Fund Rates, Modal
-Factors, Rate Space) go through ``build_rate_selection`` exactly as the Rates tree
+Each policy's schema leaves (Coverages, Scales, Benefits, Policy Rates, Fixed/Index Fund
+Rates, Modal Factors, Rate Space) go through ``build_rate_selection`` exactly as the Rates tree
 does. ``summary`` prints only each leaf's header, row count and the metadata lines
 under "Single rates (X)" and "Missing" (and every Scales row); otherwise the first ``rows``
 data rows are printed too. A failing leaf prints its error and the run continues.
@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from suiteview.core.local_dev import local_data_enabled
 from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.services.rate_selection import (
-    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SCALES, SCHEMA_SPACE,
+    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FIXED_FUNDS, SCHEMA_INDEX_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY,
+    SCHEMA_SCALES, SCHEMA_SPACE,
     build_rate_selection,
 )
 
@@ -49,7 +50,8 @@ def _leaves(policy):
     leaves = [(SCHEMA_COVERAGE, i) for i in range(1, policy.coverages.coverage_count + 1)]
     leaves += [(SCHEMA_SCALES, 1)]
     leaves += [(SCHEMA_BENEFIT, i) for i in range(1, policy.benefits.benefit_count + 1)]
-    leaves += [(SCHEMA_POLICY, 1), (SCHEMA_FUNDS, 1), (SCHEMA_MODAL, 1), (SCHEMA_SPACE, 1)]
+    leaves += [(SCHEMA_POLICY, 1), (SCHEMA_FIXED_FUNDS, 1), (SCHEMA_INDEX_FUNDS, 1), (SCHEMA_MODAL, 1),
+               (SCHEMA_SPACE, 1)]
     return leaves
 
 

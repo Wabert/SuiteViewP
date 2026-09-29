@@ -394,12 +394,13 @@ Where a rate appears follows its assignment table and `RATE_TYPE.STRUCTURE`:
 
 | Leaf | Rates |
 |---|---|
-| Coverages > Cov NN | `RATE_ASSIGN_CELL` rows with `BENEFIT = ''` for the coverage's plancode; its dividends (`RATE_ASSIGN_DIV`); for a coverage whose plancode is not the base plan's, that plancode's `RATE_ASSIGN_PLAN` rates |
-| Coverages > Scales | one row per scale and dated schedule window behind the Cov NN grids: rate type, scale, effective from/to, whether it is read by issue date or each policy year's date, the policy years it covers, the cell used and any lookup fallback; missing rates are listed at the end |
+| Coverages > Cov NN | `RATE_ASSIGN_CELL` rows with `BENEFIT = ''` for the coverage's plancode, except the base plancode's policy-level charges (`MFEE`, `PREMLOAD_*`), which are on Policy Rates; its dividends (`RATE_ASSIGN_DIV`); for a coverage whose plancode is not the base plan's, that plancode's `RATE_ASSIGN_PLAN` rates |
+| Coverages > Scales | one row per scale and dated schedule window behind the Cov NN grids (and the policy-level charges, noted "shown on Policy Rates"): rate type, scale, effective from/to, whether it is read by issue date or each policy year's date, the policy years it covers, the cell used and any lookup fallback; missing rates are listed at the end |
 | Benefits > Ben NN | `RATE_ASSIGN_CELL` rows whose `BENEFIT` is the benefit's `SPM_BNF_TYP_CD + SPM_BNF_SBY_CD`, on the plancode of the coverage the benefit is on |
-| Policy > Policy Rates | base plancode `RATE_ASSIGN_PLAN` rates, `PLAN_DEF` facts and `PLAN_ATTR` attributes |
-| Policy > Fund Rates | `RATE_ASSIGN_FUND` → `RATE_VALUE_FUND` for the policy's loaded plancodes (Held = a current fund bucket) |
-| Policy > Modal Factors | `PLAN_MODEFACT` |
+| Policy > Policy Rates | base plancode `RATE_ASSIGN_PLAN` rates, the policy-level CELL charges (`schema_rates.POLICY_LEVEL_RATE_TYPES`: `MFEE`, `PREMLOAD_PCT/EXS/FLAT`) keyed by the first base-plancode coverage's cell (shown under *Charges cell*), `PLAN_DEF` facts and `PLAN_ATTR` attributes (Robert Haessly, 9/28/2026) |
+| Policy > Fixed Fund Rates | `RATE_ASSIGN_FUND` → `RATE_VALUE_FUND` for funds whose `FUND.FUND_TYPE` is not `INDEX`, one row per rate (Held = a current fund bucket) |
+| Policy > Index Fund Rates | the `INDEX` funds: one row per fund, scale, rate start and period with each index parameter (`IDX_CAP`, `IDX_FLOOR`, `IDX_PART`, `IDX_SPREAD`, `IDX_MULT`, `IDX_ASSET`, `IDX_SPEC`, shown without the `IDX_` prefix) in its own column; a parameter not loaded for that start is blank, never carried forward (Robert Haessly, 9/28/2026) |
+| Policy > Modal Factors | base plancode `PLAN_MODEFACT` only — mode factors are policy level, so rider plancodes' rows are not shown (Robert Haessly, 9/27/2026) |
 | Policy > Rate Space | every CELL/PLAN/FUND/DIV assignment of the policy's loaded plancodes, with the leaves that use it |
 
 Grid layout (Robert Haessly, 9/27/2026): the RateFields/RateInfo block shows only
@@ -409,9 +410,14 @@ CyberLife band code, e.g. `A`, state, sub-series, table), then *Single rates (C/
 and *Missing*. Source, rates company, description and the cell/schedule detail are
 not shown there; the schedule detail is on the Scales sheet. Rate columns are keyed
 `"<scale> <rate type>"` (`C COI`, `G COI`); `schema_rates.column_layout` turns the
-keys into a band row (C, G, S, Dividend, Dividend RPU ...) over rate-type labels
+keys into a band row (Current, Guaranteed, Shadow, Dividend, Dividend RPU ...; scale
+bands spelled out per Robert Haessly, 9/27/2026) over rate-type labels
 (`RateSelection.header_labels` / `column_groups` → `FilterTableView.set_header_labels`
 / `set_column_groups`). All C columns come first, then G, then S, then dividends.
+In the grid the column groups (Current, Guaranteed, Shadow, each dividend type)
+alternate light green and slightly darker green left to right
+(`raw_table_tab.alternating_group_tints`, Robert Haessly, 9/28/2026), and clicking a
+cell tints its whole row.
 
 Lookup rules:
 

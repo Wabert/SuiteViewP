@@ -93,12 +93,14 @@ def _polview(app, rec, number, company, region, timeout):
     rec.step = f"{number} PolView rates tree"
     policy = window._policy
     from suiteview.polview.services.rate_selection import (
-        SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SCALES, SCHEMA_SPACE,
+        SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FIXED_FUNDS, SCHEMA_INDEX_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY,
+        SCHEMA_SCALES, SCHEMA_SPACE,
     )
     leaves = [(SCHEMA_COVERAGE, f"Cov {i:02d}", i) for i in range(1, policy.coverages.coverage_count + 1)]
     leaves.append((SCHEMA_SCALES, "Scales", 1))
     leaves += [(SCHEMA_BENEFIT, f"Ben {i:02d}", i) for i in range(1, policy.benefits.benefit_count + 1)]
-    leaves += [(SCHEMA_POLICY, "Policy Rates", 1), (SCHEMA_FUNDS, "Fund Rates", 1),
+    leaves += [(SCHEMA_POLICY, "Policy Rates", 1), (SCHEMA_FIXED_FUNDS, "Fixed Fund Rates", 1),
+               (SCHEMA_INDEX_FUNDS, "Index Fund Rates", 1),
                (SCHEMA_MODAL, "Modal Factors", 1), (SCHEMA_SPACE, "Rate Space", 1)]
     leaves += [("Coverages", f"Legacy Cov {i:02d}", i) for i in range(1, policy.coverages.coverage_count + 1)]
     leaves += [("Benefits", f"Legacy Ben {i:02d}", i) for i in range(1, policy.benefits.benefit_count + 1)]

@@ -28,11 +28,13 @@ SCHEMA_COVERAGE = "Schema Coverage"
 SCHEMA_SCALES = "Schema Scales"
 SCHEMA_BENEFIT = "Schema Benefit"
 SCHEMA_POLICY = "Schema Policy"
-SCHEMA_FUNDS = "Schema Funds"
+SCHEMA_FIXED_FUNDS = "Schema Fixed Funds"
+SCHEMA_INDEX_FUNDS = "Schema Index Funds"
 SCHEMA_MODAL = "Schema Modal"
 SCHEMA_SPACE = "Schema Rate Space"
 SCHEMA_CATEGORIES = (
-    SCHEMA_COVERAGE, SCHEMA_SCALES, SCHEMA_BENEFIT, SCHEMA_POLICY, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_SPACE,
+    SCHEMA_COVERAGE, SCHEMA_SCALES, SCHEMA_BENEFIT, SCHEMA_POLICY, SCHEMA_FIXED_FUNDS, SCHEMA_INDEX_FUNDS,
+    SCHEMA_MODAL, SCHEMA_SPACE,
 )
 
 
@@ -45,7 +47,8 @@ def _schema_selection(policy, category: str, index: int) -> RateSelection:
         SCHEMA_SCALES: ("Coverage Rate Scales", "build_schema_scales_matrix", ()),
         SCHEMA_BENEFIT: (f"Rates for Benefit {index}", "build_schema_benefit_matrix", (index,)),
         SCHEMA_POLICY: ("Policy Level Rates", "build_schema_policy_matrix", ()),
-        SCHEMA_FUNDS: ("Fund Rates", "build_schema_fund_matrix", ()),
+        SCHEMA_FIXED_FUNDS: ("Fixed Fund Rates", "build_schema_fixed_fund_matrix", ()),
+        SCHEMA_INDEX_FUNDS: ("Index Fund Rates", "build_schema_index_fund_matrix", ()),
         SCHEMA_MODAL: ("Modal Factors", "build_schema_modal_matrix", ()),
         SCHEMA_SPACE: ("Rate Space", "build_schema_rate_space_matrix", ()),
     }

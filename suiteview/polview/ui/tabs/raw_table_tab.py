@@ -21,6 +21,26 @@ from ..styles import (
 from ..widgets import CopyableLabel
 
 SEARCH_COLUMNS = ["Match", "Record", "Table", "Field", "Row", "Value"]
+# Light blue, distinct from the gold selected cell and the green header.
+ROW_HIGHLIGHT = "#E6F0FA"
+# Rate column groups (Current / Guaranteed / Shadow / each dividend type) alternate light
+# green, slightly darker green, left to right; both light enough for black text
+# (Robert Haessly, 9/28/2026: alternation instead of a shade per scale).
+GROUP_TINTS = ("#EEF7EE", "#DCEEDD")
+
+
+def alternating_group_tints(groups) -> dict:
+    """``{group label: tint}`` alternating ``GROUP_TINTS`` over ``(label, columns)`` groups in order."""
+    tints: dict = {}
+    for label, _columns in groups or []:
+        if label not in tints:
+            tints[label] = GROUP_TINTS[len(tints) % len(GROUP_TINTS)]
+    return tints
+
+
+# FilterTableView's "Export to Excel" button colors (the Excel green).
+EXCEL_GREEN = "#217346"
+EXCEL_GREEN_DARK = "#1a5c38"
 
 
 class RawTableTab(QWidget):
@@ -87,25 +107,25 @@ class RawTableTab(QWidget):
         self.transpose_btn.clicked.connect(self._toggle_transpose)
         header_layout.addWidget(self.transpose_btn)
 
-        # Export button (green with spreadsheet icon)
-        self.export_btn = QPushButton("📊")
+        # Export button: the Excel green, opens the export in Excel without a file dialog.
+        self.export_btn = QPushButton("E")
         self.export_btn.setToolTip("Export to Excel")
         self.export_btn.setFixedSize(28, 24)
-        self.export_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
+        self.export_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {EXCEL_GREEN};
                 color: white;
-                border: 1px solid #1e7e34;
+                border: 1px solid {EXCEL_GREEN_DARK};
                 border-radius: 3px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #34ce57;
-                border-color: #28a745;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {EXCEL_GREEN_DARK};
+            }}
+            QPushButton:pressed {{
+                background-color: {EXCEL_GREEN_DARK};
+            }}
         """)
         self.export_btn.clicked.connect(self._export_to_excel)
         header_layout.addWidget(self.export_btn)
@@ -123,6 +143,9 @@ class RawTableTab(QWidget):
         self._search_grid.set_full_row_selection(True)
         self._search_grid.table_view.setToolTip("Double-click a match to open its table")
         self._search_grid.table_view.doubleClicked.connect(self._on_search_hit_double_clicked)
+        # Rates grids load in the normal orientation: tint the clicked row; each rate
+        # column group is shaded down the body (see ``alternating_group_tints``).
+        self._normal_grid.set_current_row_highlight(ROW_HIGHLIGHT)
         self._stack.addWidget(self._normal_grid)      # index 0 – normal
         self._stack.addWidget(self._transposed_grid)  # index 1 – transposed
         self._stack.addWidget(self._search_grid)      # index 2 – Tables search matches
@@ -133,6 +156,8 @@ class RawTableTab(QWidget):
     def _make_grid(self) -> FilterTableView:
         """Create a FilterTableView themed to match the PolView tabs."""
         grid = FilterTableView(self)
+        # The tab's own E button exports without asking for a file name.
+        grid.set_export_visible(False)
         grid.apply_ledger_style(
             header_bg=GREEN_SUBTLE,
             header_fg=GREEN_DARK,
@@ -195,7 +220,9 @@ class RawTableTab(QWidget):
             self._normal_grid.set_dataframe(self._df_normal, limit_rows=False)
             self._normal_grid.set_header_labels(self._header_labels)
             self._normal_grid.set_column_groups(self._column_groups)
+            self._normal_grid.set_group_backgrounds(alternating_group_tints(self._column_groups))
             self._normal_grid.autofit_columns_to_data()
+            self._normal_grid.fit_column_groups_to_labels()
 
         if self._df_transposed is None:
             self._df_transposed = self._build_transposed_df()
@@ -266,6 +293,7 @@ class RawTableTab(QWidget):
         self._column_groups = list(column_groups or [])
         if not self._column_groups:
             self._normal_grid.set_column_groups(None)
+            self._normal_grid.set_group_backgrounds(None)
 
     # ── Tables search results ────────────────────────────────────────────
 

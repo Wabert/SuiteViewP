@@ -4,11 +4,14 @@ Where a rate is shown follows its assignment table and ``RATE_TYPE.STRUCTURE``:
 
 * **Coverage** - CELL rates with ``BENEFIT = ''`` for the coverage's plancode, the
   coverage's dividends (DIV), and, for a coverage whose plancode is not the base
-  plan's, that plancode's PLAN rates. The coverages' **Scales** sheet lists every
-  scale and dated schedule behind those rates, with the cell each one came from.
+  plan's, that plancode's PLAN rates. The policy-level charges (MFEE, premium loads)
+  of the base plancode are on Policy instead. The coverages' **Scales** sheet lists
+  every scale and dated schedule behind those rates, with the cell each one came from.
 * **Benefit** - CELL rates whose ``BENEFIT`` is the benefit's type + subtype, on the
   plancode of the coverage the benefit is attached to.
-* **Policy** - PLAN rates of the base plancode, its FUND rates and mode factors.
+* **Policy** - PLAN rates of the base plancode with the base coverage's policy-level
+  CELL charges; its FUND rates split into fixed and index funds (one row per index
+  rate start with each parameter in its own column); and its mode factors.
 
 A coverage's rate key is its rate sex (``1`` -> ``M``, ``2`` -> ``F``, other CyberLife
 codes kept as they are, as the loaders store them), its renewal rate class, the band
@@ -52,6 +55,8 @@ UNBANDED = "0"
 ALL_STATES = "**"
 SCALE_ORDER = ("C", "G", "S")
 SCALE_NAMES = {"C": "Current", "G": "Guaranteed", "S": "Shadow account"}
+# Header band over a scale's rate columns (Robert Haessly, 9/27/2026: spelled out, not C/G/S).
+SCALE_BAND_LABELS = {"C": "Current", "G": "Guaranteed", "S": "Shadow"}
 SINGLE_VALUE_GRAINS = frozenset({"IA", "SCALAR"})
 # Point-in-time values: duration 0 is the issue date, so a row's Year n shows duration n - 1
 # (the value at the row's Date), as the WL cash-value display does.
@@ -65,6 +70,14 @@ RATE_TYPE_ORDER = (
     "LOAN_REG_CHG", "LOAN_REG_CRD", "LOAN_PREF_CHG", "LOAN_PREF_CRD", "ANN_SURR_PCT",
     "ANN_FREE_WD_PCT",
 )
+# CELL rates charged once per policy (monthly policy fee, premium loads): shown on Policy
+# Rates from the base coverage's cell, not on the base plancode's Cov NN grids
+# (Robert Haessly, 9/28/2026).
+POLICY_LEVEL_RATE_TYPES = frozenset({"MFEE", "PREMLOAD_PCT", "PREMLOAD_EXS", "PREMLOAD_FLAT"})
+# rates.FUND.FUND_TYPE of an indexed account; every other fund type is a fixed (declared-rate) fund.
+INDEX_FUND_TYPE = "INDEX"
+INDEX_PARAMETER_PREFIX = "IDX_"
+INDEX_PARAMETER_ORDER = ("CAP", "FLOOR", "PART", "SPREAD", "MULT", "ASSET", "SPEC")
 DIV_RECORD_LABELS = {"D": "", "R": " RPU", "L": " DR-L", "P": " DR-P", "T": " TERM"}
 DIV_GROUPS = tuple(f"Dividend{suffix}" for suffix in DIV_RECORD_LABELS.values())
 # Top header band of a rate column, in display order: scales first, then dividends.
@@ -177,8 +190,9 @@ def ordered_columns(columns: Sequence[Column]) -> List[Column]:
 def column_layout(header: Sequence[str]) -> Tuple[Dict[str, str], List[tuple]]:
     """Header labels and scale groups for a schema grid's column keys (``"C COI"``).
 
-    Returns ``({key: rate type}, [(group, [keys])])`` for ``FilterTableView``'s
-    ``set_header_labels`` / ``set_column_groups``; other columns are left as they are.
+    Returns ``({key: rate type}, [(band label, [keys])])`` for ``FilterTableView``'s
+    ``set_header_labels`` / ``set_column_groups``; scale bands are spelled out
+    (``SCALE_BAND_LABELS``) and other columns are left as they are.
     """
     labels: Dict[str, str] = {}
     groups: List[tuple] = []
@@ -188,10 +202,11 @@ def column_layout(header: Sequence[str]) -> Tuple[Dict[str, str], List[tuple]]:
         if group is None:
             continue
         labels[key] = str(key)[len(group) + 1:]
-        if groups and groups[-1][0] == group:
+        band = SCALE_BAND_LABELS.get(group, group)
+        if groups and groups[-1][0] == band:
             groups[-1][1].append(key)
         else:
-            groups.append((group, [key]))
+            groups.append((band, [key]))
     return labels, groups
 
 
@@ -540,11 +555,15 @@ def benefit_context(repo: RatesSchemaRepository, policy: "PolicyInformation", be
 # -- rate parts --------------------------------------------------------------------
 
 def cell_parts(repo: RatesSchemaRepository, ctx: CellContext,
-               assignments: Optional[Sequence[CellAssignment]] = None) -> Parts:
-    """CELL rates for a coverage (benefit '') or benefit: single values, columns and scales."""
+               assignments: Optional[Sequence[CellAssignment]] = None,
+               keep: Optional[Callable[[str], bool]] = None) -> Parts:
+    """CELL rates for a coverage (benefit '') or benefit: single values, columns and scales.
+
+    ``keep``, when given, limits the rate types read (e.g. the policy-level charges).
+    """
     if assignments is None:
         assignments = repo.cell_assignments(ctx.plan.company, ctx.plancode)
-    rows = [a for a in assignments if a.benefit == ctx.benefit]
+    rows = [a for a in assignments if a.benefit == ctx.benefit and     (keep is None or keep(a.rate_type))]
     parts = Parts()
     if not rows:
         return parts
@@ -815,11 +834,19 @@ def assemble(meta: List[tuple], columns: List[Column], start: date, issue_age: O
     return matrix
 
 
-def _coverage_parts(repo: RatesSchemaRepository, policy: "PolicyInformation", cov_index: int):
+def is_policy_level(rate_type: str) -> bool:
+    return rate_type in POLICY_LEVEL_RATE_TYPES
+
+
+def _coverage_parts(repo: RatesSchemaRepository, policy: "PolicyInformation", cov_index: int,
+                    include_policy_level: bool = False):
+    """A coverage's rates; the base plancode's policy-level charges only when asked (Scales)."""
     ctx = coverage_context(repo, policy, cov_index)
-    parts = cell_parts(repo, ctx)
+    on_base = ctx.plancode == policy.coverages.base_plancode
+    keep = None if include_policy_level or not on_base else (lambda rate_type: not is_policy_level(rate_type))
+    parts = cell_parts(repo, ctx, keep=keep)
     parts.extend(div_parts(repo, ctx))
-    if ctx.plancode != policy.coverages.base_plancode:
+    if not on_base:
         parts.extend(plan_parts(repo, ctx.plan, ctx.key.state, ctx.issue_age))
     return ctx, parts
 
@@ -829,7 +856,8 @@ def build_coverage_matrix(repo: RatesSchemaRepository, policy: "PolicyInformatio
     if not parts.columns and not parts.single and not parts.missing:
         raise RatesNotLoaded(
             f"No coverage-level rates (CELL with benefit blank, DIV) are loaded for {ctx.plancode} in "
-            f"{SOURCE_LABEL}. Its PLAN rates are under Policy and its benefit rates under Benefits."
+            f"{SOURCE_LABEL}. Its PLAN rates and policy-level charges (MFEE, premium loads) are under "
+            "Policy and its benefit rates under Benefits."
         )
     years = ctx.years or parts.max_year
     return assemble(_context_meta(policy, ctx) + _parts_meta(parts), parts.columns,
@@ -852,7 +880,7 @@ def build_scales_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation"
     rates_by = {"CALENDAR": "each policy year's date", "ISSUE": "issue date", "NONE": "no dates"}
     for cov_index, cov in enumerate(policy.coverages.get_coverages(), start=1):
         try:
-            ctx, parts = _coverage_parts(repo, policy, cov_index)
+            ctx, parts = _coverage_parts(repo, policy, cov_index, include_policy_level=True)
         except RatesNotLoaded as exc:
             body.append([f"Cov {cov_index:02d}", cov.plancode, "", "", "", "", "", "", "", "", str(exc)])
             continue
@@ -860,10 +888,14 @@ def build_scales_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation"
         entries = sorted(parts.scales, key=lambda e: (
             COLUMN_GROUPS.index(e.scale) if e.scale in COLUMN_GROUPS else len(COLUMN_GROUPS),
             rate_type_sort_key(e.rate_type)))
+        on_base = ctx.plancode == policy.coverages.base_plancode
         for entry in entries:
             name = SCALE_NAMES.get(entry.scale, entry.scale)
             used = _policy_years(entry, ctx.issue_date, ctx.issue_date, rows)
             windows = entry.windows or [None]
+            notes = entry.notes
+            if on_base and is_policy_level(entry.rate_type):
+                notes = "; ".join(n for n in ("shown on Policy Rates", notes) if n)
             for window in windows:
                 years = used if window is None or len(windows) == 1 else _policy_years(
                     ScaleEntry(entry.rate_type, entry.scale, [window], entry.date_meaning, ""),
@@ -872,7 +904,7 @@ def build_scales_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation"
                     ctx.label, ctx.plancode, entry.rate_type, entry.scale if entry.scale in SCALE_ORDER else "",
                     name, _iso(window.effective_from) if window else "",
                     (_iso(window.effective_to) or "open") if window else "",
-                    rates_by.get(entry.date_meaning, entry.date_meaning), years, entry.cell, entry.notes,
+                    rates_by.get(entry.date_meaning, entry.date_meaning), years, entry.cell, notes,
                 ])
         for name, reason in parts.missing:
             body.append([ctx.label, ctx.plancode, name, "", "", "", "", "", "", "", f"Missing: {reason}"])
@@ -896,7 +928,34 @@ def build_benefit_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation
                     ctx.issue_date, ctx.issue_age, years)
 
 
+def _base_coverage_index(policy: "PolicyInformation", plancode: str) -> int:
+    """The first coverage on the base plancode (its cell keys the policy-level charges)."""
+    for index, cov in enumerate(policy.coverages.get_coverages(), start=1):
+        if cov.plancode == plancode:
+            return index
+    return 1
+
+
+def _policy_charge_parts(repo: RatesSchemaRepository, policy: "PolicyInformation",
+                         plan: PlanDef, plancode: str) -> Tuple[Parts, List[tuple]]:
+    """The base coverage's policy-level CELL charges (MFEE, premium loads) and their key lines."""
+    assignments = [a for a in repo.cell_assignments(plan.company, plancode)
+                   if not a.benefit and is_policy_level(a.rate_type)]
+    if not assignments:
+        return Parts(), []
+    cov_index = _base_coverage_index(policy, plancode)
+    try:
+        ctx = coverage_context(repo, policy, cov_index)
+    except RatesNotLoaded as exc:
+        return Parts(missing=[("Policy charges", str(exc))]), []
+    parts = cell_parts(repo, ctx, assignments)
+    meta = [GAP, ("Charges cell", ctx.label), ("  Sex", ctx.key.sex or "blank"),
+            ("  Rateclass", ctx.key.rate_class or "blank"), ("  Band", ctx.band_display)]
+    return parts, meta
+
+
 def build_policy_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
+    """Base plancode PLAN rates plus the base coverage's policy-level CELL charges."""
     cov = _coverage(policy, 1)
     plancode = policy.coverages.base_plancode or cov.plancode
     plan, _plan_note = _plan_for(repo, policy, plancode)
@@ -904,18 +963,20 @@ def build_policy_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation"
         raise RatesNotLoaded("Coverage 1 has no issue date or issue age for a rate lookup.")
     state = str(policy.product.issue_state or "").strip().upper()
     parts = plan_parts(repo, plan, state, int(cov.issue_age))
+    if not parts.scales:
+        parts.missing.append(("PLAN", f"no PLAN rates are loaded for {plancode}"))
+    charges, charge_meta = _policy_charge_parts(repo, policy, plan, plancode)
+    parts.extend(charges)
     meta = [
         GAP, ("Policy", policy.policy_number), ("Plancode", plancode), ("Family", plan.product_family),
         ("Role", plan.coverage_role), ("IssueDate", _iso(cov.issue_date)), ("IssueAge", cov.issue_age),
         ("State", state or "blank"),
-    ]
+    ] + charge_meta
     if plan.facts:
         meta += [GAP, ("Plan facts", "PLAN_DEF")] + [(f"  {name}", fmt(value)) for name, value in plan.facts]
     attrs = repo.plan_attrs(plan.company, plan.plancode)
     if attrs:
         meta += [GAP, ("Plan attributes", "PLAN_ATTR")] + [(f"  {a.attr}", a.value) for a in attrs]
-    if not parts.scales:
-        parts.missing.append(("PLAN", f"no PLAN rates are loaded for {plancode}"))
     years = _years_between(cov.issue_date, cov.maturity_date) or parts.max_year
     return assemble(meta + _parts_meta(parts), parts.columns, cov.issue_date, int(cov.issue_age), years,
                     attained_label="AttainedAge")
@@ -935,49 +996,134 @@ def _loaded_plans(repo, policy) -> List[Tuple[str, PlanDef, str]]:
     return plans
 
 
-def build_fund_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
-    """Every FUND rate assigned to the policy's loaded plancodes, newest rate start first."""
-    held = {fund.strip() for fund in policy.values.get_fund_values_dict()}
+def _fund_rows(repo: RatesSchemaRepository, policy: "PolicyInformation", index: bool):
+    """``(plancode, assignment, rates)`` for the policy's fixed or index funds, in assignment order.
+
+    Rates sort current, guaranteed then shadow; then rate type and newest rate start first.
+    """
+    for plancode, plan, _note in _loaded_plans(repo, policy):
+        assignments = [a for a in repo.fund_assignments(plan.company, plancode)
+                       if (a.fund_type == INDEX_FUND_TYPE) == index]
+        by_key: Dict[str, list] = {}
+        for rate in repo.fund_rates([a.fund_key for a in assignments]):
+            by_key.setdefault(rate.fund_key, []).append(rate)
+        for a in assignments:
+            rates = sorted(by_key.get(a.fund_key, []),
+                           key=lambda r: (_scale_index(r.scale), rate_type_sort_key(r.rate_type),
+                                          -r.rate_start.toordinal(), r.period))
+            yield plancode, a, rates
+
+
+def _held_funds(policy: "PolicyInformation") -> set:
+    return {fund.strip() for fund in policy.values.get_fund_values_dict()}
+
+
+def build_fixed_fund_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
+    """Every FUND rate of the policy's fixed (non-index) funds, one row per rate, newest start first."""
+    held = _held_funds(policy)
     header = ["Plancode", "Fund", "Held", "Rein Block", "Fund Key", "Fund Type", "Rate Type", "Scale",
               "Rate Start", "Period", "Guar Months", "Guar End", "Rate"]
     body = []
-    for plancode, plan, _note in _loaded_plans(repo, policy):
-        assignments = repo.fund_assignments(plan.company, plancode)
-        rates = repo.fund_rates([a.fund_key for a in assignments])
-        by_key: Dict[str, list] = {}
-        for rate in rates:
-            by_key.setdefault(rate.fund_key, []).append(rate)
-        for a in assignments:
-            rows = sorted(by_key.get(a.fund_key, []),
-                          key=lambda r: (_scale_index(r.scale), rate_type_sort_key(r.rate_type),
-                                         -r.rate_start.toordinal(), r.period))
-            for r in rows or [None]:
-                body.append([
-                    plancode, a.fund, "Yes" if a.fund in held else "", a.rein_block or "direct", a.fund_key,
-                    a.fund_type,
-                    *(["", "", "", "", "", "", "no rates loaded"] if r is None else [
-                        r.rate_type, r.scale, _iso(r.rate_start), r.period, fmt(r.guarantee_months),
-                        _iso(r.guarantee_end_date), fmt(r.rate)]),
-                ])
+    for plancode, a, rates in _fund_rows(repo, policy, index=False):
+        for r in rates or [None]:
+            body.append([
+                plancode, a.fund, "Yes" if a.fund in held else "", a.rein_block or "direct", a.fund_key,
+                a.fund_type,
+                *(["", "", "", "", "", "", "no rates loaded"] if r is None else [
+                    r.rate_type, r.scale, _iso(r.rate_start), r.period, fmt(r.guarantee_months),
+                    _iso(r.guarantee_end_date), fmt(r.rate)]),
+            ])
     if not body:
-        raise RatesNotLoaded(f"No FUND rates are loaded in {SOURCE_LABEL} for this policy's plancodes.")
+        raise RatesNotLoaded(f"No fixed-fund rates are loaded in {SOURCE_LABEL} for this policy's plancodes.")
+    return [header, *body]
+
+
+def index_parameter_label(rate_type: str) -> str:
+    """``IDX_CAP`` -> ``CAP``; other rate types keep their name."""
+    if rate_type.startswith(INDEX_PARAMETER_PREFIX):
+        return rate_type[len(INDEX_PARAMETER_PREFIX):]
+    return rate_type
+
+
+def _index_parameter_sort_key(rate_type: str) -> tuple:
+    label = index_parameter_label(rate_type)
+    if label in INDEX_PARAMETER_ORDER:
+        return (0, INDEX_PARAMETER_ORDER.index(label), label)
+    return (1, 0, rate_type)
+
+
+def _joined(values: Iterable[object]) -> object:
+    """One value, or every distinct loaded value joined with `` / `` so a conflict is visible."""
+    distinct = list(dict.fromkeys(v for v in values if v not in ("", None)))
+    if not distinct:
+        return ""
+    return distinct[0] if len(distinct) == 1 else " / ".join(str(v) for v in distinct)
+
+
+def build_index_fund_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
+    """The policy's index funds: one row per fund, scale, rate start and period, with every
+    index parameter (cap, floor, participation, ...) in its own column; newest start first.
+
+    A parameter with no rate for a row's start is blank. Guarantee columns appear only
+    when a rate carries a guarantee; a fund with no rates is listed with a Note.
+    """
+    held = _held_funds(policy)
+    funds = list(_fund_rows(repo, policy, index=True))
+    if not funds:
+        raise RatesNotLoaded(f"No index-fund rates are loaded in {SOURCE_LABEL} for this policy's plancodes.")
+    all_rates = [r for _, _, rates in funds for r in rates]
+    parameters = sorted({r.rate_type for r in all_rates}, key=_index_parameter_sort_key)
+    guarantees = any(r.guarantee_months is not None or r.guarantee_end_date for r in all_rates)
+    unloaded = any(not rates for _, _, rates in funds)
+    header = ["Plancode", "Fund", "Held", "Rein Block", "Fund Key", "Scale", "Rate Start", "Period",
+              *[index_parameter_label(p) for p in parameters]]
+    if guarantees:
+        header += ["Guar Months", "Guar End"]
+    if unloaded:
+        header.append("Note")
+    body = []
+    for plancode, a, rates in funds:
+        lead = [plancode, a.fund, "Yes" if a.fund in held else "", a.rein_block or "direct", a.fund_key]
+        if not rates:
+            body.append(lead + [""] * (len(header) - len(lead) - 1) + ["no rates loaded"])
+            continue
+        grouped: Dict[tuple, list] = {}
+        for r in rates:
+            grouped.setdefault((r.scale, r.rate_start, r.period), []).append(r)
+        for (scale, start, period) in sorted(grouped, key=lambda k: (_scale_index(k[0]), -k[1].toordinal(), k[2])):
+            row_rates = grouped[(scale, start, period)]
+            row = lead + [scale, _iso(start), period]
+            row += [_joined(fmt(r.rate) for r in row_rates if r.rate_type == p) for p in parameters]
+            if guarantees:
+                row += [_joined(fmt(r.guarantee_months) for r in row_rates),
+                        _joined(_iso(r.guarantee_end_date) for r in row_rates)]
+            if unloaded:
+                row.append("")
+            body.append(row)
     return [header, *body]
 
 
 def build_modal_matrix(repo: RatesSchemaRepository, policy: "PolicyInformation") -> List[List]:
-    """PLAN_MODEFACT mode factors and fees of the policy's loaded plancodes."""
+    """PLAN_MODEFACT mode factors and fees of the base plancode.
+
+    Modal factors apply at the policy level, so rider plancodes' rows are not shown.
+    """
     header = ["Plancode", "Market Org", "Bill Form", "Fee Amount From", "Fee Amount To", "Mode", "Prem Factor",
               "Fee Factor", "Policy Fee", "Fee Add", "Fee Rule", "Collection Fee", "Coll Add",
               "Multiply Order", "Rating Order", "Rounding"]
+    plancode = str(policy.coverages.base_plancode or "").strip()
+    if not plancode:
+        raise RatesNotLoaded("This policy has no base coverage plancode, so no mode factors can be shown.")
+    plan, _note = _plan_for(repo, policy, plancode)
     body = []
-    for plancode, plan, _note in _loaded_plans(repo, policy):
-        for m in repo.modal_factors(plan.company, plancode):
-            body.append([plancode, m.market_org or "all", m.billing_form, fmt(m.fee_amount_from),
-                         fmt(m.fee_amount_to), m.mode, fmt(m.prem_factor), fmt(m.fee_factor),
-                         fmt(m.policy_fee_annual), m.policy_fee_add, m.policy_fee_rule, fmt(m.collection_fee),
-                         m.collection_fee_add, m.multiply_order, m.rating_order, m.rounding_rule])
+    for m in repo.modal_factors(plan.company, plancode):
+        body.append([plancode, m.market_org or "all", m.billing_form, fmt(m.fee_amount_from),
+                     fmt(m.fee_amount_to), m.mode, fmt(m.prem_factor), fmt(m.fee_factor),
+                     fmt(m.policy_fee_annual), m.policy_fee_add, m.policy_fee_rule, fmt(m.collection_fee),
+                     m.collection_fee_add, m.multiply_order, m.rating_order, m.rounding_rule])
     if not body:
-        raise RatesNotLoaded(f"No mode factors (PLAN_MODEFACT) are loaded in {SOURCE_LABEL} for this policy.")
+        raise RatesNotLoaded(
+            f"No mode factors (PLAN_MODEFACT) are loaded in {SOURCE_LABEL} for base plancode {plancode}.")
     return [header, *body]
 
 
@@ -1016,12 +1162,18 @@ def build_rate_space_matrix(repo: RatesSchemaRepository, policy: "PolicyInformat
         assignments = repo.cell_assignments(plan.company, plancode)
         subseries = repo.plan_subseries(plan.company, plancode) if any(a.subseries for a in assignments) else ()
         used: Dict[object, List[str]] = {}
+        charge_label = f"Cov {_base_coverage_index(policy, plancode):02d}" if plancode == base_plancode else None
         for ctx in contexts:
             rows = [a for a in assignments if a.benefit == ctx.benefit]
             for rate_type in {a.rate_type for a in rows}:
+                label = ctx.label
+                if charge_label and not ctx.benefit and is_policy_level(rate_type):
+                    if ctx.label != charge_label:
+                        continue
+                    label = "Policy Rates"
                 chosen, _ = choose_cell(rows, rate_type, ctx.key, subseries)
                 if chosen is not None:
-                    used.setdefault(chosen, []).append(ctx.label)
+                    used.setdefault(chosen, []).append(label)
         scales: Dict[int, set] = {}
         for window in repo.schedule_windows([a.schedule_id for a in assignments]):
             scales.setdefault(window.schedule_id, set()).add(window.scale)
@@ -1047,11 +1199,12 @@ def build_rate_space_matrix(repo: RatesSchemaRepository, policy: "PolicyInformat
         for rate in repo.fund_rates([f.fund_key for f in funds]):
             fund_types.setdefault(rate.fund_key, {}).setdefault(rate.rate_type, set()).add(rate.scale)
         for f in funds:
+            leaf = "Index Fund Rates" if f.fund_type == INDEX_FUND_TYPE else "Fixed Fund Rates"
             for rate_type, fund_scales in sorted(fund_types.get(f.fund_key, {}).items(),
                                                  key=lambda item: rate_type_sort_key(item[0])):
                 body.append([plancode, "FUND", f"fund {f.fund}" + (f" rein {f.rein_block}" if f.rein_block else ""),
                              rate_type, "", "", "", "", "", f.fund_key,
-                             "".join(s for s in SCALE_ORDER if s in fund_scales), "Fund Rates", "CALENDAR"])
+                             "".join(s for s in SCALE_ORDER if s in fund_scales), leaf, "CALENDAR"])
 
         divs = repo.div_assignments(plan.company, plancode)
         for ctx in contexts:

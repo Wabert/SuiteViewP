@@ -44,6 +44,42 @@ class _SolidColumnDelegate(QStyledItemDelegate):
         painter.fillRect(option.rect, self._color)
 
 
+class _RowAndGroupDelegate(QStyledItemDelegate):
+    """Opt-in current-row tint and column-group divider rules for one pane.
+
+    A delegate for the same reason as ``_SolidColumnDelegate``: the ledger QSS
+    ignores the model's ``BackgroundRole``. The tint is painted under the normal
+    item so a selected cell still shows the selection color on top of it.
+    """
+
+    def __init__(self, owner: "FilterTableView", view: QTableView):
+        super().__init__(view)
+        self._owner = owner
+        self._view = view
+
+    def paint(self, painter, option, index):
+        owner = self._owner
+        if owner._row_highlight is not None and index.row() == owner._highlighted_row():
+            painter.fillRect(option.rect, owner._row_highlight)
+        elif owner._group_backgrounds and owner.model is not None:
+            group = owner._column_group_of.get(owner.model.column_name(index.column()))
+            tint = owner._group_backgrounds.get(group)
+            if tint is not None:
+                painter.fillRect(option.rect, tint)
+        super().paint(painter, option, index)
+        if owner._group_divider is None:
+            return
+        left, right = owner._group_edges(self._view, index.column())
+        width = owner._group_divider_width
+        rect = option.rect
+        if left:
+            painter.fillRect(QRect(rect.left(), rect.top(), width, rect.height()),
+                             owner._group_divider)
+        if right:
+            painter.fillRect(QRect(rect.right() - width + 1, rect.top(), width, rect.height()),
+                             owner._group_divider)
+
+
 class ClickableHeaderView(QHeaderView):
     """Custom header view with clickable sort icons"""
     
@@ -1112,6 +1148,13 @@ class FilterTableView(QWidget):
         self._filtering_enabled = True
         # Grouped header band spans: list of (label, [column names]).
         self._column_groups: List[tuple] = []
+        self._column_group_of: Dict[str, str] = {}
+        # Opt-in body decorations (see set_current_row_highlight / set_group_dividers).
+        self._row_highlight: Optional[QColor] = None
+        self._group_divider: Optional[QColor] = None
+        self._group_divider_width = 2
+        self._group_backgrounds: Dict[str, QColor] = {}
+        self._row_group_delegates: List[_RowAndGroupDelegate] = []
 
         # Optional hook so owners can append actions to the cell context menu.
         # Signature: callback(menu: QMenu, index: QModelIndex) -> None
@@ -1464,8 +1507,87 @@ class FilterTableView(QWidget):
             (str(label), [str(name) for name in names])
             for label, names in (groups or [])
         ]
+        self._column_group_of = {
+            name: label for label, names in self._column_groups for name in names}
         self.group_bar.setVisible(bool(self._column_groups))
         self.group_bar.update()
+        self._refresh_body()
+
+    def set_current_row_highlight(self, color=None):
+        """Lightly tint every cell of the clicked (current) row across both panes.
+
+        Keeps per-cell selection, so a single cell can still be selected and
+        copied. Pass ``None`` to turn it off.
+        """
+        self._row_highlight = QColor(color) if color else None
+        self._ensure_row_group_delegates()
+        self._refresh_body()
+
+    def set_group_dividers(self, color=None, width: int = 2):
+        """Draw vertical rules down the body at ``set_column_groups`` boundaries.
+
+        A rule runs on the left of each group's first column and on the right of
+        the last column of a group followed by ungrouped columns (or the end),
+        following the live visual column order. Pass ``None`` to turn it off.
+        """
+        self._group_divider = QColor(color) if color else None
+        self._group_divider_width = max(1, int(width))
+        self._ensure_row_group_delegates()
+        self._refresh_body()
+
+    def set_group_backgrounds(self, colors=None):
+        """Tint the body cells of each ``set_column_groups`` group by its label.
+
+        ``colors`` maps a group label to a color; groups not listed stay plain.
+        The current-row highlight, when on, paints over the tint on its row.
+        Pass ``None`` to clear.
+        """
+        self._group_backgrounds = {
+            str(label): QColor(color) for label, color in (colors or {}).items()}
+        self._ensure_row_group_delegates()
+        self._refresh_body()
+
+    def _ensure_row_group_delegates(self):
+        if self._row_group_delegates:
+            return
+        for view in (self.table_view, self.frozen_table_view):
+            delegate = _RowAndGroupDelegate(self, view)
+            view.setItemDelegate(delegate)
+            self._row_group_delegates.append(delegate)
+
+    def _highlighted_row(self) -> int:
+        current = self.table_view.currentIndex()
+        return current.row() if current.isValid() else -1
+
+    def _group_edges(self, view: QTableView, column: int) -> tuple:
+        """(left rule, right rule) for a column of ``view`` at group boundaries."""
+        if self.model is None or not self._column_group_of:
+            return False, False
+        group = self._column_group_of.get(self.model.column_name(column))
+        if group is None:
+            return False, False
+        header = view.horizontalHeader()
+
+        def neighbour_group(step: int):
+            visual = header.visualIndex(column) + step
+            while 0 <= visual < header.count():
+                logical = header.logicalIndex(visual)
+                if not view.isColumnHidden(logical):
+                    return self._column_group_of.get(self.model.column_name(logical))
+                visual += step
+            return None
+
+        return neighbour_group(-1) != group, neighbour_group(1) is None
+
+    @pyqtSlot(QModelIndex, QModelIndex)
+    def _on_current_index_changed(self, current, previous):
+        if self._row_highlight is not None and current.row() != previous.row():
+            self._refresh_body()
+
+    def _refresh_body(self):
+        if self._row_group_delegates:
+            self.table_view.viewport().update()
+            self.frozen_table_view.viewport().update()
 
     def set_column_width(self, column_name: str, width: int):
         """Set one column's width by name (both panes). Call after autofit for
@@ -1542,6 +1664,27 @@ class FilterTableView(QWidget):
         self._refresh_wrapped_header_height()
         self._update_frozen_table_width()
 
+    def fit_column_groups_to_labels(self, padding: int = 12):
+        """Widen a group's last column so its band label (e.g. "Guaranteed") is not elided.
+
+        Opt-in; call after ``autofit_columns_to_data`` and ``set_column_groups``.
+        """
+        if self.model is None or not self._column_groups:
+            return
+        metrics = QFontMetrics(self.header.wrap_font())
+        names = [str(name) for name in self.model.get_original_data().columns]
+        for label, members in self._column_groups:
+            indexes = [names.index(name) for name in members
+                       if name in names and not self.table_view.isColumnHidden(names.index(name))]
+            if not indexes:
+                continue
+            total = sum(self.table_view.columnWidth(index) for index in indexes)
+            deficit = metrics.horizontalAdvance(label) + padding - total
+            if deficit > 0:
+                last = indexes[-1]
+                self.table_view.setColumnWidth(last, self.table_view.columnWidth(last) + deficit)
+        self._refresh_wrapped_header_height()
+
     def _refresh_wrapped_header_height(self):
         """Fit the header band to the tallest wrapped label at current widths."""
         if not self.header.wrap_mode or self.model is None:
@@ -1600,6 +1743,8 @@ class FilterTableView(QWidget):
         self.frozen_table_view.setModel(self.model)
         if self.table_view.selectionModel() is not None:
             self.frozen_table_view.setSelectionModel(self.table_view.selectionModel())
+            self.table_view.selectionModel().currentChanged.connect(
+                self._on_current_index_changed)
         self._apply_frozen_columns()
         
         # Reset filters and caches
@@ -1703,6 +1848,10 @@ class FilterTableView(QWidget):
 
     def set_search_visible(self, visible: bool):
         self.search_bar.setVisible(visible)
+
+    def set_export_visible(self, visible: bool):
+        """Show/hide the built-in "Export to Excel" (save-as dialog) button."""
+        self.export_btn.setVisible(visible)
 
     def set_numeric_formatting(
         self,

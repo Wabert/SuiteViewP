@@ -8,8 +8,8 @@ import pytest
 from PyQt6.QtCore import Qt
 
 from suiteview.core.rates_schema import (
-    BandSpec, CellAssignment, DivAssignment, DivSchedule, DivValue, PlanAssignment, PlanDef,
-    RateSetInfo, RateTypeDef, ScheduleWindow, SubseriesRow,
+    BandSpec, CellAssignment, DivAssignment, DivSchedule, DivValue, FundAssignment, FundRate, PlanAssignment,
+    PlanDef, RateSetInfo, RateTypeDef, ScheduleWindow, SubseriesRow,
 )
 from suiteview.polview.models import schema_rates as sr
 from suiteview.polview.services.rate_selection import (
@@ -296,9 +296,11 @@ def test_columns_group_all_current_then_guaranteed_then_shadow_then_dividends():
             sr.Column("Dividend", "PUA", None)]
     assert [c.key for c in sr.ordered_columns(cols)] == [
         "C COI", "C EPU", "G COI", "G SCR", "S COI", "Dividend DIV", "Dividend PUA"]
-    labels, groups = sr.column_layout(["RateFields", "Year", "C COI", "C EPU", "G COI", "Dividend RPU DIV"])
-    assert labels == {"C COI": "COI", "C EPU": "EPU", "G COI": "COI", "Dividend RPU DIV": "DIV"}
-    assert groups == [("C", ["C COI", "C EPU"]), ("G", ["G COI"]), ("Dividend RPU", ["Dividend RPU DIV"])]
+    labels, groups = sr.column_layout(["RateFields", "Year", "C COI", "C EPU", "G COI", "S COI",
+                                       "Dividend RPU DIV"])
+    assert labels == {"C COI": "COI", "C EPU": "EPU", "G COI": "COI", "S COI": "COI", "Dividend RPU DIV": "DIV"}
+    assert groups == [("Current", ["C COI", "C EPU"]), ("Guaranteed", ["G COI"]), ("Shadow", ["S COI"]),
+                      ("Dividend RPU", ["Dividend RPU DIV"])]
 
 
 def test_scales_sheet_lists_every_scale_window_with_its_policy_years_and_cell():
@@ -362,6 +364,43 @@ def test_not_loaded_plancode_names_the_legacy_view():
         sr.build_coverage_matrix(repo, _policy(), 1)
 
 
+def _modal(mode, factor):
+    return SimpleNamespace(
+        market_org="", billing_form="DIR", fee_amount_from=D(0), fee_amount_to=D(0), mode=mode,
+        prem_factor=D(factor), fee_factor=D(factor), policy_fee_annual=D(60), policy_fee_add=4,
+        policy_fee_rule=3, collection_fee=D(0), collection_fee_add=0, multiply_order=1,
+        rating_order=1, rounding_rule=1,
+    )
+
+
+def _policy_with_rider(base="B75TL300", rider="B1582000"):
+    policy = _policy(plancode=base)
+    covs = [SimpleNamespace(plancode=base, cov_pha_nbr=1), SimpleNamespace(plancode=rider, cov_pha_nbr=2)]
+    policy.coverages = SimpleNamespace(get_coverages=lambda: covs, base_plancode=base)
+    return policy
+
+
+def test_modal_factors_show_only_the_base_plancode():
+    repo = FakeRepo()
+    repo.plans = {"B75TL300": [_plan(plancode="B75TL300")], "B1582000": [_plan(plancode="B1582000")]}
+    repo.modal_factors = lambda company, plancode: [_modal("A", "1"), _modal("M", "0.093")]
+    matrix = sr.build_modal_matrix(repo, _policy_with_rider())
+    assert _column(matrix, "Plancode") == ["B75TL300", "B75TL300"]
+    assert _column(matrix, "Mode") == ["A", "M"]
+
+
+def test_modal_factors_do_not_fall_back_to_a_rider_plancode():
+    repo = FakeRepo()
+    repo.plans = {"B1582000": [_plan(plancode="B1582000")]}
+    repo.modal_factors = lambda company, plancode: [_modal("A", "1")]
+    with pytest.raises(sr.RatesNotLoaded, match="Plancode B75TL300 is not loaded"):
+        sr.build_modal_matrix(repo, _policy_with_rider())
+    repo.plans["B75TL300"] = [_plan(plancode="B75TL300")]
+    repo.modal_factors = lambda company, plancode: []
+    with pytest.raises(sr.RatesNotLoaded, match="base plancode B75TL300"):
+        sr.build_modal_matrix(repo, _policy_with_rider())
+
+
 def _benefit(code="39", phase=1):
     return SimpleNamespace(
         cov_pha_nbr=phase, benefit_code=code, benefit_type_cd=code[0], benefit_subtype_cd=code[1:],
@@ -401,6 +440,107 @@ def test_policy_matrix_plan_rates_state_first_single_values_and_attained_age():
     assert not {"Source", "Rates company", "Description"} & set(meta)
 
 
+def _with_policy_charges(repo):
+    """MFEE (CALENDAR, by duration; C and G) and PREMLOAD_PCT (issue age) on the base coverage cell."""
+    repo.types["MFEE"] = RateTypeDef("MFEE", "Monthly fee", "CELL", "amount", "CALENDAR", "UL")
+    repo.types["PREMLOAD_PCT"] = RateTypeDef("PREMLOAD_PCT", "Premium load", "CELL", "rate", "ISSUE", "UL")
+    repo.cells += [_cell("MFEE", 4, sex="U", rate_class="*", band="0"), _cell("PREMLOAD_PCT", 5)]
+    repo.windows += [ScheduleWindow(4, "C", date(2000, 1, 1), None, 44),
+                     ScheduleWindow(4, "G", date(2000, 1, 1), None, 45),
+                     ScheduleWindow(5, "C", date(2000, 1, 1), None, 46)]
+    repo.sets.update({44: RateSetInfo(44, "MFEE", "DUR", "", ""), 45: RateSetInfo(45, "MFEE", "DUR", "", ""),
+                      46: RateSetInfo(46, "PREMLOAD_PCT", "IA", "", "")})
+    repo.values.update({44: {(0, d): D("5") for d in range(1, 4)}, 45: {(0, d): D("7.5") for d in range(1, 4)},
+                        46: {(40, 0): D("0.06")}})
+    return repo
+
+
+def test_policy_level_charges_move_from_the_base_coverage_to_policy_rates():
+    repo = _with_policy_charges(FakeRepo())
+    coverage = sr.build_coverage_matrix(repo, _policy(), 1)
+    assert coverage[0][5:] == ["C COI", "G COI", "G SCR"]
+    assert "PREMLOAD_PCT" not in _meta(coverage)
+    matrix = sr.build_policy_matrix(repo, _policy())
+    assert matrix[0][5:] == ["C MFEE", "G MFEE", "G CORR", "G GINT"]
+    assert _column(matrix, "C MFEE")[:3] == ["5.00", "5.00", "5.00"]
+    assert _column(matrix, "G MFEE")[:3] == ["7.50", "7.50", "7.50"]
+    meta = _meta(matrix)
+    assert meta["Single rates (C)"] == "" and meta["PREMLOAD_PCT"] == "0.06"
+    assert meta["Charges cell"] == "Cov 01" and meta["Sex"] == "M" and meta["Band"] == "2"
+    labels, groups = sr.column_layout(matrix[0])
+    assert groups == [("Current", ["C MFEE"]), ("Guaranteed", ["G MFEE", "G CORR", "G GINT"])]
+    scales = [dict(zip(sr.SCALES_HEADER, row)) for row in sr.build_scales_matrix(repo, _policy())[1:]]
+    mfee = [r for r in scales if r["Rate Type"] == "MFEE"]
+    assert [r["Scale"] for r in mfee] == ["C", "G"]
+    assert mfee[0]["Notes"].startswith("shown on Policy Rates; sex U (policy M)")
+    space = [dict(zip(sr.build_rate_space_matrix(repo, _policy())[0], row))
+             for row in sr.build_rate_space_matrix(repo, _policy())[1:]]
+    used = {r["Rate Type"]: r["Used By"] for r in space if r["Structure"] == "CELL" and r["Benefit"] == "base"}
+    assert used["MFEE"] == "Policy Rates" and used["PREMLOAD_PCT"] == "Policy Rates" and used["COI"] == "Cov 01"
+
+
+def test_policy_rates_without_policy_level_cells_are_unchanged():
+    meta = _meta(sr.build_policy_matrix(FakeRepo(), _policy()))
+    assert "Charges cell" not in meta
+
+
+def _fund(fund, fund_key, fund_type, rein=""):
+    return FundAssignment(fund, rein, fund_key, fund_type, "", "")
+
+
+def _fund_rate(fund_key, rate_type, scale, start, rate, period=0, months=None):
+    return FundRate(fund_key, rate_type, scale, start, period, months, None, D(rate))
+
+
+def _fund_repo():
+    repo = FakeRepo()
+    assignments = [_fund("FIX", "FIXKEY", "CIRF"), _fund("IC", "IDXKEY", "INDEX"),
+                   _fund("IX", "EMPTYIDX", "INDEX")]
+    rates = [
+        _fund_rate("FIXKEY", "CINT", "C", date(2014, 7, 1), "0.0435", months=0),
+        _fund_rate("FIXKEY", "CINT", "C", date(2020, 5, 1), "0.035", months=0),
+        *[_fund_rate("IDXKEY", f"IDX_{name}", "C", date(2022, 9, 1), value)
+          for name, value in (("SPREAD", "0"), ("CAP", "0.085"), ("PART", "1"), ("FLOOR", "0.015"))],
+        *[_fund_rate("IDXKEY", f"IDX_{name}", "C", date(2018, 12, 1), value)
+          for name, value in (("CAP", "0.08"), ("PART", "1"), ("FLOOR", "0.015"))],
+        _fund_rate("IDXKEY", "IDX_CAP", "G", date(2000, 1, 1), "0.03"),
+    ]
+    repo.fund_assignments = lambda company, plancode: assignments
+    repo.fund_rates = lambda keys: [r for r in rates if r.fund_key in set(keys)]
+    return repo
+
+
+def test_fixed_fund_rates_list_only_the_non_index_funds_newest_first():
+    policy = _policy()
+    policy.values = SimpleNamespace(get_fund_values_dict=lambda: {"FIX ": 1})
+    matrix = sr.build_fixed_fund_matrix(_fund_repo(), policy)
+    assert _column(matrix, "Fund") == ["FIX", "FIX"]
+    assert _column(matrix, "Held") == ["Yes", "Yes"]
+    assert _column(matrix, "Rate Start") == ["2020-05-01", "2014-07-01"]
+    assert _column(matrix, "Rate") == ["0.035", "0.0435"]
+
+
+def test_index_fund_rates_put_each_parameter_in_its_own_column():
+    matrix = sr.build_index_fund_matrix(_fund_repo(), _policy())
+    assert matrix[0] == ["Plancode", "Fund", "Held", "Rein Block", "Fund Key", "Scale", "Rate Start", "Period",
+                         "CAP", "FLOOR", "PART", "SPREAD", "Note"]
+    rows = [dict(zip(matrix[0], row)) for row in matrix[1:]]
+    assert [(r["Fund"], r["Scale"], r["Rate Start"]) for r in rows] == [
+        ("IC", "C", "2022-09-01"), ("IC", "C", "2018-12-01"), ("IC", "G", "2000-01-01"), ("IX", "", "")]
+    assert [rows[0][p] for p in ("CAP", "FLOOR", "PART", "SPREAD")] == ["0.085", "0.015", "1.00", "0.00"]
+    assert rows[1]["SPREAD"] == "" and rows[2]["CAP"] == "0.03" and rows[2]["FLOOR"] == ""
+    assert rows[3]["Note"] == "no rates loaded" and rows[0]["Note"] == ""
+    assert "Guar Months" not in matrix[0]
+
+
+def test_fund_leaves_say_when_a_policy_has_no_funds_of_that_kind():
+    repo = FakeRepo()
+    with pytest.raises(sr.RatesNotLoaded, match="No index-fund rates"):
+        sr.build_index_fund_matrix(repo, _policy())
+    with pytest.raises(sr.RatesNotLoaded, match="No fixed-fund rates"):
+        sr.build_fixed_fund_matrix(repo, _policy())
+
+
 def test_dividends_use_the_cohort_and_each_rows_scale_window():
     repo = FakeRepo()
     repo.divs = [DivAssignment("M", "N", "0", "**", "", "11E1MN", "")]
@@ -436,7 +576,7 @@ def test_schema_selection_routes_and_turns_not_loaded_into_a_message():
     selection = build_rate_selection(policy, SCHEMA_COVERAGE, 2)
     assert selection.display_title == "Rates for Coverage 2" and selection.matrix[1] == [2, 1, 2]
     assert selection.header_labels == {"C COI": "COI", "G COI": "COI"}
-    assert selection.column_groups == [("C", ["C COI"]), ("G", ["G COI"])]
+    assert selection.column_groups == [("Current", ["C COI"]), ("Guaranteed", ["G COI"])]
     selection = build_rate_selection(policy, SCHEMA_BENEFIT, 1)
     assert selection.matrix is None and selection.message == "Plancode X is not loaded"
     assert build_rate_selection(policy, SCHEMA_POLICY, 1).display_title == "Policy Level Rates"
@@ -445,7 +585,9 @@ def test_schema_selection_routes_and_turns_not_loaded_into_a_message():
 
 
 def test_raw_table_tab_shows_the_scale_band_over_rate_type_labels(qtbot):
-    from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab
+    from PyQt6.QtGui import QColor
+
+    from suiteview.polview.ui.tabs.raw_table_tab import GROUP_TINTS, RawTableTab
 
     tab = RawTableTab()
     qtbot.addWidget(tab)
@@ -455,5 +597,20 @@ def test_raw_table_tab_shows_the_scale_band_over_rate_type_labels(qtbot):
     grid = tab._normal_grid
     assert [grid.model.headerData(i, Qt.Orientation.Horizontal) for i in range(3)] == ["RateFields", "COI", "COI"]
     assert grid._column_groups == [("C", ["C COI"]), ("G", ["G COI"])]
+    assert grid._row_highlight is not None and grid._group_divider is None
+    assert grid._group_backgrounds == {"C": QColor(GROUP_TINTS[0]), "G": QColor(GROUP_TINTS[1])}
     tab.set_data(["A"], [("1",)], transposed=False)
     assert tab._normal_grid._column_groups == []
+    assert tab._normal_grid._group_backgrounds == {}
+
+
+def test_raw_table_tab_uses_one_green_e_export_button(qtbot):
+    from suiteview.polview.ui.tabs.raw_table_tab import EXCEL_GREEN, RawTableTab
+
+    tab = RawTableTab()
+    qtbot.addWidget(tab)
+    tab.show()
+    assert tab.export_btn.text() == "E" and tab.export_btn.isVisible()
+    assert EXCEL_GREEN in tab.export_btn.styleSheet()
+    for grid in (tab._normal_grid, tab._transposed_grid, tab._search_grid):
+        assert grid.export_btn.isHidden()

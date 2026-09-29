@@ -15,7 +15,8 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 
 from ..config.policy_records import POLICY_RECORD_TABLES, get_sorted_policy_records
 from ..services.rate_selection import (
-    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY, SCHEMA_SCALES, SCHEMA_SPACE,
+    SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FIXED_FUNDS, SCHEMA_INDEX_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY,
+    SCHEMA_SCALES, SCHEMA_SPACE,
 )
 from .styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_PRIMARY, BLUE_DARK,
@@ -161,7 +162,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
 
           ▶ Coverages       Cov 01 (plancode) ...          CELL, DIV, rider PLAN rates
           ▶ Benefits        Ben 01 (type+subtype) ...      benefit CELL rates
-          ▶ Policy          Policy Rates, Fund Rates, Modal Factors, Rate Space
+          ▶ Policy          Policy Rates, Fixed/Index Fund Rates, Modal Factors, Rate Space
           ▶ Legacy (dbo)    Cov/Ben leaves, Fixed Premium (ISWL/WL), Policy
         """
         self.clear()
@@ -197,11 +198,15 @@ class PolicyRecordTreeWidget(QTreeWidget):
         self._add_rate_branch("Policy", [
             (SCHEMA_POLICY, "Policy Rates", 1,
              "UL_Rates schema rates: PLAN rates of the base plancode (corridor, interest,\n"
-             "loans, ...) with its PLAN_DEF facts and PLAN_ATTR attributes."),
-            (SCHEMA_FUNDS, "Fund Rates", 1,
-             "UL_Rates schema rates: FUND rates (CIRF interest and index parameters)\n"
+             "loans, ...), the base coverage's policy charges (MFEE, premium loads)\n"
+             "and its PLAN_DEF facts and PLAN_ATTR attributes."),
+            (SCHEMA_FIXED_FUNDS, "Fixed Fund Rates", 1,
+             "UL_Rates schema rates: FUND rates (CIRF interest) of the fixed funds\n"
              "assigned to the policy's plancodes. Held = the policy has a current bucket."),
-            (SCHEMA_MODAL, "Modal Factors", 1, "UL_Rates schema rates: PLAN_MODEFACT mode factors and fees."),
+            (SCHEMA_INDEX_FUNDS, "Index Fund Rates", 1,
+             "UL_Rates schema rates: index-fund parameters (cap, floor, participation, ...)\n"
+             "one column each, one row per scale and rate start. Held = a current bucket."),
+            (SCHEMA_MODAL, "Modal Factors", 1, "UL_Rates schema rates: base plancode PLAN_MODEFACT mode factors and fees."),
             (SCHEMA_SPACE, "Rate Space", 1,
              "Every CELL assignment loaded for the policy's plancodes,\n"
              "with the coverage/benefit leaves that use it."),

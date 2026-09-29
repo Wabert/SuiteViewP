@@ -180,14 +180,20 @@ class RatesSection(RateMatrixMixin, PolicySection):
         return self._schema_matrix(build_benefit_matrix, ben_index)
 
     def build_schema_policy_matrix(self) -> List[List]:
-        """Base-plan PLAN rates, plan facts and attributes from UL_Rates schema ``rates``."""
+        """Base-plan PLAN rates, policy-level CELL charges (MFEE, premium loads), plan facts
+        and attributes from UL_Rates schema ``rates``."""
         from ..schema_rates import build_policy_matrix
         return self._schema_matrix(build_policy_matrix)
 
-    def build_schema_fund_matrix(self) -> List[List]:
-        """FUND rates of the policy's loaded plancodes from UL_Rates schema ``rates``."""
-        from ..schema_rates import build_fund_matrix
-        return self._schema_matrix(build_fund_matrix)
+    def build_schema_fixed_fund_matrix(self) -> List[List]:
+        """Fixed-fund FUND rates of the policy's loaded plancodes, one row per rate."""
+        from ..schema_rates import build_fixed_fund_matrix
+        return self._schema_matrix(build_fixed_fund_matrix)
+
+    def build_schema_index_fund_matrix(self) -> List[List]:
+        """Index-fund FUND rates of the policy's loaded plancodes, one column per parameter."""
+        from ..schema_rates import build_index_fund_matrix
+        return self._schema_matrix(build_index_fund_matrix)
 
     def build_schema_modal_matrix(self) -> List[List]:
         """PLAN_MODEFACT mode factors of the policy's loaded plancodes."""
