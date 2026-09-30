@@ -8,6 +8,8 @@ from typing import Dict, Optional
 
 from suiteview.illustration.constants import (
     LAPSE_BASIS_SURRENDER_VALUE,
+    PRODUCT_FAMILY_ISWL,
+    PRODUCT_FAMILY_UL,
     RATE_CODE_TABLE,
     SA_BASIS_CURRENT,
     SA_BASIS_ORIGINAL,
@@ -25,7 +27,11 @@ class PlancodeConfig:
 
     plancode: str = ""
     product_name: str = ""
-
+    # "UL" (UL/IUL/SGUL engine family) or "ISWL". ISWL is a fixed-premium
+    # advanced product: the premium load, policy fee and benefit/rider premiums
+    # come out of the gross premium and only the monthly COI is deducted from
+    # the account value. ISWL rates are read from UL_Rates schema ``rates``.
+    product_family: str = "UL"
     # Illustration gating — enforced ONLY in distribution builds (see
     # suiteview.core.build_env.is_distribution_build). True (default) when the
     # key is absent so existing plancodes keep illustrating.
@@ -159,6 +165,11 @@ class PlancodeConfig:
         """RERUN sblnFFL = (sCompanySub = "FFL")."""
         return self.company_sub == "FFL"
 
+    @property
+    def is_iswl(self) -> bool:
+        """Interest Sensitive Whole Life (fixed premium, schema ``rates``)."""
+        return self.product_family == PRODUCT_FAMILY_ISWL
+
 
 def _load_plancode_table() -> Dict[str, dict]:
     global _TABLE_CACHE
@@ -200,6 +211,13 @@ class MissingPlancodeError(KeyError):
     """The plan has no illustration configuration, rather than a malformed row."""
 
 
+def _product_family(plancode: str, value) -> str:
+    family = str(value or "").strip().upper()
+    if family not in (PRODUCT_FAMILY_UL, PRODUCT_FAMILY_ISWL):
+        raise ValueError(f"{plancode}: invalid ProductFamily {value!r}")
+    return family
+
+
 def load_plancode(plancode: str) -> PlancodeConfig:
     """Load plancode configuration from the plancode table JSON file.
 
@@ -225,6 +243,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
     config = PlancodeConfig(
         plancode=plancode,
         product_name=data.get("ProductName", ""),
+        product_family=_product_family(plancode, data.get("ProductFamily", PRODUCT_FAMILY_UL)),
         can_illustrate=bool(data.get("CanIllustrate", True)),
         cint_key=data.get("CINT_Key", ""),
         int_calc_method=data.get("IntCalcMethod", "Declared"),

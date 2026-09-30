@@ -62,6 +62,10 @@ class LoansSection(PolicySection):
             principal = Decimal(str(row.get("LN_PRI_AMT", 0) or 0))
             if principal <= 0:
                 continue
+            # Traditional loan rows dated at an anniversary are history snapshots;
+            # only the MVRY_DT 12/31/9999 row is the current loan.
+            if table_name == "LH_CSH_VAL_LOAN" and "9999" not in str(row.get("MVRY_DT", "9999")):
+                continue
             rows.append(row)
         return rows
 
@@ -238,6 +242,11 @@ class LoansSection(PolicySection):
         """Fixed (regular) loan interest charge rate (LH_BAS_POL.LN_PLN_ITS_RT)."""
         val = self._field("loan_interest_rate")
         return Decimal(str(val)) if val is not None else None
+
+    @property
+    def loan_type_code(self) -> str:
+        """Policy loan interest type (LH_BAS_POL.LN_TYP_CD): 0/1 advance/arrears fixed, 6/7 variable."""
+        return str(self._field("loan_type_code") or "").strip()
 
     @property
     def preferred_loan_interest_rate(self) -> Optional[Decimal]:

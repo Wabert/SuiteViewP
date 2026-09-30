@@ -166,7 +166,8 @@ def test_registered_segments_follow_the_shared_policy_record_mapping():
 ])
 def test_right_click_copy_keeps_exact_plain_value(app, monkeypatch, value, field, options):
     def copy_action(menu, position):
-        assert [action.text() for action in menu.actions()] == ["Copy"]
+        expected = ["Copy", "Copy Tip Contents"] if field else ["Copy"]
+        assert [action.text() for action in menu.actions()] == expected
         return menu.actions()[0]
 
     monkeypatch.setattr(QMenu, "exec", copy_action)

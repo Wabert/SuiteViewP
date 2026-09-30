@@ -1,11 +1,14 @@
 """Premium application — Stage 1 of the monthly pipeline.
 
-Follows RERUN CalcEngine cols 367-403.
+Follows RERUN CalcEngine cols 367-403. ISWL plancodes split a fixed premium
+instead (``_apply_iswl_premium``; rules in ``iswl_rates``).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
+from suiteview.illustration.core.iswl_rates import split_iswl_premium
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -32,6 +35,10 @@ class PremiumResult:
     premiums_ytd: float = 0.0
     premiums_to_date: float = 0.0
     cost_basis: float = 0.0
+    # ISWL: the policy fee and benefit/rider premiums that come out of the gross
+    # premium (target_load carries the rule-4 premium load). Zero for UL plans.
+    policy_fee: float = 0.0
+    benefit_premium: float = 0.0
 
 
 def apply_premium(
@@ -45,6 +52,7 @@ def apply_premium(
     cost_basis: float,
     gross_premium_override: float | None = None,
     premium_cap: float | None = None,
+    projection_date: date | None = None,
 ) -> PremiumResult:
     """Apply one month's premium to account value.
 
@@ -61,6 +69,8 @@ def apply_premium(
         premium_cap: Guideline/TAMRA acceptance cap. The applied gross premium is
             limited to this amount (CalcEngine vAppliedScheduledPremium). None =
             no cap.
+        projection_date: The month's date. ISWL needs it to drop ceased benefit
+            and rider premiums from the bill.
 
     Returns:
         PremiumResult with all premium-stage outputs.
@@ -72,6 +82,13 @@ def apply_premium(
     if premium_cap is not None:
         gross_premium = max(0.0, min(requested_premium, premium_cap))
     premium_capped = gross_premium < requested_premium - 1e-9
+
+    if config.is_iswl:
+        return _apply_iswl_premium(
+            av_beginning, policy, rates, rate_year, premiums_ytd, premiums_to_date, cost_basis,
+            requested_premium=requested_premium, gross_requested=gross_premium,
+            cap_display=cap_display, premium_capped=premium_capped, projection_date=projection_date,
+        )
 
     # Load rates (PolicyRates AW/AX) — resolved every month, independent of
     # whether a premium is applied, so the Values tab can always display them.
@@ -153,3 +170,58 @@ def apply_premium(
         premiums_to_date=new_premiums_to_date,
         cost_basis=new_cost_basis,
     )
+
+
+def _apply_iswl_premium(
+    av_beginning: float,
+    policy: IllustrationPolicyData,
+    rates: IllustrationRates,
+    rate_year: int,
+    premiums_ytd: float,
+    premiums_to_date: float,
+    cost_basis: float,
+    *,
+    requested_premium: float,
+    gross_requested: float,
+    cap_display: float,
+    premium_capped: bool,
+    projection_date: date | None,
+) -> PremiumResult:
+    """ISWL fixed premium: whole billed payments; only the rule-4 net is credited.
+
+    The premium load, policy fee and benefit/rider premiums stay out of the account
+    value (``iswl_rates`` documents the verified CyberLife rules).
+    """
+    basis = rates.iswl
+    if basis is None:
+        raise ValueError("ISWL premium needs the ISWL rate basis from schema rates.")
+    load_pct = _iswl_load(basis, rate_year)
+    if premium_capped and gross_requested > 0.0:
+        raise ValueError(
+            f"ISWL is a fixed-premium plan: the guideline/TAMRA premium limit reduced the "
+            f"billed premium from {requested_premium:,.2f} to {gross_requested:,.2f}. "
+            "Partial ISWL premiums are not supported.")
+    split = split_iswl_premium(
+        basis, gross_requested, float(policy.modal_premium or 0.0), rate_year, projection_date)
+    return PremiumResult(
+        gross_premium=split.gross_premium,
+        requested_premium=requested_premium,
+        premium_cap=cap_display,
+        premium_capped=premium_capped,
+        tpp_rate=load_pct,
+        target_load=split.premium_load,
+        total_premium_load=round(split.gross_premium - split.net_premium, 2),
+        net_premium=split.net_premium,
+        av_after_premium=av_beginning + split.net_premium,
+        premiums_ytd=premiums_ytd + split.gross_premium,
+        premiums_to_date=premiums_to_date + split.gross_premium,
+        cost_basis=cost_basis + split.gross_premium,
+        policy_fee=split.policy_fee,
+        benefit_premium=split.benefit_premium,
+    )
+
+
+def _iswl_load(basis, rate_year: int) -> float:
+    schedule = basis.load_pct
+    index = min(max(int(rate_year), 1), len(schedule) - 1)
+    return float(schedule[index])

@@ -647,7 +647,7 @@ def test_reinsurance_is_detached_explicit_and_retries(source, monkeypatch, qtbot
 
 def _projection_basis(**overrides):
     """Minimal projection-basis double for the Account Values calculations."""
-    segment = SimpleNamespace(coverage_phase=1)
+    segment = SimpleNamespace(coverage_phase=1, units=200.0, original_face_amount=250000.0)
     values = dict(
         plancode="SYNTH", base_segment=segment, segments=[segment],
         valuation_date=date(2026, 9, 15), issue_date=date(2020, 1, 15), duration=81,
@@ -682,14 +682,23 @@ def test_surrender_uses_scoped_policy_and_canonical_engine(source, monkeypatch):
         ):
             assert loaded is basis and months == 0 and rates_override is rates
             observed.append("project")
-            return [SimpleNamespace(surrender_charge=100, surrender_value=75)]
+            return [SimpleNamespace(
+                surrender_charge=100, surrender_value=75, policy_debt=25,
+                scr_rates_by_coverage={"cov1": 0.5},
+                surrender_charges_by_coverage={"cov1": 100},
+            )]
 
     monkeypatch.setattr(illustration_api, "build_illustration_data", build)
     monkeypatch.setattr(illustration, "IllustrationEngine", Engine)
-    monkeypatch.setattr(plancode_config, "load_plancode", lambda code: object())
+    monkeypatch.setattr(
+        plancode_config, "load_plancode", lambda code: SimpleNamespace(sa_basis="CurrentSA"))
     monkeypatch.setattr(rate_loader, "load_rates", lambda *args: rates)
     prepared = session.prepare("advprod")
-    assert prepared.payload.surrender == prefetch.SurrenderValues(100, 75)
+    assert prepared.payload.surrender == prefetch.SurrenderValues(
+        surrender_charge=100, surrender_value=75, account_value=200.0, policy_debt=25,
+        as_of=date(2026, 9, 15), original_units_basis=False,
+        coverages=(prefetch.SurrenderChargeCoverage(1, 200.0, 0.5, 100),),
+    )
     interim = prepared.payload.interim
     assert interim.quote_date == date(2026, 9, 15)
     assert interim.account_value == 200.0 and interim.premiums == ()
@@ -743,11 +752,29 @@ def test_missing_illustration_plan_keeps_advanced_policy_values_available(source
         )
         with prepared.policy.cached_reads_only():
             tab.load_data_from_policy(prepared.policy, prefetch.AccountValueCalculations(
-                prefetch.SurrenderValues(0, 200), interim))
-        assert tab.policy_info._fields["surrender_charge"].text() == "0.00"
-        assert tab.policy_info._fields["surrender_value"].text() == "200.00"
+                prefetch.SurrenderValues(
+                    surrender_charge=1500.0, surrender_value=-1325.0, account_value=200.0,
+                    policy_debt=25.0, as_of=date(2026, 9, 15), original_units_basis=False,
+                    coverages=(
+                        prefetch.SurrenderChargeCoverage(1, 100.0, 12.5, 1250.0),
+                        prefetch.SurrenderChargeCoverage(2, 20.0, 12.5, 250.0),
+                    ),
+                ),
+                interim))
+        assert tab.policy_info._fields["surrender_charge"].text() == "1,500.00"
+        assert tab.policy_info._fields["surrender_value"].text() == "-1,325.00"
         assert tab.surrender_notice.isHidden()
-        assert tab.policy_info._fields["surrender_value"].toolTip() == ""
+        charge_tip = tab.policy_info._fields["surrender_charge"].toolTip()
+        assert "as of 9/15/2026" in charge_tip
+        assert "Cov 1: 12.5 x 100 units = 1,250.00" in charge_tip
+        assert "Cov 2: 12.5 x 20 units = 250.00" in charge_tip
+        assert charge_tip.endswith("= 1,500.00")
+        assert tab.policy_info._fields["surrender_value"].toolTip().splitlines()[1:] == [
+            "  Account Value: 200.00",
+            "- Surrender Charge: 1,500.00",
+            "- Policy Debt: 25.00",
+            "= -1,325.00",
+        ]
         interim_field = tab.policy_info._fields["interim_av_quote"]
         assert tab.policy_info._labels["interim_av_quote"].text() == (
             "Interim AV Quote (09/28/2026):")
@@ -1053,7 +1080,9 @@ def test_stage_manifest_renders_without_database_reads(source, monkeypatch, qtbo
     monkeypatch.setattr(
         prefetch.PolicyLoadSession, "_account_value_calculations",
         lambda self: prefetch.AccountValueCalculations(
-            prefetch.SurrenderValues(10, 190),
+            prefetch.SurrenderValues(
+                surrender_charge=10, surrender_value=190, account_value=200.0, policy_debt=0.0,
+                as_of=None, original_units_basis=False, coverages=()),
             prefetch.InterimAccountValueUnavailable("not calculated in this test")),
     )
     session = prefetch.PolicyLoadSession("TEST")

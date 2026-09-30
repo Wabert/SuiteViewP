@@ -10,13 +10,13 @@ argument) and write JSON to stdout.
 |---|---|
 | `office/` | Generic workbook/CSV/doc/PDF utilities (`dump_xlsx_*`, `compare_workbook_*`, `read_xls`, `extract_docx`, `render_pdf_page`, …) — **check here before writing a new file utility** |
 | `localdev/` | Local SQLite dev-data pipeline (`create_local_dev_data`, `export_local_*`, `check_local_*`, `query_local_sqlite`, …) — see `docs/LOCAL_DEV_DATA.md` |
-| `rerun/` | RERUN workbook COM bridge + engine comparison (`rerun_com`, `compare_rerun_vs_app`, `compare_case`, saved-case dumps, `build_test_matrix`) — workbooks live in the work-laptop archive |
+| `rerun/` | RERUN workbook COM bridge + engine comparison (`rerun_com`, `compare_rerun_vs_app`, `compare_case`, saved-case dumps, `build_test_matrix`) — workbooks live in the work-laptop archive; ISWL live checks (`verify_iswl_rollforward`, `run_iswl_illustration`, `build_iswl_plancode_rows`, `find_iswl_policies`, `sample_iswl_receipts`, `probe_iswl_history`); par whole life (`verify_parwl_inforce`, `run_parwl_illustration`, `find_parwl_policies`, `build_cyberlife_mortality`); indeterminate premium term (`verify_term_inforce`, `run_term_illustration`, `find_term_policies`) |
 | `engine/` | Illustration engine verification harnesses (`check_guideline_*`, `check_target_premium`, ratchet/benefit checks, `drive_illustration_app`) |
 | `glp/` | The GLP forecast batch pipeline (policy list → fetch AV/debt → append columns → batch run → report) |
 | `rates/` | UL_Rates / SV_INDEX / rate-workup tooling (`query_ul_rates`, `run_rate_workup`, `create_sv_index_*`, `verify_sv_index_*`, mortality loader) |
 | `policyrecord/` | CyberDoc / policy-record segment screens (`build_seg*`, `probe_segment*`, `gen_seg02_fields`, `build_cyberdoc_index`) |
 | `audit/` | Audit / File Sources / source-dashboard UI harnesses and data migrations |
-| `app/` | App-level dev UX (`take_screenshot`, `sandbox_suiteview`, `check_imports`, `generate_testing_plan`, `create_taskbar_shortcut`) |
+| `app/` | App-level dev UX (`take_screenshot`, `sandbox_suiteview`, `check_imports`, `generate_testing_plan`, `create_taskbar_shortcut`; live window checks `verify_rerun_joint_window`, `verify_rerun_parwl_window`, `verify_rerun_term_window`) |
 
 Intra-folder imports (e.g. `compare_case` ← `calc_compare_map`,
 `rerun_*` ← `rerun_com`) rely on scripts living in the **same** folder — keep

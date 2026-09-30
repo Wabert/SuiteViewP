@@ -57,6 +57,7 @@ def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
     prem_pay_years = ""
     max_annual = None
     min_qual_glp = None
+    calc_inputs = None
     gpt_cvat = policy.product.gpt_cvat
 
     if gpt_cvat in ("GP", "GPT"):
@@ -75,6 +76,16 @@ def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
                     accum_glp_at_mat = float(glp_val) * prem_pay_yrs + float(accum_glp_val)
                     premium_td_f = float(policy.billing.premium_td)
                     accum_wds_f = float(policy.values.total_withdrawals)
+                    calc_inputs = {
+                        "maturity_age": ins_def_mat_age,
+                        "attained_age": att_age,
+                        "prem_pay_years": prem_pay_yrs,
+                        "glp": float(glp_val),
+                        "accum_glp": float(accum_glp_val),
+                        "accum_glp_at_maturity": accum_glp_at_mat,
+                        "premium_td": premium_td_f,
+                        "withdrawals": accum_wds_f,
+                    }
                     if prem_pay_yrs > 0:
                         max_annual = (accum_glp_at_mat - (premium_td_f - accum_wds_f)) / prem_pay_yrs
                         min_qual = -(float(accum_glp_val) - (premium_td_f - accum_wds_f)) / prem_pay_yrs
@@ -96,20 +107,28 @@ def _doli_data(policy, is_advanced: bool) -> dict[str, Any]:
         "prem_pay_years": prem_pay_years,
         "max_annual_level_qual_prem": max_annual,
         "min_qualifying_glp": min_qual_glp,
+        "calc_inputs": calc_inputs,
         "base_nsp": policy.targets.nsp_base,
         "other_nsp": policy.targets.nsp_other,
     }
 
 
 def _prem_allowed_gpt(policy, is_advanced: bool):
+    """``(value, inputs)``: remaining GPT premium room, or ``("N/A", None)``."""
     is_cvat = (not is_advanced) or str(policy.product.gpt_cvat).upper() not in ("GP", "GPT")
     if is_cvat:
-        return "N/A"
+        return "N/A", None
     try:
-        guideline_limit = max(float(policy.targets.gsp or 0), float(policy.targets.accumulated_glp_target or 0))
-        return max(0.0, guideline_limit - float(policy.billing.premium_td or 0) + float(policy.values.total_withdrawals or 0))
+        inputs = {
+            "gsp": float(policy.targets.gsp or 0),
+            "accum_glp": float(policy.targets.accumulated_glp_target or 0),
+            "premium_td": float(policy.billing.premium_td or 0),
+            "withdrawals": float(policy.values.total_withdrawals or 0),
+        }
     except Exception:
-        return "N/A"
+        return "N/A", None
+    guideline_limit = max(inputs["gsp"], inputs["accum_glp"])
+    return max(0.0, guideline_limit - inputs["premium_td"] + inputs["withdrawals"]), inputs
 
 
 def build_targets_view_model(policy) -> TargetsViewModel:
@@ -124,6 +143,7 @@ def build_targets_view_model(policy) -> TargetsViewModel:
     tamra_per_rows = policy.fetch_table("LH_TAMRA_7_PY_PER")
     com_targets = policy.fetch_table("LH_COM_TARGET")
     pol_targets = policy.fetch_table("LH_POL_TARGET")
+    prem_allowed, prem_allowed_inputs = _prem_allowed_gpt(policy, is_advanced)
     return TargetsViewModel(
         doli_data=_doli_data(policy, is_advanced),
         accum_data={
@@ -133,7 +153,8 @@ def build_targets_view_model(policy) -> TargetsViewModel:
             "prem_ytd": prem_ytd,
             "cost_basis": cost_basis_val,
             "accum_wds": accum_wds_val,
-            "prem_allowed_gpt": _prem_allowed_gpt(policy, is_advanced),
+            "prem_allowed_gpt": prem_allowed,
+            "prem_allowed_gpt_inputs": prem_allowed_inputs,
             "gcv": guaranteed_cash_value(policy),
         },
         tamra_period=tamra_per_rows[0] if tamra_per_rows else {},

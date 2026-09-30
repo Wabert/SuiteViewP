@@ -34,9 +34,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class SurrenderChargeCoverage:
+    """One coverage's share of the calculated surrender charge."""
+
+    coverage_phase: int
+    units: float
+    rate: float
+    charge: float
+
+
+@dataclass(frozen=True)
 class SurrenderValues:
+    """Engine surrender charge/value with the inputs that explain them."""
+
     surrender_charge: float
     surrender_value: float
+    account_value: float
+    policy_debt: float
+    as_of: date | None
+    original_units_basis: bool
+    coverages: tuple[SurrenderChargeCoverage, ...]
 
 
 @dataclass(frozen=True)
@@ -147,6 +164,32 @@ def _read_policy_path(policy, path):
     for part in path.split("."):
         value = getattr(value, part)
     return value
+
+
+def _surrender_values(basis, config, state) -> SurrenderValues:
+    """Engine inforce surrender values plus the per-coverage inputs behind them."""
+    from suiteview.illustration.constants import SA_BASIS_ORIGINAL
+    from suiteview.illustration.core.calc_engine import surrender_charge_units
+
+    segments = [s for s in (basis.segments or [basis.base_segment]) if s is not None]
+    coverages = tuple(
+        SurrenderChargeCoverage(
+            coverage_phase=segment.coverage_phase,
+            units=surrender_charge_units(segment, config),
+            rate=state.scr_rates_by_coverage.get(f"cov{index}", 0.0),
+            charge=state.surrender_charges_by_coverage.get(f"cov{index}", 0.0),
+        )
+        for index, segment in enumerate(segments, start=1)
+    )
+    return SurrenderValues(
+        surrender_charge=state.surrender_charge,
+        surrender_value=state.surrender_value,
+        account_value=float(basis.account_value),
+        policy_debt=state.policy_debt,
+        as_of=basis.valuation_date,
+        original_units_basis=config.sa_basis == SA_BASIS_ORIGINAL,
+        coverages=coverages,
+    )
 
 
 def _open_connection(region):
@@ -454,10 +497,7 @@ class PolicyLoadSession:
             engine=IllustrationEngine()).states
         if not results:
             raise RuntimeError("Surrender calculation returned no inforce values")
-        return AccountValueCalculations(
-            SurrenderValues(results[0].surrender_charge, results[0].surrender_value),
-            interim,
-        )
+        return AccountValueCalculations(_surrender_values(basis, config, results[0]), interim)
 
     def _reinsurance(self):
         from suiteview.core.reinsurance import fetch_tai_cession

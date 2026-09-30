@@ -172,6 +172,47 @@ UFF90022 --company 26 --date 2027-01-04 --face 100000` verifies a hypothetical
 decrease: annual MTP and 4M amount become $610.31, and its charge becomes $1.10
 instead of $1.64. Tests: `tests/test_illustration_pwot_coi_basis.py`.
 
+**FFL waivers are re-derived on a change.** When a policy change or a
+withdrawal's face decrease recomputes the targets on an FFL plan, every active
+type-4 waiver gets units = TRUNC(12 x TRUNC(monthly MTP, 2) / VPU, 3) and the
+matching amount, as CyberLife does; RERUN keeps the recorded `vPWST_Units`.
+This drives basis-1 charges (units x rate) and the guideline after-basis.
+Non-FFL waivers keep their recorded units, because their target is built
+from them. Verified on live CKMO face decreases of 2026-09 (company 26):
+000335000, 000336209 and 000341289 reproduce admin's 4M units
+(11.508 / 9.746 / 14.600), MTP and CTP exactly, and 000336209's post-decrease
+monthly deduction (13.17). Type-3 PWoC charges and COI already matched.
+
+Open items from that comparison (not changed):
+- NU1F3 plans: admin's MT for 000292112 reconciles with the **CTP** rate
+  table (73.12 before, 58.31 after), not `Select_RATE_MTP`. In a 30-policy
+  NU1F3 sample, 9 matched CTP, 6 matched MTP and 15 matched neither, so the
+  product rule needs business confirmation.
+- `1U14L200` UL_Rates data: every CTP and TBL1 row is 0 and the MTP rows are
+  about 2.4x admin (000336960; 0 of 33 in-force match). Admin's MT and CT
+  both use one rate, as on sibling `1U14L100/300/400`. `1U1F4N00`'s zero CTP
+  rows are only at issue ages 0-15/19, where admin also has no base target.
+- 2026-09-29 UL_Rates target survey (live CKPR, up to 6 policies per in-force
+  advanced plancode, plus larger samples for suspect plans):
+  - `1U146700` shares `1U146600`'s `Index(TRGPREM)`. In all 66 sampled
+    policies admin is about 12% above it for MTP and 8% above for CTP;
+    `1U146600` matches exactly with the same benefits.
+  - `1U147200` has no `RATE_BANDSPECS` rows. `get_band` returns None and
+    the loader falls back to band 1, so policies with a face amount of at
+    least 100,000 use band-1 rates. That affects 30 of 65 sampled targets
+    and probably COI too.
+  - `NU1L2A00/2B00/2C00`, `NU1LA100/AB00/AC00/AD00/AL00` (and `NB1LM100/200`)
+    have `BANDSPECS` but no `POINT_PVSRB`/rate rows. `get_mtp()/get_ctp() or 0.0`
+    therefore turns admin's CTP into a silent zero.
+  - NU1F1/NU1F2/NU1FU plans have MTP rates but admin carries MT = 0.
+    `1U135300`/`1U135E00` (+5.83/month) and `1U132100` (+2.00/month) differ
+    from admin MT by a flat amount, while CTP matches exactly. That points to
+    a formula difference, not a table error. Zero MTP rows on older 1S/1A plans,
+    and the all-zero VUL/other rows, match admin's zero targets.
+- Guideline recalc: after the decreases, the engine's GLP/GSP are 16-30 and
+  310-510 below admin. Admin falls between after-solves that use the new and old
+  MTP for the PWoC guideline charge.
+
 GLP/GSP/7-pay monthly bases and their Before/After PV detail use the same
 `target_waiver_charge()` helper as monthly deductions for PWoT basis 2/3.
 Use each side's annual MTP/CTP and the base coverage's active table rating;
@@ -692,3 +733,318 @@ Tests: `tests/test_illustration_joint_survivor.py`,
 `tools/rates/verify_rerun_joint_survivor.py '{}'`,
 `tools/rates/exercise_rerun_joint_features.py` and
 `tools/app/verify_rerun_joint_window.py`.
+
+## RERUN Interest Sensitive Whole Life (ISWL)
+
+ISWL (CyberLife advanced product line `I`; `PlancodeConfig.product_family =
+"ISWL"`, `plancode_table.json` `ProductFamily`) is illustrated in force with the
+UL account-value mechanics (Robert Haessly, 9/29/2026). The fixed premium's
+load, policy fee and benefit/rider premiums come out of the **gross premium**;
+only the net goes into the account. The monthly deduction is the base COI only.
+Rules are in `illustration/core/iswl_rates.py`:
+
+- **Rates** come from UL_Rates schema `rates` only, never the dbo views
+  (`rate_loader.load_rates` routes ISWL to `load_iswl_rates`; cells via PolView's
+  `schema_rates` lookup). COI is the IAF annual rate per $1,000 / 12 (calendar
+  windows by policy year), unrated: table ratings and flat extras are in the
+  fixed premium (CyberDoc B10 makes substandard COI optional). NAR discounts at
+  GINT (`DBD`). No MFEE, EPU, bands, UL targets (MTP/CTP) or benefit/rider COI.
+- **Net premium** (CyberDoc D10 premium load rule 4, the only rule accepted):
+  per billed payment `round(units x round((1 - PREMLOAD_PCT) x premium per unit, 2)
+  x months/12, 2)`, using the coverage's stored `ANN_PRM_UNT_AMT` (schema `PREM`
+  is the cross-check; a difference is noted). It ignores mode factors, fee and
+  benefits.
+- **Gross premium** is the billed `POL_PRM_AMT`, less each benefit/rider's modal
+  premium (stored per-unit premium x units x `PLAN_MODEFACT` factor) from its
+  cease date, as in B10's sample (1,557 -> 1,512 -> 1,362). A requested premium
+  must be a whole number of billed premiums; partial, excess or guideline-capped
+  premiums raise. With no schedule the premium bills in billing months only.
+- **Guaranteed cash value**: the surrender value is `max(AV - surrender charge,
+  guaranteed CV) - debt`, with the schema `CV` per unit interpolated monthly
+  (`MonthlyState.guaranteed_cash_value`); the endowment value per unit is used
+  at maturity. The COI never takes the AV below zero, so a premium-paying ISWL
+  stays in force on its guaranteed values (B10 p. 402).
+- **Current interest** is the schema declared fixed-fund rate (`CINT_NEW`/
+  `CINT_ROLL`) on the illustration date, floored at GINT; for plans with none
+  loaded, the rate credited to the current fund buckets
+  (`LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT`, value-weighted if they differ). The
+  source is `IllustrationPolicyData.current_interest_rate_source`.
+- **Guaranteed side** keeps the billed premium and locks the requested billed
+  payments (`lock_values(..., iswl=True)`).
+- **Not supported (loud errors)**: CVAT ISWL (80136200's NSP corridor), more
+  than one base phase, limited-pay, premium load rules other than `400`, unknown
+  bill forms, schema facts that disagree with the plancode row, and missing
+  schema rates. Nonforfeiture (ETI/RPU/APL) after stopped premiums is not
+  modelled. CyberLife's per-premium interest buckets are credited as one account.
+
+Plancode rows are generated from schema `PLAN_DEF` and plan rates by
+`tools/rerun/build_iswl_plancode_rows.py`; the loader re-validates maturity,
+premium cease age, GINT/DBD and loan rates at run time. All 28 in-force ISWL
+plancodes have rows (`CanIllustrate` true: only IUL is blocked). Reconciled to
+CyberLife: 81335200, 81335100, 80334900, 80335000 (CEIL88) and 81335600,
+81335500, 80335400, 80335300 (CEIL97). The other 20 stop at rate loading with the
+exact missing item until schema `rates` loads it:
+- `SCR` cells for rule-50 surrender charges: 80333729, 80333829, 80334729,
+  80334829, 81333529, 81333629, 81334529, 81334629, 80110429 and 81110229.
+- COI past age 100 for 80110529 and 81110329, which mature at 103.
+- `PLAN_MODEFACT` rows for the 56070 series (FN2VN*/MN2VN*), which have no
+  surrender charge.
+- The CVAT corridor for 80136200 (also missing its F/N `CV` cells).
+
+**Verification** (live, read-only): `tools/rerun/verify_iswl_rollforward.py`
+restarts each of the last six months from CyberLife's recorded AV
+(`LH_POL_MVRY_VAL`), feeds the processed PR receipts as whole payments and
+compares the net premium, COI, interest and AV. On 9/29/2026, 93 sampled
+in-force policies across all 28 plancodes gave 32 runnable policies (nine
+plancodes, every billing mode and form). All 190 checked months passed: net
+premium and COI to the cent, AV within $0.10 after the receipt-date interest
+stub. The remaining cents are CyberLife rounding each bucket's interest; the
+six-month drift is at most $0.47 where no month was excluded. Months with loans,
+surrenders or premiums paid from the AV (`SA`/`PQ`) are excluded and listed.
+13034048 is a record anomaly: its record shows issue age 32 and 25.982 units,
+but CyberLife charges the issue-age-33 COI (67-segment C rate 8.72) on a
+$25,000 NAR and credits a 25-unit, 11.76 net. The check reports it.
+`tools/rerun/run_iswl_illustration.py <policy>` runs Run Values end to end and
+prints the B10-style ledger. Supporting read-only probes: `find_iswl_policies.py`,
+`sample_iswl_receipts.py`, `probe_iswl_history.py`, `probe_rerun_load.py`,
+`count_iswl_riders.py` (tools/rerun) and `tools/rates/inspect_schema_plan.py`.
+Tests: `tests/test_illustration_iswl.py`.
+
+## RERUN participating whole life (par WL)
+
+A traditional policy whose base coverage participates in dividends
+(`is_par_whole_life`: not an advanced product, `DIV_PTP_TYP_CD` not blank/0) opens
+in RERUN's **par WL workspace** instead of the UL/ISWL tabs (Robert Haessly,
+9/29/2026): **Policy** (the in-force snapshot), **Illustration Inputs** (a par WL
+input screen), **Values** (monthly debug pages), **Report** (the illustration pages,
+printed to a landscape PDF) and
+**In-force Check** (CyberLife's current values against SuiteView's). Run Values
+projects monthly from the valuation date; the ledger is annual. Code:
+`suiteview/illustration/core/parwl/` (engine, rates, NSP, premiums, loader, checks),
+`models/parwl.py` and `ui/parwl_*.py`. NY blended insurance riders (product line B)
+and policies on extended term (status 44) are refused with an explanation; saved
+cases are not available for par WL yet.
+
+**Data** comes through PolicyInformation. The dividends section reads the real
+segment 14/15/13/19 columns (`LH_PAID_UP_ADD.PUA_AMT`, `LH_ONE_YR_TRM_ADD.OYT_ADD_AMT`,
+`LH_PTP_ON_DEP.PTP_DEP_AMT`, `LH_APPLIED_PTP`/`LH_UNAPPLIED_PTP` per-unit `CSH_AMT`/
+`PUA_AMT`/`OYT_AMT`, `PUA_UNT_QTY`, `DIR_RCG_DIV_IND`); rows dated 12/31/9999 are
+current, rows dated at an anniversary with `ANV_PRC_CRN_IND` 1 are the values going
+into it. Month-year numbers count months from January 1900. Coverages add
+`traditional_facts` (pay-up date, dividend key = class + base series + sub-series,
+NSP basis, stored `LOW_DUR_*` values, cease reason), substandard ratings add the
+annual extra premium per unit (`SST_XTR_UNT_AMT`), trad loans add the advance /
+arrears code and interest paid-to date, and `LoansSection.get_loans` now counts only
+the current `LH_CSH_VAL_LOAN` row (anniversary rows are history).
+
+**Rates** come from UL_Rates schema `rates` only: `CV` (scale G, sub-series cells),
+`PREM` (cross-check), the dividend structure (`D`/`R` records, or `L`/`P` when the
+placed values carry `DIR_RCG_DIV_IND`; the coverage's own dividend key when schema
+rates holds it, e.g. converted 14456194), `PUI` for PUA riders, `LOAN_REG_CHG` and
+`RATE_MODEFACT`. Term riders need no rates. PUA/RPU net single premiums are calculated
+from the bundled CyberLife mortality tables (`plancodes/cyberlife_mortality.json`,
+built from `Mortality Tables (Cyberlife).xlsx` by `tools/rerun/build_cyberlife_mortality.py`):
+curtate whole life to the table's last age, times `i / ln(1 + i)` for age-last-birthday
+tables.
+
+**Rules reproduced from the record** (each is a test in `tests/test_illustration_parwl.py`):
+
+- Modal premium: each coverage's premium plus its benefits modalized together, each
+  substandard extra on its own, plus `round(fee x fee factor, 2)`. `MULTIPLY_ORDER` 2
+  modalizes the per-unit rate first (`round(units x round(rate x factor, 2), 2)`).
+  `POLICY_FEE_RULE` Z (B711E100, B111A100) adds the annual fee to the annual premiums
+  and rounds once (`round((premiums + extras + fee) x factor, 2)`; the cent this moves
+  shows as rounding). Bill forms H and F use the PAC factors; the fee band is chosen by
+  base units. The billed premium is compared as of the valuation date (a rider expiring
+  at the paid-to date is still billed). A billed premium that still differs (a forced
+  premium) is kept, the difference carried with the base.
+- Dividends at the anniversary ending policy year `t`: `round(units x rate(t), 2)` on the
+  coverage and `round(round(additions / 1000, 3) x PUA rate, 2)` on its additions held
+  going in; the PUA/OYT face per $1,000 of additions is
+  `trunc4(PUA cash x trunc7(base PUA / base cash))` (the base value when the additions
+  earn the base rate). A PUA rider's premium-bought additions earn as units; whether
+  its dividend additions earn on that day's purchase is read from the record (NY riders
+  NB1PU300/NB1PUA00 do, 08129700/08129800 do not). No dividend at maturity. The base
+  coverage earns its dividend only while its premiums are paid to the anniversary, once
+  it is paid up or on reduced paid-up (status 41 14762446, paid to 2023, was paid only its
+  additions' dividend).
+- Options: 1 cash, 2 premium reduction (applied to the next premiums, the rest to the
+  secondary option), 3 deposit (interest `round(balance x rate, 2)` credited before
+  the new dividend), 4 paid-up additions, 5/6/7 OYT (6: the total OYT is limited to the
+  base coverage's next-anniversary cash value, the additions' OYT bought first, the
+  coverage's unused dividend to the secondary option), 8 loan reduction. The NY PUA
+  riders' dividends always buy additions (CyberLife applies them as option 4 under
+  options 2 and 6); 08129700 follows the policy's option. Read from the rider's applied
+  dividends.
+- Values on a monthliversary `k` months into a year: base cash value
+  `units x round((CV(t-1) x (12 - k) + CV(t) x k) / 12, 2)`, additions
+  `round(additions / 1000 x (NSP(x) x (12 - k) + NSP(x+1) x k) / 12, 2)` (the 62Q1 quote).
+  Reduced paid-up coverages are valued at their NSP basis.
+- Loans: in advance, `principal / (1 - r)` at each anniversary, the unearned part
+  refunded in the payoff; in arrears, `principal x r` accrued monthly and capitalized.
+- Reduced paid-up: premiums stop and the net value (base, additions and deposits with
+  NFO codes 3-5, less the loan payoff) buys `net / NSP` units; dividends switch to
+  the RPU record. A paid-up status (e.g. 41) whose placed base dividend carries
+  `RPU_VAL_IND` is reduced paid-up too (8O1C1000 12197587/12197588: fractional units,
+  stored RPU NSPs, paid on the P record); kept PUA rider additions still earn.
+
+**Policy** page (RERUN purple, sized to its content): the policy facts, the coverages
+table in PolView's columns (phase, form, plancode, type, dates, amount, units, issue age,
+gender, class, table rating) plus the par WL premium per unit, annual premium, dividend
+key and NSP basis, and the supplemental benefits as form-number buttons that open the
+same Benefit Detail card as RERUN's UL Policy tab (`policy_tab.show_detail_dialog`).
+
+**Inputs**: current dividend scale on/off; dividend option, secondary option and dated
+option changes; deposit interest; convert to reduced paid-up at a policy year or date;
+new loans and repayments; pay loan interest in cash; PUA rider payments (bought at PUI
+rates; greyed when the rider has ceased); illustrate to age. Transactions are entered
+as a policy year (its anniversary) or a monthliversary date. The guaranteed columns
+are a second run with no dividends. **Values** pages: Summary, Premiums, Dividends,
+Paid-Up Additions, Cash Value, Loans, Deposits & OYT, Death Benefit, with a Current /
+Guaranteed switch and an Anniversaries-only filter. Each anniversary's dividend buys
+the next year's OYT as the previous year's expires.
+
+**Report** (Robert Haessly, 9/29/2026: "a PDF in the same style as the UL reports,
+except landscape"): `core/parwl/report.py` builds the pages and `ui/parwl_workspace.py`
+(`ParWLReportView`) shows them as print-preview sheets with **Print to PDF** (Letter
+landscape, the shared output folder) and **Ledger to Excel**. The page style is the UL
+report's (`ui/report_pages.py` is the shared printer, sheet and settings code; the
+text layout helpers are `core/report_text.py`): a header on every page (run date,
+company, page x of y, title, prepared-for), a cover with the disclaimer, the policy
+block and "THIS ILLUSTRATION ASSUMES THE FOLLOWING" (premiums, the dividend option and
+its changes, deposit interest, the current loan and its payoff, new loans, repayments
+and payoffs, PUA rider premiums, the reduced paid-up conversion), annual ledger pages
+in five-row blocks under GUARANTEED / NON-GUARANTEED VALUES banners, and a notes page
+(the guaranteed and non-guaranteed lapse or maturity statement, dividend and value
+disclosures, loan interest, other coverage). The ledger columns follow the illustration
+team's par WL illustrations (samples of 000253762, 000282131, 14561998, 41056071 and
+E0017960): age, year, premium outlay (premiums plus PUA rider premiums), loan payments,
+new loans, guaranteed cash value and death benefit, annual dividend, PUA cash value,
+cash value, death benefit, total loan, dividends on deposit, base and rider paid-up
+additions and one year term. A column the illustration never uses (no loans, deposits,
+rider or OYT) is left out; the page is as wide as the ledger (at least the UL's 112
+characters) and the PDF font shrinks from 9pt to fit it (159 characters at 7.2pt).
+Values are end of year, net of the loan payoff (advance interest for the following
+year is not in the loan column).
+
+**Verification** (live, read-only, 9/29/2026): `tools/rerun/find_parwl_policies.py`
+samples the six most common plancodes with CV and dividends loaded (B711E100,
+NB1XSL00, B111A100, 8L1F1500, 8O1C1000, 8X1D1500: about 44,000 in-force policies) by
+dividend option, RPU, waiver, paid-up, loans, riders, benefits and mode;
+`tools/rerun/verify_parwl_inforce.py` runs every in-force check and a projection.
+On the 78-policy sample and a second 221-policy sample (three per category: about 4,300 checks) every premium, cash value, per-unit dividend, dividend dollar, addition
+roll-forward and advance-loan check matched CyberLife except: RPU NSPs, within 0.11
+per $1,000 on some policies (two L5 4.5% policies store 357.67 and 357.70 at the same
+age 54, so the difference is policy-specific, not the formula); one billed premium
+(8X1D1500 14121291, 34.17 against 34.50) that is kept as billed. The par WL workbook
+(`Par WL Inforce Illustration v2.3.xlsx`) was used for its NSP table and 62Q1 notes;
+it values the first row's dividend on the additions after that anniversary, which
+CyberLife does not. Other tools: `run_parwl_illustration.py` (ledger in the console;
+`--pages` prints the report pages, `--pdf` writes the landscape PDF and reports how
+much of the page width the text fills) and `tools/app/verify_rerun_parwl_window.py`
+(the live window).
+
+**Known limits**: direct recognition's L/P scales are used as placed; CyberLife pays
+loaned direct recognition policies those values with no further loan adjustment
+(14763679, 12795388, 13483291, 14110388); OYT cash value is taken as zero; APL, ETI and vanishing
+premium are not illustrated; PUA rider planned premiums are not on the record and must
+be entered as payments; plancodes without `CV` or dividends in schema `rates` (e.g.
+B711G100 has no CV) stop at loading with the missing item named.
+
+## RERUN indeterminate premium term (IPT)
+
+A traditional term policy with indeterminate premiums (`is_indeterminate_term`:
+`LH_BAS_POL.IDT_PRM_IND = 1`, base product line N; about 169,000 in-force policies, almost
+all B15/B75 ART plans) opens in RERUN's **term workspace** (Robert Haessly, 9/30/2026):
+**Policy** (the in-force snapshot: facts, coverages in PolView's columns, benefits as
+detail buttons), **Illustration Inputs** (the premium mode to illustrate, riders and
+benefits to drop, illustrate to age), **Values** (every premium due date and each element
+of it, current and guaranteed), **Report** (the illustration pages, landscape PDF) and
+**In-force Check**. Code: `suiteview/illustration/core/term/` (loader, rates, engine,
+checks, report), `models/term.py` and `ui/term_workspace.py`; shared with par WL:
+`core/fixed_premium.py`, `core/inforce_check.py`, `core/ledger_report.py`,
+`ui/illustration_pages_view.py` and `ui/policy_snapshot_widgets.py`. Saved cases are not
+available for term yet.
+
+**Template and corrections.** CyberLife's own term illustration (TERM - D0194819.pdf,
+B15TG100 "ART12", issue age 62, 100 units, monthly 202.00) prints the right current
+premiums but a wrong guaranteed column; the illustration team's review ("Re: D0194819 -
+ART Policy Illustration", 8/27/2026) asked for the level-period guaranteed premium to be
+the current premium (808.00, not 2,396) and for guaranteed renewal premiums at the
+policy's own mode (year 11: 14,076, not CyberLife's annual-mode 14,052). SuiteView does
+both, and also corrects CyberLife's last year (it repeats year 32's current premium,
+79,512; age 94's 843.06 rate gives 84,384).
+
+**Data** comes through PolicyInformation: the coverage's stored rate for the current
+premium period (`ANN_PRM_UNT_AMT`), the renewal structure (`TraditionalCoverageFacts`:
+`INT_RNL_PER`, `SBQ_RNL_STR_DUR`, `SBQ_RNL_PER`, `RENEWABLE_PRM_CD`, `IDT_PRM_GUA_PER`),
+the next period's rate on the renewal rates segment (67, `LH_COV_INS_RNL_RT` type C,
+`RNL_RT` in cents: 13063 = 130.63), substandard extras (`SST_XTR_UNT_AMT`, `SST_XTR_PCT`,
+cease dates) and benefits (`BNF_ANN_PPU_AMT`, rating factor, pay-up and cease dates).
+**Rates** come from UL_Rates schema `rates` only: the coverage's `PREM` cell on scale C
+(the window in effect on the valuation date) and G (at issue), benefit `PREM` cells
+(waiver `30`, `3G`...; a benefit with no G scale uses its C rates, noted), and the base
+plancode's mode factors. Riders not loaded (children's term B1582000) keep their stored
+level rate, noted.
+
+**Rules reproduced from the record** (each a test in `tests/test_illustration_term.py`):
+
+- Premium periods come from the renewal structure: the initial period of `INT_RNL_PER`
+  years (repeated to `SBQ_RNL_STR_DUR`), then periods of `SBQ_RNL_PER` years
+  (D0194819: 1-10, then yearly; one-year-level B75TL500: yearly). `NXT_CHG_DT` is not
+  reliable (E0243681: 2044 on a yearly-renewing plan).
+- The stored rate is the rate of the period containing the last processed anniversary
+  (NLP00116, paid only to 10/2025, still stores year 11's rate); it bills on both scales
+  in that period. The next period's current rate is the renewal rate on the record;
+  later years the C schedule; the guaranteed scale uses G after the current period.
+- Modal premium per element at the illustrated mode: `MULTIPLY_ORDER` 2 `units x
+  round(rate x factor, 2)` plus `round(fee x fee factor, 2)` (D0194819 202.00);
+  `MULTIPLY_ORDER` 1 with the fee at the premium factor (fee rule 3) or fee rule Z rounds
+  the annual total once, fee included, each element's annual premium in cents
+  (E0000485 (335 + 60) x 0.0864 = 34.13; E0041873 round(500.019 x 1.84, 2)).
+- Table extras are the coverage rate x (`SST_XTR_PCT` - 1) per unit, re-rated with the
+  coverage rate after the current period; flat extras keep their amount to their cease
+  date. Benefit premiums stop at the benefit's pay-up date; a benefit that does not renew
+  (`RNL_RT_IND` 0, e.g. FF902782's ADB) keeps its stored rate, a renewing one (the
+  premium waiver) follows its own `PREM` schedule.
+- A plan with no `RATE_MODEFACT` rows (`MODE_PREM_TABLE` 0: CyberLife takes its modal
+  factors from the plan description, not in schema `rates` - B15TI300/B15TI200 "SIGTERM")
+  uses the first factor set of its plancode family (the first four characters, most
+  common first, the policy's bill form before the other) that reproduces the policy's
+  billed premium, noted (FF905195: (300 x 0.55 + 300 x 0.39 + 60) x 0.0864 = 29.55, mode
+  table 352; company 26 monthly direct 000332291 bills at the PAC 0.0864). When none
+  reproduces, the In-force Check shows why and Run Values refuses.
+- The billed premium is the premium due at the paid-to date. CyberLife bills a renewal
+  at the new rate once it has rerated the policy (15044388, E0243681) and at the stored
+  rate until then (E0096685, E0166485, IP054194): the check accepts either and says
+  which; the projection charges the new rate from the renewal anniversary.
+- Due dates run every mode period from the paid-to date to maturity; premiums in arrears
+  are not illustrated (noted). The first ledger year holds only the premiums still due.
+
+**Report**: the UL page style (`core/ledger_report.py`), CyberLife's columns: age at the
+end of the year, year, NON-GUAR CONTRACT PREMIUM, and under GUARANTEED VALUES the
+contract premium, cash value (none) and death benefit, plus rider coverage when riders
+are kept. The cover shows the plan, form, premium class, the premium structure (level
+years, then annual renewal), extras and illustration choices; the notes page explains
+indeterminate premiums and lists other coverage.
+
+**Verification** (live, read-only, 9/30/2026): `tools/rerun/find_term_policies.py` samples
+the most common TERM plancodes with PREM C and G loaded by level period, level period
+ending, ART period, children's term and other riders, premium waiver and other benefits,
+table ratings, flat extras, substandard types 2 and 4, waiver status, every mode and
+bill forms H/F; `tools/rerun/verify_term_inforce.py` runs every check and a projection.
+On 247 policies (the ten most common plancodes and D0194819) 815 checks match; the one
+difference left is E0124485, an annual bill paid to April on a May anniversary whose
+billed premium blends two years' rates (kept as billed, noted). A second sample of 160
+policies over the next 18 plancodes (B15TA/TB/TE/TF/TG/TI, B75TN; companies 01, 06 and
+26) matches 516 checks; three company 26 SIGTERM policies are refused with the reason
+shown (two carry the B1582800 rider below; 000329562 bills at the PAC factor with the fee
+rounded apart, 130.46 + 5.18 = 135.64, a combination no loaded plan uses). Other tools:
+`run_term_illustration.py` (ledger, `--pages`, `--pdf`) and
+`tools/app/verify_rerun_term_window.py` (the live window).
+
+**Known limits**: premiums in arrears are not illustrated; off-anniversary annual bills are
+kept as billed for their period; riders not loaded in schema `rates` bill their stored
+rate every year; company 26 SIGTERM policies with the NY children's rider B1582800 are
+refused (that rider has no mode factors in schema `rates` and bills at 0.085 monthly:
+000341291 (290 + 60) x 0.0864 + 50 x 0.085 = 34.49); saved cases are not available.

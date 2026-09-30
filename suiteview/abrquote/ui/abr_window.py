@@ -57,6 +57,7 @@ class ABRQuoteWindow(FramelessWindowBase):
         self._policy: Optional[ABRPolicyData] = None
         self._assessment: Optional[MedicalAssessment] = None
         self._current_step = 0
+        self._quote_blocked = False
 
         # Detailed calculation tables (populated on calculate)
         self._mort_detail: list[dict] = []
@@ -329,6 +330,10 @@ class ABRQuoteWindow(FramelessWindowBase):
 
     def _on_step_clicked(self, idx: int):
         """Allow clicking any step tab to navigate freely."""
+        if self._quote_blocked and idx > 0:
+            reason = self.policy_panel.quote_block_reason() or "This policy cannot be quoted."
+            self.status_label.setText(f"{reason} Quoting is disabled.")
+            return
         self._set_step(idx)
 
     def _on_new_quote(self):
@@ -344,6 +349,11 @@ class ABRQuoteWindow(FramelessWindowBase):
 
     def _on_policy_loaded(self, policy: ABRPolicyData):
         """Called when policy data is successfully retrieved."""
+        reason = self.policy_panel.quote_block_reason()
+        self._set_quote_blocked(reason is not None)
+        if reason is not None:
+            self._block_quote(policy, reason)
+            return
         self._policy = policy
         self.assessment_panel.set_policy(policy)
         self.results_panel.set_policy(policy)
@@ -366,11 +376,36 @@ class ABRQuoteWindow(FramelessWindowBase):
 
         self.status_label.setText(f"Policy {policy.policy_number} loaded.")
 
-        # Update header policy label
+        self._header_policy_label.setText(self._policy_display(policy))
+
+    @staticmethod
+    def _policy_display(policy: ABRPolicyData) -> str:
         co = (policy.company or "").split(" ")[0].strip()
         pn = policy.policy_number or ""
-        display = f"Policy:  {co}-{pn}" if co else f"Policy:  {pn}"
-        self._header_policy_label.setText(display)
+        return f"Policy:  {co}-{pn}" if co else f"Policy:  {pn}"
+
+    def _set_quote_blocked(self, blocked: bool) -> None:
+        """Lock the Assessment and Output steps while a restricted policy is loaded."""
+        self._quote_blocked = blocked
+        tooltip = "Quoting is disabled for this policy." if blocked else ""
+        for btn in self._step_labels[1:]:
+            btn.setEnabled(not blocked)
+            btn.setToolTip(tooltip)
+
+    def _block_quote(self, policy: ABRPolicyData, reason: str) -> None:
+        """Drop any prior quote state so a restricted policy cannot be quoted."""
+        self._policy = None
+        self._assessment = None
+        self._mort_detail = []
+        self._apv_detail = []
+        self._apv_summary = {}
+        self.output_panel.set_policy(None)
+        self._email_print_btn.setEnabled(False)
+        self._set_step(0)
+        self.status_label.setText(
+            f"Policy {policy.policy_number}: {reason} Quoting is disabled."
+        )
+        self._header_policy_label.setText(self._policy_display(policy))
 
     def _on_quote_date_changed(self, new_date):
         """Re-run calculation when user changes the quote date."""
@@ -404,6 +439,11 @@ class ABRQuoteWindow(FramelessWindowBase):
 
     def _run_calculation(self):
         """Execute the full ABR quote calculation pipeline."""
+        if self._quote_blocked:
+            self.status_label.setText(
+                f"{self.policy_panel.quote_block_reason()} Quoting is disabled."
+            )
+            return
         self.status_label.setText("Calculating ABR quote...")
 
         try:

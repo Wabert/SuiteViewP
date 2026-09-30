@@ -293,7 +293,10 @@ named properties under per-fact `cached_reads_only()` guards
   query); a table missing from the cache is named as "not searched". Matches
   (Match/Record/Table/Field/Row/Value, capped at 2,000) list in Raw Table; a
   field-name match is one line with its values. Double-click opens the table
-  with the field and matched cell selected; Enter re-runs the search.
+  with the field and matched cell selected; Enter re-runs the search. The green
+  scope toggle left of the box cycles **Value → Field → All** (default All):
+  Value matches values only, Field matches field names only, All adds table
+  names; changing it re-runs the current search.
   Preview without DB2: `tools/app/render_tables_search.py`.
 
 Regressions: `tests/test_polview_ux.py` and `tests/test_polview_table_search.py` (plus the updated lazy-loading and
@@ -783,6 +786,13 @@ The left-hand Policy Record table sweep checks every table in that mapping.
 Tables with policy rows are shown normally; a table that cannot be queried is
 shown under its Policy Record as an **unavailable** warning with the DB2 error
 in its tooltip, rather than being silently omitted as though it were empty.
+
+### Switch A terminal hand-off
+
+**Button:** "🖥 Switch A" in the PolView header bar (shown only to roles with
+`MAINFRAMENAV`; enabled once a policy is loaded) signs on to the Switch A mainframe terminal and brings the loaded
+policy up on the green screen, using the saved 🔑 Passwords sign-on. Routing,
+endpoints and supported regions are documented in [`TN3270.md`](TN3270.md).
 
 ### Policy Record Viewer (green-screen segment display)
 

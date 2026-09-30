@@ -15,6 +15,7 @@ from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtGui import QFont, QGuiApplication
 import logging
 
+from suiteview.data.mainframe_credentials import load_mainframe_credentials
 from suiteview.mainframe_nav.styles import (
     breadcrumb_style,
     c,
@@ -399,7 +400,10 @@ class MainframeNavScreen(QWidget):
         layout.addWidget(form_widget)
         
         # Note about credentials
-        cred_note = QLabel("💡 Use the 'User' button at the bottom of the window to set your credentials.")
+        cred_note = QLabel(
+            "💡 Your user ID and password come from 🔑 Passwords "
+            "(the button at the bottom of the Mainframe window, or the taskbar Tools menu)."
+        )
         cred_note.setStyleSheet(f"""
             QLabel {{
                 color: {c('note_text')};
@@ -438,65 +442,18 @@ class MainframeNavScreen(QWidget):
             self.connection_settings['host'] = host_edit.text()
             self.connection_settings['port'] = int(port_edit.text())
             
-            # Get credentials from MAINFRAME_USER connection
-            user_conn = self.conn_manager.get_connection("MAINFRAME_USER")
-            if user_conn:
-                self.connection_settings['username'] = user_conn.get('username', '')
-                self.connection_settings['password'] = self.cred_manager.decrypt_password(user_conn.get('password', ''))
-            
-            # Save global credentials to all MAINFRAME_FTP connections
-            self.save_global_credentials(
-                self.connection_settings['username'],
-                self.connection_settings['password'],
-                self.connection_settings['host'],
-                self.connection_settings['port']
-            )
+            self._save_ftp_endpoint(self.connection_settings['host'], self.connection_settings['port'])
             
             # Reconnect with new settings
             self.connect_to_mainframe()
     
-    def save_global_credentials(self, username, password, host, port):
-        """Save global credentials to MAINFRAME_USER connection (shared with Terminal)"""
+    def _save_ftp_endpoint(self, host, port):
+        """Save the FTP host/port on the first MAINFRAME_FTP connection.
+
+        The sign-on is not stored here; it comes from the shared Passwords store.
+        """
         try:
-            from suiteview.core.credential_manager import CredentialManager
-            cred_manager = CredentialManager()
-            
-            # Encrypt credentials
-            encrypted_username = cred_manager.encrypt(username)
-            encrypted_password = cred_manager.encrypt(password)
-            
-            # Get all connections using the correct method
             connections = self.conn_manager.repo.get_all_connections()
-            
-            # Find or create MAINFRAME_USER connection
-            user_conn = None
-            conn_id = None
-            for conn in connections:
-                if conn.get('connection_name') == 'MAINFRAME_USER':
-                    user_conn = conn
-                    conn_id = conn.get('connection_id')
-                    break
-            
-            if user_conn:
-                # Update existing MAINFRAME_USER connection
-                self.conn_manager.repo.update_connection(
-                    conn_id,
-                    encrypted_username=encrypted_username,
-                    encrypted_password=encrypted_password
-                )
-                logger.info("Updated MAINFRAME_USER credentials")
-            else:
-                # Create new MAINFRAME_USER connection
-                self.conn_manager.repo.create_connection(
-                    connection_name='MAINFRAME_USER',
-                    connection_type='Generic',
-                    server_name='',
-                    database_name='',
-                    auth_type='SQL_AUTH',
-                    encrypted_username=encrypted_username,
-                    encrypted_password=encrypted_password
-                )
-                logger.info("Created MAINFRAME_USER credentials")
             
             # Also update host/port in first MAINFRAME_FTP connection if it exists
             ftp_connections = [c for c in connections if c.get('connection_type') == 'MAINFRAME_FTP']
@@ -525,59 +482,27 @@ class MainframeNavScreen(QWidget):
             # Immediately reload settings
             self.load_default_settings()
             
-            logger.info("Updated global mainframe credentials")
-            QMessageBox.information(
-                self,
-                "Credentials Saved",
-                "Global mainframe credentials have been saved!\n\nThey will be used by both Mainframe Nav and Terminal."
-            )
+            logger.info("Updated mainframe FTP host/port")
                 
         except Exception as e:
-            logger.error(f"Failed to save credentials: {str(e)}", exc_info=True)
+            logger.error(f"Failed to save FTP settings: {str(e)}", exc_info=True)
             QMessageBox.warning(
                 self, 
                 "Save Error", 
-                f"Failed to save credentials to database:\n{str(e)}"
+                f"Failed to save FTP settings to database:\n{str(e)}"
             )
     
     def _reload_credentials_from_db(self):
-        """Reload credentials from MAINFRAME_USER connection in database"""
+        """Refresh the sign-on from the shared Passwords store."""
         try:
-            from suiteview.core.credential_manager import CredentialManager
-            cred_manager = CredentialManager()
-            
-            # Get all connections
-            connections = self.conn_manager.repo.get_all_connections()
-            
-            # Find MAINFRAME_USER connection
-            user_conn = None
-            for conn in connections:
-                if conn.get('connection_name') == 'MAINFRAME_USER':
-                    user_conn = conn
-                    break
-            
-            if user_conn:
-                # Decrypt username
-                encrypted_username = user_conn.get('encrypted_username')
-                if encrypted_username:
-                    try:
-                        self.connection_settings['username'] = cred_manager.decrypt(encrypted_username)
-                        logger.info(f"Reloaded username from database: {self.connection_settings['username']}")
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt username: {e}")
-                
-                # Decrypt password
-                encrypted_password = user_conn.get('encrypted_password')
-                if encrypted_password:
-                    try:
-                        self.connection_settings['password'] = cred_manager.decrypt(encrypted_password)
-                        logger.info("Reloaded password from database")
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt password: {e}")
-            else:
-                logger.warning("No MAINFRAME_USER connection found in database")
+            saved = load_mainframe_credentials()
         except Exception as e:
-            logger.error(f"Failed to reload credentials from database: {e}")
+            logger.error(f"Failed to read the saved mainframe sign-on: {e}")
+            return
+        if not saved.complete:
+            logger.warning("No mainframe sign-on saved - open 🔑 Passwords to set it")
+        self.connection_settings['username'] = saved.userid
+        self.connection_settings['password'] = saved.password
     
     def connect_to_mainframe(self):
         """Connect to mainframe FTP in background thread"""
@@ -2344,39 +2269,10 @@ class MainframeNavScreen(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to delete connection:\n{str(e)}")
     
     def load_default_settings(self):
-        """Load default settings - credentials from MAINFRAME_USER, paths from MAINFRAME_FTP"""
+        """Load default settings - sign-on from Passwords, paths from MAINFRAME_FTP"""
+        self._reload_credentials_from_db()
         try:
-            from suiteview.core.credential_manager import CredentialManager
-            cred_manager = CredentialManager()
-            
-            # First, try to load credentials from MAINFRAME_USER connection (shared with Terminal)
             connections = self.conn_manager.repo.get_all_connections()
-            user_conn = None
-            for conn in connections:
-                if conn.get('connection_name') == 'MAINFRAME_USER':
-                    user_conn = conn
-                    break
-            
-            if user_conn:
-                # Decrypt username
-                encrypted_username = user_conn.get('encrypted_username')
-                if encrypted_username:
-                    try:
-                        self.connection_settings['username'] = cred_manager.decrypt(encrypted_username)
-                        logger.info(f"Loaded username from MAINFRAME_USER: {self.connection_settings['username']}")
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt username: {e}")
-                
-                # Decrypt password
-                encrypted_password = user_conn.get('encrypted_password')
-                if encrypted_password:
-                    try:
-                        self.connection_settings['password'] = cred_manager.decrypt(encrypted_password)
-                        logger.info("Loaded password from MAINFRAME_USER")
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt password: {e}")
-            else:
-                logger.warning("No MAINFRAME_USER connection found - credentials may not be set")
             
             # Then load host/port/path from first MAINFRAME_FTP connection
             ftp_connections = [c for c in connections if c.get('connection_type') == 'MAINFRAME_FTP']

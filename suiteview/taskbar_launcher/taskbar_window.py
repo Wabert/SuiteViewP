@@ -672,14 +672,14 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
             return collaborator._open_polview(*args, **kwargs)
         return AppLauncher._open_polview(self, *args, **kwargs)
 
-    def _wire_polview_illustrator(self, *args, **kwargs):
+    def _wire_polview_launchers(self, *args, **kwargs):
         try:
             collaborator = object.__getattribute__(self, "app_launcher")
         except (AttributeError, RuntimeError):
             collaborator = None
         if collaborator is not None:
-            return collaborator._wire_polview_illustrator(*args, **kwargs)
-        return AppLauncher._wire_polview_illustrator(self, *args, **kwargs)
+            return collaborator._wire_polview_launchers(*args, **kwargs)
+        return AppLauncher._wire_polview_launchers(self, *args, **kwargs)
 
     def _wire_illustration_polview(self, *args, **kwargs):
         try:
@@ -779,6 +779,24 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         if collaborator is not None:
             return collaborator._launch_polview_with_policy(*args, **kwargs)
         return AppLauncher._launch_polview_with_policy(self, *args, **kwargs)
+
+    def _launch_switch_with_policy(self, *args, **kwargs):
+        try:
+            collaborator = object.__getattribute__(self, "app_launcher")
+        except (AttributeError, RuntimeError):
+            collaborator = None
+        if collaborator is not None:
+            return collaborator._launch_switch_with_policy(*args, **kwargs)
+        return AppLauncher._launch_switch_with_policy(self, *args, **kwargs)
+
+    def _open_passwords(self, *args, **kwargs):
+        try:
+            collaborator = object.__getattribute__(self, "app_launcher")
+        except (AttributeError, RuntimeError):
+            collaborator = None
+        if collaborator is not None:
+            return collaborator._open_passwords(*args, **kwargs)
+        return AppLauncher._open_passwords(self, *args, **kwargs)
 
     def _open_audit(self, *args, **kwargs):
         try:

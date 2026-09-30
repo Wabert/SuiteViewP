@@ -149,13 +149,15 @@ def _load_policy_source_snapshot(
     rates_db = Rates()
     illustration_date = illustration_date or date.today()  # noqa: DTZ011
     plancode = pi.coverages.base_plancode or ""
+    plancode_config = load_plancode(plancode)
     valuation_date = pi.values.valuation_date
     as_of_date = valuation_date or date.today()  # noqa: DTZ011
     raw_riders, base_coverages = _restored_coverage_sources(pi, reinstatement_date)
     active_base_coverages = _active_base_coverages(base_coverages, as_of_date)
     face_amount, units, band = _source_face_units_band(
         pi, rates_db, plancode, pi.activity.issue_date, active_base_coverages,
-        base_coverages, raw_riders, as_of_date, reinstatement_date)
+        base_coverages, raw_riders, as_of_date, reinstatement_date,
+        banded=not plancode_config.is_iswl)
     joint_company = rates_db.joint_survivor_company(plancode)
     if joint_company is not None and joint_company != (pi.company_code or "").strip():
         raise ValueError(
@@ -169,7 +171,7 @@ def _load_policy_source_snapshot(
         illustration_date=illustration_date,
         reinstatement_date=reinstatement_date,
         plancode=plancode,
-        plancode_config=load_plancode(plancode),
+        plancode_config=plancode_config,
         issue_date=pi.activity.issue_date,
         issue_age=pi.coverages.base_issue_age if pi.coverages.base_issue_age is not None else 0,
         rate_sex=_translate_sex(pi.coverages.base_sex_code),
@@ -225,8 +227,10 @@ def _source_form_number(active_base_coverages: list, base_coverages: list) -> st
 def _source_face_units_band(
     pi, rates_db: Rates, plancode: str, issue_date,
     active_base_coverages: list, base_coverages: list, raw_riders: list,
-    as_of_date: date, reinstatement_date,
+    as_of_date: date, reinstatement_date, *, banded: bool = True,
 ) -> tuple[float, float, int]:
+    """Base face, units and UL rate band. ``banded=False`` (ISWL, whose rates come
+    from schema ``rates``) skips the legacy dbo band lookup and keeps band 1."""
     face_amount = float(pi.coverages.base_total_face_amount) if pi.coverages.base_total_face_amount else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
     band_face = float(pi.coverages.base_band_specified_amount)
@@ -234,6 +238,8 @@ def _source_face_units_band(
         face_amount, units = _base_face_units(active_base_coverages)
         band_face = _base_band_face(
             pi, face_amount, raw_riders, as_of_date, reinstatement_date)
+    if not banded:
+        return face_amount, units, 1
     raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
     return face_amount, units, raw_band if raw_band is not None else 1
 
@@ -357,9 +363,11 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
     }
     if sum(premium_allocations.values()) > 1.5:
         premium_allocations = {fund: pct / 100 for fund, pct in premium_allocations.items()}
+    current_rate, current_rate_source = _current_interest_rate(source)
     return {
         "guaranteed_interest_rate": source.plancode_config.gint,
-        "current_interest_rate": source.plancode_config.gint,
+        "current_interest_rate": current_rate,
+        "current_interest_rate_source": current_rate_source,
         "fund_values": fund_values,
         "impaired_fund_values": impaired_fund_values,
         "premium_allocations": premium_allocations,
@@ -369,6 +377,34 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
         "index_benchmark_maximum": index_benchmark_maximum,
         "index_market_returns": index_market_returns,
     }
+
+
+def _current_interest_rate(source: PolicySourceSnapshot) -> tuple[float, str]:
+    """Plan GINT for UL-family plans. ISWL uses the declared fixed-fund rate in schema
+    ``rates`` on the illustration date; where the plan has none loaded, the rate its
+    current fund buckets are credited (``VAL_PHA_ITS_RT``). Both are floored at GINT."""
+    config = source.plancode_config
+    if not config.is_iswl:
+        return config.gint, ""
+    from suiteview.illustration.core.iswl_rates import (
+        iswl_current_credited_rate,
+        iswl_recorded_credited_rate,
+    )
+
+    rate = iswl_current_credited_rate(
+        source.pi.company_code or "", source.plancode, source.illustration_date, config.gint)
+    if rate is not None:
+        return rate, "UL_Rates schema rates declared fixed-fund rate (CINT_NEW/CINT_ROLL)"
+    buckets = [
+        (float(bucket.csv_amount or 0), bucket.interest_rate)
+        for bucket in source.pi.values.get_fund_buckets(current_only=True)
+        if str(bucket.raw_data.get("IMPAIRED_IND", "0")).strip() != "1"
+    ]
+    return (
+        iswl_recorded_credited_rate(buckets, config.gint),
+        "Rate credited to the policy's current fund buckets (LH_POL_FND_VAL_TOT); "
+        "schema rates has no declared rate for this plan",
+    )
 
 
 def build_financial_basis(source: PolicySourceSnapshot) -> dict:
@@ -393,6 +429,7 @@ def build_financial_basis(source: PolicySourceSnapshot) -> dict:
         "modal_premium": modal_premium,
         "annual_premium": modal_premium * (12.0 / billing_frequency),
         "billing_frequency": billing_frequency,
+        "bill_form_code": str(pi.billing.bill_form_code or "").strip(),
         "premiums_paid_to_date": float(pi.billing.premium_td) if pi.billing.premium_td is not None else 0.0,
         "premiums_ytd": float(pi.billing.premium_ytd) if pi.billing.premium_ytd is not None else 0.0,
         "premium_transactions": _premium_transactions(pi),
@@ -525,6 +562,7 @@ def _coverage_segment_from_source(source: PolicySourceSnapshot, cov) -> Coverage
         status=cov.cov_status or "A",
         maturity_date=cov.maturity_date,
         coi_renewal_rate=float(cov.coi_rate) if cov.coi_rate else None,
+        premium_rate=float(cov.premium_rate) if cov.premium_rate else None,
         joint_lives=joint_lives,
         surrender_target=surrender_target,
     )
@@ -688,6 +726,9 @@ def _rider_info(source: PolicySourceSnapshot, rider, occurrence: int) -> RiderIn
 
 
 def _rider_band(source: PolicySourceSnapshot, rider_plancode: str, rider_face: float) -> int:
+    if source.plancode_config.is_iswl:
+        # ISWL riders are premium-funded: no rider COI is charged, so no dbo band lookup.
+        return 1
     if rider_bands_as_base(rider_plancode):
         return source.band
     raw_rider_band = source.rates_db.get_band(rider_plancode, rider_face)

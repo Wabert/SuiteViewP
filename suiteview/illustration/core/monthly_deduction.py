@@ -158,6 +158,10 @@ def _adjusted_coi_rate(
     """
     if segment is None:
         return raw_rate
+    if config.is_iswl:
+        # ISWL substandard ratings are paid in the fixed premium, not charged in the
+        # COI (verified on table-rated 13447734; CyberDoc B10 makes substandard COI optional).
+        return _round_near(raw_rate, 5) if round_5 else raw_rate
     table_rating = (
         segment.table_rating
         if segment.table_rating > 0 and _charge_active(segment.table_cease_date, projection_date)
@@ -953,9 +957,12 @@ def calculate_deduction(
         coi.charge_total + expenses.epu_charge
         + expenses.mfee_charge + expenses.av_charge
     )
-    benefits = _calculate_benefit_charges(
-        base_deduction, policy, config, rates, rate_year, monthly_mtp,
-        projection_date,
+    benefits = (
+        # ISWL benefit and rider premiums come out of the gross premium, not the AV.
+        BenefitChargeBreakdown() if config.is_iswl else _calculate_benefit_charges(
+            base_deduction, policy, config, rates, rate_year, monthly_mtp,
+            projection_date,
+        )
     )
     total_deduction = (
         base_deduction + benefits.benefit_charges + benefits.rider_charges

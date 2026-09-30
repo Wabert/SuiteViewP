@@ -442,7 +442,10 @@ get_tooltip_manager().reload()
 #### AdvProdValuesTab Layout
 Five sections matching VBA SuiteView:
 1. **Policy Info** (left) - Info fields with clickable tooltips, including the
-   calculated Surrender Charge / Value and Interim AV Quote (italic)
+   calculated Surrender Charge / Value and Interim AV Quote (italic). Every
+   calculated value (surrender charge/value, interim AV, unimpaired/impaired
+   AV, CCV, SP cease age, the MV table's M and MD cells, per-fund totals) has
+   a hover tip with its working, built by `tabs/adv_prod_tooltips.py`
 2. **Monthliversary Values** (center) - Table with MV history
 3. **Fund Value History** (right top) - Bucket detail table
 4. **Unimpaired Fund Values** (right middle) - Fund summary
@@ -527,7 +530,9 @@ Methods:
 - `clear_all()`: Clear all fields and table
 
 #### CopyableLabel
-QLabel with right-click copy functionality.
+QLabel with right-click copy functionality. When the label has a hover tip the
+menu also offers **Copy Tip Contents** (rich-text tips are copied as plain
+text); `FixedHeaderTableWidget` cells and `ClickableTooltipLabel` do the same.
 
 #### ClickableTooltipLabel
 QLabel that shows tooltip popup when clicked. Used for field labels with help text.

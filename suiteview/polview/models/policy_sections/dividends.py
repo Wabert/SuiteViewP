@@ -1,6 +1,19 @@
-"""PolicyInformation dividends section."""
+"""PolicyInformation dividends section.
+
+Participation values live on CyberLife segments 12-15 and 19 (DB2 tables
+``LH_PTP_ON_DEP``, ``LH_PAID_UP_ADD``, ``LH_ONE_YR_TRM_ADD``, ``LH_UNAPPLIED_PTP`` and
+``LH_APPLIED_PTP``). Rows with ``MVRY_DT`` 12/31/9999 are current; other rows are
+snapshots taken at an anniversary (``ANV_PRC_CRN_IND`` 1 = before that anniversary's
+processing). Month-year numbers (``ERN_DT_MO_YR_NBR``, ``PUA_MT_MO_YR_NBR``...) count
+months from January 1900: ``(year - 1900) * 12 + month``.
+"""
 
 from __future__ import annotations
+
+import calendar
+from datetime import date
+from decimal import Decimal
+from typing import List, Optional, Tuple
 
 from .base import PolicySection
 from ..cl_polrec.policy_data_classes import AppliedDividendInfo
@@ -10,11 +23,25 @@ from ..cl_polrec.policy_data_classes import DivPUAInfo
 from ..cl_polrec.policy_data_classes import UnappliedDividendInfo
 from ..cl_polrec.policy_translations import DIV_OPTION_CODES
 from ..cl_polrec.policy_translations import NFO_CODES
-from ..cl_polrec.policy_translations import translate_div_type_code
-from datetime import date
-from decimal import Decimal
-from typing import List
-from typing import Optional
+
+
+def decode_month_year(value) -> Tuple[Optional[int], Optional[int]]:
+    """CyberLife MOYR number -> (year, month); ``(None, None)`` when blank or zero."""
+    if value is None or str(value).strip() in ("", "0"):
+        return None, None
+    number = int(value)
+    year, month = divmod(number, 12)
+    if month == 0:
+        return 1900 + year - 1, 12
+    return 1900 + year, month
+
+
+def _decimal(value) -> Decimal:
+    return Decimal(str(value)) if value not in (None, "") else Decimal("0")
+
+
+def _optional_decimal(value) -> Optional[Decimal]:
+    return Decimal(str(value)) if value not in (None, "") else None
 
 
 class DividendsSection(PolicySection):
@@ -24,13 +51,18 @@ class DividendsSection(PolicySection):
 
     @property
     def div_option_code(self) -> str:
-        """Dividend option code."""
-        return str(self._field("div_option_code") or "0")
+        """Primary dividend option code (LH_BAS_POL.PRI_DIV_OPT_CD)."""
+        return str(self._field("div_option_code") or "0").strip() or "0"
 
     @property
     def div_option_description(self) -> str:
         """Dividend option description."""
         return DIV_OPTION_CODES.get(self.div_option_code, f"Unknown ({self.div_option_code})")
+
+    @property
+    def secondary_div_option_code(self) -> str:
+        """Secondary dividend option code (LH_BAS_POL.DIV_2ND_OPT_CD); blank when absent."""
+        return str(self._field("second_dividend_option") or "").strip()
 
     @property
     def nfo_code(self) -> str:
@@ -42,267 +74,156 @@ class DividendsSection(PolicySection):
         """Non-forfeiture option description."""
         return NFO_CODES.get(self.nfo_code, f"Unknown ({self.nfo_code})")
 
+    # -- dividend values (segment 19) ---------------------------------------------
+
     def get_applied_dividends(self) -> List[AppliedDividendInfo]:
-        """Get applied dividend records."""
-        dividends = []
+        """Applied participation values, newest earn date first."""
+        rows = []
         for row in self.fetch_table("LH_APPLIED_PTP"):
-            div_type = str(row.get("PTP_APL_TYP_CD", "") or "")
-            div = AppliedDividendInfo(
-                dividend_date=self._parse_date(row.get("PTP_APL_DT")),
-                dividend_type=div_type,
-                dividend_type_desc=translate_div_type_code(div_type),
-                gross_amount=Decimal(str(row["PTP_GRS_AMT"])) if row.get("PTP_GRS_AMT") else None,
-                net_amount=Decimal(str(row["PTP_NET_AMT"])) if row.get("PTP_NET_AMT") else None,
-                year=int(row["POL_DUR_NBR"]) if row.get("POL_DUR_NBR") else None,
-                raw_data=row
-            )
-            dividends.append(div)
-        return dividends
-
-    @property
-    def applied_div_count(self) -> int:
-        """Count of applied dividend records."""
-        return self.data_item_count("LH_APPLIED_PTP")
-
-    def applied_div_date(self, index: int) -> Optional[date]:
-        """Get applied dividend date (0-based index)."""
-        return self._parse_date(self.data_item("LH_APPLIED_PTP", "PTP_APL_DT", index))
-
-    def applied_div_type(self, index: int) -> str:
-        """Get applied dividend type code (0-based index)."""
-        return str(self.data_item("LH_APPLIED_PTP", "PTP_APL_TYP_CD", index) or "")
-
-    def applied_div_gross_amount(self, index: int) -> Optional[Decimal]:
-        """Get applied dividend gross amount (0-based index)."""
-        val = self.data_item("LH_APPLIED_PTP", "PTP_GRS_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def applied_div_net_amount(self, index: int) -> Optional[Decimal]:
-        """Get applied dividend net amount (0-based index)."""
-        val = self.data_item("LH_APPLIED_PTP", "PTP_NET_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def applied_div_year(self, index: int) -> Optional[int]:
-        """Get applied dividend policy year (0-based index)."""
-        val = self.data_item("LH_APPLIED_PTP", "POL_DUR_NBR", index)
-        return int(val) if val else None
+            year, month = decode_month_year(row.get("ERN_DT_MO_YR_NBR"))
+            rows.append(AppliedDividendInfo(
+                coverage_phase=int(row.get("COV_PHA_NBR", 0) or 0),
+                participation_type=str(row.get("CK_PTP_TYP_CD", "") or "").strip(),
+                earn_year=year,
+                earn_month=month,
+                source=str(row.get("PTP_SRC_IND", "") or "").strip(),
+                applied_option=str(row.get("APP_OPT_CD", "") or "").strip(),
+                cash_per_unit=_decimal(row.get("CSH_AMT")),
+                pua_per_unit=_decimal(row.get("PUA_AMT")),
+                oyt_per_unit=_decimal(row.get("OYT_AMT")),
+                units=_decimal(row.get("PUA_UNT_QTY")),
+                raw_data=row,
+            ))
+        rows.sort(key=lambda r: (r.earn_year or 0, r.earn_month or 0), reverse=True)
+        return rows
 
     def get_unapplied_dividends(self) -> List[UnappliedDividendInfo]:
-        """Get unapplied dividend records."""
-        dividends = []
+        """Unapplied participation values, newest earn date first."""
+        rows = []
         for row in self.fetch_table("LH_UNAPPLIED_PTP"):
-            div_type = str(row.get("PTP_TYP_CD", "") or "")
-            div = UnappliedDividendInfo(
-                dividend_date=self._parse_date(row.get("PTP_PRO_DT")),
-                dividend_type=div_type,
-                dividend_type_desc=translate_div_type_code(div_type),
-                gross_amount=Decimal(str(row["PTP_GRS_AMT"])) if row.get("PTP_GRS_AMT") else None,
-                net_amount=Decimal(str(row["PTP_NET_AMT"])) if row.get("PTP_NET_AMT") else None,
-                year=int(row["POL_DUR_NBR"]) if row.get("POL_DUR_NBR") else None,
-                raw_data=row
-            )
-            dividends.append(div)
-        return dividends
-
-    @property
-    def unapplied_div_count(self) -> int:
-        """Count of unapplied dividend records."""
-        return self.data_item_count("LH_UNAPPLIED_PTP")
-
-    def unapplied_div_date(self, index: int) -> Optional[date]:
-        """Get unapplied dividend date (0-based index)."""
-        return self._parse_date(self.data_item("LH_UNAPPLIED_PTP", "PTP_PRO_DT", index))
-
-    def unapplied_div_type(self, index: int) -> str:
-        """Get unapplied dividend type code (0-based index)."""
-        return str(self.data_item("LH_UNAPPLIED_PTP", "PTP_TYP_CD", index) or "")
-
-    def unapplied_div_gross_amount(self, index: int) -> Optional[Decimal]:
-        """Get unapplied dividend gross amount (0-based index)."""
-        val = self.data_item("LH_UNAPPLIED_PTP", "PTP_GRS_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def unapplied_div_net_amount(self, index: int) -> Optional[Decimal]:
-        """Get unapplied dividend net amount (0-based index)."""
-        val = self.data_item("LH_UNAPPLIED_PTP", "PTP_NET_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def unapplied_div_year(self, index: int) -> Optional[int]:
-        """Get unapplied dividend policy year (0-based index)."""
-        val = self.data_item("LH_UNAPPLIED_PTP", "POL_DUR_NBR", index)
-        return int(val) if val else None
-
-    def get_div_oyt(self) -> List[DivOYTInfo]:
-        """Get one year term dividend addition records."""
-        oyts = []
-        for row in self.fetch_table("LH_ONE_YR_TRM_ADD"):
-            oyt = DivOYTInfo(
+            year, month = decode_month_year(row.get("ERN_DT_MO_YR_NBR"))
+            rows.append(UnappliedDividendInfo(
                 coverage_phase=int(row.get("COV_PHA_NBR", 0) or 0),
-                issue_date=self._parse_date(row.get("OYT_ISS_DT")),
-                face_amount=Decimal(str(row["OYT_FCE_AMT"])) if row.get("OYT_FCE_AMT") else None,
-                csv_amount=Decimal(str(row["OYT_CSV_AMT"])) if row.get("OYT_CSV_AMT") else None,
-                raw_data=row
-            )
-            oyts.append(oyt)
-        return oyts
+                participation_type=str(row.get("CK_PTP_TYP_CD", "") or "").strip(),
+                earn_year=year,
+                earn_month=month,
+                source=str(row.get("PTP_SRC_IND", "") or "").strip(),
+                rpu_values=str(row.get("RPU_VAL_IND", "") or "").strip() == "1",
+                earn_rule=str(row.get("ERN_RLE_CD", "") or "").strip(),
+                deposit_interest_rate=_optional_decimal(row.get("DEP_ITS_RT")),
+                cash_per_unit=_decimal(row.get("CSH_AMT")),
+                pua_per_unit=_decimal(row.get("PUA_AMT")),
+                oyt_per_unit=_decimal(row.get("OYT_AMT")),
+                projected_cash_per_unit=_optional_decimal(row.get("PRJ_CSH_AMT")),
+                units=_decimal(row.get("PUA_UNT_QTY")),
+                pua_mortality_table=str(row.get("PUA_MTL_TBL_CD", "") or "").strip(),
+                pua_interest_rate=_optional_decimal(row.get("PUA_ITS_RT")),
+                raw_data=row,
+                direct_recognition=str(row.get("DIR_RCG_DIV_IND", "") or "").strip() == "1",
+                gross_interest_rate=_optional_decimal(row.get("DIV_GRS_ITS_RT")),
+            ))
+        rows.sort(key=lambda r: (r.earn_year or 0, r.earn_month or 0), reverse=True)
+        return rows
 
-    @property
-    def div_oyt_count(self) -> int:
-        """Count of OYT records."""
-        return self.data_item_count("LH_ONE_YR_TRM_ADD")
-
-    def div_oyt_cov_phase(self, index: int) -> int:
-        """Get OYT coverage phase (0-based index)."""
-        val = self.data_item("LH_ONE_YR_TRM_ADD", "COV_PHA_NBR", index)
-        return int(val) if val else 0
-
-    def div_oyt_issue_date(self, index: int) -> Optional[date]:
-        """Get OYT issue date (0-based index)."""
-        return self._parse_date(self.data_item("LH_ONE_YR_TRM_ADD", "OYT_ISS_DT", index))
-
-    def div_oyt_face_amount(self, index: int) -> Optional[Decimal]:
-        """Get OYT face amount (0-based index)."""
-        val = self.data_item("LH_ONE_YR_TRM_ADD", "OYT_FCE_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def div_oyt_csv(self, index: int) -> Optional[Decimal]:
-        """Get OYT cash surrender value (0-based index)."""
-        val = self.data_item("LH_ONE_YR_TRM_ADD", "OYT_CSV_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    @property
-    def total_oyt_face(self) -> Decimal:
-        """Total OYT face amount."""
-        total = Decimal("0")
-        for i in range(self.div_oyt_count):
-            val = self.div_oyt_face_amount(i)
-            if val:
-                total += val
-        return total
-
-    @property
-    def total_oyt_csv(self) -> Decimal:
-        """Total OYT cash surrender value."""
-        total = Decimal("0")
-        for i in range(self.div_oyt_count):
-            val = self.div_oyt_csv(i)
-            if val:
-                total += val
-        return total
+    # -- paid-up additions (segment 14) ---------------------------------------------
 
     def get_div_pua(self) -> List[DivPUAInfo]:
-        """Get paid-up addition records."""
-        puas = []
+        """Every paid-up additions row, current and anniversary snapshots."""
+        rows = []
         for row in self.fetch_table("LH_PAID_UP_ADD"):
-            pua = DivPUAInfo(
+            year, month = decode_month_year(row.get("PUA_MT_MO_YR_NBR"))
+            rows.append(DivPUAInfo(
                 coverage_phase=int(row.get("COV_PHA_NBR", 0) or 0),
-                issue_date=self._parse_date(row.get("PUA_ISS_DT")),
-                face_amount=Decimal(str(row["PUA_FCE_AMT"])) if row.get("PUA_FCE_AMT") else None,
-                csv_amount=Decimal(str(row["PUA_CSV_AMT"])) if row.get("PUA_CSV_AMT") else None,
-                raw_data=row
-            )
-            puas.append(pua)
-        return puas
+                purchase_source=str(row.get("PUA_PUR_SRC_CD", "") or "").strip(),
+                mv_date=self._parse_date(row.get("MVRY_DT")),
+                before_anniversary=str(row.get("ANV_PRC_CRN_IND", "") or "").strip() == "1",
+                maturity_year=year,
+                maturity_month=month,
+                nfo_code=str(row.get("PUA_NF_CD", "") or "").strip(),
+                mortality_table=str(row.get("PUA_MTL_TBL_CD", "") or "").strip(),
+                interest_rate=_optional_decimal(row.get("PUA_ITS_RT")),
+                pua_class=str(row.get("PUA_CLS_CD", "") or "").strip(),
+                amount=_decimal(row.get("PUA_AMT")),
+                raw_data=row,
+            ))
+        return rows
+
+    def current_puas(self) -> List[DivPUAInfo]:
+        """Current paid-up additions rows (MVRY_DT 12/31/9999)."""
+        return [row for row in self.get_div_pua() if row.is_current]
 
     @property
-    def div_pua_count(self) -> int:
-        """Count of PUA records."""
-        return self.data_item_count("LH_PAID_UP_ADD")
+    def total_pua_amount(self) -> Decimal:
+        """Current paid-up additions face, all coverage phases and sources."""
+        return sum((row.amount for row in self.current_puas()), Decimal("0"))
 
-    def div_pua_cov_phase(self, index: int) -> int:
-        """Get PUA coverage phase (0-based index)."""
-        val = self.data_item("LH_PAID_UP_ADD", "COV_PHA_NBR", index)
-        return int(val) if val else 0
+    # -- one-year term additions (segment 15) --------------------------------------
 
-    def div_pua_issue_date(self, index: int) -> Optional[date]:
-        """Get PUA issue date (0-based index)."""
-        return self._parse_date(self.data_item("LH_PAID_UP_ADD", "PUA_ISS_DT", index))
+    def get_div_oyt(self) -> List[DivOYTInfo]:
+        """Every one-year term additions row, current and anniversary snapshots."""
+        rows = []
+        for row in self.fetch_table("LH_ONE_YR_TRM_ADD"):
+            year, month = decode_month_year(row.get("OYT_EXP_MO_YR_NBR"))
+            rows.append(DivOYTInfo(
+                mv_date=self._parse_date(row.get("MVRY_DT")),
+                before_anniversary=str(row.get("ANV_PRC_CRN_IND", "") or "").strip() == "1",
+                expiry_year=year,
+                expiry_month=month,
+                nfo_code=str(row.get("OYT_ADD_NF_CD", "") or "").strip(),
+                mortality_table=str(row.get("OYT_MTL_TBL_CD", "") or "").strip(),
+                interest_rate=_optional_decimal(row.get("OYT_ITS_RT")),
+                amount=_decimal(row.get("OYT_ADD_AMT")),
+                raw_data=row,
+            ))
+        return rows
 
-    def div_pua_face_amount(self, index: int) -> Optional[Decimal]:
-        """Get PUA face amount (0-based index)."""
-        val = self.data_item("LH_PAID_UP_ADD", "PUA_FCE_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def div_pua_csv(self, index: int) -> Optional[Decimal]:
-        """Get PUA cash surrender value (0-based index)."""
-        val = self.data_item("LH_PAID_UP_ADD", "PUA_CSV_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    @property
-    def total_pua_face(self) -> Decimal:
-        """Total PUA face amount."""
-        total = Decimal("0")
-        for i in range(self.div_pua_count):
-            val = self.div_pua_face_amount(i)
-            if val:
-                total += val
-        return total
+    def current_oyts(self) -> List[DivOYTInfo]:
+        """Current one-year term additions rows (MVRY_DT 12/31/9999)."""
+        return [row for row in self.get_div_oyt() if row.is_current]
 
     @property
-    def total_pua_csv(self) -> Decimal:
-        """Total PUA cash surrender value."""
-        total = Decimal("0")
-        for i in range(self.div_pua_count):
-            val = self.div_pua_csv(i)
-            if val:
-                total += val
-        return total
+    def total_oyt_amount(self) -> Decimal:
+        """Current one-year term additions face."""
+        return sum((row.amount for row in self.current_oyts()), Decimal("0"))
+
+    # -- values on deposit (segments 12/13) ----------------------------------------
 
     def get_div_deposits(self) -> List[DivDepositInfo]:
-        """Get dividend on deposit records."""
-        deposits = []
+        """Every deposit row, current and anniversary snapshots."""
+        rows = []
         for row in self.fetch_table("LH_PTP_ON_DEP"):
-            dep_type = str(row.get("PTP_TYP_CD", "") or "")
-            dep = DivDepositInfo(
-                deposit_date=self._parse_date(row.get("DEP_DT")),
-                deposit_type=dep_type,
-                deposit_type_desc=translate_div_type_code(dep_type),
-                deposit_amount=Decimal(str(row["CUM_DEP_AMT"])) if row.get("CUM_DEP_AMT") else None,
-                interest_amount=Decimal(str(row["ITS_AMT"])) if row.get("ITS_AMT") else None,
-                raw_data=row
-            )
-            deposits.append(dep)
-        return deposits
+            year, month = decode_month_year(row.get("ITS_APP_MO_YR_NBR"))
+            rows.append(DivDepositInfo(
+                participation_type=str(row.get("CK_PTP_TYP_CD", "") or "").strip(),
+                mv_date=self._parse_date(row.get("MVRY_DT")),
+                before_anniversary=str(row.get("ANV_PRC_CRN_IND", "") or "").strip() == "1",
+                interest_applied_year=year,
+                interest_applied_month=month,
+                nfo_code=str(row.get("DEP_NF_CD", "") or "").strip(),
+                interest_rate=_optional_decimal(row.get("DEP_ITS_RT")),
+                deposit_amount=_decimal(row.get("PTP_DEP_AMT")),
+                interest_amount=_decimal(row.get("DEP_ITS_AMT")),
+                raw_data=row,
+            ))
+        return rows
 
-    @property
-    def div_deposit_count(self) -> int:
-        """Count of dividend deposit records."""
-        return self.data_item_count("LH_PTP_ON_DEP")
-
-    def div_deposit_date(self, index: int) -> Optional[date]:
-        """Get dividend deposit date (0-based index)."""
-        return self._parse_date(self.data_item("LH_PTP_ON_DEP", "DEP_DT", index))
-
-    def div_deposit_type(self, index: int) -> str:
-        """Get dividend deposit type code (0-based index)."""
-        return str(self.data_item("LH_PTP_ON_DEP", "PTP_TYP_CD", index) or "")
-
-    def div_deposit_amount(self, index: int) -> Optional[Decimal]:
-        """Get cumulative dividend deposit amount (0-based index)."""
-        val = self.data_item("LH_PTP_ON_DEP", "CUM_DEP_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def div_deposit_interest(self, index: int) -> Optional[Decimal]:
-        """Get dividend deposit interest amount (0-based index)."""
-        val = self.data_item("LH_PTP_ON_DEP", "ITS_AMT", index)
-        return Decimal(str(val)) if val else None
+    def current_deposits(self) -> List[DivDepositInfo]:
+        """Current values on deposit (MVRY_DT 12/31/9999)."""
+        return [row for row in self.get_div_deposits() if row.is_current]
 
     @property
     def total_div_deposit(self) -> Decimal:
-        """Total dividend deposits."""
-        total = Decimal("0")
-        for i in range(self.div_deposit_count):
-            val = self.div_deposit_amount(i)
-            if val:
-                total += val
-        return total
+        """Current dividends on deposit."""
+        return sum((row.deposit_amount for row in self.current_deposits()), Decimal("0"))
 
     @property
     def total_div_interest(self) -> Decimal:
-        """Total dividend deposit interest."""
-        total = Decimal("0")
-        for i in range(self.div_deposit_count):
-            val = self.div_deposit_interest(i)
-            if val:
-                total += val
-        return total
+        """Interest on the current deposits not yet added to the deposit amount."""
+        return sum((row.interest_amount for row in self.current_deposits()), Decimal("0"))
+
+    @staticmethod
+    def month_year_date(year: Optional[int], month: Optional[int], day: int) -> Optional[date]:
+        """The date in a decoded month-year on the policy's anniversary ``day``."""
+        if year is None or month is None:
+            return None
+        return date(year, month, min(day, calendar.monthrange(year, month)[1]))

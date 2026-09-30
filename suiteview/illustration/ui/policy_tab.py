@@ -70,6 +70,42 @@ SNAPSHOT_BANNER_STYLE = """
 """
 
 
+def show_detail_dialog(parent: QWidget, title: str, rows) -> None:
+    """Modal "Coverage Detail" / "Benefit Detail" card: bold labels, selectable values.
+
+    Shared by the UL Policy tab's coverage/benefit buttons and the par WL Policy page.
+    """
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(title)
+    dlg.setMinimumWidth(420)
+    layout = QVBoxLayout(dlg)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(8)
+
+    grid = QGridLayout()
+    grid.setHorizontalSpacing(14)
+    grid.setVerticalSpacing(4)
+    for row, (label_text, value_text) in enumerate(rows):
+        label = QLabel(label_text)
+        label.setStyleSheet(f"font-weight: bold; color: {PURPLE_DARK}; font-size: 11px;")
+        value = QLabel(str(value_text) if value_text is not None else "")
+        value.setStyleSheet(f"color: {GRAY_DARK}; font-size: 11px;")
+        value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(value, row, 1, Qt.AlignmentFlag.AlignRight)
+    layout.addLayout(grid)
+    layout.addStretch(1)
+
+    close_btn = QPushButton("Close")
+    close_btn.setStyleSheet(VALUE_BUTTON_STYLE)
+    close_btn.clicked.connect(dlg.accept)
+    btn_row = QHBoxLayout()
+    btn_row.addStretch(1)
+    btn_row.addWidget(close_btn)
+    layout.addLayout(btn_row)
+    dlg.exec()
+
+
 class IllustrationPolicyTab(QWidget):
     """Initial Illustration Policy tab."""
 
@@ -1354,36 +1390,8 @@ class IllustrationPolicyTab(QWidget):
             editor.raise_()
             editor.activateWindow()
             return
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Coverage Detail" if kind == "coverage" else "Benefit Detail")
-        dlg.setMinimumWidth(420)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(4)
         rows = self._coverage_detail_rows(item) if kind == "coverage" else self._benefit_detail_rows(item)
-        for row, (label_text, value_text) in enumerate(rows):
-            label = QLabel(label_text)
-            label.setStyleSheet(f"font-weight: bold; color: {PURPLE_DARK}; font-size: 11px;")
-            value = QLabel(str(value_text) if value_text is not None else "")
-            value.setStyleSheet(f"color: {GRAY_DARK}; font-size: 11px;")
-            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
-            grid.addWidget(value, row, 1, Qt.AlignmentFlag.AlignRight)
-        layout.addLayout(grid)
-        layout.addStretch(1)
-
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(VALUE_BUTTON_STYLE)
-        close_btn.clicked.connect(dlg.accept)
-        btn_row = QHBoxLayout()
-        btn_row.addStretch(1)
-        btn_row.addWidget(close_btn)
-        layout.addLayout(btn_row)
-        dlg.exec()
+        show_detail_dialog(self, "Coverage Detail" if kind == "coverage" else "Benefit Detail", rows)
 
     def _rollback_editor_closed(self, editor):
         if editor is self._rollback_editor:

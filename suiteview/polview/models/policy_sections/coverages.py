@@ -6,6 +6,7 @@ from .base import PolicySection
 from ..cl_polrec.policy_data_classes import CoverageInfo
 from ..cl_polrec.policy_data_classes import SkippedPeriodInfo
 from ..cl_polrec.policy_data_classes import SubstandardRatingInfo
+from ..cl_polrec.policy_data_classes import TraditionalCoverageFacts
 from ..cl_polrec.policy_translations import PERSON_CODES
 from ..cl_polrec.policy_translations import PRODUCT_LINE_CODES
 from ..cl_polrec.policy_translations import SEX_CODES
@@ -195,9 +196,9 @@ class CoveragesSection(PolicySection):
         Mirrors the CyberLife/VBA audit rule
         ``ROUND(LH_POL_MVRY_VAL.CSV_AMT * LH_NON_TRD_POL.CDR_PCT / 100, 2)``.
         Returns ``None`` when the corridor does not apply (traditional product,
-        or no account value / corridor percent on file).
+        annuity, or no account value / corridor percent on file).
         """
-        if not self.product.is_advanced_product:
+        if not self.product.is_advanced_product or self.product.is_annuity:
             return None
 
         account_value = self.current_account_value
@@ -525,6 +526,50 @@ class CoveragesSection(PolicySection):
         """Get rider coverages (different plancode from base)."""
         return [c for c in self.get_coverages() if not c.is_base]
 
+    def traditional_facts(self, cov_pha_nbr: int) -> TraditionalCoverageFacts:
+        """Fixed-value facts of one coverage phase (pay-up date, NSP basis, stored values)."""
+        row = next((r for r in self.fetch_table("LH_COV_PHA")
+                    if int(r.get("COV_PHA_NBR", 0) or 0) == int(cov_pha_nbr)), None)
+        if row is None:
+            raise ValueError(f"Coverage phase {cov_pha_nbr} is not on LH_COV_PHA.")
+
+        def text(column: str) -> str:
+            return str(row.get(column, "") or "").strip()
+
+        cash_values = tuple(self._parse_optional_decimal(row.get(column)) for column in (
+            "LOW_DUR_CSV_AMT", "LOW_DUR_1_CSV_AMT", "LOW_DUR_2_CSV_AMT", "LOW_DUR_3_CSV_AMT"))
+        nsp_values = tuple(self._parse_optional_decimal(row.get(column)) for column in (
+            "LOW_DUR_NSP_AMT", "LOW_DUR_1_NSP_AMT", "LOW_DUR_2_NSP_AMT"))
+        band = ""
+        rnl_idx = self.rates.cov_renewal_index(int(cov_pha_nbr), "C", "0")
+        if rnl_idx >= 0:
+            band = str(self.data_item("LH_COV_INS_RNL_RT", "RT_BAN_CD", rnl_idx) or "").strip()
+        return TraditionalCoverageFacts(
+            cov_pha_nbr=int(cov_pha_nbr),
+            pay_up_date=self._parse_date(row.get("PAY_UP_DT")),
+            subseries_code=text("LIF_PLN_SUB_SRE_CD"),
+            base_series_code=text("PLN_BSE_SRE_CD"),
+            class_code=text("INS_CLS_CD"),
+            product_line_code=text("PRD_LIN_TYP_CD"),
+            dividend_participation_code=text("DIV_PTP_TYP_CD"),
+            nsp_rpu_table=text("NSP_RPU_TBL_CD"),
+            nsp_extended_table=text("NSP_EI_TBL_CD"),
+            nsp_interest_rate=self._parse_optional_decimal(row.get("NSP_ITS_RT")),
+            rpu_benefit_code=text("RPU_BNF_CD"),
+            coverage_nfo_code=text("COV_NFO_CD"),
+            stored_low_duration=self._parse_optional_int(row.get("LOW_DUR_PER")),
+            stored_cash_values=cash_values,
+            stored_nsp_values=nsp_values,
+            rate_band_code=band,
+            cease_reason_code=text("CEA_REA_CD"),
+            renewable_premium_code=text("RENEWABLE_PRM_CD"),
+            initial_renewal_period=self._parse_optional_int(row.get("INT_RNL_PER")),
+            renewal_start_duration=self._parse_optional_int(row.get("SBQ_RNL_STR_DUR")),
+            renewal_period=self._parse_optional_int(row.get("SBQ_RNL_PER")),
+            indeterminate_guaranteed_months=self._parse_optional_int(row.get("IDT_PRM_GUA_PER")),
+            refresh_or_renewal_age=self._parse_optional_int(row.get("REFRESH_OR_RNL_AGE")),
+        )
+
     def cov_index_for_phase(self, cov_pha_nbr: int) -> int:
         """PolView's 1-based coverage index for a COV_PHA_NBR (phases can have gaps)."""
         for index, cov in enumerate(self.get_coverages(), start=1):
@@ -651,7 +696,9 @@ class CoveragesSection(PolicySection):
                 flat_amount=self._parse_optional_decimal(row.get("XTR_PER_1000_AMT")),
                 flat_cease_date=self._parse_date(row.get("SST_XTR_CEA_DT")),
                 duration=int(row.get("SST_XTR_CEA_DUR", 0) or 0) or None,
-                raw_data=row
+                raw_data=row,
+                extra_premium_per_unit=self._parse_optional_decimal(row.get("SST_XTR_UNT_AMT")),
+                extra_percent=self._parse_optional_decimal(row.get("SST_XTR_PCT")),
             )
             ratings.append(rating)
         return ratings

@@ -127,6 +127,9 @@ class LoanRecords:
                 interest_status_desc=translate_loan_interest_status_code(int_status),
                 preferred_indicator=str(row.get("PRF_LN_IND", "") or ""),
                 raw_data=row,
+                interest_payable_code=str(row.get("LN_ITS_PBL_TYP_CD", "") or "").strip(),
+                interest_paid_to_date=parse_date(row.get("LN_ITS_PAY_TO_DT")),
+                last_activity_date=parse_date(row.get("LST_LN_ACY_DT")),
             )
             loans.append(loan)
         return loans

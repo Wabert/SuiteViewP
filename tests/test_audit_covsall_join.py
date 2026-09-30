@@ -81,5 +81,5 @@ def test_empty_policy_plancode_adds_no_filter_or_join():
 def test_exact_plancode_escapes_quotes_and_combines_with_plancode_list():
     _app()
     sql = _build(policy_plancode="a'_%", plancodes=['8N562900'])
-    assert "COVSALL.PLN_DES_SER_CD = 'A''_%'" in sql
-    assert "COVSALL.PLN_DES_SER_CD IN ('8N562900')" in sql
+    assert "COVSALL.PLN_DES_SER_CD IN ('A''_%', '8N562900')" in sql
+    assert "COVSALL.PLN_DES_SER_CD = " not in sql

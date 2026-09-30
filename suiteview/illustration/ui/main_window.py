@@ -31,6 +31,8 @@ from suiteview.illustration.core.illustration_policy_service import (
 )
 from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
+from suiteview.illustration.core.parwl.service import is_par_whole_life, load_parwl_basis
+from suiteview.illustration.core.term.service import is_indeterminate_term, load_term_basis
 from suiteview.illustration.core.run_service import (
     PolicyBasis,
     RunControls,
@@ -68,6 +70,9 @@ from suiteview.illustration.models.app_settings import get_illustration_settings
 from .case_controls import CasesController
 from .imported_case_controls import ImportedCasesController
 from .inputs_tab import IllustrationInputsTab
+from .parwl_inputs import ParWLInputError
+from .parwl_workspace import ParWLWorkspace
+from .term_workspace import TermInputError, TermWorkspace
 from .policy_list import IllustrationPolicyListWindow
 from .presenter import IllustrationPresenter, IllustrationSessionState
 from .policy_tab import IllustrationPolicyTab
@@ -457,7 +462,16 @@ class IllustrationWindow(FramelessWindowBase):
         self.tabs.addTab(self.values_tab, "Values")
         self.tabs.addTab(self.report_tab, "Report")
         self.tabs.addTab(self.compare_tab, "Compare")
-        tabs_layout.addWidget(self.tabs)
+        # Participating whole life and indeterminate premium term policies get their own
+        # workspaces (different inputs, value pages and illustration pages) in place of
+        # the UL/ISWL tabs.
+        self.parwl_workspace = ParWLWorkspace()
+        self.term_workspace = TermWorkspace()
+        self._workspace_stack = QStackedWidget()
+        self._workspace_stack.addWidget(self.tabs)
+        self._workspace_stack.addWidget(self.parwl_workspace)
+        self._workspace_stack.addWidget(self.term_workspace)
+        tabs_layout.addWidget(self._workspace_stack)
         main_layout.addWidget(self.tabs_container, 1)
 
         bottom_bar = QWidget()
@@ -628,6 +642,9 @@ class IllustrationWindow(FramelessWindowBase):
                 if historical else ""))
 
     def _refresh_rollback_controls(self, abr_mode=None):
+        if hasattr(self, "_workspace_stack") and self._fixed_premium_active():
+            self.rollback_controls.setVisible(False)
+            return
         policy = self._illustration_data
         feature_enabled = get_illustration_settings().rollback_enabled
         rollback = self.inputs_tab.export_rollback_overrides()
@@ -1067,6 +1084,13 @@ class IllustrationWindow(FramelessWindowBase):
             region,
             is_pending=self._policy.system_code == "P",
         )
+        if self._is_par_whole_life(self._policy):
+            self._load_parwl_into_ui(region, cached=cached)
+            return
+        if self._is_indeterminate_term(self._policy):
+            self._load_term_into_ui(region, cached=cached)
+            return
+        self._show_ul_workspace()
         self._live_policy_checks = None
         warnings, md_check = self._policy_load_checks(
             policy_number=self._policy_info.get("PolicyNumber", self._policy.policy_number),
@@ -1157,6 +1181,143 @@ class IllustrationWindow(FramelessWindowBase):
         # Distribution builds gate illustration by plancode (no-op in dev).
         self._apply_illustration_gate()
 
+    # ── Participating whole life ──────────────────────────────────
+
+    @staticmethod
+    def _is_par_whole_life(policy) -> bool:
+        try:
+            return is_par_whole_life(policy)
+        except Exception:  # an unreadable record goes down the normal path and reports there
+            logger.exception("Par WL detection failed for %s", getattr(policy, "policy_number", "?"))
+            return False
+
+    def _parwl_active(self) -> bool:
+        return self._workspace_stack.currentWidget() is self.parwl_workspace
+
+    def _term_active(self) -> bool:
+        return self._workspace_stack.currentWidget() is self.term_workspace
+
+    def _fixed_premium_active(self) -> bool:
+        return self._parwl_active() or self._term_active()
+
+    def _show_ul_workspace(self) -> None:
+        self._workspace_stack.setCurrentWidget(self.tabs)
+        self.save_case_btn.setToolTip(
+            "Save the current illustration inputs (and policy data) as a named case")
+        self.projection_mode_notice.setText(
+            "INFORCE | Projection starts after the loaded valuation date.")
+        self._refresh_rollback_controls()
+
+    def _load_parwl_into_ui(self, region: str, cached: bool = False) -> None:
+        """Show a participating whole life policy in the par WL workspace."""
+        self._workspace_stack.setCurrentWidget(self.parwl_workspace)
+        self._illustration_data = None
+        self._live_policy_checks = None
+        self._current_key = None
+        self._last_scenario = None
+        self.rollback_controls.setVisible(False)
+        self.save_case_btn.setEnabled(False)
+        self.save_case_btn.setToolTip("Saved cases are not available for par whole life yet.")
+        self.projection_mode_notice.setText(
+            "PAR WHOLE LIFE | Monthly projection from the valuation date; the illustration is annual. "
+            "Dividends are not guaranteed.")
+        self._refresh_summary_strip()
+        try:
+            basis = load_parwl_basis(self._policy, region=region)
+        except Exception as exc:
+            logger.exception("Par WL load failed for %s", self._policy.policy_number)
+            self.run_values_btn.setEnabled(False)
+            self.parwl_workspace.values_tab.clear(f"Par whole life data could not be loaded: {exc}")
+            self.parwl_workspace.report_view.clear(f"Par whole life data could not be loaded: {exc}")
+            QMessageBox.warning(self, "Par Whole Life", f"Unable to load par whole life data/rates: {exc}")
+            self._show_status(f"Par whole life load failed: {exc}")
+            return
+        self.parwl_workspace.load(basis)
+        self.run_values_btn.setEnabled(True)
+        cache_note = " (cached)" if cached else ""
+        self._show_status(
+            f"Loaded par whole life policy {basis.policy.policy_number} ({basis.policy.company_code}) - "
+            f"{basis.policy.premium_status_description}{cache_note}")
+
+    def _run_parwl(self) -> None:
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        self.run_values_btn.setEnabled(False)
+        try:
+            result = self.parwl_workspace.run()
+            self._show_status(
+                f"Par whole life values for {result.policy.policy_number}: {len(result.years)} policy years, "
+                f"{len(result.months)} months.")
+        except ParWLInputError as exc:
+            QMessageBox.information(self, "Illustration Inputs", str(exc))
+            self._show_status(str(exc))
+        except Exception as exc:
+            logger.exception("Par WL run failed: %s", exc)
+            QMessageBox.warning(self, "Run Values", f"Par whole life values could not be calculated: {exc}")
+            self._show_status(f"Run Values failed: {exc}")
+        finally:
+            self.run_values_btn.setEnabled(True)
+            QApplication.restoreOverrideCursor()
+
+    # ── Indeterminate premium term ────────────────────────────────
+
+    @staticmethod
+    def _is_indeterminate_term(policy) -> bool:
+        try:
+            return is_indeterminate_term(policy)
+        except Exception:  # an unreadable record goes down the normal path and reports there
+            logger.exception("Indeterminate term detection failed for %s", getattr(policy, "policy_number", "?"))
+            return False
+
+    def _load_term_into_ui(self, region: str, cached: bool = False) -> None:
+        """Show an indeterminate premium term policy in the term workspace."""
+        self._workspace_stack.setCurrentWidget(self.term_workspace)
+        self._illustration_data = None
+        self._live_policy_checks = None
+        self._current_key = None
+        self._last_scenario = None
+        self.rollback_controls.setVisible(False)
+        self.save_case_btn.setEnabled(False)
+        self.save_case_btn.setToolTip("Saved cases are not available for indeterminate premium term yet.")
+        self.projection_mode_notice.setText(
+            "INDETERMINATE PREMIUM TERM | Current and guaranteed premiums from the paid-to date; the "
+            "illustration is annual. Current premiums are not guaranteed.")
+        self._refresh_summary_strip()
+        try:
+            basis = load_term_basis(self._policy, region=region)
+        except Exception as exc:
+            logger.exception("Term load failed for %s", self._policy.policy_number)
+            self.run_values_btn.setEnabled(False)
+            self.term_workspace.values_tab.clear(f"Term data could not be loaded: {exc}")
+            self.term_workspace.report_view.clear(f"Term data could not be loaded: {exc}")
+            QMessageBox.warning(self, "Indeterminate Premium Term", f"Unable to load term data/rates: {exc}")
+            self._show_status(f"Term load failed: {exc}")
+            return
+        self.term_workspace.load(basis)
+        self.run_values_btn.setEnabled(True)
+        cache_note = " (cached)" if cached else ""
+        self._show_status(
+            f"Loaded indeterminate premium term policy {basis.policy.policy_number} ({basis.policy.company_code}) - "
+            f"{basis.policy.premium_status_description}{cache_note}")
+
+    def _run_term(self) -> None:
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        self.run_values_btn.setEnabled(False)
+        try:
+            result = self.term_workspace.run()
+            self._show_status(
+                f"Indeterminate premium term values for {result.policy.policy_number}: {len(result.years)} policy "
+                "years.")
+        except TermInputError as exc:
+            QMessageBox.information(self, "Illustration Inputs", str(exc))
+            self._show_status(str(exc))
+        except Exception as exc:
+            logger.exception("Term run failed: %s", exc)
+            QMessageBox.warning(self, "Run Values", f"Term values could not be calculated: {exc}")
+            self._show_status(f"Run Values failed: {exc}")
+        finally:
+            self.run_values_btn.setEnabled(True)
+            QApplication.restoreOverrideCursor()
+
     # ── saved-case activation (Saved Cases panel) ─────────────────────
 
     def _on_case_selected_from_list(self, case_name: str):
@@ -1183,6 +1344,7 @@ class IllustrationWindow(FramelessWindowBase):
         load. Shared by the Saved Cases and Imported Cases panels."""
         if not self.isVisible():
             self.show()
+        self._show_ul_workspace()
         try:
             if case.policy_snapshot is None:
                 self._load_v1_case_against_live(case)
@@ -1478,6 +1640,12 @@ class IllustrationWindow(FramelessWindowBase):
         ]
 
     def _on_run_values(self):
+        if self._parwl_active():
+            self._run_parwl()
+            return
+        if self._term_active():
+            self._run_term()
+            return
         if self.policy_tab.has_pending_record_changes():
             QMessageBox.warning(
                 self, "Unapplied Record Values",

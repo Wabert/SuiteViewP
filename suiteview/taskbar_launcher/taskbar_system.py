@@ -79,6 +79,10 @@ class SystemTray(TaskbarCollaborator):
                 control.setVisible(allowed and not (
                     self.state.is_floating_mode and name in floating_only_hidden
                 ))
+        aai_btn = getattr(self.chrome, "aai_btn", None)
+        if aai_btn is not None:
+            # Not an app grant: the AAI button is hard-wired to its owner (and source runs).
+            aai_btn.set_allowed(access is not None and access.shows_aai_button)
         for code, action in self.chrome._permission_actions:
             allowed = access is not None and access.allows_app(code)
             action.setEnabled(allowed)
@@ -582,17 +586,19 @@ class SystemTray(TaskbarCollaborator):
                 from suiteview.polview.ui.main_window import GetPolicyWindow
                 self.state.polview_window = GetPolicyWindow()
                 self.callbacks._setup_child_window(self.state.polview_window, "PolView")
-                self._wire_polview_illustrator(self.state.polview_window)
+                self._wire_polview_launchers(self.state.polview_window)
             except Exception as e:
                 logger.error(f"Failed to open PolView: {e}")
                 QMessageBox.warning(_host_widget(self), "PolView", str(e))
                 return
         self.callbacks._bring_to_front(self.state.polview_window)
 
-    def _wire_polview_illustrator(self, window):
-        """Route PolView's RERUN button through the shared RERUN window."""
+    def _wire_polview_launchers(self, window):
+        """Route PolView's RERUN and Switch A buttons through the shared windows."""
         if window is not None and hasattr(window, 'set_illustration_launcher'):
             window.set_illustration_launcher(self._launch_illustration_with_policy)
+        if window is not None and hasattr(window, 'set_switch_launcher'):
+            window.set_switch_launcher(self._launch_switch_with_policy)
 
     def _wire_illustration_polview(self, window):
         """Route RERUN's PolView button through the shared PolView window."""
@@ -611,7 +617,7 @@ class SystemTray(TaskbarCollaborator):
                 from suiteview.polview.ui.main_window import GetPolicyWindow
                 self.state.polview_window = GetPolicyWindow()
                 self.callbacks._setup_child_window(self.state.polview_window, "PolView")
-                self._wire_polview_illustrator(self.state.polview_window)
+                self._wire_polview_launchers(self.state.polview_window)
             except ImportError:
                 logger.info("PolView package not available")
             except Exception as e:
@@ -707,6 +713,21 @@ class SystemTray(TaskbarCollaborator):
         if win is not None and hasattr(win, 'load_policy'):
             win.load_policy(policy_number, region=region, company_code=company_code)
         self.callbacks._bring_to_front(win)
+
+    @requires_app_access("MAINFRAMENAV")
+    def _launch_switch_with_policy(self, side, policy_number, region="CKPR",
+                                   company_code=""):
+        """Open (or reuse) the Mainframe window and bring *policy_number* up
+        on Switch *side*. Used by PolView's Switch A header button."""
+        self._open_mainframe()
+        win = self.state.mainframe_window
+        if win is not None and hasattr(win, 'open_policy_in_switch'):
+            win.open_policy_in_switch(side, policy_number, company_code, region)
+
+    def _open_passwords(self):
+        """Edit the shared mainframe sign-on used by every SuiteView tool."""
+        from suiteview.ui.dialogs.passwords_dialog import open_passwords_dialog
+        open_passwords_dialog(_host_widget(self))
 
     @requires_app_access("POLVIEW")
     def _launch_polview_with_policy(self, policy_number, region="CKPR",
@@ -1111,8 +1132,8 @@ class AppLauncher(TaskbarCollaborator):
     def _open_polview(self, *args, **kwargs):
         return SystemTray._open_polview(self, *args, **kwargs)
 
-    def _wire_polview_illustrator(self, *args, **kwargs):
-        return SystemTray._wire_polview_illustrator(self, *args, **kwargs)
+    def _wire_polview_launchers(self, *args, **kwargs):
+        return SystemTray._wire_polview_launchers(self, *args, **kwargs)
 
     def _wire_illustration_polview(self, *args, **kwargs):
         return SystemTray._wire_illustration_polview(self, *args, **kwargs)
@@ -1146,6 +1167,12 @@ class AppLauncher(TaskbarCollaborator):
 
     def _launch_polview_with_policy(self, *args, **kwargs):
         return SystemTray._launch_polview_with_policy(self, *args, **kwargs)
+
+    def _launch_switch_with_policy(self, *args, **kwargs):
+        return SystemTray._launch_switch_with_policy(self, *args, **kwargs)
+
+    def _open_passwords(self, *args, **kwargs):
+        return SystemTray._open_passwords(self, *args, **kwargs)
 
     def _open_audit(self, *args, **kwargs):
         return SystemTray._open_audit(self, *args, **kwargs)

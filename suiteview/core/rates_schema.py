@@ -375,6 +375,15 @@ class RatesSchemaRepository:
                            _text(r[8]), _text(r[9]), r[10], _text(r[11]), _text(r[12]),
                            _text(r[13]), _text(r[14])) for r in rows]
 
+    def modal_factor_plancodes(self, company: str, prefix: str) -> list[str]:
+        """Plancodes starting with ``prefix`` that have ``PLAN_MODEFACT`` rows for ``company``."""
+        rows = self._query(
+            "SELECT DISTINCT PLANCODE FROM rates.PLAN_MODEFACT WHERE COMPANY = ? AND PLANCODE LIKE ? "
+            "ORDER BY PLANCODE",
+            [company, f"{prefix}%"],
+        )
+        return [_text(r[0]) for r in rows]
+
     # -- 1 CELL ------------------------------------------------------------------
 
     def cell_assignments(self, company: str, plancode: str) -> list[CellAssignment]:

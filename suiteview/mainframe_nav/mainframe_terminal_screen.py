@@ -3,8 +3,6 @@ Mainframe Terminal Screen - TN3270 Terminal Emulator UI
 Provides a 3270 terminal interface for TSO/ISPF access
 """
 
-from suiteview.core.profile_paths import profile_path
-
 import logging
 import time
 import socket
@@ -21,11 +19,20 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
 from PyQt6.QtCore import QObject, Qt, pyqtSignal, QTimer, QEventLoop, QUrl
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QDesktopServices
 
+from suiteview.data.mainframe_credentials import load_mainframe_credentials
+from suiteview.mainframe_nav.switch_sessions import (
+    TerminalEndpoint, load_endpoint, retire_plaintext_credentials, save_endpoint, switch_label,
+)
 from suiteview.mainframe_nav.tn3270 import TN3270Client, Screen, AID
+from suiteview.ui.dialogs.passwords_dialog import open_passwords_dialog
 from suiteview.ui.widgets.uppercase_input import force_uppercase
 from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
+
+# CICS region -> VTAM/Switch menu option used by the auto-login sequence.
+CICS_REGION_OPTIONS = {"CKAS": "1", "CKMO": "5", "CKPR": "7", "CKSR": ""}
+TERMINAL_COMPANY_CODES = ("01", "04", "06", "08", "26")
 
 
 class TerminalReceiveWorker(QObject):
@@ -523,10 +530,10 @@ class TerminalWidget(QTextEdit):
 class TerminalSettingsDialog(QDialog):
     """Settings dialog for terminal connection options"""
     
-    def __init__(self, parent=None, host="PRODESA", port=992, ssl=True, term_type="IBM-3278-2-E", userid="", password=""):
+    def __init__(self, parent=None, host="PRODESA", port=992, ssl=True, term_type="IBM-3278-2-E",
+                 title="Terminal Settings"):
         super().__init__(parent)
-        self.parent_screen = parent  # Store parent to access connection manager
-        self.setWindowTitle("Terminal Settings")
+        self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(420)
         
@@ -636,7 +643,10 @@ class TerminalSettingsDialog(QDialog):
         layout.addWidget(conn_group)
         
         # Note about credentials
-        cred_note = QLabel("💡 Use the 'User' button at the bottom of the window to set your credentials.")
+        cred_note = QLabel(
+            "💡 Your user ID and password come from 🔑 Passwords "
+            "(the button at the bottom of the Mainframe window, or the taskbar Tools menu)."
+        )
         cred_note.setStyleSheet("""
             QLabel {
                 color: #666;
@@ -810,45 +820,13 @@ class TerminalSettingsDialog(QDialog):
                 self.port_input.setValue(23)
     
     def get_settings(self):
-        """Return the current settings"""
-        # Get credentials from MAINFRAME_USER connection
-        userid = ""
-        password = ""
-        if self.parent_screen and hasattr(self.parent_screen, 'conn_manager'):
-            # Find MAINFRAME_USER connection by name
-            all_connections = self.parent_screen.conn_manager.get_connections()
-            user_conn = None
-            for conn in all_connections:
-                if conn.get('connection_name') == 'MAINFRAME_USER':
-                    user_conn = conn
-                    break
-            
-            if user_conn:
-                # Decrypt username
-                encrypted_user = user_conn.get('encrypted_username')
-                if encrypted_user:
-                    try:
-                        userid = self.parent_screen.cred_manager.decrypt(encrypted_user)
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt username: {e}")
-                
-                # Decrypt password
-                encrypted_pw = user_conn.get('encrypted_password')
-                if encrypted_pw:
-                    try:
-                        password = self.parent_screen.cred_manager.decrypt(encrypted_pw)
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt password: {e}")
-
-        
-        return {
-            'host': self.host_input.text(),
-            'port': self.port_input.value(),
-            'ssl': self.ssl_checkbox.isChecked(),
-            'term_type': self.term_type_combo.currentText(),
-            'userid': userid,
-            'password': password
-        }
+        """Return the chosen connection endpoint."""
+        return TerminalEndpoint(
+            host=self.host_input.text().strip(),
+            port=self.port_input.value(),
+            ssl=self.ssl_checkbox.isChecked(),
+            term_type=self.term_type_combo.currentText(),
+        )
     
     def start_port_scan(self):
         """Start scanning common TN3270 ports on the host"""
@@ -1058,9 +1036,9 @@ class TerminalSettingsDialog(QDialog):
 
 
 class MainframeTerminalScreen(QWidget):
-    """Mainframe Terminal Screen with TN3270 emulation"""
+    """Mainframe Terminal Screen with TN3270 emulation, bound to one Switch side."""
     
-    def __init__(self):
+    def __init__(self, side: str = "A"):
         super().__init__()
         
         # Allow this widget to shrink and expand flexibly
@@ -1068,19 +1046,18 @@ class MainframeTerminalScreen(QWidget):
         # Set a reasonable minimum size that allows window to be made smaller
         self.setMinimumSize(250, 300)
         
+        self.side = side.upper()
         self.client: TN3270Client = None
         self.receive_thread: WorkerController | None = None
         self.input_buffer = ""
         self.current_input_address = 0
-        
-        # Settings file for persistence
-        self.settings_file = profile_path('terminal_settings.json')
         
         # Connection settings (stored for settings dialog)
         self.conn_host = ""
         self.conn_port = 992
         self.conn_ssl = True
         self.conn_term_type = "IBM-3278-2-E"
+        # Sign-on comes from the shared Passwords store at connect time.
         self.conn_userid = ""
         self.conn_password = ""
         
@@ -1114,7 +1091,7 @@ class MainframeTerminalScreen(QWidget):
         conn_layout.setContentsMargins(10, 5, 10, 5)
         
         # Connection status label
-        self.conn_status_label = QLabel(f"⚫ {self.conn_host}")
+        self.conn_status_label = QLabel(f"⚫ {self._status_prefix()}{self.conn_host}:{self.conn_port}")
         self.conn_status_label.setStyleSheet("color: #888; font-weight: bold; font-size: 12px;")
         conn_layout.addWidget(self.conn_status_label)
         
@@ -1210,10 +1187,10 @@ class MainframeTerminalScreen(QWidget):
             return btn
 
         # Place current regions in a tight 2x2 area within the 4x4 grid
-        self.ckas_button = _make_nav_btn("CKAS", "Auto-login to CKAS (CICS Cyberlife Dev)", "1")
-        self.ckmo_button = _make_nav_btn("CKMO", "Auto-login to CKMO (CICS Model Office)", "5")
-        self.ckpr_button = _make_nav_btn("CKPR", "Auto-login to CKPR (Cyberlife Production)", "7")
-        self.cksr_button = _make_nav_btn("CKSR", "Auto-login to CKSR", "")
+        self.ckas_button = _make_nav_btn("CKAS", "Auto-login to CKAS (CICS Cyberlife Dev)", CICS_REGION_OPTIONS["CKAS"])
+        self.ckmo_button = _make_nav_btn("CKMO", "Auto-login to CKMO (CICS Model Office)", CICS_REGION_OPTIONS["CKMO"])
+        self.ckpr_button = _make_nav_btn("CKPR", "Auto-login to CKPR (Cyberlife Production)", CICS_REGION_OPTIONS["CKPR"])
+        self.cksr_button = _make_nav_btn("CKSR", "Auto-login to CKSR", CICS_REGION_OPTIONS["CKSR"])
 
         nav_buttons_grid.addWidget(self.ckas_button, 0, 0)
         nav_buttons_grid.addWidget(self.ckmo_button, 0, 1)
@@ -1256,7 +1233,7 @@ class MainframeTerminalScreen(QWidget):
         nav_layout.addWidget(co_label)
         
         self.company_combo = QComboBox()
-        self.company_combo.addItems(["01", "04", "06", "08", "26"])
+        self.company_combo.addItems(list(TERMINAL_COMPANY_CODES))
         self.company_combo.setCurrentText("01")
         self.company_combo.setFixedWidth(60)
         self.company_combo.setStyleSheet("""
@@ -1394,25 +1371,22 @@ class MainframeTerminalScreen(QWidget):
         layout.addWidget(self.status_label)
     
     def show_settings(self):
-        """Show the settings dialog"""
+        """Show the settings dialog for this Switch side."""
         dialog = TerminalSettingsDialog(
             self,
             host=self.conn_host,
             port=self.conn_port,
             ssl=self.conn_ssl,
             term_type=self.conn_term_type,
-            userid=self.conn_userid,
-            password=self.conn_password
+            title=f"{switch_label(self.side)} Settings",
         )
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            settings = dialog.get_settings()
-            self.conn_host = settings['host']
-            self.conn_port = settings['port']
-            self.conn_ssl = settings['ssl']
-            self.conn_term_type = settings['term_type']
-            self.conn_userid = settings['userid']
-            self.conn_password = settings['password']
+            endpoint = dialog.get_settings()
+            self.conn_host = endpoint.host
+            self.conn_port = endpoint.port
+            self.conn_ssl = endpoint.ssl
+            self.conn_term_type = endpoint.term_type
             
             # Save settings to disk
             self._save_settings()
@@ -1420,56 +1394,49 @@ class MainframeTerminalScreen(QWidget):
             # Update status label
             self.update_connection_status()
     
+    def _status_prefix(self) -> str:
+        return f"{switch_label(self.side)} · "
+
     def _load_settings(self):
-        """Load terminal settings from disk"""
-        import json
-        
-        if self.settings_file.exists():
-            try:
-                with open(self.settings_file, 'r') as f:
-                    settings = json.load(f)
-                
-                self.conn_host = settings.get('host', self.conn_host)
-                self.conn_port = settings.get('port', self.conn_port)
-                self.conn_ssl = settings.get('ssl', self.conn_ssl)
-                self.conn_term_type = settings.get('term_type', self.conn_term_type)
-                self.conn_userid = settings.get('userid', self.conn_userid)
-                self.conn_password = settings.get('password', self.conn_password)
-                
-                logger.info(f"Loaded terminal settings from {self.settings_file}")
-            except Exception as e:
-                logger.error(f"Failed to load terminal settings: {e}")
+        """Load this side's endpoint; the sign-on is read at connect time."""
+        try:
+            retire_plaintext_credentials()
+            endpoint = load_endpoint(self.side)
+        except Exception as e:
+            logger.error(f"Failed to load {switch_label(self.side)} settings: {e}")
+            return
+        self.conn_host = endpoint.host
+        self.conn_port = endpoint.port
+        self.conn_ssl = endpoint.ssl
+        self.conn_term_type = endpoint.term_type
     
     def _save_settings(self):
-        """Save terminal settings to disk"""
-        from suiteview.core.json_store import write_json
-
+        """Save this side's endpoint to disk."""
+        endpoint = TerminalEndpoint(
+            host=self.conn_host,
+            port=self.conn_port,
+            ssl=self.conn_ssl,
+            term_type=self.conn_term_type,
+        )
         try:
-            settings = {
-                'host': self.conn_host,
-                'port': self.conn_port,
-                'ssl': self.conn_ssl,
-                'term_type': self.conn_term_type,
-                'userid': self.conn_userid,
-                'password': self.conn_password
-            }
-
-            write_json(self.settings_file, settings)
-
-            logger.info(f"Saved terminal settings to {self.settings_file}")
+            save_endpoint(self.side, endpoint)
+            logger.info(f"Saved {switch_label(self.side)} settings")
         except Exception as e:
             logger.error(f"Failed to save terminal settings: {e}")
+            QMessageBox.warning(self, "Settings Not Saved",
+                                f"Could not save {switch_label(self.side)} settings:\n{e}")
     
     def update_connection_status(self):
         """Update the connection status label"""
+        prefix = self._status_prefix()
         if self.client and self.client.connected:
             ssl_text = " (SSL)" if self.conn_ssl else ""
             # Include assigned LU name if available
             lu_text = f" [{self.client.assigned_lu_name}]" if self.client.assigned_lu_name else ""
-            self.conn_status_label.setText(f"🟢 {self.conn_host}:{self.conn_port}{ssl_text}{lu_text}")
+            self.conn_status_label.setText(f"🟢 {prefix}{self.conn_host}:{self.conn_port}{ssl_text}{lu_text}")
             self.conn_status_label.setStyleSheet("color: #27ae60; font-weight: bold; font-size: 12px;")
         else:
-            self.conn_status_label.setText(f"⚫ {self.conn_host}")
+            self.conn_status_label.setText(f"⚫ {prefix}{self.conn_host}:{self.conn_port}")
             self.conn_status_label.setStyleSheet("color: #888; font-weight: bold; font-size: 12px;")
     
     def toggle_connection(self):
@@ -1479,45 +1446,32 @@ class MainframeTerminalScreen(QWidget):
         else:
             self.connect_to_mainframe()
     
-    def _reload_credentials_from_db(self):
-        """Reload credentials from MAINFRAME_USER connection in database"""
+    def _reload_credentials(self) -> bool:
+        """Refresh the sign-on from the shared Passwords store.
+
+        Returns False (after telling the user) when the saved sign-on exists
+        but cannot be read; a missing sign-on is simply empty.
+        """
         try:
-            if self.parent_screen and hasattr(self.parent_screen, 'conn_manager'):
-                # Find MAINFRAME_USER connection by name
-                all_connections = self.parent_screen.conn_manager.get_connections()
-                user_conn = None
-                for conn in all_connections:
-                    if conn.get('connection_name') == 'MAINFRAME_USER':
-                        user_conn = conn
-                        break
-                
-                if user_conn:
-                    # Decrypt username
-                    encrypted_user = user_conn.get('encrypted_username')
-                    if encrypted_user:
-                        try:
-                            self.conn_userid = self.parent_screen.cred_manager.decrypt(encrypted_user)
-                            logger.info(f"Reloaded username from database: {self.conn_userid}")
-                        except Exception as e:
-                            logger.error(f"Failed to decrypt username: {e}")
-                    
-                    # Decrypt password
-                    encrypted_pw = user_conn.get('encrypted_password')
-                    if encrypted_pw:
-                        try:
-                            self.conn_password = self.parent_screen.cred_manager.decrypt(encrypted_pw)
-                            logger.info("Reloaded password from database")
-                        except Exception as e:
-                            logger.error(f"Failed to decrypt password: {e}")
-                else:
-                    logger.warning("No MAINFRAME_USER connection found in database")
+            saved = load_mainframe_credentials()
         except Exception as e:
-            logger.error(f"Failed to reload credentials from database: {e}")
+            logger.error(f"Failed to read the saved mainframe sign-on: {e}")
+            self.conn_userid = ""
+            self.conn_password = ""
+            QMessageBox.warning(
+                self, "Password Unreadable",
+                "Your saved mainframe password could not be read.\n\n"
+                "Open 🔑 Passwords and save it again.\n\n"
+                f"Details: {e}")
+            return False
+        self.conn_userid = saved.userid
+        self.conn_password = saved.password
+        return True
     
     def connect_to_mainframe(self):
         """Establish connection to mainframe"""
-        # Reload credentials from database in case User button updated them
-        self._reload_credentials_from_db()
+        # Always use the latest saved sign-on (Passwords may have changed it).
+        self._reload_credentials()
         
         host = self.conn_host
         port = self.conn_port
@@ -2252,15 +2206,39 @@ class MainframeTerminalScreen(QWidget):
             return
         self._finish_cics_sequence(region_name, start_time)
 
+    def open_policy(self, policy_number: str, company_code: str, region: str) -> bool:
+        """Sign on to *region* and bring up *policy_number* in this terminal.
+
+        Returns False (after telling the user) when the region has no
+        terminal navigation.
+        """
+        region = (region or "").strip().upper()
+        if region not in CICS_REGION_OPTIONS:
+            QMessageBox.warning(
+                self, switch_label(self.side),
+                f"Region {region or '(none)'} has no terminal navigation.\n\n"
+                f"Supported regions: {', '.join(CICS_REGION_OPTIONS)}.")
+            return False
+        self.policy_input.setText((policy_number or "").strip().upper())
+        company = (company_code or "").strip()
+        if company:
+            if self.company_combo.findText(company) < 0:
+                self.company_combo.addItem(company)
+            self.company_combo.setCurrentText(company)
+        self.start_cics_sequence(region, CICS_REGION_OPTIONS[region])
+        return True
+
     def _ensure_cics_credentials(self, region_name: str) -> bool:
+        if not self._reload_credentials():
+            return False
         if self.conn_userid and self.conn_password:
             return True
-        QMessageBox.warning(
+        if not open_passwords_dialog(
             self,
-            "Credentials Required",
-            f"Please set your User ID and Password in Settings before using {region_name} auto-login."
-        )
-        return False
+            reason=f"{region_name} auto-login needs your mainframe user ID and password.",
+        ):
+            return False
+        return self._reload_credentials() and bool(self.conn_userid and self.conn_password)
 
     def _prepare_cics_sequence(self, region_name: str) -> float:
         start_time = time.time()
@@ -2615,9 +2593,9 @@ class DualTerminalScreen(QWidget):
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setOpaqueResize(True)
         
-        # Create two terminal instances
-        self.terminal_left = MainframeTerminalScreen()
-        self.terminal_right = MainframeTerminalScreen()
+        # Switch A on the left, Switch B on the right
+        self.terminal_left = MainframeTerminalScreen("A")
+        self.terminal_right = MainframeTerminalScreen("B")
         
         # Mark the right terminal to use OPEN command for new sessions
         # This enables dual terminal support via VTAM/Switch OPEN command
@@ -2633,6 +2611,15 @@ class DualTerminalScreen(QWidget):
         
         layout.addWidget(self.splitter)
     
+    def terminal_for(self, side: str) -> MainframeTerminalScreen:
+        """Return the pane for Switch *side* ("A" = left, "B" = right)."""
+        side = side.upper()
+        if side == "A":
+            return self.terminal_left
+        if side == "B":
+            return self.terminal_right
+        raise ValueError(f"Unknown Switch side {side!r}")
+
     def disconnect_all(self):
         """Disconnect both terminals"""
         self.terminal_left.disconnect_from_mainframe()

@@ -31,8 +31,8 @@ REGION_LABELS = {
 }
 
 # Chip tones map to colours in the UI strip.
-DANGER, WARN, INFO, OK, NEUTRAL, TEST, FUN = (
-    "danger", "warn", "info", "ok", "neutral", "test", "fun",
+DANGER, WARN, INFO, OK, NEUTRAL, TEST, FUN, GEP = (
+    "danger", "warn", "info", "ok", "neutral", "test", "fun", "gep",
 )
 
 
@@ -146,6 +146,12 @@ def status_tone(code: str) -> str:
     if code.startswith(("3", "4")):
         return INFO
     return NEUTRAL
+
+
+def _is_inforce(status_code: Optional[str], system: str) -> bool:
+    """Inforce = not pending and premium-pay status paying (2x), waived/paid-up (3x/4x) or lapsing (54)."""
+    code = (status_code or "").strip()
+    return system != "P" and (code.startswith(("2", "3", "4")) or code == "54")
 
 
 def _same_month_day(a: Optional[date], b: date) -> bool:
@@ -304,6 +310,14 @@ def _append_advanced_life_chips(
             chips.append(Chip("dol", dol, NEUTRAL,
                               "Definition of life insurance: GPT = Guideline Premium Test, "
                               "CVAT = Cash Value Accumulation Test"))
+        if dol == "GPT" and _is_inforce(facts.status_code, facts.system):
+            glp = read.get("glp")
+            if glp is not None and glp == 0:
+                chips.append(Chip(
+                    "gep", "GEP", GEP,
+                    "Guideline Exception Period: an inforce GPT policy whose GLP is 0 "
+                    "(GLP is set to 0 while the policy is in the guideline exception period).\n"
+                    "Source: LH_COV_INS_GDL_PRM.GDL_PRM_AMT (PRM_RT_TYP_CD = 'A') = 0"))
         standard_db = read.get("standard_death_benefit")
         corridor_db = read.get("corridor_death_benefit")
         if corridor_db is not None and standard_db is not None and corridor_db > standard_db:

@@ -8,6 +8,7 @@ Usage:
 
 JSON keys (all optional):
     term    search text typed into the Tables search box  (default "cov")
+    scope   "Value", "Field" or "All"                      (default "All")
     open    0-based match row to double-click afterwards   (default: none)
     out     output PNG path  (default ~/.suiteview/diagnostics/tables_search.png)
 """
@@ -22,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from PyQt6.QtWidgets import QApplication, QHBoxLayout, QWidget  # noqa: E402
 
 from suiteview.core.profile_paths import diagnostics_dir  # noqa: E402
-from suiteview.polview.services.table_search import search_policy_tables  # noqa: E402
+from suiteview.polview.services.table_search import SCOPE_ALL, search_policy_tables  # noqa: E402
 from suiteview.polview.ui.styles import BLUE_BG  # noqa: E402
 from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab  # noqa: E402
 from suiteview.polview.ui.tree_panel import PolicyRecordTreePanel  # noqa: E402
@@ -76,7 +77,9 @@ def main():
 
     def run_search(text):
         if text:
-            raw.show_search_results(search_policy_tables(policy, panel.tables_with_data(), text))
+            raw.show_search_results(search_policy_tables(
+                policy, panel.tables_with_data(), text, scope=panel.search_scope(),
+            ))
 
     def open_hit(_record, table, field, row):
         columns, rows = _TABLES[table]
@@ -87,6 +90,7 @@ def main():
     panel.search_requested.connect(run_search)
     raw.search_hit_activated.connect(open_hit)
     panel.set_table_presence({table: True for table in _TABLES})
+    panel.set_search_scope(opts.get("scope", SCOPE_ALL))
     host.show()
     panel.search_box.setText(term)
     panel.search_box.returnPressed.emit()

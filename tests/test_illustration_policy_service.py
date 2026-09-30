@@ -85,6 +85,7 @@ class _FakePolicyInfo:
     db_option_code = "A"
     modal_premium = 100.0
     billing_frequency = 1
+    bill_form_code = "0"
     policy_year = 25
     policy_month = 1
     attained_age = 64
@@ -210,6 +211,7 @@ class _FakePolicyInfo:
             terminate_date=None,
             maturity_date=date(2121, 1, 1),
             coi_rate=None,
+            premium_rate=None,
             cola_indicator="1" if phase == 2 else "0",
         )
 

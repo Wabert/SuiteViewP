@@ -331,8 +331,12 @@ class CoveragesTab(QWidget):
         if corridor_db is None:
             self.corridor_label.setText("N/A")
             self.corridor_label.setStyleSheet(_VAL_STYLE_NA)
-            reason = ("traditional product" if not policy.product.is_advanced_product
-                      else "no account value on file")
+            if not policy.product.is_advanced_product:
+                reason = "traditional product"
+            elif policy.product.is_annuity:
+                reason = "annuity"
+            else:
+                reason = "no account value on file"
             lines.append(f"Corridor: not applicable ({reason})")
         else:
             account_value = policy.coverages.current_account_value

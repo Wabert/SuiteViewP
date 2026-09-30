@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLab
 
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
+from . import adv_prod_tooltips as tips
 from ...services.policy_prefetch import (
     AccountValueCalculations,
     InterimAccountValueUnavailable,
@@ -27,6 +28,10 @@ logger = logging.getLogger(__name__)
 LEFT_COLUMN_WIDTH = 668
 FUND_BOX_SPACING = 4
 FUND_BOX_WIDTH = (LEFT_COLUMN_WIDTH - 2 * FUND_BOX_SPACING) // 3
+MV_COLUMNS = ["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg",
+              "OtherChrg", "Expenses", "NAR", "MD"]
+MV_MONTH_COLUMN = MV_COLUMNS.index("M")
+MV_MD_COLUMN = MV_COLUMNS.index("MD")
 
 
 class AdvProdValuesTab(QWidget):
@@ -80,10 +85,7 @@ class AdvProdValuesTab(QWidget):
         left_column.addLayout(fund_values_row)
 
         self.mv_values = StyledInfoTableGroup("Monthliversary Values", show_info=False)
-        self.mv_values.setup_table(
-            ["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg",
-             "OtherChrg", "Expenses", "NAR", "MD"]
-        )
+        self.mv_values.setup_table(MV_COLUMNS)
         self.mv_values.setFixedWidth(LEFT_COLUMN_WIDTH)
         self.mv_values.setMinimumHeight(120)
         self.mv_values.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -156,8 +158,8 @@ class AdvProdValuesTab(QWidget):
         self.allocation_percent.load_table_data([])
         self.surrender_notice.clear()
         self.surrender_notice.hide()
-        for field in ("surrender_charge", "surrender_value", "interim_av_quote"):
-            self.policy_info._fields[field].setToolTip("")
+        for field in self.policy_info._fields.values():
+            field.setToolTip("")
         self._set_interim_label(None)
 
         try:
@@ -173,10 +175,12 @@ class AdvProdValuesTab(QWidget):
                 self.surrender_notice.setText(surrender_values.reason)
                 self.surrender_notice.show()
             else:
-                self.policy_info.set_value(
-                    "surrender_charge", format_currency(surrender_values.surrender_charge))
-                self.policy_info.set_value(
-                    "surrender_value", format_currency(surrender_values.surrender_value))
+                self._set_calculated(
+                    "surrender_charge", format_currency(surrender_values.surrender_charge),
+                    tips.surrender_charge_tip(surrender_values))
+                self._set_calculated(
+                    "surrender_value", format_currency(surrender_values.surrender_value),
+                    tips.surrender_value_tip(surrender_values))
             self._load_interim_quote(calculations.interim)
             self._load_monthliversary_from_policy(policy)
             self._load_fund_history_from_policy(policy)
@@ -186,6 +190,11 @@ class AdvProdValuesTab(QWidget):
             logger.exception("AdvProdValuesTab failed to load policy data")
             raise
 
+    def _set_calculated(self, attr, text, tip):
+        """Show a calculated value with a hover tip explaining its working."""
+        self.policy_info.set_value(attr, text)
+        self.policy_info._fields[attr].setToolTip(tip)
+
     def _load_interim_quote(self, interim):
         """Show the Interim AV Quote with its roll-forward in the tooltip."""
         field = self.policy_info._fields["interim_av_quote"]
@@ -194,52 +203,60 @@ class AdvProdValuesTab(QWidget):
             field.setToolTip(interim.reason)
             return
         self._set_interim_label(interim.quote_date)
-        self.policy_info.set_value("interim_av_quote", format_currency(interim.account_value))
-        lines = [
-            f"Interim AV Quote ({interim.quote_date:%m/%d/%Y})",
-            f"MV AV {interim.valuation_date:%m/%d/%Y}: {format_currency(interim.valuation_account_value)}",
-        ]
-        lines.extend(
-            f"+ Premium {premium.received:%m/%d/%Y}: {format_currency(premium.net)} net"
-            f" ({format_currency(premium.gross)} gross)"
-            for premium in interim.premiums
-        )
-        lines.append(f"+ Interest: {format_currency(interim.interest)}")
-        lines.append(f"= {format_currency(interim.account_value)}")
-        field.setToolTip("\n".join(lines))
+        self._set_calculated(
+            "interim_av_quote", format_currency(interim.account_value),
+            tips.interim_av_tip(interim))
 
     def _load_policy_info_from_policy(self, policy):
         mvav = policy.values.mv_av(0)
         if mvav:
             self.policy_info.set_value("total_av", format_currency(mvav))
 
-        unimpaired_total = self._sum_numeric_rows(
-            policy.fetch_table("LH_POL_FND_VAL_TOT"),
-            "CSV_AMT",
-            lambda row: "9999" in str(row.get("MVRY_DT", "")),
-        )
-        self.policy_info.set_value("unimpaired_av", format_currency(unimpaired_total))
+        current = self._is_current_row
+        unimpaired_rows = [
+            row for row in policy.fetch_table("LH_POL_FND_VAL_TOT") if current(row)]
+        unimpaired_total = self._sum_numeric_rows(unimpaired_rows, "CSV_AMT")
+        self._set_calculated(
+            "unimpaired_av", format_currency(unimpaired_total),
+            tips.sum_tip(
+                "Unimpaired AV = sum of the current fund buckets",
+                "(LH_POL_FND_VAL_TOT.CSV_AMT where MVRY_DT = 12/31/9999)",
+                self._bucket_parts(unimpaired_rows, "CSV_AMT"), unimpaired_total,
+                empty="No current fund buckets"))
 
-        impaired_total = self._sum_numeric_rows(
-            policy.fetch_table("LH_FND_VAL_LOAN"),
-            "LN_PRI_AMT",
-            lambda row: (
-                "9999" in str(row.get("MVRY_DT", ""))
-                and str(row.get("FND_ID_CD", "")).strip() != "LZ"
-            ),
-        )
-        self.policy_info.set_value("impaired_av", format_currency(impaired_total))
+        impaired_rows = [
+            row for row in policy.fetch_table("LH_FND_VAL_LOAN")
+            if current(row) and str(row.get("FND_ID_CD", "")).strip() != "LZ"
+        ]
+        impaired_total = self._sum_numeric_rows(impaired_rows, "LN_PRI_AMT")
+        self._set_calculated(
+            "impaired_av", format_currency(impaired_total),
+            tips.sum_tip(
+                "Impaired AV = loan principal held as collateral in the funds",
+                "(LH_FND_VAL_LOAN.LN_PRI_AMT, current rows, fund LZ excluded)",
+                self._bucket_parts(impaired_rows, "LN_PRI_AMT"), impaired_total,
+                empty="No current loan collateral rows"))
 
         if policy.targets.gav:
             self.policy_info.set_value("gav", format_currency(policy.targets.gav))
 
-        ccv_total = self._sum_numeric_rows(
-            policy.fetch_table("LH_COV_TARGET"),
-            "TAR_PRM_AMT",
-            lambda row: str(row.get("TAR_TYP_CD", "")).strip() == "XP",
-        )
+        ccv_rows = [
+            row for row in policy.fetch_table("LH_COV_TARGET")
+            if str(row.get("TAR_TYP_CD", "")).strip() == "XP"
+        ]
+        ccv_total = self._sum_numeric_rows(ccv_rows, "TAR_PRM_AMT")
         if ccv_total != 0:
-            self.policy_info.set_value("ccv", format_currency(ccv_total))
+            self._set_calculated(
+                "ccv", format_currency(ccv_total),
+                tips.sum_tip(
+                    "CCV = sum of the coverages' XP (CCV) targets",
+                    "(LH_COV_TARGET.TAR_PRM_AMT where TAR_TYP_CD = 'XP')",
+                    (
+                        (f"Cov {str(row.get('COV_PHA_NBR', '')).strip() or '?'}",
+                         float(row.get("TAR_PRM_AMT") or 0))
+                        for row in ccv_rows
+                    ),
+                    ccv_total))
 
         if policy.product.guaranteed_interest_rate:
             try:
@@ -265,16 +282,38 @@ class AdvProdValuesTab(QWidget):
             if policy.billing.sp_billing_cease_date:
                 self.policy_info.set_value("sp_billing_cease_date", str(policy.billing.sp_billing_cease_date))
             if policy.billing.short_pay_premium and policy.billing.sp_prem_cease_age:
-                self.policy_info.set_value("sp_prem_cease_age", str(policy.billing.sp_prem_cease_age))
+                self._set_calculated(
+                    "sp_prem_cease_age", str(policy.billing.sp_prem_cease_age),
+                    tips.sp_prem_cease_age_tip(
+                        policy.billing.short_pay_duration, policy.coverages.cov_issue_age(1),
+                        policy.billing.sp_prem_cease_age))
         if policy.targets.db_dial_to_age:
             self.policy_info.set_value("db_dial_to_age", str(policy.targets.db_dial_to_age))
 
     @staticmethod
-    def _sum_numeric_rows(rows, amount_field: str, predicate) -> float:
+    def _is_current_row(row) -> bool:
+        """Fund rows dated 12/31/9999 hold the current values."""
+        return "9999" in str(row.get("MVRY_DT", ""))
+
+    @staticmethod
+    def _bucket_parts(rows, amount_field: str):
+        """``(label, amount)`` per fund row, labelled by fund/phase/start when present."""
+        parts = []
+        for row in rows:
+            label = str(row.get("FND_ID_CD", "")).strip() or "?"
+            phase = str(row.get("FND_VAL_PHA_NBR", "") or "").strip()
+            if phase:
+                label += f" ph {phase}"
+            start = format_date(row.get("ITS_PER_STR_DT"))
+            if start:
+                label += f" (start {start})"
+            parts.append((label, float(row.get(amount_field) or 0)))
+        return parts
+
+    @staticmethod
+    def _sum_numeric_rows(rows, amount_field: str) -> float:
         total = 0.0
         for row in rows:
-            if not predicate(row):
-                continue
             amount = row.get(amount_field, 0)
             if amount:
                 try:
@@ -292,11 +331,13 @@ class AdvProdValuesTab(QWidget):
         mv_rows = sorted(mv_rows, key=lambda x: str(x.get("MVRY_DT", "")), reverse=True)
 
         table_rows = []
+        row_tips = []
         for data in mv_rows:
             eff_date = format_date(data.get("MVRY_DT"))
             pol_year = str(data.get("POL_DUR_NBR", "")).strip()
 
             mv_date = data.get("MVRY_DT")
+            month_tip = ""
             if mv_date:
                 from datetime import datetime
                 if isinstance(mv_date, str):
@@ -311,6 +352,7 @@ class AdvProdValuesTab(QWidget):
                 if issue_month > val_month:
                     mth = 12 - mth
                 pol_month = str(mth + 1)
+                month_tip = tips.policy_month_tip(issue_month, val_month, mth + 1)
             else:
                 pol_month = str(data.get("POL_MTH_NBR", "")).strip()
 
@@ -329,8 +371,14 @@ class AdvProdValuesTab(QWidget):
                 format_currency(data.get("NAR_AMT")),
                 format_currency(monthly_deduction),
             ])
+            row_tips.append((month_tip, tips.monthly_deduction_tip(
+                data.get("CINS_AMT"), data.get("OTH_PRM_AMT"), data.get("EXP_CRG_AMT"),
+                monthly_deduction)))
 
         self.mv_values.load_table_data(table_rows)
+        for row, (month_tip, md_tip) in enumerate(row_tips):
+            self.mv_values.table.item(row, MV_MONTH_COLUMN).setToolTip(month_tip)
+            self.mv_values.table.item(row, MV_MD_COLUMN).setToolTip(md_tip)
 
     def _load_fund_history_from_policy(self, policy):
         fund_rows = policy.fetch_table("LH_POL_FND_VAL_TOT")
@@ -355,28 +403,37 @@ class AdvProdValuesTab(QWidget):
         self.fund_history.load_table_data(table_rows)
 
     def _load_fund_summary_from_policy(self, policy):
-        fund_rows = policy.fetch_table("LH_POL_FND_VAL_TOT")
+        fund_rows = [
+            row for row in policy.fetch_table("LH_POL_FND_VAL_TOT")
+            if self._is_current_row(row) and str(row.get("FND_ID_CD", "")).strip()
+        ]
+        self._load_fund_totals(
+            self.unimpaired_values, fund_rows, "CSV_AMT",
+            "sum of its current buckets (LH_POL_FND_VAL_TOT.CSV_AMT)")
 
-        fund_totals = {}
-        for row in fund_rows:
-            if "9999" in str(row.get("MVRY_DT", "")):
-                fnd_cd = str(row.get("FND_ID_CD", "")).strip()
-                if fnd_cd:
-                    fund_totals[fnd_cd] = fund_totals.get(fnd_cd, 0) + float(row.get("CSV_AMT", 0) or 0)
+        loan_rows = [
+            row for row in policy.fetch_table("LH_FND_VAL_LOAN")
+            if self._is_current_row(row)
+            and str(row.get("FND_ID_CD", "")).strip() not in ("", "LZ")
+            and float(row.get("LN_PRI_AMT", 0) or 0) != 0
+        ]
+        self._load_fund_totals(
+            self.impaired_values, loan_rows, "LN_PRI_AMT",
+            "sum of its current loan collateral (LH_FND_VAL_LOAN.LN_PRI_AMT)")
 
-        self.unimpaired_values.load_table_data([[fnd, format_currency(amt)] for fnd, amt in sorted(fund_totals.items())])
-
-        loan_rows = policy.fetch_table("LH_FND_VAL_LOAN")
-        loan_totals = {}
-        for row in loan_rows:
-            if "9999" in str(row.get("MVRY_DT", "")):
-                fnd_cd = str(row.get("FND_ID_CD", "")).strip()
-                if fnd_cd and fnd_cd != "LZ":
-                    amt = float(row.get("LN_PRI_AMT", 0) or 0)
-                    if amt != 0:
-                        loan_totals[fnd_cd] = loan_totals.get(fnd_cd, 0) + amt
-
-        self.impaired_values.load_table_data([[fnd, format_currency(amt)] for fnd, amt in sorted(loan_totals.items())])
+    def _load_fund_totals(self, group, rows, amount_field: str, description: str):
+        """One row per fund with its total; the amount's tip lists the rows summed."""
+        by_fund = {}
+        for row in rows:
+            by_fund.setdefault(str(row.get("FND_ID_CD", "")).strip(), []).append(row)
+        funds = sorted(by_fund)
+        totals = [self._sum_numeric_rows(by_fund[fund], amount_field) for fund in funds]
+        group.load_table_data(
+            [[fund, format_currency(total)] for fund, total in zip(funds, totals)])
+        for index, (fund, total) in enumerate(zip(funds, totals)):
+            group.table.item(index, 1).setToolTip(tips.sum_tip(
+                f"{fund} = {description}", "",
+                self._bucket_parts(by_fund[fund], amount_field), total))
 
     def _load_premium_allocation_from_policy(self, policy):
         allocation_rows = []

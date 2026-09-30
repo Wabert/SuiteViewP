@@ -18,9 +18,10 @@ from ..services.rate_selection import (
     SCHEMA_BENEFIT, SCHEMA_COVERAGE, SCHEMA_FIXED_FUNDS, SCHEMA_INDEX_FUNDS, SCHEMA_MODAL, SCHEMA_POLICY,
     SCHEMA_SCALES, SCHEMA_SPACE,
 )
+from ..services.table_search import SCOPE_ALL, SCOPE_FIELD, SCOPE_VALUE, SEARCH_SCOPES
 from .styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_PRIMARY, BLUE_DARK,
-    GOLD_PRIMARY, GOLD_LIGHT, GOLD_TEXT,
+    GOLD_PRIMARY, GOLD_LIGHT, GOLD_TEXT, GREEN_GRADIENT_BOT, GREEN_LIGHT,
     WHITE, GRAY_MID,
     TREE_WIDGET_STYLE,
 )
@@ -352,6 +353,11 @@ class PolicyRecordTreePanel(QWidget):
 
     SEARCH_DEBOUNCE_MS = 250
     SEARCH_PLACEHOLDER = "Search tables, fields, values…"
+    SCOPE_DESCRIPTIONS = {
+        SCOPE_VALUE: "values only",
+        SCOPE_FIELD: "field (column) names only",
+        SCOPE_ALL: "table names, field names and values",
+    }
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -417,7 +423,33 @@ class PolicyRecordTreePanel(QWidget):
         """)
         search_layout = QHBoxLayout(self._search_bar)
         search_layout.setContentsMargins(4, 0, 4, 4)
-        search_layout.setSpacing(0)
+        search_layout.setSpacing(3)
+        self._scope_btn = QPushButton(SCOPE_ALL)
+        self._scope_btn.setObjectName("tablesSearchScope")
+        self._scope_btn.setFixedSize(38, 22)
+        self._scope_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._scope_btn.setStyleSheet(f"""
+            QPushButton#tablesSearchScope {{
+                background-color: {GREEN_GRADIENT_BOT};
+                color: {GOLD_TEXT};
+                border: 1px solid {GOLD_PRIMARY};
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 0px;
+            }}
+            QPushButton#tablesSearchScope:hover {{
+                background-color: {GREEN_LIGHT};
+                border-color: {GOLD_TEXT};
+            }}
+            QPushButton#tablesSearchScope:disabled {{
+                background-color: {GRAY_MID};
+                color: {WHITE};
+                border-color: {GRAY_MID};
+            }}
+        """)
+        self._scope_btn.clicked.connect(self._cycle_search_scope)
+        search_layout.addWidget(self._scope_btn)
         self._search_box = QLineEdit()
         self._search_box.setPlaceholderText(self.SEARCH_PLACEHOLDER)
         self._search_box.setClearButtonEnabled(True)
@@ -537,11 +569,39 @@ class PolicyRecordTreePanel(QWidget):
 
     def _set_search_enabled(self, enabled: bool, tooltip: str = ""):
         self._search_box.setEnabled(enabled)
+        self._scope_btn.setEnabled(enabled)
         self._search_box.setToolTip(tooltip or (
             "Find a table, field (column) or value in every table with data "
             "for this policy.\nMatches list in the main panel; double-click one "
             "to open its table.\nPress Enter to show the matches again."
         ))
+        self._update_scope_tooltip()
+
+    def _update_scope_tooltip(self):
+        self._scope_btn.setToolTip(
+            f"Searching: {self.SCOPE_DESCRIPTIONS[self._scope_btn.text()]}\n"
+            "Click to switch between Value, Field and All."
+        )
+
+    @pyqtSlot()
+    def _cycle_search_scope(self):
+        index = SEARCH_SCOPES.index(self._scope_btn.text())
+        self.set_search_scope(SEARCH_SCOPES[(index + 1) % len(SEARCH_SCOPES)])
+
+    def search_scope(self) -> str:
+        """What the search matches: SCOPE_VALUE, SCOPE_FIELD or SCOPE_ALL."""
+        return self._scope_btn.text()
+
+    def set_search_scope(self, scope: str):
+        """Change what the search matches and re-run a pending search."""
+        if scope not in SEARCH_SCOPES:
+            raise ValueError(f"Unknown table search scope: {scope!r}")
+        if scope == self._scope_btn.text():
+            return
+        self._scope_btn.setText(scope)
+        self._update_scope_tooltip()
+        if self.search_text():
+            self._emit_search()
 
     @pyqtSlot(str)
     def _on_search_text_changed(self, _text: str):

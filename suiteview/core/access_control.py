@@ -16,8 +16,14 @@ logger = logging.getLogger(__name__)
 APP_CODES = (
     "POLVIEW", "FILENAV", "ABR", "RERUN", "QUERY", "ALBERT",
     "SCRATCHPAD", "HISTORY", "SCREENSHOT", "MAINFRAMENAV",
-    "RATEMANAGER", "EMAILATTACHMENTS",
+    "RATEMANAGER", "EMAILATTACHMENTS", "ATTENTIONALBERT", "PASSWORDMANAGER",
 )
+SUPPORT_PRIVILEGED_ROLES = frozenset({"ADMIN", "SUPPORT"})
+# The Attention Albert (AAI) task-bar button is Robert Haessly's alone (9/29/2026).
+# ATTENTIONALBERT grants only decide whose "Attention Albert" emails Albert
+# processes; they never show the button. Source (design-mode) runs show it to
+# whoever is running them.
+AAI_BUTTON_OWNER = "AB7Y02"
 
 
 class AccessDeniedError(PermissionError):
@@ -44,6 +50,16 @@ class EffectiveAccess:
         if app_code == "ADMINISTRATOR":
             return self.developer or self.role_code == "ADMIN"
         return self.developer or self.all_apps or app_code in self.apps
+
+    @property
+    def has_support_privileges(self) -> bool:
+        """ADMIN/SUPPORT roles (and source runs) may bypass business-user restrictions."""
+        return self.developer or self.role_code in SUPPORT_PRIVILEGED_ROLES
+
+    @property
+    def shows_aai_button(self) -> bool:
+        """Only the AAI owner gets the button in the packaged app; source runs always do."""
+        return self.developer or self.actor_id.upper() == AAI_BUTTON_OWNER
 
 
 _DEVELOPER_ACCESS = EffectiveAccess("DEVELOPER", "DEVELOPER", True, True, True, developer=True)
@@ -137,6 +153,18 @@ def guard_app_access(app_code: str) -> None:
         raise AccessDeniedError(
             f"Your SuiteView role ({access.role_code}) does not permit {app_code}. "
             "Contact a SuiteView administrator."
+        )
+
+
+def has_support_privileges() -> bool:
+    return get_access().has_support_privileges
+
+
+def guard_aai_button() -> None:
+    """Recheck, at click time, that this user may use the AAI task-bar button."""
+    if not get_access(refresh=True).shows_aai_button:
+        raise AccessDeniedError(
+            f"The Attention Albert button is available only to {AAI_BUTTON_OWNER}."
         )
 
 

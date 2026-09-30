@@ -59,3 +59,14 @@ class SpecifiedAmountBasis(str, Enum):
 
 SA_BASIS_CURRENT = SpecifiedAmountBasis.CURRENT.value
 SA_BASIS_ORIGINAL = SpecifiedAmountBasis.ORIGINAL.value
+
+
+class ProductFamily(str, Enum):
+    """Engine product family of a plancode (``PlancodeConfig.product_family``)."""
+
+    UL = "UL"
+    ISWL = "ISWL"
+
+
+PRODUCT_FAMILY_UL = ProductFamily.UL.value
+PRODUCT_FAMILY_ISWL = ProductFamily.ISWL.value

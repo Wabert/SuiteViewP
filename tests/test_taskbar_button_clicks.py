@@ -92,6 +92,7 @@ def test_tray_quit_action_reaches_handler(taskbar, monkeypatch):
     ("Rate Manager", "_open_rate_manager"),
     ("DB2 Table Check", "_open_db2_table_check"),
     ("Email Attachments", "_open_email_attachments"),
+    ("🔑 Passwords", "_open_passwords"),
     ("Refresh Permissions", "_refresh_permissions"),
     ("📁 App Data Location", "_open_app_data_location"),
 ])

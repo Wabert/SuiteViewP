@@ -14,7 +14,7 @@ Contains the core UI building blocks used across tabs:
 
 import json
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QHeaderView,
@@ -32,9 +32,22 @@ from .styles import (
     BLUE_PRIMARY, BLUE_LIGHT,
     BLUE_SCROLL, BLUE_DARK, BLUE_SUBTLE, WHITE, GRAY_MID, GRAY_DARK,
     GOLD_LIGHT, GRAY_TEXT,
-    COMPACT_TABLE_STYLE, CONTEXT_MENU_STYLE, LOOKUP_BAR_STYLE,
+    CONTEXT_MENU_STYLE, LOOKUP_BAR_STYLE,
     POLICY_DISPLAY_STYLE, POLICY_INFO_FRAME_STYLE,
 )
+
+
+COPY_TIP_ACTION_TEXT = "Copy Tip Contents"
+
+
+def tooltip_plain_text(tip: str) -> str:
+    """A hover tip as clipboard text; rich-text tips are converted to plain text."""
+    if tip.lstrip().startswith("<"):
+        from PyQt6.QtGui import QTextDocument
+        doc = QTextDocument()
+        doc.setHtml(tip)
+        return doc.toPlainText()
+    return tip
 
 
 def parse_number(text: str):
@@ -945,6 +958,8 @@ class FixedHeaderTableWidget(QWidget):
             copy_cell_action = menu.addAction("Copy Cell")
         else:
             copy_cell_action = None
+        cell_tip = item.toolTip() if item is not None else ""
+        copy_tip_action = menu.addAction(COPY_TIP_ACTION_TEXT) if cell_tip.strip() else None
         copy_selection_action = (
             menu.addAction(f"Copy Selection ({len(selected)} cells)") if len(selected) > 1 else None
         )
@@ -967,6 +982,8 @@ class FixedHeaderTableWidget(QWidget):
             return
         if action == copy_cell_action and item:
             QApplication.clipboard().setText(item.text())
+        elif copy_tip_action is not None and action == copy_tip_action:
+            QApplication.clipboard().setText(tooltip_plain_text(cell_tip))
         elif action == copy_selection_action:
             QApplication.clipboard().setText(self._selection_as_text())
         elif action == filter_action and item is not None:
@@ -1462,7 +1479,8 @@ class CopyableLabel(QLabel):
     An optional ``copy_text_provider`` callable supplies the text placed on the
     clipboard when the user chooses Copy with no active text selection. Use it
     to copy a whole multi-label block (e.g. an entire calculation summary) from
-    a right-click on any one of its labels.
+    a right-click on any one of its labels. A label with a hover tip also offers
+    "Copy Tip Contents".
     """
 
     def __init__(self, text="", parent=None, copy_text_provider=None):
@@ -1481,8 +1499,9 @@ class CopyableLabel(QLabel):
         menu = QMenu(self)
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
         copy_action = menu.addAction("Copy")
-        source_actions = {}
         tip = self.toolTip()
+        copy_tip_action = menu.addAction(COPY_TIP_ACTION_TEXT) if tip.strip() else None
+        source_actions = {}
         host = self.window()
         if tip.startswith("Source: ") and hasattr(host, "open_source_table"):
             tables = list(dict.fromkeys(re.findall(r"\b[LTFV]H_[A-Z0-9_]+\b", tip)))
@@ -1493,6 +1512,9 @@ class CopyableLabel(QLabel):
         action = menu.exec(self.mapToGlobal(pos))
         if action in source_actions:
             host.open_source_table(source_actions[action])
+            return
+        if copy_tip_action is not None and action == copy_tip_action:
+            QApplication.clipboard().setText(tooltip_plain_text(tip))
             return
         if action == copy_action:
             selected = self.selectedText()
@@ -1567,15 +1589,18 @@ class ClickableTooltipLabel(QLabel):
         
         if self._tooltip_text:
             info_action = menu.addAction("Show Info")
+            copy_tip_action = menu.addAction(COPY_TIP_ACTION_TEXT)
             menu.addSeparator()
         else:
-            info_action = None
+            info_action = copy_tip_action = None
         
         copy_action = menu.addAction("Copy Label")
         
         action = menu.exec(self.mapToGlobal(pos))
         if action == info_action and self._tooltip_text:
             self._show_tooltip_popup()
+        elif copy_tip_action is not None and action == copy_tip_action:
+            QApplication.clipboard().setText(tooltip_plain_text(self._tooltip_text))
         elif action == copy_action:
             QApplication.clipboard().setText(self.text().rstrip(":"))
 

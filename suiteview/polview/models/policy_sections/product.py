@@ -103,6 +103,11 @@ class ProductSection(PolicySection):
         return str(self._field("product_line_code") or "")
 
     @property
+    def is_annuity(self) -> bool:
+        """Whether the base coverage is an annuity (product line ``F``)."""
+        return self.product_line_code.strip().upper() == "F"
+
+    @property
     def major_line_of_business(self) -> str:
         """Major line of business code from the base coverage row, when present."""
         return str(self._field("major_line_of_business") or "")

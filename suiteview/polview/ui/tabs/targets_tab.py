@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
+from . import targets_tooltips as tips
 from ..styles import (
     BLUE_BG, GRAY_TEXT, GRAY_MID, WHITE,
     BLUE_PRIMARY, BLUE_DARK, GOLD_TEXT
@@ -266,6 +267,15 @@ class DefinitionOfLifeInsuranceWidget(StyledInfoTableGroup):
             self.set_value("prem_pay_years_label", str(data.get("prem_pay_years", "")))
             self.set_value("max_annual_label", format_currency(data.get("max_annual_level_qual_prem")))
             self.set_value("min_qual_glp_label", format_currency(data.get("min_qualifying_glp")))
+            inputs = data.get("calc_inputs")
+            self._fields["prem_pay_years_label"].setToolTip(
+                tips.prem_pay_years_tip(inputs) if inputs else "")
+            self._fields["max_annual_label"].setToolTip(
+                tips.max_annual_level_qual_prem_tip(inputs, data.get("max_annual_level_qual_prem"))
+                if inputs else "")
+            self._fields["min_qual_glp_label"].setToolTip(
+                tips.min_qualifying_glp_tip(inputs, data.get("min_qualifying_glp"))
+                if inputs else "")
             # GP has 2 base rows + 7 GP-specific rows = 9 total visible rows
             self.setMaximumHeight(16777215)  # remove any previous fixed height
             self.setFixedHeight(210)
@@ -317,11 +327,17 @@ class AccumulatorsWidget(StyledInfoTableGroup):
         self.set_value("prem_ytd_label", format_currency(totals.get("prem_ytd")))
         self.set_value("cost_basis_label", format_currency(totals.get("cost_basis")))
         self.set_value("accum_wds_label", format_currency(totals.get("accum_wds")))
+        self._fields["premiums_paid_label"].setToolTip(tips.premiums_paid_tip(
+            totals.get("reg_prem"), totals.get("additional_prem"), totals.get("premiums_paid")))
         prem_allowed = totals.get("prem_allowed_gpt")
         self.set_value(
             "prem_allowed_gpt_label",
             prem_allowed if prem_allowed == "N/A" else format_currency(prem_allowed),
         )
+        inputs = totals.get("prem_allowed_gpt_inputs")
+        self._fields["prem_allowed_gpt_label"].setToolTip(
+            tips.prem_allowed_gpt_tip(inputs, prem_allowed) if inputs else
+            "N/A: not a guideline premium test (GPT) policy, or its GPT values could not be read.")
         gcv = totals.get("gcv") or {}
         value = gcv.get("value")
         text = "N/A"
@@ -439,6 +455,7 @@ class MinimumPremiumWidget(_NaCapableGroup):
         rnl_data = rnl_data or []
 
         mtp_monthly = 0.0
+        mt_amounts = []
         accum_mtp = 0
         map_date = ""
 
@@ -448,11 +465,13 @@ class MinimumPremiumWidget(_NaCapableGroup):
             tar_dt = pt.get("TAR_DT", "")
             if tar_typ == "MT":
                 mtp_monthly += float(tar_amt)
+                mt_amounts.append(float(tar_amt))
             elif tar_typ == "MA":
                 accum_mtp = tar_amt
                 map_date = tar_dt
 
         face_by_cov: Dict = {}
+        units_by_cov: Dict = {}
         plancode_by_cov: Dict = {}
         base_plancode = None
         for cov in cov_data:
@@ -460,6 +479,7 @@ class MinimumPremiumWidget(_NaCapableGroup):
             units = float(cov.get("COV_UNT_QTY", 0) or 0)
             vpu = float(cov.get("COV_VPU_AMT", 0) or 0)
             face_by_cov[cov_phs] = units * vpu
+            units_by_cov[cov_phs] = (units, vpu)
             plancode = str(cov.get("PLN_DES_SER_CD", "")).strip()
             plancode_by_cov[cov_phs] = plancode
             if base_plancode is None:
@@ -472,6 +492,7 @@ class MinimumPremiumWidget(_NaCapableGroup):
                 rate_by_cov[cov_phs] = rnl.get("RNL_RT", 0) or 0
 
         table_rows = []
+        cell_tips = []
         for cov in cov_data:
             cov_phs = cov.get("COV_PHA_NBR", "")
             face = face_by_cov.get(cov_phs, 0)
@@ -480,19 +501,28 @@ class MinimumPremiumWidget(_NaCapableGroup):
             rate = rate_by_cov.get(cov_phs)
             if rate:
                 rate_display = f"{float(rate)/1000:.3f}"
-                target_display = format_currency(face / 1000 * float(rate) / 1000)
+                target = face / 1000 * float(rate) / 1000
+                target_display = format_currency(target)
+                target_tip = tips.rate_target_tip(face, rate, target, "Target")
             else:
                 rate_display = ""
                 target_display = ""
+                target_tip = ""
             table_rows.append([str(cov_phs), cov_type, format_currency(face),
                                 target_display, rate_display])
+            cell_tips.append((tips.face_tip(*units_by_cov.get(cov_phs, (0.0, 0.0)), face), target_tip))
 
         annual_min = mtp_monthly * 12 if mtp_monthly else 0
         self.set_value("annual_min_label", format_currency(annual_min))
         self.set_value("monthly_min_label", format_currency(mtp_monthly))
         self.set_value("accum_min_label", format_currency(accum_mtp))
         self.set_value("map_date_label", format_date(map_date))
+        self._fields["annual_min_label"].setToolTip(tips.annual_min_tip(mtp_monthly, annual_min))
+        self._fields["monthly_min_label"].setToolTip(tips.monthly_min_tip(mt_amounts))
         self.load_table_data(table_rows)
+        for row, (face_tip, target_tip) in enumerate(cell_tips):
+            self.table.item(row, 2).setToolTip(face_tip)
+            self.table.item(row, 3).setToolTip(target_tip)
 
 
 class CommissionTargetWidget(_NaCapableGroup):
@@ -520,13 +550,17 @@ class CommissionTargetWidget(_NaCapableGroup):
                 ct_records.append(ct)
 
         self.set_value("target_label", format_currency(ctp_total))
+        self._fields["target_label"].setToolTip(tips.commission_target_tip(
+            (float(ct.get("TAR_PRM_AMT", 0) or 0) for ct in ct_records), ctp_total))
 
         face_by_cov: Dict = {}
+        units_by_cov: Dict = {}
         for cov in cov_data:
             cov_phs = cov.get("COV_PHA_NBR")
             units = float(cov.get("COV_UNT_QTY", 0) or 0)
             vpu = float(cov.get("COV_VPU_AMT", 0) or 0)
             face_by_cov[cov_phs] = units * vpu
+            units_by_cov[cov_phs] = (units, vpu)
 
         rate_by_cov: Dict = {}
         for rnl in rnl_data:
@@ -535,16 +569,21 @@ class CommissionTargetWidget(_NaCapableGroup):
                 rate_by_cov[cov_phs] = rnl.get("RNL_RT", 0)
 
         rows = []
+        face_tips = []
         for ct in ct_records:
             cov_phs = ct.get("AGT_COM_PHA_NBR", "")
             face = face_by_cov.get(cov_phs, 0)
             rate = rate_by_cov.get(cov_phs, "")
             if rate:
                 rate_display = f"{float(rate)/1000:.3f}"
-                face_display = format_currency(face / 1000 * float(rate) / 1000)
+                shown = face / 1000 * float(rate) / 1000
+                face_display = format_currency(shown)
+                face_tips.append(tips.rate_target_tip(face, rate, shown, "Shown value"))
             else:
                 rate_display = ""
                 face_display = format_currency(face)
+                face_tips.append(
+                    tips.face_tip(*units_by_cov[cov_phs], face) if cov_phs in units_by_cov else "")
             rows.append([
                 str(cov_phs),
                 face_display,
@@ -553,6 +592,8 @@ class CommissionTargetWidget(_NaCapableGroup):
                 rate_display,
             ])
         self.load_table_data(rows)
+        for row, tip in enumerate(face_tips):
+            self.table.item(row, 1).setToolTip(tip)
 
 
 # ─── main tab ────────────────────────────────────────────────────────────────

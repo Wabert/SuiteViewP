@@ -19,6 +19,23 @@ ABR Quote is a **3-step wizard** for quoting Accelerated Death Benefits:
 
 **Main window:** `suiteview/abrquote/ui/abr_window.py` (`ABRQuoteWindow`)
 
+### Product eligibility (Whole Life)
+
+Whole Life policies — Par and Non-Par, both classified as product type `WL` by
+`PolicyInformation` — are not available for ABR quote. The rule lives in
+`suiteview/abrquote/core/eligibility.py` (`abr_product_restriction`).
+
+- **Business users:** Step 1 shows a red "Whole Life policies are not available
+  for ABR quote." banner plus a warning dialog. The policy details stay visible,
+  but the premium schedule is blanked, the Assessment/Output steps are disabled,
+  any prior quote state is cleared and the calculation pipeline refuses to run.
+- **ADMIN / SUPPORT roles (and source runs):** an amber banner shows the same
+  message and notes the role override; quoting proceeds normally. The privilege
+  check is `core.access_control.has_support_privileges()`; if access cannot be
+  verified the override fails closed.
+- Headless automation (`automation.py`) already rejects any product outside
+  TERM/UL/IUL/ISWL.
+
 ### Crimson Slate Theme
 
 ABR Quote uses a **completely different color scheme** from PolView's Blue & Gold.

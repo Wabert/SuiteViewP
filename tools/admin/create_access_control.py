@@ -37,7 +37,11 @@ BUSINESS_APPS = (
     "POLVIEW", "FILENAV", "ABR", "RERUN", "QUERY", "SCRATCHPAD", "SCREENSHOT",
 )
 ROLE_APPS = (
-    tuple(("SUPPORT", app) for app in APPS if app != "ALBERT")
+    # ALBERT and ATTENTIONALBERT (who may email Attention Albert requests) were
+    # added after the initial seed; grant them per role in Administrator.
+    # PASSWORDMANAGER (the shared mainframe sign-on) is ADMIN-only (AllApps) for now.
+    tuple(("SUPPORT", app) for app in APPS
+          if app not in {"ALBERT", "ATTENTIONALBERT", "PASSWORDMANAGER"})
     + tuple((role, app) for role in ("BUSINESS", "NONBUSINESS") for app in BUSINESS_APPS)
 )
 USERS = (

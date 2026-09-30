@@ -767,9 +767,12 @@ COI charges:
 
 - Target-based type-4 stipulated waiver amounts follow recalculated annual MTP
   (`PWoT_COI_Basis=2`) or annual CTP (`=3`) before charges are computed; basis 1
-  remains fixed recorded units. `1U14L400` explicitly uses MTP basis 2, correcting
+  uses the benefit's units. `1U14L400` explicitly uses MTP basis 2, correcting
   the previously omitted setting that held UFF90022's benefit 4M at $913.20
   after a decrease. Values and exports use the same calculated benefit amounts.
+- FFL type-4 waivers are re-derived when a policy change (or a withdrawal's
+  face decrease) recomputes the targets: units = TRUNC(12 x TRUNC(monthly MTP, 2)
+  / VPU, 3), matching CyberLife. Non-FFL basis-1 waivers keep recorded units.
 - coverage segments, riders, and benefits use their own issue dates to establish
   COI duration, but that duration advances only on the policy anniversary
 - raw COI is adjusted for table ratings and flat extras when active

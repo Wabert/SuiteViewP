@@ -42,6 +42,8 @@ def lock_values(
     policy: IllustrationPolicyData,
     current_results: List[MonthlyState],
     base_future_inputs: Optional[IllustrationInputSet] = None,
+    *,
+    iswl: bool = False,
 ) -> IllustrationInputSet:
     """Hard-copy the current run's applied cash flows (LockValues columns).
 
@@ -54,11 +56,17 @@ def lock_values(
     A zero premium schedule anchors month 1 so the engine never falls back to
     billing the modal premium on months with no locked premium. Policy changes
     (face / DBO) carry over so the guaranteed side alters coverage identically.
+    ``iswl`` locks the requested billed payments instead of the gross premium.
     """
     dated: list[DatedTransaction] = []
+    # ISWL premiums are whole billed payments of the policy's billed premium (the
+    # bill drops when a benefit ceases), so the requested payments are locked.
     for state in current_results[1:]:
         month_date = policy.issue_date + relativedelta(months=state.duration - 1)
-        premium = state.gross_premium + state.gp_exception_prem + state.md_premium
+        premium = (
+            state.requested_premium if iswl and state.gross_premium > _EPS
+            else state.gross_premium + state.gp_exception_prem + state.md_premium
+        )
         if premium > _EPS:
             dated.append(DatedTransaction(
                 kind=TransactionKind.PREMIUM, effective_date=month_date,
@@ -169,7 +177,10 @@ def run_guaranteed_projection(
         return []
 
     gpolicy = copy.deepcopy(policy)
-    gpolicy.modal_premium = 0.0
+    config = load_plancode(policy.plancode)
+    if not config.is_iswl:
+        # ISWL keeps its billed premium: locked premiums are counted in billed payments.
+        gpolicy.modal_premium = 0.0
     gint = policy.guaranteed_interest_rate or 0.0
     if gint > 0.0:
         gpolicy.current_interest_rate = _guaranteed_crediting_rate(
@@ -178,7 +189,6 @@ def run_guaranteed_projection(
     # guaranteed side (None → the engine's GINT fallback).
     gpolicy.iul_declared_rate = None
 
-    config = load_plancode(policy.plancode)
     guaranteed_rates = load_rates(
         gpolicy,
         config,
@@ -196,7 +206,7 @@ def run_guaranteed_projection(
     return engine.project(
         gpolicy,
         months=months,
-        future_inputs=lock_values(policy, current_results, base_future_inputs),
+        future_inputs=lock_values(policy, current_results, base_future_inputs, iswl=config.is_iswl),
         options=guaranteed_options(base_options),
         bonus_override=guaranteed_bonus,
         rates_override=guaranteed_rates,

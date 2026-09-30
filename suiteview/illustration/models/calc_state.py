@@ -109,6 +109,10 @@ class MonthlyState:
     flat_load: float = 0.0
     total_premium_load: float = 0.0
     net_premium: float = 0.0
+    # ISWL: policy fee and benefit/rider premiums kept out of the account value
+    # (included in total_premium_load; target_load is the rule-4 premium load).
+    premium_policy_fee: float = 0.0
+    premium_benefit_charge: float = 0.0
     av_after_premium: float = 0.0
 
     # ── 1b. Guideline Premium Force-Out ──────
@@ -308,6 +312,8 @@ class MonthlyState:
     surrender_value: float = 0.0        # Lapse-check SV (RERUN vLapseSV): PRE-interest AV − FullSC − pre-accrual debt
     ending_sv: float = 0.0              # Ending SV (RERUN vESV): EAV − FullSC − ending loan balance
     ending_db: float = 0.0
+    # ISWL tabular guaranteed cash value (floors both surrender values); 0 for UL.
+    guaranteed_cash_value: float = 0.0
 
     # ── 5. Shadow Account (CCV) (cols 614-648) ─
     shadow_bav: float = 0.0             # Beginning AV (prev month's shadow_eav)

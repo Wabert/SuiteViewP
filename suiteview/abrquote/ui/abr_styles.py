@@ -349,6 +349,31 @@ DIVIDER_STYLE = f"""
     }}
 """
 
+# ── Product eligibility banners (Step 1) ──────────────────────────────────────
+QUOTE_BLOCKED_BANNER_STYLE = f"""
+    QLabel {{
+        color: {tokens.STATUS_ERROR};
+        background-color: {CRIMSON_SUBTLE};
+        border: 2px solid {tokens.STATUS_ERROR};
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: bold;
+        padding: 8px 12px;
+    }}
+"""
+
+QUOTE_OVERRIDE_BANNER_STYLE = f"""
+    QLabel {{
+        color: {GRAY_DARK};
+        background-color: {tokens.SURFACE_WARNING};
+        border: 2px solid {tokens.STATUS_WARN};
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+        padding: 6px 12px;
+    }}
+"""
+
 # ── Premium table (StyledInfoTableGroup override) ─────────────────────────────
 # Applied directly to the widget after creation to override the PolView blue theme.
 PREMIUM_TABLE_STYLE = f"""

@@ -59,6 +59,9 @@ class CoverageSegment:
 
     # COI
     coi_renewal_rate: Optional[float] = None
+    # Stored annual premium per unit (LH_COV_PHA.ANN_PRM_UNT_AMT). ISWL's net
+    # premium (load rule 4) is computed from it.
+    premium_rate: Optional[float] = None
 
     # Joint survivor (second-to-die) phase: both insureds; None = single life.
     joint_lives: Optional[JointLives] = None
@@ -182,7 +185,7 @@ class IllustrationPolicyData:
 
     # ── Plan / Product ────────────────────────────────────────
     plancode: str = ""
-    product_type: str = ""          # "UL", "IUL", "SGUL"
+    product_type: str = ""          # "UL", "IUL", "SGUL", "ISWL"
     form_number: str = ""
     issue_state: str = ""
     company_sub: str = ""           # "ANICO", "EMC", etc.
@@ -213,6 +216,7 @@ class IllustrationPolicyData:
     modal_premium: float = 0.0
     annual_premium: float = 0.0
     billing_frequency: int = 1     # Months between payments
+    bill_form_code: str = ""       # LH_BAS_POL.BIL_FRM_CD (0 = direct, G = PAC)
     premiums_paid_to_date: float = 0.0
     premiums_ytd: float = 0.0
     premium_transactions: List[PremiumTransaction] = field(default_factory=list)
@@ -220,6 +224,8 @@ class IllustrationPolicyData:
     # ── Interest / Crediting ──────────────────────────────────
     guaranteed_interest_rate: float = 0.0
     current_interest_rate: float = 0.0
+    # Where current_interest_rate came from when it is not the plan GINT (ISWL).
+    current_interest_rate_source: str = ""
 
     # ── IUL Funds / Strategies ────────────────────────────────
     # Current unimpaired fund values (LH_POL_FND_VAL_TOT; includes SW sweep).

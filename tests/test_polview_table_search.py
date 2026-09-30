@@ -2,8 +2,11 @@
 
 from decimal import Decimal
 
+import pytest
+
 from suiteview.polview.services.table_search import (
-    MATCH_FIELD, MATCH_TABLE, MATCH_VALUE, search_policy_tables,
+    MATCH_FIELD, MATCH_TABLE, MATCH_VALUE, SCOPE_ALL, SCOPE_FIELD, SCOPE_VALUE,
+    search_policy_tables,
 )
 
 
@@ -72,6 +75,31 @@ def test_results_are_capped_and_marked_truncated():
     assert len(result.hits) == 3 and result.truncated
 
 
+def test_value_scope_matches_only_values_even_in_matching_fields():
+    result = search("cov", scope=SCOPE_VALUE)
+    assert result.hits == [] and result.scope == SCOPE_VALUE
+    hits = search("41", scope=SCOPE_VALUE).hits
+    assert [(h.match, h.field, h.row, h.value) for h in hits] == [
+        (MATCH_VALUE, "PRM_PAY_STA_REA_CD", 1, "41"),
+    ]
+    # A column whose name matches is still searched value-by-value.
+    tables = {"T": (["CODE_41"], [("41",), ("x",)])}
+    hits = search("41", tables=tables, order=[("R", "T")], scope=SCOPE_VALUE).hits
+    assert [(h.match, h.row) for h in hits] == [(MATCH_VALUE, 1)]
+
+
+def test_field_scope_matches_only_field_names():
+    hits = search("cov", scope=SCOPE_FIELD).hits
+    assert {h.match for h in hits} == {MATCH_FIELD}
+    assert [h.field for h in hits] == ["COV_PHA_NBR", "COV_UNT_QTY"]
+    assert search("1u1439", scope=SCOPE_FIELD).hits == []
+
+
+def test_unknown_scope_is_rejected():
+    with pytest.raises(ValueError):
+        search("cov", scope="Tables")
+
+
 def test_policy_data_cached_table_never_queries():
     from suiteview.polview.models.policy_data import PolicyData
 
@@ -86,6 +114,8 @@ def test_policy_data_cached_table_never_queries():
 # ── UI ───────────────────────────────────────────────────────────────────────
 
 def test_panel_search_box_is_tables_only_and_debounced(qtbot):
+    from PyQt6.QtCore import Qt
+
     from suiteview.polview.ui.tree_panel import PolicyRecordTreePanel
 
     panel = PolicyRecordTreePanel()
@@ -103,6 +133,14 @@ def test_panel_search_box_is_tables_only_and_debounced(qtbot):
         box.setText("  pln_des ")
     assert blocker.args == ["pln_des"]
 
+    scope_btn = panel._scope_btn
+    assert scope_btn.isEnabled() and panel.search_scope() == SCOPE_ALL
+    for expected in (SCOPE_VALUE, SCOPE_FIELD, SCOPE_ALL):
+        with qtbot.waitSignal(panel.search_requested, timeout=2000):
+            qtbot.mouseClick(scope_btn, Qt.MouseButton.LeftButton)
+        assert panel.search_scope() == expected
+    panel.set_search_scope(SCOPE_FIELD)
+
     panel._policy = object()
     panel._rates_btn.setEnabled(True)
     panel._tree.build_rates_tree = lambda policy: None
@@ -114,6 +152,8 @@ def test_panel_search_box_is_tables_only_and_debounced(qtbot):
 
     panel.reset_for_new_policy()
     assert box.text() == "" and not box.isEnabled()
+    assert not scope_btn.isEnabled()
+    assert panel.search_scope() == SCOPE_FIELD  # user's choice survives a new policy
 
 
 def test_raw_table_lists_matches_and_opens_a_hit(qtbot):
@@ -149,3 +189,6 @@ def test_raw_table_lists_matches_and_opens_a_hit(qtbot):
     tab.show_search_results(search("nothing-matches-this"))
     assert "No table, field or value" in str(tab.search_hits_frame().iloc[0, 0])
     tab.activate_search_hit(0)  # placeholder row is not a hit
+    tab.show_search_results(search("nothing-matches-this", scope=SCOPE_VALUE))
+    assert str(tab.search_hits_frame().iloc[0, 0]).startswith("No value contains")
+    assert tab.table_label.text().startswith("Search (Values):")

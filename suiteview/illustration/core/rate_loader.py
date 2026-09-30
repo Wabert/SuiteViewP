@@ -204,6 +204,9 @@ class IllustrationRates:
     mtp: float = 0.0
     ctp: float = 0.0
 
+    # ISWL fixed-premium basis (iswl_rates.ISWLRateBasis); None for UL-family plans.
+    iswl: Optional[object] = None
+
 
 def _safe_rate(arr: list, index: int) -> float:
     """Safely access a 1-indexed rate array, returning last value if index out of range."""
@@ -288,12 +291,19 @@ def load_rates(
     1. Current illustration values  → ``coi_scale=1, expense_scale=1`` (default).
     2. Guaranteed illustration values → ``coi_scale=0, expense_scale=0``.
     3. Guideline (7702) calculations → ``coi_scale=0, expense_scale=1``.
+
+    ISWL plancodes (``config.is_iswl``) load every rate from UL_Rates schema
+    ``rates`` instead (``iswl_rates.load_iswl_rates``).
     """
-    rates_db = Rates()
     seg = policy.base_segment
     if seg is None:
         return IllustrationRates()
     _validate_scales(coi_scale, expense_scale)
+    if config.is_iswl:
+        from suiteview.illustration.core.iswl_rates import load_iswl_rates
+
+        return load_iswl_rates(policy, config, coi_scale=coi_scale, expense_scale=expense_scale)
+    rates_db = Rates()
     _initialize_dynamic_bands(policy, rates_db)
     segment_rates = _load_base_segment_rate_maps(
         policy, config, rates_db, coi_scale=coi_scale, expense_scale=expense_scale)

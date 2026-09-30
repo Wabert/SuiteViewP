@@ -323,6 +323,10 @@ role; `AllApps` is not an administrative grant. Write bits are independent of
 `AllApps`. Missing grants hide app buttons and Tools/tray entries; direct-entry
 guards still enforce authorization. Floating/docked transitions and permission
 refresh preserve visibility rules. **Tools > Refresh Permissions** reloads launcher state.
+**Tools > 🔑 Passwords** edits the one shared mainframe sign-on used by the
+Switch A/B terminals, Mainframe Terminal and Mainframe Nav. It is the
+role-granted app `PASSWORDMANAGER` (ADMIN only for now, through AllApps) — see
+[`TN3270.md`](../TN3270.md).
 Role changes are checked again on app entry and protected writes; existing
 windows are not forcibly closed and unsaved work is not discarded.
 

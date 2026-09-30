@@ -124,6 +124,7 @@ from suiteview.illustration.core.shadow_calc import ShadowInput, calculate_shado
 from suiteview.illustration.core.target_premium import (
     build_target_detail_snapshots,
     compute_target_premiums,
+    ffl_pwot_units,
     floor_monthly_cent,
     target_actives_signature,
     truncate_monthly_mtp,
@@ -268,6 +269,7 @@ class InforceWork:
     surrender_charges_by_coverage: Dict[int, float] = dataclass_field(default_factory=dict)
     surrender_value: float = 0.0
     ending_sv: float = 0.0
+    guaranteed_cash_value: float = 0.0
     positive_sv: bool = False
     av_less_loans: float = 0.0
 
@@ -779,6 +781,7 @@ def resolve_requested_premium(ctx: MonthContext, work: MonthWork) -> None:
         ctx.month_inputs,
         work.attained_age,
         exception_period=state.inforce_exception_period,
+        policy_month=work.next_month,
     )
     work.b2md_active = _billable_to_md_active(ctx.options, work.next_year)
     if work.b2md_active and state.billable_md_switched:
@@ -881,6 +884,7 @@ def apply_premium_step(ctx: MonthContext, work: MonthWork) -> None:
         work.cost_basis,
         gross_premium_override=work.allowances.applied_total_premium,
         premium_cap=None,
+        projection_date=work.month_date,
     )
     work.av = work.prem.av_after_premium
     work.av_before_deduction = work.av
@@ -913,6 +917,10 @@ def deduct_monthly_charges(
         work.cap_loan.rg_loan_accrued,
     )
     work.av_after_charge = work.ded.av_after_deduction - work.asset_charge
+    if ctx.config.is_iswl and work.av_after_charge < 0.0:
+        # The fixed premium carries an ISWL whose account value is exhausted: the COI
+        # does not take it below zero (CyberDoc B10 sample: guaranteed AV 0, in force).
+        work.av_after_charge = 0.0
 
 
 def _exception_input(
@@ -1199,9 +1207,16 @@ def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
     )
     lapse_check_av = work.exception.av_after_exception
     lapse_check_debt = work.cap_loan.policy_debt
-    work.surrender_value = lapse_check_av - work.surrender_charge - lapse_check_debt
+    work.guaranteed_cash_value = _iswl_guaranteed_cash_value(ctx.rates, work.month_date)
+    work.surrender_value = (
+        _iswl_cash_value_floor(ctx.rates, work.month_date, lapse_check_av - work.surrender_charge)
+        - lapse_check_debt
+    )
     work.ending_db = _ending_death_benefit(ctx, work)
-    work.ending_sv = work.av - work.surrender_charge - work.accrual_loan.policy_debt
+    work.ending_sv = (
+        _iswl_cash_value_floor(ctx.rates, work.month_date, work.av - work.surrender_charge)
+        - work.accrual_loan.policy_debt
+    )
     work.positive_sv = (
         work.lapse_value == LAPSE_BASIS_SURRENDER_VALUE
         and work.surrender_value > 0
@@ -1222,6 +1237,19 @@ def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
         if work.tamra_year <= 7
         else 0.0
     )
+
+
+def _iswl_guaranteed_cash_value(rates, month_date) -> float:
+    """ISWL tabular guaranteed cash value on ``month_date``; 0 for UL-family plans."""
+    basis = getattr(rates, "iswl", None)
+    return basis.guaranteed_cash_value(month_date) if basis is not None else 0.0
+
+
+def _iswl_cash_value_floor(rates, month_date, value: float) -> float:
+    """An ISWL surrender value is never below the guaranteed cash value; UL unchanged."""
+    if getattr(rates, "iswl", None) is None:
+        return value
+    return max(value, _iswl_guaranteed_cash_value(rates, month_date))
 
 
 def _ending_death_benefit(ctx: MonthContext, work: MonthWork) -> float:
@@ -1263,7 +1291,8 @@ def _evaluate_cyberlife_lapse(ctx: MonthContext, work: MonthWork) -> None:
         work.prem.gross_premium if work.tamra_year <= 7 else 0.0
     )
     work.exception_protection = work.exception.mode and work.av_less_loans > -0.0001
-    work.lapsed = ctx.state.lapsed or (work.av <= 0.0 and not work.exception.mode)
+    exhausted = work.av <= 0.0 and _iswl_guaranteed_cash_value(ctx.rates, work.month_date) <= 0.0
+    work.lapsed = ctx.state.lapsed or (exhausted and not work.exception.mode)
     if ctx.options is not None and ctx.options.no_lapse:
         work.lapsed = False
 
@@ -1392,6 +1421,8 @@ def _premium_fields(
             + work.exception.percentage_load + work.exception.flat_load
         ),
         "net_premium": work.prem.net_premium,
+        "premium_policy_fee": work.prem.policy_fee,
+        "premium_benefit_charge": work.prem.benefit_premium,
         "av_after_premium": work.prem.av_after_premium,
         **_premium_state_fields(work.allowances, requested),
         **_tamra_premium_display(
@@ -1533,7 +1564,7 @@ def _expense_deduction_fields(ctx: MonthContext, ded, work: MonthWork) -> dict:
         "rider_rates": ded.rider_rates,
         "rider_charge_detail": ded.rider_charge_detail,
         "total_deduction": ded.total_deduction,
-        "av_after_deduction": ded.av_after_deduction - work.asset_charge,
+        "av_after_deduction": work.av_after_charge,
         "av_after_exception": work.exception.av_after_exception,
         "asset_charge_rate": ctx.iul_ctx.asset_charge_rate if ctx.iul_ctx else 0.0,
         "asset_charge": work.asset_charge,
@@ -1629,6 +1660,7 @@ def _lapse_fields(
         "surrender_value": work.surrender_value,
         "ending_sv": work.ending_sv,
         "ending_db": work.ending_db,
+        "guaranteed_cash_value": work.guaranteed_cash_value,
         "snet_active": work.snet_active,
         "shadow_protection": work.shadow_protection,
         "positive_sv": work.positive_sv,
@@ -1906,8 +1938,15 @@ def _set_inforce_lapse_fields(
         work.scr_rates_by_coverage,
         work.surrender_charges_by_coverage,
     ) = _calculate_surrender_charge(policy, rates, work.rate_year, work.month_date, config)
-    work.surrender_value = policy.account_value - work.surrender_charge - work.loan.policy_debt
-    work.ending_sv = work.intr.av_end_of_month - work.surrender_charge - work.loan.policy_debt
+    work.guaranteed_cash_value = _iswl_guaranteed_cash_value(rates, work.month_date)
+    work.surrender_value = (
+        _iswl_cash_value_floor(rates, work.month_date, policy.account_value - work.surrender_charge)
+        - work.loan.policy_debt
+    )
+    work.ending_sv = (
+        _iswl_cash_value_floor(rates, work.month_date, work.intr.av_end_of_month - work.surrender_charge)
+        - work.loan.policy_debt
+    )
     work.positive_sv = (
         config.lapse_value == LAPSE_BASIS_SURRENDER_VALUE and work.surrender_value > 0
     )
@@ -2083,6 +2122,7 @@ def _inforce_tracking_fields(policy, work: InforceWork) -> dict:
         "surrender_charges_by_coverage": work.surrender_charges_by_coverage,
         "surrender_value": work.surrender_value,
         "ending_sv": work.ending_sv,
+        "guaranteed_cash_value": work.guaranteed_cash_value,
     }
 
 
@@ -2795,9 +2835,7 @@ def _apply_withdrawal_face_decrease(inputs: WithdrawalInput, wd: WithdrawalResul
         inputs.policy, wd.face_decrease, inputs.rates, inputs.month_date,
         inputs.rate_year, charge_scr=False, config=inputs.config)
     _reload_policy_band_rates(inputs.rates, inputs.policy, inputs.config)
-    targets = compute_target_premiums(inputs.policy, inputs.config, as_of=inputs.month_date)
-    inputs.policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
-    inputs.policy.ctp = targets.ctp_annual
+    _apply_recomputed_targets(inputs.policy, inputs.config, inputs.month_date)
     if not inputs.defer_guideline_recalc:
         wd.guideline_recalc = _withdrawal_guideline_recalc(
             inputs, wd, before, before_pv_detail, seven_pay_before)
@@ -3157,6 +3195,36 @@ def _apply_benefit_amount_change(benefits, target: str, new_amount: float, outco
             outcome.coverage_changed = True
 
 
+def _apply_recomputed_targets(policy, config, as_of) -> None:
+    """Recompute MTP/CTP after a coverage change (RERUN vPolicyChangeIndicator).
+
+    FFL stipulated premium waivers (type 4) are then re-derived from the new
+    MTP, as CyberLife does on the change, so later charges, displays and the
+    guideline after-basis use the waiver amount admin will carry.
+    """
+    targets = compute_target_premiums(policy, config, as_of=as_of)
+    policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
+    policy.ctp = targets.ctp_annual
+    if config.is_ffl:
+        _refresh_ffl_pwot_units(policy, as_of)
+
+
+def _refresh_ffl_pwot_units(policy, as_of) -> None:
+    for ben in policy.benefits:
+        if (ben.benefit_type or "") != "4" or not ben.is_active:
+            continue
+        if ben.pay_up_date is not None and as_of is not None and as_of >= ben.pay_up_date:
+            continue
+        if not ben.vpu or ben.vpu <= 0:
+            raise ValueError(
+                f"FFL stipulated premium waiver {ben.benefit_type}{ben.benefit_subtype or ''} "
+                "has no value per unit, so its units cannot be re-derived from the "
+                "recomputed Minimum Target Premium."
+            )
+        ben.units = ffl_pwot_units(policy.mtp, ben.vpu)
+        ben.benefit_amount = ben.units * ben.vpu
+
+
 def _finish_policy_change(
     policy, config, change, attained_age, change_date, rates, av, options,
     defer_guideline_recalc: bool, before_info: _PolicyChangeBefore,
@@ -3167,9 +3235,7 @@ def _finish_policy_change(
     if policy.is_mec:
         outcome.material_change = False
     _reload_policy_band_rates(rates, policy, config)
-    targets = compute_target_premiums(policy, config, as_of=change_date)
-    policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
-    policy.ctp = targets.ctp_annual
+    _apply_recomputed_targets(policy, config, change_date)
     if defer_guideline_recalc:
         return
     outcome.guideline_recalc = _recalc_guideline_on_change(
@@ -3862,22 +3928,32 @@ def _tamra_premium_display(prior_state, policy, month_date, next_month, month_in
 
 def _split_requested_premium(
     policy, config, month_inputs, attained_age, *, exception_period=False,
+    policy_month=None,
 ) -> tuple[float, float]:
     """Requested scheduled (LS) and unscheduled/lumpsum (vLumpsum) premium.
 
     With no premium schedule at all the modal premium bills every month (the
     workbook's vPlannedPremium fallback); a schedule supplies the per-month
     scheduled amount and dated deposits the lumpsum. No premium is collected on
-    or after the maturity date — the policy endows.
+    or after the maturity date — the policy endows. A fixed-premium ISWL bills
+    its modal premium only in billing months.
     """
     if exception_period or _at_or_after_policy_maturity(policy, config, attained_age):
         return 0.0, 0.0
     total_override = month_inputs.total_premium if month_inputs is not None else None
     if total_override is None:
+        if config.is_iswl and policy_month is not None and not _is_billing_month(policy, policy_month):
+            return 0.0, 0.0
         return float(policy.modal_premium or 0.0), 0.0
     requested_scheduled = float(month_inputs.scheduled_premium or 0.0)
     requested_lumpsum = float(month_inputs.unscheduled_premium or 0.0)
     return requested_scheduled, requested_lumpsum
+
+
+def _is_billing_month(policy, policy_month: int) -> bool:
+    """Whether a policy month is a premium due month at the billing frequency."""
+    interval = max(int(getattr(policy, "billing_frequency", 1) or 1), 1)
+    return (int(policy_month) - 1) % interval == 0
 
 
 def _loan_balance_for_levelizing(loan_state) -> bool:
@@ -4246,6 +4322,18 @@ def _segment_surrender_rate(
         schedule, _coverage_year(segment, projection_date, rate_year))
 
 
+def surrender_charge_units(segment: CoverageSegment, config: Optional[PlancodeConfig]) -> float:
+    """Units the surrender charge rate applies to for ``segment``.
+
+    SA_Basis drives the SCR units basis: OriginalSA plans charge the surrender
+    charge on the coverage's ORIGINAL units; every other plan uses the current
+    units. (Units are the specified amount per $1,000.)
+    """
+    if config is not None and config.sa_basis == SA_BASIS_ORIGINAL:
+        return segment.original_face_amount / PER_THOUSAND
+    return segment.units
+
+
 def _calculate_surrender_charge(
     policy: IllustrationPolicyData,
     rates: IllustrationRates,
@@ -4253,11 +4341,6 @@ def _calculate_surrender_charge(
     projection_date,
     config: PlancodeConfig = None,
 ):
-    # SA_Basis drives the SCR units basis: OriginalSA plans charge the
-    # surrender charge on the coverage's ORIGINAL units; every other plan uses
-    # the current units. (Units are the specified amount per $1,000.)
-    original_basis = bool(config is not None and config.sa_basis == SA_BASIS_ORIGINAL)
-
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]
     if not segments:
@@ -4270,9 +4353,7 @@ def _calculate_surrender_charge(
     for index, segment in enumerate(segments, start=1):
         segment_scr_rate = _segment_surrender_rate(
             policy, segment, rates, rate_year, projection_date, config)
-        segment_units = (
-            segment.original_face_amount / PER_THOUSAND if original_basis else segment.units
-        )
+        segment_units = surrender_charge_units(segment, config)
         segment_surrender_charge = segment_scr_rate * segment_units
         key = f"cov{index}"
         scr_rates_by_coverage[key] = segment_scr_rate

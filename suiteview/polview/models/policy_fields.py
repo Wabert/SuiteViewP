@@ -97,6 +97,7 @@ FIELD_SPECS: tuple[FieldSpec, ...] = (
     _spec("servicing_agent_number", "LH_BAS_POL", "SVC_AGT_NBR", default=""),
     _spec("servicing_branch_code", "LH_BAS_POL", "SVC_AGC_NBR", default=""),
     _spec("loan_interest_rate", "LH_BAS_POL", "LN_PLN_ITS_RT", "decimal"),
+    _spec("loan_type_code", "LH_BAS_POL", "LN_TYP_CD", default="", required=False),
     _spec("forced_premium_indicator", "TH_BAS_POL", "FORCED_PREM_IND", default="", required=False),
     _spec("mdo_code", "LH_BAS_POL", "USR_RES_CD", default=""),
     _spec("bill_form_code", "LH_BAS_POL", "BIL_FRM_CD", default=""),

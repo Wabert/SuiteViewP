@@ -96,15 +96,15 @@ class TransactionTabCriteria:
 @dataclass(frozen=True)
 class CustomDisplayCriteria:
     selected_fields: tuple[tuple[str, str], ...] = ()
-    criteria_filters: tuple[tuple[str, tuple[str, ...], str, str], ...] = ()
+    criteria_filters: tuple[tuple[str, tuple[str, ...], str, str, str], ...] = ()
 
     def get_selected_fields(self) -> list[tuple[str, str]]:
         return list(self.selected_fields)
 
-    def get_criteria_filters(self) -> list[tuple[str, list[str], str, str]]:
+    def get_criteria_filters(self) -> list[tuple[str, list[str], str, str, str]]:
         return [
-            (table, list(fields), match_type, value)
-            for table, fields, match_type, value in self.criteria_filters
+            (table, list(fields), match_type, value, value_to)
+            for table, fields, match_type, value, value_to in self.criteria_filters
         ]
 
 
@@ -248,8 +248,8 @@ def _freeze_custom_display(tab: Any | None) -> CustomDisplayCriteria | None:
         return None
     selected = tuple((table, field) for table, field in tab.get_selected_fields())
     filters = tuple(
-        (table, tuple(fields), match_type, value)
-        for table, fields, match_type, value in tab.get_criteria_filters()
+        (table, tuple(fields), match_type, value, value_to)
+        for table, fields, match_type, value, value_to in tab.get_criteria_filters()
     )
     return CustomDisplayCriteria(selected, filters)
 

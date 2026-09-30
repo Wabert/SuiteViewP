@@ -24,7 +24,7 @@ from suiteview.illustration.core.monthly_guideline import (
     build_guideline_basis, solve_guideline_premiums,
 )
 from suiteview.illustration.core.rate_loader import IllustrationRates
-from suiteview.illustration.core.target_premium import TargetPremiumResult
+from suiteview.illustration.core.target_premium import TargetPremiumResult, ffl_pwot_units
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet, IllustrationOptions, PolicyChangeEvent, PolicyChangeKind,
 )
@@ -326,3 +326,147 @@ def test_guideline_zero_target_does_not_fall_back_to_recorded_units(basis):
     )
     assert result.months
     assert all(month.benefit_charges == 0.0 for month in result.months)
+
+
+# ── FFL PWoT units re-derived from the recomputed MTP ─────────────────────
+# Live CKMO face decreases (2026-09, company 26 FFL): CyberLife reset every
+# 4M benefit to TRUNC(12 * TRUNC(monthly MTP, 2) / VPU, 3) — e.g. 1U14L100
+# 000335000 went 14.266 -> 11.508 units when the monthly MTP became 95.90.
+# RERUN keeps the recorded units (vPWST_Units only moves on an explicit input).
+
+@pytest.mark.parametrize("monthly_mtp, units", [
+    (95.9075, 11.508),    # 000335000: annual 1150.80
+    (81.22, 9.746),       # 000336209: annual 974.64
+    (121.6717, 14.600),   # 000341289: annual 1460.04
+    (73.12, 8.774),       # 000292112 before: annual 877.44
+    (58.31, 6.997),       # 000292112 after: annual 699.72
+    (66.93, 8.031),       # 000336960: annual 803.16
+])
+def test_ffl_pwot_units_match_admin(monthly_mtp, units):
+    assert ffl_pwot_units(monthly_mtp, 100.0) == units
+
+
+def _ffl_config(basis: int) -> PlancodeConfig:
+    config = _config(basis)
+    config.company_sub = "FFL"
+    return config
+
+
+@pytest.mark.parametrize("basis", [1, 2])
+def test_ffl_face_decrease_rederives_pwot_units(monkeypatch, basis):
+    policy = _policy(mtp=101.26, ctp=1216.62)
+    policy.issue_date = date(2014, 1, 14)
+    policy.valuation_date = date(2026, 9, 14)
+    policy.issue_age = 21
+    policy.attained_age = 33
+    policy.policy_year = 13
+    policy.policy_month = 9
+    policy.duration = 153
+    policy.benefits[0].units = 12.151
+    policy.benefits[0].vpu = 100.0
+    policy.benefits[0].benefit_amount = 1215.1
+    original = deepcopy(policy)
+    config = _ffl_config(basis)
+    monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
+    monkeypatch.setattr(calc_engine, "_reload_policy_band_rates", lambda *_: None)
+    monkeypatch.setattr(
+        calc_engine, "compute_target_premiums",
+        lambda current, *_args, **_kwargs: TargetPremiumResult(
+            mtp_annual=current.total_face * 0.0121512,
+            ctp_annual=current.total_face * 0.0121662,
+        ),
+    )
+    change_date = date(2026, 10, 14)
+    states = IllustrationEngine().project(
+        policy, months=2,
+        future_inputs=IllustrationInputSet(policy_changes=[PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT, effective_date=change_date,
+            value=80_000.0,
+            metadata={"new_glp": 0.0, "new_gsp": 0.0, "new_7pay": 0.0},
+        )]),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+    before = next(state for state in states if state.date < change_date)
+    after = [state for state in states if state.date >= change_date]
+    assert after
+    # Recorded units hold until the change: 12.151 x 3.0 = 36.45 (basis 1).
+    if basis == 1:
+        assert before.benefit_amounts["49"] == 1215.1
+        assert before.benefit_charge_detail["49"] == pytest.approx(36.45)
+    for state in after:
+        # 80,000 x 0.0121512 = 972.096/yr -> monthly 81.008 -> TRUNC 81.00
+        # -> 972.00/yr -> 9.720 units of 100. Basis 2 keeps charging on the
+        # untruncated annual vMTP (RERUN RB), as before this change.
+        assert state.monthly_mtp == pytest.approx(81.00)
+        if basis == 1:
+            assert state.benefit_amounts["49"] == pytest.approx(972.0)
+            assert state.benefit_charge_detail["49"] == pytest.approx(29.16)
+        else:
+            assert state.benefit_amounts["49"] == pytest.approx(972.096)
+            assert state.benefit_charge_detail["49"] == pytest.approx(29.16)
+    [pwot] = _projected_benefits(monkeypatch, policy, config, change_date)
+    assert (pwot.units, pwot.benefit_amount) == (9.72, pytest.approx(972.0))
+    assert policy == original
+
+
+def _projected_benefits(monkeypatch, policy, config, change_date):
+    captured = []
+    real = calc_engine._refresh_ffl_pwot_units
+
+    def spy(projected, as_of):
+        real(projected, as_of)
+        captured[:] = [b for b in projected.benefits if b.benefit_type == "4"]
+
+    monkeypatch.setattr(calc_engine, "_refresh_ffl_pwot_units", spy)
+    IllustrationEngine().project(
+        policy, months=2,
+        future_inputs=IllustrationInputSet(policy_changes=[PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT, effective_date=change_date,
+            value=80_000.0,
+            metadata={"new_glp": 0.0, "new_gsp": 0.0, "new_7pay": 0.0},
+        )]),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+    return captured
+
+
+def test_non_ffl_face_decrease_keeps_recorded_pwot_units(monkeypatch):
+    policy = _policy(mtp=101.26)
+    policy.benefits[0].vpu = 100.0
+    config = _config(1)
+    monkeypatch.setattr(
+        calc_engine, "compute_target_premiums",
+        lambda *_a, **_kw: TargetPremiumResult(mtp_annual=972.096, ctp_annual=973.3),
+    )
+    calc_engine._apply_recomputed_targets(policy, config, date(2026, 10, 14))
+    assert policy.mtp == pytest.approx(81.008)
+    assert policy.benefits[0].units == 50.0
+
+
+def test_ffl_pwot_refresh_skips_dropped_and_paid_up_benefits(monkeypatch):
+    policy = _policy(mtp=101.26)
+    policy.benefits = [
+        BenefitInfo(benefit_type="4", benefit_subtype="M", units=12.151, vpu=100.0,
+                    is_active=False),
+        BenefitInfo(benefit_type="4", benefit_subtype="9", units=12.151, vpu=100.0,
+                    is_active=True, pay_up_date=date(2026, 10, 14)),
+        BenefitInfo(benefit_type="3", benefit_subtype="F", units=100.0, vpu=1000.0,
+                    is_active=True),
+    ]
+    monkeypatch.setattr(
+        calc_engine, "compute_target_premiums",
+        lambda *_a, **_kw: TargetPremiumResult(mtp_annual=972.096, ctp_annual=973.3),
+    )
+    calc_engine._apply_recomputed_targets(policy, _ffl_config(1), date(2026, 10, 14))
+    assert [benefit.units for benefit in policy.benefits] == [12.151, 12.151, 100.0]
+
+
+def test_ffl_pwot_refresh_without_vpu_is_loud(monkeypatch):
+    policy = _policy(mtp=101.26)
+    policy.benefits[0].vpu = 0.0
+    monkeypatch.setattr(
+        calc_engine, "compute_target_premiums",
+        lambda *_a, **_kw: TargetPremiumResult(mtp_annual=972.096, ctp_annual=973.3),
+    )
+    with pytest.raises(ValueError, match="value per unit"):
+        calc_engine._apply_recomputed_targets(policy, _ffl_config(1), date(2026, 10, 14))

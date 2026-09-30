@@ -127,7 +127,6 @@ def test_mainframe_window_uses_frameless_base_with_preserved_header(app, monkeyp
 
     monkeypatch.setattr(access_control, "guard_app_access", lambda _code: None)
     monkeypatch.setattr(mod, "ConnectionManager", lambda: object())
-    monkeypatch.setattr(mod, "CredentialManager", lambda: object())
     monkeypatch.setattr(mod, "MainframeNavScreen", FakeNavScreen)
     monkeypatch.setattr(mod, "DualTerminalScreen", FakeTerminalScreen)
 
@@ -142,7 +141,7 @@ def test_mainframe_window_uses_frameless_base_with_preserved_header(app, monkeyp
         assert window.size().width() == 1400
         assert window.size().height() == 800
         assert window.tab_widget.count() == 2
-        assert window.user_button.text() == "👤 User"
+        assert window.passwords_button.text() == "🔑 Passwords"
     finally:
         window.close()
 

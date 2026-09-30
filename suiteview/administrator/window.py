@@ -384,7 +384,7 @@ class AdministratorWindow(FramelessWindowBase):
         )
         self.app_note.setText(
             "AllApps is on — whitelist ignored; selections are preserved."
-            if all_apps else "Allowed applications — select any of the 12 SuiteView apps."
+            if all_apps else f"Allowed applications — select any of the {len(APP_CODES)} SuiteView apps."
         )
         self.app_note.setStyleSheet(
             "color: #6B7280; font-style: italic;" if all_apps else "color: #173659;"

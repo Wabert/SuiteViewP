@@ -80,7 +80,7 @@ def summary_policy(**overrides):
         valuation_date=date(2026, 9, 15), paid_to_date=date(2026, 9, 15), policy_year=17,
         suspense_code="0", suspense_description="Active", mec_indicator="0",
         policy_debt=Decimal("0"), reins_partner="", product_line_description="Universal",
-        gpt_cvat="GPT", standard_death_benefit=Decimal("100000"),
+        gpt_cvat="GPT", glp=Decimal("5000"), standard_death_benefit=Decimal("100000"),
         corridor_death_benefit=Decimal("90000"), insured_lives_description="Single",
         primary_insured_birth_date=date(1971, 3, 3), base_total_face_amount=Decimal("100000"),
         company_name="ANICO", primary_insured_name="Angela Huecker",
@@ -127,6 +127,23 @@ def test_summary_leaves_unprefetched_facts_pending_rather_than_guessing():
     assert summary.insured_name is None
     assert "loan" not in chip_keys(summary) and "mec" not in chip_keys(summary)
     assert {"primary_insured_name", "policy_debt", "mec_indicator"} <= set(summary.pending)
+
+
+def test_gep_chip_only_for_inforce_gpt_policy_with_zero_glp():
+    today = date(2026, 9, 24)
+
+    def keys(**overrides):
+        return chip_keys(insights.build_policy_summary(summary_policy(**overrides), today=today))
+
+    assert "gep" in keys(glp=Decimal("0"))
+    gep = next(c for c in insights.build_policy_summary(
+        summary_policy(glp=Decimal("0")), today=today).chips if c.key == "gep")
+    assert gep.text == "GEP" and gep.tone == insights.GEP
+    assert "gep" not in keys(glp=Decimal("1200"))
+    assert "gep" not in keys(glp=None)
+    assert "gep" not in keys(glp=Decimal("0"), gpt_cvat="CVAT")
+    assert "gep" not in keys(glp=Decimal("0"), premium_pay_status_code="99")
+    assert "gep" not in keys(glp=Decimal("0"), system_code="P")
 
 
 def test_product_chip_shows_iul_for_index_ul_policies():

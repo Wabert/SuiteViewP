@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 from suiteview import __version__ as APP_VERSION
 from suiteview.administrator.launcher import AdministratorMenuAccess
 from suiteview.taskbar_launcher.albert_launcher import AlbertButton
+from suiteview.taskbar_launcher.attention_albert import AttentionAlbertButton
 from suiteview.ui.widgets.bookmark_widgets import (
     set_footer_status_callback,
 )
@@ -552,6 +553,11 @@ class TaskbarChrome(TaskbarCollaborator):
             ("EMAILATTACHMENTS", "Email Attachments", self.callbacks._open_email_attachments),
         ):
             self._permission_actions.append((code, self.tools_menu.addAction(title, callback)))
+        # Owner-only switch; AttentionAlbertButton controls its visibility and checked state.
+        self.aai_tools_action = self.tools_menu.addAction("Attention Albert")
+        self.aai_tools_action.setVisible(False)
+        self._permission_actions.append((
+            "PASSWORDMANAGER", self.tools_menu.addAction("🔑 Passwords", self.callbacks._open_passwords)))
         self.tools_menu.addAction("Refresh Permissions", self.callbacks._refresh_permissions)
         self.tools_menu.addSeparator()
         self._permission_actions.append((
@@ -565,6 +571,11 @@ class TaskbarChrome(TaskbarCollaborator):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.header_spacer.setMinimumWidth(20)
         header_layout.addWidget(self.header_spacer)
+
+        # ====== ATTENTION ALBERT (AAI) — right side, away from the app buttons ======
+        self.aai_btn = AttentionAlbertButton(self.window)
+        self.aai_btn.bind_tools_action(self.aai_tools_action)
+        header_layout.addWidget(self.aai_btn)
 
     def _build_window_controls(self, header_layout):
         # ====== WINDOW CONTROL BUTTONS ======

@@ -22,7 +22,8 @@ class _StubPolicy(PolicyInformation):
     """PolicyInformation with only the death-benefit inputs stubbed out."""
 
     def __init__(self, face, db_option="1", account_value=None,
-                 corridor_pct=None, advanced=True, premiums_paid=Decimal("0")):
+                 corridor_pct=None, advanced=True, premiums_paid=Decimal("0"),
+                 annuity=False):
         self._face = Decimal(face)
         self._db_option = db_option
         self._account_value = None if account_value is None else Decimal(account_value)
@@ -34,6 +35,7 @@ class _StubPolicy(PolicyInformation):
             "product": SimpleNamespace(
                 db_option_code=self._db_option,
                 is_advanced_product=self._advanced,
+                is_annuity=annuity,
                 # Mirrors the real property: missing CDR_PCT defaults to 100%.
                 corridor_percent=(
                     self._corridor_pct if self._corridor_pct is not None
@@ -98,6 +100,15 @@ def test_corridor_percent_is_rounded_to_the_cent():
 def test_traditional_product_has_no_corridor():
     policy = _StubPolicy(face=100_000, account_value=50_000, corridor_pct=250,
                          advanced=False)
+
+    assert policy.coverages.corridor_death_benefit is None
+    assert not policy.coverages.is_in_corridor
+    assert policy.coverages.total_death_benefit == Decimal("100000")
+
+
+def test_annuity_has_no_corridor():
+    policy = _StubPolicy(face=100_000, account_value=500_000, corridor_pct=250,
+                         annuity=True)
 
     assert policy.coverages.corridor_death_benefit is None
     assert not policy.coverages.is_in_corridor

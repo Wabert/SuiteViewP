@@ -238,6 +238,7 @@ class _SummaryPolicy:
     policy_debt = Decimal("123.45")
     reins_partner = "R"
     gpt_cvat = "GPT"
+    glp = Decimal("5000")
     standard_death_benefit = Decimal("250000")
     corridor_death_benefit = Decimal("275000")
     insured_lives_description = "Joint Second to Die"

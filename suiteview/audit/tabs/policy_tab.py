@@ -175,7 +175,8 @@ class PolicyTab(QWidget):
         self.txt_plancode.setFixedSize(92, _CTRL_H)
         force_uppercase(self.txt_plancode)
         self.txt_plancode.setToolTip(
-            "Matches the complete plancode. Blank applies no plancode filter."
+            "Matches the complete plancode. Blank applies no plancode filter. "
+            "Combined with the Plans and Policies plancodes as OR."
         )
         self.chk_rga = _make_checkbox("RGA (52)")
         identifiers.addWidget(self.txt_plancode, 0, 1)
@@ -330,10 +331,13 @@ class PolicyTab(QWidget):
         # ────────────────────────────────────────────────────────────
         col4 = QVBoxLayout()
         col4.setSpacing(_V_SPACING)
+        _COL4_W = 215  # fits the longest code description without a wide empty right edge
 
         self.chk_last_entry = _make_checkbox("Last Entry Code (01)")
         col4.addWidget(self.chk_last_entry)
-        self.list_last_entry = _make_listbox(LAST_ENTRY_CODE_ITEMS, height_rows=18, enabled=False)
+        self.list_last_entry = _make_listbox(
+            LAST_ENTRY_CODE_ITEMS, height_rows=len(LAST_ENTRY_CODE_ITEMS), enabled=False)
+        self.list_last_entry.setFixedWidth(_COL4_W)
         _connect_checkbox_listbox(self.chk_last_entry, self.list_last_entry)
         col4.addWidget(self.list_last_entry)
 
@@ -341,31 +345,27 @@ class PolicyTab(QWidget):
         note.setFont(QFont("Segoe UI", 7))
         note.setStyleSheet("color: #666;")
         note.setWordWrap(True)
+        note.setFixedWidth(_COL4_W)
         col4.addWidget(note)
 
-        # Bill Mode + Billing Form — side by side, same height
-        _SIDE_H = 8  # rows for both lists
-        bm_bf = QHBoxLayout()
-        bm_bf.setSpacing(6)
-
-        bm_col = QVBoxLayout(); bm_col.setSpacing(_V_SPACING)
+        # Bill Mode with Billing Form stacked underneath
+        col4.addSpacing(4)
         self.chk_bill_mode = _make_checkbox("Bill Mode (01)")
-        bm_col.addWidget(self.chk_bill_mode)
-        self.list_bill_mode = _make_listbox(BILL_MODE_ITEMS, height_rows=_SIDE_H, enabled=False)
+        col4.addWidget(self.chk_bill_mode)
+        self.list_bill_mode = _make_listbox(
+            BILL_MODE_ITEMS, height_rows=len(BILL_MODE_ITEMS), enabled=False)
+        self.list_bill_mode.setFixedWidth(_COL4_W)
         _connect_checkbox_listbox(self.chk_bill_mode, self.list_bill_mode)
-        bm_col.addWidget(self.list_bill_mode)
-        bm_bf.addLayout(bm_col)
-
-        bf_col = QVBoxLayout(); bf_col.setSpacing(_V_SPACING)
-        self.chk_billing_form = _make_checkbox("Billing Form (01)")
-        bf_col.addWidget(self.chk_billing_form)
-        self.list_billing_form = _make_listbox(BILLING_FORM_ITEMS, height_rows=_SIDE_H, enabled=False)
-        _connect_checkbox_listbox(self.chk_billing_form, self.list_billing_form)
-        bf_col.addWidget(self.list_billing_form)
-        bm_bf.addLayout(bf_col)
+        col4.addWidget(self.list_bill_mode)
 
         col4.addSpacing(4)
-        col4.addLayout(bm_bf)
+        self.chk_billing_form = _make_checkbox("Billing Form (01)")
+        col4.addWidget(self.chk_billing_form)
+        self.list_billing_form = _make_listbox(
+            BILLING_FORM_ITEMS, height_rows=len(BILLING_FORM_ITEMS), enabled=False)
+        self.list_billing_form.setFixedWidth(_COL4_W)
+        _connect_checkbox_listbox(self.chk_billing_form, self.list_billing_form)
+        col4.addWidget(self.list_billing_form)
         col4.addStretch()
 
         # ── Assemble columns with separator lines ─────────────────
@@ -378,6 +378,7 @@ class PolicyTab(QWidget):
         root.addLayout(col3)
         root.addWidget(self._vsep())
         root.addLayout(col4)
+        root.addStretch(1)
 
     # ── helpers ──────────────────────────────────────────────────────
     def _select_inforce(self):

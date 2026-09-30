@@ -48,7 +48,7 @@ HEX_FREE_STYLE_FILES = (
 
 EXPECTED_MODULE_HASHES = {
     "suiteview.abrquote.ui.abr_styles": (
-        "6f85f98d2ed4677b255c6765c459477abe09ce210a6bfb7d6fb7141d4bf449e0"
+        "bf8fddd132d8d675149b668113de39c2382a3b7f656f49c59f2a3503480bc8e9"
     ),
     "suiteview.audit.build_mode_styles": (
         "6b263db25e6c49e7aeae6c832e5d87ea4315614ba23f26a0354c4f90739fdfb7"
@@ -75,19 +75,19 @@ EXPECTED_MODULE_HASHES = {
 
 EXPECTED_WINDOW_HASHES = {
     "ABRQuoteWindow": "fcfc5ca8edce406a0c7e16738934981b1dbb386bc8e9d8710ea31817e25a1f74",
-    "AdministratorWindow": "b996379fa69b38523ea5336e9640d7ed2317141c678129c51c6da9ddaeb1dcb6",
+    "AdministratorWindow": "79e32834dce47e0cdfb320cafb9ab1079c114e62b2c441fcfcc3bd84f6774320",
     "AgentChatWindow": "e138df7f7998b43b84b01a99436a347d7302592d1a6f3400cb6909ffc5de3333",
-    "AuditWindow": "db908b23e82937c074d7cc95a93c99a9b6152aece5f559461e5c9ff640d13e17",
+    "AuditWindow": "61ef74adece6b87e65b6f08e0d3f302bae05bc95cb1ca4a0f289713eb91fc8d5",
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
-    "IllustrationWindow": "533bc3918c88d64cb8adaab73a94d72b2ab06f771e6247db8d2a226f71b12023",
+    "IllustrationWindow": "541832b980bc3a6c016c199ef09ffdfad59abced690cb8e06776305abddae52f",
     "MainframeWindow": "372a0a574cb206b2f252171fa8270e00f137960d83db5fde15b41bb01637a084",
-    "PolView": "eda552c76e88b45a94d9ebb8e23d58c26763b6dab3fc67111cc1ca95d0b58ad0",
+    "PolView": "70c5a0cc3f2b75a8f18087763f89104678f480a872361cbf899aec837766dd86",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",
     "RateManagerWindow": "eada666b1ec94b4be8a15f75330adc53c84cf4066bd0745dc84e87b006dc4f49",
     "ScratchPadWindow": "62c5271ce7065222c9adf3b08686fc2c3428909c686cdbae6e2b77d97dce6fbe",
     "ScreenShotManagerWindow": "c45644f8d613d92199310127474a77a5b9646d937c8837355bbda0213e185b01",
-    "SuiteViewTaskbar": "e6a85fb0eedbfba5facd579ffde5cb8504fdc897a9333235635431f3d99e51f2",
+    "SuiteViewTaskbar": "e0fbeb70cafc1d163455c67187109d0c70e4b84805229ec651f2a53c933cb706",
 }
 
 HEX_LITERAL_RE = re.compile(r"#[0-9A-Fa-f]{3,8}")

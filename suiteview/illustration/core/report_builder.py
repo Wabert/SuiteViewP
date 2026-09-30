@@ -97,6 +97,12 @@ def _money(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def company_name(company_code: str) -> str:
+    """The issuing company printed in every illustration header (26 = the New York company)."""
+    return ("AMERICAN NATIONAL LIFE INSURANCE COMPANY OF NEW YORK" if (company_code or "").strip() == "26"
+            else "AMERICAN NATIONAL INSURANCE COMPANY")
+
+
 def _pct(value: float) -> str:
     return f"{value * 100:.2f}%"
 
@@ -1196,11 +1202,7 @@ def _build_ul_report_from_facts(
     inforce = results[0] if results else MonthlyState()
     projected = results[1:]
 
-    report.company_name = (
-        "AMERICAN NATIONAL LIFE INSURANCE COMPANY OF NEW YORK"
-        if (policy.company_code or "").strip() == "26"
-        else "AMERICAN NATIONAL INSURANCE COMPANY"
-    )
+    report.company_name = company_name(policy.company_code)
     prepared_name = (policy.insured_name or "").strip() or f"POLICY {policy.policy_number}"
     report.prepared_for = f"PREPARED FOR {prepared_name}"
     report.policy_number = (policy.policy_number or "").strip()

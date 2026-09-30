@@ -14,11 +14,15 @@ App UI/service layer for mainframe navigation; keep terminal parsing isolated.
 
 ## Key modules
 
-`content_search.py`, `search_content_window.py`, `styles.py`.
+`content_search.py`, `search_content_window.py`, `styles.py`,
+`switch_sessions.py` (Switch A/B endpoints). The shared sign-on lives in
+`suiteview/data/mainframe_credentials.py` and is edited through
+`suiteview/ui/dialogs/passwords_dialog.py`.
 
 ## Tests
 
-`tests/test_tn3270*.py` when parser behavior changes.
+`tests/test_tn3270*.py` when parser behavior changes; `tests/test_switch_terminal.py`
+for Switch panes, endpoints, the Passwords store and the PolView hand-off.
 
 ## Docs
 

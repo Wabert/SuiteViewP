@@ -45,14 +45,16 @@ def _add_initial_where(ctx: QueryContext, parts: SqlParts) -> None:
 
 
 def _add_identifier_where(ctx: QueryContext, parts: SqlParts) -> None:
+    # The Policy-tab plancode and the Plans-and-Policies list are alternatives (OR).
     plancode = ctx.pt.txt_plancode.strip().upper()
-    if plancode:
-        cov_filter_alias = 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL'
-        parts.wheres.append(f"{cov_filter_alias}.PLN_DES_SER_CD = '{esc(plancode)}'")
-    plancode_list = ctx.plancode_tab.plancodes
+    tab_plancodes = list(ctx.plancode_tab.plancodes)
+    plancode_list = list(dict.fromkeys(([plancode] if plancode else []) + tab_plancodes))
     if plancode_list:
         cov_filter_alias = 'COVERAGE1' if ctx.cov1_plancode_match_only else ctx.result_cov_alias if ctx.coverage_level else 'COVSALL'
-        parts.wheres.append(f'{cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(plancode_list)})')
+        if not tab_plancodes:
+            parts.wheres.append(f"{cov_filter_alias}.PLN_DES_SER_CD = '{esc(plancode)}'")
+        else:
+            parts.wheres.append(f'{cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(plancode_list)})')
     policy_list = ctx.plancode_tab.policies
     if policy_list:
         parts.wheres.append(f'POLICY1.CK_POLICY_NBR IN ({in_list(policy_list)})')

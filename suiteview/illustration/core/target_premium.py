@@ -99,6 +99,19 @@ def truncate_monthly_mtp(value: float) -> float:
     return _trunc2(value)
 
 
+def ffl_pwot_units(monthly_mtp: float, vpu: float) -> float:
+    """FFL stipulated premium waiver (type 4) units for a recomputed MTP.
+
+    CyberLife re-derives an FFL PWoT benefit from the Minimum Target Premium
+    whenever a policy change recomputes it: the benefit amount is the annual
+    MTP (12 x the cent-truncated monthly MTP) and the units are that amount
+    per VPU, truncated to 3 decimals. RERUN holds the recorded units instead.
+    """
+    annual = Decimal(str(truncate_monthly_mtp(monthly_mtp))) * MONTHS_PER_YEAR
+    units = (annual / Decimal(str(vpu))).quantize(Decimal("0.001"), rounding=ROUND_DOWN)
+    return float(units)
+
+
 def _trunc5(value: float) -> float:
     return float(Decimal(f"{value:.12f}").quantize(Decimal("0.00001"), rounding=ROUND_DOWN))
 
@@ -676,10 +689,14 @@ def compute_target_premiums(
     """
     from suiteview.core.rates import Rates
 
-    rates_db = Rates()
     result = TargetPremiumResult()
     if not policy.segments:
         return result
+    if config.is_iswl:
+        # ISWL has no UL minimum/commission target premiums or safety net; its
+        # fixed premium is billed, not targeted. No legacy dbo target lookup.
+        return result
+    rates_db = Rates()
     if policy.is_joint_survivor:
         # VP/MS targets: hold the record values (policy.mtp is monthly, ctp annual).
         result.mtp_annual = float(policy.mtp or 0.0) * 12.0

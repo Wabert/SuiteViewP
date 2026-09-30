@@ -178,7 +178,7 @@ def test_launcher_controls_follow_app_grants():
     from suiteview.taskbar_launcher.taskbar_system import SystemTray
 
     chrome = SimpleNamespace(
-        polview_btn=Mock(), filenav_btn=Mock(), albert_btn=Mock(),
+        polview_btn=Mock(), filenav_btn=Mock(), albert_btn=Mock(), aai_btn=Mock(),
         tab_widget=Mock(), _permission_actions=[("RATEMANAGER", Mock())],
     )
     bar = SystemTray(SimpleNamespace(layout=lambda: SimpleNamespace(activate=Mock(), sizeHint=lambda: SimpleNamespace(width=lambda: 1)),
@@ -199,9 +199,13 @@ def test_launcher_controls_follow_app_grants():
     bar._apply_permissions(replace(rights, all_apps=True))
     chrome.albert_btn.setEnabled.assert_called_with(False)
     chrome.albert_btn.setVisible.assert_called_with(False)
+    chrome.aai_btn.set_allowed.assert_called_with(False)  # AllApps does not give the AAI button
     chrome.filenav_btn.setVisible.assert_called_with(True)
     chrome._permission_actions[0][1].setVisible.assert_called_with(True)
+    bar._apply_permissions(replace(rights, actor_id="AB7Y02"))
+    chrome.aai_btn.set_allowed.assert_called_with(True)
     bar._apply_permissions(None)
+    chrome.aai_btn.set_allowed.assert_called_with(False)
     chrome.polview_btn.setEnabled.assert_called_with(False)
     chrome.polview_btn.setVisible.assert_called_with(False)
     chrome._permission_actions[0][1].setVisible.assert_called_with(False)

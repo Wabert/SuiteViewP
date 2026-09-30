@@ -87,8 +87,14 @@ containers.
 
 - **Consistent look** — rounded corners, styled blue/gold headers, compact
   row spacing, and themed scrollbars that match the PolView design.
-- **Built-in features** — right-click copy on all values and cells,
+- **Built-in features** — right-click copy on all values and cells (plus
+  **Copy Tip Contents** on any value, cell or label that has a hover tip),
   auto-fit columns, optional Excel-style column filtering.
+- **Calculated values explain themselves** — a value SuiteView derives rather
+  than reads (sums, engine results, unit conversions with inputs) carries a
+  hover tip showing the working, one step per line, ending in the displayed
+  result: `group._fields[attr].setToolTip(...)` or `item.setToolTip(...)` for a
+  cell. Keep it high level — the formula, the inputs and the answer.
 - **Less code** — replaces 30-40 lines of manual styling with 3-4 lines.
 
 ### Usage modes

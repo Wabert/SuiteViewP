@@ -131,6 +131,15 @@ def _alive(obj) -> bool:
         return False
 
 
+def _can_use_mainframe() -> bool:
+    """Visibility for the Switch A hand-off; the click still rechecks live access."""
+    from suiteview.core import access_control
+    try:
+        return access_control.can_access_app("MAINFRAMENAV")
+    except (access_control.AccessDeniedError, access_control.AccessUnavailableError):
+        return False
+
+
 def _open_odbc_manager():
     """Launch the Windows ODBC Data Source Administrator."""
     try:
@@ -189,6 +198,11 @@ class GetPolicyWindow(FramelessWindowBase):
         # Illustration app with the given policy. Set by the taskbar launcher;
         # when unset the header button lazily opens a standalone window.
         self._illustration_launcher = None
+        # Callback (side, policy_number, region, company_code) that shows the
+        # policy in a Switch terminal. Set by the taskbar so the shared
+        # Mainframe window is reused; when unset PolView opens its own.
+        self._switch_launcher = None
+        self._mainframe_window = None
         self._db: Optional[DB2Connection] = None
         self._policy: Optional[PolicyInformation] = None
         self._current_policy = None
@@ -236,6 +250,15 @@ class GetPolicyWindow(FramelessWindowBase):
         self.open_record_btn.setEnabled(False)
         self.open_record_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
+        # Header-bar "Switch A" button -- signs on to the Switch A terminal
+        # and brings the loaded policy up on the green screen.
+        self.open_switch_btn = QPushButton("🖥 Switch A")
+        self.open_switch_btn.setToolTip(
+            "Open this policy in the Switch A mainframe terminal"
+        )
+        self.open_switch_btn.setEnabled(False)
+        self.open_switch_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
+
         self.shortcuts_btn = QPushButton("⌨ Shortcuts")
         self.shortcuts_btn.setToolTip("Keyboard shortcuts and tips (F1)")
         self.shortcuts_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
@@ -251,11 +274,15 @@ class GetPolicyWindow(FramelessWindowBase):
                 else POLVIEW_DUPLICATE_HEADER_COLORS
             ),
             border_color=POLVIEW_BORDER_COLOR,
-            header_widgets=[self.shortcuts_btn, self.open_record_btn, self.open_illustrator_btn],
+            header_widgets=[self.shortcuts_btn, self.open_switch_btn, self.open_record_btn,
+                            self.open_illustrator_btn],
         )
         self.shortcuts_btn.clicked.connect(self._show_help)
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
         self.open_record_btn.clicked.connect(self._open_policy_record)
+        self.open_switch_btn.clicked.connect(self._open_in_switch_a)
+        # Switch A is part of Mainframe Navigator: only roles with MAINFRAMENAV see it.
+        self.open_switch_btn.setVisible(_can_use_mainframe())
         self._loader = PolicyLoadController()
         self._loader.ready.connect(self._on_prepared_policy)
         self._loader.failed.connect(self._on_load_failed)
@@ -994,6 +1021,42 @@ class GetPolicyWindow(FramelessWindowBase):
         window is reused; when unset the button opens a standalone RERUN window."""
         self._illustration_launcher = launcher
 
+    def set_switch_launcher(self, launcher):
+        """Register ``launcher(side, policy, region, company)`` used by the
+        header "Switch A" button so the shared Mainframe window is reused."""
+        self._switch_launcher = launcher
+
+    @requires_app_access("MAINFRAMENAV")
+    def _open_in_switch_a(self, checked=False):
+        """Sign on to Switch A and bring up the currently-loaded policy."""
+        if not self._current_policy:
+            return
+        region = self._current_region or "CKPR"
+        company = str((self._policy_info or {}).get("CompanyCode", "") or "")
+        if self._switch_launcher is not None:
+            self._switch_launcher("A", self._current_policy, region, company)
+            return
+        # Standalone fallback: reuse (or open) our own Mainframe window.
+        from suiteview.mainframe_nav.mainframe_window import MainframeWindow
+        window = self._mainframe_window
+        try:
+            if window is not None:
+                window.isVisible()
+        except RuntimeError:
+            window = None
+        if window is None:
+            try:
+                window = MainframeWindow()
+            except Exception as exc:  # noqa: BLE001 - slot failures must be visible
+                logger.error("Could not open the Mainframe window: %s", exc, exc_info=True)
+                QMessageBox.warning(self, "Switch A", f"Could not open the Mainframe window:\n\n{exc}")
+                return
+            self._mainframe_window = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        window.open_policy_in_switch("A", self._current_policy, company, region)
+
     @requires_app_access("RERUN")
     def _open_in_illustrator(self, checked=False):
         """Open the currently-loaded policy in RERUN."""
@@ -1049,6 +1112,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self._pending_annuity = False
         self.open_illustrator_btn.setEnabled(False)
         self.open_record_btn.setEnabled(False)
+        self.open_switch_btn.setEnabled(False)
         self._tree_toggle_btn.setEnabled(False)
         self.records_tree.setEnabled(False)
         self._clear_reinstatement_tab()
@@ -1133,6 +1197,7 @@ class GetPolicyWindow(FramelessWindowBase):
                 self._load_overlays[key].hide()
             self.open_illustrator_btn.setEnabled(True)
             self.open_record_btn.setEnabled(True)
+            self.open_switch_btn.setEnabled(True)
             self._tree_toggle_btn.setEnabled(True)
             self.records_tree.setEnabled(True)
             self._set_tab_state("coverages", "ready")
@@ -1359,7 +1424,10 @@ class GetPolicyWindow(FramelessWindowBase):
             return
         if self._policy is None:
             return
-        result = search_policy_tables(self._policy, self.records_tree.tables_with_data(), text)
+        result = search_policy_tables(
+            self._policy, self.records_tree.tables_with_data(), text,
+            scope=self.records_tree.search_scope(),
+        )
         self.tabs.setCurrentWidget(self.raw_table_tab)
         self.raw_table_tab.show_search_results(result)
 

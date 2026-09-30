@@ -32,10 +32,15 @@ from suiteview.ui.widgets.uppercase_input import force_uppercase
 from suiteview.polview.models.cl_polrec.policy_translations import COMPANY_CODES
 from ...core.reinsurance import fetch_reinsurer_list
 from ..core.abr_policy_service import build_abr_policy, find_policy_companies
+from ..core.eligibility import abr_product_restriction
+from ...core.access_control import (
+    AccessDeniedError, AccessUnavailableError, has_support_privileges,
+)
 from ...polview.ui.widgets import StyledInfoTableGroup
 from .abr_styles import (
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, CRIMSON_RICH, WHITE, GRAY_DARK, GROUP_BOX_STYLE, INPUT_STYLE, DATEEDIT_STYLE,
     BUTTON_PRIMARY_STYLE, LABEL_HEADER_STYLE, PREMIUM_TABLE_STYLE, PREMIUM_INNER_TABLE_STYLE, PREMIUM_INNER_FRAME_STYLE,
+    QUOTE_BLOCKED_BANNER_STYLE, QUOTE_OVERRIDE_BANNER_STYLE,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,7 @@ class PolicyPanel(QWidget):
         self._policy: Optional[ABRPolicyData] = None
         self._policy_info = None  # PolicyInformation object
         self._prem_breakdown = None  # dict with premium breakdown details
+        self._quote_block_reason: Optional[str] = None
         self._build_ui()
 
     def _build_ui(self):
@@ -81,6 +87,7 @@ class PolicyPanel(QWidget):
         left_col.setSpacing(12)
 
         self._build_lookup_group(left_col)
+        self._build_eligibility_banner(left_col)
         self._build_policy_details_group(left_col)
         self._build_ul_inputs(left_col)
         self._build_coverages_group(left_col)
@@ -153,6 +160,14 @@ class PolicyPanel(QWidget):
         lookup_grid.setColumnStretch(4, 1)
 
         left_col.addWidget(lookup_group)
+
+    def _build_eligibility_banner(self, left_col):
+        # ── Product eligibility banner (e.g. Whole Life not quotable) ───
+        self.eligibility_banner = QLabel("")
+        self.eligibility_banner.setWordWrap(True)
+        self.eligibility_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.eligibility_banner.setVisible(False)
+        left_col.addWidget(self.eligibility_banner)
 
 
     def _build_policy_details_group(self, left_col):
@@ -464,6 +479,7 @@ class PolicyPanel(QWidget):
         self.retrieve_btn.setText("Loading...")
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         QApplication.processEvents()
+        blocked_notice = None
 
         try:
             if company_code is None:
@@ -499,6 +515,7 @@ class PolicyPanel(QWidget):
                 )
                 self._policy = policy
                 self._policy_info = policy_info
+                blocked = self._apply_quote_eligibility(policy)
                 self._populate_details(policy)
                 self._populate_rate_info()
                 self._populate_riders_benefits()
@@ -509,7 +526,9 @@ class PolicyPanel(QWidget):
 
                 # For UL/IUL/ISWL: leave Future Premiums blank (user enters level prem)
                 is_ul = policy.product_type in ("UL", "IUL", "ISWL")
-                if is_ul:
+                if blocked:
+                    self._clear_premium_schedule()
+                elif is_ul:
                     self.premium_table.setRowCount(0)
                     self._detail_labels["calc_premium"].setText("N/A")
                     self.ul_level_prem_input.clear()
@@ -518,6 +537,11 @@ class PolicyPanel(QWidget):
                 else:
                     self._populate_premium_schedule()
                 self.policy_loaded.emit(policy)
+                if blocked:
+                    blocked_notice = (
+                        f"Policy {policy_num}: {self._quote_block_reason}\n\n"
+                        "Quoting is disabled for this policy."
+                    )
             else:
                 logger.warning(f"Could not retrieve policy {policy_num} from {region}.")
                 QMessageBox.warning(
@@ -536,6 +560,51 @@ class PolicyPanel(QWidget):
             QApplication.restoreOverrideCursor()
             self.retrieve_btn.setText("Get")
             self.retrieve_btn.setEnabled(True)
+        if blocked_notice:
+            QMessageBox.warning(self, "ABR Quote Not Available", blocked_notice)
+
+    def _apply_quote_eligibility(self, policy: ABRPolicyData) -> bool:
+        """Show the product-eligibility banner; return True when quoting is blocked.
+
+        Restricted products (Whole Life) block quoting unless the user has
+        ADMIN/SUPPORT privileges. Unverifiable access fails closed.
+        """
+        reason = abr_product_restriction(policy.product_type)
+        self._quote_block_reason = None
+        if reason is None:
+            self.eligibility_banner.setVisible(False)
+            self.eligibility_banner.setText("")
+            return False
+        if self._has_quote_override():
+            self.eligibility_banner.setStyleSheet(QUOTE_OVERRIDE_BANNER_STYLE)
+            self.eligibility_banner.setText(
+                f"⚠ {reason} Quoting is allowed for your ADMIN/SUPPORT role."
+            )
+            self.eligibility_banner.setVisible(True)
+            return False
+        self._quote_block_reason = reason
+        self.eligibility_banner.setStyleSheet(QUOTE_BLOCKED_BANNER_STYLE)
+        self.eligibility_banner.setText(f"⛔ {reason}")
+        self.eligibility_banner.setVisible(True)
+        return True
+
+    @staticmethod
+    def _has_quote_override() -> bool:
+        try:
+            return has_support_privileges()
+        except (AccessDeniedError, AccessUnavailableError):
+            logger.warning("Cannot verify ABR quote override privileges", exc_info=True)
+            return False
+
+    def _clear_premium_schedule(self) -> None:
+        """Blank the premium schedule for a policy that cannot be quoted."""
+        self.premium_table.setRowCount(0)
+        self.premium_warning.setVisible(False)
+        self._detail_labels["calc_premium"].setText("N/A")
+
+    def quote_block_reason(self) -> Optional[str]:
+        """Reason the loaded policy cannot be quoted by this user, else ``None``."""
+        return self._quote_block_reason
 
     def _show_company_chooser(self, companies: list[str]):
         """Display company buttons for multi-company policies."""
@@ -716,7 +785,9 @@ class PolicyPanel(QWidget):
         if self._policy:
             self._populate_rate_info()
             is_ul = self._policy.product_type in ("UL", "IUL", "ISWL")
-            if is_ul:
+            if self._quote_block_reason:
+                self._clear_premium_schedule()
+            elif is_ul:
                 self._populate_ul_premium_schedule()
             else:
                 self._populate_premium_schedule()
@@ -1158,6 +1229,7 @@ class PolicyPanel(QWidget):
     def set_policy(self, policy: ABRPolicyData):
         """Programmatically set policy data (for testing or external load)."""
         self._policy = policy
+        blocked = self._apply_quote_eligibility(policy)
         self._populate_details(policy)
         self._populate_rate_info()
         self._populate_riders_benefits()
@@ -1166,7 +1238,9 @@ class PolicyPanel(QWidget):
         self.riders_group.setVisible(True)
         self.premium_group.setVisible(True)
         is_ul = policy.product_type in ("UL", "IUL", "ISWL")
-        if is_ul:
+        if blocked:
+            self._clear_premium_schedule()
+        elif is_ul:
             self.premium_table.setRowCount(0)
             self._detail_labels["calc_premium"].setText("N/A")
         else:

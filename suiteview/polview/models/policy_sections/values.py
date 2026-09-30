@@ -248,7 +248,9 @@ class ValuesSection(PolicySection):
                 mv_date=self._parse_date(row.get("MVRY_DT")),
                 csv_amount=Decimal(str(row["CSV_AMT"])) if row.get("CSV_AMT") else None,
                 units=Decimal(str(row["FND_UNT_QTY"])) if row.get("FND_UNT_QTY") else None,
-                interest_rate=Decimal(str(row["CRE_ITS_RT"])) if row.get("CRE_ITS_RT") else None,
+                interest_rate=(
+                    Decimal(str(row["VAL_PHA_ITS_RT"])) if row.get("VAL_PHA_ITS_RT") is not None else None
+                ),
                 start_date=self._parse_date(row.get("BKT_STR_DT")),
                 phase=int(row.get("COV_PHA_NBR", 0) or 0),
                 is_current=is_current,
@@ -282,8 +284,8 @@ class ValuesSection(PolicySection):
 
     def fund_bucket_interest_rate(self, index: int) -> Optional[Decimal]:
         """Get fund bucket credited interest rate (0-based index)."""
-        val = self.data_item("LH_POL_FND_VAL_TOT", "CRE_ITS_RT", index)
-        return Decimal(str(val)) if val else None
+        val = self.data_item("LH_POL_FND_VAL_TOT", "VAL_PHA_ITS_RT", index)
+        return Decimal(str(val)) if val is not None else None
 
     def fund_bucket_start_date(self, index: int) -> Optional[date]:
         """Get fund bucket start date (0-based index)."""

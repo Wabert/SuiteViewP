@@ -15,7 +15,7 @@ from PyQt6.QtGui import QColor
 
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.ui.widgets.filter_table_view import FilterTableView
-from ...services.table_search import TableSearchResult
+from ...services.table_search import SCOPE_ALL, TableSearchResult, no_match_text
 from ..styles import (
     BLUE_LIGHT, BLUE_DARK, BLUE_PRIMARY, GOLD_LIGHT, GOLD_PRIMARY,
     GREEN_SUBTLE, GREEN_DARK, GREEN_PRIMARY,
@@ -311,8 +311,9 @@ class RawTableTab(QWidget):
         self._current_table_name = "Table Search"
         hits = result.hits
         tables = len({hit.table for hit in hits})
+        scope = "" if result.scope == SCOPE_ALL else f" ({result.scope}s)"
         summary = (
-            f"Search: “{result.term}” — {len(hits):,} match{'es' if len(hits) != 1 else ''}"
+            f"Search{scope}: “{result.term}” — {len(hits):,} match{'es' if len(hits) != 1 else ''}"
             f" in {tables} of {result.tables_searched} table"
             f"{'s' if result.tables_searched != 1 else ''}"
         )
@@ -328,7 +329,7 @@ class RawTableTab(QWidget):
             )
             df["Row"] = df["Row"].astype("Int64")
         else:
-            df = pd.DataFrame({"Result": [f"No table, field or value contains “{result.term}”"]})
+            df = pd.DataFrame({"Result": [no_match_text(result.scope, result.term)]})
         self._search_grid.set_dataframe(df, limit_rows=False)
         self._search_grid.autofit_columns_to_data(max_width=420)
         self._update_active_grid()

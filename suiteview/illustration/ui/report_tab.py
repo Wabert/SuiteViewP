@@ -4,19 +4,17 @@ Print-preview style: white fixed-width "sheets" stacked on the purple
 Illustration background, formatted from the structured
 ``IllustrationReport`` (core/report_builder.py). Mirrors RERUN's
 "UL - Illustration Pages" layout. Print to PDF renders the same fixed-width
-pages through Qt's PDF printer in landscape, sized so the 112-character lines
-fill the page width.
+pages in landscape through the shared ``report_pages`` printer, sized so the
+112-character lines fill the page width.
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime
-from html import escape
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QMarginsF, QSizeF, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QFont, QPageLayout, QPageSize, QTextDocument
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -28,31 +26,41 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from suiteview.core.json_store import read_json, write_json
-from suiteview.core.profile_paths import profile_path
 from suiteview.illustration.core.abr_quote import ABR_TARGET_SV
 from suiteview.illustration.core.report_specs import PageSpec
+from suiteview.illustration.core.report_text import center_line, justified_paragraph, wrap_lines
 from suiteview.illustration.core.report_builder import (
     ExpenseRow,
     IllustrationReport,
     IULStrategyRateRow,
     LedgerRow,
 )
-from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT, apply_input_checkbox_style
+from .report_pages import (
+    OUTPUT_FOLDER_EDIT_STYLE,
+    OUTPUT_FOLDER_KEY,
+    PRINT_BUTTON_STYLE,
+    REPORT_BUTTON_STYLE,
+    REPORT_LABEL_STYLE,
+    default_pdf_name,
+    pages_document,
+    pdf_printer,
+    report_settings_file,
+    report_sheet,
+)
+from .styles import PURPLE_BG, apply_input_checkbox_style
 
 # Persisted illustration UI settings (output folder for printed PDFs and the
 # Add Expense Report toggle). Resolve the profile at call time; tests and
 # isolated profiles can change the profile root after this module imports.
 def _settings_file():
-    return profile_path("illustration_settings.json")
+    return report_settings_file()
 
 
-_OUTPUT_FOLDER_KEY = "report_output_folder"
 _EXPENSE_PAGE_KEY = "report_add_expense_page"
 
 PAGE_WIDTH = 112          # characters
@@ -65,7 +73,7 @@ EXPENSE_ROWS_PER_PAGE = 25
 
 
 def _center(text: str) -> str:
-    return text[:PAGE_WIDTH].center(PAGE_WIDTH).rstrip()
+    return center_line(text, PAGE_WIDTH)
 
 
 def _money(value: Optional[float]) -> str:
@@ -101,7 +109,7 @@ class _PageBuilder:
         self.lines.append(_center(text))
 
     def add_wrapped(self, text: str):
-        self.lines.extend(_wrap_lines(text))
+        self.lines.extend(wrap_lines(text, PAGE_WIDTH))
 
     def add_block(self, lines: List[str]):
         """Render a paragraph, filling the page width. Consecutive non-empty
@@ -112,7 +120,7 @@ class _PageBuilder:
 
         def flush():
             if run:
-                self.lines.extend(_justify_lines(_wrap_lines(" ".join(run))))
+                self.lines.extend(justified_paragraph(" ".join(run), PAGE_WIDTH))
                 run.clear()
 
         for line in lines:
@@ -122,49 +130,6 @@ class _PageBuilder:
             else:
                 run.append(line)
         flush()
-
-
-def _wrap_lines(text: str) -> List[str]:
-    """Word-wrap ``text`` to PAGE_WIDTH-character lines."""
-    lines: List[str] = []
-    line = ""
-    for word in text.split():
-        if line and len(line) + 1 + len(word) > PAGE_WIDTH:
-            lines.append(line)
-            line = word
-        else:
-            line = f"{line} {word}".strip()
-    if line:
-        lines.append(line)
-    return lines
-
-
-def _justify_line(line: str, width: int = PAGE_WIDTH) -> str:
-    """Full-justify one line: pad the inter-word gaps with extra spaces so the
-    line reaches ``width`` exactly, extra spaces going to the leftmost gaps.
-    A single-word line (nothing to stretch against) is returned unchanged."""
-    words = line.split()
-    if len(words) < 2:
-        return line
-    slack = width - (sum(len(w) for w in words) + len(words) - 1)
-    if slack <= 0:
-        return " ".join(words)
-    gaps = len(words) - 1
-    base, extra = divmod(slack, gaps)
-    out = ""
-    for index, word in enumerate(words[:-1]):
-        out += word + " " * (1 + base + (1 if index < extra else 0))
-    return out + words[-1]
-
-
-def _justify_lines(lines: List[str]) -> List[str]:
-    """Full-justify a wrapped paragraph for a clean edge on BOTH margins —
-    every line except the last is stretched to the page width. The last (and a
-    single-line paragraph's only) line stays left-aligned/ragged, so short
-    trailing lines and headings that don't span the width aren't stretched."""
-    if len(lines) <= 1:
-        return lines
-    return [_justify_line(line) for line in lines[:-1]] + [lines[-1]]
 
 
 # The AGE column header stacks "AGE / AT / EOY" over the three header rows to
@@ -657,7 +622,7 @@ def _format_report_pages_from_specs(
             lines[3:3] = [_center(line) for line in report.basis_lines]
         if index == 0:
             for paragraph in _EXPENSE_INTRO:
-                lines.extend(_wrap_lines(paragraph))
+                lines.extend(wrap_lines(paragraph, PAGE_WIDTH))
                 lines.append("")
         lines.extend(_expense_header_lines())
         base = index * EXPENSE_ROWS_PER_PAGE
@@ -693,11 +658,11 @@ def format_abr_quote_pages(run, policy) -> List[List[str]]:
     lines.append("")
 
     def paragraph(text: str):
-        lines.extend(_justify_lines(_wrap_lines(text)))
+        lines.extend(justified_paragraph(text, PAGE_WIDTH))
         lines.append("")
 
     def bullet(text: str):
-        wrapped = _wrap_lines(text)
+        wrapped = wrap_lines(text, PAGE_WIDTH)
         for index, wrapped_line in enumerate(wrapped):
             prefix = "  * " if index == 0 else "    "
             lines.append((prefix + wrapped_line)[:PAGE_WIDTH])
@@ -822,8 +787,7 @@ class IllustrationReportTab(QWidget):
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet(
-            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        self.status_label.setStyleSheet(REPORT_LABEL_STYLE)
         top_row.addWidget(self.status_label)
         top_row.addStretch(1)
         self.expense_report_check = QCheckBox("Add Expense Report")
@@ -837,11 +801,7 @@ class IllustrationReportTab(QWidget):
         self.print_pdf_btn = QPushButton("Print to PDF")
         self.print_pdf_btn.setEnabled(False)
         self.print_pdf_btn.setToolTip("Save the illustration report as a PDF file.")
-        self.print_pdf_btn.setStyleSheet(
-            f"QPushButton {{ background-color: #F3ECFC; color: {PURPLE_DARK};"
-            " border: 1px solid #7E57C2; border-radius: 4px; padding: 1px 10px;"
-            " min-height: 18px; font-size: 10px; font-weight: bold; }"
-            "QPushButton:disabled { color: #9E9E9E; border-color: #C5B3E0; }")
+        self.print_pdf_btn.setStyleSheet(PRINT_BUTTON_STYLE)
         self.print_pdf_btn.clicked.connect(self._on_print_pdf)
         top_row.addWidget(self.print_pdf_btn)
         layout.addLayout(top_row)
@@ -850,24 +810,18 @@ class IllustrationReportTab(QWidget):
         folder_row = QHBoxLayout()
         folder_row.setSpacing(6)
         folder_label = QLabel("Output folder:")
-        folder_label.setStyleSheet(
-            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        folder_label.setStyleSheet(REPORT_LABEL_STYLE)
         folder_row.addWidget(folder_label)
         self.output_folder_edit = QLineEdit()
         self.output_folder_edit.setPlaceholderText("Prompt for a folder each time (not set)")
         self.output_folder_edit.setToolTip(
             "Folder where illustration PDFs are saved. Saved across sessions.")
-        self.output_folder_edit.setStyleSheet(
-            "QLineEdit { background: white; color: #1A1A2E; border: 1px solid #7E57C2;"
-            " border-radius: 4px; padding: 1px 6px; min-height: 18px; font-size: 10px; }")
+        self.output_folder_edit.setStyleSheet(OUTPUT_FOLDER_EDIT_STYLE)
         self.output_folder_edit.editingFinished.connect(self._on_output_folder_edited)
         folder_row.addWidget(self.output_folder_edit, 1)
         self.browse_folder_btn = QPushButton("Browse…")
         self.browse_folder_btn.setToolTip("Choose the folder illustration PDFs are saved to.")
-        self.browse_folder_btn.setStyleSheet(
-            f"QPushButton {{ background-color: #F3ECFC; color: {PURPLE_DARK};"
-            " border: 1px solid #7E57C2; border-radius: 4px; padding: 1px 10px;"
-            " min-height: 18px; font-size: 10px; font-weight: bold; }")
+        self.browse_folder_btn.setStyleSheet(REPORT_BUTTON_STYLE)
         self.browse_folder_btn.clicked.connect(self._on_browse_output_folder)
         folder_row.addWidget(self.browse_folder_btn)
         layout.addLayout(folder_row)
@@ -946,21 +900,7 @@ class IllustrationReportTab(QWidget):
         return False
 
     def _add_sheet(self, lines: List[str]):
-        sheet = QLabel("\n".join(lines))
-        sheet.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        sheet.setStyleSheet(
-            "QLabel {"
-            " background-color: white;"
-            f" border: 1px solid {PURPLE_LIGHT};"
-            " border-radius: 2px;"
-            " padding: 28px 34px;"
-            " font-family: Consolas, 'Courier New', monospace;"
-            " font-size: 11px;"
-            " color: #1A1A2E;"
-            "}"
-        )
-        sheet.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._sheet_layout.addWidget(sheet)
+        self._sheet_layout.addWidget(report_sheet(lines))
 
     def display_abr_quote(self, pages: List[List[str]]):
         """Show the ABR Quote solve explanation instead of illustration pages
@@ -1019,12 +959,12 @@ class IllustrationReportTab(QWidget):
     @staticmethod
     def _load_output_folder() -> str:
         settings = read_json(_settings_file(), default={}) or {}
-        folder = settings.get(_OUTPUT_FOLDER_KEY, "")
+        folder = settings.get(OUTPUT_FOLDER_KEY, "")
         return folder if isinstance(folder, str) else ""
 
     def _save_output_folder(self, folder: str) -> None:
         settings = read_json(_settings_file(), default={}) or {}
-        settings[_OUTPUT_FOLDER_KEY] = folder
+        settings[OUTPUT_FOLDER_KEY] = folder
         try:
             write_json(_settings_file(), settings)
         except OSError as exc:
@@ -1051,14 +991,9 @@ class IllustrationReportTab(QWidget):
     def _default_pdf_name(self) -> str:
         """policynumber - plancode - yyyy-mm-dd hh-mm (filesystem-safe)."""
         report = self._report
-        policy = (getattr(report, "policy_number", "") or "").strip() if report else ""
-        plancode = (getattr(report, "plancode", "") or "").strip() if report else ""
-        stamp = datetime.now().strftime("%Y-%m-%d %H-%M")
-        parts = [p for p in (policy, plancode, stamp) if p]
-        name = " - ".join(parts) if parts else "Illustration"
-        # Strip characters illegal in Windows filenames.
-        name = re.sub(r'[<>:"/\\|?*]', "", name)
-        return f"{name}.pdf"
+        policy = (getattr(report, "policy_number", "") or "") if report else ""
+        plancode = (getattr(report, "plancode", "") or "") if report else ""
+        return default_pdf_name(policy, plancode, datetime.now())
 
     def _on_print_pdf(self):
         if self._report is None:
@@ -1088,13 +1023,7 @@ class IllustrationReportTab(QWidget):
 
     @staticmethod
     def _pdf_printer(path: str) -> QPrinter:
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(path)
-        printer.setPageSize(QPageSize(QPageSize.PageSizeId.Letter))
-        printer.setPageOrientation(QPageLayout.Orientation.Landscape)
-        printer.setPageMargins(QMarginsF(0.6, 0.5, 0.6, 0.5), QPageLayout.Unit.Inch)
-        return printer
+        return pdf_printer(path)
 
     @staticmethod
     def _print_document(
@@ -1104,32 +1033,7 @@ class IllustrationReportTab(QWidget):
     ) -> QTextDocument:
         """Lay the report out as a paginated QTextDocument for the printer."""
         pages = format_report_pages(report, include_expense_report=include_expense_report)
-        parts: List[str] = []
-        for index, lines in enumerate(pages):
-            style = (
-                "font-family:'Courier New',monospace; font-size:9pt;"
-                " white-space:pre; margin:0;"
-            )
-            if index < len(pages) - 1:
-                style += " page-break-after:always;"
-            # Join with <br/> instead of newlines: Qt splits a <pre> into a new
-            # text block at every literal newline, and each block inherits
-            # page-break-after:always — one line per PDF page. <br/> keeps the
-            # whole page in a single block so the break fires once.
-            body = "<br/>".join(escape(line) for line in lines)
-            parts.append(f'<pre style="{style}">{body}</pre>')
-
-        document = QTextDocument()
-        # Lay out at the printer's DPI — without this the fonts are sized for
-        # the 96dpi screen while the page rect below is in 1200dpi device
-        # pixels, printing the text at ~1/12 scale.
-        document.documentLayout().setPaintDevice(printer)
-        document.setDefaultFont(QFont("Courier New", 9))
-        document.setHtml("".join(parts))
-        # Pre-paginate to the printer's page rect: an unpaginated document makes
-        # QTextDocument.print() re-lay it out with hardcoded 2cm margins.
-        document.setPageSize(QSizeF(printer.pageRect(QPrinter.Unit.DevicePixel).size()))
-        return document
+        return pages_document(pages, printer)
 
     @staticmethod
     def write_pdf(report: IllustrationReport, path: str, include_expense_report: bool = False):

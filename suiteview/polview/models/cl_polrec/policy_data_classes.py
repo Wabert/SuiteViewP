@@ -118,10 +118,10 @@ class SubstandardRatingInfo:
     flat_cease_date: Optional[date]     # SST_XTR_CEA_DT
     duration: Optional[int]             # SST_XTR_CEA_DUR
     raw_data: Dict[str, Any] = field(default_factory=dict)
-
-
-# =============================================================================
-# RECORD 09 — SKIPPED PERIODS
+    # Traditional fixed premiums bill the rating as an annual extra premium per unit
+    # (SST_XTR_UNT_AMT), modalized on its own (CyberLife E0112582, 14738679).
+    extra_premium_per_unit: Optional[Decimal] = None   # SST_XTR_UNT_AMT
+    extra_percent: Optional[Decimal] = None            # SST_XTR_PCT
 # =============================================================================
 
 @dataclass
@@ -214,57 +214,108 @@ class RenewalBenRateInfo:
 
 @dataclass
 class AppliedDividendInfo:
-    """Applied dividend record from LH_APPLIED_PTP."""
-    dividend_date: Optional[date]       # PTP_APL_DT
-    dividend_type: str                  # PTP_APL_TYP_CD
-    dividend_type_desc: str             # Translated description
-    gross_amount: Optional[Decimal]     # PTP_GRS_AMT
-    net_amount: Optional[Decimal]       # PTP_NET_AMT
-    year: Optional[int]                 # POL_DUR_NBR
+    """Applied (history) participation value from LH_APPLIED_PTP (segment 19 history).
+
+    The cash/PUA/OYT amounts are CyberLife's per-unit values: the base coverage row
+    (source ``0``) is per unit of coverage; the paid-up-additions row (source ``1``) is
+    per $1,000 of additions, with ``units`` (PUA_UNT_QTY) the additions in thousands.
+    """
+    coverage_phase: int                 # COV_PHA_NBR
+    participation_type: str             # CK_PTP_TYP_CD (D dividend)
+    earn_year: Optional[int]            # ERN_DT_MO_YR_NBR decoded (anniversary year)
+    earn_month: Optional[int]           # ERN_DT_MO_YR_NBR decoded (anniversary month)
+    source: str                         # PTP_SRC_IND (0 coverage, 1 paid-up additions)
+    applied_option: str                 # APP_OPT_CD
+    cash_per_unit: Decimal              # CSH_AMT
+    pua_per_unit: Decimal               # PUA_AMT
+    oyt_per_unit: Decimal               # OYT_AMT
+    units: Decimal                      # PUA_UNT_QTY (0 on applied history rows)
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class UnappliedDividendInfo:
-    """Unapplied dividend record from LH_UNAPPLIED_PTP."""
-    dividend_date: Optional[date]       # PTP_PRO_DT
-    dividend_type: str                  # PTP_TYP_CD
-    dividend_type_desc: str             # Translated description
-    gross_amount: Optional[Decimal]     # PTP_GRS_AMT
-    net_amount: Optional[Decimal]       # PTP_NET_AMT
-    year: Optional[int]                 # POL_DUR_NBR
+    """Unapplied participation value from LH_UNAPPLIED_PTP (segment 19).
+
+    Placed before the anniversary it is earned on; ``units`` are the coverage units
+    (source ``0``) or the paid-up additions in thousands (source ``1``) it applies to.
+    """
+    coverage_phase: int                 # COV_PHA_NBR
+    participation_type: str             # CK_PTP_TYP_CD
+    earn_year: Optional[int]            # ERN_DT_MO_YR_NBR decoded
+    earn_month: Optional[int]           # ERN_DT_MO_YR_NBR decoded
+    source: str                         # PTP_SRC_IND
+    rpu_values: bool                    # RPU_VAL_IND = 1
+    earn_rule: str                      # ERN_RLE_CD
+    deposit_interest_rate: Optional[Decimal]  # DEP_ITS_RT (percent)
+    cash_per_unit: Decimal              # CSH_AMT
+    pua_per_unit: Decimal               # PUA_AMT
+    oyt_per_unit: Decimal               # OYT_AMT
+    projected_cash_per_unit: Optional[Decimal]  # PRJ_CSH_AMT
+    units: Decimal                      # PUA_UNT_QTY
+    pua_mortality_table: str            # PUA_MTL_TBL_CD
+    pua_interest_rate: Optional[Decimal]  # PUA_ITS_RT (percent)
     raw_data: Dict[str, Any] = field(default_factory=dict)
+    direct_recognition: bool = False    # DIR_RCG_DIV_IND = 1 (direct recognition dividend)
+    gross_interest_rate: Optional[Decimal] = None  # DIV_GRS_ITS_RT (percent; direct recognition)
 
 
 @dataclass
 class DivOYTInfo:
-    """One Year Term dividend addition from LH_ONE_YR_TRM_ADD."""
-    coverage_phase: int                 # COV_PHA_NBR
-    issue_date: Optional[date]          # OYT_ISS_DT
-    face_amount: Optional[Decimal]      # OYT_FCE_AMT
-    csv_amount: Optional[Decimal]       # OYT_CSV_AMT
+    """One-year term additions from LH_ONE_YR_TRM_ADD (segment 15)."""
+    mv_date: Optional[date]             # MVRY_DT (12/31/9999 = current)
+    before_anniversary: bool            # ANV_PRC_CRN_IND = 1 (snapshot before anniversary processing)
+    expiry_year: Optional[int]          # OYT_EXP_MO_YR_NBR decoded
+    expiry_month: Optional[int]
+    nfo_code: str                       # OYT_ADD_NF_CD
+    mortality_table: str                # OYT_MTL_TBL_CD
+    interest_rate: Optional[Decimal]    # OYT_ITS_RT (percent)
+    amount: Decimal                     # OYT_ADD_AMT
     raw_data: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_current(self) -> bool:
+        return self.mv_date is not None and self.mv_date.year >= 9999
 
 
 @dataclass
 class DivPUAInfo:
-    """Paid-Up Addition from LH_PAID_UP_ADD."""
+    """Paid-up additions from LH_PAID_UP_ADD (segment 14)."""
     coverage_phase: int                 # COV_PHA_NBR
-    issue_date: Optional[date]          # PUA_ISS_DT
-    face_amount: Optional[Decimal]      # PUA_FCE_AMT
-    csv_amount: Optional[Decimal]       # PUA_CSV_AMT
+    purchase_source: str                # PUA_PUR_SRC_CD (0 dividends, 1 premium)
+    mv_date: Optional[date]             # MVRY_DT (12/31/9999 = current)
+    before_anniversary: bool            # ANV_PRC_CRN_IND = 1 (snapshot before anniversary processing)
+    maturity_year: Optional[int]        # PUA_MT_MO_YR_NBR decoded
+    maturity_month: Optional[int]
+    nfo_code: str                       # PUA_NF_CD
+    mortality_table: str                # PUA_MTL_TBL_CD
+    interest_rate: Optional[Decimal]    # PUA_ITS_RT (percent)
+    pua_class: str                      # PUA_CLS_CD (1 life additions)
+    amount: Decimal                     # PUA_AMT
     raw_data: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_current(self) -> bool:
+        return self.mv_date is not None and self.mv_date.year >= 9999
 
 
 @dataclass
 class DivDepositInfo:
-    """Dividend on deposit from LH_PTP_ON_DEP."""
-    deposit_date: Optional[date]        # DEP_DT
-    deposit_type: str                   # PTP_TYP_CD
-    deposit_type_desc: str              # Translated description
-    deposit_amount: Optional[Decimal]   # CUM_DEP_AMT
-    interest_amount: Optional[Decimal]  # ITS_AMT
+    """Participation values on deposit from LH_PTP_ON_DEP (segments 12/13)."""
+    participation_type: str             # CK_PTP_TYP_CD
+    mv_date: Optional[date]             # MVRY_DT (12/31/9999 = current)
+    before_anniversary: bool            # ANV_PRC_CRN_IND = 1
+    interest_applied_year: Optional[int]   # ITS_APP_MO_YR_NBR decoded
+    interest_applied_month: Optional[int]
+    nfo_code: str                       # DEP_NF_CD
+    interest_rate: Optional[Decimal]    # DEP_ITS_RT (percent)
+    deposit_amount: Decimal             # PTP_DEP_AMT
+    interest_amount: Decimal            # DEP_ITS_AMT
     raw_data: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_current(self) -> bool:
+        return self.mv_date is not None and self.mv_date.year >= 9999
 
 
 # =============================================================================
@@ -296,6 +347,47 @@ class TradLoanInfo:
     interest_status_desc: str
     preferred_indicator: str            # PRF_LN_IND
     raw_data: Dict[str, Any] = field(default_factory=dict)
+    # LN_ITS_PBL_TYP_CD: 1 interest payable in advance, 2 in arrears (CyberDoc D202 FUBBILLC).
+    interest_payable_code: str = ""
+    interest_paid_to_date: Optional[date] = None    # LN_ITS_PAY_TO_DT
+    last_activity_date: Optional[date] = None       # LST_LN_ACY_DT
+
+    @property
+    def interest_in_advance(self) -> bool:
+        return self.interest_payable_code == "1"
+
+
+@dataclass(frozen=True)
+class TraditionalCoverageFacts:
+    """Fixed-value coverage facts on LH_COV_PHA that traditional valuation needs.
+
+    ``stored_cash_values`` / ``stored_nsp_values`` are CyberLife's per-unit tabular
+    values for the durations starting at ``stored_low_duration`` (LOW_DUR_PER).
+    """
+    cov_pha_nbr: int                    # COV_PHA_NBR
+    pay_up_date: Optional[date]         # PAY_UP_DT
+    subseries_code: str                 # LIF_PLN_SUB_SRE_CD
+    base_series_code: str               # PLN_BSE_SRE_CD
+    class_code: str                     # INS_CLS_CD
+    product_line_code: str              # PRD_LIN_TYP_CD
+    dividend_participation_code: str    # DIV_PTP_TYP_CD
+    nsp_rpu_table: str                  # NSP_RPU_TBL_CD
+    nsp_extended_table: str             # NSP_EI_TBL_CD
+    nsp_interest_rate: Optional[Decimal]  # NSP_ITS_RT (percent)
+    rpu_benefit_code: str               # RPU_BNF_CD
+    coverage_nfo_code: str              # COV_NFO_CD
+    stored_low_duration: Optional[int]  # LOW_DUR_PER
+    stored_cash_values: tuple           # LOW_DUR_CSV_AMT .. LOW_DUR_3_CSV_AMT
+    stored_nsp_values: tuple            # LOW_DUR_NSP_AMT .. LOW_DUR_2_NSP_AMT
+    rate_band_code: str                 # LH_COV_INS_RNL_RT.RT_BAN_CD (current row)
+    cease_reason_code: str = ""         # CEA_REA_CD (blank while the coverage has not ceased)
+    # Renewable / indeterminate premium term (CyberDoc D10 plan additional information):
+    renewable_premium_code: str = ""    # RENEWABLE_PRM_CD: C renewable, E select renewable
+    initial_renewal_period: Optional[int] = None    # INT_RNL_PER (level period, years)
+    renewal_start_duration: Optional[int] = None    # SBQ_RNL_STR_DUR
+    renewal_period: Optional[int] = None            # SBQ_RNL_PER (1 = renews annually)
+    indeterminate_guaranteed_months: Optional[int] = None   # IDT_PRM_GUA_PER
+    refresh_or_renewal_age: Optional[int] = None    # REFRESH_OR_RNL_AGE
 
 
 @dataclass
@@ -336,7 +428,7 @@ class FundBucketInfo:
     mv_date: Optional[date]             # MVRY_DT
     csv_amount: Optional[Decimal]       # CSV_AMT
     units: Optional[Decimal]            # FND_UNT_QTY
-    interest_rate: Optional[Decimal]    # CRE_ITS_RT
+    interest_rate: Optional[Decimal]    # VAL_PHA_ITS_RT (percent)
     start_date: Optional[date]          # BKT_STR_DT
     phase: int                          # COV_PHA_NBR
     is_current: bool                    # True if MVRY_DT contains 9999

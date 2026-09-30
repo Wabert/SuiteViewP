@@ -37,6 +37,7 @@ registry entries below are consumed by lazy section objects.
 | identified_premium_indicator | LH_BAS_POL | IDT_PRM_IND | text |  | Trad, Adv, WL, ISWL, DI | optional |
 | interest_monthliversary_number | LH_BAS_POL | INT_MLV_NBR | text |  | Trad, Adv, WL, ISWL, DI | optional |
 | loan_interest_rate | LH_BAS_POL | LN_PLN_ITS_RT | decimal |  | Trad, Adv, WL, ISWL, DI | yes |
+| loan_type_code | LH_BAS_POL | LN_TYP_CD | text |  | Trad, Adv, WL, ISWL, DI | optional |
 | last_anniversary | LH_BAS_POL | LST_ANV_DT | date |  | Trad, Adv, WL, ISWL, DI | yes |
 | last_entry_code | LH_BAS_POL | LST_ETR_CD | text |  | Trad, Adv, WL, ISWL, DI | yes |
 | last_financial_date | LH_BAS_POL | LST_FIN_DT | date |  | Trad, Adv, WL, ISWL, DI | yes |
