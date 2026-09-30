@@ -302,6 +302,10 @@ def _interest_assumptions(policy) -> tuple[str, float, float]:
     if plancode:
         gint = load_plancode(plancode).gint
         illustrated_rate = gint
+    if getattr(policy, "current_interest_rate_source", "") and getattr(policy, "current_interest_rate", None):
+        # A declared current rate the policy loader sourced (CIRF) is the default
+        # illustrated rate; without one the plan GINT stays the default.
+        illustrated_rate = float(policy.current_interest_rate)
     if illustrated_rate == 0.0:
         illustrated_rate = float(
             getattr(policy, "current_interest_rate", None)

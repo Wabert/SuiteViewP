@@ -380,12 +380,26 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
 
 
 def _current_interest_rate(source: PolicySourceSnapshot) -> tuple[float, str]:
-    """Plan GINT for UL-family plans. ISWL uses the declared fixed-fund rate in schema
-    ``rates`` on the illustration date; where the plan has none loaded, the rate its
-    current fund buckets are credited (``VAL_PHA_ITS_RT``). Both are floored at GINT."""
+    """Current declared crediting rate, floored at GINT.
+
+    Declared-rate UL plans use the latest current-scale CIRF rate for the plan's
+    ``CINT_Key`` fund in schema ``rates`` on the illustration date; with none loaded
+    they keep the plan GINT. IUL keeps GINT here (its fixed account uses the IUL
+    declared rate). ISWL uses the declared fixed-fund rate in schema ``rates`` on the
+    illustration date; where the plan has none loaded, the rate its current fund
+    buckets are credited (``VAL_PHA_ITS_RT``)."""
     config = source.plancode_config
     if not config.is_iswl:
-        return config.gint, ""
+        if is_iul_plan(source.plancode):
+            return config.gint, ""
+        from suiteview.illustration.core.declared_rates import ul_current_declared_rate
+
+        declared = ul_current_declared_rate(
+            source.pi.company_code or "", source.plancode, source.illustration_date,
+            config.gint, cint_key=config.cint_key)
+        if declared is None:
+            return config.gint, ""
+        return declared.rate, declared.source
     from suiteview.illustration.core.iswl_rates import (
         iswl_current_credited_rate,
         iswl_recorded_credited_rate,

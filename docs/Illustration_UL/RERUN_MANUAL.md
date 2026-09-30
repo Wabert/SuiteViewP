@@ -285,6 +285,18 @@ starting in policy year 11, with zero AV and guaranteed bonuses. Store its
 the threshold year. Earlier effective entries remain intact.
 Regression: `tests/test_illustration_bonus_rates.py`.
 
+## RERUN declared current interest rate
+
+A declared-rate UL (not ISWL or IUL) loads its current crediting rate from the CIRF
+fund for its plancode-table `CINT_Key` in UL_Rates schema `rates`: the latest
+current-scale `CINT` rate on or before the illustration date (new-money plans
+use `CINT_NEW`/`CINT_ROLL` only when the two agree), floored at GINT. With no usable
+CIRF rate the plan GINT remains. The Input tab's Illustrated Rate defaults to this
+sourced rate (ISWL's declared rate included); the provenance is
+`IllustrationPolicyData.current_interest_rate_source`. For example, the 1U14 series
+is credited 3.50% (FL4RPORT, effective 2024-04-01) against a 3.00% GINT.
+Regression: `tests/test_illustration_declared_rate.py`.
+
 ## RERUN Monthly MTP truncation
 
 Monthly MTP uses decimal-safe cent truncation via `truncate_monthly_mtp()`.
