@@ -269,13 +269,16 @@ def test_report_pages_follow_cyberlifes_term_illustration():
     cover = "\n".join(pages[0])
     assert "PLAN:  10 YR FREEDOM TERM ENDORSED (B15TG100)" in cover and "FORM:  ART12" in cover
     assert "PREMIUM CLASS:  STANDARD" in cover
-    assert "PREMIUMS ARE LEVEL FOR THE FIRST 10 YEARS (TO 01/18/2027), THEN RENEW ANNUALLY" in cover
+    assert "PREMIUMS ARE ILLUSTRATED " in cover and "ANNUALIZED PREMIUMS" in cover
+    assert "THIS IS A TERM POLICY AND HAS NO CASH VALUE." in cover
+    assert "RENEW ANNUALLY" not in cover
     ledger = "\n".join(pages[1])
     assert "GUARANTEED VALUES" in ledger and "NON-GUAR" in ledger
     rows = [line for line in pages[1] if re.match(r"^\s*\d{2}\s+\d{1,2}\s+[\d,]+\.\d\d", line)]
     assert len(rows) == len(result.years)
     assert rows[1].split()[:4] == ["73", "11", "13,152.00", "14,076.00"]
     assert "ACCELERATED BENEFIT RIDER FOR TERMINAL ILLNESS" in "\n".join(pages[-1])
+    assert "CASH VALUE" not in "\n".join("\n".join(page) for page in pages[1:])
 
 
 def test_indeterminate_term_detection():

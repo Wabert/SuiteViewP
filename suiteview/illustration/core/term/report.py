@@ -3,12 +3,11 @@
 Built from a finished ``TermResult`` on ``core/ledger_report.py``. The ledger follows
 CyberLife's term illustration (TERM - D0194819.pdf): age at the end of the year, year,
 the non-guaranteed (current scale) contract premium, and under GUARANTEED VALUES the
-guaranteed contract premium, cash value (none: term) and death benefit - with the two
+guaranteed contract premium and death benefit (no cash value column: term) - with the two
 corrections the illustration team asked for (8/27/2026): the guaranteed premium in the
 level period is the current premium, and guaranteed renewal premiums are at the
-policy's own mode. Riders on the policy add a rider coverage column; the cover lists
-the premium structure (level period, annual renewal), substandard extras and any
-illustration choices; the notes page explains indeterminate premiums.
+policy's own mode. Riders on the policy add a rider coverage column; the cover states
+the premium mode and that the policy has no cash value; the notes page explains indeterminate premiums.
 """
 from __future__ import annotations
 
@@ -27,7 +26,7 @@ from suiteview.illustration.core.ledger_report import (
     two_column_block,
 )
 from suiteview.illustration.core.report_builder import company_name
-from suiteview.illustration.core.term.engine import add_months, completed_months
+from suiteview.illustration.core.term.engine import completed_months
 from suiteview.illustration.models.term import TermResult
 from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
 
@@ -48,7 +47,6 @@ LEAD_COLUMNS = (
 GUARANTEED_COLUMNS = (
     LedgerColumn("guaranteed_premium", ("", "CONTRACT", "PREMIUM"), 14, lambda y: y.guaranteed_premium, 2,
                  GROUP_GUARANTEED),
-    LedgerColumn("cash_value", ("", "CASH", "VALUE"), 10, lambda y: 0.0, group=GROUP_GUARANTEED),
     LedgerColumn("death_benefit", ("", "DEATH", "BENEFIT"), 12, lambda y: y.death_benefit, group=GROUP_GUARANTEED),
 )
 RIDER_COLUMN = LedgerColumn("rider_death_benefit", ("RIDER", "COVERAGE", "AMOUNT"), 12,
@@ -76,24 +74,6 @@ def _premium_class(result: TermResult) -> str:
     if not any(word in text for word in ("STANDARD", "PREFERRED", "SELECT", "ELITE", "SUPER")):
         return f"STANDARD {text}"     # CyberLife's template: STANDARD NICOTINE USER
     return text
-
-
-def _structure_lines(result: TermResult) -> List[str]:
-    base = result.policy.base
-    lines = []
-    if base.initial_renewal_period:
-        level_end = add_months(base.issue_date, base.initial_renewal_period * 12)
-        if base.renewal_period == 1:
-            lines.append(f"PREMIUMS ARE LEVEL FOR THE FIRST {base.initial_renewal_period} YEARS (TO "
-                         f"{short_date(level_end)}), THEN RENEW ANNUALLY BY ATTAINED AGE")
-        elif base.renewal_period:
-            lines.append(f"PREMIUMS ARE LEVEL FOR THE FIRST {base.initial_renewal_period} YEARS (TO "
-                         f"{short_date(level_end)}), THEN RENEW EVERY {base.renewal_period} YEARS")
-        else:
-            lines.append(f"PREMIUMS ARE LEVEL FOR {base.initial_renewal_period} YEARS")
-    if base.maturity_date is not None:
-        lines.append(f"COVERAGE CONTINUES TO {short_date(base.maturity_date)} (AGE {_age_at(result, base.maturity_date)})")
-    return lines
 
 
 def _policy_block(result: TermResult, mode: str):
@@ -127,41 +107,12 @@ def _policy_block(result: TermResult, mode: str):
 
 
 def _assumption_lines(result: TermResult, mode: str) -> List[str]:
-    policy, inputs = result.policy, result.inputs
-    due = [m for m in result.months if m.premium_due]
-    lines: List[str] = []
-    if due:
-        first, last = due[0], due[-1]
-        lines.append(f"{mode} PREMIUMS FROM {short_date(first.when)} (YEAR {first.policy_year}) THROUGH "
-                     f"{short_date(last.when)} (YEAR {last.policy_year}), THE NON-GUARANTEED PREMIUMS ON THE "
-                     "COMPANY'S CURRENT PREMIUM RATES")
-    else:
-        lines.append("NO FURTHER PREMIUMS ARE DUE")
-    if inputs.billing_frequency and inputs.billing_frequency != policy.billing_frequency:
-        lines.append(f"PREMIUMS ARE ILLUSTRATED {mode} (THE POLICY IS BILLED "
-                     f"{MODE_LABELS.get(policy.billing_frequency, 'MODAL')})")
-    if policy.is_waiver:
-        lines.append("PREMIUMS ARE CURRENTLY WAIVED; THE PREMIUMS SHOWN ARE THE CONTRACT PREMIUMS")
-    lines += _structure_lines(result)
-    for cov in policy.coverages:
-        for extra in cov.extras:
-            until = f" TO {short_date(extra.cease_date)}" if extra.cease_date else ""
-            if extra.percent is not None and extra.percent > 1.0:
-                lines.append(f"{cov.plancode} TABLE {extra.table_code} RATING: AN EXTRA PREMIUM OF "
-                             f"{(extra.percent - 1.0):.0%} OF THE STANDARD PREMIUM{until}")
-            elif extra.per_unit:
-                lines.append(f"{cov.plancode} FLAT EXTRA PREMIUM OF ${extra.per_unit:,.2f} PER $1,000{until}")
-    for phase in inputs.drop_riders:
-        cov = next((c for c in policy.coverages if c.phase == phase), None)
-        if cov is not None:
-            lines.append(f"RIDER {cov.plancode} ({plain_name(cov.description) or cov.form_number}) IS REMOVED")
-    for code in inputs.drop_benefits:
-        ben = next((b for b in policy.benefits if b.code == code), None)
-        if ben is not None:
-            lines.append(f"BENEFIT {plain_name(ben.description) or code} IS REMOVED")
-    if inputs.end_age is not None:
-        lines.append(f"VALUES ARE ILLUSTRATED THROUGH AGE {inputs.end_age}")
-    return lines
+    adverb = {"ANNUAL": "ANNUALLY", "SEMI-ANNUAL": "SEMI-ANNUALLY"}.get(mode, mode)
+    return [
+        f"PREMIUMS ARE ILLUSTRATED {adverb}. THE PREMIUM COLUMNS SHOW THE ANNUALIZED PREMIUMS "
+        "(TOTAL PREMIUM PAID DURING THE YEAR).",
+        "THIS IS A TERM POLICY AND HAS NO CASH VALUE.",
+    ]
 
 
 def _other_coverage(result: TermResult) -> List[str]:
@@ -171,7 +122,9 @@ def _other_coverage(result: TermResult) -> List[str]:
         if cov.phase in inputs.drop_riders:
             continue
         until = f" TO {short_date(cov.maturity_date)}" if cov.maturity_date else ""
-        lines.append(f"{plain_name(cov.description) or 'TERM RIDER'} ({cov.plancode}) - ${cov.face_amount:,.0f}{until}")
+        name = plain_name(cov.description) or "TERM RIDER"
+        label = "CHILD TERM RIDER" if "CHILD TERM RIDER" in name else f"{name} ({cov.plancode})"
+        lines.append(f"{label} - ${cov.face_amount:,.0f}{until}")
     for ben in policy.benefits:
         if ben.code in inputs.drop_benefits:
             continue
@@ -189,8 +142,8 @@ def build_term_report(result: TermResult, run_date: date) -> LedgerReport:
     insured = (policy.insured_name or "").strip()
     first_year = result.years[0].policy_year if result.years else None
     ledger_notes = [
-        "PREMIUM PAYMENTS ARE ASSUMED TO BE PAID AT THE BEGINNING OF EACH MODAL PERIOD. CASH VALUE AND DEATH "
-        "BENEFIT ARE END OF THE YEAR VALUES.",
+        "PREMIUM PAYMENTS ARE ASSUMED TO BE PAID AT THE BEGINNING OF EACH MODAL PERIOD.         THE DEATH "
+                "BENEFIT IS AN END OF THE YEAR VALUE.",
     ]
     if first_year is not None:
         ledger_notes.append(
@@ -204,7 +157,6 @@ def build_term_report(result: TermResult, run_date: date) -> LedgerReport:
         "THIS POLICY HAS INDETERMINATE PREMIUMS: THE NON-GUARANTEED CONTRACT PREMIUMS ARE THE COMPANY'S CURRENT "
         "PREMIUM RATES, WHICH THE COMPANY MAY CHANGE. THE GUARANTEED CONTRACT PREMIUMS ARE THE MOST THE COMPANY "
         "MAY CHARGE. A PREMIUM ALREADY SET FOR THE CURRENT PREMIUM PERIOD DOES NOT CHANGE UNTIL THAT PERIOD ENDS.",
-        "THIS IS TERM INSURANCE: IT HAS NO CASH VALUE, AND THE DEATH BENEFIT IS PAYABLE ONLY WHILE PREMIUMS ARE PAID.",
     ]
     if maturity_age is not None:
         notes.append(f"COVERAGE ENDS AT AGE {maturity_age} ON {short_date(base.maturity_date)}.")
