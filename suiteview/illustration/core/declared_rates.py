@@ -4,7 +4,9 @@ Source: the plan's CIRF fund in UL_Rates schema ``rates`` (``RATE_ASSIGN_FUND`` 
 ``RATE_VALUE_FUND``), current scale ``C``. The portfolio rate type ``CINT`` is used;
 plans that only carry new-money/rollover rates use them when both agree. The latest
 rate starting on or before the illustration date applies, floored at the guaranteed
-rate. ``None`` means no usable CIRF rate is loaded, so callers keep the plan GINT.
+rate. ``None`` means no usable CIRF rate is loaded, so callers keep the
+guaranteed rate. RGA-reinsured policies (indicator ``R``) read the fund's ``R``
+reinsurance block when one is loaded (CIRF ``<key> R``).
 """
 from __future__ import annotations
 
@@ -46,15 +48,24 @@ def _latest(rates, rate_types: Sequence[str], as_of: date) -> Dict[str, Tuple[da
 
 def ul_current_declared_rate(
     company_code: str, plancode: str, as_of: date, guaranteed_rate: float,
-    *, cint_key: str = "", repo=None,
+    *, cint_key: str = "", rga_indicator: str = "", repo=None,
 ) -> Optional[DeclaredRate]:
-    """Latest current-scale CIRF rate on ``as_of`` for one declared-rate UL plan."""
+    """Latest current-scale CIRF rate on ``as_of`` for one declared-rate UL plan.
+
+    Reinsurance indicator ``R`` reads the CIRF fund's reinsurance block ``R``
+    (CIRF ``<key> R``, e.g. ANICO2019 R); other policies read the direct block."""
+    rein = "R" if (rga_indicator or "").strip().upper() == "R" else ""
     with open_schema_reader(repo) as reader:
         plan, _note = resolve_plan(reader.plan_defs(plancode), company_code)
         if plan is None:
             return None
         funds = [a for a in reader.fund_assignments(plan.company, plancode)
                  if a.fund_type == CIRF_FUND_TYPE]
+        # CIRF publishes a '<key> R' block only where RGA-reinsured policies
+        # are credited differently; elsewhere they share the direct block.
+        blocks = {a.rein_block or "" for a in funds}
+        block = rein if rein in blocks else ""
+        funds = [a for a in funds if (a.rein_block or "") == block]
         key = str(cint_key or "").strip()
         preferred = [a for a in funds if a.fund_key == key or a.fund == key]
         funds = preferred or funds

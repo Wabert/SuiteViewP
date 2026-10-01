@@ -101,6 +101,11 @@ class SchemaReader:
                          lambda: dict(self._repo.div_values(list(rate_set_ids), list(issue_ages))))
 
 
+def shared_schema_reader(repo) -> SchemaReader:
+    """A reader over a live repository that shares the process-wide cache."""
+    return SchemaReader(repo, _SHARED_CACHE)
+
+
 class open_schema_reader:
     """Context manager: a reader over the given repository, or an owned live one."""
 

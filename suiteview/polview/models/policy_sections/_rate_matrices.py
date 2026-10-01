@@ -16,7 +16,7 @@ from ..rate_matrices import (
 )
 
 try:
-    from suiteview.core.rates import RatesError
+    from suiteview.core.rates_errors import RatesError
 except ImportError:
     RatesError = RuntimeError  # type: ignore[assignment,misc]
 

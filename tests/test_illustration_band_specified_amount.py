@@ -52,10 +52,10 @@ def test_base_banding_rider_charges_on_policy_band():
     rider = RiderInfo(plancode="1U144A00", face_amount=100_000.0, band=3, is_active=True)
 
     class _FakeRates:
-        def get_band(self, _plancode, _face):
+        def get_band(self, _plancode, _face, **_kwargs):
             return 2  # what the rider's OWN 100k face would give
 
-        def get_rates(self, kind, _plancode, _age, _sex, _cls, scale=1, band=1):
+        def get_rates(self, kind, _plancode, _age, _sex, _cls, scale=1, band=1, **_kwargs):
             assert kind == "COI"
             assert band == 3  # policy band preserved, not re-derived to 2
             return [None, 0.1]
@@ -70,10 +70,10 @@ def test_ordinary_rider_rebands_on_own_face():
     rider = RiderInfo(plancode="1U999Z00", face_amount=100_000.0, band=3, is_active=True)
 
     class _FakeRates:
-        def get_band(self, _plancode, _face):
+        def get_band(self, _plancode, _face, **_kwargs):
             return 2
 
-        def get_rates(self, kind, _plancode, _age, _sex, _cls, scale=1, band=1):
+        def get_rates(self, kind, _plancode, _age, _sex, _cls, scale=1, band=1, **_kwargs):
             assert kind == "COI"
             assert band == 2  # ordinary rider re-derives from its own face
             return [None, 0.1]
@@ -121,7 +121,7 @@ def test_current_manual_basis_resolves_bands_at_rate_loading_boundary(monkeypatc
     rates.get_rates.return_value = []
     rates.get_mtp.return_value = 0
     rates.get_ctp.return_value = 0
-    monkeypatch.setattr(rate_loader, "Rates", lambda: rates)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: rates)
     monkeypatch.setattr(rate_loader, "load_coverage_coi_rates", lambda *a, **kw: [])
     rate_loader.load_rates(policy, PlancodeConfig())
     assert policy.rollback_date is None

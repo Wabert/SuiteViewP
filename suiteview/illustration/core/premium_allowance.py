@@ -14,7 +14,9 @@ the same hand-off points as RERUN.
 The chain mirrors the workbook column-for-column so the Values tab can show the
 same intermediate allowances RERUN does:
 
-    NC/ND/NE  GP / NPT / TAMRA allowance *before any premium applied*
+    NC/ND/NE  GP / NPT / TAMRA allowance *before any premium applied*; ND is
+              the CVAT necessary premium vNPT_Premium after TAMRA year 7
+              (built from the deemed cash value — see deemed_cash_value.py)
     NF        Annual Cap0
     NG..NK    after the 1035 exchange     (1035 is not modeled here -> applied=0,
               so the "1" allowances equal the "0" allowances)
@@ -51,8 +53,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, Decimal
+from typing import Optional
 
 from suiteview.illustration.constants import INF, MONEY_EPSILON
+
+
+class DeemedCashValueRequiredError(ValueError):
+    """A CVAT premium needs the Necessary Premium Test but no DCV was entered.
+
+    The NPT allowance (RERUN ND) after TAMRA year 7 is built from the deemed
+    cash value, which CyberLife keeps on the 93 segment and not in DB2. It is
+    never assumed to be zero or the account value.
+    """
+
+
+def dcv_required_message(tamra_year: int) -> str:
+    """User-facing text for :class:`DeemedCashValueRequiredError`."""
+    return (
+        "Deemed Cash Value required: this CVAT policy is in TAMRA year "
+        f"{tamra_year} (past year 7) with Conform to TAMRA on, so every premium "
+        "is limited by the Necessary Premium Test, which is built from the Deemed "
+        "Cash Value (DCV). The DCV is not in the DB2 tables — look it up on the 93 "
+        "segment in CyberLife Online and enter it in 'Deemed Cash Value' next to "
+        "Conform to TAMRA on the Input tab (or turn Conform to TAMRA off)."
+    )
 
 
 @dataclass(frozen=True)
@@ -79,7 +103,9 @@ class PremiumAllowanceInput:
     tamra_month_of_year: int              # LC — month within active TAMRA year
     policy_month: int                     # E — month within policy year
     amount_in_7pay: float                 # LE — cumulative 7-pay before month
-    npt_premium: float                    # CVAT necessary premium; 0 for GPT
+    # LI vNPT_Premium (CVAT necessary premium; 0 for GPT). ``None`` means the
+    # deemed cash value it is built from is unknown — loud once the NPT binds.
+    npt_premium: Optional[float]
     tamra_reset: bool                     # KZ — new 7-pay period this month
     requested_scheduled: float            # LS — scheduled modal premium requested
     requested_lumpsum: float              # unscheduled/lump-sum premium requested
@@ -225,6 +251,33 @@ def _active_tamra(inputs: PremiumAllowanceInput) -> bool:
     return inputs.tamra_force and not inputs.mec_bypass and inputs.tamra_year <= 7
 
 
+def _premium_requested(inputs: PremiumAllowanceInput) -> bool:
+    """Whether any premium (after premium-to-loan diversion) asks to be applied."""
+    lumpsum = (
+        inputs.requested_lumpsum
+        - inputs.loan_repay_from_lumpsum
+        + inputs.ln_repay_left_over
+    )
+    scheduled = inputs.requested_scheduled - inputs.loan_repay_from_scheduled
+    return lumpsum > MONEY_EPSILON or scheduled > MONEY_EPSILON
+
+
+def _npt_allowance_0(inputs: PremiumAllowanceInput) -> float:
+    """ND — unlimited unless CVAT past TAMRA year 7, then vNPT_Premium.
+
+    An unknown NPT premium only matters when the NPT actually limits a premium
+    (TAMRA enforced, not an inforce MEC, premium requested) — then it fails loud.
+    Otherwise the NPT side does not participate in any cap this month.
+    """
+    if not inputs.is_cvat or inputs.tamra_year <= 7:
+        return INF
+    if inputs.npt_premium is not None:
+        return inputs.npt_premium
+    if inputs.tamra_force and not inputs.mec_bypass and _premium_requested(inputs):
+        raise DeemedCashValueRequiredError(dcv_required_message(inputs.tamra_year))
+    return INF
+
+
 def _set_initial_allowances(
     result: PremiumAllowances,
     inputs: PremiumAllowanceInput,
@@ -235,10 +288,7 @@ def _set_initial_allowances(
         INF if inputs.is_cvat
         else max(0.0, inputs.guideline_limit - inputs.prem_less_wd + forceout_adj)
     )
-    result.npt_allowance_0 = (
-        INF if not inputs.is_cvat or inputs.tamra_year <= 7
-        else inputs.npt_premium
-    )
+    result.npt_allowance_0 = _npt_allowance_0(inputs)
     result.tamra_allowance_0 = (
         max(
             0.0,

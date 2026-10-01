@@ -17,7 +17,8 @@ Canonical projected-month step order:
 6. compute premium allowances, apply accepted premium, deduct monthly charges
    and any GP/monthly-deduction exception premium;
 7. apply new loans, credit post-deduction interest for illustration timing,
-   accrue loan interest, calculate shadow account values and evaluate lapse;
+   accrue loan interest, roll the CVAT deemed cash value (when the NPT can
+   bind), calculate shadow account values and evaluate lapse;
 8. build the ``MonthlyState`` ledger row.
 
 Timing conventions preserve the known source-system differences:
@@ -42,7 +43,7 @@ import logging
 import math
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
@@ -70,6 +71,7 @@ from suiteview.illustration.constants import (
 )
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
+from suiteview.illustration.core.deemed_cash_value import NptTracker, glp_rate_for
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.interest_calc import credit_interest, interest_days
@@ -104,13 +106,14 @@ from suiteview.illustration.core.monthly_deduction import (
     _rate_from_schedule,
     _round_near,
     calculate_deduction,
+    in_force_face,
 )
 from suiteview.illustration.core.premium_allowance import (
     PremiumAllowanceInput,
     PremiumAllowances,
     compute_premium_allowances,
 )
-from suiteview.illustration.core.premium_handler import apply_premium
+from suiteview.illustration.core.premium_handler import apply_premium, premium_load_rates
 from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
     _load_benefit_coi_rates,
@@ -127,6 +130,7 @@ from suiteview.illustration.core.target_premium import (
     ffl_pwot_units,
     floor_monthly_cent,
     target_actives_signature,
+    coi_table_target_signature,
     truncate_monthly_mtp,
 )
 from suiteview.illustration.core.withdrawal_handler import (
@@ -140,6 +144,7 @@ from suiteview.illustration.models.input_set import (
     InterimOpening,
     PolicyChangeEvent,
     PolicyChangeKind,
+    TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import (
@@ -213,6 +218,9 @@ class MonthContext:
     options: IllustrationOptions
     policy_changes: object | None = None
     iul_ctx: Optional[IULCreditingContext] = None
+    # CVAT deemed-cash-value / NSP state (deemed_cash_value.NptTracker); None
+    # when the run never reaches a month where the NPT can limit a premium.
+    npt: Optional[NptTracker] = None
 
 
 @dataclass
@@ -237,6 +245,8 @@ class MonthWork:
     adv_pref_factor: float = 1.0
     adv_reg_ln_int: float = 0.0
     adv_pref_ln_int: float = 0.0
+    # NPT (LG..LI) and DCV roll (YW..AAK) columns for this month, CVAT only.
+    npt_detail: Dict[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass
@@ -259,6 +269,8 @@ class InforceWork:
     loan: LoanState | None = None
     loan_cap_repay: Dict[str, object] = dataclass_field(default_factory=dict)
     shd: object | None = None
+    shadow_premiums_ytd: float | None = None
+    shadow_premiums_to_date: float | None = None
     accumulated_mtp: float = 0.0
     accum_mtp_less_prem: float = 0.0
     snet_active: bool = False
@@ -390,8 +402,19 @@ def advance_counters(
     state = ctx.state
     policy = ctx.policy
     if convention.counter_timing == "monthliversary" and not policy.run_from_issue:
-        prior_date = state.date or policy.valuation_date or policy.issue_date
-        work.month_date = prior_date + relativedelta(months=1)
+        if policy.issue_date is not None:
+            # Anchor on the prior row's date, not ``state.duration``: a loaded
+            # duration that disagrees with a clamped month-end monthliversary
+            # must not repeat the valuation month (E14).
+            prior_date = state.date or policy.valuation_date
+            completed = (
+                _completed_months(policy.issue_date, prior_date)
+                if prior_date is not None else state.duration - 1
+            )
+            work.month_date = policy.issue_date + relativedelta(months=completed + 1)
+        else:
+            prior_date = state.date or policy.valuation_date
+            work.month_date = prior_date + relativedelta(months=1)
         work.next_year, work.next_month, work.duration = _policy_counters_for_date(
             policy, work.month_date
         )
@@ -446,6 +469,14 @@ def capitalize_loans_step(ctx: MonthContext, work: MonthWork) -> None:
 
 def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
     """Credit interest before withdrawal for CyberLife monthliversary timing."""
+    prior_month_date = ctx.state.date or (
+        ctx.policy.issue_date + relativedelta(months=work.duration - 2)
+        if ctx.policy.issue_date is not None and work.duration > 1 else None
+    )
+    exact_days_override = (
+        interest_days(prior_month_date, work.month_date)
+        if prior_month_date is not None else None
+    )
     work.intr = credit_interest(
         ctx.state.av_end_of_month,
         ctx.policy,
@@ -458,6 +489,7 @@ def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
         reg_loan_balance=work.cap_loan.rg_loan_princ,
         pref_loan_balance=work.cap_loan.pf_loan_princ,
         exact_days_interest=ctx.options.exact_days_interest,
+        exact_days_override=exact_days_override,
     )
     work.av = work.intr.av_end_of_month
 
@@ -547,9 +579,9 @@ def joint_coi_recalc_detail(policy, joint_before, change_date, change_kinds) -> 
     year containing the change to the joint horizon: each life's guaranteed
     rated q (the 7702 mortality basis) and the guaranteed and current joint COI.
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
-    rates_db = Rates()
+    rates_db = ULRates(policy.company_code)
     company = rates_db.joint_survivor_company(policy.plancode)
     changes: List[str] = []
     rows: List[Dict[str, object]] = []
@@ -701,22 +733,43 @@ def _capture_coverage_after_change(ctx: MonthContext, work: MonthWork) -> None:
 
 
 def refresh_targets(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:
-    """Refresh target-premium details and carry safety-net timing flags."""
+    """Refresh target-premium details and carry safety-net timing flags.
+
+    The MTP stops being recalculated once the MAP period has ended (CyberLife
+    freezes MT at the MAP end), so a refresh after ``map_cease_date`` keeps the
+    prior MTP unless a policy change forces it. A table extra priced from the COI
+    makes the CTP follow the COI, so it is recomputed when a coverage year turns.
+    """
     state = ctx.state
     policy = ctx.policy
+    policy_changed = bool(ctx.policy_changes) or work.wd.face_decrease > MONEY_EPSILON
+    coi_year_turned = (
+        convention.refresh_targets
+        and bool(state.mtp_detail)
+        and coi_table_target_signature(policy, work.month_date)
+        != coi_table_target_signature(policy, state.date)
+    )
     if (
         convention.refresh_targets
         and (
             not state.mtp_detail
-            or ctx.policy_changes
-            or work.wd.face_decrease > MONEY_EPSILON
+            or policy_changed
+            or coi_year_turned
             or target_actives_signature(policy, work.month_date)
             != target_actives_signature(policy, state.date)
         )
     ):
-        work.mtp_detail, work.ctp_detail = build_target_detail_snapshots(
-            policy, compute_target_premiums(policy, ctx.config, as_of=work.month_date)
+        targets = compute_target_premiums(policy, ctx.config, as_of=work.month_date)
+        work.mtp_detail, work.ctp_detail = build_target_detail_snapshots(policy, targets)
+        map_ended = (
+            policy.map_cease_date is not None and work.month_date > policy.map_cease_date
         )
+        if state.mtp_detail and map_ended and not policy_changed:
+            work.mtp_detail = state.mtp_detail
+        if coi_year_turned:
+            policy.ctp = targets.ctp_annual
+            if not (map_ended and not policy_changed):
+                policy.mtp = targets.mtp_annual / MONTHS_PER_YEAR
     else:
         work.mtp_detail = state.mtp_detail
         work.ctp_detail = state.ctp_detail
@@ -809,6 +862,7 @@ def apply_cashflows(ctx: MonthContext, work: MonthWork) -> None:
             ctx.options.apply_excess_repayment_as_premium
             and not ctx.state.inforce_exception_period
         ),
+        repay_principal_first=ctx.options.loan_repay_principal_first,
         requested_lumpsum=work.requested_lumpsum,
         requested_scheduled=work.requested_scheduled,
     )
@@ -832,6 +886,7 @@ def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
     work.beginning_of_year = (
         work.is_anniversary or state.payment_count_policy_year == 0
     )
+    npt_premium = _npt_premium_for_month(ctx, work)
     work.allowances = compute_premium_allowances(PremiumAllowanceInput(
         is_cvat=policy.is_cvat,
         is_gpt=policy.is_gpt,
@@ -847,7 +902,7 @@ def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
         tamra_year=work.tamra_year,
         tamra_month_of_year=work.tamra_moy,
         policy_month=work.next_month,
-        npt_premium=0.0,
+        npt_premium=npt_premium,
         tamra_reset=getattr(work, "tamra_reset", False),
         requested_scheduled=work.requested_scheduled,
         requested_lumpsum=work.requested_lumpsum,
@@ -868,6 +923,59 @@ def compute_allowances(ctx: MonthContext, work: MonthWork) -> None:
         ln_repay_left_over=work.cash_flows.ln_repay_left_over,
         prior_guideline_limit_reached=state.guideline_limit_reached,
         prior_transition_year_active=state.transition_year_active,
+    ))
+
+
+def _npt_premium_for_month(ctx: MonthContext, work: MonthWork) -> Optional[float]:
+    """LG..LI — vNPT_Premium from the deemed cash value; None while unknown.
+
+    A 7702 change this month (material change or guideline recalc) starts a new
+    NSP schedule anchored here, on the post-change coverage and this month's
+    lowest 7-pay death benefit (RERUN NSP schedule 2).
+    """
+    tracker = ctx.npt
+    if tracker is None or not tracker.dcv_known or not ctx.policy.is_cvat:
+        return None
+    policy = ctx.policy
+    if work.tamra_reset or work.guideline_recalc:
+        tracker.policy_changed(
+            policy, ctx.config,
+            duration=work.duration,
+            attained_age=work.attained_age,
+            months_into_year=work.next_month - 1,
+            as_of=work.month_date,
+            lowest_death_benefit=_tamra_premium_display(
+                ctx.state, policy, work.month_date, work.next_month, ctx.month_inputs,
+            )["lowest_7yr_face"],
+        )
+    tpp, epp = premium_load_rates(ctx.config, ctx.rates, work.rate_year)
+    premium, detail = tracker.npt_for_month(
+        policy,
+        duration=work.duration,
+        gross_withdrawal=work.wd.gross_withdrawal,
+        av_after_changes=work.av + work.guideline_forceout,
+        tpp=tpp,
+        epp=epp,
+        days=float(getattr(getattr(work, "intr", None), "days_in_month", 0.0) or 0.0),
+    )
+    work.npt_detail.update(detail)
+    return premium
+
+
+def roll_deemed_cash_value_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Close the month's CVAT deemed-cash-value roll (YW..AAK) once interest
+    days are known."""
+    tracker = ctx.npt
+    if tracker is None or not tracker.dcv_known or not ctx.policy.is_cvat:
+        return
+    work.npt_detail.update(tracker.roll_month(
+        ctx.policy, ctx.config, ctx.rates, work.ded,
+        month_date=work.month_date,
+        rate_year=work.rate_year,
+        gross_withdrawal=work.wd.gross_withdrawal,
+        net_premium=work.prem.net_premium,
+        premiums_less_withdrawals=work.prem.premiums_to_date - work.withdrawals_to_date,
+        days=float(work.intr.days_in_month),
     ))
 
 
@@ -1047,6 +1155,86 @@ def apply_new_loans(ctx: MonthContext, work: MonthWork) -> None:
     )
 
 
+def apply_dated_receipt_interest(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Credit receipt-to-monthliversary interest for historical dated inputs."""
+    if (
+        convention.interest_timing != "pre_withdrawal"
+        or ctx.month_inputs is None
+        or not getattr(ctx.month_inputs, "dated_cash_flows", None)
+        or not (ctx.policy.run_from_issue or ctx.policy.rollback_date is not None)
+    ):
+        return
+    adjustment = _dated_cash_flow_interest_adjustment(ctx, work)
+    if abs(adjustment) <= MONEY_EPSILON:
+        return
+    work.av += adjustment
+    work.intr.interest_credited += adjustment
+    work.intr.unimpaired_int += adjustment
+    work.intr.av_end_of_month += adjustment
+
+
+def _dated_cash_flow_interest_adjustment(ctx: MonthContext, work: MonthWork) -> float:
+    flows = ctx.month_inputs.dated_cash_flows
+    premium_bases = _accepted_cash_flow_bases(
+        flows, TransactionKind.PREMIUM, work.prem.net_premium)
+    withdrawal_bases = _accepted_cash_flow_bases(
+        flows, TransactionKind.WITHDRAWAL, work.wd.gross_withdrawal)
+    loan_bases = _accepted_cash_flow_bases(
+        flows,
+        TransactionKind.LOAN,
+        work.applied_regular_loan
+        + work.applied_preferred_loan
+        + work.cash_flows.applied_variable_loan,
+    )
+    repayment_bases = _accepted_cash_flow_bases(
+        flows, TransactionKind.LOAN_REPAYMENT, work.cash_flows.applied_loan_repayment)
+    annual = work.intr.effective_annual_rate
+    loan_credit = work.intr.reg_loan_credit_rate or annual
+    adjustment = 0.0
+    for flow, amount in premium_bases:
+        adjustment += amount * _cash_flow_stub_rate(annual, flow)
+    for flow, amount in withdrawal_bases:
+        adjustment -= amount * _cash_flow_stub_rate(annual, flow)
+    for flow, amount in loan_bases:
+        days = _cash_flow_stub_days(flow)
+        adjustment += amount * (
+            _period_factor(loan_credit, days) - _period_factor(annual, days)
+        )
+    for flow, amount in repayment_bases:
+        days = _cash_flow_stub_days(flow)
+        adjustment += amount * (
+            _period_factor(annual, days) - _period_factor(loan_credit, days)
+        )
+    return adjustment
+
+
+def _accepted_cash_flow_bases(flows, kind: TransactionKind, accepted: float):
+    matching = [flow for flow in flows if flow.kind == kind and flow.amount > 0.0]
+    if not matching or accepted <= 0.0:
+        return []
+    requested = sum(flow.amount for flow in matching)
+    if requested <= 0.0:
+        return []
+    ratio = min(1.0, accepted / requested)
+    return [(flow, flow.amount * ratio) for flow in matching]
+
+
+def _cash_flow_stub_rate(annual_rate: float, flow) -> float:
+    return _period_factor(annual_rate, _cash_flow_stub_days(flow))
+
+
+def _cash_flow_stub_days(flow) -> int:
+    return interest_days(flow.effective_date - timedelta(days=1), flow.bucket_date)
+
+
+def _period_factor(annual_rate: float, days: int) -> float:
+    if days <= 0:
+        return 0.0
+    return (1.0 + annual_rate) ** (days / DAYS_PER_YEAR) - 1.0
+
+
 def credit_interest_post_deduction(
     ctx: MonthContext, convention: TimingConvention, work: MonthWork
 ) -> None:
@@ -1142,7 +1330,7 @@ def accrue_loans(ctx: MonthContext, work: MonthWork) -> None:
     work.accrual_loan = accrue_loan_interest(
         work.fixed_loan_state,
         ctx.config,
-        work.intr.days_in_month,
+        work.intr.loan_accrual_days,
         variable_loan_accrual_rate(
             ctx.iul_ctx,
             ctx.policy.variable_loan_charge_rate,
@@ -1158,23 +1346,70 @@ def calculate_shadow_step(
     if not convention.shadow_enabled:
         work.shd = None
         return
+    gross_premium, post_deduction_premium = _shadow_premium_timing(ctx, work)
+    premiums_ytd, premiums_to_date = _shadow_premium_totals(
+        ctx, work, gross_premium + post_deduction_premium)
+    work.shadow_premiums_ytd, work.shadow_premiums_to_date = (
+        (premiums_ytd, premiums_to_date)
+        if ctx.config.shadow_late_payment_forgiveness else (None, None))
     work.shd = calculate_shadow(ShadowInput(
         prev_shadow_eav=ctx.state.shadow_eav,
-        gross_premium=work.prem.gross_premium,
-        premiums_ytd=work.prem.premiums_ytd,
+        gross_premium=gross_premium,
+        post_deduction_gross_premium=post_deduction_premium,
+        premiums_ytd=premiums_ytd,
+        premiums_to_date=premiums_to_date,
         policy=ctx.policy,
         config=ctx.config,
         rates=ctx.rates,
         rate_year=work.rate_year,
+        policy_month=work.next_month,
         attained_age=work.attained_age,
         days_in_month=work.intr.actual_days_in_month,
         policy_debt=work.accrual_loan.policy_debt,
+        gross_premium_interest_days=(
+            getattr(ctx.month_inputs, "shadow_premium_days_to_bucket", 0.0)
+            if ctx.month_inputs is not None else 0.0
+        ),
+        # The accepted (net) withdrawal: CyberLife's shadow does not deduct the
+        # withdrawal fee / partial surrender charge (U0591866 vs XP: net +2.22,
+        # the AV's gross -37.80).
+        gross_withdrawal=work.wd.applied_net_withdrawal,
+        gross_withdrawal_interest_days=(
+            getattr(ctx.month_inputs, "shadow_withdrawal_days_to_bucket", 0.0)
+            if ctx.month_inputs is not None else 0.0
+        ),
         shadow_rider_charges=_shadow_rider_charges_from_deduction(
             ctx.policy, work.ded
         ),
         projection_date=work.month_date,
         display_days_in_month=work.intr.days_in_month,
     ))
+
+
+def _shadow_premium_timing(ctx: MonthContext, work: MonthWork) -> tuple[float, float]:
+    if not ctx.config.shadow_late_payment_forgiveness or ctx.month_inputs is None:
+        return work.prem.gross_premium, 0.0
+    bucketed = getattr(ctx.month_inputs, "shadow_bucketed_prior_period_premium", 0.0)
+    prior = getattr(ctx.month_inputs, "shadow_prior_period_premium", 0.0)
+    return max(0.0, work.prem.gross_premium - bucketed), prior
+
+
+def _shadow_premium_totals(
+    ctx: MonthContext, work: MonthWork, shadow_gross: float,
+) -> tuple[float, float]:
+    """Shadow premiums YTD / to date after this month's shadow-credited gross.
+
+    With late-payment forgiveness the shadow credits a premium in the month it
+    was received, so its own running totals are carried on the state (the AV
+    totals follow the bucket month). Without it they equal the AV totals.
+    """
+    av_ytd_before = work.prem.premiums_ytd - work.prem.gross_premium
+    av_td_before = work.prem.premiums_to_date - work.prem.gross_premium
+    state = ctx.state
+    if not ctx.config.shadow_late_payment_forgiveness or state.shadow_premiums_to_date is None:
+        return av_ytd_before + shadow_gross, av_td_before + shadow_gross
+    ytd_before = 0.0 if work.next_month == 1 else float(state.shadow_premiums_ytd or 0.0)
+    return ytd_before + shadow_gross, state.shadow_premiums_to_date + shadow_gross
 
 
 def evaluate_lapse(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:
@@ -1254,7 +1489,7 @@ def _iswl_cash_value_floor(rates, month_date, value: float) -> float:
 
 def _ending_death_benefit(ctx: MonthContext, work: MonthWork) -> float:
     policy = ctx.policy
-    edb_wo_corr = policy.total_face
+    edb_wo_corr = in_force_face(policy, work.month_date)
     if policy.db_option == DB_OPTION_INCREASING:
         edb_wo_corr += max(0.0, work.av)
     elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
@@ -1318,9 +1553,11 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
     deduct_monthly_charges(ctx, convention, work)
     apply_exception_premium(ctx, convention, work)
     apply_new_loans(ctx, work)
+    apply_dated_receipt_interest(ctx, convention, work)
     if convention.interest_timing == "post_deduction":
         credit_interest_post_deduction(ctx, convention, work)
     accrue_loans(ctx, work)
+    roll_deemed_cash_value_step(ctx, work)
     calculate_shadow_step(ctx, convention, work)
     evaluate_lapse(ctx, convention, work)
     return build_month_state(ctx, convention, work)
@@ -1442,6 +1679,10 @@ def _premium_fields(
     }
     if convention.supports_policy_changes:
         fields.update({"is_mec": ctx.policy.is_mec, "mec_year": ctx.state.mec_year})
+    if work.npt_detail:
+        fields["premium_allowance_detail"] = {
+            **fields["premium_allowance_detail"], **work.npt_detail,
+        }
     return fields
 
 
@@ -1668,7 +1909,10 @@ def _lapse_fields(
 
 
 def _shadow_fields(work: MonthWork) -> dict:
-    return _shadow_fields_from_result(work.shd)
+    fields = _shadow_fields_from_result(work.shd)
+    fields["shadow_premiums_ytd"] = work.shadow_premiums_ytd
+    fields["shadow_premiums_to_date"] = work.shadow_premiums_to_date
+    return fields
 
 
 def _shadow_fields_from_result(shd) -> dict:
@@ -1853,10 +2097,12 @@ def _add_inforce_loan_shadow_lapse(
         prev_shadow_eav=policy.shadow_account_value,
         gross_premium=0.0,
         premiums_ytd=policy.premiums_ytd,
+        premiums_to_date=policy.premiums_paid_to_date,
         policy=policy,
         config=config,
         rates=rates,
         rate_year=work.rate_year,
+        policy_month=policy.policy_month,
         attained_age=policy.attained_age,
         days_in_month=work.intr.actual_days_in_month,
         policy_debt=work.loan.policy_debt,
@@ -2182,6 +2428,7 @@ class IllustrationEngine:
 
     def __init__(self) -> None:
         self._rates_cache: Dict[str, IllustrationRates] = {}
+        self._guaranteed_rates_cache: Dict[str, IllustrationRates] = {}
 
     def project(
         self,
@@ -2223,6 +2470,8 @@ class IllustrationEngine:
             policy, config, rates, bonus, options, iul_ctx, timing,
             starting_exception_period,
         )
+        npt, inforce = self._start_npt_tracker(
+            policy, config, rates, options, timing, inforce, total_months)
 
         compiled_inputs = compile_month_inputs(policy, future_inputs, total_months)
 
@@ -2237,7 +2486,7 @@ class IllustrationEngine:
             state = run_month(MonthContext(
                 state=state, policy=policy, config=config, rates=rates,
                 bonus=bonus, month_inputs=month_inputs, options=options,
-                policy_changes=policy_changes, iul_ctx=iul_ctx,
+                policy_changes=policy_changes, iul_ctx=iul_ctx, npt=npt,
             ), convention)
             state = _apply_mec_status(policy, results, state)
             results.append(state)
@@ -2246,7 +2495,54 @@ class IllustrationEngine:
 
         return results
 
+    def _start_npt_tracker(
+        self,
+        policy: IllustrationPolicyData,
+        config: PlancodeConfig,
+        rates: IllustrationRates,
+        options: IllustrationOptions,
+        timing: ProjectionTiming,
+        inforce: MonthlyState,
+        total_months: int,
+    ) -> tuple[Optional[NptTracker], MonthlyState]:
+        """Create the CVAT deemed-cash-value tracker when the NPT can bind.
 
+        The valuation row's DCV roll (RERUN's inforce valuation row) is added
+        to the month-zero detail. Runs that never reach TAMRA year 8 under
+        Conform to TAMRA skip the DCV entirely — the NPT is unlimited there.
+        """
+        if not _npt_can_bind(policy, options, inforce, total_months):
+            return None, inforce
+        tracker = NptTracker(
+            load_guaranteed=lambda current: self._guaranteed_rates(current, config),
+            glp_rate=glp_rate_for(policy),
+            interest_at_start=timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY,
+        )
+        detail = tracker.start(
+            policy, config, rates, inforce,
+            lowest_death_benefit=_tamra_starting_lowest_face(policy),
+        )
+        if detail:
+            inforce = replace(
+                inforce,
+                premium_allowance_detail={**inforce.premium_allowance_detail, **detail},
+            )
+        return tracker, inforce
+
+    def _guaranteed_rates(
+        self, policy: IllustrationPolicyData, config: PlancodeConfig,
+    ) -> IllustrationRates:
+        """Guaranteed-COI rates for the policy's current coverage, cached per
+        coverage state so repeated solver projections load them once."""
+        key = repr((
+            policy.plancode, policy.issue_date, policy.band,
+            policy.segments, policy.benefits, policy.riders,
+        ))
+        cached = self._guaranteed_rates_cache.get(key)
+        if cached is None:
+            cached = load_rates(policy, config, coi_scale=0)
+            self._guaranteed_rates_cache[key] = cached
+        return cached
 
     def _load_rates(
         self,
@@ -2330,9 +2626,9 @@ def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
 
     The caller resolves the policy issue-date boundary once for all segments.
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
-    rates_db = Rates()
+    rates_db = ULRates()
     if band == segment.band:
         return
     segment.band = band
@@ -2343,6 +2639,7 @@ def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
         segment.rate_class, scale=rates.expense_scale, band=segment.band,
+        issue_date=segment.issue_date,
     ) or []
 
 
@@ -2358,9 +2655,9 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     same as cov 1). rate_loader only loads them for segments present at load
     time; without this a face-increase segment silently contributes 0 COI.
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
-    rates_db = Rates()
+    rates_db = ULRates()
     rates.segment_coi[segment.coverage_phase] = load_segment_coi(
         rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
         joint_bases=rates.segment_joint,
@@ -2368,6 +2665,7 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
         segment.rate_class, scale=rates.expense_scale, band=segment.band,
+        issue_date=segment.issue_date,
     ) or []
     plan = config if config is not None else load_plancode(plancode)
     rates.segment_scr[segment.coverage_phase] = load_segment_scr(
@@ -2382,17 +2680,18 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
                 rateclass=segment.rate_class,
                 scale=rates.coi_scale,
                 band=band,
+                issue_date=segment.issue_date,
             )
 
 
 def _reband_benefits(rates, policy) -> None:
     """Reload benefit COI rates at the base segment's (possibly re-banded) band."""
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
     seg = policy.base_segment
     if seg is None:
         return
-    rates_db = Rates()
+    rates_db = ULRates(policy.company_code)
     for ben in policy.benefits:
         if not ben.is_active or (ben.benefit_type or "").startswith("#"):
             continue
@@ -2413,12 +2712,12 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
     e.g. this plancode's band-3 target load steps 8%->4% at year 11 while
     bands 1-2 stay 8%.
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
     seg = policy.base_segment
     if seg is None:
         return
-    rates_db = Rates()
+    rates_db = ULRates(policy.company_code)
     band = rates_db.get_band(
         policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
     band = int(band) if band is not None else seg.band
@@ -2431,6 +2730,7 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
         setattr(rates, attr, rates_db.get_rates(
             kind, policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
             rateclass=seg.rate_class, scale=rates.expense_scale, band=band,
+            issue_date=seg.issue_date,
         ) or [])
     if config.poav_table != "0":
         from suiteview.illustration.core.poav_rates import load_poav_schedule
@@ -2512,7 +2812,7 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     APB is not modeled as a coverage in this engine, so its slots stay
     inactive / 0.
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
     snap: Dict[str, object] = {}
     segments = sorted(
@@ -2530,7 +2830,7 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     base = policy.base_segment
     # Band is looked up on the specified amount PLUS any rider that bands as base
     # coverage (see core.band_rules); equals current_sa when there is none.
-    band = Rates().get_band(
+    band = ULRates(policy.company_code).get_band(
         policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
     snap["CurrentBand"] = (
         int(band) if band is not None else (int(base.original_band) if base else 0)
@@ -2689,7 +2989,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
     ALB), not the policy's anniversary-based attained age. Falls back to
     ``attained_age`` when the DOB is unavailable.
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
     base = policy.base_segment
     age_basis = getattr(config, "age_calc", "") if config is not None else ""
@@ -2697,7 +2997,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         getattr(policy, "insured_birth_date", None), change_date, age_basis, attained_age)
     # Band the increase on the new TOTAL specified amount, including any rider
     # that bands as base coverage (see core.band_rules).
-    new_band = Rates().get_band(
+    new_band = ULRates(policy.company_code).get_band(
         policy.plancode, policy.band_specified_amount + delta,
         issue_date=policy.issue_date)
     new_band = int(new_band) if new_band is not None else base.band
@@ -3732,7 +4032,7 @@ def _shadow_rider_charges_from_deduction(policy: IllustrationPolicyData, deducti
 
 def _completed_months(start, end) -> int:
     months = (end.year - start.year) * 12 + (end.month - start.month)
-    if end.day < start.day:
+    if end < start + relativedelta(months=months):
         months -= 1
     return max(months, 0)
 
@@ -3977,6 +4277,27 @@ def _tamra_force(options: IllustrationOptions, policy: IllustrationPolicyData) -
         and policy.has_defined_life_insurance
         and policy.tamra_7pay_level > 0
     )
+
+
+def _npt_can_bind(
+    policy: IllustrationPolicyData,
+    options: IllustrationOptions,
+    inforce: MonthlyState,
+    total_months: int,
+) -> bool:
+    """Whether a projection can reach a month where the CVAT NPT limits premium.
+
+    The NPT allowance (RERUN ND) only exists for CVAT with the 7-pay limit
+    enforced, no inforce MEC, after TAMRA year 7. A later material change can
+    only restart the 7-pay window, so the last projected month bounds it.
+    """
+    if not policy.is_cvat or policy.is_mec or total_months <= 0:
+        return False
+    if not _tamra_force(options, policy) or policy.issue_date is None:
+        return False
+    last_month = policy.issue_date + relativedelta(
+        months=inforce.duration + total_months - 1)
+    return _tamra_year(policy, last_month) > 7
 
 
 def _premium_state_fields(allowances: PremiumAllowances, requested_total: float) -> dict:

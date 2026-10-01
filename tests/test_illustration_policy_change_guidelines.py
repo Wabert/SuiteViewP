@@ -47,12 +47,13 @@ def test_new_increase_segment_preserves_guaranteed_rate_basis(monkeypatch):
 
     class FakeRates:
         def get_rates(
-            self, kind, plancode, issue_age, sex, rateclass, *, scale, band
+            self, kind, plancode, issue_age, sex, rateclass, *, band, scale=None,
+            issue_date=None, **_kwargs,
         ):
             calls.append((kind, scale, band))
-            return [None, float(scale)]
+            return [None, float(1 if scale is None else scale)]
 
-    monkeypatch.setattr("suiteview.core.rates.Rates", FakeRates)
+    monkeypatch.setattr("suiteview.illustration.core.ul_rates.ULRates", lambda *_args, **_kwargs: FakeRates())
     segment = CoverageSegment(
         coverage_phase=2,
         issue_age=79,
@@ -69,7 +70,7 @@ def test_new_increase_segment_preserves_guaranteed_rate_basis(monkeypatch):
     assert calls == [
         ("COI", 0, 2),
         ("EPU", 0, 2),
-        ("SCR", 1, 2),
+        ("SCR", None, 2),
         ("COI", 0, 1),
         ("COI", 0, 2),
     ]
@@ -82,12 +83,13 @@ def test_new_increase_segment_keeps_current_rate_basis(monkeypatch):
 
     class FakeRates:
         def get_rates(
-            self, kind, plancode, issue_age, sex, rateclass, *, scale, band
+            self, kind, plancode, issue_age, sex, rateclass, *, band, scale=None,
+            issue_date=None, **_kwargs,
         ):
             calls.append((kind, scale))
-            return [None, float(scale)]
+            return [None, float(1 if scale is None else scale)]
 
-    monkeypatch.setattr("suiteview.core.rates.Rates", FakeRates)
+    monkeypatch.setattr("suiteview.illustration.core.ul_rates.ULRates", lambda *_args, **_kwargs: FakeRates())
     segment = CoverageSegment(
         coverage_phase=2,
         issue_age=79,
@@ -100,7 +102,7 @@ def test_new_increase_segment_keeps_current_rate_basis(monkeypatch):
         IllustrationRates(), segment, "1U145500", PlancodeConfig()
     )
 
-    assert calls == [("COI", 1), ("EPU", 1), ("SCR", 1)]
+    assert calls == [("COI", 1), ("EPU", 1), ("SCR", None)]
 
 
 def test_gpt_rider_drop_recalculates_guideline_premiums(monkeypatch):
@@ -314,11 +316,12 @@ def test_increase_segment_gets_true_segment_maturity_date(monkeypatch):
             return 2
 
         def get_rates(
-            self, kind, plancode, issue_age, sex, rateclass, *, scale, band
+            self, kind, plancode, issue_age, sex, rateclass, *, band, scale=None,
+            issue_date=None, **_kwargs,
         ):
-            return [None, float(scale)]
+            return [None, float(1 if scale is None else scale)]
 
-    monkeypatch.setattr("suiteview.core.rates.Rates", FakeRates)
+    monkeypatch.setattr("suiteview.illustration.core.ul_rates.ULRates", lambda *_args, **_kwargs: FakeRates())
     policy = IllustrationPolicyData(
         issue_date=date(2006, 8, 13),
         issue_age=55,

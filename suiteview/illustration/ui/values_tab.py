@@ -396,7 +396,9 @@ NOT_COMPUTED_COLUMNS = {
     "7-Pay Yr 5", "7-Pay Yr 6", "7-Pay Yr 7",
     "MEC", "CVAT MEC", "7Pay MEC", "TEFRA Violation",
     "ScheduledPremLimitedByGP", "Termination ID",
-    # TEFRA and TAMRA — the necessary premium test (NPT).
+    # TEFRA and TAMRA — the necessary premium test (NPT); computed (and these
+    # markers lifted) only for a CVAT run with a deemed cash value — see
+    # NPT_COLUMNS.
     "Value_for_NPT", "NPT_NSP", "NPT_Premium",
     # Requested Premium — 1035 exchanges.
     "1035_Amount",
@@ -421,6 +423,8 @@ NOT_COMPUTED_COLUMNS = {
 NOT_COMPUTED_COLUMNS_BY_TAB = {
     "Policy Values": {"Remaining Distribution"},
 }
+# NPT columns the engine fills only when the run computed the CVAT NPT.
+NPT_COLUMNS = frozenset({"Value_for_NPT", "NPT_NSP", "NPT_Premium"})
 
 
 def _recalc_delta(detail: dict, key: str):
@@ -1280,6 +1284,15 @@ class IllustrationValuesTab(QWidget):
         "Value_for_NPT",
         "NPT_NSP",
         "NPT_Premium",
+        # CVAT deemed-cash-value roll (YW..AAK); present only when computed.
+        "BDCV",
+        "vDCV_AfterChanges",
+        "vDCV_AfterPremium",
+        "DCV DB",
+        "DCV COI Charge",
+        "DCV MD",
+        "DCV Interest",
+        "vEDCV",
     ]
     REQUESTED_PREMIUM_GROUP = "Requested Premium"
     REQUESTED_PREMIUM_COLUMNS = [
@@ -1348,6 +1361,7 @@ class IllustrationValuesTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._all_columns: list[str] = []
+        self._npt_computed = False
         self._coverage_columns: list[str] = []
         self._rate_columns: list[str] = []
         self._benefit_columns: list[str] = []
@@ -1873,6 +1887,8 @@ class IllustrationValuesTab(QWidget):
         self._joint_coi_keys = self._detail_keys(result_list, "joint_coi_detail")
         self._joint_coi_columns = self._joint_coi_column_names(self._joint_coi_keys)
         rows = [self._state_to_row(policy, state, coverage_keys, benefit_keys, rider_keys) for state in result_list]
+        self._npt_computed = any(
+            "vNPT_Premium" in (state.premium_allowance_detail or {}) for state in result_list)
         frame = pd.DataFrame(rows)
         self._all_columns = list(frame.columns)
         column_decimals = {"Face Amount": 0, "Year": 0, "Month": 0, "Attained Age": 0, "EPU Rate": 6,
@@ -1915,9 +1931,11 @@ class IllustrationValuesTab(QWidget):
             grid.set_header_labels(self._header_labels_for_tab(title))
             # Placeholder columns the engine does not compute yet render
             # greyed with an em dash — loud, never mistakable for zero.
+            not_computed = NOT_COMPUTED_COLUMNS | NOT_COMPUTED_COLUMNS_BY_TAB.get(title, set())
+            if self._npt_computed:
+                not_computed = not_computed - NPT_COLUMNS
             grid.set_not_computed_columns(
-                (NOT_COMPUTED_COLUMNS | NOT_COMPUTED_COLUMNS_BY_TAB.get(title, set()))
-                & set(tab_columns),
+                not_computed & set(tab_columns),
                 NOT_COMPUTED_NOTE,
             )
             grid.set_highlighted_cells(
@@ -2582,6 +2600,7 @@ class IllustrationValuesTab(QWidget):
 
     @staticmethod
     def _tefra_tamra_values(state: MonthlyState) -> dict:
+        detail = state.premium_allowance_detail or {}
         return {
             "GSP": state.gsp,
             "GLP": state.glp,
@@ -2595,10 +2614,11 @@ class IllustrationValuesTab(QWidget):
             "TAMRA_Year": state.tamra_year,
             "Amount In 7-Pay": state.accumulated_7pay,
             "Lowest7YearFace": state.lowest_7yr_face,
-            # NPT (necessary premium test) is not yet computed.
-            "Value_for_NPT": 0.0,
-            "NPT_NSP": 0.0,
-            "NPT_Premium": 0.0,
+            # NPT (necessary premium test, LG..LI) — computed for a CVAT run
+            # whose NPT can bind once a deemed cash value is entered.
+            "Value_for_NPT": detail.get("vValue_for_NPT", 0.0),
+            "NPT_NSP": detail.get("vNPT_NSP", 0.0),
+            "NPT_Premium": detail.get("vNPT_Premium", 0.0),
         }
 
     @staticmethod

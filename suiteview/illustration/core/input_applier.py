@@ -38,6 +38,7 @@ def apply_cash_flow_inputs(
     adv_pref_factor: float = 0.0,
     apply_prem_to_loan: bool = False,
     excess_repayment_to_premium: bool = False,
+    repay_principal_first: bool = False,
     requested_lumpsum: float = 0.0,
     requested_scheduled: float = 0.0,
 ) -> CashFlowApplication:
@@ -64,6 +65,9 @@ def apply_cash_flow_inputs(
     the AV with the premium load); off, repayments stop at the loan payoff and
     the excess is discarded (``ln_repay_left_over`` stays 0). The leftover still
     appears in the ``loan_cap_repay`` display detail either way.
+
+    ``repay_principal_first`` pays arrears principal before accrued interest
+    (``IllustrationOptions.loan_repay_principal_first``).
     """
     variable_loan = max(month_inputs.variable_loan, 0.0) if month_inputs is not None else 0.0
     requested_repayment = month_inputs.loan_repayment if month_inputs is not None else 0.0
@@ -98,6 +102,7 @@ def apply_cash_flow_inputs(
         adv_pref_factor=adv_pref_factor,
         prem_to_loan_from_lumpsum=prem_to_loan_from_lumpsum,
         prem_to_loan_from_scheduled=prem_to_loan_from_scheduled,
+        principal_first=repay_principal_first,
     ))
     leftover = float((result.detail or {}).get("LNRepayLeftOver", 0.0))           # MY
 

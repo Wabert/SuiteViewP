@@ -49,9 +49,10 @@ import re
 from typing import Optional, List, Dict, Any, Union, Tuple
 
 from .data_access.connections import connection_factory
-from .data_access.errors import QueryFailed
 from .data_sources import UL_RATES_DSN
+from .joint_survivor_rates import JointSurvivorRateSource
 from .local_dev import local_data_enabled
+from .rates_errors import RatesError, is_query_timeout
 
 try:
     from .db2_connection import DB2Connection
@@ -75,21 +76,6 @@ def owned_rate_connections():
                 rates.close()
         finally:
             _owned_rates.reset(token)
-
-# The IUL14 Bonus illustration-rate source splits three fund rates onto
-# fund-specific rate plancodes while the policy/parameter plancode stays
-# 1U145800. Keep that source-system mapping at the query boundary.
-_INDEX_ILLUSTRATION_PLAN_ALIASES = {
-    "1U145800": {
-        "IC": "1U145801",
-        "IF": "1U145802",
-        "IS": "1U145803",
-    },
-}
-
-
-class RatesError(QueryFailed):
-    """Exception for rate lookup errors."""
 
 
 # Source-keyed CyberLife rate files (CVF prints, IAF premiums, CKUDT323-325
@@ -164,12 +150,6 @@ _MODEFACT_COLUMNS = (
     "USER_CODE", "MODE_PREM_TABLE", "PAC_FACTOR_TABLE", "PAC_FEE_FACTOR_TABLE",
     "DIR_FACTOR_TABLE", "DIR_FEE_FACTOR_TABLE", "RULES_TABLE", "FACTOR_SOURCE",
 )
-
-
-def _is_query_timeout(error: Exception) -> bool:
-    """ODBC SQLSTATE HYT00 (query timeout expired)."""
-    args = getattr(error, "args", ()) or ()
-    return (bool(args) and str(args[0]).upper() == "HYT00") or "HYT00" in str(error)
 
 
 def _as_date(value) -> Optional[date]:
@@ -320,9 +300,12 @@ def _validate_null_target_rows(rows, rate_type_upper, plancode, issue_age, sex, 
     )
 
 
-class Rates:
+class Rates(JointSurvivorRateSource):
     """
-    Rate lookup class with caching.
+    Legacy dbo rate lookup class with caching (PolView, ABR and RateManager).
+
+    RERUN reads schema ``rates`` through ``suiteview.illustration.core.ul_rates``.
+    Joint survivor plans (schema ``rates`` only) come from ``JointSurvivorRateSource``.
     
     Provides access to insurance rate tables from the UL_Rates database.
     Rates are cached to avoid repeated database queries.
@@ -530,7 +513,7 @@ class Rates:
                 cursor.close()
         except Exception as e:
             logger.error("Rate query failed: %s | SQL: %s | params: %r", e, sql, params)
-            if _is_query_timeout(e):
+            if is_query_timeout(e):
                 raise RatesError(
                     "UL_Rates did not answer within the query timeout. The rate tables are "
                     "probably locked by a rate load in progress; try again when it finishes."
@@ -677,405 +660,6 @@ class Rates:
             result[key] = int(rows[0][0]) if rows and rows[0][0] is not None else None
         return result
 
-    # -- UL_Rates schema ``rates``: joint survivor UL -------------------------
-    # The 12 FFL joint survivor plans exist only in schema ``rates`` (no dbo
-    # Select_RATE_* rows). These read it through the shared RatesSchemaRepository
-    # and choose cells EXACTLY: a joint COI built from another insured's class
-    # or sex would be quietly wrong, so no unisex/class fallback applies.
-
-    _joint_companies: Dict[str, Optional[str]] = {}
-    # dbo rate kinds ``_joint_survivor_rates`` answers (or rejects, for COI); a
-    # missing row of any other kind never needs the UL_Rates plan lookup.
-    _JOINT_RATE_TYPES = frozenset({"COI", "GINT", "MFEE", "TPP", "EPP", "SCR", "BENCOI"})
-
-    def _schema(self):
-        if local_data_enabled():
-            raise RatesError(
-                "UL_Rates schema 'rates' is not in the local SQLite rates database; "
-                "joint survivor rates need live UL_Rates."
-            )
-        if self._schema_repo is None:
-            from .rates_schema import RatesSchemaRepository
-
-            self._schema_repo = RatesSchemaRepository()
-        return self._schema_repo
-
-    def joint_survivor_company(self, plancode: str) -> Optional[str]:
-        """Company of a joint survivor plan (``rates.PLAN_ATTR`` LIVES=3), else None."""
-        plancode = (plancode or "").strip()
-        if not plancode or local_data_enabled():
-            return None
-        if plancode not in Rates._joint_companies:
-            schema = self._schema()
-            companies = sorted({
-                plan.company for plan in schema.plan_defs(plancode)
-                if any(a.attr == "LIVES" and a.value == "3"
-                       for a in schema.plan_attrs(plan.company, plancode))
-            })
-            if len(companies) > 1:
-                raise RatesError(
-                    f"Joint survivor plan {plancode} is defined for several companies "
-                    f"({', '.join(companies)}); the rate lookup needs one."
-                )
-            Rates._joint_companies[plancode] = companies[0] if companies else None
-        return Rates._joint_companies[plancode]
-
-    def get_plan_attributes(self, company: str, plancode: str) -> Dict[str, str]:
-        """``rates.PLAN_ATTR`` ATTR -> VALUE for one company/plancode ({} if none)."""
-        company, plancode = company.strip(), plancode.strip()
-        key = ("PLAN_ATTR", company, plancode)
-        if key not in self._cache:
-            attrs: Dict[str, str] = {}
-            for row in self._schema().plan_attrs(company, plancode):
-                if row.attr in attrs:
-                    raise RatesError(f"Duplicate rates.PLAN_ATTR {row.attr} for {company}/{plancode}.")
-                attrs[row.attr] = row.value
-            self._cache[key] = attrs
-        return dict(self._cache[key])
-
-    def get_plan_definition(self, company: str, plancode: str) -> Optional[Dict[str, Any]]:
-        """The ``rates.PLAN_DEF`` row for one company/plancode as a dict, or None."""
-        company, plancode = company.strip(), plancode.strip()
-        key = ("PLAN_DEF", company, plancode)
-        if key not in self._cache:
-            plans = [p for p in self._schema().plan_defs(plancode) if p.company == company]
-            if len(plans) > 1:
-                raise RatesError(f"Duplicate rates.PLAN_DEF rows for {company}/{plancode}.")
-            self._cache[key] = None if not plans else {
-                "PRODUCT_FAMILY": plans[0].product_family,
-                "COVERAGE_ROLE": plans[0].coverage_role,
-                "DESCRIPTION": plans[0].description,
-                **dict(plans[0].facts),
-            }
-        cached = self._cache[key]
-        return dict(cached) if cached is not None else None
-
-    def get_joint_survivor_q(
-        self, company: str, plancode: str, scale: str, sex: str, rate_class: str, issue_age: int,
-    ) -> Dict[int, float]:
-        """One insured's single-life JS_Q (annual q per $1) by duration.
-
-        Rate type JS_Q, no benefit, state ``**``, band 0, the insured's exact sex
-        and class. Unisex plans store the same rates under M and F, so callers
-        pass the insured's own sex.
-        """
-        if scale not in ("C", "G"):
-            raise RatesError(f"JS_Q scale must be C or G, not {scale!r}.")
-        cells = self._rates_schema_cells(
-            company.strip(), plancode.strip(), "JS_Q", scale, int(issue_age))
-        return dict(cells.get((sex, rate_class), {}))
-
-    def joint_survivor_rate_classes(self, company: str, plancode: str) -> List[str]:
-        """Rate classes a joint plan loads JS_Q cells for (either sex), sorted."""
-        company, plancode = company.strip(), plancode.strip()
-        assign_key = ("RATES_ASSIGN", company, plancode)
-        if assign_key not in self._cache:
-            self._cache[assign_key] = self._schema().cell_assignments(company, plancode)
-        return sorted({
-            a.rate_class for a in self._cache[assign_key]
-            if a.rate_type == "JS_Q" and not a.benefit and a.state == "**"
-            and a.band == "0" and not a.subseries
-        })
-
-    def _rates_schema_cells(
-        self, company: str, plancode: str, rate_type: str, scale: str, issue_age: int,
-        benefit: str = "",
-    ) -> Dict[Tuple[str, str], Dict[int, float]]:
-        """All (sex, class) duration schedules of one CELL rate type at an issue age.
-
-        Joint plans are unbanded (band 0) with all-state (``**``) cells. A cell
-        with several effective windows for the scale raises: the illustration
-        engine has no dated rate switch, so it must not silently pick one.
-        """
-        key = ("RATES_CELL", company, plancode, rate_type, scale, issue_age, benefit)
-        if key in self._cache:
-            return self._cache[key]
-        schema = self._schema()
-        assign_key = ("RATES_ASSIGN", company, plancode)
-        if assign_key not in self._cache:
-            self._cache[assign_key] = schema.cell_assignments(company, plancode)
-        assignments = [
-            a for a in self._cache[assign_key]
-            if a.rate_type == rate_type and a.benefit == benefit
-            and a.state == "**" and a.band == "0" and not a.subseries
-        ]
-        windows: Dict[int, list] = {}
-        for window in schema.schedule_windows([a.schedule_id for a in assignments]):
-            if window.scale == scale:
-                windows.setdefault(window.schedule_id, []).append(window)
-        rate_sets: Dict[Tuple[str, str], int] = {}
-        for a in assignments:
-            found = windows.get(a.schedule_id, [])
-            if not found:
-                continue
-            if len(found) > 1 or (a.sex, a.rate_class) in rate_sets:
-                raise RatesError(
-                    f"{plancode} {rate_type} {a.sex}/{a.rate_class} scale {scale} has several "
-                    "effective windows or cells; an illustration needs exactly one."
-                )
-            rate_sets[(a.sex, a.rate_class)] = found[0].rate_set_id
-        values = schema.rate_values(sorted(set(rate_sets.values())), issue_age)
-        cells: Dict[Tuple[str, str], Dict[int, float]] = {}
-        for cell, rate_set_id in rate_sets.items():
-            schedule = {}
-            for (age, duration), rate in values.get(rate_set_id, {}).items():
-                if age != issue_age:
-                    continue
-                if rate is None:
-                    raise RatesError(f"NULL {rate_type} rate for {plancode} at duration {duration}.")
-                schedule[int(duration)] = float(rate)
-            cells[cell] = schedule
-        self._cache[key] = cells
-        return cells
-
-    def _rates_schema_plan_rate(self, company: str, plancode: str, rate_type: str,
-                                scale: str) -> Dict[int, float]:
-        """A PLAN rate type's duration schedule (state ``**``), e.g. GINT."""
-        schema = self._schema()
-        rate_set_ids = [
-            a.rate_set_id for a in schema.plan_assignments(company, plancode)
-            if a.rate_type == rate_type and a.scale == scale and a.state == "**"
-        ]
-        if len(rate_set_ids) > 1:
-            raise RatesError(f"{plancode} has several {rate_type} {scale} plan rate sets.")
-        if not rate_set_ids:
-            return {}
-        values = schema.rate_values(rate_set_ids, None).get(rate_set_ids[0], {})
-        return {int(duration): float(rate) for (_age, duration), rate in values.items()}
-
-    @staticmethod
-    def _one_indexed(schedule: Dict[int, float], label: str) -> Optional[List[float]]:
-        if not schedule:
-            return None
-        durations = sorted(schedule)
-        if durations != list(range(1, durations[-1] + 1)):
-            raise RatesError(f"{label} is not a complete schedule from duration 1.")
-        return [None] + [schedule[d] for d in durations]
-
-    def _joint_survivor_rates(
-        self, rate_type: str, company: str, plancode: str, issue_age: Optional[int],
-        sex: Optional[str], rateclass: Optional[str], scale: Optional[int], benefit_type: str,
-    ) -> Optional[List[float]]:
-        """A dbo rate kind for a joint survivor plan, answered from schema ``rates``.
-
-        dbo shapes (1-indexed, scale 1 = C, 0 = G); units verified equal to dbo on
-        plans loaded in both (MFEE, PREMLOAD_PCT, SCR, COI).
-        """
-        rate_type = rate_type.upper()
-        if rate_type == "COI":
-            raise RatesError(
-                f"{plancode} is a joint survivor plan: its base COI is the blended "
-                "two-life JointCOI (suiteview.core.joint_survivor_coi), not an IAF rate."
-            )
-        if rate_type == "GINT":
-            return self._one_indexed(
-                self._rates_schema_plan_rate(company, plancode, "GINT", "G"), f"{plancode} GINT")
-        source = {
-            "MFEE": ("MFEE", None, ""),
-            "TPP": ("PREMLOAD_PCT", None, ""),
-            "EPP": ("PREMLOAD_PCT", None, ""),
-            "SCR": ("SCR", "G", ""),
-            "BENCOI": ("COI", None, benefit_type or ""),
-        }.get(rate_type)
-        if source is None:
-            # Targets are VP/MS (not loaded); these plans have no EPU, bands or
-            # dbo-only kinds. Callers treat None as "not available".
-            return None
-        if issue_age is None:
-            raise RatesError(f"{plancode} {rate_type} lookup needs an issue age.")
-        schema_type, fixed_scale, benefit = source
-        if rate_type == "BENCOI" and not benefit:
-            raise RatesError(f"{plancode} benefit COI lookup needs a benefit code.")
-        scale_code = fixed_scale or ("G" if scale == 0 else "C")
-        cells = self._rates_schema_cells(
-            company, plancode, schema_type, scale_code, int(issue_age), benefit)
-        schedule = self._select_cell(cells, sex, rateclass, benefit)
-        label = f"{plancode} {schema_type}{' ' + benefit if benefit else ''} {scale_code} age {issue_age}"
-        return self._one_indexed(schedule, label)
-
-    @staticmethod
-    def _select_cell(
-        cells: Dict[Tuple[str, str], Dict[int, float]], sex: Optional[str],
-        rateclass: Optional[str], benefit: str,
-    ) -> Dict[int, float]:
-        """The (sex, class) cell; benefits may be keyed generically (e.g. M/K, F/*).
-
-        Base cells are loaded for every joint sex/class, so they must match
-        exactly. Benefit rates that don't vary by class are loaded once per sex
-        (class ``*`` or one IAF class) or once in total; use that only when it
-        is the sole candidate.
-        """
-        sex, rateclass = (sex or "").strip(), (rateclass or "").strip()
-        if (sex, rateclass) in cells:
-            return cells[(sex, rateclass)]
-        if not cells:
-            return {}
-        if not benefit:
-            raise RatesError(f"No rate for sex {sex!r} class {rateclass!r}.")
-        if (sex, "*") in cells:
-            return cells[(sex, "*")]
-        for candidates in ([k for k in cells if k[0] == sex], list(cells)):
-            if len(candidates) == 1:
-                return cells[candidates[0]]
-        raise RatesError(
-            f"Benefit {benefit} has no rate for sex {sex!r} class {rateclass!r} "
-            f"and several candidates ({sorted(cells)})."
-        )
-
-    def get_index_illustration_rates(
-        self,
-        company: str,
-        plancode: str,
-        illustration_date: date,
-        rga_indicator: str = "",
-    ) -> Dict[str, Optional[float]]:
-        """Current IUL illustration rate by fund as of ``illustration_date``.
-
-        The most recent effective row on or before the illustration date is used
-        for each fund. ``Rate_RGA`` is selected only when the policy's
-        reinsurance-partner indicator is ``R``; all other policies use
-        ``Rate_ANICO``. A present SQL NULL remains ``None`` so callers can
-        surface missing rates instead of silently substituting another value.
-        """
-        company = (company or "").strip()
-        plancode = (plancode or "").strip().upper()
-        if not company or not plancode or illustration_date is None:
-            return {}
-        company = company.zfill(2)
-
-        aliases = _INDEX_ILLUSTRATION_PLAN_ALIASES.get(plancode, {})
-        lookup_plancodes = sorted({plancode, *aliases.values()})
-        placeholders = ", ".join("?" for _ in lookup_plancodes)
-        sql = (
-            "SELECT r.[Plancode], r.[FundID], r.[Rate_ANICO], r.[Rate_RGA] "
-            "FROM [SV_INDEX_ILL_RATES] r "
-            "WHERE r.[Company] = ? "
-            f"AND r.[Plancode] IN ({placeholders}) "
-            "AND r.[EffDate] = ("
-            "SELECT MAX(r2.[EffDate]) FROM [SV_INDEX_ILL_RATES] r2 "
-            "WHERE r2.[Company] = r.[Company] "
-            "AND r2.[Plancode] = r.[Plancode] "
-            "AND r2.[FundID] = r.[FundID] "
-            "AND r2.[EffDate] <= ?)"
-        )
-        rows = self._fetch_rates(
-            sql, [company, *lookup_plancodes, illustration_date.isoformat()]
-        ) or []
-        use_rga = (rga_indicator or "").strip().upper() == "R"
-        rates: Dict[str, Optional[float]] = {}
-        for row in rows:
-            row_plancode = str(row[0] or "").strip().upper()
-            fund_id = str(row[1] or "").strip().upper()
-            expected_plancode = aliases.get(fund_id, plancode)
-            if row_plancode != expected_plancode:
-                continue
-            value = row[3] if use_rga else row[2]
-            rates[fund_id] = None if value is None else float(value)
-        return rates
-
-    def get_index_strategy_parameters(
-        self,
-        plancode: str,
-        illustration_date: date,
-        rga_indicator: str = "",
-    ) -> Dict[str, Dict[str, float]]:
-        """Effective IUL strategy parameters by fund as of the illustration date."""
-        plancode = (plancode or "").strip().upper()
-        rga_indicator = (
-            "R" if (rga_indicator or "").strip().upper() == "R" else ""
-        )
-        if not plancode or illustration_date is None:
-            return {}
-
-        sql = (
-            "SELECT p.[Fund_ID], p.[FLOOR], p.[CAP], p.[PARTICIPATION], "
-            "p.[INT_RATE_SPREAD], p.[SPECIFIED_RATE], p.[MULTIPLIER], "
-            "p.[ASSET_FEE] "
-            "FROM [SV_INDEX_PARAMS] p "
-            "WHERE p.[Plancode] = ? AND p.[RGA_Ind] = ? "
-            "AND p.[DATE] = ("
-            "SELECT MAX(p2.[DATE]) FROM [SV_INDEX_PARAMS] p2 "
-            "WHERE p2.[Plancode] = p.[Plancode] "
-            "AND p2.[RGA_Ind] = p.[RGA_Ind] "
-            "AND p2.[Fund_ID] = p.[Fund_ID] "
-            "AND p2.[DATE] <= ?)"
-        )
-        rows = self._fetch_rates(
-            sql, [plancode, rga_indicator, illustration_date.isoformat()]
-        ) or []
-        columns = (
-            "floor",
-            "cap",
-            "participation",
-            "int_rate_spread",
-            "specified_rate",
-            "multiplier",
-            "asset_fee",
-        )
-        return {
-            str(row[0] or "").strip().upper(): {
-                column: float(value)
-                for column, value in zip(columns, row[1:])
-            }
-            for row in rows
-        }
-
-    def get_index_benchmark_minmax(
-        self,
-        plancode: str,
-        illustration_date: date,
-        rga_indicator: str = "",
-        fund_id: str = "IX",
-    ) -> Optional[Dict[str, float]]:
-        """Current benchmark geometric-average minimum and maximum."""
-        plancode = (plancode or "").strip().upper()
-        fund_id = (fund_id or "").strip().upper()
-        rga_indicator = (
-            "R" if (rga_indicator or "").strip().upper() == "R" else ""
-        )
-        if not plancode or not fund_id or illustration_date is None:
-            return None
-
-        sql = (
-            "SELECT b.[MIN_GEOMETRIC_AVG], b.[MAX_GEOMETRIC_AVG] "
-            "FROM [SV_INDEX_BENCHMARK_MINMAX] b "
-            "WHERE b.[PLAN_ID] = ? AND b.[REIN_BLOCK_IND] = ? "
-            "AND b.[FUND_ID] = ? AND b.[EFFECTIVE_DATE] = ("
-            "SELECT MAX(b2.[EFFECTIVE_DATE]) FROM [SV_INDEX_BENCHMARK_MINMAX] b2 "
-            "WHERE b2.[PLAN_ID] = b.[PLAN_ID] "
-            "AND b2.[REIN_BLOCK_IND] = b.[REIN_BLOCK_IND] "
-            "AND b2.[FUND_ID] = b.[FUND_ID] "
-            "AND b2.[EFFECTIVE_DATE] <= ?)"
-        )
-        rows = self._fetch_rates(
-            sql,
-            [plancode, rga_indicator, fund_id, illustration_date.isoformat()],
-        )
-        if not rows:
-            return None
-        return {
-            "minimum": float(rows[0][0]),
-            "maximum": float(rows[0][1]),
-        }
-
-    def get_index_market_returns(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Year-end returns used by the IUL historical lookback report."""
-        rows = self._fetch_rates(
-            "SELECT [DateEOY], [MarketIndex], [OneYrReturn] "
-            "FROM [SV_INDEX_MARKET_RETURNS] "
-            "ORDER BY [DateEOY], [MarketIndex]",
-            [],
-        ) or []
-        returns: Dict[str, List[Dict[str, Any]]] = {}
-        for row in rows:
-            market_index = str(row[1] or "").strip().upper()
-            date_eoy = date.fromisoformat(str(row[0])[:10])
-            returns.setdefault(market_index, []).append({
-                "date": date_eoy,
-                "return": float(row[2]),
-            })
-        return returns
-
     def _scr_plancode_varies(self, plancode: str) -> bool:
         """True if this plancode has any state-specific (non-"AA") surrender
         charge schedule.
@@ -1164,10 +748,10 @@ class Rates:
             self, rate_type, plancode, issue_age, sex, rateclass, scale, band,
             benefit_type, scr_state,
         )
-        if rows is None and rate_type.upper() in self._JOINT_RATE_TYPES:
+        if rows is None and rate_type.upper() in self.JOINT_RATE_TYPES:
             joint_company = self.joint_survivor_company(plancode)
             if joint_company is not None:
-                self._cache[rate_key] = self._joint_survivor_rates(
+                self._cache[rate_key] = self.joint_survivor_rates(
                     rate_type, joint_company, plancode, issue_age, sex, rateclass,
                     scale, benefit_type)
                 return self._cache[rate_key]
@@ -1587,8 +1171,7 @@ class Rates:
     
     def clear_cache(self):
         """Clear the rate cache."""
-        self._cache.clear()
-        Rates._joint_companies.clear()
+        self.clear_joint_cache()
     
     def close(self):
         """Close database connections."""
@@ -1598,9 +1181,7 @@ class Rates:
             except Exception:
                 logger.exception("Could not close rates connection")
             self._connection = None
-        if self._schema_repo is not None:
-            self._schema_repo.close()
-            self._schema_repo = None
+        self._close_schema()
 
 
 # Module-level singleton for convenience

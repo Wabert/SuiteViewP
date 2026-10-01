@@ -693,6 +693,18 @@ class IllustrationInputsTab(QWidget):
         )
         layout.addWidget(self.gp_search_check)
 
+        # Loan repayment order (fix E03). Off is RERUN's conservative default —
+        # a repayment pays accrued loan interest first; on matches CyberLife,
+        # which applies a repayment to principal while interest keeps accruing.
+        self.loan_principal_first_check = self._make_control_checkbox(
+            "Loan Repayments Pay Principal First")
+        self.loan_principal_first_check.setChecked(False)
+        self.loan_principal_first_check.setToolTip(
+            "Checked applies a loan repayment to loan principal before accrued "
+            "loan interest (as CyberLife does). Unchecked (default, conservative) "
+            "pays accrued interest first. Interest-in-advance loans are unaffected.")
+        layout.addWidget(self.loan_principal_first_check)
+
         # Normally on: rows past the lapse test are not a real illustration.
         # Locked on until "Enable Illustration Options" is checked.
         self.stop_on_lapse_check = self._make_control_checkbox("Stop Projection on Lapse")
@@ -1607,6 +1619,7 @@ class IllustrationInputsTab(QWidget):
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
             apply_excess_repayment_as_premium=(
                 self.dynamic_panel.excess_repayment_as_premium()),
+            loan_repay_principal_first=self.loan_principal_first_check.isChecked(),
             pay_monthly_deduction=bool(md_windows),
             monthly_deduction_windows=(md_windows or None),
             billable_to_md_windows=(b2md_windows or None),
@@ -1745,6 +1758,7 @@ class IllustrationInputsTab(QWidget):
             iul_asset_charge_rate=self.dynamic_panel.iul_asset_charge_rate(),
             premium_allocations=self.dynamic_panel.iul_allocations(),
             index_illustration_rates=self.dynamic_panel.iul_illustration_rates(),
+            deemed_cash_value=self.dynamic_panel.deemed_cash_value(),
         )
 
     def export_issue_overrides(self):
@@ -1850,6 +1864,7 @@ class IllustrationInputsTab(QWidget):
                 "exception_prem": self.exception_prem_check.isChecked(),
                 "levelizing": self.levelizing_check.isChecked(),
                 "gp_search": self.gp_search_check.isChecked(),
+                "loan_principal_first": self.loan_principal_first_check.isChecked(),
                 "enable_illustration_options": (
                     self.enable_illustration_options_check.isChecked()),
                 "conform_to_tefra": self.tefra_check.isChecked(),
@@ -1956,6 +1971,8 @@ class IllustrationInputsTab(QWidget):
         self.exact_days_check.setChecked(bool(controls.get("exact_days")))
         self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
         self.gp_search_check.setChecked(bool(controls.get("gp_search")))
+        self.loan_principal_first_check.setChecked(
+            bool(controls.get("loan_principal_first")))
         self.abr_minimum_face_edit.setText(
             str(controls.get("abr_minimum_face_amount") or "")
         )

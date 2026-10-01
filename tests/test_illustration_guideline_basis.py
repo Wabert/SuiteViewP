@@ -130,7 +130,7 @@ def test_load_rates_uses_current_scale_for_expenses_with_guaranteed_coi():
             # Distinct arrays per scale so a wrong-scale read is visible.
             return [None, 100.0 + scale]
 
-        def get_band(self, plancode, face, issue_date=None):
+        def get_band(self, plancode, face, issue_date=None, **_kwargs):
             return 1
 
         def get_mtp(self, *a, **k):
@@ -140,14 +140,14 @@ def test_load_rates_uses_current_scale_for_expenses_with_guaranteed_coi():
             return 0.0
 
     fake = _FakeRates()
-    monkey_rates = lambda: fake  # noqa: E731
+    monkey_rates = lambda *_args, **_kwargs: fake  # noqa: E731
 
-    original = rate_loader.Rates
-    rate_loader.Rates = monkey_rates
+    original = rate_loader.ULRates
+    rate_loader.ULRates = monkey_rates
     try:
         rates = load_rates(_policy(), _config(), coi_scale=0)
     finally:
-        rate_loader.Rates = original
+        rate_loader.ULRates = original
 
     scale_by_type = {}
     for rate_type, scale in fake.calls:
@@ -188,12 +188,12 @@ def test_load_rates_uses_benefit_issue_age_for_bencoi():
     ])
     policy.segments[0].issue_age = 40
     fake = _FakeRates()
-    original = rate_loader.Rates
-    rate_loader.Rates = lambda: fake
+    original = rate_loader.ULRates
+    rate_loader.ULRates = lambda *_args, **_kwargs: fake
     try:
         load_rates(policy, _config())
     finally:
-        rate_loader.Rates = original
+        rate_loader.ULRates = original
 
     assert ("BENCOI", 28, "11") in fake.calls
     assert ("BENCOI", 40, "11") not in fake.calls

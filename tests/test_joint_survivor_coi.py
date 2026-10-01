@@ -193,10 +193,11 @@ def test_calculate_joint_survivor_rates_rejects_gaps_and_missing_rates():
 
 
 def test_local_sqlite_mode_refuses_rates_schema_lookups(monkeypatch):
-    from suiteview.core import rates as rates_module
+    from suiteview.core import joint_survivor_rates, rates as rates_module
+    from suiteview.core.rates_errors import RatesError
 
-    monkeypatch.setattr(rates_module, "local_data_enabled", lambda: True)
-    with pytest.raises(rates_module.RatesError, match="schema 'rates'"):
+    monkeypatch.setattr(joint_survivor_rates, "local_data_enabled", lambda: True)
+    with pytest.raises(RatesError, match="schema 'rates'"):
         rates_module.Rates().get_plan_attributes("26", "N91EAB00")
 
 

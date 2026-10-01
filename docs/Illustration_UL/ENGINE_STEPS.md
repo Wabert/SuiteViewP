@@ -14,7 +14,9 @@ projected month. The canonical projected-month order is:
 9. Apply new loans.
 10. Credit post-deduction interest for illustration timing.
 11. Accrue loan interest.
-12. Calculate shadow account values when supported.
+12. Calculate shadow account values when supported. Product flags govern
+    approved source-system differences, including SGUL between-monthliversary
+    premium forgiveness and APS205 target/load relief for LTGUL/LTGUL08.
 13. Evaluate lapse/protection.
 14. Build the `MonthlyState` ledger row.
 
@@ -24,6 +26,9 @@ projected month. The canonical projected-month order is:
 | --- | --- | --- |
 | Counter date | Issue-anchored projection month | Calendar monthliversary for inforce runs |
 | Interest | After deduction, exception premium and new loans | Before withdrawal |
+| Exact-day interest span | Month date to next month date | Previous monthliversary to current monthliversary |
+| Monthliversary date | Always derived from the issue day, clamped to month end | Same; never stepped from the previous projected date |
+| Historical dated inputs | Forward illustrations assume monthliversary cash flows | Rollback/from-issue dated transactions add receipt-to-monthliversary interest |
 | Policy changes | Dated changes allowed | Rejected/skipped |
 | Target refresh | Recompute on changes/date-gated actives | Carry prior detail |
 | Guideline recalc | Records policy-change recalc and AccumGLP true-up | Simple GLP accumulation |

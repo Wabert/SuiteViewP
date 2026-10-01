@@ -222,7 +222,8 @@ def test_canonical_capture_keeps_status_split_funds_rates_and_tamra(monkeypatch)
     pi.values.get_loan_values_dict = lambda: {"SW": 2_000}
     pi.values.get_premium_allocation_dict = lambda: {"SW": 75, "M1": 25, "ZERO": 0}
     monkeypatch.setattr(service, "get_policy_info", lambda *_args: pi)
-    monkeypatch.setattr(service, "Rates", _FakeRates)
+    monkeypatch.setattr(service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(service, "load_plancode", lambda _: PlancodeConfig(plancode="TESTUL"))
     policy = service.build_illustration_data("RECORD")
     assert policy.premium_pay_status_code == "22"
@@ -247,7 +248,8 @@ def test_failed_fund_capture_is_not_silently_replaced_with_empty_maps(monkeypatc
 
     pi.values.get_loan_values_dict = failed
     monkeypatch.setattr(service, "get_policy_info", lambda *_args: pi)
-    monkeypatch.setattr(service, "Rates", _FakeRates)
+    monkeypatch.setattr(service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(service, "load_plancode", lambda _: PlancodeConfig(plancode="TESTUL"))
     with pytest.raises(RuntimeError, match="Fund source unavailable"):
         service.build_illustration_data("RECORD")

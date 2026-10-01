@@ -66,6 +66,23 @@ def test_cint_key_selects_the_plan_fund_and_ambiguity_is_not_guessed():
     assert ul_current_declared_rate("26", PLAN, date(2026, 9, 30), 0.03, repo=repo) is None
 
 
+def test_rga_policies_read_the_cirf_r_block_when_loaded():
+    # R01: CIRF 09/01/26 carries ANICO2019 (2.55%) and 'ANICO2019 R' (2.30%).
+    funds = [FundAssignment("ANICO2019", "", "ANICO2019", "CIRF", "", ""),
+             FundAssignment("ANICO2019", "R", "ANICO2019 R", "CIRF", "", "")]
+    rates = [FundRate("ANICO2019", "CINT", "C", date(2026, 9, 1), 0, None, None, Decimal("0.0255")),
+             FundRate("ANICO2019 R", "CINT", "C", date(2026, 9, 1), 0, None, None, Decimal("0.023"))]
+    repo = _Repo(funds=funds, rates=rates)
+    direct = ul_current_declared_rate("26", PLAN, date(2026, 9, 30), 0.02, cint_key="ANICO2019", repo=repo)
+    rga = ul_current_declared_rate("26", PLAN, date(2026, 9, 30), 0.02, cint_key="ANICO2019",
+                                   rga_indicator="R", repo=repo)
+    assert (direct.rate, direct.fund_key) == (pytest.approx(0.0255), "ANICO2019")
+    assert (rga.rate, rga.fund_key) == (pytest.approx(0.023), "ANICO2019 R")
+    # Without an R block an RGA policy shares the direct block.
+    shared = ul_current_declared_rate("26", PLAN, date(2026, 9, 30), 0.03, rga_indicator="R", repo=_Repo())
+    assert shared.rate == pytest.approx(0.035)
+
+
 def test_new_money_rates_only_when_they_agree():
     agree = [FundRate("FL4RPORT", "CINT_NEW", "C", date(2025, 1, 1), 1, 12, None, Decimal("0.036")),
              FundRate("FL4RPORT", "CINT_ROLL", "C", date(2024, 1, 1), 0, None, None, Decimal("0.036"))]
@@ -86,3 +103,55 @@ def test_rerun_illustrated_rate_keeps_gint_without_a_sourced_rate():
     assert _interest_assumptions(policy)[1] == 0.03
     legacy = SimpleNamespace(base_plancode=PLAN)
     assert _interest_assumptions(legacy)[1] == 0.03
+
+
+@pytest.mark.parametrize("reins, expected", [("R", "R"), ("", "")])
+def test_policy_service_routes_the_rga_indicator_to_the_cirf_lookup(monkeypatch, reins, expected):
+    from suiteview.illustration.core import declared_rates, illustration_policy_service as svc
+
+    source = SimpleNamespace(
+        pi=SimpleNamespace(company_code="01", reins_partner=reins, fetch_table=lambda _t: []),
+        plancode="1U147000", illustration_date=date(2026, 9, 30),
+        plancode_config=SimpleNamespace(gint=0.02, is_iswl=False, cint_key="ANICO2019"),
+    )
+    seen = []
+
+    def _declared(_company, _plan, _as_of, guaranteed, **kwargs):
+        seen.append((guaranteed, kwargs["rga_indicator"]))
+        return declared_rates.DeclaredRate(0.023, "ANICO2019 R", "CINT", date(2026, 9, 1))
+
+    monkeypatch.setattr(declared_rates, "ul_current_declared_rate", _declared)
+    assert svc._current_interest_rate(source)[0] == pytest.approx(0.023)
+    assert seen == [(0.02, expected)]
+
+
+@pytest.mark.parametrize("rows, expected", [
+    ([{"GUA_FND_ITS_RT": Decimal("3.250")}], 0.0325),      # U0482280: floor above plan GINT 3.00%
+    ([{"GUA_FND_ITS_RT": Decimal("3.000")}], 0.03),
+    ([{"GUA_FND_ITS_RT": Decimal("2.000")}, {"GUA_FND_ITS_RT": Decimal("3.250")}], 0.0325),
+    ([{"GUA_FND_ITS_RT": None}], 0.03),
+    ([], 0.03),
+])
+def test_declared_rate_floor_is_the_fixed_fund_guaranteed_rate(monkeypatch, rows, expected):
+    from suiteview.illustration.core import declared_rates, illustration_policy_service as svc
+
+    tables = []
+    source = SimpleNamespace(
+        pi=SimpleNamespace(company_code="01", reins_partner="",
+                           fetch_table=lambda name: tables.append(name) or rows),
+        plancode="1U135K00", illustration_date=date(2026, 9, 30),
+        plancode_config=SimpleNamespace(gint=0.03, is_iswl=False, cint_key="ANICO1996"),
+    )
+    floors = []
+
+    def _declared(_company, _plan, _as_of, guaranteed, **_kwargs):
+        floors.append(guaranteed)
+        return declared_rates.DeclaredRate(max(0.0255, guaranteed), "ANICO1996", "CINT", date(2026, 5, 1))
+
+    monkeypatch.setattr(declared_rates, "ul_current_declared_rate", _declared)
+    assert svc._current_interest_rate(source)[0] == pytest.approx(expected)
+    assert floors == [pytest.approx(expected)]
+    assert set(tables) == {"LH_COV_FXD_FND_CTL"}
+
+    monkeypatch.setattr(declared_rates, "ul_current_declared_rate", lambda *_a, **_k: None)
+    assert svc._current_interest_rate(source) == (pytest.approx(expected), "")

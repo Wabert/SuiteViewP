@@ -14,7 +14,8 @@ from typing import List
 from typing import Optional
 
 try:
-    from suiteview.core.rates import Rates, RatesError
+    from suiteview.core.rates import Rates
+    from suiteview.core.rates_errors import RatesError
 except ImportError:
     Rates = None  # type: ignore[assignment,misc]
     RatesError = RuntimeError  # type: ignore[assignment,misc]

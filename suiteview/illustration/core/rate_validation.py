@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from suiteview.illustration.core.rate_loader import IllustrationRates
+from suiteview.illustration.core.rate_loader import CHARGEABLE_BENEFIT_TYPES, IllustrationRates
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
-
-
-REQUIRED_BENEFIT_RATE_TYPES = {"1", "2", "3", "4", "7"}
 
 
 def missing_required_rate_warnings(
     policy: IllustrationPolicyData,
     rates: IllustrationRates,
 ) -> list[str]:
-    """Return user-facing warnings for active riders/benefits without loaded rates."""
+    """Return user-facing warnings for active riders/benefits without loaded rates.
+
+    ``load_rates`` already raises for a chargeable benefit without a schedule;
+    the benefit check here covers caller-supplied rate overrides."""
     missing: list[str] = []
 
     for rider in policy.riders:
@@ -26,7 +26,7 @@ def missing_required_rate_warnings(
         if not benefit.is_active:
             continue
         benefit_type = (benefit.benefit_type or "").strip()
-        if benefit_type not in REQUIRED_BENEFIT_RATE_TYPES:
+        if benefit_type not in CHARGEABLE_BENEFIT_TYPES:
             continue
         benefit_key = benefit_type + (benefit.benefit_subtype or "")
         if not benefit_key:

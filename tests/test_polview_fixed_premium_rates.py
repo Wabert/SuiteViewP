@@ -11,7 +11,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTabWidget
 
 from suiteview.core.modal_premium import ModalPremiumError, billing_mode, calculate_modal_premium
-from suiteview.core.rates import Rates, RatesError, cyberlife_rate_user
+from suiteview.core.rates import Rates, cyberlife_rate_user
+from suiteview.core.rates_errors import RatesError
 from suiteview.polview.models import fixed_premium_rates as fpr
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.models.policy_sections.rates import RatesSection

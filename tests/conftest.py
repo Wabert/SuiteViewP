@@ -38,6 +38,7 @@ def _isolated_profile(tmp_path_factory, monkeypatch):
 
 _LIVE_MARKERS = ("live_db2", "integration", "outlook")
 _UL_RATES_RECORDED: dict = {}
+_UL_RATES_USED: set = set()
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +70,7 @@ def _no_live_odbc(request, monkeypatch):
             if ul_rates_replay.recording_enabled():
                 return ul_rates_replay.ReplayConnection(
                     replay, _UL_RATES_RECORDED, real_connect(connection_string, *args, **kwargs))
-            return ul_rates_replay.ReplayConnection(replay)
+            return ul_rates_replay.ReplayConnection(replay, used=_UL_RATES_USED)
         raise pyodbc.InterfaceError(
             "IM002",
             f"Live ODBC connection blocked in a unit test ({connection_string!r}); "
@@ -81,11 +82,17 @@ def _no_live_odbc(request, monkeypatch):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Persist UL_Rates results captured in record mode."""
+    """Persist UL_Rates results captured in record mode, or prune unused ones."""
     from tests import ul_rates_replay
 
     if ul_rates_replay.recording_enabled() and _UL_RATES_RECORDED:
         ul_rates_replay.save_replay(_UL_RATES_RECORDED)
+    elif ul_rates_replay.pruning_enabled():
+        if exitstatus != 0:
+            print(f"\n{ul_rates_replay.PRUNE_ENV}: session did not pass; replay file left unchanged.")
+        else:
+            dropped = ul_rates_replay.prune_replay(_UL_RATES_USED)
+            print(f"\n{ul_rates_replay.PRUNE_ENV}: dropped {dropped} unused recorded queries.")
 
 
 _INTEGRATION_MODULES = {

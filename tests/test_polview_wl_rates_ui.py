@@ -7,7 +7,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTabWidget
 
-from suiteview.core.rates import RatesError
+from suiteview.core.rates_errors import RatesError
 from suiteview.polview.services.rate_selection import SCHEMA_COVERAGE
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs.raw_table_tab import RawTableTab

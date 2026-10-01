@@ -165,3 +165,31 @@ def test_endowing_policy_stays_clean_without_a_bump():
         base_future_inputs=IllustrationInputSet())
     assert result.premium == pytest.approx(1500.0, abs=0.01)
     assert result.enters_exception is False
+
+
+def test_clean_is_not_found_far_above_in_a_guideline_clipped_premium():
+    # "Clean" is not monotone: a far higher premium that the guideline cap clips
+    # payment after payment can look clean by coincidence (exception fires with
+    # no room left). The solve must not jump to it — it stays with the level
+    # survive-minimum.
+    class _FarClean(_StubEngine):
+        def project(self, _policy, *, options=None, future_inputs=None, **_kw):
+            premium = _level_premium(future_inputs)
+            if premium < self.p_survive - 1e-9:
+                return [_st(), _st(attained_age=70, policy_year=5)]
+            clipped = [_st(premium_capped=True) for _ in range(12)]
+            room = 0.0 if premium >= 4000.0 else 500.0
+            exc = _st(
+                attained_age=90, policy_year=6, exception_prem_mode=True,
+                gp_exception_prem_gross=250.0,
+                prem_less_wd=_GUIDELINE_LIMIT - room,
+            )
+            if premium >= 4000.0:
+                return [_st(), *clipped, exc, _st(attained_age=_MATURITY)]
+            return [_st(), exc, _st(attained_age=_MATURITY)]
+
+    engine = _FarClean(p_survive=2000.0, p_clean=4000.0)
+    result = solve_level_to_exception(
+        _policy(), mode="A", engine=engine,
+        base_future_inputs=IllustrationInputSet())
+    assert result.premium == pytest.approx(2000.0, abs=0.01)

@@ -7,7 +7,17 @@ All returned headline premiums are annual dollars. Coverage, rider and benefit
 rates are annual target rates per 1,000 or per unit according to the source
 rate table; the monthly MTP used by the engine is ``TRUNC(annual / 12, 2)``.
 Table-rating target rates are required when a table rating is active; ``None``
-means unavailable, not zero. Waiver target rates 39/3# are stored as
+means unavailable, not zero. CyberLife's rules for a table-rated coverage
+(validated on production 10/1/2026, S0503253 / U0609076 / UE000157):
+
+    both CTP_TBL1 and MTP_TBL1 present   per-table rates (the formula below)
+    only CTP_TBL1 present                the MTP uses the CTP_TBL1 rate (T-only E*)
+    neither present                      table % x COI (``_coi_table_extras``):
+        CTP += ROUND(units x COI x 12 x table x factor, 2), COI at the as-of year
+        MTP += units x COI x 12 x table x factor, COI frozen at the MAP end
+    only MTP_TBL1 present                RateLookupError (TBL1CTP unavailable)
+
+Waiver target rates 39/3# are stored as
 percentages and converted to multipliers only in the calculation.
 
     per coverage segment (HW..HZ / JQ..JT):
@@ -41,10 +51,10 @@ Validated against the U0688012 fixture: computed vMTP/12 -> 150.13 (DB value)
 and vCTP -> 2043.64 (DB value) exactly, and the face-change ratios match the
 captured RERUN references (increase 1.7337, decrease 0.9832).
 
-Rate sources (local rates.sqlite / UL_Rates):
-    Select_RATE_MTP / Select_RATE_TBL1MTP / Select_RATE_CTP / Select_RATE_TBL1CTP
+Rate sources (UL_Rates schema ``rates`` through ``ULRates``):
+    CELL MTP / MTP_TBL1 / CTP / CTP_TBL1
         keyed by (plancode, segment issue age, sex, rateclass, band)
-    Select_RATE_BENMTP / Select_RATE_BENCTP
+    CELL MTP / CTP with the benefit's type + subtype
         keyed by (plancode, benefit key, POLICY issue age, sex, rateclass, band)
 
 Waivers 39 / 3# store target rates as percentages (5.5 means 5.5%).
@@ -58,7 +68,7 @@ CURRENT total specified-amount band, as do unlocked CurrentSA MTP rates.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Dict, Optional
 
@@ -84,6 +94,11 @@ CTR_MTP_ZERO_PLANCODES = frozenset({
     "1U145700", "1U146600", "1U147200", "1U147600", "1U146000",
     "1U146700", "1U147300", "1U147900", "1U148000", "1U148100",
 })
+
+# How a table-rated coverage's extra target is priced.
+TABLE_METHOD_RATE = "TBL1"                 # per-table CTP_TBL1 / MTP_TBL1 rates
+TABLE_METHOD_COI = "COI"                   # no TBL1 rates: table % x COI
+TABLE_METHOD_CTP_FOR_MTP = "CTP_TBL1->MTP"  # T-only E*: MTP reuses CTP_TBL1
 
 
 def _round2(value: float) -> float:
@@ -165,6 +180,39 @@ def target_actives_signature(
     return (seg_flags, ben_keys, rider_keys)
 
 
+def coi_table_target_signature(
+    policy: IllustrationPolicyData, as_of: Optional[date]
+) -> tuple:
+    """Coverage years of segments whose table extra is priced from the COI.
+
+    The CTP of those segments follows the current COI, which CyberLife recalculates
+    every month and which changes by coverage year, so the engine recomputes the
+    CTP whenever this signature changes. Empty (the common case) when no active
+    table-rated segment lacks table-rating target rates, and then needs no rate
+    lookups beyond the table-rated segments themselves.
+    """
+    from suiteview.illustration.core.ul_rates import ULRates
+
+    candidates = [
+        seg for seg in policy.segments
+        if seg.face_amount > 0 and seg.table_rating > 0
+        and _active(seg.table_cease_date, as_of)
+    ]
+    if not candidates or policy.is_joint_survivor:
+        return ()
+    rates_db = ULRates(policy.company_code)
+    band = _current_target_band(policy, rates_db)
+    years = []
+    for seg in candidates:
+        args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
+        if (
+            rates_db.get_tbl1_mtp(*args, band, issue_date=seg.issue_date) is None
+            and rates_db.get_tbl1_ctp(*args, band, issue_date=seg.issue_date) is None
+        ):
+            years.append((seg.coverage_phase, _years_since(seg.issue_date, as_of)))
+    return tuple(years)
+
+
 def _schedule_rate(schedule, index: int) -> float:
     """Rate array lookup — arrays are 1-indexed by duration, last value carries."""
     if not schedule or len(schedule) < 2:
@@ -198,6 +246,11 @@ class TargetPremiumResult:
     mtp_tbl_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
     ctp_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
     ctp_tbl_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
+    # How each coverage's table extra was priced (TABLE_METHOD_*) and, for the
+    # COI method, the monthly COI per 1,000 used for the MTP and CTP.
+    table_target_method: Dict[int, str] = field(default_factory=dict)
+    mtp_coi_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
+    ctp_coi_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
     pw_rate: float = 0.0        # PW MTPR — raw database rate (percent for 39 / 3#)
     mtp_wo_pw: float = 0.0      # IT
     ctp_wo_pw: float = 0.0      # KN basis (cov + benefit CTPs before PW)
@@ -308,7 +361,7 @@ def _ffl_min_base(
         band = seg.original_band if config.dynamic_banding == 0 else current_band
         schedule = rates_db.get_rates(
             "COI", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=band,
+            seg.rate_class, scale=1, band=band, issue_date=seg.issue_date,
         ) or []
         rate = _schedule_rate(schedule, cov_year)
         table = (
@@ -336,7 +389,7 @@ def _ffl_monthly_fee(
         base = policy.base_segment
         schedule = rates_db.get_rates(
             "MFEE", policy.plancode, base.issue_age, base.rate_sex,
-            base.rate_class, scale=1, band=current_band,
+            base.rate_class, scale=1, band=current_band, issue_date=base.issue_date,
         ) or []
         return _schedule_rate(schedule, policy_year)
     try:
@@ -353,6 +406,57 @@ def _current_target_band(policy: IllustrationPolicyData, rates_db) -> int:
         issue_date=policy.issue_date,
     )
     return int(current_band) if current_band is not None else base.band
+
+
+def _coi_table_extras(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    seg,
+    table: int,
+    sa: float,
+    current_band: int,
+    as_of: Optional[date],
+    result: "TargetPremiumResult",
+) -> tuple[float, float]:
+    """Table extra as a percentage of the current COI: ``(MTP annual, CTP annual)``.
+
+    CyberLife (B10 pp.210-220) charges a percentage rating ``extra% = table x
+    TableRatingFactor`` of the coverage's COI when the plan has no table-rating
+    target rates:
+
+        CTP extra = ROUND(units x COI x 12 x extra%, 2)    COI at the as-of coverage year
+        MTP extra = units x COI x 12 x extra%              COI frozen at the MAP end
+
+    The CTP is recalculated every month by CyberLife, so it follows the COI; the
+    MTP stops being recalculated when the MAP period ends, so its COI is the one
+    of the last coverage year before ``map_cease_date`` (no MAP date: the as-of
+    year). The monthly MTP is truncated downstream, not rounded here.
+    """
+    from suiteview.illustration.core.rate_loader import load_coverage_coi_rates
+
+    band = seg.original_band if config.dynamic_banding == 0 else current_band
+    schedule = load_coverage_coi_rates(
+        rates_db, plancode=policy.plancode, issue_age=seg.issue_age,
+        sex=seg.rate_sex, rateclass=seg.rate_class, scale=1, band=band,
+        issue_date=seg.issue_date,
+    )
+    mtp_as_of = as_of
+    map_end = policy.map_cease_date
+    if map_end is not None:
+        last_recalc = map_end - timedelta(days=1)
+        mtp_as_of = last_recalc if as_of is None else min(as_of, last_recalc)
+    ctp_coi = _schedule_rate(schedule, _years_since(seg.issue_date, as_of))
+    mtp_coi = _schedule_rate(schedule, _years_since(seg.issue_date, mtp_as_of))
+    extra_pct = table * config.table_rating_factor
+    units = sa / PER_THOUSAND
+    phase = seg.coverage_phase
+    result.mtp_coi_rates_by_coverage[phase] = mtp_coi
+    result.ctp_coi_rates_by_coverage[phase] = ctp_coi
+    return (
+        units * mtp_coi * MONTHS_PER_YEAR * extra_pct,
+        _round2(units * ctp_coi * MONTHS_PER_YEAR * extra_pct),
+    )
 
 
 def _add_coverage_targets(
@@ -389,10 +493,28 @@ def _add_coverage_targets(
             else 0.0
         )
         args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class)
-        mtp_rate = rates_db.get_mtp(*args, mtp_band) or 0.0
-        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band)
-        ctp_rate = rates_db.get_ctp(*args, totals.current_band) or 0.0
-        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, totals.current_band)
+        on = seg.issue_date
+        mtp_rate = rates_db.get_mtp(*args, mtp_band, issue_date=on) or 0.0
+        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args, mtp_band, issue_date=on)
+        ctp_rate = rates_db.get_ctp(*args, totals.current_band, issue_date=on) or 0.0
+        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args, totals.current_band, issue_date=on)
+        phase = seg.coverage_phase
+        method = TABLE_METHOD_RATE
+        coi_extra_mtp = coi_extra_ctp = 0.0
+        if table > 0 and mtp_tbl_rate is None and ctp_tbl_rate is None:
+            # Rule 1: no table-rating target rates (the IAF has no E*), so
+            # CyberLife charges the table as a percentage of the COI.
+            method = TABLE_METHOD_COI
+            coi_extra_mtp, coi_extra_ctp = _coi_table_extras(
+                policy, config, rates_db, seg, table, sa, totals.current_band,
+                as_of, result,
+            )
+            mtp_tbl_rate = ctp_tbl_rate = 0.0
+        elif table > 0 and mtp_tbl_rate is None and ctp_tbl_rate is not None:
+            # Rule 2: a T-only E* IAF. CyberLife copies the T E* into the
+            # policy's second M row at issue, so the MTP uses the CTP rate.
+            method = TABLE_METHOD_CTP_FOR_MTP
+            mtp_tbl_rate = ctp_tbl_rate
         _require_table_target_rates(
             policy, seg, table, mtp_tbl_rate, ctp_tbl_rate, mtp_band,
             totals.current_band, RateLookupError,
@@ -401,11 +523,11 @@ def _add_coverage_targets(
         ctp_tbl_rate = ctp_tbl_rate if ctp_tbl_rate is not None else 0.0
         mtp_val = _segment_target(
             sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
-        )
+        ) + coi_extra_mtp
         ctp_val = _segment_target(
             sa, ctp_rate, ctp_tbl_rate, table, flat, cap_tbl_rate=True,
-        )
-        phase = seg.coverage_phase
+        ) + coi_extra_ctp
+        result.table_target_method[phase] = method
         result.mtp_rates_by_coverage[phase] = mtp_rate
         result.mtp_tbl_rates_by_coverage[phase] = mtp_tbl_rate
         result.ctp_rates_by_coverage[phase] = ctp_rate
@@ -460,8 +582,10 @@ def _add_benefit_targets(
         ben_args = (
             policy.plancode, policy.issue_age, base.rate_sex, base.rate_class,
         )
-        ben_mtp_rate = rates_db.get_ben_mtp(*ben_args, ben_band, ben_key) or 0.0
-        ben_ctp_rate = rates_db.get_ben_ctp(*ben_args, current_band, ben_key) or 0.0
+        ben_mtp_rate = rates_db.get_ben_mtp(
+            *ben_args, ben_band, ben_key, issue_date=base.issue_date) or 0.0
+        ben_ctp_rate = rates_db.get_ben_ctp(
+            *ben_args, current_band, ben_key, issue_date=base.issue_date) or 0.0
         if ben_type == "3":
             work.pw_rate = ben_mtp_rate
             work.pw_multiplier = (
@@ -536,14 +660,15 @@ def _add_rider_targets(
             if rider_bands_as_base(rider.plancode):
                 r_band = int(current_band)
             else:
-                r_band = rates_db.get_band(rider.plancode, rider.face_amount)
+                r_band = rates_db.get_band(
+                    rider.plancode, rider.face_amount, issue_date=rider.issue_date)
                 r_band = int(r_band) if r_band is not None else rider.band
             r_args = (
                 rider.plancode, rider.issue_age, rider.rate_sex,
                 rider.rate_class, r_band,
             )
-            mtp_rate_r = rates_db.get_mtp(*r_args) or 0.0
-            ctp_rate_r = rates_db.get_ctp(*r_args) or 0.0
+            mtp_rate_r = rates_db.get_mtp(*r_args, issue_date=rider.issue_date) or 0.0
+            ctp_rate_r = rates_db.get_ctp(*r_args, issue_date=rider.issue_date) or 0.0
         mtp_val = units * mtp_rate_r
         ctp_val = units * ctp_rate_r
         if not mtp_val and not ctp_val:
@@ -683,20 +808,19 @@ def compute_target_premiums(
     """Compute annual vMTP / vCTP from rates for the policy's CURRENT coverage state.
 
     Call after mutating segments for a policy change to get the recomputed
-    targets (RERUN recomputes when vPolicyChangeIndicator fires). Reads the
-    rates DB (cached at the Rates class level); works offline under
-    SUITEVIEW_LOCAL_DATA.
+    targets (RERUN recomputes when vPolicyChangeIndicator fires). Reads
+    UL_Rates schema ``rates`` through ``ULRates`` (cached process-wide).
     """
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
     result = TargetPremiumResult()
     if not policy.segments:
         return result
     if config.is_iswl:
         # ISWL has no UL minimum/commission target premiums or safety net; its
-        # fixed premium is billed, not targeted. No legacy dbo target lookup.
+        # fixed premium is billed, not targeted.
         return result
-    rates_db = Rates()
+    rates_db = ULRates(policy.company_code)
     if policy.is_joint_survivor:
         # VP/MS targets: hold the record values (policy.mtp is monthly, ctp annual).
         result.mtp_annual = float(policy.mtp or 0.0) * 12.0

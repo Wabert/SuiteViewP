@@ -160,8 +160,8 @@ def build_mapping(data, warnings: list[str], skip_benefits: bool = False) -> dic
     )
 
     plan_strat = load_index_strategies(data.plancode)
-    # Overlay the illustration-date SV_INDEX_ILL_RATES / SV_INDEX_PARAMS that
-    # the policy-data loader already fetched. Without this the case gets the
+    # Overlay the illustration-date schema-rates index assumptions that the
+    # policy-data loader already fetched. Without this the case gets the
     # catalog defaults, which are stale (and 0.0 for some funds, e.g. 1U148000
     # IX), so the case would illustrate a crediting rate the engine never uses.
     if plan_strat is not None:
@@ -353,7 +353,10 @@ def build_mapping(data, warnings: list[str], skip_benefits: bool = False) -> dic
     m["sINPUT_ValuationDate"] = _serial(val_date)
     m["sINPUT_DBOption"] = data.db_option
     m["sInput_CurrentAV"] = data.account_value
-    m["sInput_DeemedCashValue"] = data.deemed_cash_value
+    # RERUN's own loader (mdl_GetCyberlifePolicy) writes 0 because the DCV is
+    # not in DB2; mirror the workbook's default unless a DCV was entered.
+    m["sInput_DeemedCashValue"] = (
+        data.deemed_cash_value if data.deemed_cash_value is not None else 0)
     m["sINPUT_SWAM"] = data.swam if is_iul else 0
     m["sINPUT_Accum_Min"] = data.accumulated_mtp
     m["sINPUT_MonthlyMTP"] = data.mtp

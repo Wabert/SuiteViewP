@@ -77,20 +77,17 @@ def target_waiver_charge(
     rate: float,
     projection_date: date | None,
 ) -> tuple[float, float]:
-    """Return PWoT annual target amount and cent-rounded monthly charge."""
+    """Return PWoT annual target amount and cent-rounded monthly charge.
+
+    The target already reflects the insured's rating, so CyberLife applies no
+    table factor to the per-100 rate (Albert F06, 26/000272626 and
+    26/000299857; Robert 2026-10-01). ``projection_date`` is kept for the
+    shared call signature.
+    """
     if config.pwot_coi_basis not in (2, 3):
         raise ValueError("Target-based PWoT requires MTP (2) or CTP (3).")
-    base = policy.base_segment
-    table = (
-        base.table_rating
-        if base and base.table_rating and base.table_rating > 0
-        and _charge_active(base.table_cease_date, projection_date)
-        else 0
-    )
-    # The per-100 rate uses the base coverage rating, not the benefit rating.
-    factor = 1.0 + config.table_rating_factor * table
     amount = policy.mtp * MONTHS_PER_YEAR if config.pwot_coi_basis == 2 else policy.ctp
-    return amount, _round_near(amount * rate / 100.0 * factor, 2)
+    return amount, _round_near(amount * rate / 100.0, 2)
 
 
 def _segment_matured(segment, projection_date: date | None) -> bool:
@@ -105,6 +102,42 @@ def _segment_matured(segment, projection_date: date | None) -> bool:
         return False
     maturity_date = getattr(segment, "maturity_date", None)
     return maturity_date is not None and projection_date >= maturity_date
+
+
+def _segment_not_yet_issued(segment, projection_date: date | None) -> bool:
+    """Whether a coverage segment's issue date is after the projection month.
+
+    CyberLife carries scheduled coverage phases (e.g. a future increase) with a
+    future issue date; until that date they add no death benefit, NAR, COI or
+    EPU (fix E04, 26/000324822 phase 12).
+    """
+    if segment is None or projection_date is None:
+        return False
+    issue_date = getattr(segment, "issue_date", None)
+    return issue_date is not None and issue_date > projection_date
+
+
+def _segment_charge_inactive(segment, projection_date: date | None) -> bool:
+    return _segment_matured(segment, projection_date) or _segment_not_yet_issued(
+        segment, projection_date)
+
+
+def _pending_segments(policy: IllustrationPolicyData, projection_date: date | None) -> list[bool]:
+    """Per base segment: issued after ``projection_date`` (the base never is)."""
+    segments = [segment for segment in (policy.segments or [policy.base_segment]) if segment is not None]
+    return [
+        index > 0 and _segment_not_yet_issued(segment, projection_date)
+        for index, segment in enumerate(segments)
+    ]
+
+
+def in_force_face(policy: IllustrationPolicyData, projection_date: date | None) -> float:
+    """Total base face excluding coverage segments not yet issued on ``projection_date``."""
+    pending = _pending_segments(policy, projection_date)
+    if not any(pending):
+        return policy.total_face
+    segments = [segment for segment in (policy.segments or [policy.base_segment]) if segment is not None]
+    return sum(segment.face_amount for segment, skip in zip(segments, pending) if not skip)
 
 
 def _at_or_after_policy_maturity(
@@ -131,12 +164,7 @@ def _corridor_coverage_key(
             if (
                 segment.face_amount <= 0
                 or segment.status == "T"
-                or _segment_matured(segment, projection_date)
-                or (
-                    projection_date is not None
-                    and segment.issue_date is not None
-                    and segment.issue_date > projection_date
-                )
+                or _segment_charge_inactive(segment, projection_date)
             ):
                 continue
         return f"cov{index + 1}"
@@ -293,7 +321,7 @@ def _ratchet_coi(
         # zero base rate.
         b1_rate = _adjusted_coi_rate(b1_raw, segment, config, projection_date, round_5=(index == 1)) if b1_raw else 0.0
         b2_rate = _adjusted_coi_rate(b2_raw, segment, config, projection_date, round_5=(index == 1)) if b2_raw else 0.0
-        if _segment_matured(segment, projection_date):
+        if _segment_charge_inactive(segment, projection_date):
             b1_rate = 0.0
             b2_rate = 0.0
         b1_nar = band1_slots[index - 1]
@@ -484,10 +512,16 @@ def _build_death_benefit_basis(
     config: PlancodeConfig,
     attained_age: int,
     premiums_to_date: float,
+    projection_date: date | None = None,
 ) -> DeathBenefitBasis:
-    """Build standard/corridor death benefit and discounted coverage slices."""
+    """Build standard/corridor death benefit and discounted coverage slices.
+
+    Segments not yet issued at ``projection_date`` keep their coverage slot
+    with zero death benefit."""
     nar_av = max(0.0, mAV)
-    face = policy.total_face
+    segments = [segment for segment in (policy.segments or [policy.base_segment]) if segment is not None]
+    pending = _pending_segments(policy, projection_date)
+    face = in_force_face(policy, projection_date)
     dbo = policy.db_option
     if dbo == DB_OPTION_LEVEL:
         standard_db = face
@@ -505,7 +539,6 @@ def _build_death_benefit_basis(
     )
     corr_amount = gross_db - standard_db
     discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
-    segments = [segment for segment in (policy.segments or [policy.base_segment]) if segment is not None]
     prem_adj = (
         max(0.0, premiums_to_date - policy.withdrawals_to_date)
         if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
@@ -515,7 +548,7 @@ def _build_death_benefit_basis(
         else prem_adj if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
     )
     discounted_base_segments = _discount_base_segments(
-        segments, face, first_addition, discount_factor)
+        segments, face, first_addition, discount_factor, pending)
     db_by_coverage = {
         f"cov{index}": segment_db
         for index, (_, segment_db, _) in enumerate(discounted_base_segments, start=1)
@@ -538,13 +571,19 @@ def _build_death_benefit_basis(
     )
 
 
-def _discount_base_segments(segments, face: float, first_addition: float, discount_factor: float) -> list:
+def _discount_base_segments(
+    segments, face: float, first_addition: float, discount_factor: float,
+    pending: list[bool] | None = None,
+) -> list:
     """Discount base coverage death benefits one month for NAR calculation."""
     if not segments:
         fallback_db = face + first_addition
         return [(None, fallback_db, fallback_db / discount_factor)]
     result = []
     for index, segment in enumerate(segments):
+        if pending and pending[index]:
+            result.append((segment, 0.0, 0.0))
+            continue
         segment_db = segment.face_amount + (first_addition if index == 0 else 0.0)
         result.append((segment, segment_db, segment_db / discount_factor))
     return result
@@ -620,7 +659,7 @@ def _calculate_coi_charges(
         rate = _adjusted_coi_rate(
             _rate_from_schedule(schedule, rate_year_i), segment, config,
             projection_date, round_5=(index == 1))
-        if _segment_matured(segment, projection_date):
+        if _segment_charge_inactive(segment, projection_date):
             rate = 0.0
         charge = (segment_nar / PER_THOUSAND) * rate
         charges_by_coverage[f"cov{index}"] = _round_near(charge, 2) if bln_round_charge else charge
@@ -718,7 +757,7 @@ def _calculate_epu_charges(
         for index, segment in enumerate(epu_segments, start=1):
             schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
             epu_rate = _rate_from_schedule(schedule, _coverage_year(segment, projection_date, rate_year))
-            if _segment_matured(segment, projection_date):
+            if _segment_charge_inactive(segment, projection_date):
                 epu_rate = 0.0
             basis = _epu_segment_basis(segment, face, config)
             charge = _round_near((basis / PER_THOUSAND) * epu_rate, 2)
@@ -756,7 +795,7 @@ def _calculate_flat_epu_charges(
             if segment is not None and config.sa_basis == SA_BASIS_ORIGINAL
             else segment.units if segment else policy.units
         )
-        charge = 0.0 if _segment_matured(segment, projection_date) else epu_flat * units
+        charge = 0.0 if _segment_charge_inactive(segment, projection_date) else epu_flat * units
         result.epu_rates_by_coverage[f"cov{index}"] = epu_flat
         result.epu_charges_by_coverage[f"cov{index}"] = (
             _round_near(charge, 2) if bln_round_charge else charge)
@@ -894,6 +933,7 @@ def _benefit_charge_input(
         amount = max(monthly_mtp, monthly_deduction_basis) if subtype in ("9", "#") else monthly_deduction_basis
         charge = rate * amount * benefit_charge_factor(policy.plancode, ben_type + subtype)
     elif ben_type == "4" and config.pwot_coi_basis in (2, 3):
+        rate = raw_rate
         amount, charge = target_waiver_charge(policy, config, raw_rate, projection_date)
     else:
         amount = ben.benefit_amount
@@ -940,7 +980,8 @@ def calculate_deduction(
         DeductionResult with all deduction-stage outputs.
     """
     basis = _build_death_benefit_basis(
-        av_after_premium, policy, config, attained_age, premiums_to_date)
+        av_after_premium, policy, config, attained_age, premiums_to_date,
+        projection_date)
     nar = _allocate_nar(basis)
     if _at_or_after_policy_maturity(policy, config, attained_age):
         return _maturity_deduction_result(basis, nar)

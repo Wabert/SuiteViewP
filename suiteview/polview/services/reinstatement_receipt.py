@@ -97,7 +97,10 @@ def project_receipt(
         seven_pay_level=p.tamra_7pay_level,
         amount_in_7pay=state.accumulated_7pay, tamra_year=tamra_year,
         tamra_month_of_year=_tamra_month_of_year(p, receipt_date),
-        policy_month=state.policy_month, npt_premium=0.0, tamra_reset=False,
+        policy_month=state.policy_month,
+        # The CVAT NPT premium needs the deemed cash value, which is not in DB2;
+        # unknown here, so a receipt the NPT would limit fails loud.
+        npt_premium=None, tamra_reset=False,
         requested_scheduled=0.0, requested_lumpsum=premium,
         payment_count_policy_year=0, payment_count_tamra_year=0,
         has_loan_balance=p.has_loans, beginning_of_year=False,

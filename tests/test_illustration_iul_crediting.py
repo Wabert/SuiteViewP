@@ -107,15 +107,15 @@ def _patch_config(monkeypatch, config):
     monkeypatch.setattr(calc_engine, "compute_target_premiums", lambda *a, **k: None)
     monkeypatch.setattr(
         calc_engine, "build_target_detail_snapshots", lambda _policy, _targets: ({}, {}))
-    # The coverage-after-change snapshot bands the current face via the live
-    # UL_Rates DB (no DSN on this machine) — stub the Rates class.
-    import suiteview.core.rates as core_rates
+    # The coverage-after-change snapshot bands the current face through
+    # UL_Rates schema rates — stub the ULRates reader.
+    import suiteview.illustration.core.ul_rates as ul_rates_module
 
     class _FakeRatesDB:
-        def get_band(self, _plancode, _face, issue_date=None):
+        def get_band(self, _plancode, _face, issue_date=None, **_kwargs):
             return None
 
-    monkeypatch.setattr(core_rates, "Rates", _FakeRatesDB)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: _FakeRatesDB())
 
 
 # ── AG49 regime resolution ────────────────────────────────────

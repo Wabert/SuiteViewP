@@ -40,6 +40,10 @@ from .styles import (
 )
 from suiteview.polview.models.policy_sections.lookup import policy_attr, policy_hasattr
 
+# The CVAT deemed cash value lives on CyberLife's 93 segment, not in DB2; the
+# user enters it on the Input tab next to Conform to TAMRA.
+_DCV_NOT_IN_DB2 = "Not in DB2 — Input tab"
+
 
 RATE_WARNING_STYLE = """
     QLabel {
@@ -905,9 +909,10 @@ class IllustrationPolicyTab(QWidget):
         self.fund_values.set_value(
             "guaranteed_int_rate", self._format_rate(s.guaranteed_interest_rate))
 
-        # CVAT-only values — deemed cash value mirrors the account value (as
-        # live does); NSP was not captured, so it stays blank.
-        self.mec_values.set_value("deemed_cash_value", format_currency(s.account_value, "$"))
+        # CVAT-only values. The deemed cash value is not in DB2 (93 segment,
+        # CyberLife Online) — it is entered on the Input tab, never shown as the
+        # account value. NSP was not captured, so it stays blank.
+        self.mec_values.set_value("deemed_cash_value", _DCV_NOT_IN_DB2)
         self.mec_values.set_value("nsp", "")
         for attr in ["deemed_cash_value", "nsp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "CVAT")
@@ -1202,7 +1207,8 @@ class IllustrationPolicyTab(QWidget):
         self.fund_values.set_value("sweep_account_min", "—")
         self.fund_values.set_value(
             "guaranteed_int_rate", self._format_rate(policy.product.guaranteed_interest_rate))
-        self.mec_values.set_value("deemed_cash_value", format_currency(policy.values.mv_av(0), "$"))
+        # The deemed cash value is not in DB2 — entered on the Input tab.
+        self.mec_values.set_value("deemed_cash_value", _DCV_NOT_IN_DB2)
         self.mec_values.set_value("nsp", format_currency(self._nsp_total(policy), "$"))
         for attr in ["deemed_cash_value", "nsp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "CVAT")

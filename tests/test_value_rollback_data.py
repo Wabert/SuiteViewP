@@ -463,7 +463,8 @@ def test_service_attaches_captured_snapshots(monkeypatch):
     pi = _FakePolicyInfo()
     expected = [_complete_snapshot()]
     monkeypatch.setattr(service, "get_policy_info", lambda *_args: pi)
-    monkeypatch.setattr(service, "Rates", _FakeRates)
+    monkeypatch.setattr(service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(service, "load_plancode", lambda _code: PlancodeConfig())
     monkeypatch.setattr(service, "build_value_rollback_snapshots", lambda source, _: expected if source is pi else [])
     result = service.build_illustration_data("TEST", illustration_date=date(2026, 7, 29))
@@ -488,7 +489,7 @@ def test_cvat_shadow_policy_displays_recoverable_values_but_requires_manual_shad
     assert preview.account_value == 10_000
     assert preview.accumulated_mtp == 4_900
     assert preview.accumulated_glp == 0
-    assert preview.deemed_cash_value == 10_000
+    assert preview.deemed_cash_value is None   # not in DB2 — never faked from the AV
     assert preview.rollback_requires_shadow_value
     with pytest.raises(ValueError, match="shadow"):
         IllustrationEngine().project(preview, months=1)

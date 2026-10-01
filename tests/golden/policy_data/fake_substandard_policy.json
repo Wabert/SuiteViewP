@@ -22,7 +22,7 @@
   "current_interest_rate_source": "",
   "db_option": "A",
   "decrease_charge_allowed": null,
-  "deemed_cash_value": 0.0,
+  "deemed_cash_value": null,
   "def_of_life_ins": "GPT",
   "duration": 289,
   "face_amount": 200000.0,

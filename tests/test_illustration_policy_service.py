@@ -9,7 +9,7 @@ from suiteview.polview.models.cl_polrec.policy_data_classes import TransactionIn
 
 
 class _FakeRates:
-    def get_band(self, _plancode, face_amount, issue_date=None):
+    def get_band(self, _plancode, face_amount, issue_date=None, **_kwargs):
         return 2 if float(face_amount or 0.0) == 200_000.0 else 9
 
     def joint_survivor_company(self, _plancode):
@@ -38,6 +38,9 @@ class _FakeRates:
 
     def get_index_market_returns(self):
         return {"SP500": [{"date": date(2023, 12, 31), "return": 0.2423}]}
+
+    def close(self):
+        pass
 
 
 class _SectionProxy:
@@ -251,7 +254,8 @@ def test_build_illustration_data_recognizes_only_known_zero_glp(monkeypatch, glp
     source = _FakePolicyInfo()
     source.glp = glp
     monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: source)
-    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(
         illustration_policy_service, "load_plancode",
         lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0))
@@ -265,7 +269,8 @@ def test_build_illustration_data_carries_decrease_charge_rule(monkeypatch, allow
     source = _FakePolicyInfo()
     source.decrease_charge_allowed = allowed
     monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: source)
-    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(
         illustration_policy_service, "load_plancode",
         lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0))
@@ -275,7 +280,8 @@ def test_build_illustration_data_carries_decrease_charge_rule(monkeypatch, allow
 
 def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch):
     monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: _FakePolicyInfo())
-    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(
         illustration_policy_service,
         "load_plancode",
@@ -311,7 +317,8 @@ def test_original_sa_loads_stored_mtp_band_by_phase(monkeypatch):
 
     source.cov_mtp_band = stored_band
     monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_: source)
-    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(
         illustration_policy_service, "load_plancode",
         lambda _: PlancodeConfig(plancode="TESTUL", sa_basis="OriginalSA"),
@@ -330,7 +337,8 @@ def test_original_sa_load_does_not_substitute_current_amount(monkeypatch, origin
     source.get_base_coverages = lambda: [coverage]
     source.cov_mtp_band = lambda phase: 1
     monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_: source)
-    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(
         illustration_policy_service, "load_plancode",
         lambda _: PlancodeConfig(plancode="TESTUL", sa_basis="OriginalSA"),
@@ -351,7 +359,8 @@ def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch)
 
     monkeypatch.setattr(
         illustration_policy_service, "get_policy_info", lambda *_args: _FakePolicyInfo())
-    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
     monkeypatch.setattr(illustration_policy_service, "date", _FixedDate)
     monkeypatch.setattr(illustration_policy_service, "is_iul_plan", lambda _plan: True)
     monkeypatch.setattr(

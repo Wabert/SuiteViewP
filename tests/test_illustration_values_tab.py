@@ -1892,6 +1892,25 @@ def test_placeholder_dataframe_values_stay_raw_for_copy_and_export():
     assert tab._tab_grids["Ending Values"].df.iloc[0]["IllustrationGCO"] == 0.0
 
 
+def test_computed_cvat_npt_and_dcv_columns_lose_the_not_computed_marker():
+    from PyQt6.QtCore import Qt as QtCore
+
+    _app()
+    tab = IllustrationValuesTab()
+    detail = {
+        "vValue_for_NPT": 14_000.0, "vNPT_NSP": 60_000.0, "vNPT_Premium": 48_421.05,
+        "BDCV": 14_100.0, "vDCV_AfterChanges": 14_000.0, "vDCV_AfterPremium": 14_150.0,
+        "DCV DB": 100_000.0, "DCV COI Charge": 210.0, "DCV MD": 215.0,
+        "DCV Interest": 45.0, "vEDCV": 13_980.0,
+    }
+    tab.display_projection(_policy(), [replace(_state(), premium_allowance_detail=detail)])
+
+    grid = tab._tab_grids["TEFRA and TAMRA"]
+    assert _cell(grid, "NPT_Premium", QtCore.ItemDataRole.DisplayRole) == "48,421.05"
+    assert _cell(grid, "NPT_Premium", QtCore.ItemDataRole.ToolTipRole) is None
+    assert _cell(grid, "vEDCV", QtCore.ItemDataRole.DisplayRole) == "13,980.00"
+
+
 def test_adv_reg_ln_int_shows_only_interest_in_advance():
     from PyQt6.QtCore import Qt as QtCore
 

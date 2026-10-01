@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from suiteview.core import rates as rates_module
+from suiteview.illustration.core import ul_rates as ul_rates_module
 from suiteview.core.joint_survivor_coi import (
     Insured, Rating, active_table_code, ratings_with_table,
 )
@@ -189,7 +189,7 @@ def test_month_detail_is_the_run_scale_year_behind_the_coi():
 
 @pytest.fixture
 def fake_rates(monkeypatch):
-    monkeypatch.setattr(rates_module, "Rates", _FakeRatesDb)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: _FakeRatesDb())
 
 
 def test_recalc_detail_compares_before_and_after_for_a_re_rated_phase(fake_rates):
@@ -262,7 +262,7 @@ def _app():
 
 @pytest.fixture
 def joint_context(monkeypatch):
-    monkeypatch.setattr(input_context, "Rates", _FakeRatesDb)
+    monkeypatch.setattr(input_context, "ULRates", lambda *_args, **_kwargs: _FakeRatesDb())
 
 
 def test_policy_context_offers_the_plans_joint_classes_and_tables(joint_context):

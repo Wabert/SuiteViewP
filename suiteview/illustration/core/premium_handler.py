@@ -41,6 +41,19 @@ class PremiumResult:
     benefit_premium: float = 0.0
 
 
+def premium_load_rates(
+    config: PlancodeConfig, rates: IllustrationRates, rate_year: int,
+) -> tuple[float, float]:
+    """Target/excess premium-load rates for ``rate_year`` (PolicyRates AW/AX)."""
+    if config.premium_load == "Table":
+        return get_rate(rates, "tpp", rate_year), get_rate(rates, "epp", rate_year)
+    try:
+        flat = float(config.premium_load)
+    except (ValueError, TypeError):
+        return 0.0, 0.0
+    return flat, flat
+
+
 def apply_premium(
     av_beginning: float,
     policy: IllustrationPolicyData,
@@ -92,14 +105,7 @@ def apply_premium(
 
     # Load rates (PolicyRates AW/AX) — resolved every month, independent of
     # whether a premium is applied, so the Values tab can always display them.
-    if config.premium_load == "Table":
-        tpp_rate = get_rate(rates, "tpp", rate_year)
-        epp_rate = get_rate(rates, "epp", rate_year)
-    else:
-        try:
-            tpp_rate = epp_rate = float(config.premium_load)
-        except (ValueError, TypeError):
-            tpp_rate = epp_rate = 0.0
+    tpp_rate, epp_rate = premium_load_rates(config, rates, rate_year)
 
     if gross_premium <= 0:
         return PremiumResult(

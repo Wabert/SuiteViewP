@@ -13,6 +13,15 @@ test that needs new rate queries, run the suite once with live read access::
 
 Recording only executes the SELECTs the tests already issue and merges the
 results into the replay file; review the diff before committing it.
+
+Recording never removes entries. To drop queries no test issues any more (for
+example after a rate source moves), run the WHOLE suite once in prune mode::
+
+    $env:SUITEVIEW_PRUNE_UL_RATES = "1"
+    venv\\Scripts\\python.exe -m pytest -q -p no:cacheprovider tests
+
+Prune mode keeps only the entries the session replayed, and only rewrites the
+file when the session passes; a partial run would drop entries other tests need.
 """
 from __future__ import annotations
 
@@ -25,10 +34,15 @@ from typing import Any
 
 REPLAY_PATH = Path(__file__).parent / "golden" / "ul_rates_replay.json"
 RECORD_ENV = "SUITEVIEW_RECORD_UL_RATES"
+PRUNE_ENV = "SUITEVIEW_PRUNE_UL_RATES"
 
 
 def recording_enabled() -> bool:
     return os.environ.get(RECORD_ENV) == "1"
+
+
+def pruning_enabled() -> bool:
+    return os.environ.get(PRUNE_ENV) == "1"
 
 
 def _encode(value: Any) -> Any:
@@ -63,14 +77,26 @@ def load_replay() -> dict[str, list[list[Any]]]:
     return {entry["key"]: entry["rows"] for entry in data["queries"]}
 
 
+def _write_replay(queries: dict[str, list[list[Any]]]) -> None:
+    payload = {
+        "about": "Recorded UL_Rates query results for hermetic unit tests; see tests/ul_rates_replay.py.",
+        "queries": [{"key": key, "rows": queries[key]} for key in sorted(queries)],
+    }
+    REPLAY_PATH.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def save_replay(recorded: dict[str, list[list[Any]]]) -> None:
     merged = load_replay()
     merged.update(recorded)
-    payload = {
-        "about": "Recorded UL_Rates query results for hermetic unit tests; see tests/ul_rates_replay.py.",
-        "queries": [{"key": key, "rows": merged[key]} for key in sorted(merged)],
-    }
-    REPLAY_PATH.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    _write_replay(merged)
+
+
+def prune_replay(used_keys: set[str]) -> int:
+    """Keep only the recorded queries in ``used_keys``; return how many were dropped."""
+    current = load_replay()
+    kept = {key: rows for key, rows in current.items() if key in used_keys}
+    _write_replay(kept)
+    return len(current) - len(kept)
 
 
 class UnrecordedRateQuery(Exception):
@@ -78,10 +104,12 @@ class UnrecordedRateQuery(Exception):
 
 
 class _ReplayCursor:
-    def __init__(self, replay: dict, recorded: dict | None, real_cursor=None):
+    def __init__(self, replay: dict, recorded: dict | None, real_cursor=None,
+                 used: set | None = None):
         self._replay = replay
         self._recorded = recorded
         self._real = real_cursor
+        self._used = used
         self._rows: list[tuple] = []
 
     def execute(self, sql: str, params=None):
@@ -97,6 +125,8 @@ class _ReplayCursor:
                 f"Unit test issued an unrecorded UL_Rates query: {key}. "
                 f"Fake it in the test or re-record with {RECORD_ENV}=1 (see tests/ul_rates_replay.py)."
             )
+        if self._used is not None:
+            self._used.add(key)
         self._rows = [tuple(_decode(v) for v in row) for row in self._replay[key]]
         return self
 
@@ -114,14 +144,17 @@ class _ReplayCursor:
 class ReplayConnection:
     """Connection-shaped stand-in for UL_Rates (replay, or record-through)."""
 
-    def __init__(self, replay: dict, recorded: dict | None = None, real_connection=None):
+    def __init__(self, replay: dict, recorded: dict | None = None, real_connection=None,
+                 used: set | None = None):
         self._replay = replay
         self._recorded = recorded
         self._real = real_connection
+        self._used = used
 
     def cursor(self):
         return _ReplayCursor(self._replay, self._recorded,
-                             self._real.cursor() if self._real is not None else None)
+                             self._real.cursor() if self._real is not None else None,
+                             self._used)
 
     def execute(self, sql: str, params=None):
         if " ".join(sql.split()).upper() == "SELECT 1":

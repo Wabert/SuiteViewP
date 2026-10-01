@@ -79,6 +79,10 @@ class InforceOverrideSet:
     iul_asset_charge_rate: Optional[float] = None
     premium_allocations: Optional[dict[str, float]] = None
     index_illustration_rates: Optional[dict[str, float]] = None
+    # CVAT deemed cash value from the 93 segment (CyberLife Online), as of the
+    # projection's starting valuation date. Not in DB2, so this entry is its
+    # only source: None leaves it unknown (the NPT then fails loud).
+    deemed_cash_value: Optional[float] = None
 
     def is_empty(self) -> bool:
         return all(value is None for value in self.__dict__.values())
@@ -329,6 +333,12 @@ class IllustrationOptions:
     # repayments stop once the loan is repaid and the excess is discarded. (RERUN
     # always returns the leftover to the premium pool; this option gates it.)
     apply_excess_repayment_as_premium: bool = False
+
+    # Loan repayment order for arrears loans. Off (default, conservative) pays
+    # accrued loan interest before principal; on pays principal first, as
+    # CyberLife applies a PL repayment to principal while the accrued interest
+    # keeps running (fix E03). Advance loans are unaffected.
+    loan_repay_principal_first: bool = False
 
     # Pay Monthly Deduction premium — a per-month premium computed in-engine
     # right after the monthly deduction (it reuses the GP exception premium

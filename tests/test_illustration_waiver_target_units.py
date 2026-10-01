@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-import suiteview.core.rates as rates_module
+import suiteview.illustration.core.ul_rates as ul_rates_module
 from suiteview.illustration.core.target_premium import (
     build_target_detail_snapshots,
     compute_target_premiums,
@@ -19,24 +19,24 @@ from suiteview.illustration.models.policy_data import (
 class _Rates:
     pw_rate = 5.5
 
-    def get_band(self, plancode, specified_amount, issue_date=None):
+    def get_band(self, plancode, specified_amount, issue_date=None, **_kwargs):
         return 3 if specified_amount >= 100_000 else 2
 
-    def get_mtp(self, plancode, issue_age, sex, rateclass, band):
+    def get_mtp(self, plancode, issue_age, sex, rateclass, band, **_kwargs):
         return (3.6 if issue_age == 25 else 4.54) if band == 3 else 5.0
 
-    def get_ctp(self, plancode, issue_age, sex, rateclass, band):
+    def get_ctp(self, plancode, issue_age, sex, rateclass, band, **_kwargs):
         return (3.6 if issue_age == 25 else 5.76) if band == 3 else 5.0
 
-    def get_tbl1_mtp(self, plancode, issue_age, sex, rateclass, band):
+    def get_tbl1_mtp(self, plancode, issue_age, sex, rateclass, band, **_kwargs):
         return (0.9 if issue_age == 25 else 1.14) if band == 3 else 1.25
 
     get_tbl1_ctp = get_tbl1_mtp
 
-    def get_ben_mtp(self, *args):
+    def get_ben_mtp(self, *args, **_kwargs):
         return self.pw_rate
 
-    def get_ben_ctp(self, *args):
+    def get_ben_ctp(self, *args, **_kwargs):
         return self.pw_rate
 
 
@@ -72,7 +72,7 @@ def _policy(increased=False, benefit_key="39"):
 @pytest.fixture
 def rates(monkeypatch):
     rates = _Rates()
-    monkeypatch.setattr(rates_module, "Rates", lambda: rates)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: rates)
     return rates
 
 

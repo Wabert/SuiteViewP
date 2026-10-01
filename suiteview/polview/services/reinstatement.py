@@ -18,7 +18,7 @@ from math import isfinite
 from dateutil.relativedelta import relativedelta
 
 from suiteview.core.db2_connection import DB2ConnectionError
-from suiteview.core.rates import RatesError
+from suiteview.core.rates_errors import RatesError
 from suiteview.illustration.api import load_projection_basis, project_policy
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.calc_engine import IllustrationEngine

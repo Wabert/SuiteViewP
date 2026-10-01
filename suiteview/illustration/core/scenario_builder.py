@@ -78,7 +78,7 @@ def build_illustration_scenario(
             for name in (
                 "current_interest_rate", "sweep_account_min", "iul_declared_rate",
                 "iul_asset_charge_rate", "premium_allocations",
-                "index_illustration_rates",
+                "index_illustration_rates", "deemed_cash_value",
             )
         })
         apply_inforce_overrides(projectable_policy, assumptions)
@@ -526,6 +526,9 @@ def apply_inforce_overrides(
         policy.premium_allocations = dict(overrides.premium_allocations)
     if overrides.index_illustration_rates is not None:
         policy.index_illustration_rates = dict(overrides.index_illustration_rates)
+    # The DCV is never in DB2: the entered value (or None — unknown) is always
+    # the starting DCV, so a stale policy/snapshot value can never be reused.
+    policy.deemed_cash_value = overrides.deemed_cash_value
 
     if overrides.face_amount is not None:
         policy.face_amount = overrides.face_amount

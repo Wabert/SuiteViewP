@@ -7,13 +7,15 @@ Source mapping:
   demographics, death-benefit option and duration).
 * Coverage/rider/benefit structure: PolicyInformation ``get_base_coverages()``,
   ``get_riders()``, ``get_benefits()`` plus substandard ratings. Band lookups
-  stay at the rate boundary through ``Rates.get_band``.
+  stay at the rate boundary through ``ULRates.get_band`` (UL_Rates schema ``rates``).
 * Financial basis: PolicyInformation monthliversary values, premium history,
   policy totals, target/guideline amounts, loans, withdrawals, MEC/TAMRA fields
   and shadow-account seed values.
 * IUL basis: current fund buckets, impaired loan-collateral buckets, premium
-  allocations and UL_Rates index illustration assumptions for the requested
-  illustration date.
+  allocations and the index assumptions for the requested illustration date:
+  crediting parameters from schema ``rates`` (``ULRates``) plus illustrated
+  rates, benchmark and market returns from schema ``rates`` FUND rows
+  (``IndexAssumptionTables``).
 
 The public loader deliberately performs only source mapping and validation. It
 loads neither projection rates nor engine results; use ``suiteview.illustration.api``
@@ -24,11 +26,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from dateutil.relativedelta import relativedelta
+
 from suiteview.core.band_rules import rider_bands_as_base
+from suiteview.core.index_rates import IndexAssumptionTables
 from suiteview.polview.services.policy_service import get_policy_info
-from suiteview.core.rates import Rates
 from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
 from suiteview.illustration.core.target_premium import floor_monthly_cent
+from suiteview.illustration.core.ul_rates import ULRates
 from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
@@ -58,7 +63,7 @@ class PolicySourceSnapshot:
     policy_number: str
     region: str
     pi: object
-    rates_db: Rates
+    rates_db: ULRates
     illustration_date: date
     reinstatement_date: date | None
     plancode: str
@@ -146,7 +151,7 @@ def _load_policy_source_snapshot(
     """Read PolicyInformation once and cache source facts shared by builders."""
     pi = get_policy_info(policy_number, region, company_code)
     _validate_source_policy(pi, policy_number, region, reinstatement_date)
-    rates_db = Rates()
+    rates_db = ULRates(pi.company_code or "")
     illustration_date = illustration_date or date.today()  # noqa: DTZ011
     plancode = pi.coverages.base_plancode or ""
     plancode_config = load_plancode(plancode)
@@ -225,12 +230,12 @@ def _source_form_number(active_base_coverages: list, base_coverages: list) -> st
 
 
 def _source_face_units_band(
-    pi, rates_db: Rates, plancode: str, issue_date,
+    pi, rates_db: ULRates, plancode: str, issue_date,
     active_base_coverages: list, base_coverages: list, raw_riders: list,
     as_of_date: date, reinstatement_date, *, banded: bool = True,
 ) -> tuple[float, float, int]:
-    """Base face, units and UL rate band. ``banded=False`` (ISWL, whose rates come
-    from schema ``rates``) skips the legacy dbo band lookup and keeps band 1."""
+    """Base face, units and UL rate band. ``banded=False`` (ISWL, whose fixed-premium
+    basis bands itself in ``iswl_rates``) keeps band 1."""
     face_amount = float(pi.coverages.base_total_face_amount) if pi.coverages.base_total_face_amount else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
     band_face = float(pi.coverages.base_band_specified_amount)
@@ -326,23 +331,27 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
     index_benchmark_maximum = None
     index_market_returns = None
     if is_iul_plan(source.plancode):
-        index_illustration_rates = source.rates_db.get_index_illustration_rates(
-            pi.company_code or "",
-            source.plancode,
-            source.illustration_date,
-            reins_partner,
-        )
-        index_market_returns = source.rates_db.get_index_market_returns()
         index_strategy_parameters = source.rates_db.get_index_strategy_parameters(
             source.plancode,
             source.illustration_date,
             reins_partner,
         )
-        benchmark = source.rates_db.get_index_benchmark_minmax(
-            source.plancode,
-            source.illustration_date,
-            reins_partner,
-        )
+        tables = IndexAssumptionTables()
+        try:
+            index_illustration_rates = tables.get_index_illustration_rates(
+                pi.company_code or "",
+                source.plancode,
+                source.illustration_date,
+                reins_partner,
+            )
+            index_market_returns = tables.get_index_market_returns()
+            benchmark = tables.get_index_benchmark_minmax(
+                source.plancode,
+                source.illustration_date,
+                reins_partner,
+            )
+        finally:
+            tables.close()
         if benchmark is not None:
             index_benchmark_minimum = benchmark["minimum"]
             index_benchmark_maximum = benchmark["maximum"]
@@ -379,26 +388,48 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
     }
 
 
+def _policy_guaranteed_rate(source: PolicySourceSnapshot) -> float:
+    """The policy's operative guaranteed crediting rate (decimal).
+
+    CyberLife floors a declared-rate UL credit at the fixed fund's own
+    guaranteed rate, ``LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`` (percent), which can
+    exceed the plan GINT (1U135K00 U0482280/U0482386: 3.25% vs 3.00%; fix R02,
+    Robert 2026-10-01). ``LH_NON_TRD_POL.POL_GUA_ITS_RT`` is not that rate. With
+    several fixed-fund rows the highest applies; with none the plan GINT does."""
+    rates = [
+        float(row["GUA_FND_ITS_RT"])
+        for row in source.pi.fetch_table("LH_COV_FXD_FND_CTL") or []
+        if row.get("GUA_FND_ITS_RT") is not None
+    ]
+    best = max(rates, default=0.0)
+    return best / 100.0 if best > 0.0 else source.plancode_config.gint
+
+
 def _current_interest_rate(source: PolicySourceSnapshot) -> tuple[float, str]:
-    """Current declared crediting rate, floored at GINT.
+    """Current declared crediting rate, floored at the policy's guaranteed rate.
 
     Declared-rate UL plans use the latest current-scale CIRF rate for the plan's
-    ``CINT_Key`` fund in schema ``rates`` on the illustration date; with none loaded
-    they keep the plan GINT. IUL keeps GINT here (its fixed account uses the IUL
-    declared rate). ISWL uses the declared fixed-fund rate in schema ``rates`` on the
-    illustration date; where the plan has none loaded, the rate its current fund
-    buckets are credited (``VAL_PHA_ITS_RT``)."""
+    ``CINT_Key`` fund (RGA policies: its ``R`` reinsurance block when loaded) in
+    schema ``rates`` on the illustration date, floored at the fixed fund's
+    guaranteed rate; with none loaded they keep that guaranteed rate. IUL keeps
+    GINT here (its fixed account uses the IUL declared rate). ISWL uses the
+    declared fixed-fund rate in schema ``rates`` on the illustration date; where
+    the plan has none loaded, the rate its current fund buckets are credited
+    (``VAL_PHA_ITS_RT``).
+    """
     config = source.plancode_config
     if not config.is_iswl:
         if is_iul_plan(source.plancode):
             return config.gint, ""
         from suiteview.illustration.core.declared_rates import ul_current_declared_rate
 
+        guaranteed = _policy_guaranteed_rate(source)
         declared = ul_current_declared_rate(
             source.pi.company_code or "", source.plancode, source.illustration_date,
-            config.gint, cint_key=config.cint_key)
+            guaranteed, cint_key=config.cint_key,
+            rga_indicator=str(policy_attr(source.pi, "reins_partner", "") or ""))
         if declared is None:
-            return config.gint, ""
+            return guaranteed, ""
         return declared.rate, declared.source
     from suiteview.illustration.core.iswl_rates import (
         iswl_current_credited_rate,
@@ -723,7 +754,7 @@ def _rider_info(source: PolicySourceSnapshot, rider, occurrence: int) -> RiderIn
         face_amount=rider_face,
         units=rider_units,
         vpu=float(rider.vpu) if rider.vpu else 1000.0,
-        band=int(_rider_band(source, rider_plancode, rider_face)),
+        band=int(_rider_band(source, rider_plancode, rider_face, rider.issue_date)),
         table_rating=rider.table_rating or 0,
         flat_extra=float(rider.flat_extra) if rider.flat_extra else 0.0,
         maturity_date=rider.maturity_date,
@@ -739,13 +770,14 @@ def _rider_info(source: PolicySourceSnapshot, rider, occurrence: int) -> RiderIn
     )
 
 
-def _rider_band(source: PolicySourceSnapshot, rider_plancode: str, rider_face: float) -> int:
+def _rider_band(source: PolicySourceSnapshot, rider_plancode: str, rider_face: float,
+                rider_issue_date) -> int:
     if source.plancode_config.is_iswl:
-        # ISWL riders are premium-funded: no rider COI is charged, so no dbo band lookup.
+        # ISWL riders are premium-funded: no rider COI is charged, so no band lookup.
         return 1
     if rider_bands_as_base(rider_plancode):
         return source.band
-    raw_rider_band = source.rates_db.get_band(rider_plancode, rider_face)
+    raw_rider_band = source.rates_db.get_band(rider_plancode, rider_face, issue_date=rider_issue_date)
     return raw_rider_band if raw_rider_band is not None else 1
 
 
@@ -840,8 +872,10 @@ def _translate_sex(code: str) -> str:
 
 
 def _completed_months(start: date, end: date) -> int:
+    """Whole months from ``start`` to ``end``, with month-end clamped
+    monthliversaries counted (issue 7/31 -> 2/29 is 7 months; E14)."""
     months = (end.year - start.year) * 12 + (end.month - start.month)
-    if end.day < start.day:
+    if end < start + relativedelta(months=months):
         months -= 1
     return max(months, 0)
 

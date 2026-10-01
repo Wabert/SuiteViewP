@@ -23,11 +23,10 @@ def main():
     parser.add_argument("--native", action="store_true")
     args = parser.parse_args()
 
-    from suiteview.core.rates import Rates, owned_rate_connections
+    from suiteview.illustration.core.ul_rates import ULRates
 
-    with owned_rate_connections():
-        policy = _load_policy_data(args.policy)
-        rates = Rates()
+    policy = _load_policy_data(args.policy)
+    with ULRates(policy.company_code) as rates:
         rows = []
         for seg in policy.segments:
             item = {
@@ -36,12 +35,10 @@ def main():
                 "age": seg.issue_age, "sex": seg.rate_sex, "class": seg.rate_class,
                 "band": seg.band, "original_band": seg.original_band,
             }
-            for kind in ("MTP", "CTP", "TBL1MTP", "TBL1CTP"):
-                sql, params = rates._create_sql(
-                    kind, policy.plancode, seg.issue_age, seg.rate_sex,
-                    seg.rate_class, 1, seg.band, "", None)
-                raw = rates._fetch_rates(sql, params)
-                item[kind] = None if raw is None else [list(row) for row in raw]
+            lookup = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class, seg.band)
+            for kind, getter in (("MTP", rates.get_mtp), ("CTP", rates.get_ctp),
+                                 ("TBL1MTP", rates.get_tbl1_mtp), ("TBL1CTP", rates.get_tbl1_ctp)):
+                item[kind] = getter(*lookup, issue_date=seg.issue_date)
             rows.append(item)
         report = {
             "policy": policy.policy_number, "company": policy.company_code,

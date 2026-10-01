@@ -935,10 +935,10 @@ def _append_snapshot_policy_limitations(
             "The coverage-target XP record is current, not historical. A historical "
             "shadow amount must be entered before projection.")
     if policy.is_cvat:
-        snapshot.deemed_cash_value = snapshot.account_value
         snapshot.limitations.append(
-            "CVAT deemed-value display follows the Policy tab's account-value convention; "
-            "historical NSP and tax-test calculations are not reconstructed.")
+            "CVAT deemed cash value is not in DB2 (93 segment, CyberLife Online): "
+            "enter the historical DCV on the Input tab; historical NSP and tax-test "
+            "calculations are not reconstructed.")
     if _is_iul(policy):
         snapshot.limitations.append(_IUL_TOTAL_BASIS)
 

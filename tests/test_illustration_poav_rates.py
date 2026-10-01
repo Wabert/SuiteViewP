@@ -30,7 +30,7 @@ class _FakeRates:
         self.calls.append((rate_type, scale, band))
         return [None, 0.0] if rate_type == "COI" else []
 
-    def get_band(self, plancode, face, issue_date=None):
+    def get_band(self, plancode, face, issue_date=None, **_kwargs):
         return 2
 
     def get_mtp(self, *args, **kwargs):
@@ -99,7 +99,7 @@ def test_poav_loader_rejects_unknown_table_or_band():
 
 def test_rate_loader_uses_local_poav_table_for_current_and_guaranteed(monkeypatch):
     fake = _FakeRates()
-    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: fake)
     config = PlancodeConfig(plancode="TESTPOAV", poav_table="1")
 
     current = load_rates(_policy(), config)
@@ -129,27 +129,27 @@ def test_rate_loader_expense_scale_governs_all_expense_rates(monkeypatch):
 
     # Current run: all expense rates at scale 1.
     fake = _FakeRates()
-    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: fake)
     load_rates(_policy(), config)
     assert _expense_scales(fake) == {1}
 
     # Guideline/TAMRA basis (coi_scale=0, default expense_scale): fees stay current.
     fake = _FakeRates()
-    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: fake)
     load_rates(_policy(), config, coi_scale=0)
     assert _expense_scales(fake) == {1}
     assert ("COI", 0, 1) in fake.calls
 
     # Guaranteed illustration side: all expense rates at the guaranteed scale.
     fake = _FakeRates()
-    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: fake)
     load_rates(_policy(), config, coi_scale=0, expense_scale=0)
     assert _expense_scales(fake) == {0}
 
 
 def test_rate_loader_rejects_invalid_expense_scale(monkeypatch):
     fake = _FakeRates()
-    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: fake)
     config = PlancodeConfig(plancode="TESTPOAV", poav_table="0")
     with pytest.raises(ValueError, match="Expense scale must be 0 or 1"):
         load_rates(_policy(), config, expense_scale=2)
@@ -183,10 +183,10 @@ def test_monthly_deduction_applies_poav_rate_to_positive_account_value():
 
 
 def test_policy_band_reload_keeps_guaranteed_poav_basis(monkeypatch):
-    from suiteview.core import rates as core_rates
+    from suiteview.illustration.core import ul_rates as ul_rates_module
 
     fake = _FakeRates()
-    monkeypatch.setattr(core_rates, "Rates", lambda: fake)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: fake)
     rates = IllustrationRates(expense_scale=0)
 
     _reload_policy_band_rates(

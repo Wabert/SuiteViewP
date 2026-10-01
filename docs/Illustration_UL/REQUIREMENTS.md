@@ -195,7 +195,10 @@ When running an inforce illustration, the following values are injected at the p
 | MAP cease date | DB2 |
 
 ### 3.3 UL Rates — SQL Server (Existing)
-SuiteView's `Rates` class retrieves rates from the UL_Rates SQL Server database. Confirmed working rate types:
+RERUN reads UL rates from UL_Rates schema `rates` through `ULRates`
+(`suiteview/illustration/core/ul_rates.py`; see RERUN_MANUAL "RERUN rate source").
+The engine keeps these rate names (the schema rate type each reads is in the
+`ul_rates` module docstring):
 
 | Rate Type | Description | Varies By | Example Value |
 |---|---|---|---|
@@ -217,7 +220,7 @@ SuiteView's `Rates` class retrieves rates from the UL_Rates SQL Server database.
 | EPU | Extended Paid-Up rate | plancode, age, sex, rateclass, band, duration | 0.05417 |
 
 ### 3.4 Rates_Control Data — JSON (New)
-The Rates_Control sheet contains rate tables and parameters that are NOT in the UL_Rates database. These will be exported to JSON files. Tables that ARE in the UL_Rates database will be retrieved via the existing `Rates` class and do NOT need JSON storage.
+The Rates_Control sheet contains rate tables and parameters that are NOT in the UL_Rates database. These will be exported to JSON files. Tables that ARE in the UL_Rates database will be retrieved via `ULRates` and do NOT need JSON storage.
 
 **Tables stored as JSON (not in UL_Rates DB):**
 
@@ -566,12 +569,12 @@ For debugging and validation, the engine should expose monthly-level values acro
   - **AV bonus (EXECUL):** When AV > $100,000
 
 ### 10.2 Blend (IUL Products)
-- Current per-fund illustrated rates load from `SV_INDEX_ILL_RATES` as of the
-  illustration run date (the current date), not the policy valuation date, and
-  remain editable for the illustration scenario.
+- Current per-fund illustrated rates load from schema `rates` `IDX_ILL` FUND
+  rows as of the illustration run date (the current date), not the policy
+  valuation date, and remain editable for the illustration scenario.
 - Current cap, floor, participation, spread, specified-rate, multiplier, and
-  asset-fee parameters load from `SV_INDEX_PARAMS` as of the illustration run
-  date.
+  asset-fee parameters load from UL_Rates schema `rates` (current-scale `IDX_*`
+  fund rates, reinsurance block `R` for RGA) as of the illustration run date.
 - Fixed and index fund rates blended by allocation percentage
 - Single blended rate applied to account value
 
@@ -584,10 +587,10 @@ For debugging and validation, the engine should expose monthly-level values acro
   and lists allocation percentages only for funds available on the product.
 - The assumptions page lists illustrated rates only for positively allocated
   index strategies, plus the fixed-account rate when fixed has an allocation.
-- Benchmark-strategy average minimum/maximum rates load from
-  `SV_INDEX_BENCHMARK_MINMAX` as of the illustration run date.
+- Benchmark-strategy average minimum/maximum rates load from schema `rates`
+  `IDX_BENCH_MIN` / `IDX_BENCH_MAX` FUND rows as of the illustration run date.
 - The historical index rate ledger reads the most recent 20 full calendar years
-  from `SV_INDEX_MARKET_RETURNS`, applies each allocated strategy's current
+  from schema `rates` `MKT_RETURN` rows, applies each allocated strategy's current
   parameters, and reports 5-, 10-, 15-, and 20-year geometric compound yields.
 - Market mappings are SP500 for IX/IF/IS/IC/IP/IR, NASDAQ100 for NX, and
   SPMARC5 for M1.

@@ -13,7 +13,7 @@ argument) and write JSON to stdout.
 | `rerun/` | RERUN workbook COM bridge + engine comparison (`rerun_com`, `compare_rerun_vs_app`, `compare_case`, saved-case dumps, `build_test_matrix`) — workbooks live in the work-laptop archive; ISWL live checks (`verify_iswl_rollforward`, `run_iswl_illustration`, `build_iswl_plancode_rows`, `find_iswl_policies`, `sample_iswl_receipts`, `probe_iswl_history`); par whole life (`verify_parwl_inforce`, `run_parwl_illustration`, `find_parwl_policies`, `build_cyberlife_mortality`); indeterminate premium term (`verify_term_inforce`, `run_term_illustration`, `find_term_policies`) |
 | `engine/` | Illustration engine verification harnesses (`check_guideline_*`, `check_target_premium`, ratchet/benefit checks, `drive_illustration_app`) |
 | `glp/` | The GLP forecast batch pipeline (policy list → fetch AV/debt → append columns → batch run → report) |
-| `rates/` | UL_Rates / SV_INDEX / rate-workup tooling (`query_ul_rates`, `run_rate_workup`, `create_sv_index_*`, `verify_sv_index_*`, mortality loader) |
+| `rates/` | UL_Rates schema-`rates` / rate-workup tooling (`query_ul_rates`, `run_rate_workup`, `verify_index_strategy_lookup`, mortality loader) |
 | `policyrecord/` | CyberDoc / policy-record segment screens (`build_seg*`, `probe_segment*`, `gen_seg02_fields`, `build_cyberdoc_index`) |
 | `audit/` | Audit / File Sources / source-dashboard UI harnesses and data migrations |
 | `app/` | App-level dev UX (`take_screenshot`, `sandbox_suiteview`, `check_imports`, `generate_testing_plan`, `create_taskbar_shortcut`; live window checks `verify_rerun_joint_window`, `verify_rerun_parwl_window`, `verify_rerun_term_window`) |

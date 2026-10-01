@@ -58,6 +58,15 @@ _MODE_FROM_FREQ = {1: "M", 3: "Q", 6: "S", 12: "A"}
 # Backstop so a pathological policy can never loop the upper-bracket search.
 _MAX_BRACKET_DOUBLINGS = 24
 
+# Clean-transition search: a modest window above the survive-minimum (start at
+# +1%, grow 5% per step, 6 steps → at most about +35%), and at most one payment
+# clipped by the guideline cap (the one that exhausts the room) before the
+# exception period begins.
+_CLEAN_WINDOW_START = 1.01
+_CLEAN_WINDOW_GROWTH = 1.05
+_CLEAN_WINDOW_STEPS = 6
+_MAX_CLIPPED_PAYMENTS = 1
+
 
 class LevelToExceptionError(ValueError):
     """The solve cannot run for this policy (no level premium solution)."""
@@ -165,12 +174,15 @@ def solve_level_to_exception(
             premiums, for an initial bridge before regular modal billing resumes.
         resolution: rounding granularity; the result is rounded UP to this so it
             lands on the in-force side of the lapse boundary.
-        fund_transition_cleanly: prefer the (slightly higher) premium that keeps
+        fund_transition_cleanly: prefer a (slightly higher) premium that keeps
             the policy fully self-funded until the guideline room is exhausted, so
             no GP exception premium fires while room remains — the "perfectly level
-            right up to the exception period" contract. Never returns less than the
-            plain survive-minimum; falls back to it when a clean solution is not
-            reachable. Turn off to solve only for bare survival.
+            right up to the exception period" contract. Only a modest window above
+            the survive-minimum is searched, and a premium the guideline cap clips
+            payment after payment is never accepted (the pattern must stay level).
+            Never returns less than the plain survive-minimum; falls back to it
+            when no clean level premium is in the window. Turn off to solve only
+            for bare survival.
         horizon_months: stop the projection this many months out and solve only
             for staying in force that far, instead of to maturity. The minimum is
             then often $0 — a policy whose account value alone carries it to the
@@ -192,9 +204,9 @@ def solve_level_to_exception(
 
     # CVAT policies have no guideline premium cap and no GLP exception machinery:
     # the solve runs with exceptions off and the level premium simply endows.
-    # TAMRA conformance is also forced off — the CVAT TAMRA cap rides on the
-    # necessary-premium test (vNPT_Premium), which the engine doesn't model yet,
-    # so leaving it on would cap every premium to zero past the 7-pay window.
+    # TAMRA conformance is also forced off. The CVAT TAMRA cap past the 7-pay
+    # window is the necessary-premium test (vNPT_Premium, deemed_cash_value.py),
+    # which needs a user-entered deemed cash value; the solve does not demand it.
     if policy.is_cvat:
         allow_exceptions = False
         conform_to_tamra = False
@@ -250,6 +262,7 @@ def solve_level_to_exception(
         if (options.recognize_inforce_exception_period
                 and policy.in_exception_period):
             return True
+        clipped_months = 0
         for s in states:
             if float(getattr(s, "gp_exception_prem_gross", 0.0) or 0.0) > 1e-9:
                 # Guideline room left AFTER this month's billable premium: the
@@ -260,8 +273,10 @@ def solve_level_to_exception(
                     s.prem_less_wd
                     + s.applied_scheduled_premium
                     + s.applied_lumpsum)
-                return room <= 1.0
-        return True
+                return room <= 1.0 and clipped_months <= _MAX_CLIPPED_PAYMENTS
+            if getattr(s, "premium_capped", False):
+                clipped_months += 1
+        return clipped_months <= _MAX_CLIPPED_PAYMENTS
 
     iterations = 0
 
@@ -295,14 +310,34 @@ def solve_level_to_exception(
 
     premium = survive_premium
     if fund_transition_cleanly:
-        # Prefer the higher premium that funds the transition year cleanly (no GP
-        # exception premium while guideline room remains). Falls back to the
-        # survive-minimum if that is unreachable within the bracket; never returns
-        # LESS than the survive-minimum, so it can only ADD funding, never cause a
-        # lapse that the baseline avoided.
-        clean_premium = solve_for(cleanly_funded)
-        if clean_premium is not None:
-            premium = max(survive_premium, clean_premium)
+        # Prefer a slightly higher premium that funds the transition year cleanly
+        # (no GP exception premium while guideline room remains) while still
+        # paying level. "Clean" is NOT monotone in the premium: far above the
+        # survive-minimum the guideline cap clips payment after payment and some
+        # high premium can look clean by coincidence, so search only a modest
+        # window above the survive-minimum and never accept a clipped pattern.
+        # Falls back to the survive-minimum when no clean premium is in the
+        # window; never returns LESS than it, so it can only ADD funding.
+        clean_premium = survive_premium
+        if not cleanly_funded(project(survive_premium)):
+            iterations += 1
+            found = bracket_and_bisect(
+                lambda candidate: cleanly_funded(project(candidate)),
+                survive_premium,
+                max(round(survive_premium * _CLEAN_WINDOW_START, 2),
+                    round(survive_premium + resolution, 2)),
+                growth=_CLEAN_WINDOW_GROWTH,
+                tol=resolution / 2.0,
+                round_to=resolution,
+                round_up=True,
+                bracket_max_iter=_CLEAN_WINDOW_STEPS,
+            )
+            iterations += found.evaluations
+            clean_premium = found.value if found.bracketed else survive_premium
+            if not cleanly_funded(project(clean_premium)):
+                clean_premium = survive_premium
+            iterations += 1
+        premium = max(survive_premium, clean_premium)
 
     states = project(premium)
     iterations += 1

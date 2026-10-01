@@ -55,36 +55,6 @@ BENEFIT_RATE_TABLES = [
 ]
 
 
-def _discover_sv_index_tables(source_conn) -> list[str]:
-    """Return all SV_INDEX* base tables in the live UL_Rates database.
-
-    These hold IUL index reference data (illustration rates, strategy params,
-    benchmark min/max, market returns). They are policy-independent whole-table
-    snapshots — not plancode-scoped — so they are copied in full.
-    """
-    cursor = source_conn.cursor()
-    try:
-        cursor.execute(
-            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
-            "WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE 'SV_INDEX%' "
-            "ORDER BY TABLE_NAME"
-        )
-        return [str(row[0]) for row in cursor.fetchall()]
-    finally:
-        cursor.close()
-
-
-def _fetch_whole_table(source_conn, table_name: str) -> tuple[list[str], list[tuple]]:
-    cursor = source_conn.cursor()
-    try:
-        cursor.execute(f"SELECT * FROM {table_name}")
-        columns = [desc[0] for desc in cursor.description] if cursor.description else []
-        rows = [tuple(row) for row in cursor.fetchall()]
-        return columns, rows
-    finally:
-        cursor.close()
-
-
 def _existing_metadata(conn: sqlite3.Connection, key: str) -> str:
     """Return a metadata VALUE from the target DB, or '' if absent."""
     if not _table_exists(conn, "SUITEVIEW_LOCAL_RATE_EXPORT_METADATA"):
@@ -140,11 +110,6 @@ def _parse_args() -> argparse.Namespace:
         "--append",
         action="store_true",
         help="Append/update selected plancodes in the existing SQLite file instead of rebuilding it.",
-    )
-    parser.add_argument(
-        "--no-sv-index",
-        action="store_true",
-        help="Skip copying the SV_INDEX* IUL index reference tables (copied in full by default).",
     )
     return parser.parse_args()
 
@@ -256,11 +221,9 @@ def _export_rates(
     base_plancode: str,
     benefit_types: list[str],
     append: bool,
-    include_sv_index: bool = True,
 ) -> dict:
     exported = []
     skipped = []
-    sv_index_tables: list[str] = []
 
     plancode_where, plancode_params = _where_in("Plancode", plancodes)
     for table_name in PLANCODE_RATE_TABLES:
@@ -294,20 +257,6 @@ def _export_rates(
                 _write_table(target_conn, table_name, columns, rows)
             exported.append({"table": table_name, "rows": len(rows)})
 
-    # SV_INDEX* IUL reference tables are policy-independent whole-table snapshots.
-    # They are fully replaced (drop + rewrite) in both rebuild and append modes so
-    # the local fixture always carries the complete current index data.
-    if include_sv_index:
-        for table_name in _discover_sv_index_tables(source_conn):
-            sv_index_tables.append(table_name)
-            try:
-                columns, rows = _fetch_whole_table(source_conn, table_name)
-            except Exception as exc:
-                skipped.append({"table": table_name, "reason": str(exc)})
-                continue
-            _write_table(target_conn, table_name, columns, rows)
-            exported.append({"table": table_name, "rows": len(rows)})
-
     # In append mode keep the metadata as a running union so it reflects every
     # plancode present in the file, not just this invocation's additions.
     meta_plancodes = plancodes
@@ -322,7 +271,6 @@ def _export_rates(
             ("plancodes", ",".join(meta_plancodes)),
             ("base_plancode", base_plancode),
             ("benefit_types", ",".join(benefit_types)),
-            ("sv_index_tables", ",".join(sv_index_tables)),
             ("exported_at", datetime.now().isoformat(timespec="seconds")),
         ],
     )
@@ -330,7 +278,6 @@ def _export_rates(
     return {
         "exported_tables": exported,
         "skipped_tables": skipped,
-        "sv_index_tables": sv_index_tables,
         "plancodes_in_file": meta_plancodes,
     }
 
@@ -357,7 +304,6 @@ def main() -> None:
             args.base_plancode.strip(),
             benefit_types,
             args.append,
-            include_sv_index=not args.no_sv_index,
         )
         target_conn.commit()
     finally:

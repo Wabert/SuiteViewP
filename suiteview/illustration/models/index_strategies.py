@@ -3,8 +3,8 @@
 The strategy catalog ships in ``plancodes/index_strategies.json`` (ported from
 the RERUN workbook by ``tools/rerun/extract_index_strategies.py``). Current
 illustration rates and effective strategy parameters are overlaid from
-``SV_INDEX_ILL_RATES`` and ``SV_INDEX_PARAMS`` when a policy loads. A plancode
-with a catalog row is an IUL plan illustrated with a **blended crediting rate**:
+schema ``rates`` FUND rows when a policy loads. A plancode with a catalog row is
+an IUL plan illustrated with a **blended crediting rate**:
 the user allocates premium across strategies, each carries its current
 illustrated rate, and the engine credits one blended rate — RERUN INPUT rows
 36–54 / CalcEngine UO–UQ.

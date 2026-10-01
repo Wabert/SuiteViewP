@@ -10,4 +10,11 @@ from .cl_polrec.policy_data_classes import (
     ActivityInfo, PolicyNotFoundError,
 )
 from suiteview.core.db2_connection import DB2ConnectionError
-from suiteview.core.rates import Rates, RatesError, get_rates_instance
+from suiteview.core.rates import Rates, get_rates_instance
+from suiteview.core.rates_errors import RatesError
+
+__all__ = [
+    "PolicyInformation", "load_policy", "close_all_connections", "ReinsuranceInformation",
+    "CoverageInfo", "BenefitInfo", "AgentInfo", "LoanInfo", "MVValueInfo", "ActivityInfo",
+    "PolicyNotFoundError", "DB2ConnectionError", "Rates", "get_rates_instance", "RatesError",
+]

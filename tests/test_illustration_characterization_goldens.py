@@ -57,12 +57,14 @@ def _golden_text(value) -> str:
 
 def _build_policy(source, *, iul: bool = False, config: PlancodeConfig | None = None):
     old_get_policy_info = illustration_policy_service.get_policy_info
-    old_rates = illustration_policy_service.Rates
+    old_rates = illustration_policy_service.ULRates
+    old_tables = illustration_policy_service.IndexAssumptionTables
     old_load_plancode = illustration_policy_service.load_plancode
     old_is_iul_plan = illustration_policy_service.is_iul_plan
     try:
         illustration_policy_service.get_policy_info = lambda *_args: source
-        illustration_policy_service.Rates = _FakeRates
+        illustration_policy_service.ULRates = lambda *_args, **_kwargs: _FakeRates()
+        illustration_policy_service.IndexAssumptionTables = _FakeRates
         illustration_policy_service.load_plancode = (
             lambda _plancode: config
             or PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0)
@@ -74,7 +76,8 @@ def _build_policy(source, *, iul: bool = False, config: PlancodeConfig | None = 
         )
     finally:
         illustration_policy_service.get_policy_info = old_get_policy_info
-        illustration_policy_service.Rates = old_rates
+        illustration_policy_service.ULRates = old_rates
+        illustration_policy_service.IndexAssumptionTables = old_tables
         illustration_policy_service.load_plancode = old_load_plancode
         illustration_policy_service.is_iul_plan = old_is_iul_plan
 

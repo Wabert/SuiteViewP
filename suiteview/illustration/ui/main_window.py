@@ -74,6 +74,7 @@ from .parwl_inputs import ParWLInputError
 from .parwl_workspace import ParWLWorkspace
 from .term_workspace import TermInputError, TermWorkspace
 from .policy_list import IllustrationPolicyListWindow
+from .plancode_table_view import PlancodeTableWindow
 from .presenter import IllustrationPresenter, IllustrationSessionState
 from .policy_tab import IllustrationPolicyTab
 from .compare_tab import IllustrationCompareTab
@@ -86,6 +87,7 @@ from .value_rollback import (
 )
 from .styles import (
     GOLD_TEXT,
+    HEADER_HAMBURGER_BUTTON_STYLE,
     HEADER_MENU_BUTTON_STYLE,
     HEADER_MENU_STYLE,
     HEADER_PANEL_BUTTON_STYLE,
@@ -174,6 +176,8 @@ class IllustrationWindow(FramelessWindowBase):
         # policy/case. Built before super().__init__ so FramelessWindowBase can
         # place it in the title bar via header_widgets.
         self._build_options_menu()
+        self._build_hamburger_menu()
+        self._plancode_table_window: Optional[PlancodeTableWindow] = None
 
         self.tips_btn = QPushButton("Tips")
         self.tips_btn.setStyleSheet(HEADER_MENU_BUTTON_STYLE)
@@ -188,6 +192,7 @@ class IllustrationWindow(FramelessWindowBase):
             parent=parent,
             header_colors=ILLUSTRATION_HEADER_COLORS,
             border_color=ILLUSTRATION_BORDER_COLOR,
+            header_prefix_widgets=[self.hamburger_btn],
             header_widgets=[
                 self.open_polview_btn,
                 self.options_btn,
@@ -205,7 +210,7 @@ class IllustrationWindow(FramelessWindowBase):
         self._normal_header_button_styles = [
             (button, button.styleSheet())
             for button in self.header_bar.findChildren(QPushButton)
-            if button in (self.options_btn, self.tips_btn)
+            if button in (self.hamburger_btn, self.options_btn, self.tips_btn)
             or button.toolTip() in {"Minimize", "Maximize", "Close"}
         ]
         self._refresh_rollback_controls()
@@ -269,6 +274,38 @@ class IllustrationWindow(FramelessWindowBase):
         menu.addAction(self._rollback_action)
 
         self.options_btn.setMenu(menu)
+
+    def _build_hamburger_menu(self):
+        """Build the left-edge ☰ header menu of reference views."""
+        self.hamburger_btn = QPushButton("☰")
+        self.hamburger_btn.setStyleSheet(HEADER_HAMBURGER_BUTTON_STYLE)
+        self.hamburger_btn.setToolTip("Menu")
+
+        menu = QMenu(self.hamburger_btn)
+        menu.setStyleSheet(HEADER_MENU_STYLE)
+        self._plancode_table_action = QAction("Plancode Table…", menu)
+        self._plancode_table_action.setToolTip(
+            "View the illustration plancode table (plancode_table.json)")
+        self._plancode_table_action.triggered.connect(self.show_plancode_table)
+        menu.addAction(self._plancode_table_action)
+
+        self.hamburger_btn.setMenu(menu)
+
+    def show_plancode_table(self):
+        """Open (or raise) the read-only Plancode Table window."""
+        window = self._plancode_table_window
+        if window is None:
+            try:
+                window = PlancodeTableWindow()
+            except Exception as exc:
+                logger.exception("Could not open the plancode table")
+                QMessageBox.critical(
+                    self, "Plancode Table", f"Could not load the plancode table:\n{exc}")
+                return
+            self._plancode_table_window = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
 
     def show_tips(self):
         """Open (or raise) the non-modal RERUN Tips cheat-sheet."""
@@ -1883,6 +1920,8 @@ class IllustrationWindow(FramelessWindowBase):
     def closeEvent(self, event):
         if hasattr(self, "policy_list_window") and self.policy_list_window.isVisible():
             self.policy_list_window.hide()
+        if self._plancode_table_window is not None:
+            self._plancode_table_window.close()
         if self._db:
             self._db.close()
             self._db = None

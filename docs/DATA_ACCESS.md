@@ -34,12 +34,20 @@ tabs, loaders or services.
   named sources (`policy_db2`, `ul_rates`) and ODBC/Access files.
 - `DB2Connection` may cache policy DB2 connections by region for existing
   PolView/Illustration behavior, but it opens them through the factory.
-- `Rates`, RateManager repositories and schema discovery open their ODBC handles
-  through the same factory.
+- `Rates` (the legacy dbo views, still used by PolView, ABR and RateManager),
+  RateManager repositories and schema discovery open their ODBC handles through
+  the same factory.
 - `suiteview.core.rates_schema.RatesSchemaRepository` reads UL_Rates schema
   `rates` (the four-structure rate tables owned by `Cyberlife_Rates\Rates_Database`)
   read-only through the same factory. Local development data has no `rates`
   schema, so it raises `ConnectionUnavailable` when `SUITEVIEW_LOCAL_DATA=1`.
+  RERUN reads all of its UL/IUL rates this way (`suiteview.illustration.core.ul_rates.ULRates`);
+  joint survivor plan lookups shared with PolView are
+  `suiteview.core.joint_survivor_rates.JointSurvivorRateSource`.
+- `suiteview.core.index_rates.IndexAssumptionTables` reads IUL illustrated
+  rates, benchmark min/max and market returns from UL_Rates schema `rates`
+  FUND rows (`IDX_ILL`, `IDX_BENCH_MIN`, `IDX_BENCH_MAX`, `MKT_RETURN`) through
+  `RatesSchemaRepository`.
 - `suiteview.data.database` and `suiteview.data.repositories` are only local
   profile SQLite storage (`~/.suiteview/data/suiteview.db`): saved connections,
   cached metadata, bookmarks and email helper data. They are not live-source

@@ -201,7 +201,7 @@ def test_issue_band_and_scales_resolve_at_rate_boundary(monkeypatch, coi_scale, 
     calls = []
 
     class FakeRates:
-        def get_band(self, plancode, face, issue_date=None):
+        def get_band(self, plancode, face, issue_date=None, **_kwargs):
             calls.append(("band", plancode, face, issue_date))
             return 3 if face >= 250_000 else 1
 
@@ -209,16 +209,22 @@ def test_issue_band_and_scales_resolve_at_rate_boundary(monkeypatch, coi_scale, 
             calls.append((kind, plancode, kwargs.get("band"), kwargs.get("scale")))
             return [None, 0.1]
 
-        def get_mtp(self, *args):
+        def get_mtp(self, *args, **_kwargs):
             calls.append(("MTP", args))
             return 1
 
-        def get_ctp(self, *args):
+        def get_ctp(self, *args, **_kwargs):
             return 2
 
-    monkeypatch.setattr(rate_loader, "Rates", FakeRates)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: FakeRates())
     policy = build_illustration_scenario(_policy(), run_from_issue=True).projectable_policy
     config = PlancodeConfig(plancode="TEST", poav_table="0")
+    # The issue scenario restores the shadow account; this plain test plancode
+    # has no shadow configuration, which must fail loud (E10/R05).
+    assert policy.has_shadow_account
+    with pytest.raises(rate_loader.RateLookupError, match="no shadow-account configuration"):
+        rate_loader.load_rates(policy, config, coi_scale, expense_scale)
+    policy.ccv_active = False
     result = rate_loader.load_rates(policy, config, coi_scale, expense_scale)
     assert policy.band == 3
     assert all(s.band == s.original_band == 3 for s in policy.segments)
@@ -244,7 +250,7 @@ def test_excluded_base_banding_rider_does_not_inflate_edited_issue_band():
     ).projectable_policy
 
     class FakeRates:
-        def get_band(self, plancode, face, issue_date=None):
+        def get_band(self, plancode, face, issue_date=None, **_kwargs):
             assert face == 60_000 and issue_date == ISSUE
             return 1
 

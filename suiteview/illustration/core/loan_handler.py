@@ -86,6 +86,10 @@ class LoanStepInput:
     adv_pref_factor: float = 0.0
     prem_to_loan_from_lumpsum: float = 0.0
     prem_to_loan_from_scheduled: float = 0.0
+    # Arrears repayment order: False pays accrued interest before principal
+    # (RERUN default, conservative); True pays principal first, as CyberLife's
+    # PL repayment does while the accrued interest keeps running.
+    principal_first: bool = False
 
 
 def capitalize_loans(
@@ -316,6 +320,8 @@ def repay_loan(inputs: LoanStepInput) -> LoanRepayResult:
 
     Arrears loans: cash pays preferred interest, regular interest, preferred
     principal, then regular principal. Variable interest/principal follow.
+    With ``principal_first`` the principal buckets are paid before their
+    accrued interest (CyberLife PL repayments; fix E03, user option).
 
     Returns a :class:`LoanRepayResult` (does not add new/variable loans — that
     happens separately). ``applied_repayment`` is the total cash applied to the
@@ -375,12 +381,20 @@ def repay_loan(inputs: LoanStepInput) -> LoanRepayResult:
         + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
     )                                                                            # MF = SUM(LX:MC)
     remaining = attempted
-    pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
-    rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
-    pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
-    rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
-    vbl_accrued, remaining = _reduce_bucket(cap_loan.vbl_loan_accrued, remaining)
-    vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)
+    if inputs.principal_first:
+        pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
+        rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
+        pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
+        rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
+        vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)
+        vbl_accrued, remaining = _reduce_bucket(cap_loan.vbl_loan_accrued, remaining)
+    else:
+        pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
+        rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
+        pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
+        rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
+        vbl_accrued, remaining = _reduce_bucket(cap_loan.vbl_loan_accrued, remaining)
+        vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)
     applied = attempted - remaining
     new_loan = LoanState(
         rg_loan_princ=rg_princ, rg_loan_accrued=rg_accrued,

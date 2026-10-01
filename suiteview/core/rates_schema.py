@@ -28,7 +28,7 @@ from typing import Any, Iterable, Optional, Sequence
 from .data_access.connections import connection_factory
 from .data_access.errors import ConnectionUnavailable
 from .local_dev import local_data_enabled
-from .rates import RatesError, _is_query_timeout
+from .rates_errors import RatesError, is_query_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +288,7 @@ class RatesSchemaRepository:
             raise
         except Exception as exc:
             logger.error("Rates-schema query failed: %s | SQL: %s | params: %r", exc, sql, params)
-            if _is_query_timeout(exc):
+            if is_query_timeout(exc):
                 raise RatesError(
                     "UL_Rates did not answer within the query timeout. Schema 'rates' is "
                     "probably locked by a rate load in progress; try again when it finishes."

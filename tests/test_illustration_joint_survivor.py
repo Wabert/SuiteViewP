@@ -14,7 +14,8 @@ import pytest
 
 from suiteview.core import rates as rates_module
 from suiteview.core.joint_survivor_coi import Insured, Rating
-from suiteview.core.rates import Rates, RatesError
+from suiteview.core.rates import Rates
+from suiteview.core.rates_errors import RatesError
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.corridor_rates import get_corridor_factor

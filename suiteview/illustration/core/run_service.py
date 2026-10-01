@@ -32,6 +32,7 @@ from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.abr_quote import run_abr_quote
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
+from suiteview.illustration.core.premium_allowance import DeemedCashValueRequiredError
 from suiteview.illustration.core.report_builder import IllustrationReport, build_ul_report
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.solve_level_to_exception import (
@@ -229,8 +230,11 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
     engine = services.engine_factory()
     if request.controls.abr_quote:
         return _execute_abr_quote(request, scenario, engine, services)
-    resolved = resolve_solved_inputs(request, scenario, engine)
-    current = run_current_projection(request, scenario, resolved, engine, services)
+    try:
+        resolved = resolve_solved_inputs(request, scenario, engine)
+        current = run_current_projection(request, scenario, resolved, engine, services)
+    except DeemedCashValueRequiredError as exc:
+        raise RunFlowError("Deemed Cash Value Required", str(exc)) from exc
     guaranteed, guaranteed_error = run_guaranteed_projection_safe(
         request, scenario, current, resolved, engine, services)
     report = build_report_result(

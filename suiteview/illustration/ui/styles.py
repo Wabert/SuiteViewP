@@ -283,6 +283,16 @@ HEADER_MENU_BUTTON_STYLE = f"""
     }}
 """
 
+# Left-edge ☰ header menu button (before the title) — the same bare gold text
+# as the "Options" menu, sized up so the glyph reads as an icon.
+HEADER_HAMBURGER_BUTTON_STYLE = HEADER_MENU_BUTTON_STYLE + """
+    QPushButton {
+        padding: 0px 6px 2px 0px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+"""
+
 # Drop-down menu for the header "Options" button — same shape as the taskbar's
 # "Tools" menu, recolored to the Illustration purple theme.
 HEADER_MENU_STYLE = f"""

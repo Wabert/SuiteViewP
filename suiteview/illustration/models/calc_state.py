@@ -344,6 +344,12 @@ class MonthlyState:
     shadow_interest: float = 0.0
     shadow_eav: float = 0.0             # End-of-month shadow AV
     shadow_eav_less_debt: float = 0.0   # Shadow EAV minus policy debt
+    # Premiums the shadow has credited (policy year to date / to date). With
+    # late-payment forgiveness a premium is credited in the month it was
+    # received, not its account-value bucket month, so these differ from
+    # premiums_ytd/premiums_to_date. None on the inforce row (use the AV totals).
+    shadow_premiums_ytd: Optional[float] = None
+    shadow_premiums_to_date: Optional[float] = None
 
     # ── 6. Safety Net / Lapse Protection (cols 265-267, 662-669) ─
     monthly_mtp: float = 0.0            # Monthly minimum target premium (JE)

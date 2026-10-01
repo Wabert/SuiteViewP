@@ -1,9 +1,9 @@
 """Verify the engine's MTP/CTP computation against the DB-loaded values.
 
 Runs ``compute_target_premiums`` (the validated implementation in
-suiteview/illustration/core/target_premium.py) on a local-fixture policy and
-compares the result to the values admin loaded into DB2 (policy.mtp * 12,
-policy.ctp), with per-segment/benefit rate detail for auditing.
+suiteview/illustration/core/target_premium.py) on a live policy and compares the
+result to the values admin loaded into DB2 (policy.mtp * 12, policy.ctp), with
+per-segment rate detail from UL_Rates schema ``rates`` (``ULRates``) for auditing.
 
 Usage:
     venv\\Scripts\\python.exe tools/engine/check_target_premium.py '{"policy":"U0688012","company":"01"}'
@@ -15,7 +15,6 @@ def _load_policy_data(*args, **kwargs):
 
     return load_policy_data(*args, **kwargs)
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -26,11 +25,10 @@ if str(ROOT) not in sys.path:
 
 def main() -> None:
     cmd = json.loads(sys.argv[1])
-    os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
     from suiteview.polview.services.policy_service import clear_cache
-    from suiteview.core.rates import Rates
     from suiteview.illustration.core.target_premium import compute_target_premiums
+    from suiteview.illustration.core.ul_rates import ULRates
     from suiteview.illustration.models.plancode_config import load_plancode
 
     policy = cmd["policy"]
@@ -40,7 +38,7 @@ def main() -> None:
     clear_cache()
     pd = _load_policy_data(policy, region=region, company_code=company)
     config = load_plancode(pd.plancode)
-    rates_db = Rates()
+    rates_db = ULRates(pd.company_code)
 
     seg_rows = []
     for seg in pd.segments:
@@ -50,10 +48,10 @@ def main() -> None:
             "sex": seg.rate_sex, "rateclass": seg.rate_class,
             "band": seg.band, "face": seg.face_amount,
             "table_rating": seg.table_rating, "flat_extra": seg.flat_extra,
-            "mtp_rate": rates_db.get_mtp(*args),
-            "tbl1_mtp_rate": rates_db.get_tbl1_mtp(*args),
-            "ctp_rate": rates_db.get_ctp(*args),
-            "tbl1_ctp_rate": rates_db.get_tbl1_ctp(*args),
+            "mtp_rate": rates_db.get_mtp(*args, issue_date=seg.issue_date),
+            "tbl1_mtp_rate": rates_db.get_tbl1_mtp(*args, issue_date=seg.issue_date),
+            "ctp_rate": rates_db.get_ctp(*args, issue_date=seg.issue_date),
+            "tbl1_ctp_rate": rates_db.get_tbl1_ctp(*args, issue_date=seg.issue_date),
         })
 
     result = compute_target_premiums(pd, config)

@@ -8,7 +8,7 @@ rates by the independent-lives last-survivor formula (not Frasier).
 The single-life inputs are UL_Rates schema ``rates`` rate type ``JS_Q`` (annual
 probability per $1, already rounded to 5 decimals as the model uses it) and the
 plan rules are ``rates.PLAN_ATTR`` ``JS_*`` attributes. Rate lookups live in
-:class:`suiteview.core.rates.Rates`; this module is the pure calculation, ported
+:class:`suiteview.core.joint_survivor_rates.JointSurvivorRateSource`; this module is the pure calculation, ported
 from ``Cyberlife_Rates\\Rates_Database\\scripts\\joint_survivor_coi.py``
 (verified against 231 in-force CKPR phases, 9/28/2026).
 
@@ -394,7 +394,8 @@ def load_joint_basis(
 ) -> JointBasis:
     """Look up JS_Q/PLAN_ATTR/PLAN_DEF through ``rates`` and calculate the schedule.
 
-    ``rates`` is a :class:`suiteview.core.rates.Rates`. The horizon is maturity
+    ``rates`` is a :class:`suiteview.core.joint_survivor_rates.JointSurvivorRateSource`
+    (PolView's ``Rates`` or RERUN's ``ULRates``). The horizon is maturity
     age minus the younger issue age, limited to the JS_Q durations loaded.
     """
     company, plancode = company.strip(), plancode.strip()

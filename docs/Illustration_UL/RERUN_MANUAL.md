@@ -16,6 +16,95 @@ drag/drop, shortcut or hidden-by-default feature, add a tip there too.
 Regression: `tests/test_illustration_tips.py`.
 
 
+## RERUN ☰ header menu and Plancode Table
+
+The ☰ button at the left edge of the RERUN title bar (before the title) holds
+reference views. **Plancode Table…** opens a read-only, non-modal window
+(`suiteview/illustration/ui/plancode_table_view.py`) over
+`suiteview/illustration/plancodes/plancode_table.json` — the same rows
+`load_plancode` feeds the engine, read through `plancode_table_rows()`. It is a
+dense sortable/filterable ledger with Plancode and ProductName frozen; keys a row
+does not carry show blank (never zero), and **Dump to Excel** opens the displayed
+rows in a new unsaved workbook. A load failure shows an error box instead of an
+empty table. Regression: `tests/test_illustration_plancode_table.py`.
+
+
+## RERUN rate source: UL_Rates schema `rates`
+
+RERUN reads every UL/IUL rate from UL_Rates schema **`rates`** through
+`suiteview/illustration/core/ul_rates.py` (`ULRates`); the legacy dbo
+`Select_RATE_*` / `BANDSPECS` / `POINT_*` views are never read (Robert Haessly,
+9/30/2026: where dbo and `rates` disagree, `rates` is the reference). ISWL, par WL
+and term already had their own schema loaders. `ULRates` keeps the engine's rate
+names and 1-indexed shapes: COI/BENCOI -> CELL `COI`; EPU, MFEE; TPP -> `PREMLOAD_PCT`;
+EPP -> `PREMLOAD_EXS` (else `PREMLOAD_PCT` when the scale has no excess load); SCR
+(issue-state cell first, else `**`); MTP/CTP (+ benefit type for BENMTP/BENCTP);
+TBL1MTP/TBL1CTP -> `MTP_TBL1`/`CTP_TBL1` (not loaded = unavailable, never zero);
+GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
+
+- **Scales**: 1 = C, 0 = G. The shadow account reads scale **S on the base
+  plancode** (`SHADOW`), including `SHADOW_INT` and `DB_DISCOUNT`; the plancode
+  table's `ShadowPlancode` (CCV...) only switches the shadow account on.
+- **Shadow target and premium timing**: LTGUL/LTGUL08 shadow targets use the
+  scale-S CTP target and APS205's target-relief load rule. SGUL-family products
+  use the product flag `ShadowLatePaymentForgiveness`: premiums exactly on a
+  monthliversary are applied before shadow COI; premiums received strictly
+  between monthliversaries are credited to the prior month after that month's
+  deduction and earn a full month of shadow interest. Shadow net premiums are
+  rounded to cents. With forgiveness the shadow keeps its own premiums YTD/to
+  date (`MonthlyState.shadow_premiums_ytd/_to_date`), because a premium counts in
+  the month the shadow credits it, not its account-value bucket month. Other
+  shadow products credit a dated premium with receipt-to-monthliversary interest
+  in rollback/from-issue replays (FPUL2 U0436543 -164.46 -> -0.28 vs XP).
+- **Shadow withdrawals**: the accepted net withdrawal is subtracted from the
+  shadow account (with receipt-to-monthliversary interest when the transaction
+  carries an actual receipt date); the withdrawal fee and partial surrender
+  charge are not (U0591866: +2.22 vs XP; the AV's gross amount gives -37.80).
+  This does not change the existing option-B shadow NAR basis.
+- **Dates**: `CALENDAR` rates (current COI, EPU, MFEE, loads) take each coverage
+  year's rate from the scale window in effect on that year's start, so historical
+  years of from-issue/rollback runs use the scale then in force; `ISSUE` rates use
+  the window on the coverage issue date. Several windows and no date raise.
+- **Cells**: PolView's `schema_rates.choose_cell` (exact, then unisex, class
+  `0`/`*`, band `0`, state `**`); a unisex policy on a plan loaded under one sex
+  uses that sex. The approved preferred-class COI fallback (R/P/T -> N, Q -> S)
+  is unchanged.
+- **Bands**: `PLAN_BAND` (latest spec on/before the POLICY issue date, lowest upper
+  limit at or above the amount; riders on their own issue date). Unbanded plans are
+  band 0; the ratchet break is band 1's upper limit. Issue-date band sets replace
+  the old CZ $1 shift.
+- **Not loaded**: a plancode missing from `PLAN_DEF` has no rates, so a required
+  COI raises `RateLookupError` naming the lookup and saying the plan is not loaded.
+- **IUL**: crediting parameters are the current-scale `IDX_*` fund rates on the
+  illustration date (reinsurance block `R` for RGA). Illustrated rates,
+  benchmark min/max and market returns also come from schema `rates` FUND rows:
+  `IDX_ILL`, `IDX_BENCH_MIN`, `IDX_BENCH_MAX` and `MKT_RETURN`
+  (`suiteview/core/index_rates.py`, `IndexAssumptionTables`).
+- **Not from UL_Rates**: corridor factors, PoAV and interest bonuses stay in the
+  plancode JSON tables; loan rates come from the plancode table.
+
+Verified 9/30/2026 (live CKPR, one premium-paying policy per RERUN plancode, 168
+policies; month-0 monthly deduction check plus a 10-year current projection, dbo
+build vs `rates` build): 117 identical, 21 changed only where `rates` carries different data
+(surrender-charge tables and state cells, COI tables, band limits such as
+50,000 being band 1 on 1U130N2X/1U132100), 9 that failed on dbo now run, and the monthly-deduction
+variance to CyberLife improved on 2 (1S134D00 -10.20 -> 0, 1S134I29 -3.40 -> 0) and
+worsened on none. IUL strategy parameters equal the legacy indexed-account
+source on 32 of 34 plan/reinsurance-block pairs (1U144800 is not loaded).
+Rate-by-rate comparison:
+`tools/rates/compare_rerun_rates_dbo_schema.py`.
+
+**Data gaps (loud until loaded in `rates`)**: 36 plancode-table plancodes are not in
+`PLAN_DEF` (08126100/200, 08228400-700, 1A130600, 1A130G29, 1G130A00,
+1S133729/C29/E29/J2X/L2X, 1S134400/G29/J2X/K29, 1S135N00, 1U131400, 1U132300/500,
+1U133400/600/900, 1U134300/800, 1U135600/I00/Q00, 1U144800, 1X130100/200,
+NU1L2C00, NU1LAK00, NU1LAM00) and the CTR rider 1S534900; 1U135200, 1U135L00,
+1U146000 and 1U146300 have no scale S (shadow account) rates; 1U135K00 has no
+`MTP_TBL1` for table-rated coverages.
+Tests: `tests/test_illustration_ul_rates.py` (with `tests/schema_rates_fake.py`)
+and `tests/test_null_table_target_rates.py`.
+
+
 ## RERUN policy badge strip
 
 Under the lookup bar RERUN shows PolView's badge strip (`PolicySummaryStrip`):
@@ -106,6 +195,33 @@ Regression: `tests/test_illustration_mec_detection.py` and
 `tests/test_illustration_tamra_recalc_sheets.py`. Native saved-case verification:
 `tools/app/verify_saved_case_mec.py <bundle.cases.json> --case "C19 Batch"
 --tamra off --expect-year 28 --native --output <report.json>`.
+
+## RERUN CVAT deemed cash value and Necessary Premium Test
+
+After TAMRA year 7 a **CVAT** policy with **Conform to TAMRA** on accepts each
+premium only up to the Necessary Premium Test premium (RERUN `vNPT_Premium` →
+`NPT Allowance0`): the gross premium that lifts the lower of the deemed cash
+value (DCV) and the account value up to the NSP. The DCV is **not in the DB2
+tables** — look it up on the **93 segment in CyberLife Online** and type it in
+**Deemed Cash Value** on the Input panel, next to Conform to TAMRA (negative
+values are allowed). The field is enabled only for CVAT with Conform to TAMRA
+on; otherwise it stays visible, greyed, with an italic "Not applicable" note.
+It is the DCV as of the projection's starting valuation date (the Edit Record
+date for a historical run; a run from issue starts at 0), it rides in saved
+cases, and a freshly loaded policy starts blank.
+
+If the projection reaches a month where the NPT limits a requested premium and
+no DCV was entered, Run Values stops with **Deemed Cash Value Required** — the
+engine never assumes 0 or the account value. Before TAMRA year 8 the NPT is
+unlimited and the DCV is not required. The Policy tab's "Deemed Cash Value"
+reads "Not in DB2 — Input tab". The Values tab's **TEFRA and TAMRA** group shows
+`Value_for_NPT`, `NPT_NSP`, `NPT_Premium` and the DCV roll (BDCV …
+vEDCV) when they were computed. Prem to Maturity / Prem to Shadow Maturity still
+solve CVAT policies with Conform to TAMRA off. The CyberLife history harness
+(`tools/rerun/baseline_history_compare.py`) has no DCV source: a selection row
+may supply `deemed_cash_value`, otherwise an NPT-bound replay is reported as
+`blocked-dcv`. Formulas: `IMPLEMENTED_Calculation_Pipeline.md` Step 19.
+Regression: `tests/test_illustration_deemed_cash_value.py`.
 
 ## RERUN face decrease before B-to-A option change — pending implementation
 
@@ -215,11 +331,12 @@ Open items from that comparison (not changed):
 
 GLP/GSP/7-pay monthly bases and their Before/After PV detail use the same
 `target_waiver_charge()` helper as monthly deductions for PWoT basis 2/3.
-Use each side's annual MTP/CTP and the base coverage's active table rating;
-do not use recorded benefit units or its independent rating factor. Charges
-are cent-rounded and ratings stop on their actual cease date. Basis 1 and
-type-3 waiver rules are unchanged. The earlier face-change fix covered monthly
-deductions but missed this guideline path.
+Use each side's annual MTP/CTP; do not use recorded benefit units or any
+table factor. CyberLife applies no table factor to the target-based charge
+(Albert F06 on 26/000272626 and 26/000299857; approved 2026-10-01, fix E13),
+although the RERUN workbook multiplied it by `1 + factor x base table`.
+Charges are cent-rounded. Basis 1 and type-3 waiver rules are unchanged. The
+earlier face-change fix covered monthly deductions but missed this guideline path.
 Read-only verified `000239324 / 26 / NU1F3L00`, face 50,000 on 2026-09-24:
 annual MTP 217.83, first After 4M charge 0.81 (not 1.36), GLP After 1,397.26
 (not 1,402.75). The verifier above now checks GLP/GSP After against monthly
@@ -313,9 +430,9 @@ in `tests/test_value_rollback_data.py`.
 
 ## RERUN unavailable table-rating target rates
 
-All-NULL `TBL1MTP` / `TBL1CTP` lookup rows mean the table-rating target rate
-is unavailable, not zero. `Rates` returns `None` for that case, retains stored
-numeric zero, and rejects mixed NULL/numeric results explicitly. Unrated
+A table-rating target rate (`MTP_TBL1` / `CTP_TBL1` in schema `rates`) that is not
+loaded is unavailable, not zero: `ULRates.get_tbl1_mtp/ctp` return `None` and a
+stored numeric zero stays zero. Unrated
 coverages and expired table ratings can still calculate their ordinary targets;
 active table ratings require both target rates. A shadow target configured as
 `Table` also requires its table rate when the base coverage is rated. Never
@@ -399,6 +516,18 @@ cash caps and overpayment handling are unchanged. Loaded records are never
 mutated. Regression: `tests/test_illustration_loan_repayment_order.py` covers
 each bucket boundary, payment sources, guaranteed cash-flow replay and a real
 engine-backed payoff solve with unequal charge rates.
+
+**Principal-first option (fix E03, approved 2026-10-01).** CyberLife applies a
+PL repayment to loan principal while `POL_LN_ITS_AMT` keeps accruing
+(26/000289723: `LN_PRI_AMT` falls 149.01 a month). Illustration Control's
+**Loan Repayments Pay Principal First** checkbox
+(`IllustrationOptions.loan_repay_principal_first`) reorders arrears repayments
+to preferred principal, regular principal, preferred accrued, regular accrued,
+then variable principal and accrued. It is off by default because paying
+interest first is conservative; it is saved with the case (`controls.
+loan_principal_first`) and preserved on the guaranteed side. The CyberLife
+history harness (`tools/rerun/baseline_history_compare.py`) turns it on.
+Advance loans are unaffected.
 
 ## RERUN Prem to Maturity levelizing
 
@@ -572,6 +701,24 @@ valuation date; same-day ordering uses the recorded CD sequence. Pending
 premiums are excluded only after exact reconciliation to the current paid total.
 TAMRA contributions are matched by year keys, not row order. Loans use exact-date
 fund/phase/preferred/interest-status buckets, never current/sentinel rows.
+Historical replay cash flows keep their actual receipt/effective date even when
+bucketed to the next monthliversary. Rollback and from-issue runs credit dated
+premiums from receipt through the bucket monthliversary (receipt and MV days
+included), and apply the matching negative/loan-credit adjustment for
+withdrawals, loans and loan repayments. This receipt-date adjustment is not used
+for ordinary inforce forecasts or modal premiums assumed on monthliversaries.
+CyberLife monthliversary replays also credit the base AV over the prior
+monthliversary-to-current-monthliversary day span; monthly-compounding plans
+retain the `(1 + i) ** (1/12) - 1` monthly factor. Loan interest still accrues
+over the forward span to the next monthliversary (`InterestResult.
+loan_accrual_days`); sharing the crediting span broke exact loan matches on
+about 30 policies in the 304-policy baseline.
+Projected monthliversary dates are always issue-date anchored and clamped to the
+target month end, so day-31 policies project 4/30, 5/31, 6/30, 7/31 rather than
+drifting permanently to the 30th after April. The policy loader counts a clamped
+monthliversary as a completed month (issue 7/31, valuation 2/29 = 7 months), and
+the CyberLife-timing projection steps from the prior row's date, so the
+valuation month is never repeated.
 
 AccumMTP/AccumGLP are **derived, not archived**: reverse monthly MTP and
 anniversary GLP on an explicitly unchanged target/coverage basis (GLP stops
@@ -685,10 +832,9 @@ approximate the joint COI and type in 7702 values.
 - **COI**: `rate_loader.load_segment_coi()` returns the JointCOI (scale 1
   current, 0 guaranteed); every COI path uses it. Face increases get both lives
   aged in step with still-active ratings restated.
-- **Other rates**: the plans have no dbo rows, so on a dbo miss
-  `Rates.get_rates()` answers MFEE, TPP/EPP (PREMLOAD_PCT), SCR, GINT and BENCOI
-  from schema `rates` in dbo shapes (units verified equal); base COI raises and
-  targets/EPU/bands return None.
+- **Other rates**: `ULRates` reads MFEE, TPP/EPP (PREMLOAD_PCT), SCR, GINT and
+  BENCOI from the plans' band-0, all-state cells like any UL; the plans load no
+  MTP/CTP or EPU, so targets are held at the record (below).
 - **Plan rows**: loads, fees, loans, GINT and maturity (N91/N71EP 100,
   N71EMR/EMJ 117, B11 121) come from `rates`. N91 SCR is the IAF per-unit table;
   B11/N71 use `SCR_PctOfSurrenderTarget` x ST (converted per unit at load).
@@ -707,7 +853,7 @@ approximate the joint COI and type in 7702 values.
 - **Rate class / table changes** (Robert Haessly, 9/29/2026): on a joint policy
   the Rate Class Change and Table Rating Change dropdowns name the insured
   ("Primary: S", "Joint: B (150%)") and offer the plan's own JS_Q classes
-  (`Rates.joint_survivor_rate_classes`) and `JS_TABLE_PCT` codes; the change
+  (`ULRates.joint_survivor_rate_classes`) and `JS_TABLE_PCT` codes; the change
   carries `metadata["person"]` ("00"/"01") and a joint change without it raises.
   The engine re-rates that insured in every joint phase (`JointLives` class, or
   its percent/table ratings replaced by `joint_survivor_coi.ratings_with_table`

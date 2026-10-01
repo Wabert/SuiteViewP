@@ -84,10 +84,6 @@ def _rates(*, coi: float = 2.4, epu: float = 0.35, scr: float = 4.0) -> Illustra
         mfee=[0.0] + [5.0] * 180,
         tpp=[0.0] + [0.06] * 180,
         epp=[0.0] + [0.03] * 180,
-        rlncrg=[0.0] + [0.04] * 180,
-        rlncrd=[0.0] + [0.035] * 180,
-        plncrg=[0.0] + [0.025] * 180,
-        plncrd=[0.0] + [0.02] * 180,
         mtp=420.0,
         ctp=600.0,
     )
@@ -539,6 +535,7 @@ def test_engine_monthly_state_golden(monkeypatch, case: EngineCase, timing: Proj
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _plancode: config)
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_args: BonusConfig())
     monkeypatch.setattr(calc_engine.IllustrationEngine, "_load_rates", lambda *_args: rates)
+    monkeypatch.setattr(calc_engine.IllustrationEngine, "_guaranteed_rates", lambda *_args: rates)
     monkeypatch.setattr(calc_engine, "compute_target_premiums", lambda *_a, **_k: TargetPremiumResult())
     monkeypatch.setattr(calc_engine, "build_target_detail_snapshots", lambda *_a, **_k: ({}, {}))
     monkeypatch.setattr(calc_engine, "_reload_policy_band_rates", lambda *_a, **_k: None)

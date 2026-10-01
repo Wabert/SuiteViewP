@@ -79,6 +79,44 @@ def test_repayment_priority_at_every_bucket_boundary(amount, expected, source):
     assert cap == original
 
 
+@pytest.mark.parametrize("amount,expected", [
+    (30, (10, 20, 10, 100, 5, 30)),
+    (140, (10, 20, 0, 0, 5, 30)),
+    (150, (0, 20, 0, 0, 5, 30)),
+    (170, (0, 0, 0, 0, 5, 30)),
+    (190, (0, 0, 0, 0, 5, 10)),
+    (205, (0, 0, 0, 0, 0, 0)),
+])
+def test_principal_first_repayment_pays_principal_before_accrued(amount, expected):
+    # E03: CyberLife applies a PL repayment to principal while the accrued
+    # interest keeps running; the option is off by default (interest first).
+    cap = LoanState(
+        pf_loan_accrued=10, rg_loan_accrued=20,
+        pf_loan_princ=40, rg_loan_princ=100,
+        vbl_loan_accrued=5, vbl_loan_princ=30,
+    )
+    result = repay_loan(LoanStepInput(
+        loan=cap, requested_amount=amount, config=PlancodeConfig(loan_type="Arrears"),
+        principal_first=True,
+    ))
+    assert _buckets(result.loan_state) == expected
+    assert result.applied_repayment == amount
+    assert IllustrationOptions().loan_repay_principal_first is False
+
+
+def test_principal_first_option_reaches_the_projection(projection_basis):
+    policy, _ = projection_basis
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(TransactionKind.LOAN_REPAYMENT, date(2026, 7, 15), 50),
+    ])
+    options = IllustrationOptions(
+        conform_to_tefra=False, conform_to_tamra=False, loan_repay_principal_first=True,
+    )
+    states = calc_engine.IllustrationEngine().project(
+        policy, months=1, future_inputs=inputs, options=options)
+    assert _buckets(states[1]) == (10, 20, 0, 90, 5, 30)
+
+
 @pytest.fixture
 def projection_basis(monkeypatch):
     config = PlancodeConfig(

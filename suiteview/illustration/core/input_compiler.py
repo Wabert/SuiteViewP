@@ -1,11 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.models.input_set import IllustrationInputSet, TransactionKind
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+
+
+@dataclass
+class DatedCashFlow:
+    """Dated input retained for historical receipt-date interest."""
+
+    kind: TransactionKind
+    effective_date: date
+    bucket_date: date
+    amount: float
+    subtype: str = ""
 
 
 @dataclass
@@ -23,6 +35,11 @@ class CompiledMonthInputs:
     loan_repayment: float = 0.0
     withdrawal: float = 0.0          # net-basis request (RERUN AX — cash to client)
     withdrawal_gross: float = 0.0    # gross-basis request (amount leaving the AV)
+    shadow_prior_period_premium: float = 0.0
+    shadow_bucketed_prior_period_premium: float = 0.0
+    shadow_premium_days_to_bucket: float = 0.0
+    shadow_withdrawal_days_to_bucket: float = 0.0
+    dated_cash_flows: list[DatedCashFlow] = field(default_factory=list)
 
     @property
     def total_premium(self) -> float | None:
@@ -118,11 +135,25 @@ def _compile_dated_transactions(
         month_date = policy.issue_date + relativedelta(months=duration - 1)
         date_to_duration[month_date] = duration
 
+    historical_receipt_timing = _historical_receipt_timing(policy)
     for entry in input_set.dated_transactions:
-        duration = date_to_duration.get(entry.effective_date)
+        bucket_date = (
+            _next_monthliversary_on_or_after(policy, entry.effective_date)
+            if historical_receipt_timing else entry.effective_date
+        )
+        duration = date_to_duration.get(bucket_date)
         if duration is None:
             continue
         month_inputs = compiled[duration]
+        if historical_receipt_timing:
+            actual_date = _actual_cash_flow_date(entry)
+            month_inputs.dated_cash_flows.append(DatedCashFlow(
+                kind=entry.kind,
+                effective_date=actual_date,
+                bucket_date=bucket_date,
+                amount=entry.amount,
+                subtype=entry.subtype,
+            ))
         if entry.kind == TransactionKind.PREMIUM:
             metadata = entry.metadata or {}
             if metadata.get("scheduled_current_year"):
@@ -134,6 +165,8 @@ def _compile_dated_transactions(
                 month_inputs.unscheduled_premium += entry.amount
             if metadata.get("billable_to_md") and not metadata.get("scheduled_current_year"):
                 month_inputs.billable_to_md_premium += entry.amount
+            _compile_shadow_premium_timing(policy, entry, duration, compiled)
+            _compile_shadow_premium_interest_timing(entry, month_inputs)
         elif entry.kind == TransactionKind.LOAN:
             if entry.subtype.lower() == "variable":
                 month_inputs.variable_loan += entry.amount
@@ -152,6 +185,84 @@ def _compile_dated_transactions(
                 month_inputs.withdrawal_gross += entry.amount
             else:
                 month_inputs.withdrawal += entry.amount
+            _compile_shadow_withdrawal_timing(entry, month_inputs)
+
+
+def _metadata_actual_date(entry) -> date | None:
+    actual = (entry.metadata or {}).get("actual_date")
+    if not actual:
+        return None
+    return date.fromisoformat(str(actual)[:10])
+
+
+def _compile_shadow_premium_timing(
+    policy: IllustrationPolicyData,
+    entry,
+    duration: int,
+    compiled: dict[int, CompiledMonthInputs],
+) -> None:
+    actual = _metadata_actual_date(entry)
+    if actual is None or actual >= entry.effective_date or actual <= policy.issue_date:
+        return
+    prior = compiled.get(duration - 1)
+    if prior is None:
+        return
+    prior.shadow_prior_period_premium += entry.amount
+    compiled[duration].shadow_bucketed_prior_period_premium += entry.amount
+
+
+def _compile_shadow_premium_interest_timing(entry, month_inputs: CompiledMonthInputs) -> None:
+    actual = _metadata_actual_date(entry)
+    if actual is None or actual >= entry.effective_date:
+        return
+    total_amount = month_inputs.unscheduled_premium + float(month_inputs.scheduled_premium or 0.0)
+    if total_amount <= 0.0:
+        return
+    previous_amount = max(total_amount - entry.amount, 0.0)
+    month_inputs.shadow_premium_days_to_bucket = (
+        (month_inputs.shadow_premium_days_to_bucket * previous_amount
+         + (entry.effective_date - actual).days * entry.amount)
+        / total_amount
+    )
+
+
+def _compile_shadow_withdrawal_timing(entry, month_inputs: CompiledMonthInputs) -> None:
+    actual = _metadata_actual_date(entry)
+    if actual is None or actual >= entry.effective_date:
+        return
+    existing_amount = month_inputs.withdrawal + month_inputs.withdrawal_gross
+    total_amount = existing_amount if existing_amount > 0.0 else entry.amount
+    previous_days = month_inputs.shadow_withdrawal_days_to_bucket
+    new_days = (entry.effective_date - actual).days
+    month_inputs.shadow_withdrawal_days_to_bucket = (
+        (previous_days * max(total_amount - entry.amount, 0.0) + new_days * entry.amount)
+        / total_amount
+    )
+
+
+def _historical_receipt_timing(policy: IllustrationPolicyData) -> bool:
+    """Receipt-date interest applies only to rollback and from-issue replays."""
+    return bool(policy.run_from_issue or policy.rollback_date is not None)
+
+
+def _actual_cash_flow_date(entry) -> date:
+    return _metadata_actual_date(entry) or entry.effective_date
+
+
+def _next_monthliversary_on_or_after(
+    policy: IllustrationPolicyData, effective_date: date,
+) -> date:
+    issue = policy.issue_date
+    if issue is None:
+        return effective_date
+    months = (
+        (effective_date.year - issue.year) * 12
+        + effective_date.month - issue.month
+    )
+    candidate = issue + relativedelta(months=months)
+    if candidate < effective_date:
+        candidate = issue + relativedelta(months=months + 1)
+    return candidate
 
 
 def _active_schedule_for_year(schedules, policy_year: int):

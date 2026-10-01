@@ -1,4 +1,6 @@
-r"""Verify live illustration-date index strategy lookups through core.Rates.
+r"""Verify live illustration-date IUL index lookups from schema ``rates``:
+strategy parameters (``ULRates``) and illustrated assumptions
+(``IndexAssumptionTables``).
 
 Usage:
     venv\Scripts\python.exe tools\verify_index_strategy_lookup.py ^
@@ -13,7 +15,8 @@ from datetime import date
 
 sys.path.insert(0, ".")
 
-from suiteview.core.rates import Rates  # noqa: E402
+from suiteview.core.index_rates import IndexAssumptionTables  # noqa: E402
+from suiteview.illustration.core.ul_rates import ULRates  # noqa: E402
 
 
 def main() -> None:
@@ -23,7 +26,8 @@ def main() -> None:
     illustration_date = date.fromisoformat(config["illustration_date"])
     rga_indicator = str(config.get("rga_indicator", ""))
 
-    rates = Rates()
+    rates = IndexAssumptionTables()
+    schema = ULRates(config["company"])
     try:
         market_returns = rates.get_index_market_returns()
         result = {
@@ -37,7 +41,7 @@ def main() -> None:
                 illustration_date,
                 rga_indicator,
             ),
-            "strategy_parameters": rates.get_index_strategy_parameters(
+            "strategy_parameters": schema.get_index_strategy_parameters(
                 config["plancode"],
                 illustration_date,
                 rga_indicator,
@@ -58,6 +62,7 @@ def main() -> None:
         }
     finally:
         rates.close()
+        schema.close()
 
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
 

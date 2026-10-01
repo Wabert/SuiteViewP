@@ -133,7 +133,7 @@ def test_abr_quote_mode_forces_iul_allocation_to_the_fixed_fund():
 
 class _FlatRatesEngine(IllustrationEngine):
     def _load_rates(self, policy, config):
-        return IllustrationRates()
+        return IllustrationRates(shadow_coi=[None] + [0.0] * 121)
 
 
 def _test_config(_plancode) -> PlancodeConfig:
@@ -147,13 +147,17 @@ def _test_config(_plancode) -> PlancodeConfig:
 @pytest.fixture
 def _flat_plancode(monkeypatch):
     from suiteview.illustration.core import calc_engine
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
     monkeypatch.setattr(calc_engine, "load_plancode", _test_config)
-    monkeypatch.setattr(calc_engine, "load_rates", lambda *_args, **_kwargs: IllustrationRates())
+    monkeypatch.setattr(
+        calc_engine,
+        "load_rates",
+        lambda *_args, **_kwargs: IllustrationRates(shadow_coi=[None] + [0.0] * 121),
+    )
     monkeypatch.setattr(
         calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
     monkeypatch.setattr(
-        Rates,
+        ULRates,
         "get_rates",
         lambda _self, rate_type, *_args, **_kwargs: (
             [None] + [0.0] * 121 if rate_type == "COI" else []
@@ -232,15 +236,15 @@ def test_shadow_policy_uses_lower_of_regular_and_shadow_solve(_flat_plancode):
 def test_max_partial_projects_next_deduction_with_reduced_face_and_av(
     _flat_plancode, monkeypatch
 ):
-    from suiteview.core.rates import Rates
+    from suiteview.illustration.core.ul_rates import ULRates
 
     monkeypatch.setattr(
-        Rates,
+        ULRates,
         "get_band",
         lambda _self, _plan, face, issue_date=None: 2 if face < 50_000 else 1,
     )
     monkeypatch.setattr(
-        Rates,
+        ULRates,
         "get_rates",
         lambda _self, rate_type, *_args, **_kwargs: (
             [None] + [0.0] * 121 if rate_type == "COI" else []

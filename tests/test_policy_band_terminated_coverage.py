@@ -88,7 +88,7 @@ def test_cov_band_uses_active_total(monkeypatch):
     ])
 
     class _FakeRates:
-        def get_band(self, _plancode, face, issue_date=None):
+        def get_band(self, _plancode, face, issue_date=None, **_kwargs):
             return 3 if face >= 250_000 else 2
 
     policy.rates._get_rates = lambda: _FakeRates()
@@ -112,7 +112,7 @@ def test_base_banding_rider_face_folded_into_band(monkeypatch):
     ])
 
     class _FakeRates:
-        def get_band(self, _plancode, face, issue_date=None):
+        def get_band(self, _plancode, face, issue_date=None, **_kwargs):
             return 3 if face >= 250_000 else 2
 
     policy.rates._get_rates = lambda: _FakeRates()
@@ -142,7 +142,7 @@ def test_ordinary_rider_face_not_folded_into_band(monkeypatch):
     ])
 
     class _FakeRates:
-        def get_band(self, _plancode, face, issue_date=None):
+        def get_band(self, _plancode, face, issue_date=None, **_kwargs):
             return 3 if face >= 250_000 else 2
 
     policy.rates._get_rates = lambda: _FakeRates()

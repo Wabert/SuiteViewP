@@ -9,7 +9,7 @@
     "enters_exception": true,
     "exception_duration": 6,
     "exception_start": "2030-06-06",
-    "iterations": 55,
+    "iterations": 52,
     "mode": "A",
     "premium": 2500.0,
     "total_premium_paid": 3000.0

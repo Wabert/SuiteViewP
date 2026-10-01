@@ -62,6 +62,7 @@ from suiteview.illustration.models.index_strategies import (
     with_current_index_data,
 )
 from suiteview.polview.ui.formatting import format_amount, format_date
+from suiteview.ui import tokens
 from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.frameless_window import FramelessDialog
 
@@ -91,6 +92,14 @@ _INDEX_ALLOC_BTN_STYLE = (
 )
 
 _MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
+# Deemed Cash Value entry: caption/note greyed with an italic note when the
+# NPT does not apply (Not-Applicable convention — visible, never hidden).
+_DCV_CAPTION_MUTED_STYLE = (
+    f"color: {tokens.TEXT_MUTED}; background: transparent; font-size: 9px; font-weight: bold;")
+_DCV_NOTE_STYLE = (
+    f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
+_DCV_NOTE_MUTED_STYLE = (
+    f"color: {tokens.TEXT_MUTED}; background: transparent; font-size: 10px; font-style: italic;")
 _RATE_CLASSES = [
     ("R", "Pref+ NS"), ("P", "Pref NS"), ("T", "Std+ NS"),
     ("N", "NS"), ("Q", "Pref S"), ("S", "Smoker"),
@@ -1728,6 +1737,22 @@ class DynamicInputsPanel(QWidget):
         apply_input_checkbox_style(self.tamra_check)
         self.tamra_check.setToolTip(
             "Enforce the 7-pay premium room while the policy is inside the TAMRA window.")
+        # Deemed Cash Value (sInput_DeemedCashValue): a CVAT policy past TAMRA
+        # year 7 limits each premium by the Necessary Premium Test, built from
+        # the DCV. CyberLife keeps it on the 93 segment, not in DB2, so the user
+        # enters it here. Applicable only to CVAT with Conform to TAMRA on —
+        # otherwise greyed with an italic note (never hidden).
+        self.dcv_caption = QLabel("Deemed Cash Value")
+        self.dcv_edit = _Field(90, decimals=2)
+        self.dcv_edit.setValidator(QDoubleValidator(-1e9, 1e9, 2, self.dcv_edit))
+        self.dcv_edit.setPlaceholderText("93 segment")
+        self.dcv_edit.setToolTip(
+            "Deemed cash value as of the illustration's starting valuation date, "
+            "from the 93 segment in CyberLife Online (not in the DB2 tables). "
+            "Required once the policy is past TAMRA year 7 — the Necessary Premium "
+            "Test limits every premium from there on.")
+        self.dcv_note = QLabel("")
+        self.tamra_check.toggled.connect(self._refresh_dcv_availability)
         # Lump Sum: a one-off premium the user applies on the forecast date. It
         # runs through the premium-acceptance chain like any unscheduled premium.
         # Disabled while "Lumpsum to Next Premium" solves the bridge instead — the
@@ -1771,8 +1796,13 @@ class DynamicInputsPanel(QWidget):
         rate_row.addWidget(self.apply_prem_to_loan_check)
         rate_row.addSpacing(16)
         rate_row.addWidget(self.tamra_check)
+        rate_row.addSpacing(12)
+        rate_row.addWidget(self.dcv_caption)
+        rate_row.addWidget(self.dcv_edit)
+        rate_row.addWidget(self.dcv_note)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
+        self._refresh_dcv_availability()
 
         # The allocations panel lives inside its popup dialog; this widget keeps
         # querying it (blended/problems/sweep min) between openings.
@@ -1964,6 +1994,9 @@ class DynamicInputsPanel(QWidget):
         self.lumpsum_edit.clear()
         self.forecast_loan_edit.clear()
         self.forecast_withdrawal_edit.clear()
+        # ...and no deemed cash value: it belongs to one policy/valuation date.
+        self.dcv_edit.clear()
+        self._refresh_dcv_availability()
         for section in (self.premium_section, self.loan_section, self.withdrawal_section,
                         self.repayment_section, self.face_section, self.dbo_section,
                         self.rateclass_section, self.table_section):
@@ -2080,6 +2113,7 @@ class DynamicInputsPanel(QWidget):
         ):
             widget.setEnabled(not enabled)
         self.illustrated_rate_edit.set_unbounded(enabled)
+        self._refresh_dcv_availability()
         if enabled:
             self.illustrated_rate_edit.setReadOnly(False)
         elif self._ctx is not None and self._ctx.is_iul:
@@ -2172,6 +2206,35 @@ class DynamicInputsPanel(QWidget):
     def set_lumpsum_amount(self, value: Optional[float]):
         """Display the solved bridge lumpsum after a run (field stays disabled)."""
         self.lumpsum_edit.set_value(value, decimals=2)
+
+    # ── Deemed Cash Value (CVAT Necessary Premium Test) ───────
+
+    def dcv_applicable(self) -> bool:
+        """The DCV entry applies to a CVAT policy with Conform to TAMRA on."""
+        return (
+            bool(self._ctx is not None and self._ctx.is_cvat)
+            and self.tamra_check.isChecked()
+        )
+
+    def _refresh_dcv_availability(self, *_args):
+        applicable = self.dcv_applicable()
+        enabled = applicable and not self._abr_quote_mode
+        self.dcv_edit.setEnabled(enabled)
+        self.dcv_caption.setStyleSheet(_CAPTION_STYLE if enabled else _DCV_CAPTION_MUTED_STYLE)
+        if applicable:
+            note = "Required past TAMRA year 7 — from the 93 segment (Online)"
+        elif self._ctx is None or not self._ctx.is_cvat:
+            note = "Not applicable — not a CVAT policy"
+        else:
+            note = "Not applicable — Conform to TAMRA is off"
+        self.dcv_note.setText(note)
+        self.dcv_note.setStyleSheet(_DCV_NOTE_STYLE if enabled else _DCV_NOTE_MUTED_STYLE)
+
+    def deemed_cash_value(self) -> Optional[float]:
+        """The entered DCV for the run, or None (blank or not applicable)."""
+        if not self.dcv_applicable():
+            return None
+        return self.dcv_edit.value()
 
     # ── Level-premium types (Max Level / Prem to Maturity) ────
 
@@ -2524,6 +2587,7 @@ class DynamicInputsPanel(QWidget):
             "lumpsum_to_next": self.lumpsum_to_next_check.isChecked(),
             "apply_prem_to_loan": self.apply_prem_to_loan_check.isChecked(),
             "tamra": self.tamra_check.isChecked(),
+            "deemed_cash_value": self.dcv_edit.text(),
             "excess_repayment_as_premium": self.excess_apply_radio.isChecked(),
             "sections": {
                 name: section.capture_rows()
@@ -2561,6 +2625,8 @@ class DynamicInputsPanel(QWidget):
         self.apply_prem_to_loan_check.setChecked(
             bool(state.get("apply_prem_to_loan")))
         self.tamra_check.setChecked(bool(state.get("tamra", True)))
+        self.dcv_edit.setText(str(state.get("deemed_cash_value") or ""))
+        self._refresh_dcv_availability()
         (self.excess_apply_radio
          if state.get("excess_repayment_as_premium")
          else self.excess_stop_radio).setChecked(True)

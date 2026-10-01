@@ -15,7 +15,7 @@ from datetime import date
 
 import pytest
 
-import suiteview.core.rates as rates_module
+import suiteview.illustration.core.ul_rates as ul_rates_module
 from suiteview.illustration.core.target_premium import compute_target_premiums
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
@@ -38,27 +38,27 @@ class _FakeRates:
     COI_YEAR1 = 1.2        # current COI select rate, duration 1
     MFEE_YEAR1 = 3.0       # monthly fee, duration 1
 
-    def get_band(self, plancode, specified_amount, issue_date=None):
+    def get_band(self, plancode, specified_amount, issue_date=None, **_kwargs):
         return 1
 
-    def get_mtp(self, *args):
+    def get_mtp(self, *args, **_kwargs):
         return self.MTP_RATE
 
-    def get_tbl1_mtp(self, *args):
+    def get_tbl1_mtp(self, *args, **_kwargs):
         return 0.0
 
-    def get_ctp(self, *args):
+    def get_ctp(self, *args, **_kwargs):
         return self.CTP_RATE
 
-    def get_tbl1_ctp(self, *args):
+    def get_tbl1_ctp(self, *args, **_kwargs):
         return 0.0
 
-    def get_ben_mtp(self, plancode, issue_age, sex, rateclass, band, benefit_type):
+    def get_ben_mtp(self, plancode, issue_age, sex, rateclass, band, benefit_type, **_kwargs):
         return {"39": self.PW_RATE, "3F": 0.06, "49": self.PWST_RATE, "71": self.ADB_RATE}.get(
             benefit_type, 0.0
         )
 
-    def get_ben_ctp(self, plancode, issue_age, sex, rateclass, band, benefit_type):
+    def get_ben_ctp(self, plancode, issue_age, sex, rateclass, band, benefit_type, **_kwargs):
         return {"39": self.PW_RATE, "3F": 0.06, "49": self.PWST_CTP_RATE, "71": self.ADB_RATE}.get(
             benefit_type, 0.0
         )
@@ -75,7 +75,7 @@ class _FakeRates:
 @pytest.fixture
 def fake_rates(monkeypatch):
     fake = _FakeRates()
-    monkeypatch.setattr(rates_module, "Rates", lambda: fake)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: fake)
     return fake
 
 

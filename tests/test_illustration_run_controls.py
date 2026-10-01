@@ -180,6 +180,19 @@ def test_excess_repayment_toggle_defaults_to_stop_and_drives_options():
     assert tab.export_options().apply_excess_repayment_as_premium is False
 
 
+def test_loan_principal_first_defaults_off_and_drives_options():
+    _app()
+    tab = IllustrationInputsTab()
+
+    # E03: RERUN pays accrued loan interest first by default (conservative);
+    # the Run Controls toggle switches to CyberLife's principal-first order.
+    assert tab.loan_principal_first_check.isChecked() is False
+    assert tab.export_options().loan_repay_principal_first is False
+    tab.loan_principal_first_check.setChecked(True)
+    assert tab.export_options().loan_repay_principal_first is True
+    assert tab._capture_active_case_inputs()["controls"]["loan_principal_first"] is True
+
+
 def test_iul_crediting_switches_default_and_drive_options():
     _app()
     tab = IllustrationInputsTab()
@@ -305,6 +318,7 @@ def test_run_controls_checkboxes_use_shared_purple_style():
         tab.exception_prem_check,
         tab.levelizing_check,
         tab.gp_search_check,
+        tab.loan_principal_first_check,
         tab.stop_on_lapse_check,
         tab.policy_ag49_check,
     ]

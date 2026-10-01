@@ -5,12 +5,13 @@
                vPWST_Units*RA,    ' 1 = Units
                vMTP*RA/100,       ' 2 = MTP  (annual vMTP)
                vCTP*RA/100)       ' 3 = CTP  (annual vCTP)
-        * (1 + sTableRatingFactor*vTableCov1), 2), 0)
+        , 2), 0)
 
 Basis 1 (Units) is every non-FFL UL; some FFL ULs use 2 (MTP) or 3 (CTP). The
-annual vMTP is ``policy.mtp*12`` and the annual vCTP is ``policy.ctp``; the
-gross-up multiplies by the BASE coverage's table rating (vTableCov1), not the
-benefit's own substandard.
+annual vMTP is ``policy.mtp*12`` and the annual vCTP is ``policy.ctp``. The
+RERUN workbook also multiplied basis 2/3 by ``1 + sTableRatingFactor*vTableCov1``;
+CyberLife does not (Albert F06, E13 approved 2026-10-01), so the target-based
+charge carries no table factor.
 """
 import pytest
 from copy import deepcopy
@@ -113,14 +114,15 @@ def test_basis_3_uses_annual_ctp_over_100():
     assert _charge(result) == pytest.approx(45.00)
 
 
-def test_basis_2_grosses_up_by_base_coverage_table_rating():
-    # Base coverage Table B (rating 2), factor 0.25 -> gross = 1 + 0.25*2 = 1.5.
-    # 1200 x 3.0/100 x 1.5 = 54.00.
+def test_basis_2_ignores_base_coverage_table_rating():
+    # CyberLife applies no table factor to the target-based charge (E13):
+    # Table B base coverage still gives 1200 x 3.0/100 = 36.00.
     result = calculate_deduction(
         10_000.0, _policy(base_table=2, mtp=100.0), _config(2), _rates(),
         rate_year=1, attained_age=45, premiums_to_date=0.0,
     )
-    assert _charge(result) == pytest.approx(54.00)
+    assert _charge(result) == pytest.approx(36.00)
+    assert result.benefit_rates["49"] == pytest.approx(3.0)
 
 
 def test_basis_3_charge_rounds_to_cents():
@@ -223,8 +225,7 @@ def test_guideline_pwot_uses_configured_basis_and_rating_cease_date(basis):
             expected = 50.0 * 3.0 * 1.75
         else:
             amount = 1200.15 if basis == 2 else 1500.55
-            factor = 1.5 if index < 2 else 1.0
-            expected = round(amount * 3.0 / 100.0 * factor, 2)
+            expected = round(amount * 3.0 / 100.0, 2)
         assert month.benefit_charge_detail["Benefit 4 9"] == pytest.approx(expected)
         assert month.benefit_charges == pytest.approx(expected)
 

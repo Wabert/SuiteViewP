@@ -7,7 +7,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from suiteview.core.rates import Rates, RatesError
+from suiteview.core.rates import Rates
+from suiteview.core.rates_errors import RatesError
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.models.policy_sections.product import ProductSection
 

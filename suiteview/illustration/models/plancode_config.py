@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 from datetime import date
@@ -129,6 +130,10 @@ class PlancodeConfig:
             0.0 <= pct <= 1.0 for pct in self.scr_pct_of_surrender_target
         ):
             raise ValueError(f"{self.plancode}: SCR_PctOfSurrenderTarget must be fractions 0-1")
+        if self.shadow_target_rate_basis not in ("MTP", "CTP"):
+            raise ValueError(
+                f"{self.plancode}: invalid ShadowTargetRateBasis {self.shadow_target_rate_basis!r}"
+            )
 
     @property
     def partial_surrender_charge(self) -> bool:
@@ -159,6 +164,9 @@ class PlancodeConfig:
     shadow_dbd_rate: str = "0.05"        # "Table" or flat rate for DB discount
     shadow_int_rate_code: str = "0.05"   # "Table" or flat interest rate
     shadow_loan_impact: str = "Reduce"   # "Reduce" or "None"
+    shadow_late_payment_forgiveness: bool = False
+    shadow_aps205_load_relief: bool = False
+    shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"
 
     @property
     def is_ffl(self) -> bool:
@@ -191,6 +199,21 @@ def _load_plancode_table() -> Dict[str, dict]:
         if str(row.get("Plancode", "")).strip()
     }
     return _TABLE_CACHE
+
+
+def plancode_table_path() -> Path:
+    """Return the illustration plancode table JSON file path."""
+    return _PLANCODE_TABLE_PATH
+
+
+def plancode_table_rows() -> list[dict]:
+    """Return every plancode table row, in file order, as independent copies.
+
+    One row per plancode (the same rows :func:`load_plancode` reads), for
+    read-only display; callers may mutate the copies without touching the
+    engine's cache.
+    """
+    return copy.deepcopy(list(_load_plancode_table().values()))
 
 
 def _int_or_default(value, default: int) -> int:
@@ -300,6 +323,9 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         shadow_dbd_rate=str(data.get("ShadowDBDRate", "0.05")),
         shadow_int_rate_code=str(data.get("ShadowIntRateCode", "0.05")),
         shadow_loan_impact=data.get("ShadowLoanImpact", "Reduce"),
+        shadow_late_payment_forgiveness=bool(data.get("ShadowLatePaymentForgiveness", False)),
+        shadow_aps205_load_relief=bool(data.get("ShadowAPS205LoadRelief", False)),
+        shadow_target_rate_basis=str(data.get("ShadowTargetRateBasis", "MTP")).strip().upper() or "MTP",
     )
 
     _CONFIG_CACHE[plancode] = config

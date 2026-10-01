@@ -2,7 +2,7 @@
 
 Read-only discovery helper used before exporting to the local SQLite fixture:
   * confirms the DSN connects,
-  * lists all base tables whose name starts with 'SV_INDEX',
+  * reports schema ``rates`` IUL index-assumption FUND rows,
   * reports the row count for a given plancode across the standard
     Select_RATE_* plancode tables (default plancode: CCV48000).
 
@@ -39,21 +39,12 @@ def main() -> None:
     try:
         cur = conn.cursor()
 
-        # SV_INDEX_* base tables.
         cur.execute(
-            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
-            "WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE 'SV_INDEX%' "
-            "ORDER BY TABLE_NAME"
+            "SELECT RATE_TYPE, COUNT(*) FROM rates.RATE_VALUE_FUND "
+            "WHERE RATE_TYPE IN ('IDX_ILL','IDX_BENCH_MIN','IDX_BENCH_MAX','MKT_RETURN') "
+            "GROUP BY RATE_TYPE ORDER BY RATE_TYPE"
         )
-        sv_index_tables = [str(r[0]) for r in cur.fetchall()]
-        out["sv_index_tables"] = sv_index_tables
-
-        # Row count per SV_INDEX table.
-        sv_counts = {}
-        for t in sv_index_tables:
-            cur.execute(f"SELECT COUNT(*) FROM [dbo].[{t}]")
-            sv_counts[t] = cur.fetchone()[0]
-        out["sv_index_row_counts"] = sv_counts
+        out["index_assumption_fund_rows"] = {str(r[0]): r[1] for r in cur.fetchall()}
 
         # Plancode presence across the standard rate tables.
         per_table = {}

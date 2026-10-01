@@ -36,7 +36,8 @@ from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Optional, Sequ
 
 from dateutil.relativedelta import relativedelta
 
-from suiteview.core.rates import RatesError, cyberlife_rate_user
+from suiteview.core.rates import cyberlife_rate_user
+from suiteview.core.rates_errors import RatesError
 from suiteview.core.rates_schema import (
     BandSpec, CellAssignment, DivAssignment, DivSchedule, PlanDef, RateSetInfo,
     RatesSchemaRepository, ScheduleWindow, SubseriesRow,

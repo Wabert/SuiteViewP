@@ -15,8 +15,8 @@ from typing import Optional
 from dateutil.relativedelta import relativedelta
 
 from suiteview.core.joint_survivor_coi import JointRules
-from suiteview.core.rates import Rates
 from suiteview.illustration.core.target_premium import floor_monthly_cent
+from suiteview.illustration.core.ul_rates import ULRates
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.models.policy_sections.lookup import policy_attr
@@ -209,7 +209,7 @@ def _joint_change_options(policy, plancode: str) -> dict:
     lives = getattr(base, "joint_lives", None)
     if lives is None:
         return {}
-    rates_db = Rates()
+    rates_db = ULRates(getattr(policy, "company_code", "") or "")
     company = rates_db.joint_survivor_company(plancode)
     if company is None:
         raise ValueError(

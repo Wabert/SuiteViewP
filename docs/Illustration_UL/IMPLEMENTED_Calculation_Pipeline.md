@@ -132,7 +132,7 @@ At a high level, the normal illustration path is being structured to follow the 
 16. Accumulation: interest crediting, loan interest charges, and ending values
 17. Shadow account processing
 18. Testing: guideline/7-pay caps, permanent monthly MEC status, lapse via SV/shadow/SNET/AV/exception
-19. Deemed Cash Value (later)
+19. Deemed Cash Value roll and the CVAT Necessary Premium Test (DCV entered by the user)
 ```
 
 That sequence is the controlling implementation path in
@@ -440,10 +440,11 @@ Regression: `tests/test_illustration_waiver_rating_changes.py`.
 Target-based PWoT charges in the monthly GLP/GSP/7-pay basis share
 `monthly_deduction.target_waiver_charge()` with the deduction engine.
 `PWoT_COI_Basis=2` uses annual MTP, `=3` annual CTP, including the recalculated
-target on the After side. The shared helper applies the base coverage's active
-table rating and cent rounding; recorded benefit units/rating are not that
-basis. Basis 1 and type-3 waiver behavior remain unchanged. This fixes the
-guideline path omitted from the earlier monthly face-change correction.
+target on the After side. The shared helper applies cent rounding and no table
+factor (CyberLife applies none; fix E13, 2026-10-01); recorded benefit
+units/rating are not that basis. Basis 1 and type-3 waiver behavior remain
+unchanged. This fixes the guideline path omitted from the earlier monthly
+face-change correction.
 Read-only reproduction: 000239324 / 26 / NU1F3L00, face 50,000 on 2026-09-24,
 annual MTP 217.83: first After 4M charge 0.81 instead of 1.36; GLP After
 1,397.26 instead of 1,402.75. Regressions:
@@ -500,8 +501,9 @@ The chain is gated by `IllustrationOptions.conform_to_tefra` / `conform_to_tamra
 the TAMRA 7-pay window with a **material-change reset** (a face increase or B→A restarts
 the period) and an inforce-MEC bypass, and handles the BOY/EOY split when the 7-pay
 anniversary falls mid-policy-year. The loan-repay diversion (MH/MI/leftover) from
-Apply-Premium-to-Loan feeds NL/NY here. Still stubbed: the 1035 exchange and the CVAT
-Necessary-Premium (vNPT_Premium / LI).
+Apply-Premium-to-Loan feeds NL/NY here. The CVAT NPT allowance (ND) after TAMRA
+year 7 is `vNPT_Premium` (LI) from `deemed_cash_value.py` — see Step 19; the 1035
+exchange is still stubbed.
 
 Currently implemented:
 
@@ -1135,7 +1137,73 @@ cents-rounding the loan — could otherwise tip a fully-funded policy into a fal
 
 ### 4.21 Step 19 - Deemed Cash Value
 
-Deemed Cash Value is not implemented yet.
+Implemented in `suiteview/illustration/core/deemed_cash_value.py` (fix E02). The
+deemed cash value is **not in DB2** — CyberLife keeps it on the 93 segment, and
+RERUN's own loader writes `sInput_DeemedCashValue = 0`. SuiteView never defaults
+it: `IllustrationPolicyData.deemed_cash_value` is `None` until the user enters it
+on the Input tab ("Deemed Cash Value", next to Conform to TAMRA; enabled only for
+CVAT with Conform to TAMRA on). A run from issue starts the DCV at 0.
+
+**When it runs.** `IllustrationEngine.project` creates an `NptTracker` only for a
+CVAT policy with the 7-pay limit enforced (Conform to TAMRA, 7-pay level > 0), no
+inforce MEC, whose projection reaches TAMRA year 8. Before year 8 the NPT
+allowance is unlimited (ND = 999,999,999), so other runs skip the DCV entirely.
+
+**DCV roll (YW..AAK), per month after interest is credited:**
+
+```text
+BDCV            = prior vEDCV            (valuation row: entered DCV)
+vDCV_AfterChanges = BDCV − vGrossWD
+vDCV_AfterPremium = entered DCV on the inforce valuation row, else AfterChanges + vNetPremium
+DCV NAAR AV     = MAX(AfterPremium, 0)
+DCV DBD cov1    = (SA1 + IF(DBO B, NAAR AV)) / (1 + s7702_GLP_Rate)^(1/12);  covN = SAn / (…)
+DCV NAAR        = cov1: MAX(DBD1 − NAAR AV, 0); covN: the workbook's literal formula,
+                  which nets the full DCV against every coverage
+DCV COI         = Σ guaranteed ultimate COI (PolicyRates!FR..FT, zero from the premium-
+                  cease age) × (1 + factor × cov-1 table) + cov-1 monthly flats, × NAAR/1000
+DCV MD          = PoAV×AfterPremium + monthly fee + EPU + rider/benefit charges (ex PW)
+                  + DCV COI; PW39 = PW rate × MAX(MTP/12, that MD)
+vEDCV           = (AfterPremium − DCV MD) + MAX(0, … × ((1+GLP rate)^(days/365) − 1))
+```
+
+The DCV COI rate (`PolicyRates!FR10`) is `tRates_Ultimate_GCOI` — the
+**guaranteed** COI, not current; the map's sample row only shows it equal to the
+current OY rate because the two rates coincide for that plan/age. The charges
+other than COI are the month's AV deduction values (the run's expense basis).
+CyberLife-monthliversary timing credits the DCV interest at the start of the
+month instead of the end, matching that convention's AV interest.
+
+**NPT (LG..LI, ND):**
+
+```text
+vValue_for_NPT = MIN(vDCV_AfterChanges, vAV_AfterChanges)
+vNPT_NSP       = NSP schedule at this policy month (mNSPs)
+vNPT_Premium   = 0 for GPT; X = MAX(0, NSP − Value);
+                 X/(1−TPP) if that is below the CTP, else MAX(0, X + (TPP−EPP)·CTP)/(1−EPP)
+NPT Allowance0 = 999,999,999 while TAMRA year ≤ 7, else vNPT_Premium  (→ NI → NO → NT)
+```
+
+`mNSPs` is RERUN's `NSP!B18:D1475`: column B is schedule 1 (anchored at issue or
+the inforce valuation row), column C schedule 2 (the first 7702 change). Each is a
+monthly backward recursion at `MAX(GINT, s7702_GLP_Rate)`: `Q` = guaranteed COI
+(substandard, capped at 1000/12), `W = Q/(1+Q/1000)`,
+`Y = v·W + v·(1−W/1000)·Y_next` (Y = 1000 at age 100), rider NSP
+`AH = AF·(1−W/1000) + v·(1−W/1000)·AH_next` over the QAB charge stream, and
+NSP = `Y × lowest 7-pay DB at the anchor / 1000 + AH`. The engine builds the COI
+and QAB stream with the existing monthly guideline basis
+(`monthly_guideline.build_guideline_basis`). A 7702 change (material change or
+guideline recalc) starts a fresh schedule at the change month — RERUN caps the
+count at two and its third NSP column is blank, so this is an intent-over-workbook
+choice.
+
+**Fail loud.** If the NPT would limit a requested premium (CVAT, TAMRA enforced,
+not MEC, TAMRA year > 7) and no DCV was entered, `premium_allowance` raises
+`DeemedCashValueRequiredError`; Run Values shows it as "Deemed Cash Value
+Required". The DCV is never assumed to be 0 or the account value. The NPT/DCV
+columns are carried in `MonthlyState.premium_allowance_detail` (vValue_for_NPT,
+vNPT_NSP, vNPT_Premium, BDCV, vDCV_AfterChanges, vDCV_AfterPremium, DCV DB,
+DCV COI Charge, DCV MD, DCV Interest, vEDCV) and shown on the Values tab's TEFRA
+and TAMRA group.
 
 ## 5. Output State Produced Each Month
 
@@ -1251,8 +1319,9 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - the engine's OWN guideline recalc (commutation on guaranteed COI) runs when no injected values are supplied, but is not yet calibrated to RERUN's Guideline_Premiums calculator (deltas ~15-18% low); DBO B after-states need the iterative method or injection
 - DBO B-to-A is implemented (inverse level-DB mechanic, material change) but not yet validated against a RERUN reference
 - mid-year (non-anniversary) changes do not pro-rate the year-of-change AccumGLP (Guideline_Premiums col K AccumAdjust)
-- the 1035 exchange (allowance row "1") and the CVAT Necessary-Premium Test (vNPT_Premium) are stubbed at zero in the premium chain
-- Deemed cash value, GCO logic, and full integrated 7702A determination beyond the implemented seven-pay excess/back-tests remain out of this monthly path
+- the 1035 exchange (allowance row "1") is stubbed at zero in the premium chain
+- the CVAT Necessary-Premium Test needs the user-entered deemed cash value (not in DB2); the Prem to Maturity / Prem to Shadow Maturity solves still run CVAT policies with Conform to TAMRA off
+- GCO logic and full integrated 7702A determination beyond the implemented seven-pay excess/back-tests remain out of this monthly path
 - advance loans are validated penny-exact at current/early durations; the cents-rounding divergence from RERUN (unrounded AA/AC) is intentional and still wants a long-horizon RERUN-saved-case confirmation
 
 ## 8. Recommended Next Review Questions

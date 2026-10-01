@@ -21,6 +21,10 @@ class InterestResult:
 
     days_in_month: float = 0.0
     actual_days_in_month: int = 0
+    # Day count for the loan accrual to the next monthliversary. In CyberLife
+    # timing ``days_in_month`` is the prior span (E01); loans still accrue over
+    # the forward span, which is this calendar month's day count.
+    loan_accrual_days: float = 0.0
     annual_interest_rate: float = 0.0
     bonus_interest_rate: float = 0.0
     effective_annual_rate: float = 0.0
@@ -47,6 +51,7 @@ def credit_interest(
     pref_loan_balance: float = 0.0,
     exact_days_interest: bool | None = None,
     period_days: float | None = None,
+    exact_days_override: int | None = None,
 ) -> InterestResult:
     """Credit interest to account value.
 
@@ -58,6 +63,8 @@ def credit_interest(
     ``(1 + rate) ** (days / 365) - 1`` instead of a whole monthiversary span
     (interim roll-forwards between monthliversaries); it overrides the
     exact-days / monthly-compounding choice.
+    ``exact_days_override`` changes only the whole-span day count used by
+    ExactDays plans; monthly-compounding plans still use ``(1 + i) ** (1/12)``.
 
     Args:
         av_after_deduction: AV after monthly deduction.
@@ -93,10 +100,13 @@ def credit_interest(
 
     # ── 3.3.3 Monthly rate calculation ────────────────────────
     actual_days = _days_in_month(month_date)
+    exact_days = exact_days_override if exact_days_override is not None else actual_days
     use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
-    display_days = float(actual_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
+    display_days = float(exact_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
+    loan_accrual_days = float(actual_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
     if period_days is not None:
         display_days = float(period_days)
+        loan_accrual_days = float(period_days)
 
     def period_rate(annual: float) -> float:
         if period_days is not None:
@@ -105,7 +115,7 @@ def credit_interest(
             # Exact-days: credit interest on the ACTUAL calendar days in the month
             # (matches CyberLife / RERUN, and the shadow side, which already use
             # days/365).
-            return (1.0 + annual) ** (actual_days / DAYS_PER_YEAR) - 1.0
+            return (1.0 + annual) ** (exact_days / DAYS_PER_YEAR) - 1.0
         return (1.0 + annual) ** (1.0 / MONTHS_PER_YEAR) - 1.0
 
     monthly_rate = period_rate(effective_annual_rate)
@@ -154,6 +164,7 @@ def credit_interest(
     return InterestResult(
         days_in_month=display_days,
         actual_days_in_month=actual_days,
+        loan_accrual_days=loan_accrual_days,
         annual_interest_rate=annual_rate,
         bonus_interest_rate=bonus_rate,
         effective_annual_rate=effective_annual_rate,

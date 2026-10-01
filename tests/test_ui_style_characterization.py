@@ -57,7 +57,7 @@ EXPECTED_MODULE_HASHES = {
         "78e80d86f41359df4e890f7398c5110aa78cf170c7766f7b5c5da7c71dd8e447"
     ),
     "suiteview.illustration.ui.styles": (
-        "ac9666166116e1c2489cc4445ddb57fc7d90064d1360b7f070c0c3059e7626c0"
+        "21e8f9116e5f35c8dbc742e91d489e0b6ec5eb0fc4d9f1bd5155993838782047"
     ),
     "suiteview.mainframe_nav.styles": (
         "e10a7f17f98aba56ad134f476ea1cb82246f6a75e456f999711231cfcbb81fea"
@@ -80,7 +80,7 @@ EXPECTED_WINDOW_HASHES = {
     "AuditWindow": "61ef74adece6b87e65b6f08e0d3f302bae05bc95cb1ca4a0f289713eb91fc8d5",
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
-    "IllustrationWindow": "541832b980bc3a6c016c199ef09ffdfad59abced690cb8e06776305abddae52f",
+    "IllustrationWindow": "72f6ee08f93f60e2896854fe6ca1d66afb355b6eb67664f364c3bf5bc918a721",
     "MainframeWindow": "372a0a574cb206b2f252171fa8270e00f137960d83db5fde15b41bb01637a084",
     "PolView": "70c5a0cc3f2b75a8f18087763f89104678f480a872361cbf899aec837766dd86",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",

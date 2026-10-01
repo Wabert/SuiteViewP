@@ -12,7 +12,10 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    restores a draft into a fresh widget when policy sessions are revisited.
 3. **Scenario** — `execute_run()` loads or copies the `PolicyBasis`, then
    `build_run_scenario()` applies inforce overrides, issue-mode assumptions and
-   rollback assumptions through `scenario_builder`.
+   rollback assumptions through `scenario_builder`.  Rollback and from-issue
+   scenarios retain dated transaction receipt dates so the engine can credit
+   receipt-to-monthliversary interest; ordinary inforce forecasts still treat
+   scheduled/modal cash flows as monthliversary transactions.
 4. **Solves** — `resolve_solved_inputs()` preserves the UI's solve order:
    ABR Quote short-circuits; then lumpsum-to-next-premium, max level, minimum
    level to maturity, shadow maturity, target premium, duration and loan payoff.

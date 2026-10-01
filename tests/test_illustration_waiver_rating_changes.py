@@ -143,11 +143,14 @@ def test_projection_drop_and_restore_updates_charges_and_preserves_source(
     for state in states:
         table = 2 if state.date < CHANGE_DATE else (0 if state.date < restore_date else 4)
         factor = 1.0 + config.table_rating_factor * table
+        target_based = pwot_basis in (2, 3)
         assert state.benefit_rates["39"] == pytest.approx(0.02 * factor)
-        assert state.benefit_rates["49"] == pytest.approx(0.3 * factor)
+        # Target-based PWoT (basis 2/3) carries no table factor (E13).
+        waiver_factor = 1.0 if target_based else factor
+        assert state.benefit_rates["49"] == pytest.approx(0.3 * waiver_factor)
         assert state.benefit_charge_detail["39"] == pytest.approx(2.0 * factor)
         amount = {1: 10.0, 2: 12.0, 3: 15.0}[pwot_basis]
-        assert state.benefit_charge_detail["49"] == pytest.approx(amount * 0.3 * factor)
+        assert state.benefit_charge_detail["49"] == pytest.approx(amount * 0.3 * waiver_factor)
         assert state.benefit_charge_detail["10"] == 1.5
         assert state.benefit_charge_detail["60"] == 3.0
     assert policy == original

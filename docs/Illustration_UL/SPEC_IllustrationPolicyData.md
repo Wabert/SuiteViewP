@@ -242,7 +242,7 @@ class IllustrationPolicyData:
     swam: float = 0.0                    # Sweep Account Minimum
     
     # ── CVAT / DCV (if applicable) ────────────────────────────
-    deemed_cash_value: float = 0.0       # Manual entry for CVAT policies
+    deemed_cash_value: Optional[float] = None  # 93-segment DCV entered on the Input tab (not in DB2); None = unknown
     
     # ── Base Coverage Segments ───────────────────────────────
     # Base coverages ONLY (original + increase segments with same plancode).

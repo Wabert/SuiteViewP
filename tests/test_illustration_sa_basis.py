@@ -21,7 +21,7 @@ from dataclasses import fields
 
 import pytest
 
-import suiteview.core.rates as rates_module
+import suiteview.illustration.core.ul_rates as ul_rates_module
 from suiteview.illustration.core.calc_engine import _calculate_surrender_charge
 from suiteview.illustration.core.monthly_deduction import calculate_deduction
 from suiteview.illustration.core.monthly_guideline import build_guideline_basis
@@ -141,19 +141,19 @@ class _FakeRates:
     MTP_RATE = 20.0
     CTP_RATE = 24.0
 
-    def get_band(self, plancode, specified_amount, issue_date=None):
+    def get_band(self, plancode, specified_amount, issue_date=None, **_kwargs):
         return 1
 
-    def get_mtp(self, *args):
+    def get_mtp(self, *args, **_kwargs):
         return self.MTP_RATE
 
-    def get_tbl1_mtp(self, *args):
+    def get_tbl1_mtp(self, *args, **_kwargs):
         return 0.0
 
-    def get_ctp(self, *args):
+    def get_ctp(self, *args, **_kwargs):
         return self.CTP_RATE
 
-    def get_tbl1_ctp(self, *args):
+    def get_tbl1_ctp(self, *args, **_kwargs):
         return 0.0
 
     def get_ben_mtp(self, *args, **kwargs):
@@ -171,7 +171,7 @@ class _FakeRates:
     [("CurrentSA", CURRENT_SA), ("OriginalSA", ORIGINAL_SA)],
 )
 def test_mtp_ctp_follow_sa_basis(monkeypatch, sa_basis, expected_sa):
-    monkeypatch.setattr(rates_module, "Rates", lambda: _FakeRates())
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: _FakeRates())
     result = compute_target_premiums(
         _policy(), _config(sa_basis), as_of=date(2020, 6, 1)
     )
@@ -246,31 +246,31 @@ def test_missing_basis_does_not_infer_from_skipped_reinstatement(monkeypatch):
 
 
 class _BandedRates(_FakeRates):
-    def get_band(self, plancode, specified_amount, issue_date=None):
+    def get_band(self, plancode, specified_amount, issue_date=None, **_kwargs):
         return 3 if specified_amount >= 250_000 else 2
 
-    def get_mtp(self, *args):
+    def get_mtp(self, *args, **_kwargs):
         return args[-1] * 10.0
 
-    def get_ctp(self, *args):
+    def get_ctp(self, *args, **_kwargs):
         return args[-1] * 20.0
 
-    def get_tbl1_mtp(self, *args):
+    def get_tbl1_mtp(self, *args, **_kwargs):
         return args[-1] * 1.0
 
-    def get_tbl1_ctp(self, *args):
+    def get_tbl1_ctp(self, *args, **_kwargs):
         return args[-1] * 2.0
 
-    def get_ben_mtp(self, *args):
+    def get_ben_mtp(self, *args, **_kwargs):
         return args[-2] * 1.0
 
-    def get_ben_ctp(self, *args):
+    def get_ben_ctp(self, *args, **_kwargs):
         return args[-2] * 2.0
 
 
 @pytest.mark.parametrize("basis", ["CurrentSA", "OriginalSA"])
 def test_only_mtp_band_locks_per_coverage_after_face_changes(monkeypatch, basis):
-    monkeypatch.setattr(rates_module, "Rates", _BandedRates)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: _BandedRates())
     policy = _policy()
     policy.segments.append(CoverageSegment(
         coverage_phase=5, issue_date=date(2021, 6, 1), issue_age=46,
@@ -309,7 +309,7 @@ def test_rate_loading_locks_mtp_but_not_charge_schedules(monkeypatch, scale):
     db.get_rates.return_value = []
     db.get_mtp.return_value = 10
     db.get_ctp.return_value = 40
-    monkeypatch.setattr(rate_loader, "Rates", lambda: db)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: db)
     coi = Mock(return_value=[])
     monkeypatch.setattr(rate_loader, "load_coverage_coi_rates", coi)
     policy = _policy()
@@ -326,7 +326,8 @@ def test_rate_loading_locks_mtp_but_not_charge_schedules(monkeypatch, scale):
     for call in db.get_rates.call_args_list:
         if call.args[0] in ("EPU", "TPP", "EPP", "SCR"):
             assert call.kwargs["band"] == 2
-            assert call.kwargs["scale"] == (1 if call.args[0] == "SCR" else scale)
+            # Surrender charges have one (issue-dated) scale; no scale is passed.
+            assert call.kwargs.get("scale") == (None if call.args[0] == "SCR" else scale)
 
 
 def test_increase_then_decrease_preserves_mtp_issue_bands_only(monkeypatch):
@@ -338,7 +339,7 @@ def test_increase_then_decrease_preserves_mtp_issue_bands_only(monkeypatch):
                 return [None, 10.0]
             return [None, float(kwargs.get("band", 1))]
 
-    monkeypatch.setattr(rates_module, "Rates", Rates)
+    monkeypatch.setattr(ul_rates_module, "ULRates", lambda *_args, **_kwargs: Rates())
     policy = _policy()
     config = _config("OriginalSA")
     rates = IllustrationRates(

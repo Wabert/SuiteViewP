@@ -131,7 +131,7 @@ class _FakeRates:
 
     def get_rates(self, rate_type, plancode, issue_age=None, sex=None,
                   rateclass=None, scale=1, band=None, specified_amount=0,
-                  benefit_type="", state=None):
+                  benefit_type="", state=None, **_kwargs):
         if rate_type.upper() == "MFEE":
             self.mfee_calls.append((sex, rateclass))
             fee = 10.0 if rateclass == "Y" else 5.0
@@ -147,7 +147,7 @@ class _FakeRates:
 
 def test_loader_mfee_varies_by_rate_class(monkeypatch):
     fake = _FakeRates()
-    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    monkeypatch.setattr(rate_loader, "ULRates", lambda *_args, **_kwargs: fake)
 
     male = load_rates(_policy(rate_sex="M", rate_class="N"), _config())
     female = load_rates(_policy(rate_sex="F", rate_class="N"), _config())

@@ -324,7 +324,10 @@ class IllustrationPolicyData:
     ccv_coi_rate: Optional[float] = None  # CCV rider COI rate (for regular-side charge)
 
     # ── CVAT / DCV ────────────────────────────────────────────
-    deemed_cash_value: float = 0.0
+    # Deemed cash value as of the valuation date (CyberLife 93 segment). It is
+    # NOT in the DB2 tables: None until the user enters it on the Input tab
+    # (never defaulted to 0 or the account value); 0 for a run from issue.
+    deemed_cash_value: Optional[float] = None
 
     # ── Base Coverage Segments ───────────────────────────────
     segments: List[CoverageSegment] = field(default_factory=list)
