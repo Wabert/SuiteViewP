@@ -80,6 +80,11 @@ class FileExplorerFileOpsMixin:
 
     def cut_file(self):
         """Cut selected file(s)/folder(s)"""
+        if is_sp_path(self.current_details_folder):
+            QMessageBox.information(self, "Read-Only",
+                "SharePoint libraries are read-only in FileNav.\n"
+                "Use Ctrl+C to copy a file instead.")
+            return
         paths = self.get_selected_paths()
         if paths:
             self.clipboard = {"paths": paths, "operation": "cut"}
@@ -89,6 +94,9 @@ class FileExplorerFileOpsMixin:
 
     def copy_file(self):
         """Copy selected file(s)/folder(s)"""
+        if is_sp_path(self.current_details_folder):
+            self.copy_sharepoint_files()
+            return
         paths = self.get_selected_paths()
         if paths:
             self.clipboard = {"paths": paths, "operation": "copy"}

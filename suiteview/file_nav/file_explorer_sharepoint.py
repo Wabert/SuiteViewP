@@ -503,11 +503,12 @@ class FileExplorerSharePointMixin:
         
         return [name_item, size_item, type_item, date_item, adate_item]
 
-    def open_sharepoint_file(self, sp_path, name, dest_path=None):
+    def open_sharepoint_file(self, sp_path, name, dest_path=None, on_done=None):
         """Download a SharePoint file (to temp cache by default) and open it.
         
         The cached copy is marked read-only so edits aren't mistaken for
-        changes that would sync back to SharePoint.
+        changes that would sync back to SharePoint. With *dest_path*, the file
+        is saved there instead and *on_done(local_path)* runs once it arrives.
         """
         
         open_after = dest_path is None
@@ -544,6 +545,8 @@ class FileExplorerSharePointMixin:
                     logger.error(f"Failed to open downloaded file: {e}")
                     QMessageBox.warning(self, "Cannot Open File",
                                         f"Downloaded but failed to open {name}\n\nError: {e}")
+            elif on_done is not None:
+                on_done(local_path)
         
         def on_failed(msg):
             progress.close()
@@ -581,6 +584,10 @@ class FileExplorerSharePointMixin:
                     save_action = menu.addAction("💾 Save a Copy As…")
                     save_action.triggered.connect(
                         lambda: self._save_sp_file_as(sp_path, name))
+                    copy_action = menu.addAction("📋 Copy\tCtrl+C")
+                    copy_action.triggered.connect(
+                        lambda: self.copy_sharepoint_files(
+                            self._selected_sp_files() or [(sp_path, name)]))
                 
                 if web_url:
                     browser_action = menu.addAction("🌐 Open in Browser")
@@ -596,6 +603,54 @@ class FileExplorerSharePointMixin:
         refresh_action.triggered.connect(self.refresh_details_view)
         
         menu.exec(self.details_view.viewport().mapToGlobal(position))
+
+    def _selected_sp_files(self):
+        """(sp_path, name) for each selected file row; folders are skipped."""
+        files, seen_rows = [], set()
+        for index in self.details_view.selectedIndexes():
+            if index.row() in seen_rows:
+                continue
+            seen_rows.add(index.row())
+            col0 = index.sibling(index.row(), 0)
+            if self.details_sort_proxy.data(col0, Qt.ItemDataRole.UserRole + 3) != "file":
+                continue
+            sp_path = self.details_sort_proxy.data(col0, Qt.ItemDataRole.UserRole)
+            name = self.details_sort_proxy.data(col0, Qt.ItemDataRole.UserRole + 5)
+            if sp_path and name:
+                files.append((sp_path, name))
+        return files
+
+    def copy_sharepoint_files(self, files=None):
+        """Ctrl+C for SharePoint: download the files, then put them on the clipboard.
+
+        Once the downloads finish the clipboard holds real local files, so they
+        paste into Windows Explorer or a local FileNav folder.
+        """
+        files = files or self._selected_sp_files()
+        if not files:
+            QMessageBox.information(self, "Copy",
+                                    "Select one or more SharePoint files to copy.\n"
+                                    "Folders cannot be copied from SharePoint.")
+            return
+
+        cache_root = Path(tempfile.gettempdir()) / "SuiteView_SharePoint" / "Copied"
+        queue, copied = list(files), []
+
+        def copy_next(local_path=None):
+            if local_path is not None:
+                copied.append(local_path)
+            if queue:
+                sp_path, name = queue.pop(0)
+                _, item_id = parse_sp_path(sp_path)
+                safe_id = re.sub(r'[^A-Za-z0-9_-]', '_', item_id)[:40]
+                self.open_sharepoint_file(sp_path, name, dest_path=cache_root / safe_id / name,
+                                          on_done=copy_next)
+                return
+            self.clipboard = {"paths": copied, "operation": "copy"}
+            self._set_system_clipboard(copied)
+            logger.info(f"Copied {len(copied)} SharePoint file(s) to clipboard")
+
+        copy_next()
 
     def _save_sp_file_as(self, sp_path, name):
         """Download a SharePoint file to a user-chosen location"""
