@@ -41,3 +41,15 @@ def missing_required_rate_warnings(
         "Missing illustration rates for active rider/benefit charges: "
         + ", ".join(sorted(missing))
     ]
+
+
+def benefit_rate_override_warnings(rates: IllustrationRates) -> list[str]:
+    """Return user-facing notices for benefits charged at the policy record's rate."""
+    return [
+        f"CCV benefit {override.schedule_key} rate on the policy record "
+        f"({override.policy_rate:g}) does not match the rates database "
+        f"({override.database_rate:g} for rate class {override.rate_class or '<blank>'}); "
+        "the coverage rate class may have changed since the CCV was issued. "
+        "The illustration uses the policy record rate for the CCV charge."
+        for _, override in sorted(rates.benefit_rate_overrides.items())
+    ]

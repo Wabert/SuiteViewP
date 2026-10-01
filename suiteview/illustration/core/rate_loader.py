@@ -36,8 +36,27 @@ PREFERRED_RATECLASS_FALLBACKS = {
 }
 
 
+CCV_BENEFIT_TYPE = "A"
+_RATE_MATCH_TOLERANCE = 1e-6
+
+
 class RateLookupError(RuntimeError):
     """A required illustration rate schedule could not be found."""
+
+
+@dataclass(frozen=True)
+class BenefitRateOverride:
+    """A benefit COI schedule replaced by the rate stored on the policy record.
+
+    ``database_rate`` is the UL_Rates BENCOI rate for the benefit's current
+    duration under ``rate_class``; ``policy_rate`` is the LH_SPM_BNF rate the
+    illustration charges instead, level for every duration.
+    """
+
+    schedule_key: str
+    database_rate: float
+    policy_rate: float
+    rate_class: str
 
 
 def load_coverage_coi_rates(
@@ -196,6 +215,9 @@ class IllustrationRates:
     # Benefit COI rates — keyed by combined type+subtype string (e.g. "39" for PW)
     # Each value is a 1-indexed list by policy year (benefit duration)
     benefit_coi: Dict[str, List] = field(default_factory=dict)
+    # Benefit schedules replaced by the policy record's stored rate, keyed like
+    # benefit_coi (see load_benefit_schedule).
+    benefit_rate_overrides: Dict[str, BenefitRateOverride] = field(default_factory=dict)
 
     # Rider COI rates — keyed by RiderInfo.export_key (plancode_occurrence)
     rider_rates: Dict[str, List] = field(default_factory=dict)
@@ -248,12 +270,17 @@ def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
     )
 
 
+def _benefit_rate_coverage(policy, benefit, segment):
+    """The coverage segment whose sex/class/band key a benefit's BENCOI lookup."""
+    return policy.segment_for_phase(benefit.coverage_phase) or segment
+
+
 def _load_benefit_coi_rates(rates_db: Rates, policy, benefit, segment) -> List:
     benefit_key = (benefit.benefit_type or "") + (benefit.benefit_subtype or "")
     # CyberLife looks up the benefit renewal rate by the assigned coverage's
     # attained age. Derive the rate-table issue age from that coverage phase
     # (falling back to the base segment) rather than the benefit's stored age.
-    coverage = policy.segment_for_phase(benefit.coverage_phase) or segment
+    coverage = _benefit_rate_coverage(policy, benefit, segment)
     issue_age = benefit_rate_issue_age(policy, benefit)
     return rates_db.get_rates(
         "BENCOI",
@@ -265,6 +292,56 @@ def _load_benefit_coi_rates(rates_db: Rates, policy, benefit, segment) -> List:
         band=coverage.band,
         benefit_type=benefit_key,
     ) or []
+
+
+def _ccv_policy_rate_override(
+    policy, benefit, segment, schedule_key: str, schedule: List,
+) -> Optional[BenefitRateOverride]:
+    """Detect a charged CCV benefit whose stored rate disagrees with UL_Rates.
+
+    CCV charges (EXECUL plans) are level by issue age and keyed on the
+    coverage's current rate class. A past rate-class change on the coverage
+    (e.g. smoker -> nonsmoker) can leave the CCV benefit on its original
+    class's rate, so the policy record — not the database — is what CyberLife
+    charges. Only a stored, nonzero rate on a benefit with a database schedule
+    qualifies; the comparison uses the benefit's current duration.
+    """
+    if (benefit.benefit_type or "") != CCV_BENEFIT_TYPE or not schedule:
+        return None
+    if benefit.coi_rate is None or benefit.coi_rate <= 0:
+        return None
+    from suiteview.illustration.core.monthly_deduction import benefit_rate_year
+
+    duration = benefit_rate_year(benefit, policy, policy.valuation_date, policy.policy_year)
+    database_rate = _safe_rate(schedule, duration)
+    policy_rate = float(benefit.coi_rate)
+    if abs(policy_rate - database_rate) <= _RATE_MATCH_TOLERANCE:
+        return None
+    return BenefitRateOverride(
+        schedule_key=schedule_key,
+        database_rate=database_rate,
+        policy_rate=policy_rate,
+        rate_class=_benefit_rate_coverage(policy, benefit, segment).rate_class,
+    )
+
+
+def load_benefit_schedule(
+    result: IllustrationRates, rates_db: Rates, policy, benefit, segment, schedule_key: str,
+) -> None:
+    """Load one benefit's COI schedule into ``result.benefit_coi[schedule_key]``.
+
+    A charged CCV benefit whose stored policy rate differs from UL_Rates is
+    charged at the policy rate for every duration and recorded in
+    ``result.benefit_rate_overrides`` so the UI can say so.
+    """
+    schedule = _load_benefit_coi_rates(rates_db, policy, benefit, segment)
+    override = _ccv_policy_rate_override(policy, benefit, segment, schedule_key, schedule)
+    if override is not None:
+        schedule = [None] + [override.policy_rate] * (len(schedule) - 1)
+        result.benefit_rate_overrides[schedule_key] = override
+    else:
+        result.benefit_rate_overrides.pop(schedule_key, None)
+    result.benefit_coi[schedule_key] = schedule
 
 
 def load_rates(
@@ -520,8 +597,7 @@ def _load_benefit_rates(
         schedule_key = rate_keys[id(ben)]
         if schedule_key in result.benefit_coi:
             continue
-        result.benefit_coi[schedule_key] = _load_benefit_coi_rates(
-            rates_db, policy, ben, seg)
+        load_benefit_schedule(result, rates_db, policy, ben, seg, schedule_key)
 
 
 def _load_rider_rates(result: IllustrationRates, policy: IllustrationPolicyData, rates_db: Rates) -> None:
