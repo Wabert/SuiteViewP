@@ -247,7 +247,8 @@ def _rider_rate_year(rider, policy: IllustrationPolicyData, projection_date: dat
     return _policy_anniversary_rate_year(rider.issue_date, policy, projection_date, fallback_year)
 
 
-def _benefit_rate_year(benefit, policy: IllustrationPolicyData, projection_date: date | None, fallback_year: int) -> int:
+def benefit_rate_year(benefit, policy: IllustrationPolicyData, projection_date: date | None, fallback_year: int) -> int:
+    """Benefit COI schedule duration on ``projection_date`` (policy-anniversary steps)."""
     return _policy_anniversary_rate_year(benefit.issue_date, policy, projection_date, fallback_year)
 
 
@@ -946,7 +947,7 @@ def _benefit_raw_rate(ben, detail_key: str, policy, rates, rate_year, projection
     ben_rates = rates.benefit_coi.get(detail_key, [])
     if ben_rates:
         return _rate_from_schedule(
-            ben_rates, _benefit_rate_year(ben, policy, projection_date, rate_year))
+            ben_rates, benefit_rate_year(ben, policy, projection_date, rate_year))
     if ben.coi_rate is not None:
         return float(ben.coi_rate)
     return 0.0

@@ -2698,6 +2698,9 @@ def _reband_benefits(rates, policy) -> None:
         ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
         if not ben_key:
             continue
+        # A CCV charge pinned to the policy record's rate stays pinned.
+        if ben_key in rates.benefit_rate_overrides:
+            continue
         rates.benefit_coi[ben_key] = _load_benefit_coi_rates(
             rates_db, policy, ben, seg
         )

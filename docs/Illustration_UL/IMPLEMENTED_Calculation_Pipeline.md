@@ -834,6 +834,20 @@ Therefore benefit 11 selects the BENCOI schedule for **issue age 28** and reads
 12/18/2026, when it advances to duration 29; it does not advance on the
 benefit's 01/18 anniversary.
 
+CCV benefit (type `A`) charge — policy record rate wins. EXECUL plans charge
+the CCV benefit at a level per-unit rate keyed on the coverage's *current* rate
+class. A past class change on the coverage (e.g. smoker -> nonsmoker) can leave
+the CCV benefit charged at its original class's rate, which the policy record
+does not otherwise reveal. When a CCV benefit has a stored nonzero rate
+(`LH_SPM_BNF`) that differs from the BENCOI rate at its current duration,
+`rate_loader.load_benefit_schedule` replaces the schedule with the stored rate
+for every duration, records a `BenefitRateOverride`, and the Policy tab shows a
+notice (`rate_validation.benefit_rate_override_warnings`). The illustration
+still runs. Example - `UIP73567` (1U143900, class N): database N rate 0.75,
+policy record 0.87 (the S rate), so the CCV charge is `100 units x 0.87 = 87.00`.
+Runs that clear stored rates (run from issue, edited rollback benefit amounts)
+use the database schedule.
+
 ```text
 adjusted_coi_rate = raw_rate * (1 + table_rating_factor * table_rating) + TRUNC(flat_extra / 12, 2)
 segment_coi_charge = (segment_nar / 1000) * adjusted_segment_coi_rate
