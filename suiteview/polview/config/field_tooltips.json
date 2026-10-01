@@ -33,7 +33,11 @@
     },
     "guar_int_rate": {
       "label": "Guar Int Rate",
-      "tooltip": "Guaranteed Interest Rate - The minimum interest rate guaranteed by the policy. Stored in database as basis points and divided by 100 for display."
+      "tooltip": "Guaranteed Interest Rate - The guaranteed crediting rate of the fixed fund(s), from LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT (percent form, divided by 100 for display). Funds with different non-zero rates are shown separated by '/'."
+    },
+    "db_discount_rate": {
+      "label": "DB Discount Rate",
+      "tooltip": "DB Discount Rate - The policy guaranteed interest rate used to discount the death benefit in the NAR calculation, from LH_NON_TRD_POL.POL_GUA_ITS_RT. Usually equals Guar Int Rate, but can differ."
     },
     "grace_rule_code": {
       "label": "Grace Rule Code",

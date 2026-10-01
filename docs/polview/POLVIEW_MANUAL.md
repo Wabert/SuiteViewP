@@ -147,6 +147,17 @@ tooltip lists the build-up. It is calculated with the surrender values
 (`AccountValueCalculations` payload) and shows `N/A` with the reason when the
 calculation fails or the next monthliversary has passed unprocessed.
 
+Policy Info shows two interest rates that usually match but can differ:
+**Guar Int Rate** is the fixed funds' guaranteed crediting rate
+(`LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`, via
+`pi.product.fund_guaranteed_interest_rates`; zero-rate funds such as GP are
+skipped when a non-zero rate exists, and differing rates are joined with `/`),
+and **DB Discount Rate** is the policy guaranteed rate used to discount the death
+benefit in the NAR calculation (`LH_NON_TRD_POL.POL_GUA_ITS_RT`, via
+`pi.product.guaranteed_interest_rate`). Example where they differ: U0482386.
+`LH_COV_FXD_FND_CTL` is an `advprod` stage table, so a failed read fails the
+tab load explicitly rather than showing a blank rate.
+
 ## PolView stored CV/NSP rates and Guaranteed Cash Value
 
 The Policy tab shows the base coverage's stored 02-segment per-unit window

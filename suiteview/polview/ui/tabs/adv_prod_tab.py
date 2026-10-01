@@ -34,6 +34,11 @@ MV_MONTH_COLUMN = MV_COLUMNS.index("M")
 MV_MD_COLUMN = MV_COLUMNS.index("MD")
 
 
+def _format_percent_rate(rate) -> str:
+    """Percent-form DB2 rate (``4.000``) as a display percent (``4.00%``)."""
+    return f"{float(rate) / 100:.2%}"
+
+
 class AdvProdValuesTab(QWidget):
     """Tab for Advanced Product Values - matches VBA SuiteView layout."""
 
@@ -122,7 +127,8 @@ class AdvProdValuesTab(QWidget):
         place(4, 0, "Surrender Value", "surrender_value", lwidth=100, italic=True)
         place(5, 0, "CCV", "ccv", lwidth=100)
         place(6, 0, "Guar Int Rate", "guar_int_rate", lwidth=100)
-        place(7, 0, "Grace Rule Code", "grace_rule_code", lwidth=100)
+        place(7, 0, "DB Discount Rate", "db_discount_rate", lwidth=100)
+        place(8, 0, "Grace Rule Code", "grace_rule_code", lwidth=100)
 
         # Right column (short-pay / other) — wider labels so long names
         # like "SP Prem Cease Age" are not clipped
@@ -258,11 +264,7 @@ class AdvProdValuesTab(QWidget):
                     ),
                     ccv_total))
 
-        if policy.product.guaranteed_interest_rate:
-            try:
-                self.policy_info.set_value("guar_int_rate", f"{float(policy.product.guaranteed_interest_rate)/100:.2%}")
-            except Exception:
-                self.policy_info.set_value("guar_int_rate", str(policy.product.guaranteed_interest_rate))
+        self._load_interest_rates(policy)
 
         if policy.product.grace_rule_code:
             self.policy_info.set_value("grace_rule_code", policy.product.grace_rule_code)
@@ -289,6 +291,26 @@ class AdvProdValuesTab(QWidget):
                         policy.billing.sp_prem_cease_age))
         if policy.targets.db_dial_to_age:
             self.policy_info.set_value("db_dial_to_age", str(policy.targets.db_dial_to_age))
+
+    def _load_interest_rates(self, policy):
+        """Fixed-fund guaranteed crediting rate and the NAR death-benefit discount rate.
+
+        They usually match, but the fund rate (LH_COV_FXD_FND_CTL) can differ
+        from the policy guaranteed rate (LH_NON_TRD_POL) used to discount the DB.
+        """
+        rates = policy.product.fund_guaranteed_interest_rates
+        nonzero = sorted({r.rate for r in rates if r.rate})
+        shown = nonzero or sorted({r.rate for r in rates if r.rate is not None})
+        if shown:
+            self._set_calculated(
+                "guar_int_rate", " / ".join(_format_percent_rate(rate) for rate in shown),
+                tips.fund_guaranteed_rate_tip(rates))
+
+        discount_rate = policy.product.guaranteed_interest_rate
+        if discount_rate:
+            self._set_calculated(
+                "db_discount_rate", _format_percent_rate(discount_rate),
+                tips.db_discount_rate_tip(discount_rate))
 
     @staticmethod
     def _is_current_row(row) -> bool:
