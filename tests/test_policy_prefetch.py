@@ -785,6 +785,64 @@ def test_missing_illustration_plan_keeps_advanced_policy_values_available(source
         session.close()
 
 
+def _render_advprod(monkeypatch, qtbot):
+    from suiteview.illustration.models import plancode_config
+    from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
+
+    monkeypatch.setattr(plancode_config, "_TABLE_CACHE", {})
+    monkeypatch.setattr(plancode_config, "_CONFIG_CACHE", {})
+    session = prefetch.PolicyLoadSession("TEST")
+    session.load_initial()
+    try:
+        prepared = session.prepare("advprod")
+        tab = AdvProdValuesTab()
+        qtbot.addWidget(tab)
+        with prepared.policy.cached_reads_only():
+            tab.load_data_from_policy(prepared.policy, prepared.payload)
+        return tab
+    finally:
+        session.close()
+
+
+def test_account_values_shows_fund_guaranteed_rate_and_db_discount_rate(source, monkeypatch, qtbot):
+    """U0482386-style UL: the fixed fund's guarantee differs from the NAR discount rate."""
+    key = {"CK_SYS_CD": "I", "CK_CMP_CD": "01", "TCH_POL_ID": "TEST TEST"}
+    source.tables["LH_COV_FXD_FND_CTL"] = [
+        {**key, "COV_PHA_NBR": 1, "FND_ID_CD": "U1", "GUA_FND_ITS_RT": 4},
+        {**key, "COV_PHA_NBR": 1, "FND_ID_CD": "GP", "GUA_FND_ITS_RT": 0},
+    ]
+    source.tables["LH_NON_TRD_POL"][0]["POL_GUA_ITS_RT"] = 3
+    tab = _render_advprod(monkeypatch, qtbot)
+    fields = tab.policy_info._fields
+    assert fields["guar_int_rate"].text() == "4.00%"
+    tip = fields["guar_int_rate"].toolTip()
+    assert "LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT" in tip
+    assert tip.splitlines()[-2:] == ["Fund GP, Cov 1: 0.000%", "Fund U1, Cov 1: 4.000%"]
+    assert fields["db_discount_rate"].text() == "3.00%"
+    assert "LH_NON_TRD_POL.POL_GUA_ITS_RT" in fields["db_discount_rate"].toolTip()
+
+
+def test_account_values_lists_differing_fund_guaranteed_rates(source, monkeypatch, qtbot):
+    key = {"CK_SYS_CD": "I", "CK_CMP_CD": "01", "TCH_POL_ID": "TEST TEST"}
+    source.tables["LH_COV_FXD_FND_CTL"] = [
+        {**key, "COV_PHA_NBR": 2, "FND_ID_CD": "U1", "GUA_FND_ITS_RT": 3},
+        {**key, "COV_PHA_NBR": 1, "FND_ID_CD": "U1", "GUA_FND_ITS_RT": 4},
+    ]
+    tab = _render_advprod(monkeypatch, qtbot)
+    assert tab.policy_info._fields["guar_int_rate"].text() == "3.00% / 4.00%"
+
+
+def test_account_values_fund_control_failure_fails_the_stage(source, monkeypatch):
+    session = prefetch.PolicyLoadSession("TEST")
+    session.load_initial()
+    try:
+        source.connections[-1].fail.add("LH_COV_FXD_FND_CTL")
+        with pytest.raises(RuntimeError, match="LH_COV_FXD_FND_CTL offline"):
+            session.prepare("advprod")
+    finally:
+        session.close()
+
+
 @pytest.mark.parametrize("error", [
     KeyError("SA_Basis"), ValueError("invalid rate"), OSError("offline"),
     prefetch.pyodbc.Error("08001", "Rate database unavailable"),

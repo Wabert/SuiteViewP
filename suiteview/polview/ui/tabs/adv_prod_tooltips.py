@@ -80,6 +80,33 @@ def sum_tip(title: str, source: str, parts: Iterable[tuple[str, float]], total: 
     return "\n".join(lines)
 
 
+def fund_guaranteed_rate_tip(rates) -> str:
+    """Per fixed fund/coverage guaranteed crediting rates behind Guar Int Rate."""
+    lines = [
+        "Guar Int Rate = guaranteed crediting rate of the fixed fund(s)",
+        "(LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT; zero-rate funds are not shown",
+        " when any fund has a non-zero rate)",
+    ]
+    lines.extend(
+        f"Fund {rate.fund_id or '?'}, Cov {_or_unknown(rate.coverage_phase)}: "
+        + (f"{rate.rate:.3f}%" if rate.rate is not None else "blank")
+        for rate in rates
+    )
+    return "\n".join(lines)
+
+
+def _or_unknown(value) -> str:
+    return "?" if value is None else str(value)
+
+
+def db_discount_rate_tip(rate) -> str:
+    return (
+        "DB Discount Rate = policy guaranteed interest rate used to discount\n"
+        "the death benefit in the NAR calculation\n"
+        f"(LH_NON_TRD_POL.POL_GUA_ITS_RT) = {rate:.3f}%"
+    )
+
+
 def sp_prem_cease_age_tip(duration: int, issue_age: int, cease_age: int) -> str:
     return (
         "SP Prem Cease Age = Short Pay Dur + base coverage issue age\n"

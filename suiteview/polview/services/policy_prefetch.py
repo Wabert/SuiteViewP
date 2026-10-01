@@ -105,6 +105,7 @@ STAGE_TABLES = {
     "loans": ("LH_CSH_VAL_LOAN", "LH_FND_VAL_LOAN"),
     "advprod": (
         "LH_POL_FND_VAL_TOT", "LH_FND_VAL_LOAN", "LH_COV_TARGET", "LH_POL_MVRY_VAL",
+        "LH_COV_FXD_FND_CTL",
     ),
     "reinsurance": (),
     "support": (),
@@ -147,6 +148,7 @@ STAGE_PROPERTIES = {
     ),
     "advprod": (
         "targets.gav", "product.guaranteed_interest_rate",
+        "product.fund_guaranteed_interest_rates",
         "product.grace_rule_code", "product.corridor_percent",
         "billing.short_pay_premium", "billing.short_pay_duration",
         "billing.short_pay_mode", "billing.sp_billing_cease_date",

@@ -9,8 +9,21 @@ from ..cl_polrec.policy_translations import PRODUCT_LINE_CODES
 from ..cl_polrec.policy_translations import translate_state_code
 from ..product_rules import ProductRules
 from ..product_rules import product_rules_for
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
+
+FIXED_FUND_CONTROL_TABLE = "LH_COV_FXD_FND_CTL"
+
+
+@dataclass(frozen=True)
+class FundGuaranteedRate:
+    """One fixed fund's guaranteed crediting rate (percent form, ``None`` if blank)."""
+
+    fund_id: str
+    coverage_phase: Optional[int]
+    rate: Optional[Decimal]
+
 
 try:
     from suiteview.polview.data.lookup import DataLookup as _DataLookup
@@ -200,9 +213,34 @@ class ProductSection(PolicySection):
 
     @property
     def guaranteed_interest_rate(self) -> Optional[Decimal]:
-        """Guaranteed interest rate for advanced products."""
+        """Policy guaranteed interest rate (LH_NON_TRD_POL.POL_GUA_ITS_RT), percent form.
+
+        This is the policy-level rate used to discount the death benefit in
+        the NAR calculation. The fixed funds' guaranteed crediting rate can
+        differ; see :attr:`fund_guaranteed_interest_rates`.
+        """
         val = self._field("guaranteed_interest_rate")
         return Decimal(str(val)) if val is not None else None
+
+    @property
+    def fund_guaranteed_interest_rates(self) -> tuple[FundGuaranteedRate, ...]:
+        """Guaranteed crediting rate per fixed fund (LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT).
+
+        One entry per fund-control row, ordered by coverage phase then fund.
+        Rates are percent form (``4.000`` = 4%). An empty tuple means the
+        policy has no fixed funds; a failed table read raises.
+        """
+        rows = self.fetch_table(FIXED_FUND_CONTROL_TABLE)
+        rates = [
+            FundGuaranteedRate(
+                fund_id=str(row.get("FND_ID_CD") or "").strip(),
+                coverage_phase=self._parse_optional_int(row.get("COV_PHA_NBR")),
+                rate=self._parse_optional_decimal(row.get("GUA_FND_ITS_RT")),
+            )
+            for row in rows
+        ]
+        return tuple(sorted(
+            rates, key=lambda r: (r.coverage_phase is None, r.coverage_phase or 0, r.fund_id)))
 
     @property
     def corridor_percent(self) -> Optional[Decimal]:
