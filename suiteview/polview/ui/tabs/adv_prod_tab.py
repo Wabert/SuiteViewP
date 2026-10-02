@@ -9,6 +9,7 @@ cash-value page with only the rows that apply to the policy.
 import logging
 from decimal import Decimal
 
+from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel, QStackedLayout,
 )
@@ -41,6 +42,22 @@ MV_MD_COLUMN = MV_COLUMNS.index("MD")
 TRAD_PANEL_WIDTH = 300
 GCV_COLUMNS = ["Cov", "Basis", "Dur", "Mo", "BOY Rate", "EOY Rate", "Units", "Value"]
 _NOTICE_STYLE = "background: #F0F0F0; color: #555555; font-style: italic; padding: 4px;"
+# ETI/RPU: the account value bought the nonforfeiture benefit, so these
+# AV-derived Policy Info rows and the fund/monthliversary groups are inactive.
+_INACTIVE_AV_FIELDS = (
+    "unimpaired_av", "impaired_av", "surrender_charge", "surrender_value",
+    "guaranteed_cv", "ccv", "interim_av_quote",
+)
+_INACTIVE_COLOR = "#A0A0A0"
+_INACTIVE_GROUP_STYLE = f"""
+    QGroupBox {{ border-color: #C8C8C8; color: {_INACTIVE_COLOR}; }}
+    QGroupBox::title {{ background-color: #B4B4B4; color: #F4F4F4; }}
+"""
+_INACTIVE_TABLE_STYLE = f"""
+    QTableWidget {{ background-color: #F4F4F4; color: {_INACTIVE_COLOR}; }}
+    QHeaderView::section {{ background-color: #E8E8E8; color: {_INACTIVE_COLOR}; }}
+"""
+_INACTIVE_FRAME_STYLE = "QFrame#outerFrame { background-color: #F4F4F4; border-color: #C8C8C8; }"
 
 
 def _format_percent_rate(rate) -> str:
@@ -74,7 +91,7 @@ class AdvProdValuesTab(QWidget):
         left_column.setSpacing(4)
 
         self.policy_info = StyledInfoTableGroup("Policy Info", columns=2, show_table=False)
-        self.policy_info.setFixedSize(LEFT_COLUMN_WIDTH, 190)
+        self.policy_info.setFixedSize(LEFT_COLUMN_WIDTH, 208)
         self._setup_policy_info_fields()
         left_column.addWidget(self.policy_info)
 
@@ -121,6 +138,16 @@ class AdvProdValuesTab(QWidget):
         self.fund_history.setMinimumHeight(200)
         self.fund_history.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         main_layout.addWidget(self.fund_history)
+
+        self._account_value_groups = (
+            self.unimpaired_values, self.impaired_values, self.allocation_percent,
+            self.mv_values, self.fund_history,
+        )
+        self._group_styles = {
+            group: (group.styleSheet(), group.table._data_table.styleSheet(),
+                    group.table._outer_frame.styleSheet())
+            for group in self._account_value_groups
+        }
 
     def _setup_traditional_page(self, page):
         layout = QHBoxLayout(page)
@@ -189,10 +216,11 @@ class AdvProdValuesTab(QWidget):
         place(2, 0, "Impaired AV", "impaired_av", lwidth=100)
         place(3, 0, "Surrender Charge", "surrender_charge", lwidth=100, italic=True)
         place(4, 0, "Surrender Value", "surrender_value", lwidth=100, italic=True)
-        place(5, 0, "CCV", "ccv", lwidth=100)
-        place(6, 0, "Guar Int Rate", "guar_int_rate", lwidth=100)
-        place(7, 0, "DB Discount Rate", "db_discount_rate", lwidth=100)
-        place(8, 0, "Grace Rule Code", "grace_rule_code", lwidth=100)
+        place(5, 0, "Guaranteed CV", "guaranteed_cv", lwidth=100, italic=True)
+        place(6, 0, "CCV", "ccv", lwidth=100)
+        place(7, 0, "Guar Int Rate", "guar_int_rate", lwidth=100)
+        place(8, 0, "DB Discount Rate", "db_discount_rate", lwidth=100)
+        place(9, 0, "Grace Rule Code", "grace_rule_code", lwidth=100)
 
         # Right column (short-pay / other) — wider labels so long names
         # like "SP Prem Cease Age" are not clipped
@@ -207,6 +235,18 @@ class AdvProdValuesTab(QWidget):
         place(7, 1, "Interim AV Quote (00/00/0000)", "interim_av_quote",
               lwidth=115, italic=True)
         self._set_interim_label(None)
+        self._field_styles = {
+            attr: (self.policy_info._labels[attr].styleSheet(), field.styleSheet())
+            for attr, field in self.policy_info._fields.items()
+        }
+        total_av_label = self.policy_info._labels["total_av"]
+        bold = QFont(total_av_label.font())
+        bold.setPixelSize(11)
+        bold.setBold(True)
+        # Room for the ETI/RPU relabel so it never shifts the layout.
+        total_av_label.setFixedWidth(max(
+            total_av_label.minimumWidth(),
+            QFontMetrics(bold).horizontalAdvance("NSP Cash Value:") + 6))
 
     def _set_interim_label(self, quote_date):
         """Label the Interim AV Quote with the date it is quoted as of."""
@@ -237,6 +277,7 @@ class AdvProdValuesTab(QWidget):
         for field in self.policy_info._fields.values():
             field.setToolTip("")
         self._set_interim_label(None)
+        self._set_account_values_active(True)
 
         try:
             self._load_policy_info_from_policy(policy)
@@ -259,6 +300,12 @@ class AdvProdValuesTab(QWidget):
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
             self._load_premium_allocation_from_policy(policy)
+            gcv = calculations.guaranteed or {
+                "value": None, "details": [], "reason": "Not calculated"}
+            if calculations.nonforfeiture_status:
+                self._load_nonforfeiture(policy, calculations.nonforfeiture_status, gcv)
+            else:
+                self._load_guaranteed_cash_value(gcv)
         except Exception:
             logger.exception("AdvProdValuesTab failed to load policy data")
             raise
@@ -336,6 +383,74 @@ class AdvProdValuesTab(QWidget):
         if rows:
             self.coverage_cash_values.setFixedHeight(
                 self.coverage_cash_values.table.fitted_height(min_rows=1, max_rows=10) + 24)
+
+    # ── Nonforfeiture (ETI/RPU) advanced policies ────────────────────────
+
+    def _set_account_values_active(self, active: bool, reason: str = ""):
+        """Grey out (or restore) the account-value rows and fund/monthliversary groups."""
+        info = self.policy_info
+        info._labels["total_av"].setText("Total AV:")
+        for attr in ("total_av",) + _INACTIVE_AV_FIELDS:
+            label_style, value_style = self._field_styles[attr]
+            grey = "" if active or attr == "total_av" else f" color: {_INACTIVE_COLOR};"
+            info._labels[attr].setStyleSheet(label_style + grey)
+            info._fields[attr].setStyleSheet(value_style + grey)
+        for group in self._account_value_groups:
+            group_style, table_style, frame_style = self._group_styles[group]
+            if active:
+                group.setStyleSheet(group_style)
+                group.table._data_table.setStyleSheet(table_style)
+                group.table._outer_frame.setStyleSheet(frame_style)
+            else:
+                group.setStyleSheet(group_style + _INACTIVE_GROUP_STYLE)
+                group.table._data_table.setStyleSheet(table_style + _INACTIVE_TABLE_STYLE)
+                group.table._outer_frame.setStyleSheet(frame_style + _INACTIVE_FRAME_STYLE)
+            group.setToolTip(reason)
+
+    def _load_guaranteed_cash_value(self, gcv):
+        """Guaranteed CV interpolated from the stored 02-segment rates, else N/A."""
+        amount = gcv.get("value")
+        text = "N/A"
+        if amount is not None:
+            nsp = any(d["basis"] == "NSP" for d in gcv.get("details", []))
+            text = format_currency(amount) + (" (NSP)" if nsp else "")
+        self._set_calculated("guaranteed_cv", text, tips.guaranteed_cash_value_tip(gcv))
+
+    def _load_nonforfeiture(self, policy, status, gcv):
+        """Show the NSP cash value in place of Total AV; mark AV values inactive."""
+        info = self.policy_info
+        valuation = format_date(policy.values.valuation_date) or "unknown date"
+        stored_av = info.get_value("total_av") or "N/A"
+        amount = gcv.get("value")
+        inactive = (
+            f"Inactive: the policy is on {status}. Its account value (last valued "
+            f"{valuation}) was applied to purchase the nonforfeiture benefit; these "
+            "values are historical."
+        )
+        self._set_account_values_active(False, inactive)
+
+        info._labels["total_av"].setText("NSP Cash Value:")
+        self._set_calculated(
+            "total_av", "N/A" if amount is None else format_currency(amount),
+            tips.guaranteed_cash_value_tip(gcv)
+            + f"\nStored Total AV {stored_av} (valued {valuation}) was applied to "
+              f"purchase {status}; it is not the current value.")
+        self._set_calculated(
+            "guaranteed_cv", "N/A",
+            f"On {status} the guaranteed value is the NSP Cash Value above.")
+
+        notice = (
+            f"Policy is on {status} (premium pay status "
+            f"{policy.status.premium_pay_status_code}): its account value was applied "
+            "to purchase the nonforfeiture benefit. NSP Cash Value is interpolated "
+            f"from the 02-segment NSP rates as of {format_date(gcv.get('as_of')) or 'N/A'}. "
+            f"Account and fund values (last valued {valuation}) are historical and "
+            "shown greyed out."
+        )
+        if amount is None:
+            notice += f" NSP Cash Value not calculated: {gcv.get('reason')}."
+        self.surrender_notice.setText(notice)
+        self.surrender_notice.show()
 
     def _set_calculated(self, attr, text, tip):
         """Show a calculated value with a hover tip explaining its working."""

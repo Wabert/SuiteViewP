@@ -13,7 +13,6 @@ from PyQt6.QtCore import Qt
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
 from . import targets_tooltips as tips
-from .adv_prod_tooltips import guaranteed_cash_value_tip
 from ..styles import (
     BLUE_BG, GRAY_TEXT, GRAY_MID, WHITE,
     BLUE_PRIMARY, BLUE_DARK, GOLD_TEXT
@@ -22,6 +21,9 @@ from ...services.targets_view_model import build_targets_view_model
 
 if TYPE_CHECKING:
     from ...models.policy_information import PolicyInformation
+
+# Every Targets & Accumulators panel shares one width so the columns line up.
+PANEL_WIDTH = 300
 
 
 # ─── N/A interior background style ───────────────────────────────────────────
@@ -213,9 +215,9 @@ class DefinitionOfLifeInsuranceWidget(StyledInfoTableGroup):
         self.add_field("GLP", "glp_label", 130, 100)
         self.add_field("Accum GLP", "accum_glp_label", 130, 100)
         self.add_field("Corr Pct", "corr_pct_label", 130, 100)
-        self.add_field("Prem paying years left", "prem_pay_years_label", 130, 100)
-        self.add_field("MaxAnnualLevelQualPrem", "max_annual_label", 130, 100)
-        self.add_field("MinQualifyingGLP", "min_qual_glp_label", 130, 100)
+        self.add_field("Prem Paying Years Left", "prem_pay_years_label", 130, 100)
+        self.add_field("Max Annual Level Qual Prem", "max_annual_label", 130, 100)
+        self.add_field("Min Qualifying GLP", "min_qual_glp_label", 130, 100)
         self.add_field("Base NSP", "base_nsp_label", 130, 100)
         self.add_field("Other NSP", "other_nsp_label", 130, 100)
 
@@ -309,8 +311,6 @@ class AccumulatorsWidget(StyledInfoTableGroup):
         # not read directly from DB2.
         self.add_field("Prem Allowed by GPT", "prem_allowed_gpt_label", 130, 100)
         self._make_field_italic("prem_allowed_gpt_label")
-        self.add_field("Guaranteed Cash Value", "gcv_label", 130, 100)
-        self._make_field_italic("gcv_label")
 
     def _make_field_italic(self, attr_name: str):
         """Italicize a field's label and value to flag it as a calculated value."""
@@ -339,15 +339,6 @@ class AccumulatorsWidget(StyledInfoTableGroup):
         self._fields["prem_allowed_gpt_label"].setToolTip(
             tips.prem_allowed_gpt_tip(inputs, prem_allowed) if inputs else
             "N/A: not a guideline premium test (GPT) policy, or its GPT values could not be read.")
-        gcv = totals.get("gcv") or {}
-        value = gcv.get("value")
-        text = "N/A"
-        if value is not None:
-            nsp = any(d["basis"] == "NSP" for d in gcv.get("details", []))
-            text = format_currency(value) + (" (NSP)" if nsp else "")
-        self.set_value("gcv_label", text)
-        if "gcv_label" in self._fields:
-            self._fields["gcv_label"].setToolTip(guaranteed_cash_value_tip(gcv))
 
 
 class TamraValuesWidget(_NaCapableGroup):
@@ -588,13 +579,13 @@ class TargetsAccumulatorsTab(QWidget):
     def _setup_ui(self):
         layout = QGridLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-        layout.setHorizontalSpacing(4)
-        layout.setVerticalSpacing(4)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(6)
 
-        # Row 0
+        # Column 0: guideline/TAMRA tests. Column 1: premium accumulators and
+        # commission target. Column 2: minimum premium, full height.
         self.doli_widget = DefinitionOfLifeInsuranceWidget()
-        layout.addWidget(self.doli_widget, 0, 0,
-                         Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.doli_widget, 0, 0, Qt.AlignmentFlag.AlignTop)
 
         self.accum_widget = AccumulatorsWidget()
         self.accum_widget.setTitle("Accumulators ⓘ")
@@ -602,10 +593,8 @@ class TargetsAccumulatorsTab(QWidget):
             "Accumulators come from the LH_POL_TOTALS table and, in a few cases, "
             "may not match the sum of transaction history on the Activity tab."
         )
-        layout.addWidget(self.accum_widget, 0, 1,
-                         Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.accum_widget, 0, 1, Qt.AlignmentFlag.AlignTop)
 
-        # Row 1 — three expandable bottom widgets
         self.tamra_widget = TamraValuesWidget()
         self.tamra_widget.setMinimumHeight(200)
         layout.addWidget(self.tamra_widget, 1, 0)
@@ -616,13 +605,21 @@ class TargetsAccumulatorsTab(QWidget):
 
         self.min_prem_widget = MinimumPremiumWidget()
         self.min_prem_widget.setMinimumHeight(200)
-        layout.addWidget(self.min_prem_widget, 1, 2)
+        layout.addWidget(self.min_prem_widget, 0, 2, 2, 1)
         self._grid = layout
 
+        for widget in (self.doli_widget, self.accum_widget, self.tamra_widget,
+                       self.commission_widget, self.min_prem_widget):
+            widget.setFixedWidth(PANEL_WIDTH)
         layout.setRowStretch(1, 1)
-        layout.setColumnStretch(1, 1)
-        layout.setColumnStretch(2, 1)
         layout.setColumnStretch(3, 1)
+
+    def _align_summary_heights(self):
+        """Definition of Life Insurance and Accumulators share one height."""
+        height = max(self.doli_widget.minimumHeight(),
+                     self.accum_widget.sizeHint().height())
+        self.doli_widget.setFixedHeight(height)
+        self.accum_widget.setFixedHeight(height)
 
     def _compact_when_empty(self, widget, empty: bool, message: str = ""):
         """Empty/not-applicable panels stay visible and greyed, but only as tall as their note."""
@@ -643,6 +640,7 @@ class TargetsAccumulatorsTab(QWidget):
             view_model = build_targets_view_model(policy)
             self.doli_widget.load_data(view_model.doli_data)
             self.accum_widget.load_data(view_model.accum_data)
+            self._align_summary_heights()
             self.tamra_widget.load_data(view_model.tamra_period, view_model.tamra_years)
             self.commission_widget.set_not_applicable(not view_model.is_advanced)
             self.min_prem_widget.set_not_applicable(not view_model.is_advanced)

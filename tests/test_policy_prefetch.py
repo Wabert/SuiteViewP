@@ -1246,3 +1246,117 @@ def test_traditional_without_cash_value_greys_account_values(source):
     prepared = _prepare_traditional_account_values(source)
     assert not prepared.available
     assert prepared.payload.guaranteed["value"] is None
+
+def test_advanced_eti_shows_nsp_cash_value_and_greys_account_values(source, monkeypatch, qtbot):
+    """ISWL on ETI (status 44): the AV bought the ETI, so its value is NSP-based."""
+    from decimal import Decimal
+    from suiteview.illustration import api as illustration_api
+    from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
+
+    monkeypatch.setattr(
+        illustration_api, "build_illustration_data",
+        lambda *args, **kwargs: pytest.fail("ETI policy must not run AV calculations"),
+    )
+    source.tables["LH_BAS_POL"][0]["PRM_PAY_STA_REA_CD"] = "44"
+    source.tables["LH_COV_PHA"][0].update(
+        LOW_DUR_PER=6, LOW_DUR_NSP_AMT=30, LOW_DUR_1_NSP_AMT=24, LOW_DUR_2_NSP_AMT=18)
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        session.load_initial()
+        prepared = session.prepare("advprod")
+    finally:
+        session.close()
+    payload = prepared.payload
+    assert isinstance(payload, prefetch.AccountValueCalculations)
+    # Duration 6, 8 months past the 1/15 anniversary: 100 x (30 x 4 + 24 x 8) / 12
+    assert payload.nonforfeiture_status == "ETI"
+    assert payload.guaranteed["value"] == Decimal("2600.00")
+    assert "on ETI" in payload.surrender.reason and "on ETI" in payload.interim.reason
+
+    tab = AdvProdValuesTab()
+    qtbot.addWidget(tab)
+    with prepared.policy.cached_reads_only():
+        tab.load_data_from_policy(prepared.policy, payload)
+    info = tab.policy_info
+    assert info._labels["total_av"].text() == "NSP Cash Value:"
+    assert info.get_value("total_av") == "2,600.00"
+    tip = info._fields["total_av"].toolTip()
+    assert "Cov 1 NSP (ETI): dur 6 30.00 -> dur 7 24.00, 8 mo" in tip
+    assert "Stored Total AV 200.00 (valued 9/15/2026)" in tip
+    assert "#A0A0A0" not in info._fields["total_av"].styleSheet()
+    for attr in ("unimpaired_av", "surrender_value", "guaranteed_cv", "interim_av_quote"):
+        assert "#A0A0A0" in info._fields[attr].styleSheet()
+    assert info.get_value("guaranteed_cv") == "N/A"
+    assert "NSP Cash Value above" in info._fields["guaranteed_cv"].toolTip()
+    assert "#A0A0A0" not in info._fields["guar_int_rate"].styleSheet()
+    for group in tab._account_value_groups:
+        assert "#B4B4B4" in group.styleSheet()
+        assert "#A0A0A0" in group.table._data_table.styleSheet()
+        assert "on ETI" in group.toolTip()
+    assert not tab.surrender_notice.isHidden()
+    assert "NSP Cash Value is interpolated" in tab.surrender_notice.text()
+    assert tab.mv_values.table._data_table.rowCount() == 1
+
+    with prepared.policy.cached_reads_only():
+        tab.load_data_from_policy(prepared.policy, prefetch.AccountValueCalculations(
+            prefetch.SurrenderValuesUnavailable("x"),
+            prefetch.InterimAccountValueUnavailable("y")))
+    assert info._labels["total_av"].text() == "Total AV:"
+    assert info.get_value("total_av") == "200.00"
+    assert "#A0A0A0" not in info._fields["unimpaired_av"].styleSheet()
+    assert "font-style: italic" in info._fields["surrender_value"].styleSheet()
+    assert "#A0A0A0" not in info._fields["guaranteed_cv"].styleSheet()
+    assert info.get_value("guaranteed_cv") == "N/A"
+    for group in tab._account_value_groups:
+        assert "#B4B4B4" not in group.styleSheet()
+        assert "#A0A0A0" not in group.table._data_table.styleSheet()
+        assert group.toolTip() == ""
+
+
+def test_advanced_account_values_show_guaranteed_cash_value(source, monkeypatch, qtbot):
+    """A non-ETI ISWL with stored CV rates shows Guaranteed CV beside its AV."""
+    from decimal import Decimal
+
+    source.tables["LH_COV_PHA"][0].update(
+        LOW_DUR_PER=5, LOW_DUR_CSV_AMT=10, LOW_DUR_1_CSV_AMT=20,
+        LOW_DUR_2_CSV_AMT=30, LOW_DUR_3_CSV_AMT=40)
+    tab = _render_advprod(monkeypatch, qtbot)
+    info = tab.policy_info
+    assert info._labels["total_av"].text() == "Total AV:"
+    assert info.get_value("total_av") == "200.00"
+    # Duration 6, 8 months past the 1/15 anniversary: 100 x (20 x 4 + 30 x 8) / 12
+    assert info.get_value("guaranteed_cv") == "2,666.67"
+    assert "dur 6 20.00 -> dur 7 30.00, 8 mo" in info._fields["guaranteed_cv"].toolTip()
+    assert "#A0A0A0" not in info._fields["guaranteed_cv"].styleSheet()
+
+
+def test_ul_without_stored_rates_shows_guaranteed_cash_value_na(source, monkeypatch, qtbot):
+    tab = _render_advprod(monkeypatch, qtbot)
+    field = tab.policy_info._fields["guaranteed_cv"]
+    assert tab.policy_info.get_value("guaranteed_cv") == "N/A"
+    assert "No stored cash value or NSP rates" in field.toolTip()
+
+
+def test_targets_tab_is_aligned_without_guaranteed_cash_value(source, qtbot):
+    from suiteview.polview.ui.tabs.targets_tab import PANEL_WIDTH, TargetsAccumulatorsTab
+
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        session.load_initial()
+        prepared = session.prepare("targets")
+    finally:
+        session.close()
+    tab = TargetsAccumulatorsTab()
+    qtbot.addWidget(tab)
+    with prepared.policy.cached_reads_only():
+        tab.load_data_from_policy(prepared.policy)
+    assert "gcv_label" not in tab.accum_widget._fields
+    from suiteview.polview.services.targets_view_model import build_targets_view_model
+    with prepared.policy.cached_reads_only():
+        assert "gcv" not in build_targets_view_model(prepared.policy).accum_data
+    panels = (tab.doli_widget, tab.accum_widget, tab.tamra_widget,
+              tab.commission_widget, tab.min_prem_widget)
+    assert {w.minimumWidth() for w in panels} == {w.maximumWidth() for w in panels} == {PANEL_WIDTH}
+    assert tab.doli_widget.minimumHeight() == tab.accum_widget.minimumHeight()
+    assert tab.doli_widget.maximumHeight() == tab.accum_widget.maximumHeight()
+    assert tab._grid.getItemPosition(tab._grid.indexOf(tab.min_prem_widget)) == (0, 2, 2, 1)

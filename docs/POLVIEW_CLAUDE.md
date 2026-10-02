@@ -611,12 +611,15 @@ ISWL, which 62Q1 rejects because it is an advanced product.
   are excluded with a note. If any active coverage with rates cannot be valued
   (window does not cover the duration, missing units/issue date/record), the
   result is **no value with a reason**, never a partial total.
-- **Targets & Accumulators** shows it as the italic calculated field
-  `Guaranteed Cash Value`; the tooltip lists the rates, months and units used.
+- **Account Values** shows it for every policy with cash or account value: the
+  italic `Guaranteed CV` row on the advanced page (N/A with a reason when no
+  rates are stored), the traditional page's `Guaranteed Cash Value`, and on ETI/RPU
+  advanced policies the `NSP Cash Value` in the Total AV row. The tooltip lists the
+  rates, months and units used. It is not on Targets & Accumulators.
   NSP-basis values display with an `(NSP)` suffix and a tooltip note that they
   are not reconciled to a CyberLife nonforfeiture quote. Negative stored NSP
   rates (e.g. 13034023's -3.81) are used as stored, not dropped.
-- The prefetch `targets` stage builds coverages so the tab renders cache-only.
+- The prefetch `advprod` stage builds coverages and the payload so the tab renders cache-only.
 
 Live examples (company 01) are pinned in
 `tools/app/guaranteed_cash_value_cases.json`; run read-only with
@@ -626,7 +629,9 @@ Live examples (company 01) are pinned in
 9/6/2026: 25 x (351 x 10 + 369 x 2) / 12. 13034003 8,750.00; RPU 13034005
 2,966.85 (NSP); ETI 13034052 4,442.71 (NSP); paid-up 13034024 N/A (stale window,
 inactive base). NSP-basis values have not been reconciled with a CyberLife
-nonforfeiture quote.
+nonforfeiture quote. Re-run on 10/1/2026: 13034048's stored data had changed
+(25.982 units, rates 337/355) and showed 8,833.88; ETI 13034052 had moved to
+as-of 9/26/2026 (4,433.54); the other four pinned cases still matched.
 
 ### VBA Architecture (for reference)
 ```

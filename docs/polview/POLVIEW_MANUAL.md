@@ -162,15 +162,19 @@ tab load explicitly rather than showing a blank rate.
 
 The Policy tab shows the base coverage's stored 02-segment per-unit window
 (`LH_COV_PHA.LOW_DUR_*_CSV_AMT`, else `LOW_DUR_*_NSP_AMT` for ETI/RPU/paid-up),
-keyed from `LOW_DUR_PER`. Targets & Accumulators interpolates **Guaranteed Cash
-Value** from it through `PolicyInformation.rates.guaranteed_cash_value()`; this serves
+keyed from `LOW_DUR_PER`. **Account Values** interpolates **Guaranteed Cash
+Value** from it through `PolicyInformation.rates.guaranteed_cash_value()` for every
+policy with cash or account value (it is no longer on Targets & Accumulators); this serves
 ISWL, where CyberLife 62Q1 errors. Any unvaluable active coverage yields N/A
 with a reason, never a partial total. NSP-basis values are labelled `(NSP)` and
 are not reconciled to a CyberLife nonforfeiture quote. See `docs/POLVIEW_CLAUDE.md`,
 `tests/test_polview_guaranteed_cash_value.py` and the read-only live check
 `tools/app/verify_guaranteed_cash_value.py @tools/app/guaranteed_cash_value_cases.json`.
 
-Traditional policies also show it on **Account Values**. The `advprod` worker
+Advanced policies show it as the italic **Guaranteed CV** row under Surrender
+Value: the `advprod` stage puts the payload in `AccountValueCalculations.guaranteed`
+(N/A with the reason when there are no stored rates, e.g. most UL). Traditional
+policies show it on their own Account Values page. The `advprod` worker
 stage runs for traditional products and returns a `TraditionalCashValues` payload
 (no advanced fund tables are read): Valuation Date and Guaranteed Cash Value (with
 a per-coverage BOY/EOY rate table) when any coverage has stored CV/NSP rates,
@@ -179,6 +183,24 @@ Policy Debt only when non-zero. Rows that do not apply are hidden. PUA cash valu
 is not calculated, so a notice says the face amount is shown; no net cash value is
 totalled. The tab is greyed only when there are no stored rates, deposits or PUAs.
 Regressions: `tests/test_policy_prefetch.py` (`test_traditional_*`).
+
+Advanced policies (e.g. ISWL) on nonforfeiture (premium pay status 44 ETI / 45
+RPU) used their account value to purchase the benefit, so the stored AV is
+historical (CKPR-01-15902515: 1,623.74 valued 6/25/2012). The `advprod` stage
+skips the AV-based surrender and interim quotes and sets
+`AccountValueCalculations.nonforfeiture_status`. Account Values relabels Total AV as
+**NSP Cash Value** (the NSP-basis `guaranteed` value; its tooltip shows the
+interpolation and the stale stored AV), greys the AV-derived Policy Info rows
+(Guaranteed CV shows N/A there) and the fund, allocation, monthliversary and fund
+history groups, and explains why in the notice. Regressions:
+`test_advanced_eti_shows_nsp_cash_value_and_greys_account_values`,
+`test_advanced_account_values_show_guaranteed_cash_value`.
+
+**Targets & Accumulators layout:** three equal 300 px columns — Definition of
+Life Insurance over TAMRA Values, Accumulators over Commission Target Premium,
+and Minimum Premium at full height. The two top panels share one height
+(`TargetsAccumulatorsTab._align_summary_heights`). Regression:
+`test_targets_tab_is_aligned_without_guaranteed_cash_value`.
 
 ## PolView Other Data
 

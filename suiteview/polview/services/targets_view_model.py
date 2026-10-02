@@ -155,7 +155,6 @@ def build_targets_view_model(policy) -> TargetsViewModel:
             "accum_wds": accum_wds_val,
             "prem_allowed_gpt": prem_allowed,
             "prem_allowed_gpt_inputs": prem_allowed_inputs,
-            "gcv": guaranteed_cash_value(policy),
         },
         tamra_period=tamra_per_rows[0] if tamra_per_rows else {},
         tamra_years=policy.fetch_table("LH_TAMRA_7_PY_YR"),

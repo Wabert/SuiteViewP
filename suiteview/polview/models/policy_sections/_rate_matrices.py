@@ -98,6 +98,11 @@ class RateMatrixMixin:
         from ..fixed_premium_rates import build_modal_premium_matrix
         return build_modal_premium_matrix(self)
 
+    @property
+    def nonforfeiture_status(self) -> str:
+        """``ETI``/``RPU`` when the premium-pay status (44/45) is nonforfeiture, else ``""``."""
+        return self._NONFORFEITURE_STATUS.get(self.status.premium_pay_status_code, "")
+
     def cov_cash_value_rates(self, cov_index: int) -> Dict[str, Any]:
         """Stored 02-segment cash value rates in play for a coverage (1-based).
 
@@ -130,7 +135,7 @@ class RateMatrixMixin:
             "cov_index": cov_index,
             "cov_pha_nbr": self._parse_optional_int(self.data_item("LH_COV_PHA", "COV_PHA_NBR", idx)),
             "basis": basis,
-            "nonforfeiture": self._NONFORFEITURE_STATUS.get(self.status.premium_pay_status_code, ""),
+            "nonforfeiture": self.nonforfeiture_status,
             "low_duration": low_duration,
             "rates": schedule,
             "units": self._parse_optional_decimal(self.data_item("LH_COV_PHA", "COV_UNT_QTY", idx)),

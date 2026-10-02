@@ -6,8 +6,8 @@ import pytest
 
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.models.policy_sections.values import ValuesSection
+from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
 from suiteview.polview.ui.tabs.policy_tab import PolicyTab
-from suiteview.polview.ui.tabs.targets_tab import AccumulatorsWidget
 
 _BLANK_CV = {"LOW_DUR_CSV_AMT": None, "LOW_DUR_1_CSV_AMT": None,
              "LOW_DUR_2_CSV_AMT": None, "LOW_DUR_3_CSV_AMT": None}
@@ -133,16 +133,16 @@ def test_unmatched_coverage_record_blocks_value():
     assert "coverage record unavailable" in result["reason"]
 
 
-def test_accumulators_label_nsp_basis(qtbot):
-    widget = AccumulatorsWidget()
-    qtbot.addWidget(widget)
+def test_account_values_label_nsp_basis(qtbot):
+    tab = AdvProdValuesTab()
+    qtbot.addWidget(tab)
     gcv = _policy(_nsp_row(), status="45", issue=date(1994, 6, 11)).rates.guaranteed_cash_value(
         date(2026, 9, 11))
 
-    widget.load_data({"gcv": gcv})
+    tab._load_guaranteed_cash_value(gcv)
 
-    assert widget.get_value("gcv_label") == "2,966.85 (NSP)"
-    assert "not reconciled" in widget._fields["gcv_label"].toolTip()
+    assert tab.policy_info.get_value("guaranteed_cv") == "2,966.85 (NSP)"
+    assert "not reconciled" in tab.policy_info._fields["guaranteed_cv"].toolTip()
 
 
 class _RatesPolicy:
@@ -187,10 +187,10 @@ def test_policy_tab_without_rates(qtbot):
     ({"value": Decimal("8850.00"), "details": [], "reason": ""}, "8,850.00"),
     ({"value": None, "details": [], "reason": "No stored cash value or NSP rates"}, "N/A"),
 ])
-def test_accumulators_show_guaranteed_cash_value(qtbot, gcv, text):
-    widget = AccumulatorsWidget()
-    qtbot.addWidget(widget)
+def test_account_values_show_guaranteed_cash_value(qtbot, gcv, text):
+    tab = AdvProdValuesTab()
+    qtbot.addWidget(tab)
 
-    widget.load_data({"gcv": gcv})
+    tab._load_guaranteed_cash_value(gcv)
 
-    assert widget.get_value("gcv_label") == text
+    assert tab.policy_info.get_value("guaranteed_cv") == text

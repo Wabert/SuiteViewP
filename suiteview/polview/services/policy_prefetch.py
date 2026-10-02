@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 import logging
@@ -69,10 +69,19 @@ class InterimAccountValueUnavailable:
 
 @dataclass(frozen=True)
 class AccountValueCalculations:
-    """Calculated (not stored) values shown on the Account Values tab."""
+    """Calculated (not stored) values shown on the Account Values tab.
+
+    ``guaranteed`` is the ``PolicyInformation.rates.guaranteed_cash_value()``
+    payload (value None with a reason when the policy has no stored rates).
+    ``nonforfeiture_status`` (``ETI``/``RPU``) means the account value bought the
+    nonforfeiture benefit: the tab shows ``guaranteed`` (NSP basis) as the NSP
+    Cash Value and marks the stored account/fund values inactive.
+    """
 
     surrender: SurrenderValues | SurrenderValuesUnavailable
     interim: InterimAccountValue | InterimAccountValueUnavailable
+    guaranteed: dict[str, Any] | None = None
+    nonforfeiture_status: str = ""
 
 
 @dataclass(frozen=True)
@@ -398,9 +407,6 @@ class PolicyLoadSession:
         if stage == "coverages":
             policy.coverages.get_coverages()
             policy.benefits.get_benefits()
-        elif stage == "targets":
-            # Guaranteed cash value matches stored rates to coverage records.
-            policy.coverages.get_coverages()
         elif stage == "dividends":
             available = any(policy.data_item_count(t) for t in STAGE_TABLES[stage])
             policy.coverages.cov_issue_date(1)
@@ -415,11 +421,16 @@ class PolicyLoadSession:
             ):
                 getattr(policy.loan_records, name)
         elif stage == "advprod":
+            from suiteview.polview.services.targets_view_model import guaranteed_cash_value
+
             policy.values.get_premium_allocation_dict()
+            # Guaranteed cash value matches stored rates to coverage records.
+            policy.coverages.get_coverages()
+            guaranteed = guaranteed_cash_value(policy)
             policy._data.raise_table_errors()
             record_snapshot = policy.detached_copy()
             try:
-                payload = self._account_value_calculations()
+                payload = replace(self._account_value_calculations(), guaranteed=guaranteed)
             except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
                 reason = (
                     f"Calculated surrender charge and value are unavailable: {exc}. "
@@ -435,6 +446,7 @@ class PolicyLoadSession:
                         SurrenderValuesUnavailable(reason),
                         InterimAccountValueUnavailable(
                             f"Interim AV Quote is unavailable: {exc}."),
+                        guaranteed=guaranteed,
                     ),
                 )
         elif stage == "reinsurance":
@@ -498,6 +510,9 @@ class PolicyLoadSession:
         from suiteview.polview.services.interim_account_value import interim_account_value_quote
 
         policy = self._policy
+        nonforfeiture = policy.rates.nonforfeiture_status
+        if nonforfeiture:
+            return self._nonforfeiture_account_values(nonforfeiture)
         try:
             config = load_plancode(policy.coverages.base_plancode)
         except MissingPlancodeError:
@@ -545,6 +560,18 @@ class PolicyLoadSession:
         if not results:
             raise RuntimeError("Surrender calculation returned no inforce values")
         return AccountValueCalculations(_surrender_values(basis, config, results[0]), interim)
+
+    def _nonforfeiture_account_values(self, status: str) -> AccountValueCalculations:
+        """ETI/RPU advanced policy: no AV-based quotes; the NSP value replaces them."""
+        reason = (
+            f"Policy is on {status}: its account value was applied to purchase the "
+            "nonforfeiture benefit, so surrender and interim account values do not apply."
+        )
+        return AccountValueCalculations(
+            SurrenderValuesUnavailable(reason),
+            InterimAccountValueUnavailable(reason),
+            nonforfeiture_status=status,
+        )
 
     def _reinsurance(self):
         from suiteview.core.reinsurance import fetch_tai_cession

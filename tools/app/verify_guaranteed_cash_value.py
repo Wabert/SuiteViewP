@@ -6,7 +6,9 @@ screenshot_dir, output. ``gcv`` is the expected display text ("N/A" allowed);
 ``basis`` is "CV", "NSP" or null; ``as_of`` is an ISO date or omitted.
 
 Read-only. Each case is loaded through the real PolView prefetch session and
-the Policy / Targets & Accumulators tabs render under cached_reads_only().
+the Policy / Account Values tabs render under cached_reads_only(). The
+displayed value is Guaranteed CV, or the NSP Cash Value (suffixed ``(NSP)``)
+when an advanced policy is on ETI/RPU, or the traditional Guaranteed Cash Value.
 Refuses local SQLite data.
 """
 
@@ -22,7 +24,8 @@ from suiteview.core.json_store import write_json
 from suiteview.core.local_dev import local_data_enabled
 from suiteview.polview.services.policy_prefetch import PolicyLoadSession
 from suiteview.polview.ui.tabs.policy_tab import PolicyTab
-from suiteview.polview.ui.tabs.targets_tab import TargetsAccumulatorsTab
+from suiteview.polview.services.policy_prefetch import AccountValueCalculations
+from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
 
 
 def _check_case(app, case, screenshot_dir):
@@ -34,28 +37,36 @@ def _check_case(app, case, screenshot_dir):
         if not initial.available:
             raise RuntimeError(f"{case['policy']}: policy not found")
         policy_stage = session.prepare("policy").policy
-        targets_stage = session.prepare("targets").policy
+        values_stage = session.prepare("advprod")
     finally:
         session.close()
 
     policy_tab = PolicyTab()
-    targets_tab = TargetsAccumulatorsTab()
+    values_tab = AdvProdValuesTab()
     try:
         with policy_stage.cached_reads_only():
             policy_tab.load_data_from_policy(policy_stage)
-        with targets_stage.cached_reads_only():
-            targets_tab.load_data_from_policy(targets_stage)
-            gcv = targets_stage.rates.guaranteed_cash_value()
-            rates = targets_stage.rates.cov_cash_value_rates(1)
+        payload = values_stage.payload
+        with values_stage.policy.cached_reads_only():
+            values_tab.load_data_from_policy(values_stage.policy, payload)
+            rates = values_stage.policy.rates.cov_cash_value_rates(1)
+        gcv = payload.guaranteed
 
         c = policy_tab.col2
         rate_rows = [
             (c._labels[attr].text(), c.get_value(attr))
             for attr in PolicyTab._CV_RATE_FIELDS if not c._fields[attr].isHidden()
         ]
-        accum = targets_tab.accum_widget
-        displayed = accum.get_value("gcv_label")
-        tooltip = accum._fields["gcv_label"].toolTip()
+        if not isinstance(payload, AccountValueCalculations):
+            panel, attr, suffix = values_tab.cash_values, "guaranteed_cv", ""
+        elif payload.nonforfeiture_status:
+            panel, attr, suffix = values_tab.policy_info, "total_av", " (NSP)"
+        else:
+            panel, attr, suffix = values_tab.policy_info, "guaranteed_cv", ""
+        displayed = panel.get_value(attr)
+        if displayed != "N/A":
+            displayed += suffix
+        tooltip = panel._fields[attr].toolTip()
 
         failures = []
         if "gcv" in case and displayed != case["gcv"]:
@@ -68,7 +79,7 @@ def _check_case(app, case, screenshot_dir):
         if screenshot_dir:
             target_dir = Path(screenshot_dir)
             target_dir.mkdir(parents=True, exist_ok=True)
-            for name, widget in (("policy", policy_tab), ("targets", targets_tab)):
+            for name, widget in (("policy", policy_tab), ("account_values", values_tab)):
                 widget.resize(1500, 700)
                 widget.show()
                 app.processEvents()
@@ -77,8 +88,8 @@ def _check_case(app, case, screenshot_dir):
                     raise RuntimeError(f"Could not save screenshot: {path}")
 
         return {
-            "policy": case["policy"], "company": targets_stage.company_code,
-            "status": targets_stage.status.premium_pay_status_code,
+            "policy": case["policy"], "company": values_stage.policy.company_code,
+            "status": values_stage.policy.status.premium_pay_status_code,
             "ok": not failures, "failures": failures,
             "basis_display": c.get_value("cv_rate_basis"), "rate_rows": rate_rows,
             "gcv_display": displayed, "as_of": str(gcv["as_of"]),
@@ -86,7 +97,7 @@ def _check_case(app, case, screenshot_dir):
         }
     finally:
         policy_tab.close()
-        targets_tab.close()
+        values_tab.close()
         app.processEvents()
 
 
