@@ -791,8 +791,8 @@ in its tooltip, rather than being silently omitted as though it were empty.
 
 ### Switch A terminal hand-off
 
-**Button:** "🖥 Switch A" in the PolView header bar (shown only to roles with
-`MAINFRAMENAV`; enabled once a policy is loaded) signs on to the Switch A mainframe terminal and brings the loaded
+**Button:** "🖥 Switch A" in the PolView header bar (shown only to the `ADMIN`
+role when it has `MAINFRAMENAV`; source runs always show it; enabled once a policy is loaded) signs on to the Switch A mainframe terminal and brings the loaded
 policy up on the green screen, using the saved 🔑 Passwords sign-on. Routing,
 endpoints and supported regions are documented in [`TN3270.md`](TN3270.md).
 
