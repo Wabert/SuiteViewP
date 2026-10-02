@@ -24,6 +24,11 @@ SUPPORT_PRIVILEGED_ROLES = frozenset({"ADMIN", "SUPPORT"})
 # processes; they never show the button. Source (design-mode) runs show it to
 # whoever is running them.
 AAI_BUTTON_OWNER = "AB7Y02"
+# PolView's "Switch A" hand-off is ADMIN-only: the user's role must be ADMIN and
+# that role must have MAINFRAMENAV (AllApps or explicit grant). Other roles with
+# MAINFRAMENAV still open Mainframe Navigator but never see the button.
+SWITCH_A_ROLE = "ADMIN"
+SWITCH_A_APP = "MAINFRAMENAV"
 
 
 class AccessDeniedError(PermissionError):
@@ -60,6 +65,13 @@ class EffectiveAccess:
     def shows_aai_button(self) -> bool:
         """Only the AAI owner gets the button in the packaged app; source runs always do."""
         return self.developer or self.actor_id.upper() == AAI_BUTTON_OWNER
+
+    @property
+    def shows_switch_a_button(self) -> bool:
+        """PolView's Switch A button: ADMIN role with MAINFRAMENAV; source runs always."""
+        return self.developer or (
+            self.role_code == SWITCH_A_ROLE and self.allows_app(SWITCH_A_APP)
+        )
 
 
 _DEVELOPER_ACCESS = EffectiveAccess("DEVELOPER", "DEVELOPER", True, True, True, developer=True)
@@ -165,6 +177,22 @@ def guard_aai_button() -> None:
     if not get_access(refresh=True).shows_aai_button:
         raise AccessDeniedError(
             f"The Attention Albert button is available only to {AAI_BUTTON_OWNER}."
+        )
+
+
+def can_show_switch_a_button() -> bool:
+    return get_access().shows_switch_a_button
+
+
+def guard_switch_a_button() -> None:
+    """Recheck, at click time, that this user may use PolView's Switch A button."""
+    unavailable = app_unavailable_reason(SWITCH_A_APP)
+    if unavailable:
+        raise AccessDeniedError(unavailable)
+    if not get_access(refresh=True).shows_switch_a_button:
+        raise AccessDeniedError(
+            f"The Switch A button requires the {SWITCH_A_ROLE} role with "
+            f"{SWITCH_A_APP} access. Contact a SuiteView administrator."
         )
 
 

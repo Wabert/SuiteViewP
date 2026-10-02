@@ -131,11 +131,11 @@ def _alive(obj) -> bool:
         return False
 
 
-def _can_use_mainframe() -> bool:
+def _can_use_switch_a() -> bool:
     """Visibility for the Switch A hand-off; the click still rechecks live access."""
     from suiteview.core import access_control
     try:
-        return access_control.can_access_app("MAINFRAMENAV")
+        return access_control.can_show_switch_a_button()
     except (access_control.AccessDeniedError, access_control.AccessUnavailableError):
         return False
 
@@ -281,8 +281,8 @@ class GetPolicyWindow(FramelessWindowBase):
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
         self.open_record_btn.clicked.connect(self._open_policy_record)
         self.open_switch_btn.clicked.connect(self._open_in_switch_a)
-        # Switch A is part of Mainframe Navigator: only roles with MAINFRAMENAV see it.
-        self.open_switch_btn.setVisible(_can_use_mainframe())
+        # Switch A is ADMIN-only: the ADMIN role must have MAINFRAMENAV access.
+        self.open_switch_btn.setVisible(_can_use_switch_a())
         self._loader = PolicyLoadController()
         self._loader.ready.connect(self._on_prepared_policy)
         self._loader.failed.connect(self._on_load_failed)
@@ -1026,9 +1026,15 @@ class GetPolicyWindow(FramelessWindowBase):
         header "Switch A" button so the shared Mainframe window is reused."""
         self._switch_launcher = launcher
 
-    @requires_app_access("MAINFRAMENAV")
     def _open_in_switch_a(self, checked=False):
         """Sign on to Switch A and bring up the currently-loaded policy."""
+        from suiteview.core import access_control
+        try:
+            access_control.guard_switch_a_button()
+        except (access_control.AccessDeniedError, access_control.AccessUnavailableError) as error:
+            logger.warning("Blocked Switch A: %s", error)
+            QMessageBox.warning(self, "SuiteView Access", str(error))
+            return
         if not self._current_policy:
             return
         region = self._current_region or "CKPR"
