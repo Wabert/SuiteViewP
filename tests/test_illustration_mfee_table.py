@@ -1,14 +1,13 @@
-"""Table-driven monthly fee (MFEE) that varies by rate class.
+"""Schema-driven monthly fee (MFEE) that varies by rate class.
 
 Plancode 1U146800's monthly fee is $5 for males/females but $10 for the unisex
-"Y" class. That variation is expressed by setting ``MFEE = "Table"`` in the
-plancode table and letting the rate loader pull the per-(Sex, Rateclass) fee
-from ``Select_RATE_MFEE`` (the view that links POINT_PVSRB to RATE_MFEE).
+"Y" class. That variation comes from schema ``rates`` MFEE cells; a plancode
+fallback applies only when a plan has no MFEE cells.
 
 These tests pin down each link in that chain:
-  1. the plancode data really says "Table",
+  1. the plancode data has no flat MFEE fallback,
   2. the MFEE SQL filters by Sex AND Rateclass,
-  3. the monthly deduction consumes the table fee when MFEE == "Table", and
+  3. the monthly deduction consumes the loaded fee schedule, and
   4. the loader hands the segment's rate class to the MFEE lookup, so two
      otherwise-identical policies get $5 vs $10 purely from their rate class.
 """
@@ -58,11 +57,10 @@ def _policy(rate_sex: str = "M", rate_class: str = "N") -> IllustrationPolicyDat
     )
 
 
-def _config(mfee: str = "Table") -> PlancodeConfig:
+def _config(mfee_fallback: float | None = None) -> PlancodeConfig:
     return PlancodeConfig(
         plancode="1U146800",
-        epu_code="0",
-        mfee=mfee,
+        mfee_fallback=mfee_fallback,
         dbd=0.0,
         gint=0.0,
         corridor_code=None,
@@ -75,8 +73,9 @@ def _config(mfee: str = "Table") -> PlancodeConfig:
 # ── 1. Plancode data ────────────────────────────────────────────────────────
 
 
-def test_1u146800_mfee_is_table():
-    assert load_plancode("1U146800").mfee == "Table"
+def test_1u146800_mfee_has_no_flat_fallback():
+    config = load_plancode("1U146800")
+    assert config.mfee_fallback is None
 
 
 # ── 2. MFEE SQL links to Select_RATE_MFEE by Sex AND Rateclass ──────────────
@@ -97,23 +96,23 @@ def test_mfee_sql_filters_by_sex_and_rate_class():
 
 
 @pytest.mark.parametrize("table_fee", [5.0, 10.0])
-def test_deduction_uses_table_fee_when_mfee_is_table(table_fee):
+def test_deduction_uses_loaded_mfee_schedule(table_fee):
     rates = IllustrationRates(mfee=[None] + [table_fee] * 80)
     result = calculate_deduction(
-        50_000.0, _policy(), _config("Table"), rates,
+        50_000.0, _policy(), _config(), rates,
         rate_year=1, attained_age=45, premiums_to_date=0.0,
     )
     assert result.mfee_charge == pytest.approx(table_fee)
 
 
-def test_flat_mfee_ignores_rate_table():
-    """A numeric MFEE stays flat even if a table schedule is present."""
+def test_loaded_mfee_schedule_wins_over_flat_fallback():
+    """The table fallback is only used by the loader when schema MFEE is absent."""
     rates = IllustrationRates(mfee=[None] + [10.0] * 80)
     result = calculate_deduction(
-        50_000.0, _policy(), _config("5"), rates,
+        50_000.0, _policy(), _config(mfee_fallback=5.0), rates,
         rate_year=1, attained_age=45, premiums_to_date=0.0,
     )
-    assert result.mfee_charge == pytest.approx(5.0)
+    assert result.mfee_charge == pytest.approx(10.0)
 
 
 # ── 4. Loader passes the segment's rate class → $5 M/F vs $10 unisex ────────

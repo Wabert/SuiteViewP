@@ -395,6 +395,16 @@ class RatesSchemaRepository:
         return [CellAssignment(_text(r[0]), _text(r[1]), _text(r[2]), _text(r[3]), _text(r[4]),
                                _text(r[5]), _text(r[6]), int(r[7])) for r in rows]
 
+    def cell_assignments_of_type(self, company: str, plancode: str, rate_type: str) -> list[CellAssignment]:
+        """One rate type's cell assignments (a plan carries thousands of COI cells)."""
+        rows = self._query(
+            "SELECT BENEFIT, SEX, RATE_CLASS, BAND, STATE, SUBSERIES, RATE_TYPE, SCHEDULE_ID "
+            "FROM rates.RATE_ASSIGN_CELL WHERE COMPANY = ? AND PLANCODE = ? AND RATE_TYPE = ?",
+            [company, plancode, rate_type],
+        )
+        return [CellAssignment(_text(r[0]), _text(r[1]), _text(r[2]), _text(r[3]), _text(r[4]),
+                               _text(r[5]), _text(r[6]), int(r[7])) for r in rows]
+
     def schedule_windows(self, schedule_ids: Sequence[int]) -> list[ScheduleWindow]:
         if not schedule_ids:
             return []
@@ -430,6 +440,24 @@ class RatesSchemaRepository:
             "JOIN rates.RATE_SET s ON s.RATE_SET_ID = v.RATE_SET_ID "
             "WHERE v.RATE_SET_ID IN ({ids}) AND (s.GRAIN NOT IN ('IA', 'IA_DUR') OR v.ISSUE_AGE = ?)",
             rate_set_ids, params_after=[age],
+        )
+        values: dict[int, dict] = {int(i): {} for i in rate_set_ids}
+        for r in rows:
+            values[int(r[0])][(int(r[1]), int(r[2]))] = r[3]
+        return values
+
+    def all_rate_values(self, rate_set_ids: Sequence[int]) -> dict[int, dict]:
+        """``{rate_set_id: {(issue_age, duration): rate}}`` for every issue age.
+
+        For small plan-level sets read whole (an ``IA`` safety-net period by issue age);
+        cell sets should use ``rate_values`` for one issue age.
+        """
+        if not rate_set_ids:
+            return {}
+        rows = self._query_in(
+            "SELECT RATE_SET_ID, ISSUE_AGE, DURATION, RATE FROM rates.RATE_VALUE "
+            "WHERE RATE_SET_ID IN ({ids})",
+            rate_set_ids,
         )
         values: dict[int, dict] = {int(i): {} for i in rate_set_ids}
         for r in rows:

@@ -200,24 +200,13 @@ def _run_replay(policy_number: str, company: str, variant: str = "baseline") -> 
     elif variant == "zero_shadow_interest":
         rates = copy.deepcopy(rates)
         rates.shadow_int = _zero_like(rates.shadow_int, months)
-        try:
-            run_config = replace(config, shadow_int_rate_code=0.0)
-        except TypeError:
-            pass
     elif variant == "zero_db_discount":
         rates = copy.deepcopy(rates)
         rates.shadow_dbd = _zero_like(rates.shadow_dbd, months)
-        try:
-            run_config = replace(config, shadow_dbd_rate=0.0)
-        except TypeError:
-            pass
     elif variant == "no_shadow_epu_mfee":
         rates = copy.deepcopy(rates)
         rates.shadow_epu = _zero_like(rates.shadow_epu, months)
-        try:
-            run_config = replace(config, shadow_mfee=0.0, shadow_epu_code=0.0)
-        except TypeError:
-            pass
+        run_config = replace(config, shadow_mfee=0.0)
     elif variant == "half_shadow_coi":
         rates = copy.deepcopy(rates)
         rates.shadow_coi = [None] + [

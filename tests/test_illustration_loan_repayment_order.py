@@ -122,7 +122,6 @@ def projection_basis(monkeypatch):
     config = PlancodeConfig(
         plancode="LOANORDER", loan_type="Arrears",
         loan_charge_rate_guar=0, pref_loan_charge_rate_guar=0,
-        premium_load="0", epu_code="0", mfee="0", poav_code="0",
         corridor_code=None, snet_period=0,
     )
     rates = IllustrationRates()

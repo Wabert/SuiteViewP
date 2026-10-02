@@ -33,13 +33,14 @@ def _policy() -> IllustrationPolicyData:
 
 def _config() -> PlancodeConfig:
     return PlancodeConfig(
-        plancode="TEST", dbd=0.0, gint=0.0, corridor_code=None, epu_code="0.05", mfee="0",
+        plancode="TEST", dbd=0.0, gint=0.0, corridor_code=None,
     )
 
 
 def _rates() -> IllustrationRates:
     return IllustrationRates(
         segment_coi={1: [None] + [1.2] * 10, 12: [None] + [1.5] * 10},
+        segment_epu={1: [None] + [0.0] * 10, 12: [None] + [0.05] * 10},
         benefit_coi={"30": [None] + [0.1] * 10},
     )
 

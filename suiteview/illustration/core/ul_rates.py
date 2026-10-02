@@ -178,10 +178,12 @@ class ULRates(JointSurvivorRateSource):
     def clear_cache(cls) -> None:
         """Forget cached schedules and schema reads (e.g. after a rate load)."""
         from suiteview.illustration.core.schema_reader import clear_schema_rate_cache
+        from suiteview.illustration.models.plancode_config import clear_plancode_cache
 
         with _CACHE_LOCK:
             cls._cache.clear()
         clear_schema_rate_cache()
+        clear_plancode_cache()
         JointSurvivorRateSource._joint_companies.clear()
 
     def _memo(self, key: tuple, compute):

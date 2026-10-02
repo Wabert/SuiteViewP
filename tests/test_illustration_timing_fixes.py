@@ -29,11 +29,7 @@ from suiteview.illustration.models.policy_data import (
 def _config(*, interest_method: str = "ExactDays") -> PlancodeConfig:
     return PlancodeConfig(
         plancode="TIMING",
-        premium_load="0",
         prem_flat_load=0.0,
-        epu_code="0",
-        mfee="0",
-        poav_code="0",
         corridor_code=None,
         gint=0.02,
         dbd=0.0,
@@ -52,7 +48,6 @@ def _rates() -> IllustrationRates:
         segment_epu={1: zero},
         scr=zero,
         segment_scr={1: zero},
-        mfee=zero,
         tpp=zero,
         epp=zero,
     )

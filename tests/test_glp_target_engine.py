@@ -35,7 +35,7 @@ def forecast(monkeypatch):
     )
     config = PlancodeConfig(
         plancode="GLPTEST", dbd=0.0, gint=0.0, corridor_code=None,
-        epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+        prem_flat_load=0.0,
         lapse_value="SV",
     )
     rates = IllustrationRates(coi=[0.0, 2.7], segment_coi={1: [0.0, 2.7]})
@@ -177,8 +177,10 @@ def test_regular_premium_funds_positive_surrender_value(forecast):
 @pytest.mark.parametrize("billing_frequency", [1, 3, 6, 12])
 @pytest.mark.parametrize("load", ["0", "0.095"])
 def test_negative_opening_value_is_funded_once(forecast, billing_frequency, load):
-    policy, config, _, run = forecast
-    config.premium_load = load
+    policy, _, rates, run = forecast
+    rate = float(load)
+    rates.tpp = [None, rate]
+    rates.epp = [None, rate]
     policy.account_value = -118.83
     policy.billing_frequency = billing_frequency
     original = copy.deepcopy(policy)

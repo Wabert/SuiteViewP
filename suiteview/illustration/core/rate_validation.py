@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from suiteview.illustration.core.rate_loader import CHARGEABLE_BENEFIT_TYPES, IllustrationRates
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 
@@ -53,3 +54,19 @@ def benefit_rate_override_warnings(rates: IllustrationRates) -> list[str]:
         "The illustration uses the policy record rate for the CCV charge."
         for _, override in sorted(rates.benefit_rate_overrides.items())
     ]
+
+
+def table_fallback_warnings(config: PlancodeConfig, rates: IllustrationRates) -> list[str]:
+    """Return user-facing notices for values taken from the plancode table because
+    UL_Rates schema ``rates`` lacks them, and for illustration age overrides."""
+    used = list(dict.fromkeys([*config.table_fallbacks, *rates.table_fallbacks]))
+    notices = []
+    if used:
+        notices.append(
+            f"{config.plancode}: UL_Rates schema rates has no value for "
+            f"{', '.join(used)}; the illustration uses the plancode-table fallback.")
+    if config.illustration_overrides:
+        notices.append(
+            f"{config.plancode}: illustration age override "
+            f"{'; '.join(config.illustration_overrides)}.")
+    return notices

@@ -167,7 +167,7 @@ def _within_snet(state: MonthlyState, policy: IllustrationPolicyData,
     the engine runs (``calc_engine`` line 595)."""
     if policy.map_cease_date is not None and state.date is not None:
         return state.date <= policy.map_cease_date
-    return state.policy_year <= config.snet_period
+    return state.policy_year <= config.safety_net_years(policy.issue_age)
 
 
 def _seed_shortfall(window: List[MonthlyState], policy: IllustrationPolicyData,

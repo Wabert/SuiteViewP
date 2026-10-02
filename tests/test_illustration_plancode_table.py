@@ -47,10 +47,10 @@ def test_plancode_table_rows_are_copies_of_the_engine_rows():
     rows = plancode_table_rows()
     assert rows
     first = rows[0]
-    assert load_plancode(first["Plancode"]).product_name == first.get("ProductName", "")
+    assert load_plancode(first["Plancode"]).plancode == first["Plancode"]
 
-    first["ProductName"] = "MUTATED"
-    assert plancode_table_rows()[0]["ProductName"] != "MUTATED"
+    first["Plancode"] = "MUTATED"
+    assert plancode_table_rows()[0]["Plancode"] != "MUTATED"
 
 
 def test_frame_keeps_numbers_texts_mixed_columns_and_leaves_missing_blank():
@@ -79,8 +79,8 @@ def test_viewer_shows_every_plancode_with_identity_columns_frozen(app):
     try:
         rows = plancode_table_rows()
         assert window.grid.model.rowCount() == len(rows)
-        assert list(window.grid.df.columns[:2]) == ["Plancode", "ProductName"]
-        assert window.grid._frozen_column_count == 2
+        assert window.grid.df.columns[0] == "Plancode"
+        assert window.grid._frozen_column_count == 1
         assert f"{len(rows):,} plancodes" in window.summary_label.text()
         assert window.grid.model.format_value_for_column(
             "Plancode", window.grid.df.loc[0, "Plancode"]) == rows[0]["Plancode"]

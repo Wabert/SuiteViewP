@@ -15,7 +15,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-import re
 import traceback
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -29,6 +28,10 @@ REGION = "CKPR"
 SYSTEM_CODE = "I"
 EXACT_TOLERANCE = 0.01
 ROUNDING_TOLERANCE = 1.00
+# RERUN plancode-table entries that are product names, not CyberLife plancodes, and
+# the 8-character table row(s) of the same product (the table's former ProductName
+# "MLUL"; product names now live in PLAN_DEF.DESCRIPTION).
+MLUL_SAME_PRODUCT = {"MLUL": ("1U135F00",), "MLUL502": ("1U135F00",)}
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,13 @@ def plancode_table_rows() -> list[dict[str, Any]]:
     return json.loads(PLANCODE_TABLE.read_text(encoding="utf-8"))["Plancodes"]
 
 
+def _shadow_plancode(plancode: str) -> str:
+    """The legacy CCV plancode (schema PLAN_ATTR SHADOW_LEGACY_PLANCODE, else table fallback)."""
+    from suiteview.illustration.models.plancode_config import load_plancode
+
+    return load_plancode(plancode).shadow_plancode
+
+
 def resolve_requested_plancodes(path: Path) -> list[RequestedPlancode]:
     table_rows = plancode_table_rows()
     by_code = {str(row.get("Plancode", "")).strip().upper(): row for row in table_rows}
@@ -104,7 +114,7 @@ def resolve_requested_plancodes(path: Path) -> list[RequestedPlancode]:
     requested_codes = {code for code, _ in requested_rows}
     for code, product in requested_rows:
         row = by_code.get(code)
-        shadow = str((row or {}).get("ShadowPlancode", "") or "").strip()
+        shadow = _shadow_plancode(code) if row is not None else ""
         if row is None:
             resolved.append(RequestedPlancode(
                 requested=code,
@@ -116,16 +126,10 @@ def resolve_requested_plancodes(path: Path) -> list[RequestedPlancode]:
             continue
         note = "Direct CyberLife plancode."
         cyberlife = (code,)
-        if code in {"MLUL", "MLUL502"}:
-            same_product = sorted({
-                str(candidate.get("Plancode", "")).strip().upper()
-                for candidate in table_rows
-                if str(candidate.get("ProductName", "")).strip().upper() == product.upper()
-                and str(candidate.get("Plancode", "")).strip().upper() not in requested_codes
-                and re.fullmatch(r"[A-Z0-9]{8}", str(candidate.get("Plancode", "")).strip().upper() or "")
-            })
+        if code in MLUL_SAME_PRODUCT:
+            same_product = tuple(c for c in MLUL_SAME_PRODUCT[code] if c not in requested_codes)
             if same_product:
-                cyberlife = tuple(same_product)
+                cyberlife = same_product
                 note = (
                     f"{code} is a RERUN plancode-table entry. "
                     f"CyberLife search also includes same-product table row(s): {', '.join(same_product)}."

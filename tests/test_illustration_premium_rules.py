@@ -31,8 +31,8 @@ def test_glp_normalizes_to_monthly_twelfths():
 def _project_to_maturity(maturity_age: int):
     calc_engine.load_plancode = lambda _p: PlancodeConfig(
         plancode="TEST", interest_method="ExactDays", gint=0.0, dbd=0.0,
-        premium_load="0", prem_flat_load=0.0, epu_code="0", mfee="0",
-        poav_code="0", bonus="0", corridor_code=None, snet_period=0,
+        prem_flat_load=0.0, 
+        corridor_code=None, snet_period=0,
         maturity_age=maturity_age, loan_type="Arrears")
     calc_engine.load_bonus_config = lambda _p, _d: BonusConfig()
 

@@ -18,7 +18,7 @@ from suiteview.core.rates import Rates
 from suiteview.core.rates_errors import RatesError
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
-from suiteview.illustration.core.corridor_rates import get_corridor_factor
+from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.illustration_policy_service import (
     _is_joint_phase, _joint_segment_inputs,
 )
@@ -57,8 +57,10 @@ def _segment(phase=1, *, face=500_000.0, issue=date(2013, 12, 9), lives=LIVES, t
 def test_joint_plan_rows(plancode, maturity):
     config = load_plancode(plancode)
     assert config.is_ffl and config.maturity_age == maturity == config.premium_cease_age
-    assert config.corridor_code == 4
-    assert config.snet_period == 0 and config.epu_code == "0"
+    # Schema PLAN CORR: the FFL joint corridor (1.00 from age 95).
+    assert config.corridor_by_age is not None
+    assert corridor_factor(config, 94) == 1.01 and corridor_factor(config, 95) == 1.0
+    assert config.safety_net_years(58) == 0
     pct = config.scr_pct_of_surrender_target
     if plancode.startswith("N91"):
         assert pct is None  # per-unit SCR loaded from the IAF
@@ -66,12 +68,20 @@ def test_joint_plan_rows(plancode, maturity):
         assert pct[:3] == (1.0, 1.0, 0.93) and pct[14:] == (0.09, 0.0)
 
 
-def test_joint_corridor_is_one_from_age_95_while_standard_set_keeps_101():
-    assert get_corridor_factor("N91EAB00", 40, 4) == 2.5
-    assert get_corridor_factor("N91EAB00", 94, 4) == 1.01
-    assert get_corridor_factor("N91EAB00", 95, 4) == 1.0
-    assert get_corridor_factor("N91EAB00", 121, 4) == 1.0
-    assert get_corridor_factor("X", 95, 1) == 1.01
+def test_fallback_joint_corridor_is_one_from_age_95_while_standard_set_keeps_101():
+    joint = PlancodeConfig(plancode="N91EAB00", corridor_code=4)
+    assert corridor_factor(joint, 40) == 2.5
+    assert corridor_factor(joint, 94) == 1.01
+    assert corridor_factor(joint, 95) == 1.0
+    assert corridor_factor(joint, 121) == 1.0
+    assert corridor_factor(PlancodeConfig(plancode="X", corridor_code=1), 95) == 1.01
+
+
+def test_schema_corridor_wins_over_the_fallback_set():
+    config = PlancodeConfig(plancode="X", corridor_code=1, corridor_by_age={18: 2.5, 95: 1.0})
+    assert corridor_factor(config, 10) == 2.5
+    assert corridor_factor(config, 95) == 1.0
+    assert corridor_factor(config, 120) == 1.0
 
 
 def test_invalid_joint_config_values_raise():

@@ -52,8 +52,7 @@ def _fixture(monkeypatch, *, pwot_basis=1, table_factor=0.25):
     )
     config = PlancodeConfig(
         plancode="TEST", gint=0.0, dbd=0.0, corridor_code=None,
-        mfee="0", epu_code="0", premium_load="0", poav_code="0",
-        bonus="0", table_rating_factor=table_factor, pwot_coi_basis=pwot_basis,
+        table_rating_factor=table_factor, pwot_coi_basis=pwot_basis,
     )
     rates = IllustrationRates(
         segment_coi={1: [None] + [0.0] * 50},

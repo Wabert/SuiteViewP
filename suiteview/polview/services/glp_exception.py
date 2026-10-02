@@ -142,16 +142,12 @@ def _load_forecast_policy(policy) -> tuple[IllustrationPolicyData, object, objec
         return f"Forecast data could not be loaded: {exc}"
 
 
-def _missing_segment_rates(ill_policy: IllustrationPolicyData, rates, config) -> list[str]:
-    missing = []
-    for segment in ill_policy.segments:
-        if not segment.is_base:
-            continue
-        if not rates.segment_coi.get(segment.coverage_phase):
-            missing.append(f"Rates not found for cov {segment.coverage_phase} - {ill_policy.plancode}")
-        if config.epu_code == "Table" and not rates.segment_epu.get(segment.coverage_phase):
-            missing.append(f"EPU rates not found for cov {segment.coverage_phase} - {ill_policy.plancode}")
-    return missing
+def _missing_segment_rates(ill_policy: IllustrationPolicyData, rates) -> list[str]:
+    return [
+        f"Rates not found for cov {segment.coverage_phase} - {ill_policy.plancode}"
+        for segment in ill_policy.segments
+        if segment.is_base and not rates.segment_coi.get(segment.coverage_phase)
+    ]
 
 
 def _missing_rider_rates(ill_policy: IllustrationPolicyData, rates) -> list[str]:
@@ -173,15 +169,6 @@ def _missing_benefit_rates(ill_policy: IllustrationPolicyData, rates) -> list[st
     return missing
 
 
-def _missing_table_rates(ill_policy: IllustrationPolicyData, rates, config) -> list[str]:
-    missing = []
-    if config.mfee == "Table" and not rates.mfee:
-        missing.append(f"Monthly fee rates not found for {ill_policy.plancode}")
-    if config.premium_load == "Table" and (not rates.tpp or not rates.epp):
-        missing.append(f"Premium load rates not found for {ill_policy.plancode}")
-    return missing
-
-
 def check_forecast_availability(policy) -> GlpForecastAvailability:
     if not is_glp_exception_eligible(policy):
         return GlpForecastAvailability(False, "GLP Exception is available only for UL policies using Guideline Premium.")
@@ -191,10 +178,10 @@ def check_forecast_availability(policy) -> GlpForecastAvailability:
         return GlpForecastAvailability(False, loaded)
     ill_policy, rates, config = loaded
     missing = []
-    missing.extend(_missing_segment_rates(ill_policy, rates, config))
+    # EPU, MFEE and premium loads are optional schema rates (none loaded = no charge).
+    missing.extend(_missing_segment_rates(ill_policy, rates))
     missing.extend(_missing_rider_rates(ill_policy, rates))
     missing.extend(_missing_benefit_rates(ill_policy, rates))
-    missing.extend(_missing_table_rates(ill_policy, rates, config))
 
     if missing:
         return GlpForecastAvailability(False, "; ".join(missing), ill_policy, rates, config)

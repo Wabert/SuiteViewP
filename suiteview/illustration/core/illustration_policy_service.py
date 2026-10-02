@@ -395,7 +395,8 @@ def _policy_guaranteed_rate(source: PolicySourceSnapshot) -> float:
     guaranteed rate, ``LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`` (percent), which can
     exceed the plan GINT (1U135K00 U0482280/U0482386: 3.25% vs 3.00%; fix R02,
     Robert 2026-10-01). ``LH_NON_TRD_POL.POL_GUA_ITS_RT`` is not that rate. With
-    several fixed-fund rows the highest applies; with none the plan GINT does."""
+    several fixed-fund rows the highest applies; with none the plan GINT (schema
+    ``rates`` PLAN GINT, ``PlancodeConfig.gint``) does."""
     rates = [
         float(row["GUA_FND_ITS_RT"])
         for row in source.pi.fetch_table("LH_COV_FXD_FND_CTL") or []

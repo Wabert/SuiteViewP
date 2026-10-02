@@ -204,12 +204,7 @@ def _guideline_fee(
 ) -> float:
     if age >= config.maturity_age:
         return 0.0
-    if config.mfee == "Table":
-        return _safe_rate(rates.mfee, policy_year)
-    try:
-        return float(config.mfee)
-    except (TypeError, ValueError):
-        return 0.0
+    return _safe_rate(rates.mfee, policy_year)
 
 
 def _guideline_epu(
@@ -221,15 +216,9 @@ def _guideline_epu(
     epu_total = 0.0
     for seg in policy.segments:
         seg_year = max(1, policy_year - _coverage_start_year_offset(policy, seg))
-        if config.epu_code == "Table":
-            seg_rate = _safe_rate(
-                rates.segment_epu.get(seg.coverage_phase, rates.epu), seg_year
-            )
-        else:
-            try:
-                seg_rate = float(config.epu_code)
-            except (TypeError, ValueError):
-                seg_rate = 0.0
+        seg_rate = _safe_rate(
+            rates.segment_epu.get(seg.coverage_phase, rates.epu), seg_year
+        )
         sa_basis = (
             seg.original_face_amount if config.sa_basis == "OriginalSA"
             else seg.face_amount
@@ -333,14 +322,8 @@ def _set_guideline_premium_loads(
 ) -> None:
     if age >= config.premium_cease_age:
         return
-    if config.premium_load == "Table":
-        gm.tpp = _safe_rate(rates.tpp, policy_year)
-        gm.epp = _safe_rate(rates.epp, policy_year)
-        return
-    try:
-        gm.tpp = gm.epp = float(config.premium_load)
-    except (TypeError, ValueError):
-        gm.tpp = gm.epp = 0.0
+    gm.tpp = _safe_rate(rates.tpp, policy_year)
+    gm.epp = _safe_rate(rates.epp, policy_year)
 
 
 def build_guideline_basis(

@@ -331,10 +331,6 @@ def _guideline_result():
     config = PlancodeConfig(
         plancode="MATURITY",
         maturity_age=95,
-        premium_load="0",
-        epu_code="0",
-        mfee="0",
-        poav_code="0",
         corridor_code=None,
         snet_period=0,
     )

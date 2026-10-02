@@ -22,11 +22,57 @@ The ☰ button at the left edge of the RERUN title bar (before the title) holds
 reference views. **Plancode Table…** opens a read-only, non-modal window
 (`suiteview/illustration/ui/plancode_table_view.py`) over
 `suiteview/illustration/plancodes/plancode_table.json` — the same rows
-`load_plancode` feeds the engine, read through `plancode_table_rows()`. It is a
-dense sortable/filterable ledger with Plancode and ProductName frozen; keys a row
+`load_plancode` reads, through `plancode_table_rows()`. The rows hold product
+rules plus only the rate fallbacks and illustration overrides described in
+"Plancode configuration: schema `rates` first" below. It is a dense
+sortable/filterable ledger with Plancode frozen; keys a row
 does not carry show blank (never zero), and **Dump to Excel** opens the displayed
 rows in a new unsaved workbook. A load failure shows an error box instead of an
 empty table. Regression: `tests/test_illustration_plancode_table.py`.
+
+
+## Plancode configuration: schema `rates` first
+
+`load_plancode` (`illustration/models/plancode_config.py`) builds a
+`PlancodeConfig` database first (Robert Haessly, 10/2/2026). Plan facts come from
+UL_Rates schema `rates` through `illustration/models/plan_facts.py`:
+
+| Field | Schema source |
+| --- | --- |
+| `product_family` | `PLAN_DEF.PRODUCT_FAMILY` (UL and IUL -> engine `UL`; `ISWL`) |
+| `maturity_age`, `premium_cease_age` | `PLAN_DEF` |
+| `cint_key` | `PLAN_DEF.CIRF_KEY`; a multi-fund IUL key (`FIXLNIUL,IUL`) names the fixed account in `PLAN_ATTR FUND_KEYS` (`FIXLNIUL,IULFIX09,IULINDEX09` -> `IULFIX09`) |
+| `gint` | PLAN `GINT` (one rate for every duration, else an error) |
+| `dbd` | `DB_DISCOUNT` on the C/G scales when loaded, else GINT |
+| loan rates | PLAN `LOAN_REG_CHG` (`loan_charge_rate_guar`), `LOAN_REG_CRD` (`loan_charge_rate_curr`), `LOAN_PREF_CHG`, `LOAN_PREF_CRD` |
+| safety-net period | PLAN `SNET_PERIOD` by issue age (`safety_net_years(issue_age)`) |
+| corridor | PLAN `CORR` by attained age (`corridor_by_age`; `core/corridor_rates.corridor_factor`) |
+| `shadow_plancode` | `PLAN_ATTR SHADOW_LEGACY_PLANCODE` |
+
+EPU, MFEE, the premium loads and the shadow account's rates are always the
+schema rates in `IllustrationRates` (none loaded = no charge); the engine no
+longer switches between "Table" and a flat config value anywhere. The
+current/guaranteed scales come from the schema's own C/G rows.
+
+**Fallbacks.** A rate field stays on a `plancode_table.json` row only where the
+database lacks the value; `load_plancode` (plan facts) and `load_rates` (MFEE,
+PremiumLoad, the `Shadow*` codes) then use it, log a warning, list it in
+`PlancodeConfig.table_fallbacks` / `IllustrationRates.table_fallbacks`, and the
+RERUN load shows a notice (`rate_validation.table_fallback_warnings`). A missing
+regular loan rate or GINT with no fallback is an error. `tRates_CORR.json` is
+read only for plans without PLAN `CORR` (their `CorridorCode`). Shadow-account
+policies need every shadow rate as scale S or a table fallback, else
+`RateLookupError`; a `ShadowTarget` fallback of 0 means no shadow target premium.
+
+**Illustration age override.** `IllustrationMaturityAgeOverride` /
+`IllustrationPremiumCeaseAgeOverride` replace the `PLAN_DEF` ages on 16 rows where
+the table had a different age (mostly 100 against 120/121); pending Robert's
+decision whether they are intentional illustration caps. ISWL rejects an override.
+
+`tools/rates/plancode_db_coverage.py --report <json> [--write]` measures the
+coverage against the live database and removes fallbacks the database has since
+filled; rerun it after rate loads. `ULRates.clear_cache()` also clears resolved
+configurations.
 
 
 ## RERUN rate source: UL_Rates schema `rates`
@@ -43,8 +89,8 @@ TBL1MTP/TBL1CTP -> `MTP_TBL1`/`CTP_TBL1` (not loaded = unavailable, never zero);
 GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
 
 - **Scales**: 1 = C, 0 = G. The shadow account reads scale **S on the base
-  plancode** (`SHADOW`), including `SHADOW_INT` and `DB_DISCOUNT`; the plancode
-  table's `ShadowPlancode` (CCV...) only switches the shadow account on.
+  plancode** (`SHADOW`), including `SHADOW_INT` and `DB_DISCOUNT`; the legacy CCV
+  plancode (`PLAN_ATTR SHADOW_LEGACY_PLANCODE`) is only a label.
 - **Shadow target and premium timing**: LTGUL/LTGUL08 shadow targets use the
   scale-S CTP target and APS205's target-relief load rule. SGUL-family products
   use the product flag `ShadowLatePaymentForgiveness`: premiums exactly on a
@@ -778,7 +824,7 @@ the workbook's Target SA_Basis, EPU SA_Basis and Target BandLock controls.
 Every plancode row explicitly specifies `CurrentSA` or `OriginalSA`; do not infer
 it from SkippedCovRein or accept the retired keys.
 
-**OriginalSA** uses each coverage's original amount for EPU (table or flat),
+**OriginalSA** uses each coverage's original amount for EPU,
 MTP, CTP and full surrender charges. Only MTP/MTP table-rating rates are locked
 to that coverage's issue band. CTP, COI, EPU and premium-load bands follow current
 combined specified amount; SCR is unbanded. Coverage increases capture their
@@ -895,7 +941,7 @@ Tests: `tests/test_illustration_joint_survivor.py`,
 ## RERUN Interest Sensitive Whole Life (ISWL)
 
 ISWL (CyberLife advanced product line `I`; `PlancodeConfig.product_family =
-"ISWL"`, `plancode_table.json` `ProductFamily`) is illustrated in force with the
+"ISWL"`, from schema `PLAN_DEF.PRODUCT_FAMILY`) is illustrated in force with the
 UL account-value mechanics (Robert Haessly, 9/29/2026). The fixed premium's
 load, policy fee and benefit/rider premiums come out of the **gross premium**;
 only the net goes into the account. The monthly deduction is the base COI only.

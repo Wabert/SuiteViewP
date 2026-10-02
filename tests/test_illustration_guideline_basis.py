@@ -61,9 +61,8 @@ def _policy(*, benefits=None, riders=None) -> IllustrationPolicyData:
 def _config(**overrides) -> PlancodeConfig:
     defaults = dict(
         plancode="TEST0001",
-        mfee="3.25",
-        epu_code="Table",
-        premium_load="0.05",
+        mfee_fallback=3.25,
+        premium_load_fallback=0.05,
         premium_cease_age=121,
         maturity_age=121,
         table_rating_factor=0.25,
@@ -72,12 +71,13 @@ def _config(**overrides) -> PlancodeConfig:
     return PlancodeConfig(**defaults)
 
 
-def _rates(*, epu=None, coi=None, rider_rates=None, benefit_coi=None) -> IllustrationRates:
+def _rates(*, epu=None, coi=None, mfee=None, rider_rates=None, benefit_coi=None) -> IllustrationRates:
     coi = coi if coi is not None else [None] + [1.0] * 80
     epu = epu if epu is not None else [None] + [0.0] * 80
     return IllustrationRates(
         coi=coi,
         segment_coi={1: coi},
+        mfee=mfee or [],
         epu=epu,
         segment_epu={1: epu},
         rider_rates=rider_rates or {},
@@ -304,12 +304,13 @@ def test_guideline_excludes_rider_ceased_at_change_row():
 
 def test_guideline_coi_ceases_before_maturity_while_fee_and_epu_continue():
     current_epu = [None] + [0.3] * 80
+    current_mfee = [None] + [3.25] * 80
     policy = _policy()
     policy.maturity_age = 95
     basis = build_guideline_basis(
         policy,
-        _config(premium_cease_age=90, maturity_age=95, mfee="3.25"),
-        _rates(epu=current_epu),
+        _config(premium_cease_age=90, maturity_age=95, mfee_fallback=3.25),
+        _rates(epu=current_epu, mfee=current_mfee),
         attained_age=40, as_of=date(2000, 6, 1),
     )
     by_age = {}

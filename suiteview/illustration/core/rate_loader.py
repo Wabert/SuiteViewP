@@ -12,10 +12,13 @@ Rate loading is intentionally a copy/read boundary:
   chargeable benefits raise `RateLookupError`; optional rider schedules remain
   empty so the validation layer can report them.
 * UL/IUL rates come from UL_Rates schema ``rates`` through `ULRates`; ISWL through
-  `iswl_rates.load_iswl_rates`.
+  `iswl_rates.load_iswl_rates`. EPU, MFEE and the premium loads are always the schema
+  rates (none loaded = no charge); a plancode-table flat MFEE/PremiumLoad is used only
+  for a plan with no such cells, and logged.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -29,6 +32,8 @@ from suiteview.illustration.models.policy_data import (
     benefit_rate_keys,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+logger = logging.getLogger(__name__)
 
 
 PREFERRED_RATECLASS_FALLBACKS = {
@@ -221,8 +226,8 @@ class IllustrationRates:
     shadow_epp: List = field(default_factory=list)
     shadow_tpr: List = field(default_factory=list)       # MTP scalar as constant array
     shadow_tpr_tbl1: List = field(default_factory=list)  # MTP_TBL1 scalar as constant array
-    shadow_int: List = field(default_factory=list)       # SHADOW_INT (ShadowIntRateCode="Table")
-    shadow_dbd: List = field(default_factory=list)       # DB_DISCOUNT (ShadowDBDRate="Table")
+    shadow_int: List = field(default_factory=list)       # SHADOW_INT (else ShadowIntRateCode fallback)
+    shadow_dbd: List = field(default_factory=list)       # DB_DISCOUNT (else ShadowDBDRate fallback)
 
     # Benefit COI rates — keyed by combined type+subtype string (e.g. "39" for PW)
     # Each value is a 1-indexed list by policy year (benefit duration)
@@ -240,6 +245,62 @@ class IllustrationRates:
 
     # ISWL fixed-premium basis (iswl_rates.ISWLRateBasis); None for UL-family plans.
     iswl: Optional[object] = None
+
+    # Rates taken from the plancode table because schema ``rates`` lacks them
+    # (e.g. "MFEE 5.0"); surfaced as illustration warnings.
+    table_fallbacks: List[str] = field(default_factory=list)
+
+
+def flat_schedule(value: float) -> List:
+    """A level 1-indexed schedule; ``get_rate`` repeats the last value past its end."""
+    return [None, float(value)]
+
+
+def with_table_fallback(
+    schedule: Optional[List], fallback: Optional[float], plancode: str, label: str,
+    used: Optional[List[str]] = None,
+) -> List:
+    """The schema schedule, else the plancode table's flat fallback (logged), else ``[]``."""
+    if schedule:
+        return schedule
+    if fallback is None:
+        return []
+    logger.warning(
+        "%s has no %s in UL_Rates schema rates; using the plancode-table fallback %s",
+        plancode, label, fallback)
+    if used is not None:
+        used.append(f"{label} {fallback:g}")
+    return flat_schedule(fallback)
+
+
+def mfee_schedule(
+    rates_db: ULRates, plancode: str, segment, config: PlancodeConfig, *, scale: int, band,
+    used: Optional[List[str]] = None,
+) -> List:
+    """Monthly fee by coverage year: schema MFEE, else the table's flat fallback."""
+    schedule = rates_db.get_rates(
+        "MFEE", plancode, segment.issue_age, segment.rate_sex, segment.rate_class,
+        scale=scale, band=band, issue_date=segment.issue_date,
+    )
+    return with_table_fallback(schedule, config.mfee_fallback, plancode, "MFEE", used)
+
+
+def premium_load_schedules(
+    rates_db: ULRates, plancode: str, segment, config: PlancodeConfig, *, scale: int, band,
+    used: Optional[List[str]] = None,
+) -> tuple[List, List]:
+    """Target (PREMLOAD_PCT) and excess (PREMLOAD_EXS, else PREMLOAD_PCT) load schedules.
+
+    A plan with no premium-load cells takes the table's flat fallback for both, so the
+    load applies to every premium."""
+    cell = dict(issue_age=segment.issue_age, sex=segment.rate_sex, rateclass=segment.rate_class,
+                scale=scale, band=band, issue_date=segment.issue_date)
+    tpp = rates_db.get_rates("TPP", plancode, **cell) or []
+    epp = rates_db.get_rates("EPP", plancode, **cell) or []
+    if tpp or epp:
+        return tpp, epp
+    flat = with_table_fallback(None, config.premium_load_fallback, plancode, "PremiumLoad", used)
+    return flat, list(flat)
 
 
 def _safe_rate(arr: list, index: int, rate_name: str = "rate") -> float:
@@ -467,6 +528,9 @@ def _base_rate_bundle(
     coi_scale: int,
     expense_scale: int,
 ) -> IllustrationRates:
+    used: List[str] = []
+    tpp, epp = premium_load_schedules(
+        rates_db, policy.plancode, seg, config, scale=expense_scale, band=seg.band, used=used)
     return IllustrationRates(
         coi=segment_rates["coi"].get(seg.coverage_phase, []),
         segment_coi=segment_rates["coi"],
@@ -475,21 +539,11 @@ def _base_rate_bundle(
         segment_epu=segment_rates["epu"],
         scr=segment_rates["scr"].get(seg.coverage_phase, []),
         segment_scr=segment_rates["scr"],
-        mfee=rates_db.get_rates(
-            "MFEE", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=expense_scale, band=seg.band, issue_date=seg.issue_date,
-        ) or [],
+        mfee=mfee_schedule(
+            rates_db, policy.plancode, seg, config, scale=expense_scale, band=seg.band, used=used),
         gint=rates_db.get_rates("GINT", policy.plancode) or [],
-        tpp=rates_db.get_rates(
-            "TPP", policy.plancode, issue_age=seg.issue_age,
-            sex=seg.rate_sex, rateclass=seg.rate_class,
-            scale=expense_scale, band=seg.band, issue_date=seg.issue_date,
-        ) or [],
-        epp=rates_db.get_rates(
-            "EPP", policy.plancode, issue_age=seg.issue_age,
-            sex=seg.rate_sex, rateclass=seg.rate_class,
-            scale=expense_scale, band=seg.band, issue_date=seg.issue_date,
-        ) or [],
+        tpp=tpp,
+        epp=epp,
         mtp=rates_db.get_mtp(
             policy.plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class,
@@ -502,6 +556,7 @@ def _base_rate_bundle(
         ) or 0.0,
         coi_scale=coi_scale,
         expense_scale=expense_scale,
+        table_fallbacks=used,
     )
 
 
@@ -550,7 +605,10 @@ def _load_shadow_rates(
     rates_db: ULRates,
     seg,
 ) -> None:
-    """Shadow account rates: schema ``rates`` scale S on the base plancode's cells."""
+    """Shadow account rates: schema ``rates`` scale S on the base plancode's cells.
+
+    Each rate is the scale S schedule; where the plan has none of a kind, the plancode
+    table's flat fallback (``Shadow*`` fields), else a ``RateLookupError``."""
     if not policy.has_shadow_account:
         return
     if not config.shadow_plancode and not config.shadow_availability:
@@ -562,16 +620,20 @@ def _load_shadow_rates(
     cell = dict(issue_age=seg.issue_age, sex=seg.rate_sex, rateclass=seg.rate_class,
                 scale=SHADOW, band=seg.original_band, issue_date=seg.issue_date)
     result.shadow_coi = load_coverage_coi_rates(rates_db, plancode=plancode, **cell)
-    if config.shadow_epu_code == "Table":
-        result.shadow_epu = _required_shadow_schedule(rates_db, "EPU", plancode, cell)
-    if config.shadow_prem_load_code == "Table":
-        result.shadow_tpp = _required_shadow_schedule(rates_db, "TPP", plancode, cell)
-        result.shadow_epp = _required_shadow_schedule(rates_db, "EPP", plancode, cell)
+    used = result.table_fallbacks
+    for attr, rate_type, fallback, key in (
+        ("shadow_epu", "EPU", config.shadow_epu_fallback, "ShadowEPUCode"),
+        ("shadow_tpp", "TPP", config.shadow_prem_load_fallback, "ShadowPremLoadCode"),
+        ("shadow_epp", "EPP", config.shadow_prem_load_fallback, "ShadowPremLoadCode"),
+        ("shadow_int", "SHADOW_INT", config.shadow_int_rate_fallback, "ShadowIntRateCode"),
+        ("shadow_dbd", "DBD", config.shadow_dbd_fallback, "ShadowDBDRate"),
+    ):
+        schedule = with_table_fallback(
+            rates_db.get_rates(rate_type, plancode, **cell), fallback, plancode, key, used)
+        if not schedule:
+            _raise_missing_shadow_schedule(rates_db, rate_type, plancode, cell, key)
+        setattr(result, attr, schedule)
     _load_shadow_single_values(result, config, rates_db, seg, plancode)
-    if config.shadow_int_rate_code == "Table":
-        result.shadow_int = _required_shadow_schedule(rates_db, "SHADOW_INT", plancode, cell)
-    if config.shadow_dbd_rate == "Table":
-        result.shadow_dbd = _required_shadow_schedule(rates_db, "DBD", plancode, cell)
 
 
 def _load_shadow_single_values(result, config, rates_db, seg, plancode: str) -> None:
@@ -583,14 +645,21 @@ def _load_shadow_single_values(result, config, rates_db, seg, plancode: str) -> 
     else:
         shadow_target = rates_db.get_mtp(*args, issue_date=seg.issue_date, scale=SHADOW)
         shadow_tbl1 = rates_db.get_tbl1_mtp(*args, issue_date=seg.issue_date, scale=SHADOW)
-    if config.shadow_target == "Table" and shadow_target is None:
-        raise RateLookupError(
-            f"Required shadow {target_basis} rate is unavailable for plancode {plancode} "
-            f"(scale S), coverage phase {seg.coverage_phase}, issue age {seg.issue_age}, "
-            f"sex {seg.rate_sex}, rate class {seg.rate_class}, band {seg.original_band}."
-        )
-    result.shadow_tpr = [None, shadow_target] if shadow_target is not None else []
-    if config.shadow_target == "Table" and seg.table_rating > 0 and shadow_tbl1 is None:
+    if shadow_target is None:
+        if config.shadow_target_fallback is None:
+            raise RateLookupError(
+                f"Required shadow {target_basis} rate is unavailable for plancode {plancode} "
+                f"(scale S), coverage phase {seg.coverage_phase}, issue age {seg.issue_age}, "
+                f"sex {seg.rate_sex}, rate class {seg.rate_class}, band {seg.original_band}, "
+                "and the plancode table has no ShadowTarget fallback."
+            )
+        # Table fallback 0: the plan has no shadow target premium.
+        result.table_fallbacks.append("ShadowTarget 0 (no shadow target premium)")
+        result.shadow_tpr = []
+        result.shadow_tpr_tbl1 = []
+        return
+    result.shadow_tpr = [None, shadow_target]
+    if seg.table_rating > 0 and shadow_tbl1 is None:
         raise RateLookupError(
             f"Required shadow {target_basis}_TBL1 rate is unavailable for plancode {plancode} (scale S), "
             f"coverage phase {seg.coverage_phase}, issue age {seg.issue_age}, "
@@ -600,10 +669,7 @@ def _load_shadow_single_values(result, config, rates_db, seg, plancode: str) -> 
     result.shadow_tpr_tbl1 = [None, shadow_tbl1] if shadow_tbl1 is not None else []
 
 
-def _required_shadow_schedule(rates_db, rate_type: str, plancode: str, cell: dict) -> List:
-    schedule = rates_db.get_rates(rate_type, plancode, **cell)
-    if schedule:
-        return schedule
+def _raise_missing_shadow_schedule(rates_db, rate_type: str, plancode: str, cell: dict, key: str) -> None:
     source = (
         "" if rates_db.is_loaded(plancode)
         else f" Plancode {plancode or '<blank>'} is not loaded in UL_Rates schema rates."
@@ -612,7 +678,8 @@ def _required_shadow_schedule(rates_db, rate_type: str, plancode: str, cell: dic
         f"Required shadow {rate_type} rate schedule was not found. "
         f"Lookup: plancode {plancode or '<blank>'}, issue age {cell.get('issue_age')}, "
         f"sex {cell.get('sex') or '<blank>'}, rate class {cell.get('rateclass') or '<blank>'}, "
-        f"band {cell.get('band')}, scale S (shadow account).{source}"
+        f"band {cell.get('band')}, scale S (shadow account).{source} "
+        f"The plancode table has no {key} fallback."
     )
 
 

@@ -1,11 +1,11 @@
 r"""Compare RERUN's schema ``rates`` reader (``ULRates``) with the legacy dbo ``Rates``.
 
-Read-only, live UL_Rates. For each RERUN UL/IUL plancode (``plancode_table.json``,
-ISWL excluded) and a sample of the dbo rate space (sex/class/band cells at a few
-issue ages) it compares every rate kind RERUN loads: COI/EPU/MFEE/TPP/EPP (current
-and guaranteed), SCR, MTP/CTP/TBL1, GINT, benefit COI/MTP/CTP, bands and the shadow
-account. Table-driven kinds are compared only where the plancode configuration reads
-the table (``EPU_Code``/``MFEE``/``PremiumLoad``/shadow codes = ``Table``). Current
+Read-only, live UL_Rates. For each RERUN UL/IUL plancode (``plancode_table.json``;
+``PLAN_DEF`` ISWL plans excluded) and a sample of the dbo rate space (sex/class/band
+cells at a few issue ages) it compares every rate kind RERUN loads: COI/EPU/MFEE/TPP/EPP
+(current and guaranteed), SCR, MTP/CTP/TBL1, GINT, benefit COI/MTP/CTP, bands and the
+shadow account (legacy plancode from ``PlancodeConfig.shadow_plancode``). The engine
+reads every kind from schema ``rates``, so every kind is compared. Current
 CALENDAR rates are read for a coverage issued ``--issue-date`` (so every year falls
 in the latest current scale, as dbo scale 1 holds).
 
@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
 
 from suiteview.core.rates import Rates  # noqa: E402
 from suiteview.illustration.core.ul_rates import SHADOW, ULRates  # noqa: E402
+from suiteview.illustration.models.plancode_config import load_plancode  # noqa: E402
 
 TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
 TOL = 1e-7
@@ -82,8 +83,6 @@ def _plancodes(selected):
         code = row["Plancode"]
         if selected and code not in selected:
             continue
-        if str(row.get("ProductFamily", "")).upper() == "ISWL":
-            continue
         result.append(row)
     return result
 
@@ -115,6 +114,8 @@ def compare_plancode(dbo: Rates, ul: ULRates, row: dict, ages, cell_limit: int, 
     if error:
         note("PLAN", error)
         return diffs
+    if plan.product_family == "ISWL":
+        return diffs
     gint_d, _ = _call(dbo.get_rates, "GINT", plancode)
     gint_s, error = _call(ul.get_rates, "GINT", plancode)
     diff = error or _schedule_diff(gint_d, gint_s)
@@ -130,19 +131,15 @@ def compare_plancode(dbo: Rates, ul: ULRates, row: dict, ages, cell_limit: int, 
     if error or not _close(break_d, break_s):
         note("BAND_BREAK", error or f"dbo {break_d} schema {break_s}")
 
-    shadow = str(row.get("ShadowPlancode", "") or "").strip()
-    table = lambda key: str(row.get(key, "") or "").strip() == "Table"  # noqa: E731
-    used = {
-        "EPU": table("EPU_Code"), "MFEE": table("MFEE"),
-        "TPP": table("PremiumLoad"), "EPP": table("PremiumLoad"), "COI": True,
-    }
+    config, error = _call(load_plancode, plancode)
+    if error:
+        note("CONFIG", error)
+    shadow = config.shadow_plancode if config is not None else ""
     benefit_types = _benefit_types(dbo, plancode)
     for sex, rate_class, band in _cells(dbo, plancode, cell_limit):
         for age in ages:
             key = {"cell": f"{sex}/{rate_class}/{band}", "age": age}
             for kind in ("COI", "EPU", "MFEE", "TPP", "EPP"):
-                if not used[kind]:
-                    continue
                 for scale in (1, 0):
                     d, _ = _call(dbo.get_rates, kind, plancode, age, sex, rate_class, scale=scale, band=band)
                     s, error = _call(ul.get_rates, kind, plancode, age, sex, rate_class, scale=scale,
@@ -179,34 +176,28 @@ def compare_plancode(dbo: Rates, ul: ULRates, row: dict, ages, cell_limit: int, 
                     if error or not _close(d, s):
                         note(f"{kind} {ben}", error or f"dbo {d} schema {s}", **key)
             if shadow:
-                shadow_used = {"COI": True, "EPU": table("ShadowEPUCode"),
-                               "TPP": table("ShadowPremLoadCode"), "EPP": table("ShadowPremLoadCode")}
                 for kind in ("COI", "EPU", "TPP", "EPP"):
-                    if not shadow_used[kind]:
-                        continue
                     d, _ = _call(dbo.get_rates, kind, shadow, age, sex, rate_class, scale=1, band=band)
                     s, error = _call(ul.get_rates, kind, plancode, age, sex, rate_class, scale=SHADOW,
                                      band=band, issue_date=issue_date)
                     diff = error or _schedule_diff(d, s)
                     if diff:
                         note(f"SHADOW {kind}", diff, **key)
-                if table("ShadowTarget"):
-                    d, _ = _call(dbo.get_mtp, shadow, age, sex, rate_class, band)
-                    s, error = _call(ul.get_mtp, plancode, age, sex, rate_class, band, scale=SHADOW)
-                    if error or not _close(d, s):
-                        note("SHADOW MTP", error or f"dbo {d} schema {s}", **key)
-                    d, _ = _call(dbo.get_tbl1_mtp, shadow, age, sex, rate_class, band)
-                    s, error = _call(ul.get_tbl1_mtp, plancode, age, sex, rate_class, band, scale=SHADOW)
-                    if error or not _close(d, s):
-                        note("SHADOW TBL1MTP", error or f"dbo {d} schema {s}", **key)
-                if table("ShadowIntRateCode"):
-                    d, _ = _call(dbo.get_rates, "GINT", shadow)
-                    s, error = _call(ul.get_rates, "SHADOW_INT", plancode, age, sex, rate_class,
-                                     scale=SHADOW, band=band, issue_date=issue_date)
-                    diff = error or _schedule_diff(d, s)
-                    if diff:
-                        note("SHADOW INT", diff, **key)
-    if shadow and table("ShadowDBDRate"):
+                d, _ = _call(dbo.get_mtp, shadow, age, sex, rate_class, band)
+                s, error = _call(ul.get_mtp, plancode, age, sex, rate_class, band, scale=SHADOW)
+                if error or not _close(d, s):
+                    note("SHADOW MTP", error or f"dbo {d} schema {s}", **key)
+                d, _ = _call(dbo.get_tbl1_mtp, shadow, age, sex, rate_class, band)
+                s, error = _call(ul.get_tbl1_mtp, plancode, age, sex, rate_class, band, scale=SHADOW)
+                if error or not _close(d, s):
+                    note("SHADOW TBL1MTP", error or f"dbo {d} schema {s}", **key)
+                d, _ = _call(dbo.get_rates, "GINT", shadow)
+                s, error = _call(ul.get_rates, "SHADOW_INT", plancode, age, sex, rate_class,
+                                 scale=SHADOW, band=band, issue_date=issue_date)
+                diff = error or _schedule_diff(d, s)
+                if diff:
+                    note("SHADOW INT", diff, **key)
+    if shadow:
         d, _ = _call(dbo.get_rates, "DBD", shadow)
         s, error = _call(ul.get_rates, "DBD", plancode, scale=SHADOW)
         diff = error or _schedule_diff(d, s)

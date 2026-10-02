@@ -52,7 +52,7 @@ def _patch(monkeypatch):
         calc_engine, "load_plancode",
         lambda _p: PlancodeConfig(
             plancode="MDPREM", dbd=0.0, gint=0.0, corridor_code=None,
-            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+            prem_flat_load=0.0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
@@ -75,11 +75,15 @@ def levelized_guideline_policy(monkeypatch):
     policy.account_value = 450.0
     config = PlancodeConfig(
         plancode=policy.plancode, dbd=0.0, gint=0.0, corridor_code=None,
-        epu_code="0", mfee="100", premium_load="0", prem_flat_load=0.0,
+        mfee_fallback=100.0, prem_flat_load=0.0,
     )
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
-    rates = IllustrationRates(coi=[0.0, 0.0], segment_coi={1: [0.0, 0.0]})
+    rates = IllustrationRates(
+        coi=[0.0, 0.0],
+        segment_coi={1: [0.0, 0.0]},
+        mfee=[None, 100.0],
+    )
     return policy, config, rates
 
 
@@ -432,9 +436,6 @@ def test_exception_loads_are_included_in_monthly_premium_load_totals(monkeypatch
             dbd=0.0,
             gint=0.0,
             corridor_code=None,
-            epu_code="0",
-            mfee="0",
-            premium_load="Table",
             prem_flat_load=1.65,
         ),
     )
@@ -476,7 +477,7 @@ def test_option_b_switches_to_a_before_first_gp_exception(monkeypatch):
         calc_engine, "load_plancode",
         lambda _p: PlancodeConfig(
             plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
-            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+            prem_flat_load=0.0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
@@ -529,7 +530,7 @@ def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
         calc_engine, "load_plancode",
         lambda _p: PlancodeConfig(
             plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
-            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+            prem_flat_load=0.0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
@@ -571,7 +572,7 @@ def test_option_b_exception_period_default_keeps_option_b(monkeypatch):
         calc_engine, "load_plancode",
         lambda _p: PlancodeConfig(
             plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
-            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+            prem_flat_load=0.0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
@@ -654,7 +655,7 @@ def test_option_b_shrinks_the_coi_feedback_discount(monkeypatch):
         calc_engine, "load_plancode",
         lambda _p: PlancodeConfig(
             plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
-            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+            prem_flat_load=0.0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())

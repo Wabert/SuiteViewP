@@ -67,8 +67,6 @@ def test_ctr_charge_and_primary_insured_face_stop_on_cease_age_anniversary():
         dbd=0.04,
         gint=0.03,
         corridor_code=None,
-        epu_code="0",
-        mfee="0",
         table_rating_factor=0.0,
     )
     rates = IllustrationRates()

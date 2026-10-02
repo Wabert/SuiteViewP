@@ -17,6 +17,19 @@ from suiteview.illustration.models.policy_data import (
 )
 
 
+def _shadow_rates(**overrides) -> IllustrationRates:
+    values = dict(
+        shadow_coi=[None, 0.0],
+        shadow_epu=[None, 0.0],
+        shadow_tpp=[None, 0.0],
+        shadow_epp=[None, 0.0],
+        shadow_int=[None, 0.0],
+        shadow_dbd=[None, 0.0],
+    )
+    values.update(overrides)
+    return IllustrationRates(**values)
+
+
 def test_shadow_rider_charges_use_regular_charges_less_ccv():
     policy = IllustrationPolicyData(
         benefits=[
@@ -41,10 +54,9 @@ def test_shadow_calculation_applies_regular_rider_charges():
         segments=[CoverageSegment(face_amount=100_000.0, original_face_amount=100_000.0)],
     )
     config = PlancodeConfig(
-        shadow_epu_code="0",
         shadow_mfee=2.0,
-        shadow_dbd_rate="0",
-        shadow_int_rate_code="0",
+        shadow_dbd_fallback=0.0,
+        shadow_int_rate_fallback=0.0,
     )
 
     result = calculate_shadow(ShadowInput(
@@ -53,7 +65,7 @@ def test_shadow_calculation_applies_regular_rider_charges():
         premiums_ytd=0.0,
         policy=policy,
         config=config,
-        rates=IllustrationRates(shadow_coi=[0.0, 0.0]),
+        rates=_shadow_rates(),
         rate_year=1,
         attained_age=40,
         days_in_month=30,
@@ -86,14 +98,10 @@ def _shadow_policy() -> IllustrationPolicyData:
 def test_sgul_late_premium_is_added_after_deduction_and_credited():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_target="Table",
-        shadow_prem_load_code="Table",
-        shadow_epu_code="0",
-        shadow_dbd_rate="0",
-        shadow_int_rate_code="Table",
+        shadow_dbd_fallback=0.0,
         shadow_late_payment_forgiveness=True,
     )
-    rates = IllustrationRates(
+    rates = _shadow_rates(
         shadow_coi=[None, 0.12],
         shadow_tpr=[None, 0.0],
         shadow_tpr_tbl1=[None, 0.0],
@@ -140,14 +148,11 @@ def test_sgul_late_premium_is_added_after_deduction_and_credited():
 def test_aps205_relief_uses_policy_month_and_cumulative_target():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_target="Table",
-        shadow_prem_load_code="Table",
-        shadow_epu_code="0",
-        shadow_dbd_rate="0",
-        shadow_int_rate_code="0",
+        shadow_dbd_fallback=0.0,
+        shadow_int_rate_fallback=0.0,
         shadow_aps205_load_relief=True,
     )
-    rates = IllustrationRates(
+    rates = _shadow_rates(
         shadow_coi=[None, 0.0],
         shadow_tpr=[None, 10.0],
         shadow_tpr_tbl1=[None, 0.0],
@@ -178,19 +183,17 @@ def test_aps205_relief_uses_policy_month_and_cumulative_target():
 def test_aps205_premium_earns_receipt_to_monthliversary_interest():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_target="Table",
-        shadow_prem_load_code="Table",
-        shadow_epu_code="0",
-        shadow_dbd_rate="0",
-        shadow_int_rate_code="0.12",
+        shadow_dbd_fallback=0.0,
+        shadow_int_rate_fallback=0.12,
         shadow_aps205_load_relief=True,
     )
-    rates = IllustrationRates(
+    rates = _shadow_rates(
         shadow_coi=[None, 0.0],
         shadow_tpr=[None, 10.0],
         shadow_tpr_tbl1=[None, 0.0],
         shadow_tpp=[None, 0.0],
         shadow_epp=[None, 0.45],
+        shadow_int=[None, 0.12],
     )
 
     result = calculate_shadow(ShadowInput(
@@ -216,11 +219,10 @@ def test_aps205_premium_earns_receipt_to_monthliversary_interest():
 def test_shadow_subtracts_gross_withdrawal_before_nar():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_epu_code="0",
-        shadow_dbd_rate="0",
-        shadow_int_rate_code="0",
+        shadow_dbd_fallback=0.0,
+        shadow_int_rate_fallback=0.0,
     )
-    rates = IllustrationRates(shadow_coi=[None, 0.0])
+    rates = _shadow_rates()
 
     result = calculate_shadow(ShadowInput(
         prev_shadow_eav=1_000.0,
@@ -247,8 +249,9 @@ def test_missing_table_shadow_rates_raise_loudly():
     config = PlancodeConfig(
         shadow_plancode="CCVTEST",
         shadow_availability="Inherent",
-        shadow_target="Table",
-        shadow_prem_load_code="Table",
+        shadow_epu_fallback=0.0,
+        shadow_int_rate_fallback=0.0,
+        shadow_dbd_fallback=0.0,
     )
 
     class Rates:
@@ -278,7 +281,7 @@ def test_sgul15s_ny_has_shadow_config_on_base_scale_s_rates():
     config = load_plancode("1U146200")
 
     assert config.shadow_plancode == "CCV46100"
-    assert config.shadow_target == "Table"
+    assert config.shadow_target_fallback is None
     assert config.shadow_late_payment_forgiveness is True
 
 

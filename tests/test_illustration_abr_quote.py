@@ -133,14 +133,25 @@ def test_abr_quote_mode_forces_iul_allocation_to_the_fixed_fund():
 
 class _FlatRatesEngine(IllustrationEngine):
     def _load_rates(self, policy, config):
-        return IllustrationRates(shadow_coi=[None] + [0.0] * 121)
+        return _flat_rates()
+
+
+def _flat_rates() -> IllustrationRates:
+    return IllustrationRates(
+        shadow_coi=[None] + [0.0] * 121,
+        shadow_epu=[None] + [0.0] * 121,
+        shadow_int=[None] + [0.0] * 121,
+        shadow_dbd=[None] + [0.0] * 121,
+        shadow_tpp=[None] + [0.0] * 121,
+        shadow_epp=[None] + [0.0] * 121,
+    )
 
 
 def _test_config(_plancode) -> PlancodeConfig:
     return PlancodeConfig(
         plancode="TEST", interest_method="ExactDays", gint=0.0, dbd=0.0,
-        premium_load="0", prem_flat_load=0.0, epu_code="0", mfee="0",
-        poav_code="0", bonus="0", corridor_code=None, snet_period=0,
+        prem_flat_load=0.0, 
+        corridor_code=None, snet_period=0,
         maturity_age=121, loan_type="Arrears")
 
 
@@ -152,7 +163,7 @@ def _flat_plancode(monkeypatch):
     monkeypatch.setattr(
         calc_engine,
         "load_rates",
-        lambda *_args, **_kwargs: IllustrationRates(shadow_coi=[None] + [0.0] * 121),
+        lambda *_args, **_kwargs: _flat_rates(),
     )
     monkeypatch.setattr(
         calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())

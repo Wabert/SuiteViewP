@@ -254,18 +254,17 @@ def _validate_plan_facts(plan: PlanDef, config: PlancodeConfig) -> None:
             f"rule {VERIFIED_PREMLOAD_RULES} (rule 4 only).")
     maturity = _fact(plan, "MATURITY_AGE")
     cease = _fact(plan, "PREMIUM_CEASE_AGE")
-    if maturity is None or int(maturity) != config.maturity_age:
-        raise RateLookupError(
-            f"{plan.plancode} schema MATURITY_AGE {maturity} differs from the plancode "
-            f"configuration ({config.maturity_age}).")
-    if cease is None or int(cease) != int(maturity):
+    if maturity is None or cease is None:
+        raise RateLookupError(f"{plan.plancode} PLAN_DEF has no MATURITY_AGE/PREMIUM_CEASE_AGE.")
+    if int(cease) != int(maturity):
         raise RateLookupError(
             f"{plan.plancode} premiums cease at age {cease}, before maturity {maturity}; "
             "limited-pay ISWL is not supported.")
-    if int(cease) != config.premium_cease_age:
+    if (config.maturity_age, config.premium_cease_age) != (int(maturity), int(cease)):
         raise RateLookupError(
-            f"{plan.plancode} schema PREMIUM_CEASE_AGE {cease} differs from the plancode "
-            f"configuration ({config.premium_cease_age}).")
+            f"{plan.plancode} has an illustration age override (maturity {config.maturity_age}, "
+            f"premium cease {config.premium_cease_age}; PLAN_DEF {maturity}/{cease}); the ISWL "
+            "guaranteed cash values run to the PLAN_DEF maturity, so the override is not supported.")
     vpu = _fact(plan, "VALUE_PER_UNIT")
     if vpu is not None and Decimal(str(vpu)) != Decimal("1000"):
         raise RateLookupError(f"{plan.plancode} VALUE_PER_UNIT is {vpu}, not 1000.")
@@ -344,15 +343,6 @@ def _plan_rate(reader: SchemaReader, plan: PlanDef, rate_type: str, state: str) 
     return (info.grain if info else "", reader.rate_values(ids, None).get(chosen.rate_set_id, {}))
 
 
-def _scalar_plan_rate(reader, plan, rate_type: str, state: str) -> Optional[float]:
-    found = _plan_rate(reader, plan, rate_type, state)
-    if found is None:
-        return None
-    grain, values = found
-    rate = rate_at(grain, values, 0, 1)
-    return None if rate is None else float(rate)
-
-
 def _gint_schedule(reader, plan, state: str, years: int) -> List:
     found = _plan_rate(reader, plan, "GINT", state)
     if found is None:
@@ -365,28 +355,6 @@ def _gint_schedule(reader, plan, state: str, years: int) -> List:
             raise RateLookupError(f"{plan.plancode} GINT has no rate for policy year {year}.")
         schedule.append(float(rate))
     return schedule
-
-
-def _validate_config_rates(plan: PlanDef, config: PlancodeConfig, gint: List,
-                           loan_charge: Optional[float], loan_credit: Optional[float]) -> None:
-    rates = {float(r) for r in gint[1:]}
-    if len(rates) != 1:
-        raise RateLookupError(f"{plan.plancode} GINT varies by duration; the engine uses one rate.")
-    rate = rates.pop()
-    for label, value in (("GINT", config.gint), ("DBD", config.dbd)):
-        if abs(value - rate) > 1e-9:
-            raise RateLookupError(
-                f"{plan.plancode} plancode configuration {label} {value} differs from schema GINT {rate}.")
-    for label, schema_value, config_value in (
-        ("LOAN_REG_CHG", loan_charge, config.loan_charge_rate_guar),
-        ("LOAN_REG_CRD", loan_credit, config.loan_charge_rate_curr),
-    ):
-        if schema_value is None:
-            raise RateLookupError(f"{plan.plancode} has no {label} in schema rates.")
-        if abs(schema_value - config_value) > 1e-9:
-            raise RateLookupError(
-                f"{plan.plancode} plancode configuration loan rate {config_value} differs from "
-                f"schema {label} {schema_value}.")
 
 
 def _mode_factor_row(reader, plan: PlanDef, family: str, mode: str):
@@ -594,9 +562,6 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
     cash_values = _cash_value_schedule(reader, plan, base_rows, key, segment, years, notes)
     state = key.state
     gint = _gint_schedule(reader, plan, state, years)
-    loan_charge = _scalar_plan_rate(reader, plan, "LOAN_REG_CHG", state)
-    loan_credit = _scalar_plan_rate(reader, plan, "LOAN_REG_CRD", state)
-    _validate_config_rates(plan, config, gint, loan_charge, loan_credit)
 
     try:
         family = factor_family(policy.bill_form_code)

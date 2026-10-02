@@ -70,9 +70,12 @@ def _coverage(*, phase: int = 1, face: float = 100_000.0, issue_age: int = 45) -
     )
 
 
-def _rates(*, coi: float = 2.4, epu: float = 0.35, scr: float = 4.0) -> IllustrationRates:
+def _rates(*, coi: float = 2.4, scr: float = 4.0, tpp: float = 0.05) -> IllustrationRates:
+    # Expense rates reproduce the cases' original flat configuration (5% premium load
+    # on every premium, no EPU, $5 fee) now that the engine reads only rates.
+    # ``tpp`` is the target load the exception-premium solve always read from rates.
     duration_rates = [0.0] + [coi] * 180
-    expense_rates = [0.0] + [epu] * 180
+    expense_rates = [0.0] + [0.0] * 180
     surrender_rates = [0.0] + [scr] * 180
     return IllustrationRates(
         coi=duration_rates,
@@ -82,8 +85,8 @@ def _rates(*, coi: float = 2.4, epu: float = 0.35, scr: float = 4.0) -> Illustra
         scr=surrender_rates,
         segment_scr={1: surrender_rates},
         mfee=[0.0] + [5.0] * 180,
-        tpp=[0.0] + [0.06] * 180,
-        epp=[0.0] + [0.03] * 180,
+        tpp=[0.0] + [tpp] * 180,
+        epp=[0.0] + [0.05] * 180,
         mtp=420.0,
         ctp=600.0,
     )
@@ -92,11 +95,7 @@ def _rates(*, coi: float = 2.4, epu: float = 0.35, scr: float = 4.0) -> Illustra
 def _config(plancode: str, *, lapse_value: str = "SV", cvat: bool = False) -> PlancodeConfig:
     return PlancodeConfig(
         plancode=plancode,
-        premium_load="0.05",
         prem_flat_load=1.25,
-        epu_code="0",
-        mfee="5",
-        poav_code="0",
         corridor_code=None,
         gint=0.02,
         dbd=0.0,
@@ -402,7 +401,7 @@ CASES = [
         "run_from_issue_cvat",
         _run_from_issue_policy,
         _config("CHARCVAT", cvat=True),
-        _rates(coi=1.8, epu=0.2, scr=2.5),
+        _rates(coi=1.8, scr=2.5),
         2,
         _run_from_issue_inputs,
         IllustrationOptions(),
@@ -411,7 +410,7 @@ CASES = [
         "iul_wair",
         _iul_policy,
         _config("CHARIUL", lapse_value="AV"),
-        _rates(coi=2.1, epu=0.25, scr=3.0),
+        _rates(coi=2.1, scr=3.0),
         3,
         _iul_inputs,
         IllustrationOptions(iul_wair_crediting=True),
@@ -420,7 +419,7 @@ CASES = [
         "mec_off_cycle",
         _mec_policy,
         _config("CHARMEC"),
-        _rates(coi=1.7, epu=0.0, scr=0.0),
+        _rates(coi=1.7, scr=0.0),
         12,
         _mec_inputs,
         IllustrationOptions(conform_to_tamra=False, conform_to_tefra=False),
@@ -429,7 +428,7 @@ CASES = [
         "exception_premium",
         _exception_policy,
         _config("CHAREXC"),
-        _rates(coi=8.0, epu=0.0, scr=0.0),
+        _rates(coi=8.0, scr=0.0, tpp=0.06),
         2,
         _no_inputs,
         IllustrationOptions(allow_exception_prems=True),
@@ -438,7 +437,7 @@ CASES = [
         "lapse_corridor",
         _lapse_policy,
         _config("CHARLAPSE"),
-        _rates(coi=12.0, epu=0.0, scr=0.0),
+        _rates(coi=12.0, scr=0.0),
         2,
         _no_inputs,
         IllustrationOptions(),
@@ -448,37 +447,30 @@ CASES = [
         _shadow_corridor_policy,
         PlancodeConfig(
             plancode="CHARSHD",
-            premium_load="0.05",
-            epu_code="0",
-            mfee="5",
-            poav_code="0",
             corridor_code=1,
             gint=0.02,
             dbd=0.0,
             snet_period=0,
             lapse_value="SV",
             interest_method="MonthlyCompounding",
-            shadow_target="Table",
-            shadow_prem_load_code="0.04",
-            shadow_epu_code="Table",
             shadow_mfee=3.0,
-            shadow_dbd_rate="Table",
-            shadow_int_rate_code="Table",
         ),
+        # Flat 5% premium load, no EPU and the flat 4% shadow premium load of the
+        # original configuration, expressed as the rates the engine reads.
         IllustrationRates(
             coi=[0.0] + [2.0] * 180,
             segment_coi={1: [0.0] + [2.0] * 180},
-            epu=[0.0] + [0.2] * 180,
-            segment_epu={1: [0.0] + [0.2] * 180},
+            epu=[0.0] * 181,
+            segment_epu={1: [0.0] * 181},
             scr=[0.0] + [2.0] * 180,
             segment_scr={1: [0.0] + [2.0] * 180},
             mfee=[0.0] + [5.0] * 180,
             tpp=[0.0] + [0.05] * 180,
-            epp=[0.0] + [0.03] * 180,
+            epp=[0.0] + [0.05] * 180,
             shadow_coi=[0.0] + [1.5] * 180,
             shadow_epu=[0.0] + [0.1] * 180,
-            shadow_tpp=[0.0] + [0.05] * 180,
-            shadow_epp=[0.0] + [0.03] * 180,
+            shadow_tpp=[0.0] + [0.04] * 180,
+            shadow_epp=[0.0] + [0.04] * 180,
             shadow_tpr=[0.0] + [3.0] * 180,
             shadow_tpr_tbl1=[0.0] * 181,
             shadow_int=[0.0] + [0.04] * 180,

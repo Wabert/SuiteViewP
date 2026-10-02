@@ -92,13 +92,19 @@ def projection(monkeypatch):
     )
     config = PlancodeConfig(
         plancode="REINTEST", gint=0.0, dbd=0.0, corridor_code=None,
-        epu_code="0", mfee="10", premium_load="0", snet_period=0,
-        lapse_value="SV", shadow_int_rate_code="0", shadow_dbd_rate="0",
+        mfee_fallback=10.0, snet_period=0,
+        lapse_value="SV", shadow_int_rate_fallback=0.0, shadow_dbd_fallback=0.0,
         shadow_mfee=10.0,
     )
     rates = IllustrationRates(
         coi=[0.0, 0.0], segment_coi={1: [0.0, 0.0]}, scr=[0.0, 0.0],
+        mfee=[None, 10.0],
         shadow_coi=[0.0, 0.0],
+        shadow_epu=[None, 0.0],
+        shadow_int=[None, 0.0],
+        shadow_dbd=[None, 0.0],
+        shadow_tpp=[None, 0.0],
+        shadow_epp=[None, 0.0],
     )
     monkeypatch.setattr(rein, "load_plancode", lambda _: config)
     monkeypatch.setattr(rein, "load_rates", lambda *_: rates)
@@ -193,7 +199,8 @@ def test_expired_shadow_uses_surrender(projection):
 
 def test_surrender_charges_and_loads_reconcile(projection):
     p, config, rates, _, run = projection
-    config.premium_load = "0.1"
+    rates.tpp = [None, 0.1]
+    rates.epp = [None, 0.1]
     rates.scr = [0.0, 1.0]
     result = run()
     assert result.premium > Decimal("110")

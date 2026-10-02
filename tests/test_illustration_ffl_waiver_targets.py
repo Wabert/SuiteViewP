@@ -109,7 +109,6 @@ def _config(company_sub: str) -> PlancodeConfig:
     return PlancodeConfig(
         plancode="NU1F3A00",
         company_sub=company_sub,
-        mfee="Table",
         premium_cease_age=100,
         dynamic_banding=3,
         table_rating_factor=0.25,

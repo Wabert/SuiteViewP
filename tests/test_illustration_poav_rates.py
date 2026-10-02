@@ -160,8 +160,6 @@ def test_monthly_deduction_applies_poav_rate_to_positive_account_value():
     config = PlancodeConfig(
         plancode="TESTPOAV",
         poav_table="2",
-        epu_code="0",
-        mfee="0",
         corridor_code=None,
         dbd=0.0,
     )

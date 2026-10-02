@@ -1,9 +1,11 @@
 """Plancode Table viewer — a read-only RERUN window over ``plancode_table.json``.
 
-Opened from the RERUN header's ☰ menu. Shows one row per plancode with every
-column the illustration engine reads (the same rows ``load_plancode`` uses), in
-a dense sortable/filterable ledger with the Plancode and ProductName columns
-frozen, plus a Dump to Excel hand-off.
+Opened from the RERUN header's ☰ menu. Shows one row per plancode as stored in the
+table (the same rows ``load_plancode`` reads): the product rules, plus a rate field
+only where it is the fallback for a plan UL_Rates schema ``rates`` lacks it for, and
+the explicit illustration age overrides. Rates the database supplies are not in the
+table (see ``plancode_config``). A dense sortable/filterable ledger with the Plancode
+column frozen, plus a Dump to Excel hand-off.
 """
 from __future__ import annotations
 
@@ -40,7 +42,7 @@ from .styles import (
 logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "SuiteView:  Plancode Table"
-FROZEN_COLUMNS = ("Plancode", "ProductName")
+FROZEN_COLUMNS = ("Plancode",)
 
 
 def _is_number(value) -> bool:

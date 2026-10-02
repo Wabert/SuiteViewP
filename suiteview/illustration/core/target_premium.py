@@ -76,9 +76,9 @@ from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.illustration.constants import (
     MONTHS_PER_YEAR,
     PER_THOUSAND,
-    RATE_CODE_TABLE,
     SA_BASIS_ORIGINAL,
 )
+from suiteview.illustration.core.rate_loader import mfee_schedule
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
@@ -385,17 +385,9 @@ def _ffl_monthly_fee(
     policy_year = _years_since(policy.issue_date, as_of)
     if policy.issue_age + policy_year - 1 >= config.premium_cease_age:
         return 0.0
-    if config.mfee == RATE_CODE_TABLE:
-        base = policy.base_segment
-        schedule = rates_db.get_rates(
-            "MFEE", policy.plancode, base.issue_age, base.rate_sex,
-            base.rate_class, scale=1, band=current_band, issue_date=base.issue_date,
-        ) or []
-        return _schedule_rate(schedule, policy_year)
-    try:
-        return float(config.mfee)
-    except (ValueError, TypeError):
-        return 0.0
+    schedule = mfee_schedule(
+        rates_db, policy.plancode, policy.base_segment, config, scale=1, band=current_band)
+    return _schedule_rate(schedule, policy_year)
 
 
 def _current_target_band(policy: IllustrationPolicyData, rates_db) -> int:

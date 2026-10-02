@@ -23,7 +23,7 @@ def _basis_inputs():
             table_cease_date=date(2063, 2, 15),
         )],
     )
-    config = PlancodeConfig(mfee="0", epu_code="0", premium_load="0", premium_cease_age=95)
+    config = PlancodeConfig(premium_cease_age=95)
     rates = IllustrationRates(segment_coi={1: [None] + [2.0] * 70})
     return policy, config, rates
 

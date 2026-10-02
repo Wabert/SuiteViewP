@@ -233,7 +233,7 @@ def _rates() -> IllustrationRates:
 
 def _config() -> PlancodeConfig:
     return PlancodeConfig(
-        plancode="E02CVAT", premium_load="0.05", epu_code="0", mfee="5", poav_code="0",
+        plancode="E02CVAT", premium_load_fallback=0.05, mfee_fallback=5.0, 
         corridor_code=None, gint=0.03, dbd=0.0, snet_period=0, lapse_value="SV",
         interest_method="MonthlyCompounding",
     )

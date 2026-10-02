@@ -51,9 +51,9 @@ def test_cola_surrender_exemption_is_company_and_plan_specific(
 
 def test_seven_coverage_projection_keeps_exempt_cola_columns(monkeypatch):
     config = PlancodeConfig(
-        company_sub="FFL", gint=0.0, dbd=0.0, premium_load="0",
-        prem_flat_load=0.0, epu_code="0", mfee="0", poav_code="0",
-        bonus="0", corridor_code=None, snet_period=0,
+        company_sub="FFL", gint=0.0, dbd=0.0, 
+        prem_flat_load=0.0, 
+        corridor_code=None, snet_period=0,
     )
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
@@ -109,7 +109,7 @@ def test_withdrawal_receives_effective_cola_surrender_rates(monkeypatch):
         return WithdrawalResult()
 
     monkeypatch.setattr(calc_engine, "compute_withdrawal", compute)
-    monkeypatch.setattr(calc_engine, "get_corridor_factor", lambda *a: 1.0)
+    monkeypatch.setattr(calc_engine, "corridor_factor", lambda *a: 1.0)
     policy = IllustrationPolicyData(company_code="26", segments=[
         CoverageSegment(coverage_phase=1),
         CoverageSegment(coverage_phase=4, is_cola=True),
@@ -144,12 +144,7 @@ def test_engine_allows_negative_ending_surrender_value(monkeypatch):
             plancode="TEST",
             gint=0.0,
             dbd=0.0,
-            premium_load="0",
             prem_flat_load=0.0,
-            epu_code="0",
-            mfee="0",
-            poav_code="0",
-            bonus="0",
             corridor_code=None,
             snet_period=0,
             lapse_value="SV",
@@ -210,12 +205,7 @@ def test_lapse_check_uses_policy_values_av_and_loan_cap_debt():
         plancode="TEST",
         gint=0.0,
         dbd=0.0,
-        premium_load="0",
         prem_flat_load=0.0,
-        epu_code="0",
-        mfee="0",
-        poav_code="0",
-        bonus="0",
         corridor_code=None,
         snet_period=0,
         lapse_value="AV",
@@ -265,12 +255,8 @@ def test_engine_does_not_take_monthly_deduction_on_maturity_date(monkeypatch):
             maturity_age=46,
             gint=0.0,
             dbd=0.0,
-            premium_load="0",
             prem_flat_load=0.0,
-            epu_code="0",
-            mfee="10",
-            poav_code="0",
-            bonus="0",
+            mfee_fallback=10.0,
             corridor_code=None,
             snet_period=0,
         ),

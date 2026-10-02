@@ -315,20 +315,24 @@ def _reinstatement_payload(monkeypatch):
         gint=0.0,
         dbd=0.0,
         corridor_code=None,
-        epu_code="0",
-        mfee="10",
-        premium_load="0",
+        mfee_fallback=10.0,
         snet_period=0,
         lapse_value="SV",
-        shadow_int_rate_code="0",
-        shadow_dbd_rate="0",
+        shadow_int_rate_fallback=0.0,
+        shadow_dbd_fallback=0.0,
         shadow_mfee=10.0,
     )
     rates = IllustrationRates(
         coi=[0.0, 0.0],
         segment_coi={1: [0.0, 0.0]},
         scr=[0.0, 0.0],
+        mfee=[None, 10.0],
         shadow_coi=[0.0, 0.0],
+        shadow_epu=[None, 0.0],
+        shadow_int=[None, 0.0],
+        shadow_dbd=[None, 0.0],
+        shadow_tpp=[None, 0.0],
+        shadow_epp=[None, 0.0],
     )
     monkeypatch.setattr(rein, "load_plancode", lambda _plancode: config)
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _plancode: config)

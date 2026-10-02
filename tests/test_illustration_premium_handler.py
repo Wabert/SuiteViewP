@@ -12,8 +12,8 @@ def _rates(tpp: float, epp: float, years: int = 5) -> IllustrationRates:
     return rates
 
 
-def _config(premium_load="Table") -> PlancodeConfig:
-    return PlancodeConfig(plancode="TESTPLAN", premium_load=premium_load)
+def _config() -> PlancodeConfig:
+    return PlancodeConfig(plancode="TESTPLAN")
 
 
 def _policy(modal_premium: float = 100.0, ctp: float = 1000.0) -> IllustrationPolicyData:
@@ -46,8 +46,8 @@ def test_tpp_epp_rates_surface_even_with_no_premium():
 
 def test_flat_percentage_load_reported_as_rate():
     result = apply_premium(
-        av_beginning=0.0, policy=_policy(), config=_config(premium_load="0.05"),
-        rates=_rates(0.0, 0.0), rate_year=1,
+        av_beginning=0.0, policy=_policy(), config=_config(),
+        rates=_rates(0.05, 0.05), rate_year=1,
         premiums_ytd=0.0, premiums_to_date=0.0, cost_basis=0.0,
     )
     assert result.tpp_rate == 0.05

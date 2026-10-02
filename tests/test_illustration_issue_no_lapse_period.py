@@ -54,7 +54,7 @@ def _policy():
 def engine_basis(monkeypatch):
     config = PlancodeConfig(
         plancode="1U135D00", snet_period=0, lapse_value="SV",
-        epu_code="0", mfee="0", corridor_code=None,
+        corridor_code=None,
     )
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(calc_engine, "compute_target_premiums",

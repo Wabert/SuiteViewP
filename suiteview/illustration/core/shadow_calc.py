@@ -16,7 +16,6 @@ from suiteview.illustration.constants import (
     DB_OPTION_INCREASING,
     MONTHS_PER_YEAR,
     PER_THOUSAND,
-    RATE_CODE_TABLE,
 )
 from suiteview.illustration.core.monthly_deduction import _charge_active
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
@@ -109,7 +108,8 @@ def _shadow_target_premium(
     rate_year: int,
     sa_for_basis: float,
 ) -> float:
-    if config.shadow_target != RATE_CODE_TABLE:
+    if not rates.shadow_tpr:
+        # The plan has no shadow target premium (plancode-table ShadowTarget 0).
         return 0.0
     seg = policy.base_segment
     tpr = get_rate(rates, "shadow_tpr", rate_year)
@@ -202,26 +202,13 @@ def _premium_load_detail(
 
 
 def _shadow_premium_load_rates(
-    config: PlancodeConfig,
     rates: IllustrationRates,
     rate_year: int,
 ) -> tuple[float, float]:
-    if config.shadow_prem_load_code == RATE_CODE_TABLE:
-        return (
-            get_rate(rates, "shadow_tpp", rate_year),
-            get_rate(rates, "shadow_epp", rate_year),
-        )
-    flat_pct = float(config.shadow_prem_load_code)
-    return flat_pct, flat_pct
-
-
-def _configured_rate(
-    configured,
-    rates: IllustrationRates,
-    rate_key: str,
-    rate_year: int,
-) -> float:
-    return get_rate(rates, rate_key, rate_year) if configured == RATE_CODE_TABLE else float(configured)
+    return (
+        get_rate(rates, "shadow_tpp", rate_year),
+        get_rate(rates, "shadow_epp", rate_year),
+    )
 
 
 def _shadow_death_benefit(
@@ -285,12 +272,7 @@ def _shadow_interest_values(
         float(display_days_in_month)
         if display_days_in_month is not None else float(days_in_month)
     )
-    shadow_int_rate = _configured_rate(
-        config.shadow_int_rate_code,
-        rates,
-        "shadow_int",
-        rate_year,
-    )
+    shadow_int_rate = get_rate(rates, "shadow_int", rate_year)
     shadow_eff_rate = (1.0 + shadow_int_rate) ** (shadow_days / DAYS_PER_YEAR) - 1.0
     shadow_interest = max(0.0, shadow_eff_rate * shadow_av)
     return shadow_days, shadow_int_rate, shadow_eff_rate, shadow_interest
@@ -414,7 +396,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
 
     # ── Shadow Target Premium (col WU) ───────────────────────
     # shadow_tp = ROUND(sa_basis/1000 * (TPR + TPRTBL1*table + flat1 + flat2), 2) + CTR_CTP + PWSTP_CTP
-    # For EXECUL: shadow_target = "0" → TPR=0, TPRTBL1=0, so shadow_tp = 0
+    # For EXECUL (no scale S target, table ShadowTarget 0): shadow_tp = 0
     shadow_target_prem = _shadow_target_premium(
         policy=policy,
         config=config,
@@ -424,7 +406,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     )
 
     # ── Premium load rates (cols WZ/XA) ──────────────────────
-    tpp_pct, epp_pct = _shadow_premium_load_rates(config, rates, rate_year)
+    tpp_pct, epp_pct = _shadow_premium_load_rates(rates, rate_year)
 
     # ── Premium loads (cols XB/XC/XD) ─────────────────────────
     total_gross_premium = gross_premium + post_deduction_gross_premium
@@ -475,7 +457,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     # replays carry receipt dates). SGUL instead credits a late premium a full
     # month after the deduction (late-payment forgiveness, E12).
     premium_interest_factor = (
-        (1.0 + _configured_rate(config.shadow_int_rate_code, rates, "shadow_int", rate_year))
+        (1.0 + get_rate(rates, "shadow_int", rate_year))
         ** (gross_premium_interest_days / DAYS_PER_YEAR)
         if not config.shadow_late_payment_forgiveness and gross_premium_interest_days > 0.0
         else 1.0
@@ -486,12 +468,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     )
     shadow_net_prem = pre_deduction_net_premium + post_deduction_net_premium
 
-    shadow_int_rate_for_withdrawal = _configured_rate(
-        config.shadow_int_rate_code,
-        rates,
-        "shadow_int",
-        rate_year,
-    )
+    shadow_int_rate_for_withdrawal = get_rate(rates, "shadow_int", rate_year)
     withdrawal_interest_factor = (
         (1.0 + shadow_int_rate_for_withdrawal) ** (gross_withdrawal_interest_days / DAYS_PER_YEAR)
         if gross_withdrawal_interest_days > 0.0 else 1.0
@@ -522,12 +499,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     )
 
     # ── Shadow DBD rate (col XJ) ─────────────────────────────
-    shadow_dbd_rate = _configured_rate(
-        config.shadow_dbd_rate,
-        rates,
-        "shadow_dbd",
-        rate_year,
-    )
+    shadow_dbd_rate = get_rate(rates, "shadow_dbd", rate_year)
 
     # ── Shadow NAR (col XK) ──────────────────────────────────
     # NAR = DB / (1 + dbd_rate)^(1/12) - NAR_AV
@@ -540,12 +512,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     shadow_coi = _round_near(shadow_nar / PER_THOUSAND * shadow_coi_rate, 2)
 
     # ── Shadow EPU (cols XM/XN) ──────────────────────────────
-    shadow_epu_rate = _configured_rate(
-        config.shadow_epu_code,
-        rates,
-        "shadow_epu",
-        rate_year,
-    )
+    shadow_epu_rate = get_rate(rates, "shadow_epu", rate_year)
 
     shadow_epu = shadow_epu_rate * sa_for_basis / PER_THOUSAND
 

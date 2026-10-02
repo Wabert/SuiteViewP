@@ -69,8 +69,6 @@ def _policy() -> IllustrationPolicyData:
 def _config(sa_basis: str) -> PlancodeConfig:
     return PlancodeConfig(
         plancode="TEST0001",
-        epu_code="Table",
-        mfee="0",
         dbd=0.0,
         gint=0.0,
         corridor_code=None,
@@ -87,8 +85,7 @@ def _config(sa_basis: str) -> PlancodeConfig:
     "sa_basis, expected_sa",
     [("CurrentSA", CURRENT_SA), ("OriginalSA", ORIGINAL_SA)],
 )
-@pytest.mark.parametrize("epu_code", ["Table", "0.5"])
-def test_epu_charge_follows_sa_basis(sa_basis, expected_sa, epu_code):
+def test_epu_charge_follows_sa_basis(sa_basis, expected_sa):
     rates = IllustrationRates(
         coi=[None] + [0.0] * 80,
         segment_coi={1: [None] + [0.0] * 80},
@@ -96,7 +93,6 @@ def test_epu_charge_follows_sa_basis(sa_basis, expected_sa, epu_code):
         segment_epu={1: [None] + [0.5] * 80},
     )
     config = _config(sa_basis)
-    config.epu_code = epu_code
     result = calculate_deduction(
         50_000.0,
         _policy(),
@@ -240,7 +236,14 @@ def test_missing_basis_does_not_infer_from_skipped_reinstatement(monkeypatch):
     from suiteview.illustration.models import plancode_config as pc
 
     monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
-    monkeypatch.setattr(pc, "_TABLE_CACHE", {"TEST": {"SkippedCovRein": True}})
+    monkeypatch.setattr(pc, "_TABLE_CACHE", {"TEST": {
+        "ProductFamily": "UL",
+        "GINT": 0.03,
+        "PremiumCeaseAge": 121,
+        "MaturityAge": 121,
+        "LoanChargeRate": 0.06,
+        "LoanCollateralCreditRate": 0.04,
+    }})
     with pytest.raises(KeyError, match="SA_Basis"):
         pc.load_plancode("TEST")
 

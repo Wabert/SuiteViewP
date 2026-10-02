@@ -22,10 +22,9 @@ from suiteview.illustration.constants import (
     DB_OPTION_RETURN_OF_PREMIUM,
     MONTHS_PER_YEAR,
     PER_THOUSAND,
-    RATE_CODE_TABLE,
     SA_BASIS_ORIGINAL,
 )
-from suiteview.illustration.core.corridor_rates import get_corridor_factor
+from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
@@ -533,7 +532,7 @@ def _build_death_benefit_basis(
     else:
         standard_db = face
 
-    corr_rate = get_corridor_factor(policy.plancode, attained_age, config.corridor_code)
+    corr_rate = corridor_factor(config, attained_age)
     gross_db = (
         max(standard_db, float(math.floor(corr_rate * nar_av + 1e-6)))
         if corr_rate > 0 else standard_db
@@ -730,8 +729,8 @@ def _calculate_expense_charges(
     """Calculate EPU, monthly fee and AV charges."""
     epu = _calculate_epu_charges(
         basis.segments if basis.segments else [None],
-        basis.face, policy, config, rates, rate_year, projection_date, bln_round_charge)
-    mfee_charge = _monthly_fee_charge(config, rates, rate_year)
+        basis.face, config, rates, rate_year, projection_date)
+    mfee_charge = _monthly_fee_charge(rates, rate_year)
     av_charge = 0.0
     if config.poav_table != "0":
         av_charge = max(0.0, basis.mAV * get_rate(rates, "poav", rate_year))
@@ -745,27 +744,22 @@ def _calculate_expense_charges(
 def _calculate_epu_charges(
     epu_segments,
     face: float,
-    policy: IllustrationPolicyData,
     config: PlancodeConfig,
     rates: IllustrationRates,
     rate_year: int,
     projection_date: date | None,
-    bln_round_charge: bool,
 ) -> ExpenseChargeBreakdown:
-    """Calculate per-coverage EPU charges."""
+    """Calculate per-coverage EPU charges (schema EPU; none loaded = no charge)."""
     result = ExpenseChargeBreakdown()
-    if config.epu_code == RATE_CODE_TABLE:
-        for index, segment in enumerate(epu_segments, start=1):
-            schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
-            epu_rate = _rate_from_schedule(schedule, _coverage_year(segment, projection_date, rate_year))
-            if _segment_charge_inactive(segment, projection_date):
-                epu_rate = 0.0
-            basis = _epu_segment_basis(segment, face, config)
-            charge = _round_near((basis / PER_THOUSAND) * epu_rate, 2)
-            result.epu_rates_by_coverage[f"cov{index}"] = epu_rate
-            result.epu_charges_by_coverage[f"cov{index}"] = charge
-    else:
-        result = _calculate_flat_epu_charges(epu_segments, policy, config, projection_date, bln_round_charge)
+    for index, segment in enumerate(epu_segments, start=1):
+        schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
+        epu_rate = _rate_from_schedule(schedule, _coverage_year(segment, projection_date, rate_year))
+        if _segment_charge_inactive(segment, projection_date):
+            epu_rate = 0.0
+        basis = _epu_segment_basis(segment, face, config)
+        charge = _round_near((basis / PER_THOUSAND) * epu_rate, 2)
+        result.epu_rates_by_coverage[f"cov{index}"] = epu_rate
+        result.epu_charges_by_coverage[f"cov{index}"] = charge
     result.epu_rate = result.epu_rates_by_coverage.get("cov1", 0.0)
     result.epu_charge = sum(result.epu_charges_by_coverage.values())
     return result
@@ -777,39 +771,8 @@ def _epu_segment_basis(segment, face: float, config: PlancodeConfig) -> float:
     return segment.face_amount if segment else face
 
 
-def _calculate_flat_epu_charges(
-    epu_segments,
-    policy: IllustrationPolicyData,
-    config: PlancodeConfig,
-    projection_date: date | None,
-    bln_round_charge: bool,
-) -> ExpenseChargeBreakdown:
-    """Calculate flat-code EPU charges."""
-    result = ExpenseChargeBreakdown()
-    try:
-        epu_flat = float(config.epu_code)
-    except (ValueError, TypeError):
-        epu_flat = 0.0
-    for index, segment in enumerate(epu_segments, start=1):
-        units = (
-            segment.original_face_amount / PER_THOUSAND
-            if segment is not None and config.sa_basis == SA_BASIS_ORIGINAL
-            else segment.units if segment else policy.units
-        )
-        charge = 0.0 if _segment_charge_inactive(segment, projection_date) else epu_flat * units
-        result.epu_rates_by_coverage[f"cov{index}"] = epu_flat
-        result.epu_charges_by_coverage[f"cov{index}"] = (
-            _round_near(charge, 2) if bln_round_charge else charge)
-    return result
-
-
-def _monthly_fee_charge(config: PlancodeConfig, rates: IllustrationRates, rate_year: int) -> float:
-    if config.mfee == RATE_CODE_TABLE:
-        return get_rate(rates, "mfee", rate_year)
-    try:
-        return float(config.mfee)
-    except (ValueError, TypeError):
-        return 0.0
+def _monthly_fee_charge(rates: IllustrationRates, rate_year: int) -> float:
+    return get_rate(rates, "mfee", rate_year)
 
 
 def _calculate_benefit_charges(

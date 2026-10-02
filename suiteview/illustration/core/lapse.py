@@ -24,8 +24,10 @@ def default_issue_no_lapse_years(
         if cease < issue + relativedelta(months=months):
             months -= 1
         return max(0, months + 1) / 12.0
-    if config is not None and config.snet_period > 0:
-        return float(config.snet_period)
+    if config is not None:
+        years = config.safety_net_years(policy.issue_age)
+        if years > 0:
+            return float(years)
     return 0.0
 
 

@@ -857,27 +857,19 @@ coi_charge = sum(segment_coi_charges) + coi_charge_corr
 
 EPU charges:
 
-Table-driven EPU:
+EPU (schema `EPU`; none loaded = no charge):
 
 ```text
 segment_epu_charge = (segment_basis / 1000) * segment_epu_rate
 ```
 
-Flat-configured EPU:
-
-```text
-segment_epu_charge = epu_flat * segment_units
-```
-
 Monthly fee and AV charge:
 
 ```text
-if MFEE == "Table":
-    mfee_charge = MFEE[rate_year]
-else:
-    mfee_charge = configured_flat_amount
+mfee_charge = MFEE[rate_year]        # schema MFEE (C/G scale), else the table's flat
+                                     # MFEE fallback for a plan without MFEE cells, else 0
 
-if POAV == "Table":
+if PoAV_Table != "0":
     av_charge = max(0, av_after_premium * poav_rate)
 else:
     av_charge = 0

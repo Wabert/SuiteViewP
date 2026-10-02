@@ -41,17 +41,9 @@ class PremiumResult:
     benefit_premium: float = 0.0
 
 
-def premium_load_rates(
-    config: PlancodeConfig, rates: IllustrationRates, rate_year: int,
-) -> tuple[float, float]:
+def premium_load_rates(rates: IllustrationRates, rate_year: int) -> tuple[float, float]:
     """Target/excess premium-load rates for ``rate_year`` (PolicyRates AW/AX)."""
-    if config.premium_load == "Table":
-        return get_rate(rates, "tpp", rate_year), get_rate(rates, "epp", rate_year)
-    try:
-        flat = float(config.premium_load)
-    except (ValueError, TypeError):
-        return 0.0, 0.0
-    return flat, flat
+    return get_rate(rates, "tpp", rate_year), get_rate(rates, "epp", rate_year)
 
 
 def apply_premium(
@@ -105,7 +97,7 @@ def apply_premium(
 
     # Load rates (PolicyRates AW/AX) — resolved every month, independent of
     # whether a premium is applied, so the Values tab can always display them.
-    tpp_rate, epp_rate = premium_load_rates(config, rates, rate_year)
+    tpp_rate, epp_rate = premium_load_rates(rates, rate_year)
 
     if gross_premium <= 0:
         return PremiumResult(
@@ -132,16 +124,11 @@ def apply_premium(
         prem_over_target = 0.0
 
     # ── Premium load (CalcEngine cols 397-400) ────────────────
-    target_load = 0.0
-    excess_load = 0.0
+    # A plan without premium-load cells carries the table's flat load as level
+    # tpp = epp schedules, so the split charges it on every premium.
+    target_load = prem_under_target * tpp_rate
+    excess_load = prem_over_target * epp_rate
     flat_load = 0.0
-
-    if config.premium_load == "Table":
-        target_load = prem_under_target * tpp_rate
-        excess_load = prem_over_target * epp_rate
-    else:
-        # Flat percentage load (tpp_rate carries the parsed flat percentage)
-        target_load = gross_premium * tpp_rate
 
     if config.prem_flat_load > 0 and gross_premium > 0:
         flat_load = config.prem_flat_load

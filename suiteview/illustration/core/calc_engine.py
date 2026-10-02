@@ -70,7 +70,7 @@ from suiteview.illustration.constants import (
     SA_BASIS_ORIGINAL,
 )
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
-from suiteview.illustration.core.corridor_rates import get_corridor_factor
+from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.deemed_cash_value import NptTracker, glp_rate_for
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
@@ -122,6 +122,8 @@ from suiteview.illustration.core.rate_loader import (
     load_rates,
     load_segment_coi,
     load_segment_scr,
+    mfee_schedule,
+    premium_load_schedules,
 )
 from suiteview.illustration.core.shadow_calc import ShadowInput, calculate_shadow
 from suiteview.illustration.core.target_premium import (
@@ -780,7 +782,7 @@ def refresh_targets(ctx: MonthContext, convention: TimingConvention, work: Month
     if policy.map_cease_date is not None:
         work.within_snet = work.month_date <= policy.map_cease_date
     else:
-        work.within_snet = work.next_year <= ctx.config.snet_period
+        work.within_snet = work.next_year <= ctx.config.safety_net_years(ctx.policy.issue_age)
     work.past_snet = not work.within_snet
     work.prior_exception_mode = state.gp_exception_mode
 
@@ -948,7 +950,7 @@ def _npt_premium_for_month(ctx: MonthContext, work: MonthWork) -> Optional[float
                 ctx.state, policy, work.month_date, work.next_month, ctx.month_inputs,
             )["lowest_7yr_face"],
         )
-    tpp, epp = premium_load_rates(ctx.config, ctx.rates, work.rate_year)
+    tpp, epp = premium_load_rates(ctx.rates, work.rate_year)
     premium, detail = tracker.npt_for_month(
         policy,
         duration=work.duration,
@@ -2180,7 +2182,7 @@ def _set_inforce_lapse_fields(
     within_snet = (
         work.month_date <= policy.map_cease_date
         if policy.map_cease_date is not None
-        else policy.policy_year <= config.snet_period
+        else policy.policy_year <= config.safety_net_years(policy.issue_age)
     )
     work.snet_active = work.accum_mtp_less_prem >= 0 and within_snet
     work.shadow_protection = (
@@ -2743,12 +2745,10 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
         if segment.face_amount > 0:
             _reband_segment(rates, segment, policy.plancode, band=band)
     _reband_benefits(rates, policy)
-    for attr, kind in (("tpp", "TPP"), ("epp", "EPP"), ("mfee", "MFEE")):
-        setattr(rates, attr, rates_db.get_rates(
-            kind, policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
-            rateclass=seg.rate_class, scale=rates.expense_scale, band=band,
-            issue_date=seg.issue_date,
-        ) or [])
+    rates.tpp, rates.epp = premium_load_schedules(
+        rates_db, policy.plancode, seg, config, scale=rates.expense_scale, band=band)
+    rates.mfee = mfee_schedule(
+        rates_db, policy.plancode, seg, config, scale=rates.expense_scale, band=band)
     if config.poav_table != "0":
         from suiteview.illustration.core.poav_rates import load_poav_schedule
 
@@ -3131,8 +3131,7 @@ def _compute_month_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
         inputs.av, policy, config, scr_rates, request,
         gross_request=gross_request,
         pct_of_av_surrender_charge=pct_of_av_charge,
-        corridor_rate=get_corridor_factor(
-            policy.plancode, inputs.attained_age, config.corridor_code),
+        corridor_rate=corridor_factor(config, inputs.attained_age),
         prior_total_md=state.total_deduction,
         policy_debt=debt,
         cost_basis=inputs.cost_basis,

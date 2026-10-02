@@ -43,7 +43,7 @@ def _case(*, ratchet=False):
     )
     config = PlancodeConfig(
         plancode="TEST", dbd=0.0, gint=0.0, corridor_code=2,
-        epu_code="0", mfee="0", rachet_banding=ratchet,
+        rachet_banding=ratchet,
         table_rating_factor=0.25,
     )
     rates = IllustrationRates(

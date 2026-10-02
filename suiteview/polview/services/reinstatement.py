@@ -148,31 +148,18 @@ def _debt_at_deduction(state: MonthlyState) -> float:
 
 
 def _validate_rates(policy, config, rates):
+    # EPU, MFEE and premium loads are optional schema rates (none loaded = no
+    # charge). The loader fills every shadow schedule (scale S or a table fallback).
     required = {}
     for segment in policy.segments:
         phase = segment.coverage_phase
         required[f"COI coverage {phase}"] = rates.segment_coi.get(phase)
         required[f"SCR coverage {phase}"] = rates.segment_scr.get(phase, rates.scr)
-        if config.epu_code == "Table":
-            required[f"EPU coverage {phase}"] = rates.segment_epu.get(phase)
-    for setting, name in (
-        (config.mfee, "mfee"), (config.premium_load, "tpp"),
-        (config.premium_load, "epp"), (config.poav_code, "poav"),
-    ):
-        if setting == "Table":
-            required[name] = getattr(rates, name)
+    if config.poav_table != "0":
+        required["poav"] = rates.poav
     if policy.has_shadow_account:
-        required["shadow COI"] = rates.shadow_coi
-        for setting, names in (
-            (config.shadow_epu_code, ("shadow_epu",)),
-            (config.shadow_int_rate_code, ("shadow_int",)),
-            (config.shadow_dbd_rate, ("shadow_dbd",)),
-            (config.shadow_prem_load_code, ("shadow_tpp", "shadow_epp")),
-            (config.shadow_target, ("shadow_tpr",)),
-        ):
-            if setting == "Table":
-                for name in names:
-                    required[name] = getattr(rates, name)
+        for name in ("shadow_coi", "shadow_epu", "shadow_int", "shadow_dbd", "shadow_tpp", "shadow_epp"):
+            required[name] = getattr(rates, name)
     for name, schedule in required.items():
         if not schedule or len(schedule) < 2:
             raise ReinstatementError(f"Required {name} rate schedule is missing.")
@@ -291,7 +278,7 @@ def _reinstatement_basis(
 ) -> tuple[str, bool]:
     in_safety_net = (
         target <= policy.map_cease_date if policy.map_cease_date is not None
-        else _months(policy.issue_date, target) // 12 + 1 <= config.snet_period
+        else _months(policy.issue_date, target) // 12 + 1 <= config.safety_net_years(policy.issue_age)
     )
     shadow_active = (
         policy.has_shadow_account

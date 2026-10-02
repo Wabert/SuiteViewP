@@ -24,9 +24,11 @@ Usage (single JSON arg):
      "dry_run": false}                    # true = print block row counts, no COM
 
 Plancode expansion mirrors AddBaseRateTypes / AddTermRiderRateTypes /
-AddAPBRiderRateTypes: base plancodes pull Targets/CCOI/GCOI/SCR plus the
-config-gated PremLoad/MFEE/SNET/EPU; a configured ShadowPlancode adds its
-CCOI (+gated Targets/PremLoad/EPU/ShadowInt); rider plancodes (typed via
+AddAPBRiderRateTypes: base plancodes pull Targets/CCOI/GCOI/SCR plus every
+optional PremLoad/MFEE/SNET/EPU block (schema rates, not plancode_table.json,
+now decides which a plan carries); the legacy shadow plancode (table
+ShadowPlancode fallback, else live PLAN_ATTR SHADOW_LEGACY_PLANCODE) adds its
+CCOI/Targets/PremLoad/EPU/ShadowInt; rider plancodes (typed via
 rider_table.json CovType) add Targets/CCOI/GCOI (APB also EPU).
 """
 from __future__ import annotations
@@ -249,13 +251,13 @@ def q_snet(conn, plancodes):
 # ── Plancode expansion (VBA AddBaseRateTypes / rider variants) ──────────────
 
 def _load_json(path: Path, list_key: str) -> dict[str, dict]:
-    with open(path, "r") as fh:
+    with open(path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
     return {str(rec.get("Plancode", "")).strip(): rec for rec in data[list_key]}
 
 
-def _is_table(value) -> bool:
-    return str(value).strip().upper() == "TABLE"
+# Families a plancode may legitimately lack (no premium load, fee, safety net or EPU).
+_OPTIONAL_FAMILIES = frozenset({"premload", "mfee", "snet", "epu"})
 
 
 def expand_plancodes(base_plancodes: list[str]) -> tuple[dict[str, set], list[str]]:
@@ -285,35 +287,39 @@ def expand_plancodes(base_plancodes: list[str]) -> tuple[dict[str, set], list[st
         fams["ccoi"].add(pc)
         fams["gcoi"].add(pc)
         fams["scr"].add(pc)
+        # The rate fields are no longer "Table"/flat switches in plancode_table.json
+        # (schema rates supplies them), so every optional family is queried; a family
+        # with no local rows is simply absent from its block.
+        for fam in ("premload", "mfee", "snet", "epu"):
+            fams[fam].add(pc)
         if cfg is None:
-            # Unknown plancode: query every optional family rather than drop rates.
-            warnings.append(f"{pc}: not in plancode_table.json; querying all rate families")
-            for fam in ("premload", "mfee", "snet", "epu"):
-                fams[fam].add(pc)
+            warnings.append(f"{pc}: not in plancode_table.json")
             continue
 
-        if _is_table(cfg.get("PremiumLoad")):
-            fams["premload"].add(pc)
-        if _is_table(cfg.get("MFEE")):
-            fams["mfee"].add(pc)
-        if _is_table(cfg.get("SafetyNetPeriod")):
-            fams["snet"].add(pc)
-        if _is_table(cfg.get("EPU_Code")):
-            fams["epu"].add(pc)
-
-        shadow = str(cfg.get("ShadowPlancode", "") or "").strip()
+        shadow, note = _shadow_plancode(pc, cfg)
+        if note:
+            warnings.append(note)
         if shadow and shadow not in ("NA", "0"):
-            fams["ccoi"].add(shadow)
-            if _is_table(cfg.get("ShadowTarget")):
-                fams["targets"].add(shadow)
-            if _is_table(cfg.get("ShadowPremLoadCode")):
-                fams["premload"].add(shadow)
-            if _is_table(cfg.get("ShadowEPUCode")):
-                fams["epu"].add(shadow)
-            if _is_table(cfg.get("ShadowIntRateCode")):
-                fams["shadowint"].add(shadow)
+            for fam in ("ccoi", "targets", "premload", "epu", "shadowint"):
+                fams[fam].add(shadow)
 
     return fams, warnings
+
+
+def _shadow_plancode(plancode: str, cfg: dict) -> tuple[str, str]:
+    """The legacy CCV plancode: the table fallback, else live PLAN_ATTR SHADOW_LEGACY_PLANCODE."""
+    shadow = str(cfg.get("ShadowPlancode", "") or "").strip()
+    if shadow or not str(cfg.get("ShadowAvailability", "") or "").strip():
+        return shadow, ""
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from suiteview.illustration.models.plan_facts import load_plan_facts
+
+        facts = load_plan_facts(plancode)
+    except Exception as exc:  # offline: the legacy shadow plancode is only in UL_Rates
+        return "", f"{plancode}: shadow plancode unknown ({exc}); shadow blocks not loaded"
+    return (facts.shadow_legacy_plancode if facts else ""), ""
 
 
 # ── Block assembly ──────────────────────────────────────────────────────────
@@ -352,9 +358,9 @@ def build_blocks(fams: dict[str, set], state: str) -> tuple[dict[str, list], lis
             rows = [list(r) for r in fn(plancodes)]
             blocks[span] = rows
             found = {str(r[0]) for r in rows}
-            for pc in plancodes:
-                if pc not in found:
-                    warnings.append(f"{span}: no local rows for plancode {pc}")
+            if fam not in _OPTIONAL_FAMILIES:
+                warnings.extend(f"{span}: no local rows for plancode {pc}"
+                                for pc in plancodes if pc not in found)
         if fams["shadowint"]:
             warnings.append(
                 "Span_ShadowINT: Select_RATE_SHDINT not in local rates.sqlite; block left "

@@ -99,7 +99,7 @@ def test_shadow_table_target_applicability(monkeypatch, rating, value, raises):
         segments=[CoverageSegment(face_amount=100_000, table_rating=rating)],
     )
     config = PlancodeConfig(
-        plancode="TEST", shadow_plancode="SHADOW", shadow_target="Table",
+        plancode="TEST", shadow_plancode="SHADOW", 
         poav_table="0", dynamic_banding=0,
     )
     if raises:

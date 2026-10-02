@@ -55,8 +55,7 @@ def _basis(**changes) -> ISWLRateBasis:
 def _config(**changes) -> PlancodeConfig:
     values = dict(
         plancode=PLAN, product_family="ISWL", maturity_age=95, premium_cease_age=95,
-        gint=0.04, dbd=0.04, mfee="0", epu_code="0", premium_load="0", poav_code="0",
-        poav_table="0", bonus="0", corridor_code=1, loan_charge_rate_guar=0.08,
+        gint=0.04, dbd=0.04, poav_table="0", corridor_code=1, loan_charge_rate_guar=0.08,
         loan_charge_rate_curr=0.04, snet_period=0,
     )
     values.update(changes)
@@ -175,11 +174,13 @@ def test_iswl_has_no_ul_target_premiums():
 
 
 def test_iswl_plancode_configuration():
+    # Product family, ages, GINT (= DBD) and loan rates come from schema rates.
     config = load_plancode(PLAN)
     assert config.is_iswl
     assert (config.maturity_age, config.premium_cease_age, config.gint, config.dbd) == (95, 95, 0.04, 0.04)
     assert (config.loan_charge_rate_guar, config.loan_charge_rate_curr) == (0.08, 0.04)
-    assert config.mfee == "0" and config.epu_code == "0"
+    assert config.table_fallbacks == ("CorridorCode",)
+    assert config.mfee_fallback is None and config.premium_load_fallback is None
     with pytest.raises(ValueError, match="ProductFamily"):
         from suiteview.illustration.models.plancode_config import _product_family
 
@@ -347,11 +348,9 @@ def test_ceasing_benefits_and_riders_come_from_the_stored_billing_premiums():
 
 @pytest.mark.parametrize("fake, config, message", [
     (_FakeSchema(rules="200"), _config(), "premium load rules 200"),
-    (_FakeSchema(loan_credit=0.05), _config(), "LOAN_REG_CRD"),
-    (_FakeSchema(), _config(gint=0.03, dbd=0.03), "GINT"),
-    (_FakeSchema(), _config(maturity_age=100), "MATURITY_AGE"),
+    (_FakeSchema(), _config(maturity_age=100, premium_cease_age=100), "illustration age override"),
 ])
-def test_schema_facts_that_disagree_with_the_configuration_fail_loudly(fake, config, message):
+def test_unsupported_iswl_plan_facts_fail_loudly(fake, config, message):
     with pytest.raises(RateLookupError, match=message):
         load_iswl_rates(_policy(), config, repo=fake)
 

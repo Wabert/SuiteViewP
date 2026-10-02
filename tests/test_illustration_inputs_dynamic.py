@@ -202,8 +202,8 @@ def test_input_to_md_type_editable_and_drives_b2md_window():
 def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
     panel = _panel()
 
-    assert panel.illustrated_rate_edit.text() == "3.000"
-    assert panel.illustrated_rate() == 0.03
+    assert panel.illustrated_rate_edit.text() == "4.000"
+    assert panel.illustrated_rate() == 0.04
 
 
 def test_loan_policy_allows_gp_exception_but_shadow_still_blocks():
@@ -618,7 +618,7 @@ def test_inputs_tab_exports_illustrated_rate_override_from_gint():
     tab.load_data_from_policy(_FakePolicy())
     overrides = tab.export_inforce_overrides()
 
-    assert overrides.current_interest_rate == 0.03
+    assert overrides.current_interest_rate == 0.04
 
 
 def test_exact_days_unchecked_exports_monthly_compounding_override():

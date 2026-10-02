@@ -21,8 +21,8 @@ from suiteview.illustration.ui.values_overview import _status_text
 @pytest.fixture
 def basis(monkeypatch):
     config = PlancodeConfig(
-        plancode="MECTEST", premium_load="0", epu_code="0", mfee="0",
-        poav_code="0", corridor_code=None, snet_period=0,
+        plancode="MECTEST", 
+        corridor_code=None, snet_period=0,
     )
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(guaranteed_projection, "load_plancode", lambda _: config)

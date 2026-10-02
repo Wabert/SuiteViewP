@@ -64,12 +64,15 @@ def _plancode_table_by_code() -> dict[str, dict[str, Any]]:
 
 
 def _shadow_requested_plancodes(plancode_tsv: Path) -> tuple[set[str], dict[str, str]]:
+    from suiteview.illustration.models.plancode_config import load_plancode
+
     table = _plancode_table_by_code()
     shadow_codes: set[str] = set()
     shadow_by_code: dict[str, str] = {}
     for code, _product in read_requested_plancodes(plancode_tsv):
-        row = table.get(code)
-        shadow = str((row or {}).get("ShadowPlancode", "") or "").strip().upper()
+        if code not in table:
+            continue
+        shadow = load_plancode(code).shadow_plancode.strip().upper()
         if not shadow:
             continue
         shadow_codes.add(code)

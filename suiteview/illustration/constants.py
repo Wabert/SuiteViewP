@@ -41,15 +41,6 @@ LAPSE_BASIS_SURRENDER_VALUE = LapseBasis.SURRENDER_VALUE.value
 LAPSE_BASIS_ACCOUNT_VALUE = LapseBasis.ACCOUNT_VALUE.value
 
 
-class RateCode(str, Enum):
-    """Configuration tokens for table-driven rates."""
-
-    TABLE = "Table"
-
-
-RATE_CODE_TABLE = RateCode.TABLE.value
-
-
 class SpecifiedAmountBasis(str, Enum):
     """Specified amount bases used by plan code configuration."""
 
