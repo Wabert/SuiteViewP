@@ -1,12 +1,17 @@
 """
-Advanced Product Values tab – Policy Info, Fund Values, Monthliversary,
-and Fund History sections for UL/VUL products.
+Account Values tab.
+
+Advanced products (UL/IUL/VUL/ISWL) show Policy Info, Fund Values,
+Monthliversary and Fund History sections. Traditional products show a simple
+cash-value page with only the rows that apply to the policy.
 """
 
 import logging
 from decimal import Decimal
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel, QStackedLayout,
+)
 
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
@@ -15,6 +20,7 @@ from ...services.policy_prefetch import (
     AccountValueCalculations,
     InterimAccountValueUnavailable,
     SurrenderValuesUnavailable,
+    TraditionalCashValues,
 )
 
 from typing import TYPE_CHECKING
@@ -32,6 +38,9 @@ MV_COLUMNS = ["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg",
               "OtherChrg", "Expenses", "NAR", "MD"]
 MV_MONTH_COLUMN = MV_COLUMNS.index("M")
 MV_MD_COLUMN = MV_COLUMNS.index("MD")
+TRAD_PANEL_WIDTH = 300
+GCV_COLUMNS = ["Cov", "Basis", "Dur", "Mo", "BOY Rate", "EOY Rate", "Units", "Value"]
+_NOTICE_STYLE = "background: #F0F0F0; color: #555555; font-style: italic; padding: 4px;"
 
 
 def _format_percent_rate(rate) -> str:
@@ -40,14 +49,23 @@ def _format_percent_rate(rate) -> str:
 
 
 class AdvProdValuesTab(QWidget):
-    """Tab for Advanced Product Values - matches VBA SuiteView layout."""
+    """Account Values: advanced fund values, or a traditional cash-value summary."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
-        main_layout = QHBoxLayout(self)
+        self._pages = QStackedLayout(self)
+        self.advanced_page = QWidget()
+        self._setup_advanced_page(self.advanced_page)
+        self._pages.addWidget(self.advanced_page)
+        self.traditional_page = QWidget()
+        self._setup_traditional_page(self.traditional_page)
+        self._pages.addWidget(self.traditional_page)
+
+    def _setup_advanced_page(self, page):
+        main_layout = QHBoxLayout(page)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
 
@@ -63,9 +81,7 @@ class AdvProdValuesTab(QWidget):
         self.surrender_notice = QLabel()
         self.surrender_notice.setWordWrap(True)
         self.surrender_notice.setFixedWidth(LEFT_COLUMN_WIDTH)
-        self.surrender_notice.setStyleSheet(
-            "background: #F0F0F0; color: #555555; font-style: italic; padding: 4px;"
-        )
+        self.surrender_notice.setStyleSheet(_NOTICE_STYLE)
         self.surrender_notice.hide()
         left_column.addWidget(self.surrender_notice)
 
@@ -105,6 +121,54 @@ class AdvProdValuesTab(QWidget):
         self.fund_history.setMinimumHeight(200)
         self.fund_history.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         main_layout.addWidget(self.fund_history)
+
+    def _setup_traditional_page(self, page):
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        left = QVBoxLayout()
+        left.setSpacing(4)
+        self.cash_values = StyledInfoTableGroup("Cash Values", columns=1, show_table=False)
+        self.cash_values.setFixedWidth(TRAD_PANEL_WIDTH)
+        # Height follows the rows that apply to the loaded policy.
+        self.cash_values.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
+        for label, attr, italic in (
+            ("Valuation Date", "valuation_date", False),
+            ("Guaranteed Cash Value", "guaranteed_cv", True),
+            ("Nonforfeiture", "nonforfeiture", False),
+            ("Div on Deposit", "div_deposits", False),
+            ("Deposit Interest", "deposit_interest", False),
+            ("PUA Face Amount", "pua_face", False),
+            ("Policy Debt", "policy_debt", False),
+        ):
+            self.cash_values.add_field(label, attr, 150, 110)
+            if italic:
+                self.cash_values._fields[attr].setStyleSheet(
+                    self.cash_values._val_style + " font-style: italic;")
+                self.cash_values._labels[attr].setStyleSheet(
+                    self.cash_values._lbl_style + " font-style: italic;")
+        left.addWidget(self.cash_values)
+
+        self.cash_value_notice = QLabel()
+        self.cash_value_notice.setWordWrap(True)
+        self.cash_value_notice.setFixedWidth(TRAD_PANEL_WIDTH)
+        self.cash_value_notice.setStyleSheet(_NOTICE_STYLE)
+        self.cash_value_notice.hide()
+        left.addWidget(self.cash_value_notice)
+        left.addStretch(1)
+        layout.addLayout(left)
+
+        right = QVBoxLayout()
+        self.coverage_cash_values = StyledInfoTableGroup(
+            "Guaranteed Cash Value by Coverage", show_info=False)
+        self.coverage_cash_values.setup_table(GCV_COLUMNS)
+        self.coverage_cash_values.table.align_headers_left(["Basis"])
+        self.coverage_cash_values.setFixedWidth(480)
+        right.addWidget(self.coverage_cash_values)
+        right.addStretch(1)
+        layout.addLayout(right)
+        layout.addStretch(1)
 
     def _setup_policy_info_fields(self):
         section = "AdvProdValues"
@@ -153,8 +217,14 @@ class AdvProdValuesTab(QWidget):
 
     def load_data_from_policy(
         self, policy: 'PolicyInformation',
-        calculations: AccountValueCalculations,
+        payload: AccountValueCalculations | TraditionalCashValues,
     ):
+        if isinstance(payload, TraditionalCashValues):
+            self._pages.setCurrentWidget(self.traditional_page)
+            self._load_traditional(payload)
+            return
+        self._pages.setCurrentWidget(self.advanced_page)
+        calculations = payload
         # Clear old data first so stale values never remain when switching policies
         self.policy_info.clear_info()
         self.mv_values.load_table_data([])
@@ -169,9 +239,6 @@ class AdvProdValuesTab(QWidget):
         self._set_interim_label(None)
 
         try:
-            if not policy.product.is_advanced_product:
-                return
-
             self._load_policy_info_from_policy(policy)
             surrender_values = calculations.surrender
             if isinstance(surrender_values, SurrenderValuesUnavailable):
@@ -195,6 +262,80 @@ class AdvProdValuesTab(QWidget):
         except Exception:
             logger.exception("AdvProdValuesTab failed to load policy data")
             raise
+
+    # ── Traditional cash values ──────────────────────────────────────────
+
+    def _load_traditional(self, values: TraditionalCashValues):
+        """Show only the cash-value rows that apply to this traditional policy."""
+        panel = self.cash_values
+        panel.clear_info()
+        for field in panel._fields.values():
+            field.setToolTip("")
+        gcv = values.guaranteed
+        details = gcv.get("details", [])
+        notices = []
+        shown = []
+
+        def show(attr, text, tip=""):
+            panel.set_value(attr, text)
+            panel._fields[attr].setToolTip(tip)
+            shown.append(attr)
+
+        if values.has_stored_rates:
+            show("valuation_date", format_date(gcv.get("as_of")) or "N/A",
+                 "Last processed monthliversary; the guaranteed cash value is "
+                 "interpolated to this date.")
+            amount = gcv.get("value")
+            nsp = any(d["basis"] == "NSP" for d in details)
+            show("guaranteed_cv",
+                 "N/A" if amount is None else format_currency(amount) + (" (NSP)" if nsp else ""),
+                 tips.guaranteed_cash_value_tip(gcv))
+            if amount is None:
+                notices.append(f"Guaranteed cash value not calculated: {gcv.get('reason')}.")
+            nonforfeiture = sorted({d["nonforfeiture"] for d in details if d["nonforfeiture"]})
+            if nonforfeiture:
+                show("nonforfeiture", " / ".join(nonforfeiture),
+                     "Premium-pay status puts the policy on extended term (ETI) or "
+                     "reduced paid-up (RPU); its value uses the stored NSP rates.")
+        if values.dividend_deposits:
+            show("div_deposits", format_currency(values.dividend_deposits),
+                 "Current dividends on deposit (LH_PTP_ON_DEP.PTP_DEP_AMT).")
+        if values.deposit_interest:
+            show("deposit_interest", format_currency(values.deposit_interest),
+                 "Interest on current deposits not yet added to them "
+                 "(LH_PTP_ON_DEP.DEP_ITS_AMT).")
+        if values.pua_face:
+            show("pua_face", format_currency(values.pua_face),
+                 "Face amount of current paid-up additions (LH_PAID_UP_ADD.PUA_AMT).")
+            notices.append("Paid-up additions cash value is not calculated; "
+                           "the PUA face amount is shown.")
+        if values.policy_debt:
+            show("policy_debt", format_currency(values.policy_debt),
+                 "Loan principal plus accrued interest (see the Loans tab).")
+
+        for attr in panel._fields:
+            panel.set_field_visible(attr, attr in shown)
+        self.cash_value_notice.setText("\n".join(notices))
+        self.cash_value_notice.setVisible(bool(notices))
+
+        rows = [
+            [
+                str(d.get("cov_pha_nbr") or d["cov_index"]),
+                d["basis"] + (f" ({d['nonforfeiture']})" if d["nonforfeiture"] else ""),
+                str(d["duration"]),
+                str(d["months"]),
+                f"{d['boy_rate']:,.2f}",
+                f"{d['eoy_rate']:,.2f}",
+                f"{d['units']:,}",
+                format_currency(d["value"]),
+            ]
+            for d in details
+        ]
+        self.coverage_cash_values.load_table_data(rows)
+        self.coverage_cash_values.setVisible(bool(rows))
+        if rows:
+            self.coverage_cash_values.setFixedHeight(
+                self.coverage_cash_values.table.fitted_height(min_rows=1, max_rows=10) + 24)
 
     def _set_calculated(self, attr, text, tip):
         """Show a calculated value with a hover tip explaining its working."""

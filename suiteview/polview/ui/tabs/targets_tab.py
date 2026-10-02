@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
 from . import targets_tooltips as tips
+from .adv_prod_tooltips import guaranteed_cash_value_tip
 from ..styles import (
     BLUE_BG, GRAY_TEXT, GRAY_MID, WHITE,
     BLUE_PRIMARY, BLUE_DARK, GOLD_TEXT
@@ -346,29 +347,7 @@ class AccumulatorsWidget(StyledInfoTableGroup):
             text = format_currency(value) + (" (NSP)" if nsp else "")
         self.set_value("gcv_label", text)
         if "gcv_label" in self._fields:
-            self._fields["gcv_label"].setToolTip(self._gcv_tooltip(gcv))
-
-    @staticmethod
-    def _gcv_tooltip(gcv: Dict[str, Any]) -> str:
-        lines = ["Interpolated from the stored 02-segment CV rates (NSP rates when on "
-                 "nonforfeiture):",
-                 "units x (BOY rate x months remaining + EOY rate x months elapsed) / 12"]
-        as_of = gcv.get("as_of")
-        if as_of:
-            lines.append(f"As of {format_date(as_of)}")
-        for d in gcv.get("details", []):
-            basis = d["basis"] + (f" ({d['nonforfeiture']})" if d["nonforfeiture"] else "")
-            lines.append(
-                f"Cov {d.get('cov_pha_nbr') or d['cov_index']} {basis}: "
-                f"dur {d['duration']} {d['boy_rate']:,.2f} -> "
-                f"dur {d['duration'] + 1} {d['eoy_rate']:,.2f}, {d['months']} mo, "
-                f"{d['units']:,} units = {d['value']:,.2f}"
-            )
-        if any(d["basis"] == "NSP" for d in gcv.get("details", [])):
-            lines.append("NSP-basis value is not reconciled to a CyberLife nonforfeiture quote.")
-        if gcv.get("reason"):
-            lines.append(gcv["reason"])
-        return "\n".join(lines)
+            self._fields["gcv_label"].setToolTip(guaranteed_cash_value_tip(gcv))
 
 
 class TamraValuesWidget(_NaCapableGroup):

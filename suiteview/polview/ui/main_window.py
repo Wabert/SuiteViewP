@@ -60,7 +60,6 @@ from .tabs import (
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
     PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab,
 )
-from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +69,8 @@ UNAVAILABLE_TAB_REASONS = {
     "dividends": "No dividend records on this policy "
                  "(LH_UNAPPLIED_PTP, LH_ONE_YR_TRM_ADD, LH_PTP_ON_DEP, LH_PAID_UP_ADD).",
     "loans": "No loan records on this policy (LH_CSH_VAL_LOAN, LH_FND_VAL_LOAN).",
-    "advprod": "Account values apply to advanced products (UL/IUL/VUL/ISWL); "
-               "this is a traditional policy.",
+    "advprod": "No account or cash values on this policy (no stored cash value/NSP "
+               "rates, dividend deposits or paid-up additions).",
 }
 
 _KONAMI = (
@@ -1247,10 +1246,6 @@ class GetPolicyWindow(FramelessWindowBase):
         with QSignalBlocker(self.tabs):
             for index in range(self.tabs.count()):
                 self.tabs.setTabEnabled(index, True)
-            rules = policy_attr(self._policy, "product_rules", None)
-            advanced = rules.is_advanced if rules is not None else self._policy.product.is_advanced_product
-            if not advanced:
-                self._mark_tab_unavailable("advprod")
             if not self.tabs.isTabEnabled(self.tabs.indexOf(selected)):
                 self.tabs.setCurrentWidget(self.coverages_tab)
         for stage in self._stage_tabs:

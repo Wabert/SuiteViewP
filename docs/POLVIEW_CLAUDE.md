@@ -247,8 +247,10 @@ named properties under per-fact `cached_reads_only()` guards
 - **Title bar:** a **⌨ Shortcuts** button opens the shortcut list (same as F1).
   There is no command box for now (removed 2026-09-25 at the author's request).
 - **Tabs never move.** All pages keep a fixed order; Dividends/Loans without
-  rows and Account Values (formerly AdvProdValues) on traditional policies are
-  greyed in place with the reason as the tab tooltip.
+  rows and Account Values (formerly AdvProdValues) without any account or cash
+  value are greyed in place with the reason as the tab tooltip. Traditional
+  policies with stored CV/NSP rates, dividend deposits or paid-up additions get
+  a simple Account Values page showing only the cash-value rows that apply.
 - **Lookup bar:** smart paste of `CKPR - 01 - U0613620`, `01_13034048`
   (support-folder names) or a `TCH_POL_ID` fills region/company/policy
   (`core/policy_reference.py`); recent policies (profile
@@ -668,7 +670,7 @@ suiteview/polview/
 │       ├── coverages_tab.py             # Coverages & Benefits
 │       ├── policy_tab.py               # Policy details
 │       ├── targets_tab.py              # Targets & Accumulators (TEFRA/DEFRA, TAMRA, CommTarget, MTP)
-│       ├── adv_prod_tab.py             # Advanced Product Values (UL/IUL monthliversary)
+│       ├── adv_prod_tab.py             # Account Values (advanced monthliversary/funds; traditional cash values)
 │       ├── persons_tab.py             # Policy persons & addresses
 │       ├── activity_tab.py            # Activity/transaction history
 │       ├── dividends_tab.py           # Dividends (applied, unapplied, PUA, OYT, deposits)
@@ -1561,7 +1563,7 @@ WHERE POLICY1.CK_SYS_CD = 'I'
 2. **Targets & Accumulators Tab** — TEFRA/DEFRA, accumulators, TAMRA, commission targets, MTP, minimum premium
 3. **Policy Tab** — Basic policy details, billing info, agents, and the traditional-product monthly policy fee from `LH_FXD_PRM_POL.POL_FEE_AMT`
 4. **Persons Tab** — Policy persons & addresses
-5. **Account Values Tab** (`AdvProdValuesTab`) — Advanced product values, monthliversary history, fund allocations
+5. **Account Values Tab** (`AdvProdValuesTab`) — Advanced product values, monthliversary history, fund allocations; for traditional policies a simple cash-value page (guaranteed CV, dividend deposits, PUA face, policy debt — only rows that apply)
 6. **Activity Tab** — Transaction history (FH_FIXED)
 7. **Dividends Tab** — Applied/unapplied dividends, PUA, OYT, deposits on deposit
 8. **Policy Support Tab** — File management using MiniExplorer, drag-and-drop tools

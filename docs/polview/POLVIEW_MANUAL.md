@@ -170,6 +170,16 @@ are not reconciled to a CyberLife nonforfeiture quote. See `docs/POLVIEW_CLAUDE.
 `tests/test_polview_guaranteed_cash_value.py` and the read-only live check
 `tools/app/verify_guaranteed_cash_value.py @tools/app/guaranteed_cash_value_cases.json`.
 
+Traditional policies also show it on **Account Values**. The `advprod` worker
+stage runs for traditional products and returns a `TraditionalCashValues` payload
+(no advanced fund tables are read): Valuation Date and Guaranteed Cash Value (with
+a per-coverage BOY/EOY rate table) when any coverage has stored CV/NSP rates,
+Nonforfeiture (ETI/RPU), and Div on Deposit, Deposit Interest, PUA Face Amount and
+Policy Debt only when non-zero. Rows that do not apply are hidden. PUA cash value
+is not calculated, so a notice says the face amount is shown; no net cash value is
+totalled. The tab is greyed only when there are no stored rates, deposits or PUAs.
+Regressions: `tests/test_policy_prefetch.py` (`test_traditional_*`).
+
 ## PolView Other Data
 
 PolView's permanent **Other Data** tab now owns SAP, CLAIMSFILE, TAICyberTAIFd,

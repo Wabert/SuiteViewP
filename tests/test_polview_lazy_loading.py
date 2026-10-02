@@ -385,7 +385,7 @@ def test_handoff_failure_identifies_requested_policy_and_get_recovers(
 
 def test_optional_tab_checks_grey_absent_data_in_place_without_loading_on_gui(host, qtbot):
     window, state = host
-    state.unavailable.update(("loans", "dividends"))
+    state.unavailable.update(("loans", "dividends", "advprod"))
     state.policies["TRAD"] = policy("TRAD", advanced=False)
     titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
     window.load_policy("TRAD")
@@ -394,13 +394,25 @@ def test_optional_tab_checks_grey_absent_data_in_place_without_loading_on_gui(ho
         index = window.tabs.indexOf(tab)
         assert index >= 0
         assert not window.tabs.isTabEnabled(index)
-        assert window.tabs.tabToolTip(index).startswith(("No ", "Account values apply"))
+        assert window.tabs.tabToolTip(index).startswith("No ")
         tab.load_data_from_policy.assert_not_called()
     assert window.tabs.count() == len(titles)
     state.unavailable.clear()
     window.load_policy("FIRST")
     settled(qtbot, window)
     assert all(window.tabs.isTabEnabled(i) for i in range(window.tabs.count()))
+
+
+def test_traditional_policy_with_cash_value_enables_account_values(host, qtbot):
+    window, state = host
+    state.policies["TRAD"] = policy("TRAD", advanced=False)
+    window.load_policy("TRAD")
+    settled(qtbot, window)
+    assert ("TRAD", "advprod") in [(number, stage) for number, stage, _ in state.calls]
+    index = window.tabs.indexOf(window.advprod_tab)
+    assert window.tabs.isTabEnabled(index)
+    window.tabs.setCurrentWidget(window.advprod_tab)
+    assert window.advprod_tab.load_data_from_policy.call_args.args[1] == "TRAD:advprod"
 
 
 def test_company_chooser_has_no_background_detail_queries(host, qtbot, monkeypatch):

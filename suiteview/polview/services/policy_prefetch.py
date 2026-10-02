@@ -10,10 +10,11 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 import logging
 import ntpath
 from threading import get_ident
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyodbc
 
@@ -75,11 +76,36 @@ class AccountValueCalculations:
 
 
 @dataclass(frozen=True)
+class TraditionalCashValues:
+    """Cash values shown on the Account Values tab for a traditional policy.
+
+    ``guaranteed`` is the ``PolicyInformation.rates.guaranteed_cash_value()``
+    payload. The amounts are current (MVRY_DT 12/31/9999) record totals; paid-up
+    additions are a face amount because their cash value is not calculated.
+    """
+
+    guaranteed: dict[str, Any]
+    has_stored_rates: bool
+    dividend_deposits: Decimal
+    deposit_interest: Decimal
+    pua_face: Decimal
+    policy_debt: Decimal
+
+    @property
+    def applies(self) -> bool:
+        """Whether the policy carries any cash value for the tab to show."""
+        return self.has_stored_rates or any(
+            (self.dividend_deposits, self.deposit_interest, self.pua_face))
+
+
+@dataclass(frozen=True)
 class PreparedPolicy:
     policy: PolicyInformation
     stage: str
     available: bool = True
-    payload: AccountValueCalculations | ReinsuranceInformation | dict | None = None
+    payload: (
+        AccountValueCalculations | TraditionalCashValues | ReinsuranceInformation | dict | None
+    ) = None
 
 
 # Direct table dependencies of the matching tab loaders. Named-property reads
@@ -355,12 +381,14 @@ class PolicyLoadSession:
         policy._data.clear_failed_tables()
         if stage == "tables":
             return self._table_presence()
-        if stage == "advprod" and not policy.product.is_advanced_product:
-            return PreparedPolicy(policy.detached_copy(), stage, False)
         # A swallowed failure in a collection builder may have left partial data.
         policy._sections.pop("coverages", None)
         policy._sections.pop("benefits", None)
         policy.loan_records.invalidate()
+        if stage == "advprod" and not policy.product.is_advanced_product:
+            payload = self._traditional_cash_values()
+            policy._data.raise_table_errors()
+            return PreparedPolicy(policy.detached_copy(), stage, payload.applies, payload)
         for table in STAGE_TABLES[stage]:
             policy.fetch_table(table)
         for name in STAGE_PROPERTIES.get(stage, ()):
@@ -387,30 +415,28 @@ class PolicyLoadSession:
             ):
                 getattr(policy.loan_records, name)
         elif stage == "advprod":
-            available = policy.product.is_advanced_product
-            if available:
-                policy.values.get_premium_allocation_dict()
-                policy._data.raise_table_errors()
-                record_snapshot = policy.detached_copy()
-                try:
-                    payload = self._account_value_calculations()
-                except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
-                    reason = (
-                        f"Calculated surrender charge and value are unavailable: {exc}. "
-                        "Policy record values are still available."
-                    )
-                    logger.warning(
-                        "PolView %s: %s", policy.policy_number, reason, exc_info=True,
-                    )
-                    # Illustration-only reads may have failed or cached partial data.
-                    # Keep the already validated record view independent of that work.
-                    return PreparedPolicy(
-                        record_snapshot, stage, available, AccountValueCalculations(
-                            SurrenderValuesUnavailable(reason),
-                            InterimAccountValueUnavailable(
-                                f"Interim AV Quote is unavailable: {exc}."),
-                        ),
-                    )
+            policy.values.get_premium_allocation_dict()
+            policy._data.raise_table_errors()
+            record_snapshot = policy.detached_copy()
+            try:
+                payload = self._account_value_calculations()
+            except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
+                reason = (
+                    f"Calculated surrender charge and value are unavailable: {exc}. "
+                    "Policy record values are still available."
+                )
+                logger.warning(
+                    "PolView %s: %s", policy.policy_number, reason, exc_info=True,
+                )
+                # Illustration-only reads may have failed or cached partial data.
+                # Keep the already validated record view independent of that work.
+                return PreparedPolicy(
+                    record_snapshot, stage, available, AccountValueCalculations(
+                        SurrenderValuesUnavailable(reason),
+                        InterimAccountValueUnavailable(
+                            f"Interim AV Quote is unavailable: {exc}."),
+                    ),
+                )
         elif stage == "reinsurance":
             payload = self._reinsurance()
         elif stage == "support" and policy.coverages.has_annuity_rider:
@@ -443,6 +469,25 @@ class PolicyLoadSession:
                     presence[table] = policy._data._table_errors[table]
         policy._data.clear_failed_tables()
         return PreparedPolicy(policy.detached_copy(), "tables", True, presence)
+
+    def _traditional_cash_values(self) -> TraditionalCashValues:
+        from suiteview.polview.services.targets_view_model import guaranteed_cash_value
+
+        policy = self._policy
+        # Guaranteed cash value matches stored rates to coverage records.
+        policy.coverages.get_coverages()
+        has_stored_rates = any(
+            policy.rates.cov_cash_value_rates(index)["basis"]
+            for index in range(1, policy.coverages.coverage_count + 1)
+        )
+        return TraditionalCashValues(
+            guaranteed=guaranteed_cash_value(policy),
+            has_stored_rates=has_stored_rates,
+            dividend_deposits=policy.dividends.total_div_deposit,
+            deposit_interest=policy.dividends.total_div_interest,
+            pua_face=policy.dividends.total_pua_amount,
+            policy_debt=policy.loans.policy_debt,
+        )
 
     def _account_value_calculations(self) -> AccountValueCalculations:
         from suiteview.illustration import (

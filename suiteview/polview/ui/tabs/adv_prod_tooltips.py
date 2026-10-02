@@ -114,6 +114,29 @@ def sp_prem_cease_age_tip(duration: int, issue_age: int, cease_age: int) -> str:
     )
 
 
+def guaranteed_cash_value_tip(gcv) -> str:
+    """Working behind a ``rates.guaranteed_cash_value()`` payload, per coverage."""
+    lines = ["Interpolated from the stored 02-segment CV rates (NSP rates when on "
+             "nonforfeiture):",
+             "units x (BOY rate x months remaining + EOY rate x months elapsed) / 12"]
+    as_of = gcv.get("as_of")
+    if as_of:
+        lines.append(f"As of {format_date(as_of)}")
+    for d in gcv.get("details", []):
+        basis = d["basis"] + (f" ({d['nonforfeiture']})" if d["nonforfeiture"] else "")
+        lines.append(
+            f"Cov {d.get('cov_pha_nbr') or d['cov_index']} {basis}: "
+            f"dur {d['duration']} {d['boy_rate']:,.2f} -> "
+            f"dur {d['duration'] + 1} {d['eoy_rate']:,.2f}, {d['months']} mo, "
+            f"{d['units']:,} units = {d['value']:,.2f}"
+        )
+    if any(d["basis"] == "NSP" for d in gcv.get("details", [])):
+        lines.append("NSP-basis value is not reconciled to a CyberLife nonforfeiture quote.")
+    if gcv.get("reason"):
+        lines.append(gcv["reason"])
+    return "\n".join(lines)
+
+
 def monthly_deduction_tip(coi, other, expenses, total) -> str:
     return (
         "MD = COI + Other + Expenses\n"

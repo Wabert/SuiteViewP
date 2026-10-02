@@ -1169,3 +1169,80 @@ def test_optional_data_availability_is_row_count_not_nonzero_amount(source, stag
     session._policy._data.invalidate_table(table)
     assert session.prepare(stage).available
     session.close()
+
+
+def _prepare_traditional_account_values(source, **coverage):
+    source.tables["LH_BAS_POL"][0]["NON_TRD_POL_IND"] = "0"
+    source.tables["LH_COV_PHA"][0].update(coverage)
+    session = prefetch.PolicyLoadSession("TEST")
+    try:
+        session.load_initial()
+        return session.prepare("advprod")
+    finally:
+        session.close()
+
+
+def _render_traditional(qtbot, source, prepared):
+    from suiteview.polview.ui.tabs.adv_prod_tab import AdvProdValuesTab
+
+    count = len(source.connections[0].calls)
+    tab = AdvProdValuesTab()
+    qtbot.addWidget(tab)
+    with prepared.policy.cached_reads_only():
+        tab.load_data_from_policy(prepared.policy, prepared.payload)
+    assert len(source.connections[0].calls) == count
+    assert tab._pages.currentWidget() is tab.traditional_page
+    shown = [attr for attr, field in tab.cash_values._fields.items() if not field.isHidden()]
+    return tab, shown
+
+
+def test_traditional_guaranteed_cash_value_shows_on_account_values(source, qtbot):
+    from decimal import Decimal
+
+    prepared = _prepare_traditional_account_values(
+        source, LOW_DUR_PER=5, LOW_DUR_CSV_AMT=10, LOW_DUR_1_CSV_AMT=20,
+        LOW_DUR_2_CSV_AMT=30, LOW_DUR_3_CSV_AMT=40,
+    )
+    assert prepared.available
+    payload = prepared.payload
+    assert isinstance(payload, prefetch.TraditionalCashValues)
+    # Duration 6, 8 months past the 1/15 anniversary: 100 x (20 x 4 + 30 x 8) / 12
+    assert payload.guaranteed["value"] == Decimal("2666.67")
+    assert not any("LH_POL_FND_VAL_TOT" in sql for sql, _, _ in source.connections[0].calls)
+
+    tab, shown = _render_traditional(qtbot, source, prepared)
+    assert shown == ["valuation_date", "guaranteed_cv"]
+    assert tab.cash_values.get_value("valuation_date") == "9/15/2026"
+    assert tab.cash_values.get_value("guaranteed_cv") == "2,666.67"
+    assert "dur 6 20.00 -> dur 7 30.00, 8 mo" in tab.cash_values._fields["guaranteed_cv"].toolTip()
+    assert tab.cash_value_notice.isHidden()
+    table = tab.coverage_cash_values.table
+    assert not tab.coverage_cash_values.isHidden()
+    assert [table.item(0, col).text() for col in range(8)] == [
+        "1", "CV", "6", "8", "20.00", "30.00", "100", "2,666.67"]
+
+
+def test_traditional_deposits_and_puas_show_without_guaranteed_rates(source, qtbot):
+    current = date(9999, 12, 31)
+    source.tables["LH_PTP_ON_DEP"] = [{
+        "CK_PTP_TYP_CD": "1", "MVRY_DT": current, "PTP_DEP_AMT": 1250, "DEP_ITS_AMT": 12.5,
+    }]
+    source.tables["LH_PAID_UP_ADD"] = [{"COV_PHA_NBR": 1, "MVRY_DT": current, "PUA_AMT": 3000}]
+    prepared = _prepare_traditional_account_values(source)
+    assert prepared.available
+    assert not prepared.payload.has_stored_rates
+
+    tab, shown = _render_traditional(qtbot, source, prepared)
+    assert shown == ["div_deposits", "deposit_interest", "pua_face"]
+    assert tab.cash_values.get_value("div_deposits") == "1,250.00"
+    assert tab.cash_values.get_value("deposit_interest") == "12.50"
+    assert tab.cash_values.get_value("pua_face") == "3,000.00"
+    assert "not calculated" in tab.cash_value_notice.text()
+    assert not tab.cash_value_notice.isHidden()
+    assert tab.coverage_cash_values.isHidden()
+
+
+def test_traditional_without_cash_value_greys_account_values(source):
+    prepared = _prepare_traditional_account_values(source)
+    assert not prepared.available
+    assert prepared.payload.guaranteed["value"] is None
