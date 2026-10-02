@@ -23,6 +23,8 @@ def add_rider_selects_and_from(ctx: QueryContext, parts: SqlParts) -> None:
         fe_alias = f'{alias}_FLAT_EXTRA'
         if info['plancode']:
             lines.append(f'  , {alias}.PLN_DES_SER_CD {label}Plancode')
+        if info['class_codes']:
+            lines.append(f'  , {alias}.INS_CLS_CD {label}Class')
         if info['prod_line']:
             lines.append(f'  , {alias}.PRD_LIN_TYP_CD {label}ProdLine')
         if info['sex_code_02']:

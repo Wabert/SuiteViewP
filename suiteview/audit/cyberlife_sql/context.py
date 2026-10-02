@@ -368,6 +368,7 @@ def _collect_coverage_dependency_flags(ctx: QueryContext) -> None:
 def _rider_info(widgets: dict) -> dict:
     info = {}
     info["plancode"] = widgets["plancode"].strip()
+    info["class_codes"] = widgets["class_code"].selected
     info["prod_line"] = widgets["prod_line"].strip()
     info["prod_ind"] = widgets["prod_ind"].strip()
     info["rateclass"] = widgets["rateclass"].strip()

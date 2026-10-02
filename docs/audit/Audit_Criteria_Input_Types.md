@@ -181,15 +181,33 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Init Term Period (02):** Checkbox + Listbox (`CheckBox_SpecifyInitialTermPeriod` and `ListBox_InitialTermPeriod`)
 
 ### 3. Coverages Tab
+Layout: Valuation / Policy-Level / Non Trad / **Total Curr Specified Amt (Sum 02)**
+on the left, the Init Term list and the reference-only Mortality Table Codes,
+then the **Base Coverage Criteria (02)** and **Rider 1 Criteria** columns. Rider 2
+is optional: a **[+]** beside Rider 1 adds it, and its **[x]** removes it and
+clears its criteria so hidden values never reach the SQL. Restoring a saved query
+that uses Rider 2 shows it again; New hides it. Coverage columns share one grid,
+so rows line up across Base and Riders, and every range sits on one line
+(`Label [Min] to [Max]`). Native no-DB check:
+`tools/app/verify_coverages_tab.py --screenshot <path>`; regression:
+`tests/test_audit_coverages_class_rider2.py`.
+
+*   **Total Curr Specified Amt (Sum 02):** Range (`txt_spec_amt_lo`/`txt_spec_amt_hi`) on
+    `COVSUMMARY.TOTAL_SA` — the sum of units × VPU over every base coverage
+    (`ALL_BASE_COVS`), not coverage 1 alone.
+
 **Base Coverage Section:**
 *   **Plancode:** Text Input (`TextBox_Cov1Plancode`)
+*   **Class (02):** Multi-select (`val_class`; was `TextBox_ValuationClass` in the Valuation group) —
+    `COVERAGE1.INS_CLS_CD IN (...)`; saved queries keep the `val_class` key.
 *   **Product Line Code (02):** Combobox (`ComboBox_Cov1ProductLineCode`)
 *   **Product Indicator (02):** Combobox (`ComboBox_Cov1ProductIndicator`)
+*   **Issue Date / Change Date / VPU / Cov Amount:** One-line ranges. **Cov Amount** is this
+    coverage's units × VPU (`spec_amt_lo`/`spec_amt_hi`).
 *   **Table:** Checkbox (`CheckBox_TableRating`)
 *   **Flat:** Checkbox (`CheckBox_FlatExtra`) — matches any flat extra regardless of whether it has expired
 *   **Active Flat:** Checkbox (`active_flat_03`) — matches only flat extras that are still active (cease date null/in the future)
 *   **Sex Code (02):** Checkbox + Listbox (`CheckBox_SpecifyCov1SexcodeFrom02` and `ListBox_Cov1SexCodeFrom02`)
-*   **Class:** Text Input (`TextBox_ValuationClass`)
 *   **Base:** Text Input (`TextBox_ValuationBase`)
 *   **Sub:** Text Input (`TextBox_ValuationSubseries`)
 *   **Val:** Text Input (`TextBox_ValuationMortalityTable`)
@@ -201,12 +219,15 @@ the conversion CTE; neither verifier exports policy rows.
 *   **Valuation Class <> PlanDescription class code:** Checkbox (`CheckBox_ValuationClassNotPlanDescriptionClass`)
 *   **Mortality Table Codes:** Checkbox + Listbox (`CheckBox_ShowMortalityTable` and `ListBox_MortalityTableCodes`)
 
-**Rider Rows Section (Repeats for Rider 1, 2, and 3):**
+**Rider Columns (Rider 1, optional Rider 2):**
 *   **Plancode:** Text Input (`TextBox_Rider1Plancode`, etc.)
+*   **Class (02):** Multi-select (`class_code`) — `RIDERn.INS_CLS_CD IN (...)` on the rider join;
+    shown as `RidernClass` at coverage level.
 *   **Product Line Code (02):** Combobox (`ComboBox_Rider1ProductLineCode`, etc.)
 *   **Product Indicator (02):** Combobox (`ComboBox_Rider1ProductIndicator`, etc.)
 *   **Post Issue:** Checkbox (`CheckBox_PostIssue`, etc.)
 *   **Issue Date Range:** Range (`TextBox_Rider1LowIssueDate` to `TextBox_Rider1HighIssueDate`)
+*   **VPU / Cov Amount Range:** Ranges (`vpu_*`, `spec_amt_*`; Cov Amount = units × VPU)
 *   **Additional Plancode Criteria:** Combobox (`ComboBox_Rider1AdditionalPlancodeCriteria`)
 *   **Rateclass Code (67):** Combobox (`ComboBox_Rider1RateclassCode67`)
 *   **Sex Code (67):** Combobox (`ComboBox_Rider1SexCode67`)

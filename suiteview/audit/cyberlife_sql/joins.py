@@ -7,6 +7,7 @@ from suiteview.audit.cyberlife_sql.helpers import (
 from suiteview.audit.cyberlife_sql.state import QueryContext, SqlParts
 from suiteview.audit.sql_helpers import (
     esc,
+    in_list,
 )
 
 
@@ -215,6 +216,8 @@ def _emit_rider_identity_filters(parts: SqlParts, info: dict, alias: str) -> Non
     pc = info['plancode']
     if pc:
         parts.sql_parts.append(f"    AND {alias}.PLN_DES_SER_CD = '{esc(pc)}'")
+    if info['class_codes']:
+        parts.sql_parts.append(f'    AND {alias}.INS_CLS_CD IN ({in_list(info["class_codes"])})')
     pl = info['prod_line']
     if pl:
         code = pl[0]

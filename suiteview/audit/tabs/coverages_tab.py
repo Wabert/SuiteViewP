@@ -1,23 +1,26 @@
 """
-Coverages tab — faithful replica of VBA frmAudit Coverages (tab 3).
+Coverages tab — CyberLife coverage criteria (VBA frmAudit Coverages, tab 3).
 
-Layout (6 columns, left to right):
+Layout (left to right):
   COL 1: Valuation (02) group, Policy-Level checkboxes, Non Trad Indicator,
-         Curr Specified Amt range
+         Total Curr Specified Amt (Sum 02) range — sum over all base coverages
   COL 2: Init Term Period (02) checkbox + listbox
-  COL 3: Mortality Table Codes checkbox + listbox
-  COL 4: Base Coverage (02) — combo fields, checkboxes, date ranges
-  COL 5: Rider 1 Criteria — same combo layout
-  COL 6: Rider 2 Criteria — same combo layout
+  COL 3: Mortality Table Codes reference list
+  COL 4: Base Coverage Criteria (02) — fields, one-line ranges, flags
+  COL 5: Rider 1 Criteria — same layout plus rider-only rows
+  COL 6: Rider 2 Criteria — hidden until the user clicks [+]; its [x]
+         removes it again and clears its criteria
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-    QLabel, QLineEdit, QFrame, QAbstractItemView,
+    QLabel, QLineEdit, QAbstractItemView, QSizePolicy, QToolButton,
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontMetrics
+
+from suiteview.ui import tokens
 
 from ..constants import (
     NON_TRAD_INDICATOR_ITEMS, INIT_TERM_PERIOD_ITEMS,
@@ -38,11 +41,17 @@ from ._styles import (
 # ── Compact sizing helpers ──────────────────────────────────────────────
 _FONT = QFont("Segoe UI", 9)
 _FONT_SM = QFont("Segoe UI", 8)
-_ROW_H = 16
 _CTRL_H = 22
 _V_SPACING = 2
 _H_SPACING = 4
-_RANGE_W = 70
+_RANGE_W = 64
+_RANGE_TO_W = 14
+_RANGE_GAP = 2
+# Every coverage-column input shares one width so the right edges line up;
+# it equals one "[Min] to [Max]" range row.
+_FIELD_W = 2 * _RANGE_W + _RANGE_TO_W + 2 * _RANGE_GAP
+_MULTI_BTN_W = 18
+_COV_LABEL_W = 92
 _CLASS_CODE_ITEMS = [
     ("1 - Life", "1"),
     ("2 - Endowment", "2"),
@@ -71,10 +80,72 @@ _CEASE_CODE_ITEMS = [
 ]
 
 _GRP_STYLE = (
-    "QGroupBox { font-weight: bold; color: #1E5BA8; border: 1px solid #6A9BD1; "
+    f"QGroupBox {{ font-weight: bold; color: {tokens.BRAND_BLUE}; border: 1px solid #6A9BD1; "
     "border-radius: 3px; margin-top: 8px; padding-top: 4px; } "
     "QGroupBox::title { subcontrol-origin: margin; left: 6px; padding: 0 3px; }"
 )
+
+# Reference-only list (not a criterion) keeps its green frame, with the same
+# title geometry as the criteria groups so every group title lines up.
+_REF_GRP_STYLE = (
+    "QGroupBox { font-weight: bold; color: #2E7D32; border: 1px solid #4CAF50; "
+    "border-radius: 3px; margin-top: 8px; padding-top: 4px; } "
+    "QGroupBox::title { subcontrol-origin: margin; left: 6px; padding: 0 3px; }"
+)
+
+_GROUP_BTN_STYLE = (
+    f"QToolButton {{ color: {tokens.BRAND_BLUE}; background: palette(window);"
+    f" border: 1px solid #6A9BD1; border-radius: 3px; font-weight: bold; padding: 0px; }}"
+    f"QToolButton:hover {{ background: {tokens.AUDIT.subtle}; border-color: {tokens.BRAND_BLUE}; }}"
+    f"QToolButton:pressed {{ background: {tokens.AUDIT_PRESSED_SURFACE}; }}"
+)
+
+
+def _range_edit(placeholder: str) -> QLineEdit:
+    le = QLineEdit()
+    le.setFont(_FONT)
+    le.setFixedSize(_RANGE_W, _CTRL_H)
+    le.setPlaceholderText(placeholder)
+    return le
+
+
+def _range_box() -> tuple[QWidget, QLineEdit, QLineEdit]:
+    """One compact ``[Min] to [Max]`` row, exactly ``_FIELD_W`` wide."""
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(_RANGE_GAP)
+    lo = _range_edit("Min")
+    hi = _range_edit("Max")
+    lbl_to = QLabel("to")
+    lbl_to.setFont(_FONT)
+    lbl_to.setFixedWidth(_RANGE_TO_W)
+    lbl_to.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    row.addWidget(lo)
+    row.addWidget(lbl_to)
+    row.addWidget(hi)
+    box.setFixedSize(_FIELD_W, _CTRL_H)
+    return box, lo, hi
+
+
+class _RemovableGroupBox(QGroupBox):
+    """Group box with a small [x] in its title strip that requests removal."""
+
+    removeRequested = pyqtSignal()
+
+    def __init__(self, title: str, remove_tooltip: str, parent=None):
+        super().__init__(title, parent)
+        self.btn_remove = QToolButton(self)
+        self.btn_remove.setText("\u00d7")
+        self.btn_remove.setToolTip(remove_tooltip)
+        self.btn_remove.setFixedSize(16, 16)
+        self.btn_remove.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_remove.setStyleSheet(_GROUP_BTN_STYLE)
+        self.btn_remove.clicked.connect(self.removeRequested.emit)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.btn_remove.move(self.width() - self.btn_remove.width() - 6, 0)
 
 
 class CoveragesTab(QWidget):
@@ -84,198 +155,124 @@ class CoveragesTab(QWidget):
         super().__init__(parent)
         self._build_ui()
 
-    @staticmethod
-    def _hsep() -> QFrame:
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #bbb;")
-        sep.setFixedHeight(2)
-        return sep
-
-    @staticmethod
-    def _vsep() -> QFrame:
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet("color: #bbb;")
-        sep.setFixedWidth(2)
-        return sep
-
     # ── Coverage criteria column (reusable for Base / Rider 1 / Rider 2) ─
-    def _build_coverage_column(self, title: str) -> tuple[QGroupBox, dict]:
-        """Build a coverage criteria group with all combos/fields. Returns (group, widgets_dict)."""
-        grp = QGroupBox(title)
+    def _build_coverage_column(
+        self, grp: QGroupBox, *, rider: bool,
+    ) -> tuple[dict, QWidget]:
+        """Fill a coverage criteria group; return ``(widgets, class_control)``.
+
+        Base and rider columns share one grid so every row lines up across
+        columns: rider-only rows (Addl Plancode, Post Issue) are blank space in
+        the Base column. Base's Class control is ``self.val_class``
+        (``COVERAGE1.INS_CLS_CD``), kept out of the widgets dict so its saved
+        state key stays ``val_class``; riders store theirs as ``class_code``.
+        """
         grp.setStyleSheet(_GRP_STYLE)
+        grp.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(grp)
-        layout.setContentsMargins(6, 16, 6, 4)
-        layout.setSpacing(0)
+        layout.setContentsMargins(6, 14, 6, 4)
+        layout.setSpacing(4)
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(4)
-        grid.setVerticalSpacing(2)
+        grid.setHorizontalSpacing(_H_SPACING)
+        grid.setVerticalSpacing(_V_SPACING)
+        grid.setColumnMinimumWidth(0, _COV_LABEL_W)
 
         widgets = {}
+        row = 0
 
-        def _add_combo_row(row, label, items, width=130):
-            lbl = QLabel(label)
+        def _label(text):
+            lbl = QLabel(text)
             lbl.setFont(_FONT_SM)
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             grid.addWidget(lbl, row, 0)
-            cb = _make_combo(items, width=width)
-            grid.addWidget(cb, row, 1)
-            return cb
 
-        def _add_text_row(row, label, width=130):
-            lbl = QLabel(label)
-            lbl.setFont(_FONT_SM)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(lbl, row, 0)
+        def _add(label, widget):
+            nonlocal row
+            _label(label)
+            grid.addWidget(widget, row, 1)
+            row += 1
+            return widget
+
+        def _text():
             le = QLineEdit()
             le.setFont(_FONT)
-            le.setFixedSize(width, _CTRL_H)
-            grid.addWidget(le, row, 1)
+            le.setFixedSize(_FIELD_W, _CTRL_H)
             return le
 
-        def _add_multiselect_row(row, label, items, width=130):
-            lbl = QLabel(label)
-            lbl.setFont(_FONT_SM)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(lbl, row, 0)
-            ms = _make_multiselect_popup(items, width=width, height_rows=len(items))
-            grid.addWidget(ms, row, 1)
-            return ms
+        def _combo(items):
+            return _make_combo(items, width=_FIELD_W)
 
-        r = 0
-        widgets["plancode"] = _add_text_row(r, "Plancode:"); r += 1
-        widgets["prod_line"] = _add_combo_row(r, "Prod Line (02):", [""] + PRODUCT_LINE_CODE_ITEMS); r += 1
-        widgets["prod_ind"] = _add_combo_row(r, "Prod Ind (02):", [""] + PRODUCT_INDICATOR_ITEMS); r += 1
-        widgets["form_number"] = _add_text_row(r, "Form Number:"); r += 1
-        widgets["rateclass"] = _add_combo_row(r, "Rateclass (67):", [""] + RATECLASS_67_ITEMS); r += 1
-        widgets["sex_code_67"] = _add_combo_row(r, "Sex Code (67):", [""] + SEX_CODE_67_ITEMS); r += 1
-        widgets["sex_code_02"] = _add_combo_row(r, "Sex Code (02):", [""] + SEX_CODE_02_ITEMS); r += 1
-        widgets["person"] = _add_combo_row(r, "Person:", PERSON_ITEMS); r += 1
-        widgets["lives_cov"] = _add_combo_row(r, "Lives Cov (02):", [""] + LIVES_COVERED_ITEMS); r += 1
-        widgets["change_type"] = _add_combo_row(r, "Change Type (02):", [""] + CHANGE_TYPE_02_ITEMS); r += 1
-        widgets["cease_code"] = _add_multiselect_row(r, "Cease Code (02):", _CEASE_CODE_ITEMS); r += 1
-        widgets["cola_ind"] = _add_combo_row(r, "COLA Ind:", COLA_IND_ITEMS); r += 1
-        widgets["gio_fio"] = _add_combo_row(r, "GIO/FIO:", GIO_FIO_ITEMS); r += 1
+        def _multi(items):
+            return _make_multiselect_popup(
+                items, width=_FIELD_W - _MULTI_BTN_W, height_rows=len(items))
 
-        # Addl Plancode only for Rider columns
-        if title != "Base Coverage Criteria (02)":
-            widgets["addl_plancode"] = _add_combo_row(r, "Addl Plancode:", ADDL_PLANCODE_ITEMS); r += 1
+        def _blank_row():
+            # A real placeholder (not an empty row) so the grid still applies
+            # row spacing and Base rows line up with the Rider columns.
+            nonlocal row
+            spacer = QWidget()
+            spacer.setFixedSize(_FIELD_W, _CTRL_H)
+            grid.addWidget(spacer, row, 1)
+            row += 1
 
-        # Table (03) and Flat (03) checkboxes
-        chk_row = QHBoxLayout()
-        chk_row.setSpacing(8)
-        widgets["table_03"] = _make_checkbox("Table (03)")
-        widgets["flat_03"] = _make_checkbox("Flat (03)")
-        chk_row.addWidget(widgets["table_03"])
-        chk_row.addWidget(widgets["flat_03"])
-        chk_row.addStretch()
-        grid.addLayout(chk_row, r, 0, 1, 2); r += 1
+        def _range(label, key):
+            box, widgets[f"{key}_lo"], widgets[f"{key}_hi"] = _range_box()
+            _add(label, box)
 
-        # Active Flat (03) checkbox — restricts Flat (03) to non-expired flat
-        # extras (cease date null/9999 or in the future). "Flat" matches any
-        # flat regardless of whether it has already expired.
-        active_flat_row = QHBoxLayout()
-        active_flat_row.setSpacing(8)
-        widgets["active_flat_03"] = _make_checkbox("Active Flat (03)")
-        active_flat_row.addWidget(widgets["active_flat_03"])
-        active_flat_row.addStretch()
-        grid.addLayout(active_flat_row, r, 0, 1, 2); r += 1
+        widgets["plancode"] = _add("Plancode:", _text())
+        class_control = _add("Class (02):", _multi(_CLASS_CODE_ITEMS))
+        class_control.setToolTip("Coverage class code (LH_COV_PHA.INS_CLS_CD)")
+        if rider:
+            widgets["class_code"] = class_control
+        widgets["prod_line"] = _add("Prod Line (02):", _combo([""] + PRODUCT_LINE_CODE_ITEMS))
+        widgets["prod_ind"] = _add("Prod Ind (02):", _combo([""] + PRODUCT_INDICATOR_ITEMS))
+        widgets["form_number"] = _add("Form Number:", _text())
+        widgets["rateclass"] = _add("Rateclass (67):", _combo([""] + RATECLASS_67_ITEMS))
+        widgets["sex_code_67"] = _add("Sex Code (67):", _combo([""] + SEX_CODE_67_ITEMS))
+        widgets["sex_code_02"] = _add("Sex Code (02):", _combo([""] + SEX_CODE_02_ITEMS))
+        widgets["person"] = _add("Person:", _combo(PERSON_ITEMS))
+        widgets["lives_cov"] = _add("Lives Cov (02):", _combo([""] + LIVES_COVERED_ITEMS))
+        widgets["change_type"] = _add("Change Type (02):", _combo([""] + CHANGE_TYPE_02_ITEMS))
+        widgets["cease_code"] = _add("Cease Code (02):", _multi(_CEASE_CODE_ITEMS))
+        widgets["cola_ind"] = _add("COLA Ind:", _combo(COLA_IND_ITEMS))
+        widgets["gio_fio"] = _add("GIO/FIO:", _combo(GIO_FIO_ITEMS))
+        if rider:
+            widgets["addl_plancode"] = _add("Addl Plancode:", _combo(ADDL_PLANCODE_ITEMS))
+        else:
+            _blank_row()
 
-        # Post Issue checkbox (for Rider columns) / Issue Date header
-        if title != "Base Coverage Criteria (02)":
-            widgets["post_issue"] = _make_checkbox("Post Issue")
-            grid.addWidget(widgets["post_issue"], r, 0, 1, 2); r += 1
-
-        # Issue Date range
-        lbl_id = QLabel("Issue Date:")
-        lbl_id.setFont(_FONT_SM)
-        grid.addWidget(lbl_id, r, 0, 1, 2); r += 1
-
-        id_row = QHBoxLayout(); id_row.setSpacing(_H_SPACING)
-        widgets["issue_date_lo"] = QLineEdit()
-        widgets["issue_date_lo"].setFont(_FONT)
-        widgets["issue_date_lo"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["issue_date_lo"].setPlaceholderText("Min")
-        lbl_to = QLabel("to"); lbl_to.setFont(_FONT)
-        widgets["issue_date_hi"] = QLineEdit()
-        widgets["issue_date_hi"].setFont(_FONT)
-        widgets["issue_date_hi"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["issue_date_hi"].setPlaceholderText("Max")
-        id_row.addWidget(widgets["issue_date_lo"])
-        id_row.addWidget(lbl_to)
-        id_row.addWidget(widgets["issue_date_hi"])
-        id_row.addStretch()
-        grid.addLayout(id_row, r, 0, 1, 2); r += 1
-
-        # Change Date range
-        lbl_cd = QLabel("Change Date:")
-        lbl_cd.setFont(_FONT_SM)
-        grid.addWidget(lbl_cd, r, 0, 1, 2); r += 1
-
-        cd_row = QHBoxLayout(); cd_row.setSpacing(_H_SPACING)
-        widgets["change_date_lo"] = QLineEdit()
-        widgets["change_date_lo"].setFont(_FONT)
-        widgets["change_date_lo"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["change_date_lo"].setPlaceholderText("Min")
-        lbl_to2 = QLabel("to"); lbl_to2.setFont(_FONT)
-        widgets["change_date_hi"] = QLineEdit()
-        widgets["change_date_hi"].setFont(_FONT)
-        widgets["change_date_hi"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["change_date_hi"].setPlaceholderText("Max")
-        cd_row.addWidget(widgets["change_date_lo"])
-        cd_row.addWidget(lbl_to2)
-        cd_row.addWidget(widgets["change_date_hi"])
-        cd_row.addStretch()
-        grid.addLayout(cd_row, r, 0, 1, 2); r += 1
-
-        # VPU (Value-Per-Unit) range
-        lbl_vpu = QLabel("VPU:")
-        lbl_vpu.setFont(_FONT_SM)
-        grid.addWidget(lbl_vpu, r, 0, 1, 2); r += 1
-
-        vpu_row = QHBoxLayout(); vpu_row.setSpacing(_H_SPACING)
-        widgets["vpu_lo"] = QLineEdit()
-        widgets["vpu_lo"].setFont(_FONT)
-        widgets["vpu_lo"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["vpu_lo"].setPlaceholderText("Min")
-        lbl_to3 = QLabel("to"); lbl_to3.setFont(_FONT)
-        widgets["vpu_hi"] = QLineEdit()
-        widgets["vpu_hi"].setFont(_FONT)
-        widgets["vpu_hi"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["vpu_hi"].setPlaceholderText("Max")
-        vpu_row.addWidget(widgets["vpu_lo"])
-        vpu_row.addWidget(lbl_to3)
-        vpu_row.addWidget(widgets["vpu_hi"])
-        vpu_row.addStretch()
-        grid.addLayout(vpu_row, r, 0, 1, 2); r += 1
-
-        # Specified Amount range (units × VPU)
-        lbl_sa = QLabel("Specified Amount:")
-        lbl_sa.setFont(_FONT_SM)
-        grid.addWidget(lbl_sa, r, 0, 1, 2); r += 1
-
-        sa_row = QHBoxLayout(); sa_row.setSpacing(_H_SPACING)
-        widgets["spec_amt_lo"] = QLineEdit()
-        widgets["spec_amt_lo"].setFont(_FONT)
-        widgets["spec_amt_lo"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["spec_amt_lo"].setPlaceholderText("Min")
-        lbl_to4 = QLabel("to"); lbl_to4.setFont(_FONT)
-        widgets["spec_amt_hi"] = QLineEdit()
-        widgets["spec_amt_hi"].setFont(_FONT)
-        widgets["spec_amt_hi"].setFixedSize(_RANGE_W, _CTRL_H)
-        widgets["spec_amt_hi"].setPlaceholderText("Max")
-        sa_row.addWidget(widgets["spec_amt_lo"])
-        sa_row.addWidget(lbl_to4)
-        sa_row.addWidget(widgets["spec_amt_hi"])
-        sa_row.addStretch()
-        grid.addLayout(sa_row, r, 0, 1, 2); r += 1
+        _range("Issue Date:", "issue_date")
+        _range("Change Date:", "change_date")
+        _range("VPU:", "vpu")
+        _range("Cov Amount:", "spec_amt")
+        widgets["spec_amt_lo"].parentWidget().setToolTip(
+            "Coverage amount for this coverage = units \u00d7 VPU (02)")
 
         layout.addLayout(grid)
+
+        # Flags: Table/Flat on one line, Active Flat/Post Issue on the next.
+        # Active Flat restricts Flat (03) to non-expired flat extras (cease date
+        # null/9999 or in the future); Flat matches any flat extra.
+        flags = QGridLayout()
+        flags.setContentsMargins(4, 0, 0, 0)
+        flags.setHorizontalSpacing(10)
+        flags.setVerticalSpacing(_V_SPACING)
+        widgets["table_03"] = _make_checkbox("Table (03)")
+        widgets["flat_03"] = _make_checkbox("Flat (03)")
+        widgets["active_flat_03"] = _make_checkbox("Active Flat (03)")
+        flags.addWidget(widgets["table_03"], 0, 0)
+        flags.addWidget(widgets["flat_03"], 0, 1)
+        flags.addWidget(widgets["active_flat_03"], 1, 0)
+        if rider:
+            widgets["post_issue"] = _make_checkbox("Post Issue")
+            widgets["post_issue"].setToolTip("Rider issued after the base coverage")
+            flags.addWidget(widgets["post_issue"], 1, 1)
+        flags.setColumnStretch(2, 1)
+        layout.addLayout(flags)
         layout.addStretch()
 
-        return grp, widgets
+        return widgets, class_control
 
     def _build_ui(self):
         root = QHBoxLayout(self)
@@ -307,21 +304,16 @@ class CoveragesTab(QWidget):
             grid_val.addWidget(le, row, 1)
             return le
 
-        lbl_class = QLabel("Class:")
-        lbl_class.setFont(_FONT)
-        lbl_class.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        grid_val.addWidget(lbl_class, 0, 0)
-        self.val_class = _make_multiselect_popup(_CLASS_CODE_ITEMS, width=80, height_rows=len(_CLASS_CODE_ITEMS))
-        grid_val.addWidget(self.val_class, 0, 1)
-        self.val_base = _val_row(1, "Base:")
-        self.val_sub = _val_row(2, "Sub:")
-        self.val_mort_table = _val_row(3, "Val Mort Table:")
-        self.rpu_mort_table = _val_row(4, "RPU Mort Table:")
-        self.eti_mort_table = _val_row(5, "ETI Mort Table:")
-        self.nfo_int_rate = _val_row(6, "NFO Int Rate:")
+        # Class (INS_CLS_CD) lives on the Base Coverage column (self.val_class).
+        self.val_base = _val_row(0, "Base:")
+        self.val_sub = _val_row(1, "Sub:")
+        self.val_mort_table = _val_row(2, "Val Mort Table:")
+        self.rpu_mort_table = _val_row(3, "RPU Mort Table:")
+        self.eti_mort_table = _val_row(4, "ETI Mort Table:")
+        self.nfo_int_rate = _val_row(5, "NFO Int Rate:")
 
         self.chk_val_class_ne_plan = _make_checkbox("Val Class \u2260 PlanDesc Class")
-        grid_val.addWidget(self.chk_val_class_ne_plan, 7, 0, 1, 2)
+        grid_val.addWidget(self.chk_val_class_ne_plan, 6, 0, 1, 2)
 
         col1.addWidget(grp_val)
 
@@ -356,29 +348,28 @@ class CoveragesTab(QWidget):
         self.chk_non_trad = _make_checkbox("Non Trad Indicator (02)")
         nt_layout.addWidget(self.chk_non_trad)
         self.list_non_trad = _make_listbox(NON_TRAD_INDICATOR_ITEMS, height_rows=2, enabled=False)
+        # Fill the column instead of QListWidget's 256px default width hint.
+        self.list_non_trad.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         _connect_checkbox_listbox(self.chk_non_trad, self.list_non_trad)
         nt_layout.addWidget(self.list_non_trad)
         col1.addWidget(grp_nontrad)
 
-        # ── Curr Specified Amt (02) ─────────────────────────────────
-        grp_sa = QGroupBox("Curr Specified Amt (02)")
+        # ── Total Curr Specified Amt (Sum 02) ───────────────────────
+        # COVSUMMARY.TOTAL_SA: sum of units x VPU over every base coverage.
+        grp_sa = QGroupBox("Total Curr Specified Amt (Sum 02)")
         grp_sa.setStyleSheet(_GRP_STYLE)
+        grp_sa.setToolTip(
+            "Sum of the current specified amount (units \u00d7 VPU) over all base coverages (02)")
         sa_layout = QHBoxLayout(grp_sa)
-        sa_layout.setContentsMargins(6, 16, 6, 4)
-        sa_layout.setSpacing(_H_SPACING)
-        self.txt_spec_amt_lo = QLineEdit()
-        self.txt_spec_amt_lo.setFont(_FONT)
-        self.txt_spec_amt_lo.setFixedSize(_RANGE_W, _CTRL_H)
-        self.txt_spec_amt_lo.setPlaceholderText("Min")
-        lbl_to = QLabel("to"); lbl_to.setFont(_FONT)
-        self.txt_spec_amt_hi = QLineEdit()
-        self.txt_spec_amt_hi.setFont(_FONT)
-        self.txt_spec_amt_hi.setFixedSize(_RANGE_W, _CTRL_H)
-        self.txt_spec_amt_hi.setPlaceholderText("Max")
-        sa_layout.addWidget(self.txt_spec_amt_lo)
-        sa_layout.addWidget(lbl_to)
-        sa_layout.addWidget(self.txt_spec_amt_hi)
+        sa_layout.setContentsMargins(6, 14, 6, 4)
+        sa_layout.setSpacing(0)
+        sa_box, self.txt_spec_amt_lo, self.txt_spec_amt_hi = _range_box()
+        sa_layout.addWidget(sa_box)
         sa_layout.addStretch()
+        # QGroupBox titles do not contribute to the size hint; keep it unclipped.
+        title_font = QFont(grp_sa.font())
+        title_font.setBold(True)
+        grp_sa.setMinimumWidth(QFontMetrics(title_font).horizontalAdvance(grp_sa.title()) + 24)
         col1.addWidget(grp_sa)
 
         col1.addStretch()
@@ -389,33 +380,39 @@ class CoveragesTab(QWidget):
         col2 = QVBoxLayout()
         col2.setSpacing(_V_SPACING)
 
+        grp_term = QGroupBox()
+        grp_term.setStyleSheet(_GRP_STYLE)
+        term_layout = QVBoxLayout(grp_term)
+        term_layout.setContentsMargins(6, 4, 6, 4)
+        term_layout.setSpacing(_V_SPACING)
         self.chk_init_term = _make_checkbox("Term (02)")
-        col2.addWidget(self.chk_init_term)
+        self.chk_init_term.setToolTip("Initial term period (LH_COV_PHA.INT_RNL_PER)")
+        term_layout.addWidget(self.chk_init_term)
         self.list_init_term = _make_listbox(
             INIT_TERM_PERIOD_ITEMS, height_rows=29, enabled=False)
         self.list_init_term.setFixedWidth(50)
         _connect_checkbox_listbox(self.chk_init_term, self.list_init_term)
-        col2.addWidget(self.list_init_term)
-        col2.addStretch()
+        term_layout.addWidget(self.list_init_term)
+        term_layout.addStretch()
+        col2.addWidget(grp_term)
 
         # ════════════════════════════════════════════════════════════════
-        # COLUMN 3 — Mortality Table Codes
+        # COLUMN 3 — Mortality Table Codes (reference only)
         # ════════════════════════════════════════════════════════════════
         col3 = QVBoxLayout()
         col3.setSpacing(_V_SPACING)
 
         grp_mort = QGroupBox("Mortality Table Codes")
-        grp_mort.setStyleSheet(
-            "QGroupBox { font-weight: bold; color: #2E7D32; border: 1px solid #4CAF50;"
-            " border-radius: 3px; margin-top: 10px; padding-top: 14px; }"
-            "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-        )
+        grp_mort.setStyleSheet(_REF_GRP_STYLE)
         mort_layout = QVBoxLayout(grp_mort)
-        mort_layout.setContentsMargins(6, 16, 6, 4)
+        mort_layout.setContentsMargins(6, 14, 6, 4)
         mort_layout.setSpacing(_V_SPACING)
         self.list_mort_table = _make_listbox(
             MORTALITY_TABLE_CODE_ITEMS, height_rows=28, enabled=True)
-        self.list_mort_table.setMinimumWidth(200)
+        metrics = self.list_mort_table.fontMetrics()
+        text_w = max(metrics.horizontalAdvance(text) for text in MORTALITY_TABLE_CODE_ITEMS)
+        scroll_w = self.list_mort_table.verticalScrollBar().sizeHint().width()
+        self.list_mort_table.setFixedWidth(text_w + scroll_w + 12)
         self.list_mort_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.list_mort_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list_mort_table.setStyleSheet(
@@ -423,27 +420,67 @@ class CoveragesTab(QWidget):
             "QListWidget::item { padding: 0px 2px; }"
         )
         mort_layout.addWidget(self.list_mort_table)
+        mort_layout.addStretch()
         col3.addWidget(grp_mort)
-        col3.addStretch()
 
         # ════════════════════════════════════════════════════════════════
-        # COLUMNS 4-6 — Base Coverage, Rider 1, Rider 2
+        # COLUMNS 4-6 — Base Coverage, Rider 1, optional Rider 2
         # ════════════════════════════════════════════════════════════════
-        self.grp_base_cov, self.base_cov_widgets = self._build_coverage_column("Base Coverage Criteria (02)")
-        self.grp_rider1, self.rider1_widgets = self._build_coverage_column("Rider 1 Criteria")
-        self.grp_rider2, self.rider2_widgets = self._build_coverage_column("Rider 2 Criteria")
+        self.grp_base_cov = QGroupBox("Base Coverage Criteria (02)")
+        self.base_cov_widgets, self.val_class = self._build_coverage_column(
+            self.grp_base_cov, rider=False)
+        self.grp_rider1 = QGroupBox("Rider 1 Criteria")
+        self.rider1_widgets, _ = self._build_coverage_column(self.grp_rider1, rider=True)
+        self.grp_rider2 = _RemovableGroupBox(
+            "Rider 2 Criteria", "Remove Rider 2 criteria (clears its values)")
+        self.rider2_widgets, _ = self._build_coverage_column(self.grp_rider2, rider=True)
+        self.grp_rider2.removeRequested.connect(self._remove_rider2)
+
+        self.btn_add_rider2 = QToolButton()
+        self.btn_add_rider2.setText("+")
+        self.btn_add_rider2.setToolTip("Add a Rider 2 criteria group")
+        self.btn_add_rider2.setFixedSize(22, 22)
+        self.btn_add_rider2.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add_rider2.setStyleSheet(_GROUP_BTN_STYLE)
+        self.btn_add_rider2.clicked.connect(self._add_rider2)
+        add_col = QVBoxLayout()
+        add_col.setContentsMargins(0, 2, 0, 0)
+        add_col.addWidget(self.btn_add_rider2)
+        add_col.addStretch()
 
         # ── Assemble all columns ────────────────────────────────────
-        root.addLayout(col1)
-        root.addWidget(self._vsep())
-        root.addLayout(col2)
-        root.addLayout(col3)
-        root.addWidget(self._vsep())
+        # Every column keeps its natural width; spare width collects to the
+        # right of [+] so toggling Rider 2 never shifts the other columns.
+        for col in (col1, col2, col3):
+            holder = QWidget()
+            holder.setLayout(col)
+            col.setContentsMargins(0, 0, 0, 0)
+            holder.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            root.addWidget(holder)
         root.addWidget(self.grp_base_cov)
-        root.addWidget(self._vsep())
         root.addWidget(self.grp_rider1)
-        root.addWidget(self._vsep())
         root.addWidget(self.grp_rider2)
+        root.addLayout(add_col)
+        root.addStretch()
+        self._set_rider2_visible(False)
+
+    # ── Optional Rider 2 group ───────────────────────────────────────
+
+    def rider2_visible(self) -> bool:
+        """Whether the optional Rider 2 group is shown (not merely painted)."""
+        return not self.grp_rider2.isHidden()
+
+    def _set_rider2_visible(self, visible: bool) -> None:
+        self.grp_rider2.setVisible(visible)
+        self.btn_add_rider2.setVisible(not visible)
+
+    def _add_rider2(self) -> None:
+        self._set_rider2_visible(True)
+
+    def _remove_rider2(self) -> None:
+        """Hide Rider 2 and clear it so hidden criteria never reach the SQL."""
+        self._set_cov_column_state(self.rider2_widgets, {})
+        self._set_rider2_visible(False)
 
     # ── Profile save/load ────────────────────────────────────────────
 
@@ -543,4 +580,8 @@ class CoveragesTab(QWidget):
         _sel(self.list_init_term, state.get("list_init_term", []))
         self._set_cov_column_state(self.base_cov_widgets, state.get("base_cov", {}))
         self._set_cov_column_state(self.rider1_widgets, state.get("rider1", {}))
-        self._set_cov_column_state(self.rider2_widgets, state.get("rider2", {}))
+        rider2_state = state.get("rider2", {})
+        self._set_cov_column_state(self.rider2_widgets, rider2_state)
+        # Every rider control defaults to blank/unchecked, so any truthy value
+        # means the saved query used Rider 2.
+        self._set_rider2_visible(any(rider2_state.values()))
