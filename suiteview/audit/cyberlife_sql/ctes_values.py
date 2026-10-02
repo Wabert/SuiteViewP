@@ -231,6 +231,8 @@ def _add_standard_select_header(ctx: QueryContext, parts: SqlParts) -> None:
     if ctx.coverage_level:
         parts.sql_parts.append('  , RESULTCOV.COV_PHA_NBR CovPhase')
     parts.sql_parts.append('  , POLICY1.CK_CMP_CD CompanyCode')
+    if ctx.show_product_line_code:
+        parts.sql_parts.append(f'  , {ctx.result_cov_alias}.PRD_LIN_TYP_CD ProductLineCode')
     parts.sql_parts.append('  , POLICY1.PRM_PAY_STA_REA_CD StatusCode')
     parts.sql_parts.append('  , POLICY1.SUS_CD SuspenseCode')
     parts.sql_parts.append('  , SUBSTR(POLICY1.SVC_AGC_NBR, 1, 1) AgentCode')
@@ -354,7 +356,7 @@ def _add_initial_face_and_identifiers(ctx: QueryContext, parts: SqlParts) -> Non
         parts.sql_parts.append('  , POLICY1.TCH_POL_ID TCH_POL_ID')
     if ctx.disp_mod_indicator or ctx.is_mdo:
         parts.sql_parts.append('  , SUBSTR(POLICY1.USR_RES_CD, 1, 1) MDO')
-    if ctx.disp_prod_line:
+    if ctx.disp_prod_line and not ctx.show_product_line_code:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.PRD_LIN_TYP_CD')
     if ctx.disp_sex_02:
         parts.sql_parts.append(f'  , {ctx.result_cov_alias}.INS_SEX_CD SEX_CD')

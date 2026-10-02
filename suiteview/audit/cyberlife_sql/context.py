@@ -354,6 +354,7 @@ def _collect_coverage_dependency_flags(ctx: QueryContext) -> None:
         and not ctx.cov1_plancode_match_only
     )
     ctx._any_cov_product_line = bool(ctx.pt.chk_product_line and selected_codes(ctx.pt.list_product_line))
+    ctx.show_product_line_code = ctx._any_cov_product_line
     ctx.needs_covsall = any((
         ctx.has_modcovsall,
         not ctx.coverage_level and any((ctx._any_cov_plancode, ctx._any_cov_product_line)),

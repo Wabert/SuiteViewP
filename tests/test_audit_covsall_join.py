@@ -60,6 +60,19 @@ def test_coverage_level_drops_covsall_for_product_line():
     assert 'COVSALL' not in sql
     assert 'RESULTCOV.PRD_LIN_TYP_CD IN (' in sql
 
+
+@pytest.mark.parametrize('coverage_level,alias', [(False, 'COVERAGE1'), (True, 'RESULTCOV')])
+def test_product_line_criterion_adds_result_column_after_company(coverage_level, alias):
+    _app()
+    lines = [line.strip() for line in _build(coverage_level=coverage_level, product_line=True).splitlines()]
+    company = lines.index(', POLICY1.CK_CMP_CD CompanyCode')
+    assert lines[company + 1] == f', {alias}.PRD_LIN_TYP_CD ProductLineCode'
+
+
+def test_no_product_line_result_column_without_criterion():
+    _app()
+    assert 'ProductLineCode' not in _build()
+
 def test_covsall_kept_when_modcovsall_needs_it():
     _app()
     sql = _build(coverage_level=True, cov_gio=True)
