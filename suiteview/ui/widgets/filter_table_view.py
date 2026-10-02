@@ -1,12 +1,13 @@
 """FilterTableView - Excel-style filterable table view for DataFrames"""
 
 import logging
+import re
 import time
 from typing import Optional, Dict, Set, List, Any
 import pandas as pd
 from functools import reduce
 import operator
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_numeric_dtype, is_object_dtype, is_string_dtype
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QLabel, QWidgetAction, QFileDialog, QMessageBox)
@@ -19,6 +20,43 @@ logger = logging.getLogger(__name__)
 
 # Performance optimization: Limit displayed rows for large datasets
 MAX_DISPLAY_ROWS = 50000  # Configurable maximum rows to display
+
+_US_DATE_TEXT = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})(.*)$")
+
+
+def _us_date_key(text: str) -> Optional[str]:
+    """``YYYYMMDD`` sort key for ``MM/DD/YYYY`` text (any time kept after), else None."""
+    match = _US_DATE_TEXT.match(text)
+    if not match:
+        return None
+    month, day, year, rest = match.groups()
+    return f"{year}{int(month):02d}{int(day):02d}{rest.strip()}"
+
+
+def _sort_key(series: pd.Series) -> pd.Series:
+    """Sort ``MM/DD/YYYY`` text columns chronologically; other columns unchanged.
+
+    A column sorts as dates only when every non-blank value is such a date;
+    blanks then sort last.
+    """
+    if not (is_object_dtype(series) or is_string_dtype(series)):
+        return series
+    text = series.dropna().astype(str).str.strip()
+    text = text[text != ""]
+    if text.empty or _us_date_key(text.iloc[0]) is None:
+        return series
+    keys = text.map(_us_date_key)
+    if keys.isna().any():
+        return series
+    return keys.reindex(series.index)
+
+
+def _sorted_filter_values(values: List[str]) -> List[str]:
+    """Filter-list order: chronological when every non-blank value is ``MM/DD/YYYY``."""
+    keys = {v: _us_date_key(v) for v in values if v != "(Blanks)"}
+    if keys and all(keys.values()):
+        return sorted(values, key=lambda v: (v == "(Blanks)", keys.get(v) or ""))
+    return sorted(values)
 
 
 class _SolidColumnDelegate(QStyledItemDelegate):
@@ -601,8 +639,8 @@ class FilterPopup(QMenu):
         
         # Convert and sort unique values
         sort_start = time.perf_counter()
-        self.all_unique_values = sorted([str(v) if not pd.isna(v) else "(Blanks)" 
-                                         for v in unique_values])
+        self.all_unique_values = _sorted_filter_values([
+            str(v) if not pd.isna(v) else "(Blanks)" for v in unique_values])
         sort_time = time.perf_counter()
         logger.debug(f"[FILTER]   - Sort {len(unique_values)} values: {(sort_time - sort_start)*1000:.2f}ms")
         
@@ -1985,7 +2023,8 @@ class FilterTableView(QWidget):
         
         # Sort the data using these indices
         ascending = (sort_order == Qt.SortOrder.AscendingOrder)
-        sorted_data = self.df.loc[current_indices].sort_values(by=column_name, ascending=ascending)
+        sorted_data = self.df.loc[current_indices].sort_values(
+            by=column_name, ascending=ascending, key=_sort_key, kind="mergesort")
         
         # Update model with sorted indices
         self.model.set_display_indices(sorted_data.index)
