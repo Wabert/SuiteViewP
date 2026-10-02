@@ -36,12 +36,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SurrenderChargeCoverage:
-    """One coverage's share of the calculated surrender charge."""
+    """One coverage's share of the calculated surrender charge. ``rate`` is per unit,
+    or the fraction of the account value when ``pct_of_account_value`` (rule-5 ISWL)."""
 
     coverage_phase: int
     units: float
     rate: float
     charge: float
+    pct_of_account_value: bool = False
 
 
 @dataclass(frozen=True)
@@ -203,11 +205,13 @@ def _read_policy_path(policy, path):
     return value
 
 
-def _surrender_values(basis, config, state) -> SurrenderValues:
+def _surrender_values(basis, config, rates, state) -> SurrenderValues:
     """Engine inforce surrender values plus the per-coverage inputs behind them."""
     from suiteview.illustration.constants import SA_BASIS_ORIGINAL
     from suiteview.illustration.core.calc_engine import surrender_charge_units
 
+    iswl = getattr(rates, "iswl", None)
+    pct_of_av = iswl is not None and iswl.surrender_charge_is_pct_of_av
     segments = [s for s in (basis.segments or [basis.base_segment]) if s is not None]
     coverages = tuple(
         SurrenderChargeCoverage(
@@ -215,6 +219,7 @@ def _surrender_values(basis, config, state) -> SurrenderValues:
             units=surrender_charge_units(segment, config),
             rate=state.scr_rates_by_coverage.get(f"cov{index}", 0.0),
             charge=state.surrender_charges_by_coverage.get(f"cov{index}", 0.0),
+            pct_of_account_value=pct_of_av and segment.is_base,
         )
         for index, segment in enumerate(segments, start=1)
     )
@@ -559,7 +564,7 @@ class PolicyLoadSession:
             engine=IllustrationEngine()).states
         if not results:
             raise RuntimeError("Surrender calculation returned no inforce values")
-        return AccountValueCalculations(_surrender_values(basis, config, results[0]), interim)
+        return AccountValueCalculations(_surrender_values(basis, config, rates, results[0]), interim)
 
     def _nonforfeiture_account_values(self, status: str) -> AccountValueCalculations:
         """ETI/RPU advanced policy: no AV-based quotes; the NSP value replaces them."""

@@ -24,19 +24,30 @@ def _as_of(value) -> str:
 
 def surrender_charge_tip(surrender) -> str:
     basis = "original" if surrender.original_units_basis else "current"
-    lines = [
-        f"Surrender Charge{_as_of(surrender.as_of)}",
-        "Illustration engine: SCR rate x units, summed over coverages",
-        f"(units = {basis} specified amount / 1,000; rate from the plancode's",
-        " surrender charge schedule for the coverage year)",
-    ]
-    lines.extend(
-        f"Cov {cov.coverage_phase}: {_trim(cov.rate)} x {_trim(cov.units, 3)} units"
-        f" = {format_currency(cov.charge)}"
-        for cov in surrender.coverages
-    )
+    if any(cov.pct_of_account_value for cov in surrender.coverages):
+        lines = [
+            f"Surrender Charge{_as_of(surrender.as_of)}",
+            "Illustration engine: ISWL surrender charge rule 5 = CKULTB04 percentage",
+            " for the policy year x account value (no free amount for this table)",
+        ]
+    else:
+        lines = [
+            f"Surrender Charge{_as_of(surrender.as_of)}",
+            "Illustration engine: SCR rate x units, summed over coverages",
+            f"(units = {basis} specified amount / 1,000; rate from the plancode's",
+            " surrender charge schedule for the coverage year)",
+        ]
+    lines.extend(_coverage_charge_line(cov, surrender.account_value) for cov in surrender.coverages)
     lines.append(f"= {format_currency(surrender.surrender_charge)}")
     return "\n".join(lines)
+
+
+def _coverage_charge_line(cov, account_value: float) -> str:
+    if cov.pct_of_account_value:
+        return (f"Cov {cov.coverage_phase}: {_trim(cov.rate * 100, 4)}% x AV "
+                f"{format_currency(max(account_value, 0.0))} = {format_currency(cov.charge)}")
+    return (f"Cov {cov.coverage_phase}: {_trim(cov.rate)} x {_trim(cov.units, 3)} units"
+            f" = {format_currency(cov.charge)}")
 
 
 def surrender_value_tip(surrender) -> str:

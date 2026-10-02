@@ -31,6 +31,13 @@ Rules reproduced from live CyberLife records (``tools/rerun/verify_iswl_rollforw
   cash value (schema ``CV`` per unit, interpolated monthly), and a premium-paying ISWL
   does not lapse while it is positive (CyberDoc B10 "Interest Sensitive Life Plans" and
   its sample illustration, p. 402).
+* **Surrender charge.** ``PLAN_DEF.SCR_RULES`` names CyberLife's full-surrender rules
+  (CyberDoc D10 p. 177). Rule 6 plans carry a dollar-per-unit ``SCR`` schedule. Rule 5
+  (``"50"``) charges a CKULTB04 percentage (schema ``SCR_PCT``) of the account value in
+  excess of a free amount; for tables I2 and I3 the free percentage and flat charge
+  are zero, so the full-surrender charge is ``SCR_PCT(policy year) x AV``. CyberLife
+  ``FH_FIXED`` SF history agrees: year-19 surrenders were charged exactly 6.00% of the
+  fund value and year-20 surrenders nothing.
 * **Gross premium.** The billed premium (``LH_BAS_POL.POL_PRM_AMT``) is the anchor. When
   a supplemental benefit or rider coverage ceases later, its modal premium,
   ``round(units x stored annual premium per unit x mode factor, 2)``, drops out of the
@@ -71,6 +78,9 @@ from suiteview.polview.models.schema_rates import (
 CENT = Decimal("0.01")
 # Premium load rules verified for ISWL: rule 4 alone (CKDRECUL DULPLRUL "400").
 VERIFIED_PREMLOAD_RULES = "400"
+# Rule-5 surrender charge tables whose CKULTB04 rows have FREE_PCT 0, CHARGE_AMOUNT 0 and
+# ALLOW_CODE P: the charge is the percentage of the whole account value.
+VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3")
 CURRENT_INTEREST_RATE_TYPES = ("CINT_NEW", "CINT_ROLL")
 
 def round_cents(value) -> float:
@@ -112,6 +122,19 @@ class ISWLRateBasis:
     issue_date: Optional[date] = None
     # Tabular guaranteed cash value per unit by duration (index 0 = issue).
     cash_value_per_unit: List = field(default_factory=list)
+    # Rule-5 full-surrender charge as a fraction of the account value, 1-indexed by
+    # policy year (schema SCR_PCT). Empty when the charge is per unit (rates.scr).
+    surrender_charge_pct: List = field(default_factory=list)
+
+    @property
+    def surrender_charge_is_pct_of_av(self) -> bool:
+        return bool(self.surrender_charge_pct)
+
+    def surrender_charge_rate(self, policy_year: int) -> float:
+        """Rule-5 fraction of the account value charged on a full surrender."""
+        if not self.surrender_charge_pct:
+            return 0.0
+        return _year_value(self.surrender_charge_pct, policy_year, "surrender charge percentage")
 
     def guaranteed_cash_value(self, month_date: Optional[date]) -> float:
         """Guaranteed cash value on a monthliversary: units x the tabular value
@@ -420,16 +443,51 @@ def _ceasing_items(policy: IllustrationPolicyData, prem_factor: float) -> List[I
 
 
 def _surrender_charges(reader, plan: PlanDef, base_rows, key: RateKey, years: int,
-                       notes: List[str], common: dict) -> List:
-    """Per-unit surrender charges by policy year. A plan whose ``PLAN_DEF`` names no
-    surrender charge rules (``SCR_RULES`` blank/zero) has none; otherwise the schema
-    ``SCR`` schedule is required."""
+                       notes: List[str], common: dict) -> Tuple[List, List]:
+    """Surrender charges as ``(per-unit schedule, fraction-of-AV schedule)`` by policy
+    year; the unused one is all zero / empty.
+
+    A plan whose ``PLAN_DEF`` names no surrender charge rules (``SCR_RULES``
+    blank/zero) has none. Rule 5 alone on a verified CKULTB04 table reads the schema
+    ``SCR_PCT`` percentages of the account value; every other rule set requires the
+    dollar-per-unit ``SCR`` schedule.
+    """
     rules = str(_fact(plan, "SCR_RULES") or "").strip()
+    no_per_unit = [None] + [0.0] * years
     if not rules.strip("0"):
         notes.append(f"{plan.plancode} PLAN_DEF SCR_RULES {rules or '(blank)'}: no surrender charge.")
-        return [None] + [0.0] * years
-    return _schedule(reader, _cell(base_rows, "SCR", key, plan.plancode, notes), "G",
-                     years=years, calendar=False, label=f"{plan.plancode} SCR", zero_tail=True, **common)
+        return no_per_unit, []
+    if "5" not in rules:
+        return _schedule(reader, _cell(base_rows, "SCR", key, plan.plancode, notes), "G",
+                         years=years, calendar=False, label=f"{plan.plancode} SCR", zero_tail=True,
+                         **common), []
+    return no_per_unit, _rule_5_percentages(reader, plan, rules, base_rows, key, years, notes, common)
+
+
+def _rule_5_percentages(reader, plan: PlanDef, rules: str, base_rows, key: RateKey, years: int,
+                        notes: List[str], common: dict) -> List:
+    """Rule-5 ``SCR_PCT`` schedule (fractions of the account value) by policy year."""
+    if rules.rstrip("0") != "5":
+        raise RateLookupError(
+            f"{plan.plancode} PLAN_DEF SCR_RULES {rules}: rule 5 combined with another "
+            "surrender charge rule is not supported.")
+    table = str(_fact(plan, "SCR_TABLE") or "").strip()
+    if table not in VERIFIED_PCT_OF_AV_SCR_TABLES:
+        raise RateLookupError(
+            f"{plan.plancode} rule 5 surrender charges use CKULTB04 table {table or '(blank)'}, "
+            "whose free-withdrawal percentage and flat charge are not verified "
+            f"(verified: {', '.join(VERIFIED_PCT_OF_AV_SCR_TABLES)}).")
+    if any(a.rate_type == "SCR" for a in base_rows):
+        raise RateLookupError(
+            f"{plan.plancode} is surrender charge rule 5 but schema rates loads both dollar SCR "
+            "and SCR_PCT; which one CyberLife charges is ambiguous.")
+    label = f"{plan.plancode} SCR_PCT"
+    schedule = _schedule(reader, _cell(base_rows, "SCR_PCT", key, plan.plancode, notes), "G",
+                         years=years, calendar=False, label=label, zero_tail=True, **common)
+    if any(not 0.0 <= pct <= 1.0 for pct in schedule[1:]):
+        raise RateLookupError(f"{label} is not a fraction between 0 and 1.")
+    notes.append(f"Surrender charge: rule 5, SCR_PCT x account value (CKULTB04 table {table}).")
+    return schedule
 
 
 def _cash_value_schedule(reader, plan: PlanDef, base_rows, key: RateKey, segment, years: int,
@@ -520,7 +578,7 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
         reader, _cell(base_rows, "COI", key, plan.plancode, notes), "C" if coi_scale == 1 else "G",
         years=years, calendar=True, label=coi_label, **common)
     coi = [None] + [rate / MONTHS_PER_YEAR for rate in annual_coi[1:]]
-    scr = _surrender_charges(reader, plan, base_rows, key, years, notes, common)
+    scr, scr_pct = _surrender_charges(reader, plan, base_rows, key, years, notes, common)
     load_pct = _schedule(
         reader, _cell(base_rows, "PREMLOAD_PCT", key, plan.plancode, notes),
         "C" if expense_scale == 1 else "G", years=years, calendar=True,
@@ -572,6 +630,7 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
         schema_premium_per_unit=prem,
         issue_date=segment.issue_date,
         cash_value_per_unit=cash_values,
+        surrender_charge_pct=scr_pct,
     )
     return IllustrationRates(
         coi=coi,

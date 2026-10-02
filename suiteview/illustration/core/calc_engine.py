@@ -1069,7 +1069,8 @@ def _update_billable_to_md(
         return
     if convention.full_lapse_protection:
         _, sc_probe, _, _ = _calculate_surrender_charge(
-            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config,
+            account_value=work.av_after_charge,
         )
         probe_debt = work.cap_loan.policy_debt
         snet_probe = (
@@ -1129,7 +1130,8 @@ def apply_new_loans(ctx: MonthContext, work: MonthWork) -> None:
     loan_cap = None
     if ctx.options.restrict_loans_to_sv:
         _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+            ctx.policy, ctx.rates, work.rate_year, work.month_date, ctx.config,
+            account_value=work.av,
         )
         loan_cap = (
             work.av
@@ -1432,19 +1434,25 @@ def _evaluate_illustration_lapse(ctx: MonthContext, work: MonthWork) -> None:
         and work.past_snet
         and work.shd.shadow_eav_less_debt > 0
     )
+    lapse_check_av = work.exception.av_after_exception
+    lapse_check_debt = work.cap_loan.policy_debt
+    # The reported charge pairs with the ending surrender value; a percentage-of-AV
+    # (rule-5 ISWL) charge differs on the lapse-check AV, so that test takes its own.
     (
         work.scr_rate,
         work.surrender_charge,
         work.scr_rates_by_coverage,
         work.surrender_charges_by_coverage,
     ) = _calculate_surrender_charge(
-        policy, ctx.rates, work.rate_year, work.month_date, ctx.config
+        policy, ctx.rates, work.rate_year, work.month_date, ctx.config, account_value=work.av,
     )
-    lapse_check_av = work.exception.av_after_exception
-    lapse_check_debt = work.cap_loan.policy_debt
+    _, lapse_check_charge, _, _ = _calculate_surrender_charge(
+        policy, ctx.rates, work.rate_year, work.month_date, ctx.config,
+        account_value=lapse_check_av,
+    )
     work.guaranteed_cash_value = _iswl_guaranteed_cash_value(ctx.rates, work.month_date)
     work.surrender_value = (
-        _iswl_cash_value_floor(ctx.rates, work.month_date, lapse_check_av - work.surrender_charge)
+        _iswl_cash_value_floor(ctx.rates, work.month_date, lapse_check_av - lapse_check_charge)
         - lapse_check_debt
     )
     work.ending_db = _ending_death_benefit(ctx, work)
@@ -2178,19 +2186,25 @@ def _set_inforce_lapse_fields(
     work.shadow_protection = (
         policy.has_shadow_account and not within_snet and work.shd.shadow_eav_less_debt > 0
     )
+    # The reported charge is on the monthliversary AV (PolView's surrender value);
+    # a percentage-of-AV (rule-5 ISWL) charge on the ending AV is computed apart.
     (
         work.scr_rate,
         work.surrender_charge,
         work.scr_rates_by_coverage,
         work.surrender_charges_by_coverage,
-    ) = _calculate_surrender_charge(policy, rates, work.rate_year, work.month_date, config)
+    ) = _calculate_surrender_charge(
+        policy, rates, work.rate_year, work.month_date, config, account_value=policy.account_value)
+    _, ending_charge, _, _ = _calculate_surrender_charge(
+        policy, rates, work.rate_year, work.month_date, config,
+        account_value=work.intr.av_end_of_month)
     work.guaranteed_cash_value = _iswl_guaranteed_cash_value(rates, work.month_date)
     work.surrender_value = (
         _iswl_cash_value_floor(rates, work.month_date, policy.account_value - work.surrender_charge)
         - work.loan.policy_debt
     )
     work.ending_sv = (
-        _iswl_cash_value_floor(rates, work.month_date, work.intr.av_end_of_month - work.surrender_charge)
+        _iswl_cash_value_floor(rates, work.month_date, work.intr.av_end_of_month - ending_charge)
         - work.loan.policy_debt
     )
     work.positive_sv = (
@@ -2787,6 +2801,8 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr,
     partial surrender charge is already inside the gross withdrawal).
     """
     result = _FaceCutResult()
+    if charge_scr:
+        _reject_pct_surrender_charge(rates, policy.segments, change_date, rate_year, "A face decrease")
     remaining = amount
     for seg in reversed(policy.segments):
         if remaining <= 0:
@@ -3096,16 +3112,25 @@ def _compute_month_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
     month_inputs = inputs.month_inputs
     request = month_inputs.withdrawal if month_inputs is not None else 0.0
     gross_request = month_inputs.withdrawal_gross if month_inputs is not None else 0.0
+    if request > 0.0 or gross_request > 0.0:
+        _reject_pct_surrender_charge(
+            inputs.rates, policy.segments, inputs.month_date, inputs.rate_year, "A withdrawal")
     scr_rates = {
         seg.coverage_phase: _segment_surrender_rate(
             policy, seg, inputs.rates, inputs.rate_year, inputs.month_date, config,
         )
         for seg in policy.segments
     }
+    pct_of_av_charge = sum(
+        (_iswl_surrender_charge_pct(inputs.rates, seg, inputs.month_date, inputs.rate_year) or 0.0)
+        * max(inputs.av, 0.0)
+        for seg in policy.segments
+    )
     debt = _loan_state_debt(inputs.cap_loan)
     return compute_withdrawal(
         inputs.av, policy, config, scr_rates, request,
         gross_request=gross_request,
+        pct_of_av_surrender_charge=pct_of_av_charge,
         corridor_rate=get_corridor_factor(
             policy.plancode, inputs.attained_age, config.corridor_code),
         prior_total_md=state.total_deduction,
@@ -4664,7 +4689,16 @@ def _calculate_surrender_charge(
     rate_year: int,
     projection_date,
     config: PlancodeConfig = None,
+    *,
+    account_value: float,
 ):
+    """Full surrender charge on ``account_value``: ``(cov1 rate, total, rates by
+    coverage, charges by coverage)``.
+
+    Most plans charge a per-unit rate x units, independent of the account value. A
+    rule-5 ISWL base coverage charges a fraction of the account value instead; its
+    reported rate is that fraction.
+    """
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]
     if not segments:
@@ -4675,10 +4709,14 @@ def _calculate_surrender_charge(
     scr_rates_by_coverage = {}
     surrender_charges_by_coverage = {}
     for index, segment in enumerate(segments, start=1):
-        segment_scr_rate = _segment_surrender_rate(
-            policy, segment, rates, rate_year, projection_date, config)
-        segment_units = surrender_charge_units(segment, config)
-        segment_surrender_charge = segment_scr_rate * segment_units
+        pct_of_av = _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year)
+        if pct_of_av is not None:
+            segment_scr_rate = pct_of_av
+            segment_surrender_charge = pct_of_av * max(account_value, 0.0)
+        else:
+            segment_scr_rate = _segment_surrender_rate(
+                policy, segment, rates, rate_year, projection_date, config)
+            segment_surrender_charge = segment_scr_rate * surrender_charge_units(segment, config)
         key = f"cov{index}"
         scr_rates_by_coverage[key] = segment_scr_rate
         surrender_charges_by_coverage[key] = segment_surrender_charge
@@ -4689,3 +4727,23 @@ def _calculate_surrender_charge(
         scr_rates_by_coverage,
         surrender_charges_by_coverage,
     )
+
+
+def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) -> Optional[float]:
+    """Rule-5 ISWL base coverage: the fraction of the account value charged on a full
+    surrender in the coverage year. ``None`` when the charge is per unit."""
+    basis = getattr(rates, "iswl", None)
+    if basis is None or not basis.surrender_charge_is_pct_of_av or not segment.is_base:
+        return None
+    return basis.surrender_charge_rate(_coverage_year(segment, projection_date, rate_year))
+
+
+def _reject_pct_surrender_charge(rates, segments, projection_date, rate_year: int, action: str) -> None:
+    """A rule-5 percentage-of-AV surrender charge is modelled for full surrenders only;
+    an action that would need a partial charge inside the charge period raises."""
+    for segment in segments:
+        pct = _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year)
+        if pct:
+            raise ValueError(
+                f"{action} in a rule-5 ISWL surrender charge year ({pct:.0%} of the account "
+                "value) is not supported: the partial surrender charge is not modelled.")

@@ -198,7 +198,7 @@ def test_scr_units_follow_sa_basis(sa_basis, expected_units):
     )
     _, surrender_charge, _, _ = _calculate_surrender_charge(
         _policy(), rates, rate_year=1, projection_date=None,
-        config=_config(sa_basis),
+        config=_config(sa_basis), account_value=0.0,
     )
     assert surrender_charge == pytest.approx(scr_rate * expected_units)
 
@@ -211,7 +211,7 @@ def test_scr_defaults_to_current_units_when_config_missing():
         segment_scr={1: [None] + [scr_rate] * 80},
     )
     _, surrender_charge, _, _ = _calculate_surrender_charge(
-        _policy(), rates, rate_year=1, projection_date=None,
+        _policy(), rates, rate_year=1, projection_date=None, account_value=0.0,
     )
     assert surrender_charge == pytest.approx(scr_rate * CURRENT_SA / 1000.0)
 

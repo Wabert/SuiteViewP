@@ -40,7 +40,7 @@ def test_cola_surrender_exemption_is_company_and_plan_specific(
     config = PlancodeConfig(company_sub=subsidiary, sa_basis=basis)
     rates = IllustrationRates(scr=[0.0, 99.0], segment_scr={4: [0.0, 2.0]})
     _, total, rate_detail, charge_detail = calc_engine._calculate_surrender_charge(
-        policy, rates, 1, date(2026, 1, 1), config)
+        policy, rates, 1, date(2026, 1, 1), config, account_value=0.0)
 
     units = 50.0 if basis == "OriginalSA" else 25.0
     expected = 0.0 if exempt else units * 2.0

@@ -73,6 +73,7 @@ def compute_withdrawal(
     request: float,
     *,
     gross_request: float = 0.0,
+    pct_of_av_surrender_charge: float = 0.0,
     corridor_rate: float,
     prior_total_md: float,
     policy_debt: float,
@@ -89,6 +90,9 @@ def compute_withdrawal(
         request: The requested net withdrawal (AX — annual, anniversary months).
         gross_request: A gross-basis request — the amount that should leave the
             account value (RERUN BN) — inverted to net and added to ``request``.
+        pct_of_av_surrender_charge: Full surrender charge that is a percentage of the
+            account value (rule-5 ISWL), added to the per-unit charges in the CSV.
+            The engine rejects a withdrawal request while it is non-zero.
         corridor_rate: This month's corridor factor (BF).
         prior_total_md: Prior month's total monthly deduction (SU11).
         policy_debt: Beginning total loan debt (Z..AE sum).
@@ -119,7 +123,7 @@ def compute_withdrawal(
 
     # AY — CSV less the MD holdback and fee; under DBO A the SA floor also
     # caps. Computed every month (RERUN has no request gate on the column).
-    full_sc = sum(
+    full_sc = pct_of_av_surrender_charge + sum(
         (
             seg.original_face_amount
             if config.sa_basis == "OriginalSA"

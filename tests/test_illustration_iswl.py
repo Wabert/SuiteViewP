@@ -188,19 +188,24 @@ def test_iswl_plancode_configuration():
 
 # -- rates from schema ``rates`` -----------------------------------------------------
 
+I2_PERCENTAGES = [Decimal(p) / 100 for p in (
+    100, 100, 94, 89, 83, 78, 72, 67, 61, 56, 50, 44, 39, 33, 28, 22, 17, 11, 6)]
+
+
 class _FakeSchema:
     """The schema-rates rows of one ISWL plan (company 00) at issue age 4."""
 
     def __init__(self, *, rules="400", loan_credit=0.04, cint=(0.04, 0.04), star_modal=False, funds=True,
-                 scr_rules="60"):
+                 scr_rules="60", scr_table="I4", scr_cells=("SCR",)):
         self.funds = funds
         self.plan = PlanDef("00", PLAN, "00", "ISWL", "BASE", "ISWL CEIL88", (
             ("PREMIUM_CEASE_AGE", 95), ("MATURITY_AGE", 95), ("VALUE_PER_UNIT", Decimal("1000.00")),
-            ("PREMLOAD_RULES", rules), ("SCR_RULES", scr_rules)))
+            ("PREMLOAD_RULES", rules), ("SCR_TABLE", scr_table), ("SCR_RULES", scr_rules)))
         cell = dict(benefit="", sex="F", rate_class="N", band="0", state="**", subseries="")
+        scr_schedule = {"SCR": 2, "SCR_PCT": 6}
         self.cells = [
             CellAssignment(rate_type="COI", schedule_id=1, **cell),
-            CellAssignment(rate_type="SCR", schedule_id=2, **cell),
+            *(CellAssignment(rate_type=t, schedule_id=scr_schedule[t], **cell) for t in scr_cells),
             CellAssignment(rate_type="PREMLOAD_PCT", schedule_id=3, **cell),
             CellAssignment(rate_type="PREM", schedule_id=4, **cell),
             CellAssignment(rate_type="CV", schedule_id=5, **{**cell, "subseries": "11"}),
@@ -214,9 +219,10 @@ class _FakeSchema:
                 ScheduleWindow(3, "G", date(1900, 1, 1), None, 31)],
             4: [ScheduleWindow(4, "G", date(1900, 1, 1), None, 40)],
             5: [ScheduleWindow(5, "G", date(1900, 1, 1), None, 60)],
+            6: [ScheduleWindow(6, "G", date(1900, 1, 1), None, 21)],
         }
-        grains = {10: "IA_DUR", 11: "IA_DUR", 12: "IA_DUR", 20: "IA_DUR", 30: "DUR", 31: "DUR", 40: "IA",
-                  50: "DUR", 51: "SCALAR", 52: "SCALAR", 60: "IA_DUR"}
+        grains = {10: "IA_DUR", 11: "IA_DUR", 12: "IA_DUR", 20: "IA_DUR", 21: "IA_DUR", 30: "DUR",
+                  31: "DUR", 40: "IA", 50: "DUR", 51: "SCALAR", 52: "SCALAR", 60: "IA_DUR"}
         self.sets = {i: RateSetInfo(i, "", g, "", "") for i, g in grains.items()}
         years = range(1, 92)
         self.values = {
@@ -224,6 +230,9 @@ class _FakeSchema:
             11: {(4, d): Decimal("2.40") if d < 39 else Decimal("2.55") for d in years},
             12: {(4, d): Decimal("3.00") for d in years},
             20: {(4, 1): Decimal("50"), (4, 2): Decimal("20"), (4, 3): Decimal("0")},
+            # CKULTB04 table I2 (rule 5) as stored: fractions of the AV, zero to maturity.
+            21: {(4, d): (I2_PERCENTAGES[d - 1] if d <= len(I2_PERCENTAGES) else Decimal(0))
+                 for d in years},
             30: {(0, d): Decimal("0.5") if d == 1 else Decimal("0.15") for d in years},
             31: {(0, d): Decimal("0.5") if d == 1 else Decimal("0.15") for d in years},
             40: {(4, 0): Decimal("3.89")},
@@ -418,3 +427,80 @@ def test_iswl_surrender_value_is_floored_at_the_guaranteed_cash_value():
     assert _iswl_cash_value_floor(rates, on, -50.0) == pytest.approx(9500.0)
     assert _iswl_cash_value_floor(rates, on, 12000.0) == 12000.0
     assert _iswl_cash_value_floor(IllustrationRates(), on, -50.0) == -50.0   # UL unchanged
+
+
+# -- surrender charge rules (CyberDoc D10 p. 177) -----------------------------------
+
+def _rule_5_rates():
+    return load_iswl_rates(_policy(), _config(), repo=_FakeSchema(
+        scr_rules="50", scr_table="I2", scr_cells=("SCR_PCT",)))
+
+
+def _full_surrender(rates, on, rate_year, account_value):
+    from suiteview.illustration.core.calc_engine import _calculate_surrender_charge
+
+    return _calculate_surrender_charge(_policy(), rates, rate_year, on, _config(),
+                                       account_value=account_value)
+
+
+def test_rule_5_loads_scr_pct_as_a_fraction_of_the_account_value():
+    rates = _rule_5_rates()
+    assert set(rates.scr[1:]) == {0.0}                       # no per-unit charge
+    pct = rates.iswl.surrender_charge_pct
+    assert pct[1:4] == [1.0, 1.0, 0.94]
+    assert (pct[19], pct[20], pct[91]) == (0.06, 0.0, 0.0)
+    assert any("rule 5, SCR_PCT x account value" in note for note in rates.iswl.notes)
+
+
+def test_rule_5_charge_is_the_percentage_of_the_account_value_floored_at_guaranteed_cv():
+    from suiteview.illustration.core.calc_engine import _iswl_cash_value_floor
+
+    rates = _rule_5_rates()
+    on = date(2006, 6, 11)                                   # policy year 19: 6%
+    rate, charge, rate_detail, charge_detail = _full_surrender(rates, on, 19, 10000.0)
+    assert (rate, charge) == (0.06, pytest.approx(600.0))
+    assert rate_detail == {"cov1": 0.06} and charge_detail == {"cov1": pytest.approx(600.0)}
+    assert _iswl_cash_value_floor(rates, on, 10000.0 - charge) == pytest.approx(9400.0)
+    # Guaranteed CV: duration 18 + 2 months = 25 x (180 x 10 + 190 x 2) / 12 = 4,541.67.
+    _, small_charge, _, _ = _full_surrender(rates, on, 19, 4000.0)
+    assert small_charge == pytest.approx(240.0)
+    assert _iswl_cash_value_floor(rates, on, 4000.0 - small_charge) == pytest.approx(25 * 2180 / 12)
+    assert _full_surrender(rates, on, 19, -100.0)[1] == 0.0  # no charge on a negative AV
+
+
+def test_rule_5_has_no_charge_from_policy_year_20():
+    rates = _rule_5_rates()
+    assert _full_surrender(rates, date(2007, 4, 11), 20, 10000.0)[:2] == (0.0, 0.0)
+    assert _full_surrender(rates, date(2026, 9, 11), 39, 10000.0)[:2] == (0.0, 0.0)
+
+
+def test_rule_6_dollar_per_unit_charge_is_unchanged():
+    rates = load_iswl_rates(_policy(), _config(), repo=_FakeSchema())
+    assert rates.iswl.surrender_charge_pct == []
+    on = date(1988, 6, 11)                                   # policy year 1: 50 per unit
+    for account_value in (0.0, 10000.0):
+        rate, charge, _, _ = _full_surrender(rates, on, 1, account_value)
+        assert (rate, charge) == (50.0, 1250.0)               # 25 units x 50
+
+
+@pytest.mark.parametrize("fake, message", [
+    (_FakeSchema(scr_rules="50", scr_table="I2", scr_cells=()), "has no SCR_PCT rate"),
+    (_FakeSchema(scr_rules="50", scr_table="C9", scr_cells=("SCR_PCT",)), "table C9, whose free"),
+    (_FakeSchema(scr_rules="50", scr_table="I2", scr_cells=("SCR", "SCR_PCT")), "ambiguous"),
+    (_FakeSchema(scr_rules="56", scr_table="I2", scr_cells=("SCR_PCT",)), "combined with another"),
+    (_FakeSchema(scr_rules="60", scr_cells=("SCR_PCT",)), "has no SCR rate"),
+])
+def test_missing_or_unverified_surrender_charge_rates_fail_loudly(fake, message):
+    with pytest.raises(RateLookupError, match=message):
+        load_iswl_rates(_policy(), _config(), repo=fake)
+
+
+def test_rule_5_partial_surrender_charges_are_rejected_inside_the_charge_period():
+    from suiteview.illustration.core.calc_engine import _reduce_base_face
+
+    rates = _rule_5_rates()
+    with pytest.raises(ValueError, match="face decrease in a rule-5 ISWL"):
+        _reduce_base_face(_policy(), 5000.0, rates, date(2006, 6, 11), 19, True, _config())
+    policy = _policy()
+    _reduce_base_face(policy, 5000.0, rates, date(2007, 6, 11), 20, True, _config())
+    assert policy.face_amount == 20000.0

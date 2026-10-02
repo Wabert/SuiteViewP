@@ -922,6 +922,20 @@ Rules are in `illustration/core/iswl_rates.py`:
   (`MonthlyState.guaranteed_cash_value`); the endowment value per unit is used
   at maturity. The COI never takes the AV below zero, so a premium-paying ISWL
   stays in force on its guaranteed values (B10 p. 402).
+- **Surrender charge** follows `PLAN_DEF.SCR_RULES` (CyberDoc D10 p. 177 full
+  surrender rules). `00`: none. Rule 6 (`60`): the dollar-per-unit schema `SCR`
+  x units. Rule 5 (`50`): CKULTB04 percentage x the account value in excess of a
+  free amount. For tables I2 and I3 the free percentage and flat charge are zero
+  (allow code P), so the charge is `SCR_PCT(policy year) x AV`
+  (`ISWLRateBasis.surrender_charge_pct`), 100% in years 1-2 grading to 6% in
+  year 19 and 0 from year 20. CyberLife `FH_FIXED` SF history agrees: year-19 full
+  surrenders were charged exactly 6.00% of the fund value, year-20 surrenders
+  nothing. The charge is taken on the AV that the value is reported against: the
+  monthliversary AV in force and the ending AV in the ledger, with the lapse test
+  on its own AV. Rule 5 on any other table (58, C9, I5: free amount unverified),
+  rule 5 combined with another rule, a plan with both `SCR` and `SCR_PCT`, and a
+  withdrawal or charged face decrease inside a rule-5 charge period (the partial
+  surrender charge is not modelled) raise.
 - **Current interest** is the schema declared fixed-fund rate (`CINT_NEW`/
   `CINT_ROLL`) on the illustration date, floored at GINT; for plans with none
   loaded, the rate credited to the current fund buckets
@@ -940,10 +954,13 @@ Plancode rows are generated from schema `PLAN_DEF` and plan rates by
 premium cease age, GINT/DBD and loan rates at run time. All 28 in-force ISWL
 plancodes have rows (`CanIllustrate` true: only IUL is blocked). Reconciled to
 CyberLife: 81335200, 81335100, 80334900, 80335000 (CEIL88) and 81335600,
-81335500, 80335400, 80335300 (CEIL97). The other 20 stop at rate loading with the
-exact missing item until schema `rates` loads it:
-- `SCR` cells for rule-50 surrender charges: 80333729, 80333829, 80334729,
-  80334829, 81333529, 81333629, 81334529, 81334629, 80110429 and 81110229.
+81335500, 80335400, 80335300 (CEIL97). The rule-5 surrender charge plans 80333729,
+80333829, 80334729, 80334829, 81333529, 81333629, 81334529, 81334629, 80110429 and
+81110229 now run: on 10/1/2026, 102 test-matrix policies on them that had stopped
+at the missing `SCR` cell all calculated, and 75 matched CyberLife's valuation MD
+to the cent. The other 27 are ETI/RPU (status 44/45, not modelled) except
+10497580 ($0.02). The rest stop at rate loading with the exact missing item until
+schema `rates` loads it:
 - COI past age 100 for 80110529 and 81110329, which mature at 103.
 - `PLAN_MODEFACT` rows for the 56070 series (FN2VN*/MN2VN*), which have no
   surrender charge.

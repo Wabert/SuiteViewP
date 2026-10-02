@@ -127,6 +127,18 @@ def test_surrender_tips_show_the_working():
     ]
 
 
+def test_rule_5_iswl_surrender_tip_shows_the_percentage_of_account_value():
+    surrender = SurrenderValues(
+        surrender_charge=600.0, surrender_value=9400.0, account_value=10000.0,
+        policy_debt=0.0, as_of=date(2006, 6, 11), original_units_basis=False,
+        coverages=(SurrenderChargeCoverage(1, 25.0, 0.06, 600.0, pct_of_account_value=True),),
+    )
+    charge = adv_prod_tooltips.surrender_charge_tip(surrender)
+    assert "rule 5" in charge and "units" not in charge
+    assert "Cov 1: 6% x AV 10,000.00 = 600.00" in charge
+    assert charge.endswith("= 600.00")
+
+
 def test_interim_tip_explains_the_roll_forward():
     tip = adv_prod_tooltips.interim_av_tip(InterimAccountValue(
         valuation_date=date(2026, 9, 7), quote_date=date(2026, 9, 29),
