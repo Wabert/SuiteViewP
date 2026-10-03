@@ -1008,19 +1008,40 @@ Rules are in `illustration/core/iswl_rates.py`:
   surrenders were charged exactly 6.00% of the fund value, year-20 surrenders
   nothing. The charge is taken on the AV that the value is reported against: the
   monthliversary AV in force and the ending AV in the ledger, with the lapse test
-  on its own AV. Rule 5 on any other table (58, C9, I5: free amount unverified),
-  rule 5 combined with another rule, a plan with both `SCR` and `SCR_PCT`, and a
-  withdrawal or charged face decrease inside a rule-5 charge period (the partial
-  surrender charge is not modelled) raise.
+  on its own AV. Tables I2, I3, I5 and 58 are verified (CKULTB04 print 08/12/2026:
+  FREE_PCT 0, CHARGE_AMOUNT 0; table 58 also matches 54 company-01 `FH_FIXED` full
+  surrenders to the cent; I5 rests on the print). Company 26 raises: CyberLife
+  grades its rule-5 percentage monthly between policy years (44 surrenders on C9/58:
+  `pct(d) + (pct(d-1) - pct(d)) x (12 - months since anniversary) / 12`), which is not
+  modelled. Rule 5 on table C9 (all company 26), rule 5 combined with another rule, a
+  plan with both `SCR` and `SCR_PCT`, and a withdrawal or charged face decrease inside
+  a rule-5 charge period (the partial surrender charge is not modelled) raise.
+- **COI rate basis** (`COI_RateBasis` row key from CKDRECUL `DULCVCRU`): `Annual`
+  (calc rules 0/1, the default) divides the IAF rate by 12; `Monthly` (rule 2, the UL
+  convention; e.g. B11SP400/40J/500, B11SB*, N61SB*) charges it as stored. B11SP400
+  E0080318: CyberLife MD 4.14 = 12 x the annual-basis 0.35.
+- **Corridor**: a non-CVAT ISWL (GPT or pre-TEFRA) needs schema `CORR`; without it the
+  loader raises instead of dropping the corridor (F12S2N00 N8620667: AV 106,332.58 on a
+  44,449 face, CyberLife MD 28.89, 0 without the corridor).
+- **Single premium** (premium pay status 42, `IllustrationPolicyData.is_single_premium`):
+  the single premium was paid at issue and CyberLife stores it as the modal premium. No
+  premium is billed (`_split_requested_premium`), the premium load rules, `PREM`,
+  `PREMLOAD_PCT` and `PLAN_MODEFACT` are not read (`ISWLRateBasis.single_premium`), and
+  a requested premium raises. A premium-paying policy on such a plan still stops at its
+  premium load rules.
 - **Current interest** is the schema declared fixed-fund rate (`CINT_NEW`/
   `CINT_ROLL`) on the illustration date, floored at GINT; for plans with none
   loaded, the rate credited to the current fund buckets
-  (`LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT`, value-weighted if they differ). The
+  (`LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT`, value-weighted if they differ). Rows flagged
+  `IMPAIRED_IND` 1 are used when no other bucket exists: they hold the fund's unloaned
+  value, the collateral being in `LH_FND_VAL_LOAN` (B11SB200 26/000321893: AV 21,077.73
+  = F1 12,752.46 + loan 8,325.27). The
   source is `IllustrationPolicyData.current_interest_rate_source`.
 - **Guaranteed side** keeps the billed premium and locks the requested billed
   payments (`lock_values(..., iswl=True)`).
 - **Not supported (loud errors)**: CVAT ISWL (80136200's NSP corridor), more
-  than one base phase, limited-pay, premium load rules other than `400`, unknown
+  than one base phase, limited-pay, premium load rules other than `400` on a
+  premium-paying policy, unknown
   bill forms, schema facts that disagree with the plancode row, and missing
   schema rates. Nonforfeiture (ETI/RPU/APL) after stopped premiums is not
   modelled. CyberLife's per-premium interest buckets are credited as one account.
@@ -1041,6 +1062,16 @@ schema `rates` loads it:
 - `PLAN_MODEFACT` rows for the 56070 series (FN2VN*/MN2VN*), which have no
   surrender charge.
 - The CVAT corridor for 80136200 (also missing its F/N `CV` cells).
+
+October 3, 2026 added rows for the premium-paying 56070 plans FS2VN200, MN2VN400 and
+MS2VN200, and for 46 single-premium plans (`--single-premium`; B11S*, B71S*, F*2S*,
+M*2S*, N61SB*, NA1SP900, NB1S*; B11SB600 is CVAT). `AgeCalc` now follows
+`CYBERLIFE_PDF` `DBSAGCAL` (0 = ANB) and `COI_RateBasis` follows `DULCVCRU`. Of the
+275 single-premium test-matrix policies, 30 (B11SP400/40J/500, CVAT) match CyberLife's
+valuation MD to the cent once the CVAT corridor ships. The rest stop loudly: company-26
+graded rule-5 charges (76), missing `CORR` (102: the F/M pre-TEFRA plans, NA1SP900,
+NB1S*, FS2VN200, MN2VN400, MS2VN200), missing `CV` (50: B71SP*) and COI past the loaded
+ages (16).
 
 **Verification** (live, read-only): `tools/rerun/verify_iswl_rollforward.py`
 restarts each of the last six months from CyberLife's recorded AV

@@ -441,11 +441,16 @@ def _current_interest_rate(source: PolicySourceSnapshot) -> tuple[float, str]:
         source.pi.company_code or "", source.plancode, source.illustration_date, config.gint)
     if rate is not None:
         return rate, "UL_Rates schema rates declared fixed-fund rate (CINT_NEW/CINT_ROLL)"
-    buckets = [
-        (float(bucket.csv_amount or 0), bucket.interest_rate)
+    current = [
+        (str(bucket.raw_data.get("IMPAIRED_IND", "0")).strip() == "1",
+         float(bucket.csv_amount or 0), bucket.interest_rate)
         for bucket in source.pi.values.get_fund_buckets(current_only=True)
-        if str(bucket.raw_data.get("IMPAIRED_IND", "0")).strip() != "1"
     ]
+    # IMPAIRED_IND 1 marks a fund that also holds loan collateral; its LH_POL_FND_VAL_TOT
+    # row is still the unloaned value (the collateral is LH_FND_VAL_LOAN), credited at the
+    # declared rate (B11SB200 26/000321893: AV 21,077.73 = F1 12,752.46 + loan 8,325.27).
+    buckets = [(value, rate) for impaired, value, rate in current if not impaired] or [
+        (value, rate) for _impaired, value, rate in current]
     return (
         iswl_recorded_credited_rate(buckets, config.gint),
         "Rate credited to the policy's current fund buckets (LH_POL_FND_VAL_TOT); "

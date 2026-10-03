@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 _PLANCODE_DIR = Path(__file__).resolve().parent.parent / "plancodes"
 _PLANCODE_TABLE_PATH = _PLANCODE_DIR / "plancode_table.json"
+COI_RATE_BASIS_ANNUAL = "Annual"
+COI_RATE_BASIS_MONTHLY = "Monthly"
 _CONFIG_CACHE: Dict[str, PlancodeConfig] = {}
 _TABLE_CACHE: Optional[Dict[str, dict]] = None
 
@@ -92,6 +94,11 @@ class PlancodeConfig:
 
     # Substandard
     table_rating_factor: float = 0.25
+
+    # ISWL COI rate basis (CyberLife CKDRECUL DULCVCRU): "Annual" rates per $1,000 are
+    # divided by 12 (calc rules 0/1); "Monthly" rates (calc rule 2, the UL convention,
+    # e.g. B11SP400) are charged as stored.
+    coi_rate_basis: str = COI_RATE_BASIS_ANNUAL
 
     # Company subsidiary (RERUN sCompanySub) — "FFL" switches the premium
     # waiver targets to the FFL basis (CalcEngine IW..JD via sblnFFL).
@@ -176,6 +183,8 @@ class PlancodeConfig:
     def __post_init__(self) -> None:
         if self.sa_basis not in (SA_BASIS_CURRENT, SA_BASIS_ORIGINAL):
             raise ValueError(f"{self.plancode}: invalid SA_Basis {self.sa_basis!r}")
+        if self.coi_rate_basis not in (COI_RATE_BASIS_ANNUAL, COI_RATE_BASIS_MONTHLY):
+            raise ValueError(f"{self.plancode}: invalid COI_RateBasis {self.coi_rate_basis!r}")
         if self.scr_pct_of_surrender_target is not None and not all(
             0.0 <= pct <= 1.0 for pct in self.scr_pct_of_surrender_target
         ):
@@ -336,6 +345,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         dbd=facts.dbd if facts.dbd is not None else gint,
         gint=gint,
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
+        coi_rate_basis=str(data.get("COI_RateBasis", COI_RATE_BASIS_ANNUAL)),
         company_sub=str(data.get("CompanySub", "ANICO")).strip(),
         pwot_coi_basis=_int_or_default(data.get("PWoT_COI_Basis", 1), 1),
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),

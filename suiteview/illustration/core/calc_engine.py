@@ -4267,12 +4267,14 @@ def _split_requested_premium(
     workbook's vPlannedPremium fallback); a schedule supplies the per-month
     scheduled amount and dated deposits the lumpsum. No premium is collected on
     or after the maturity date — the policy endows. A fixed-premium ISWL bills
-    its modal premium only in billing months.
+    its modal premium only in billing months; a single-premium ISWL bills nothing.
     """
     if exception_period or _at_or_after_policy_maturity(policy, config, attained_age):
         return 0.0, 0.0
     total_override = month_inputs.total_premium if month_inputs is not None else None
     if total_override is None:
+        if config.is_iswl and policy.is_single_premium:
+            return 0.0, 0.0
         if config.is_iswl and policy_month is not None and not _is_billing_month(policy, policy_month):
             return 0.0, 0.0
         return float(policy.modal_premium or 0.0), 0.0

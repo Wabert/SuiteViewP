@@ -1,14 +1,20 @@
 """Build RERUN plancode-table rows for ISWL plans from UL_Rates schema ``rates``.
 
 Usage: venv\\Scripts\\python.exe tools\\rerun\\build_iswl_plancode_rows.py <plancode> [...]
-       [--company 01] [--write]
+       [--company 01] [--single-premium] [--write]
 
 ``load_plancode`` reads an ISWL plan's facts from schema ``rates`` (``plan_facts``):
 ``PLAN_DEF`` product family, MATURITY_AGE / PREMIUM_CEASE_AGE, plan ``GINT`` (also the
 NAR discount rate, DBD) and the loan rates. A row therefore holds only the product
 rules. Plans whose premium load rules are not the verified ISWL rule 4
 (``400``), whose premiums cease before maturity, or whose GINT or regular loan rates
-are missing (or GINT varies by duration) are reported and skipped. ``--write`` splices
+are missing (or GINT varies by duration) are reported and skipped. ``--single-premium``
+accepts any premium load rules: the plan's in-force policies are single premium
+(premium pay status 42), which ``load_iswl_rates`` illustrates with no further premium;
+a premium-paying policy on such a plan still stops at the premium load rules.
+``AgeCalc`` follows ``dbo.CYBERLIFE_PDF`` ``DBSAGCAL-AGE-CALC`` (0 = ANB, 1 = ALB; the
+engine does not read it). ``COI_RateBasis`` follows ``DULCVCRU-CALC-RULE`` (0/1 = Annual
+rates divided by 12, 2 = Monthly rates as stored). ``--write`` splices
 the rows into ``suiteview/illustration/plancodes/plancode_table.json`` as text
 (replacing existing rows for the same plancodes, leaving every other row's formatting
 as is); without it the rows are only printed. Rows are ``CanIllustrate`` true (only IUL
@@ -31,9 +37,40 @@ from suiteview.illustration.models.plan_facts import read_plan_facts
 from suiteview.polview.models.schema_rates import resolve_plan
 
 _TABLE = _ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
+_AGE_CALC_FIELD = "DBSAGCAL-AGE-CALC"
+_AGE_CALC = {"0": "ANB", "1": "ALB"}
+_COI_RULE_FIELD = "DULCVCRU-CALC-RULE"
+# CyberDoc D10 DULCVCRU: 0/1 annual rates (ISL convention), 2 monthly rates (UL convention).
+_COI_RATE_BASIS = {"0": "Annual", "1": "Annual", "2": "Monthly"}
 
 
-def _row(repo, plancode: str, company: str) -> tuple[dict | None, str]:
+def _pdf_rules(plancodes: list[str]) -> dict[str, dict[str, str]]:
+    """``AgeCalc`` and ``COI_RateBasis`` per plancode from ``dbo.CYBERLIFE_PDF``."""
+    from suiteview.core.data_access.connections import ConnectionFactory
+
+    conn = ConnectionFactory().connect_ul_rates(readonly=True)
+    try:
+        cursor = conn.cursor()
+        marks = ", ".join("?" for _ in plancodes)
+        cursor.execute(
+            "SELECT Plancode, LTRIM(RTRIM(FieldName)), FieldValue FROM dbo.CYBERLIFE_PDF "
+            f"WHERE LTRIM(RTRIM(FieldName)) IN (?, ?) AND LTRIM(RTRIM(Plancode)) IN ({marks})",
+            (_AGE_CALC_FIELD, _COI_RULE_FIELD, *plancodes))
+        rules: dict[str, dict[str, str]] = {}
+        for plan, field, value in cursor.fetchall():
+            value = str(value or "").strip()
+            entry = rules.setdefault(str(plan).strip().upper(), {})
+            if field == _AGE_CALC_FIELD:
+                entry["AgeCalc"] = _AGE_CALC.get(value, "")
+            else:
+                entry["COI_RateBasis"] = _COI_RATE_BASIS.get(value, "")
+        return rules
+    finally:
+        conn.close()
+
+
+def _row(repo, plancode: str, company: str, pdf: dict[str, str],
+         single_premium: bool = False) -> tuple[dict | None, str]:
     plan, note = resolve_plan(repo.plan_defs(plancode), company)
     if plan is None:
         return None, f"not loaded in schema rates ({note})"
@@ -44,8 +81,12 @@ def _row(repo, plancode: str, company: str) -> tuple[dict | None, str]:
     if facts.schema_family != "ISWL":
         return None, f"PLAN_DEF family is {facts.schema_family}, not ISWL"
     rules = str(dict(plan.facts).get("PREMLOAD_RULES") or "").strip()
-    if rules != "400":
+    if rules != "400" and not single_premium:
         return None, f"premium load rules {rules or '(blank)'} are not the verified rule 4 (400)"
+    if not pdf.get("AgeCalc"):
+        return None, f"CYBERLIFE_PDF {_AGE_CALC_FIELD} is missing or not 0/1"
+    if not pdf.get("COI_RateBasis"):
+        return None, f"CYBERLIFE_PDF {_COI_RULE_FIELD} is missing or not 0/1/2"
     if facts.maturity_age is None or facts.premium_cease_age != facts.maturity_age:
         return None, (f"premium cease age {facts.premium_cease_age} differs from maturity age "
                       f"{facts.maturity_age}")
@@ -58,7 +99,7 @@ def _row(repo, plancode: str, company: str) -> tuple[dict | None, str]:
         "LoanType": "Arrears",
         "IntCalcMethod": "Declared",
         "LapseTarget": "SV",
-        "AgeCalc": "ALB",
+        "AgeCalc": pdf["AgeCalc"],
         "ShadowAvailability": "",
         "TableRatingFactor": 0.25,
         "PremFlatLoad": 0,
@@ -69,6 +110,7 @@ def _row(repo, plancode: str, company: str) -> tuple[dict | None, str]:
         "Interest_Method": "ExactDays",
         "Rachet_Banding": False,
         "CompanySub": "ANICO",
+        "COI_RateBasis": pdf["COI_RateBasis"],
     }, note
 
 
@@ -120,14 +162,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plancodes", nargs="+")
     parser.add_argument("--company", default="01")
+    parser.add_argument("--single-premium", action="store_true",
+                        help="accept any premium load rules (single-premium plans)")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
     if local_data_enabled():
         raise RuntimeError("Schema rates are live UL_Rates only.")
+    plancodes = [plancode.strip().upper() for plancode in args.plancodes]
+    pdf_rules = _pdf_rules(plancodes)
     rows, skipped = [], {}
     with RatesSchemaRepository() as repo:
-        for plancode in args.plancodes:
-            row, note = _row(repo, plancode.strip().upper(), args.company)
+        for plancode in plancodes:
+            row, note = _row(repo, plancode, args.company, pdf_rules.get(plancode, {}),
+                             args.single_premium)
             if row is None:
                 skipped[plancode] = note
             else:

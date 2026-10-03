@@ -64,7 +64,7 @@ from suiteview.core.rates_schema import CellAssignment, PlanDef
 from suiteview.illustration.constants import MONTHS_PER_YEAR, PRODUCT_FAMILY_ISWL
 from suiteview.illustration.core.rate_loader import IllustrationRates, RateLookupError
 from suiteview.illustration.core.schema_reader import SchemaReader, open_schema_reader
-from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.plancode_config import COI_RATE_BASIS_MONTHLY, PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.schema_rates import (
     RateKey,
@@ -78,9 +78,14 @@ from suiteview.polview.models.schema_rates import (
 CENT = Decimal("0.01")
 # Premium load rules verified for ISWL: rule 4 alone (CKDRECUL DULPLRUL "400").
 VERIFIED_PREMLOAD_RULES = "400"
-# Rule-5 surrender charge tables whose CKULTB04 rows have FREE_PCT 0, CHARGE_AMOUNT 0 and
-# ALLOW_CODE P: the charge is the percentage of the whole account value.
-VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3")
+# Rule-5 surrender charge tables whose CKULTB04 rows have FREE_PCT 0 and CHARGE_AMOUNT 0
+# (CKULTB04 print 08/12/2026): the charge is the percentage of the whole account value.
+# 58 matches 54 company-01 FH_FIXED full surrenders to the cent; I5 rests on the print
+# (allow code P, like I2/I3).
+VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58")
+# Company 26 grades the rule-5 percentage monthly between policy years (44 FH_FIXED
+# surrenders on C9/58), which is not modelled.
+GRADED_RULE_5_COMPANIES = ("26",)
 CURRENT_INTEREST_RATE_TYPES = ("CINT_NEW", "CINT_ROLL")
 
 def round_cents(value) -> float:
@@ -125,6 +130,9 @@ class ISWLRateBasis:
     # Rule-5 full-surrender charge as a fraction of the account value, 1-indexed by
     # policy year (schema SCR_PCT). Empty when the charge is per unit (rates.scr).
     surrender_charge_pct: List = field(default_factory=list)
+    # Single-premium policy (premium pay status 42): no premium is due, so there is
+    # no premium load, mode factor or billed premium; a requested premium raises.
+    single_premium: bool = False
 
     @property
     def surrender_charge_is_pct_of_av(self) -> bool:
@@ -205,6 +213,10 @@ def split_iswl_premium(
     """
     if requested <= 0.005:
         return ISWLPremiumSplit(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    if basis.single_premium:
+        raise ValueError(
+            f"Single-premium ISWL (premium pay status 42): a premium of {requested:,.2f} cannot "
+            "be illustrated. No further premium is due and additional premiums are not supported.")
     if reference_premium <= 0:
         raise ValueError("ISWL premiums need the policy's billed premium, which is zero.")
     payments = round(requested / reference_premium)
@@ -246,9 +258,10 @@ def _fact(plan: PlanDef, name: str):
     return dict(plan.facts).get(name)
 
 
-def _validate_plan_facts(plan: PlanDef, config: PlancodeConfig) -> None:
+def _validate_plan_facts(plan: PlanDef, config: PlancodeConfig, single_premium: bool = False) -> None:
     rules = str(_fact(plan, "PREMLOAD_RULES") or "").strip()
-    if rules != VERIFIED_PREMLOAD_RULES:
+    # A single-premium policy pays no further premium, so its load rules never apply.
+    if rules != VERIFIED_PREMLOAD_RULES and not single_premium:
         raise RateLookupError(
             f"{plan.plancode} premium load rules {rules or '(blank)'} are not the verified ISWL "
             f"rule {VERIFIED_PREMLOAD_RULES} (rule 4 only).")
@@ -411,7 +424,7 @@ def _ceasing_items(policy: IllustrationPolicyData, prem_factor: float) -> List[I
 
 
 def _surrender_charges(reader, plan: PlanDef, base_rows, key: RateKey, years: int,
-                       notes: List[str], common: dict) -> Tuple[List, List]:
+                       notes: List[str], common: dict, company: str = "") -> Tuple[List, List]:
     """Surrender charges as ``(per-unit schedule, fraction-of-AV schedule)`` by policy
     year; the unused one is all zero / empty.
 
@@ -429,16 +442,21 @@ def _surrender_charges(reader, plan: PlanDef, base_rows, key: RateKey, years: in
         return _schedule(reader, _cell(base_rows, "SCR", key, plan.plancode, notes), "G",
                          years=years, calendar=False, label=f"{plan.plancode} SCR", zero_tail=True,
                          **common), []
-    return no_per_unit, _rule_5_percentages(reader, plan, rules, base_rows, key, years, notes, common)
+    return no_per_unit, _rule_5_percentages(reader, plan, rules, base_rows, key, years, notes, common,
+                                            company)
 
 
 def _rule_5_percentages(reader, plan: PlanDef, rules: str, base_rows, key: RateKey, years: int,
-                        notes: List[str], common: dict) -> List:
+                        notes: List[str], common: dict, company: str = "") -> List:
     """Rule-5 ``SCR_PCT`` schedule (fractions of the account value) by policy year."""
     if rules.rstrip("0") != "5":
         raise RateLookupError(
             f"{plan.plancode} PLAN_DEF SCR_RULES {rules}: rule 5 combined with another "
             "surrender charge rule is not supported.")
+    if str(company or "").strip() in GRADED_RULE_5_COMPANIES:
+        raise RateLookupError(
+            f"{plan.plancode} rule 5 surrender charges for company {company}: CyberLife grades the "
+            "CKULTB04 percentage monthly between policy years, which is not modelled.")
     table = str(_fact(plan, "SCR_TABLE") or "").strip()
     if table not in VERIFIED_PCT_OF_AV_SCR_TABLES:
         raise RateLookupError(
@@ -534,7 +552,14 @@ def load_iswl_rates(
 
 def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense_scale: int):
     plan, plan_note = _plan(reader, policy.plancode, policy.company_code)
-    _validate_plan_facts(plan, config)
+    if not policy.is_cvat and config.corridor_by_age is None:
+        # Without CORR the death benefit would silently drop its 7702/pre-TEFRA corridor
+        # (F12S2N00 N8620667: AV 106,332.58 on a 44,449 face; CyberLife MD 28.89, 0 without).
+        raise RateLookupError(
+            f"{plan.plancode} has no CORR corridor factors in UL_Rates schema rates; the "
+            f"{policy.def_of_life_ins or 'pre-TEFRA'} death benefit corridor cannot be applied.")
+    single_premium = policy.is_single_premium
+    _validate_plan_facts(plan, config, single_premium)
     notes: List[str] = [f"Plan: {plan_note}"] if plan_note else []
     key = _rate_key(reader, plan, policy, segment)
     base_rows = [a for a in reader.cell_assignments(plan.company, plan.plancode) if not a.benefit]
@@ -545,8 +570,67 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
     annual_coi = _schedule(
         reader, _cell(base_rows, "COI", key, plan.plancode, notes), "C" if coi_scale == 1 else "G",
         years=years, calendar=True, label=coi_label, **common)
-    coi = [None] + [rate / MONTHS_PER_YEAR for rate in annual_coi[1:]]
-    scr, scr_pct = _surrender_charges(reader, plan, base_rows, key, years, notes, common)
+    if config.coi_rate_basis == COI_RATE_BASIS_MONTHLY:
+        # CKDRECUL DULCVCRU 2: the IAF COI is already a monthly rate per $1,000.
+        coi = [None] + list(annual_coi[1:])
+        notes.append(f"{plan.plancode} COI rates are monthly (COI_RateBasis Monthly, DULCVCRU 2).")
+    else:
+        coi = [None] + [rate / MONTHS_PER_YEAR for rate in annual_coi[1:]]
+    scr, scr_pct = _surrender_charges(reader, plan, base_rows, key, years, notes, common,
+                                      policy.company_code)
+    cash_values = _cash_value_schedule(reader, plan, base_rows, key, segment, years, notes)
+    state = key.state
+    gint = _gint_schedule(reader, plan, state, years)
+    if single_premium:
+        notes.append(
+            f"Single premium (premium pay status 42): no premium is due, so the premium load "
+            f"(PLAN_DEF PREMLOAD_RULES {_fact(plan, 'PREMLOAD_RULES') or 'blank'}), PREM and "
+            "PLAN_MODEFACT are not used.")
+        basis = _single_premium_basis(plan, plan_note, policy, segment, notes, cash_values, scr_pct)
+    else:
+        basis = _premium_paying_basis(
+            reader, plan, plan_note, policy, segment, base_rows, key, years, expense_scale,
+            notes, common, cash_values, scr_pct)
+    return IllustrationRates(
+        coi=coi,
+        segment_coi={segment.coverage_phase: coi},
+        scr=scr,
+        segment_scr={segment.coverage_phase: scr},
+        gint=gint,
+        coi_scale=coi_scale,
+        expense_scale=expense_scale,
+        iswl=basis,
+    )
+
+
+def _single_premium_basis(plan, plan_note, policy, segment, notes, cash_values, scr_pct) -> ISWLRateBasis:
+    """Rate basis of a single-premium ISWL: no premium is billed again."""
+    return ISWLRateBasis(
+        plan_company=plan.company,
+        plan_note=plan_note,
+        units=float(segment.units),
+        base_premium_per_unit=0.0,
+        load_pct=[None, 0.0],
+        net_premium_per_unit=[None, 0.0],
+        billing_frequency=int(policy.billing_frequency or MONTHS_PER_YEAR),
+        mode="",
+        bill_form_family="",
+        prem_factor=0.0,
+        fee_factor=0.0,
+        policy_fee_annual=0.0,
+        billed_premium=0.0,
+        anchor_date=policy.valuation_date,
+        notes=notes,
+        issue_date=segment.issue_date,
+        cash_value_per_unit=cash_values,
+        surrender_charge_pct=scr_pct,
+        single_premium=True,
+    )
+
+
+def _premium_paying_basis(reader, plan, plan_note, policy, segment, base_rows, key, years,
+                          expense_scale, notes, common, cash_values, scr_pct) -> ISWLRateBasis:
+    """Rate basis of a premium-paying ISWL (premium load rule 4)."""
     load_pct = _schedule(
         reader, _cell(base_rows, "PREMLOAD_PCT", key, plan.plancode, notes),
         "C" if expense_scale == 1 else "G", years=years, calendar=True,
@@ -559,9 +643,6 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
             f"Net premium uses the policy's stored premium per unit {stored:.2f}; the schema PREM "
             f"at issue age {segment.issue_age} is {prem:.2f}.")
     base_rate = stored or prem
-    cash_values = _cash_value_schedule(reader, plan, base_rows, key, segment, years, notes)
-    state = key.state
-    gint = _gint_schedule(reader, plan, state, years)
 
     try:
         family = factor_family(policy.bill_form_code)
@@ -575,7 +656,7 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
     net_per_unit = [None] + [
         round_cents((Decimal(1) - Decimal(str(pct))) * Decimal(str(base_rate))) for pct in load_pct[1:]
     ]
-    basis = ISWLRateBasis(
+    return ISWLRateBasis(
         plan_company=plan.company,
         plan_note=plan_note,
         units=float(segment.units),
@@ -596,16 +677,6 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
         issue_date=segment.issue_date,
         cash_value_per_unit=cash_values,
         surrender_charge_pct=scr_pct,
-    )
-    return IllustrationRates(
-        coi=coi,
-        segment_coi={segment.coverage_phase: coi},
-        scr=scr,
-        segment_scr={segment.coverage_phase: scr},
-        gint=gint,
-        coi_scale=coi_scale,
-        expense_scale=expense_scale,
-        iswl=basis,
     )
 
 

@@ -57,7 +57,7 @@ def _config(**changes) -> PlancodeConfig:
     values = dict(
         plancode=PLAN, product_family="ISWL", maturity_age=95, premium_cease_age=95,
         gint=0.04, dbd=0.04, poav_table="0", loan_charge_rate_guar=0.08,
-        loan_charge_rate_curr=0.04,
+        loan_charge_rate_curr=0.04, corridor_by_age={0: 2.5, 40: 2.5, 100: 1.0},
     )
     values.update(changes)
     return PlancodeConfig(**values)

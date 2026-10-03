@@ -6,6 +6,9 @@ from typing import Dict, List, Optional
 
 from suiteview.core.joint_survivor_coi import Insured, Rating
 
+# CyberLife premium pay status (LH_BAS_POL) for a single-premium policy.
+SINGLE_PREMIUM_PAY_STATUS = "42"
+
 
 @dataclass
 class JointLives:
@@ -387,6 +390,12 @@ class IllustrationPolicyData:
     @property
     def is_cvat(self) -> bool:
         return self.def_of_life_ins == "CVAT"
+
+    @property
+    def is_single_premium(self) -> bool:
+        """Premium pay status 42 (Single Premium): the premium was paid at issue and
+        none is due again; the stored modal premium is that single premium."""
+        return str(self.premium_pay_status_code or "").strip() == SINGLE_PREMIUM_PAY_STATUS
 
     @property
     def has_defined_life_insurance(self) -> bool:
