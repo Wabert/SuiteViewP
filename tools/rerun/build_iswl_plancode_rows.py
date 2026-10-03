@@ -6,8 +6,7 @@ Usage: venv\\Scripts\\python.exe tools\\rerun\\build_iswl_plancode_rows.py <plan
 ``load_plancode`` reads an ISWL plan's facts from schema ``rates`` (``plan_facts``):
 ``PLAN_DEF`` product family, MATURITY_AGE / PREMIUM_CEASE_AGE, plan ``GINT`` (also the
 NAR discount rate, DBD) and the loan rates. A row therefore holds only the product
-rules, plus ``CorridorCode`` as the ``tRates_CORR.json`` fallback when the plan has no
-PLAN ``CORR``. Plans whose premium load rules are not the verified ISWL rule 4
+rules. Plans whose premium load rules are not the verified ISWL rule 4
 (``400``), whose premiums cease before maturity, or whose GINT or regular loan rates
 are missing (or GINT varies by duration) are reported and skipped. ``--write`` splices
 the rows into ``suiteview/illustration/plancodes/plancode_table.json`` as text
@@ -54,7 +53,7 @@ def _row(repo, plancode: str, company: str) -> tuple[dict | None, str]:
         return None, "GINT is missing"
     if facts.loan_reg_chg is None or facts.loan_reg_crd is None:
         return None, "regular loan charge/credit rates are missing"
-    row = {
+    return {
         "Plancode": plancode,
         "LoanType": "Arrears",
         "IntCalcMethod": "Declared",
@@ -66,15 +65,11 @@ def _row(repo, plancode: str, company: str) -> tuple[dict | None, str]:
         "SA_Basis": "CurrentSA",
         "CanIllustrate": True,
         "PoAV_Table": "0",
-        "CorridorCode": 1,
         "DynamicBanding": 0,
         "Interest_Method": "ExactDays",
         "Rachet_Banding": False,
         "CompanySub": "ANICO",
-    }
-    if facts.corridor_by_age is not None:
-        del row["CorridorCode"]
-    return row, note
+    }, note
 
 
 def _row_text(row: dict) -> str:

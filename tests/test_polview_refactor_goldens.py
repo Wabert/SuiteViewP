@@ -314,12 +314,7 @@ def _reinstatement_payload(monkeypatch):
         plancode="REINTEST",
         gint=0.0,
         dbd=0.0,
-        corridor_code=None,
-        mfee_fallback=10.0,
-        snet_period=0,
         lapse_value="SV",
-        shadow_int_rate_fallback=0.0,
-        shadow_dbd_fallback=0.0,
         shadow_mfee=10.0,
     )
     rates = IllustrationRates(

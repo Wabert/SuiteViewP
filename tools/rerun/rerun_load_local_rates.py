@@ -26,8 +26,8 @@ Usage (single JSON arg):
 Plancode expansion mirrors AddBaseRateTypes / AddTermRiderRateTypes /
 AddAPBRiderRateTypes: base plancodes pull Targets/CCOI/GCOI/SCR plus every
 optional PremLoad/MFEE/SNET/EPU block (schema rates, not plancode_table.json,
-now decides which a plan carries); the legacy shadow plancode (table
-ShadowPlancode fallback, else live PLAN_ATTR SHADOW_LEGACY_PLANCODE) adds its
+now decides which a plan carries); the legacy shadow plancode (live PLAN_ATTR
+SHADOW_LEGACY_PLANCODE of a shadow-account plan) adds its
 CCOI/Targets/PremLoad/EPU/ShadowInt; rider plancodes (typed via
 rider_table.json CovType) add Targets/CCOI/GCOI (APB also EPU).
 """
@@ -307,10 +307,9 @@ def expand_plancodes(base_plancodes: list[str]) -> tuple[dict[str, set], list[st
 
 
 def _shadow_plancode(plancode: str, cfg: dict) -> tuple[str, str]:
-    """The legacy CCV plancode: the table fallback, else live PLAN_ATTR SHADOW_LEGACY_PLANCODE."""
-    shadow = str(cfg.get("ShadowPlancode", "") or "").strip()
-    if shadow or not str(cfg.get("ShadowAvailability", "") or "").strip():
-        return shadow, ""
+    """The legacy CCV plancode of a shadow-account plan (live PLAN_ATTR SHADOW_LEGACY_PLANCODE)."""
+    if not str(cfg.get("ShadowAvailability", "") or "").strip():
+        return "", ""
     try:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))

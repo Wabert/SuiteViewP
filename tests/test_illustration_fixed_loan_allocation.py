@@ -132,8 +132,6 @@ def test_engine_loan_accrual_honors_exact_days_option(monkeypatch):
             gint=0.0,
             dbd=0.0,
             prem_flat_load=0.0,
-            corridor_code=None,
-            snet_period=0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _plancode, _date: BonusConfig())

@@ -102,13 +102,14 @@ Each plancode has a configuration record (currently in the Rates_Control "BasePl
 
 **Decision:** Store the plancode table as JSON, with an editor UI for updates/additions. Migrate to database later.
 
-**Database first (October 2026):** The rate fields above (GINT, DBD, loan rates,
+**Database only (October 2026):** The rate fields above (GINT, DBD, loan rates,
 MFEE, EPU, premium load, safety net, corridor, maturity/premium-cease ages,
-shadow plancode and shadow rate codes, product family, CINT key) now come from
-UL_Rates schema `rates`; the JSON keeps them only as fallbacks for plans the
-database lacks them for. MatureEndowValue, Var Ln Available, Bonus,
-SkippedCovRein and ProductName were removed (unused). See the RERUN manual,
-"Plancode configuration: schema `rates` first".
+shadow plancode and shadow rate codes, product family, CINT key) come only from
+UL_Rates schema `rates`; the JSON no longer carries them (`tRates_CORR.json` now
+holds only the standard corridor used by ISWL plans until their `CORR` is loaded).
+MatureEndowValue, Var Ln Available, Bonus, SkippedCovRein and
+ProductName were removed (unused). See the RERUN manual, "Plancode
+configuration: plan facts from schema `rates`".
 
 **Specified-amount basis (September 2026):** The JSON field `SA_Basis` replaces
 `Expense_Basis`. One field implements the workbook's EPU SA_Basis, Target

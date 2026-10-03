@@ -14,6 +14,7 @@ from suiteview.illustration.core.target_premium import TargetPremiumResult
 from suiteview.illustration.debug.excel_export import export_projection_to_excel
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+from tests.corridor_fixtures import CORRIDOR_2
 
 
 def _case(*, ratchet=False):
@@ -42,7 +43,7 @@ def _case(*, ratchet=False):
         ],
     )
     config = PlancodeConfig(
-        plancode="TEST", dbd=0.0, gint=0.0, corridor_code=2,
+        plancode="TEST", dbd=0.0, gint=0.0, corridor_by_age=CORRIDOR_2,
         rachet_banding=ratchet,
         table_rating_factor=0.25,
     )

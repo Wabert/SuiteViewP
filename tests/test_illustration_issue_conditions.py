@@ -289,7 +289,7 @@ def test_engine_recalculates_targets_and_guidelines_on_edited_issue_basis(monkey
 
     monkeypatch.setattr(
         calc_engine, "load_plancode",
-        lambda _: PlancodeConfig(plancode="TEST", corridor_code=None),
+        lambda _: PlancodeConfig(plancode="TEST"),
     )
     monkeypatch.setattr(calc_engine, "compute_target_premiums", targets)
     monkeypatch.setattr(calc_engine, "_solve_guideline_state", guidelines)
@@ -332,7 +332,7 @@ def test_month_end_issue_projection_remains_anchored_to_original_issue_date(
     policy = build_illustration_scenario(base, run_from_issue=True).projectable_policy
     monkeypatch.setattr(
         calc_engine, "load_plancode",
-        lambda _: PlancodeConfig(plancode="TEST", corridor_code=None),
+        lambda _: PlancodeConfig(plancode="TEST"),
     )
     monkeypatch.setattr(
         calc_engine, "compute_target_premiums",

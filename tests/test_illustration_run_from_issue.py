@@ -100,7 +100,7 @@ def test_issue_mode_runs_full_first_month_on_policy_issue_date(monkeypatch):
     scenario = build_illustration_scenario(_current_policy(), run_from_issue=True)
     policy = scenario.projectable_policy
     config = PlancodeConfig(
-        plancode="TEST", corridor_code=None)
+        plancode="TEST")
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _plan: config)
     monkeypatch.setattr(
         calc_engine,
@@ -146,7 +146,7 @@ def test_engine_run_from_issue_setup_does_not_mutate_input(monkeypatch):
     policy = scenario.projectable_policy
     original = copy.deepcopy(policy)
     config = PlancodeConfig(
-        plancode="TEST", corridor_code=None)
+        plancode="TEST")
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _plan: config)
     monkeypatch.setattr(
         calc_engine,

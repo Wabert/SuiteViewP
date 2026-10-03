@@ -44,7 +44,6 @@ def _config(basis: int, *, table_rating_factor: float = 0.25) -> PlancodeConfig:
         plancode="NU1FU200",
         dbd=0.0,
         gint=0.0,
-        corridor_code=None,
         table_rating_factor=table_rating_factor,
         pwot_coi_basis=basis,
     )

@@ -24,6 +24,7 @@ from suiteview.illustration.models.input_set import TransactionKind
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
+_SNET_10 = {age: 10 for age in range(0, 122)}
 
 # ── window / due-date helpers ────────────────────────────────────────────────
 
@@ -102,8 +103,8 @@ def test_next_modal_due_follow_on_starting_later_keeps_regular_cadence():
     assert next_due == date(2020, 10, 15)
 
 
-def test_within_snet_uses_snet_period_then_map_cease_date():
-    config = PlancodeConfig(snet_period=10)
+def test_within_snet_uses_safety_net_period_then_map_cease_date():
+    config = PlancodeConfig(snet_by_issue_age=_SNET_10)
     inside = MonthlyState(date=date(2025, 1, 1), policy_year=5)
     outside = MonthlyState(date=date(2031, 1, 1), policy_year=11)
     assert _within_snet(inside, _policy(), config) is True
@@ -117,7 +118,7 @@ def test_within_snet_uses_snet_period_then_map_cease_date():
 # ── seed shortfall (SV / AV / SNET selection) ────────────────────────────────
 
 def test_seed_uses_surrender_value_shortfall_when_snet_gap_is_larger():
-    config = PlancodeConfig(lapse_value="SV", snet_period=10)
+    config = PlancodeConfig(lapse_value="SV", snet_by_issue_age=_SNET_10)
     window = [MonthlyState(date=date(2021, 1, 1), policy_year=2, lapsed=True,
                            surrender_value=-40.0, accum_mtp_less_prem=-100.0)]
     seed, reason = _seed_shortfall(window, _policy(), config)
@@ -126,7 +127,7 @@ def test_seed_uses_surrender_value_shortfall_when_snet_gap_is_larger():
 
 
 def test_seed_uses_snet_gap_when_it_is_the_lower_amount():
-    config = PlancodeConfig(lapse_value="SV", snet_period=10)
+    config = PlancodeConfig(lapse_value="SV", snet_by_issue_age=_SNET_10)
     window = [
         MonthlyState(date=date(2021, 1, 1), policy_year=2, lapsed=True,
                      surrender_value=-100.0, accum_mtp_less_prem=-30.0),
@@ -139,7 +140,7 @@ def test_seed_uses_snet_gap_when_it_is_the_lower_amount():
 
 
 def test_seed_uses_av_less_loans_for_av_lapse_plancodes():
-    config = PlancodeConfig(lapse_value="AV", snet_period=0)  # past SNET
+    config = PlancodeConfig(lapse_value="AV")  # past SNET
     window = [MonthlyState(date=date(2021, 1, 1), policy_year=2, lapsed=True,
                            av_less_loans=-75.0, surrender_value=-500.0)]
     seed, reason = _seed_shortfall(window, _policy(), config)
@@ -148,7 +149,7 @@ def test_seed_uses_av_less_loans_for_av_lapse_plancodes():
 
 
 def test_seed_ignores_in_force_months():
-    config = PlancodeConfig(lapse_value="SV", snet_period=10)
+    config = PlancodeConfig(lapse_value="SV", snet_by_issue_age=_SNET_10)
     window = [MonthlyState(date=date(2021, 1, 1), policy_year=2, lapsed=False,
                            surrender_value=-999.0, accum_mtp_less_prem=-999.0)]
     assert _seed_shortfall(window, _policy(), config) == (0.0, "SV")
@@ -182,7 +183,7 @@ class _StubEngine:
         return states
 
 
-_SV_CONFIG = PlancodeConfig(lapse_value="SV", snet_period=10)
+_SV_CONFIG = PlancodeConfig(lapse_value="SV", snet_by_issue_age=_SNET_10)
 
 
 def test_solver_returns_none_when_no_bridge_is_needed():

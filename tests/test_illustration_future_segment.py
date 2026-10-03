@@ -33,7 +33,7 @@ def _policy() -> IllustrationPolicyData:
 
 def _config() -> PlancodeConfig:
     return PlancodeConfig(
-        plancode="TEST", dbd=0.0, gint=0.0, corridor_code=None,
+        plancode="TEST", dbd=0.0, gint=0.0,
     )
 
 

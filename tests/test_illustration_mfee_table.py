@@ -1,11 +1,11 @@
 """Schema-driven monthly fee (MFEE) that varies by rate class.
 
 Plancode 1U146800's monthly fee is $5 for males/females but $10 for the unisex
-"Y" class. That variation comes from schema ``rates`` MFEE cells; a plancode
-fallback applies only when a plan has no MFEE cells.
+"Y" class. That variation comes from schema ``rates`` MFEE cells; a plan with no
+MFEE cells has no monthly fee.
 
 These tests pin down each link in that chain:
-  1. the plancode data has no flat MFEE fallback,
+  1. a plan with no MFEE cells has no fee schedule,
   2. the MFEE SQL filters by Sex AND Rateclass,
   3. the monthly deduction consumes the loaded fee schedule, and
   4. the loader hands the segment's rate class to the MFEE lookup, so two
@@ -20,8 +20,8 @@ import pytest
 import suiteview.illustration.core.rate_loader as rate_loader
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.monthly_deduction import calculate_deduction
-from suiteview.illustration.core.rate_loader import IllustrationRates, load_rates
-from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
+from suiteview.illustration.core.rate_loader import IllustrationRates, load_rates, mfee_schedule
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
@@ -57,25 +57,33 @@ def _policy(rate_sex: str = "M", rate_class: str = "N") -> IllustrationPolicyDat
     )
 
 
-def _config(mfee_fallback: float | None = None) -> PlancodeConfig:
+def _config() -> PlancodeConfig:
     return PlancodeConfig(
         plancode="1U146800",
-        mfee_fallback=mfee_fallback,
         dbd=0.0,
         gint=0.0,
-        corridor_code=None,
         premium_cease_age=121,
         maturity_age=121,
         poav_table="0",
     )
 
 
-# ── 1. Plancode data ────────────────────────────────────────────────────────
+# ── 1. A plan without MFEE cells has no fee ─────────────────────────────────
 
 
-def test_1u146800_mfee_has_no_flat_fallback():
-    config = load_plancode("1U146800")
-    assert config.mfee_fallback is None
+class _NoMfeeRates:
+    def get_rates(self, *_args, **_kwargs):
+        return None
+
+
+def test_plan_without_mfee_cells_has_no_fee_schedule():
+    segment = _segment("M", "N")
+    assert mfee_schedule(_NoMfeeRates(), "1U146800", segment, scale=1, band=1) == []
+    result = calculate_deduction(
+        50_000.0, _policy(), _config(), IllustrationRates(mfee=[]),
+        rate_year=1, attained_age=45, premiums_to_date=0.0,
+    )
+    assert result.mfee_charge == 0.0
 
 
 # ── 2. MFEE SQL links to Select_RATE_MFEE by Sex AND Rateclass ──────────────
@@ -103,16 +111,6 @@ def test_deduction_uses_loaded_mfee_schedule(table_fee):
         rate_year=1, attained_age=45, premiums_to_date=0.0,
     )
     assert result.mfee_charge == pytest.approx(table_fee)
-
-
-def test_loaded_mfee_schedule_wins_over_flat_fallback():
-    """The table fallback is only used by the loader when schema MFEE is absent."""
-    rates = IllustrationRates(mfee=[None] + [10.0] * 80)
-    result = calculate_deduction(
-        50_000.0, _policy(), _config(mfee_fallback=5.0), rates,
-        rate_year=1, attained_age=45, premiums_to_date=0.0,
-    )
-    assert result.mfee_charge == pytest.approx(10.0)
 
 
 # ── 4. Loader passes the segment's rate class → $5 M/F vs $10 unisex ────────

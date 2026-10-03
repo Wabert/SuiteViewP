@@ -30,10 +30,8 @@ def _config(*, interest_method: str = "ExactDays") -> PlancodeConfig:
     return PlancodeConfig(
         plancode="TIMING",
         prem_flat_load=0.0,
-        corridor_code=None,
         gint=0.02,
         dbd=0.0,
-        snet_period=0,
         lapse_value="AV",
         interest_method=interest_method,
     )

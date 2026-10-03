@@ -17,6 +17,7 @@ import suiteview.illustration.ui.main_window as mw
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.ui.main_window import IllustrationWindow
+from tests.plan_facts_fixtures import plan_facts
 
 _QT_APP = None
 
@@ -37,16 +38,17 @@ def _app():
 def _minimal_table_row(plancode: str, **overrides):
     row = {
         "Plancode": plancode,
-        "ProductFamily": "UL",
         "SA_Basis": "CurrentSA",
-        "GINT": 0.03,
-        "PremiumCeaseAge": 121,
-        "MaturityAge": 121,
-        "LoanChargeRate": 0.06,
-        "LoanCollateralCreditRate": 0.04,
     }
     row.update(overrides)
     return row
+
+
+def _use_table_row(monkeypatch, row):
+    plancode = row["Plancode"]
+    monkeypatch.setattr(pc, "load_plan_facts", lambda code: plan_facts(code))
+    monkeypatch.setattr(pc, "_TABLE_CACHE", {plancode: row})
+    monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
 
 
 def test_can_illustrate_defaults_true_when_key_absent(monkeypatch):
@@ -55,18 +57,12 @@ def test_can_illustrate_defaults_true_when_key_absent(monkeypatch):
 
     # A table row with no CanIllustrate key still loads as True — existing
     # plancodes keep illustrating.
-    monkeypatch.setattr(pc, "load_plan_facts", lambda _plancode: None)
-    monkeypatch.setattr(pc, "_TABLE_CACHE", {"ZZNOKEY00": _minimal_table_row("ZZNOKEY00")})
-    monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
+    _use_table_row(monkeypatch, _minimal_table_row("ZZNOKEY00"))
     assert load_plancode("ZZNOKEY00").can_illustrate is True
 
 
 def test_can_illustrate_reads_false_from_table(monkeypatch):
-    monkeypatch.setattr(
-        pc, "_TABLE_CACHE",
-        {"ZZBLOCK00": _minimal_table_row("ZZBLOCK00", CanIllustrate=False)})
-    monkeypatch.setattr(pc, "load_plan_facts", lambda _plancode: None)
-    monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
+    _use_table_row(monkeypatch, _minimal_table_row("ZZBLOCK00", CanIllustrate=False))
     assert load_plancode("ZZBLOCK00").can_illustrate is False
 
 

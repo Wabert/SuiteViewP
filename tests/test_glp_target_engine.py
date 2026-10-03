@@ -34,7 +34,7 @@ def forecast(monkeypatch):
             face_amount=100_000.0, units=100.0)],
     )
     config = PlancodeConfig(
-        plancode="GLPTEST", dbd=0.0, gint=0.0, corridor_code=None,
+        plancode="GLPTEST", dbd=0.0, gint=0.0,
         prem_flat_load=0.0,
         lapse_value="SV",
     )

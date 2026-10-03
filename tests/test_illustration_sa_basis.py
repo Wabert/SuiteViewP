@@ -33,6 +33,7 @@ from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
 )
+from tests.plan_facts_fixtures import plan_facts
 
 CURRENT_SA = 100_000.0
 ORIGINAL_SA = 200_000.0
@@ -71,7 +72,6 @@ def _config(sa_basis: str) -> PlancodeConfig:
         plancode="TEST0001",
         dbd=0.0,
         gint=0.0,
-        corridor_code=None,
         premium_cease_age=121,
         maturity_age=121,
         sa_basis=sa_basis,
@@ -236,14 +236,8 @@ def test_missing_basis_does_not_infer_from_skipped_reinstatement(monkeypatch):
     from suiteview.illustration.models import plancode_config as pc
 
     monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
-    monkeypatch.setattr(pc, "_TABLE_CACHE", {"TEST": {
-        "ProductFamily": "UL",
-        "GINT": 0.03,
-        "PremiumCeaseAge": 121,
-        "MaturityAge": 121,
-        "LoanChargeRate": 0.06,
-        "LoanCollateralCreditRate": 0.04,
-    }})
+    monkeypatch.setattr(pc, "load_plan_facts", lambda code: plan_facts(code))
+    monkeypatch.setattr(pc, "_TABLE_CACHE", {"TEST": {"Plancode": "TEST"}})
     with pytest.raises(KeyError, match="SA_Basis"):
         pc.load_plancode("TEST")
 

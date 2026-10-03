@@ -244,8 +244,7 @@ def test_engine_advance_loan_repayment_grosses_up_balance(monkeypatch):
         lambda _p: PlancodeConfig(
             plancode="ADV", interest_method="ExactDays", loan_type="Advance",
             loan_charge_rate_guar=0.074, pref_loan_charge_rate_guar=0.0566,
-            gint=0.0, dbd=0.0, prem_flat_load=0.0, 
-            corridor_code=None, snet_period=0,
+            gint=0.0, dbd=0.0, prem_flat_load=0.0,
         ),
     )
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())

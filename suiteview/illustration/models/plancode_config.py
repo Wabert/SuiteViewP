@@ -1,22 +1,22 @@
-"""Illustration plancode configuration: UL_Rates schema ``rates`` first, the plancode
-table for product rules and fallbacks.
+"""Illustration plancode configuration: plan facts from UL_Rates schema ``rates``,
+product rules from the plancode table.
 
 ``load_plancode`` builds a ``PlancodeConfig`` from two sources:
 
-* **Schema ``rates``** (``plan_facts``) supplies the plan facts and rates: product
-  family, maturity and premium-cease ages, CINT key, GINT, the death-benefit discount,
-  the four loan rates, the safety-net period by issue age, corridor factors by attained
-  age and the shadow account's legacy plancode. The rate loaders read EPU, MFEE, the
-  premium loads and the shadow account's scale ``S`` rates per policy.
+* **Schema ``rates``** (``plan_facts``) is the only source of the plan facts and rates:
+  product family, maturity and premium-cease ages, CINT key, GINT, the death-benefit
+  discount, the four loan rates, the safety-net period by issue age, corridor factors
+  by attained age and the shadow account's legacy plancode. The rate loaders read EPU,
+  MFEE, the premium loads and the shadow account's scale ``S`` rates per policy. A rate
+  the schema does not carry is "none" where that is the product rule (no preferred
+  loan, no safety net, no GPT corridor, no fee or load) and an error where the plan
+  cannot be illustrated without it (GINT, regular loan rates, ages, the plan itself).
 * **``plancodes/plancode_table.json``** supplies the product rules the schema does not
-  hold (SA_Basis, LoanType, banding, shadow-account behaviour, ...). A database-sourced
-  field appears on a row only as the **fallback** for a plan whose database value is
-  missing; using one is logged and listed in ``PlancodeConfig.table_fallbacks``.
-  ``IllustrationMaturityAgeOverride`` / ``IllustrationPremiumCeaseAgeOverride`` are
-  the one exception: an explicit illustration age that replaces ``PLAN_DEF``.
+  hold (SA_Basis, LoanType, banding, shadow-account behaviour, ...). Its only plan-fact
+  keys are ``IllustrationMaturityAgeOverride`` / ``IllustrationPremiumCeaseAgeOverride``:
+  explicit illustration ages that replace ``PLAN_DEF`` (pending Robert's review).
 
-``tools/rates/plancode_db_coverage.py`` reports which rows still need fallbacks and
-removes the ones the database has since filled.
+``tools/rates/plancode_db_coverage.py`` reports what the schema lacks for each row.
 """
 from __future__ import annotations
 
@@ -31,11 +31,10 @@ from typing import Dict, Mapping, Optional, Tuple
 from suiteview.illustration.constants import (
     LAPSE_BASIS_SURRENDER_VALUE,
     PRODUCT_FAMILY_ISWL,
-    PRODUCT_FAMILY_UL,
     SA_BASIS_CURRENT,
     SA_BASIS_ORIGINAL,
 )
-from suiteview.illustration.models.plan_facts import PlanFacts, load_plan_facts
+from suiteview.illustration.models.plan_facts import load_plan_facts
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +47,13 @@ _TABLE_CACHE: Optional[Dict[str, dict]] = None
 # a table 100 against a PLAN_DEF 120/121).
 MATURITY_OVERRIDE_KEY = "IllustrationMaturityAgeOverride"
 PREMIUM_CEASE_OVERRIDE_KEY = "IllustrationPremiumCeaseAgeOverride"
+# Plan facts that come only from schema ``rates``; the plancode table must not carry them.
+DATABASE_KEYS = (
+    "ProductFamily", "MaturityAge", "PremiumCeaseAge", "CINT_Key", "GINT", "DBD", "EPU_Code",
+    "MFEE", "PremiumLoad", "LoanChargeRate", "LoanCollateralCreditRate", "PrefLoanChargeRate",
+    "PrefLoanCollateralCreditRate", "SafetyNetPeriod", "CorridorCode", "ShadowPlancode",
+    "ShadowTarget", "ShadowPremLoadCode", "ShadowEPUCode", "ShadowIntRateCode", "ShadowDBDRate",
+)
 
 
 @dataclass
@@ -74,13 +80,8 @@ class PlancodeConfig:
     age_calc: str = ""
 
     # Premium loading. The target/excess load rates are schema PREMLOAD_PCT /
-    # PREMLOAD_EXS; ``premium_load_fallback`` is a flat load on every premium used
-    # only when the plan has no PREMLOAD_PCT cells.
-    premium_load_fallback: Optional[float] = None
+    # PREMLOAD_EXS (none loaded = no percentage load).
     prem_flat_load: float = 0.0         # Flat $ per premium
-
-    # Monthly fee: schema MFEE; ``mfee_fallback`` only when the plan has no MFEE cells.
-    mfee_fallback: Optional[float] = None
 
     # AV charge
     poav_table: str = "0"               # Local PoAV table code "1"-"3"; "0" = none
@@ -113,19 +114,17 @@ class PlancodeConfig:
     md_holdback: float = 0.0             # months of prior MD held back from max-net
     min_face_after_wd: float = 25000.0
 
-    # Corridor: schema PLAN CORR by attained age; ``corridor_code`` selects a
-    # tRates_CORR.json set only for a plan without CORR (see core.corridor_rates).
+    # Corridor: schema PLAN CORR (7702 GPT corridor factor) by attained age. None =
+    # the plan has no GPT corridor (CVAT plans, ISWL); see core.corridor_rates.
     corridor_by_age: Optional[Mapping[int, float]] = None
-    corridor_code: Optional[int] = 1
 
     # Maturity
     premium_cease_age: int = 121
     maturity_age: int = 121
 
-    # Safety Net / Lapse. ``snet_by_issue_age`` is schema SNET_PERIOD; without it
-    # ``snet_period`` (table fallback) applies to every issue age.
-    snet_period: int = 10
-    snet_by_issue_age: Optional[Mapping[int, int]] = None
+    # Safety Net / Lapse: schema SNET_PERIOD years by base issue age (an issue age
+    # not in the mapping, or a plan without SNET_PERIOD, has no safety net).
+    snet_by_issue_age: Mapping[int, int] = field(default_factory=dict)
     lapse_value: str = LAPSE_BASIS_SURRENDER_VALUE  # "SV" = surrender value, "AV" = AV-loans (MLUL)
 
     # Dynamic banding
@@ -151,34 +150,27 @@ class PlancodeConfig:
     # per-unit SCR rate table.
     scr_pct_of_surrender_target: Optional[tuple] = None
 
-    # Loans (schema LOAN_REG_CHG / LOAN_REG_CRD / LOAN_PREF_CHG / LOAN_PREF_CRD)
+    # Loans (schema LOAN_REG_CHG / LOAN_REG_CRD / LOAN_PREF_CHG / LOAN_PREF_CRD; a plan
+    # without LOAN_PREF rows has no preferred loan option, so its preferred rates are 0)
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
     loan_charge_rate_guar: float = 0.0   # sRates_LNCRG — regular charged rate
     loan_charge_rate_curr: float = 0.0   # sRates_LNCRD — regular credited rate
     pref_loan_charge_rate_guar: float = 0.0  # sRates_PrefLNCRG — preferred charged rate
     pref_loan_charge_rate_curr: float = 0.0  # sRates_PrefLNCRD — preferred credited rate
 
-    # Shadow Account (CCV). Its rates are schema scale S on the base plancode; the
-    # ``*_fallback`` values apply only where the plan has no scale S rate of that kind
-    # (``shadow_target_fallback`` 0 = no shadow target premium).
+    # Shadow Account (CCV). Its rates are schema scale S on the base plancode (see
+    # rate_loader._load_shadow_rates); the table holds only the behaviour flags.
     shadow_plancode: str = ""            # legacy CCV plancode (PLAN_ATTR SHADOW_LEGACY_PLANCODE)
     shadow_availability: str = ""        # "Rider", "Inherent", or "" (none)
     shadow_cease_age: int = 121          # Age at which shadow account ceases
     shadow_sa_basis: int = 2             # 1 = OriginalSA, 2 = CurrentSA
-    shadow_target_fallback: Optional[float] = None
-    shadow_prem_load_fallback: Optional[float] = None
-    shadow_epu_fallback: Optional[float] = None
     shadow_mfee: float = 0.0             # Flat monthly expense fee
-    shadow_dbd_fallback: Optional[float] = None
-    shadow_int_rate_fallback: Optional[float] = None
     shadow_loan_impact: str = "Reduce"   # "Reduce" or "None"
     shadow_late_payment_forgiveness: bool = False
     shadow_aps205_load_relief: bool = False
     shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"
 
-    # Plan-level fields taken from the plancode table because schema ``rates`` lacks
-    # them, and the illustration age overrides in force (both logged at load).
-    table_fallbacks: Tuple[str, ...] = field(default_factory=tuple)
+    # Illustration age overrides in force (logged at load).
     illustration_overrides: Tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
@@ -192,9 +184,6 @@ class PlancodeConfig:
             raise ValueError(
                 f"{self.plancode}: invalid ShadowTargetRateBasis {self.shadow_target_rate_basis!r}"
             )
-        if self.shadow_target_fallback not in (None, 0.0):
-            raise ValueError(
-                f"{self.plancode}: ShadowTarget fallback must be 0 (no shadow target premium)")
 
     @property
     def partial_surrender_charge(self) -> bool:
@@ -217,9 +206,7 @@ class PlancodeConfig:
 
     def safety_net_years(self, issue_age: int) -> int:
         """Safety-net (no-lapse) period in policy years for a base issue age."""
-        if self.snet_by_issue_age is not None:
-            return int(self.snet_by_issue_age.get(int(issue_age), 0))
-        return int(self.snet_period)
+        return int(self.snet_by_issue_age.get(int(issue_age), 0))
 
 
 def _load_plancode_table() -> Dict[str, dict]:
@@ -282,76 +269,38 @@ class MissingPlancodeError(KeyError):
     """The plan has no illustration configuration, rather than a malformed row."""
 
 
-def _product_family(plancode: str, value) -> str:
-    family = str(value or "").strip().upper()
-    if family not in (PRODUCT_FAMILY_UL, PRODUCT_FAMILY_ISWL):
-        raise ValueError(f"{plancode}: invalid ProductFamily {value!r}")
-    return family
-
-
-def _optional_float(plancode: str, data: dict, key: str) -> Optional[float]:
-    if key not in data or data[key] is None:
-        return None
-    try:
-        return float(data[key])
-    except (TypeError, ValueError):
+def _required(plancode: str, value, label: str):
+    if value is None:
         raise ValueError(
-            f"{plancode}: plancode-table {key} {data[key]!r} is not a number (a database "
-            "fallback must be a flat value).") from None
+            f"{plancode} has no {label} in UL_Rates schema rates; the plan cannot be illustrated "
+            "without it.")
+    return value
 
 
-class _PlanFactResolver:
-    """Database value first; the table value only when the database lacks it."""
-
-    def __init__(self, plancode: str, data: dict, facts: Optional[PlanFacts]):
-        self.plancode = plancode
-        self.data = data
-        self.facts = facts
-        self.fallbacks: list[str] = []
-        self.overrides: list[str] = []
-
-    def pick(self, db_value, key: str, convert=lambda v: v, *, required: bool = False, default=None):
-        if db_value is not None:
-            return db_value
-        if key in self.data and self.data[key] is not None:
-            self.fallbacks.append(key)
-            return convert(self.data[key])
-        if required:
-            source = ("is not loaded in UL_Rates schema rates" if self.facts is None
-                      else "has no such value in UL_Rates schema rates")
-            raise ValueError(
-                f"{self.plancode} {source} and the plancode table has no {key} fallback.")
-        return default
-
-    def age(self, attr: str, key: str, override_key: str) -> int:
-        db_value = getattr(self.facts, attr) if self.facts is not None else None
-        value = self.pick(db_value, key, int, required=True)
-        if override_key in self.data:
-            override = int(self.data[override_key])
-            self.overrides.append(f"{key} {override} (PLAN_DEF {db_value})")
-            return override
-        return value
-
-
-def _fact(facts: Optional[PlanFacts], name: str):
-    return None if facts is None else getattr(facts, name)
+def _age(plancode: str, data: dict, db_value, label: str, override_key: str,
+         overrides: list[str]) -> int:
+    value = int(_required(plancode, db_value, f"PLAN_DEF {label}"))
+    if override_key in data:
+        override = int(data[override_key])
+        overrides.append(f"{label} {override} (PLAN_DEF {value})")
+        return override
+    return value
 
 
 def load_plancode(plancode: str) -> PlancodeConfig:
-    """Load a plancode's configuration: schema ``rates`` first, then the table.
+    """Load a plancode's configuration: plan facts from schema ``rates``, product rules
+    from the plancode table.
 
     Args:
         plancode: Product plan code (e.g., "1U143900").
 
-    Returns:
-        PlancodeConfig with plan facts from UL_Rates schema ``rates`` and product
-        rules (and any fallbacks) from the plancode table.
-
     Raises:
         FileNotFoundError: If the plancode table does not exist.
-        MissingPlancodeError: If the plancode has no row in the table.
+        MissingPlancodeError: If the plancode has no table row or is not loaded in
+            schema ``rates``.
         RatesError / ConnectionUnavailable: If schema ``rates`` cannot be read.
-        ValueError: If a required fact is in neither source.
+        ValueError: If the table carries a plan fact, or the schema lacks a required
+            one (GINT, regular loan rates, ages).
     """
     if plancode in _CONFIG_CACHE:
         return _CONFIG_CACHE[plancode]
@@ -361,33 +310,30 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         raise MissingPlancodeError(
             f"No plancode config found for {plancode} in {_PLANCODE_TABLE_PATH}"
         )
+    stale = [key for key in DATABASE_KEYS if key in data]
+    if stale:
+        raise ValueError(
+            f"{plancode}: plancode_table.json carries {', '.join(stale)}, which come only from "
+            "UL_Rates schema rates. Remove them (tools/rates/plancode_db_coverage.py --write).")
     facts = load_plan_facts(plancode)
-    resolve = _PlanFactResolver(plancode, data, facts)
-    family = (
-        facts.engine_family if facts is not None
-        else _product_family(plancode, resolve.pick(None, "ProductFamily", default=PRODUCT_FAMILY_UL))
-    )
-    gint = resolve.pick(_fact(facts, "gint"), "GINT", float, required=True)
-    db_discount = _fact(facts, "db_discount")
-    snet_by_age = _fact(facts, "snet_by_issue_age")
-    corridor_by_age = _fact(facts, "corridor_by_age")
-    db_cint = _fact(facts, "cint_key") or None
-    db_shadow = _fact(facts, "shadow_legacy_plancode") or None
+    if facts is None:
+        raise MissingPlancodeError(
+            f"Plancode {plancode} is not loaded in UL_Rates schema rates (PLAN_DEF).")
+    gint = _required(plancode, facts.gint, "PLAN GINT")
+    overrides: list[str] = []
 
     config = PlancodeConfig(
         plancode=plancode,
-        description=facts.description if facts is not None else "",
-        product_family=family,
+        description=facts.description,
+        product_family=facts.engine_family,
         can_illustrate=bool(data.get("CanIllustrate", True)),
-        cint_key=resolve.pick(db_cint, "CINT_Key", str, default=""),
+        cint_key=facts.cint_key,
         int_calc_method=data.get("IntCalcMethod", "Declared"),
         interest_method=data.get("Interest_Method", data.get("InterestMethod", "ExactDays")),
         age_calc=data.get("AgeCalc", ""),
-        premium_load_fallback=_optional_float(plancode, data, "PremiumLoad"),
         prem_flat_load=float(data.get("PremFlatLoad", 0)),
-        mfee_fallback=_optional_float(plancode, data, "MFEE"),
         poav_table=str(data.get("PoAV_Table", "0")),
-        dbd=db_discount if db_discount is not None else gint,
+        dbd=facts.dbd if facts.dbd is not None else gint,
         gint=gint,
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
         company_sub=str(data.get("CompanySub", "ANICO")).strip(),
@@ -395,18 +341,12 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),
         md_holdback=float(data.get("MD_HoldBack", 0)),
         min_face_after_wd=float(data.get("MinFaceAfterWD", 25000)),
-        corridor_by_age=corridor_by_age,
-        corridor_code=(
-            None if corridor_by_age is not None
-            else resolve.pick(None, "CorridorCode", int, default=None)
-        ),
-        premium_cease_age=resolve.age("premium_cease_age", "PremiumCeaseAge", PREMIUM_CEASE_OVERRIDE_KEY),
-        maturity_age=resolve.age("maturity_age", "MaturityAge", MATURITY_OVERRIDE_KEY),
-        snet_period=(
-            0 if snet_by_age is not None
-            else resolve.pick(None, "SafetyNetPeriod", lambda v: _int_or_default(v, 0), default=0)
-        ),
-        snet_by_issue_age=snet_by_age,
+        corridor_by_age=facts.corridor_by_age,
+        premium_cease_age=_age(plancode, data, facts.premium_cease_age, "PremiumCeaseAge",
+                               PREMIUM_CEASE_OVERRIDE_KEY, overrides),
+        maturity_age=_age(plancode, data, facts.maturity_age, "MaturityAge",
+                          MATURITY_OVERRIDE_KEY, overrides),
+        snet_by_issue_age=dict(facts.snet_by_issue_age or {}),
         lapse_value=data.get(
             "LapseTarget",
             data.get("LapseValue", LAPSE_BASIS_SURRENDER_VALUE),
@@ -420,37 +360,22 @@ def load_plancode(plancode: str) -> PlancodeConfig:
             if data.get("SCR_PctOfSurrenderTarget") is not None else None
         ),
         loan_type=data.get("LoanType", "Arrears"),
-        loan_charge_rate_guar=resolve.pick(
-            _fact(facts, "loan_reg_chg"), "LoanChargeRate", float, required=True),
-        loan_charge_rate_curr=resolve.pick(
-            _fact(facts, "loan_reg_crd"), "LoanCollateralCreditRate", float, required=True),
-        pref_loan_charge_rate_guar=resolve.pick(
-            _fact(facts, "loan_pref_chg"), "PrefLoanChargeRate", float, default=0.0),
-        pref_loan_charge_rate_curr=resolve.pick(
-            _fact(facts, "loan_pref_crd"), "PrefLoanCollateralCreditRate", float, default=0.0),
-        # Shadow Account (CCV)
-        shadow_plancode=resolve.pick(db_shadow, "ShadowPlancode", str, default=""),
+        loan_charge_rate_guar=_required(plancode, facts.loan_reg_chg, "LOAN_REG_CHG"),
+        loan_charge_rate_curr=_required(plancode, facts.loan_reg_crd, "LOAN_REG_CRD"),
+        pref_loan_charge_rate_guar=facts.loan_pref_chg or 0.0,
+        pref_loan_charge_rate_curr=facts.loan_pref_crd or 0.0,
+        # Shadow Account (CCV): behaviour flags from the table, rates from scale S.
+        shadow_plancode=facts.shadow_legacy_plancode,
         shadow_availability=data.get("ShadowAvailability", ""),
         shadow_cease_age=int(data.get("ShadowCeaseAge", 121)),
         shadow_sa_basis=int(data.get("ShadowSABasis", 2)),
-        shadow_target_fallback=_optional_float(plancode, data, "ShadowTarget"),
-        shadow_prem_load_fallback=_optional_float(plancode, data, "ShadowPremLoadCode"),
-        shadow_epu_fallback=_optional_float(plancode, data, "ShadowEPUCode"),
         shadow_mfee=float(data.get("ShadowMFEE", 0)),
-        shadow_dbd_fallback=_optional_float(plancode, data, "ShadowDBDRate"),
-        shadow_int_rate_fallback=_optional_float(plancode, data, "ShadowIntRateCode"),
         shadow_loan_impact=data.get("ShadowLoanImpact", "Reduce"),
         shadow_late_payment_forgiveness=bool(data.get("ShadowLatePaymentForgiveness", False)),
         shadow_aps205_load_relief=bool(data.get("ShadowAPS205LoadRelief", False)),
         shadow_target_rate_basis=str(data.get("ShadowTargetRateBasis", "MTP")).strip().upper() or "MTP",
-        table_fallbacks=tuple(dict.fromkeys(resolve.fallbacks)),
-        illustration_overrides=tuple(resolve.overrides),
+        illustration_overrides=tuple(overrides),
     )
-    if config.table_fallbacks:
-        logger.warning(
-            "%s: UL_Rates schema rates %s; using plancode-table fallback for %s",
-            plancode, "does not load the plan" if facts is None else "lacks a value",
-            ", ".join(config.table_fallbacks))
     if config.illustration_overrides:
         logger.info("%s: illustration age override %s", plancode, "; ".join(config.illustration_overrides))
 

@@ -34,8 +34,7 @@ def _policy(maturity):
 
 def _config(maturity=121):
     return PlancodeConfig(
-        plancode="MATURITY", maturity_age=maturity, 
-        corridor_code=None, snet_period=0,
+        plancode="MATURITY", maturity_age=maturity,
     )
 
 

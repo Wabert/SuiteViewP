@@ -23,56 +23,57 @@ reference views. **Plancode Table…** opens a read-only, non-modal window
 (`suiteview/illustration/ui/plancode_table_view.py`) over
 `suiteview/illustration/plancodes/plancode_table.json` — the same rows
 `load_plancode` reads, through `plancode_table_rows()`. The rows hold product
-rules plus only the rate fallbacks and illustration overrides described in
-"Plancode configuration: schema `rates` first" below. It is a dense
-sortable/filterable ledger with Plancode frozen; keys a row
+rules and the illustration age overrides only; plan facts and rates come from
+schema `rates` (see "Plancode configuration: plan facts from schema `rates`"
+below). It is a dense sortable/filterable ledger with Plancode frozen; keys a row
 does not carry show blank (never zero), and **Dump to Excel** opens the displayed
 rows in a new unsaved workbook. A load failure shows an error box instead of an
 empty table. Regression: `tests/test_illustration_plancode_table.py`.
 
 
-## Plancode configuration: schema `rates` first
+## Plancode configuration: plan facts from schema `rates`
 
-`load_plancode` (`illustration/models/plancode_config.py`) builds a
-`PlancodeConfig` database first (Robert Haessly, 10/2/2026). Plan facts come from
-UL_Rates schema `rates` through `illustration/models/plan_facts.py`:
+`load_plancode` (`illustration/models/plancode_config.py`) takes every plan fact
+from UL_Rates schema `rates` through `illustration/models/plan_facts.py` (Robert
+Haessly, 10/2/2026); the plancode table supplies product rules only:
 
-| Field | Schema source |
-| --- | --- |
-| `product_family` | `PLAN_DEF.PRODUCT_FAMILY` (UL and IUL -> engine `UL`; `ISWL`) |
-| `maturity_age`, `premium_cease_age` | `PLAN_DEF` |
-| `cint_key` | `PLAN_DEF.CIRF_KEY`; a multi-fund IUL key (`FIXLNIUL,IUL`) names the fixed account in `PLAN_ATTR FUND_KEYS` (`FIXLNIUL,IULFIX09,IULINDEX09` -> `IULFIX09`) |
-| `gint` | PLAN `GINT` (one rate for every duration, else an error) |
-| `dbd` | `DB_DISCOUNT` on the C/G scales when loaded, else GINT |
-| loan rates | PLAN `LOAN_REG_CHG` (`loan_charge_rate_guar`), `LOAN_REG_CRD` (`loan_charge_rate_curr`), `LOAN_PREF_CHG`, `LOAN_PREF_CRD` |
-| safety-net period | PLAN `SNET_PERIOD` by issue age (`safety_net_years(issue_age)`) |
-| corridor | PLAN `CORR` by attained age (`corridor_by_age`; `core/corridor_rates.corridor_factor`) |
-| `shadow_plancode` | `PLAN_ATTR SHADOW_LEGACY_PLANCODE` |
+| Field | Schema source | Not loaded |
+| --- | --- | --- |
+| `product_family` | `PLAN_DEF.PRODUCT_FAMILY` (UL and IUL -> engine `UL`; `ISWL`) | plan not loaded: error |
+| `maturity_age`, `premium_cease_age` | `PLAN_DEF` | error |
+| `cint_key` | `PLAN_DEF.CIRF_KEY`; a multi-fund IUL key (`FIXLNIUL,IUL`) names the fixed account in `PLAN_ATTR FUND_KEYS` (`FIXLNIUL,IULFIX09,IULINDEX09` -> `IULFIX09`) | blank |
+| `gint` | PLAN `GINT` (one rate for every duration) | error |
+| `dbd` | base `DB_DISCOUNT` (CELL, scale G) | GINT |
+| regular loan rates | PLAN `LOAN_REG_CHG` (`loan_charge_rate_guar`), `LOAN_REG_CRD` (`loan_charge_rate_curr`) | error |
+| preferred loan rates | PLAN `LOAN_PREF_CHG`, `LOAN_PREF_CRD` | no preferred loan option (0) |
+| safety-net period | PLAN `SNET_PERIOD` by issue age (`safety_net_years(issue_age)`) | no safety net |
+| corridor | PLAN `CORR` by attained age (`corridor_by_age`; `core/corridor_rates.corridor_factor`) | ISWL: standard 7702 set in `tRates_CORR.json` (logged); else no GPT corridor (factor 1.0) |
+| `shadow_plancode` | `PLAN_ATTR SHADOW_LEGACY_PLANCODE` | blank |
 
 EPU, MFEE, the premium loads and the shadow account's rates are always the
-schema rates in `IllustrationRates` (none loaded = no charge); the engine no
-longer switches between "Table" and a flat config value anywhere. The
-current/guaranteed scales come from the schema's own C/G rows.
+schema rates in `IllustrationRates`, on the schema's own C/G scales; none loaded
+means no charge. The shadow account requires scale S COI, `SHADOW_INT` and
+`DB_DISCOUNT` (`RateLookupError` otherwise); scale S EPU, premium loads and the
+target rate are optional. A table row that still carries a plan fact
+(`plancode_config.DATABASE_KEYS`) fails `load_plancode` loudly.
 
-**Fallbacks.** A rate field stays on a `plancode_table.json` row only where the
-database lacks the value; `load_plancode` (plan facts) and `load_rates` (MFEE,
-PremiumLoad, the `Shadow*` codes) then use it, log a warning, list it in
-`PlancodeConfig.table_fallbacks` / `IllustrationRates.table_fallbacks`, and the
-RERUN load shows a notice (`rate_validation.table_fallback_warnings`). A missing
-regular loan rate or GINT with no fallback is an error. `tRates_CORR.json` is
-read only for plans without PLAN `CORR` (their `CorridorCode`). Shadow-account
-policies need every shadow rate as scale S or a table fallback, else
-`RateLookupError`; a `ShadowTarget` fallback of 0 means no shadow target premium.
+**Corridor.** UL plans without `CORR` are CVAT-only plans (their minimum death
+benefit is the deemed-cash-value test): no GPT corridor. The 28 ISWL plans have no
+`CORR` loaded yet, but CyberLife applies the standard 7702 corridor to ISWL GPT
+policies; until `CORR` is loaded for them they read the standard set kept in
+`plancodes/tRates_CORR.json` (its only use; logged once per plancode). The RERUN load
+shows a notice for both cases (`rate_validation.plan_basis_warnings`).
 
 **Illustration age override.** `IllustrationMaturityAgeOverride` /
 `IllustrationPremiumCeaseAgeOverride` replace the `PLAN_DEF` ages on 16 rows where
 the table had a different age (mostly 100 against 120/121); pending Robert's
-decision whether they are intentional illustration caps. ISWL rejects an override.
+decision whether they are intentional illustration caps. The RERUN load shows a
+notice, and ISWL rejects an override.
 
-`tools/rates/plancode_db_coverage.py --report <json> [--write]` measures the
-coverage against the live database and removes fallbacks the database has since
-filled; rerun it after rate loads. `ULRates.clear_cache()` also clears resolved
-configurations.
+`tools/rates/plancode_db_coverage.py --report <json> [--write]` reports what the
+schema lacks per plancode (errors, "none" by product rule, changed values) and
+strips plan facts from the table; rerun it after rate loads.
+`ULRates.clear_cache()` also clears resolved configurations.
 
 
 ## RERUN rate source: UL_Rates schema `rates`

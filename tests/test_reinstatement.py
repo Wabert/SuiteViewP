@@ -91,9 +91,8 @@ def projection(monkeypatch):
         )],
     )
     config = PlancodeConfig(
-        plancode="REINTEST", gint=0.0, dbd=0.0, corridor_code=None,
-        mfee_fallback=10.0, snet_period=0,
-        lapse_value="SV", shadow_int_rate_fallback=0.0, shadow_dbd_fallback=0.0,
+        plancode="REINTEST", gint=0.0, dbd=0.0,
+        lapse_value="SV",
         shadow_mfee=10.0,
     )
     rates = IllustrationRates(
@@ -141,7 +140,7 @@ def test_zero_is_not_replaced_by_policy_billing(projection):
 
 def test_safety_net_requires_next_accumulation_not_current(projection):
     _, config, _, _, run = projection
-    config.snet_period = 30
+    config.snet_by_issue_age = {30: 30}
     result = run()
     assert result.basis == "Safety net"
     assert result.premium == Decimal("20.00")
@@ -150,7 +149,7 @@ def test_safety_net_requires_next_accumulation_not_current(projection):
 
 def test_safety_net_breakdown_exposes_each_term_and_reconciles(projection):
     p, config, _, _, run = projection
-    config.snet_period = 30
+    config.snet_by_issue_age = {30: 30}
     p.withdrawals_to_date = 200.0
     p.regular_loan_principal = 100.0
     config.loan_charge_rate_curr = config.loan_charge_rate_guar = 0.12
@@ -170,7 +169,7 @@ def test_safety_net_breakdown_exposes_each_term_and_reconciles(projection):
 
 def test_safety_net_ceasing_before_target_switches_basis(projection):
     p, config, _, _, run = projection
-    config.snet_period = 30
+    config.snet_by_issue_age = {30: 30}
     p.map_cease_date = date(2026, 2, 15)
     result = run()
     assert result.basis == "Surrender value"
@@ -402,7 +401,7 @@ def test_snapshot_premium_history_is_not_backdated(projection):
 def test_midmonth_receipt_supports_all_funding_branches(projection, basis):
     p, config, rates, summary, _ = projection
     if basis == "Safety net":
-        config.snet_period = 30
+        config.snet_by_issue_age = {30: 30}
     elif basis == "Shadow account":
         p.ccv_active = True
         p.shadow_account_value = 10.0

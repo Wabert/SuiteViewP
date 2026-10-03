@@ -12,6 +12,7 @@ from suiteview.illustration.models.policy_data import (
     benefit_rate_issue_age,
     benefit_rate_keys,
 )
+from tests.corridor_fixtures import CORRIDOR_2
 
 
 def test_death_benefit_discount_uses_plancode_dbd_not_policy_interest_rate():
@@ -28,7 +29,6 @@ def test_death_benefit_discount_uses_plancode_dbd_not_policy_interest_rate():
         plancode="1U135D00",
         dbd=0.04,
         gint=0.03,
-        corridor_code=None,
     )
 
     result = calculate_deduction(
@@ -47,7 +47,7 @@ def test_death_benefit_discount_uses_plancode_dbd_not_policy_interest_rate():
     assert result.discounted_db_cov1 != pytest.approx(100_000.0 / round((1.0 + 0.03) ** (1.0 / 12.0), 7))
 
 
-def test_corridor_code_two_uses_alternate_corridor_curve():
+def test_corridor_set_two_uses_alternate_corridor_curve():
     policy = IllustrationPolicyData(
         plancode="1U130N2X",
         db_option="A",
@@ -59,7 +59,7 @@ def test_corridor_code_two_uses_alternate_corridor_curve():
         plancode="1U130N2X",
         dbd=0.0,
         gint=0.0,
-        corridor_code=2,
+        corridor_by_age=CORRIDOR_2,
     )
 
     result = calculate_deduction(
@@ -88,7 +88,7 @@ def test_corridor_death_benefit_truncated_to_whole_dollar():
         segments=[CoverageSegment(face_amount=100_000.0, units=100.0)],
     )
     config = PlancodeConfig(
-        plancode="1U130N2X", dbd=0.0, gint=0.0, corridor_code=2,
+        plancode="1U130N2X", dbd=0.0, gint=0.0, corridor_by_age=CORRIDOR_2,
     )
 
     result = calculate_deduction(
@@ -102,11 +102,10 @@ def test_corridor_death_benefit_truncated_to_whole_dollar():
     assert result.corr_amount == pytest.approx(35_000.0)
 
 
-def test_plancode_loader_reads_schema_corridor_before_table_code():
+def test_plancode_loader_reads_schema_corridor():
     config = load_plancode("1U130M29")
 
     assert config.corridor_by_age is not None
-    assert config.corridor_code is None
 
 
 def _minimal_policy_with_riders_and_benefits(*, riders=None, benefits=None):
@@ -126,7 +125,6 @@ def _minimal_config_and_rates():
         plancode="1U135D00",
         dbd=0.04,
         gint=0.03,
-        corridor_code=None,
         table_rating_factor=0.0,
     )
     rates = IllustrationRates()
@@ -210,7 +208,6 @@ def test_increase_segment_coi_stops_on_segment_maturity_date():
         plancode="1U135D00",
         dbd=0.04,
         gint=0.03,
-        corridor_code=None,
         table_rating_factor=0.0,
     )
     rates = IllustrationRates()
@@ -595,7 +592,6 @@ def _ratchet_config(*, rachet_banding=True):
         plancode="1U130N2X",
         dbd=0.0,
         gint=0.0,
-        corridor_code=None,
         table_rating_factor=0.0,
         rachet_banding=rachet_banding,
     )

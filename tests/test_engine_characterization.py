@@ -39,6 +39,7 @@ from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     IllustrationPolicyData,
 )
+from tests.corridor_fixtures import CORRIDOR_1
 
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "engine"
 UPDATE_GOLDENS = os.environ.get("SV_UPDATE_ENGINE_GOLDENS") == "1"
@@ -96,10 +97,9 @@ def _config(plancode: str, *, lapse_value: str = "SV", cvat: bool = False) -> Pl
     return PlancodeConfig(
         plancode=plancode,
         prem_flat_load=1.25,
-        corridor_code=None,
         gint=0.02,
         dbd=0.0,
-        snet_period=0 if cvat else 3,
+        snet_by_issue_age={} if cvat else {age: 3 for age in range(0, 122)},
         lapse_value=lapse_value,
         interest_method="MonthlyCompounding",
     )
@@ -447,10 +447,9 @@ CASES = [
         _shadow_corridor_policy,
         PlancodeConfig(
             plancode="CHARSHD",
-            corridor_code=1,
+            corridor_by_age=CORRIDOR_1,
             gint=0.02,
             dbd=0.0,
-            snet_period=0,
             lapse_value="SV",
             interest_method="MonthlyCompounding",
             shadow_mfee=3.0,

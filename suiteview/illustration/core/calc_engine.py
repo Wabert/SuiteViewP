@@ -2746,9 +2746,9 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
             _reband_segment(rates, segment, policy.plancode, band=band)
     _reband_benefits(rates, policy)
     rates.tpp, rates.epp = premium_load_schedules(
-        rates_db, policy.plancode, seg, config, scale=rates.expense_scale, band=band)
+        rates_db, policy.plancode, seg, scale=rates.expense_scale, band=band)
     rates.mfee = mfee_schedule(
-        rates_db, policy.plancode, seg, config, scale=rates.expense_scale, band=band)
+        rates_db, policy.plancode, seg, scale=rates.expense_scale, band=band)
     if config.poav_table != "0":
         from suiteview.illustration.core.poav_rates import load_poav_schedule
 

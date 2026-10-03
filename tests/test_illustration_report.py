@@ -186,7 +186,7 @@ def _results():
 def test_issue_report_resolves_default_no_lapse_and_state_regulatory_values(monkeypatch):
     monkeypatch.setattr(
         "suiteview.illustration.core.report_builder.load_plancode",
-        lambda _plancode: PlancodeConfig(snet_period=5),
+        lambda _plancode: PlancodeConfig(snet_by_issue_age={age: 5 for age in range(0, 122)}),
         raising=False,
     )
     policy = _policy()

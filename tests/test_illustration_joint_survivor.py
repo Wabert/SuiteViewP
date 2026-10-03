@@ -34,6 +34,7 @@ from suiteview.illustration.models.plancode_config import PlancodeConfig, load_p
 from suiteview.illustration.models.policy_data import (
     CoverageSegment, IllustrationPolicyData, JointLives,
 )
+from tests.corridor_fixtures import CORRIDOR_1, CORRIDOR_4
 
 JOINT_PLANS = {
     "N91EAA00": 100, "N91EAB00": 100, "N91EAJ00": 100, "N91EAN00": 100,
@@ -68,20 +69,24 @@ def test_joint_plan_rows(plancode, maturity):
         assert pct[:3] == (1.0, 1.0, 0.93) and pct[14:] == (0.09, 0.0)
 
 
-def test_fallback_joint_corridor_is_one_from_age_95_while_standard_set_keeps_101():
-    joint = PlancodeConfig(plancode="N91EAB00", corridor_code=4)
+def test_joint_corridor_is_one_from_age_95_while_standard_set_keeps_101():
+    joint = PlancodeConfig(plancode="N91EAB00", corridor_by_age=CORRIDOR_4)
     assert corridor_factor(joint, 40) == 2.5
     assert corridor_factor(joint, 94) == 1.01
     assert corridor_factor(joint, 95) == 1.0
     assert corridor_factor(joint, 121) == 1.0
-    assert corridor_factor(PlancodeConfig(plancode="X", corridor_code=1), 95) == 1.01
+    assert corridor_factor(PlancodeConfig(plancode="X", corridor_by_age=CORRIDOR_1), 95) == 1.01
 
 
-def test_schema_corridor_wins_over_the_fallback_set():
-    config = PlancodeConfig(plancode="X", corridor_code=1, corridor_by_age={18: 2.5, 95: 1.0})
+def test_schema_corridor_uses_end_values_past_the_table():
+    config = PlancodeConfig(plancode="X", corridor_by_age={18: 2.5, 95: 1.0})
     assert corridor_factor(config, 10) == 2.5
     assert corridor_factor(config, 95) == 1.0
     assert corridor_factor(config, 120) == 1.0
+
+
+def test_plan_without_corridor_has_factor_one():
+    assert corridor_factor(PlancodeConfig(plancode="N91EAB00"), 40) == 1.0
 
 
 def test_invalid_joint_config_values_raise():

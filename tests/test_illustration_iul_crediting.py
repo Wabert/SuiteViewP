@@ -84,9 +84,6 @@ def _test_config(**overrides):
         gint=0.02,
         dbd=0.0,
         prem_flat_load=0.0,
-        mfee_fallback=10.0,
-        corridor_code=None,
-        snet_period=0,
         lapse_value="SV",
         interest_method="MonthlyCompounding",
     )

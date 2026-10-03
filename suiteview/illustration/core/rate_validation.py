@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from suiteview.illustration.core.corridor_rates import uses_iswl_corridor_fallback
 from suiteview.illustration.core.rate_loader import CHARGEABLE_BENEFIT_TYPES, IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -56,17 +57,22 @@ def benefit_rate_override_warnings(rates: IllustrationRates) -> list[str]:
     ]
 
 
-def table_fallback_warnings(config: PlancodeConfig, rates: IllustrationRates) -> list[str]:
-    """Return user-facing notices for values taken from the plancode table because
-    UL_Rates schema ``rates`` lacks them, and for illustration age overrides."""
-    used = list(dict.fromkeys([*config.table_fallbacks, *rates.table_fallbacks]))
+def plan_basis_warnings(config: PlancodeConfig, policy: IllustrationPolicyData) -> list[str]:
+    """Return user-facing notices about the plan basis: illustration age overrides, and a
+    GPT policy on a plan with no 7702 corridor (schema PLAN ``CORR``) loaded."""
     notices = []
-    if used:
-        notices.append(
-            f"{config.plancode}: UL_Rates schema rates has no value for "
-            f"{', '.join(used)}; the illustration uses the plancode-table fallback.")
     if config.illustration_overrides:
         notices.append(
             f"{config.plancode}: illustration age override "
             f"{'; '.join(config.illustration_overrides)}.")
+    if config.corridor_by_age or policy.is_cvat:
+        return notices
+    if uses_iswl_corridor_fallback(config):
+        notices.append(
+            f"{config.plancode}: UL_Rates schema rates has no GPT corridor (CORR) for this ISWL "
+            "plan; the illustration uses the standard 7702 corridor (tRates_CORR.json).")
+    else:
+        notices.append(
+            f"{config.plancode}: UL_Rates schema rates has no GPT corridor (CORR) for this plan; "
+            "the illustrated death benefit has no corridor.")
     return notices

@@ -19,6 +19,7 @@ from suiteview.core.rates_schema import (
     RateSetInfo, ScheduleWindow, SubseriesRow,
 )
 from suiteview.illustration.core.calc_engine import _split_requested_premium
+from suiteview.illustration.core.corridor_rates import corridor_factor, uses_iswl_corridor_fallback
 from suiteview.illustration.core.iswl_rates import (
     ISWLItemPremium,
     ISWLRateBasis,
@@ -55,8 +56,8 @@ def _basis(**changes) -> ISWLRateBasis:
 def _config(**changes) -> PlancodeConfig:
     values = dict(
         plancode=PLAN, product_family="ISWL", maturity_age=95, premium_cease_age=95,
-        gint=0.04, dbd=0.04, poav_table="0", corridor_code=1, loan_charge_rate_guar=0.08,
-        loan_charge_rate_curr=0.04, snet_period=0,
+        gint=0.04, dbd=0.04, poav_table="0", loan_charge_rate_guar=0.08,
+        loan_charge_rate_curr=0.04,
     )
     values.update(changes)
     return PlancodeConfig(**values)
@@ -179,12 +180,26 @@ def test_iswl_plancode_configuration():
     assert config.is_iswl
     assert (config.maturity_age, config.premium_cease_age, config.gint, config.dbd) == (95, 95, 0.04, 0.04)
     assert (config.loan_charge_rate_guar, config.loan_charge_rate_curr) == (0.08, 0.04)
-    assert config.table_fallbacks == ("CorridorCode",)
-    assert config.mfee_fallback is None and config.premium_load_fallback is None
-    with pytest.raises(ValueError, match="ProductFamily"):
-        from suiteview.illustration.models.plancode_config import _product_family
+    # Schema rates has no CORR for ISWL yet, so the plan uses the standard corridor from
+    # tRates_CORR.json; the table carries no plan facts.
+    assert config.corridor_by_age is None
+    assert uses_iswl_corridor_fallback(config)
+    assert corridor_factor(config, 45) == 2.15 and corridor_factor(config, 95) == 1.01
+    assert config.illustration_overrides == ()
 
-        _product_family(PLAN, "WL")
+
+def test_schema_product_family_outside_the_engine_families_is_rejected():
+    from suiteview.core.rates_errors import RatesError
+    from suiteview.illustration.models.plan_facts import PlanFacts
+
+    facts = PlanFacts(
+        plancode=PLAN, company="00", schema_family="WL", description="", maturity_age=95,
+        premium_cease_age=95, cirf_key="", fund_keys="", shadow_legacy_plancode="", gint=0.04,
+        db_discount=None, loan_reg_chg=0.08, loan_reg_crd=0.04, loan_pref_chg=None,
+        loan_pref_crd=None, snet_by_issue_age=None, corridor_by_age=None,
+    )
+    with pytest.raises(RatesError, match="PRODUCT_FAMILY WL"):
+        facts.engine_family
 
 
 # -- rates from schema ``rates`` -----------------------------------------------------

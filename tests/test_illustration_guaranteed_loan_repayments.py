@@ -35,7 +35,6 @@ def test_guaranteed_replays_actual_loan_cash_once(
     config = PlancodeConfig(
         plancode="LOANLOCK", loan_type=loan_type,
         loan_charge_rate_guar=0.06, pref_loan_charge_rate_guar=0.05,
-        corridor_code=None, snet_period=0,
     )
     rates = IllustrationRates()
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)

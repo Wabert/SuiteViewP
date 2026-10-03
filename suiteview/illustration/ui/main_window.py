@@ -33,7 +33,7 @@ from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import (
     benefit_rate_override_warnings,
     missing_required_rate_warnings,
-    table_fallback_warnings,
+    plan_basis_warnings,
 )
 from suiteview.illustration.core.parwl.service import is_par_whole_life, load_parwl_basis
 from suiteview.illustration.core.term.service import is_indeterminate_term, load_term_basis
@@ -1644,7 +1644,7 @@ class IllustrationWindow(FramelessWindowBase):
             rates = load_rates(policy_data, config)
             warnings.extend(missing_required_rate_warnings(policy_data, rates))
             warnings.extend(benefit_rate_override_warnings(rates))
-            warnings.extend(table_fallback_warnings(config, rates))
+            warnings.extend(plan_basis_warnings(config, policy_data))
         except Exception as exc:
             self._illustration_load_error = (
                 f"Unable to load illustration data/rates: {exc}")

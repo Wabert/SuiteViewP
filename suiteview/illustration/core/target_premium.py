@@ -386,7 +386,7 @@ def _ffl_monthly_fee(
     if policy.issue_age + policy_year - 1 >= config.premium_cease_age:
         return 0.0
     schedule = mfee_schedule(
-        rates_db, policy.plancode, policy.base_segment, config, scale=1, band=current_band)
+        rates_db, policy.plancode, policy.base_segment, scale=1, band=current_band)
     return _schedule_rate(schedule, policy_year)
 
 

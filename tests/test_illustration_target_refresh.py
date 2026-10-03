@@ -26,7 +26,7 @@ def _ctx(*, map_end, state_date, signature_years, changes=()):
         accumulated_mtp=0.0, gp_exception_mode=False,
     )
     ctx = SimpleNamespace(
-        state=state, policy=policy, config=SimpleNamespace(snet_period=5),
+        state=state, policy=policy, config=SimpleNamespace(safety_net_years=lambda _issue_age: 5),
         policy_changes=list(changes),
     )
     return ctx, policy

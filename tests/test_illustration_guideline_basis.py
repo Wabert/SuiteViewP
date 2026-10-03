@@ -61,8 +61,6 @@ def _policy(*, benefits=None, riders=None) -> IllustrationPolicyData:
 def _config(**overrides) -> PlancodeConfig:
     defaults = dict(
         plancode="TEST0001",
-        mfee_fallback=3.25,
-        premium_load_fallback=0.05,
         premium_cease_age=121,
         maturity_age=121,
         table_rating_factor=0.25,
@@ -309,7 +307,7 @@ def test_guideline_coi_ceases_before_maturity_while_fee_and_epu_continue():
     policy.maturity_age = 95
     basis = build_guideline_basis(
         policy,
-        _config(premium_cease_age=90, maturity_age=95, mfee_fallback=3.25),
+        _config(premium_cease_age=90, maturity_age=95),
         _rates(epu=current_epu, mfee=current_mfee),
         attained_age=40, as_of=date(2000, 6, 1),
     )

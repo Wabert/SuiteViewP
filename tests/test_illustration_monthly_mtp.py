@@ -40,7 +40,7 @@ def test_projection_monthly_mtp_and_accumulation(monkeypatch, timing, monthly, e
         accumulated_mtp=3_951.86,
     )
     config = PlancodeConfig(
-        plancode="TEST", corridor_code=None)
+        plancode="TEST")
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _plan: config)
     monkeypatch.setattr(
         calc_engine, "compute_target_premiums",

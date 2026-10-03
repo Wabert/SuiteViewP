@@ -7,6 +7,7 @@ from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
     RateLookupError,
     _load_shadow_rates,
+    get_rate,
 )
 from suiteview.illustration.core.shadow_calc import ShadowInput, calculate_shadow
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
@@ -55,8 +56,6 @@ def test_shadow_calculation_applies_regular_rider_charges():
     )
     config = PlancodeConfig(
         shadow_mfee=2.0,
-        shadow_dbd_fallback=0.0,
-        shadow_int_rate_fallback=0.0,
     )
 
     result = calculate_shadow(ShadowInput(
@@ -98,7 +97,6 @@ def _shadow_policy() -> IllustrationPolicyData:
 def test_sgul_late_premium_is_added_after_deduction_and_credited():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_dbd_fallback=0.0,
         shadow_late_payment_forgiveness=True,
     )
     rates = _shadow_rates(
@@ -148,8 +146,6 @@ def test_sgul_late_premium_is_added_after_deduction_and_credited():
 def test_aps205_relief_uses_policy_month_and_cumulative_target():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_dbd_fallback=0.0,
-        shadow_int_rate_fallback=0.0,
         shadow_aps205_load_relief=True,
     )
     rates = _shadow_rates(
@@ -183,8 +179,6 @@ def test_aps205_relief_uses_policy_month_and_cumulative_target():
 def test_aps205_premium_earns_receipt_to_monthliversary_interest():
     policy = _shadow_policy()
     config = PlancodeConfig(
-        shadow_dbd_fallback=0.0,
-        shadow_int_rate_fallback=0.12,
         shadow_aps205_load_relief=True,
     )
     rates = _shadow_rates(
@@ -218,10 +212,7 @@ def test_aps205_premium_earns_receipt_to_monthliversary_interest():
 
 def test_shadow_subtracts_gross_withdrawal_before_nar():
     policy = _shadow_policy()
-    config = PlancodeConfig(
-        shadow_dbd_fallback=0.0,
-        shadow_int_rate_fallback=0.0,
-    )
+    config = PlancodeConfig()
     rates = _shadow_rates()
 
     result = calculate_shadow(ShadowInput(
@@ -243,45 +234,68 @@ def test_shadow_subtracts_gross_withdrawal_before_nar():
     assert result.shadow_nar_av == 875.0
 
 
-def test_missing_table_shadow_rates_raise_loudly():
+class _ShadowRatesDb:
+    """Scale S schedules for the listed rate types; everything else is not loaded."""
+
+    def __init__(self, *loaded):
+        self.loaded = set(loaded)
+
+    def get_rates(self, rate_type, *_args, **_kwargs):
+        return [None, 1.0] if rate_type in self.loaded else None
+
+    def get_mtp(self, *_args, **_kwargs):
+        return None
+
+    def get_tbl1_mtp(self, *_args, **_kwargs):
+        return None
+
+    def is_loaded(self, _plancode):
+        return True
+
+
+def _shadow_config() -> PlancodeConfig:
+    return PlancodeConfig(shadow_plancode="CCVTEST", shadow_availability="Inherent")
+
+
+def test_missing_required_shadow_int_raises_loudly():
     policy = _shadow_policy()
     policy.plancode = "MISSINGSHADOW"
-    config = PlancodeConfig(
-        shadow_plancode="CCVTEST",
-        shadow_availability="Inherent",
-        shadow_epu_fallback=0.0,
-        shadow_int_rate_fallback=0.0,
-        shadow_dbd_fallback=0.0,
+
+    with pytest.raises(RateLookupError, match="shadow SHADOW_INT"):
+        _load_shadow_rates(
+            IllustrationRates(), policy, _shadow_config(),
+            _ShadowRatesDb("COI", "DBD"), policy.base_segment,
+        )
+    with pytest.raises(RateLookupError, match="shadow DBD"):
+        _load_shadow_rates(
+            IllustrationRates(), policy, _shadow_config(),
+            _ShadowRatesDb("COI", "SHADOW_INT"), policy.base_segment,
+        )
+
+
+def test_missing_optional_shadow_epu_loads_and_target_read_zero():
+    policy = _shadow_policy()
+    policy.plancode = "NOSHADOWEPU"
+    result = IllustrationRates()
+
+    _load_shadow_rates(
+        result, policy, _shadow_config(),
+        _ShadowRatesDb("COI", "SHADOW_INT", "DBD"), policy.base_segment,
     )
 
-    class Rates:
-        def get_rates(self, rate_type, *_args, **_kwargs):
-            return [None, 1.0] if rate_type == "COI" else None
-
-        def get_mtp(self, *_args, **_kwargs):
-            return 1.0
-
-        def get_tbl1_mtp(self, *_args, **_kwargs):
-            return 0.0
-
-        def is_loaded(self, _plancode):
-            return True
-
-    with pytest.raises(RateLookupError, match="shadow TPP"):
-        _load_shadow_rates(
-            IllustrationRates(),
-            policy,
-            config,
-            Rates(),
-            policy.base_segment,
-        )
+    assert result.shadow_int == [None, 1.0] and result.shadow_dbd == [None, 1.0]
+    assert result.shadow_epu == [] and result.shadow_tpp == [] and result.shadow_epp == []
+    assert result.shadow_tpr == [] and result.shadow_tpr_tbl1 == []
+    for name in ("shadow_epu", "shadow_tpp", "shadow_epp"):
+        assert get_rate(result, name, 1) == 0.0
+    with pytest.raises(RateLookupError, match="shadow_int"):
+        get_rate(IllustrationRates(), "shadow_int", 1)
 
 
 def test_sgul15s_ny_has_shadow_config_on_base_scale_s_rates():
     config = load_plancode("1U146200")
 
     assert config.shadow_plancode == "CCV46100"
-    assert config.shadow_target_fallback is None
     assert config.shadow_late_payment_forgiveness is True
 
 

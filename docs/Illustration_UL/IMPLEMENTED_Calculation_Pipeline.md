@@ -866,8 +866,7 @@ segment_epu_charge = (segment_basis / 1000) * segment_epu_rate
 Monthly fee and AV charge:
 
 ```text
-mfee_charge = MFEE[rate_year]        # schema MFEE (C/G scale), else the table's flat
-                                     # MFEE fallback for a plan without MFEE cells, else 0
+mfee_charge = MFEE[rate_year]        # schema MFEE (C/G scale); 0 for a plan without MFEE cells
 
 if PoAV_Table != "0":
     av_charge = max(0, av_after_premium * poav_rate)

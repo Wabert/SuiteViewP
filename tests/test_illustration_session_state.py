@@ -22,6 +22,7 @@ from suiteview.illustration.ui.main_window import IllustrationWindow
 from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
 from suiteview.illustration.ui.styles import ISSUE_BLUE_BG
 from suiteview.illustration.ui.values_tab import IllustrationValuesTab
+from tests.corridor_fixtures import CORRIDOR_1
 
 _QT_APP = None
 
@@ -387,7 +388,7 @@ def test_policy_load_checks_uses_data_loader_before_projection(monkeypatch):
     )
     monkeypatch.setattr(
         "suiteview.illustration.ui.main_window.load_plancode",
-        lambda _plancode: PlancodeConfig(plancode="TEST"),
+        lambda _plancode: PlancodeConfig(plancode="TEST", corridor_by_age=CORRIDOR_1),
     )
     monkeypatch.setattr(
         "suiteview.illustration.ui.main_window.load_rates",

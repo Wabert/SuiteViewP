@@ -331,8 +331,6 @@ def _guideline_result():
     config = PlancodeConfig(
         plancode="MATURITY",
         maturity_age=95,
-        corridor_code=None,
-        snet_period=0,
     )
     old_load_plancode = calc_engine.load_plancode
     try:
@@ -388,7 +386,8 @@ def solver_output_cases() -> dict[str, object]:
         ),
         "lumpsum_to_next_premium": solve_lumpsum_to_next_premium(
             _lumpsum_policy(),
-            config=PlancodeConfig(lapse_value="SV", snet_period=10),
+            config=PlancodeConfig(
+                lapse_value="SV", snet_by_issue_age={age: 10 for age in range(0, 122)}),
             engine=_LumpsumEngine(),
         ),
         "loan_payoff": solve_loan_payoff(

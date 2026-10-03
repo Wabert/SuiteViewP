@@ -51,7 +51,7 @@ def _fixture(monkeypatch, *, pwot_basis=1, table_factor=0.25):
         riders=[RiderInfo(coverage_phase=3, table_rating=3, is_active=False)],
     )
     config = PlancodeConfig(
-        plancode="TEST", gint=0.0, dbd=0.0, corridor_code=None,
+        plancode="TEST", gint=0.0, dbd=0.0,
         table_rating_factor=table_factor, pwot_coi_basis=pwot_basis,
     )
     rates = IllustrationRates(

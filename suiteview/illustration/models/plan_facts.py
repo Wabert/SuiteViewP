@@ -1,9 +1,7 @@
 """Plan-level illustration facts from UL_Rates schema ``rates``.
 
-``load_plancode`` (``plancode_config``) builds a plancode's configuration database
-first: every fact below comes from schema ``rates`` when the plan carries it, and the
-plancode table supplies a value only for a plan whose database value is missing
-(logged and listed in ``PlancodeConfig.table_fallbacks``).
+``load_plancode`` (``plancode_config``) takes every fact below from schema ``rates``
+only; the plancode table holds product rules, not these facts.
 
 ======================  ==============================================================
 PlancodeConfig field    Schema source
@@ -15,11 +13,11 @@ cint_key                ``PLAN_DEF.CIRF_KEY``; a multi-fund IUL key (``FIXLNIUL,
                         names the fixed account in ``PLAN_ATTR FUND_KEYS``
                         (``FIXLNIUL,IULFIX09,IULINDEX09`` -> ``IULFIX09``)
 gint                    PLAN ``GINT`` (one rate for every duration)
-dbd                     ``DB_DISCOUNT`` on the current/guaranteed scale, else GINT
+dbd                     ``DB_DISCOUNT`` on the guaranteed (base) scale, else GINT
 loan rates              PLAN ``LOAN_REG_CHG`` / ``LOAN_REG_CRD`` / ``LOAN_PREF_CHG`` /
-                        ``LOAN_PREF_CRD``
-safety net period       PLAN ``SNET_PERIOD`` by issue age
-corridor factors        PLAN ``CORR`` by attained age (grain AA)
+                        ``LOAN_PREF_CRD`` (no preferred rows = no preferred loan)
+safety net period       PLAN ``SNET_PERIOD`` by issue age (none = no safety net)
+corridor factors        PLAN ``CORR`` by attained age, grain AA (none = no GPT corridor)
 shadow_plancode         ``PLAN_ATTR SHADOW_LEGACY_PLANCODE``
 ======================  ==============================================================
 

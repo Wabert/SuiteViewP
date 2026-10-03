@@ -148,8 +148,8 @@ def _debt_at_deduction(state: MonthlyState) -> float:
 
 
 def _validate_rates(policy, config, rates):
-    # EPU, MFEE and premium loads are optional schema rates (none loaded = no
-    # charge). The loader fills every shadow schedule (scale S or a table fallback).
+    # EPU, MFEE, premium loads and the shadow EPU/loads are optional schema rates
+    # (none loaded = no charge); the loader raises for a missing required shadow rate.
     required = {}
     for segment in policy.segments:
         phase = segment.coverage_phase
@@ -158,7 +158,7 @@ def _validate_rates(policy, config, rates):
     if config.poav_table != "0":
         required["poav"] = rates.poav
     if policy.has_shadow_account:
-        for name in ("shadow_coi", "shadow_epu", "shadow_int", "shadow_dbd", "shadow_tpp", "shadow_epp"):
+        for name in ("shadow_coi", "shadow_int", "shadow_dbd"):
             required[name] = getattr(rates, name)
     for name, schedule in required.items():
         if not schedule or len(schedule) < 2:

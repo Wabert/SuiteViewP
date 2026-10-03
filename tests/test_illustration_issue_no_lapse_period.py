@@ -53,8 +53,7 @@ def _policy():
 @pytest.fixture
 def engine_basis(monkeypatch):
     config = PlancodeConfig(
-        plancode="1U135D00", snet_period=0, lapse_value="SV",
-        corridor_code=None,
+        plancode="1U135D00", lapse_value="SV",
     )
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(calc_engine, "compute_target_premiums",
@@ -111,19 +110,19 @@ def test_billable_to_md_probe_uses_the_same_temporary_av_basis(engine_basis):
 
 
 def test_default_period_uses_plan_safety_net_and_does_not_modify_config(engine_basis):
-    engine_basis.snet_period = 2
+    engine_basis.snet_by_issue_age = {40: 2}
     policy, states = _project(None, months=25)
     assert policy.issue_no_lapse_years is None
     assert not states[24].lapsed and states[25].lapsed
-    assert engine_basis.snet_period == 2 and engine_basis.lapse_value == "SV"
+    assert engine_basis.snet_by_issue_age == {40: 2} and engine_basis.lapse_value == "SV"
 
 
 def test_table_based_default_uses_recorded_minimum_premium_cease_date():
     policy = _policy()
     policy.map_cease_date = date(2015, 3, 30)
-    config = PlancodeConfig(snet_period=0)
+    config = PlancodeConfig()
     assert default_issue_no_lapse_years(policy, config) == 5
-    assert default_issue_no_lapse_years(policy, PlancodeConfig(snet_period=10)) == 5
+    assert default_issue_no_lapse_years(policy, PlancodeConfig(snet_by_issue_age={40: 10})) == 5
     policy.map_cease_date = date(2011, 2, 28)
     assert default_issue_no_lapse_years(policy, config) == 1
     policy.map_cease_date = None
@@ -131,7 +130,7 @@ def test_table_based_default_uses_recorded_minimum_premium_cease_date():
 
 
 def test_inforce_ignores_issue_period_and_fractional_years_round_to_months():
-    config = PlancodeConfig(snet_period=0, lapse_value="SV")
+    config = PlancodeConfig(lapse_value="SV")
     policy = _policy()
     policy.issue_no_lapse_years = 100
     assert lapse_value_for_month(policy, config, 1) == "SV"
@@ -158,7 +157,7 @@ def test_period_round_trips_through_saved_inputs_and_compare_scenario(monkeypatc
     from suiteview.illustration.ui.saved_case_scenario import build_spec_from_tab
 
     monkeypatch.setattr(issue_conditions, "load_plancode",
-                        lambda _: PlancodeConfig(snet_period=7))
+                        lambda _: PlancodeConfig(snet_by_issue_age={40: 7}))
     tab = IllustrationInputsTab()
     tab.load_data_from_policy(_policy())
     assert tab.issue_conditions.no_lapse_years_edit.value() == 7
