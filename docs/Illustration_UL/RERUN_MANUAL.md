@@ -1073,7 +1073,10 @@ Rules are in `illustration/core/iswl_rates.py`:
   (`LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT`, value-weighted if they differ). Rows flagged
   `IMPAIRED_IND` 1 are used when no other bucket exists: they hold the fund's unloaned
   value, the collateral being in `LH_FND_VAL_LOAN` (B11SB200 26/000321893: AV 21,077.73
-  = F1 12,752.46 + loan 8,325.27). The
+  = F1 12,752.46 + loan 8,325.27). A negative-value bucket at 0% (fund `GP`, CyberLife's
+  holding fund for a negative account value: charges only) does not set the rate; new
+  money is credited in the fixed fund (B71SP600 16867267: I1 at 2%). That clears the 17
+  in-force policies that refused; 13 match CyberLife's valuation MD to the cent. The
   source is `IllustrationPolicyData.current_interest_rate_source`.
 - **Guaranteed side** keeps the billed premium and locks the requested billed
   payments (`lock_values(..., iswl=True)`).

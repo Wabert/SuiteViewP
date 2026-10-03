@@ -406,6 +406,14 @@ def test_recorded_bucket_rate_is_the_fallback_current_rate():
         iswl_recorded_credited_rate([(100.0, None)], 0.03)
 
 
+def test_negative_zero_rate_holding_bucket_does_not_set_the_credited_rate():
+    """B71SP600 16867267: GP holds the negative AV at 0%; new money is credited in I1 at 2%."""
+    assert iswl_recorded_credited_rate([(0.0, 2.0), (-325.06, 0.0)], 0.02) == 0.02
+    assert iswl_recorded_credited_rate([(0.0, 4.0)] * 3 + [(-22.3, 0.0)], 0.03) == 0.04
+    with pytest.raises(RateLookupError, match="hold no value"):
+        iswl_recorded_credited_rate([(0.0, 4.0), (0.0, 3.0), (-50.0, 0.0)], 0.03)
+
+
 def test_net_premium_uses_the_stored_premium_per_unit():
     # 11673995: 25.507 units stored at 6.31 while schema PREM at the record issue age differs;
     # CyberLife credited 68.36 = 25.507 x round(0.85 x 6.31, 2) / 2 each semi-annual payment.

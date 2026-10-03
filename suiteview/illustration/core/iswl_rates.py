@@ -680,9 +680,14 @@ def iswl_recorded_credited_rate(bucket_rates: Sequence[Tuple[float, float]], gua
     """The rate CyberLife credits the policy's current fixed-fund buckets.
 
     ``bucket_rates`` holds ``(value, annual percent)`` for each current, unimpaired
-    bucket. Buckets crediting different rates give their value-weighted average.
+    bucket. Buckets crediting different rates give their value-weighted average. A
+    negative-value bucket at 0% is CyberLife's holding fund for a negative account value
+    (``FND_ID_CD`` ``GP``: charges only, no interest; new premiums go to the fixed fund,
+    e.g. B71SP600 16867267 credits I1 at 2%), so it does not set the credited rate.
     """
     rates = [(float(value), float(pct) / 100.0) for value, pct in bucket_rates if pct is not None]
+    credited = [(value, rate) for value, rate in rates if not (value < 0.0 and rate == 0.0)]
+    rates = credited or rates
     if not rates:
         raise RateLookupError(
             "ISWL current interest: schema rates has no declared rate for this plan and the "
