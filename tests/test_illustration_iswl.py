@@ -21,6 +21,7 @@ from suiteview.core.rates_schema import (
 from suiteview.illustration.core.calc_engine import _split_requested_premium
 from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.iswl_rates import (
+    FundBucketRate,
     ISWLItemPremium,
     ISWLRateBasis,
     iswl_current_credited_rate,
@@ -398,20 +399,33 @@ def test_current_credited_rate_is_the_declared_fixed_fund_rate_floored_at_gint()
     assert iswl_current_credited_rate("01", PLAN, date(2026, 9, 29), 0.04, repo=_FakeSchema(funds=False)) is None
 
 
+def _buckets(*rows):
+    return [FundBucketRate(*row) for row in rows]
+
+
 def test_recorded_bucket_rate_is_the_fallback_current_rate():
-    assert iswl_recorded_credited_rate([(9863.47, 4.0), (4.82, 4.0)], 0.03) == 0.04
-    assert iswl_recorded_credited_rate([(100.0, 4.5), (300.0, 3.5)], 0.03) == pytest.approx(0.0375)
-    assert iswl_recorded_credited_rate([(100.0, 2.5)], 0.03) == 0.03
+    assert iswl_recorded_credited_rate(_buckets((9863.47, 4.0, "F1"), (4.82, 4.0, "F1")), 0.03) == 0.04
+    assert iswl_recorded_credited_rate(
+        _buckets((100.0, 4.5, "F1"), (300.0, 3.5, "F2")), 0.03) == pytest.approx(0.0375)
+    assert iswl_recorded_credited_rate(_buckets((100.0, 2.5, "F1")), 0.03) == 0.03
     with pytest.raises(RateLookupError, match="no current fund bucket rate"):
-        iswl_recorded_credited_rate([(100.0, None)], 0.03)
+        iswl_recorded_credited_rate(_buckets((100.0, None, "F1")), 0.03)
 
 
-def test_negative_zero_rate_holding_bucket_does_not_set_the_credited_rate():
+def test_negative_gp_holding_bucket_does_not_set_the_credited_rate():
     """B71SP600 16867267: GP holds the negative AV at 0%; new money is credited in I1 at 2%."""
-    assert iswl_recorded_credited_rate([(0.0, 2.0), (-325.06, 0.0)], 0.02) == 0.02
-    assert iswl_recorded_credited_rate([(0.0, 4.0)] * 3 + [(-22.3, 0.0)], 0.03) == 0.04
+    assert iswl_recorded_credited_rate(_buckets((0.0, 2.0, "I1"), (-325.06, 0.0, "GP")), 0.02) == 0.02
+    assert iswl_recorded_credited_rate(_buckets(*[(0.0, 4.0, "I1")] * 3, (-22.3, 0.0, "GP")), 0.03) == 0.04
     with pytest.raises(RateLookupError, match="hold no value"):
-        iswl_recorded_credited_rate([(0.0, 4.0), (0.0, 3.0), (-50.0, 0.0)], 0.03)
+        iswl_recorded_credited_rate(_buckets((0.0, 4.0, "I1"), (0.0, 3.0, "I2"), (-50.0, 0.0, "GP")), 0.03)
+
+
+def test_negative_zero_rate_bucket_in_another_fund_still_weights_the_rate():
+    """Only fund GP is CyberLife's negative-AV holding fund; other funds keep their weight."""
+    assert iswl_recorded_credited_rate(
+        _buckets((300.0, 4.0, "F1"), (-100.0, 0.0, "F2")), 0.01) == pytest.approx(0.06)
+    with pytest.raises(RateLookupError, match="hold no value"):
+        iswl_recorded_credited_rate(_buckets((0.0, 2.0, "I1"), (-325.06, 0.0, "F2")), 0.02)
 
 
 def test_net_premium_uses_the_stored_premium_per_unit():

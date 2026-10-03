@@ -76,8 +76,9 @@ def test_apply_premium_with_no_premium_leaves_the_account_value():
 def _bucket_source(rows):
     from types import SimpleNamespace
 
-    buckets = [SimpleNamespace(csv_amount=value, interest_rate=rate, raw_data={"IMPAIRED_IND": imp})
-               for imp, value, rate in rows]
+    buckets = [SimpleNamespace(csv_amount=row[1], interest_rate=row[2], raw_data={"IMPAIRED_IND": row[0]},
+                               fund_id=row[3] if len(row) > 3 else "F1")
+               for row in rows]
     pi = SimpleNamespace(company_code="26",
                          values=SimpleNamespace(get_fund_buckets=lambda current_only=True: buckets))
     return SimpleNamespace(plancode_config=_config(gint=0.04), pi=pi, plancode="B11SB200",
@@ -96,6 +97,18 @@ def test_iswl_interest_falls_back_to_impaired_flag_buckets(monkeypatch):
     assert "LH_POL_FND_VAL_TOT" in source
     rate, _ = _current_interest_rate(_bucket_source([("1", 100.0, 6.0), ("0", 900.0, 4.5)]))
     assert rate == pytest.approx(0.045)
+
+
+def test_iswl_interest_skips_the_negative_gp_holding_fund(monkeypatch):
+    """B71SP600 16867267: GP holds the -325.06 AV at 0%; I1 credits new money at 2%."""
+    from suiteview.illustration.core import iswl_rates
+    from suiteview.illustration.core.illustration_policy_service import _current_interest_rate
+
+    monkeypatch.setattr(iswl_rates, "iswl_current_credited_rate", lambda *a, **k: None)
+    rate, _ = _current_interest_rate(_bucket_source([("0", 0.0, 2.0, "I1"), ("0", -325.06, 0.0, "GP")]))
+    assert rate == pytest.approx(0.04)  # floored at the test config's GINT 4%
+    with pytest.raises(RateLookupError, match="hold no value"):
+        _current_interest_rate(_bucket_source([("0", 0.0, 2.0, "I1"), ("0", -325.06, 0.0, "F2")]))
 
 def test_rule_5_table_58_loads_for_company_01_and_company_26_grading_fails_loudly():
     fake = _SinglePremiumSchema(scr_rules="50", scr_table="58", scr_cells=("SCR_PCT",))
