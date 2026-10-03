@@ -616,7 +616,21 @@ def _coverage_segment_from_source(source: PolicySourceSnapshot, cov) -> Coverage
         premium_rate=float(cov.premium_rate) if cov.premium_rate else None,
         joint_lives=joint_lives,
         surrender_target=surrender_target,
+        **_iswl_nsp_basis(source, cov),
     )
+
+
+def _iswl_nsp_basis(source: PolicySourceSnapshot, cov) -> dict:
+    """ISWL CVAT NSP inputs: valuation mortality table and NSP interest (CyberDoc D10:
+    ISL DEFRA net single premiums use the valuation mortality table)."""
+    if not source.plancode_config.is_iswl:
+        return {}
+    facts = source.pi.coverages.traditional_facts(cov.cov_pha_nbr)
+    rate = facts.nsp_interest_rate
+    return {
+        "nsp_mortality_table": facts.valuation_mortality_table,
+        "nsp_interest_rate": float(rate) / 100.0 if rate is not None else None,
+    }
 
 
 def _is_joint_phase(cov, joint_company: str | None, plancode: str) -> bool:

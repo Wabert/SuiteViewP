@@ -513,8 +513,12 @@ def _build_death_benefit_basis(
     attained_age: int,
     premiums_to_date: float,
     projection_date: date | None = None,
+    corridor_rate: float | None = None,
 ) -> DeathBenefitBasis:
     """Build standard/corridor death benefit and discounted coverage slices.
+
+    ``corridor_rate`` overrides the plan's GPT corridor factor (the CVAT minimum
+    death benefit ratio from ``cvat_nsp.CvatCorridor``).
 
     Segments not yet issued at ``projection_date`` keep their coverage slot
     with zero death benefit."""
@@ -532,7 +536,7 @@ def _build_death_benefit_basis(
     else:
         standard_db = face
 
-    corr_rate = corridor_factor(config, attained_age)
+    corr_rate = corridor_rate if corridor_rate is not None else corridor_factor(config, attained_age)
     gross_db = (
         max(standard_db, float(math.floor(corr_rate * nar_av + 1e-6)))
         if corr_rate > 0 else standard_db
@@ -927,6 +931,7 @@ def calculate_deduction(
     monthly_mtp: float = 0.0,
     projection_date: date | None = None,
     bln_round_charge: bool = False,
+    corridor_rate: float | None = None,
 ) -> DeductionResult:
     """Calculate monthly deduction charges.
 
@@ -939,13 +944,14 @@ def calculate_deduction(
         attained_age: Current attained age for corridor lookup.
         premiums_to_date: Cumulative premiums (for DBO C).
         monthly_mtp: Monthly minimum target premium (for PW charge basis).
+        corridor_rate: CVAT minimum death benefit ratio; None uses the GPT ``CORR``.
 
     Returns:
         DeductionResult with all deduction-stage outputs.
     """
     basis = _build_death_benefit_basis(
         av_after_premium, policy, config, attained_age, premiums_to_date,
-        projection_date)
+        projection_date, corridor_rate)
     nar = _allocate_nar(basis)
     if _at_or_after_policy_maturity(policy, config, attained_age):
         return _maturity_deduction_result(basis, nar)

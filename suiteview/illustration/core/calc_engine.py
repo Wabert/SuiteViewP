@@ -71,6 +71,7 @@ from suiteview.illustration.constants import (
 )
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
 from suiteview.illustration.core.corridor_rates import corridor_factor
+from suiteview.illustration.core.cvat_nsp import CvatCorridor, IswlNspBasis, UlNspBasis
 from suiteview.illustration.core.deemed_cash_value import NptTracker, glp_rate_for
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
@@ -223,6 +224,16 @@ class MonthContext:
     # CVAT deemed-cash-value / NSP state (deemed_cash_value.NptTracker); None
     # when the run never reaches a month where the NPT can limit a premium.
     npt: Optional[NptTracker] = None
+    # CVAT corridor (cvat_nsp.CvatCorridor): the minimum death benefit ratio
+    # 1/NSP by month; None for GPT policies, which use the plan's CORR.
+    cvat: Optional[CvatCorridor] = None
+
+
+def cvat_corridor_rate(cvat: Optional[CvatCorridor], month_date: Optional[date]) -> Optional[float]:
+    """The month's CVAT minimum death benefit ratio, or None (GPT ``CORR`` applies)."""
+    if cvat is None or month_date is None:
+        return None
+    return cvat.corridor_rate(month_date)
 
 
 @dataclass
@@ -521,6 +532,7 @@ def process_withdrawal_step(
         defer_guideline_recalc=(
             convention.guideline_recalc and bool(ctx.policy_changes)
         ),
+        corridor_rate=cvat_corridor_rate(ctx.cvat, work.month_date),
     ))
     work.av = work.wd.av_post_withdrawal
     work.bo_av = work.av
@@ -1023,6 +1035,7 @@ def deduct_monthly_charges(
         work.prem.premiums_to_date,
         monthly_mtp=monthly_mtp,
         projection_date=work.month_date,
+        corridor_rate=cvat_corridor_rate(ctx.cvat, work.month_date),
     )
     work.asset_charge = monthly_asset_charge(
         ctx.iul_ctx,
@@ -1973,9 +1986,10 @@ def build_inforce_state(
     iul_ctx: Optional[IULCreditingContext],
     timing: ProjectionTiming,
     starting_exception_period: bool,
+    cvat: Optional[CvatCorridor] = None,
 ) -> MonthlyState:
     """Build the month-zero inforce state that seeds a projection."""
-    work = _initialize_inforce_work(policy, config, rates, bonus, options, iul_ctx)
+    work = _initialize_inforce_work(policy, config, rates, bonus, options, iul_ctx, cvat)
     _add_inforce_loan_shadow_lapse(policy, config, rates, iul_ctx, work)
     inforce = _build_inforce_row(
         policy, config, iul_ctx, starting_exception_period, work
@@ -1990,6 +2004,7 @@ def _initialize_inforce_work(
     bonus: BonusConfig,
     options: IllustrationOptions,
     iul_ctx: Optional[IULCreditingContext],
+    cvat: Optional[CvatCorridor] = None,
 ) -> InforceWork:
     work = InforceWork()
     work.rate_year = policy.policy_year
@@ -2017,6 +2032,7 @@ def _initialize_inforce_work(
         monthly_mtp=work.monthly_mtp,
         projection_date=work.month_date,
         bln_round_charge=True,
+        corridor_rate=cvat_corridor_rate(cvat, work.month_date),
     )
     work.intr = credit_interest(
         policy.account_value, policy, config, rates, bonus,
@@ -2486,9 +2502,10 @@ class IllustrationEngine:
         total_months = projection_month_count(policy, months)
         changes_by_duration = compile_policy_changes_by_duration(policy, future_inputs)
 
+        cvat = self._start_cvat_corridor(policy, config)
         inforce = build_inforce_state(
             policy, config, rates, bonus, options, iul_ctx, timing,
-            starting_exception_period,
+            starting_exception_period, cvat,
         )
         npt, inforce = self._start_npt_tracker(
             policy, config, rates, options, timing, inforce, total_months)
@@ -2506,7 +2523,7 @@ class IllustrationEngine:
             state = run_month(MonthContext(
                 state=state, policy=policy, config=config, rates=rates,
                 bonus=bonus, month_inputs=month_inputs, options=options,
-                policy_changes=policy_changes, iul_ctx=iul_ctx, npt=npt,
+                policy_changes=policy_changes, iul_ctx=iul_ctx, npt=npt, cvat=cvat,
             ), convention)
             state = _apply_mec_status(policy, results, state)
             results.append(state)
@@ -2514,6 +2531,22 @@ class IllustrationEngine:
                 break
 
         return results
+
+    def _start_cvat_corridor(
+        self, policy: IllustrationPolicyData, config: PlancodeConfig,
+    ) -> Optional[CvatCorridor]:
+        """The CVAT minimum death benefit ratio tracker; None for GPT policies.
+
+        UL plans use the guaranteed COI (reloaded per coverage state through the
+        guaranteed-rates cache); ISWL plans the coverage's valuation mortality table.
+        """
+        if not policy.is_cvat:
+            return None
+        if config.is_iswl:
+            return CvatCorridor(IswlNspBasis(policy))
+        return CvatCorridor(UlNspBasis(
+            policy, config, self._guaranteed_rates(policy, config),
+            loader=lambda current: self._guaranteed_rates(current, config)))
 
     def _start_npt_tracker(
         self,
@@ -3099,6 +3132,8 @@ class WithdrawalInput:
     is_anniversary: bool
     options: IllustrationOptions
     defer_guideline_recalc: bool = False
+    # CVAT minimum death benefit ratio; None uses the plan's GPT CORR.
+    corridor_rate: Optional[float] = None
 
 
 def _process_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
@@ -3135,7 +3170,9 @@ def _compute_month_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
         inputs.av, policy, config, scr_rates, request,
         gross_request=gross_request,
         pct_of_av_surrender_charge=pct_of_av_charge,
-        corridor_rate=corridor_factor(config, inputs.attained_age),
+        corridor_rate=(
+            inputs.corridor_rate if inputs.corridor_rate is not None
+            else corridor_factor(config, inputs.attained_age)),
         prior_total_md=state.total_deduction,
         policy_debt=debt,
         cost_basis=inputs.cost_basis,

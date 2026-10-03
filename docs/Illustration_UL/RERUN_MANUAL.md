@@ -57,11 +57,13 @@ means no charge. The shadow account requires scale S COI, `SHADOW_INT` and
 target rate are optional. A table row that still carries a plan fact
 (`plancode_config.DATABASE_KEYS`) fails `load_plancode` loudly.
 
-**Corridor.** UL plans without `CORR` are CVAT-only plans (their minimum death
-benefit is the deemed-cash-value test): no GPT corridor. The 27 GPT ISWL plans
+**Corridor.** UL plans without `CORR` are CVAT plans; their corridor is the CVAT
+minimum death benefit ratio `face / NS` (see "RERUN CVAT corridor" below), not a
+GPT factor. The 27 GPT ISWL plans
 carry the standard 7702 `CORR` in schema `rates` (loaded October 2026; in-force
-CyberLife NAR matches it at attained age on 290/290 in-corridor policies). The two
-CVAT ISWL plans (80136200, B11SB600) have no `CORR`. `tRates_CORR.json` is retired.
+CyberLife NAR matches it at attained age on 290/290 in-corridor policies). The
+CVAT ISWL plans (80136200, B11SB600 and the single-premium B11S*/B71S*/N61S*
+series) have no `CORR` and use the CVAT corridor. `tRates_CORR.json` is retired.
 A GPT policy on a plan without `CORR` shows a RERUN load notice
 (`rate_validation.plan_basis_warnings`).
 
@@ -419,6 +421,42 @@ and Excel/debug exports. Ratchet's single display rate remains its band-1
 representative; charges still use both bands. No COI rate tables are changed.
 Regression: `tests/test_illustration_corridor_coi.py` and
 `tests/test_illustration_values_tab.py` include the 2.39 / 2.55 distinction.
+
+## RERUN CVAT corridor
+
+A CVAT policy (`LH_NON_TRD_POL.TFDF_CD` 3/5) keeps its death benefit at or above
+`AV × MDBR`, where CyberLife's minimum death benefit ratio is `1 / NSP`: per $1 of
+AV, `face / NS`, NS being the basic insured's net single premium stored as
+`LH_POL_TARGET` `TAR_TYP_CD = 'NS'` on each anniversary.
+`core/cvat_nsp.py` reproduces NS to the cent and the engine applies
+`DB = MAX(standard DB, FLOOR(AV × face / NS))` in the valuation-month MD check,
+every projected month and withdrawals (`calculate_deduction(corridor_rate=...)`).
+GPT policies keep the plan `CORR`.
+
+| | UL / IUL | ISWL |
+|---|---|---|
+| Mortality | each base phase's guaranteed COI (schema COI scale G), monthly, `q = Q/(1+Q/1000)`, `Q` capped at 1000/12 | valuation table `LH_COV_PHA.MTL_FCT_TBL_CD` (bundled CKAPTB32), annual `q` |
+| Interest | `MAX(GINT, 4%)`; 2% for issues from 2021 | `NSP_ITS_RT` (statutory floor) |
+| Claims | end of month of death | immediate, `i / ROUND(ln(1+i), 7)` on the insurance part; curtate on B11SP400/40J/500, B11SW100/200, B71SP600/60J/700/800/900 |
+| Endowment | attained age 100 | attained age 100 |
+| Substandard | table ratings only on 1U147400, 1U147800, 1U147900, 1U148000, 1U148100; flat extras never | none |
+| Held | anniversary NS for the policy year | anniversary NS for the policy year |
+
+The NSP is computed once by present value at the first projected anniversary,
+then **rolled forward with the Fackler recursion** `A_next = (A − f·v·q)/(v·(1 − q))`
+(monthly steps for UL, annual for ISWL); a coverage mortality change (new or
+removed phase, class or rating change) restarts the present value. Riders and
+benefits are excluded (CyberLife's `NT` target holds other insureds).
+
+Validation (10/3/2026): an independent 501-policy CVAT sample over 41 plancodes
+matched NS to the cent on 475 and within $0.01 on 5 more. The rest: N61SB100/400
+on 1980 CSO tables (cents to $22, table precision), a stale 2016 NS, one ISWL
+load error, and four rated UL policies whose NS follows the opposite plan
+substandard rule (no DB2 field distinguishes them). All 7 in-force UL CVAT
+policies in the corridor (AV > NS) match CyberLife's valuation MD to the cent;
+holding the anniversary NS is required (a monthly roll misses 5 of 7 by up to
+$0.75). Check tool: `tools/rerun/cvat_nsp_check.py --input <csv> --out <csv>`.
+Regression: `tests/test_illustration_cvat_nsp.py`.
 
 ## RERUN waiver target rate units
 
@@ -1039,7 +1077,7 @@ Rules are in `illustration/core/iswl_rates.py`:
   source is `IllustrationPolicyData.current_interest_rate_source`.
 - **Guaranteed side** keeps the billed premium and locks the requested billed
   payments (`lock_values(..., iswl=True)`).
-- **Not supported (loud errors)**: CVAT ISWL (80136200's NSP corridor), more
+- **Not supported (loud errors)**: more
   than one base phase, limited-pay, premium load rules other than `400` on a
   premium-paying policy, unknown
   bill forms, schema facts that disagree with the plancode row, and missing
@@ -1061,7 +1099,8 @@ schema `rates` loads it:
 - COI past age 100 for 80110529 and 81110329, which mature at 103.
 - `PLAN_MODEFACT` rows for the 56070 series (FN2VN*/MN2VN*), which have no
   surrender charge.
-- The CVAT corridor for 80136200 (also missing its F/N `CV` cells).
+- 80136200's missing F/N `CV` cells (its CVAT corridor is modelled: "RERUN CVAT
+  corridor").
 
 October 3, 2026 added rows for the premium-paying 56070 plans FS2VN200, MN2VN400 and
 MS2VN200, and for 46 single-premium plans (`--single-premium`; B11S*, B71S*, F*2S*,

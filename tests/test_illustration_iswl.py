@@ -381,9 +381,10 @@ def test_several_base_phases_are_rejected():
         load_iswl_rates(policy, _config(), repo=_FakeSchema())
 
 
-def test_cvat_iswl_is_rejected_because_its_corridor_is_not_modelled():
-    with pytest.raises(RateLookupError, match="CVAT"):
-        load_iswl_rates(_policy(def_of_life_ins="CVAT"), _config(), repo=_FakeSchema())
+def test_cvat_iswl_loads_its_rates_for_the_nsp_corridor():
+    """The CVAT corridor (cvat_nsp) is modelled, so a CVAT ISWL loads like a GPT one."""
+    rates = load_iswl_rates(_policy(def_of_life_ins="CVAT"), _config(), repo=_FakeSchema())
+    assert rates.coi[1] > 0
 
 
 def test_current_credited_rate_is_the_declared_fixed_fund_rate_floored_at_gint():

@@ -70,6 +70,10 @@ class CoverageSegment:
     joint_lives: Optional[JointLives] = None
     # Stored surrender target (LH_COV_TARGET 'ST') for percent-of-target SCR.
     surrender_target: Optional[float] = None
+    # ISWL CVAT net single premium basis (LH_COV_PHA): the valuation mortality table
+    # (MTL_FCT_TBL_CD) and the NSP interest rate (NSP_ITS_RT, decimal). Blank on UL.
+    nsp_mortality_table: str = ""
+    nsp_interest_rate: Optional[float] = None
 
 
 @dataclass

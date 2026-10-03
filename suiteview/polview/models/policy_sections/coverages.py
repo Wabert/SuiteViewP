@@ -568,6 +568,7 @@ class CoveragesSection(PolicySection):
             renewal_period=self._parse_optional_int(row.get("SBQ_RNL_PER")),
             indeterminate_guaranteed_months=self._parse_optional_int(row.get("IDT_PRM_GUA_PER")),
             refresh_or_renewal_age=self._parse_optional_int(row.get("REFRESH_OR_RNL_AGE")),
+            valuation_mortality_table=text("MTL_FCT_TBL_CD"),
         )
 
     def cov_index_for_phase(self, cov_pha_nbr: int) -> int:

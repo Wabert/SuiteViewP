@@ -302,7 +302,7 @@
         "cov1": 1.8
       },
       "corr_amount": 0.0,
-      "corridor_rate": 1.0,
+      "corridor_rate": 1.719576340292542,
       "cost_basis": 0.0,
       "cost_basis_after_exception": 0.0,
       "cost_basis_after_wd": 0.0,
@@ -647,7 +647,7 @@
         "cov1": 1.8
       },
       "corr_amount": 0.0,
-      "corridor_rate": 1.0,
+      "corridor_rate": 1.719576340292542,
       "cost_basis": 200.0,
       "cost_basis_after_exception": 200.0,
       "cost_basis_after_wd": 0.0,
@@ -1029,7 +1029,7 @@
         "cov1": 1.8
       },
       "corr_amount": 0.0,
-      "corridor_rate": 1.0,
+      "corridor_rate": 1.719576340292542,
       "cost_basis": 400.0,
       "cost_basis_after_exception": 400.0,
       "cost_basis_after_wd": 200.0,

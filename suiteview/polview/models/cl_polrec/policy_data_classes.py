@@ -388,6 +388,7 @@ class TraditionalCoverageFacts:
     renewal_period: Optional[int] = None            # SBQ_RNL_PER (1 = renews annually)
     indeterminate_guaranteed_months: Optional[int] = None   # IDT_PRM_GUA_PER
     refresh_or_renewal_age: Optional[int] = None    # REFRESH_OR_RNL_AGE
+    valuation_mortality_table: str = ""  # MTL_FCT_TBL_CD (CKAPTB32 code; ISWL DEFRA NSP)
 
 
 @dataclass

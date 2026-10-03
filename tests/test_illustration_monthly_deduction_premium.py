@@ -130,7 +130,7 @@ def test_levelized_guideline_cap_allows_midyear_gep_before_room_is_spent(
 @pytest.mark.parametrize("timing", list(calc_engine.ProjectionTiming))
 @pytest.mark.parametrize("restriction", ["below_cap", "exceptions_off", "tefra_off", "cvat", "safety_net"])
 def test_midyear_gep_still_requires_guideline_binding_and_eligibility(
-    levelized_guideline_policy, timing, restriction,
+    levelized_guideline_policy, timing, restriction, monkeypatch,
 ):
     policy, config, rates = levelized_guideline_policy
     options = IllustrationOptions(levelizing_premium=True, allow_exception_prems=True)
@@ -142,6 +142,8 @@ def test_midyear_gep_still_requires_guideline_binding_and_eligibility(
         options.conform_to_tefra = False
     elif restriction == "cvat":
         policy.def_of_life_ins = "CVAT"
+        # The CVAT corridor's NSP reads the guaranteed COI.
+        monkeypatch.setattr(IllustrationEngine, "_guaranteed_rates", lambda *_args: rates)
     else:
         config.snet_by_issue_age = {policy.issue_age: 100}
     states = IllustrationEngine().project(

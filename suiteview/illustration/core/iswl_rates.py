@@ -542,10 +542,6 @@ def load_iswl_rates(
     segment = base_segments[0]
     if policy.issue_date is None or segment.issue_date is None:
         raise RateLookupError("ISWL rates need the base coverage issue date.")
-    if policy.is_cvat:
-        raise RateLookupError(
-            f"{policy.plancode} is a CVAT ISWL: its death benefit corridor is based on net single "
-            "premiums (CEIL05), which is not modelled. Only GPT/pre-TEFRA corridors are illustrated.")
     with open_schema_reader(repo) as reader:
         return _load(reader, policy, config, segment, coi_scale, expense_scale)
 
