@@ -201,7 +201,7 @@ def run_guaranteed_projection(
         else policy.valuation_date or policy.issue_date
     )
     guaranteed_bonus = load_bonus_config(
-        policy.plancode, valuation_date).guaranteed()
+        policy.plancode, valuation_date).guaranteed().capped_for(gpolicy)
 
     return engine.project(
         gpolicy,

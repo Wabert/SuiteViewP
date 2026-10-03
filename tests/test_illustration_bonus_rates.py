@@ -266,3 +266,135 @@ def test_credit_interest_uses_plancode_loan_collateral_credit_rates():
         + 20_000.0 * regular_monthly
         + 10_000.0 * preferred_monthly
     )
+
+
+# ── IUL14 (1U145800) vs IUL14NY (1U145900) duration bonus ──────────────
+# RERUN v21 Rates_Control!ET73: IUL14NY bonus = MIN(1%, fixed rate - GINT).
+
+IUL14_GINT = 0.025
+AS_OF = date(2026, 10, 3)
+
+
+def _iul14_policy(plancode: str, fixed_rate, credited_rate=None) -> IllustrationPolicyData:
+    return IllustrationPolicyData(
+        plancode=plancode,
+        issue_date=date(2014, 10, 3),
+        valuation_date=AS_OF,
+        current_interest_rate=fixed_rate if credited_rate is None else credited_rate,
+        guaranteed_interest_rate=IUL14_GINT,
+        iul_declared_rate=fixed_rate,
+    )
+
+
+def _iul14_interest(policy: IllustrationPolicyData, rate_year: int):
+    from suiteview.illustration.core.calc_engine import resolve_bonus_config
+
+    return credit_interest(
+        100_000.0,
+        policy,
+        PlancodeConfig(plancode=policy.plancode),
+        IllustrationRates(),
+        resolve_bonus_config(policy, None),
+        rate_year=rate_year,
+        attained_age=55,
+        month_date=AS_OF,
+    )
+
+
+def test_int_bonus_table_iul14_and_iul14ny_rows():
+    iul14 = load_bonus_config("1U145800", AS_OF)
+    iul14ny = load_bonus_config("1U145900", AS_OF)
+
+    assert (iul14.bonus_dur_rate, iul14.bonus_dur_threshold) == (0.01, 10)
+    assert (iul14ny.bonus_dur_rate, iul14ny.bonus_dur_threshold) == (0.01, 10)
+    assert iul14.bonus_dur_cap_to_excess_over_guar is False
+    assert iul14ny.bonus_dur_cap_to_excess_over_guar is True
+    assert iul14ny.guaranteed().bonus_dur_cap_to_excess_over_guar is True
+    assert iul14ny.guaranteed().bonus_dur_rate == 0.0
+
+
+@pytest.mark.parametrize(
+    ("plancode", "fixed_rate", "rate_year", "expected_bonus"),
+    [
+        ("1U145800", 0.031, 10, 0.0),
+        ("1U145900", 0.031, 10, 0.0),
+        ("1U145800", 0.031, 11, 0.01),
+        ("1U145900", 0.031, 11, 0.006),
+        ("1U145800", 0.038, 11, 0.01),
+        ("1U145900", 0.038, 11, 0.01),
+        ("1U145800", 0.025, 11, 0.01),
+        ("1U145900", 0.025, 11, 0.0),
+        ("1U145900", 0.020, 11, 0.0),
+    ],
+)
+def test_iul14_duration_bonus_ny_cap(plancode, fixed_rate, rate_year, expected_bonus):
+    result = _iul14_interest(_iul14_policy(plancode, fixed_rate), rate_year)
+
+    assert result.bonus_interest_rate == pytest.approx(expected_bonus, abs=1e-12)
+    assert result.effective_annual_rate == pytest.approx(fixed_rate + expected_bonus)
+
+
+def test_iul14ny_bonus_examples_total_rate():
+    assert _iul14_interest(
+        _iul14_policy("1U145900", 0.031), 11).effective_annual_rate == pytest.approx(0.037)
+    assert _iul14_interest(
+        _iul14_policy("1U145900", 0.038), 11).effective_annual_rate == pytest.approx(0.048)
+
+
+def test_iul14ny_index_side_uses_the_fixed_rate_bonus():
+    """RERUN adds one bonus (from the fixed rate) to both UK and the blend (UP)."""
+    result = _iul14_interest(_iul14_policy("1U145900", 0.031, credited_rate=0.055), 11)
+
+    assert result.bonus_interest_rate == pytest.approx(0.006)
+    assert result.effective_annual_rate == pytest.approx(0.061)
+
+
+def test_iul14ny_fixed_rate_defaults_to_gint_like_the_wair_context():
+    result = _iul14_interest(_iul14_policy("1U145900", None, credited_rate=0.055), 11)
+
+    assert result.bonus_interest_rate == 0.0
+
+
+def test_with_excess_cap_is_noop_for_uncapped_plans():
+    bonus = load_bonus_config("1U145800", AS_OF)
+
+    assert bonus.with_excess_cap(0.025, 0.025) is bonus
+    assert bonus.capped_for(_iul14_policy("1U145800", 0.025)) is bonus
+
+
+@pytest.mark.parametrize("plancode", ["1U145800", "1U145900"])
+def test_iul14_guaranteed_projection_has_no_duration_bonus(monkeypatch, plancode):
+    from suiteview.illustration.core import guaranteed_projection
+
+    captured = {}
+
+    class RecordingEngine:
+        def project(self, _policy, **kwargs):
+            captured.update(kwargs)
+            return []
+
+    monkeypatch.setattr(
+        guaranteed_projection, "load_plancode",
+        lambda _plancode: PlancodeConfig(plancode=plancode),
+    )
+    monkeypatch.setattr(
+        guaranteed_projection, "load_rates",
+        lambda *_args, **_kwargs: IllustrationRates(),
+    )
+
+    guaranteed_projection.run_guaranteed_projection(
+        _iul14_policy(plancode, 0.038),
+        [MonthlyState(duration=0), MonthlyState(duration=1)],
+        engine=RecordingEngine(),
+    )
+
+    assert captured["bonus_override"].bonus_dur_rate == 0.0
+
+
+def test_ny_cap_zeroes_a_guaranteed_bonus_at_gint():
+    bonus = BonusConfig(
+        bonus_dur_rate_guar=0.01, bonus_dur_threshold=10,
+        bonus_dur_cap_to_excess_over_guar=True,
+    ).guaranteed()
+
+    assert bonus.with_excess_cap(IUL14_GINT, IUL14_GINT).bonus_dur_rate == 0.0

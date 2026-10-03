@@ -110,7 +110,9 @@ needs to deduct SV each month alongside the monthly deduction.
 
 Key rates: `UK = declared (fixed/sweep) rate + policy bonus`,
 `UO = blended index rate (PolicyRates!CH4)`, `UP = UO + bonus`,
-`sRates_LNCRD = loan credit rate`.
+`sRates_LNCRD = loan credit rate`. The same policy bonus feeds UK and UP. For
+IUL14NY (`1U145900`) it is RERUN's `MIN(1%, fixed rate - GINT)`, resolved once
+per run (see RERUN_MANUAL "RERUN plan interest bonuses").
 
 One-year TAV projection (computed on each anniversary row):
 

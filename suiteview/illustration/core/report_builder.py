@@ -33,6 +33,8 @@ from datetime import date
 from textwrap import wrap
 from typing import Dict, List, Optional
 
+from suiteview.illustration.core.bonus_rates import load_bonus_config
+from suiteview.illustration.core.calc_engine import bonus_as_of
 from suiteview.illustration.core.lapse import issue_no_lapse_years
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -1426,6 +1428,11 @@ def _build_ul_report_from_facts(
             f" PLUS A BONUS OF {bonus_months[0].bonus_interest_rate * 100:.3f}% "
             f"WHICH IS ADDED TO THE ILLUSTRATED RATE STARTING IN POLICY YEAR "
             f"{bonus_months[0].policy_year}")
+        plan_bonus = load_bonus_config(policy.plancode, bonus_as_of(policy))
+        if plan_bonus.bonus_dur_cap_to_excess_over_guar:
+            bonus_clause += (
+                f" (THE LESSER OF {plan_bonus.bonus_dur_rate * 100:.3f}% AND THE "
+                f"EXCESS OF THE FIXED ACCOUNT RATE OVER THE GUARANTEED RATE)")
     termination = (
         f"TERMINATE IN POLICY YEAR {report.termination_year}"
         if report.termination_year is not None

@@ -219,7 +219,7 @@ def _build_reinstatement_context(
         p, summary, target, months, config, rates, basis,
         shadow_active,
         IllustrationOptions(no_lapse=True),
-        calc_engine.load_bonus_config(p.plancode, p.valuation_date),
+        calc_engine.load_bonus_config(p.plancode, p.valuation_date).capped_for(p),
         IllustrationEngine(), limit,
     )
 

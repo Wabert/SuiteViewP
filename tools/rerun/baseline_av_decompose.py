@@ -334,9 +334,10 @@ class RateBook:
             self._cache[key] = found.rate if found else cfg.gint
         return self._cache[key]
 
-    def bonus(self, plancode: str, as_of: date, policy_year: int, av: float) -> float:
+    def bonus(self, plancode: str, as_of: date, policy_year: int, av: float,
+              fixed_rate: float, gint: float) -> float:
         from suiteview.illustration.core.bonus_rates import load_bonus_config
-        cfg = load_bonus_config(plancode, as_of)
+        cfg = load_bonus_config(plancode, as_of).with_excess_cap(fixed_rate, gint)
         bonus = 0.0
         if cfg.bonus_dur_rate > 0 and policy_year > cfg.bonus_dur_threshold:
             bonus += cfg.bonus_dur_rate
@@ -376,7 +377,8 @@ def decompose_policy(result: dict[str, Any], cyber: dict[str, Any] | None, engin
         reg_loan, pref_loan = _loan_principal(cyber or {}, prev_row["date"])
         loaned = min(reg_loan + pref_loan, max(open_av, 0.0))
         rate = book.declared(company, plancode, cur)
-        bonus = book.bonus(plancode, cur, int(cur_row.get("policy_year") or 0), open_av)
+        bonus = book.bonus(plancode, cur, int(cur_row.get("policy_year") or 0), open_av,
+                           rate, cfg.gint)
         eff = rate + bonus
         span = interest_days(prev, cur)
 

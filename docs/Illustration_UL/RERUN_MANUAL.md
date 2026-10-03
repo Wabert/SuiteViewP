@@ -447,6 +447,26 @@ by plancode and latest effective date on or before the valuation date.
 starting in policy year 11, with zero AV and guaranteed bonuses. Store its
 `BonusDurThreshold` as 10 because the engine applies the bonus strictly after
 the threshold year. Earlier effective entries remain intact.
+
+IUL14 `1U145800` and IUL14NY `1U145900` both pay a 1.00% duration bonus from
+policy year 11 (`BonusDurThreshold` 10). The New York plan sets
+`BonusDurCapToExcessOverGuar: true`. Following RERUN v21
+(`Rates_Control!ES73/ET73 = MIN(1%, PolicyRates!FO5 - PolicyRates!GJ5)`, i.e.
+`sINPUT_Fixed_Int_Rate - sRates_GINT`), its bonus is one scalar per run:
+`min(BonusDurRate, max(0, fixed account rate - GINT))`, with GINT 2.50%. That one
+bonus is added to every crediting rate: the declared/fixed rate (WAIR UK) and
+the indexed blend (UP) alike. The fixed account rate is the IUL fixed-strategy
+illustrated rate (`iul_declared_rate`, defaulting to GINT exactly like the WAIR
+declared rate), or the declared current rate for a non-IUL plan
+(`BonusConfig.capped_for` / `fixed_account_rate` in `core/bonus_rates.py`,
+applied by `calc_engine.resolve_bonus_config`). At a 3.10% fixed rate IUL14NY
+credits 3.10% + 0.60% = 3.70% (IUL14: 4.10%). At 3.80% both add the full 1.00%
+(4.80%). At or below 2.50%, including the GINT default, IUL14NY adds nothing.
+The guaranteed projection uses the zero guaranteed bonus and caps it at GINT -
+GINT, so it is zero. RERUN instead sets IUL14NY's guaranteed bonus to the
+current-basis formula. The notes page adds "(THE LESSER OF 1.000% AND THE
+EXCESS OF THE FIXED ACCOUNT RATE OVER THE GUARANTEED RATE)" after the bonus
+amount.
 Regression: `tests/test_illustration_bonus_rates.py`.
 
 ## RERUN declared current interest rate

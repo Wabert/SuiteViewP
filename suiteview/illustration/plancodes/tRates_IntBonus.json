@@ -509,6 +509,15 @@
         "BonusAVThreshold": 0
     },
     {
+        "Plancode": "1U145900",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.01,
+        "BonusDurThreshold": 10,
+        "BonusDurCapToExcessOverGuar": true,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
         "Plancode": "1U147800",
         "EffectiveDate": "1900-01-01",
         "BonusDurRate": 0.0025,

@@ -960,6 +960,10 @@ annual_rate = policy.current_interest_rate
 effective_annual_rate = annual_rate + bonus_rate
 ```
 
+The duration bonus applies after `BonusDurThreshold`. A plan with
+`BonusDurCapToExcessOverGuar` (IUL14NY) has its `BonusDurRate` resolved once per
+run by `resolve_bonus_config` to `min(BonusDurRate, max(0, fixed account rate - GINT))`.
+
 If the plancode uses `ExactDays`, the implementation now uses actual calendar days in the month:
 
 ```text

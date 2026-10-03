@@ -1139,6 +1139,20 @@ def test_bonus_stated_inline_not_as_footnote():
     flat = "\n".join(line for page in format_report_pages(report) for line in page)
     assert "*CURRENTLY THIS PLAN HAS A BONUS" not in flat
 
+
+def test_ny_capped_bonus_states_the_lesser_of_rule():
+    rows = [MonthlyState(policy_year=10, policy_month=12, duration=120)]
+    for month in range(1, 13):
+        rows.append(_month(11, month, bonus_interest_rate=0.006))
+    policy = _policy()
+    policy.plancode = "1U145900"
+    report = build_ul_report(policy, rows, run_date=date(2026, 7, 3))
+
+    notes = " ".join(" ".join(p) for p in report.note_paragraphs)
+    assert ("PLUS A BONUS OF 0.600% WHICH IS ADDED TO THE ILLUSTRATED RATE STARTING IN "
+            "POLICY YEAR 11 (THE LESSER OF 1.000% AND THE EXCESS OF THE FIXED ACCOUNT "
+            "RATE OVER THE GUARANTEED RATE)") in notes
+
     # No bonus → no bonus wording at all.
     plain = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
     plain_notes = " ".join(" ".join(p) for p in plain.note_paragraphs)

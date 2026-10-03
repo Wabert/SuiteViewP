@@ -360,18 +360,22 @@ def initialize_run_from_issue_targets(
     policy.tamra_7pay_level = floor_monthly_cent(guideline.seven_pay)
 
 
+def bonus_as_of(policy: IllustrationPolicyData) -> date:
+    """Date that selects the plan interest-bonus row for a run."""
+    return (
+        policy.illustration_date
+        if policy.run_from_issue and policy.illustration_date
+        else policy.valuation_date or policy.issue_date
+    )
+
+
 def resolve_bonus_config(
     policy: IllustrationPolicyData, bonus_override: Optional[BonusConfig]
 ) -> BonusConfig:
     """Load or override the plan interest-bonus configuration."""
     if bonus_override is not None:
         return bonus_override
-    val_date = (
-        policy.illustration_date
-        if policy.run_from_issue and policy.illustration_date
-        else policy.valuation_date or policy.issue_date
-    )
-    return load_bonus_config(policy.plancode, val_date)
+    return load_bonus_config(policy.plancode, bonus_as_of(policy)).capped_for(policy)
 
 
 def projection_month_count(policy: IllustrationPolicyData, months: Optional[int]) -> int:
