@@ -938,7 +938,7 @@ def test_required_advanced_policy_record_failure_remains_explicit(source, monkey
     source.connections[0].fail.add("LH_POL_MVRY_VAL")
     monkeypatch.setattr(
         session, "_account_value_calculations",
-        lambda: pytest.fail("Record failure must be detected before optional calculation"),
+        lambda *_: pytest.fail("Record failure must be detected before optional calculation"),
     )
     try:
         with pytest.raises(RuntimeError, match="LH_POL_MVRY_VAL offline"):
@@ -1137,7 +1137,7 @@ def test_stage_manifest_renders_without_database_reads(source, monkeypatch, qtbo
     source.tables["LH_BAS_POL"][0]["NON_TRD_POL_IND"] = "1" if advanced else "0"
     monkeypatch.setattr(
         prefetch.PolicyLoadSession, "_account_value_calculations",
-        lambda self: prefetch.AccountValueCalculations(
+        lambda self, fixed_rate=None: prefetch.AccountValueCalculations(
             prefetch.SurrenderValues(
                 surrender_charge=10, surrender_value=190, account_value=200.0, policy_debt=0.0,
                 as_of=None, original_units_basis=False, coverages=()),

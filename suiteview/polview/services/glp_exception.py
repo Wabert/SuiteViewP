@@ -13,8 +13,14 @@ from suiteview.illustration.models.input_set import (
     IllustrationOptions,
     TransactionKind,
 )
+from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.policy_sections.lookup import policy_attr
+from suiteview.polview.services.iul_fixed_rate import (
+    IulFixedRateUnavailable,
+    apply_fixed_rate,
+    iul_fixed_account_rate,
+)
 
 
 @dataclass
@@ -137,6 +143,15 @@ def _load_forecast_policy(policy) -> tuple[IllustrationPolicyData, object, objec
             company_code=getattr(policy, "company_code", "") or None,
             months=0,
         )
+        # IUL: project the fixed account at the policy's current fixed rate, not GINT.
+        if is_iul_plan(run.policy.plancode):
+            try:
+                fixed = iul_fixed_account_rate(policy, run.policy.valuation_date or date.today())
+            except Exception as exc:
+                return f"Forecast data could not be loaded: IUL fixed-account rate failed: {exc}"
+            if isinstance(fixed, IulFixedRateUnavailable):
+                return f"Forecast data could not be loaded: {fixed.reason}"
+            apply_fixed_rate(run.policy, fixed)
         return run.policy, run.rates, run.config
     except Exception as exc:
         return f"Forecast data could not be loaded: {exc}"

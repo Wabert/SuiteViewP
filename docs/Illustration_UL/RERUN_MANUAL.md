@@ -470,6 +470,14 @@ EXCESS OF THE FIXED ACCOUNT RATE OVER THE GUARANTEED RATE)" after the bonus
 amount.
 Regression: `tests/test_illustration_bonus_rates.py`.
 
+PolView's in-force paths (Account Values Interim AV Quote and surrender values,
+GLP Exception forecast) set `iul_declared_rate` to the policy's current IUL
+fixed-account rate excluding bonus (`polview/services/iul_fixed_rate.py`; see
+the PolView manual's Account Values section), so IUL14NY's capped bonus is
+measured against the rate CyberLife credits rather than GINT. The RERUN Inputs
+tab is unchanged: its fixed strategy still defaults to GINT. Home-office
+reinstatement rejects IUL (`IntCalcMethod` Blend) before any crediting.
+
 ## RERUN declared current interest rate
 
 A declared-rate UL (not ISWL or IUL) loads its current crediting rate from the CIRF

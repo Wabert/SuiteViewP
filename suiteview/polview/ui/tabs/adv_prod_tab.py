@@ -23,6 +23,7 @@ from ...services.policy_prefetch import (
     SurrenderValuesUnavailable,
     TraditionalCashValues,
 )
+from ...services.iul_fixed_rate import IulFixedAccountRate, IulFixedRateUnavailable
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -234,6 +235,8 @@ class AdvProdValuesTab(QWidget):
         # Sized for the dated label so loading a quote never shifts the layout.
         place(7, 1, "Interim AV Quote (00/00/0000)", "interim_av_quote",
               lwidth=115, italic=True)
+        place(8, 1, "IUL Fixed Rate", "iul_fixed_rate", lwidth=115, italic=True)
+        place(9, 1, "Fixed Rate ex Bonus", "iul_fixed_rate_ex_bonus", lwidth=115, italic=True)
         self._set_interim_label(None)
         self._field_styles = {
             attr: (self.policy_info._labels[attr].styleSheet(), field.styleSheet())
@@ -296,6 +299,7 @@ class AdvProdValuesTab(QWidget):
                     "surrender_value", format_currency(surrender_values.surrender_value),
                     tips.surrender_value_tip(surrender_values))
             self._load_interim_quote(calculations.interim)
+            self._load_iul_fixed_rate(calculations.iul_fixed_rate)
             self._load_monthliversary_from_policy(policy)
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
@@ -468,6 +472,18 @@ class AdvProdValuesTab(QWidget):
         self._set_calculated(
             "interim_av_quote", format_currency(interim.account_value),
             tips.interim_av_tip(interim))
+
+    def _load_iul_fixed_rate(self, fixed):
+        """IUL fixed-account rate with and without the duration bonus; N/A otherwise."""
+        if isinstance(fixed, IulFixedAccountRate):
+            tip = tips.iul_fixed_rate_tip(fixed)
+            self._set_calculated("iul_fixed_rate", f"{fixed.credited_rate:.2%}", tip)
+            self._set_calculated("iul_fixed_rate_ex_bonus", f"{fixed.declared_rate:.2%}", tip)
+            return
+        reason = (fixed.reason if isinstance(fixed, IulFixedRateUnavailable)
+                  else "Not applicable: not an indexed UL plan.")
+        for attr in ("iul_fixed_rate", "iul_fixed_rate_ex_bonus"):
+            self._set_calculated(attr, "N/A", reason)
 
     def _load_policy_info_from_policy(self, policy):
         mvav = policy.values.mv_av(0)
