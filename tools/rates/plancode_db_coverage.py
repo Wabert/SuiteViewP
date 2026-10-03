@@ -122,8 +122,7 @@ def review_row(row: dict, facts: Optional[PlanFacts], scales: Dict[str, set]) ->
         if _number(row.get("SafetyNetPeriod")):
             notes.append(f"SafetyNetPeriod table {row['SafetyNetPeriod']} -> none")
     if facts.corridor_by_age is None:
-        none.append("no CORR (ISWL: standard corridor from tRates_CORR.json)"
-                    if facts.schema_family == "ISWL" else "no CORR (no GPT corridor)")
+        none.append("no CORR (no GPT corridor)")
     for rate_type, key in (("MFEE", "MFEE"), ("PREMLOAD_PCT", "PremiumLoad"), ("EPU", "EPU_Code")):
         if not scales.get(rate_type, set()) & {"C", "G"}:
             none.append(f"no {rate_type} cells")

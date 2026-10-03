@@ -105,8 +105,8 @@ Each plancode has a configuration record (currently in the Rates_Control "BasePl
 **Database only (October 2026):** The rate fields above (GINT, DBD, loan rates,
 MFEE, EPU, premium load, safety net, corridor, maturity/premium-cease ages,
 shadow plancode and shadow rate codes, product family, CINT key) come only from
-UL_Rates schema `rates`; the JSON no longer carries them (`tRates_CORR.json` now
-holds only the standard corridor used by ISWL plans until their `CORR` is loaded).
+UL_Rates schema `rates`; the JSON no longer carries them (`tRates_CORR.json` was
+retired once the GPT ISWL plans' `CORR` was loaded).
 MatureEndowValue, Var Ln Available, Bonus, SkippedCovRein and
 ProductName were removed (unused). See the RERUN manual, "Plancode
 configuration: plan facts from schema `rates`".

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from suiteview.illustration.core.corridor_rates import uses_iswl_corridor_fallback
 from suiteview.illustration.core.rate_loader import CHARGEABLE_BENEFIT_TYPES, IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -67,12 +66,7 @@ def plan_basis_warnings(config: PlancodeConfig, policy: IllustrationPolicyData) 
             f"{'; '.join(config.illustration_overrides)}.")
     if config.corridor_by_age or policy.is_cvat:
         return notices
-    if uses_iswl_corridor_fallback(config):
-        notices.append(
-            f"{config.plancode}: UL_Rates schema rates has no GPT corridor (CORR) for this ISWL "
-            "plan; the illustration uses the standard 7702 corridor (tRates_CORR.json).")
-    else:
-        notices.append(
-            f"{config.plancode}: UL_Rates schema rates has no GPT corridor (CORR) for this plan; "
-            "the illustrated death benefit has no corridor.")
+    notices.append(
+        f"{config.plancode}: UL_Rates schema rates has no GPT corridor (CORR) for this plan; "
+        "the illustrated death benefit has no corridor.")
     return notices

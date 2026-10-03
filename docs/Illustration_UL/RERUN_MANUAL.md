@@ -47,7 +47,7 @@ Haessly, 10/2/2026); the plancode table supplies product rules only:
 | regular loan rates | PLAN `LOAN_REG_CHG` (`loan_charge_rate_guar`), `LOAN_REG_CRD` (`loan_charge_rate_curr`) | error |
 | preferred loan rates | PLAN `LOAN_PREF_CHG`, `LOAN_PREF_CRD` | no preferred loan option (0) |
 | safety-net period | PLAN `SNET_PERIOD` by issue age (`safety_net_years(issue_age)`) | no safety net |
-| corridor | PLAN `CORR` by attained age (`corridor_by_age`; `core/corridor_rates.corridor_factor`) | ISWL: standard 7702 set in `tRates_CORR.json` (logged); else no GPT corridor (factor 1.0) |
+| corridor | PLAN `CORR` by attained age (`corridor_by_age`; `core/corridor_rates.corridor_factor`) | no GPT corridor (factor 1.0) |
 | `shadow_plancode` | `PLAN_ATTR SHADOW_LEGACY_PLANCODE` | blank |
 
 EPU, MFEE, the premium loads and the shadow account's rates are always the
@@ -58,11 +58,12 @@ target rate are optional. A table row that still carries a plan fact
 (`plancode_config.DATABASE_KEYS`) fails `load_plancode` loudly.
 
 **Corridor.** UL plans without `CORR` are CVAT-only plans (their minimum death
-benefit is the deemed-cash-value test): no GPT corridor. The 28 ISWL plans have no
-`CORR` loaded yet, but CyberLife applies the standard 7702 corridor to ISWL GPT
-policies; until `CORR` is loaded for them they read the standard set kept in
-`plancodes/tRates_CORR.json` (its only use; logged once per plancode). The RERUN load
-shows a notice for both cases (`rate_validation.plan_basis_warnings`).
+benefit is the deemed-cash-value test): no GPT corridor. The 27 GPT ISWL plans
+carry the standard 7702 `CORR` in schema `rates` (loaded October 2026; in-force
+CyberLife NAR matches it at attained age on 290/290 in-corridor policies). The two
+CVAT ISWL plans (80136200, B11SB600) have no `CORR`. `tRates_CORR.json` is retired.
+A GPT policy on a plan without `CORR` shows a RERUN load notice
+(`rate_validation.plan_basis_warnings`).
 
 **Illustration age override.** `IllustrationMaturityAgeOverride` /
 `IllustrationPremiumCeaseAgeOverride` replace the `PLAN_DEF` ages on 16 rows where
@@ -127,7 +128,7 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   benchmark min/max and market returns also come from schema `rates` FUND rows:
   `IDX_ILL`, `IDX_BENCH_MIN`, `IDX_BENCH_MAX` and `MKT_RETURN`
   (`suiteview/core/index_rates.py`, `IndexAssumptionTables`).
-- **Not from UL_Rates**: corridor factors, PoAV and interest bonuses stay in the
+- **Not from UL_Rates**: PoAV and interest bonuses stay in the
   plancode JSON tables; loan rates come from the plancode table.
 
 Verified 9/30/2026 (live CKPR, one premium-paying policy per RERUN plancode, 168

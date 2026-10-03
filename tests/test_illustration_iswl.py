@@ -19,7 +19,7 @@ from suiteview.core.rates_schema import (
     RateSetInfo, ScheduleWindow, SubseriesRow,
 )
 from suiteview.illustration.core.calc_engine import _split_requested_premium
-from suiteview.illustration.core.corridor_rates import corridor_factor, uses_iswl_corridor_fallback
+from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.iswl_rates import (
     ISWLItemPremium,
     ISWLRateBasis,
@@ -180,11 +180,10 @@ def test_iswl_plancode_configuration():
     assert config.is_iswl
     assert (config.maturity_age, config.premium_cease_age, config.gint, config.dbd) == (95, 95, 0.04, 0.04)
     assert (config.loan_charge_rate_guar, config.loan_charge_rate_curr) == (0.08, 0.04)
-    # Schema rates has no CORR for ISWL yet, so the plan uses the standard corridor from
-    # tRates_CORR.json; the table carries no plan facts.
-    assert config.corridor_by_age is None
-    assert uses_iswl_corridor_fallback(config)
-    assert corridor_factor(config, 45) == 2.15 and corridor_factor(config, 95) == 1.01
+    # The GPT ISWL plans carry the standard 7702 CORR in schema rates; the table
+    # carries no plan facts.
+    assert corridor_factor(config, 45) == 2.15 and corridor_factor(config, 94) == 1.01
+    assert corridor_factor(config, 95) == 1.0
     assert config.illustration_overrides == ()
 
 

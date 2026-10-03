@@ -1,7 +1,7 @@
 """7702 GPT corridor tables for unit-test ``PlancodeConfig.corridor_by_age``.
 
 Production reads each plan's corridor from UL_Rates schema ``rates`` PLAN ``CORR``. These
-are the former tRates_CORR.json sets, kept so engine tests can construct a config with a
+are the former (now retired) tRates_CORR.json sets, kept so engine tests can construct a config with a
 known corridor:
 
 * ``CORRIDOR_1``: Standard GPT corridor, ages 0-94. Use last rate (1.01) for ages beyond 94.

@@ -1,19 +1,15 @@
 """``load_plancode``: plan facts only from UL_Rates schema ``rates``, product rules from
-the plancode table, the ISWL corridor fallback (tRates_CORR.json) and the plan-basis
-notices the Illustration window shows.
+the plancode table and the plan-basis notices the Illustration window shows.
 
 Offline: ``plancode_config.load_plan_facts`` and the table cache are replaced by
 synthetic facts/rows (``tests.plan_facts_fixtures``).
 """
 from __future__ import annotations
 
-import logging
-
 import pytest
 
-import suiteview.illustration.core.corridor_rates as corridor_rates
 import suiteview.illustration.models.plancode_config as pc
-from suiteview.illustration.core.corridor_rates import corridor_factor, uses_iswl_corridor_fallback
+from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.rate_loader import premium_load_schedules
 from suiteview.illustration.core.rate_validation import plan_basis_warnings
 from suiteview.illustration.models.plancode_config import (
@@ -122,35 +118,20 @@ def test_gpt_policy_on_a_plan_without_corridor_is_noticed():
     assert "no GPT corridor (CORR)" in notices[0] and notices[0].startswith(PLAN)
 
 
-def test_iswl_gpt_policy_without_corridor_notices_the_standard_corridor():
+def test_iswl_gpt_policy_without_corridor_has_no_corridor_and_is_noticed():
+    """No ISWL fallback: GPT ISWL plans carry CORR in schema rates; one without it is
+    noticed like any plan, and a CVAT ISWL policy has no corridor and no notice."""
     config = PlancodeConfig(plancode=PLAN, product_family="ISWL")
+    assert corridor_factor(config, 45) == 1.0
     notices = plan_basis_warnings(config, IllustrationPolicyData(def_of_life_ins="GPT"))
-    assert len(notices) == 1
-    assert "ISWL" in notices[0] and "standard 7702 corridor (tRates_CORR.json)" in notices[0]
+    assert len(notices) == 1 and "no GPT corridor (CORR)" in notices[0]
     assert plan_basis_warnings(config, IllustrationPolicyData(def_of_life_ins="CVAT")) == []
 
 
-# ── ISWL corridor fallback: tRates_CORR.json standard set ──────────────────
-
-
-def test_iswl_without_corr_uses_the_standard_corridor_and_logs_once(monkeypatch, caplog):
-    monkeypatch.setattr(corridor_rates, "_WARNED", set())
-    config = PlancodeConfig(plancode=PLAN, product_family="ISWL")
-    assert uses_iswl_corridor_fallback(config)
-    with caplog.at_level(logging.WARNING, logger=corridor_rates.__name__):
-        factors = {age: corridor_factor(config, age) for age in (10, 45, 94, 95, 121)}
-    assert factors == {10: 2.5, 45: 2.15, 94: 1.01, 95: 1.01, 121: 1.01}
-    for age in range(0, 95):
-        assert corridor_factor(config, age) == CORRIDOR_1[age]
-    assert len([r for r in caplog.records if PLAN in r.getMessage()]) == 1
-
-
-def test_iswl_with_corr_and_non_iswl_without_corr_do_not_use_the_fallback():
+def test_iswl_with_corr_uses_it():
     iswl = PlancodeConfig(plancode=PLAN, product_family="ISWL", corridor_by_age={0: 3.0, 95: 1.0})
-    assert not uses_iswl_corridor_fallback(iswl)
     assert corridor_factor(iswl, 0) == 3.0 and corridor_factor(iswl, 100) == 1.0
     ul = PlancodeConfig(plancode=PLAN)
-    assert not uses_iswl_corridor_fallback(ul)
     assert corridor_factor(ul, 45) == 1.0
 
 
