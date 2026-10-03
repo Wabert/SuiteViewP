@@ -680,7 +680,7 @@ def _substandard_basis(source: PolicySourceSnapshot, cov) -> tuple[int, object, 
 def build_benefits(source: PolicySourceSnapshot) -> BenefitAssembly:
     """Map LH_SPM_BNF supplemental benefits and derive CCV indicators."""
     benefits = [
-        _benefit_info(benefit)
+        _benefit_info(benefit, source.as_of_date)
         for benefit in source.raw_benefits
         if _benefit_payable(benefit, source.as_of_date)
     ]
@@ -699,7 +699,13 @@ def _benefit_payable(benefit, as_of_date: date) -> bool:
     return not (benefit.pay_up_date and benefit.pay_up_date < as_of_date)
 
 
-def _benefit_info(benefit) -> IllBenefitInfo:
+def _benefit_ceased(benefit, as_of_date: date) -> bool:
+    """CyberLife moves BNF_CEA_DT to the termination date when a benefit ends before
+    its pay-up date (BNF_OGN_CEA_DT keeps the original); a ceased benefit is not charged."""
+    return bool(benefit.cease_date and benefit.cease_date < as_of_date)
+
+
+def _benefit_info(benefit, as_of_date: date) -> IllBenefitInfo:
     return IllBenefitInfo(
         coverage_phase=benefit.cov_pha_nbr,
         form_number=benefit.form_number or "",
@@ -714,7 +720,7 @@ def _benefit_info(benefit) -> IllBenefitInfo:
         cease_date=benefit.cease_date,
         rating_factor=float(benefit.rating_factor) if benefit.rating_factor else 0.0,
         coi_rate=float(benefit.coi_rate) if benefit.coi_rate else None,
-        is_active=True,
+        is_active=not _benefit_ceased(benefit, as_of_date),
     )
 
 
@@ -729,9 +735,7 @@ def _ccv_ceased(raw_benefits: list, as_of_date: date, ccv_active: bool) -> bool:
     if ccv_active:
         return False
     return any(
-        (benefit.benefit_type_cd or "") == "A"
-        and benefit.cease_date
-        and benefit.cease_date < as_of_date
+        (benefit.benefit_type_cd or "") == "A" and _benefit_ceased(benefit, as_of_date)
         for benefit in raw_benefits
     )
 
