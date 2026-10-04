@@ -73,9 +73,6 @@ class _FakePolicyInfo:
     def fetch_table(self, _table):
         return []
 
-    def table_error(self, _table):
-        return ""
-
     exists = True
     base_plancode = "TESTUL"
     issue_date = date(2000, 1, 1)
@@ -137,6 +134,19 @@ class _FakePolicyInfo:
 
     def get_premium_allocation_dict(self):
         return {}
+
+    skipped_periods = ()
+    live_transactions = ()
+    table_errors = {}
+
+    def table_error(self, table):
+        return self.table_errors.get(table, "")
+
+    def get_skipped_periods(self, cov_pha_nbr=None):
+        return [p for p in self.skipped_periods if cov_pha_nbr is None or p.coverage_phase == cov_pha_nbr]
+
+    def get_live_transactions(self, codes):
+        return [t for t in self.live_transactions if t.trans_code in codes]
 
     def get_premium_transactions(self):
         return [
@@ -405,3 +415,76 @@ def test_coverage_segment_data_warnings_is_clear_for_complete_segments():
     assert illustration_policy_service.coverage_segment_data_warnings(
         _FakePolicyInfo()
     ) == []
+
+
+def _txn(day, code, amount):
+    return TransactionInfo(
+        trans_date=day, trans_code=code, trans_type=code[0], trans_subtype=code[1],
+        trans_desc="", gross_amount=amount, net_amount=amount, sequence_number=1,
+        fund_id="", coverage_phase=0)
+
+
+def _skipped(phase, lapse, reinstated):
+    from suiteview.polview.models.cl_polrec.policy_data_classes import SkippedPeriodInfo
+
+    return SkippedPeriodInfo(
+        coverage_phase=phase, status_code="", lapse_date=lapse, reinstatement_date=reinstated)
+
+
+def _load(monkeypatch, source):
+    monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: source)
+    monkeypatch.setattr(illustration_policy_service, "ULRates", lambda *_args, **_kwargs: _FakeRates())
+    monkeypatch.setattr(illustration_policy_service, "IndexAssumptionTables", _FakeRates)
+    monkeypatch.setattr(
+        illustration_policy_service, "load_plancode",
+        lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0))
+    return illustration_policy_service.build_illustration_data("UIP88048")
+
+
+def test_loader_maps_skipped_coverage_reinstatements_like_uip88048(monkeypatch):
+    """UIP88048: lapses 2019-10-06..2019-11-05 and 2020-11-06..2021-01-05. Lifetime premiums
+    26,437.50; 19,551.34 since the first REN_DT; 17,187.50 since the latest (CyberLife)."""
+    source = _FakePolicyInfo()
+    source.premium_td = 26_437.50
+    source.skipped_periods = (
+        _skipped(1, date(2020, 11, 6), date(2021, 1, 5)),
+        _skipped(1, date(2019, 10, 6), date(2019, 11, 5)),
+        _skipped(1, date(2026, 9, 1), None),   # open period: not a reinstatement
+    )
+    source.live_transactions = (
+        _txn(date(2019, 9, 5), "PR", 6_886.16),
+        _txn(date(2019, 11, 5), "PB", 2_363.84),
+        _txn(date(2021, 1, 5), "PU", 1_652.84),   # restored AV, not a premium
+        _txn(date(2021, 1, 5), "PB", 1_187.50),
+        _txn(date(2021, 2, 5), "PR", 16_000.00),
+    )
+
+    policy = _load(monkeypatch, source)
+
+    assert [(p.lapse_date, p.reinstatement_date, p.option_c_excluded_amount)
+            for p in policy.skipped_coverage_periods] == [
+        (date(2019, 10, 6), date(2019, 11, 5), 6_886.16),
+        (date(2020, 11, 6), date(2021, 1, 5), 9_250.00),
+    ]
+    assert policy.option_c_premium_base(policy.premiums_paid_to_date, 0.0) == pytest.approx(17_187.50)
+
+
+def test_loader_without_skipped_periods_keeps_the_lifetime_basis(monkeypatch):
+    source = _FakePolicyInfo()
+    source.premium_td = 5_000.0
+    source.live_transactions = (_txn(date(2023, 1, 1), "PB", 0.0),)   # continuous reinstatement
+
+    policy = _load(monkeypatch, source)
+
+    assert policy.skipped_coverage_periods == []
+    assert policy.option_c_premium_base(5_000.0, 0.0) == 5_000.0
+
+
+@pytest.mark.parametrize("table", ["LH_COV_SKIPPED_PER", "FH_FIXED"])
+def test_loader_raises_when_reinstatement_sources_fail(monkeypatch, table):
+    source = _FakePolicyInfo()
+    source.skipped_periods = (_skipped(1, date(2020, 11, 6), date(2021, 1, 5)),)
+    source.table_errors = {table: "SQL0911N timeout"}
+
+    with pytest.raises(RuntimeError, match=table):
+        _load(monkeypatch, source)

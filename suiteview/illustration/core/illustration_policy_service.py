@@ -32,6 +32,11 @@ from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.core.index_rates import IndexAssumptionTables
 from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
+from suiteview.illustration.core.skipped_coverage import (
+    OPTION_C_PREMIUM_CODES,
+    WITHDRAWAL_CODES,
+    build_skipped_coverage_periods,
+)
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.ul_rates import ULRates
 from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
@@ -136,8 +141,39 @@ def build_illustration_data(
         ccv_units=benefits.ccv_units,
         ccv_coi_rate=benefits.ccv_coi_rate,
     )
+    policy.skipped_coverage_periods = build_skipped_coverage_basis(source, policy)
     policy.rollback_snapshots = build_value_rollback_snapshots(source.pi, policy)
     return policy
+
+
+def build_skipped_coverage_basis(source: PolicySourceSnapshot, policy: IllustrationPolicyData):
+    """Skipped-coverage reinstatements on coverage phase 1 with their option C exclusion.
+
+    A policy without LH_COV_SKIPPED_PER rows (never reinstated, or a continuous
+    reinstatement) gets none and keeps its lifetime basis. A failed read is raised, not
+    taken as "never reinstated".
+    """
+    pi = source.pi
+    periods = [
+        period for period in pi.coverages.get_skipped_periods(cov_pha_nbr=1)
+        if period.reinstatement_date is not None
+    ]
+    error = pi.table_error("LH_COV_SKIPPED_PER")
+    if error:
+        raise RuntimeError(f"Cannot load skipped-coverage periods (LH_COV_SKIPPED_PER): {error}")
+    if not periods:
+        return []
+    transactions = pi.activity.get_live_transactions(OPTION_C_PREMIUM_CODES | WITHDRAWAL_CODES)
+    error = pi.table_error("FH_FIXED")
+    if error:
+        raise RuntimeError(f"Cannot load reinstatement transactions (FH_FIXED): {error}")
+    return build_skipped_coverage_periods(
+        periods, transactions,
+        premiums_to_date=policy.premiums_paid_to_date,
+        withdrawals_to_date=policy.withdrawals_to_date,
+        inforce_withdrawal_fees=policy.inforce_withdrawal_fees,
+        withdrawal_fee=policy.withdrawal_fee,
+    )
 
 
 def _load_policy_source_snapshot(

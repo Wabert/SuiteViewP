@@ -126,11 +126,12 @@ class SubstandardRatingInfo:
 
 @dataclass
 class SkippedPeriodInfo:
-    """Skipped/reinstatement period from LH_COV_SKIPPED_PER."""
+    """Skipped-coverage period from LH_COV_SKIPPED_PER: the lapse date starts a period
+    with no coverage and the reinstatement date ends it (CyberDoc D20 p.209-211)."""
     coverage_phase: int                 # COV_PHA_NBR
-    period_type: str                    # SKP_TYP_CD
-    skip_from_date: Optional[date]      # SKP_FRM_DT
-    skip_to_date: Optional[date]        # SKP_TO_DT
+    status_code: str                    # SKIPPED_COV_STA_CD
+    lapse_date: Optional[date]          # LAP_DT
+    reinstatement_date: Optional[date]  # REN_DT (null while the period is open)
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 

@@ -141,6 +141,24 @@ class PremiumTransaction:
     transaction_type: str
 
 
+@dataclass(frozen=True)
+class SkippedCoveragePeriod:
+    """A lapse gap ended by a skipped-coverage reinstatement (LH_COV_SKIPPED_PER).
+
+    A continuous reinstatement (a reversed lapse) writes no such row and changes nothing.
+    ``option_c_excluded_amount`` is the part of the in-force premiums-less-net-withdrawals
+    basis that predates ``reinstatement_date``: lifetime premiums less net withdrawals
+    (LH_POL_TOTALS) minus the live FH_FIXED premiums less net withdrawals on or after
+    REN_DT. Subtracting it leaves the option C return-of-premium basis CyberLife keeps
+    after the reinstatement. It does not depend on the valuation date, so a rollback to
+    any date on or after REN_DT reuses it.
+    """
+
+    lapse_date: date             # LAP_DT
+    reinstatement_date: date     # REN_DT
+    option_c_excluded_amount: float = 0.0
+
+
 @dataclass
 class ValueRollbackSnapshot:
     """Recorded post-deduction values; ``None`` means not safely recoverable.
@@ -333,6 +351,10 @@ class IllustrationPolicyData:
     # The plan's fee per withdrawal (PlancodeConfig.withdrawal_fee), kept so a rolled-back
     # withdrawal count rebuilds inforce_withdrawal_fees.
     withdrawal_fee: float = 0.0
+    # Skipped-coverage reinstatements (LH_COV_SKIPPED_PER coverage phase 1), oldest first.
+    # Only the latest one on or before the valuation date applies; see
+    # latest_skipped_coverage_period.
+    skipped_coverage_periods: List[SkippedCoveragePeriod] = field(default_factory=list)
     # TH_NON_TRD_POL Decrease Charge Rule: False means specified-amount
     # decreases assess no partial surrender charge. None (unset) keeps the
     # plancode's partial-surrender-charge rule.
@@ -402,6 +424,35 @@ class IllustrationPolicyData:
         """Withdrawals to date less the in-force withdrawal fees, never below zero. Option C
         returns premiums less these NET withdrawals (see ``inforce_withdrawal_fees``)."""
         return max(0.0, withdrawals_to_date - self.inforce_withdrawal_fees)
+
+    @property
+    def latest_skipped_coverage_period(self) -> Optional[SkippedCoveragePeriod]:
+        """The most recent skipped-coverage reinstatement on or before the valuation date.
+
+        None for a run from issue, which projects continuous coverage. A rollback to a date
+        before a reinstatement selects the earlier one (or none), so the projection starts
+        from the history as of that date.
+        """
+        if self.run_from_issue:
+            return None
+        as_of = self.valuation_date
+        eligible = [
+            period for period in self.skipped_coverage_periods
+            if as_of is None or period.reinstatement_date <= as_of
+        ]
+        return max(eligible, key=lambda period: period.reinstatement_date, default=None)
+
+    def option_c_premium_base(self, premiums_to_date: float, withdrawals_to_date: float) -> float:
+        """Option C (return of premium) addition: premiums less NET withdrawals, never below 0.
+
+        After a skipped-coverage reinstatement CyberLife returns only the premiums paid on or
+        after the latest REN_DT (the PB reinstatement payment included, the PU restored value
+        excluded) less withdrawals since then, so the amount that predates it is removed.
+        Projected premiums and withdrawals accumulate on top as usual.
+        """
+        period = self.latest_skipped_coverage_period
+        excluded = period.option_c_excluded_amount if period is not None else 0.0
+        return max(0.0, premiums_to_date - self.net_withdrawals(withdrawals_to_date) - excluded)
 
     @property
     def total_units(self) -> float:

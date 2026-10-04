@@ -455,6 +455,41 @@ Read-only native verification: `tools/app/verify_policy_calculated_md.py
 --policy UFF90022 --company 26 --screenshot <path>` uses an isolated temporary
 profile and the real Get/refresh path. Verified both MD fields display $18.70.
 
+## RERUN skipped-coverage reinstatements
+
+A reinstatement after a lapse gap is an `LH_COV_SKIPPED_PER` row (coverage phase 1):
+`LAP_DT` starts the period without coverage and `REN_DT` ends it. FH_FIXED carries the
+`PB` reinstatement payment and the `PU` reinstatement value (the restored AV). A
+continuous reinstatement (a $0 `PB` on the date of a reversed lapse) writes no row and
+changes nothing. The loader (`build_skipped_coverage_basis`) maps closed rows to
+`IllustrationPolicyData.skipped_coverage_periods`; a failed read of either table is
+raised, never treated as "never reinstated". Only the latest period with `REN_DT` on or
+before the valuation date applies (`latest_skipped_coverage_period`). The rule comes from
+CyberLife data, not documentation (CyberDoc has none):
+
+- **Option C basis.** The return of premium is the live premiums paid on or after the
+  latest `REN_DT` (`PB` included, `PU` excluded; codes PA PB PD PE PF PI PR PT PQ PW)
+  less withdrawals since then (SG SM SN). Each period stores
+  `option_c_excluded_amount` = lifetime premiums less net withdrawals (LH_POL_TOTALS)
+  minus that since-REN amount; `option_c_premium_base` subtracts it, so projected
+  premiums and withdrawals accumulate on top as before. The monthly deduction, ledger
+  ending DB and CVAT deemed-cash-value option C basis all use it. Evidence: the implied
+  CyberLife ROP matches on 6/6 option C lapse-gap policies (UIP88048, UE182343, UE160240,
+  UE127229, UE198313, UE224365); UIP88048 and UE182343 were reinstated twice and only the
+  latest `REN_DT` matches. All 25 continuous reinstatements and 38 never-reinstated
+  controls keep lifetime premiums less net withdrawals. **Assumption (untested, none of
+  the 6 has a withdrawal):** withdrawals on or after `REN_DT` are subtracted net of the
+  plan's per-withdrawal fee; earlier withdrawals belong to the excluded history.
+  Guideline (GLP/GSP/7-pay), TAMRA and cost basis keep lifetime premiums.
+
+Value Rollback reuses the stored exclusion (it does not depend on the valuation date), and
+a rollback to a date before the latest `REN_DT` selects the earlier period, or none. A run
+from issue projects continuous coverage. An Edit Record premiums or withdrawals total is
+the full option C basis: the exclusion is dropped and the
+option C policy discloses it in the starting-basis notes. Saved cases snapshot the periods;
+a case saved before this rule has none and keeps the lifetime basis.
+Regression: `tests/test_illustration_skipped_coverage_option_c.py`.
+
 ## RERUN corridor COI rate
 
 Corridor COI uses the **latest active base segment's adjusted COI rate**, not

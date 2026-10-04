@@ -721,13 +721,17 @@ Standard death benefit:
 DBO A: standard_db = total_face
 DBO B: standard_db = total_face + nar_av
 DBO C: standard_db = total_face + max(0, premiums_to_date
-                                          - (withdrawals_to_date - inforce_withdrawal_fees))
+                                          - (withdrawals_to_date - inforce_withdrawal_fees)
+                                          - option_c_excluded_amount)
 ```
 
 `inforce_withdrawal_fees` = `TOT_WTD_QTY` x plan withdrawal fee. CyberLife's
 `TOT_WTD_AMT` includes the fee, but option C returns premiums less the net
 withdrawals (1U145500 UIP50722: six $25 fees, so the NAR is 150 higher). The
-ledger ending DB and the deemed-cash-value option C basis use the same amount.
+ledger ending DB and the deemed-cash-value option C basis use the same amount
+(`IllustrationPolicyData.option_c_premium_base`). `option_c_excluded_amount` is 0
+unless the policy has a skipped-coverage reinstatement; then it removes the basis
+before the latest `REN_DT` (see RERUN_MANUAL "RERUN skipped-coverage reinstatements").
 
 Corridor test and gross death benefit. The corridor product is **truncated to a whole
 dollar** (CyberLife rule — a deliberate divergence from RERUN's col OT, which multiplies

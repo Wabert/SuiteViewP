@@ -167,6 +167,7 @@
     }
   ],
   "shadow_account_value": 4872.53,
+  "skipped_coverage_periods": [],
   "starting_account_value_is_manual": false,
   "starting_basis_assumptions": [],
   "starting_coverage_amounts_are_manual": false,

@@ -593,9 +593,9 @@ def _build_death_benefit_basis(
 def _return_of_premium(premiums_to_date: float, policy: IllustrationPolicyData) -> float:
     """Option C death-benefit addition: premiums less NET withdrawals. The in-force
     withdrawals total is gross of the per-withdrawal fee (1U145500 UIP50722: six $25
-    fees, CyberLife NAR 150 higher than premiums less TOT_WTD_AMT)."""
-    net_withdrawals = policy.net_withdrawals(policy.withdrawals_to_date)
-    return max(0.0, premiums_to_date - net_withdrawals)
+    fees, CyberLife NAR 150 higher than premiums less TOT_WTD_AMT). After a skipped-coverage
+    reinstatement only the basis since the latest REN_DT counts (UIP88048)."""
+    return policy.option_c_premium_base(premiums_to_date, policy.withdrawals_to_date)
 
 
 def _discount_base_segments(

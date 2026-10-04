@@ -749,9 +749,9 @@ class CoveragesSection(PolicySection):
 
             period = SkippedPeriodInfo(
                 coverage_phase=phase,
-                period_type=str(row.get("SKP_TYP_CD", "") or ""),
-                skip_from_date=self._parse_date(row.get("SKP_FRM_DT")),
-                skip_to_date=self._parse_date(row.get("SKP_TO_DT")),
+                status_code=str(row.get("SKIPPED_COV_STA_CD", "") or "").strip(),
+                lapse_date=self._parse_date(row.get("LAP_DT")),
+                reinstatement_date=self._parse_date(row.get("REN_DT")),
                 raw_data=row
             )
             periods.append(period)
@@ -763,12 +763,12 @@ class CoveragesSection(PolicySection):
         return self.data_item_count("LH_COV_SKIPPED_PER")
 
     def skipped_from_date(self, index: int) -> Optional[date]:
-        """Get skipped period from date (1-based index)."""
-        return self._parse_date(self.data_item("LH_COV_SKIPPED_PER", "SKP_FRM_DT", index - 1))
+        """Get skipped period lapse date, LAP_DT (1-based index)."""
+        return self._parse_date(self.data_item("LH_COV_SKIPPED_PER", "LAP_DT", index - 1))
 
     def skipped_to_date(self, index: int) -> Optional[date]:
-        """Get skipped period to date (1-based index)."""
-        return self._parse_date(self.data_item("LH_COV_SKIPPED_PER", "SKP_TO_DT", index - 1))
+        """Get skipped period reinstatement date, REN_DT (1-based index)."""
+        return self._parse_date(self.data_item("LH_COV_SKIPPED_PER", "REN_DT", index - 1))
 
     def skipped_cov_phase(self, index: int) -> int:
         """Get skipped period coverage phase (1-based index)."""

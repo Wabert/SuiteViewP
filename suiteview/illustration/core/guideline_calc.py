@@ -526,6 +526,7 @@ def calculate_glp_iterative(
     gpolicy.premiums_ytd = 0.0
     gpolicy.premiums_paid_to_date = 0.0
     gpolicy.withdrawals_to_date = 0.0
+    gpolicy.skipped_coverage_periods = []
     gpolicy.regular_loan_principal = 0.0
     gpolicy.regular_loan_accrued = 0.0
     gpolicy.preferred_loan_principal = 0.0
@@ -658,6 +659,7 @@ def search_guideline_premiums(
         premiums_ytd=0.0,
         premiums_paid_to_date=0.0,
         withdrawals_to_date=0.0,
+        skipped_coverage_periods=[],
         regular_loan_principal=0.0,
         regular_loan_accrued=0.0,
         preferred_loan_principal=0.0,

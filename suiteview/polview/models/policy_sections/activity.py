@@ -158,8 +158,10 @@ class ActivitySection(PolicySection):
             count += 1
         return transactions
 
-    def get_premium_transactions(self) -> List[TransactionInfo]:
-        """Return unreversed policy premium transactions in issue-date order."""
+    def get_live_transactions(self, codes) -> List[TransactionInfo]:
+        """Return unreversed, dated, amounted FH_FIXED transactions whose code is in
+        ``codes``, in date/sequence order. A row is live unless FCB0_REV_IND or
+        FCB2_REV_APPL_IND is ``1`` (reversed, or the reversal itself)."""
         transactions = []
         for transaction in self.get_transactions():
             row = transaction.raw_data
@@ -168,7 +170,7 @@ class ActivitySection(PolicySection):
                 or str(row.get("FCB2_REV_APPL_IND", "") or "").strip() == "1"
             )
             if (
-                transaction.trans_code in self.PREMIUM_TRANSACTION_CODES
+                transaction.trans_code in codes
                 and not reversed_or_reversal
                 and transaction.trans_date is not None
                 and transaction.gross_amount is not None
@@ -181,6 +183,10 @@ class ActivitySection(PolicySection):
                 transaction.sequence_number,
             ),
         )
+
+    def get_premium_transactions(self) -> List[TransactionInfo]:
+        """Return unreversed policy premium transactions in issue-date order."""
+        return self.get_live_transactions(self.PREMIUM_TRANSACTION_CODES)
 
     @property
     def transaction_count(self) -> int:

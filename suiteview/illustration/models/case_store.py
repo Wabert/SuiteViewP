@@ -42,6 +42,7 @@ from suiteview.illustration.models.policy_data import (
     JointLives,
     PremiumTransaction,
     RiderInfo,
+    SkippedCoveragePeriod,
     ValueRollbackSnapshot,
 )
 
@@ -377,6 +378,7 @@ _SNAPSHOT_TYPES = {
         BenefitInfo,
         PremiumTransaction,
         RiderInfo,
+        SkippedCoveragePeriod,
         ValueRollbackSnapshot,
     )
 }

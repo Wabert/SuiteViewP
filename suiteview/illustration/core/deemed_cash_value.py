@@ -508,9 +508,8 @@ class NptTracker:
             begin_dcv=0.0,
             valuation_dcv=float(dcv),
             db_option=policy.db_option,
-            premiums_less_withdrawals=(
-                float(policy.premiums_paid_to_date)
-                - policy.net_withdrawals(float(policy.withdrawals_to_date))),
+            premiums_less_withdrawals=policy.option_c_premium_base(
+                float(policy.premiums_paid_to_date), float(policy.withdrawals_to_date)),
             coverages=dcv_coverages(
                 policy, config, self.guaranteed, policy.valuation_date, policy.policy_year),
             charges=dcv_charges(policy, config, rates, valuation_row, policy.policy_year),

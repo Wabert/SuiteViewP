@@ -17,11 +17,14 @@ Copy/mutation rules:
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date
 from math import isfinite
 from dateutil.relativedelta import relativedelta
 
+from suiteview.illustration.constants import DB_OPTION_RETURN_OF_PREMIUM
 from suiteview.illustration.core.lapse import validate_no_lapse_years
+from suiteview.illustration.core.skipped_coverage import skipped_option_c_note
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
     IllustrationScenario,
@@ -122,6 +125,7 @@ def apply_rollback_overrides(
     _apply_benefit_amounts(policy, overrides, assumptions)
     _refresh_base_amounts(policy)
     _apply_rollback_db_option(policy, overrides, assumptions)
+    _apply_manual_option_c_totals(policy, record_values, assumptions)
     return policy
 
 
@@ -207,6 +211,21 @@ def _apply_record_values(policy, record_values: dict, assumptions: list[str]) ->
             "(option C) death benefit.")
     if "tamra_7pay_cash_value" in record_values:
         policy.tamra_7pay_start_av = policy.tamra_7pay_cash_value
+
+
+def _apply_manual_option_c_totals(policy, record_values: dict, assumptions: list[str]) -> None:
+    """Entered premiums/withdrawals totals are the full option C basis: the recorded
+    exclusion of pre-reinstatement premiums no longer reconciles with them. The periods
+    stay (they still shift the EPU schedule)."""
+    if not {"premiums_paid_to_date", "withdrawals_to_date"} & set(record_values):
+        return
+    latest = policy.latest_skipped_coverage_period
+    if latest is None or latest.option_c_excluded_amount == 0.0:
+        return
+    policy.skipped_coverage_periods = [
+        replace(period, option_c_excluded_amount=0.0) for period in policy.skipped_coverage_periods]
+    if policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
+        assumptions.append(skipped_option_c_note(latest))
 
 
 def _record_value_text(spec, value) -> str:
@@ -469,6 +488,7 @@ def _reset_issue_values(policy: IllustrationPolicyData) -> None:
     policy.is_mec = False
     policy.tamra_7pay_start_date = policy.issue_date
     policy.tamra_7year_contributions = [0.0] * 7
+    policy.skipped_coverage_periods = []
 
 
 def prepare_policy_for_issue_projection(
