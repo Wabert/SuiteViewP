@@ -82,7 +82,7 @@ EXPECTED_WINDOW_HASHES = {
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
     "IllustrationWindow": "72f6ee08f93f60e2896854fe6ca1d66afb355b6eb67664f364c3bf5bc918a721",
     "MainframeWindow": "372a0a574cb206b2f252171fa8270e00f137960d83db5fde15b41bb01637a084",
-    "PolView": "b5a77c10c4b8078d067dfe49da43d33b6fdee401065f5a6166ca83c9863a78a0",
+    "PolView": "2168ff16ac2c3241380605102908dd2916c31066fbf86c7a003765e9c0b48f06",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",
     "RateManagerWindow": "eada666b1ec94b4be8a15f75330adc53c84cf4066bd0745dc84e87b006dc4f49",
     "ScratchPadWindow": "62c5271ce7065222c9adf3b08686fc2c3428909c686cdbae6e2b77d97dce6fbe",

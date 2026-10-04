@@ -190,6 +190,20 @@ UE270933 (1U147800) 3.75% / 3.50%; UN003999 (1U145900, FFL) 3.80% / 3.80%;
 loaded in UL_Rates on 2026-10-04). Regression:
 `tests/test_polview_fixed_account_rate.py`.
 
+The six short-pay and dial-to rows (Short Pay Prem, Short Pay Mode, Short Pay Dur,
+SP Billing Cease, SP Prem Cease Age, DB Dial-To Age) sit behind the **Short Pay /
+Dial-To ▸** button in Policy Info's right column
+(`polview/ui/tabs/short_pay_popup.py`), not in panel rows. The button opens a small
+click-away popup with the same `AdvProdValues` field tooltips and value rules as
+before (`pi.billing` short-pay values from `TH_USER_GENERIC` / the `VS` target;
+`pi.targets.db_dial_to_age`). It is PolView green when any value is present and
+grey italic when none is, but stays clickable: the popup then shows the rows blank
+with "No short-pay or dial-to-age values on this policy." so the user can confirm
+there is no data rather than wonder whether the button works. The popup avoids
+changing the fixed-size panel, so the layout never jumps. Examples: UE148375
+(1U147600) active, Short Pay Prem 917.76 M, 44 years, cease age 104, dial-to 105;
+10497580 and UE060913 grey. Regression: `tests/test_polview_short_pay_popup.py`.
+
 ## PolView stored CV/NSP rates and Guaranteed Cash Value
 
 The Policy tab shows the base coverage's stored 02-segment per-unit window

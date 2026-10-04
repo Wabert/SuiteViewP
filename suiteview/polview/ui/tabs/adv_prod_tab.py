@@ -9,6 +9,7 @@ cash-value page with only the rows that apply to the policy.
 import logging
 from decimal import Decimal
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel, QStackedLayout,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
 from . import adv_prod_tooltips as tips
+from .short_pay_popup import ShortPayDialToButton, ShortPayDialToPopup
 from ...services.policy_prefetch import (
     AccountValueCalculations,
     InterimAccountValueUnavailable,
@@ -223,20 +225,20 @@ class AdvProdValuesTab(QWidget):
         place(8, 0, "DB Discount Rate", "db_discount_rate", lwidth=100)
         place(9, 0, "Grace Rule Code", "grace_rule_code", lwidth=100)
 
-        # Right column (short-pay / other) — wider labels so long names
-        # like "SP Prem Cease Age" are not clipped
-        place(0, 1, "Short Pay Prem", "short_pay_prem", lwidth=115)
-        place(1, 1, "Short Pay Mode", "short_pay_mode", lwidth=115)
-        place(2, 1, "Short Pay Dur", "short_pay_dur", lwidth=115)
-        place(3, 1, "SP Billing Cease", "sp_billing_cease_date", lwidth=115)
-        place(4, 1, "SP Prem Cease Age", "sp_prem_cease_age", lwidth=115)
-        place(5, 1, "DB Dial-To Age", "db_dial_to_age", lwidth=115)
-        place(6, 1, "Corridor Rate", "corridor_rate", lwidth=115)
+        # Right column (rates / quotes) — wider labels so long names are not clipped.
+        # Short-pay and dial-to rows live behind the Short Pay / Dial-To button.
+        place(0, 1, "Corridor Rate", "corridor_rate", lwidth=115)
         # Sized for the dated label so loading a quote never shifts the layout.
-        place(7, 1, "Interim AV Quote (00/00/0000)", "interim_av_quote",
+        place(1, 1, "Interim AV Quote (00/00/0000)", "interim_av_quote",
               lwidth=115, italic=True)
-        place(8, 1, "Fixed Crediting Rate", "fixed_crediting_rate", lwidth=115, italic=True)
-        place(9, 1, "Fixed Rate ex Bonus", "fixed_rate_ex_bonus", lwidth=115, italic=True)
+        place(2, 1, "Fixed Crediting Rate", "fixed_crediting_rate", lwidth=115, italic=True)
+        place(3, 1, "Fixed Rate ex Bonus", "fixed_rate_ex_bonus", lwidth=115, italic=True)
+        self.short_pay_button = ShortPayDialToButton()
+        self.short_pay_popup = ShortPayDialToPopup(self)
+        self.short_pay_button.clicked.connect(
+            lambda: self.short_pay_popup.show_below(self.short_pay_button))
+        self.policy_info._info_layout.addWidget(
+            self.short_pay_button, 5, 3, 1, 2, Qt.AlignmentFlag.AlignLeft)
         self._set_interim_label(None)
         self._field_styles = {
             attr: (self.policy_info._labels[attr].styleSheet(), field.styleSheet())
@@ -547,22 +549,32 @@ class AdvProdValuesTab(QWidget):
             except Exception:
                 self.policy_info.set_value("corridor_rate", str(policy.product.corridor_percent))
 
-        if policy.billing.short_pay_premium:
-            self.policy_info.set_value("short_pay_prem", format_currency(policy.billing.short_pay_premium))
-        if policy.billing.short_pay_duration:
-            self.policy_info.set_value("short_pay_dur", str(policy.billing.short_pay_duration))
-            if policy.billing.short_pay_mode:
-                self.policy_info.set_value("short_pay_mode", policy.billing.short_pay_mode)
-            if policy.billing.sp_billing_cease_date:
-                self.policy_info.set_value("sp_billing_cease_date", str(policy.billing.sp_billing_cease_date))
-            if policy.billing.short_pay_premium and policy.billing.sp_prem_cease_age:
-                self._set_calculated(
-                    "sp_prem_cease_age", str(policy.billing.sp_prem_cease_age),
+        self._load_short_pay(policy)
+
+    def _load_short_pay(self, policy):
+        """Fill the Short Pay / Dial-To popup; the button is active when any value exists."""
+        popup = self.short_pay_popup
+        popup.clear()
+        billing = policy.billing
+        if billing.short_pay_premium:
+            popup.set_value("short_pay_prem", format_currency(billing.short_pay_premium))
+        if billing.short_pay_duration:
+            popup.set_value("short_pay_dur", str(billing.short_pay_duration))
+            if billing.short_pay_mode:
+                popup.set_value("short_pay_mode", billing.short_pay_mode)
+            if billing.sp_billing_cease_date:
+                popup.set_value("sp_billing_cease_date", str(billing.sp_billing_cease_date))
+            if billing.short_pay_premium and billing.sp_prem_cease_age:
+                popup.set_value(
+                    "sp_prem_cease_age", str(billing.sp_prem_cease_age),
                     tips.sp_prem_cease_age_tip(
-                        policy.billing.short_pay_duration, policy.coverages.cov_issue_age(1),
-                        policy.billing.sp_prem_cease_age))
+                        billing.short_pay_duration, policy.coverages.cov_issue_age(1),
+                        billing.sp_prem_cease_age))
         if policy.targets.db_dial_to_age:
-            self.policy_info.set_value("db_dial_to_age", str(policy.targets.db_dial_to_age))
+            popup.set_value("db_dial_to_age", str(policy.targets.db_dial_to_age))
+        popup.refresh_note()
+        present = popup.present_labels()
+        self.short_pay_button.set_active(bool(present), present)
 
     def _load_interest_rates(self, policy):
         """Fixed-fund guaranteed crediting rate and the NAR death-benefit discount rate.
