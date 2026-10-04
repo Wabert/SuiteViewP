@@ -421,7 +421,7 @@ def _txn(day, code, amount):
     return TransactionInfo(
         trans_date=day, trans_code=code, trans_type=code[0], trans_subtype=code[1],
         trans_desc="", gross_amount=amount, net_amount=amount, sequence_number=1,
-        fund_id="", coverage_phase=0)
+        fund_id="", coverage_phase=0, raw_data={"FBB3_PROCD_IND": "1"})
 
 
 def _skipped(phase, lapse, reinstated):

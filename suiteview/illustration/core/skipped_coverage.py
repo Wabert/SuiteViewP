@@ -13,8 +13,10 @@ UE224365), and the latest REN_DT wins on the two reinstated twice (UIP88048, UE1
 25 continuous reinstatements and 38 never-reinstated controls keep lifetime premiums less
 net withdrawals.
 
-Assumption (untested, none of the 6 has a withdrawal): withdrawals on or after REN_DT are
-subtracted net of the plan's per-withdrawal fee, as the lifetime basis is (4986e58/ed6f306).
+Assumption (untested: no in-force option C lapse-gap policy has a withdrawal on or after its
+REN_DT, read-only check 2026-10-04): withdrawals on or after REN_DT are subtracted net of the
+plan's per-withdrawal fee, once per withdrawal event, as the lifetime basis is
+(4986e58/ed6f306).
 
 EPU duration: the EPU schedule month is the calendar coverage month less the monthliversaries
 in (LAP_DT, REN_DT] of the MOST RECENT skipped period only; earlier gaps do not extend it.
@@ -53,11 +55,22 @@ def build_skipped_coverage_periods(
 
     ``periods`` carry ``lapse_date``/``reinstatement_date`` (PolView ``SkippedPeriodInfo``);
     a row still open (no REN_DT) is not a reinstatement. ``transactions`` are live FH_FIXED
-    rows with ``trans_date``, ``trans_code`` and ``gross_amount``. The totals are the
-    in-force LH_POL_TOTALS amounts the engine starts from.
+    rows (PolView ``TransactionInfo``: ``trans_date``, ``trans_code``, ``gross_amount``,
+    ``raw_data``). The totals are the in-force LH_POL_TOTALS amounts the engine starts from,
+    and the since-REN amounts are measured on the same basis:
+
+    * Premiums count only processed rows (FBB3_PROCD_IND = 1). LH_POL_TOTALS excludes the
+      next unapplied receipt FH_FIXED may already hold (UE000576, see
+      ``value_rollback._processed_history``); counting it would overstate the base.
+    * Withdrawals are events: rows grouped by (ASOF_DT, TRANS), since one withdrawal spans
+      a row per values phase. An event's amount is the sum of its GROSS_AMT for every code,
+      and the fee applies once per event. That is how TOT_WTD_AMT and TOT_WTD_QTY count:
+      on 400 in-force UL policies with withdrawals (read-only, 2026-10-04) the GROSS_AMT
+      sum equals TOT_WTD_AMT on 393, and the (date, code) event count equals TOT_WTD_QTY
+      on 377. The raw row count equals it on only 17. Most misses have purged history.
     """
     live = [
-        (t.trans_date, t.trans_code, float(t.gross_amount))
+        (t.trans_date, t.trans_code, float(t.gross_amount), t)
         for t in transactions
         if t.trans_date is not None and t.gross_amount is not None
     ]
@@ -68,12 +81,14 @@ def build_skipped_coverage_periods(
         if lapse is None or reinstated is None:
             continue
         premiums_since = sum(
-            amount for day, code, amount in live
-            if code in OPTION_C_PREMIUM_CODES and day >= reinstated)
-        withdrawals_since = [
-            amount for day, code, amount in live if code in WITHDRAWAL_CODES and day >= reinstated]
+            amount for day, code, amount, row in live
+            if code in OPTION_C_PREMIUM_CODES and day >= reinstated and _processed(row))
+        events: dict[tuple, float] = {}
+        for day, code, amount, _row in live:
+            if code in WITHDRAWAL_CODES and day >= reinstated:
+                events[(day, code)] = events.get((day, code), 0.0) + abs(amount)
         net_withdrawals_since = max(
-            0.0, sum(withdrawals_since) - len(withdrawals_since) * withdrawal_fee)
+            0.0, sum(events.values()) - len(events) * withdrawal_fee)
         result.append(SkippedCoveragePeriod(
             lapse_date=lapse,
             reinstatement_date=reinstated,
@@ -81,6 +96,17 @@ def build_skipped_coverage_periods(
                 lifetime_base - (premiums_since - net_withdrawals_since), 2),
         ))
     return sorted(result, key=lambda period: period.reinstatement_date)
+
+
+def _processed(transaction) -> bool:
+    """FH_FIXED FBB3_PROCD_IND is 1 (applied). A row without the flag is raised: treating
+    it as either state could silently move the option C base."""
+    raw = getattr(transaction, "raw_data", None) or {}
+    if "FBB3_PROCD_IND" not in raw:
+        raise ValueError(
+            f"FH_FIXED {transaction.trans_code} on {transaction.trans_date} has no "
+            "FBB3_PROCD_IND; the option C reinstatement basis cannot tell whether it was applied.")
+    return str(raw["FBB3_PROCD_IND"]).strip() == "1"
 
 
 def skipped_option_c_note(period: SkippedCoveragePeriod) -> str:

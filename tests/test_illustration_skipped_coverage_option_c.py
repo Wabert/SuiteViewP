@@ -28,8 +28,9 @@ from suiteview.illustration.models.policy_data import (
 )
 
 
-def _txn(day, code, amount):
-    return SimpleNamespace(trans_date=day, trans_code=code, gross_amount=amount)
+def _txn(day, code, amount, processed="1"):
+    raw = {} if processed is None else {"FBB3_PROCD_IND": processed}
+    return SimpleNamespace(trans_date=day, trans_code=code, gross_amount=amount, raw_data=raw)
 
 
 def _period(lapse, reinstated):
@@ -130,6 +131,42 @@ def test_withdrawals_since_the_reinstatement_are_subtracted_net_of_fee():
 
     # Since REN: premiums 3,500 less the 1,000 withdrawal net of its 25 fee.
     assert policy.option_c_premium_base(7_500.0, 3_000.0) == pytest.approx(2_525.0)
+
+
+def test_an_unapplied_premium_since_the_reinstatement_is_not_in_the_base():
+    """FH_FIXED can hold the next receipt before it is applied (FBB3_PROCD_IND 0, UE000576);
+    LH_POL_TOTALS does not count it, so neither does the since-REN sum."""
+    pending = UIP88048_TRANSACTIONS + (_txn(date(2026, 9, 20), "PR", 500.0, processed="0"),)
+    periods = _periods(UIP88048_PERIODS, pending, 26_437.50)
+
+    assert periods[-1].option_c_excluded_amount == 9_250.00
+    assert _policy(250_001.0, 26_437.50, periods).option_c_premium_base(
+        26_437.50, 0.0) == pytest.approx(17_187.50)
+
+
+def test_a_premium_without_the_processed_flag_is_raised():
+    rows = UIP88048_TRANSACTIONS + (_txn(date(2026, 9, 20), "PR", 500.0, processed=None),)
+
+    with pytest.raises(ValueError, match="FBB3_PROCD_IND"):
+        _periods(UIP88048_PERIODS, rows, 26_937.50)
+
+
+def test_a_withdrawal_spanning_several_values_phases_is_one_event_with_one_fee():
+    """One SN request posts a row per values phase; TOT_WTD_QTY counts it once and
+    TOT_WTD_AMT is the GROSS_AMT sum (400-policy read-only check, 2026-10-04)."""
+    rows = (
+        _txn(date(2019, 6, 1), "PR", 4_000.0), _txn(date(2020, 3, 1), "PB", 500.0),
+        _txn(date(2021, 3, 1), "PR", 3_000.0),
+        _txn(date(2022, 3, 1), "SN", 600.0), _txn(date(2022, 3, 1), "SN", 425.0),
+        _txn(date(2023, 3, 1), "SG", 300.0), _txn(date(2023, 3, 1), "SG", 200.0),
+    )
+    periods = _periods((_period(date(2020, 1, 1), date(2020, 3, 1)),), rows,
+                       7_500.0, withdrawals=1_525.0, fees=50.0)
+    policy = _policy(100_000.0, 7_500.0, periods, withdrawals=1_525.0, fees=50.0)
+
+    # Two events (not four rows): 1,525 gross - 2 x 25 = 1,475 net since REN.
+    assert periods[0].option_c_excluded_amount == pytest.approx(4_000.0)
+    assert policy.option_c_premium_base(7_500.0, 1_525.0) == pytest.approx(3_500.0 - 1_475.0)
 
 
 def test_continuous_and_never_reinstated_policies_keep_the_lifetime_basis():

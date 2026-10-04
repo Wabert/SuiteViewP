@@ -467,9 +467,11 @@ raised, never treated as "never reinstated". Only the latest period with `REN_DT
 before the valuation date applies (`latest_skipped_coverage_period`). Two rules come from
 CyberLife data, not documentation (CyberDoc has neither):
 
-- **Option C basis.** The return of premium is the live premiums paid on or after the
-  latest `REN_DT` (`PB` included, `PU` excluded; codes PA PB PD PE PF PI PR PT PQ PW)
-  less withdrawals since then (SG SM SN). Each period stores
+- **Option C basis.** The return of premium is the live, processed (`FBB3_PROCD_IND = 1`)
+  premiums paid on or after the latest `REN_DT` (`PB` included, `PU` excluded; codes PA
+  PB PD PE PF PI PR PT PQ PW) less withdrawals since then (SG SM SN, grouped into
+  (date, code) events summing `GROSS_AMT`, as `TOT_WTD_AMT`/`TOT_WTD_QTY` count them).
+  Each period stores
   `option_c_excluded_amount` = lifetime premiums less net withdrawals (LH_POL_TOTALS)
   minus that since-REN amount; `option_c_premium_base` subtracts it, so projected
   premiums and withdrawals accumulate on top as before. The monthly deduction, ledger
@@ -477,9 +479,10 @@ CyberLife data, not documentation (CyberDoc has neither):
   CyberLife ROP matches on 6/6 option C lapse-gap policies (UIP88048, UE182343, UE160240,
   UE127229, UE198313, UE224365); UIP88048 and UE182343 were reinstated twice and only the
   latest `REN_DT` matches. All 25 continuous reinstatements and 38 never-reinstated
-  controls keep lifetime premiums less net withdrawals. **Assumption (untested, none of
-  the 6 has a withdrawal):** withdrawals on or after `REN_DT` are subtracted net of the
-  plan's per-withdrawal fee; earlier withdrawals belong to the excluded history.
+  controls keep lifetime premiums less net withdrawals. **Assumption (untested: no
+  in-force option C lapse-gap policy has a withdrawal after its `REN_DT`):** withdrawals
+  on or after `REN_DT` are subtracted net of the plan's per-withdrawal fee, once per
+  event; earlier withdrawals belong to the excluded history.
   Guideline (GLP/GSP/7-pay), TAMRA and cost basis keep lifetime premiums.
 - **EPU duration.** The EPU schedule month is the calendar coverage month less the
   monthliversaries in (`LAP_DT`, `REN_DT`] of the most recent period only
