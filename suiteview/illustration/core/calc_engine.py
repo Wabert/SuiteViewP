@@ -2756,8 +2756,9 @@ def _reband_benefits(rates, policy) -> None:
         if not ben_key:
             continue
         # A CCV charge pinned to the policy record's rate stays pinned, as does a
-        # non-renewing benefit's level stored rate.
-        if ben_key in rates.benefit_rate_overrides or benefit_rate_is_level(ben):
+        # non-renewing benefit's level stored rate and a zero-premium benefit.
+        if (ben_key in rates.benefit_rate_overrides or ben_key in rates.zero_premium_benefits
+                or benefit_rate_is_level(ben)):
             continue
         rates.benefit_coi[ben_key] = _load_benefit_coi_rates(
             rates_db, policy, ben, seg

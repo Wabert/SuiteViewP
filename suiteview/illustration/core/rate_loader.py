@@ -51,6 +51,8 @@ class RateLookupError(RuntimeError):
 # Benefit types that always carry a monthly COI charge. Others (A, V, U, ...)
 # are informational and legitimately have no BENCOI schedule.
 CHARGEABLE_BENEFIT_TYPES = frozenset({"1", "2", "3", "4", "7"})
+# A benefit constructed at zero premium: $0 in every duration.
+ZERO_PREMIUM_SCHEDULE = (None, 0.0)
 
 
 @dataclass(frozen=True)
@@ -231,6 +233,9 @@ class IllustrationRates:
     # Benefit schedules replaced by the policy record's stored rate, keyed like
     # benefit_coi (see load_benefit_schedule).
     benefit_rate_overrides: Dict[str, BenefitRateOverride] = field(default_factory=dict)
+    # Benefit schedule keys the plan's CyberLife PDF defines at zero premium; their
+    # benefit_coi schedule is an explicit $0 (see load_benefit_schedule).
+    zero_premium_benefits: set = field(default_factory=set)
 
     # Rider COI rates — keyed by RiderInfo.export_key (plancode_occurrence)
     rider_rates: Dict[str, List] = field(default_factory=dict)
@@ -377,8 +382,17 @@ def load_benefit_schedule(
 
     A charged CCV benefit whose stored policy rate differs from UL_Rates is
     charged at the policy rate for every duration and recorded in
-    ``result.benefit_rate_overrides`` so the UI can say so.
+    ``result.benefit_rate_overrides`` so the UI can say so. A benefit the plan's
+    CyberLife PDF constructs at zero premium (``ULRates.zero_premium_benefits``) gets an
+    explicit $0 schedule instead of a BENCOI lookup.
     """
+    benefit_code = (benefit.benefit_type or "") + (benefit.benefit_subtype or "")
+    if benefit_code in rates_db.zero_premium_benefits(policy.plancode):
+        result.benefit_rate_overrides.pop(schedule_key, None)
+        result.zero_premium_benefits.add(schedule_key)
+        result.benefit_coi[schedule_key] = list(ZERO_PREMIUM_SCHEDULE)
+        return
+    result.zero_premium_benefits.discard(schedule_key)
     schedule = _load_benefit_coi_rates(rates_db, policy, benefit, segment)
     override = _ccv_policy_rate_override(policy, benefit, segment, schedule_key, schedule)
     if override is not None:

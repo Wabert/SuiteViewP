@@ -860,6 +860,14 @@ or, with none stored, at the schedule's benefit-issue-year rate. Examples:
 NU1L2A00 WPLA 4P charges `50 units x 0.02` (BENCOI 0.0166); 1A130A29 V8620875 3I
 charges 0.0117 (issue age 31), not the attained-age 0.0967.
 
+Zero-premium benefit — no charge. When every DSB segment for a benefit in the plan's
+CyberLife PDF (`dbo.CYBERLIFE_PDF`) has premium use `DSBPRUSE` 0 and premium amount
+`DSBPRAMT` 0 (CyberDoc D10 p.119; construct rule `DSBCRULE` 2, "zero premium"), the
+benefit stays active with an explicit $0 schedule (`ULRates.zero_premium_benefits`) and
+needs no BENCOI. Examples: the 3D and 3L waivers that continue after age 60
+(1U143900/1U135x 3D, NU1F*/1U1F4M00 3L). Any other chargeable benefit without BENCOI
+still raises `RateLookupError`.
+
 Benefit charge window. A benefit is charged until its pay-up date, with two
 CyberLife record cases:
 - `BNF_CEA_DT` earlier than the pay-up date is a termination (the original

@@ -47,6 +47,10 @@ class SchemaReader:
         return self._get(("plan_attrs", company, plancode),
                          lambda: tuple(self._repo.plan_attrs(company, plancode)))
 
+    def pdf_benefit_premiums(self, plancode: str):
+        return self._get(("pdf_dsb", plancode),
+                         lambda: tuple(self._repo.pdf_benefit_premiums(plancode)))
+
     def plan_bands(self, company: str, plancode: str):
         return self._get(("plan_bands", company, plancode),
                          lambda: tuple(self._repo.plan_bands(company, plancode)))

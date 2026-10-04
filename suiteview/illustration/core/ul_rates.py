@@ -224,6 +224,29 @@ class ULRates(JointSurvivorRateSource):
         """Whether schema ``rates`` loads the plancode (``PLAN_DEF``) under any company."""
         return bool(self._reader.plan_defs((plancode or "").strip().upper()))
 
+    def zero_premium_benefits(self, plancode: str) -> frozenset:
+        """Benefit codes (type + subtype) the plan's CyberLife PDF defines with no premium.
+
+        A DSB segment with DSBPRUSE ``0`` charges DSBPRAMT per unit monthly (CyberDoc D10
+        p.119); with DSBPRAMT 0 the benefit is constructed at zero premium (DSBCRULE 2) and
+        CyberLife charges nothing (1U143900/1U135x 3D, NU1F*/1U1F4M00 3L). A code counts only
+        when every segment carrying it, in every PDF user/version, is premium-use 0 with a
+        zero amount.
+        """
+        plancode = (plancode or "").strip().upper()
+
+        def compute() -> frozenset:
+            by_benefit: Dict[str, List[bool]] = {}
+            for segment in self._reader.pdf_benefit_premiums(plancode):
+                if not segment.benefit:
+                    continue
+                zero = (segment.premium_use == "0" and segment.premium_amount != ""
+                        and Decimal(segment.premium_amount) == 0)
+                by_benefit.setdefault(segment.benefit, []).append(zero)
+            return frozenset(code for code, flags in by_benefit.items() if all(flags))
+
+        return self._memo(("PDF_ZERO_PREMIUM", plancode), compute)
+
     # -- schedules and single values ----------------------------------------------
 
     def get_rates(

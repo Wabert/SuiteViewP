@@ -25,6 +25,9 @@ class _FakeBenefitRates:
         self.requests.append((rate_type, plancode, issue_age, sex, rateclass, band, kwargs))
         return list(self.by_class.get(rateclass, []))
 
+    def zero_premium_benefits(self, _plancode):
+        return frozenset()
+
 
 def _ccv_policy(stored_rate, *, benefit_type="A", rate_class="N"):
     issue = date(2016, 1, 5)

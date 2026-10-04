@@ -198,6 +198,24 @@ class PlanAttr:
     value: str
 
 
+@dataclass(frozen=True)
+class PdfBenefitPremium:
+    """One supplemental-benefit (DSB) segment of a plan's CyberLife PDF record.
+
+    ``premium_use`` is DSBPRUSE (CyberDoc D10 p.119: ``0`` = the premium does not vary
+    and DSBPRAMT is the monthly premium per unit); ``premium_amount`` is DSBPRAMT as
+    stored, blank when the segment carries none.
+    """
+
+    user: str
+    version: str
+    effective: str
+    occurrence: int
+    benefit: str          # DSBTYPCD + DSBSBTYP, e.g. "3D"
+    premium_use: str
+    premium_amount: str
+
+
 def _text(value) -> str:
     return "" if value is None else str(value).strip()
 
@@ -346,6 +364,33 @@ class RatesSchemaRepository:
             [company, plancode],
         )
         return [PlanAttr(_text(r[0]), _text(r[1])) for r in rows]
+
+    def pdf_benefit_premiums(self, plancode: str) -> list[PdfBenefitPremium]:
+        """The plan's DSB benefit-premium segments from ``dbo.CYBERLIFE_PDF`` (same database).
+
+        Field names are stored as ``NAME-DESCRIPTION (occurrence)``, one row per field.
+        """
+        rows = self._query(
+            "SELECT UserID, Version, EffectiveDate, FieldName, FieldValue FROM dbo.CYBERLIFE_PDF "
+            "WHERE Plancode = ? AND (FieldName LIKE 'DSBTYPCD-%' OR FieldName LIKE 'DSBSBTYP-%' "
+            "OR FieldName LIKE 'DSBPRUSE-%' OR FieldName LIKE 'DSBPRAMT-%')",
+            [plancode],
+        )
+        segments: dict[tuple, dict[str, str]] = {}
+        for user, version, effective, field, value in rows:
+            name, _, rest = _text(field).partition("-")
+            occurrence = rest[rest.rfind("(") + 1:rest.rfind(")")] if "(" in rest else ""
+            if not occurrence.isdigit():
+                raise RatesError(f"CYBERLIFE_PDF {plancode} field {field!r} has no occurrence number.")
+            key = (_text(user), _text(version), _text(effective), int(occurrence))
+            segments.setdefault(key, {})[name] = _text(value)
+        return [
+            PdfBenefitPremium(
+                user, version, effective, occurrence,
+                fields.get("DSBTYPCD", "") + fields.get("DSBSBTYP", ""),
+                fields.get("DSBPRUSE", ""), fields.get("DSBPRAMT", ""))
+            for (user, version, effective, occurrence), fields in sorted(segments.items())
+        ]
 
     def plan_bands(self, company: str, plancode: str) -> list[BandSpec]:
         rows = self._query(

@@ -128,6 +128,9 @@ def test_load_rates_uses_current_scale_for_expenses_with_guaranteed_coi():
             # Distinct arrays per scale so a wrong-scale read is visible.
             return [None, 100.0 + scale]
 
+        def zero_premium_benefits(self, _plancode):
+            return frozenset()
+
         def get_band(self, plancode, face, issue_date=None, **_kwargs):
             return 1
 
@@ -166,6 +169,9 @@ def test_load_rates_uses_benefit_issue_age_for_bencoi():
                       rateclass=None, scale=1, band=None, **kwargs):
             self.calls.append((rate_type, issue_age, kwargs.get("benefit_type")))
             return [None, 0.1]
+
+        def zero_premium_benefits(self, _plancode):
+            return frozenset()
 
         def get_band_break(self, *args, **kwargs):
             return 0.0

@@ -209,6 +209,9 @@ def test_issue_band_and_scales_resolve_at_rate_boundary(monkeypatch, coi_scale, 
             calls.append((kind, plancode, kwargs.get("band"), kwargs.get("scale")))
             return [None, 0.1]
 
+        def zero_premium_benefits(self, _plancode):
+            return frozenset()
+
         def get_mtp(self, *args, **_kwargs):
             calls.append(("MTP", args))
             return 1

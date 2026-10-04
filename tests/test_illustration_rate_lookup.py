@@ -25,6 +25,9 @@ class _FakeRates:
     def is_loaded(self, _plancode):
         return True
 
+    def zero_premium_benefits(self, _plancode):
+        return frozenset()
+
 
 @pytest.mark.parametrize("preferred_class", ["R", "P", "T"])
 def test_preferred_nonsmoker_falls_back_to_n(preferred_class):
@@ -170,6 +173,9 @@ class _FakeBenefitRates:
     def get_rates(self, rate_type, plancode, benefit_type=None, **_kwargs):
         assert rate_type == "BENCOI"
         return self.schedules.get(benefit_type)
+
+    def zero_premium_benefits(self, _plancode):
+        return frozenset()
 
 
 def _benefit_policy(*benefits):

@@ -22,6 +22,9 @@ class _FakeBenefitRates:
     def get_rates(self, *_args, **_kwargs):
         return list(self.schedule)
 
+    def zero_premium_benefits(self, _plancode):
+        return frozenset()
+
 
 _ATTAINED_AGE_SCHEDULE = [None, 0.0117, 0.0125, 0.0133, 0.0967]
 
