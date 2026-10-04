@@ -76,6 +76,9 @@ a = Analysis(
         'win32api',
         'win32gui',
         'win32con',
+        # Shared Switch screen navigation (Dev\Mainframe_Navigator, see requirements.txt)
+        'mainframe_navigator.switch_navigator',
+        'mainframe_navigator.cyberlife_navigator',
         'suiteview.audit',
         'suiteview.audit.audit_window',
         'suiteview.audit.main',

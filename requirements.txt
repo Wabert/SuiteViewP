@@ -36,6 +36,10 @@ markdown>=3.10.0
 # Windows COM / Excel automation (Dump-to-Excel exports, RERUN comparison harness)
 pywin32>=306
 
+# Mainframe screen recognition/navigation engine (sibling Dev\Mainframe_Navigator).
+# Install from this folder; compat mode keeps it a plain path entry PyInstaller bundles.
+-e ../Mainframe_Navigator --config-settings editable_mode=compat
+
 # Development & Testing
 pytest>=8.3.0
 pytest-qt>=4.4.0

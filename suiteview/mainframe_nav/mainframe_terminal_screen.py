@@ -19,6 +19,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
 from PyQt6.QtCore import QObject, Qt, pyqtSignal, QTimer, QEventLoop, QUrl
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QDesktopServices
 
+from mainframe_navigator.cyberlife_navigator import (
+    DEFAULT_COMPANY, CicsKind, CyberLifeNavigator, check_policy_display, classify_cics,
+    policy_command as cyberlife_policy_command,
+)
+from mainframe_navigator.switch_navigator import (
+    ScreenKind, Step, StepKind, classify_screen,
+)
 from suiteview.data.mainframe_credentials import load_mainframe_credentials
 from suiteview.mainframe_nav.switch_sessions import (
     TerminalEndpoint, load_endpoint, retire_plaintext_credentials, save_endpoint, switch_label,
@@ -30,8 +37,15 @@ from suiteview.ui.workers import WorkerController, WorkerSignals
 
 logger = logging.getLogger(__name__)
 
-# CICS region -> VTAM/Switch menu option used by the auto-login sequence.
-CICS_REGION_OPTIONS = {"CKAS": "1", "CKMO": "5", "CKPR": "7", "CKSR": ""}
+# CICS region -> option on the CICS CYBERLIFE REGIONS menu (Level 3). Navigation
+# selects menu entries by name; these numbers are for display and reference.
+CICS_REGION_OPTIONS = {"CKAS": "1", "CKMO": "5", "CKPR": "7", "CKSR": "9"}
+# Screens an already-connected pane can continue navigating from.
+_SWITCH_START_SCREENS = frozenset({
+    ScreenKind.LOGIN, ScreenKind.CONTINUE_MESSAGE, ScreenKind.SWITCH_MENU,
+    ScreenKind.MULTIPLE_LOGON, ScreenKind.RECONNECT, ScreenKind.PRIMARY_MENU,
+})
+SWITCH_REPLY_TIMEOUT_MS = 8000
 TERMINAL_COMPANY_CODES = ("01", "04", "06", "08", "26")
 
 
@@ -1066,6 +1080,9 @@ class MainframeTerminalScreen(QWidget):
         
         # Flag to use OPEN command for secondary sessions (dual terminal support)
         self.use_open_for_new_session = False
+        self._sequence_running = False
+        # CICS region this pane's session was navigated into (None when disconnected).
+        self._cics_region: str | None = None
         
         # Load saved settings
         self._load_settings()
@@ -1583,6 +1600,7 @@ class MainframeTerminalScreen(QWidget):
         if self.client:
             self.client.disconnect()
             self.client = None
+        self._cics_region = None
         
         self.status_label.setText("Disconnected")
         self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 5px; font-size: 11px;")
@@ -1980,41 +1998,42 @@ class MainframeTerminalScreen(QWidget):
     
     def _fill_credentials_and_enter(self):
         """Fill userid and password into the login screen fields and send Enter."""
-        if not self.terminal.last_screen:
-            logger.warning("No screen available for credential entry")
+        if not self._type_sign_on():
             return
-        
-        screen = self.terminal.last_screen
-        input_fields = screen.get_input_fields()
-        
-        if not input_fields:
-            logger.warning("No input fields found for credentials")
-            return
-        
-        input_fields.sort(key=lambda f: f.address)
-        logger.info(f"Found {len(input_fields)} input fields for re-login")
-        
-        # Clear typed chars
-        self.terminal.typed_chars = {}
-        
-        # Type userid into first field
-        if self.conn_userid and len(input_fields) >= 1:
-            field_start = input_fields[0].address + 1
-            for i, char in enumerate(self.conn_userid):
-                self.terminal.typed_chars[field_start + i] = char
-            logger.info(f"Filled userid into field at {field_start}")
-        
-        # Type password into second field
-        if self.conn_password and len(input_fields) >= 2:
-            field_start = input_fields[1].address + 1
-            for i, char in enumerate(self.conn_password):
-                self.terminal.typed_chars[field_start + i] = char
-            logger.info(f"Filled password into field at {field_start}")
-        
-        # Send Enter
         self._wait(20)
         self._send_enter_and_wait()
-    
+
+    def _type_sign_on(self) -> bool:
+        """Type the user ID and password into the logon screen's first two input fields."""
+        if not self.terminal.last_screen:
+            logger.warning("No screen available for credential entry")
+            return False
+        input_fields = sorted(self.terminal.last_screen.get_input_fields(), key=lambda f: f.address)
+        if not input_fields:
+            logger.warning("No input fields found for credentials")
+            return False
+        self.terminal.typed_chars = {}
+        values = [self.conn_userid, self.conn_password]
+        for field, value in zip(input_fields, values):
+            field_start = field.address + 1
+            for i, char in enumerate(value or ""):
+                self.terminal.typed_chars[field_start + i] = char
+        logger.info("Filled the sign-on into %d logon field(s)", min(len(input_fields), 2))
+        return True
+
+    def _type_reconnect_password(self):
+        """Type the password into the reconnect prompt (the first input field)."""
+        if not self.terminal.last_screen:
+            return
+        input_fields = sorted(self.terminal.last_screen.get_input_fields(), key=lambda f: f.address)
+        if not input_fields:
+            return
+        field_start = input_fields[0].address + 1
+        self.terminal.typed_chars = {}
+        for i, char in enumerate(self.conn_password):
+            self.terminal.typed_chars[field_start + i] = char
+        logger.info(f"Typed password for reconnect at field {field_start}")
+
     def _handle_reconnect_screen(self):
         """Handle the reconnect screen by typing password and pressing PF1.
         
@@ -2023,18 +2042,7 @@ class MainframeTerminalScreen(QWidget):
         """
         logger.info("Detected reconnect screen - typing password and pressing PF1")
         
-        # Type password into the first input field (the reconnect prompt field)
-        if self.terminal.last_screen:
-            input_fields = self.terminal.last_screen.get_input_fields()
-            if input_fields:
-                input_fields.sort(key=lambda f: f.address)
-                field_start = input_fields[0].address + 1
-                
-                self.terminal.typed_chars = {}
-                for i, char in enumerate(self.conn_password):
-                    self.terminal.typed_chars[field_start + i] = char
-                
-                logger.info(f"Typed password for reconnect at field {field_start}")
+        self._type_reconnect_password()
         
         # Send PF1 to acquire the session
         self._wait(20)
@@ -2056,20 +2064,6 @@ class MainframeTerminalScreen(QWidget):
         screen_text = ''.join(self.terminal.last_screen.buffer).upper()
         return "PRIMARY APPLICATION SELECTION MENU" in screen_text or "F4=CKAS" in screen_text
     
-    def _check_vtam_switch_menu(self) -> bool:
-        """Check if current screen is the VTAM/Switch Session Selection menu.
-        
-        This is the menu with options like:
-         1 TSO, 2 JQP, 3 CICS, 4 IMS
-        
-        It also has the OPEN command for starting new sessions.
-        """
-        if not self.terminal.last_screen:
-            return False
-        
-        screen_text = ''.join(self.terminal.last_screen.buffer).upper()
-        return "VTAM/SWITCH" in screen_text or "SESSION SELECTION" in screen_text
-    
     def _send_open_command(self):
         """Send OPEN command to start a new session on VTAM/Switch menu.
         
@@ -2078,31 +2072,6 @@ class MainframeTerminalScreen(QWidget):
         logger.info("Sending OPEN command to start new session")
         # Type OPEN into the command field (===>)
         self._auto_type_in_first_field("OPEN")
-        self._wait(20)
-        self._send_enter_and_wait()
-    
-    def _get_cics_applid(self, region_name: str) -> str:
-        """Get the VTAM APPLID for a CICS region.
-        
-        These are the application IDs used with the OPEN command on VTAM/Switch.
-        Confirmed working: OPEN CICSCKAS, OPEN CICSCKMO, OPEN CICSCKPR
-        """
-        applids = {
-            "CKAS": "CICSCKAS",  # CICS CYBERLIFE DEV - confirmed
-            "CKMO": "CICSCKMO",  # CICS Model Office - confirmed
-            "CKPR": "CICSCKPR",  # Cyberlife Production - confirmed
-            "CKSR": "CICSCKSR",  # (assumed) add if region exists
-        }
-        return applids.get(region_name.upper(), "")
-    
-    def _open_application(self, applid: str):
-        """Open a specific application by APPLID using OPEN command.
-        
-        This creates a new session to the specified application.
-        """
-        logger.info(f"Opening application: {applid}")
-        # Type "OPEN applid" into the command field
-        self._auto_type_in_first_field(f"OPEN {applid}")
         self._wait(20)
         self._send_enter_and_wait()
     
@@ -2181,9 +2150,12 @@ class MainframeTerminalScreen(QWidget):
         # Step 5: Policy Entry
         policy_number = self.policy_input.text().strip().upper()
         if policy_number:
-            company = self.company_combo.currentText()
-            # "62D2,{policy}  ;newco={company};."
-            policy_cmd = f"62D2,{policy_number}  ;newco={company};."
+            company = self.company_combo.currentText().strip() or DEFAULT_COMPANY
+            try:
+                policy_cmd = cyberlife_policy_command(policy_number, company)
+            except ValueError as exc:
+                self._fail_sequence(region_name, str(exc))
+                return
             self.automation_status.setText(f"🔄 Looking up {policy_number}...")
             logger.info(f"Entering policy command: {policy_cmd}")
             self._type_and_enter(policy_cmd)
@@ -2192,19 +2164,39 @@ class MainframeTerminalScreen(QWidget):
         elapsed = time.time() - getattr(self, '_sequence_start_time', 0)
         self.automation_status.setText(f"✅ {region_name} (1992) {elapsed:.1f}s")
 
-    def start_cics_sequence(self, region_name: str, region_option: str):
-        """Start the CICS auto-login sequence for any region."""
+    def start_cics_sequence(self, region_name: str, region_option: str = ""):
+        """Sign on, reach *region_name*'s CyberLife transaction screen, then look
+        up the pane's policy on 62D2, reading each screen before acting.
+
+        Continues from the current screen when already connected (any Switch
+        screen, or a CyberLife screen of the same region, so a second policy is
+        just one 62D2 command); otherwise starts a fresh connection. Menu
+        options and PF keys are chosen by their labels (shared
+        ``mainframe_navigator`` package), so *region_option* is informational.
+        """
+        if self._sequence_running:
+            logger.info("Auto-login already running; ignoring the %s request", region_name)
+            return
         if not self._ensure_cics_credentials(region_name):
             return
 
-        start_time = self._prepare_cics_sequence(region_name)
-        self._connect_login_for_sequence()
-        if self._handle_login_interstitials(region_name):
-            return
+        self._sequence_running = True
+        try:
+            if self.conn_port == 1992:
+                self._prepare_cics_sequence(region_name, reuse_session=False)
+                self._connect_login_for_sequence()
+                if not self._handle_login_interstitials(region_name):
+                    self._fail_sequence(region_name, "Port 1992 has no navigation for this region.")
+                return
 
-        if not self._navigate_to_cics_region(region_name, region_option):
-            return
-        self._finish_cics_sequence(region_name, start_time)
+            start_time = self._prepare_cics_sequence(region_name)
+            if not self._ensure_connected_for_sequence(region_name):
+                return
+            if self._navigate_to_transaction_screen(region_name):
+                self._finish_cics_sequence(region_name, start_time)
+        finally:
+            self._sequence_running = False
+            self._skip_autofill = False
 
     def open_policy(self, policy_number: str, company_code: str, region: str) -> bool:
         """Sign on to *region* and bring up *policy_number* in this terminal.
@@ -2240,13 +2232,17 @@ class MainframeTerminalScreen(QWidget):
             return False
         return self._reload_credentials() and bool(self.conn_userid and self.conn_password)
 
-    def _prepare_cics_sequence(self, region_name: str) -> float:
+    def _prepare_cics_sequence(self, region_name: str, reuse_session: bool = True) -> float:
         start_time = time.time()
         self._sequence_start_time = start_time
         self.automation_status.setText(f"🔄 {region_name}...")
+        self.automation_status.setToolTip("")
         if self.client and self.client.connected:
-            self.disconnect_from_mainframe()
-            self._wait(200)
+            if reuse_session and self._can_continue_session(region_name):
+                logger.info("Continuing %s navigation on the open session", region_name)
+            else:
+                self.disconnect_from_mainframe()
+                self._wait(200)
         self._screen_update_count = 0
         self.pending_autofill = False
         self._skip_autofill = True
@@ -2279,107 +2275,162 @@ class MainframeTerminalScreen(QWidget):
                 return True
         return False
 
-    def _navigate_to_cics_region(self, region_name: str, region_option: str) -> bool:
-        self._wait(200)
-        self._log_post_login_screen()
-        if self._check_primary_app_menu():
-            self._navigate_from_primary_menu(region_name)
+    def _current_screen_text(self) -> str:
+        screen = self.terminal.last_screen
+        if not screen:
+            return ""
+        text = ''.join(screen.buffer)
+        return "\n".join(text[row * screen.cols:(row + 1) * screen.cols]
+                         for row in range(screen.rows))
+
+    def _fail_sequence(self, region_name: str, reason: str) -> bool:
+        logger.warning("%s %s navigation stopped: %s", switch_label(self.side), region_name, reason)
+        self.automation_status.setText(f"❌ {region_name}: {reason}")
+        self.automation_status.setToolTip(reason)
+        return False
+
+    def _ensure_connected_for_sequence(self, region_name: str) -> bool:
+        if self.client and self.client.connected:
             return True
-        elif self._check_vtam_switch_menu():
-            return self._navigate_from_vtam_switch_menu(region_name, region_option)
-        self._navigate_legacy_cics(region_option)
-        return True
+        # Never navigate against the previous connection's last screen.
+        self.terminal.last_screen = None
+        self.connect_to_mainframe()
+        if self.client and self.client.connected:
+            return True
+        return self._fail_sequence(region_name, "Could not connect to the mainframe.")
 
-    def _log_post_login_screen(self):
-        if not self.terminal.last_screen:
-            return
-        screen_text = ''.join(self.terminal.last_screen.buffer)
-        logger.info("=== POST-LOGIN SCREEN (full) ===")
-        for row in range(24):
-            line = screen_text[row * 80:(row + 1) * 80].rstrip()
-            if line.strip():
-                logger.info(f"Row {row:2d}: {line}")
-        logger.info("=== END POST-LOGIN SCREEN ===")
+    def _can_continue_session(self, region_name: str) -> bool:
+        """True when the open session's screen is safe to navigate from.
 
-    def _navigate_from_primary_menu(self, region_name: str):
-        cics_applid = self._get_cics_applid(region_name)
-        if cics_applid:
-            self.automation_status.setText(f"🔄 {region_name} (typing {cics_applid})...")
-            logger.info(f"Typing {cics_applid} to navigate to {region_name}")
-            self._type_and_enter(cics_applid)
+        Switch screens are region-neutral. CyberLife screens qualify only for the
+        region this pane signed on to (a transaction screen's banner must match).
+        """
+        text = self._current_screen_text()
+        cics = classify_cics(text)
+        if cics is None:
+            return classify_screen(text).kind in _SWITCH_START_SCREENS
+        if cics.kind is CicsKind.TRANSACTION:
+            return cics.region == region_name
+        return self._cics_region == region_name
+
+    def _navigate_to_transaction_screen(self, region_name: str) -> bool:
+        """Read each screen and take one step toward *region_name*'s transaction screen."""
+        navigator = CyberLifeNavigator(region_name, open_new_session=self.use_open_for_new_session)
+        while True:
+            if not (self.client and self.client.connected):
+                return self._fail_sequence(region_name, "The connection was lost.")
+            step = navigator.next_step(self._current_screen_text())
+            logger.info("%s %s navigation: %s", switch_label(self.side), region_name, step.describe())
+            if step.kind is StepKind.READY:
+                self._cics_region = region_name
+                return True
+            if step.kind is StepKind.STOP:
+                return self._fail_sequence(region_name, step.reason)
+            if navigator.switch.region_requested:
+                self._cics_region = region_name
+            self.automation_status.setText(f"🔄 {region_name}: {step.describe()}")
+            error = self._perform_navigation_step(step)
+            if error:
+                return self._fail_sequence(region_name, error)
+
+    def _perform_navigation_step(self, step: Step) -> str:
+        """Type and send one navigator step, then wait for the host to settle.
+
+        Returns an empty string on success, else why the step failed.
+        """
+        count = self._capture_screen_count()
+        if step.kind is StepKind.WAIT:
+            self._wait_for_screen_from(count, SWITCH_REPLY_TIMEOUT_MS)
+            self._wait_for_screen_to_settle()
+            return ""
+
+        self.terminal.typed_chars = {}
+        if step.kind is StepKind.SIGN_ON:
+            self._type_sign_on()
+        elif step.kind is StepKind.RECONNECT:
+            self._type_reconnect_password()
+        elif step.kind is StepKind.TEXT:
+            error = self._replace_first_field(step.text)
+            if error:
+                return error
+        self._wait(15)
+
+        count = self._capture_screen_count()
+        if step.kind is StepKind.PF:
+            self._auto_send_pf(step.pf)
+        elif step.kind is StepKind.RECONNECT:
+            self._auto_send_pf(1)
         else:
-            logger.warning(f"No CICS APPLID for {region_name}")
+            self._auto_send_enter()
+        if not self._wait_for_screen_from(count, SWITCH_REPLY_TIMEOUT_MS):
+            return f"No reply from the host after {step.describe()}."
+        self._wait_for_screen_to_settle()
+        return ""
 
-    def _navigate_from_vtam_switch_menu(self, region_name: str, region_option: str) -> bool:
-        applid = self._get_cics_applid(region_name)
-        if self.use_open_for_new_session:
-            return self._open_for_secondary_session(region_name, region_option, applid)
-        return self._open_for_single_session(region_name, region_option, applid)
+    def _replace_first_field(self, text: str) -> str:
+        """Put *text* in the first input field, blanking the rest of the field.
 
-    def _open_for_secondary_session(self, region_name: str, region_option: str, applid: str | None) -> bool:
-        if applid:
-            self.automation_status.setText(f"🔄 {region_name} (OPEN {applid})...")
-            logger.info(f"Using OPEN {applid} to start new session for dual terminal")
-            self._open_application(applid)
-            self._wait(500)
-            return True
+        Returns an empty string on success, else why it could not be typed
+        (a command is never sent truncated).
+        """
+        screen = self.terminal.last_screen
+        fields = sorted(screen.get_input_fields(), key=lambda f: f.address) if screen else []
+        if not fields:
+            return "The screen has no input field."
+        start = fields[0].address + 1
+        size = screen.rows * screen.cols
+        end = min((f.address for f in screen.fields if f.address > fields[0].address),
+                  default=size)
+        if len(text) > end - start:
+            return f"'{text}' does not fit the {end - start}-character input field."
+        self.terminal.typed_chars = {
+            start + i: (text[i] if i < len(text) else " ") for i in range(end - start)}
+        return ""
 
-        self.automation_status.setText(f"🔄 {region_name} (OPEN new session)...")
-        logger.info("Using OPEN command (no APPLID) for dual terminal")
-        self._type_and_enter("OPEN")
-        self._wait(300)
-        self._type_and_enter("3")
-        self._wait(200)
-        self._type_and_enter(region_option)
-        self._send_enter_and_wait()
-        return True
-
-    def _open_for_single_session(self, region_name: str, region_option: str, applid: str | None) -> bool:
-        if applid:
-            self.automation_status.setText(f"🔄 {region_name} (OPEN {applid})...")
-            logger.info(f"Using OPEN {applid} to start session")
-            self._open_application(applid)
-            self._wait(500)
-            return True
-
-        if not region_option:
-            logger.error(f"No region option configured for {region_name}")
-            self.automation_status.setText(f"❌ No region option for {region_name}")
-            return False
-
-        self.automation_status.setText(f"🔄 {region_name} (VTAM menu)...")
-        logger.info("At VTAM/Switch menu - selecting CICS (option 3)")
-        self._type_and_enter("3")
-        self._wait(200)
-        logger.info(f"Selecting CICS region option {region_option}")
-        self._type_and_enter(region_option)
-        self._send_enter_and_wait()
-        return True
-
-    def _navigate_legacy_cics(self, region_option: str):
-        logger.info("Unknown menu - using legacy navigation (3 → 4 → region)")
-        self._type_and_enter("3")
-        self._type_and_enter("4")
-        self._type_and_enter(region_option)
-        self._send_enter_and_wait()
+    def _wait_for_screen_to_settle(self, quiet_ms: int = 150, max_ms: int = 1500):
+        """Wait until the host stops sending screen updates (one reply can be several writes)."""
+        deadline = time.time() + max_ms / 1000
+        last_count = self._capture_screen_count()
+        quiet_since = time.time()
+        while time.time() < deadline:
+            self._wait(25)
+            count = self._capture_screen_count()
+            if count != last_count:
+                last_count, quiet_since = count, time.time()
+            elif (time.time() - quiet_since) * 1000 >= quiet_ms:
+                return
 
     def _finish_cics_sequence(self, region_name: str, start_time: float):
-        self._wait(100)
-        self._type_and_enter("0000", use_menu_field=True)
-        for _ in range(3):
-            self._send_pf_and_wait(2)
-        self._send_policy_lookup_if_requested()
-        elapsed = time.time() - start_time
-        self.automation_status.setText(f"✅ {region_name} {elapsed:.1f}s")
+        """At the transaction screen: look up the pane's policy on 62D2, if any.
 
-    def _send_policy_lookup_if_requested(self):
-        policy_number = self.policy_input.text().strip().upper()
-        if not policy_number:
+        Success requires ``DISPLAY COMPLETE`` with the command line echoing
+        the same policy; otherwise the host's message (e.g. ``16 RECORD DOES
+        NOT EXIST``) is shown.
+        """
+        policy = self.policy_input.text().strip().upper()
+        if not policy:
+            elapsed = time.time() - start_time
+            self.automation_status.setText(f"✅ {region_name} ready {elapsed:.1f}s")
             return
-        company = self.company_combo.currentText()
-        policy_cmd = f"62D2,{policy_number}  ;newco={company};."
-        self.automation_status.setText(f"🔄 Looking up {policy_number}...")
-        self._type_and_enter(policy_cmd)
+        company = self.company_combo.currentText().strip() or DEFAULT_COMPANY
+        try:
+            command = cyberlife_policy_command(policy, company)
+        except ValueError as exc:
+            self._fail_sequence(region_name, str(exc))
+            return
+        self.automation_status.setText(f"🔄 {region_name}: looking up {policy}...")
+        error = self._perform_navigation_step(
+            Step(StepKind.TEXT, text=command, reason="62D2 policy lookup"))
+        if error:
+            self._fail_sequence(region_name, error)
+            return
+        result = check_policy_display(self._current_screen_text(), policy)
+        if not result.ok:
+            self._fail_sequence(region_name, f"{policy}: {result.message}")
+            return
+        elapsed = time.time() - start_time
+        self.automation_status.setText(f"✅ {region_name} {policy} ({company}) {elapsed:.1f}s")
+        self.automation_status.setToolTip(result.message)
 
     def _auto_type_credentials_and_enter(self):
         """Type userid and password into first two fields and send Enter"""
