@@ -78,6 +78,26 @@ def test_original_cease_after_pay_up_still_stops_at_pay_up():
     assert assembly.benefits == []
 
 
+def test_future_cease_before_pay_up_ends_the_charge_in_projection():
+    """S4600372: PW4 cease 2026-05-20, pay-up 2031-05-20. CyberLife charged 0.60 on
+    2026-04-20 and nothing from the 2026-05-20 monthliversary on."""
+    raw = _raw_benefit("4", "0", cease=date(2026, 5, 20), pay_up=date(2031, 5, 20),
+                       coi_rate=0.24, units=2.5)
+    benefit = build_benefits(SimpleNamespace(raw_benefits=[raw], as_of_date=date(2026, 3, 20))).benefits[0]
+    policy = IllustrationPolicyData(plancode="1S133A29", benefits=[benefit])
+
+    assert benefit.is_active is True
+    assert benefit.pay_up_date == date(2026, 5, 20)
+
+    def charge(on):
+        return _calculate_policy_benefit_charges(
+            20.0, 0.0, policy, PlancodeConfig(), IllustrationRates(), 42, 0.0, on).benefit_charges
+
+    assert charge(date(2026, 4, 20)) == 0.6
+    assert charge(date(2026, 5, 20)) == 0.0
+    assert charge(date(2026, 6, 20)) == 0.0
+
+
 def test_ceased_benefit_is_not_charged_in_the_monthly_deduction():
     """S6600857: the PW4 (ceased 2022, pay-up 2027) adds nothing; the ADB still charges."""
     assembly = _assembly(

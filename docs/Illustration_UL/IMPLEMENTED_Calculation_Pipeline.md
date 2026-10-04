@@ -877,6 +877,11 @@ CyberLife record cases:
 - `BNF_CEA_DT` extended past its original (`CEA_DT_INP_IND` 1, later than the
   pay-up date) is charged to the extended cease date. V8634366 ADB2 pay-up
   2025-10-10 extended to 2026-10-10.
+- A future `BNF_CEA_DT` earlier than the pay-up date ends the charge in the
+  projection on the cease-date monthliversary, the same exclusive boundary as
+  pay-up. S4600372 PW4 (cease 2026-05-20, pay-up 2031) was charged 0.60 through
+  2026-04-20 and nothing from 2026-05-20. The benefit's `pay_up_date` holds this
+  charge end.
 
 A benefit on an increase phase issued between policy anniversaries takes its
 rate age from the phase issue age plus the **policy** anniversaries passed

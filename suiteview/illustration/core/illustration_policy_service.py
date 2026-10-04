@@ -698,19 +698,29 @@ def build_benefits(source: PolicySourceSnapshot) -> BenefitAssembly:
 
 
 def _benefit_payable(benefit, as_of_date: date) -> bool:
-    charge_end = _charge_end_date(benefit)
-    return not (charge_end and charge_end < as_of_date)
+    payable_until = _payable_until(benefit)
+    return not (payable_until and payable_until < as_of_date)
 
 
-def _charge_end_date(benefit):
-    """The date a benefit's charge stops: its pay-up date, unless the cease date was
-    extended past the original (BNF_CEA_DT > BNF_OGN_CEA_DT; CEA_DT_INP_IND 1), when
-    CyberLife charges to the extended cease date (V8634366 ADB2 pay-up 2025-10-10 extended
-    to 2026-10-10; S0505863 PW3 pay-up 2026-01-23 extended to 2027-01-23)."""
+def _payable_until(benefit):
+    """The benefit's pay-up date, or its cease date when that was extended past the
+    original (BNF_CEA_DT > BNF_OGN_CEA_DT; CEA_DT_INP_IND 1) beyond pay-up: CyberLife
+    charges to the extended cease date (V8634366 ADB2 pay-up 2025-10-10 extended to
+    2026-10-10; S0505863 PW3 pay-up 2026-01-23 extended to 2027-01-23)."""
     pay_up, cease, original = benefit.pay_up_date, benefit.cease_date, benefit.orig_cease_date
     if pay_up and cease and original and cease > original and cease > pay_up:
         return cease
     return pay_up
+
+
+def _charge_end_date(benefit):
+    """The date a benefit's charge stops (exclusive, like a pay-up date). A cease date
+    before pay-up ends the charge on the cease-date monthliversary (S4600372 PW4 cease
+    2026-05-20, pay-up 2031: 0.60 through 04-20, nothing from 05-20)."""
+    payable_until, cease = _payable_until(benefit), benefit.cease_date
+    if payable_until and cease and cease < payable_until:
+        return cease
+    return payable_until
 
 
 def _benefit_ceased(benefit, as_of_date: date) -> bool:
