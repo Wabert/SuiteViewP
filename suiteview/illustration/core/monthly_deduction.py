@@ -26,6 +26,7 @@ from suiteview.illustration.constants import (
 )
 from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
+from suiteview.illustration.core.skipped_coverage import epu_schedule_year
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     CoverageSegment,
@@ -770,7 +771,7 @@ def _calculate_expense_charges(
     """Calculate EPU, monthly fee and AV charges."""
     epu = _calculate_epu_charges(
         basis.segments if basis.segments else [None],
-        basis.face, config, rates, rate_year, projection_date)
+        basis.face, policy, config, rates, rate_year, projection_date)
     mfee_charge = _monthly_fee_charge(rates, rate_year)
     av_charge = 0.0
     if config.poav_table != "0":
@@ -785,16 +786,24 @@ def _calculate_expense_charges(
 def _calculate_epu_charges(
     epu_segments,
     face: float,
+    policy: IllustrationPolicyData,
     config: PlancodeConfig,
     rates: IllustrationRates,
     rate_year: int,
     projection_date: date | None,
 ) -> ExpenseChargeBreakdown:
-    """Calculate per-coverage EPU charges (schema EPU; none loaded = no charge)."""
+    """Calculate per-coverage EPU charges (schema EPU; none loaded = no charge).
+
+    The schedule year discounts the most recent skipped-coverage period (see
+    ``skipped_coverage.epu_schedule_year``); nothing else shifts with it."""
     result = ExpenseChargeBreakdown()
+    reinstatement = policy.latest_skipped_coverage_period
     for index, segment in enumerate(epu_segments, start=1):
         schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
-        epu_rate = _rate_from_schedule(schedule, _coverage_year(segment, projection_date, rate_year))
+        epu_rate = _rate_from_schedule(schedule, epu_schedule_year(
+            segment.issue_date if segment is not None else policy.issue_date,
+            reinstatement, projection_date,
+            _coverage_year(segment, projection_date, rate_year)))
         if _segment_charge_inactive(segment, projection_date):
             epu_rate = 0.0
         basis = _epu_segment_basis(segment, face, config)

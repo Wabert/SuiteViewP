@@ -907,6 +907,10 @@ EPU (schema `EPU`; none loaded = no charge):
 segment_epu_charge = (segment_basis / 1000) * segment_epu_rate
 ```
 
+`segment_epu_rate` is read at the coverage year, except after a skipped-coverage
+reinstatement: then the schedule month is the calendar month less the skipped
+monthliversaries of the most recent lapse gap (`skipped_coverage.epu_schedule_year`).
+
 The EPU band counts terminated base-plan coverage phases still on the record:
 `epu_band_specified_amount = band_specified_amount + terminated_base_face`. With
 no terminated phase this is the policy band. CyberLife's stored COI rows keep the

@@ -464,8 +464,8 @@ continuous reinstatement (a $0 `PB` on the date of a reversed lapse) writes no r
 changes nothing. The loader (`build_skipped_coverage_basis`) maps closed rows to
 `IllustrationPolicyData.skipped_coverage_periods`; a failed read of either table is
 raised, never treated as "never reinstated". Only the latest period with `REN_DT` on or
-before the valuation date applies (`latest_skipped_coverage_period`). The rule comes from
-CyberLife data, not documentation (CyberDoc has none):
+before the valuation date applies (`latest_skipped_coverage_period`). Two rules come from
+CyberLife data, not documentation (CyberDoc has neither):
 
 - **Option C basis.** The return of premium is the live premiums paid on or after the
   latest `REN_DT` (`PB` included, `PU` excluded; codes PA PB PD PE PF PI PR PT PQ PW)
@@ -481,14 +481,25 @@ CyberLife data, not documentation (CyberDoc has none):
   the 6 has a withdrawal):** withdrawals on or after `REN_DT` are subtracted net of the
   plan's per-withdrawal fee; earlier withdrawals belong to the excluded history.
   Guideline (GLP/GSP/7-pay), TAMRA and cost basis keep lifetime premiums.
+- **EPU duration.** The EPU schedule month is the calendar coverage month less the
+  monthliversaries in (`LAP_DT`, `REN_DT`] of the most recent period only
+  (`epu_schedule_year`); earlier gaps do not extend it. It applies to every DB option and
+  to coverage issued on or before that lapse. COI, the monthly fee, the %-of-AV charge,
+  the shadow-account EPU, the guideline EPU and the policy year keep calendar duration.
+  Evidence: 111/111 lapse-gap policies past their 120-month EPU are on/off as predicted
+  and all 13 observed end months match (excluding every gap: 109; UIP53849 ends after
+  month 135 = 120 + its latest 15-month gap, UIP76119 after 122 = 120 + 2). UIP88048
+  (gaps of 1 and 2 months) charges 0.235 x 250.001 = 58.75 through month 122 and stops
+  on 2026-10-05.
 
 Value Rollback reuses the stored exclusion (it does not depend on the valuation date), and
 a rollback to a date before the latest `REN_DT` selects the earlier period, or none. A run
 from issue projects continuous coverage. An Edit Record premiums or withdrawals total is
-the full option C basis: the exclusion is dropped and the
+the full option C basis: the exclusion is dropped (the periods stay for the EPU) and the
 option C policy discloses it in the starting-basis notes. Saved cases snapshot the periods;
 a case saved before this rule has none and keeps the lifetime basis.
-Regression: `tests/test_illustration_skipped_coverage_option_c.py`.
+Regression: `tests/test_illustration_skipped_coverage_option_c.py`,
+`tests/test_illustration_skipped_coverage_epu.py`.
 
 ## RERUN corridor COI rate
 
