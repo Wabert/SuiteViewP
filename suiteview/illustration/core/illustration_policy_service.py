@@ -698,7 +698,19 @@ def build_benefits(source: PolicySourceSnapshot) -> BenefitAssembly:
 
 
 def _benefit_payable(benefit, as_of_date: date) -> bool:
-    return not (benefit.pay_up_date and benefit.pay_up_date < as_of_date)
+    charge_end = _charge_end_date(benefit)
+    return not (charge_end and charge_end < as_of_date)
+
+
+def _charge_end_date(benefit):
+    """The date a benefit's charge stops: its pay-up date, unless the cease date was
+    extended past the original (BNF_CEA_DT > BNF_OGN_CEA_DT; CEA_DT_INP_IND 1), when
+    CyberLife charges to the extended cease date (V8634366 ADB2 pay-up 2025-10-10 extended
+    to 2026-10-10; S0505863 PW3 pay-up 2026-01-23 extended to 2027-01-23)."""
+    pay_up, cease, original = benefit.pay_up_date, benefit.cease_date, benefit.orig_cease_date
+    if pay_up and cease and original and cease > original and cease > pay_up:
+        return cease
+    return pay_up
 
 
 def _benefit_ceased(benefit, as_of_date: date) -> bool:
@@ -718,7 +730,7 @@ def _benefit_info(benefit, as_of_date: date) -> IllBenefitInfo:
         vpu=float(benefit.vpu) if benefit.vpu else 0.0,
         issue_date=benefit.issue_date,
         issue_age=benefit.issue_age if benefit.issue_age is not None else 0,
-        pay_up_date=benefit.pay_up_date,
+        pay_up_date=_charge_end_date(benefit),
         cease_date=benefit.cease_date,
         rating_factor=float(benefit.rating_factor) if benefit.rating_factor else 0.0,
         coi_rate=float(benefit.coi_rate) if benefit.coi_rate else None,

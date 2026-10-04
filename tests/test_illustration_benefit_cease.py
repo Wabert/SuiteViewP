@@ -17,12 +17,12 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 AS_OF = date(2026, 9, 12)
 
 
-def _raw_benefit(type_cd, subtype_cd, *, cease, pay_up, coi_rate=0.51, units=25.0, renewal="1"):
+def _raw_benefit(type_cd, subtype_cd, *, cease, pay_up, coi_rate=0.51, units=25.0, renewal="1", original=None):
     return SimpleNamespace(
         cov_pha_nbr=1, form_number="CCVR", benefit_type_cd=type_cd, benefit_subtype_cd=subtype_cd,
         benefit_amount=units * 1000.0, units=units, vpu=1000.0, issue_date=date(2014, 5, 12),
-        issue_age=53, pay_up_date=pay_up, cease_date=cease, rating_factor=1.0, coi_rate=coi_rate,
-        renewal_indicator=renewal)
+        issue_age=53, pay_up_date=pay_up, cease_date=cease, orig_cease_date=original or pay_up,
+        rating_factor=1.0, coi_rate=coi_rate, renewal_indicator=renewal)
 
 
 def _assembly(*raw):
@@ -55,6 +55,25 @@ def test_benefit_ceasing_on_as_of_date_is_still_active():
 
 def test_benefit_past_pay_up_is_still_dropped():
     assembly = _assembly(_raw_benefit("4", "0", cease=date(2026, 7, 5), pay_up=date(2026, 7, 5)))
+
+    assert assembly.benefits == []
+
+
+def test_cease_extended_past_original_charges_to_the_extended_cease():
+    """V8634366: ADB2 pay-up = original cease 2025-10-10, cease extended to 2026-10-10;
+    CyberLife still charges it at 2026-09-10."""
+    assembly = _assembly(_raw_benefit(
+        "1", "2", cease=date(2026, 10, 10), pay_up=date(2025, 10, 10), original=date(2025, 10, 10)))
+
+    assert len(assembly.benefits) == 1
+    assert assembly.benefits[0].pay_up_date == date(2026, 10, 10)
+    assert assembly.benefits[0].is_active is True
+
+
+def test_original_cease_after_pay_up_still_stops_at_pay_up():
+    """UE124240: ULDW91 pay-up 2026-06-29, original cease 2027-06-29; not charged after pay-up."""
+    assembly = _assembly(_raw_benefit(
+        "3", "9", cease=date(2027, 6, 29), pay_up=date(2026, 6, 29), original=date(2027, 6, 29)))
 
     assert assembly.benefits == []
 

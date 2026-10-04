@@ -854,6 +854,27 @@ policy record 0.87 (the S rate), so the CCV charge is `100 units x 0.87 = 87.00`
 Runs that clear stored rates (run from issue, edited rollback benefit amounts)
 use the database schedule.
 
+Non-renewing benefit (`LH_SPM_BNF.RNL_RT_IND` 0) — issue rate for life. The
+schedule is levelled at the stored `BNF_ANN_PPU_AMT` (the issue rate in cents)
+or, with none stored, at the schedule's benefit-issue-year rate. Examples:
+NU1L2A00 WPLA 4P charges `50 units x 0.02` (BENCOI 0.0166); 1A130A29 V8620875 3I
+charges 0.0117 (issue age 31), not the attained-age 0.0967.
+
+Benefit charge window. A benefit is charged until its pay-up date, with two
+CyberLife record cases:
+- `BNF_CEA_DT` earlier than the pay-up date is a termination (the original
+  cease stays in `BNF_OGN_CEA_DT`). The benefit loads inactive, so it has no
+  charge and no BENCOI lookup, and a ceased CCV sets `ccv_ceased`.
+  1U143900 U1004448 CCVR ceased 2020, pay-up 2082.
+- `BNF_CEA_DT` extended past its original (`CEA_DT_INP_IND` 1, later than the
+  pay-up date) is charged to the extended cease date. V8634366 ADB2 pay-up
+  2025-10-10 extended to 2026-10-10.
+
+A benefit on an increase phase issued between policy anniversaries takes its
+rate age from the phase issue age plus the **policy** anniversaries passed
+before the benefit was added (U0346610 phase 2: issued 2004-02-03 at 36, waiver
+added 2004-12-03 → rate age 37).
+
 ```text
 adjusted_coi_rate = raw_rate * (1 + table_rating_factor * table_rating) + TRUNC(flat_extra / 12, 2)
 segment_coi_charge = (segment_nar / 1000) * adjusted_segment_coi_rate
