@@ -62,7 +62,7 @@ from suiteview.core.modal_premium import (
 )
 from suiteview.core.rates_schema import CellAssignment, PlanDef
 from suiteview.illustration.constants import MONTHS_PER_YEAR, PRODUCT_FAMILY_ISWL
-from suiteview.illustration.core.rate_loader import IllustrationRates, RateLookupError
+from suiteview.illustration.core.rate_loader import IllustrationRates, MissingRate, RateLookupError
 from suiteview.illustration.core.schema_reader import SchemaReader, open_schema_reader
 from suiteview.illustration.models.plancode_config import COI_RATE_BASIS_MONTHLY, PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -307,11 +307,15 @@ def _cell(rows: Sequence[CellAssignment], rate_type: str, key: RateKey, plancode
 def _schedule(
     reader: SchemaReader, assignment: CellAssignment, scale: str, *, issue_age: int,
     issue_date: date, years: int, calendar: bool, label: str, zero_tail: bool = False,
+    missing_tail: bool = False,
 ) -> List:
     """1-indexed schedule by policy year. Calendar-dated rates use the window in
     effect on each policy year's start; issue-dated rates the one on the issue date.
     ``zero_tail`` lets a schedule that has run off to zero (surrender charges) end
-    early; its remaining years are zero."""
+    early; its remaining years are zero. ``missing_tail`` lets a schedule whose source
+    ends before maturity (80110529/81110329 IAF ages 0-99, maturity 103) load: every
+    year from the first unloaded one is a ``MissingRate`` that raises when used. A rate
+    after such a gap is an interior hole and still fails here."""
     windows = sorted((w for w in reader.schedule_windows(assignment.schedule_id) if w.scale == scale),
                      key=lambda w: w.effective_from)
     if not windows:
@@ -332,11 +336,26 @@ def _schedule(
         if rate is None and zero_tail and len(schedule) > 1 and schedule[-1] == 0.0:
             schedule.append(0.0)
             continue
+        if rate is None and missing_tail and len(schedule) > 1:
+            schedule.append(MissingRate(
+                f"{label} scale {scale} has no rate for policy year {year} (issue age {issue_age}, "
+                f"attained age {issue_age + year - 1}); the projection cannot continue into that year."))
+            continue
         if rate is None:
             raise RateLookupError(f"{label} scale {scale} has no rate for policy year {year} "
                                   f"(issue age {issue_age}).")
+        if isinstance(schedule[-1], MissingRate):
+            raise RateLookupError(f"{label} scale {scale} has a rate for policy year {year} after "
+                                  f"unloaded years (issue age {issue_age}).")
         schedule.append(float(rate))
     return schedule
+
+
+def _require_current_year(schedule: List, policy, segment, label: str) -> None:
+    """The valuation year's rate must be loaded: an unloaded tail may only lie ahead."""
+    year = int(policy.policy_year or 1)
+    if 1 <= year < len(schedule) and isinstance(schedule[year], MissingRate):
+        raise RateLookupError(schedule[year].message)
 
 
 def _single(reader: SchemaReader, assignment: CellAssignment, scale: str, *, issue_age: int,
@@ -565,13 +584,21 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
     coi_label = f"{plan.plancode} COI"
     annual_coi = _schedule(
         reader, _cell(base_rows, "COI", key, plan.plancode, notes), "C" if coi_scale == 1 else "G",
-        years=years, calendar=True, label=coi_label, **common)
+        years=years, calendar=True, label=coi_label, missing_tail=True, **common)
+    _require_current_year(annual_coi, policy, segment, coi_label)
     if config.coi_rate_basis == COI_RATE_BASIS_MONTHLY:
         # CKDRECUL DULCVCRU 2: the IAF COI is already a monthly rate per $1,000.
         coi = [None] + list(annual_coi[1:])
         notes.append(f"{plan.plancode} COI rates are monthly (COI_RateBasis Monthly, DULCVCRU 2).")
     else:
-        coi = [None] + [rate / MONTHS_PER_YEAR for rate in annual_coi[1:]]
+        coi = [None] + [rate if isinstance(rate, MissingRate) else rate / MONTHS_PER_YEAR
+                        for rate in annual_coi[1:]]
+    missing = next((year for year, rate in enumerate(coi) if isinstance(rate, MissingRate)), None)
+    if missing is not None:
+        notes.append(
+            f"{coi_label} is loaded through policy year {missing - 1} (attained age "
+            f"{segment.issue_age + missing - 2}); maturity is year {years}. A projection stops "
+            f"with an error on reaching year {missing}.")
     scr, scr_pct = _surrender_charges(reader, plan, base_rows, key, years, notes, common,
                                       policy.company_code)
     cash_values = _cash_value_schedule(reader, plan, base_rows, key, segment, years, notes)

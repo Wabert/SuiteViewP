@@ -48,6 +48,34 @@ class RateLookupError(RuntimeError):
     """A required illustration rate schedule could not be found."""
 
 
+class MissingRate:
+    """A schedule year whose rate is not loaded (e.g. an IAF that ends before maturity).
+
+    Kept in place so the schedule still runs to maturity, but any use as a number raises
+    ``RateLookupError`` naming the year: the current month can calculate while a
+    projection that reaches the year stops loudly, never extrapolating or charging 0.
+    """
+
+    __slots__ = ("message",)
+
+    def __init__(self, message: str):
+        self.message = message
+
+    def _fail(self, *_args):
+        raise RateLookupError(self.message)
+
+    __float__ = __int__ = __index__ = __round__ = __neg__ = __abs__ = _fail
+    __add__ = __radd__ = __sub__ = __rsub__ = __mul__ = __rmul__ = _fail
+    __truediv__ = __rtruediv__ = __floordiv__ = __rfloordiv__ = __pow__ = __rpow__ = _fail
+    __lt__ = __le__ = __gt__ = __ge__ = _fail
+
+    def __bool__(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"MissingRate({self.message!r})"
+
+
 # Benefit types that always carry a monthly COI charge. Others (A, V, U, ...)
 # are informational and legitimately have no BENCOI schedule.
 CHARGEABLE_BENEFIT_TYPES = frozenset({"1", "2", "3", "4", "7"})

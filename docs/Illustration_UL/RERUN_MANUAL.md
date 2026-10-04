@@ -1021,6 +1021,11 @@ Rules are in `illustration/core/iswl_rates.py`:
   windows by policy year), unrated: table ratings and flat extras are in the
   fixed premium (CyberDoc B10 makes substandard COI optional). NAR discounts at
   GINT (`DBD`). No MFEE, EPU, bands, UL targets (MTP/CTP) or benefit/rider COI.
+  A COI source that ends before maturity (80110529/81110329: IAF ages 0-99,
+  maturity 103) still loads when the current policy year is covered: every later
+  unloaded year is a `MissingRate`, so the valuation month calculates and a
+  projection that reaches that year raises `RateLookupError`. It never
+  extrapolates or charges 0. A gap before loaded years still fails at load.
 - **Net premium** (CyberDoc D10 premium load rule 4, the only rule accepted):
   per billed payment `round(units x round((1 - PREMLOAD_PCT) x premium per unit, 2)
   x months/12, 2)`, using the coverage's stored `ANN_PRM_UNT_AMT` (schema `PREM`
