@@ -568,6 +568,29 @@ def test_benefit_rate_issue_age_uses_its_own_coverage_phase():
     assert benefit_rate_issue_age(policy, benefit) == 35
 
 
+def test_benefit_rate_issue_age_steps_on_policy_anniversaries_for_off_anniversary_phase():
+    # U0346610 (1U135100): phase 2 issued 2004-02-03 at 36 on a policy with
+    # 12-03 anniversaries; its ULDW91 waiver was added 2004-12-03. One POLICY
+    # anniversary passed, so the rate age is 37 and the 2026 waiver rate is the
+    # insured's attained-age-58 rate (0.177), the same as phase 1's waiver.
+    policy = IllustrationPolicyData(
+        plancode="1U135100",
+        issue_date=date(1996, 12, 3),
+        segments=[
+            CoverageSegment(coverage_phase=1, issue_date=date(1996, 12, 3), issue_age=29),
+            CoverageSegment(coverage_phase=2, issue_date=date(2004, 2, 3), issue_age=36),
+        ],
+    )
+    benefit = BenefitInfo(
+        coverage_phase=2,
+        benefit_type="3",
+        benefit_subtype="9",
+        issue_date=date(2004, 12, 3),
+        issue_age=36,
+    )
+    assert benefit_rate_issue_age(policy, benefit) == 37
+
+
 def test_benefit_rate_keys_number_duplicates_but_keep_first_bare():
     benefits = [
         BenefitInfo(benefit_type="1", benefit_subtype="1"),

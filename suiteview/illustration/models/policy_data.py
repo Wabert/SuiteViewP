@@ -470,26 +470,31 @@ def benefit_rate_issue_age(policy: IllustrationPolicyData, benefit: BenefitInfo)
     coverage phase the benefit is assigned to*, regardless of the benefit's own
     stored ``BNF_ISS_AGE``. Our rates are loaded by issue age + duration, so we
     reconstruct that behaviour: the rate issue age is the assigned coverage
-    segment's issue age plus the number of complete coverage anniversaries
-    elapsed between that segment's issue date and the date the benefit was added.
-    Combined with the existing duration logic (which steps from the benefit's own
-    issue date), the looked-up attained age tracks the coverage's attained age.
+    segment's issue age plus the number of policy anniversaries passed between
+    that segment's issue date and the date the benefit was added. Combined with
+    the existing duration logic (which steps on policy anniversaries from the
+    benefit's own issue date, as segment COI durations do), the looked-up
+    attained age tracks the coverage's attained age.
 
     For a benefit added at (its coverage's) issue this equals the stored issue
     age; for a benefit added mid-term it can be a year lower than the stored true
     age (e.g. base issued at 26, benefit added after 2 complete years → 28, not
-    the stored 29).
+    the stored 29). An increase phase issued between policy anniversaries ages on
+    the policy anniversary: U0346610 phase 2 (issued 2004-02-03 at 36, policy
+    anniversary 12-03) carries a waiver added 2004-12-03 at rate age 37.
     """
     segment = policy.segment_for_phase(benefit.coverage_phase)
     if segment is None or segment.issue_date is None or benefit.issue_date is None:
         return benefit.issue_age
-    elapsed = benefit.issue_date.year - segment.issue_date.year
-    if (benefit.issue_date.month, benefit.issue_date.day) < (
-        segment.issue_date.month,
-        segment.issue_date.day,
-    ):
-        elapsed -= 1
-    elapsed = max(0, elapsed)
+    anchor = policy.issue_date or segment.issue_date
+
+    def anniversaries(as_of: date) -> int:
+        count = as_of.year - anchor.year
+        if (as_of.month, as_of.day) < (anchor.month, anchor.day):
+            count -= 1
+        return max(0, count)
+
+    elapsed = max(0, anniversaries(benefit.issue_date) - anniversaries(segment.issue_date))
     return segment.issue_age + elapsed
 
 
