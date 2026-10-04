@@ -505,6 +505,7 @@ def build_financial_basis(source: PolicySourceSnapshot) -> dict:
         "terminated_base_face": _terminated_base_face(source),
         "inforce_withdrawal_fees": (
             (pi.values.total_withdrawal_count or 0) * source.plancode_config.withdrawal_fee),
+        "withdrawal_fee": source.plancode_config.withdrawal_fee,
         "decrease_charge_allowed": pi.support.decrease_charge_allowed,
         "shadow_account_value": _float_or_zero(pi.targets.shadow_account_value),
         **_loan_basis(pi),

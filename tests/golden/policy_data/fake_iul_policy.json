@@ -197,5 +197,6 @@
   "variable_loan_accrued": 0.0,
   "variable_loan_charge_rate": null,
   "variable_loan_principal": 0.0,
+  "withdrawal_fee": 25.0,
   "withdrawals_to_date": 0.0
 }

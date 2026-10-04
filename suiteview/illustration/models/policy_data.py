@@ -158,6 +158,9 @@ class ValueRollbackSnapshot:
     accumulated_glp: Optional[float] = None
     cost_basis: Optional[float] = None
     withdrawals_to_date: Optional[float] = None
+    # Withdrawal fees inside withdrawals_to_date: TOT_WTD_QTY of the same LH_POL_TOTALS
+    # row x the plan's per-withdrawal fee.
+    inforce_withdrawal_fees: Optional[float] = None
     tamra_7year_contributions: Optional[List[float]] = None
     regular_loan_principal: Optional[float] = None
     regular_loan_accrued: Optional[float] = None
@@ -327,6 +330,9 @@ class IllustrationPolicyData:
     # gross of the per-withdrawal fee (TOT_WTD_QTY x plan fee), while option C returns
     # premiums less the net withdrawals.
     inforce_withdrawal_fees: float = 0.0
+    # The plan's fee per withdrawal (PlancodeConfig.withdrawal_fee), kept so a rolled-back
+    # withdrawal count rebuilds inforce_withdrawal_fees.
+    withdrawal_fee: float = 0.0
     # TH_NON_TRD_POL Decrease Charge Rule: False means specified-amount
     # decreases assess no partial surrender charge. None (unset) keeps the
     # plancode's partial-surrender-charge rule.
@@ -391,6 +397,11 @@ class IllustrationPolicyData:
         alone is band 2 (0.766).
         """
         return self.band_specified_amount + self.terminated_base_face
+
+    def net_withdrawals(self, withdrawals_to_date: float) -> float:
+        """Withdrawals to date less the in-force withdrawal fees, never below zero. Option C
+        returns premiums less these NET withdrawals (see ``inforce_withdrawal_fees``)."""
+        return max(0.0, withdrawals_to_date - self.inforce_withdrawal_fees)
 
     @property
     def total_units(self) -> float:

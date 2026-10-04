@@ -323,6 +323,11 @@ def _copy_optional_snapshot_values(result: IllustrationPolicyData, snapshot) -> 
         value = getattr(snapshot, name)
         if value is not None:
             setattr(result, name, float(_number(value, name)))
+    # The fees belong with the snapshot's withdrawals total; a snapshot that did not
+    # recover them carries no fee adjustment rather than today's count.
+    result.inforce_withdrawal_fees = (
+        float(_number(snapshot.inforce_withdrawal_fees, "inforce_withdrawal_fees"))
+        if snapshot.inforce_withdrawal_fees is not None else 0.0)
 
 
 def _apply_historical_shadow(
@@ -534,6 +539,8 @@ def _recover_totals(policy, snapshot, tables, history):
     )
     snapshot.cost_basis = float(_amount(row, "POL_CST_BSS_AMT", "LH_POL_TOTALS") - premium_delta)
     snapshot.withdrawals_to_date = float(_amount(row, "TOT_WTD_AMT", "LH_POL_TOTALS"))
+    snapshot.inforce_withdrawal_fees = float(
+        _amount(row, "TOT_WTD_QTY", "LH_POL_TOTALS") * Decimal(str(policy.withdrawal_fee)))
     if snapshot.premiums_paid_to_date < 0 or snapshot.cost_basis < 0:
         raise ValueError("Reversed premiums exceed the current accumulator; history does not reconcile.")
     policy_year = _duration(policy, snapshot.valuation_date)[0]

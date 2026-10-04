@@ -579,7 +579,7 @@ def _return_of_premium(premiums_to_date: float, policy: IllustrationPolicyData) 
     """Option C death-benefit addition: premiums less NET withdrawals. The in-force
     withdrawals total is gross of the per-withdrawal fee (1U145500 UIP50722: six $25
     fees, CyberLife NAR 150 higher than premiums less TOT_WTD_AMT)."""
-    net_withdrawals = policy.withdrawals_to_date - policy.inforce_withdrawal_fees
+    net_withdrawals = policy.net_withdrawals(policy.withdrawals_to_date)
     return max(0.0, premiums_to_date - net_withdrawals)
 
 

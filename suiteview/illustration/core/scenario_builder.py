@@ -198,6 +198,13 @@ def _apply_record_values(policy, record_values: dict, assumptions: list[str]) ->
             "waiver rules and transaction history have not been reconstructed.")
     if "glp" in record_values:
         policy.glp_is_known = True
+    if "withdrawals_to_date" in record_values:
+        # An entered total is the NET withdrawals: no recorded withdrawal fee is
+        # subtracted again for the option C death benefit.
+        policy.inforce_withdrawal_fees = 0.0
+        assumptions.append(
+            "Withdrawals to date is taken as net of withdrawal fees for the return-of-premium "
+            "(option C) death benefit.")
     if "tamra_7pay_cash_value" in record_values:
         policy.tamra_7pay_start_av = policy.tamra_7pay_cash_value
 
@@ -448,7 +455,7 @@ def _reset_issue_values(policy: IllustrationPolicyData) -> None:
         "tamra_7pay_level", "_debug_csv", "cost_basis",
         "system_coi_charge", "system_expense_charge", "system_other_charge",
         "system_monthly_deduction", "premiums_paid_to_date", "premiums_ytd",
-        "withdrawals_to_date", "accumulated_glp", "accumulated_mtp",
+        "withdrawals_to_date", "inforce_withdrawal_fees", "accumulated_glp", "accumulated_mtp",
         "regular_loan_principal", "regular_loan_accrued",
         "preferred_loan_principal", "preferred_loan_accrued",
         "variable_loan_principal", "variable_loan_accrued",

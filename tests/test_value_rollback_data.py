@@ -66,7 +66,7 @@ class _Source:
             }],
             "LH_POL_TOTALS": [{
                 "TOT_REG_PRM_AMT": 10_000, "TOT_ADD_PRM_AMT": 1_000,
-                "POL_CST_BSS_AMT": 9_000, "TOT_WTD_AMT": 2_000,
+                "POL_CST_BSS_AMT": 9_000, "TOT_WTD_AMT": 2_000, "TOT_WTD_QTY": 2,
             }],
             "LH_POL_YR_TOT": [{
                 "POL_YR_DUR": 7, "YTD_TOT_PMT_AMT": 1_000, "YTD_ADD_PRM_AMT": 0,
@@ -213,6 +213,30 @@ def test_eager_capture_standard_ul_is_usable_with_disclosed_target_derivation():
     result = apply_value_rollback(policy, WHEN)
     assert result.account_value == 10_000
     assert result.accumulated_mtp == 4900
+
+
+def test_rollback_withdrawal_fees_come_from_the_same_totals_row():
+    """TOT_WTD_QTY 2 x the plan's $25 fee, with TOT_WTD_AMT from the same row; the
+    current policy's fee total (4 withdrawals) is not carried into the rollback."""
+    source, policy = _Source(), _policy()
+    policy.withdrawal_fee = 25.0
+    policy.withdrawals_to_date, policy.inforce_withdrawal_fees = 4_000.0, 100.0
+    snapshot, = build_value_rollback_snapshots(source, policy)
+    assert (snapshot.withdrawals_to_date, snapshot.inforce_withdrawal_fees) == (2_000, 50.0)
+    policy.rollback_snapshots = [snapshot]
+
+    result = apply_value_rollback(policy, WHEN)
+
+    assert (result.withdrawals_to_date, result.inforce_withdrawal_fees) == (2_000, 50.0)
+    assert result.net_withdrawals(result.withdrawals_to_date) == 1_950.0
+
+
+def test_rollback_snapshot_without_fees_does_not_inherit_current_fees():
+    policy = _policy()
+    policy.inforce_withdrawal_fees = 100.0
+    policy.rollback_snapshots = [_complete_snapshot()]
+
+    assert apply_value_rollback(policy, WHEN).inforce_withdrawal_fees == 0.0
 
 
 def test_rollback_monthly_mtp_preserves_recorded_cents():
