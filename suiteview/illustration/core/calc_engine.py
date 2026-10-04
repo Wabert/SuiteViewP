@@ -2681,24 +2681,31 @@ def _reband_segment(rates, segment, plancode: str, *, band: int, policy) -> None
 
     CyberLife/RERUN band the COI by the CURRENT specified amount, so a face change
     that crosses a band breakpoint moves the per-unit rate. SCR is band-independent
-    (varies only by rateclass), so it is not reloaded here.
+    (varies only by rateclass), so it is not reloaded here. The EPU band also counts
+    terminated base-plan phases (``epu_band``), so it can cross a breakpoint while the
+    COI band does not; it is compared and reloaded on its own.
 
     The caller resolves the policy issue-date boundary once for all segments.
     """
     from suiteview.illustration.core.ul_rates import ULRates
 
     rates_db = ULRates()
-    if band == segment.band:
+    phase = segment.coverage_phase
+    coi_band_changed = band != segment.band
+    if coi_band_changed:
+        segment.band = band
+        rates.segment_coi[phase] = load_segment_coi(
+            rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
+            joint_bases=rates.segment_joint,
+        )
+    new_epu_band = epu_band(rates_db, policy, segment.band)
+    loaded_epu_band = rates.segment_epu_band.get(phase)
+    if not coi_band_changed and loaded_epu_band in (None, new_epu_band):
         return
-    segment.band = band
-    rates.segment_coi[segment.coverage_phase] = load_segment_coi(
-        rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
-        joint_bases=rates.segment_joint,
-    )
-    rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
+    rates.segment_epu_band[phase] = new_epu_band
+    rates.segment_epu[phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
-        segment.rate_class, scale=rates.expense_scale,
-        band=epu_band(rates_db, policy, segment.band),
+        segment.rate_class, scale=rates.expense_scale, band=new_epu_band,
         issue_date=segment.issue_date,
     ) or []
 
@@ -2722,10 +2729,11 @@ def _load_segment_rates(rates, segment, plancode: str, config=None, *, policy) -
         rates_db, plancode, segment, scale=rates.coi_scale, band=segment.band,
         joint_bases=rates.segment_joint,
     )
+    rates.segment_epu_band[segment.coverage_phase] = epu_band(rates_db, policy, segment.band)
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
         segment.rate_class, scale=rates.expense_scale,
-        band=epu_band(rates_db, policy, segment.band),
+        band=rates.segment_epu_band[segment.coverage_phase],
         issue_date=segment.issue_date,
     ) or []
     plan = config if config is not None else load_plancode(plancode)

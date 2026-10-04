@@ -229,6 +229,9 @@ class IllustrationRates:
     band_break: float = 0.0
     epu: List = field(default_factory=list)
     segment_epu: Dict[int, List] = field(default_factory=dict)
+    # The band each segment_epu schedule was loaded at (epu_band), so a re-band
+    # reloads the EPU only when that band moves.
+    segment_epu_band: Dict[int, int] = field(default_factory=dict)
     scr: List = field(default_factory=list)
     segment_scr: Dict[int, List] = field(default_factory=dict)
     mfee: List = field(default_factory=list)
@@ -527,21 +530,24 @@ def _load_base_segment_rate_maps(
     segment_coi: Dict[int, List] = {}
     segment_joint: Dict[int, JointBasis] = {}
     segment_epu: Dict[int, List] = {}
+    segment_epu_band: Dict[int, int] = {}
     segment_scr: Dict[int, List] = {}
     for base_seg in policy.segments:
         segment_coi[base_seg.coverage_phase] = load_segment_coi(
             rates_db, policy.plancode, base_seg, scale=coi_scale, band=base_seg.band,
             joint_bases=segment_joint,
         )
+        segment_epu_band[base_seg.coverage_phase] = epu_band(rates_db, policy, base_seg.band)
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-            base_seg.rate_class, scale=expense_scale, band=epu_band(rates_db, policy, base_seg.band),
+            base_seg.rate_class, scale=expense_scale, band=segment_epu_band[base_seg.coverage_phase],
             issue_date=base_seg.issue_date,
         ) or []
         segment_scr[base_seg.coverage_phase] = load_segment_scr(
             rates_db, policy.plancode, base_seg, config, state=policy.issue_state,
         )
-    return {"coi": segment_coi, "joint": segment_joint, "epu": segment_epu, "scr": segment_scr}
+    return {"coi": segment_coi, "joint": segment_joint, "epu": segment_epu,
+            "epu_band": segment_epu_band, "scr": segment_scr}
 
 
 def _base_rate_bundle(
@@ -562,6 +568,7 @@ def _base_rate_bundle(
         segment_joint=segment_rates["joint"],
         epu=segment_rates["epu"].get(seg.coverage_phase, []),
         segment_epu=segment_rates["epu"],
+        segment_epu_band=segment_rates["epu_band"],
         scr=segment_rates["scr"].get(seg.coverage_phase, []),
         segment_scr=segment_rates["scr"],
         mfee=mfee_schedule(rates_db, policy.plancode, seg, scale=expense_scale, band=seg.band),
