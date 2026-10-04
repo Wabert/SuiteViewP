@@ -10,6 +10,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
+from suiteview.polview.ui.formatting import format_date
 from suiteview.illustration.ui.inputs_dynamic import (
     PolicyContext,
     RiderAdjustment,
@@ -206,3 +207,20 @@ def test_matured_adjustments_are_view_only():
     adj.effective_year = 30
     # A matured item never emits an engine change event.
     assert panel.collect_changes(ctx) == []
+
+
+def test_snapshot_benefit_rows_label_the_charge_end():
+    """A snapshot benefit's pay_up_date is its charge end (4351a66/c22ae2b/5fff9cb):
+    S4600372 PW4 ceases 2026-05-20 before its 2031 pay-up, so the charge ends at the cease."""
+    from suiteview.illustration.models.policy_data import BenefitInfo, IllustrationPolicyData
+
+    _app()
+    panel = RiderButtonsPanel()
+    panel.set_policy(IllustrationPolicyData(benefits=[BenefitInfo(
+        coverage_phase=1, benefit_type="4", benefit_subtype="0", issue_date=date(1984, 5, 20),
+        pay_up_date=date(2026, 5, 20), cease_date=date(2026, 5, 20))]),
+        PolicyContext(valuation_date=date(2026, 3, 20)))
+
+    rows = dict(next(item[2] for item in panel._items if item[0] == "ben:40:1"))
+    assert rows["Charge Ends:"] == format_date(date(2026, 5, 20))
+    assert "Pay Up Date:" not in rows

@@ -1336,7 +1336,9 @@ class RiderButtonsPanel(QGroupBox):
             rows = [
                 ("Type:", benefit_type), ("Subtype:", subtype),
                 ("Issue Date:", format_date(ben.issue_date)),
-                ("Pay Up Date:", format_date(ben.pay_up_date)),
+                # The illustration's pay_up_date is the charge end: the earlier of pay-up
+                # and cease, or an extended cease date (build_benefits).
+                ("Charge Ends:", format_date(ben.pay_up_date)),
                 ("Cease Date:", format_date(ben.cease_date)),
                 ("Units:", format_amount(ben.units)),
                 ("Amount:", format_amount(ben.benefit_amount)),
