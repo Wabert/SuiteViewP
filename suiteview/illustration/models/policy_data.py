@@ -213,6 +213,9 @@ class IllustrationPolicyData:
     units: float = 0.0
     db_option: str = "A"           # "A" (Level), "B" (Increasing), "C" (ROP)
     band: int = 1
+    # Face of terminated base-plan coverage phases still on the policy record; it
+    # moves only the EPU band (see epu_band_specified_amount).
+    terminated_base_face: float = 0.0
 
     # ── Account Value ─────────────────────────────────────────
     account_value: float = 0.0     # Current total fund value
@@ -376,6 +379,18 @@ class IllustrationPolicyData:
             if r.is_active and rider_bands_as_base(r.plancode)
         )
         return self.total_face + extra
+
+    @property
+    def epu_band_specified_amount(self) -> float:
+        """Amount that bands the EPU: the base band amount plus terminated base-plan phases.
+
+        CyberLife's EPU band counts every base-plan coverage phase still on the record,
+        terminated ones included, while its stored COI rows keep the in-force band.
+        1U145500 UIP61566: phases 56,347 + 53,653 in force plus 143,566 terminated is
+        253,566 (band 3, EPU 0.771 x 143.653 = 110.76 = CyberLife); in-force 110,000
+        alone is band 2 (0.766).
+        """
+        return self.band_specified_amount + self.terminated_base_face
 
     @property
     def total_units(self) -> float:

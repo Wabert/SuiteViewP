@@ -119,6 +119,7 @@ from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
     _load_benefit_coi_rates,
     benefit_rate_is_level,
+    epu_band,
     get_rate,
     load_coverage_coi_rates,
     load_rates,
@@ -2674,7 +2675,7 @@ def _compile_policy_changes(policy: IllustrationPolicyData, changes) -> Dict[int
     return by_duration
 
 
-def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
+def _reband_segment(rates, segment, plancode: str, *, band: int, policy) -> None:
     """Reload COI/EPU at the current combined specified-amount band.
 
     CyberLife/RERUN band the COI by the CURRENT specified amount, so a face change
@@ -2695,12 +2696,13 @@ def _reband_segment(rates, segment, plancode: str, *, band: int) -> None:
     )
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
-        segment.rate_class, scale=rates.expense_scale, band=segment.band,
+        segment.rate_class, scale=rates.expense_scale,
+        band=epu_band(rates_db, policy, segment.band),
         issue_date=segment.issue_date,
     ) or []
 
 
-def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
+def _load_segment_rates(rates, segment, plancode: str, config=None, *, policy) -> None:
     """Load COI/EPU/SCR schedules for a NEW segment at its issue age + band.
 
     The face-increase segment carries its OWN surrender charge schedule from
@@ -2721,7 +2723,8 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     )
     rates.segment_epu[segment.coverage_phase] = rates_db.get_rates(
         "EPU", plancode, segment.issue_age, segment.rate_sex,
-        segment.rate_class, scale=rates.expense_scale, band=segment.band,
+        segment.rate_class, scale=rates.expense_scale,
+        band=epu_band(rates_db, policy, segment.band),
         issue_date=segment.issue_date,
     ) or []
     plan = config if config is not None else load_plancode(plancode)
@@ -2786,7 +2789,7 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
     policy.band = band
     for segment in policy.segments:
         if segment.face_amount > 0:
-            _reband_segment(rates, segment, policy.plancode, band=band)
+            _reband_segment(rates, segment, policy.plancode, band=band, policy=policy)
     _reband_benefits(rates, policy)
     rates.tpp, rates.epp = premium_load_schedules(
         rates_db, policy.plancode, seg, scale=rates.expense_scale, band=band)
@@ -3094,7 +3097,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         joint_lives=_increase_joint_lives(base, increase_age, change_date),
     )
     policy.segments.append(new_seg)
-    _load_segment_rates(rates, new_seg, policy.plancode, config)
+    _load_segment_rates(rates, new_seg, policy.plancode, config, policy=policy)
     policy.face_amount = sum(s.face_amount for s in policy.segments)
 
 
@@ -3430,7 +3433,7 @@ def _apply_rate_class_change(policy, config, change, rates, outcome) -> None:
     for seg in policy.segments:
         if new_class != (seg.rate_class or "").upper():
             seg.rate_class = new_class
-            _load_segment_rates(rates, seg, policy.plancode, config)
+            _load_segment_rates(rates, seg, policy.plancode, config, policy=policy)
     policy.rate_class = new_class
     _reband_benefits(rates, policy)
     outcome.coverage_changed = True
@@ -3518,7 +3521,7 @@ def _apply_joint_rate_class_change(policy, config, change, rates, outcome) -> No
         seg.joint_lives = _with_joint_life(seg.joint_lives, person, life)
         if person == "00":
             seg.rate_class = new_class
-        _load_segment_rates(rates, seg, policy.plancode, config)
+        _load_segment_rates(rates, seg, policy.plancode, config, policy=policy)
         outcome.coverage_changed = True
     if outcome.coverage_changed and person == "00":
         policy.rate_class = new_class
@@ -3531,7 +3534,7 @@ def _apply_joint_table_change(policy, config, change, change_date, rates, outcom
     for seg in _joint_table_segments(policy, change, change_date):
         seg.joint_lives = replace(seg.joint_lives, ratings=ratings_with_table(
             seg.joint_lives.ratings, person, code, _joint_table_from_year(seg, change_date)))
-        _load_segment_rates(rates, seg, policy.plancode, config)
+        _load_segment_rates(rates, seg, policy.plancode, config, policy=policy)
         outcome.coverage_changed = True
 
 

@@ -502,6 +502,7 @@ def build_financial_basis(source: PolicySourceSnapshot) -> dict:
         "tamra_7year_lowest_db": float(policy_attr(pi, "tamra_7pay_specified_amount", None) or 0.0),
         "tamra_7year_contributions": _tamra_contributions(pi),
         "withdrawals_to_date": float(pi.values.total_withdrawals or 0),
+        "terminated_base_face": _terminated_base_face(source),
         "inforce_withdrawal_fees": (
             (pi.values.total_withdrawal_count or 0) * source.plancode_config.withdrawal_fee),
         "decrease_charge_allowed": pi.support.decrease_charge_allowed,
@@ -512,6 +513,12 @@ def build_financial_basis(source: PolicySourceSnapshot) -> dict:
 
 def _float_or_zero(value) -> float:
     return float(value) if value is not None else 0.0
+
+
+def _terminated_base_face(source: PolicySourceSnapshot) -> float:
+    """Face of the base-plan coverage phases that are terminated but still on record."""
+    active = {id(cov) for cov in source.active_base_coverages}
+    return sum(float(cov.face_amount or 0.0) for cov in source.base_coverages if id(cov) not in active)
 
 
 def _float_or_default(value, default: float) -> float:

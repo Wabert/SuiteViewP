@@ -159,7 +159,7 @@ def test_face_change_updates_target_based_benefit_amounts_and_charges(
     config = _config(basis)
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(calc_engine, "_reload_policy_band_rates", lambda *_: None)
-    monkeypatch.setattr(calc_engine, "_load_segment_rates", lambda *_: None)
+    monkeypatch.setattr(calc_engine, "_load_segment_rates", lambda *_a, **_k: None)
     monkeypatch.setattr(
         calc_engine, "compute_target_premiums",
         lambda current, *_args, **_kwargs: TargetPremiumResult(
@@ -253,7 +253,7 @@ def test_real_guideline_recalc_uses_new_pwot_target(
     monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
     monkeypatch.setattr(calc_engine, "load_rates", lambda *_a, **_kw: rates)
     monkeypatch.setattr(calc_engine, "_reload_policy_band_rates", lambda *_: None)
-    monkeypatch.setattr(calc_engine, "_load_segment_rates", lambda *_: None)
+    monkeypatch.setattr(calc_engine, "_load_segment_rates", lambda *_a, **_k: None)
     monkeypatch.setattr(
         calc_engine, "compute_target_premiums",
         lambda current, *_a, **_kw: TargetPremiumResult(

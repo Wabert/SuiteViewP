@@ -903,6 +903,14 @@ EPU (schema `EPU`; none loaded = no charge):
 segment_epu_charge = (segment_basis / 1000) * segment_epu_rate
 ```
 
+The EPU band counts terminated base-plan coverage phases still on the record:
+`epu_band_specified_amount = band_specified_amount + terminated_base_face`. With
+no terminated phase this is the policy band. CyberLife's stored COI rows keep the
+in-force band, so only EPU moves. Example: 1U145500 UIP61566 has 110,000 in force
+plus a terminated 143,566 phase, so 253,566 is band 3 and the EPU is
+0.771 x 143.653 = 110.76; band 2 would give 0.766. UE000135 and UIP69169 reproduce
+the same way.
+
 Monthly fee and AV charge:
 
 ```text

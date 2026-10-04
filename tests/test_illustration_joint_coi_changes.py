@@ -79,7 +79,7 @@ def reloads(monkeypatch):
     """Record segment rate reloads instead of reading UL_Rates."""
     calls = []
     monkeypatch.setattr(calc_engine, "_load_segment_rates",
-                        lambda rates, seg, plancode, config=None: calls.append(seg.coverage_phase))
+                        lambda rates, seg, plancode, config=None, *, policy: calls.append(seg.coverage_phase))
     monkeypatch.setattr(calc_engine, "_reband_benefits", lambda rates, policy: None)
     return calls
 

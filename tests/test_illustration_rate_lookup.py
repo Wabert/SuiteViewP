@@ -6,7 +6,7 @@ from suiteview.illustration.core.rate_loader import (
     load_coverage_coi_rates,
 )
 from suiteview.illustration.core import calc_engine
-from suiteview.illustration.models.policy_data import CoverageSegment
+from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 
 
 class _FakeRates:
@@ -131,7 +131,7 @@ def test_face_decrease_reband_uses_preferred_class_fallback(monkeypatch):
     )
 
     calc_engine._reband_segment(
-        rates, segment, "1U143900", band=2
+        rates, segment, "1U143900", band=2, policy=IllustrationPolicyData(plancode="1U143900")
     )
 
     assert segment.band == 2
@@ -160,7 +160,7 @@ def test_face_decrease_reband_never_keeps_a_zero_coi_on_missing_rate(monkeypatch
 
     with pytest.raises(RateLookupError, match="band 2"):
         calc_engine._reband_segment(
-            rates, segment, "1U143900", band=2
+            rates, segment, "1U143900", band=2, policy=IllustrationPolicyData(plancode="1U143900")
         )
 
 

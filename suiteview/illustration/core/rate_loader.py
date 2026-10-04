@@ -535,7 +535,7 @@ def _load_base_segment_rate_maps(
         )
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-            base_seg.rate_class, scale=expense_scale, band=base_seg.band,
+            base_seg.rate_class, scale=expense_scale, band=epu_band(rates_db, policy, base_seg.band),
             issue_date=base_seg.issue_date,
         ) or []
         segment_scr[base_seg.coverage_phase] = load_segment_scr(
@@ -745,6 +745,16 @@ def _unbanded_as_one(band) -> int:
     """``ULRates.get_band`` is None only for a plan without ``PLAN_BAND`` rows; band 1
     then reaches the plan's cells through the cell lookup's band ``0`` fallback."""
     return int(band) if band is not None else 1
+
+
+def epu_band(rates_db, policy: IllustrationPolicyData, band: int) -> int:
+    """The EPU band: ``band`` unless terminated base-plan phases are still on the record,
+    which CyberLife counts in the EPU band (``policy.epu_band_specified_amount``)."""
+    if not policy.terminated_base_face:
+        return band
+    raw = rates_db.get_band(
+        policy.plancode, policy.epu_band_specified_amount, issue_date=policy.issue_date)
+    return int(raw) if raw else band
 
 
 def initialize_rollback_bands(policy: IllustrationPolicyData, rates_db: ULRates) -> None:

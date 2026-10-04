@@ -64,7 +64,8 @@ def test_new_increase_segment_preserves_guaranteed_rate_basis(monkeypatch):
     rates = IllustrationRates(coi_scale=0, expense_scale=0)
 
     calc_engine._load_segment_rates(
-        rates, segment, "1U145500", PlancodeConfig(rachet_banding=True)
+        rates, segment, "1U145500", PlancodeConfig(rachet_banding=True),
+        policy=IllustrationPolicyData(plancode="1U145500"),
     )
 
     assert calls == [
@@ -99,7 +100,8 @@ def test_new_increase_segment_keeps_current_rate_basis(monkeypatch):
     )
 
     calc_engine._load_segment_rates(
-        IllustrationRates(), segment, "1U145500", PlancodeConfig()
+        IllustrationRates(), segment, "1U145500", PlancodeConfig(),
+        policy=IllustrationPolicyData(plancode="1U145500"),
     )
 
     assert calls == [("COI", 1), ("EPU", 1), ("SCR", None)]
