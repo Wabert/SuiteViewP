@@ -386,7 +386,27 @@ def load_benefit_schedule(
         result.benefit_rate_overrides[schedule_key] = override
     else:
         result.benefit_rate_overrides.pop(schedule_key, None)
+        schedule = _non_renewing_schedule(benefit, schedule)
     result.benefit_coi[schedule_key] = schedule
+
+
+def benefit_rate_is_level(benefit) -> bool:
+    """A non-renewing benefit (RNL_RT_IND 0) keeps its issue rate for life."""
+    return not getattr(benefit, "renews", True)
+
+
+def _non_renewing_schedule(benefit, schedule: List) -> List:
+    """CyberLife holds a non-renewing benefit at its issue rate for every duration:
+    the stored BNF_ANN_PPU_AMT (the issue rate in cents, e.g. NU1L2A00 WPLA 0.02 where
+    BENCOI has 0.0166) or, when none is stored, the schedule's benefit-issue-year rate
+    (1A130A29 3I 0.0117 at issue age 31, not 0.0967 at attained age 71)."""
+    if len(schedule) < 2 or not benefit_rate_is_level(benefit):
+        return schedule
+    stored = float(benefit.coi_rate) if benefit.coi_rate and benefit.coi_rate > 0 else None
+    level = stored if stored is not None else schedule[1]
+    if level is None:
+        return schedule
+    return [None] + [level] * (len(schedule) - 1)
 
 
 def load_rates(

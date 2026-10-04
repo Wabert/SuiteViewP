@@ -118,6 +118,7 @@ from suiteview.illustration.core.premium_handler import apply_premium, premium_l
 from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
     _load_benefit_coi_rates,
+    benefit_rate_is_level,
     get_rate,
     load_coverage_coi_rates,
     load_rates,
@@ -2751,8 +2752,9 @@ def _reband_benefits(rates, policy) -> None:
         ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
         if not ben_key:
             continue
-        # A CCV charge pinned to the policy record's rate stays pinned.
-        if ben_key in rates.benefit_rate_overrides:
+        # A CCV charge pinned to the policy record's rate stays pinned, as does a
+        # non-renewing benefit's level stored rate.
+        if ben_key in rates.benefit_rate_overrides or benefit_rate_is_level(ben):
             continue
         rates.benefit_coi[ben_key] = _load_benefit_coi_rates(
             rates_db, policy, ben, seg

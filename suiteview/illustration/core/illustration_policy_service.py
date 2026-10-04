@@ -721,6 +721,7 @@ def _benefit_info(benefit, as_of_date: date) -> IllBenefitInfo:
         rating_factor=float(benefit.rating_factor) if benefit.rating_factor else 0.0,
         coi_rate=float(benefit.coi_rate) if benefit.coi_rate else None,
         is_active=not _benefit_ceased(benefit, as_of_date),
+        renews=str(benefit.renewal_indicator or "").strip() != "0",
     )
 
 

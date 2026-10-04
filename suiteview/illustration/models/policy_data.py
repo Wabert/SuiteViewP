@@ -94,6 +94,9 @@ class BenefitInfo:
     rating_factor: float = 0.0     # BNF_RT_FCT
     coi_rate: Optional[float] = None
     is_active: bool = True
+    # RNL_RT_IND: False ("0") = the benefit does not renew, so CyberLife charges the
+    # stored issue rate (BNF_ANN_PPU_AMT) for its whole life.
+    renews: bool = True
 
 
 @dataclass
