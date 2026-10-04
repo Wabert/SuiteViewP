@@ -200,7 +200,10 @@ def _adjusted_coi_rate(
     if config.is_iswl:
         # ISWL substandard ratings are paid in the fixed premium, not charged in the
         # COI (verified on table-rated 13447734; CyberDoc B10 makes substandard COI optional).
-        return _round_near(raw_rate, 5) if round_5 else raw_rate
+        # CyberLife charges NAR x the IAF annual rate / 12 unrounded: RERUN's 5-decimal
+        # round is a UL rule (80136200 15902845: 55,790.84 x 2.38/12 = 11.0652 -> 11.07;
+        # 0.19833 gives 11.06).
+        return raw_rate
     table_rating = (
         segment.table_rating
         if segment.table_rating > 0 and _charge_active(segment.table_cease_date, projection_date)

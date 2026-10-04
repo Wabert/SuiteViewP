@@ -165,9 +165,22 @@ def test_iswl_coi_is_not_substandard_rated():
     from suiteview.illustration.core.monthly_deduction import _adjusted_coi_rate
 
     segment = replace(_policy().segments[0], table_rating=2, flat_extra=5.0)
-    assert _adjusted_coi_rate(1.45 / 12, segment, _config(), date(2026, 6, 6), round_5=True) == round(1.45 / 12, 5)
+    assert _adjusted_coi_rate(1.45 / 12, segment, _config(), date(2026, 6, 6), round_5=True) == 1.45 / 12
     ul = PlancodeConfig(plancode="UL", table_rating_factor=0.25)
     assert _adjusted_coi_rate(1.0, segment, ul, date(2026, 6, 6)) == pytest.approx(1.5 + 0.41)
+
+
+def test_iswl_coi_rate_is_not_rounded_to_five_decimals():
+    """80136200 15902845: CyberLife CINS 11.07 = 55,790.84 x 2.38 / 12 / 1000 = 11.0652.
+    The UL 5-decimal rate 0.19833 would give 11.0650 -> 11.06."""
+    from suiteview.illustration.core.monthly_deduction import _adjusted_coi_rate
+
+    segment = _policy().segments[0]
+    rate = _adjusted_coi_rate(2.38 / 12, segment, _config(), date(2026, 9, 6), round_5=True)
+    assert rate == 2.38 / 12
+    assert round(55_790.84 * rate / 1000 + 1e-9, 2) == 11.07
+    ul = PlancodeConfig(plancode="UL")
+    assert _adjusted_coi_rate(2.38 / 12, segment, ul, date(2026, 9, 6), round_5=True) == 0.19833
 
 
 def test_iswl_has_no_ul_target_premiums():
