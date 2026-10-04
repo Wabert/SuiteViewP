@@ -878,9 +878,12 @@ def apply_cashflows(ctx: MonthContext, work: MonthWork) -> None:
         adv_reg_factor=work.adv_reg_factor,
         adv_pref_factor=work.adv_pref_factor,
         apply_prem_to_loan=ctx.options.apply_prem_to_loan,
+        # Once premiums and charges have ceased, no over-repayment can become premium;
+        # the loan repayment itself still applies.
         excess_repayment_to_premium=(
             ctx.options.apply_excess_repayment_as_premium
             and not ctx.state.inforce_exception_period
+            and not premiums_and_charges_ceased(ctx.policy, ctx.config, work.attained_age)
         ),
         repay_principal_first=ctx.options.loan_repay_principal_first,
         requested_lumpsum=work.requested_lumpsum,

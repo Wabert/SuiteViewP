@@ -14,8 +14,9 @@ product rules from the plancode table.
 * **``plancodes/plancode_table.json``** supplies the product rules the schema does not
   hold (SA_Basis, LoanType, banding, shadow-account behaviour, ...), including
   ``PremiumAndChargeCeaseAge``: the attained age from which a plan accepts no premium and
-  takes no monthly deduction while staying in force to the ``PLAN_DEF`` maturity (Robert
-  Haessly, 10/3/2026). Its only plan-fact keys are ``IllustrationMaturityAgeOverride`` /
+  takes no COI, EPU, benefit or rider charge (the scheduled MFEE continues) while staying
+  in force to the ``PLAN_DEF`` maturity (Robert Haessly, 10/3/2026, refined by CyberLife
+  evidence). Its only plan-fact keys are ``IllustrationMaturityAgeOverride`` /
   ``IllustrationPremiumCeaseAgeOverride``: an explicit illustration maturity that
   replaces ``PLAN_DEF`` (premiums cease at that same maturity).
 
@@ -52,8 +53,9 @@ _TABLE_CACHE: Optional[Dict[str, dict]] = None
 # 1A130600 85: Robert Haessly, 10/3/2026); premiums may not cease before it.
 MATURITY_OVERRIDE_KEY = "IllustrationMaturityAgeOverride"
 PREMIUM_CEASE_OVERRIDE_KEY = "IllustrationPremiumCeaseAgeOverride"
-# Product rule: premiums and every monthly deduction stop at this attained age; the
-# policy stays in force to the PLAN_DEF maturity, its account value earning interest.
+# Product rule: premiums and every charge but the scheduled monthly fee (MFEE) stop at
+# this attained age; the policy stays in force to the PLAN_DEF maturity, its account
+# value earning interest.
 CHARGE_CEASE_KEY = "PremiumAndChargeCeaseAge"
 # Plan facts that come only from schema ``rates``; the plancode table must not carry them.
 DATABASE_KEYS = (
@@ -135,9 +137,10 @@ class PlancodeConfig:
     premium_cease_age: int = 121
     maturity_age: int = 121
     # Table PremiumAndChargeCeaseAge (None = charges run to maturity). From this attained
-    # age no premium is accepted and no monthly deduction (COI, expense, benefit or rider
-    # charge) is taken; the account value earns interest and the death benefit stays in
-    # force to ``maturity_age``. ``premium_cease_age`` equals it.
+    # age no premium is accepted and the COI, EPU, %-of-AV, benefit and rider charges stop;
+    # the scheduled monthly policy fee (schema MFEE) is still deducted, as CyberLife does.
+    # The account value earns interest and the death benefit stays in force to
+    # ``maturity_age``. ``premium_cease_age`` equals it.
     charge_cease_age: Optional[int] = None
 
     # Safety Net / Lapse: schema SNET_PERIOD years by base issue age (an issue age
@@ -206,7 +209,7 @@ class PlancodeConfig:
             )
 
     def charges_ceased(self, attained_age: int) -> bool:
-        """Whether premiums and monthly deductions have stopped (``charge_cease_age``)."""
+        """Whether premiums and all charges but the monthly fee have stopped (``charge_cease_age``)."""
         return self.charge_cease_age is not None and int(attained_age) >= self.charge_cease_age
 
     @property

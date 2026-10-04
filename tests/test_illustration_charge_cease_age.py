@@ -1,10 +1,12 @@
 """Premiums and charges cease before maturity (plancode table ``PremiumAndChargeCeaseAge``).
 
 Robert Haessly, 10/3/2026: on 1U1446/47/48, 1U1352/53/54/56/5I/5L/5E, 1U143800, 1U144500
-and B11SB600 premiums cease at attained age 100 and there are no more monthly deductions,
-but the policy does not mature: it stays in force to the ``PLAN_DEF`` maturity (120/121),
-the account value earning interest. The COI past 100 is never looked up (an ISWL COI past
-its last loaded age is a raising ``MissingRate``).
+and B11SB600 premiums cease at attained age 100 and the policy does not mature: it stays in
+force to the ``PLAN_DEF`` maturity (120/121), the account value earning interest. Refined
+by CyberLife evidence (coordinator decision 10/3/2026, pending Robert's confirmation): the
+COI, EPU, benefit and rider charges stop but the scheduled monthly fee (MFEE) continues.
+The COI past 100 is never looked up (an ISWL COI past its last loaded age is a raising
+``MissingRate``).
 """
 from __future__ import annotations
 
@@ -20,6 +22,12 @@ from suiteview.illustration.core.iswl_rates import ISWLRateBasis
 from suiteview.illustration.core.rate_loader import IllustrationRates, MissingRate
 from suiteview.illustration.core.target_premium import TargetPremiumResult
 from suiteview.illustration.core.ul_rates import ULRates
+from suiteview.illustration.models.input_set import (
+    DatedTransaction,
+    IllustrationInputSet,
+    IllustrationOptions,
+    TransactionKind,
+)
 from suiteview.illustration.models.plancode_config import (
     CHARGE_CEASE_KEY,
     MATURITY_OVERRIDE_KEY,
@@ -138,7 +146,7 @@ def _project(monkeypatch, config, policy, rates):
                                         bonus_override=BonusConfig())
 
 
-def _assert_paid_up_from_100(states):
+def _assert_paid_up_from_100(states, mfee_after=0.0):
     # The projection runs to the PLAN_DEF maturity (its last row is in the final policy year).
     assert states[-1].attained_age >= 120
     assert not any(s.lapsed for s in states)
@@ -148,27 +156,41 @@ def _assert_paid_up_from_100(states):
     assert len(after) >= (120 - 100) * 12
     previous = {id(s): p for p, s in zip(states, states[1:])}
     for s in after:
-        assert (s.gross_premium, s.total_deduction, s.total_coi_charge) == (0.0, 0.0, 0.0)
-        assert (s.mfee_charge, s.epu_charge, s.benefit_charges, s.rider_charges) == (0.0, 0.0, 0.0, 0.0)
+        fee = mfee_after if s.attained_age < 121 else 0.0
+        assert (s.gross_premium, s.total_coi_charge, s.epu_charge) == (0.0, 0.0, 0.0)
+        assert (s.av_charge, s.benefit_charges, s.rider_charges) == (0.0, 0.0, 0.0)
+        # Only the scheduled monthly fee is still deducted (CyberLife MV_EXP after 100).
+        assert s.mfee_charge == s.total_deduction == fee
         assert s.interest_credited > 0
-        # The account value grows by its interest only; the death benefit stays in force.
-        assert s.av_end_of_month == pytest.approx(previous[id(s)].av_end_of_month + s.interest_credited)
+        # The account value grows by its interest less the fee; the death benefit stays in force.
+        assert s.av_end_of_month == pytest.approx(
+            previous[id(s)].av_end_of_month + s.interest_credited - fee)
         assert s.total_db >= FACE
     return before, after
 
 
-def test_ul_plan_stops_premiums_and_deductions_at_100_and_runs_to_121(monkeypatch):
+def _mfee_from_100(fee_at_100: float) -> list:
+    """1-indexed MFEE schedule: $5 through attained 99, ``fee_at_100`` from 100 to maturity."""
+    return [None] + [5.0] * (100 - ISSUE_AGE) + [fee_at_100] * (121 - 100)
+
+
+# IMUL 1U143800/1U144500 keep a $5 MFEE to 120 in UL_Rates (CyberLife: MV_EXP 5.00 after
+# 100); 1U1446/47/48 and 1U135* load $0 from 100.
+@pytest.mark.parametrize("fee_at_100", [5.0, 0.0])
+def test_ul_plan_stops_premiums_and_charges_at_100_and_runs_to_121(monkeypatch, fee_at_100):
     config = PlancodeConfig(plancode=PLAN, dbd=0.04, gint=0.04, maturity_age=121,
                             premium_cease_age=100, charge_cease_age=100)
     coi = _coi_to_99(6.0)
-    rates = IllustrationRates(coi=coi, segment_coi={1: coi}, mfee=[None] + [5.0] * 80,
+    rates = IllustrationRates(coi=coi, segment_coi={1: coi}, mfee=_mfee_from_100(fee_at_100),
+                              epu=[None] + [0.02] * 80,
                               benefit_coi={"1": [None] + [0.5] * 80})
     policy = _policy(benefits=[BenefitInfo(benefit_type="1", benefit_subtype="", units=10.0,
                                            coi_rate=0.5, is_active=True)])
     states = _project(monkeypatch, config, policy, rates)
-    before, _after = _assert_paid_up_from_100(states)
+    before, _after = _assert_paid_up_from_100(states, mfee_after=fee_at_100)
     assert all(s.gross_premium == 1_000.0 for s in before)
-    assert all(s.mfee_charge == 5.0 and s.benefit_charges > 0 for s in before)
+    assert all(s.mfee_charge == 5.0 and s.epu_charge > 0 and s.benefit_charges > 0
+               for s in before if s.attained_age < 99)
 
 
 def test_iswl_single_premium_plan_stops_the_coi_at_100_and_runs_to_121(monkeypatch):
@@ -195,3 +217,32 @@ def test_other_plans_keep_charging_after_100(monkeypatch):
     states = _project(monkeypatch, config, _policy(), rates)
     after = [s for s in states[1:] if s.attained_age >= 100]
     assert after and all(s.total_coi_charge > 0 and s.mfee_charge == 5.0 for s in after)
+
+
+@pytest.mark.parametrize("cease_age, excess_becomes_premium", [(98, False), (None, True)])
+def test_loan_over_repayment_is_not_premium_once_premiums_cease(monkeypatch, cease_age,
+                                                                excess_becomes_premium):
+    """With "apply excess as premium" on, an over-repayment after the cease age repays the
+    loan and the excess is discarded; before it (control) the excess is applied as premium."""
+    config = PlancodeConfig(plancode=PLAN, dbd=0.04, gint=0.04, maturity_age=121,
+                            premium_cease_age=cease_age or 121, charge_cease_age=cease_age)
+    coi = [None] + [6.0] * 80
+    rates = IllustrationRates(coi=coi, segment_coi={1: coi})
+    policy = _policy(modal_premium=0.0, regular_loan_principal=1_000.0)
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(TransactionKind.LOAN_REPAYMENT, date(2026, 7, 15), 5_000.0)])
+    monkeypatch.setattr(calc_engine, "load_plancode", lambda _p: config)
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
+    monkeypatch.setattr(calc_engine, "compute_target_premiums", lambda *_a, **_k: TargetPremiumResult())
+    monkeypatch.setattr(ULRates, "get_band", lambda *_a, **_k: None)
+    states = IllustrationEngine().project(
+        policy, months=3, future_inputs=inputs, rates_override=rates, bonus_override=BonusConfig(),
+        options=IllustrationOptions(apply_excess_repayment_as_premium=True))
+    repaid = [s for s in states[1:] if s.applied_loan_repayment > 0]
+    assert len(repaid) == 1
+    month = repaid[0]
+    assert month.applied_loan_repayment == pytest.approx(1_000.0, abs=1.0)
+    assert states[-1].rg_loan_princ == pytest.approx(0.0)
+    assert (month.gross_premium > 3_000.0) is excess_becomes_premium
+    if not excess_becomes_premium:
+        assert all(s.gross_premium == 0.0 for s in states[1:])
