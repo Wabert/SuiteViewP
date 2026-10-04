@@ -113,6 +113,7 @@ class _FakePolicyInfo:
     total_variable_loan_accrued = 0.0
     variable_loan_charge_rate = None
     total_withdrawals = 0.0
+    total_withdrawal_count = 0
     shadow_account_value = 4_872.53
     is_mec = False
     tamra_7pay_level = 0.0

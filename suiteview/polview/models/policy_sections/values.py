@@ -66,6 +66,11 @@ class ValuesSection(PolicySection):
         return self.policy.total_records.TOT_WTD_AMT
 
     @property
+    def total_withdrawal_count(self) -> int:
+        """Number of withdrawals lifetime (TOT_WTD_QTY)."""
+        return self.policy.total_records.TOT_WTD_QTY
+
+    @property
     def cost_basis(self) -> Decimal:
         """Tax cost basis (VBA: CostBasis from POL_CST_BSS_AMT)."""
         return self.policy.total_records.POL_CST_BSS_AMT

@@ -72,6 +72,11 @@ class TotalRecords:
         return Decimal(str(val)) if val is not None else Decimal("0")
 
     @property
+    def TOT_WTD_QTY(self) -> int:
+        val = self._policy.data_item("LH_POL_TOTALS", "TOT_WTD_QTY")
+        return int(val) if val is not None else 0
+
+    @property
     def POL_CST_BSS_AMT(self) -> Decimal:
         val = self._policy.data_item("LH_POL_TOTALS", "POL_CST_BSS_AMT")
         return Decimal(str(val)) if val is not None else Decimal("0")

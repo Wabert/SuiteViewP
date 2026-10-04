@@ -502,6 +502,8 @@ def build_financial_basis(source: PolicySourceSnapshot) -> dict:
         "tamra_7year_lowest_db": float(policy_attr(pi, "tamra_7pay_specified_amount", None) or 0.0),
         "tamra_7year_contributions": _tamra_contributions(pi),
         "withdrawals_to_date": float(pi.values.total_withdrawals or 0),
+        "inforce_withdrawal_fees": (
+            (pi.values.total_withdrawal_count or 0) * source.plancode_config.withdrawal_fee),
         "decrease_charge_allowed": pi.support.decrease_charge_allowed,
         "shadow_account_value": _float_or_zero(pi.targets.shadow_account_value),
         **_loan_basis(pi),

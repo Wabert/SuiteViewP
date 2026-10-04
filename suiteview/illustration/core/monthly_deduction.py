@@ -532,7 +532,7 @@ def _build_death_benefit_basis(
     elif dbo == DB_OPTION_INCREASING:
         standard_db = face + nar_av
     elif dbo == DB_OPTION_RETURN_OF_PREMIUM:
-        standard_db = face + max(0.0, premiums_to_date - policy.withdrawals_to_date)
+        standard_db = face + _return_of_premium(premiums_to_date, policy)
     else:
         standard_db = face
 
@@ -544,7 +544,7 @@ def _build_death_benefit_basis(
     corr_amount = gross_db - standard_db
     discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
     prem_adj = (
-        max(0.0, premiums_to_date - policy.withdrawals_to_date)
+        _return_of_premium(premiums_to_date, policy)
         if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
     )
     first_addition = (
@@ -573,6 +573,14 @@ def _build_death_benefit_basis(
         discounted_db_corr=discounted_db_corr,
         discounted_db=sum(discounted_db_by_coverage.values()) + discounted_db_corr,
     )
+
+
+def _return_of_premium(premiums_to_date: float, policy: IllustrationPolicyData) -> float:
+    """Option C death-benefit addition: premiums less NET withdrawals. The in-force
+    withdrawals total is gross of the per-withdrawal fee (1U145500 UIP50722: six $25
+    fees, CyberLife NAR 150 higher than premiums less TOT_WTD_AMT)."""
+    net_withdrawals = policy.withdrawals_to_date - policy.inforce_withdrawal_fees
+    return max(0.0, premiums_to_date - net_withdrawals)
 
 
 def _discount_base_segments(

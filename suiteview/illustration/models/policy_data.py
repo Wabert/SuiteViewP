@@ -320,6 +320,10 @@ class IllustrationPolicyData:
 
     # ── Withdrawals ───────────────────────────────────────────
     withdrawals_to_date: float = 0.0
+    # Withdrawal fees inside the in-force withdrawals_to_date: CyberLife's TOT_WTD_AMT is
+    # gross of the per-withdrawal fee (TOT_WTD_QTY x plan fee), while option C returns
+    # premiums less the net withdrawals.
+    inforce_withdrawal_fees: float = 0.0
     # TH_NON_TRD_POL Decrease Charge Rule: False means specified-amount
     # decreases assess no partial surrender charge. None (unset) keeps the
     # plancode's partial-surrender-charge rule.

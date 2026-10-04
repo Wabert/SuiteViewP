@@ -993,7 +993,9 @@ def roll_deemed_cash_value_step(ctx: MonthContext, work: MonthWork) -> None:
         rate_year=work.rate_year,
         gross_withdrawal=work.wd.gross_withdrawal,
         net_premium=work.prem.net_premium,
-        premiums_less_withdrawals=work.prem.premiums_to_date - work.withdrawals_to_date,
+        premiums_less_withdrawals=(
+            work.prem.premiums_to_date
+            - (work.withdrawals_to_date - ctx.policy.inforce_withdrawal_fees)),
         days=float(work.intr.days_in_month),
     ))
 
@@ -1522,7 +1524,8 @@ def _ending_death_benefit(ctx: MonthContext, work: MonthWork) -> float:
         edb_wo_corr += max(0.0, work.av)
     elif policy.db_option == DB_OPTION_RETURN_OF_PREMIUM:
         edb_wo_corr += max(
-            0.0, work.prem.premiums_to_date - work.withdrawals_to_date
+            0.0, work.prem.premiums_to_date
+            - (work.withdrawals_to_date - policy.inforce_withdrawal_fees)
         )
     edb_corr = (
         max(0.0, math.floor(work.av * work.ded.corridor_rate + 1e-6) - edb_wo_corr)
