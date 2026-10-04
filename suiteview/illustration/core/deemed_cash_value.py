@@ -396,10 +396,11 @@ def dcv_coverages(
         schedule = guaranteed.segment_coi.get(segment.coverage_phase, guaranteed.coi)
         coverage_year = _coverage_year(segment, month_date, rate_year)
         age = segment.issue_age + coverage_year - 1
-        raw = _rate_from_schedule(
-            schedule, _coi_rate_year(segment, policy, month_date, rate_year))
         if age >= config.premium_cease_age or _segment_charge_inactive(segment, month_date):
             raw = 0.0
+        else:
+            raw = _rate_from_schedule(
+                schedule, _coi_rate_year(segment, policy, month_date, rate_year))
         coverages.append(DcvCoverage(
             specified_amount=0.0 if pending[index] else float(segment.face_amount),
             coi_rate=_adjusted_coi_rate(raw, base, config, month_date),

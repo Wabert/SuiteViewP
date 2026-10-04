@@ -152,6 +152,17 @@ def _at_or_after_policy_maturity(
     return bool(maturity_ages and attained_age >= min(maturity_ages))
 
 
+def premiums_and_charges_ceased(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    attained_age: int,
+) -> bool:
+    """No premium and no monthly deduction: at maturity, or from the plan's
+    ``charge_cease_age`` (paid up: the AV earns interest, the DB stays in force)."""
+    return config.charges_ceased(attained_age) or _at_or_after_policy_maturity(
+        policy, config, attained_age)
+
+
 def _corridor_coverage_key(
     segment_nars: list[tuple[CoverageSegment | None, float]],
     projection_date: date | None,
@@ -625,7 +636,7 @@ def _allocate_nar(basis: DeathBenefitBasis) -> NarAllocation:
 
 
 def _maturity_deduction_result(basis: DeathBenefitBasis, nar: NarAllocation) -> DeductionResult:
-    """Return the no-charge maturity-row deduction result."""
+    """Return the no-charge deduction result (maturity, or charges ceased)."""
     return DeductionResult(
         nar_av=basis.nar_av,
         standard_db=basis.standard_db,
@@ -961,7 +972,8 @@ def calculate_deduction(
         av_after_premium, policy, config, attained_age, premiums_to_date,
         projection_date, corridor_rate)
     nar = _allocate_nar(basis)
-    if _at_or_after_policy_maturity(policy, config, attained_age):
+    # Before any COI lookup: an ISWL COI past its last loaded age raises (MissingRate).
+    if premiums_and_charges_ceased(policy, config, attained_age):
         return _maturity_deduction_result(basis, nar)
 
     coi = _calculate_coi_charges(

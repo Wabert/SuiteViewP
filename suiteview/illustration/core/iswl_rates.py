@@ -273,7 +273,8 @@ def _validate_plan_facts(plan: PlanDef, config: PlancodeConfig, single_premium: 
         raise RateLookupError(
             f"{plan.plancode} premiums cease at age {cease}, before maturity {maturity}; "
             "limited-pay ISWL is not supported.")
-    if (config.maturity_age, config.premium_cease_age) != (int(maturity), int(cease)):
+    expected_cease = config.charge_cease_age if config.charge_cease_age is not None else int(cease)
+    if (config.maturity_age, config.premium_cease_age) != (int(maturity), expected_cease):
         raise RateLookupError(
             f"{plan.plancode} has an illustration age override (maturity {config.maturity_age}, "
             f"premium cease {config.premium_cease_age}; PLAN_DEF {maturity}/{cease}); the ISWL "

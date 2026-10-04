@@ -101,13 +101,13 @@ from suiteview.illustration.core.loan_handler import (
 )
 from suiteview.illustration.core.mec import seven_pay_backtest, seven_pay_limit_exceeded
 from suiteview.illustration.core.monthly_deduction import (
-    _at_or_after_policy_maturity,
     _coi_rate_year,
     _coverage_year,
     _rate_from_schedule,
     _round_near,
     calculate_deduction,
     in_force_face,
+    premiums_and_charges_ceased,
 )
 from suiteview.illustration.core.premium_allowance import (
     PremiumAllowanceInput,
@@ -4310,10 +4310,11 @@ def _split_requested_premium(
     With no premium schedule at all the modal premium bills every month (the
     workbook's vPlannedPremium fallback); a schedule supplies the per-month
     scheduled amount and dated deposits the lumpsum. No premium is collected on
-    or after the maturity date — the policy endows. A fixed-premium ISWL bills
+    or after the maturity date — the policy endows — or from the plan's charge-cease
+    age (paid up). A fixed-premium ISWL bills
     its modal premium only in billing months; a single-premium ISWL bills nothing.
     """
-    if exception_period or _at_or_after_policy_maturity(policy, config, attained_age):
+    if exception_period or premiums_and_charges_ceased(policy, config, attained_age):
         return 0.0, 0.0
     total_override = month_inputs.total_premium if month_inputs is not None else None
     if total_override is None:
@@ -4693,7 +4694,8 @@ def _compute_exception_premium(inputs: ExceptionPremiumInput) -> _ExceptionPremi
     premium.
     """
     result = _ExceptionPremium(av_after_exception=inputs.av_after_charge)
-    if inputs.attained_age >= inputs.config.maturity_age:
+    if (inputs.attained_age >= inputs.config.maturity_age
+            or inputs.config.charges_ceased(inputs.attained_age)):
         return result
     basis = _exception_grossup_basis(inputs)
     av = _apply_md_exception_premium(

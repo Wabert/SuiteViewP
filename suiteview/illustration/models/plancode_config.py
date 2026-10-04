@@ -12,9 +12,12 @@ product rules from the plancode table.
   loan, no safety net, no GPT corridor, no fee or load) and an error where the plan
   cannot be illustrated without it (GINT, regular loan rates, ages, the plan itself).
 * **``plancodes/plancode_table.json``** supplies the product rules the schema does not
-  hold (SA_Basis, LoanType, banding, shadow-account behaviour, ...). Its only plan-fact
-  keys are ``IllustrationMaturityAgeOverride`` / ``IllustrationPremiumCeaseAgeOverride``:
-  explicit illustration ages that replace ``PLAN_DEF`` (pending Robert's review).
+  hold (SA_Basis, LoanType, banding, shadow-account behaviour, ...), including
+  ``PremiumAndChargeCeaseAge``: the attained age from which a plan accepts no premium and
+  takes no monthly deduction while staying in force to the ``PLAN_DEF`` maturity (Robert
+  Haessly, 10/3/2026). Its only plan-fact keys are ``IllustrationMaturityAgeOverride`` /
+  ``IllustrationPremiumCeaseAgeOverride``: an explicit illustration maturity that
+  replaces ``PLAN_DEF`` (premiums cease at that same maturity).
 
 ``tools/rates/plancode_db_coverage.py`` reports what the schema lacks for each row.
 """
@@ -45,10 +48,13 @@ COI_RATE_BASIS_MONTHLY = "Monthly"
 _CONFIG_CACHE: Dict[str, PlancodeConfig] = {}
 _TABLE_CACHE: Optional[Dict[str, dict]] = None
 
-# Explicit illustration ages that replace PLAN_DEF (kept for Robert's review: mostly
-# a table 100 against a PLAN_DEF 120/121).
+# Explicit illustration maturity that replaces PLAN_DEF (1U14L300 100, 1A130500 90,
+# 1A130600 85: Robert Haessly, 10/3/2026); premiums may not cease before it.
 MATURITY_OVERRIDE_KEY = "IllustrationMaturityAgeOverride"
 PREMIUM_CEASE_OVERRIDE_KEY = "IllustrationPremiumCeaseAgeOverride"
+# Product rule: premiums and every monthly deduction stop at this attained age; the
+# policy stays in force to the PLAN_DEF maturity, its account value earning interest.
+CHARGE_CEASE_KEY = "PremiumAndChargeCeaseAge"
 # Plan facts that come only from schema ``rates``; the plancode table must not carry them.
 DATABASE_KEYS = (
     "ProductFamily", "MaturityAge", "PremiumCeaseAge", "CINT_Key", "GINT", "DBD", "EPU_Code",
@@ -128,6 +134,11 @@ class PlancodeConfig:
     # Maturity
     premium_cease_age: int = 121
     maturity_age: int = 121
+    # Table PremiumAndChargeCeaseAge (None = charges run to maturity). From this attained
+    # age no premium is accepted and no monthly deduction (COI, expense, benefit or rider
+    # charge) is taken; the account value earns interest and the death benefit stays in
+    # force to ``maturity_age``. ``premium_cease_age`` equals it.
+    charge_cease_age: Optional[int] = None
 
     # Safety Net / Lapse: schema SNET_PERIOD years by base issue age (an issue age
     # not in the mapping, or a plan without SNET_PERIOD, has no safety net).
@@ -193,6 +204,10 @@ class PlancodeConfig:
             raise ValueError(
                 f"{self.plancode}: invalid ShadowTargetRateBasis {self.shadow_target_rate_basis!r}"
             )
+
+    def charges_ceased(self, attained_age: int) -> bool:
+        """Whether premiums and monthly deductions have stopped (``charge_cease_age``)."""
+        return self.charge_cease_age is not None and int(attained_age) >= self.charge_cease_age
 
     @property
     def partial_surrender_charge(self) -> bool:
@@ -296,6 +311,35 @@ def _age(plancode: str, data: dict, db_value, label: str, override_key: str,
     return value
 
 
+def _plan_ages(plancode: str, data: dict, facts, overrides: list[str]) -> tuple[int, int, Optional[int]]:
+    """``(maturity_age, premium_cease_age, charge_cease_age)`` from PLAN_DEF and the table.
+
+    An illustration override that has premiums cease before maturity is an error;
+    premiums and charges ceasing before maturity is ``PremiumAndChargeCeaseAge``,
+    which cannot be combined with an override.
+    """
+    maturity = _age(plancode, data, facts.maturity_age, "MaturityAge", MATURITY_OVERRIDE_KEY, overrides)
+    cease = _age(plancode, data, facts.premium_cease_age, "PremiumCeaseAge",
+                 PREMIUM_CEASE_OVERRIDE_KEY, overrides)
+    if CHARGE_CEASE_KEY not in data:
+        if overrides and cease < maturity:
+            raise ValueError(
+                f"{plancode}: illustration premium cease age {cease} is before maturity "
+                f"{maturity}; premiums and charges ceasing before maturity is {CHARGE_CEASE_KEY}.")
+        return maturity, cease, None
+    if overrides:
+        raise ValueError(
+            f"{plancode}: {CHARGE_CEASE_KEY} cannot be combined with an illustration age override "
+            f"({'; '.join(overrides)}); maturity comes from PLAN_DEF.")
+    charge_cease = data[CHARGE_CEASE_KEY]
+    whole_age = isinstance(charge_cease, int) and not isinstance(charge_cease, bool)
+    if not whole_age or not 0 < charge_cease < maturity or charge_cease > cease:
+        raise ValueError(
+            f"{plancode}: {CHARGE_CEASE_KEY} {charge_cease!r} must be a whole age below the PLAN_DEF "
+            f"maturity {maturity} and at or below the PLAN_DEF premium cease age {cease}.")
+    return maturity, charge_cease, charge_cease
+
+
 def load_plancode(plancode: str) -> PlancodeConfig:
     """Load a plancode's configuration: plan facts from schema ``rates``, product rules
     from the plancode table.
@@ -330,6 +374,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
             f"Plancode {plancode} is not loaded in UL_Rates schema rates (PLAN_DEF).")
     gint = _required(plancode, facts.gint, "PLAN GINT")
     overrides: list[str] = []
+    maturity_age, premium_cease_age, charge_cease_age = _plan_ages(plancode, data, facts, overrides)
 
     config = PlancodeConfig(
         plancode=plancode,
@@ -352,10 +397,9 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         md_holdback=float(data.get("MD_HoldBack", 0)),
         min_face_after_wd=float(data.get("MinFaceAfterWD", 25000)),
         corridor_by_age=facts.corridor_by_age,
-        premium_cease_age=_age(plancode, data, facts.premium_cease_age, "PremiumCeaseAge",
-                               PREMIUM_CEASE_OVERRIDE_KEY, overrides),
-        maturity_age=_age(plancode, data, facts.maturity_age, "MaturityAge",
-                          MATURITY_OVERRIDE_KEY, overrides),
+        premium_cease_age=premium_cease_age,
+        maturity_age=maturity_age,
+        charge_cease_age=charge_cease_age,
         snet_by_issue_age=dict(facts.snet_by_issue_age or {}),
         lapse_value=data.get(
             "LapseTarget",
