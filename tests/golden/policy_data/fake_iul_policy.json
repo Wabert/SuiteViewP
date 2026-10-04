@@ -57,6 +57,7 @@
       "cap": 0.095
     }
   },
+  "inforce_withdrawal_fees": 0.0,
   "insured_birth_date": null,
   "insured_name": "Test Policy",
   "is_mec": false,
