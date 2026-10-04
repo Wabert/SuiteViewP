@@ -158,27 +158,37 @@ benefit in the NAR calculation (`LH_NON_TRD_POL.POL_GUA_ITS_RT`, via
 `LH_COV_FXD_FND_CTL` is an `advprod` stage table, so a failed read fails the
 tab load explicitly rather than showing a blank rate.
 
-IUL policies also show **IUL Fixed Rate** (what the fixed account earns now,
-duration bonus included) and **Fixed Rate ex Bonus**; other plans show `N/A`
-with the reason in the tooltip. `polview/services/iul_fixed_rate.py` reads the
-policy's current fixed-account bucket rate (`LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT`,
-`MVRY_DT` 12/31/9999, funds `U1` fixed strategy / `SW` sweep, unimpaired
-preferred) and removes the plan's duration bonus in effect for the policy year
-(`tRates_IntBonus`, applied after `BonusDurThreshold`; IUL14NY inverts its
-`min(bonus, fixed - GINT)` cap). Without a bucket it uses the plan's CIRF
-declared rate (UL_Rates schema `rates`, fixed fund from `PLAN_ATTR FUND_KEYS`)
-plus the bonus. The bucket is preferred because it is what CyberLife credits: in
-October 2026 the FFL keys `IULFIX14@26`/`IULFIX14B@26` carry a 4.10% CINT row
-effective 01/01/2026, but FFL buckets still credit 3.80% (rate start 09/01/2023).
-The tooltip shows both and flags a disagreement. The rate excluding bonus becomes
+Every advanced product (UL, IUL, ISWL) also shows **Fixed Crediting Rate** (what
+the fixed fund earns now, duration bonus included) and **Fixed Rate ex Bonus**.
+`polview/services/fixed_account_rate.py` reads the policy's current fixed-fund
+bucket rate (`LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT`, `MVRY_DT` 12/31/9999, unimpaired
+preferred, latest `ITS_RT_STR_DT` wins). The fixed funds are IUL `U1` fixed
+strategy / `SW` sweep (the fixed-fund control also lists IUL index strategies);
+for other products the funds `LH_COV_FXD_FND_CTL` names with a
+CIRF rate key (`CUR_ITS_RT_SER_NBR`, e.g. ISWL `I1` / `ELGRP0001`), else every
+control fund except the 0% `GP` holding fund (SGUL UE148375 carries a keyless `GP`
+0% bucket started 09/12/2021 beside its `U1` 1.50% bucket). It removes the plan's
+duration bonus in effect for the policy year (`tRates_IntBonus`, applied after
+`BonusDurThreshold`; IUL14NY inverts its `min(bonus, fixed - GINT)` cap); a plan
+with no `tRates_IntBonus` row has no bonus, so both rates are equal. Without a
+bucket it uses the plan's CIRF declared rate (UL_Rates schema `rates`:
+`PLAN_DEF.CIRF_KEY`, or the multi-fund IUL fixed fund from `PLAN_ATTR FUND_KEYS`;
+ISWL agreeing `CINT_NEW`/`CINT_ROLL`) plus the bonus; with neither the rows show
+`N/A` naming the fixed funds and the CIRF key. The bucket is preferred because it
+is what CyberLife credits: in October 2026 the FFL keys `IULFIX14@26`/`IULFIX14B@26`
+carry a 4.10% CINT row effective 01/01/2026, but FFL buckets still credit 3.80%
+(rate start 09/01/2023). The tooltip shows both, flags a disagreement and names a
+CIRF key with no UL_Rates rate. For IUL only, the rate excluding bonus becomes
 `iul_declared_rate` for the Interim AV Quote, surrender values and the GLP
 Exception forecast (previously GINT), so IUL14NY's capped bonus and the
-forecast's fixed-strategy crediting use the policy's current fixed rate. It is
-calculated on the `advprod` worker (`AccountValueCalculations.iul_fixed_rate`);
-a schema `rates` failure shows `N/A` with the error. Examples: U0665396
-(1U145800, year 11) 4.25% / 3.25%; UE270933 (1U147800) 3.75% / 3.50%;
-UN003999 (1U145900, FFL) 3.80% / 3.80%. Regression:
-`tests/test_polview_iul_fixed_rate.py`.
+forecast's fixed-strategy crediting use the policy's current fixed rate; other
+products' projections are unchanged. It is calculated on the `advprod` worker
+(`AccountValueCalculations.fixed_rate`); a schema `rates` or table failure shows
+`N/A` with the error. Examples: U0665396 (1U145800, year 11) 4.25% / 3.25%;
+UE270933 (1U147800) 3.75% / 3.50%; UN003999 (1U145900, FFL) 3.80% / 3.80%;
+10497580 (ISWL 80110429, fund I1) 4.00% / 4.00% (its CIRF key `ELGRP0001` is not
+loaded in UL_Rates on 2026-10-04). Regression:
+`tests/test_polview_fixed_account_rate.py`.
 
 ## PolView stored CV/NSP rates and Guaranteed Cash Value
 

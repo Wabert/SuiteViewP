@@ -1135,6 +1135,11 @@ def test_stage_manifest_renders_without_database_reads(source, monkeypatch, qtbo
          DividendsTab, LoansTab, AdvProdValuesTab),
     ))
     source.tables["LH_BAS_POL"][0]["NON_TRD_POL_IND"] = "1" if advanced else "0"
+    from suiteview.polview.services.fixed_account_rate import FixedRateUnavailable
+
+    monkeypatch.setattr(
+        prefetch.PolicyLoadSession, "_fixed_account_rate",
+        lambda self: FixedRateUnavailable("not calculated in this test"))
     monkeypatch.setattr(
         prefetch.PolicyLoadSession, "_account_value_calculations",
         lambda self, fixed_rate=None: prefetch.AccountValueCalculations(

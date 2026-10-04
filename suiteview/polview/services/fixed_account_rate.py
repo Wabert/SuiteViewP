@@ -1,26 +1,35 @@
-"""Current IUL fixed-account crediting rate for PolView.
+"""Current fixed-account crediting rate of an advanced product, for PolView.
 
-The rate an IUL policy's fixed account earns now, with and without the duration
-bonus. Shown on the Account Values tab and used as the fixed-account rate
-(``IllustrationPolicyData.iul_declared_rate``) by PolView's in-force projections
-(Interim AV Quote, surrender values, GLP Exception forecast), where it drives the
-IUL14NY (1U145900) bonus cap ``min(bonus, fixed rate - GINT)``.
+The rate the policy's fixed (declared-rate) fund earns now, with and without the
+duration bonus, for every advanced product (UL, IUL, ISWL). Shown on the Account
+Values tab as Fixed Crediting Rate / Fixed Rate ex Bonus. For IUL the rate excluding
+bonus is also the fixed-account rate (``IllustrationPolicyData.iul_declared_rate``)
+of PolView's in-force projections (Interim AV Quote, surrender values, GLP Exception
+forecast), where it drives the IUL14NY (1U145900) bonus cap
+``min(bonus, fixed rate - GINT)``; other products' projections are not changed.
 
 Source, in order:
 
-1. **The policy's current fixed-account buckets** (DB2 ``LH_POL_FND_VAL_TOT``,
-   ``MVRY_DT`` 12/31/9999, funds ``U1`` fixed strategy / ``SW`` sweep):
-   ``VAL_PHA_ITS_RT`` is the rate CyberLife credits, bonus included. The rate
-   excluding the bonus removes the plan's duration bonus in effect this policy year
+1. **The policy's current fixed-fund buckets** (DB2 ``LH_POL_FND_VAL_TOT``,
+   ``MVRY_DT`` 12/31/9999): ``VAL_PHA_ITS_RT`` is the rate CyberLife credits, bonus
+   included. The fixed funds are IUL ``U1`` (fixed strategy) / ``SW`` (sweep); for
+   other products the funds the coverage fixed-fund control names with a CIRF rate
+   key (``LH_COV_FXD_FND_CTL.FND_ID_CD`` / ``CUR_ITS_RT_SER_NBR``, e.g. ISWL ``I1`` /
+   ``ELGRP0001``), else every control fund but the 0% ``GP`` holding fund. The rate
+   excluding the
+   bonus removes the plan's duration bonus in effect this policy year
    (``tRates_IntBonus``; for the New York cap the inverse of ``d + min(B, d - GINT)``).
-2. **The plan's CIRF declared rate** (UL_Rates schema ``rates``, the fixed fund named
-   by ``PLAN_ATTR FUND_KEYS``, e.g. IULFIX14), plus the bonus, when the policy has no
-   current fixed-account bucket.
+   A plan without a ``tRates_IntBonus`` row has no bonus: both rates are equal.
+2. **The plan's CIRF declared rate** (UL_Rates schema ``rates``, the plan's CIRF fund:
+   ``PLAN_DEF.CIRF_KEY``, or for multi-fund IUL keys the fixed fund named by
+   ``PLAN_ATTR FUND_KEYS``, e.g. IULFIX14), plus the bonus, when the policy has no
+   current fixed-fund bucket.
 
 The bucket is preferred because it is what CyberLife actually credits: on
 2026-10-03 the FFL keys (``IULFIX14@26``, ``IULFIX14B@26``) carry a 4.10% CINT row
 effective 01/01/2026, yet FFL buckets still credit 3.80% (``ITS_RT_STR_DT``
-09/01/2023, the 3.80% row). Both are reported so a disagreement is visible.
+09/01/2023, the 3.80% row). Both are reported so a disagreement is visible, and a
+CIRF key with no UL_Rates rate (e.g. ISWL ``ELGRP0001`` on 2026-10-04) is named.
 """
 from __future__ import annotations
 
@@ -38,7 +47,10 @@ from suiteview.illustration.models.index_strategies import (
 from suiteview.illustration.models.plan_facts import load_plan_facts
 from suiteview.polview.models.policy_sections.lookup import policy_attr
 
-FIXED_ACCOUNT_FUNDS = (FIXED_FUND_ID, SWEEP_FUND_ID)
+IUL_FIXED_ACCOUNT_FUNDS = (FIXED_FUND_ID, SWEEP_FUND_ID)
+FIXED_FUND_CONTROL_TABLE = "LH_COV_FXD_FND_CTL"
+# CyberLife's 0% holding fund (negative account value / no-key placeholder): never credited.
+HOLDING_FUND = "GP"
 SOURCE_BUCKET = "bucket"
 SOURCE_CIRF = "cirf"
 _RATE_TOLERANCE = 1e-9
@@ -46,7 +58,7 @@ _RATE_TOLERANCE = 1e-9
 
 @dataclass(frozen=True)
 class FixedBucketRate:
-    """The rate on a current fixed-account bucket (decimal)."""
+    """The rate on a current fixed-fund bucket (decimal)."""
 
     rate: float
     rate_start: Optional[date]
@@ -54,10 +66,11 @@ class FixedBucketRate:
 
 
 @dataclass(frozen=True)
-class IulFixedAccountRate:
-    """An IUL policy's current fixed-account rate (decimals)."""
+class FixedAccountRate:
+    """An advanced policy's current fixed-fund rate (decimals)."""
 
     plancode: str
+    is_iul: bool
     credited_rate: float
     declared_rate: float
     bonus_rate: float
@@ -67,6 +80,8 @@ class IulFixedAccountRate:
     source: str
     bucket: Optional[FixedBucketRate]
     cirf: Optional[DeclaredRate]
+    fixed_funds: tuple[str, ...] = ()
+    cirf_key: str = ""
 
     @property
     def cirf_disagrees(self) -> bool:
@@ -76,12 +91,46 @@ class IulFixedAccountRate:
 
 
 @dataclass(frozen=True)
-class IulFixedRateUnavailable:
+class FixedRateUnavailable:
     reason: str
 
 
-def fixed_bucket_rate(pi) -> Optional[FixedBucketRate]:
-    """The current fixed-account (U1/SW) bucket rate, or None without one.
+def _code(row, column: str) -> str:
+    return str(row.get(column) or "").strip()
+
+
+def _rate_key(row) -> str:
+    key = _code(row, "CUR_ITS_RT_SER_NBR")
+    return key if key.isprintable() else ""
+
+
+def fixed_fund_ids(pi, is_iul: bool) -> tuple[str, ...]:
+    """The policy's fixed (declared-rate) fund ids.
+
+    IUL: ``U1``/``SW`` (the fixed-fund control also lists the index strategies).
+    Other advanced products: the funds the coverage fixed-fund control names with a
+    CIRF rate key (``CUR_ITS_RT_SER_NBR``); when none has a key, every control fund
+    except the 0% ``GP`` holding fund.
+    """
+    if is_iul:
+        return IUL_FIXED_ACCOUNT_FUNDS
+    rows = [row for row in pi.fetch_table(FIXED_FUND_CONTROL_TABLE) or [] if _code(row, "FND_ID_CD")]
+    keyed = {_code(row, "FND_ID_CD") for row in rows if _rate_key(row)}
+    funds = keyed or {_code(row, "FND_ID_CD") for row in rows} - {HOLDING_FUND}
+    return tuple(sorted(funds))
+
+
+def policy_cirf_key(pi, funds: tuple[str, ...]) -> str:
+    """The CIRF key on the fixed funds' control rows (``CUR_ITS_RT_SER_NBR``), if one."""
+    keys = sorted({
+        _rate_key(row) for row in pi.fetch_table(FIXED_FUND_CONTROL_TABLE) or []
+        if _code(row, "FND_ID_CD") in funds and _rate_key(row)
+    })
+    return keys[0] if len(keys) == 1 else ""
+
+
+def fixed_bucket_rate(pi, funds: tuple[str, ...] = IUL_FIXED_ACCOUNT_FUNDS) -> Optional[FixedBucketRate]:
+    """The current bucket rate of the given fixed funds, or None without one.
 
     Unimpaired buckets are preferred; with several rates the most recently started
     rate (``ITS_RT_STR_DT``) is the current one.
@@ -89,10 +138,10 @@ def fixed_bucket_rate(pi) -> Optional[FixedBucketRate]:
     rows = [
         row for row in pi.fetch_table("LH_POL_FND_VAL_TOT") or []
         if "9999" in str(row.get("MVRY_DT", ""))
-        and str(row.get("FND_ID_CD", "")).strip() in FIXED_ACCOUNT_FUNDS
+        and _code(row, "FND_ID_CD") in funds
         and row.get("VAL_PHA_ITS_RT") is not None
     ]
-    unimpaired = [row for row in rows if str(row.get("IMPAIRED_IND", "")).strip() != "1"]
+    unimpaired = [row for row in rows if _code(row, "IMPAIRED_IND") != "1"]
     rows = unimpaired or rows
     if not rows:
         return None
@@ -104,7 +153,7 @@ def fixed_bucket_rate(pi) -> Optional[FixedBucketRate]:
     return FixedBucketRate(
         rate=round(float(latest["VAL_PHA_ITS_RT"]) / 100.0, 10),
         rate_start=start,
-        funds=tuple(sorted({str(row.get("FND_ID_CD", "")).strip() for row in rows})),
+        funds=tuple(sorted({_code(row, "FND_ID_CD") for row in rows})),
     )
 
 
@@ -146,30 +195,33 @@ def capped_bonus(bonus: float, ny_cap: bool, declared: float, gint: Optional[flo
     return min(bonus, round(max(0.0, declared - float(gint or 0.0)), 12))
 
 
-def iul_fixed_account_rate(pi, as_of: date):
-    """The policy's current IUL fixed-account rate.
+def fixed_account_rate(pi, as_of: date):
+    """The advanced policy's current fixed-fund rate.
 
-    Returns ``None`` for a non-IUL plan and :class:`IulFixedRateUnavailable` when
-    neither a fixed-account bucket nor a CIRF rate is available. Schema ``rates``
-    errors propagate to the caller.
+    Returns :class:`FixedRateUnavailable` when neither a fixed-fund bucket nor a CIRF
+    rate is available. Schema ``rates`` errors propagate to the caller.
     """
     plancode = str(pi.coverages.base_plancode or "").strip().upper()
-    if not plancode or not is_iul_plan(plancode):
-        return None
+    if not plancode:
+        return FixedRateUnavailable("The policy has no base plancode.")
+    is_iul = is_iul_plan(plancode)
     facts = load_plan_facts(plancode)
     gint = facts.gint if facts is not None else None
+    plan_key = facts.cint_key if facts is not None else ""
     cirf = None
     if facts is not None:
         cirf = ul_current_declared_rate(
             pi.company_code or "", plancode, as_of, float(gint or 0.0),
-            cint_key=facts.cint_key,
+            cint_key=plan_key,
             rga_indicator=str(policy_attr(pi, "reins_partner", "") or ""))
+    funds = fixed_fund_ids(pi, is_iul)
+    cirf_key = policy_cirf_key(pi, funds) or plan_key
     policy_year = int(pi.activity.policy_year or 1)
     bonus = load_bonus_config(plancode, pi.values.valuation_date or as_of)
     av = float(pi.values.mv_av(0) or 0.0)
     uncapped = bonus_in_effect(bonus, policy_year, av)
     ny_cap = bonus.bonus_dur_cap_to_excess_over_guar
-    bucket = fixed_bucket_rate(pi)
+    bucket = fixed_bucket_rate(pi, funds)
     if bucket is not None:
         declared = declared_from_credited(bucket.rate, uncapped, ny_cap, gint)
         credited, source = bucket.rate, SOURCE_BUCKET
@@ -177,11 +229,14 @@ def iul_fixed_account_rate(pi, as_of: date):
         declared = cirf.rate
         credited, source = round(declared + capped_bonus(uncapped, ny_cap, declared, gint), 10), SOURCE_CIRF
     else:
-        return IulFixedRateUnavailable(
-            f"{plancode} has no current fixed-account (U1/SW) bucket and no CIRF declared "
-            "rate in UL_Rates schema rates.")
-    return IulFixedAccountRate(
+        fund_text = "/".join(funds) if funds else "none named in LH_COV_FXD_FND_CTL"
+        key_text = f"CIRF key {cirf_key}" if cirf_key else "its CIRF key (none on PLAN_DEF)"
+        return FixedRateUnavailable(
+            f"{plancode} has no current fixed-fund bucket (fixed funds: {fund_text}) and "
+            f"UL_Rates schema rates has no CIRF declared rate for {key_text}.")
+    return FixedAccountRate(
         plancode=plancode,
+        is_iul=is_iul,
         credited_rate=credited,
         declared_rate=declared,
         bonus_rate=round(credited - declared, 10),
@@ -191,10 +246,15 @@ def iul_fixed_account_rate(pi, as_of: date):
         source=source,
         bucket=bucket,
         cirf=cirf,
+        fixed_funds=funds,
+        cirf_key=cirf_key,
     )
 
 
 def apply_fixed_rate(ill_policy, fixed) -> None:
-    """Use the resolved fixed rate (excluding bonus) as the projection's IUL fixed rate."""
-    if isinstance(fixed, IulFixedAccountRate):
+    """IUL: use the resolved fixed rate (excluding bonus) as the projection's fixed rate.
+
+    Other products keep their projection basis; the rate is display-only for them.
+    """
+    if isinstance(fixed, FixedAccountRate) and fixed.is_iul:
         ill_policy.iul_declared_rate = fixed.declared_rate

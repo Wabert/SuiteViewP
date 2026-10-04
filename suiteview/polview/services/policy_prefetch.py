@@ -84,8 +84,8 @@ class AccountValueCalculations:
     interim: InterimAccountValue | InterimAccountValueUnavailable
     guaranteed: dict[str, Any] | None = None
     nonforfeiture_status: str = ""
-    # IUL only: IulFixedAccountRate / IulFixedRateUnavailable (None = not an IUL plan).
-    iul_fixed_rate: Any = None
+    # FixedAccountRate / FixedRateUnavailable (None = not calculated).
+    fixed_rate: Any = None
 
 
 @dataclass(frozen=True)
@@ -435,12 +435,12 @@ class PolicyLoadSession:
             policy.coverages.get_coverages()
             guaranteed = guaranteed_cash_value(policy)
             policy._data.raise_table_errors()
-            fixed_rate = self._iul_fixed_rate()
+            fixed_rate = self._fixed_account_rate()
             record_snapshot = policy.detached_copy()
             try:
                 payload = replace(
                     self._account_value_calculations(fixed_rate),
-                    guaranteed=guaranteed, iul_fixed_rate=fixed_rate)
+                    guaranteed=guaranteed, fixed_rate=fixed_rate)
             except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
                 reason = (
                     f"Calculated surrender charge and value are unavailable: {exc}. "
@@ -457,7 +457,7 @@ class PolicyLoadSession:
                         InterimAccountValueUnavailable(
                             f"Interim AV Quote is unavailable: {exc}."),
                         guaranteed=guaranteed,
-                        iul_fixed_rate=fixed_rate,
+                        fixed_rate=fixed_rate,
                     ),
                 )
         elif stage == "reinsurance":
@@ -512,29 +512,26 @@ class PolicyLoadSession:
             policy_debt=policy.loans.policy_debt,
         )
 
-    def _iul_fixed_rate(self):
-        """The IUL fixed-account rate for the Account Values tab and in-force quotes."""
+    def _fixed_account_rate(self):
+        """The advanced product's fixed-fund rate (Account Values tab; IUL in-force quotes)."""
         from suiteview.core.rates_errors import RatesError
-        from suiteview.illustration.models.index_strategies import is_iul_plan
-        from suiteview.polview.services.iul_fixed_rate import (
-            IulFixedRateUnavailable,
-            iul_fixed_account_rate,
+        from suiteview.polview.services.fixed_account_rate import (
+            FixedRateUnavailable,
+            fixed_account_rate,
         )
 
         policy = self._policy
-        if not is_iul_plan(policy.coverages.base_plancode or ""):
-            return None
         status = policy.rates.nonforfeiture_status
         if status:
-            return IulFixedRateUnavailable(
+            return FixedRateUnavailable(
                 f"Policy is on {status}: the account value bought the nonforfeiture benefit, "
                 "so no fixed-account rate applies.")
         try:
-            fixed = iul_fixed_account_rate(policy, self._as_of or date.today())
-        except (RatesError, KeyError, ValueError, OSError, pyodbc.Error) as exc:
-            reason = f"IUL fixed-account rate is unavailable: {exc}"
+            fixed = fixed_account_rate(policy, self._as_of or date.today())
+        except (RatesError, KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
+            reason = f"Fixed-account rate is unavailable: {exc}"
             logger.warning("PolView %s: %s", policy.policy_number, reason, exc_info=True)
-            return IulFixedRateUnavailable(reason)
+            return FixedRateUnavailable(reason)
         policy._data.raise_table_errors()
         return fixed
 
@@ -545,7 +542,7 @@ class PolicyLoadSession:
         from suiteview.illustration.core.interim_value import InterimValueUnavailable
         from suiteview.illustration.models.plancode_config import MissingPlancodeError, load_plancode
         from suiteview.polview.services.interim_account_value import interim_account_value_quote
-        from suiteview.polview.services.iul_fixed_rate import apply_fixed_rate
+        from suiteview.polview.services.fixed_account_rate import apply_fixed_rate
 
         policy = self._policy
         nonforfeiture = policy.rates.nonforfeiture_status

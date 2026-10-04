@@ -114,9 +114,12 @@ def _pct(rate: float) -> str:
     return f"{rate:.2%}"
 
 
-def iul_fixed_rate_tip(fixed) -> str:
-    """How the IUL fixed-account rate (with and without bonus) was found."""
-    lines = ["IUL Fixed Rate = rate the fixed account (U1 fixed strategy / SW sweep) earns now"]
+def fixed_rate_tip(fixed) -> str:
+    """How the fixed-fund crediting rate (with and without bonus) was found."""
+    funds = "U1 fixed strategy / SW sweep" if fixed.is_iul else (
+        "/".join(fixed.fixed_funds) + " (LH_COV_FXD_FND_CTL)" if fixed.fixed_funds
+        else "none named in LH_COV_FXD_FND_CTL")
+    lines = [f"Fixed Crediting Rate = rate the fixed fund ({funds}) earns now"]
     if fixed.source == "bucket":
         bucket = fixed.bucket
         started = f", rate effective {format_date(bucket.rate_start)}" if bucket.rate_start else ""
@@ -125,7 +128,7 @@ def iul_fixed_rate_tip(fixed) -> str:
             f"{'/'.join(bucket.funds)} bucket{started}")
         lines.append(" (LH_POL_FND_VAL_TOT.VAL_PHA_ITS_RT, MVRY_DT 12/31/9999; bonus included)")
     else:
-        lines.append("No current fixed-account bucket: the plan's CIRF declared rate plus bonus")
+        lines.append("No current fixed-fund bucket: the plan's CIRF declared rate plus bonus")
     bonus = fixed.bonus
     if bonus.bonus_dur_rate > 0:
         start = bonus.bonus_dur_threshold + 1
@@ -138,7 +141,7 @@ def iul_fixed_rate_tip(fixed) -> str:
                 f" New York cap: bonus = MIN({_pct(bonus.bonus_dur_rate)}, fixed rate - GINT "
                 f"{_pct(fixed.gint or 0.0)})")
     else:
-        lines.append("No duration bonus on this plan (tRates_IntBonus)")
+        lines.append("No duration bonus on this plan (tRates_IntBonus): ex bonus = crediting rate")
     lines.append(
         f"Excluding bonus: {_pct(fixed.credited_rate)} - {_pct(fixed.bonus_rate)} = "
         f"{_pct(fixed.declared_rate)}")
@@ -149,9 +152,14 @@ def iul_fixed_rate_tip(fixed) -> str:
         if fixed.cirf_disagrees:
             lines.append(
                 " ! differs from the rate CyberLife credits; PolView uses the credited rate")
-    lines.append(
-        "Interim AV Quote, surrender values and the GLP Exception forecast use the rate "
-        "excluding bonus as the IUL fixed-account rate.")
+    elif fixed.cirf_key:
+        lines.append(f"UL_Rates has no CIRF declared rate for {fixed.cirf_key}")
+    else:
+        lines.append("No CIRF key on PLAN_DEF or the fixed-fund control")
+    if fixed.is_iul:
+        lines.append(
+            "Interim AV Quote, surrender values and the GLP Exception forecast use the rate "
+            "excluding bonus as the IUL fixed-account rate.")
     return "\n".join(lines)
 
 
