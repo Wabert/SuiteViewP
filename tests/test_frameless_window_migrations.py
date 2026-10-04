@@ -118,8 +118,7 @@ def test_mainframe_window_uses_frameless_base_with_preserved_header(app, monkeyp
     class FakeTerminalScreen(QWidget):
         def __init__(self):
             super().__init__()
-            self.terminal_left = type("TerminalSide", (), {})()
-            self.terminal_right = type("TerminalSide", (), {})()
+            self.terminal = type("TerminalSide", (), {})()
             self.disconnected = False
 
         def disconnect_all(self):
@@ -128,7 +127,7 @@ def test_mainframe_window_uses_frameless_base_with_preserved_header(app, monkeyp
     monkeypatch.setattr(access_control, "guard_app_access", lambda _code: None)
     monkeypatch.setattr(mod, "ConnectionManager", lambda: object())
     monkeypatch.setattr(mod, "MainframeNavScreen", FakeNavScreen)
-    monkeypatch.setattr(mod, "DualTerminalScreen", FakeTerminalScreen)
+    monkeypatch.setattr(mod, "SwitchTerminalScreen", FakeTerminalScreen)
 
     window = mod.MainframeWindow()
     try:

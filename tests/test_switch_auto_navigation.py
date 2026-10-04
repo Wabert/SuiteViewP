@@ -29,6 +29,13 @@ PASSWORD_NOTICE = {
     4: "(GSPPRLHF) ** YOUR PASSWORD WILL EXPIRE IN 15  DAYS ON 10/16/2026",
     21: 'PF10-PRINT                 Press "CLEAR" or "PF3" to continue',
 }
+# October 4, 2026: Enter while the user ID is signed on at another terminal.
+SESSION_IN_USE = {
+    **{row: line for row, line in LOGIN.items() if row != 23},
+    22: " Password             ===>            (If phrase is entered above)",
+    23: "(GSPPRLHE) USER ON TERM TERM0002-TO ACQUIRE,ENTER PASSWORD AND PRESS PF1WITCH1A",
+}
+SESSION_IN_USE_INPUTS = ((16, 26), (17, 26), (19, 28), (21, 28), (22, 26))
 
 
 def _menu(level: int, header: str, options: list[str], message: str = "") -> dict:
@@ -96,6 +103,8 @@ POLICY_A_MISSING = _transaction("62D2,A1234567   ;newco=01;.", "!  16 RECORD DOE
 
 _QT_APP = None
 _COMMAND_FIELD = ((0, 1),)
+# The logon password fields are non-display (attribute 0x0C) on the host.
+_HIDDEN_INPUTS = {(17, 26), (22, 26), (23, 26)}
 
 
 def _screen(rows: dict, inputs=((1, 4),), width: int = 30):
@@ -111,7 +120,7 @@ def _screen(rows: dict, inputs=((1, 4),), width: int = 30):
         screen.add_field(0, 0x20)
     for row, col in inputs:
         address = row * 80 + col
-        screen.add_field(address, 0x00)
+        screen.add_field(address, 0x0C if (row, col) in _HIDDEN_INPUTS else 0x00)
         screen.add_field(min(address + width + 1, 1919), 0x20)
     return screen
 
@@ -132,7 +141,8 @@ class _FakeClient:
             QTimer.singleShot(5, lambda: self.pane.on_screen_update(screen))
 
     def send_aid(self, aid, modified_fields=None):
-        self.sent.append(("ENTER", [text for _, text in modified_fields or []]))
+        from suiteview.mainframe_nav.tn3270 import AID
+        self.sent.append((AID(aid).name, [text for _, text in modified_fields or []]))
         self._reply()
 
     def send_pf_key(self, pf_num):
@@ -250,6 +260,46 @@ def test_cics_screens_of_an_unknown_region_are_not_reused(pane, monkeypatch):
     monkeypatch.setattr(pane, "connect_to_mainframe", lambda: connects.append(True))
     _start(pane, [], start=INFORCE_KEYS, start_inputs=(), cics_region=None)
     assert connects == [True]
+
+
+def _answer_takeover(monkeypatch, answer):
+    from PyQt6.QtWidgets import QMessageBox
+    asked = []
+
+    def _question(parent, title, text, *args):
+        asked.append(text)
+        return answer
+
+    monkeypatch.setattr(QMessageBox, "question", _question)
+    return asked
+
+
+def test_session_in_use_elsewhere_is_taken_over_after_asking(pane, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    asked = _answer_takeover(monkeypatch, QMessageBox.StandardButton.Yes)
+    sent = _start(pane, [_screen(SESSION_IN_USE, SESSION_IN_USE_INPUTS),
+                         _screen(READY, _COMMAND_FIELD), _screen(POLICY_A, _COMMAND_FIELD)],
+                  policy="A1234567")
+    # The password goes in the password field and is sent WITH PF1, as the host asks.
+    assert sent == [("ENTER", ["AB7Y02", "secret-pw"]), ("PF1", ["AB7Y02", "secret-pw"]),
+                    ("ENTER", ["62D2,A1234567  ;newco=01;."])]
+    assert "TERM0002" in asked[0]
+    assert pane.automation_status.text().startswith("\u2705 CKPR A1234567 (01) ")
+
+
+def test_session_in_use_elsewhere_is_left_alone_when_declined(pane, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    _answer_takeover(monkeypatch, QMessageBox.StandardButton.No)
+    sent = _start(pane, [_screen(SESSION_IN_USE, SESSION_IN_USE_INPUTS)], policy="A1234567")
+    assert sent == [("ENTER", ["AB7Y02", "secret-pw"])]
+    assert "signed on at TERM0002; not taking it over" in pane.automation_status.text()
+
+
+def test_automation_never_logs_the_password(pane, caplog):
+    import logging
+    with caplog.at_level(logging.INFO):
+        _start(pane, [_screen(READY, _COMMAND_FIELD)], policy="")
+    assert "secret-pw" not in caplog.text
 
 
 def test_switch_a_reports_a_silent_host(pane, monkeypatch):

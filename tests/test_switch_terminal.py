@@ -156,18 +156,17 @@ def test_passwords_dialog_refuses_blank_values(app):
 # ── Terminal panes ────────────────────────────────────────────────────
 
 
-def test_dual_terminal_is_switch_a_left_and_switch_b_right(app):
-    switch_sessions.save_endpoint("B", TerminalEndpoint("PRODESA", 2024, True, "IBM-3278-2-E"))
-    dual = terminal_module.DualTerminalScreen()
+def test_mainframe_terminal_tab_shows_only_switch_a(app):
+    screen = terminal_module.SwitchTerminalScreen()
     try:
-        assert dual.terminal_for("A") is dual.terminal_left
-        assert dual.terminal_for("b") is dual.terminal_right
-        assert dual.terminal_left.side == "A"
-        assert dual.terminal_right.conn_port == 2024
-        assert dual.terminal_left.conn_status_label.text().startswith("⚫ Switch A · ")
-        assert "Switch B" in dual.terminal_right.conn_status_label.text()
+        assert screen.terminal_for("a") is screen.terminal
+        assert screen.terminal.side == "A"
+        assert screen.terminal.conn_status_label.text().startswith("⚫ Switch A · ")
+        assert len(screen.findChildren(terminal_module.MainframeTerminalScreen)) == 1
+        with pytest.raises(ValueError):
+            screen.terminal_for("B")
     finally:
-        dual.close()
+        screen.close()
 
 
 def test_open_policy_fills_the_pane_and_runs_the_region_sequence(app, monkeypatch):

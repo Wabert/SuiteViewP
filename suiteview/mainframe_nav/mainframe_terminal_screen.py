@@ -11,7 +11,7 @@ from typing import List
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
                               QPushButton, QLabel, QLineEdit, QComboBox,
                               QGroupBox, QGridLayout, QMessageBox, QFrame,
-                              QSplitter, QSpinBox, QCheckBox,
+                              QSpinBox, QCheckBox,
                               QApplication, QDialog, QFormLayout,
                               QProgressBar, QTableWidget,
                               QTableWidgetItem, QHeaderView, QAbstractItemView, QMenu,
@@ -392,7 +392,7 @@ class TerminalWidget(QTextEdit):
         if current_content.strip():
             fields.append((current_start, current_content))
         
-        logger.debug(f"get_all_typed_content: typed_chars={self.typed_chars}, fields={fields}")
+        logger.debug(f"get_all_typed_content: {len(self.typed_chars)} typed chars in {len(fields)} fields")
         return fields
     
     def display_screen(self, screen: Screen):
@@ -2021,38 +2021,12 @@ class MainframeTerminalScreen(QWidget):
         logger.info("Filled the sign-on into %d logon field(s)", min(len(input_fields), 2))
         return True
 
-    def _type_reconnect_password(self):
-        """Type the password into the reconnect prompt (the first input field)."""
-        if not self.terminal.last_screen:
-            return
-        input_fields = sorted(self.terminal.last_screen.get_input_fields(), key=lambda f: f.address)
-        if not input_fields:
-            return
-        field_start = input_fields[0].address + 1
-        self.terminal.typed_chars = {}
-        for i, char in enumerate(self.conn_password):
-            self.terminal.typed_chars[field_start + i] = char
-        logger.info(f"Typed password for reconnect at field {field_start}")
-
     def _handle_reconnect_screen(self):
-        """Handle the reconnect screen by typing password and pressing PF1.
-        
-        After PF1, the mainframe returns to the login screen, so we need to
-        re-enter credentials and send Enter.
-        """
-        logger.info("Detected reconnect screen - typing password and pressing PF1")
-        
-        self._type_reconnect_password()
-        
-        # Send PF1 to acquire the session
-        self._wait(20)
-        self._send_pf_and_wait(1)
-        
-        # After PF1, we're back at the login screen - need to re-enter credentials
-        if self._check_login_screen():
-            logger.info("Back at login screen after reconnect - re-entering credentials")
-            self._fill_credentials_and_enter()
-    
+        """Port-1992 path: take over a session in use elsewhere, if the user agrees."""
+        info = classify_screen(self._current_screen_text())
+        if info.kind is ScreenKind.RECONNECT:
+            self._perform_navigation_step(Step(StepKind.RECONNECT, text=info.terminal))
+
     def _check_primary_app_menu(self) -> bool:
         """Check if current screen is the PRIMARY APPLICATION SELECTION MENU.
         
@@ -2348,7 +2322,11 @@ class MainframeTerminalScreen(QWidget):
         if step.kind is StepKind.SIGN_ON:
             self._type_sign_on()
         elif step.kind is StepKind.RECONNECT:
-            self._type_reconnect_password()
+            if not self._confirm_session_takeover(step.text):
+                where = step.text or "the other terminal"
+                return (f"{self.conn_userid or 'Your user ID'} is signed on at {where}; "
+                        "not taking it over. Sign off there, or click again and choose Yes.")
+            self._type_sign_on()
         elif step.kind is StepKind.TEXT:
             error = self._replace_first_field(step.text)
             if error:
@@ -2359,7 +2337,8 @@ class MainframeTerminalScreen(QWidget):
         if step.kind is StepKind.PF:
             self._auto_send_pf(step.pf)
         elif step.kind is StepKind.RECONNECT:
-            self._auto_send_pf(1)
+            # The host wants the password with PF1, so the typed fields go with it.
+            self._auto_send_aid(AID.PF1)
         else:
             self._auto_send_enter()
         if not self._wait_for_screen_from(count, SWITCH_REPLY_TIMEOUT_MS):
@@ -2386,6 +2365,18 @@ class MainframeTerminalScreen(QWidget):
         self.terminal.typed_chars = {
             start + i: (text[i] if i < len(text) else " ") for i in range(end - start)}
         return ""
+
+    def _confirm_session_takeover(self, terminal: str) -> bool:
+        """Ask before acquiring this user ID's Switch session from another terminal."""
+        where = terminal or "another terminal"
+        answer = QMessageBox.question(
+            self, f"{switch_label(self.side)} - session in use",
+            f"{self.conn_userid or 'Your user ID'} is already signed on to Switch at "
+            f"{where} (for example another emulator window).\n\n"
+            f"Take over that session here? It will be disconnected at {where}.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        return answer == QMessageBox.StandardButton.Yes
 
     def _wait_for_screen_to_settle(self, quiet_ms: int = 150, max_ms: int = 1500):
         """Wait until the host stops sending screen updates (one reply can be several writes)."""
@@ -2557,52 +2548,40 @@ class MainframeTerminalScreen(QWidget):
             logger.warning("No input field found near MENU")
     
     def _auto_send_enter(self):
-        """Send Enter key for automation"""
+        """Send Enter with the typed fields (automation)."""
+        self._auto_send_aid(AID.ENTER)
+
+    def _auto_send_aid(self, aid: int):
+        """Send *aid* (Enter or a PF key) with every field typed into ``typed_chars``.
+
+        Hidden (password) fields are never written to the log.
+        """
         if not self.client or not self.client.connected:
             logger.warning("Cannot send - not connected")
             return
-        
-        logger.info(f"_auto_send_enter: typed_chars count = {len(self.terminal.typed_chars)}")
-        
-        # Build modified fields from typed_chars
-        if self.terminal.typed_chars and self.terminal.last_screen:
-            screen = self.terminal.last_screen
-            input_fields = screen.get_input_fields()
-            modified_fields = []
-            
-            logger.info(f"_auto_send_enter: found {len(input_fields)} input fields")
-            
-            for field in input_fields:
+        name = AID(aid).name
+        modified_fields = []
+        screen = self.terminal.last_screen
+        if self.terminal.typed_chars and screen:
+            size = screen.rows * screen.cols
+            for field in screen.get_input_fields():
                 field_start = field.address + 1
-                field_end = screen.rows * screen.cols
-                for other in screen.fields:
-                    if other.address > field.address and other.address < field_end:
-                        field_end = other.address
-                
-                typed_in_field = {addr: char for addr, char in self.terminal.typed_chars.items() 
-                                if field_start <= addr < field_end}
-                
-                if typed_in_field:
-                    field_content = []
-                    for addr in range(field_start, field_end):
-                        if addr in self.terminal.typed_chars:
-                            field_content.append(self.terminal.typed_chars[addr])
-                        else:
-                            field_content.append(screen.buffer[addr])
-                    content_str = ''.join(field_content).rstrip()
-                    if content_str:
-                        modified_fields.append((field_start, content_str))
-                        logger.info(f"_auto_send_enter: field at {field_start} = '{content_str[:20]}...' (len={len(content_str)})")
-            
-            logger.info(f"_auto_send_enter: sending {len(modified_fields)} modified fields")
-            self.client.send_aid(AID.ENTER, modified_fields if modified_fields else None)
-        else:
-            logger.info("_auto_send_enter: no typed_chars, sending plain ENTER")
-            self.client.send_aid(AID.ENTER, None)
-        
+                field_end = min((other.address for other in screen.fields
+                                 if other.address > field.address), default=size)
+                if not any(field_start <= addr < field_end for addr in self.terminal.typed_chars):
+                    continue
+                content = "".join(self.terminal.typed_chars.get(addr, screen.buffer[addr])
+                                  for addr in range(field_start, field_end)).rstrip()
+                if content:
+                    modified_fields.append((field_start, content))
+                    secret = not field.display or bool(
+                        self.conn_password and self.conn_password in content)
+                    shown = f"<hidden, {len(content)} chars>" if secret else repr(content[:20])
+                    logger.info("Automation %s: field at %s = %s", name, field_start, shown)
+        self.client.send_aid(aid, modified_fields or None)
         self.terminal.typed_chars = {}
-        logger.info("Automation: Sent ENTER")
-    
+        logger.info("Automation: sent %s with %d field(s)", name, len(modified_fields))
+
     def _auto_send_pf(self, pf_num: int):
         """Send PF key for automation"""
         if not self.client or not self.client.connected:
@@ -2612,71 +2591,26 @@ class MainframeTerminalScreen(QWidget):
         logger.info(f"Automation: Sent PF{pf_num}")
 
 
-class DualTerminalScreen(QWidget):
-    """Dual terminal screen with two side-by-side MainframeTerminalScreen instances.
-    
-    Allows running two concurrent mainframe sessions (e.g., CKAS and CKPR).
-    """
-    
+class SwitchTerminalScreen(QWidget):
+    """The Mainframe Terminal tab: a single Switch A terminal pane."""
+
     def __init__(self):
         super().__init__()
-        self.init_ui()
-    
-    def init_ui(self):
-        """Initialize the dual terminal layout"""
-        layout = QHBoxLayout(self)
-        layout.setSpacing(5)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
-        
-        # Create splitter for resizable panes
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #2c5f8d;
-                width: 6px;
-            }
-            QSplitter::handle:hover {
-                background-color: #3d7ab5;
-            }
-        """)
-        
-        # Allow smooth, continuous resizing
-        self.splitter.setChildrenCollapsible(False)
-        self.splitter.setOpaqueResize(True)
-        
-        # Switch A on the left, Switch B on the right
-        self.terminal_left = MainframeTerminalScreen("A")
-        self.terminal_right = MainframeTerminalScreen("B")
-        
-        # Mark the right terminal to use OPEN command for new sessions
-        # This enables dual terminal support via VTAM/Switch OPEN command
-        self.terminal_right.use_open_for_new_session = True
-        
-        # Add to splitter
-        self.splitter.addWidget(self.terminal_left)
-        self.splitter.addWidget(self.terminal_right)
-        
-        # Set equal initial sizes with actual pixel values for smooth operation
-        # These will be adjusted proportionally when window is resized
-        self.splitter.setSizes([400, 400])
-        
-        layout.addWidget(self.splitter)
-    
+        layout.setSpacing(0)
+        self.terminal = MainframeTerminalScreen("A")
+        layout.addWidget(self.terminal)
+
     def terminal_for(self, side: str) -> MainframeTerminalScreen:
-        """Return the pane for Switch *side* ("A" = left, "B" = right)."""
-        side = side.upper()
-        if side == "A":
-            return self.terminal_left
-        if side == "B":
-            return self.terminal_right
-        raise ValueError(f"Unknown Switch side {side!r}")
+        """Return the pane for Switch *side*; only Switch A is shown."""
+        if side.upper() != "A":
+            raise ValueError(f"Only Switch A has a terminal pane, not {side!r}.")
+        return self.terminal
 
     def disconnect_all(self):
-        """Disconnect both terminals"""
-        self.terminal_left.disconnect_from_mainframe()
-        self.terminal_right.disconnect_from_mainframe()
-    
+        self.terminal.disconnect_from_mainframe()
+
     def closeEvent(self, event):
-        """Handle widget close - disconnect both terminals"""
         self.disconnect_all()
         super().closeEvent(event)

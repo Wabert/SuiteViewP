@@ -157,7 +157,7 @@ def connections_list_style() -> str:
             outline: none;
         }}
         QListWidget::item {{
-            padding: 8px;
+            padding: 2px 6px;
             border: none;
             background-color: transparent;
             color: {c("nav_text")};

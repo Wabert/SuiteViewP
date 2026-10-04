@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.connection_manager import ConnectionManager
 from suiteview.mainframe_nav.mainframe_nav_screen import MainframeNavScreen
-from suiteview.mainframe_nav.mainframe_terminal_screen import DualTerminalScreen
+from suiteview.mainframe_nav.mainframe_terminal_screen import SwitchTerminalScreen
 from suiteview.mainframe_nav.styles import (
     MAINFRAME_BORDER_COLOR,
     MAINFRAME_HEADER_COLORS,
@@ -58,7 +58,7 @@ class MainframeWindow(FramelessWindowBase):
         self.tab_widget.setDocumentMode(True)
 
         self.mainframe_nav_screen = MainframeNavScreen(self.conn_manager)
-        self.mainframe_terminal_screen = DualTerminalScreen()
+        self.mainframe_terminal_screen = SwitchTerminalScreen()
 
         self.tab_widget.addTab(self.mainframe_terminal_screen, "Mainframe Terminal")
         self.tab_widget.addTab(self.mainframe_nav_screen, "Mainframe Nav")
