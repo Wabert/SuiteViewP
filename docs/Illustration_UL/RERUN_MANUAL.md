@@ -650,24 +650,15 @@ VP/MS model (mod AN0230, reward type C), not in CIRF or CKULTB.
   2018-01-01 before October 2026), 0.50% from 2021-06-01 (SR127852), 0.25% from
   2021-12-01 (SR136193), 0.50% from 2022-11-01 (SR147964) and 0.90% from
   2023-02-01 (SR150121). Unconditional in SuiteView.
-- **PULU family `1U135900` / `1U135Q00`** — 0.50% in policy years
+- **PULU family `1U135900` / `1U135H00` / `1U135Q00`** — 0.50% in policy years
   11-20 and 0.75% from year 21; the second tier **replaces** the first
   (`BonusDurRate2` / `BonusDurThreshold2` 20). Never changed by the UL96 SRs
   (SR113413 business requirements; Robert Haessly's note of 8/24/2021), so the
   former 1U135H00 0.90% row dated 2023-02-01 was removed. Robert's 5/26/2026
-  problem-log question (should PULU earn the 1990s specs' 0.90%?) is open.
-- **PULU `1U135H00`** — the 0.50% tier only, from policy year 11 (conditional,
-  as below). Robert Haessly's ruling, 10/5/2026: "PULU bonus is .5 after 10 years
-  and .75 after 20 years. Looking at CyberLife that applies to just 1U135900 and
-  1U135Q00. Right now 1U135H00 is just getting the .5% bonus." Open item: DB2
-  CKPR 2026-10-05 shows the 110 in-force 1U135H00 policies at code 6 (all past
-  year 21), 108 of them crediting 3.75% (guarantee 3.00% + 0.75%) on their latest `U1`
-  bucket (1,072 of their 1,107 current buckets); SuiteView now credits them 3.50%,
-  and PolView's "Fixed Rate ex Bonus" shows 3.25% for a 3.75% bucket. Codes 5 and
-  6 both earn the one tier.
+  problem-log question (should PULU earn the 1990s specs' 0.90%?) is open; this
+  matches what CyberLife credits today.
 - **Conditional (`BonusConditional`).** Each PULU tier is earned only by passing
-  the AN0230 test at the start of year 11 and (two-tier plans) again at year 21:
-  premiums paid at
+  the AN0230 test at the start of year 11 and again at year 21: premiums paid at
   least the accumulated MAP (`LH_POL_TARGET` 'MA'), no face decrease, no partial
   withdrawals. CyberLife records the stage in `LH_NON_TRD_POL.PRO_BNS_RS_CD`
   (`0` none, `5` tier 1, `6` tier 2), mapped to
@@ -683,7 +674,7 @@ VP/MS model (mod AN0230, reward type C), not in CIRF or CKULTB.
   first 120 months). The projection ignores guideline/TAMRA premium caps.
   DB2 CKPR 2026-10-04: 15,853 policies at code 5, 306 at code 6, 33 at code 0;
   9 code-6 PULU policies set in September/October 2026 still show a 0.50% bucket
-  until the next re-rate, and SuiteView already credits them 0.75% (1U135900/Q00).
+  until the next re-rate, and SuiteView already credits them 0.75%.
   The notes page states the year-21 step ("REPLACED BY A BONUS OF 0.750% ...").
   Regression: `tests/test_illustration_interest_bonus_tiers.py`.
 

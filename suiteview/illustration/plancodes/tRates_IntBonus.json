@@ -228,6 +228,8 @@
         "EffectiveDate": "1900-01-01",
         "BonusDurRate": 0.005,
         "BonusDurThreshold": 10,
+        "BonusDurRate2": 0.0075,
+        "BonusDurThreshold2": 20,
         "BonusConditional": true,
         "BonusAVRate": 0.0,
         "BonusAVThreshold": 0

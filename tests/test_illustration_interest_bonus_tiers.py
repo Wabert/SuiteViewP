@@ -2,8 +2,7 @@
 
 Evidence: SR113413 business requirements v2.1 (PULU "50 basis point bonus after 10 years
 and a 75 basis point bonus after 20 years"), Robert Haessly's note of 8/24/2021, CyberLife
-mod AN0230 and LH_NON_TRD_POL.PRO_BNS_RS_CD (DB2 CKPR 2026-10-04). Robert Haessly's ruling
-of 10/5/2026: the 0.75% tier applies to 1U135900 and 1U135Q00 only; 1U135H00 gets 0.50%.
+mod AN0230 and LH_NON_TRD_POL.PRO_BNS_RS_CD (DB2 CKPR 2026-10-04).
 """
 from __future__ import annotations
 
@@ -29,8 +28,7 @@ from suiteview.illustration.models.input_set import (
 )
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 
-PULU_TWO_TIER = ("1U135900", "1U135Q00")
-PULU_ONE_TIER = "1U135H00"
+PULU = ("1U135900", "1U135H00", "1U135Q00")
 UL96 = ("1U135D00", "1U135K00", "1U135P00")
 TODAY = date(2026, 10, 4)
 
@@ -55,47 +53,12 @@ def test_pulu_tiers_replace_not_add():
     assert [bonus.duration_bonus(y) for y in (10, 11, 20, 21, 40)] == [0.0, 0.005, 0.005, 0.0075, 0.0075]
 
 
-@pytest.mark.parametrize("plancode", PULU_TWO_TIER)
-def test_pulu_two_tier_plans_have_the_conditional_two_tier_bonus_in_every_era(plancode):
+@pytest.mark.parametrize("plancode", PULU)
+def test_every_pulu_plan_has_the_conditional_two_tier_bonus_in_every_era(plancode):
     for as_of in (date(2005, 1, 1), date(2020, 6, 1), date(2023, 2, 1), TODAY):
         bonus = load_bonus_config(plancode, as_of)
         assert bonus.duration_tiers() == ((10, 0.005), (20, 0.0075)), (plancode, as_of)
         assert bonus.bonus_conditional
-
-
-def test_1u135h00_has_only_the_conditional_half_percent_tier_in_every_era():
-    for as_of in (date(2005, 1, 1), date(2020, 6, 1), date(2023, 2, 1), TODAY):
-        bonus = load_bonus_config(PULU_ONE_TIER, as_of)
-        assert bonus.duration_tiers() == ((10, 0.005),), as_of
-        assert bonus.bonus_conditional and bonus.bonus_dur_threshold2 == 0
-        assert [bonus.duration_bonus(y) for y in (10, 11, 20, 21, 40)] == [0.0, 0.005, 0.005, 0.005, 0.005]
-
-
-@pytest.mark.parametrize("stage, year, expected", [
-    ("6", 25, 1),   # CyberLife code 6 (tier 2 elsewhere): the one tier is earned
-    ("5", 25, 1),
-    ("5", 15, 1),
-    ("0", 25, 0),   # failed at 11: no bonus for good
-])
-def test_1u135h00_recorded_stage_earns_at_most_the_one_tier(stage, year, expected):
-    bonus = load_bonus_config(PULU_ONE_TIER, TODAY)
-    policy = _pulu(year, stage, plancode=PULU_ONE_TIER)
-    assert earned_bonus_tier(bonus, policy) == expected
-    resolved = resolve_bonus_config(policy, None)
-    assert resolved.duration_bonus(year) == (0.005 if expected else 0.0)
-    assert with_recorded_stage(bonus, stage).duration_bonus(year) == (0.005 if expected else 0.0)
-
-
-def test_1u135h00_projected_year_11_test_still_applies():
-    bonus = load_bonus_config(PULU_ONE_TIER, TODAY)
-    policy = _pulu(1, "", plancode=PULU_ONE_TIER, duration=0, premiums_paid_to_date=0.0,
-                   accumulated_mtp=0.0, mtp=100.0)
-    level = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
-        kind=TransactionKind.PREMIUM, policy_year=1, amount=1_200.0, mode="A")])
-    low = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
-        kind=TransactionKind.PREMIUM, policy_year=1, amount=1_000.0, mode="A")])
-    assert earned_bonus_tier(bonus, policy, level) == 1
-    assert earned_bonus_tier(bonus, policy, low) == 0
 
 
 @pytest.mark.parametrize("plancode", UL96)
@@ -120,7 +83,7 @@ def test_single_tier_config_matches_the_old_rule():
 
 
 def test_max_tier_caps_the_schedule():
-    bonus = load_bonus_config("1U135900", TODAY)
+    bonus = load_bonus_config("1U135H00", TODAY)
     assert BonusConfig.duration_bonus(_with(bonus, 0), 25) == 0.0
     assert BonusConfig.duration_bonus(_with(bonus, 1), 25) == 0.005
     assert BonusConfig.duration_bonus(_with(bonus, 2), 25) == 0.0075
@@ -221,7 +184,7 @@ def test_resolve_bonus_config_applies_eligibility_only_to_conditional_plans():
 
 
 def test_recorded_stage_cap_for_the_current_year_display():
-    bonus = load_bonus_config("1U135Q00", TODAY)
+    bonus = load_bonus_config("1U135H00", TODAY)
     assert with_recorded_stage(bonus, "0").duration_bonus(26) == 0.0
     assert with_recorded_stage(bonus, "5").duration_bonus(26) == 0.005
     assert with_recorded_stage(bonus, "6").duration_bonus(26) == 0.0075

@@ -1429,8 +1429,7 @@ def _build_ul_report_from_facts(
             f"WHICH IS ADDED TO THE ILLUSTRATED RATE STARTING IN POLICY YEAR "
             f"{bonus_months[0].policy_year}")
         plan_bonus = load_bonus_config(policy.plancode, bonus_as_of(policy))
-        # A second duration tier (ANICO1996 PULU 1U135900/1U135Q00 0.75% from year 21)
-        # replaces the first.
+        # A second duration tier (ANICO1996 PULU 0.75% from year 21) replaces the first.
         if plan_bonus.bonus_dur_threshold2 > 0:
             first_rate = bonus_months[0].bonus_interest_rate
             step = next((s for s in bonus_months
