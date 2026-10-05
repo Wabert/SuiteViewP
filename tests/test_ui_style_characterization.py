@@ -60,7 +60,7 @@ EXPECTED_MODULE_HASHES = {
         "21e8f9116e5f35c8dbc742e91d489e0b6ec5eb0fc4d9f1bd5155993838782047"
     ),
     "suiteview.mainframe_nav.styles": (
-        "f099ec00496f08448738515aea77c31d14d69cf6ba34199601ce954ae3d17483"
+        "255f40f8079f2a6648023c4454c8b3348f07da3557a4c4d5d0480dc2acdb9150"
     ),
     "suiteview.polview.ui.styles": (
         "0519eb58ad7cbc08babccb89b09dcef69a70ec561a54a98b10e9cc6abf23b536"
@@ -81,7 +81,7 @@ EXPECTED_WINDOW_HASHES = {
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",
     "FileNavWindow": "99767126eafab660847c9b89826fe4c1a4157bd24f9e64df00bab05fa57a6953",
     "IllustrationWindow": "72f6ee08f93f60e2896854fe6ca1d66afb355b6eb67664f364c3bf5bc918a721",
-    "MainframeWindow": "4ecf3ed59540fe2ea13108d26970a88df566e1e489b9677dd6f2905a7ed035be",
+    "MainframeWindow": "c19845fb1ba4c49d4883ca2ec66fde93d791032d623f1abb5313b5749165de61",
     "PolView": "2168ff16ac2c3241380605102908dd2916c31066fbf86c7a003765e9c0b48f06",
     "QueryObjectViewerWindow": "02e631280c21be8141fe599ce55ca57dce700da1a314b67c68b8a0b8634d40a3",
     "RateManagerWindow": "eada666b1ec94b4be8a15f75330adc53c84cf4066bd0745dc84e87b006dc4f49",
