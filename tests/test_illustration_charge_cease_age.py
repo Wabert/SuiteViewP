@@ -2,9 +2,9 @@
 
 Robert Haessly, 10/3/2026: on 1U1446/47/48, 1U1352/53/54/56/5I/5L/5E, 1U143800, 1U144500
 and B11SB600 premiums cease at attained age 100 and the policy does not mature: it stays in
-force to the ``PLAN_DEF`` maturity (120/121), the account value earning interest. Refined
-by CyberLife evidence (coordinator decision 10/3/2026, pending Robert's confirmation): the
-COI, EPU, benefit and rider charges stop but the scheduled monthly fee (MFEE) continues.
+force to the ``PLAN_DEF`` maturity (120/121), the account value earning interest. Robert
+Haessly, 10/5/2026 (LTGUL 1U143800/1U144500): no charges at all after 100 - not even the
+$5.00 MFEE that UL_Rates loads to 120 and CyberLife still deducts (a CyberLife defect).
 The COI past 100 is never looked up (an ISWL COI past its last loaded age is a raising
 ``MissingRate``).
 """
@@ -101,6 +101,8 @@ def test_shipped_table_rows():
         assert MATURITY_OVERRIDE_KEY not in row and PREMIUM_CEASE_OVERRIDE_KEY not in row, plancode
     # CyberLife's IMUL CCV benefit (type A) ceases at 100 (CKDRSB DSBCEADU).
     assert rows["1U143800"]["ShadowCeaseAge"] == rows["1U144500"]["ShadowCeaseAge"] == 100
+    # The shadow account never outlives the charges (shadow_calc zeroes its charges after).
+    assert all(rows[p]["ShadowCeaseAge"] <= rows[p][CHARGE_CEASE_KEY] for p in GROUP_1)
     for plancode, age in GROUP_2.items():
         row = rows[plancode]
         assert (row[MATURITY_OVERRIDE_KEY], row[PREMIUM_CEASE_OVERRIDE_KEY]) == (age, age), plancode
@@ -146,7 +148,7 @@ def _project(monkeypatch, config, policy, rates):
                                         bonus_override=BonusConfig())
 
 
-def _assert_paid_up_from_100(states, mfee_after=0.0):
+def _assert_paid_up_from_100(states):
     # The projection runs to the PLAN_DEF maturity (its last row is in the final policy year).
     assert states[-1].attained_age >= 120
     assert not any(s.lapsed for s in states)
@@ -156,15 +158,14 @@ def _assert_paid_up_from_100(states, mfee_after=0.0):
     assert len(after) >= (120 - 100) * 12
     previous = {id(s): p for p, s in zip(states, states[1:])}
     for s in after:
-        fee = mfee_after if s.attained_age < 121 else 0.0
         assert (s.gross_premium, s.total_coi_charge, s.epu_charge) == (0.0, 0.0, 0.0)
         assert (s.av_charge, s.benefit_charges, s.rider_charges) == (0.0, 0.0, 0.0)
-        # Only the scheduled monthly fee is still deducted (CyberLife MV_EXP after 100).
-        assert s.mfee_charge == s.total_deduction == fee
+        # No monthly fee either, whatever the MFEE schedule loads (Robert Haessly, 10/5/2026).
+        assert s.mfee_charge == s.total_deduction == 0.0
         assert s.interest_credited > 0
-        # The account value grows by its interest less the fee; the death benefit stays in force.
+        # The account value grows by its interest alone; the death benefit stays in force.
         assert s.av_end_of_month == pytest.approx(
-            previous[id(s)].av_end_of_month + s.interest_credited - fee)
+            previous[id(s)].av_end_of_month + s.interest_credited)
         assert s.total_db >= FACE
     return before, after
 
@@ -174,8 +175,9 @@ def _mfee_from_100(fee_at_100: float) -> list:
     return [None] + [5.0] * (100 - ISSUE_AGE) + [fee_at_100] * (121 - 100)
 
 
-# IMUL 1U143800/1U144500 keep a $5 MFEE to 120 in UL_Rates (CyberLife: MV_EXP 5.00 after
-# 100); 1U1446/47/48 and 1U135* load $0 from 100.
+# LTGUL 1U143800/1U144500 keep a $5 MFEE to 120 in UL_Rates (CyberLife still deducts MV_EXP
+# 5.00 after 100, a defect per Robert Haessly 10/5/2026); 1U1446/47/48 and 1U135* load $0
+# from 100. Either way nothing is deducted from 100.
 @pytest.mark.parametrize("fee_at_100", [5.0, 0.0])
 def test_ul_plan_stops_premiums_and_charges_at_100_and_runs_to_121(monkeypatch, fee_at_100):
     config = PlancodeConfig(plancode=PLAN, dbd=0.04, gint=0.04, maturity_age=121,
@@ -187,7 +189,7 @@ def test_ul_plan_stops_premiums_and_charges_at_100_and_runs_to_121(monkeypatch, 
     policy = _policy(benefits=[BenefitInfo(benefit_type="1", benefit_subtype="", units=10.0,
                                            coi_rate=0.5, is_active=True)])
     states = _project(monkeypatch, config, policy, rates)
-    before, _after = _assert_paid_up_from_100(states, mfee_after=fee_at_100)
+    before, _after = _assert_paid_up_from_100(states)
     assert all(s.gross_premium == 1_000.0 for s in before)
     assert all(s.mfee_charge == 5.0 and s.epu_charge > 0 and s.benefit_charges > 0
                for s in before if s.attained_age < 99)

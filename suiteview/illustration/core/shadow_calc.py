@@ -519,6 +519,10 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     # ── Shadow MFEE (col XO) ─────────────────────────────────
     shadow_mfee = config.shadow_mfee
 
+    if config.charges_ceased(attained_age):
+        # PremiumAndChargeCeaseAge: no charges at all (Robert Haessly, 10/5/2026). Every
+        # such plan's ShadowCeaseAge is at or below it, so the shadow EAV is already 0.
+        shadow_coi = shadow_epu = shadow_mfee = 0.0
     # ── Rider charges (col XP) ───────────────────────────────
     # vRiderBenefitCharge - CCV_charge (regular-side rider/benefit charges except CCV)
 

@@ -76,6 +76,24 @@ def test_shadow_calculation_applies_regular_rider_charges():
     assert result.shadow_md == 9.5
 
 
+@pytest.mark.parametrize("age, charged", [(99, True), (100, False), (110, False)])
+def test_shadow_charges_stop_at_the_charge_cease_age(age, charged):
+    """PremiumAndChargeCeaseAge (LTGUL, Robert Haessly 10/5/2026): no shadow charges either."""
+    policy = IllustrationPolicyData(
+        face_amount=100_000.0, db_option="A", ccv_active=True,
+        segments=[CoverageSegment(face_amount=100_000.0, original_face_amount=100_000.0)])
+    config = PlancodeConfig(shadow_mfee=5.0, charge_cease_age=100, shadow_cease_age=100)
+    result = calculate_shadow(ShadowInput(
+        prev_shadow_eav=1_000.0, gross_premium=0.0, premiums_ytd=0.0, policy=policy,
+        config=config, rates=_shadow_rates(shadow_coi=[None, 1.0], shadow_epu=[None, 0.05]),
+        rate_year=1, attained_age=age, days_in_month=30, policy_debt=0.0))
+    charges = (result.shadow_coi, result.shadow_epu, result.shadow_mfee, result.shadow_md)
+    if charged:
+        assert all(c > 0 for c in charges) and result.shadow_eav > 0
+    else:
+        assert charges == (0.0, 0.0, 0.0, 0.0) and result.shadow_eav == 0.0
+
+
 def _shadow_policy() -> IllustrationPolicyData:
     return IllustrationPolicyData(
         face_amount=100_000.0,

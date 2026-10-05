@@ -157,9 +157,8 @@ def premiums_and_charges_ceased(
     config: PlancodeConfig,
     attained_age: int,
 ) -> bool:
-    """No premium, and no COI/EPU/benefit/rider charge: at maturity, or from the plan's
-    ``charge_cease_age`` (paid up: only the scheduled MFEE is still deducted, the AV
-    earns interest and the DB stays in force)."""
+    """No premium and no monthly deduction: at maturity, or from the plan's
+    ``charge_cease_age`` (paid up: the AV earns interest, the DB stays in force)."""
     return config.charges_ceased(attained_age) or _at_or_after_policy_maturity(
         policy, config, attained_age)
 
@@ -640,18 +639,11 @@ def _allocate_nar(basis: DeathBenefitBasis) -> NarAllocation:
 
 
 def _maturity_deduction_result(basis: DeathBenefitBasis, nar: NarAllocation) -> DeductionResult:
-    """Return the no-charge maturity-row deduction result."""
-    return _charge_cease_deduction_result(basis, nar, 0.0)
+    """Return the no-charge deduction result (maturity, or charges ceased).
 
-
-def _charge_cease_deduction_result(
-    basis: DeathBenefitBasis, nar: NarAllocation, mfee_charge: float,
-) -> DeductionResult:
-    """Deduction once COI, EPU, %-of-AV, benefit and rider charges have ceased: only the
-    plan's scheduled monthly policy fee (schema MFEE) is still taken (0 at maturity).
-
-    CyberLife keeps deducting the per-policy expense after the IMUL age-100 COI cease
-    (1U143800 U0580868 / 1U144500 U0598462: MV_EXP 5.00, COI 0).
+    From ``charge_cease_age`` nothing is deducted, not even the schema MFEE that
+    UL_Rates still loads at ages 100-120 on 1U143800/1U144500 (Robert Haessly,
+    10/5/2026: CyberLife's continuing $5.00 MV_EXP there is a CyberLife defect).
     """
     return DeductionResult(
         nar_av=basis.nar_av,
@@ -671,9 +663,7 @@ def _charge_cease_deduction_result(
         nar_corr=nar.nar_corr,
         nar=nar.nar,
         total_nar=nar.nar,
-        mfee_charge=mfee_charge,
-        total_deduction=mfee_charge,
-        av_after_deduction=basis.mAV - mfee_charge,
+        av_after_deduction=basis.mAV,
     )
 
 
@@ -999,10 +989,8 @@ def calculate_deduction(
         projection_date, corridor_rate)
     nar = _allocate_nar(basis)
     # Before any COI lookup: an ISWL COI past its last loaded age raises (MissingRate).
-    if _at_or_after_policy_maturity(policy, config, attained_age):
+    if premiums_and_charges_ceased(policy, config, attained_age):
         return _maturity_deduction_result(basis, nar)
-    if config.charges_ceased(attained_age):
-        return _charge_cease_deduction_result(basis, nar, _monthly_fee_charge(rates, rate_year))
 
     coi = _calculate_coi_charges(
         nar, policy, config, rates, rate_year, projection_date,

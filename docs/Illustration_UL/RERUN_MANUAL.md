@@ -76,12 +76,11 @@ cease at that same maturity: an override that has premiums cease before maturity
 notice, and ISWL rejects an override.
 
 **Premiums and charges cease before maturity (`PremiumAndChargeCeaseAge`).** Robert
-Haessly's rule (10/3/2026), refined by CyberLife evidence (coordinator decision 10/3/2026,
-pending Robert's confirmation): on 1U144600, 1U144700, 1U144800, 1U135200, 1U135300,
+Haessly's rule (10/3/2026, confirmed 10/5/2026 for the LTGUL plans: "No charges after age
+100 for this plan"): on 1U144600, 1U144700, 1U144800, 1U135200, 1U135300,
 1U135400, 1U135600, 1U135I00, 1U135L00, 1U135E00, 1U143800, 1U144500 and B11SB600
-premiums and the COI, benefit and rider charges cease at attained age 100, but the policy
-does not mature and **the per-policy monthly expense charge continues** as CyberLife
-deducts it. The policy stays in force to the `PLAN_DEF` maturity (121; 120 on the 1U135*
+premiums and **every** monthly deduction cease at attained age 100, but the policy
+does not mature. The policy stays in force to the `PLAN_DEF` maturity (121; 120 on the 1U135*
 FPUL plans, which is also CyberLife's coverage maturity), paid up, the account value
 earning interest. The table row carries `"PremiumAndChargeCeaseAge": 100` instead of the
 former 100/110/121 overrides; `load_plancode` sets `premium_cease_age` and
@@ -93,30 +92,34 @@ maturity or that is combined with an override. From that age
   premiums alike, as after maturity), no MD or GP exception premium is generated, and a
   loan over-repayment is not applied as premium even with "Apply excess as premium" on
   (the repayment itself still pays the loan; the excess is discarded);
-- the monthly deduction is only the plan's scheduled monthly fee, schema `MFEE` as loaded
-  for the policy (current or guaranteed scale): COI, EPU, %-of-AV, benefit and rider
-  charges are zero and no COI is looked up, so an ISWL COI that ends at 99 (`MissingRate`)
-  does not raise. UL_Rates `MFEE` runs to maturity on every group plan: $5.00 at ages
-  100-120 on 1U143800/1U144500 (matching CyberLife), $0.00 from 100 on 1U1446/47/48 and
-  1U135* (no in-force policy has reached 100 there, so following the schedule is an
-  assumption), and none on B11SB600 (ISWL: the fee is in the premium). A %-of-premium load
-  is moot (no premium);
+- the monthly deduction is 0: COI, EPU, %-of-AV, MFEE, benefit and rider charges are
+  zero and no COI is looked up, so an ISWL COI that ends at 99 (`MissingRate`) does not
+  raise. UL_Rates `MFEE` runs to maturity on every group plan: $5.00 at ages 100-120 on
+  1U143800/1U144500 (current and guaranteed), $0.00 from 100 on 1U1446/47/48 and 1U135*,
+  and none on B11SB600 (ISWL: the fee is in the premium). SuiteView ignores that $5.00
+  schedule from 100; the other plans are unaffected by construction. (From 10/4 to
+  10/5/2026, commit 3f6bb58, the scheduled MFEE continued to match CyberLife; Robert
+  ruled CyberLife's continuing fee a defect that will be fixed.) A %-of-premium load is
+  moot (no premium);
 - interest is credited on the account value as before; the death benefit stays in force
   with the engine's existing option and corridor rules (CVAT NSP endows at 100, ratio 1;
   GPT `CORR` at 100+ is 1.0);
 - loans keep accruing and capitalizing under the existing rules, and the existing lapse
-  test still lapses the policy if debt (or the fee) exhausts the value. The shadow account
+  test still lapses the policy if debt exhausts the value. The shadow account
   ends at `ShadowCeaseAge`, set to 100 for 1U143800/1U144500 (was 110): CyberLife's IMUL
   CCV benefit (type A) ceases at age 100 (CKDRSB `DSBCEADU`), and 1U143800 U0580868 lapsed
   on 2026-06-04, two months after its age-100 anniversary, as RERUN now projects. The
   other group rows keep `ShadowCeaseAge` 100 (B11SB600 95; it has no shadow account).
+  From the charge-cease age the shadow COI, EPU, MFEE and rider charges are also 0
+  (`shadow_calc`; display only, as the shadow EAV is already 0 from `ShadowCeaseAge`).
 
 CyberLife evidence (10/3/2026, live CKPR): of the in-force policies on these plans only
 1U143800 U0577544 (101), U0580868 (100) and 1U144500 U0598462 (100) have reached 100. At
 the age-100 monthliversary CyberLife's COI drops to 0, interest is still credited
 (U0598462: AV 4,924.28 -> 4,931.65) and the $5.00 monthly expense is still deducted
-(`MV_EXP` 5.00 on U0580868 and U0598462). All three match CyberLife's valuation MD
-(5.00, 5.00, 11,810.88). No premium posted after age 100 on either (window: 1-5 months).
+(`MV_EXP` 5.00 on U0580868 and U0598462). SuiteView deliberately calculates a $0.00
+valuation MD on those two (CyberLife 5.00, accepted CyberLife defect) and matches
+U0577544 (11,810.88). No premium posted after age 100 on either (window: 1-5 months).
 In-force 1U143800/1U144500 coverages all mature at 121 in CyberLife; 1,773 terminated ones
 issued 2006-2011 carry 100 (66 matured there); none carry 110. B11SB600 is all company 26
 (118 in force, single premium, highest attained age 97); it now loads past the company-26
