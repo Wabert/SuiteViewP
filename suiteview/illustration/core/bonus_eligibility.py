@@ -1,9 +1,10 @@
 """Conditional interest-bonus eligibility — CyberLife mod AN0230 (reward type C).
 
-The ANICO1996 PULU plans (1U135900 / 1U135H00 / 1U135Q00) carry a two-tier duration
-bonus: 0.50% in policy years 11-20 and 0.75% from year 21 (SR113413 business
-requirements; Robert Haessly's note of 8/24/2021). Each tier is earned only by passing
-the AN0230 test at the start of its first year (the 11th and 21st):
+The ANICO1996 PULU plans 1U135900 / 1U135Q00 carry a two-tier duration bonus: 0.50% in
+policy years 11-20 and 0.75% from year 21 (SR113413 business requirements; Robert
+Haessly's note of 8/24/2021). 1U135H00 has only the first tier, 0.50% from year 11
+(Robert Haessly's ruling of 10/5/2026). Each tier is earned only by passing the AN0230
+test at the start of its first year (the 11th and, for the two-tier plans, the 21st):
 
 * premiums paid are at least the accumulated minimum premium (MAP, ``LH_POL_TARGET`` 'MA');
 * the face amount has not been decreased;
@@ -13,7 +14,9 @@ A policy that fails at year 11 never gets a bonus; one that passes at 11 but fai
 keeps the 0.50% for good. CyberLife records the stage reached in
 ``LH_NON_TRD_POL.PRO_BNS_RS_CD``: ``0`` none, ``5`` tier 1, ``6`` tier 2 (DB2 CKPR
 2026-10-04: code 5 set at the 10th/11th anniversary on 15,853 policies, code 6 at the
-20th/21st on 306; the 33 code-0 policies have no date).
+20th/21st on 306; the 33 code-0 policies have no date). CyberLife also sets code 6 on
+1U135H00 (110 in force on 2026-10-05); with one tier there, codes 5 and 6 both mean the
+0.50% tier was earned.
 
 Resolution, one tier at a time:
 

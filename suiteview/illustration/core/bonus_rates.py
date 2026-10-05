@@ -34,9 +34,9 @@ class BonusConfig:
     # New York form (IUL14NY 1U145900, RERUN v21 Rates_Control!ET73): the
     # duration bonus is MIN(BonusDurRate, fixed account rate - GINT), floored at 0.
     bonus_dur_cap_to_excess_over_guar: bool = False
-    # Second duration tier (ANICO1996 PULU: 0.75% from policy year 21). From the
-    # year after ``bonus_dur_threshold2`` it REPLACES tier 1; it is not added to it.
-    # A threshold of 0 means the plan has no second tier.
+    # Second duration tier (ANICO1996 PULU 1U135900/1U135Q00: 0.75% from policy year 21;
+    # not 1U135H00). From the year after ``bonus_dur_threshold2`` it REPLACES tier 1; it
+    # is not added to it. A threshold of 0 means the plan has no second tier.
     bonus_dur_rate2: float = 0.0
     bonus_dur_threshold2: int = 0
     bonus_dur_rate2_guar: float = 0.0

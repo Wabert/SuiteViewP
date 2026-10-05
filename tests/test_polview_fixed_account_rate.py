@@ -254,16 +254,20 @@ def _anico_control(rate="3.000"):
             "GUA_FND_ITS_RT": rate}
 
 
-@pytest.mark.parametrize("stage, bucket, ex_bonus, bonus", [
-    ("6", "3.750", 0.03, 0.0075),   # U0424736 (1U135900, year 25)
-    ("5", "3.500", 0.03, 0.005),    # stuck at tier 1 past year 21
-    ("0", "3.000", 0.03, 0.0),      # U0404037 (1U135H00): never earned a bonus
+@pytest.mark.parametrize("plancode, stage, bucket, ex_bonus, bonus", [
+    ("1U135900", "6", "3.750", 0.03, 0.0075),   # U0424736 (1U135900, year 25)
+    ("1U135900", "5", "3.500", 0.03, 0.005),    # stuck at tier 1 past year 21
+    ("1U135H00", "0", "3.000", 0.03, 0.0),      # U0404037 (1U135H00): never earned a bonus
+    # 1U135H00 has the 0.50% tier only (Robert Haessly, 10/5/2026), even at code 6; CyberLife's
+    # bucket shows 3.75% on such policies (open item), so the ex-bonus rate reads 3.25%.
+    ("1U135H00", "6", "3.750", 0.0325, 0.005),
 ])
-def test_pulu_rate_ex_bonus_removes_the_tier_the_policy_earned(plan, stage, bucket, ex_bonus, bonus):
+def test_pulu_rate_ex_bonus_removes_the_tier_the_policy_earned(plan, plancode, stage, bucket, ex_bonus,
+                                                               bonus):
     from suiteview.illustration.core.bonus_rates import load_bonus_config
 
-    plan["bonus"] = load_bonus_config("1U135H00", date(2026, 10, 4))
-    pi = _pi([_bucket(fund="U1", rate=bucket)], plancode="1U135H00", year=26, company="01",
+    plan["bonus"] = load_bonus_config(plancode, date(2026, 10, 4))
+    pi = _pi([_bucket(fund="U1", rate=bucket)], plancode=plancode, year=26, company="01",
              control=[_anico_control()], stage=stage)
     fixed = fr.fixed_account_rate(pi, date(2026, 10, 4))
     assert (fixed.declared_rate, fixed.bonus_rate) == pytest.approx((ex_bonus, bonus))
