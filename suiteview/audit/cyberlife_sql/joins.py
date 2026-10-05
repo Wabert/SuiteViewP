@@ -18,7 +18,8 @@ def add_core_joins(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = SHADOWAV.CK_CMP_CD')
         parts.sql_parts.append('    AND POLICY1.TCH_POL_ID = SHADOWAV.TCH_POL_ID')
         parts.sql_parts.append("    AND SHADOWAV.TAR_TYP_CD = 'XP'")
-    if ctx.has_accum_mtp or ctx.disp_accum_mtp:
+    # The 'MA' target row also carries the MAP cease date shown with Monthly MTP.
+    if ctx.has_accum_mtp or ctx.disp_accum_mtp or ctx.disp_monthly_mtp:
         parts.sql_parts.append(f'  LEFT OUTER JOIN {ctx.schema}.LH_POL_TARGET ACCUMMTP')
         parts.sql_parts.append('    ON POLICY1.CK_SYS_CD = ACCUMMTP.CK_SYS_CD')
         parts.sql_parts.append('    AND POLICY1.CK_CMP_CD = ACCUMMTP.CK_CMP_CD')

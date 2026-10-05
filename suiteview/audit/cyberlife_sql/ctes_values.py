@@ -400,6 +400,7 @@ def _add_initial_target_selects(ctx: QueryContext, parts: SqlParts) -> None:
         parts.sql_parts.append('  , (CASE ' + ' '.join(cases) + " ELSE 'Unknown' END) ParticipationType")
     if ctx.disp_monthly_mtp:
         parts.sql_parts.append('  , MTP.TAR_PRM_AMT MonthlyMTP')
+        parts.sql_parts.append("  , VARCHAR_FORMAT(ACCUMMTP.TAR_DT, 'MM/DD/YYYY') MAPCeaseDt")
     if ctx.disp_accum_mtp:
         parts.sql_parts.append('  , ACCUMMTP.TAR_PRM_AMT ACCUMMTP')
     if ctx.disp_accum_glp:

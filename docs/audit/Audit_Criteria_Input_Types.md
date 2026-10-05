@@ -520,7 +520,7 @@ Native integration check with synthetic results only:
 
 **Column 4:**
 *   **Commission Target (58):** Checkbox (`CheckBox_ShowCTP`)
-*   **Monthly Min Target (58):** Checkbox (`CheckBox_ShowMonthlyMTP`)
+*   **Monthly Min Target (58):** Checkbox (`CheckBox_ShowMonthlyMTP`) — also displays `MAPCeaseDt` (MAP cease date, `LH_POL_TARGET.TAR_DT` where `TAR_TYP_CD = 'MA'`)
 *   **Accum Monthly Min Target (58):** Checkbox (`CheckBox_ShowAccumMonthlyMTP`)
 *   **Accum GLP (58):** Checkbox (`CheckBox_ShowAccumGLP`)
 *   **NSP (58):** Checkbox (`CheckBox_ShowNSP`)

@@ -52,3 +52,15 @@ def test_sql_uses_the_collected_as_of_date_everywhere() -> None:
     sql = build_cyberlife_sql(_collect_case(case, tabs, date(2031, 2, 3)))
     assert "'2031-02-03'" in sql
     assert "'2026-09-25'" not in sql
+
+
+def test_monthly_min_target_also_displays_map_cease_date() -> None:
+    case = CyberlifeSqlCase("monthly_mtp_only")
+    tabs = make_tabs()
+    tabs["display_tab"].chk_monthly_min_target.setChecked(True)
+    sql = build_cyberlife_sql(_collect_case(case, tabs, GOLDEN_AS_OF))
+    assert "MTP.TAR_PRM_AMT MonthlyMTP" in sql
+    assert "VARCHAR_FORMAT(ACCUMMTP.TAR_DT, 'MM/DD/YYYY') MAPCeaseDt" in sql
+    assert "LEFT OUTER JOIN DB2TAB.LH_POL_TARGET ACCUMMTP" in sql
+    assert "AND ACCUMMTP.TAR_TYP_CD = 'MA'" in sql
+    assert "ACCUMMTP.TAR_PRM_AMT ACCUMMTP" not in sql
