@@ -48,6 +48,7 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
+from suiteview.core.build_env import has_developer_access
 from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.run_input_compiler import ControlDraft, InputDraft
@@ -778,6 +779,16 @@ class IllustrationInputsTab(QWidget):
         self.blended_rate_radio.setChecked(True)
         layout.addWidget(self.blended_rate_radio)
         layout.addWidget(self.wair_radio)
+        # Development only: never shown in the packaged EXE.
+        self.segment_radio = self._make_control_radio("Segment Buckets (dev)")
+        self.segment_radio.setToolTip(
+            "Development only. CyberLife-style accounts: premium to the sweep "
+            "account, monthly sweep above 12 x last month's deduction into "
+            "one-year index segments credited at maturity, LIFO deduction "
+            "hierarchy. IUL14 products only.")
+        self.iul_rate_method_group.addButton(self.segment_radio)
+        self.segment_radio.setVisible(has_developer_access())
+        layout.addWidget(self.segment_radio)
 
         self.policy_ag49_check = self._make_control_checkbox("Use Policy AG49 Regime")
         self.policy_ag49_check.setToolTip(
@@ -796,6 +807,14 @@ class IllustrationInputsTab(QWidget):
         # an indexed rate.
         self._set_iul_crediting_applicable(False)
         return group
+
+    def _iul_rate_method(self) -> str:
+        """Saved-case value for the IUL Crediting radio group."""
+        if self.wair_radio.isChecked():
+            return "wair"
+        if self.segment_radio.isChecked():
+            return "segment"
+        return "blended"
 
     def _set_iul_crediting_applicable(self, applicable: bool):
         """Grey the IUL Crediting group on non-IUL plans (greyed, never hidden)."""
@@ -1624,6 +1643,10 @@ class IllustrationInputsTab(QWidget):
             monthly_deduction_windows=(md_windows or None),
             billable_to_md_windows=(b2md_windows or None),
             iul_wair_crediting=self.wair_radio.isChecked(),
+            iul_segment_crediting=(
+                has_developer_access()
+                and self.iul_crediting_group.isEnabled()
+                and self.segment_radio.isChecked()),
             use_policy_ag49_regime=self.policy_ag49_check.isChecked(),
         )
 
@@ -1876,8 +1899,7 @@ class IllustrationInputsTab(QWidget):
                 "duration_date": self.illustration_to_date_edit.date().toString(
                     "yyyy-MM-dd"),
                 "duration_years": self.illustration_years_combo.currentText(),
-                "iul_rate_method": (
-                    "wair" if self.wair_radio.isChecked() else "blended"),
+                "iul_rate_method": self._iul_rate_method(),
                 "use_policy_ag49": self.policy_ag49_check.isChecked(),
                 "abr_minimum_face_amount": self.abr_minimum_face_edit.text(),
                 "run_from_issue": self._active_issue_mode,
@@ -2010,9 +2032,12 @@ class IllustrationInputsTab(QWidget):
             years = str(controls.get("duration_years") or "")
             if years:
                 self.illustration_years_combo.setCurrentText(years)
-        self.wair_radio.setChecked(controls.get("iul_rate_method") == "wair")
-        self.blended_rate_radio.setChecked(
-            controls.get("iul_rate_method") != "wair")
+        method = controls.get("iul_rate_method")
+        if method == "segment" and not has_developer_access():
+            method = "blended"
+        self.wair_radio.setChecked(method == "wair")
+        self.segment_radio.setChecked(method == "segment")
+        self.blended_rate_radio.setChecked(method not in ("wair", "segment"))
         self.policy_ag49_check.setChecked(bool(controls.get("use_policy_ag49")))
         self._refresh_level_solve_caveat()
         # Backward-tolerant: cases saved before this field existed had the

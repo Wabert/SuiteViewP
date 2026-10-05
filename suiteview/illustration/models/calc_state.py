@@ -290,6 +290,11 @@ class MonthlyState:
     wair_held: float = 0.0              # VI/VJ — WAIR recomputed at BOY, held all year
     wair_rate: float = 0.0              # VK — after the guaranteed-basis declared cap
 
+    # ── 3a2. IUL segment crediting (development only) — sweep/fixed/collateral
+    #         and indexed segment balances, this month's account events and the
+    #         Accounts summary; empty unless the run uses segment crediting ──
+    iul_segment_detail: Dict[str, object] = field(default_factory=dict)
+
     # ── 3b. Loan Interest Accrual (cols 587-592) ──
     reg_loan_charge: float = 0.0        # Regular loan interest accrued this month
     pref_loan_charge: float = 0.0       # Preferred loan interest accrued this month

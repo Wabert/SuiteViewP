@@ -20,6 +20,7 @@ Start with [`../Agent.md`](../Agent.md) for canonical standards, then use this i
 | [`Illustration_UL/ENGINE_STEPS.md`](Illustration_UL/ENGINE_STEPS.md) | Canonical monthly engine step order and timing conventions. |
 | [`Illustration_UL/IMPLEMENTED_Calculation_Pipeline.md`](Illustration_UL/IMPLEMENTED_Calculation_Pipeline.md) | Implemented calculation pipeline notes. |
 | [`Illustration_UL/IUL_AG49_WAIR.md`](Illustration_UL/IUL_AG49_WAIR.md) | IUL AG49 and WAIR-specific requirements. |
+| [`Illustration_UL/IUL_SEGMENT_CREDITING.md`](Illustration_UL/IUL_SEGMENT_CREDITING.md) | Development-only IUL sweep/segment ("bucket") crediting and its debug views. |
 | [`Illustration_UL/QUESTION_LOG.md`](Illustration_UL/QUESTION_LOG.md) | Open and answered Illustration design questions. |
 | [`Illustration_UL/REGRESSION_SUITES.md`](Illustration_UL/REGRESSION_SUITES.md) | Illustration regression suite inventory. |
 | [`Illustration_UL/REQUIREMENTS.md`](Illustration_UL/REQUIREMENTS.md) | Illustration requirements and constraints. |

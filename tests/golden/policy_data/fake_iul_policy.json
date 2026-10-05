@@ -27,6 +27,7 @@
   "duration": 289,
   "face_amount": 200000.0,
   "form_number": "",
+  "fund_segments": [],
   "fund_values": {
     "FIXED": 6000.0,
     "IX": 4000.0

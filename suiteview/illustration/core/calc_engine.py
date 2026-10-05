@@ -21,6 +21,12 @@ Canonical projected-month step order:
    bind), calculate shadow account values and evaluate lapse;
 8. build the ``MonthlyState`` ledger row.
 
+With the development-only IUL segment crediting option, segments maturing this
+month are credited and renewed after step 2, every AV-changing step posts its
+change to the sweep/fixed/segment accounts (``core/iul_segments.py``), the
+sweep above the sweep minimum moves to new segments before interest, and only
+the sweep, fixed and collateral balances earn the monthly interest.
+
 Timing conventions preserve the known source-system differences:
 
 ========================  ======================  ==========================
@@ -88,6 +94,14 @@ from suiteview.illustration.core.iul_crediting import (
     variable_loan_accrual_rate,
     wair_interest,
     weighted_average_rate,
+)
+from suiteview.illustration.core.iul_segments import (
+    SegmentCreditingContext,
+    SegmentMonth,
+    build_segment_context,
+    opening_detail,
+    period_rate,
+    seed_accounts,
 )
 from suiteview.illustration.core.lapse import (
     issue_no_lapse_years,
@@ -231,6 +245,8 @@ class MonthContext:
     # CVAT corridor (cvat_nsp.CvatCorridor): the minimum death benefit ratio
     # 1/NSP by month; None for GPT policies, which use the plan's CORR.
     cvat: Optional[CvatCorridor] = None
+    # Development-only IUL segment crediting; None for the blended/WAIR methods.
+    segments: Optional[SegmentCreditingContext] = None
 
 
 def cvat_corridor_rate(cvat: Optional[CvatCorridor], month_date: Optional[date]) -> Optional[float]:
@@ -264,6 +280,8 @@ class MonthWork:
     adv_pref_ln_int: float = 0.0
     # NPT (LG..LI) and DCV roll (YW..AAK) columns for this month, CVAT only.
     npt_detail: Dict[str, object] = dataclass_field(default_factory=dict)
+    # Segment-crediting accounts for this month (None unless that method runs).
+    seg: Optional[SegmentMonth] = None
 
 
 @dataclass
@@ -520,6 +538,8 @@ def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
         exact_days_interest=ctx.options.exact_days_interest,
         exact_days_override=exact_days_override,
     )
+    if work.seg is not None:
+        _apply_segment_interest(ctx, work)
     work.av = work.intr.av_end_of_month
 
 
@@ -1053,7 +1073,7 @@ def deduct_monthly_charges(
         projection_date=work.month_date,
         corridor_rate=cvat_corridor_rate(ctx.cvat, work.month_date),
     )
-    work.asset_charge = monthly_asset_charge(
+    work.asset_charge = 0.0 if ctx.segments is not None else monthly_asset_charge(
         ctx.iul_ctx,
         work.av_before_deduction,
         work.cap_loan.rg_loan_princ,
@@ -1292,9 +1312,100 @@ def credit_interest_post_deduction(
         exact_days_interest=ctx.options.exact_days_interest,
     )
     work.wair_tav = work.wair_swam = work.wair_held = work.wair_rate = 0.0
-    if ctx.iul_ctx is not None and ctx.iul_ctx.wair_enabled:
+    if work.seg is not None:
+        _apply_segment_interest(ctx, work)
+    elif ctx.iul_ctx is not None and ctx.iul_ctx.wair_enabled:
         _apply_wair_interest(ctx, work)
     work.av = work.intr.av_end_of_month
+
+
+def _apply_segment_interest(ctx: MonthContext, work: MonthWork) -> None:
+    """Replace the blended credit with sweep/fixed and collateral interest.
+
+    Indexed segments earn only at maturity; this month's maturity credit (if it
+    has already happened) is included so the ledger Interest column is the
+    month's total credit. The engine's own run supplies the day count, bonus
+    rate and loan-collateral interest.
+    """
+    intr = work.intr
+    declared = ctx.segments.declared_rate + intr.bonus_interest_rate
+    monthly = period_rate(declared, intr.days_in_month)
+    collateral_interest = intr.reg_impaired_int + intr.pref_impaired_int
+    credited = work.seg.credit_interest(monthly, declared, collateral_interest)
+    total = credited + work.seg.maturity_interest
+    work.intr = replace(
+        intr,
+        annual_interest_rate=ctx.segments.declared_rate,
+        effective_annual_rate=declared,
+        monthly_interest_rate=monthly,
+        unimpaired_int=total - collateral_interest,
+        interest_credited=total,
+        av_end_of_month=work.seg.total,
+    )
+
+
+def _segment_bonus_rate(ctx: MonthContext, rate_year: int, av: float) -> float:
+    """The plan interest bonus added to a maturing segment's credit (as in credit_interest)."""
+    bonus = ctx.bonus
+    rate = bonus.duration_bonus(rate_year)
+    if bonus.bonus_av_threshold > 0 and bonus.bonus_av_rate > 0 and av >= bonus.bonus_av_threshold:
+        rate += bonus.bonus_av_rate
+    return rate
+
+
+def begin_segment_month(ctx: MonthContext, work: MonthWork) -> None:
+    """Open this month's segment accounts from the prior row."""
+    if ctx.segments is None:
+        return
+    prior = ctx.state.iul_segment_detail.get("accounts")
+    if prior is None:
+        raise ValueError("IUL segment crediting has no opening account balances.")
+    work.seg = SegmentMonth(ctx.segments, prior, work.month_date, work.next_month)
+    if not (ctx.policy.run_from_issue and ctx.state.duration == 0):
+        # Sweep Account Minimum: 12 x last month's monthly deduction (Robert,
+        # 2026-10-05). The first month from issue has no prior deduction; its
+        # minimum is set from that month's deduction before the sweep.
+        work.seg.set_sweep_min(MONTHS_PER_YEAR * ctx.state.total_deduction)
+
+
+def mature_segments_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Credit, refill the sweep from, and renew segments maturing this month."""
+    if work.seg is None:
+        return
+    interest = work.seg.mature(_segment_bonus_rate(ctx, work.rate_year, work.av))
+    if interest <= 0.0:
+        return
+    work.av += interest
+    intr = getattr(work, "intr", None)
+    if intr is not None:
+        # CyberLife timing credited the period's interest before maturity.
+        work.intr = replace(
+            intr,
+            unimpaired_int=intr.unimpaired_int + interest,
+            interest_credited=intr.interest_credited + interest,
+            av_end_of_month=intr.av_end_of_month + interest,
+        )
+
+
+def sync_segments(work: MonthWork, step: str, target_av: Optional[float] = None) -> None:
+    """Post the change in engine AV from a cash-flow step to the accounts."""
+    if work.seg is not None:
+        work.seg.sync_total(work.av if target_av is None else target_av, step)
+
+
+def sync_segment_collateral(work: MonthWork, loan: LoanState, step: str) -> None:
+    """Move fixed-loan principal changes between collateral and the accounts."""
+    if work.seg is not None:
+        work.seg.sync_collateral(loan.rg_loan_princ + loan.pf_loan_princ, step)
+
+
+def sweep_segments_step(ctx: MonthContext, work: MonthWork) -> None:
+    """Sweep the value above the sweep minimum into Fixed and new segments."""
+    if work.seg is None:
+        return
+    if ctx.policy.run_from_issue and ctx.state.duration == 0:
+        work.seg.set_sweep_min(MONTHS_PER_YEAR * work.ded.total_deduction)
+    work.seg.sweep_out()
 
 
 def _apply_wair_interest(ctx: MonthContext, work: MonthWork) -> None:
@@ -1581,21 +1692,33 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
     work = MonthWork()
     advance_counters(ctx, convention, work)
     carry_begin_values(ctx, work)
+    begin_segment_month(ctx, work)
     capitalize_loans_step(ctx, work)
     if convention.interest_timing == "pre_withdrawal":
         credit_interest_pre_withdrawal(ctx, work)
+    mature_segments_step(ctx, work)
     process_withdrawal_step(ctx, convention, work)
+    sync_segments(work, "Withdrawal")
     apply_policy_changes(ctx, convention, work)
     refresh_targets(ctx, convention, work)
     apply_guideline_forceout(ctx, convention, work)
+    sync_segments(work, "Force-out")
     resolve_requested_premium(ctx, work)
     apply_cashflows(ctx, work)
+    sync_segments(work, "Loan cash flows")
+    sync_segment_collateral(work, work.cap_loan, "Loan capitalize/repay")
     compute_allowances(ctx, work)
     apply_premium_step(ctx, work)
+    sync_segments(work, "Premium")
     deduct_monthly_charges(ctx, convention, work)
+    sync_segments(work, "Monthly deduction", work.av_after_charge)
     apply_exception_premium(ctx, convention, work)
+    sync_segments(work, "Exception premium")
     apply_new_loans(ctx, work)
+    sync_segment_collateral(work, work.fixed_loan_state, "New loan")
     apply_dated_receipt_interest(ctx, convention, work)
+    sync_segments(work, "Dated receipt interest")
+    sweep_segments_step(ctx, work)
     if convention.interest_timing == "post_deduction":
         credit_interest_post_deduction(ctx, convention, work)
     accrue_loans(ctx, work)
@@ -1623,6 +1746,8 @@ def build_month_state(
         fields.update(part(ctx, convention, work))
     if convention.shadow_enabled:
         fields.update(_shadow_fields(work))
+    if work.seg is not None:
+        fields["iul_segment_detail"] = work.seg.finish(work.av)
     return MonthlyState(**fields)
 
 
@@ -2002,14 +2127,77 @@ def build_inforce_state(
     timing: ProjectionTiming,
     starting_exception_period: bool,
     cvat: Optional[CvatCorridor] = None,
+    segments: Optional[SegmentCreditingContext] = None,
 ) -> MonthlyState:
     """Build the month-zero inforce state that seeds a projection."""
     work = _initialize_inforce_work(policy, config, rates, bonus, options, iul_ctx, cvat)
+    segment_detail = (
+        _seed_inforce_segments(policy, segments, timing, work)
+        if segments is not None else None)
     _add_inforce_loan_shadow_lapse(policy, config, rates, iul_ctx, work)
     inforce = _build_inforce_row(
         policy, config, iul_ctx, starting_exception_period, work
     )
-    return _adjust_inforce_for_timing(policy, timing, inforce, work)
+    inforce = _adjust_inforce_for_timing(policy, timing, inforce, work)
+    if segment_detail is not None:
+        inforce = replace(inforce, iul_segment_detail=segment_detail)
+    return inforce
+
+
+def _seed_inforce_segments(
+    policy: IllustrationPolicyData,
+    segments: SegmentCreditingContext,
+    timing: ProjectionTiming,
+    work: InforceWork,
+) -> Dict[str, object]:
+    """Opening segment accounts; replaces the valuation month's blended credit.
+
+    Illustration timing credits the valuation month's interest on the inforce
+    row: here only the sweep, fixed and collateral balances earn it. A run from
+    issue opens with empty accounts.
+    """
+    from_issue = policy.run_from_issue
+    valuation = work.month_date
+    accounts, events = seed_accounts(
+        context=segments,
+        account_value=policy.account_value,
+        fund_values={} if from_issue else dict(policy.fund_values or {}),
+        fund_segments=[] if from_issue else list(policy.fund_segments or []),
+        collateral=policy.regular_loan_principal + policy.preferred_loan_principal,
+        sweep_min=0.0 if from_issue else (
+            policy.sweep_account_min or MONTHS_PER_YEAR * work.ded.total_deduction),
+        valuation_date=valuation,
+        slot_for_date=lambda when: _policy_month_on_or_after(policy.issue_date, when),
+    )
+    if from_issue or timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
+        return opening_detail(accounts, events, segments)
+    month = SegmentMonth(segments, accounts, valuation, policy.policy_month)
+    intr = work.intr
+    declared = segments.declared_rate + intr.bonus_interest_rate
+    monthly = period_rate(declared, intr.days_in_month)
+    collateral_interest = intr.reg_impaired_int + intr.pref_impaired_int
+    credited = month.credit_interest(
+        monthly, declared, collateral_interest, step="Valuation month interest")
+    work.intr = replace(
+        intr,
+        annual_interest_rate=segments.declared_rate,
+        effective_annual_rate=declared,
+        monthly_interest_rate=monthly,
+        unimpaired_int=credited - collateral_interest,
+        interest_credited=credited,
+        av_end_of_month=month.total,
+    )
+    return opening_detail(month.accounts(), events + month.events, segments)
+
+
+def _policy_month_on_or_after(issue_date: Optional[date], when: date) -> int:
+    """Policy month (1-12) of the first monthliversary on or after ``when``."""
+    if issue_date is None:
+        return when.month
+    months = _completed_months(issue_date, when)
+    if issue_date + relativedelta(months=months) < when:
+        months += 1
+    return months % MONTHS_PER_YEAR + 1
 
 
 def _initialize_inforce_work(
@@ -2512,6 +2700,7 @@ class IllustrationEngine:
         policy, config, starting_exception_period = prepare_run_policy(policy, options)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
         iul_ctx = build_iul_context(policy, options)
+        segments = build_segment_context(policy, options, iul_ctx)
         initialize_run_from_issue_targets(policy, config, options)
         bonus = resolve_bonus_config(policy, bonus_override, future_inputs)
         total_months = projection_month_count(policy, months)
@@ -2520,7 +2709,7 @@ class IllustrationEngine:
         cvat = self._start_cvat_corridor(policy, config)
         inforce = build_inforce_state(
             policy, config, rates, bonus, options, iul_ctx, timing,
-            starting_exception_period, cvat,
+            starting_exception_period, cvat, segments,
         )
         npt, inforce = self._start_npt_tracker(
             policy, config, rates, options, timing, inforce, total_months)
@@ -2539,6 +2728,7 @@ class IllustrationEngine:
                 state=state, policy=policy, config=config, rates=rates,
                 bonus=bonus, month_inputs=month_inputs, options=options,
                 policy_changes=policy_changes, iul_ctx=iul_ctx, npt=npt, cvat=cvat,
+                segments=segments,
             ), convention)
             state = _apply_mec_status(policy, results, state)
             results.append(state)

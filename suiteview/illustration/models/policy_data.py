@@ -27,6 +27,19 @@ class JointLives:
     ratings: List[Rating] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class FundSegmentValue:
+    """One open indexed segment on the inforce record (LH_POL_FND_VAL_TOT phase).
+
+    ``start_date`` is the phase's ``VAL_STR_DT`` (the CyberLife sweep date the
+    segment opened on); the segment matures one year later.
+    """
+
+    fund_id: str
+    start_date: date
+    value: float
+
+
 @dataclass
 class CoverageSegment:
     """A single base coverage segment."""
@@ -278,6 +291,9 @@ class IllustrationPolicyData:
     # ── IUL Funds / Strategies ────────────────────────────────
     # Current unimpaired fund values (LH_POL_FND_VAL_TOT; includes SW sweep).
     fund_values: dict[str, float] = field(default_factory=dict)
+    # Open indexed segments (current LH_POL_FND_VAL_TOT phases with value), used
+    # only by the development IUL segment crediting method.
+    fund_segments: List[FundSegmentValue] = field(default_factory=list)
     # Current loan-collateralized principal by fund (PolicyInformation loan map).
     impaired_fund_values: dict[str, float] = field(default_factory=dict)
     # Inforce premium allocation fractions by fund ID (LH_FND_ALC, type "P").

@@ -151,11 +151,14 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Exception Premiums",
         "Policy Values",
         "Accumulation",
+        "IUL Accounts",
+        "IUL Segment Grid",
         "Ending Values",
         "Shadow Account",
         "Joint COI",
         "Testing",
         "TEFRA/TAMRA Recalc",
+        "IUL Segment Ledger",
     ]
     # No recalc in this projection → no per-date detail pages (and no QTabWidget).
     assert tab.recalc_view.detail_views == []

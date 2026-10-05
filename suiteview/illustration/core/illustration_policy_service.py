@@ -24,7 +24,7 @@ for the canonical build-rates-project wiring.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from dateutil.relativedelta import relativedelta
 
@@ -40,13 +40,18 @@ from suiteview.illustration.core.skipped_coverage import (
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.ul_rates import ULRates
 from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
-from suiteview.illustration.models.index_strategies import is_iul_plan
+from suiteview.illustration.models.index_strategies import (
+    FIXED_FUND_ID,
+    SWEEP_FUND_ID,
+    is_iul_plan,
+)
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
 )
 from suiteview.illustration.models.policy_data import (
     CoverageSegment,
+    FundSegmentValue,
     IllustrationPolicyData,
     JointLives,
     PremiumTransaction,
@@ -393,11 +398,15 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
             index_benchmark_maximum = benchmark["maximum"]
 
     fund_values = {}
+    fund_segments = []
     for bucket in pi.values.get_fund_buckets(current_only=True):
         fund = str(bucket.fund_id or "").strip()
         if fund:
             value = float(bucket.csv_amount) if bucket.csv_amount is not None else 0.0
             fund_values[fund] = fund_values.get(fund, 0.0) + value
+            segment = _open_index_segment(fund, value, getattr(bucket, "raw_data", None))
+            if segment is not None:
+                fund_segments.append(segment)
     impaired_fund_values = {
         str(fund): float(value)
         for fund, value in pi.values.get_loan_values_dict().items()
@@ -416,6 +425,7 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
         "prospective_bonus_stage": pi.product.prospective_bonus_code,
         "guaranteed_crediting_rate": _legacy_guaranteed_crediting_rate(source),
         "fund_values": fund_values,
+        "fund_segments": fund_segments,
         "impaired_fund_values": impaired_fund_values,
         "premium_allocations": premium_allocations,
         "index_illustration_rates": index_illustration_rates,
@@ -424,6 +434,28 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
         "index_benchmark_maximum": index_benchmark_maximum,
         "index_market_returns": index_market_returns,
     }
+
+
+def _open_index_segment(fund: str, value: float, row) -> FundSegmentValue | None:
+    """An open indexed segment from a current LH_POL_FND_VAL_TOT phase row.
+
+    Each index segment is its own fund value phase opened on ``VAL_STR_DT`` (the
+    sweep date); matured phases stay on the table with no value. Sweep, fixed
+    and loan-impaired rows are not index segments.
+    """
+    if fund in (SWEEP_FUND_ID, FIXED_FUND_ID) or abs(value) < 0.005:
+        return None
+    if str((row or {}).get("IMPAIRED_IND", "0") or "0").strip() == "1":
+        return None
+    start = (row or {}).get("VAL_STR_DT")
+    if isinstance(start, datetime):
+        start = start.date()
+    elif not isinstance(start, date):
+        try:
+            start = datetime.strptime(str(start).strip()[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return FundSegmentValue(fund_id=fund, start_date=start, value=value)
 
 
 def _policy_guaranteed_rate(source: PolicySourceSnapshot) -> float:

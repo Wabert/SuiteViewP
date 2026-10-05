@@ -40,3 +40,7 @@ Money values are dollars. Rates are documented in the owning modules:
 `premium_allowance.py`, `monthly_deduction.py`, `target_premium.py`, and
 `monthly_guideline.py`. Golden engine ledgers in `tests/golden/engine` are the
 behavior contract for both timing conventions.
+
+The development-only IUL segment crediting option adds account hooks to this
+order (maturity after step 2, account postings after each AV-changing step, a
+sweep before interest); see [IUL_SEGMENT_CREDITING.md](IUL_SEGMENT_CREDITING.md).

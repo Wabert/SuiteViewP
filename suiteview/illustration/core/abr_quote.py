@@ -97,7 +97,8 @@ def abr_quote_options(base: Optional[IllustrationOptions] = None) -> Illustratio
     test, and none of the per-month premium modes (MD / Billable-to-MD) that
     would fight the annual level solve.
 
-    On an IUL, ``iul_wair_crediting`` is forced off so the engine credits the
+    On an IUL, ``iul_wair_crediting`` and the development-only
+    ``iul_segment_crediting`` are forced off so the engine credits the
     single declared rate (``current_interest_rate`` = the entered ABR rate);
     combined with the 100%-fixed-fund allocation the Inputs tab supplies, the
     IP/IR asset charge drops to zero and the account credits exactly the ABR
@@ -115,6 +116,7 @@ def abr_quote_options(base: Optional[IllustrationOptions] = None) -> Illustratio
         billable_to_md_windows=None,
         billable_to_md_no_latch_before=None,
         iul_wair_crediting=False,
+        iul_segment_crediting=False,
     )
 
 

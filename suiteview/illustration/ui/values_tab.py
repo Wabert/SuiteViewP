@@ -37,6 +37,7 @@ from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .guideline_pv_view import GuidelinePvDetailView
+from . import iul_segment_views as segment_views
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_PRIMARY, PURPLE_SUBTLE
 from .values_overview import (
     AccumulatedChargesChart,
@@ -1336,6 +1337,10 @@ class IllustrationValuesTab(QWidget):
     ]
     # Event-based group (not a monthly grid): every 7702 guideline re-solve.
     TEFRA_TAMRA_RECALC_GROUP = "TEFRA/TAMRA Recalc"
+    # Development-only IUL segment crediting views (shown only for such runs).
+    IUL_ACCOUNTS_GROUP = "IUL Accounts"
+    IUL_SEGMENT_GRID_GROUP = "IUL Segment Grid"
+    IUL_SEGMENT_LEDGER_GROUP = "IUL Segment Ledger"
     TAB_ORDER = [
         SUMMARY_GROUP,
         WITHDRAWALS_GROUP,
@@ -1352,6 +1357,8 @@ class IllustrationValuesTab(QWidget):
         EXCEPTION_PREMIUM_GROUP,
         POLICY_VALUES_GROUP,
         ACCUMULATION_GROUP,
+        IUL_ACCOUNTS_GROUP,
+        IUL_SEGMENT_GRID_GROUP,
         ENDING_VALUES_GROUP,
         SHADOW_ACCOUNT_GROUP,
         JOINT_COI_GROUP,
@@ -1377,6 +1384,9 @@ class IllustrationValuesTab(QWidget):
         self._cov_after_change_columns = self._cov_after_change_column_names([1], False)
         self._joint_coi_keys: list[str] = []
         self._joint_coi_columns: list[str] = []
+        self._iul_accounts_columns: list[str] = []
+        self._iul_segment_funds: list[str] = []
+        self._iul_segment_grid_columns: list[str] = []
         self._tab_grids: dict[str, FilterTableView] = {}
         self._content_widgets_by_title: dict[str, QWidget] = {}
         self._content_titles: list[str] = []
@@ -1519,6 +1529,11 @@ class IllustrationValuesTab(QWidget):
         # TEFRA/TAMRA Recalc trails the per-month grids: an event view, not a grid.
         self.recalc_view = TefraTamraRecalcView(self.content_stack)
         self._add_content_page(self.TEFRA_TAMRA_RECALC_GROUP, self.recalc_view)
+        # IUL Segment Ledger: one row per account event, filterable by event type.
+        self.segment_ledger_grid = FilterTableView(self.content_stack)
+        self.segment_ledger_grid.apply_ledger_style()
+        self.segment_ledger_grid.set_sort_enabled(False)
+        self._add_content_page(self.IUL_SEGMENT_LEDGER_GROUP, self.segment_ledger_grid)
         self.body.addWidget(self.content_stack)
 
         self.body.setStretchFactor(0, 0)
@@ -1541,6 +1556,8 @@ class IllustrationValuesTab(QWidget):
     def _drill_down(self, result_row: int, ledger_column: str):
         """Overview double-click: open the detail tab for that value at that month."""
         title = LEDGER_DRILL_TABS.get(ledger_column, self.SUMMARY_GROUP)
+        if title == self.ACCUMULATION_GROUP and self._iul_accounts_columns:
+            title = self.IUL_ACCOUNTS_GROUP
         grid = self._tab_grids.get(title)
         if grid is None:
             return
@@ -1576,6 +1593,10 @@ class IllustrationValuesTab(QWidget):
         for title, columns in tab_columns_by_title.items():
             if title == self.JOINT_COI_GROUP and not self._joint_coi_columns:
                 continue
+            if title == self.IUL_ACCOUNTS_GROUP and not self._iul_accounts_columns:
+                continue
+            if title == self.IUL_SEGMENT_GRID_GROUP and not self._iul_segment_grid_columns:
+                continue
             labels = self._header_labels_for_tab(title)
             stage = QTreeWidgetItem([title])
             stage.setData(0, Qt.ItemDataRole.UserRole, (title, None))
@@ -1597,6 +1618,10 @@ class IllustrationValuesTab(QWidget):
             recalc.addChild(leaf)
         self.nav_tree.addTopLevelItem(recalc)
         recalc.setExpanded(True)
+        if self._iul_accounts_columns:
+            ledger = QTreeWidgetItem([self.IUL_SEGMENT_LEDGER_GROUP])
+            ledger.setData(0, Qt.ItemDataRole.UserRole, (self.IUL_SEGMENT_LEDGER_GROUP, None))
+            self.nav_tree.addTopLevelItem(ledger)
 
     def _filter_navigator(self, text: str):
         needle = text.strip().lower()
@@ -1632,6 +1657,9 @@ class IllustrationValuesTab(QWidget):
                 self.recalc_view.show_summary()
             else:
                 self.recalc_view.show_date(int(column_name))
+            return
+        if title == self.IUL_SEGMENT_LEDGER_GROUP:
+            self.content_stack.setCurrentWidget(self.segment_ledger_grid)
             return
         grid = self._tab_grids.get(title)
         if grid is None:
@@ -1669,6 +1697,8 @@ class IllustrationValuesTab(QWidget):
             self.ENDING_VALUES_GROUP: self.ENDING_VALUES_COLUMNS,
             self.SHADOW_ACCOUNT_GROUP: self.SHADOW_ACCOUNT_COLUMNS,
             self.JOINT_COI_GROUP: self._joint_coi_columns,
+            self.IUL_ACCOUNTS_GROUP: self._iul_accounts_columns,
+            self.IUL_SEGMENT_GRID_GROUP: self._iul_segment_grid_columns,
             self.TESTING_GROUP: self.TESTING_COLUMNS,
         }.get(title, [])
 
@@ -1721,6 +1751,10 @@ class IllustrationValuesTab(QWidget):
         self.chart.clear()
         self.charges_chart.clear()
         self.recalc_view.clear()
+        self.segment_ledger_grid.set_dataframe(pd.DataFrame(), limit_rows=False)
+        self._iul_accounts_columns = []
+        self._iul_segment_funds = []
+        self._iul_segment_grid_columns = []
         self.nav_tree.clear()
         self._results = []
         self._current_view = None
@@ -1839,6 +1873,7 @@ class IllustrationValuesTab(QWidget):
             frame, column_decimals, injected_first_row_columns or set())
         self._results = result_list
         self._render_recalc_view(policy, result_list)
+        self._render_segment_ledger(result_list)
         self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
@@ -1886,6 +1921,9 @@ class IllustrationValuesTab(QWidget):
         # Joint survivor plans: the JSURVCOI year behind each joint phase's COI.
         self._joint_coi_keys = self._detail_keys(result_list, "joint_coi_detail")
         self._joint_coi_columns = self._joint_coi_column_names(self._joint_coi_keys)
+        self._iul_accounts_columns = segment_views.accounts_columns(result_list)
+        self._iul_segment_funds = segment_views.segment_funds(result_list)
+        self._iul_segment_grid_columns = segment_views.grid_columns(self._iul_segment_funds)
         rows = [self._state_to_row(policy, state, coverage_keys, benefit_keys, rider_keys) for state in result_list]
         self._npt_computed = any(
             "vNPT_Premium" in (state.premium_allowance_detail or {}) for state in result_list)
@@ -1948,6 +1986,16 @@ class IllustrationValuesTab(QWidget):
             else:
                 grid.autofit_columns_to_data()
         return navigator_columns
+
+    def _render_segment_ledger(self, result_list: list[MonthlyState]) -> None:
+        """Fill the IUL Segment Ledger event view (empty unless segment crediting ran)."""
+        frame = segment_views.ledger_frame(result_list)
+        grid = self.segment_ledger_grid
+        grid.set_dataframe(frame, limit_rows=False)
+        grid.set_numeric_formatting(
+            default_decimals=2, column_decimals={"Year": 0, "Month": 0, "Segment": 0, "Rate": 6})
+        if not frame.empty:
+            grid.autofit_columns_to_data()
 
     def _render_recalc_view(
         self,
@@ -2085,6 +2133,7 @@ class IllustrationValuesTab(QWidget):
         row.update(self._summary_values(policy, state))
         row.update(self._testing_values(state))
         row.update(self._joint_coi_values(state, self._joint_coi_keys))
+        row.update(segment_views.month_values(state, self._iul_segment_funds))
         return row
 
     # Joint COI group: (detail key, column prefix, decimals) per joint phase.

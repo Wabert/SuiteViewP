@@ -393,6 +393,12 @@ class IllustrationOptions:
     # ``calc_engine.process_month`` (illustration timing).
     iul_wair_crediting: bool = False
 
+    # Development-only IUL segment ("bucket") crediting: sweep account with a
+    # 12 x last-MD minimum, one-year indexed segments with LIFO deductions and
+    # maturity refill/renewal (``core/iul_segments.py``). Mutually exclusive
+    # with WAIR; refused when SuiteView is not running from source.
+    iul_segment_crediting: bool = False
+
     # Use the AG49 regime in effect at policy issue (RERUN Rates_Control CP79 =
     # MAX(2, issue-date tier)) instead of the current regime. Gates IP/IR
     # multiplier crediting and the asset charge (index ≤ 2) and selects the

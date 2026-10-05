@@ -27,6 +27,7 @@
   "duration": 289,
   "face_amount": 200000.0,
   "form_number": "",
+  "fund_segments": [],
   "fund_values": {},
   "glp": 1200.0,
   "glp_is_known": true,

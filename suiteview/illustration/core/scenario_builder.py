@@ -254,6 +254,10 @@ def _apply_tamra_contributions(policy, contributions, assumptions: list[str]) ->
 def _apply_fund_edits(policy, fund_edits: dict, assumptions: list[str]) -> None:
     for name, values in fund_edits.items():
         setattr(policy, name, values)
+        if name == "fund_values":
+            # Edited balances replace the record's open index segments; each
+            # edited index fund opens as one segment under segment crediting.
+            policy.fund_segments = []
         assumptions.append(
             f"{name.replace('_', ' ').capitalize()} entered manually: "
             + ", ".join(

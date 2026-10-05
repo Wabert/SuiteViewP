@@ -295,6 +295,8 @@ def _copy_historical_basis(
     _copy_optional_snapshot_values(result, snapshot)
     result.variable_loan_charge_rate = snapshot.variable_loan_charge_rate
     result.fund_values = deepcopy(snapshot.fund_values) if snapshot.fund_values is not None else {}
+    # Open index segments are current-record detail; they never roll back.
+    result.fund_segments = []
     result.impaired_fund_values = {}
     result.rollback_date = rollback_date
     result.rollback_source_date = anchor

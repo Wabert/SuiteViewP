@@ -210,6 +210,40 @@ def test_iul_crediting_switches_default_and_drive_options():
     assert tab.export_options().use_policy_ag49_regime is True
 
 
+def test_segment_bucket_crediting_is_dev_only_and_round_trips(monkeypatch):
+    from suiteview.illustration.ui import inputs_tab as inputs_tab_module
+
+    _app()
+    tab = IllustrationInputsTab()
+    tab._set_iul_crediting_applicable(True)
+    # Running from source: the dev-only radio is offered and drives the option.
+    assert tab.segment_radio.isVisibleTo(tab.iul_crediting_group) is True
+    assert tab.export_options().iul_segment_crediting is False
+    tab.segment_radio.setChecked(True)
+    options = tab.export_options()
+    assert options.iul_segment_crediting is True
+    assert options.iul_wair_crediting is False
+    # A non-IUL policy greys the group; a stale checked radio must not leak.
+    tab._set_iul_crediting_applicable(False)
+    assert tab.export_options().iul_segment_crediting is False
+    tab._set_iul_crediting_applicable(True)
+    state = tab.capture_case_inputs()
+    assert state["controls"]["iul_rate_method"] == "segment"
+    restored = IllustrationInputsTab()
+    restored.apply_case_inputs(state)
+    assert restored.segment_radio.isChecked() is True
+
+    # A packaged build never offers, exports or restores it.
+    monkeypatch.setattr(inputs_tab_module, "has_developer_access", lambda: False)
+    packaged = IllustrationInputsTab()
+    packaged._set_iul_crediting_applicable(True)
+    assert packaged.segment_radio.isVisibleTo(packaged.iul_crediting_group) is False
+    packaged.apply_case_inputs(state)
+    assert packaged.blended_rate_radio.isChecked() is True
+    packaged.segment_radio.setChecked(True)
+    assert packaged.export_options().iul_segment_crediting is False
+
+
 def test_iul_crediting_group_greyed_unless_iul_plan():
     _app()
     tab = IllustrationInputsTab()
