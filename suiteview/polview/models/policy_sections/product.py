@@ -254,6 +254,15 @@ class ProductSection(PolicySection):
         return str(self._field("grace_rule_code") or "")
 
     @property
+    def prospective_bonus_code(self) -> str:
+        """Prospective (conditional) interest-bonus stage, LH_NON_TRD_POL.PRO_BNS_RS_CD.
+
+        CyberLife mod AN0230: ``0`` no bonus earned, ``5`` tier 1 earned at the 11th
+        anniversary, ``6`` tier 2 earned at the 21st. Blank when not recorded.
+        """
+        return str(self._field("prospective_bonus_code") or "").strip()
+
+    @property
     def tefra_defra_code(self) -> str:
         """TEFRA/DEFRA indicator code."""
         return str(self.data_item("LH_NON_TRD_POL", "TFDF_CD") or "")

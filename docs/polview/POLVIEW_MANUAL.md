@@ -169,11 +169,18 @@ CIRF rate key (`CUR_ITS_RT_SER_NBR`, e.g. ISWL `I1` / `ELGRP0001`), else every
 control fund except the 0% `GP` holding fund (SGUL UE148375 carries a keyless `GP`
 0% bucket started 09/12/2021 beside its `U1` 1.50% bucket). It removes the plan's
 duration bonus in effect for the policy year (`tRates_IntBonus`, applied after
-`BonusDurThreshold`; IUL14NY inverts its `min(bonus, fixed - GINT)` cap); a plan
+`BonusDurThreshold`, the second tier replacing the first after
+`BonusDurThreshold2`; a conditional ANICO1996 PULU bonus is capped at the stage
+in `LH_NON_TRD_POL.PRO_BNS_RS_CD`, so a code-0 policy's ex-bonus rate equals its
+credited 3.00%; IUL14NY inverts its `min(bonus, fixed - GINT)` cap); a plan
 with no `tRates_IntBonus` row has no bonus, so both rates are equal. Without a
 bucket it uses the plan's CIRF declared rate (UL_Rates schema `rates`:
 `PLAN_DEF.CIRF_KEY`, or the multi-fund IUL fixed fund from `PLAN_ATTR FUND_KEYS`;
-ISWL agreeing `CINT_NEW`/`CINT_ROLL`) plus the bonus; with neither the rows show
+ISWL agreeing `CINT_NEW`/`CINT_ROLL`) plus the bonus. A declared-rate UL's CIRF
+rate is floored at the policy's fixed-fund guarantee
+(`LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`), as the illustration floors it, not the
+plan GINT: ANICO1996 shows 3.00% (3.25% Texas), not the 4.00% GINT (which is
+the NAR discount); IUL and ISWL keep GINT. With neither the rows show
 `N/A` naming the fixed funds and the CIRF key. The bucket is preferred because it
 is what CyberLife credits: in October 2026 the FFL keys `IULFIX14@26`/`IULFIX14B@26`
 carry a 4.10% CINT row effective 01/01/2026, but FFL buckets still credit 3.80%

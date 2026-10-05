@@ -413,6 +413,8 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
         "guaranteed_interest_rate": source.plancode_config.gint,
         "current_interest_rate": current_rate,
         "current_interest_rate_source": current_rate_source,
+        "prospective_bonus_stage": pi.product.prospective_bonus_code,
+        "guaranteed_crediting_rate": _legacy_guaranteed_crediting_rate(source),
         "fund_values": fund_values,
         "impaired_fund_values": impaired_fund_values,
         "premium_allocations": premium_allocations,
@@ -425,21 +427,28 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
 
 
 def _policy_guaranteed_rate(source: PolicySourceSnapshot) -> float:
-    """The policy's operative guaranteed crediting rate (decimal).
+    """The policy's operative guaranteed crediting rate (decimal); see
+    :func:`declared_rates.policy_guaranteed_rate` (plan GINT without a fund row)."""
+    from suiteview.illustration.core.declared_rates import policy_guaranteed_rate
 
-    CyberLife floors a declared-rate UL credit at the fixed fund's own
-    guaranteed rate, ``LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`` (percent), which can
-    exceed the plan GINT (1U135K00 U0482280/U0482386: 3.25% vs 3.00%; fix R02,
-    Robert 2026-10-01). ``LH_NON_TRD_POL.POL_GUA_ITS_RT`` is not that rate. With
-    several fixed-fund rows the highest applies; with none the plan GINT (schema
-    ``rates`` PLAN GINT, ``PlancodeConfig.gint``) does."""
-    rates = [
-        float(row["GUA_FND_ITS_RT"])
-        for row in source.pi.fetch_table("LH_COV_FXD_FND_CTL") or []
-        if row.get("GUA_FND_ITS_RT") is not None
-    ]
-    best = max(rates, default=0.0)
-    return best / 100.0 if best > 0.0 else source.plancode_config.gint
+    return policy_guaranteed_rate(source.pi, source.plancode_config.gint)
+
+
+def _legacy_guaranteed_crediting_rate(source: PolicySourceSnapshot) -> float | None:
+    """The guaranteed crediting rate after the initial guarantee period, when it is
+    not the plan GINT (declared-rate UL only).
+
+    The ANICO1996 4%-GINT plans (1U135900/D00/H00/K00/Q00) guarantee 4% in policy
+    years 1-10 and then the policy's ``GUA_FND_ITS_RT``, 3.00% or 3.25% (product
+    specs Section M; SR113413 "C is 4% in years 1-10 and 3% from year 11, except in
+    TX where it is 3.25%"). DB2 CKPR 2026-10-04: no other declared-rate UL plan has
+    an in-force policy whose fund guarantee differs from its GINT. The plan GINT stays
+    the NAR discount and 7702 rate."""
+    config = source.plancode_config
+    if config.is_iswl or is_iul_plan(source.plancode):
+        return None
+    rate = _policy_guaranteed_rate(source)
+    return rate if abs(rate - float(config.gint or 0.0)) > 1e-9 else None
 
 
 def _current_interest_rate(source: PolicySourceSnapshot) -> tuple[float, str]:

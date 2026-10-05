@@ -136,6 +136,17 @@ def fixed_rate_tip(fixed) -> str:
         lines.append(
             f"Duration bonus {_pct(bonus.bonus_dur_rate)} from policy year {start} "
             f"(tRates_IntBonus); policy year {fixed.policy_year}: {state}")
+        if bonus.bonus_dur_threshold2 > 0:
+            lines.append(
+                f" then {_pct(bonus.bonus_dur_rate2)} (replacing it) from policy year "
+                f"{bonus.bonus_dur_threshold2 + 1}")
+        if bonus.bonus_conditional:
+            earned = ("not recorded" if bonus.bonus_max_tier is None
+                      else f"tier {bonus.bonus_max_tier} earned" if bonus.bonus_max_tier
+                      else "no tier earned")
+            lines.append(
+                " Conditional (CyberLife mod AN0230: MAP paid, no face decrease, no withdrawals "
+                f"at each tier's start); LH_NON_TRD_POL.PRO_BNS_RS_CD: {earned}")
         if bonus.bonus_dur_cap_to_excess_over_guar:
             lines.append(
                 f" New York cap: bonus = MIN({_pct(bonus.bonus_dur_rate)}, fixed rate - GINT "

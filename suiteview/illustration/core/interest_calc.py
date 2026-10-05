@@ -12,7 +12,7 @@ from suiteview.illustration.constants import DAYS_PER_YEAR, MONTHS_PER_YEAR
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.policy_data import INITIAL_GUARANTEE_YEARS, IllustrationPolicyData
 
 
 @dataclass
@@ -83,13 +83,15 @@ def credit_interest(
     """
     # ── 3.3.1 Base crediting rate ─────────────────────────────
     annual_rate = policy.current_interest_rate
+    if policy.ultimate_interest_rate is not None and rate_year > INITIAL_GUARANTEE_YEARS:
+        annual_rate = policy.ultimate_interest_rate
 
     # ── 3.3.2 Bonus interest ─────────────────────────────────
     bonus_rate = 0.0
 
-    # Duration bonus — added after threshold year; zero starts immediately.
-    if bonus.bonus_dur_rate > 0 and rate_year > bonus.bonus_dur_threshold:
-        bonus_rate += bonus.bonus_dur_rate
+    # Duration bonus — the latest tier started (a later tier replaces an earlier
+    # one), capped at the tier the policy has earned; zero starts immediately.
+    bonus_rate += bonus.duration_bonus(rate_year)
 
     # AV bonus — when AV exceeds threshold
     if bonus.bonus_av_threshold > 0 and bonus.bonus_av_rate > 0:

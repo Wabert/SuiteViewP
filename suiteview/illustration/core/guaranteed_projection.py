@@ -157,7 +157,10 @@ def run_guaranteed_projection(
     Guaranteed assumptions: guaranteed maximum COI (rate scale 0), guaranteed
     PoAV, guaranteed EPU (scale 0 — its expense charges continue to maturity,
     unlike the current schedule that drops after the level period), the
-    guaranteed interest rate, and any explicitly configured guaranteed bonus.
+    guaranteed interest rate (the plan GINT; for the ANICO1996 4% plans GINT in
+    policy years 1-10 and then the policy's ``GUA_FND_ITS_RT`` 3.00%/3.25%, see
+    ``IllustrationPolicyData.guaranteed_crediting_rate``), and any explicitly
+    configured guaranteed bonus.
     Missing ``BonusDurRateGuar`` / ``BonusAVRateGuar`` values default to zero.
     For an IUL plan
     illustrated with the blended method the guaranteed interest rate is itself
@@ -185,6 +188,10 @@ def run_guaranteed_projection(
     if gint > 0.0:
         gpolicy.current_interest_rate = _guaranteed_crediting_rate(
             policy, gint, base_options)
+        # ANICO1996 4% plans: GINT in years 1-10, then the policy's fund guarantee
+        # (3.00% / 3.25% TX). GINT stays the NAR discount.
+        if policy.guaranteed_crediting_rate is not None:
+            gpolicy.ultimate_interest_rate = policy.guaranteed_crediting_rate
     # IUL WAIR declared rate reverts to the plan guaranteed rate on the
     # guaranteed side (None → the engine's GINT fallback).
     gpolicy.iul_declared_rate = None

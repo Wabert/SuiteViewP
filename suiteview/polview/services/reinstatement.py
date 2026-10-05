@@ -21,6 +21,7 @@ from suiteview.core.db2_connection import DB2ConnectionError
 from suiteview.core.rates_errors import RatesError
 from suiteview.illustration.api import load_projection_basis, project_policy
 from suiteview.illustration.core import calc_engine
+from suiteview.illustration.core.bonus_eligibility import apply_bonus_eligibility
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import (
     _coverage_is_terminated,
@@ -219,7 +220,8 @@ def _build_reinstatement_context(
         p, summary, target, months, config, rates, basis,
         shadow_active,
         IllustrationOptions(no_lapse=True),
-        calc_engine.load_bonus_config(p.plancode, p.valuation_date).capped_for(p),
+        apply_bonus_eligibility(
+            calc_engine.load_bonus_config(p.plancode, p.valuation_date).capped_for(p), p),
         IllustrationEngine(), limit,
     )
 

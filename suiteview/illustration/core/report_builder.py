@@ -1429,6 +1429,16 @@ def _build_ul_report_from_facts(
             f"WHICH IS ADDED TO THE ILLUSTRATED RATE STARTING IN POLICY YEAR "
             f"{bonus_months[0].policy_year}")
         plan_bonus = load_bonus_config(policy.plancode, bonus_as_of(policy))
+        # A second duration tier (ANICO1996 PULU 0.75% from year 21) replaces the first.
+        if plan_bonus.bonus_dur_threshold2 > 0:
+            first_rate = bonus_months[0].bonus_interest_rate
+            step = next((s for s in bonus_months
+                         if s.policy_year > plan_bonus.bonus_dur_threshold2
+                         and abs(s.bonus_interest_rate - first_rate) > 1e-9), None)
+            if step is not None:
+                bonus_clause += (
+                    f", REPLACED BY A BONUS OF {step.bonus_interest_rate * 100:.3f}% "
+                    f"STARTING IN POLICY YEAR {step.policy_year}")
         if plan_bonus.bonus_dur_cap_to_excess_over_guar:
             bonus_clause += (
                 f" (THE LESSER OF {plan_bonus.bonus_dur_rate * 100:.3f}% AND THE "

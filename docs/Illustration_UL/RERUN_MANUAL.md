@@ -636,6 +636,58 @@ starting in policy year 11, with zero AV and guaranteed bonuses. Store its
 `BonusDurThreshold` as 10 because the engine applies the bonus strictly after
 the threshold year. Earlier effective entries remain intact.
 
+### ANICO1996 bonus (UL96 and PULU families)
+
+CyberLife credits `MAX(CIRF ANICO1996, policy guarantee) + bonus`; the bonus is a
+VP/MS model (mod AN0230, reward type C), not in CIRF or CKULTB.
+
+- **UL96 family `1U135D00` / `1U135K00` / `1U135P00`** — one tier after policy
+  year 10: 0.90%, 0.65% from 2020-05-01 (SR113413/115028; the row was dated
+  2018-01-01 before October 2026), 0.50% from 2021-06-01 (SR127852), 0.25% from
+  2021-12-01 (SR136193), 0.50% from 2022-11-01 (SR147964) and 0.90% from
+  2023-02-01 (SR150121). Unconditional in SuiteView.
+- **PULU family `1U135900` / `1U135H00` / `1U135Q00`** — 0.50% in policy years
+  11-20 and 0.75% from year 21; the second tier **replaces** the first
+  (`BonusDurRate2` / `BonusDurThreshold2` 20). Never changed by the UL96 SRs
+  (SR113413 business requirements; Robert Haessly's note of 8/24/2021), so the
+  former 1U135H00 0.90% row dated 2023-02-01 was removed. Robert's 5/26/2026
+  problem-log question (should PULU earn the 1990s specs' 0.90%?) is open; this
+  matches what CyberLife credits today.
+- **Conditional (`BonusConditional`).** Each PULU tier is earned only by passing
+  the AN0230 test at the start of year 11 and again at year 21: premiums paid at
+  least the accumulated MAP (`LH_POL_TARGET` 'MA'), no face decrease, no partial
+  withdrawals. CyberLife records the stage in `LH_NON_TRD_POL.PRO_BNS_RS_CD`
+  (`0` none, `5` tier 1, `6` tier 2), mapped to
+  `IllustrationPolicyData.prospective_bonus_stage`. `core/bonus_eligibility.py`
+  caps the bonus (`BonusConfig.bonus_max_tier`) in `resolve_bonus_config`: a
+  recorded stage that reaches a tier earns it; once a tier's test year has passed
+  the code is final (stage 5 past year 21 keeps 0.50% for good, stage 0 past
+  year 11 gets nothing); a test still ahead is projected on in-force values plus
+  the illustrated scenario — no withdrawals to date or requested before the
+  anniversary, no base face below original or requested decrease, and premiums to
+  date plus scenario premiums (modal premium in months without one) at least the
+  MAP accumulated by then (`accumulated_mtp` plus monthly MTP for the rest of the
+  first 120 months). The projection ignores guideline/TAMRA premium caps.
+  DB2 CKPR 2026-10-04: 15,853 policies at code 5, 306 at code 6, 33 at code 0;
+  9 code-6 PULU policies set in September/October 2026 still show a 0.50% bucket
+  until the next re-rate, and SuiteView already credits them 0.75%.
+  The notes page states the year-21 step ("REPLACED BY A BONUS OF 0.750% ...").
+  Regression: `tests/test_illustration_interest_bonus_tiers.py`.
+
+### Guaranteed crediting for the ANICO1996 4%-GINT plans
+
+The guaranteed projection credits the plan GINT except for declared-rate UL whose
+fixed-fund guarantee `LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT` differs from GINT. DB2
+CKPR 2026-10-04 finds exactly the ANICO1996 4%-GINT plans: `1U135900` (383
+in force), `1U135D00` (15,576), `1U135H00` (138), `1U135K00` (54) and `1U135Q00`
+(2); `1U135P00` and every other declared-rate UL plan guarantee their GINT. Per
+the product specs (Section M) and SR113413 they guarantee 4% in policy years
+1-10 and 3% after (3.25% in Texas): `IllustrationPolicyData.guaranteed_crediting_rate`
+holds the policy guarantee and the guaranteed side sets `ultimate_interest_rate`,
+which `interest_calc` credits after year 10 (`INITIAL_GUARANTEE_YEARS`). GINT 4%
+stays the NAR discount (`DBD`), the 7702 rate and the NY bonus cap, so monthly
+deductions are unchanged. Regression:
+`tests/test_illustration_guaranteed_crediting_floor.py`.
 IUL14 `1U145800` and IUL14NY `1U145900` both pay a 1.00% duration bonus from
 policy year 11 (`BonusDurThreshold` 10). The New York plan sets
 `BonusDurCapToExcessOverGuar: true`. Following RERUN v21
@@ -670,8 +722,10 @@ reinstatement rejects IUL (`IntCalcMethod` Blend) before any crediting.
 A declared-rate UL (not ISWL or IUL) loads its current crediting rate from the CIRF
 fund for its plancode-table `CINT_Key` in UL_Rates schema `rates`: the latest
 current-scale `CINT` rate on or before the illustration date (new-money plans
-use `CINT_NEW`/`CINT_ROLL` only when the two agree), floored at GINT. With no usable
-CIRF rate the plan GINT remains. The Input tab's Illustrated Rate defaults to this
+use `CINT_NEW`/`CINT_ROLL` only when the two agree), floored at the policy's
+fixed-fund guarantee (`LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`, plan GINT without
+one; `declared_rates.policy_guaranteed_rate`). With no usable
+CIRF rate that guarantee remains. The Input tab's Illustrated Rate defaults to this
 sourced rate (ISWL's declared rate included); the provenance is
 `IllustrationPolicyData.current_interest_rate_source`. For example, the 1U14 series
 is credited 3.50% (FL4RPORT, effective 2024-04-01) against a 3.00% GINT.

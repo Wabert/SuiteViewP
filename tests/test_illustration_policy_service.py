@@ -125,6 +125,7 @@ class _FakePolicyInfo:
     company_name = "TEST"
     preferred_loans_available = False
     decrease_charge_allowed = None
+    prospective_bonus_code = "5"
 
     def get_fund_buckets(self, *, current_only):
         return []

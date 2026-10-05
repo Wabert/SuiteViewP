@@ -37,8 +37,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
+from suiteview.illustration.core.bonus_eligibility import with_recorded_stage
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
-from suiteview.illustration.core.declared_rates import DeclaredRate, ul_current_declared_rate
+from suiteview.illustration.core.declared_rates import (
+    DeclaredRate,
+    policy_guaranteed_rate,
+    ul_current_declared_rate,
+)
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     SWEEP_FUND_ID,
@@ -159,9 +164,7 @@ def fixed_bucket_rate(pi, funds: tuple[str, ...] = IUL_FIXED_ACCOUNT_FUNDS) -> O
 
 def bonus_in_effect(bonus: BonusConfig, policy_year: int, account_value: float) -> float:
     """Uncapped bonus the engine adds in ``policy_year`` (see ``interest_calc``)."""
-    rate = 0.0
-    if bonus.bonus_dur_rate > 0 and policy_year > bonus.bonus_dur_threshold:
-        rate += bonus.bonus_dur_rate
+    rate = bonus.duration_bonus(policy_year)
     if bonus.bonus_av_threshold > 0 and bonus.bonus_av_rate > 0 and account_value >= bonus.bonus_av_threshold:
         rate += bonus.bonus_av_rate
     return rate
@@ -195,6 +198,16 @@ def capped_bonus(bonus: float, ny_cap: bool, declared: float, gint: Optional[flo
     return min(bonus, round(max(0.0, declared - float(gint or 0.0)), 12))
 
 
+def _declared_rate_floor(pi, is_iul: bool, gint: Optional[float]) -> float:
+    """The floor under the CIRF declared rate: the policy's fixed-fund guarantee
+    (``LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT``) for declared-rate UL, as the illustration
+    floors it; the plan GINT for IUL and ISWL. ANICO1996 (GINT 4%) policies past year
+    10 guarantee 3.00%/3.25%, so CIRF shows 3.00%, not 4.00%."""
+    if is_iul or str(pi.product.product_type or "").upper() == "ISWL":
+        return float(gint or 0.0)
+    return policy_guaranteed_rate(pi, gint)
+
+
 def fixed_account_rate(pi, as_of: date):
     """The advanced policy's current fixed-fund rate.
 
@@ -208,16 +221,19 @@ def fixed_account_rate(pi, as_of: date):
     facts = load_plan_facts(plancode)
     gint = facts.gint if facts is not None else None
     plan_key = facts.cint_key if facts is not None else ""
+    floor = _declared_rate_floor(pi, is_iul, gint)
     cirf = None
     if facts is not None:
         cirf = ul_current_declared_rate(
-            pi.company_code or "", plancode, as_of, float(gint or 0.0),
+            pi.company_code or "", plancode, as_of, floor,
             cint_key=plan_key,
             rga_indicator=str(policy_attr(pi, "reins_partner", "") or ""))
     funds = fixed_fund_ids(pi, is_iul)
     cirf_key = policy_cirf_key(pi, funds) or plan_key
     policy_year = int(pi.activity.policy_year or 1)
-    bonus = load_bonus_config(plancode, pi.values.valuation_date or as_of)
+    bonus = with_recorded_stage(
+        load_bonus_config(plancode, pi.values.valuation_date or as_of),
+        pi.product.prospective_bonus_code)
     av = float(pi.values.mv_av(0) or 0.0)
     uncapped = bonus_in_effect(bonus, policy_year, av)
     ny_cap = bonus.bonus_dur_cap_to_excess_over_guar

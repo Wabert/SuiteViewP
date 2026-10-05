@@ -93,6 +93,7 @@ registry entries below are consumed by lazy section objects.
 | advanced_grace_indicator | LH_NON_TRD_POL | IN_GRA_PER_IND | text |  | Adv, ISWL | yes |
 | guaranteed_interest_rate | LH_NON_TRD_POL | POL_GUA_ITS_RT | decimal |  | Adv, ISWL | yes |
 | preferred_loan_interest_rate | LH_NON_TRD_POL | PRF_LN_ITS_CRG_RT | decimal |  | Adv, ISWL | yes |
+| prospective_bonus_code | LH_NON_TRD_POL | PRO_BNS_RS_CD | text |  | Adv, ISWL | optional |
 | definition_of_life_code | LH_NON_TRD_POL | TFDF_CD | text |  | Adv, ISWL | yes |
 | monthly_cost_of_insurance | LH_POL_MVRY_VAL | CINS_AMT | decimal |  | Adv, ISWL | yes |
 | monthly_cash_surrender_value | LH_POL_MVRY_VAL | CSV_AMT | decimal |  | Adv, ISWL | yes |

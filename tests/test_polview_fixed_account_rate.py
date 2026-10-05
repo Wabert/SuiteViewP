@@ -24,10 +24,12 @@ def _control(fund="I1", key="ELGRP0001  "):
     return {"FND_ID_CD": fund, "CUR_ITS_RT_SER_NBR": key, "COV_PHA_NBR": 1}
 
 
-def _pi(rows, plancode="1U145900", year=9, company="26", control=()):
+def _pi(rows, plancode="1U145900", year=9, company="26", control=(), stage=""):
     tables = {"LH_POL_FND_VAL_TOT": rows, "LH_COV_FXD_FND_CTL": list(control)}
+    product_type = "ISWL" if plancode == ISWL else "UL"
     return SimpleNamespace(
         coverages=SimpleNamespace(base_plancode=plancode),
+        product=SimpleNamespace(prospective_bonus_code=stage, product_type=product_type),
         company_code=company,
         activity=SimpleNamespace(policy_year=year),
         values=SimpleNamespace(valuation_date=date(2026, 9, 18), mv_av=lambda i=0: 1000.0),
@@ -245,3 +247,48 @@ def test_glp_forecast_uses_fixed_rate_and_fails_loudly(plan, monkeypatch):
         raise ValueError("schema down")
     result, _ = _forecast(monkeypatch, boom)
     assert "IUL fixed-account rate failed: schema down" in result
+
+
+def _anico_control(rate="3.000"):
+    return {"FND_ID_CD": "U1", "CUR_ITS_RT_SER_NBR": "ANICO1996  ", "COV_PHA_NBR": 1,
+            "GUA_FND_ITS_RT": rate}
+
+
+@pytest.mark.parametrize("stage, bucket, ex_bonus, bonus", [
+    ("6", "3.750", 0.03, 0.0075),   # U0424736 (1U135900, year 25)
+    ("5", "3.500", 0.03, 0.005),    # stuck at tier 1 past year 21
+    ("0", "3.000", 0.03, 0.0),      # U0404037 (1U135H00): never earned a bonus
+])
+def test_pulu_rate_ex_bonus_removes_the_tier_the_policy_earned(plan, stage, bucket, ex_bonus, bonus):
+    from suiteview.illustration.core.bonus_rates import load_bonus_config
+
+    plan["bonus"] = load_bonus_config("1U135H00", date(2026, 10, 4))
+    pi = _pi([_bucket(fund="U1", rate=bucket)], plancode="1U135H00", year=26, company="01",
+             control=[_anico_control()], stage=stage)
+    fixed = fr.fixed_account_rate(pi, date(2026, 10, 4))
+    assert (fixed.declared_rate, fixed.bonus_rate) == pytest.approx((ex_bonus, bonus))
+
+
+@pytest.mark.parametrize("guarantee, floor", [("3.000", 0.03), ("3.250", 0.0325)])
+def test_anico1996_cirf_floor_is_the_policy_guarantee_not_gint(plan, monkeypatch, guarantee, floor):
+    """SR113413: guaranteed 4% in years 1-10, then 3% (3.25% TX); plan GINT 4% is the NAR discount."""
+    seen = {}
+
+    def cirf(company, plancode, as_of, guaranteed_rate, **_kwargs):
+        seen["floor"] = guaranteed_rate
+        return DeclaredRate(max(0.03, guaranteed_rate), "ANICO1996", "CINT", date(2022, 11, 1))
+
+    monkeypatch.setattr(fr, "load_plan_facts", lambda plancode: SimpleNamespace(gint=0.04, cint_key="ANICO1996"))
+    monkeypatch.setattr(fr, "ul_current_declared_rate", cirf)
+    plan["bonus"] = BonusConfig()
+    pi = _pi([], plancode="1U135D00", year=22, company="01", control=[_anico_control(guarantee)])
+    fixed = fr.fixed_account_rate(pi, date(2026, 10, 4))
+    assert seen["floor"] == pytest.approx(floor)
+    assert fixed.cirf.rate == pytest.approx(floor)
+
+
+def test_iul_and_iswl_cirf_floor_stays_gint(plan):
+    loan_fund = {"FND_ID_CD": "LF", "GUA_FND_ITS_RT": "6.000"}
+    assert fr._declared_rate_floor(_pi([], control=[loan_fund]), True, 0.025) == 0.025
+    assert fr._declared_rate_floor(_pi([], plancode=ISWL, control=[loan_fund]), False, 0.04) == 0.04
+    assert fr._declared_rate_floor(_pi([], plancode="1U135D00"), False, 0.04) == 0.04

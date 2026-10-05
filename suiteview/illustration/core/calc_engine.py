@@ -69,6 +69,7 @@ from suiteview.illustration.constants import (
     PER_THOUSAND,
     SA_BASIS_ORIGINAL,
 )
+from suiteview.illustration.core.bonus_eligibility import apply_bonus_eligibility
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
 from suiteview.illustration.core.corridor_rates import corridor_death_benefit, corridor_factor
 from suiteview.illustration.core.cvat_nsp import CvatCorridor, IswlNspBasis, UlNspBasis
@@ -383,12 +384,20 @@ def bonus_as_of(policy: IllustrationPolicyData) -> date:
 
 
 def resolve_bonus_config(
-    policy: IllustrationPolicyData, bonus_override: Optional[BonusConfig]
+    policy: IllustrationPolicyData,
+    bonus_override: Optional[BonusConfig],
+    future_inputs: Optional[IllustrationInputSet] = None,
 ) -> BonusConfig:
-    """Load or override the plan interest-bonus configuration."""
+    """Load or override the plan interest-bonus configuration.
+
+    A conditional (AN0230) bonus is capped at the tier the policy earns: its
+    recorded stage, or the projected test on ``future_inputs``.
+    """
     if bonus_override is not None:
         return bonus_override
-    return load_bonus_config(policy.plancode, bonus_as_of(policy)).capped_for(policy)
+    return apply_bonus_eligibility(
+        load_bonus_config(policy.plancode, bonus_as_of(policy)).capped_for(policy),
+        policy, future_inputs)
 
 
 def projection_month_count(policy: IllustrationPolicyData, months: Optional[int]) -> int:
@@ -2503,7 +2512,7 @@ class IllustrationEngine:
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
         iul_ctx = build_iul_context(policy, options)
         initialize_run_from_issue_targets(policy, config, options)
-        bonus = resolve_bonus_config(policy, bonus_override)
+        bonus = resolve_bonus_config(policy, bonus_override, future_inputs)
         total_months = projection_month_count(policy, months)
         changes_by_duration = compile_policy_changes_by_duration(policy, future_inputs)
 

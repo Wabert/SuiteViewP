@@ -8,6 +8,9 @@ from suiteview.core.joint_survivor_coi import Insured, Rating
 
 # CyberLife premium pay status (LH_BAS_POL) for a single-premium policy.
 SINGLE_PREMIUM_PAY_STATUS = "42"
+# Legacy declared-rate UL (ANICO1996 4% plans) guarantee GINT in policy years 1-10,
+# then the policy's fixed-fund guarantee (``guaranteed_crediting_rate``).
+INITIAL_GUARANTEE_YEARS = 10
 
 
 @dataclass
@@ -260,6 +263,17 @@ class IllustrationPolicyData:
     current_interest_rate: float = 0.0
     # Where current_interest_rate came from when it is not the plan GINT (ISWL).
     current_interest_rate_source: str = ""
+    # LH_NON_TRD_POL.PRO_BNS_RS_CD: conditional-bonus stage reached (mod AN0230):
+    # "0" none, "5" tier 1, "6" tier 2; see core.bonus_eligibility.
+    prospective_bonus_stage: str = ""
+    # Declared-rate UL whose fixed-fund guarantee differs from the plan GINT (the
+    # ANICO1996 4% plans): LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT, 3.00% (3.25% Texas), the
+    # guaranteed crediting rate after the INITIAL_GUARANTEE_YEARS at GINT. None: GINT
+    # is the guaranteed crediting rate in every year. GINT stays the NAR discount.
+    guaranteed_crediting_rate: Optional[float] = None
+    # Replaces current_interest_rate after policy year INITIAL_GUARANTEE_YEARS; set
+    # only on the guaranteed projection's policy copy (from guaranteed_crediting_rate).
+    ultimate_interest_rate: Optional[float] = None
 
     # ── IUL Funds / Strategies ────────────────────────────────
     # Current unimpaired fund values (LH_POL_FND_VAL_TOT; includes SW sweep).

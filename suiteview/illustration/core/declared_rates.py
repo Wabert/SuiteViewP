@@ -20,6 +20,27 @@ from suiteview.polview.models.schema_rates import resolve_plan
 CIRF_FUND_TYPE = "CIRF"
 PORTFOLIO_RATE_TYPE = "CINT"
 NEW_MONEY_RATE_TYPES = ("CINT_NEW", "CINT_ROLL")
+FIXED_FUND_CONTROL_TABLE = "LH_COV_FXD_FND_CTL"
+
+
+def policy_guaranteed_rate(pi, plan_gint: Optional[float]) -> float:
+    """A declared-rate UL policy's operative guaranteed crediting rate (decimal).
+
+    CyberLife floors a declared-rate UL credit at the fixed fund's own guaranteed
+    rate, ``LH_COV_FXD_FND_CTL.GUA_FND_ITS_RT`` (percent), not the plan GINT:
+    1U135K00 U0482280/U0482386 credit 3.25% (fix R02, Robert 2026-10-01); the
+    ANICO1996 4%-GINT plans guarantee 3.00% (3.25% Texas) after year 10 and
+    PULU policies that never earned a bonus are credited exactly 3.00% (SR113413).
+    ``LH_NON_TRD_POL.POL_GUA_ITS_RT`` is not that rate. With several fixed-fund rows
+    the highest applies; with none the plan GINT does. Declared-rate UL only: IUL
+    control rows include 6% loan-collateral funds."""
+    rates = [
+        float(row["GUA_FND_ITS_RT"])
+        for row in pi.fetch_table(FIXED_FUND_CONTROL_TABLE) or []
+        if row.get("GUA_FND_ITS_RT") is not None
+    ]
+    best = max(rates, default=0.0)
+    return best / 100.0 if best > 0.0 else float(plan_gint or 0.0)
 
 
 @dataclass(frozen=True)

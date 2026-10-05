@@ -34,6 +34,38 @@ class BonusConfig:
     # New York form (IUL14NY 1U145900, RERUN v21 Rates_Control!ET73): the
     # duration bonus is MIN(BonusDurRate, fixed account rate - GINT), floored at 0.
     bonus_dur_cap_to_excess_over_guar: bool = False
+    # Second duration tier (ANICO1996 PULU: 0.75% from policy year 21). From the
+    # year after ``bonus_dur_threshold2`` it REPLACES tier 1; it is not added to it.
+    # A threshold of 0 means the plan has no second tier.
+    bonus_dur_rate2: float = 0.0
+    bonus_dur_threshold2: int = 0
+    bonus_dur_rate2_guar: float = 0.0
+    # CyberLife reward type C (mod AN0230): each tier is earned only by passing the
+    # eligibility test at its start; see ``core.bonus_eligibility``.
+    bonus_conditional: bool = False
+    # Highest duration tier the policy has earned (0 = none). None = every tier
+    # applies (unconditional plans, or eligibility not resolved).
+    bonus_max_tier: Optional[int] = None
+
+    def duration_tiers(self) -> tuple[tuple[int, float], ...]:
+        """The duration bonus schedule as ``(threshold year, rate)`` pairs, ascending.
+
+        A tier applies in policy years after its threshold and replaces the tier before it.
+        """
+        tiers = [(self.bonus_dur_threshold, self.bonus_dur_rate)]
+        if self.bonus_dur_threshold2 > 0:
+            tiers.append((self.bonus_dur_threshold2, self.bonus_dur_rate2))
+        return tuple(tiers)
+
+    def duration_bonus(self, rate_year: int) -> float:
+        """Duration bonus in ``rate_year``: the latest tier started, capped at ``bonus_max_tier``."""
+        rate = 0.0
+        for tier, (threshold, tier_rate) in enumerate(self.duration_tiers(), start=1):
+            if self.bonus_max_tier is not None and tier > self.bonus_max_tier:
+                break
+            if rate_year > threshold:
+                rate = tier_rate
+        return rate if rate > 0 else 0.0
 
     def guaranteed(self) -> "BonusConfig":
         """Return the bonus config used by the guaranteed projection."""
@@ -43,6 +75,10 @@ class BonusConfig:
             bonus_av_rate=self.bonus_av_rate_guar,
             bonus_av_threshold=self.bonus_av_threshold,
             bonus_dur_cap_to_excess_over_guar=self.bonus_dur_cap_to_excess_over_guar,
+            bonus_dur_rate2=self.bonus_dur_rate2_guar,
+            bonus_dur_threshold2=self.bonus_dur_threshold2,
+            bonus_conditional=self.bonus_conditional,
+            bonus_max_tier=self.bonus_max_tier,
         )
 
     def with_excess_cap(self, fixed_rate: float, guaranteed_rate: float) -> "BonusConfig":
@@ -56,7 +92,8 @@ class BonusConfig:
             return self
         # Round away binary noise (0.031 - 0.025 = 0.006000000000000002).
         excess = round(max(0.0, float(fixed_rate) - float(guaranteed_rate)), 12)
-        return replace(self, bonus_dur_rate=min(self.bonus_dur_rate, excess))
+        return replace(self, bonus_dur_rate=min(self.bonus_dur_rate, excess),
+                       bonus_dur_rate2=min(self.bonus_dur_rate2, excess))
 
     def capped_for(self, policy) -> "BonusConfig":
         """:meth:`with_excess_cap` at the policy's fixed account rate and GINT.
@@ -135,6 +172,10 @@ def load_bonus_config(plancode: str, valuation_date: date) -> BonusConfig:
                 bonus_av_rate_guar=float(entry.get("BonusAVRateGuar", 0)),
                 bonus_dur_cap_to_excess_over_guar=bool(
                     entry.get("BonusDurCapToExcessOverGuar", False)),
+                bonus_dur_rate2=float(entry.get("BonusDurRate2", 0)),
+                bonus_dur_threshold2=int(entry.get("BonusDurThreshold2", 0)),
+                bonus_dur_rate2_guar=float(entry.get("BonusDurRate2Guar", 0)),
+                bonus_conditional=bool(entry.get("BonusConditional", False)),
             )
 
     return BonusConfig()

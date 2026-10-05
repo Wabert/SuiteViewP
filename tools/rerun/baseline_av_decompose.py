@@ -338,9 +338,7 @@ class RateBook:
               fixed_rate: float, gint: float) -> float:
         from suiteview.illustration.core.bonus_rates import load_bonus_config
         cfg = load_bonus_config(plancode, as_of).with_excess_cap(fixed_rate, gint)
-        bonus = 0.0
-        if cfg.bonus_dur_rate > 0 and policy_year > cfg.bonus_dur_threshold:
-            bonus += cfg.bonus_dur_rate
+        bonus = cfg.duration_bonus(policy_year)
         if cfg.bonus_av_rate > 0 and cfg.bonus_av_threshold > 0 and av >= cfg.bonus_av_threshold:
             bonus += cfg.bonus_av_rate
         return bonus

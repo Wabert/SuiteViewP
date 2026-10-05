@@ -105,6 +105,7 @@ FIELD_SPECS: tuple[FieldSpec, ...] = (
     _spec("preferred_loan_interest_rate", "LH_NON_TRD_POL", "PRF_LN_ITS_CRG_RT", "decimal", applies_to=("Adv", "ISWL")),
     _spec("corridor_percent", "LH_NON_TRD_POL", "CDR_PCT", "decimal", "100", applies_to=("Adv", "ISWL")),
     _spec("grace_rule_code", "LH_NON_TRD_POL", "GRA_THD_RLE_CD", default="", applies_to=("Adv", "ISWL")),
+    _spec("prospective_bonus_code", "LH_NON_TRD_POL", "PRO_BNS_RS_CD", default="", applies_to=("Adv", "ISWL"), required=False),
     _spec("tefra_defra_guideline_indicator", "LH_BAS_POL", "TFDF_GDL_IND", default="", required=False),
     _spec("decrease_charge_rule", "TH_NON_TRD_POL", "DECR_CHRG_ALLOW", default="", applies_to=("Adv", "ISWL"), required=False),
     _spec("monthly_value_date", "LH_POL_MVRY_VAL", "MVRY_DT", "date", applies_to=("Adv", "ISWL")),
