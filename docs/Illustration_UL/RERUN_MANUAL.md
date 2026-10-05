@@ -1134,6 +1134,24 @@ zero-charge columns. Live verification: `000289393 / 26 / NU1F3H00` has seven
 segments (phase 1 non-COLA; phases 5-10 COLA). Use
 `tools/engine/verify_cola_surrender.py` for a read-only live check and UI captures.
 
+**FFL graded surrender charges.** Company-26 FFL UL plans with a per-unit (rule 6)
+schedule grade the charge monthly between coverage years
+(`calc_engine._ffl_graded_surrender_rate`):
+`rate = round3(rate(d) + (rate(d-1) - rate(d)) x trunc5((12 - m) / 12))`, with d the
+segment's own coverage year and m the completed months since the *policy* anniversary,
+so an increase segment grades with the policy's months. It starts each year at the prior
+year's rate and runs one year past the last nonzero rate. CyberLife truncates the charge to
+cents (the engine does not round it). Evidence (CKPR `FH_FIXED` SF, 10/5/2026, no loan,
+dated between monthliversaries): 183 of 214 FFL surrenders (NU1F3*, NU1FU200, 1U1F4*,
+1U14L*, 1U14I*) match the engine to the cent, against 0 for the annual step. Every match has
+current = original units. The other 31 are: a schema-rates schedule of 0 where CyberLife charges
+(17); charges on the coverage's original specified units after a unit change (9, which
+fit the graded rate x `OGN_SPC_UNT_QTY`; FFL plancode rows are `CurrentSA`); AV caps (2);
+and 3 unexplained, 2 of them after withdrawal unit reductions. A surrender dated on a monthliversary is valued before that
+monthliversary is processed: valued the day before, 35 of 39 match, and 6 of 7 on the anniversary
+date. The company-26 ANICO-design plans (1U144*-1U147*) keep the annual step (no
+graded fit). FFL percent-of-surrender-target plans (N71E*/EP) and ISWL are unchanged.
+
 ## RERUN joint survivor ULs
 
 RERUN illustrates the 12 FFL joint survivor plans (see the PolView manual's

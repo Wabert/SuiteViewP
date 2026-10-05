@@ -44,6 +44,7 @@ import math
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import date, timedelta
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
@@ -4737,8 +4738,39 @@ def _segment_surrender_rate(
         if plan.is_ffl:
             return 0.0
     schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
+    if (config is not None and policy.company_code.strip() == "26"
+            and _ffl_graded_surrender_charge(config) and projection_date is not None
+            and segment.issue_date is not None):
+        return _ffl_graded_surrender_rate(policy, segment, schedule, projection_date)
     return _rate_from_schedule(
         schedule, _coverage_year(segment, projection_date, rate_year))
+
+
+def _ffl_graded_surrender_charge(config: PlancodeConfig) -> bool:
+    """Company-26 FFL UL per-unit (rule 6) surrender charges are graded monthly between
+    coverage years: 0 of 254 FFL ``FH_FIXED`` full surrenders match the annual step.
+    Percent-of-surrender-target plans and ISWL have no grading evidence and stay annual."""
+    return config.is_ffl and not config.is_iswl and config.scr_pct_of_surrender_target is None
+
+
+def _ffl_graded_surrender_rate(policy, segment, schedule, projection_date) -> float:
+    """Per-unit FFL surrender charge graded from the prior coverage year's rate.
+
+    The coverage year d is the segment's own; m is completed months since the
+    *policy* anniversary (an increase segment grades with the policy's months).
+    ``rate = round3(rate(d) + (rate(d-1) - rate(d)) x trunc5((12 - m) / 12))``.
+    """
+    seg = relativedelta(projection_date, segment.issue_date)
+    year = max(seg.years * MONTHS_PER_YEAR + seg.months, 0) // MONTHS_PER_YEAR + 1
+    anchor = policy.issue_date or segment.issue_date
+    pol = relativedelta(projection_date, anchor)
+    months = max(pol.years * MONTHS_PER_YEAR + pol.months, 0) % MONTHS_PER_YEAR
+    current = Decimal(repr(_rate_from_schedule(schedule, year)))
+    prior = Decimal(repr(_rate_from_schedule(schedule, year - 1))) if year > 1 else current
+    remaining = (Decimal(MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR).quantize(
+        Decimal("0.00001"), rounding=ROUND_DOWN)
+    return float((current + (prior - current) * remaining).quantize(
+        Decimal("0.001"), rounding=ROUND_HALF_UP))
 
 
 def surrender_charge_units(segment: CoverageSegment, config: Optional[PlancodeConfig]) -> float:
