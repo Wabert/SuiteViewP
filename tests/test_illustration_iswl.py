@@ -519,8 +519,57 @@ def test_rule_5_charge_is_the_percentage_of_the_account_value_floored_at_guarant
 
 def test_rule_5_has_no_charge_from_policy_year_20():
     rates = _rule_5_rates()
+    assert not rates.iswl.surrender_charge_graded            # company 01: flat by policy year
     assert _full_surrender(rates, date(2007, 4, 11), 20, 10000.0)[:2] == (0.0, 0.0)
     assert _full_surrender(rates, date(2026, 9, 11), 39, 10000.0)[:2] == (0.0, 0.0)
+
+
+# CKULTB04 table C9/58 percentages (fractions), years 1-12, then 0.
+C9_PCT = [None, 0.12, 0.11, 0.10, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01] + [0.0] * 80
+
+
+@pytest.mark.parametrize("year, months, gross, charge", [
+    (4, 10, 18139.60, 1662.86),    # 26/000329760 B11SB300: 9.167%
+    (6, 4, 227681.79, 17456.36),   # 26/000323263 B11SB500: 7.667%
+    (3, 5, 13459.79, 1424.45),     # 26/FF000030 B11SW100 (table 58): 10.583%
+    (12, 3, 50854.47, 889.95),     # 26/000322377 B11SB500: 1.750%
+    (13, 6, 177418.52, 887.09),    # 26/000296307 N61SB400: 0.500%, a year past the table
+    (11, 0, 67364.90, 2020.95),    # 26/000321190 B11SB500: pct(10) = 3.000% on the anniversary
+])
+def test_company_26_graded_percentage_matches_cyberlife_full_surrenders(year, months, gross, charge):
+    """FH_FIXED SF charges (loan-free, CKPR) are the graded percentage x the fund to the cent."""
+    basis = _basis(surrender_charge_pct=C9_PCT, surrender_charge_graded=True)
+    pct = basis.surrender_charge_rate(year, months)
+    assert round(pct * gross + 1e-9, 2) == pytest.approx(charge)
+
+
+def test_graded_percentage_starts_at_the_prior_year_and_year_1_is_flat():
+    graded = _basis(surrender_charge_pct=C9_PCT, surrender_charge_graded=True)
+    flat = _basis(surrender_charge_pct=C9_PCT)
+    assert graded.surrender_charge_rate(1, 7) == 0.12          # pct(0) is pct(1)
+    assert graded.surrender_charge_rate(4, 0) == 0.10
+    assert graded.surrender_charge_rate(4, 10) == 0.09167
+    assert graded.surrender_charge_rate(14, 3) == 0.0
+    assert flat.surrender_charge_rate(4, 10) == 0.09
+
+
+def test_company_26_rule_5_loads_graded_and_charges_by_months_since_the_anniversary():
+    rates = load_iswl_rates(_policy(company_code="26"), _config(), repo=_FakeSchema(
+        scr_rules="50", scr_table="C9", scr_cells=("SCR_PCT",)))
+    assert rates.iswl.surrender_charge_graded
+    assert any("graded monthly between policy years" in note for note in rates.iswl.notes)
+    policy = _policy(company_code="26")
+
+    def charge(on, year, av=10000.0):
+        from suiteview.illustration.core.calc_engine import _calculate_surrender_charge
+        return _calculate_surrender_charge(policy, rates, year, on, _config(), account_value=av)[:2]
+
+    # Year 19, two months after the 4/11 anniversary: 6% + (11% - 6%) x 10 / 12 = 10.167%.
+    assert charge(date(2006, 6, 11), 19) == (0.10167, pytest.approx(1016.70))
+    assert charge(date(2006, 4, 11), 19) == (0.11, pytest.approx(1100.0))
+    # Year 20 still carries the tail of year 19's 6%; the flat model has none.
+    assert charge(date(2007, 6, 11), 20) == (0.05, pytest.approx(500.0))
+    assert charge(date(2008, 4, 11), 21) == (0.0, 0.0)
 
 
 def test_rule_6_dollar_per_unit_charge_is_unchanged():
@@ -534,7 +583,7 @@ def test_rule_6_dollar_per_unit_charge_is_unchanged():
 
 @pytest.mark.parametrize("fake, message", [
     (_FakeSchema(scr_rules="50", scr_table="I2", scr_cells=()), "has no SCR_PCT rate"),
-    (_FakeSchema(scr_rules="50", scr_table="C9", scr_cells=("SCR_PCT",)), "table C9, whose free"),
+    (_FakeSchema(scr_rules="50", scr_table="Z9", scr_cells=("SCR_PCT",)), "table Z9, whose free"),
     (_FakeSchema(scr_rules="50", scr_table="I2", scr_cells=("SCR", "SCR_PCT")), "ambiguous"),
     (_FakeSchema(scr_rules="56", scr_table="I2", scr_cells=("SCR_PCT",)), "combined with another"),
     (_FakeSchema(scr_rules="60", scr_cells=("SCR_PCT",)), "has no SCR rate"),

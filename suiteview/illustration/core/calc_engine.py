@@ -4801,11 +4801,17 @@ def _calculate_surrender_charge(
 
 def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) -> Optional[float]:
     """Rule-5 ISWL base coverage: the fraction of the account value charged on a full
-    surrender in the coverage year. ``None`` when the charge is per unit."""
+    surrender in the coverage year (graded by completed months since the coverage
+    anniversary where CyberLife grades it). ``None`` when the charge is per unit."""
     basis = getattr(rates, "iswl", None)
     if basis is None or not basis.surrender_charge_is_pct_of_av or not segment.is_base:
         return None
-    return basis.surrender_charge_rate(_coverage_year(segment, projection_date, rate_year))
+    year = _coverage_year(segment, projection_date, rate_year)
+    months = 0
+    if basis.surrender_charge_graded and segment.issue_date is not None and projection_date is not None:
+        delta = relativedelta(projection_date, segment.issue_date)
+        months = max(delta.years * MONTHS_PER_YEAR + delta.months, 0) % MONTHS_PER_YEAR
+    return basis.surrender_charge_rate(year, months)
 
 
 def _reject_pct_surrender_charge(rates, segments, projection_date, rate_year: int, action: str) -> None:

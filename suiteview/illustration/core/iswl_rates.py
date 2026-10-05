@@ -37,7 +37,8 @@ Rules reproduced from live CyberLife records (``tools/rerun/verify_iswl_rollforw
   excess of a free amount; for tables I2 and I3 the free percentage and flat charge
   are zero, so the full-surrender charge is ``SCR_PCT(policy year) x AV``. CyberLife
   ``FH_FIXED`` SF history agrees: year-19 surrenders were charged exactly 6.00% of the
-  fund value and year-20 surrenders nothing.
+  fund value and year-20 surrenders nothing. Company 26 grades the percentage monthly
+  between policy years (``ISWLRateBasis.surrender_charge_rate``).
 * **Gross premium.** The billed premium (``LH_BAS_POL.POL_PRM_AMT``) is the anchor. When
   a supplemental benefit or rider coverage ceases later, its modal premium,
   ``round(units x stored annual premium per unit x mode factor, 2)``, drops out of the
@@ -80,12 +81,15 @@ CENT = Decimal("0.01")
 VERIFIED_PREMLOAD_RULES = "400"
 # Rule-5 surrender charge tables whose CKULTB04 rows have FREE_PCT 0 and CHARGE_AMOUNT 0
 # (CKULTB04 print 08/12/2026): the charge is the percentage of the whole account value.
-# 58 matches 54 company-01 FH_FIXED full surrenders to the cent; I5 rests on the print
-# (allow code P, like I2/I3).
-VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58")
-# Company 26 grades the rule-5 percentage monthly between policy years (44 FH_FIXED
-# surrenders on C9/58), which is not modelled.
+# 58 matches 54 company-01 FH_FIXED full surrenders to the cent; C9 (all company 26)
+# matches 39 graded ones; I5 rests on the print (allow code P, like I2/I3).
+VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58", "C9")
+# Companies whose rule-5 percentage is graded monthly between policy years: all 44
+# loan-free company-26 FH_FIXED full surrenders on C9/58 match the graded percentage to
+# the cent, and all 54 company-01 ones on 58 the flat one. Neither PLAN_DEF nor
+# LH_NON_TRD_POL (FUL_SRD_PTA_IND is N on both) records the switch.
 GRADED_RULE_5_COMPANIES = ("26",)
+PCT_3DP = Decimal("0.00001")   # CKULTB04 CHG PCT is a percentage to 3 decimals
 CURRENT_INTEREST_RATE_TYPES = ("CINT_NEW", "CINT_ROLL")
 
 def round_cents(value) -> float:
@@ -130,6 +134,8 @@ class ISWLRateBasis:
     # Rule-5 full-surrender charge as a fraction of the account value, 1-indexed by
     # policy year (schema SCR_PCT). Empty when the charge is per unit (rates.scr).
     surrender_charge_pct: List = field(default_factory=list)
+    # Company-26 rule 5: the percentage is graded monthly between policy years.
+    surrender_charge_graded: bool = False
     # Single-premium policy (premium pay status 42): no premium is due, so there is
     # no premium load, mode factor or billed premium; a requested premium raises.
     single_premium: bool = False
@@ -138,11 +144,25 @@ class ISWLRateBasis:
     def surrender_charge_is_pct_of_av(self) -> bool:
         return bool(self.surrender_charge_pct)
 
-    def surrender_charge_rate(self, policy_year: int) -> float:
-        """Rule-5 fraction of the account value charged on a full surrender."""
+    def surrender_charge_rate(self, policy_year: int, months_elapsed: int = 0) -> float:
+        """Rule-5 fraction of the account value charged on a full surrender.
+
+        Graded (company 26): with ``m`` completed months since the policy anniversary,
+        ``round3%(pct(d) + (pct(d-1) - pct(d)) x (12 - m) / 12)``. The charge starts year
+        ``d`` at pct(d-1) and falls linearly towards pct(d), so it runs one year past the
+        last nonzero row; pct(0) is pct(1).
+        """
         if not self.surrender_charge_pct:
             return 0.0
-        return _year_value(self.surrender_charge_pct, policy_year, "surrender charge percentage")
+        label = "surrender charge percentage"
+        current = _year_value(self.surrender_charge_pct, policy_year, label)
+        if not self.surrender_charge_graded:
+            return current
+        prior = _year_value(self.surrender_charge_pct, max(int(policy_year) - 1, 1), label)
+        months = min(max(int(months_elapsed), 0), MONTHS_PER_YEAR)
+        cur, pri = Decimal(str(current)), Decimal(str(prior))
+        graded = cur + (pri - cur) * (MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR
+        return float(graded.quantize(PCT_3DP, rounding=ROUND_HALF_UP))
 
     def guaranteed_cash_value(self, month_date: Optional[date]) -> float:
         """Guaranteed cash value on a monthliversary: units x the tabular value
@@ -473,10 +493,6 @@ def _rule_5_percentages(reader, plan: PlanDef, rules: str, base_rows, key: RateK
         raise RateLookupError(
             f"{plan.plancode} PLAN_DEF SCR_RULES {rules}: rule 5 combined with another "
             "surrender charge rule is not supported.")
-    if str(company or "").strip() in GRADED_RULE_5_COMPANIES:
-        raise RateLookupError(
-            f"{plan.plancode} rule 5 surrender charges for company {company}: CyberLife grades the "
-            "CKULTB04 percentage monthly between policy years, which is not modelled.")
     table = str(_fact(plan, "SCR_TABLE") or "").strip()
     if table not in VERIFIED_PCT_OF_AV_SCR_TABLES:
         raise RateLookupError(
@@ -492,8 +508,14 @@ def _rule_5_percentages(reader, plan: PlanDef, rules: str, base_rows, key: RateK
                          years=years, calendar=False, label=label, zero_tail=True, **common)
     if any(not 0.0 <= pct <= 1.0 for pct in schedule[1:]):
         raise RateLookupError(f"{label} is not a fraction between 0 and 1.")
-    notes.append(f"Surrender charge: rule 5, SCR_PCT x account value (CKULTB04 table {table}).")
+    graded = " graded monthly between policy years" if rule_5_graded(company) else ""
+    notes.append(f"Surrender charge: rule 5, SCR_PCT x account value (CKULTB04 table {table}){graded}.")
     return schedule
+
+
+def rule_5_graded(company: str) -> bool:
+    """Whether CyberLife grades the company's rule-5 percentage monthly."""
+    return str(company or "").strip() in GRADED_RULE_5_COMPANIES
 
 
 def _cash_value_schedule(reader, plan: PlanDef, base_rows, key: RateKey, segment, years: int,
@@ -615,6 +637,7 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
         basis = _premium_paying_basis(
             reader, plan, plan_note, policy, segment, base_rows, key, years, expense_scale,
             notes, common, cash_values, scr_pct)
+    basis.surrender_charge_graded = bool(scr_pct) and rule_5_graded(policy.company_code)
     return IllustrationRates(
         coi=coi,
         segment_coi={segment.coverage_phase: coi},

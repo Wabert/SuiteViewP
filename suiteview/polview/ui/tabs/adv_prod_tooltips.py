@@ -28,7 +28,8 @@ def surrender_charge_tip(surrender) -> str:
         lines = [
             f"Surrender Charge{_as_of(surrender.as_of)}",
             "Illustration engine: ISWL surrender charge rule 5 = CKULTB04 percentage",
-            " for the policy year x account value (no free amount for this table)",
+            " for the policy year x account value (no free amount for this table;",
+            " company 26 grades it monthly from the prior year's percentage)",
         ]
     else:
         lines = [

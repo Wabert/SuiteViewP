@@ -110,12 +110,12 @@ def test_iswl_interest_skips_the_negative_gp_holding_fund(monkeypatch):
     with pytest.raises(RateLookupError, match="hold no value"):
         _current_interest_rate(_bucket_source([("0", 0.0, 2.0, "I1"), ("0", -325.06, 0.0, "F2")]))
 
-def test_rule_5_table_58_loads_for_company_01_and_company_26_grading_fails_loudly():
+def test_rule_5_table_58_loads_flat_for_company_01_and_graded_for_company_26():
     fake = _SinglePremiumSchema(scr_rules="50", scr_table="58", scr_cells=("SCR_PCT",))
     basis = load_iswl_rates(_single_premium_policy(), _config(), repo=fake).iswl
-    assert basis.surrender_charge_is_pct_of_av
-    with pytest.raises(RateLookupError, match="grades the CKULTB04 percentage monthly"):
-        load_iswl_rates(_single_premium_policy(company_code="26"), _config(), repo=fake)
+    assert basis.surrender_charge_is_pct_of_av and not basis.surrender_charge_graded
+    graded = load_iswl_rates(_single_premium_policy(company_code="26"), _config(), repo=fake).iswl
+    assert graded.surrender_charge_is_pct_of_av and graded.surrender_charge_graded
 
 def test_non_cvat_iswl_without_corridor_factors_fails_loudly():
     with pytest.raises(RateLookupError, match="no CORR corridor factors"):

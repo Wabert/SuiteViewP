@@ -119,8 +119,9 @@ the age-100 monthliversary CyberLife's COI drops to 0, interest is still credite
 (5.00, 5.00, 11,810.88). No premium posted after age 100 on either (window: 1-5 months).
 In-force 1U143800/1U144500 coverages all mature at 121 in CyberLife; 1,773 terminated ones
 issued 2006-2011 carry 100 (66 matured there); none carry 110. B11SB600 is all company 26
-(118 in force, single premium, highest attained age 97); it now loads and stops at the
-unmodelled company-26 rule-5 surrender charge instead of the override.
+(118 in force, single premium, highest attained age 97); it now loads past the company-26
+rule-5 surrender charge (graded since 10/4/2026) and stops at its schema `CV`, which has
+no duration-0 value.
 Regression: `tests/test_illustration_charge_cease_age.py`.
 
 `tools/rates/plancode_db_coverage.py --report <json> [--write]` reports what the
@@ -1254,12 +1255,23 @@ Rules are in `illustration/core/iswl_rates.py`:
   surrenders were charged exactly 6.00% of the fund value, year-20 surrenders
   nothing. The charge is taken on the AV that the value is reported against: the
   monthliversary AV in force and the ending AV in the ledger, with the lapse test
-  on its own AV. Tables I2, I3, I5 and 58 are verified (CKULTB04 print 08/12/2026:
+  on its own AV. Tables I2, I3, I5, 58 and C9 are verified (CKULTB04 print 08/12/2026:
   FREE_PCT 0, CHARGE_AMOUNT 0; table 58 also matches 54 company-01 `FH_FIXED` full
-  surrenders to the cent; I5 rests on the print). Company 26 raises: CyberLife
-  grades its rule-5 percentage monthly between policy years (44 surrenders on C9/58:
-  `pct(d) + (pct(d-1) - pct(d)) x (12 - months since anniversary) / 12`), which is not
-  modelled. Rule 5 on table C9 (all company 26), rule 5 combined with another rule, a
+  surrenders to the cent; I5 rests on the print). **Company 26 grades** the rule-5
+  percentage monthly between policy years (`GRADED_RULE_5_COMPANIES`,
+  `ISWLRateBasis.surrender_charge_graded`): with m = completed months since the
+  coverage anniversary, the charge is
+  `round3%(pct(d) + (pct(d-1) - pct(d)) x (12 - m) / 12)` (pct(0) = pct(1)), so it
+  starts each year at the prior year's percentage and runs one year past the last
+  nonzero row (C9/58: year 13 grades 1% down to 0). Company 01 on the same table 58
+  is flat. On 10/4/2026 every loan-free, non-anniversary company-26 `FH_FIXED` SF
+  charge on C9/58 (60 fund rows) matched the engine's graded charge to the cent (flat:
+  0 of 60), and all 53 company-01 ones still match flat. Neither `PLAN_DEF` nor
+  `LH_NON_TRD_POL.FUL_SRD_PTA_IND` (N on both companies) records the switch, so it is
+  keyed on the company. Not modelled: CyberLife charges an anniversary-date surrender
+  at the old year's rate (DURATION not yet advanced: 5 of 5 SF rows, both companies),
+  while the engine's anniversary monthliversary starts the new year. Rule 5 combined
+  with another rule, a
   plan with both `SCR` and `SCR_PCT`, and a withdrawal or charged face decrease inside
   a rule-5 charge period (the partial surrender charge is not modelled) raise.
 - **COI rate basis** (`COI_RateBasis` row key from CKDRECUL `DULCVCRU`): `Annual`
@@ -1322,6 +1334,13 @@ valuation MD to the cent once the CVAT corridor ships. The rest stop loudly: com
 graded rule-5 charges (76), missing `CORR` (102: the F/M pre-TEFRA plans, NA1SP900,
 NB1S*, FS2VN200, MN2VN400, MS2VN200), missing `CV` (50: B71SP*) and COI past the loaded
 ages (16).
+
+October 4, 2026: company-26 rule-5 charges are graded monthly (see "Surrender charge"
+above). Of the 102 test-matrix policies that stopped there, the 20 on B11SW100/B11SW200
+(table 58) now match CyberLife's valuation MD to the cent. The 82 on the C9 plans
+(B11SB*, N61SB*) stop next at schema `CV`, which starts at duration 1 (and for some
+issue ages ends a year before maturity). The surrender charge does not enter the
+monthly deduction: zero, flat and graded charges gave identical MDs on all 102.
 
 **Verification** (live, read-only): `tools/rerun/verify_iswl_rollforward.py`
 restarts each of the last six months from CyberLife's recorded AV
