@@ -4806,12 +4806,13 @@ def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) 
     basis = getattr(rates, "iswl", None)
     if basis is None or not basis.surrender_charge_is_pct_of_av or not segment.is_base:
         return None
-    year = _coverage_year(segment, projection_date, rate_year)
-    months = 0
     if basis.surrender_charge_graded and segment.issue_date is not None and projection_date is not None:
+        # Year and month from one count, so a Feb-29 issue's Feb-28 monthliversary starts
+        # the new year at m = 0 (the (month, day) compare in _coverage_year would not).
         delta = relativedelta(projection_date, segment.issue_date)
-        months = max(delta.years * MONTHS_PER_YEAR + delta.months, 0) % MONTHS_PER_YEAR
-    return basis.surrender_charge_rate(year, months)
+        year, months = divmod(max(delta.years * MONTHS_PER_YEAR + delta.months, 0), MONTHS_PER_YEAR)
+        return basis.surrender_charge_rate(year + 1, months)
+    return basis.surrender_charge_rate(_coverage_year(segment, projection_date, rate_year), 0)
 
 
 def _reject_pct_surrender_charge(rates, segments, projection_date, rate_year: int, action: str) -> None:

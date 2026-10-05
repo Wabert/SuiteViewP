@@ -534,7 +534,7 @@ C9_PCT = [None, 0.12, 0.11, 0.10, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02
     (3, 5, 13459.79, 1424.45),     # 26/FF000030 B11SW100 (table 58): 10.583%
     (12, 3, 50854.47, 889.95),     # 26/000322377 B11SB500: 1.750%
     (13, 6, 177418.52, 887.09),    # 26/000296307 N61SB400: 0.500%, a year past the table
-    (11, 0, 67364.90, 2020.95),    # 26/000321190 B11SB500: pct(10) = 3.000% on the anniversary
+    (11, 0, 67364.90, 2020.95),    # 26/000321190 B11SB500: 9 days into year 11 (m = 0): pct(10) = 3.000%
 ])
 def test_company_26_graded_percentage_matches_cyberlife_full_surrenders(year, months, gross, charge):
     """FH_FIXED SF charges (loan-free, CKPR) are the graded percentage x the fund to the cent."""
@@ -570,6 +570,58 @@ def test_company_26_rule_5_loads_graded_and_charges_by_months_since_the_annivers
     # Year 20 still carries the tail of year 19's 6%; the flat model has none.
     assert charge(date(2007, 6, 11), 20) == (0.05, pytest.approx(500.0))
     assert charge(date(2008, 4, 11), 21) == (0.0, 0.0)
+
+
+def _graded_pct(issue, on, rate_year=1):
+    from types import SimpleNamespace
+
+    from suiteview.illustration.core.calc_engine import _iswl_surrender_charge_pct
+
+    rates = SimpleNamespace(iswl=_basis(surrender_charge_pct=C9_PCT, surrender_charge_graded=True))
+    return _iswl_surrender_charge_pct(rates, SimpleNamespace(is_base=True, issue_date=issue), on, rate_year)
+
+
+@pytest.mark.parametrize("on, pct", [
+    (date(2025, 2, 28), 0.12),      # year 2, m 0: pct(1)
+    (date(2026, 1, 29), 0.11083),   # year 2, m 11
+    (date(2026, 2, 28), 0.11),      # year 3, m 0: the Feb-28 monthliversary starts year 3
+    (date(2026, 3, 29), 0.10917),   # year 3, m 1
+    (date(2027, 2, 28), 0.10),      # year 4, m 0
+    (date(2028, 2, 29), 0.09),      # year 5, m 0
+])
+def test_graded_charge_for_a_feb_29_issue_starts_each_year_on_feb_28(on, pct):
+    assert _graded_pct(date(2024, 2, 29), on) == pct
+
+
+@pytest.mark.parametrize("on, pct", [
+    (date(2026, 1, 31), 0.02),      # year 12, m 0: pct(11)
+    (date(2026, 2, 28), 0.01917),   # year 12, m 1 (clamped monthliversary)
+    (date(2026, 4, 30), 0.0175),    # year 12, m 3
+    (date(2026, 12, 31), 0.01083),  # year 12, m 11
+    (date(2027, 1, 31), 0.01),      # year 13, m 0: pct(12)
+])
+def test_graded_charge_for_a_day_31_issue_counts_clamped_monthliversaries(on, pct):
+    assert _graded_pct(date(2015, 1, 31), on) == pct
+
+
+def test_graded_charge_without_dates_uses_the_rate_year_at_m_0():
+    from types import SimpleNamespace
+
+    from suiteview.illustration.core.calc_engine import _iswl_surrender_charge_pct
+
+    assert _graded_pct(date(2015, 1, 31), None, rate_year=4) == 0.10      # pct(3)
+    rates = SimpleNamespace(iswl=_basis(surrender_charge_pct=C9_PCT, surrender_charge_graded=True))
+    no_issue = SimpleNamespace(is_base=True, issue_date=None)
+    assert _iswl_surrender_charge_pct(rates, no_issue, date(2026, 6, 1), 4) == 0.10
+
+
+def test_padded_company_code_26_takes_the_graded_path():
+    from suiteview.illustration.core.iswl_rates import rule_5_graded
+
+    assert rule_5_graded(" 26") and rule_5_graded("26 ") and not rule_5_graded("01")
+    rates = load_iswl_rates(_policy(company_code=" 26"), _config(), repo=_FakeSchema(
+        scr_rules="50", scr_table="C9", scr_cells=("SCR_PCT",)))
+    assert rates.iswl.surrender_charge_graded
 
 
 def test_rule_6_dollar_per_unit_charge_is_unchanged():
