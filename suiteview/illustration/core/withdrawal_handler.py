@@ -11,6 +11,7 @@ Mechanics (per the workbook formulas):
     BA  Applied net withdrawal = MIN(request, max net).
     BG  Corridor amount = MAX(0, corridorRate*AV - total SA) — the slice of the
         death benefit driven by the corridor; an AV drop lowers it for free.
+        ISWL plans use the whole-dollar (rounded) corridor DB.
     BH  The withdrawal reduces SA only under DBO "A" and only past the corridor.
     BM  Partial surrender charge: the NET amount allocated newest-coverage-first
         x each coverage's SCR/1000 (plancode-gated, sbln_PSC).
@@ -33,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+from suiteview.illustration.core.corridor_rates import corridor_death_benefit
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -100,7 +102,13 @@ def compute_withdrawal(
         is_anniversary: True resets the YTD bucket (BE).
     """
     total_sa = policy.total_face
-    corridor_amount = max(0.0, corridor_rate * av - total_sa)
+    # RERUN BG is the unrounded slice; ISWL plans carry CyberLife's whole-dollar
+    # (rounded) corridor death benefit, as in the monthly deduction.
+    corridor_db = (
+        corridor_death_benefit(av, corridor_rate, config) if config.is_iswl
+        else corridor_rate * av
+    )
+    corridor_amount = max(0.0, corridor_db - total_sa)
     fee = config.withdrawal_fee
     dbo = str(policy.db_option or "A").upper()
 

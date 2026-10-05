@@ -9,7 +9,6 @@ are truncated to monthly cents before being converted to per-1,000 charges.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
@@ -24,7 +23,7 @@ from suiteview.illustration.constants import (
     PER_THOUSAND,
     SA_BASIS_ORIGINAL,
 )
-from suiteview.illustration.core.corridor_rates import corridor_factor
+from suiteview.illustration.core.corridor_rates import corridor_death_benefit, corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.core.skipped_coverage import epu_schedule_year
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -554,7 +553,7 @@ def _build_death_benefit_basis(
 
     corr_rate = corridor_rate if corridor_rate is not None else corridor_factor(config, attained_age)
     gross_db = (
-        max(standard_db, float(math.floor(corr_rate * nar_av + 1e-6)))
+        max(standard_db, corridor_death_benefit(nar_av, corr_rate, config))
         if corr_rate > 0 else standard_db
     )
     corr_amount = gross_db - standard_db

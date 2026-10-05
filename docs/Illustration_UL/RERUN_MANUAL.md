@@ -521,6 +521,55 @@ representative; charges still use both bands. No COI rate tables are changed.
 Regression: `tests/test_illustration_corridor_coi.py` and
 `tests/test_illustration_values_tab.py` include the 2.39 / 2.55 distinction.
 
+## RERUN corridor death benefit rounding
+
+The corridor death benefit is whole dollars, and the rounding depends on the product
+line (`core/corridor_rates.corridor_death_benefit`):
+
+| Product line | Corridor DB |
+|---|---|
+| ISWL (GPT `CORR` and CVAT `face / NS`) | `ROUND(AV × factor, 0)`, half up |
+| UL / IUL (GPT `CORR` and CVAT `face / NS`) | `FLOOR(AV × factor)` |
+
+The AV is the account value before the month's deduction: CyberLife's `CSV_AMT`
+(after the MD) plus `CINS_AMT + EXP_CRG_AMT + OTH_PRM_AMT`, which equals the engine's
+`nar_av`. `NAR = MAX(standard DB, corridor DB) / disc − AV`. The same rule applies to the
+valuation-month MD check, every projected month (`calculate_deduction` and the ending
+death benefit) and, for ISWL, the withdrawal corridor slice. A UL withdrawal keeps RERUN's
+unrounded BG `corr × AV − SA`. No deemed-cash-value, NPT or guideline path computes a
+corridor DB.
+
+Robert Haessly's derivation for 01/10497580 (80110429, ISWL, GPT, CORR 105%, GINT 4%):
+AV 45,968.17 + MD 36.12 = 46,004.29; × 1.05 = 48,304.5045 → 48,305 (FLOOR gives 48,304);
+48,305 / 1.04^(1/12) − 46,004.29 = NAR 2,143.09, which is CyberLife's `NAR_AMT`. MD 36.10 → 36.12.
+
+Evidence (10/4/2026). The population was every in-force UL/ISWL policy (status 22–54,
+283,381) whose latest `LH_POL_MVRY_VAL` NAR + AV exceeded the standard DB. The
+candidates were run through the engine, and CyberLife's corridor DB was back-solved as
+`(NAR_AMT + AV) × disc`:
+
+| Group | In CyberLife's corridor | Matches ROUND | Matches FLOOR | ROUND only | FLOOR only |
+|---|---|---|---|---|---|
+| ISWL GPT (8011, 8033, 8133, MN2V) | 381 | 381 | 194 | 187 | 0 |
+| ISWL CVAT (80136200, B11S) | 57 | 45 | 26 | 24 | 5 |
+| UL GPT (0822, 1U13, 1U14, NU1F, 1S13, 1A13, …) | 268 | 124 | 193 | 36 | 105 |
+| UL CVAT (1U14) | 6 | 5 | 3 | 2 | 0 |
+
+- **ISWL CVAT:** the 5 FLOOR-only rows have `AV × face / NS` fractions within .03–.11
+  of .5. A ratio of 5–18 amplifies the precision of the computed NS, and 7 more rows land
+  on CEIL, so the noise is centred on ROUND.
+- **UL GPT:** centred on FLOOR, with symmetric ±1 noise (39 rows at FLOOR − 1, 36 at
+  CEIL) that no AV basis or charge explains. It stays FLOOR.
+- **UL CVAT:** 6 rows are too few to move it off FLOOR. All 7 in-force UL CVAT corridor
+  policies already match the MD.
+
+Regression: the in-corridor candidates went from 2,559 to 2,567 MD matches (8 gained,
+0 lost, 131 MDs moved, 127 of them closer). On 4 ISWL GPT rows the NAR now matches to
+the cent but the MD moved from exact to 1¢ off; a separate cent-level difference is
+involved. The full 4,000+ matrix went from 3,714 to 3,715 matches (0 lost). Check
+scripts: `ZZTaskRepo/RERUN-Coverage-Push-2026-10-03/02_Working/Corridor_Round`.
+Regression tests: `tests/test_illustration_corridor_rounding.py`.
+
 ## RERUN CVAT corridor
 
 A CVAT policy (`LH_NON_TRD_POL.TFDF_CD` 3/5) keeps its death benefit at or above
@@ -528,7 +577,8 @@ A CVAT policy (`LH_NON_TRD_POL.TFDF_CD` 3/5) keeps its death benefit at or above
 AV, `face / NS`, NS being the basic insured's net single premium stored as
 `LH_POL_TARGET` `TAR_TYP_CD = 'NS'` on each anniversary.
 `core/cvat_nsp.py` reproduces NS to the cent and the engine applies
-`DB = MAX(standard DB, FLOOR(AV × face / NS))` in the valuation-month MD check,
+`DB = MAX(standard DB, AV × face / NS)` in whole dollars (FLOOR for UL, ROUND for
+ISWL; "RERUN corridor death benefit rounding") in the valuation-month MD check,
 every projected month and withdrawals (`calculate_deduction(corridor_rate=...)`).
 GPT policies keep the plan `CORR`.
 

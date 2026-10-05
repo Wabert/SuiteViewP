@@ -733,12 +733,14 @@ ledger ending DB and the deemed-cash-value option C basis use the same amount
 unless the policy has a skipped-coverage reinstatement; then it removes the basis
 before the latest `REN_DT` (see RERUN_MANUAL "RERUN skipped-coverage reinstatements").
 
-Corridor test and gross death benefit. The corridor product is **truncated to a whole
-dollar** (CyberLife rule — a deliberate divergence from RERUN's col OT, which multiplies
-without truncating). The standard DB itself is not truncated:
+Corridor test and gross death benefit. The corridor product is **whole dollars**:
+truncated for UL plans and rounded half up for ISWL plans (CyberLife rule, see
+RERUN_MANUAL "RERUN corridor death benefit rounding"; a deliberate divergence from
+RERUN's col OT, which multiplies without rounding). The standard DB itself is not rounded:
 
 ```text
-gross_db = max(standard_db, trunc(corridor_rate * nar_av))
+gross_db = max(standard_db, corridor_death_benefit(nar_av, corridor_rate, config))
+         # UL: trunc(corridor_rate * nar_av); ISWL: round(corridor_rate * nar_av, 0)
 corr_amount = gross_db - standard_db
 ```
 
@@ -1182,7 +1184,7 @@ edb_wo_corr = total_face
             + (db_option == "B": max(0, av_end))
             + (db_option == "C": max(0, premiums_to_date
                                       - (withdrawals_to_date - inforce_withdrawal_fees)))
-edb_corr  = max(0, trunc(av_end * corridor_rate) - edb_wo_corr)   # corridor truncated to whole dollar
+edb_corr  = max(0, corridor_death_benefit(av_end, corridor_rate, config) - edb_wo_corr)   # whole dollar: UL trunc, ISWL round
 ending_db = edb_wo_corr + edb_corr - policy_debt + primary_insured_rider_face
 ```
 
@@ -1363,7 +1365,7 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - per-component MTP / CTP target-premium detail snapshots, recomputed on coverage change
 - multi-segment base coverage support in deduction and surrender charge logic
 - COI (incl. NAR-split / ratchet-banding for ~1983 UL plancodes), EPU, MFEE, AV charge
-- corridor death benefit truncated to a whole dollar
+- corridor death benefit in whole dollars (UL truncated, ISWL rounded)
 - rider and benefit charges during deduction and shadow account processing, excluding the CCV benefit charge from shadow rider charges
 - rider substandard table ratings and flat extras in rider COI charges
 - loan capitalization — arrears roll-in AND advance (interest-in-advance) gross-up, cents-rounded — plus in-arrears and variable-loan accrual when a policy variable rate is available

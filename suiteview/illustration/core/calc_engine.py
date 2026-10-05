@@ -70,7 +70,7 @@ from suiteview.illustration.constants import (
     SA_BASIS_ORIGINAL,
 )
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
-from suiteview.illustration.core.corridor_rates import corridor_factor
+from suiteview.illustration.core.corridor_rates import corridor_death_benefit, corridor_factor
 from suiteview.illustration.core.cvat_nsp import CvatCorridor, IswlNspBasis, UlNspBasis
 from suiteview.illustration.core.deemed_cash_value import NptTracker, glp_rate_for
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
@@ -1529,7 +1529,7 @@ def _ending_death_benefit(ctx: MonthContext, work: MonthWork) -> float:
         edb_wo_corr += policy.option_c_premium_base(
             work.prem.premiums_to_date, work.withdrawals_to_date)
     edb_corr = (
-        max(0.0, math.floor(work.av * work.ded.corridor_rate + 1e-6) - edb_wo_corr)
+        max(0.0, corridor_death_benefit(work.av, work.ded.corridor_rate, ctx.config) - edb_wo_corr)
         if work.ded.corridor_rate > 0
         else 0.0
     )
