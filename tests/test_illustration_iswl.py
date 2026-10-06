@@ -9,7 +9,7 @@ The expected numbers are CyberLife's own, read from live records by
 * 11580276 on 2026-04-11: COI 4.08 on NAR 19219.73 at the annual rate 2.55 / 12.
 """
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -520,8 +520,14 @@ def test_rule_5_charge_is_the_percentage_of_the_account_value_floored_at_guarant
 def test_rule_5_has_no_charge_from_policy_year_20():
     rates = _rule_5_rates()
     assert not rates.iswl.surrender_charge_graded            # company 01: flat by policy year
-    assert _full_surrender(rates, date(2007, 4, 11), 20, 10000.0)[:2] == (0.0, 0.0)
+    assert _full_surrender(rates, date(2007, 4, 12), 20, 10000.0)[:2] == (0.0, 0.0)
     assert _full_surrender(rates, date(2026, 9, 11), 39, 10000.0)[:2] == (0.0, 0.0)
+
+
+def test_flat_rule_5_anniversary_dated_surrender_takes_the_prior_years_percentage():
+    """CyberLife values a surrender dated on the anniversary before processing it (old year)."""
+    rates = _rule_5_rates()
+    assert _full_surrender(rates, date(2007, 4, 11), 20, 10000.0)[:2] == (0.06, pytest.approx(600.0))
 
 
 # CKULTB04 table C9/58 percentages (fractions), years 1-12, then 0.
@@ -565,11 +571,47 @@ def test_company_26_rule_5_loads_graded_and_charges_by_months_since_the_annivers
         return _calculate_surrender_charge(policy, rates, year, on, _config(), account_value=av)[:2]
 
     # Year 19, two months after the 4/11 anniversary: 6% + (11% - 6%) x 10 / 12 = 10.167%.
-    assert charge(date(2006, 6, 11), 19) == (0.10167, pytest.approx(1016.70))
-    assert charge(date(2006, 4, 11), 19) == (0.11, pytest.approx(1100.0))
+    assert charge(date(2006, 6, 12), 19) == (0.10167, pytest.approx(1016.70))
+    assert charge(date(2006, 4, 12), 19) == (0.11, pytest.approx(1100.0))
     # Year 20 still carries the tail of year 19's 6%; the flat model has none.
-    assert charge(date(2007, 6, 11), 20) == (0.05, pytest.approx(500.0))
-    assert charge(date(2008, 4, 11), 21) == (0.0, 0.0)
+    assert charge(date(2007, 6, 12), 20) == (0.05, pytest.approx(500.0))
+    assert charge(date(2008, 4, 12), 21) == (0.0, 0.0)
+
+
+def test_company_26_rule_5_anniversary_dated_surrender_keeps_the_old_duration():
+    """CyberLife's rule-5 charge takes the year from DURATION, which a surrender dated on the
+    anniversary has not advanced, and the months from the calendar (m = 0 on the anniversary);
+    a monthliversary-dated surrender counts that monthliversary."""
+    rates = load_iswl_rates(_policy(company_code="26"), _config(), repo=_FakeSchema(
+        scr_rules="50", scr_table="C9", scr_cells=("SCR_PCT",)))
+    policy = _policy(company_code="26")
+
+    def charge(on, year, av=10000.0):
+        from suiteview.illustration.core.calc_engine import _calculate_surrender_charge
+        return _calculate_surrender_charge(policy, rates, year, on, _config(), account_value=av)[:2]
+
+    # 6/11 monthliversary in year 19 counts: m = 2, 6% + 5% x 10/12 = 10.167%.
+    assert charge(date(2006, 6, 11), 19) == (0.10167, pytest.approx(1016.70))
+    # 4/11 anniversary: still year 18 at m = 0: pct(17) = 17% (day before 11.5%, next day 11%).
+    assert charge(date(2006, 4, 11), 19) == (0.17, pytest.approx(1700.0))
+    assert charge(date(2006, 4, 10), 19) == (0.115, pytest.approx(1150.0))
+    # The tail year's anniversary: year 20 at m = 0 = pct(19) = 6%.
+    assert charge(date(2008, 4, 11), 21) == (0.06, pytest.approx(600.0))
+
+
+@pytest.mark.parametrize("policy_id, issue, on, gross, charge", [
+    # Anniversary-dated: year 7 (DURATION) at m 0 = pct(6) = 7% (B11SB500, three policies).
+    ("000322923", date(2011, 4, 11), date(2018, 4, 11), 46510.98, 3255.77),
+    # Anniversary-dated: year 13 at m 0 = pct(12) = 1% (B11SB300).
+    ("000325682", date(2011, 10, 11), date(2024, 10, 11), 14000.16, 140.00),
+    # Monthliversary-dated: year 13, m 2 counts the day's monthliversary: 0.833% (B11SB300).
+    ("000324351", date(2011, 7, 14), date(2023, 9, 14), 20538.93, 171.09),
+    # Monthliversary-dated: year 11, m 1: 2.917% (B11SB600).
+    ("000326207", date(2011, 12, 7), date(2022, 1, 7), 45111.07, 1315.89),
+])
+def test_company_26_monthliversary_dated_surrenders_match_cyberlife(policy_id, issue, on, gross, charge):
+    pct = _graded_pct(issue, on)
+    assert round(pct * gross + 1e-9, 2) == pytest.approx(charge), policy_id
 
 
 def _graded_pct(issue, on, rate_year=1):
@@ -581,27 +623,33 @@ def _graded_pct(issue, on, rate_year=1):
     return _iswl_surrender_charge_pct(rates, SimpleNamespace(is_base=True, issue_date=issue), on, rate_year)
 
 
-@pytest.mark.parametrize("on, pct", [
-    (date(2025, 2, 28), 0.12),      # year 2, m 0: pct(1)
-    (date(2026, 1, 29), 0.11083),   # year 2, m 11
-    (date(2026, 2, 28), 0.11),      # year 3, m 0: the Feb-28 monthliversary starts year 3
-    (date(2026, 3, 29), 0.10917),   # year 3, m 1
-    (date(2027, 2, 28), 0.10),      # year 4, m 0
-    (date(2028, 2, 29), 0.09),      # year 5, m 0
+@pytest.mark.parametrize("monthliversary, on_the_day, from_next_day", [
+    (date(2025, 2, 28), 0.12, 0.12),         # year 2 starts; year 1 is flat
+    (date(2026, 1, 29), 0.11083, 0.11083),   # a monthliversary counts: year 2, m 11
+    (date(2026, 2, 28), 0.12, 0.11),         # the Feb-28 anniversary: year 2 at m 0 -> year 3 m 0
+    (date(2026, 3, 29), 0.10917, 0.10917),   # year 3, m 1
+    (date(2027, 2, 28), 0.11, 0.10),         # year 3 at m 0 -> year 4 m 0
+    (date(2028, 2, 29), 0.10, 0.09),         # year 4 at m 0 -> year 5 m 0
 ])
-def test_graded_charge_for_a_feb_29_issue_starts_each_year_on_feb_28(on, pct):
-    assert _graded_pct(date(2024, 2, 29), on) == pct
+def test_graded_charge_for_a_feb_29_issue_starts_each_year_after_feb_28(
+        monthliversary, on_the_day, from_next_day):
+    issue = date(2024, 2, 29)
+    assert _graded_pct(issue, monthliversary) == on_the_day
+    assert _graded_pct(issue, monthliversary + timedelta(days=1)) == from_next_day
 
 
-@pytest.mark.parametrize("on, pct", [
-    (date(2026, 1, 31), 0.02),      # year 12, m 0: pct(11)
-    (date(2026, 2, 28), 0.01917),   # year 12, m 1 (clamped monthliversary)
-    (date(2026, 4, 30), 0.0175),    # year 12, m 3
-    (date(2026, 12, 31), 0.01083),  # year 12, m 11
-    (date(2027, 1, 31), 0.01),      # year 13, m 0: pct(12)
+@pytest.mark.parametrize("monthliversary, on_the_day, from_next_day", [
+    (date(2026, 1, 31), 0.03, 0.02),         # anniversary: year 11 at m 0 -> year 12 m 0: pct(11)
+    (date(2026, 2, 28), 0.01917, 0.01917),   # year 12, m 1 (clamped monthliversary)
+    (date(2026, 4, 30), 0.0175, 0.0175),     # year 12, m 3
+    (date(2026, 12, 31), 0.01083, 0.01083),  # year 12, m 11
+    (date(2027, 1, 31), 0.02, 0.01),         # anniversary: year 12 at m 0 -> year 13 m 0: pct(12)
 ])
-def test_graded_charge_for_a_day_31_issue_counts_clamped_monthliversaries(on, pct):
-    assert _graded_pct(date(2015, 1, 31), on) == pct
+def test_graded_charge_for_a_day_31_issue_counts_clamped_monthliversaries(
+        monthliversary, on_the_day, from_next_day):
+    issue = date(2015, 1, 31)
+    assert _graded_pct(issue, monthliversary) == on_the_day
+    assert _graded_pct(issue, monthliversary + timedelta(days=1)) == from_next_day
 
 
 def test_graded_charge_without_dates_uses_the_rate_year_at_m_0():

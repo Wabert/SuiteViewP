@@ -89,20 +89,68 @@ def test_graded_rate_steps_monthly_and_year_1_is_flat():
     policy, rates = _single(date(2016, 5, 16), 1.0, 6, 7.29, 7.81)
     rate = lambda on: calc_engine._segment_surrender_rate(  # noqa: E731
         policy, policy.segments[0], rates, 1, on, FFL)
-    assert rate(date(2021, 5, 16)) == 7.81            # anniversary monthliversary: rate(5)
-    assert rate(date(2021, 6, 16)) == 7.767           # 7.29 + 0.52 x 0.91666
-    assert rate(date(2022, 4, 16)) == 7.333           # m 11
+    assert rate(date(2021, 5, 17)) == 7.81            # year 6, m 0: rate(5)
+    assert rate(date(2021, 6, 17)) == 7.767           # 7.29 + 0.52 x 0.91666
+    assert rate(date(2022, 4, 17)) == 7.333           # m 11
     year_1, rates_1 = _single(date(2016, 5, 16), 1.0, 2, 5.0, 9.0)
     assert calc_engine._segment_surrender_rate(
         year_1, year_1.segments[0], rates_1, 1, date(2016, 9, 16), FFL) == 9.0
 
 
-def test_feb_29_issue_starts_each_year_on_the_feb_28_monthliversary():
+def test_feb_29_issue_starts_each_year_after_the_feb_28_monthliversary():
     policy, rates = _single(date(2024, 2, 29), 1.0, 3, 6.0, 7.2)
     rate = lambda on: calc_engine._segment_surrender_rate(  # noqa: E731
         policy, policy.segments[0], rates, 1, on, FFL)
-    assert rate(date(2026, 2, 28)) == 7.2             # year 3, m 0
-    assert rate(date(2026, 3, 29)) == 7.1             # year 3, m 1
+    assert rate(date(2026, 3, 1)) == 7.2              # year 3, m 0
+    assert rate(date(2026, 3, 30)) == 7.1             # year 3, m 1
+    assert rate(date(2026, 3, 29)) == 7.2             # the m-1 monthliversary itself: m 0
+
+
+def _full_schedule(rates_by_year: dict) -> list:
+    values = [None] + [0.0] * 40
+    for year, rate in rates_by_year.items():
+        values[year] = rate
+    return values
+
+
+@pytest.mark.parametrize("policy_id, issue, on, units, schedule, charge", [
+    # Monthliversary-dated: valued before that monthliversary is processed (m - 1).
+    # 1U1F4L00, year 15 m 1 -> m 0: rate(14) = 4.38 (graded at m 1 would be 4.319).
+    ("000315549", date(2009, 8, 4), date(2023, 9, 4), 250.0, {13: 5.11, 14: 4.38, 15: 3.65}, "1095.00"),
+    # 1U1F4L00, year 14 m 2 -> m 1: 4.80 + 0.80 x 0.91666 = 5.533.
+    ("000308327", date(2008, 4, 4), date(2021, 6, 4), 100.0, {12: 6.40, 13: 5.60, 14: 4.80}, "553.30"),
+    # Anniversary-dated: the prior coverage year's last month (year d - 1, m 11).
+    # NU1F3M00, 3.95 + 0.66 x 0.08333 = 4.005 (graded year 15 m 0 would be 3.95).
+    ("000299327", date(2006, 3, 28), date(2020, 3, 28), 450.0, {13: 4.61, 14: 3.95, 15: 3.29}, "1802.25"),
+    ("000299329", date(2006, 3, 28), date(2020, 3, 28), 450.0, {13: 3.91, 14: 3.35, 15: 2.79}, "1528.65"),
+    # NU1F3M00, 1.23 + 0.31 x 0.08333 = 1.256.
+    ("000297901", date(2005, 10, 25), date(2021, 10, 25), 50.0, {15: 1.54, 16: 1.23, 17: 0.92}, "62.80"),
+])
+def test_monthliversary_dated_surrender_takes_the_step_before_it_is_processed(
+        policy_id, issue, on, units, schedule, charge):
+    """Robert's 10/5/2026 ruling: match CyberLife, which values a surrender dated on a
+    monthliversary (or anniversary) before it processes that monthliversary. Live CKPR
+    FH_FIXED SF charges; the schedule's later-year rate only matters from the next day."""
+    policy = IllustrationPolicyData(company_code="26", issue_date=issue, segments=[
+        CoverageSegment(coverage_phase=1, issue_date=issue, units=units)])
+    rates = IllustrationRates(segment_scr={1: _full_schedule(schedule)})
+    assert _charge(policy, rates, on) == Decimal(charge), policy_id
+
+
+def test_increase_segment_on_a_policy_monthliversary_steps_back_with_the_policy():
+    """An increase issued on a policy monthliversary: on its own anniversary both counts step
+    back one month, so the segment is in its prior year at the policy's prior month."""
+    issue = date(2010, 1, 10)
+    policy = IllustrationPolicyData(company_code="26", issue_date=issue, segments=[
+        CoverageSegment(coverage_phase=1, issue_date=issue, units=1.0),
+        CoverageSegment(coverage_phase=2, issue_date=date(2012, 7, 10), units=1.0),
+    ])
+    rates = IllustrationRates(segment_scr={1: _full_schedule({1: 9.0}),
+                                           2: _full_schedule({1: 12.0, 2: 10.0, 3: 8.0})})
+    rate = lambda on: calc_engine._segment_surrender_rate(  # noqa: E731
+        policy, policy.segments[1], rates, 1, on, FFL)
+    assert rate(date(2014, 7, 11)) == 9.0             # segment year 3, policy m 6: 8 + 2 x 0.5
+    assert rate(date(2014, 7, 10)) == 11.167          # segment year 2, policy m 5: 10 + 2 x 0.58333
 
 
 @pytest.mark.parametrize("company, config", [

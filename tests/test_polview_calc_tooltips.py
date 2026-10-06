@@ -116,6 +116,7 @@ def test_surrender_tips_show_the_working():
     charge = adv_prod_tooltips.surrender_charge_tip(_surrender())
     assert "Surrender Charge as of 9/07/2026" in charge
     assert "current specified amount / 1,000" in charge
+    assert "before that monthliversary is processed" in charge
     assert "Cov 1: 13.77481 x 1,000 units = 13,774.81" in charge
     assert charge.endswith("= 13,774.81")
     value = adv_prod_tooltips.surrender_value_tip(_surrender())

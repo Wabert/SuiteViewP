@@ -1150,10 +1150,28 @@ dated between monthliversaries): 183 of 214 FFL surrenders (NU1F3*, NU1FU200, 1U
 current = original units. The other 31 are: a schema-rates schedule of 0 where CyberLife charges
 (17); charges on the coverage's original specified units after a unit change (9, which
 fit the graded rate x `OGN_SPC_UNT_QTY`; FFL plancode rows are `CurrentSA`); AV caps (2);
-and 3 unexplained, 2 of them after withdrawal unit reductions. A surrender dated on a monthliversary is valued before that
-monthliversary is processed: valued the day before, 35 of 39 match, and 6 of 7 on the anniversary
-date. The company-26 ANICO-design plans (1U144*-1U147*) keep the annual step (no
+and 3 unexplained, 2 of them after withdrawal unit reductions. The company-26 ANICO-design plans (1U144*-1U147*) keep the annual step (no
 graded fit). FFL percent-of-surrender-target plans (N71E*/EP) and ISWL are unchanged.
+
+**Surrenders dated on a monthliversary or anniversary** (Robert's 10/5/2026 ruling: match
+CyberLife). CyberLife values a surrender dated on a monthliversary before it processes that
+monthliversary (`calc_engine._surrender_months_elapsed` counts only the monthliversaries
+strictly before the date). The FFL rule-6 grade above takes the prior month's step, and on an
+anniversary the prior coverage year's month-11 step (FFL monthliversary-date surrenders matched
+only when valued the day before). The annual-step per-unit schedules and the flat rule-5
+percentage take the prior coverage year's rate on the anniversary (`_surrender_coverage_year`;
+of 346 anniversary-date surrenders on annual-step plans whose two years' rates differ, 331
+match the prior year's rate and none the new year's: 345 are company 01 UL, including
+1U144*-1U147*; the one company-26 1U144*-1U147* case, a 1U146900, matches neither). The company-26 rule-5 ISWL grade
+is different: CyberLife takes its year from DURATION, which an anniversary-dated surrender has
+not advanced, but its months from the calendar, so a monthliversary-dated surrender counts that
+monthliversary and an anniversary-dated one is the old year at m = 0 (7 of 7 monthliversary-
+and 4 of 4 anniversary-dated C9 surrenders; the anniversary rows are only two distinct cases).
+The ledger's surrender charge and value on each monthliversary, the in-force (valuation-month)
+surrender value PolView shows, the lapse test, loan and withdrawal limits and partial surrender
+charges all use these helpers; the monthly deduction does not use the surrender charge.
+Evidence: CKPR `FH_FIXED` SF, read-only, 10/5/2026; see
+`ZZTaskRepo\RERUN-Coverage-Push-2026-10-03\02_Working\Rule5_Graded_SCR\SCR_Timing_And_Reduction_2026-10-05.md`.
 
 ## RERUN joint survivor ULs
 
@@ -1289,9 +1307,10 @@ Rules are in `illustration/core/iswl_rates.py`:
   charge on C9/58 (60 fund rows) matched the engine's graded charge to the cent (flat:
   0 of 60), and all 53 company-01 ones still match flat. Neither `PLAN_DEF` nor
   `LH_NON_TRD_POL.FUL_SRD_PTA_IND` (N on both companies) records the switch, so it is
-  keyed on the company. Not modelled: CyberLife charges an anniversary-date surrender
-  at the old year's rate (DURATION not yet advanced: 5 of 5 SF rows, both companies),
-  while the engine's anniversary monthliversary starts the new year. Rule 5 combined
+  keyed on the company. An anniversary-dated surrender keeps the old year (DURATION not yet
+  advanced: 5 of 5 SF rows, both companies); since 10/5/2026 the engine follows CyberLife
+  here, the graded charge at the old year with m = 0 (see "Surrenders dated on a
+  monthliversary or anniversary"). Rule 5 combined
   with another rule, a
   plan with both `SCR` and `SCR_PCT`, and a withdrawal or charged face decrease inside
   a rule-5 charge period (the partial surrender charge is not modelled) raise.

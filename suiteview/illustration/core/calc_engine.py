@@ -118,7 +118,6 @@ from suiteview.illustration.core.loan_handler import (
 from suiteview.illustration.core.mec import seven_pay_backtest, seven_pay_limit_exceeded
 from suiteview.illustration.core.monthly_deduction import (
     _coi_rate_year,
-    _coverage_year,
     _rate_from_schedule,
     _round_near,
     calculate_deduction,
@@ -4933,7 +4932,7 @@ def _segment_surrender_rate(
             and segment.issue_date is not None):
         return _ffl_graded_surrender_rate(policy, segment, schedule, projection_date)
     return _rate_from_schedule(
-        schedule, _coverage_year(segment, projection_date, rate_year))
+        schedule, _surrender_coverage_year(segment, projection_date, rate_year))
 
 
 def _ffl_graded_surrender_charge(config: PlancodeConfig) -> bool:
@@ -4949,18 +4948,44 @@ def _ffl_graded_surrender_rate(policy, segment, schedule, projection_date) -> fl
     The coverage year d is the segment's own; m is completed months since the
     *policy* anniversary (an increase segment grades with the policy's months).
     ``rate = round3(rate(d) + (rate(d-1) - rate(d)) x trunc5((12 - m) / 12))``.
+    Both counts exclude a monthliversary falling on ``projection_date`` (see
+    ``_surrender_months_elapsed``).
     """
-    seg = relativedelta(projection_date, segment.issue_date)
-    year = max(seg.years * MONTHS_PER_YEAR + seg.months, 0) // MONTHS_PER_YEAR + 1
+    year = _surrender_months_elapsed(segment.issue_date, projection_date) // MONTHS_PER_YEAR + 1
     anchor = policy.issue_date or segment.issue_date
-    pol = relativedelta(projection_date, anchor)
-    months = max(pol.years * MONTHS_PER_YEAR + pol.months, 0) % MONTHS_PER_YEAR
+    months = _surrender_months_elapsed(anchor, projection_date) % MONTHS_PER_YEAR
     current = Decimal(repr(_rate_from_schedule(schedule, year)))
     prior = Decimal(repr(_rate_from_schedule(schedule, year - 1))) if year > 1 else current
     remaining = (Decimal(MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR).quantize(
         Decimal("0.00001"), rounding=ROUND_DOWN)
     return float((current + (prior - current) * remaining).quantize(
         Decimal("0.001"), rounding=ROUND_HALF_UP))
+
+
+def _surrender_months_elapsed(start: date, on: date) -> int:
+    """Monthliversaries since ``start`` that a surrender dated ``on`` has passed.
+
+    CyberLife values a surrender dated on a monthliversary (or anniversary)
+    before it processes that monthliversary, so it counts from the next day:
+    the FFL monthly grade on that date is the prior month's step, and on an
+    anniversary the last month of the prior coverage year (Robert, 10/5/2026).
+    The rule-5 ISWL grade takes only its year this way (see
+    ``_iswl_surrender_charge_pct``). Counted with ``relativedelta`` so
+    month-end and Feb-29 dates clamp.
+    """
+    delta = relativedelta(on - timedelta(days=1), start)
+    return max(delta.years * MONTHS_PER_YEAR + delta.months, 0)
+
+
+def _surrender_coverage_year(segment, projection_date, fallback_year: int) -> int:
+    """Coverage year of the annual-step surrender charge for a surrender dated
+    ``projection_date``: an anniversary-dated surrender still takes the prior
+    year's rate (CKPR FH_FIXED SF, 10/5/2026: of 346 anniversary-date surrenders
+    on annual-step plans whose two years' rates differ, 331 match the prior
+    year's rate and none the new year's)."""
+    if segment is None or segment.issue_date is None or projection_date is None:
+        return fallback_year
+    return _surrender_months_elapsed(segment.issue_date, projection_date) // MONTHS_PER_YEAR + 1
 
 
 def surrender_charge_units(segment: CoverageSegment, config: Optional[PlancodeConfig]) -> float:
@@ -5029,12 +5054,17 @@ def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) 
     if basis is None or not basis.surrender_charge_is_pct_of_av or not segment.is_base:
         return None
     if basis.surrender_charge_graded and segment.issue_date is not None and projection_date is not None:
-        # Year and month from one count, so a Feb-29 issue's Feb-28 monthliversary starts
-        # the new year at m = 0 (the (month, day) compare in _coverage_year would not).
+        # Both counts use relativedelta, so a Feb-29 issue's Feb-28 monthliversary behaves
+        # like every other (the (month, day) compare in _coverage_year would not). CyberLife
+        # takes the year from DURATION, which a surrender dated on the anniversary has not
+        # yet advanced, but the months from the calendar: a monthliversary-dated surrender
+        # counts that monthliversary (CKPR FH_FIXED SF, 10/5/2026: 7 of 7 monthliversary- and
+        # 4 of 4 anniversary-dated company-26 C9 surrenders; the FFL UL grade differs).
+        year = _surrender_months_elapsed(segment.issue_date, projection_date) // MONTHS_PER_YEAR
         delta = relativedelta(projection_date, segment.issue_date)
-        year, months = divmod(max(delta.years * MONTHS_PER_YEAR + delta.months, 0), MONTHS_PER_YEAR)
+        months = max(delta.years * MONTHS_PER_YEAR + delta.months, 0) % MONTHS_PER_YEAR
         return basis.surrender_charge_rate(year + 1, months)
-    return basis.surrender_charge_rate(_coverage_year(segment, projection_date, rate_year), 0)
+    return basis.surrender_charge_rate(_surrender_coverage_year(segment, projection_date, rate_year), 0)
 
 
 def _reject_pct_surrender_charge(rates, segments, projection_date, rate_year: int, action: str) -> None:

@@ -36,7 +36,8 @@ def surrender_charge_tip(surrender) -> str:
             f"Surrender Charge{_as_of(surrender.as_of)}",
             "Illustration engine: SCR rate x units, summed over coverages",
             f"(units = {basis} specified amount / 1,000; rate from the plancode's",
-            " surrender charge schedule for the coverage year)",
+            " surrender charge schedule for the coverage year; a surrender dated on",
+            " a monthliversary takes the rate before that monthliversary is processed)",
         ]
     lines.extend(_coverage_charge_line(cov, surrender.account_value) for cov in surrender.coverages)
     lines.append(f"= {format_currency(surrender.surrender_charge)}")
