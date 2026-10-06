@@ -426,6 +426,13 @@ class IllustrationInputsTab(QWidget):
         self.snapshot_banner.setVisible(False)
         outer.addWidget(self.snapshot_banner)
 
+        # Load-time warning strip (monthly-deduction mismatch): amber, shown
+        # where the user enters inputs; styled only while visible.
+        self.load_warning_banner = QLabel("")
+        self.load_warning_banner.setWordWrap(True)
+        self.load_warning_banner.setVisible(False)
+        outer.addWidget(self.load_warning_banner)
+
         self.run_from_issue_btn = QPushButton("Inforce | New Business - From Issue")
         self.run_from_issue_btn.setCheckable(True)
         self.run_from_issue_btn.setToolTip(
@@ -1313,6 +1320,15 @@ class IllustrationInputsTab(QWidget):
         """Show (or clear with None) the saved-case as-of strip."""
         self.snapshot_banner.setText(text or "")
         self.snapshot_banner.setVisible(bool(text))
+
+    def set_load_warning(self, text: str | None):
+        """Show (or clear with None) the load-time warning strip."""
+        self.load_warning_banner.setText(text or "")
+        self.load_warning_banner.setStyleSheet(
+            "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
+            " border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: bold;"
+            if text else "")
+        self.load_warning_banner.setVisible(bool(text))
 
     # ── Level-solve × future-change caveat ───────────────────────────
 

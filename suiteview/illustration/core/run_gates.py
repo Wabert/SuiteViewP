@@ -174,3 +174,23 @@ def run_gate(policy, inforce_overrides, *, business_mode: bool) -> GateResult:
     """Everything a run checks: policy scope plus the Illustrated Rate."""
     return (policy_gate(policy, business_mode=business_mode)
             + rate_gate(policy, inforce_overrides, business_mode=business_mode))
+
+
+# Monthly-deduction check (should-do 4): SuiteView's recalculated valuation-month
+# deduction vs CyberLife's. A difference above this shows a prominent warning
+# banner (Inputs tab and the run notice); it never blocks a run.
+MD_MISMATCH_TOLERANCE = 0.01
+
+
+def monthly_deduction_mismatch_notice(md_check) -> str:
+    """Banner text when |calculated - CyberLife| > $0.01, else ""."""
+    cyberlife = float(getattr(md_check, "system_monthly_deduction", 0.0) or 0.0)
+    calculated = float(getattr(md_check, "md_check_calculated_deduction", 0.0) or 0.0)
+    difference = calculated - cyberlife
+    if abs(difference) <= MD_MISMATCH_TOLERANCE + 1e-9:
+        return ""
+    return (
+        "MONTHLY DEDUCTION CHECK: SuiteView calculates the current monthly deduction "
+        f"as ${calculated:,.2f}; CyberLife shows ${cyberlife:,.2f} (difference "
+        f"${difference:,.2f}). Review the illustration with care — its values may "
+        "not match the policy's administration.")

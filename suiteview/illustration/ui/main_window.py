@@ -22,7 +22,10 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.build_env import is_distribution_build
 from suiteview.illustration.core.business_mode import is_business_mode
-from suiteview.illustration.core.run_gates import policy_gate
+from suiteview.illustration.core.run_gates import (
+    monthly_deduction_mismatch_notice,
+    policy_gate,
+)
 from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.signals import muted_signals
 from suiteview.core.db2_connection import DB2Connection
@@ -159,6 +162,10 @@ class IllustrationWindow(FramelessWindowBase):
         # Load-time warnings shown in the run notice (status outside phase 1,
         # monthly-deduction mismatch); run warnings are added after each run.
         self._load_warnings: tuple[str, ...] = ()
+        # Live load-check findings (should-do 4): missing rates / unloadable
+        # illustration data, and a monthly-deduction mismatch over $0.01.
+        self._load_rate_problems: tuple[str, ...] = ()
+        self._load_md_warning = ""
         # Per-policy session state, keyed like _policy_cache by
         # (policy_number, region, company_code). Each entry stores plain input
         # drafts plus values/report/status snapshots, so policy-list switching
@@ -1065,14 +1072,19 @@ class IllustrationWindow(FramelessWindowBase):
             self._show_status("Rollback values loaded. Enter a historical shadow amount before Run Values.")
             return True
         policy = self._illustration_data
+        load_blocks, load_warnings = self._load_problem_gate()
+        gate_blocks: tuple[str, ...] = ()
+        gate_warnings: tuple[str, ...] = ()
         if policy is not None:
             gate = policy_gate(policy, business_mode=self._business_mode)
-            self._load_warnings = gate.warnings
-            self._set_run_notice(gate.blocks, gate.warnings)
-            if gate.blocked:
-                self.run_values_btn.setEnabled(False)
-                self._show_status(gate.blocks[0])
-                return True
+            gate_blocks, gate_warnings = gate.blocks, gate.warnings
+        blocks = gate_blocks + load_blocks
+        self._load_warnings = gate_warnings + load_warnings
+        self._set_run_notice(blocks, self._load_warnings)
+        if blocks:
+            self.run_values_btn.setEnabled(False)
+            self._show_status(blocks[0])
+            return True
         if self._business_mode or not is_distribution_build():
             return False
         plancode = str(getattr(self._illustration_data, "plancode", "") or "").strip()
@@ -1088,7 +1100,7 @@ class IllustrationWindow(FramelessWindowBase):
         message = (
             f"This plancode ({plancode}) is not currently enabled for "
             f"illustration in this application.")
-        self._set_run_notice((message,))
+        self._set_run_notice((message,), self._load_warnings)
         self._show_status(message)
         return True
 
@@ -1290,6 +1302,7 @@ class IllustrationWindow(FramelessWindowBase):
 
         # Live data on screen — no as-of strip on this policy's inputs tab.
         self.inputs_tab.set_snapshot_notice(None)
+        self.inputs_tab.set_load_warning(self._load_md_warning or None)
 
         # A different policy invalidates any rendered comparison — clear it so
         # the old policy's results can never sit under the new pickers.
@@ -1350,6 +1363,7 @@ class IllustrationWindow(FramelessWindowBase):
         self._show_ul_workspace()
         self._illustration_data = None
         self._live_policy_checks = None
+        self._clear_load_problems()
         self._current_key = None
         self._last_scenario = None
         self._set_active_inputs_tab(IllustrationInputsTab())
@@ -1753,6 +1767,7 @@ class IllustrationWindow(FramelessWindowBase):
         warnings: list[str] = []
         self._illustration_data = None
         self._illustration_load_error = ""
+        self._clear_load_problems()
         try:
             warnings.extend(coverage_segment_data_warnings(self._policy))
             policy_data = load_policy_data(
@@ -1761,12 +1776,15 @@ class IllustrationWindow(FramelessWindowBase):
             warnings.extend(self._definition_of_life_warnings(policy_data))
             config = load_plancode(policy_data.plancode)
             rates = load_rates(policy_data, config)
-            warnings.extend(missing_required_rate_warnings(policy_data, rates))
+            missing = missing_required_rate_warnings(policy_data, rates)
+            self._load_rate_problems = tuple(missing)
+            warnings.extend(missing)
             warnings.extend(benefit_rate_override_warnings(rates))
             warnings.extend(plan_basis_warnings(config, policy_data))
         except Exception as exc:
             self._illustration_load_error = (
                 f"Unable to load illustration data/rates: {exc}")
+            self._load_rate_problems = (self._illustration_load_error,)
             warnings.append(self._illustration_load_error)
             return warnings, None
 
@@ -1775,9 +1793,39 @@ class IllustrationWindow(FramelessWindowBase):
             md_check = project_policy(
                 policy_data, months=0, rates=rates, config=config).states[0]
             warnings.extend(self._monthly_deduction_warnings(md_check))
+            self._load_md_warning = monthly_deduction_mismatch_notice(md_check)
         except Exception as exc:
             warnings.append(f"Unable to validate monthly deduction: {exc}")
         return warnings, md_check
+
+    def _clear_load_problems(self) -> None:
+        """Forget the previous policy's load-time rate/MD findings."""
+        self._load_rate_problems = ()
+        self._load_md_warning = ""
+
+    def _load_problem_gate(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """(blocks, warnings) from the live load checks (should-do 4 / M6).
+
+        Missing illustration rates (or illustration data that could not load)
+        block Run for business users — e.g. riders such as 06582004/06582016
+        that have no rates by design — and warn developers. A monthly-deduction
+        mismatch over $0.01 warns everyone; it never blocks."""
+        if self._snapshot_case is not None:
+            return (), ()
+        blocks: list[str] = []
+        warnings: list[str] = []
+        if self._load_rate_problems:
+            detail = " ".join(self._load_rate_problems)
+            if self._business_mode:
+                blocks.append(
+                    "This policy can't be illustrated in this release: illustration "
+                    f"rates are missing. {detail}")
+            else:
+                warnings.append(
+                    f"{detail} Business users are blocked from running this policy.")
+        if self._load_md_warning:
+            warnings.append(self._load_md_warning)
+        return tuple(blocks), tuple(warnings)
 
     @staticmethod
     def _monthly_deduction_warnings(md_check) -> list[str]:
