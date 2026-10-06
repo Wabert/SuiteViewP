@@ -24,6 +24,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from suiteview.illustration.core.input_context import default_illustrated_rate
+from suiteview.illustration.core.rate_loader import load_rates
+from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
 from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.models.cl_polrec.policy_translations import (
@@ -194,3 +196,35 @@ def monthly_deduction_mismatch_notice(md_check) -> str:
         f"as ${calculated:,.2f}; CyberLife shows ${cyberlife:,.2f} (difference "
         f"${difference:,.2f}). Review the illustration with care — its values may "
         "not match the policy's administration.")
+
+
+# Missing illustration rates (should-do 4): business users can't run a policy
+# whose active riders/benefits have no rates (e.g. riders 06582004/06582016,
+# which have none by design) — the engine would silently omit those charges.
+# Checked on every run path (Run, Compare, saved/imported cases), not only at load.
+
+def missing_rate_findings(policy) -> tuple[str, ...]:
+    """Load the policy's illustration rates and report what is missing.
+
+    An exception while loading rates is itself a finding (the run can't be trusted)."""
+    try:
+        rates = load_rates(policy, load_plancode(_plancode(policy)))
+    except Exception as exc:
+        return (f"Unable to load illustration data/rates: {exc}",)
+    return tuple(missing_required_rate_warnings(policy, rates))
+
+
+def missing_rates_block(findings) -> str:
+    """The one refusal text every path shows for missing rates."""
+    return ("This policy can't be illustrated in this release: illustration rates "
+            f"are missing. {' '.join(findings)}")
+
+
+def rate_presence_gate(policy, *, business_mode: bool, findings_for=None) -> GateResult:
+    """Business users: refuse a run when illustration rates are missing.
+
+    Developers get the load-time warning only (no extra rate load per run)."""
+    if not business_mode:
+        return GateResult()
+    findings = (findings_for or missing_rate_findings)(policy)
+    return GateResult(blocks=(missing_rates_block(findings),)) if findings else GateResult()

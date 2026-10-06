@@ -98,12 +98,52 @@ def test_md_mismatch_warns_without_blocking(monkeypatch, business):
     assert "#D4A017" in win.run_notice.styleSheet()          # amber, not the red block
 
 
-def test_saved_case_snapshot_ignores_live_load_findings(monkeypatch):
+def test_saved_case_snapshot_checks_its_own_rates_in_business(monkeypatch):
+    # No live load checks run for a snapshot: stale live findings are dropped and
+    # the snapshot's own rates are checked, with the same refusal text.
+    from suiteview.illustration.core.run_gates import missing_rates_block
+
     win = _window(monkeypatch, True)
+    snapshot = _phase1_policy()
+    checked = []
+    monkeypatch.setattr(mw, "missing_rate_findings",
+                        lambda policy: checked.append(policy) or (_MISSING,))
+    win._load_md_warning = "stale live MD warning"
+    win._snapshot_case = SimpleNamespace(name="case")
+    win._snapshot_load_problems(snapshot)
+    win._illustration_data = snapshot
     win.run_values_btn.setEnabled(True)
+    assert checked == [snapshot]
+    assert win._apply_illustration_gate() is True
+    assert not win.run_values_btn.isEnabled()
+    assert win.run_notice.text() == missing_rates_block((_MISSING,))
+    assert "stale live MD warning" not in win.run_notice.text()
+
+
+def test_saved_case_snapshot_with_rates_runs_in_business(monkeypatch):
+    win = _window(monkeypatch, True)
+    monkeypatch.setattr(mw, "missing_rate_findings", lambda policy: ())
+    win._load_rate_problems = (_MISSING,)            # stale finding from a live load
+    win._snapshot_case = SimpleNamespace(name="case")
+    win._snapshot_load_problems(_phase1_policy())
     win._illustration_data = _phase1_policy()
+    win.run_values_btn.setEnabled(True)
+    assert win._apply_illustration_gate() is False
+    assert win.run_values_btn.isEnabled()
+
+
+def test_developer_saved_case_snapshot_skips_the_rate_load(monkeypatch):
+    win = _window(monkeypatch, False)
+
+    def never(policy):
+        raise AssertionError("developers keep the load-time warning only")
+
+    monkeypatch.setattr(mw, "missing_rate_findings", never)
     win._load_rate_problems = (_MISSING,)
     win._snapshot_case = SimpleNamespace(name="case")
+    win._snapshot_load_problems(_phase1_policy())
+    win._illustration_data = _phase1_policy()
+    win.run_values_btn.setEnabled(True)
     assert win._apply_illustration_gate() is False
 
 

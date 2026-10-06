@@ -36,7 +36,12 @@ from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, 
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
 from suiteview.illustration.core.report_builder import IllustrationReport, build_ul_report
 from suiteview.illustration.core.request_limits import reduced_request_warnings
-from suiteview.illustration.core.run_gates import GATE_TITLE, GateResult, run_gate
+from suiteview.illustration.core.run_gates import (
+    GATE_TITLE,
+    GateResult,
+    rate_presence_gate,
+    run_gate,
+)
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.solve_level_to_exception import (
     LevelToExceptionError,
@@ -151,6 +156,8 @@ class EngineServices:
     abr_quote_runner: Callable = field(default_factory=lambda: run_abr_quote)
     guaranteed_runner: Callable = field(default_factory=lambda: run_guaranteed_projection)
     business_mode: Callable[[], bool] = field(default_factory=lambda: is_business_mode)
+    # Rate-presence check for business runs; None uses run_gates.missing_rate_findings.
+    missing_rates: Callable | None = None
 
 
 @dataclass
@@ -303,6 +310,10 @@ def check_run_gates(
     gate = run_gate(prepared.policy_data, overrides, business_mode=business)
     if gate.blocked:
         raise RunFlowError(GATE_TITLE, "\n\n".join(gate.blocks))
+    rates = rate_presence_gate(
+        prepared.policy_data, business_mode=business, findings_for=services.missing_rates)
+    if rates.blocked:
+        raise RunFlowError(GATE_TITLE, "\n\n".join(rates.blocks))
     return gate
 
 

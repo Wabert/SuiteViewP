@@ -23,6 +23,8 @@ from PyQt6.QtWidgets import (
 from suiteview.core.build_env import is_distribution_build
 from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.illustration.core.run_gates import (
+    missing_rate_findings,
+    missing_rates_block,
     monthly_deduction_mismatch_notice,
     policy_gate,
 )
@@ -1567,6 +1569,7 @@ class IllustrationWindow(FramelessWindowBase):
         self._snapshot_case = case
         self._policy = None            # no live PolicyInformation in this mode
         self._live_policy_checks = None
+        self._snapshot_load_problems(snapshot)
         self._where_clause = None
         self._current_policy = policy_number
         self._current_region = region
@@ -1811,24 +1814,29 @@ class IllustrationWindow(FramelessWindowBase):
         self._load_rate_problems = ()
         self._load_md_warning = ""
 
+    def _snapshot_load_problems(self, snapshot) -> None:
+        """Saved-case snapshot: no live load checks ran, so business users get
+        the rate-presence check on the snapshot itself (Run disabled upfront;
+        execute_run refuses again). Developers skip the extra rate load."""
+        self._clear_load_problems()
+        if self._business_mode:
+            self._load_rate_problems = missing_rate_findings(snapshot)
+
     def _load_problem_gate(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """(blocks, warnings) from the live load checks (should-do 4 / M6).
 
         Missing illustration rates (or illustration data that could not load)
         block Run for business users — e.g. riders such as 06582004/06582016
         that have no rates by design — and warn developers. A monthly-deduction
-        mismatch over $0.01 warns everyone; it never blocks."""
-        if self._snapshot_case is not None:
-            return (), ()
+        mismatch over $0.01 warns everyone; it never blocks. Saved-case
+        snapshots set these from the snapshot itself (``_snapshot_load_problems``)."""
         blocks: list[str] = []
         warnings: list[str] = []
         if self._load_rate_problems:
-            detail = " ".join(self._load_rate_problems)
             if self._business_mode:
-                blocks.append(
-                    "This policy can't be illustrated in this release: illustration "
-                    f"rates are missing. {detail}")
+                blocks.append(missing_rates_block(self._load_rate_problems))
             else:
+                detail = " ".join(self._load_rate_problems)
                 warnings.append(
                     f"{detail} Business users are blocked from running this policy.")
         if self._load_md_warning:
