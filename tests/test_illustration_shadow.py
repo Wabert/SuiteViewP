@@ -381,7 +381,10 @@ def test_ltgul_and_passport_select_ii_shadow_flags():
     for plancode in ("1U135200", "1U135400", "1U135L00"):
         config = load_plancode(plancode)
         assert config.shadow_db_basis == "Policy" and not config.shadow_target_waiver_uplift
-        assert not config.shadow_frozen_after_cease
+        # Robert 2026-10-06: Passport Select II at 100 behaves like LTGUL, paid up with the
+        # shadow frozen, illustrated to the PLAN_DEF maturity (U0593758 no longer lapses at 100).
+        assert config.shadow_frozen_after_cease
+        assert config.charge_cease_age == 100 and config.shadow_cease_age == 100
     assert load_plancode("1U146600").shadow_db_basis == "Shadow"
     assert not load_plancode("1U146600").shadow_target_annual_flat
 

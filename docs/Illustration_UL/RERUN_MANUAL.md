@@ -166,13 +166,15 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   NAR death benefit from the policy, SA + regular AV ("proceeds payable at death"),
   not SA + shadow value (U0571763 -1,267 -> +2.84).
 - **Shadow at and after the cease age / negative shadow NAR (10/2026)**: on
-  `ShadowFrozenAfterCease` plans (LTGUL) the shadow is frozen from `ShadowCeaseAge`
+  `ShadowFrozenAfterCease` plans (LTGUL and, by Robert's ruling of 10/6, Passport Select II
+  1U135200/1U135400/1U135L00) the shadow is frozen from `ShadowCeaseAge`
   (100): no interest, and charges have already ceased. It keeps protecting while
   positive, so the policy runs to maturity with its AV (negative under protection,
   as CyberLife carries it) unchanged. LTGUL spec: a positive CCV on the anniversary
   at 100 continues the death benefit. CyberLife: U0580868 at 100 is in force with
-  XP frozen at 4,580.39 on every 2026 seriatim month and AV -1.51M. Other plans
-  still drop the shadow to 0 at the cease age (Passport Select II needs a ruling).
+  XP frozen at 4,580.39 on every 2026 seriatim month and AV -1.51M. Passport Select II
+  in force at 100 is paid up the same way and illustrated to its PLAN_DEF maturity (120):
+  U0593758 no longer lapses at 100. Other plans still drop the shadow to 0 at the cease age.
   The shadow NAR is NOT floored: CyberLife credits a negative shadow COI once the
   shadow exceeds the death benefit (U0575846 replays +3.98 vs XP unfloored, -112,357
   floored; U0639717 +0.03 vs -19,309). At extreme ages that credit makes the shadow
