@@ -1139,7 +1139,11 @@ withdrawal fit to the cent, NU1F3N00 000266911 does not). The credit is seeded a
 in-force FH_FIXED withdrawal events (grouped by date and code, CHARGE_AMT less the fee) and grows
 with projected withdrawals. When that history cannot be read or has fewer events than
 LH_POL_TOTALS TOT_WTD_QTY (purged), the policy falls back to the current-units basis with no
-credit, so no withdrawal is counted twice. A snapshot reloaded offline does not carry the credit.
+credit, so no withdrawal is counted twice. The same fallback applies when the record already has a
+coverage at zero face with original units and the history carries a credit (the record does not
+say whether a withdrawal or a decrease removed it), and to a value rollback to an earlier date (the
+history is not re-read for it); a run from issue clears the credit and the fallback. A snapshot
+reloaded offline does not carry the credit.
 The maximum withdrawal, lapse test and loan cap use the same netted charge. Live FFL policies already carry Decrease Charge Rule 0
 (`DECR_CHRG_ALLOW`, all 10,080 FFL UL policies), so the engine charged no elective-decrease
 partial charge on them before either. PolView's surrender-charge tip reports the original

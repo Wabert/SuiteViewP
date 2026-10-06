@@ -33,6 +33,7 @@ from suiteview.illustration.core.target_premium import (
     floor_monthly_cent,
     truncate_monthly_mtp,
 )
+from suiteview.illustration.core.withdrawal_handler import use_ffl_current_units_fallback
 from suiteview.illustration.models.index_strategies import is_iul_plan
 
 if TYPE_CHECKING:
@@ -301,6 +302,7 @@ def _copy_historical_basis(
     result.rollback_date = rollback_date
     result.rollback_source_date = anchor
     result.rollback_limitations = list(snapshot.limitations)
+    use_ffl_current_units_fallback(result)
     if _is_iul(policy):
         result.fund_values = {}
         if _IUL_TOTAL_BASIS not in result.rollback_limitations:

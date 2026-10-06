@@ -25,6 +25,7 @@ from dateutil.relativedelta import relativedelta
 from suiteview.illustration.constants import DB_OPTION_RETURN_OF_PREMIUM
 from suiteview.illustration.core.lapse import validate_no_lapse_years
 from suiteview.illustration.core.skipped_coverage import skipped_option_c_note
+from suiteview.illustration.core.withdrawal_handler import reset_ffl_withdrawal_state
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
     IllustrationScenario,
@@ -493,6 +494,7 @@ def _reset_issue_values(policy: IllustrationPolicyData) -> None:
     policy.tamra_7pay_start_date = policy.issue_date
     policy.tamra_7year_contributions = [0.0] * 7
     policy.skipped_coverage_periods = []
+    reset_ffl_withdrawal_state(policy)
 
 
 def prepare_policy_for_issue_projection(

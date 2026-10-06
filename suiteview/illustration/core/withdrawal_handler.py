@@ -279,8 +279,32 @@ def seed_ffl_withdrawal_history(policy, config, transactions, withdrawal_count: 
         setattr(policy, _FFL_CURRENT_UNITS_FALLBACK, True)
         return
     credit = sum(max(charge - fee, 0.0) for charge in events.values())
+    if credit > 0.0 and any(seg.face_amount <= 0 and seg.original_face_amount > 0 for seg in policy.segments):
+        # A coverage already at zero on the record may have been removed by one of these
+        # withdrawals (its original units would be dropped AND its charge credited), or by a
+        # decrease: the record does not say which, so use the current-units basis.
+        setattr(policy, _FFL_CURRENT_UNITS_FALLBACK, True)
+        return
     if credit > 0.0:
         setattr(policy, _FFL_WITHDRAWAL_CREDIT, credit)
+
+
+def reset_ffl_withdrawal_state(policy) -> None:
+    """Clear the in-force FFL withdrawal credit and fallback (run from issue: no history)."""
+    for name in (_FFL_WITHDRAWAL_CREDIT, _FFL_CURRENT_UNITS_FALLBACK):
+        if hasattr(policy, name):
+            delattr(policy, name)
+    for seg in policy.segments:
+        if hasattr(seg, _ZEROED_BY_WITHDRAWAL):
+            delattr(seg, _ZEROED_BY_WITHDRAWAL)
+
+
+def use_ffl_current_units_fallback(policy) -> None:
+    """Value rollback to an earlier date: the seeded credit covers withdrawals after it, which
+    the history is not re-read for, so a credited FFL policy takes the current-units basis."""
+    if float(getattr(policy, _FFL_WITHDRAWAL_CREDIT, 0.0)) > 0.0:
+        delattr(policy, _FFL_WITHDRAWAL_CREDIT)
+        setattr(policy, _FFL_CURRENT_UNITS_FALLBACK, True)
 
 
 def _sa_cuts_for_net(applied: float, policy: IllustrationPolicyData) -> Dict[int, float]:

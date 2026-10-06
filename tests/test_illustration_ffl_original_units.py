@@ -413,3 +413,64 @@ def test_polview_reports_the_history_credit_in_the_surrender_tip():
     tip = adv_prod_tooltips.surrender_charge_tip(values)
     assert "- Partial surrender charges already taken on withdrawals: 1,194.41" in tip
     assert tip.endswith("= 805.59")
+
+# -- third review (10/5/2026): run from issue, rollback, in-force zero-face coverage --------
+
+def test_run_from_issue_clears_the_inforce_withdrawal_credit_and_fallback():
+    from suiteview.illustration.core import scenario_builder
+    from suiteview.illustration.core.withdrawal_handler import (
+        ffl_current_units_fallback, ffl_withdrawal_surrender_credit)
+
+    credited = _credited_policy(500.0)
+    fallback = _credited_policy(0.0)
+    fallback._ffl_current_units_surrender_basis = True
+    for policy in (credited, fallback):
+        scenario_builder._reset_issue_values(policy)
+        assert ffl_withdrawal_surrender_credit(policy, FFL_WD) == 0.0
+        assert not ffl_current_units_fallback(policy)
+
+
+def test_rollback_to_an_earlier_date_takes_the_current_units_fallback():
+    from suiteview.illustration.core.withdrawal_handler import (
+        ffl_current_units_fallback, ffl_withdrawal_surrender_credit, use_ffl_current_units_fallback)
+
+    policy = _credited_policy(500.0)
+    use_ffl_current_units_fallback(policy)
+    assert ffl_current_units_fallback(policy) and ffl_withdrawal_surrender_credit(policy, FFL_WD) == 0.0
+    uncredited = _credited_policy(0.0)
+    use_ffl_current_units_fallback(uncredited)
+    assert not ffl_current_units_fallback(uncredited)
+
+
+def test_rollback_copy_applies_the_fallback(monkeypatch):
+    from suiteview.illustration.core import value_rollback
+    from suiteview.illustration.core.withdrawal_handler import ffl_current_units_fallback
+
+    monkeypatch.setattr(value_rollback, "_REQUIRED_AMOUNTS", ())
+    monkeypatch.setattr(value_rollback, "_apply_system_charges", lambda result, snapshot: [])
+    monkeypatch.setattr(value_rollback, "_copy_optional_snapshot_values", lambda result, snapshot: None)
+    monkeypatch.setattr(value_rollback, "_is_iul", lambda policy: False)
+    snapshot = SimpleNamespace(system_monthly_deduction=0.0, variable_loan_charge_rate=None, fund_values=None,
+                               limitations=[])
+    result, _ = value_rollback._copy_historical_basis(
+        _credited_policy(500.0), snapshot, date(2025, 6, 1), date(2026, 1, 1), [])
+    assert ffl_current_units_fallback(result)
+
+
+@pytest.mark.parametrize("credit_events, fallback", [
+    ([(date(2018, 8, 9), "SN", 1_219.41)], True),     # credit > 0 with a zero-face coverage: fallback
+    ([(date(2018, 8, 9), "SN", 25.00)], False),       # fee only, no credit: original units kept
+])
+def test_inforce_zero_face_coverage_with_a_seeded_credit_takes_the_fallback(credit_events, fallback):
+    from suiteview.illustration.core.withdrawal_handler import (
+        ffl_current_units_fallback, ffl_withdrawal_surrender_credit, seed_ffl_withdrawal_history)
+
+    policy = _withdrawal_policy()
+    policy.segments.append(CoverageSegment(coverage_phase=4, units=0.0, face_amount=0.0,
+                                           original_face_amount=150_000.0))
+    seed_ffl_withdrawal_history(policy, FFL_WD, _history(*credit_events), withdrawal_count=1, fee=25.0)
+    assert ffl_current_units_fallback(policy) is fallback
+    assert ffl_withdrawal_surrender_credit(policy, FFL_WD) == 0.0
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30, 4: [None] + [20.0] * 30})
+    assert calc_engine._calculate_surrender_charge(
+        policy, rates, 1, date(2020, 7, 15), FFL_WD, account_value=0.0)[1] == pytest.approx(2_000.0)
