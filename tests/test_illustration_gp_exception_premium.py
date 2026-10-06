@@ -255,10 +255,70 @@ def test_replaced_schedule_gets_one_run_notice_and_no_reduced_request_warning(en
     notices = gp_exception_schedule_notices(policy, inputs, states)
     assert len(notices) == 1
     notice = notices[0]
-    assert f"from {states[2].date:%m/%d/%Y}" in notice
-    assert "scheduled premium (900.00)" in notice
-    assert f"{states[2].gp_exception_prem:,.2f} a month" in notice
+    assert notice.startswith(
+        f"From {states[2].date:%m/%d/%Y} the policy is in the guideline premium exception period")
+    assert "scheduled premium ($900.00 Monthly) is replaced by the exception premium" in notice
+    assert f"${states[2].gp_exception_prem:,.2f} a month" in notice
     assert reduced_request_warnings(policy, inputs, states) == []
+
+
+def test_user_premium_above_the_requirement_is_replaced_after_the_latch(engine_env):
+    from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
+
+    # 2,000 a month entered; the exception premium needs far less. After the latch
+    # the contribution is the level exception premium, not the 2,000.
+    policy = _policy(-500.0)
+    policy.gsp = 3_000.0
+    policy.premiums_paid_to_date = 0.0
+    inputs = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=26, amount=2_000.0, mode="M")])
+    states = _project(policy, months=8, inputs=inputs, levelizing_premium=True)
+    assert states[1].gp_exception_mode
+    after = states[2:]
+    for state in after:
+        assert state.gross_premium == 0.0
+        assert state.requested_premium == 0.0
+        assert not state.premium_capped           # no spurious PremCap
+        assert state.av_after_exception == 0.0
+        assert state.interest_credited == 0.0
+        assert 0.0 < state.premium_outlay == state.gp_exception_prem < 2_000.0
+    assert len({round(s.gp_exception_prem, 2) for s in after}) == 1
+    notices = gp_exception_schedule_notices(policy, inputs, states)
+    assert len(notices) == 1 and "($2,000.00 Monthly)" in notices[0]
+
+
+def test_annual_schedule_is_named_with_its_mode(engine_env):
+    from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
+
+    # Nothing is paid in the non-billing months, so the notice dates from the
+    # first annual payment the exception premium replaces.
+    policy = _policy(-500.0)
+    policy.gsp = 0.0
+    inputs = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=26, amount=6_000.0, mode="A")])
+    states = _project(policy, months=14, inputs=inputs)
+    notices = gp_exception_schedule_notices(policy, inputs, states)
+    anniversary = next(s for s in states[2:] if s.date.month == 6 and s.date.day == 15)
+    assert len(notices) == 1
+    assert notices[0].startswith(f"From {anniversary.date:%m/%d/%Y}")
+    assert "($6,000.00 Annual)" in notices[0]
+    assert all(s.gross_premium == 0.0 for s in states[1:])
+
+
+def test_exception_premium_with_a_loan_lands_the_av_on_zero_and_can_lapse(engine_env):
+    # Today's behaviour (open question for Robert, not changed here): the exception
+    # premium restores the account value to 0, not the account value less debt.
+    # The lapse test uses AV - debt (lapse protection needs AV - debt > 0), so a
+    # policy carrying a loan is not kept in force by the exception premium.
+    policy = _policy(-500.0)
+    policy.regular_loan_principal = 1_000.0
+    states = _project(policy, months=3)
+    first = states[1]
+    assert first.gp_exception_mode
+    assert first.gp_exception_prem > 0.0
+    assert first.av_after_exception == 0.0
+    assert first.av_after_exception - 1_000.0 < 0.0
+    assert any(s.lapsed for s in states[1:])
 
 
 def test_no_notice_when_the_schedule_is_not_replaced(engine_env):
@@ -291,3 +351,11 @@ def test_target_and_excess_load_tiers_apply_to_the_exception_premium(engine_env)
     assert premiums[0] == pytest.approx(at_target, abs=0.01)
     assert premiums[-1] == pytest.approx(over_target, abs=0.01)
     assert len(set(premiums)) == 3  # target rate, one straddle, excess rate
+    # The loads on each row are the plan's tiers, and the net funds exactly the MD.
+    straddle = states[1 + premiums.index(sorted(set(premiums), key=premiums.index)[1])]
+    assert straddle.target_load > 0.0 and straddle.excess_load > 0.0
+    for state in states[1:]:
+        net = state.gp_exception_prem - state.total_premium_load
+        assert state.total_deduction <= net < state.total_deduction + 0.01
+        assert state.total_premium_load == pytest.approx(
+            state.target_load + state.excess_load + state.flat_load)

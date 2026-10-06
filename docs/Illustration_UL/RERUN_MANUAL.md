@@ -1039,11 +1039,19 @@ Exception Premium option) is computed **after the monthly deduction**:
   Contributions), so the guideline cap and levelizing can neither clip it nor add
   a capped billable remainder on top. Dated lump sums still apply. These remain
   7702(f)(6) exception premiums; force-outs and guideline accounting are
-  unchanged. The run shows one amber run notice ("GP exception period from …:
-  the scheduled premium (…) is replaced by the calculated exception premium …",
-  `core/exception_notices.py`). The reduced withdrawal/loan warnings cover only
-  withdrawals and loans, so the replaced premium raises no "request reduced"
-  warning.
+  unchanged. The run shows one amber run notice at the first replaced payment
+  ("From 11/10/2026 the policy is in the guideline premium exception period: the
+  scheduled premium ($1,400.10 Monthly) is replaced by the exception premium
+  needed to keep the policy in force ($636.41 a month in policy year 41) …",
+  `core/exception_notices.py`). The ledger's requested premium stays 0 for the
+  replaced months: it drives the PremCap flag and the report cover's premium
+  schedule, which must not show a premium that is never paid. The reduced
+  withdrawal/loan warnings cover only withdrawals and loans, so the replaced
+  premium raises no "request reduced" warning.
+- **Policy loans (open question):** the exception premium lands the account
+  value on 0, not on the policy debt. The lapse test uses AV − debt, so a policy
+  carrying a loan can still lapse in the exception period (pinned by
+  `test_exception_premium_with_a_loan_lands_the_av_on_zero_and_can_lapse`).
 
 This replaces the earlier minimum that assumed the premium arrived before the
 deduction and lowered the NAR (the "Exc Prem Discount", now always 0). The
