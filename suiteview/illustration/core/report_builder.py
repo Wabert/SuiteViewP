@@ -1095,20 +1095,36 @@ def loan_interest_lines(
                      f"{_pct(credit)} A YEAR")
         return text + "."
 
-    lines = [line(
-        "REGULAR",
-        _charge_rate(policy, "regular_loan_charge_rate", config.loan_charge_rate_guar),
-        credited("reg_loan_credit_rate", config.loan_charge_rate_curr),
-    )]
+    regular_balance = policy.regular_loan_principal + policy.regular_loan_accrued
     preferred_balance = policy.preferred_loan_principal + policy.preferred_loan_accrued
-    if preferred_balance > 0.005 or any(s.pref_loan_charge > 0.005 for s in projected):
+    variable_balance = policy.variable_loan_principal + policy.variable_loan_accrued
+    # A loan type is described when the policy has that balance now or the
+    # projection takes or carries one of that type.
+    has_regular = regular_balance > 0.005 or any(
+        s.applied_regular_loan > 0.005 or s.end_rg_loan_princ > 0.005 for s in projected)
+    has_preferred = preferred_balance > 0.005 or any(
+        s.applied_preferred_loan > 0.005 or s.end_pf_loan_princ > 0.005 for s in projected)
+    has_variable = variable_balance > 0.005 or any(
+        s.applied_variable_loan > 0.005 or s.end_vbl_loan_princ > 0.005 for s in projected)
+    if not (has_regular or has_preferred or has_variable):
+        # Defensive: the caller saw a loan but no bucket carries it; describe the
+        # plan's regular (fixed) loan rather than print nothing.
+        has_regular = True
+
+    lines: List[str] = []
+    if has_regular:
+        lines.append(line(
+            "REGULAR",
+            _charge_rate(policy, "regular_loan_charge_rate", config.loan_charge_rate_guar),
+            credited("reg_loan_credit_rate", config.loan_charge_rate_curr),
+        ))
+    if has_preferred:
         lines.append(line(
             "PREFERRED",
             _charge_rate(policy, "preferred_loan_charge_rate", config.pref_loan_charge_rate_guar),
             credited("pref_loan_credit_rate", config.pref_loan_charge_rate_curr),
         ))
-    variable_balance = policy.variable_loan_principal + policy.variable_loan_accrued
-    if variable_balance > 0.005:
+    if has_variable:
         rate = policy.variable_loan_charge_rate
         lines.append(
             f"VARIABLE LOAN INTEREST IS CHARGED AT THE CURRENT VARIABLE RATE OF {_pct(rate)} A YEAR."

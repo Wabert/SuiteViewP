@@ -479,6 +479,30 @@ def test_loan_interest_rates_printed_with_the_loan_balance(monkeypatch):
     assert _sd1_build(_sd1_policy()).loan_interest_lines == []
 
 
+@pytest.mark.parametrize(("balances", "kinds"), [
+    (dict(regular_loan_principal=1000.0), ["REGULAR"]),
+    (dict(preferred_loan_principal=1000.0), ["PREFERRED"]),
+    (dict(variable_loan_principal=1000.0, variable_loan_charge_rate=0.06), ["VARIABLE"]),
+    (dict(regular_loan_accrued=12.5, variable_loan_principal=1000.0,
+          variable_loan_charge_rate=0.06), ["REGULAR", "VARIABLE"]),
+])
+def test_loan_interest_lines_only_for_loan_types_present(monkeypatch, balances, kinds):
+    report = _sd1_build(_sd1_policy(**balances), config=_shadow_config(), monkeypatch=monkeypatch)
+    assert [line.split()[0] for line in report.loan_interest_lines] == kinds
+
+
+def test_illustrated_new_loan_gets_the_loan_type_it_lands_in(monkeypatch):
+    def kinds(**month_kw):
+        report = _sd1_build(_sd1_policy(), _sd1_states(**month_kw),
+                            config=_shadow_config(), monkeypatch=monkeypatch)
+        return [line.split()[0] for line in report.loan_interest_lines]
+
+    assert kinds(applied_regular_loan=500.0) == ["REGULAR"]
+    assert kinds(applied_preferred_loan=500.0) == ["PREFERRED"]
+    assert kinds(applied_variable_loan=500.0) == ["VARIABLE"]
+    assert kinds(end_pf_loan_princ=500.0, applied_preferred_loan=500.0) == ["PREFERRED"]
+
+
 def test_loan_interest_uses_edit_record_override_advance_and_other_loan_types(monkeypatch):
     from suiteview.illustration.models.plancode_config import PlancodeConfig
 
