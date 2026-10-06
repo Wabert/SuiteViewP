@@ -62,6 +62,7 @@ def _settings_file():
 
 
 _EXPENSE_PAGE_KEY = "report_add_expense_page"
+_PRINT_TOOLTIP = "Save the illustration report as a PDF file."
 
 PAGE_WIDTH = 112          # characters
 # Rows per ledger page — bounded by the landscape PDF page height (Letter
@@ -79,6 +80,31 @@ def _center(text: str) -> str:
 def _money(value: Optional[float]) -> str:
     """Ledger money: whole dollars, floored at 0 (RERUN); None renders blank."""
     return "" if value is None else f"{max(value, 0.0):,.0f}"
+
+
+class ReportNotPrintableError(RuntimeError):
+    """The formal illustration must not be printed or exported."""
+
+
+def print_blocked_reason(
+    report: Optional[IllustrationReport],
+    guaranteed_error: Optional[str] = None,
+) -> str:
+    """Why this report must not be printed, or "" when it may be.
+
+    A failed guaranteed-basis projection leaves the GUARANTEED VALUES columns
+    blank and the notes page contradicting itself, so the formal illustration
+    is refused rather than printed incomplete.
+    """
+    if report is None:
+        return ""
+    error = guaranteed_error or report.guaranteed_error
+    if error and not report.has_guaranteed_values:
+        return (
+            "The guaranteed projection failed, so the illustration's GUARANTEED "
+            f"VALUES columns would print blank. Print to PDF is disabled: {error}"
+        )
+    return ""
 
 
 class _PageBuilder:
@@ -800,7 +826,7 @@ class IllustrationReportTab(QWidget):
         top_row.addWidget(self.expense_report_check)
         self.print_pdf_btn = QPushButton("Print to PDF")
         self.print_pdf_btn.setEnabled(False)
-        self.print_pdf_btn.setToolTip("Save the illustration report as a PDF file.")
+        self.print_pdf_btn.setToolTip(_PRINT_TOOLTIP)
         self.print_pdf_btn.setStyleSheet(PRINT_BUTTON_STYLE)
         self.print_pdf_btn.clicked.connect(self._on_print_pdf)
         top_row.addWidget(self.print_pdf_btn)
@@ -832,8 +858,8 @@ class IllustrationReportTab(QWidget):
 
         # Guaranteed-run failure banner — shown when the guaranteed-basis
         # projection raised, so the report's blank GUARANTEED VALUES columns
-        # are never mistaken for computed zeros. UI-only: the printed pages
-        # are untouched.
+        # are never mistaken for computed zeros. Print to PDF is disabled
+        # while it shows (print_blocked_reason).
         self.guaranteed_warning = QLabel("", self)
         self.guaranteed_warning.setWordWrap(True)
         self.guaranteed_warning.setStyleSheet(
@@ -863,6 +889,7 @@ class IllustrationReportTab(QWidget):
         self._guaranteed_error = None
         self._abr_pages = None
         self.print_pdf_btn.setEnabled(False)
+        self.print_pdf_btn.setToolTip(_PRINT_TOOLTIP)
         self.guaranteed_warning.setVisible(False)
         self.status_label.setText(message)
         while self._sheet_layout.count():
@@ -917,21 +944,26 @@ class IllustrationReportTab(QWidget):
     def display_report(self, report: IllustrationReport, guaranteed_error: Optional[str] = None):
         self.clear("")
         self._report = report
-        self._guaranteed_error = guaranteed_error
-        self.print_pdf_btn.setEnabled(True)
-        if guaranteed_error and not report.has_guaranteed_values:
+        self._guaranteed_error = guaranteed_error or report.guaranteed_error
+        blocked = print_blocked_reason(report, self._guaranteed_error)
+        self.print_pdf_btn.setEnabled(not blocked)
+        if blocked:
+            self.print_pdf_btn.setToolTip(blocked)
             self.guaranteed_warning.setText(
                 "⚠ Guaranteed projection failed — the report's GUARANTEED VALUES "
-                f"columns are blank: {guaranteed_error}")
+                "columns are blank, so Print to PDF is disabled: "
+                f"{self._guaranteed_error}")
             self.guaranteed_warning.setVisible(True)
         pages = format_report_pages(
             report, include_expense_report=self.expense_report_check.isChecked())
         for lines in pages:
             self._add_sheet(lines)
-        guaranteed_note = (
-            "" if report.has_guaranteed_values
-            else "  Guaranteed columns are not projected."
-        )
+        if blocked:
+            guaranteed_note = "  Guaranteed projection failed - not printable."
+        elif report.has_guaranteed_values:
+            guaranteed_note = ""
+        else:
+            guaranteed_note = "  Guaranteed columns are not projected."
         self.status_label.setText(
             f"UL illustration report - {len(pages)} pages.{guaranteed_note}")
 
@@ -998,6 +1030,11 @@ class IllustrationReportTab(QWidget):
     def _on_print_pdf(self):
         if self._report is None:
             return
+        blocked = print_blocked_reason(self._report, self._guaranteed_error)
+        if blocked:
+            QMessageBox.warning(self, "Print to PDF", blocked)
+            self.status_label.setText("Print to PDF refused: the guaranteed projection failed.")
+            return
         default_name = self._default_pdf_name()
         if self._output_folder and Path(self._output_folder).is_dir():
             start_path = str(Path(self._output_folder) / default_name)
@@ -1037,7 +1074,13 @@ class IllustrationReportTab(QWidget):
 
     @staticmethod
     def write_pdf(report: IllustrationReport, path: str, include_expense_report: bool = False):
-        """Render the fixed-width report pages to a landscape PDF file."""
+        """Render the fixed-width report pages to a landscape PDF file.
+
+        Raises ``ReportNotPrintableError`` when the guaranteed projection failed.
+        """
+        blocked = print_blocked_reason(report)
+        if blocked:
+            raise ReportNotPrintableError(blocked)
         printer = IllustrationReportTab._pdf_printer(path)
         document = IllustrationReportTab._print_document(
             report, printer, include_expense_report=include_expense_report)

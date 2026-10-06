@@ -25,8 +25,12 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    `suiteview.illustration.api.project_policy` façade.  The service does not
    rewire lower-level engine/rate loaders.
 6. **Guaranteed** — `run_guaranteed_projection_safe()` replays locked current
-   cash flows under guaranteed assumptions.  Failure is non-fatal and is
-   returned as a banner/status message.
+   cash flows under guaranteed assumptions.  Failure is non-fatal for the run
+   and is returned as a banner/status message, but it makes the formal
+   illustration unprintable: `build_report_result()` records the error on the
+   report (`IllustrationReport.guaranteed_error`) and the Report tab disables
+   Print to PDF (`report_tab.print_blocked_reason`; `write_pdf` raises
+   `ReportNotPrintableError`), because the guaranteed columns would print blank.
 7. **Report** — `build_report_result()` calls the report builder with a pinned
    run date from the request.  Report specs/page specs are interpreters around
    the existing byte-identical text builders.

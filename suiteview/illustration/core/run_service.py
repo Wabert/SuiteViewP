@@ -503,6 +503,8 @@ def build_report_result(
         run_date=request.controls.run_date,
         guaranteed_results=guaranteed,
     )
+    if report is not None:
+        report.guaranteed_error = guaranteed_error
     return ReportResult(report, guaranteed_error)
 
 

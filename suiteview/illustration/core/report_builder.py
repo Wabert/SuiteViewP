@@ -411,6 +411,10 @@ class IllustrationReport:
     guaranteed_termination_year: Optional[int] = None
     year_of_mec: Optional[int] = None
     has_guaranteed_values: bool = False
+    # Why the guaranteed-basis projection failed (None = it ran or was not
+    # requested). A failed guaranteed side makes the report unprintable: the
+    # guaranteed columns would print blank (see ``print_blocked_reason``).
+    guaranteed_error: Optional[str] = None
 
     # IUL-only report sections.
     is_iul: bool = False
