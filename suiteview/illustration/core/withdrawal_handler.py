@@ -137,6 +137,7 @@ def compute_withdrawal(
         / 1000.0
         for seg in policy.segments
     )
+    full_sc = max(full_sc - ffl_withdrawal_surrender_credit(policy, config), 0.0)
     csv = av - full_sc - policy_debt
     sa_cap = (
         total_sa - (config.min_face_after_wd + fee)
@@ -182,12 +183,44 @@ def compute_withdrawal(
 def _full_surrender_charge_face(seg, config: PlancodeConfig) -> float:
     """Specified amount the full surrender charge applies to (see
     ``calc_engine.surrender_charge_units``): the original amount for OriginalSA and
-    FFL UL per-unit plans, otherwise the current amount."""
+    FFL UL per-unit plans, otherwise the current amount. An FFL coverage whose current
+    face is 0 (decreased out) has no original-amount basis."""
     if config.sa_basis == "OriginalSA":
         return seg.original_face_amount
-    if getattr(config, "surrender_charge_on_original_units", False) and seg.original_face_amount > 0:
+    if (getattr(config, "surrender_charge_on_original_units", False)
+            and seg.original_face_amount > 0 and seg.face_amount > 0):
         return seg.original_face_amount
     return seg.face_amount
+
+
+# Projection-only running total, deliberately not a dataclass field: it is not saved in
+# snapshots and the in-force FH_FIXED partial surrender charges are not loaded.
+_FFL_WITHDRAWAL_CREDIT = "_ffl_withdrawal_surrender_credit"
+
+
+def _ffl_withdrawal_credit_applies(policy, config) -> bool:
+    return (str(getattr(policy, "company_code", "") or "").strip() == "26"
+            and bool(getattr(config, "ffl_per_unit_surrender_charge", False)))
+
+
+def ffl_withdrawal_surrender_credit(policy, config) -> float:
+    """Partial surrender charges already taken on projected FFL withdrawals.
+
+    CyberLife's company-26 FFL full surrender charge after withdrawals is the charge on
+    the original units less the partial surrender charges already taken (excluding the
+    withdrawal fee), floored at 0: 5 of 6 FH_FIXED surrenders after a charged withdrawal
+    fit to the cent (10/5/2026). Withdrawals before the valuation date are not loaded.
+    """
+    if not _ffl_withdrawal_credit_applies(policy, config):
+        return 0.0
+    return float(getattr(policy, _FFL_WITHDRAWAL_CREDIT, 0.0))
+
+
+def record_ffl_withdrawal_surrender_charge(policy, config, partial_sc: float) -> None:
+    """Add a projected withdrawal's partial surrender charge (fee excluded) to the credit."""
+    if partial_sc > 0.0 and _ffl_withdrawal_credit_applies(policy, config):
+        setattr(policy, _FFL_WITHDRAWAL_CREDIT,
+                float(getattr(policy, _FFL_WITHDRAWAL_CREDIT, 0.0)) + partial_sc)
 
 
 def _sa_cuts_for_net(applied: float, policy: IllustrationPolicyData) -> Dict[int, float]:

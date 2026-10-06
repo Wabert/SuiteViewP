@@ -156,6 +156,8 @@ from suiteview.illustration.core.target_premium import (
 from suiteview.illustration.core.withdrawal_handler import (
     WithdrawalResult,
     compute_withdrawal,
+    ffl_withdrawal_surrender_credit,
+    record_ffl_withdrawal_surrender_charge,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -3359,6 +3361,8 @@ class WithdrawalInput:
 def _process_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
     """Compute and apply one month's withdrawal (CalcEngine AX..BU)."""
     wd = _compute_month_withdrawal(inputs)
+    if wd.reduces_sa:
+        record_ffl_withdrawal_surrender_charge(inputs.policy, inputs.config, wd.partial_sc)
     if wd.face_decrease > MONEY_EPSILON:
         _apply_withdrawal_face_decrease(inputs, wd)
     return wd
@@ -4998,13 +5002,14 @@ def surrender_charge_units(segment: CoverageSegment, config: Optional[PlancodeCo
     OriginalSA plans charge the surrender charge on the coverage's ORIGINAL
     units; so do FFL UL per-unit plans (``CurrentSA``), whose charge stays on the
     pre-decrease units because FFL takes no partial surrender charge on a
-    decrease (Robert, 10/5/2026). Every other plan uses the current units.
+    decrease (Robert, 10/5/2026). An FFL coverage decreased to zero current units
+    has no original-units basis. Every other plan uses the current units.
     (Units are the specified amount per $1,000.)
     """
     if config is not None and config.sa_basis == SA_BASIS_ORIGINAL:
         return segment.original_face_amount / PER_THOUSAND
     if (config is not None and getattr(config, "surrender_charge_on_original_units", False)
-            and segment.original_face_amount > 0):
+            and segment.original_face_amount > 0 and segment.units > 0):
         return segment.original_face_amount / (segment.vpu or PER_THOUSAND)
     return segment.units
 
@@ -5023,7 +5028,10 @@ def _calculate_surrender_charge(
 
     Most plans charge a per-unit rate x units, independent of the account value. A
     rule-5 ISWL base coverage charges a fraction of the account value instead; its
-    reported rate is that fraction.
+    reported rate is that fraction. A company-26 FFL total is reduced by the partial
+    surrender charges taken on projected withdrawals, floored at 0
+    (``withdrawal_handler.ffl_withdrawal_surrender_credit``); the per-coverage
+    charges are before that credit.
     """
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]
@@ -5047,9 +5055,13 @@ def _calculate_surrender_charge(
         scr_rates_by_coverage[key] = segment_scr_rate
         surrender_charges_by_coverage[key] = segment_surrender_charge
 
+    total = sum(surrender_charges_by_coverage.values())
+    credit = ffl_withdrawal_surrender_credit(policy, config)
+    if credit > 0.0:
+        total = max(total - credit, 0.0)
     return (
         scr_rates_by_coverage.get("cov1", 0.0),
-        sum(surrender_charges_by_coverage.values()),
+        total,
         scr_rates_by_coverage,
         surrender_charges_by_coverage,
     )

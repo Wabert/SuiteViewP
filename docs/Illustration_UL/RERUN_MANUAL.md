@@ -1129,9 +1129,14 @@ specified-amount decrease, elective or the A->B level-DB reduction, takes no par
 surrender charge (`PlancodeConfig.face_decrease_surrender_charge`). Their SA_Basis stays
 `CurrentSA`: it also drives the COI band, EPU, target premiums and withdrawals, and FFL's
 monthly deduction already matches on current SA. A decrease entered in a projection keeps the
-charge on the pre-decrease units. Withdrawals keep their partial surrender charge: CyberLife
-books one on FFL withdrawals (`FH_FIXED` 'SN'/'SM' rows); the maximum withdrawal nets the full
-charge on original units. Live FFL policies already carry Decrease Charge Rule 0
+charge on the pre-decrease units; a coverage decreased to zero units drops out of the charge.
+Withdrawals keep their partial surrender charge: CyberLife books one on FFL withdrawals (`FH_FIXED`
+'SN'/'SM' rows). After a projected withdrawal the company-26 FFL full charge is the charge on
+original units less the partial surrender charges already taken (excluding the $25 fee), floored
+at 0 (`withdrawal_handler.ffl_withdrawal_surrender_credit`; 5 of 6 FFL surrenders after a charged
+withdrawal fit to the cent, NU1F3N00 000266911 does not). Withdrawals before the valuation date
+are not loaded, so an in-force value after a past withdrawal still shows the uncredited charge.
+The maximum withdrawal nets the same full charge. Live FFL policies already carry Decrease Charge Rule 0
 (`DECR_CHRG_ALLOW`, all 10,080 FFL UL policies), so the engine charged no elective-decrease
 partial charge on them before either. PolView's surrender-charge tip reports the original
 units for these plans.

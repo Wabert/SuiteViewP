@@ -104,7 +104,8 @@ def test_ffl_face_decrease_takes_no_partial_charge_and_keeps_the_full_charge():
     assert not charge_scr and cut.av_adjustment == 0.0 and cut.psc_by_phase == {}
     assert cut.cuts_by_phase == {2: 30_000.0, 1: 10_000.0}
     assert [s.units for s in policy.segments] == [90.0, 0.0]
-    assert full == pytest.approx(5.0 * 130.0)          # pre-decrease (original) units
+    # Pre-decrease (original) units of what remains; the increase decreased out no longer charges.
+    assert full == pytest.approx(5.0 * 100.0)
 
 
 def test_current_sa_plan_still_charges_the_decrease_and_reduces_the_full_charge():
@@ -138,3 +139,120 @@ def test_policy_prefetch_reports_the_original_units_basis_for_ffl():
                             surrender_charge=200.0, surrender_value=800.0, policy_debt=0.0)
     values = _surrender_values(basis, FFL, IllustrationRates(), state)
     assert values.original_units_basis and values.coverages[0].units == 100.0
+
+
+# -- follow-up (10/5/2026 review): zero-face coverages and projected FFL withdrawals --------
+
+def test_ffl_coverage_decreased_to_zero_has_no_original_units_basis():
+    zero = CoverageSegment(coverage_phase=4, units=0.0, face_amount=0.0, original_face_amount=150_000.0)
+    assert calc_engine.surrender_charge_units(zero, FFL) == 0.0
+    issue = date(2015, 3, 1)
+    policy = IllustrationPolicyData(company_code="26", issue_date=issue, segments=[
+        _segment(100.0, 100.0, issue), _segment(30.0, 30.0, date(2018, 3, 1), phase=2)])
+    flat = [None] + [5.0] * 30
+    rates = IllustrationRates(segment_scr={1: flat, 2: flat})
+    calc_engine._reduce_base_face(policy, 30_000.0, rates, date(2020, 6, 15), 1, False, FFL)
+    assert [s.units for s in policy.segments] == [100.0, 0.0]
+    full = calc_engine._calculate_surrender_charge(policy, rates, 1, date(2020, 6, 15), FFL, account_value=0.0)[1]
+    assert full == pytest.approx(5.0 * 100.0)          # the removed increase no longer charges
+
+
+def test_ffl_increase_then_decrease_keeps_the_original_units_of_what_remains():
+    issue = date(2015, 3, 1)
+    policy = IllustrationPolicyData(company_code="26", issue_date=issue, segments=[
+        _segment(100.0, 100.0, issue), _segment(50.0, 50.0, date(2018, 3, 1), phase=2)])
+    flat = [None] + [4.0] * 30
+    rates = IllustrationRates(segment_scr={1: flat, 2: flat})
+    on = date(2020, 6, 15)
+    charge_scr = calc_engine._charge_face_decrease_surrender(policy, FFL, {})
+    cut = calc_engine._reduce_base_face(policy, 20_000.0, rates, on, 1, charge_scr, FFL)
+    assert cut.av_adjustment == 0.0 and [s.units for s in policy.segments] == [100.0, 30.0]
+    full = calc_engine._calculate_surrender_charge(policy, rates, 1, on, FFL, account_value=0.0)[1]
+    assert full == pytest.approx(4.0 * 150.0)
+
+
+def test_original_units_below_current_units_are_used():
+    """000200993 shape: CyberLife's original units (75.0, 98.01) are below current (75.05, 109.351)."""
+    policy = IllustrationPolicyData(company_code="26", issue_date=date(1989, 9, 14), segments=[
+        _segment(75.05, 75.0, date(1989, 9, 14)), _segment(109.351, 98.01, date(2013, 10, 14), phase=16)])
+    assert [calc_engine.surrender_charge_units(s, FFL) for s in policy.segments] == [75.0, pytest.approx(98.01)]
+
+
+@pytest.mark.parametrize("face, original, expected", [
+    (80_000.0, 0.0, 80_000.0),          # missing original amount: current face
+    (0.0, 50_000.0, 0.0),               # decreased out: no original basis
+    (80_000.0, 100_000.0, 100_000.0),
+])
+def test_withdrawal_full_charge_face_with_zero_or_missing_original(face, original, expected):
+    from suiteview.illustration.core.withdrawal_handler import _full_surrender_charge_face
+
+    segment = CoverageSegment(coverage_phase=1, units=face / 1000.0, face_amount=face, original_face_amount=original)
+    assert _full_surrender_charge_face(segment, FFL) == expected
+
+
+def _withdrawal_policy(company="26"):
+    issue = date(2015, 3, 1)
+    policy = IllustrationPolicyData(company_code=company, issue_date=issue, db_option="A",
+                                    segments=[_segment(100.0, 100.0, issue)])
+    policy.face_amount = 100_000.0
+    return policy
+
+
+def _withdraw(policy, config, amount, monkeypatch):
+    from suiteview.illustration.core.loan_handler import LoanState
+    from suiteview.illustration.models.calc_state import MonthlyState
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    monkeypatch.setattr(calc_engine, "_apply_withdrawal_face_decrease", lambda inputs, wd: calc_engine._reduce_base_face(
+        inputs.policy, wd.face_decrease, inputs.rates, inputs.month_date, inputs.rate_year, False, inputs.config))
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30})
+    wd = calc_engine._process_withdrawal(calc_engine.WithdrawalInput(
+        state=MonthlyState(), policy=policy, config=config, rates=rates, rate_year=1, attained_age=50,
+        month_date=date(2020, 6, 15), av=50_000.0, cost_basis=0.0,
+        month_inputs=SimpleNamespace(withdrawal=amount, withdrawal_gross=0.0), cap_loan=LoanState(),
+        is_anniversary=False, options=IllustrationOptions(), corridor_rate=1.0))
+    full = calc_engine._calculate_surrender_charge(
+        policy, rates, 1, date(2020, 7, 15), config, account_value=50_000.0)[1]
+    return wd, full
+
+
+FFL_WD = PlancodeConfig(company_sub="FFL", withdrawal_fee=25.0, md_holdback=0.0, min_face_after_wd=0.0)
+
+
+def test_ffl_withdrawal_then_surrender_nets_the_partial_charge_already_taken(monkeypatch):
+    """100 units at 20/unit: a 10,000 withdrawal cuts 10 units and charges 200 (plus the 25 fee);
+    the full charge stays on the 100 original units (2,000) less the 200 already taken = 1,800."""
+    policy = _withdrawal_policy()
+    wd, full = _withdraw(policy, FFL_WD, 10_000.0, monkeypatch)
+    assert wd.partial_sc == pytest.approx(200.0) and wd.reduces_sa
+    assert full == pytest.approx(2_000.0 - 200.0)       # fee (25) is not part of the credit
+    # A second withdrawal adds its charge; the credit never takes the charge below 0.
+    wd2, full2 = _withdraw(policy, FFL_WD, 10_000.0, monkeypatch)
+    assert full2 == pytest.approx(2_000.0 - 200.0 - wd2.partial_sc)
+    from suiteview.illustration.core.withdrawal_handler import record_ffl_withdrawal_surrender_charge
+    record_ffl_withdrawal_surrender_charge(policy, FFL_WD, 5_000.0)
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30})
+    assert calc_engine._calculate_surrender_charge(
+        policy, rates, 1, date(2020, 8, 15), FFL_WD, account_value=0.0)[1] == 0.0
+
+
+def test_ffl_withdrawal_limit_nets_the_credit(monkeypatch):
+    policy = _withdrawal_policy()
+    _withdraw(policy, FFL_WD, 10_000.0, monkeypatch)
+    from suiteview.illustration.core.withdrawal_handler import compute_withdrawal
+    result = compute_withdrawal(50_000.0, policy, FFL_WD, {1: 20.0}, 0.0, corridor_rate=1.0, prior_total_md=0.0,
+                                policy_debt=0.0, cost_basis=0.0, withdrawals_to_date=0.0, withdrawals_ytd=0.0,
+                                is_anniversary=False)
+    assert result.max_net_withdrawal == pytest.approx(50_000.0 - (2_000.0 - 200.0) - 25.0)
+
+
+@pytest.mark.parametrize("company, config", [
+    ("01", FFL_WD),
+    ("26", PlancodeConfig(company_sub="ANICO", withdrawal_fee=25.0, md_holdback=0.0, min_face_after_wd=0.0)),
+])
+def test_withdrawal_credit_is_company_26_ffl_only(company, config, monkeypatch):
+    policy = _withdrawal_policy(company)
+    wd, full = _withdraw(policy, config, 10_000.0, monkeypatch)
+    units = 100.0 if config.is_ffl else policy.segments[0].units
+    assert wd.partial_sc == pytest.approx(200.0)
+    assert full == pytest.approx(20.0 * units)
