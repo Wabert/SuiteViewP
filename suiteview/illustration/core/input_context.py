@@ -165,7 +165,6 @@ def build_policy_context(policy) -> PolicyContext:
 
     timing = _policy_timing(policy)
     mode = _default_mode(policy)
-    status_code = _status_code(policy)
     table_rating = _table_rating(policy)
     plancode, illustrated_rate, gint = _interest_assumptions(policy)
     is_cvat = _is_cvat(policy)
@@ -195,7 +194,7 @@ def build_policy_context(policy) -> PolicyContext:
         gint=gint,
         premium_allocations=_premium_allocations_from_policy(policy),
         sweep_account_min=float(getattr(policy, "sweep_account_min", 0.0) or 0.0),
-        suspended=status_code == "2",
+        suspended=is_suspended(policy),
         valuation_date=timing.valuation_date,
         index_illustration_rates=getattr(policy, "index_illustration_rates", None),
         index_strategy_parameters=getattr(policy, "index_strategy_parameters", None),
@@ -273,9 +272,9 @@ def _default_mode(policy) -> str:
     return {3: "Q", 6: "S", 12: "A"}.get(frequency, "M")
 
 
-def _status_code(policy) -> str:
-    return str(policy_attr(policy, "status_code", "")
-               or policy_attr(policy, "premium_pay_status_code", "") or "")
+def is_suspended(policy) -> bool:
+    """Suspense code 2 (LH_BAS_POL.SUS_CD, ``SUSPENSE_CODES``): suspended."""
+    return str(policy_attr(policy, "suspense_code", "") or "").strip() == "2"
 
 
 def _table_rating(policy) -> int:

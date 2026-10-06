@@ -65,7 +65,6 @@ class _FakePolicy:
     base_rate_class = "N"
     base_table_rating = 2
     base_plancode = "1U135D00"
-    status_code = "0"
 
     def __init__(self):
         self.coverages = SimpleNamespace(get_coverages=self.get_coverages)
@@ -91,13 +90,13 @@ def test_exception_period_red_notice_resets_and_coexists_with_suspension():
     policy = IllustrationPolicyData(
         issue_date=date(2000, 6, 15), valuation_date=date(2025, 6, 15),
         issue_age=45, attained_age=70, duration=300, policy_year=26,
-        glp=0.0, premium_pay_status_code="2")
+        glp=0.0, premium_pay_status_code="22", suspense_code="2")
     panel.load_from_policy(policy)
     assert "POLICY IS SUSPENDED" in panel.suspended_banner.text()
     assert "EXCEPTION PREMIUM PERIOD" in panel.suspended_banner.text()
     assert "#C62828" in panel.suspended_banner.styleSheet()
     assert not panel.suspended_banner.isHidden()
-    policy.premium_pay_status_code = "0"
+    policy.suspense_code = "0"
     policy.glp = 12.0
     panel.load_from_policy(policy)
     assert panel.suspended_banner.isHidden()
@@ -1280,18 +1279,79 @@ def test_riders_panel_enables_renewal_rated_benefit():
     assert waiver_btn.toolTip() == "Keep / change / drop this rider"
 
 
+def _live_shaped_policy_information(suspense_code: str, premium_pay_status: str = "22"):
+    """A PolicyInformation over a live-shaped CKPR LH_BAS_POL row (no POL_STS_CD,
+    as on the live table — see test_policy_data_strict_columns)."""
+    from suiteview.polview.models.policy_data import PolicyData
+    from suiteview.polview.models.policy_information import PolicyInformation
+
+    columns = (
+        "TCH_POL_ID CK_CMP_CD CK_SYS_CD CK_POLICY_NBR NON_TRD_POL_IND PRM_PAID_TO_DT "
+        "PRM_BILL_TO_DT SUS_CD PRM_PAY_STA_REA_CD PMT_FQY_PER OGN_ETR_CD LST_ETR_CD "
+        "POL_ISS_ST_CD NXT_BIL_DT PLN_TMN_DT NXT_MVRY_PRC_DT NXT_YR_END_PRC_DT"
+    ).split()
+    values = {"SUS_CD": suspense_code, "PRM_PAY_STA_REA_CD": premium_pay_status,
+              "NON_TRD_POL_IND": "1", "CK_CMP_CD": "01", "PMT_FQY_PER": 1}
+    row = tuple(values.get(name, "") for name in columns)
+    data = object.__new__(PolicyData)
+    data._policy_number = "UL000002"
+    data._table_cache = {"LH_BAS_POL": {"columns": columns, "rows": [row]}}
+    data._table_errors = {}
+    data._exists = True
+    policy = object.__new__(PolicyInformation)
+    policy._data = data
+    policy._sections = {}
+    return policy
+
+
+def test_suspense_code_carries_from_live_record_into_illustration_data():
+    from suiteview.illustration.core.illustration_policy_service import (
+        policy_status_identity,
+    )
+
+    pi = _live_shaped_policy_information("2")
+    assert pi.status.status_code == ""           # live LH_BAS_POL has no POL_STS_CD
+    identity = policy_status_identity(pi)
+    assert identity == {"premium_pay_status_code": "22", "suspense_code": "2"}
+    assert IllustrationPolicyData(**identity).suspense_code == "2"
+
+
+@pytest.mark.parametrize("suspense, expected", [("2", True), ("0", False), ("3", False)])
+def test_suspended_flag_reads_suspense_code_not_status(suspense, expected):
+    from suiteview.illustration.core.illustration_policy_service import (
+        policy_status_identity,
+    )
+    from suiteview.illustration.core.input_context import is_suspended
+
+    pi = _live_shaped_policy_information(suspense)
+    assert is_suspended(pi) is expected
+    data = IllustrationPolicyData(**policy_status_identity(pi))
+    assert is_suspended(data) is expected
+
+
 def test_suspended_banner():
     _app()
-
-    class Suspended(_FakePolicy):
-        status_code = "2"
+    pi = _live_shaped_policy_information("2")
+    from suiteview.illustration.core.illustration_policy_service import (
+        policy_status_identity,
+    )
+    policy = IllustrationPolicyData(
+        issue_date=date(2019, 11, 9), valuation_date=date(2026, 5, 9),
+        issue_age=50, attained_age=56, duration=79, policy_year=7,
+        glp=1200.0, **policy_status_identity(pi))
 
     panel = DynamicInputsPanel()
-    panel.load_from_policy(Suspended())
-    assert panel.suspended_banner.isVisible() or panel.suspended_banner.text()
+    panel.load_from_policy(policy)
+    assert not panel.suspended_banner.isHidden()
     assert "SUSPENDED" in panel.suspended_banner.text()
     assert "05/09/2026" in panel.suspended_banner.text()   # valuation date
     assert "06/09/2026" in panel.suspended_banner.text()   # forecast date
+
+    # Premium-pay status 22 alone (the value the old check misread) is not a
+    # suspension.
+    policy.suspense_code = "0"
+    panel.load_from_policy(policy)
+    assert panel.suspended_banner.isHidden()
 
 
 def test_excess_repayment_toggle_states_and_placement():

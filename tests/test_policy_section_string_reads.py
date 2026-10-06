@@ -86,12 +86,12 @@ def test_illustration_loan_basis_reads_loan_rates():
 
 def test_input_context_reads_status_and_timing_from_sections():
     pi = _pi(
-        status=SimpleNamespace(status_code="2", premium_pay_status_code="22"),
+        status=SimpleNamespace(status_code="", suspense_code="2", premium_pay_status_code="22"),
         activity=SimpleNamespace(issue_date=date(2010, 1, 15), policy_year=17),
         coverages=SimpleNamespace(base_issue_age=40, age_at_maturity=121, attained_age=56),
         values=SimpleNamespace(valuation_date=date(2026, 8, 15)),
     )
-    assert input_context._status_code(pi) == "2"
+    assert input_context.is_suspended(pi) is True
     timing = input_context._policy_timing(pi)
     assert timing.issue_date == date(2010, 1, 15)
     assert timing.issue_age == 40
