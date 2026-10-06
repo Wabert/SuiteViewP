@@ -188,7 +188,7 @@ class PlancodeConfig:
     shadow_cease_age: int = 121          # Age at which shadow account ceases
     shadow_sa_basis: int = 2             # 1 = OriginalSA, 2 = CurrentSA
     shadow_mfee: float = 0.0             # Flat monthly expense fee
-    shadow_loan_impact: str = "Reduce"   # "Reduce" or "None"
+    shadow_loan_impact: str = "Reduce"   # "Reduce" (shadow - debt), "Nullify" (any debt: no protection) or "None"
     shadow_late_payment_forgiveness: bool = False
     shadow_aps205_load_relief: bool = False
     shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"

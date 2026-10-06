@@ -453,6 +453,15 @@ def test_shadow_frozen_after_cease_requires_charges_to_stop():
                        shadow_frozen_after_cease=True)
 
 
+@pytest.mark.parametrize("impact, debt, expected", [
+    ("Reduce", 500.0, 500.0), ("Nullify", 500.0, 0.0), ("Nullify", 0.0, 1_000.0), ("None", 500.0, 1_000.0)])
+def test_shadow_loan_impact(impact, debt, expected):
+    """Nullify (SGUL/LTGUL/Passport Select II): any policy debt removes shadow protection."""
+    from suiteview.illustration.core.shadow_calc import _shadow_eav_less_debt
+
+    assert _shadow_eav_less_debt(PlancodeConfig(shadow_loan_impact=impact), 1_000.0, debt) == expected
+
+
 def test_shadow_subtracts_gross_withdrawal_before_nar():
     policy = _shadow_policy()
     config = PlancodeConfig()

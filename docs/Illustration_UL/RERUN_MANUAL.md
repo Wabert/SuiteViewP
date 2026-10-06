@@ -177,7 +177,9 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   shadow exceeds the death benefit (U0575846 replays +3.98 vs XP unfloored, -112,357
   floored; U0639717 +0.03 vs -19,309). At extreme ages that credit makes the shadow
   grow without bound; `_round_near` widens its Decimal precision so it cannot fail.
-  SGUL-family products
+  `ShadowLoanImpact` "Nullify" (SGUL, LTGUL, Passport Select II): any policy debt
+  removes shadow protection (specs; RERUN col YN); "Reduce" protects on shadow less
+  debt. SGUL-family products
   use the product flag `ShadowLatePaymentForgiveness`: premiums exactly on a
   monthliversary are applied before shadow COI; premiums received strictly
   between monthliversaries are credited to the prior month after that month's

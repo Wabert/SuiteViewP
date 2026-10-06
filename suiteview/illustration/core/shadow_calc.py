@@ -353,8 +353,18 @@ def _shadow_eav_less_debt(
     shadow_eav: float,
     policy_debt: float,
 ) -> float:
+    """Shadow value available for lapse protection after policy debt.
+
+    "Reduce": shadow less debt.  "Nullify": any policy debt removes the protection
+    (LTGUL spec: with debt the surrender value must be positive; SGUL spec: the NLG
+    does not prevent lapse when debt exceeds the surrender value; RERUN col YN).  Of
+    ~16,000 in-force policies with AV < 0 and XP > 0 in the 8/2026 seriatim, the 7
+    with loans are all on "Reduce" plans.
+    """
     if config.shadow_loan_impact == "Reduce":
         return shadow_eav - policy_debt
+    if config.shadow_loan_impact == "Nullify" and policy_debt > 0.0:
+        return min(shadow_eav, 0.0)
     return shadow_eav
 
 
