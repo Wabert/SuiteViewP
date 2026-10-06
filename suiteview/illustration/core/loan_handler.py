@@ -176,6 +176,7 @@ def accrue_loan_interest(
     config: PlancodeConfig,
     days_in_month: float,
     variable_loan_charge_rate: float | None = None,
+    fixed_days_in_month: float | None = None,
 ) -> LoanState:
     """Accrue monthly loan interest charge (in-arrears).
 
@@ -186,6 +187,9 @@ def accrue_loan_interest(
         loan: Current loan balances (after capitalization).
         config: Plancode config with loan charge rates.
         days_in_month: Option-aware day count for the current month.
+        fixed_days_in_month: Day count for regular/preferred loans when it differs
+            from ``days_in_month`` (actual days on the plancode-driven path); the
+            variable loan always uses ``days_in_month``.
 
     Returns:
         Updated LoanState with accrued interest added.
@@ -194,8 +198,9 @@ def accrue_loan_interest(
         # Advance loans: no monthly accrual (interest prepaid)
         return loan
 
-    rg_interest = loan.rg_loan_princ * config.loan_charge_rate_guar * days_in_month / DAYS_PER_YEAR
-    pf_interest = loan.pf_loan_princ * config.pref_loan_charge_rate_guar * days_in_month / DAYS_PER_YEAR
+    fixed_days = days_in_month if fixed_days_in_month is None else fixed_days_in_month
+    rg_interest = loan.rg_loan_princ * config.loan_charge_rate_guar * fixed_days / DAYS_PER_YEAR
+    pf_interest = loan.pf_loan_princ * config.pref_loan_charge_rate_guar * fixed_days / DAYS_PER_YEAR
     vbl_rate = variable_loan_charge_rate if variable_loan_charge_rate is not None else 0.0
     vbl_interest = loan.vbl_loan_princ * vbl_rate * days_in_month / DAYS_PER_YEAR
 

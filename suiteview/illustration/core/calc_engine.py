@@ -298,6 +298,7 @@ class InforceWork:
     ctp_detail: Dict[str, object] = dataclass_field(default_factory=dict)
     md_check_av_before_deduction: float = 0.0
     month_days: float = 0.0
+    fixed_loan_month_days: float = 0.0
     ded: object | None = None
     intr: object | None = None
     wair_held: float = 0.0
@@ -1487,6 +1488,7 @@ def accrue_loans(ctx: MonthContext, work: MonthWork) -> None:
             ctx.policy.variable_loan_charge_rate,
             ctx.policy.current_interest_rate,
         ),
+        fixed_days_in_month=work.intr.fixed_loan_accrual_days,
     )
 
 
@@ -2251,6 +2253,7 @@ def _initialize_inforce_work(
     # Loans and the shadow account stay on the valuation date and accrue for
     # the whole month even when the account value opens on an interim date.
     work.month_days = work.intr.days_in_month
+    work.fixed_loan_month_days = work.intr.fixed_loan_accrual_days
     interim_days = _inforce_interim_days(policy, opening, work.month_date)
     if interim_days is not None:
         work.intr = credit_interest(
@@ -2373,6 +2376,7 @@ def _inforce_accrued_loan(
         variable_loan_accrual_rate(
             iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate
         ),
+        fixed_days_in_month=work.fixed_loan_month_days,
     )
 
 

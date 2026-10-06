@@ -6,6 +6,8 @@ synthetic facts/rows (``tests.plan_facts_fixtures``).
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 import suiteview.illustration.models.plancode_config as pc
@@ -196,3 +198,66 @@ def test_min_face_after_withdrawal_is_the_plan_issue_minimum(plancode, minimum):
     table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
     rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
     assert rows[plancode].get("MinFaceAfterWD", 25_000) == minimum
+
+
+# ── plancode-driven interest (exact_days_interest=None) on DIFFCMPD plans ────
+
+
+def _table_interest_method(plancode: str) -> str:
+    import json
+    from pathlib import Path
+
+    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
+    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
+    return rows[plancode]["Interest_Method"]
+
+
+@pytest.mark.parametrize("plancode, monthly_credit", [
+    ("1S135A00", True),    # DIFFCMPD 2: 1/12 of a year
+    ("1S133A29", False),   # DIFFCMPD 1: exact days
+])
+@pytest.mark.parametrize("month_date, days", [(date(2026, 7, 18), 31), (date(2026, 6, 18), 30)])
+def test_plancode_interest_method_credits_by_diffcmpd_and_accrues_loans_on_actual_days(
+    plancode, monthly_credit, month_date, days,
+):
+    from suiteview.illustration.core.bonus_rates import BonusConfig
+    from suiteview.illustration.core.interest_calc import credit_interest
+    from suiteview.illustration.core.rate_loader import IllustrationRates
+
+    config = PlancodeConfig(plancode=plancode, interest_method=_table_interest_method(plancode))
+    policy = IllustrationPolicyData(plancode=plancode, current_interest_rate=0.04)
+    result = credit_interest(10_000.0, policy, config, IllustrationRates(), BonusConfig(), 20, 70,
+                             month_date, exact_days_interest=None)
+    expected = 1.04 ** (1 / 12) - 1 if monthly_credit else 1.04 ** (days / 365) - 1
+    assert result.monthly_interest_rate == pytest.approx(expected)
+    # CyberLife accrues fixed-loan interest on actual days on both compounding codes
+    # (1S135A00 S1376650 and 1S133K29 S1338936 loan steps follow month length).
+    assert result.fixed_loan_accrual_days == days
+    # Variable (IUL) loans keep the crediting day count.
+    assert result.loan_accrual_days == pytest.approx(365 / 12 if monthly_credit else days)
+
+
+@pytest.mark.parametrize("forced, loan_days", [(True, 31.0), (False, 365 / 12)])
+def test_explicit_interest_choice_drives_loan_accrual_too(forced, loan_days):
+    from suiteview.illustration.core.bonus_rates import BonusConfig
+    from suiteview.illustration.core.interest_calc import credit_interest
+    from suiteview.illustration.core.rate_loader import IllustrationRates
+
+    config = PlancodeConfig(plancode="1S135A00", interest_method="1/12th")
+    policy = IllustrationPolicyData(plancode="1S135A00", current_interest_rate=0.04)
+    result = credit_interest(10_000.0, policy, config, IllustrationRates(), BonusConfig(), 20, 70,
+                             date(2026, 7, 18), exact_days_interest=forced)
+    assert result.fixed_loan_accrual_days == pytest.approx(loan_days)
+    assert result.loan_accrual_days == pytest.approx(loan_days)
+
+
+def test_fixed_loans_accrue_on_their_own_day_count_and_variable_on_the_crediting_one():
+    from suiteview.illustration.core.loan_handler import LoanState, accrue_loan_interest
+
+    config = PlancodeConfig(plancode="1S135A00", loan_type="Arrears",
+                            loan_charge_rate_guar=0.08, pref_loan_charge_rate_guar=0.06)
+    loan = LoanState(rg_loan_princ=1_000.0, pf_loan_princ=1_000.0, vbl_loan_princ=1_000.0)
+    accrued = accrue_loan_interest(loan, config, 365 / 12, 0.05, fixed_days_in_month=31.0)
+    assert accrued.reg_loan_charge == pytest.approx(1_000.0 * 0.08 * 31 / 365)
+    assert accrued.pref_loan_charge == pytest.approx(1_000.0 * 0.06 * 31 / 365)
+    assert accrued.vbl_loan_charge == pytest.approx(1_000.0 * 0.05 / 12)

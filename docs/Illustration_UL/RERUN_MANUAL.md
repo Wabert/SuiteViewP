@@ -1069,7 +1069,13 @@ monthliversary-to-current-monthliversary day span; monthly-compounding plans
 retain the `(1 + i) ** (1/12) - 1` monthly factor. Loan interest still accrues
 over the forward span to the next monthliversary (`InterestResult.
 loan_accrual_days`); sharing the crediting span broke exact loan matches on
-about 30 policies in the 304-policy baseline.
+about 30 policies in the 304-policy baseline. With the plancode interest method in
+force (`exact_days_interest=None`), fixed (regular and preferred) loan interest
+accrues on actual days (`InterestResult.fixed_loan_accrual_days`) even where the
+plan credits 1/12 of a year. Evidence: CyberLife `DIFFCMPD` 2 plans 1S135A00
+(S1376650) and 1S133K29 (S1338936), whose loan steps follow month length (six-month
+history replay 2026-10-06). An explicit Exact Days Interest choice drives both, and
+variable (IUL) loans keep the crediting day count.
 Projected monthliversary dates are always issue-date anchored and clamped to the
 target month end, so day-31 policies project 4/30, 5/31, 6/30, 7/31 rather than
 drifting permanently to the 30th after April. The policy loader counts a clamped

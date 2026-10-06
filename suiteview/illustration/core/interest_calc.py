@@ -25,6 +25,10 @@ class InterestResult:
     # timing ``days_in_month`` is the prior span (E01); loans still accrue over
     # the forward span, which is this calendar month's day count.
     loan_accrual_days: float = 0.0
+    # Fixed (regular/preferred) loan accrual days: actual days on the plancode-driven
+    # path whatever the crediting method (CyberLife); ``loan_accrual_days`` stays the
+    # variable-loan day count.
+    fixed_loan_accrual_days: float = 0.0
     annual_interest_rate: float = 0.0
     bonus_interest_rate: float = 0.0
     effective_annual_rate: float = 0.0
@@ -104,11 +108,19 @@ def credit_interest(
     actual_days = _days_in_month(month_date)
     exact_days = exact_days_override if exact_days_override is not None else actual_days
     use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
+    # CyberLife accrues fixed (regular/preferred) loan interest on actual days even where
+    # the fund credits 1/12 of a year (DIFFCMPD 2: 1S135A00 S1376650, 1S133K29 S1338936
+    # loan steps follow month length). An explicit what-if choice still drives both;
+    # variable (IUL) loans keep the crediting day count (no CyberLife evidence).
+    fixed_loan_exact_days = True if exact_days_interest is None else exact_days_interest
     display_days = float(exact_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
     loan_accrual_days = float(actual_days) if use_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR
+    fixed_loan_accrual_days = (
+        float(actual_days) if fixed_loan_exact_days else DAYS_PER_YEAR / MONTHS_PER_YEAR)
     if period_days is not None:
         display_days = float(period_days)
         loan_accrual_days = float(period_days)
+        fixed_loan_accrual_days = float(period_days)
 
     def period_rate(annual: float) -> float:
         if period_days is not None:
@@ -167,6 +179,7 @@ def credit_interest(
         days_in_month=display_days,
         actual_days_in_month=actual_days,
         loan_accrual_days=loan_accrual_days,
+        fixed_loan_accrual_days=fixed_loan_accrual_days,
         annual_interest_rate=annual_rate,
         bonus_interest_rate=bonus_rate,
         effective_annual_rate=effective_annual_rate,
