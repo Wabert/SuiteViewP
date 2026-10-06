@@ -5,6 +5,7 @@ instead (``_apply_iswl_premium``; rules in ``iswl_rates``).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
 
@@ -44,6 +45,77 @@ class PremiumResult:
 def premium_load_rates(rates: IllustrationRates, rate_year: int) -> tuple[float, float]:
     """Target/excess premium-load rates for ``rate_year`` (PolicyRates AW/AX)."""
     return get_rate(rates, "tpp", rate_year), get_rate(rates, "epp", rate_year)
+
+
+@dataclass(frozen=True)
+class PremiumLoadSplit:
+    """One gross premium split at the commission target and its loads."""
+
+    gross: float = 0.0
+    under_target: float = 0.0
+    over_target: float = 0.0
+    target_load: float = 0.0
+    excess_load: float = 0.0
+    flat_load: float = 0.0
+
+    @property
+    def total_load(self) -> float:
+        return self.target_load + self.excess_load + self.flat_load
+
+    @property
+    def net(self) -> float:
+        return self.gross - self.total_load
+
+
+def split_premium_load(
+    gross: float, *, premiums_ytd: float, ctp: float, tpp: float, epp: float, flat: float,
+) -> PremiumLoadSplit:
+    """CalcEngine cols 395-400: TPP up to the CTP, EPP above it, plus the flat load.
+
+    ``premiums_ytd`` is the policy-year premium already paid before ``gross``.
+    """
+    if gross <= 0.0:
+        return PremiumLoadSplit()
+    ytd_after = premiums_ytd + gross
+    under = max(min(ctp - premiums_ytd, gross), 0.0)
+    over = max(min(gross, ytd_after - ctp), 0.0) if ytd_after > ctp else 0.0
+    return PremiumLoadSplit(
+        gross=gross, under_target=under, over_target=over,
+        target_load=under * tpp, excess_load=over * epp,
+        flat_load=flat if flat > 0 else 0.0,
+    )
+
+
+def gross_up_for_premium_load(
+    net_required: float, *, premiums_ytd: float, ctp: float, tpp: float, epp: float, flat: float,
+) -> PremiumLoadSplit:
+    """Smallest whole-cent gross premium whose net after load covers ``net_required``.
+
+    Inverts :func:`split_premium_load`: the part of the premium that fits under the
+    remaining commission target (``ctp - premiums_ytd``) is loaded at ``tpp``, the
+    rest at ``epp``, and the flat per-premium load is added once. The exact gross is
+    rounded up to the cent, so the net after load is at least ``net_required`` and
+    exceeds it by less than one cent.
+    """
+    if net_required <= 0.0:
+        return PremiumLoadSplit()
+    keep_target = 1.0 - tpp if abs(1.0 - tpp) > 1e-12 else 1.0
+    keep_excess = 1.0 - epp if abs(1.0 - epp) > 1e-12 else 1.0
+    flat_load = flat if flat > 0 else 0.0
+    needed = net_required + flat_load
+    room = max(ctp - premiums_ytd, 0.0)
+    if needed <= room * keep_target:
+        exact = needed / keep_target
+    else:
+        exact = room + (needed - room * keep_target) / keep_excess
+    gross = math.ceil(round(exact * 100.0, 6)) / 100.0
+    split = split_premium_load(
+        gross, premiums_ytd=premiums_ytd, ctp=ctp, tpp=tpp, epp=epp, flat=flat)
+    while split.net < net_required - 1e-9:
+        gross = round(gross + 0.01, 2)
+        split = split_premium_load(
+            gross, premiums_ytd=premiums_ytd, ctp=ctp, tpp=tpp, epp=epp, flat=flat)
+    return split
 
 
 def apply_premium(
@@ -112,26 +184,18 @@ def apply_premium(
             cost_basis=cost_basis,
         )
 
-    # ── CTP split (CalcEngine cols 395-396) ───────────────────
-    ctp = policy.ctp
-    prem_ytd_before = premiums_ytd
-    prem_ytd_after = prem_ytd_before + gross_premium
-
-    prem_under_target = max(min(ctp - prem_ytd_before, gross_premium), 0.0)
-    if prem_ytd_after > ctp:
-        prem_over_target = max(min(gross_premium, prem_ytd_after - ctp), 0.0)
-    else:
-        prem_over_target = 0.0
-
-    # ── Premium load (CalcEngine cols 397-400) ────────────────
+    # ── CTP split and premium load (CalcEngine cols 395-400) ──
     # A plan without premium-load cells carries the table's flat load as level
     # tpp = epp schedules, so the split charges it on every premium.
-    target_load = prem_under_target * tpp_rate
-    excess_load = prem_over_target * epp_rate
-    flat_load = 0.0
-
-    if config.prem_flat_load > 0 and gross_premium > 0:
-        flat_load = config.prem_flat_load
+    split = split_premium_load(
+        gross_premium, premiums_ytd=premiums_ytd, ctp=policy.ctp,
+        tpp=tpp_rate, epp=epp_rate, flat=config.prem_flat_load,
+    )
+    prem_under_target = split.under_target
+    prem_over_target = split.over_target
+    target_load = split.target_load
+    excess_load = split.excess_load
+    flat_load = split.flat_load
 
     total_premium_load = target_load + excess_load + flat_load
     net_premium = gross_premium - total_premium_load

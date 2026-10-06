@@ -975,14 +975,17 @@ av_after_deduction = av_after_premium - total_deduction
 
 ### 4.14 Step 14 - Exception Premium Calculations
 
-The GP exception premium is now implemented in-engine (CalcEngine `SY/SZ/TA/TB/TD`), gated by `IllustrationOptions.allow_exception_prems`. Once the policy is past the safety-net period, has no CCV protection, has reached the guideline limit (`SX`), and account value after charges has gone negative, the engine injects the exception premium that brings after-charge AV back to zero:
+The GP exception premium is now implemented in-engine (CalcEngine `SY/SZ/TB/TD`), gated by `IllustrationOptions.allow_exception_prems` (or a recognized in-force exception period). Once the policy is past the safety-net period, has no CCV protection, has reached the guideline limit (`SX`), and account value after charges has gone negative, the engine adds the exception premium. **Robert's rule (10/6/2026):** the premium is set *after* the monthly deduction. It funds MD0, the deduction as if the account value were 0, less the account value available before the deduction, grossed up for the plan's actual premium load:
 
 ```text
-gross   = max(0, -av_after_charge)
-discount = gross / 1000 * coi_rate
-exception_prem = (gross - discount + flat_prem_load) / (1 - target_load_rate)
-av = av_after_charge + (exception_prem * (1 - target_load_rate) - flat_prem_load + discount)   # -> ~0
+MD0      = monthly deduction at AV 0 (NAR = full discounted DB; riders, benefits, EPU, MFEE, extras as usual)
+required = -av_after_charge + (MD0 - MD)            # == MD0 - AV available before the deduction
+exception_prem = smallest whole-cent gross whose net after load >= required
+                 (TPP up to the remaining CTP, EPP above it, plus the flat per-premium load)
+av = av_after_charge + required                      # 0 whenever the available AV was <= 0
 ```
+
+A negative available AV raises the premium (the first-month catch-up); a positive one lowers it and leaves only `MD0 - MD` (the COI on that AV), which runs off the next month. A sub-cent ending AV and the sub-cent rounding excess of the whole-cent premium are not credited, so the AV sits at exactly 0 and the premium is level within a policy year (it steps with the COI rate at the anniversary, and once at the target-to-excess load crossing when TPP ≠ EPP). The old "premium before the deduction lowers the NAR" discount (`TA`) is retired for the GP exception and always 0; the Monthly Deduction premium keeps its own COI feedback. Once exception mode latches (past the safety net, no shadow account), the scheduled/billable premium is no longer requested: the exception premium is the whole monthly contribution and the guideline cap and levelizing never clip or add to it. Dated lump sums still apply.
 
 Exception mode latches on for the remainder of the projection, disables guideline force-out, and adds an exception-premium lapse protection (`YQ`) to the lapse test. The exception mechanic gates only on the safety-net, CCV/shadow, guideline-limit, and inforce conditions — **a policy loan does not block it** (the UI now allows Allow-GP-Exception for loan policies, since premium is applied to the loan first; only an active shadow account still blocks). Policy Support's GLP Exception target-date quotes use `guideline_exception_adjustment.py`: two independent minimum-level solves (current GLP and starting GLP=0), both with guideline enforcement and this engine exception mechanic enabled. Their full monthly states share the RERUN Values Overview ledger mapping. The separate Targets-tab solver in `glp_exception.py` retains its own level-premium adjustment calculation.
 

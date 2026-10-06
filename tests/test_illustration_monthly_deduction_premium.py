@@ -423,12 +423,17 @@ def test_md_premium_hands_off_to_gp_exception_when_capped(monkeypatch):
     assert first.md_premium_capped is True
     assert first.md_premium_discount > 0.0
     assert first.gp_exception_prem > 0.0
-    assert first.gp_exception_prem_discount > 0.0
+    # The GP exception premium is set after the deduction: no COI saving.
+    assert first.gp_exception_prem_discount == 0.0
     assert first.exception_prem_mode is True    # the GP exception (not MD) flips this
     assert first.gp_exception_mode is True
     for s in projected:
         assert s.gp_exception_mode is True       # latched
-        assert s.av_end_of_month == pytest.approx(0.0, abs=0.05)
+    # Month 1 starts with AV 200, so the premium set after the deduction leaves
+    # MD0 - MD (the COI on that 200) behind; from then on the AV sits at zero.
+    assert first.av_end_of_month == pytest.approx(200.0 * 6.0 / 1000.0, abs=0.01)
+    for s in projected[1:]:
+        assert s.av_end_of_month == pytest.approx(0.0, abs=0.01)
     for s in projected[1:]:
         assert s.md_premium == 0.0               # no room left once over the guideline
         assert s.gp_exception_prem > 0.0
@@ -437,11 +442,13 @@ def test_md_premium_hands_off_to_gp_exception_when_capped(monkeypatch):
 def test_gp_exception_premium_includes_flat_load_for_1u135100():
     config = calc_engine.load_plancode("1U135100")
     assert config.prem_flat_load == 1.65
-    rates = IllustrationRates(tpp=[0.0, 0.10])
+    rates = IllustrationRates(tpp=[0.0, 0.10], epp=[0.0, 0.10])
+    policy = _md_policy()
+    policy.ctp = 5_000.0
 
     result = calc_engine._compute_exception_premium(calc_engine.ExceptionPremiumInput(
         options=IllustrationOptions(allow_exception_prems=True),
-        policy=_md_policy(),
+        policy=policy,
         config=config,
         rates=rates,
         rate_year=1,
@@ -454,15 +461,16 @@ def test_gp_exception_premium_includes_flat_load_for_1u135100():
         attained_age=70,
     ))
 
-    # Net premium is exactly the $100 shortfall after both the 10% load and
-    # 1U135100's $1.65 flat load.
-    assert result.prem == pytest.approx((100.0 + 1.65) / 0.90)
+    # The $100 shortfall after both the 10% load and 1U135100's $1.65 flat load,
+    # rounded up to the cent: (100 + 1.65) / 0.90 = 112.944... -> 112.95.
+    assert result.prem == pytest.approx(112.95)
     assert result.percentage_load == pytest.approx(result.prem * 0.10)
     assert result.flat_load == pytest.approx(1.65)
     assert result.gp_percentage_load == pytest.approx(result.prem * 0.10)
     assert result.gp_flat_load == pytest.approx(1.65)
-    assert result.prem - result.percentage_load - result.flat_load == pytest.approx(100.0)
-    assert result.av_after_exception == pytest.approx(0.0)
+    net = result.prem - result.percentage_load - result.flat_load
+    assert 100.0 <= net < 100.01
+    assert result.av_after_exception == 0.0
 
 
 def test_exception_loads_are_included_in_monthly_premium_load_totals(monkeypatch):
@@ -503,7 +511,9 @@ def test_exception_loads_are_included_in_monthly_premium_load_totals(monkeypatch
     )
     assert state.gp_exception_flat_load == pytest.approx(1.65)
     assert state.flat_load == pytest.approx(1.65)
-    assert state.target_load > 0.0
+    # CTP 0: the whole exception premium is over target, so it carries the EPP.
+    assert state.excess_load == pytest.approx(state.gp_exception_prem * 0.10)
+    assert state.target_load == pytest.approx(0.0)
     assert state.total_premium_load == pytest.approx(
         state.target_load + state.excess_load + state.flat_load
     )
@@ -560,9 +570,9 @@ def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
     # GP exception fires purely because the policy is at the guideline limit with
     # a residual negative AV, and the exception is CARRIED FORWARD (latched) for
     # many months. Every exception row — the first trigger AND all carried-forward
-    # rows — must use Option A (level DB) assumptions, so the COI feedback
-    # ("Exc Prem Discount") equals gross x coi_rate/1000 rather than collapsing to
-    # the near-wash Option B factor.
+    # rows — must use Option A (level DB) assumptions. The exception premium is
+    # set after the deduction (Robert 10/6/2026), so there is no COI feedback and
+    # each row ends at exactly zero account value.
     dbd = 0.0425
     monkeypatch.setattr(
         calc_engine, "load_plancode",
@@ -594,9 +604,9 @@ def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
         # The policy acts as Option A for the whole exception period.
         assert s.db_option == "A"
         if s.gp_exception_prem_gross > 0.0:
-            # Option A COI feedback: full COI rate, NOT the Option B near-wash.
-            assert s.gp_exception_prem_discount == pytest.approx(
-                s.gp_exception_prem_gross * s.coi_rate / 1000.0, rel=1e-6)
+            assert s.gp_exception_prem_discount == 0.0
+            if s is not exc_rows[0]:
+                assert s.av_after_exception == 0.0
     # The caller's policy object is untouched (private-copy guard).
     assert policy.db_option == "B"
 

@@ -1007,6 +1007,51 @@ Verified 2026-09-15: GPT, GLP=0, starting AV=-605.20; no regular premiums,
 calculated exception premiums from the first projected month, zero regular
 premium solved to maturity, and the red notice visible.
 
+### GP exception premium amount (Robert, 10/6/2026)
+
+Every GP exception premium (a recognized in-force period or the Allow GP
+Exception Premium option) is computed **after the monthly deduction**:
+
+- **MD0** is the month's deduction as if the account value were 0: the NAR is the
+  full discounted death benefit (DB / (1 + DBD)^(1/12)), with COI on that NAR and
+  all other charges (riders, benefits, EPU, MFEE, flat/table extras) as usual.
+- **Required net premium** = MD0 − the account value available before the
+  deduction (after the prior month's interest and any other premium this month).
+  A negative AV raises it, so the first month catches up the deficit; a positive
+  AV lowers it. No premium is due in a month the AV covers its own deduction.
+- **Gross-up** uses the plan's actual load: TPP on the part of the premium that
+  fits under the policy year's remaining commission target, EPP above it, plus
+  the flat per-premium load (PlanCode table `PremFlatLoad`). First-year loads are
+  the policy-year-1 cells of the TPP/EPP schedules. The gross is rounded up to the
+  cent, so the net covers the requirement within $0.01.
+- The account value is then 0 after the deduction (no interest on it), and the
+  premium is level within the policy year. It steps at the anniversary with the
+  COI rate, and once more where the year's premiums pass the commission target
+  if TPP and EPP differ. A positive starting AV leaves only MD0 − MD (the COI on
+  that AV), which runs off the next month.
+- Once exception mode latches (past the safety net, no shadow account), the
+  scheduled/billable premium is no longer requested. The exception premium is
+  the whole monthly contribution (Values **Exception Prem**, included in
+  Contributions), so the guideline cap and levelizing can neither clip it nor add
+  a capped billable remainder on top. Dated lump sums still apply. These remain
+  7702(f)(6) exception premiums; force-outs and guideline accounting are
+  unchanged.
+
+This replaces the earlier minimum that assumed the premium arrived before the
+deduction and lowered the NAR (the "Exc Prem Discount", now always 0). The
+Monthly Deduction premium type keeps its own pre-deduction COI feedback. ISWL,
+CVAT and shadow-account policies never generate GP exception premiums.
+Coverage: `tests/test_illustration_gp_exception_premium.py`.
+
+Fixed 10/6/2026 (UL082161, Prem to Maturity from a suspended, negative-AV
+basis): levelizing spread the last 7,000.50 of guideline room over five payments
+(1,400.10), so "guideline limit reached" latched and the exception premium fired in
+month 1 while room remained. That exception premium consumed room, the next
+month's 1,400.10 billable was capped to the 1,043.72 remainder and paid on top of
+a zero AV (AV 378.77), and the month after needed only 209.71. The latched
+exception period now replaces the billable premium, giving 1,400.10 + 4,606.18 in
+month 1 and a level 636.41 for the rest of the policy year.
+
 ## RERUN new-business / from-issue scenarios
 
 The policy-scoped **Inforce | New Business - From Issue** toggle on Illustration
