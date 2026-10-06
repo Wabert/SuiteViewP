@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.core.build_env import is_distribution_build
 from suiteview.illustration.core.business_mode import is_business_mode
+from suiteview.illustration.core.run_gates import policy_gate
 from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.signals import muted_signals
 from suiteview.core.db2_connection import DB2Connection
@@ -116,6 +117,17 @@ logger = logging.getLogger(__name__)
 WINDOW_TITLE = "SuiteView:  RERUN"
 # The only DB2 region business users may load from.
 BUSINESS_REGION = "CKPR"
+# Run notice strip under the lookup bar: red when Run is blocked, amber for
+# warnings the user should see before running (same palette as the Input-tab
+# suspended / exception notices).
+RUN_BLOCK_STYLE = (
+    "color: #B00020; background-color: #FDECEA; border: 1px solid #C62828;"
+    " border-radius: 4px; padding: 5px 10px; margin: 0 10px; font-size: 11px;"
+    " font-weight: bold;")
+RUN_WARNING_STYLE = (
+    "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
+    " border-radius: 4px; padding: 5px 10px; margin: 0 10px; font-size: 11px;"
+    " font-weight: bold;")
 
 
 class IllustrationWindow(FramelessWindowBase):
@@ -144,6 +156,9 @@ class IllustrationWindow(FramelessWindowBase):
         ] | None = None
         self._rollback_projection_blocked = False
         self._record_drafts_pending = False
+        # Load-time warnings shown in the run notice (status outside phase 1,
+        # monthly-deduction mismatch); run warnings are added after each run.
+        self._load_warnings: tuple[str, ...] = ()
         # Per-policy session state, keyed like _policy_cache by
         # (policy_number, region, company_code). Each entry stores plain input
         # drafts plus values/report/status snapshots, so policy-list switching
@@ -476,6 +491,13 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.layout().addSpacing(6)
         self.lookup_bar.layout().addWidget(self.save_case_btn)
         main_layout.addWidget(self.lookup_bar)
+
+        # Run notice: why Run Values is blocked (red) or what to watch before
+        # running (amber) — beside the Run button, not only on the Policy tab.
+        self.run_notice = QLabel("")
+        self.run_notice.setWordWrap(True)
+        self.run_notice.setVisible(False)
+        main_layout.addWidget(self.run_notice)
 
         # The same policy badge strip as PolView (shared chips, Timeline /
         # Notes / Copy), framed in RERUN purple; PolView's suggested next
@@ -1002,21 +1024,41 @@ class IllustrationWindow(FramelessWindowBase):
     def _mark_next_get_for_default_inputs(self):
         self._default_inputs_on_next_get = True
 
-    def _apply_illustration_gate(self) -> bool:
-        """DISTRIBUTION-ONLY: if the loaded policy's plancode is flagged
-        ``CanIllustrate = False``, disable Run Values and post a persistent
-        notice in the status bar. In dev (running from source) this is a no-op,
-        so the flag never blocks anything while building/testing.
+    def _set_run_notice(self, blocks=(), warnings=()) -> None:
+        """Show why Run is blocked (red) or what to note before running (amber)."""
+        lines = list(dict.fromkeys([*blocks, *warnings]))
+        self.run_notice.setText("\n".join(lines))
+        self.run_notice.setStyleSheet(RUN_BLOCK_STYLE if blocks else RUN_WARNING_STYLE)
+        self.run_notice.setVisible(bool(lines))
 
-        Called at the end of every policy/saved-case load. Returns True when
-        the policy is blocked (button left disabled). Must run AFTER the load
-        path has otherwise enabled the button, so the block wins.
+    def _show_run_warnings(self, run_warnings) -> None:
+        """Show a run's non-blocking warnings with the load-time notice."""
+        self._set_run_notice((), (*self._load_warnings, *run_warnings))
+        if not run_warnings:
+            return
+        self._show_status(
+            f"{self._status_label.text()}  ·  {len(run_warnings)} warning(s) — see the notice "
+            "under the policy bar.")
+
+    def _apply_illustration_gate(self) -> bool:
+        """Gate Run Values for the loaded policy/case; True when blocked.
+
+        Business mode (any build): the phase-1 plancode allow-list and policy
+        status (``run_gates.policy_gate``) block Run with the reason in the run
+        notice. Developers: a status outside phase 1 is an amber warning, and
+        in packaged builds a plancode flagged ``CanIllustrate = False`` blocks
+        Run (no-op from source, so the flag never blocks development).
+
+        Called at the end of every policy/saved-case load. Must run AFTER the
+        load path has otherwise enabled the button, so the block wins.
         """
         self.run_values_btn.setText(
             "Shadow Required" if self._rollback_projection_blocked else "Run Values")
         self.run_values_btn.setToolTip(
             "Enter a verified historical Shadow Account Value before projecting."
             if self._rollback_projection_blocked else "Project the selected illustration basis.")
+        self._set_run_notice()
+        self._load_warnings = ()
         if self.policy_tab.has_pending_record_changes():
             self.run_values_btn.setEnabled(False)
             self._show_status("Apply or Reset the pending fund/allocation values before Run/Save.")
@@ -1025,7 +1067,16 @@ class IllustrationWindow(FramelessWindowBase):
             self.run_values_btn.setEnabled(False)
             self._show_status("Rollback values loaded. Enter a historical shadow amount before Run Values.")
             return True
-        if not is_distribution_build():
+        policy = self._illustration_data
+        if policy is not None:
+            gate = policy_gate(policy, business_mode=self._business_mode)
+            self._load_warnings = gate.warnings
+            self._set_run_notice(gate.blocks, gate.warnings)
+            if gate.blocked:
+                self.run_values_btn.setEnabled(False)
+                self._show_status(gate.blocks[0])
+                return True
+        if self._business_mode or not is_distribution_build():
             return False
         plancode = str(getattr(self._illustration_data, "plancode", "") or "").strip()
         if not plancode:
@@ -1037,14 +1088,17 @@ class IllustrationWindow(FramelessWindowBase):
         if config.can_illustrate:
             return False
         self.run_values_btn.setEnabled(False)
-        self._show_status(
+        message = (
             f"This plancode ({plancode}) is not currently enabled for "
             f"illustration in this application.")
+        self._set_run_notice((message,))
+        self._show_status(message)
         return True
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
         if self._business_mode:
             region = BUSINESS_REGION
+        self._set_run_notice()
         self.policy_tab.reset_fund_edits()
         default_inputs = self._default_inputs_on_next_get
         self.lookup_bar.hide_company_chooser()
@@ -1160,9 +1214,19 @@ class IllustrationWindow(FramelessWindowBase):
             is_pending=self._policy.system_code == "P",
         )
         if self._is_par_whole_life(self._policy):
+            if self._business_mode:
+                self._refuse_policy_type(
+                    "Participating whole life policies are not supported for "
+                    "in-force illustration in this release.")
+                return
             self._load_parwl_into_ui(region, cached=cached)
             return
         if self._is_indeterminate_term(self._policy):
+            if self._business_mode:
+                self._refuse_policy_type(
+                    "Indeterminate premium term policies are not supported for "
+                    "in-force illustration in this release.")
+                return
             self._load_term_into_ui(region, cached=cached)
             return
         self._show_ul_workspace()
@@ -1282,6 +1346,24 @@ class IllustrationWindow(FramelessWindowBase):
         self.projection_mode_notice.setText(
             "INFORCE | Projection starts after the loaded valuation date.")
         self._refresh_rollback_controls()
+
+    def _refuse_policy_type(self, message: str) -> None:
+        """Business mode: a product family outside phase 1 (par WL / term) —
+        no workspace, no inputs, Run disabled with the reason on screen."""
+        self._show_ul_workspace()
+        self._illustration_data = None
+        self._live_policy_checks = None
+        self._current_key = None
+        self._last_scenario = None
+        self._set_active_inputs_tab(IllustrationInputsTab())
+        self.values_tab.clear_results(message)
+        self.report_tab.clear(message)
+        self.compare_tab.clear_results()
+        self._refresh_summary_strip()
+        self.run_values_btn.setEnabled(False)
+        self.save_case_btn.setEnabled(False)
+        self._set_run_notice((message,))
+        self._show_status(message)
 
     def _load_parwl_into_ui(self, region: str, cached: bool = False) -> None:
         """Show a participating whole life policy in the par WL workspace."""
@@ -1759,6 +1841,7 @@ class IllustrationWindow(FramelessWindowBase):
             self._last_scenario = result.scenario
             self._apply_solved_inputs(result.solved_inputs)
             self._render_run_result(result)
+            self._show_run_warnings(result.warnings)
         except RunFlowError as exc:
             self._clear_solved_field(exc.clear_field)
             QMessageBox.information(self, exc.title, exc.message)
