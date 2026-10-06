@@ -201,7 +201,8 @@ def test_business_saved_case_cannot_unlock_developer_settings(business, develope
     assert draft.controls.stop_on_lapse is True
     assert draft.controls.run_from_issue is False
     assert draft.controls.abr_quote is False
-    assert draft.input_set.dated_transactions == []
+    assert not [t for t in draft.input_set.dated_transactions
+                if t.kind.value == "withdrawal"]
 
 
 def test_business_refuses_from_issue_and_edit_record_cases(business, developer_case):

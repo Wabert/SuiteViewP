@@ -492,13 +492,6 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.layout().addWidget(self.save_case_btn)
         main_layout.addWidget(self.lookup_bar)
 
-        # Run notice: why Run Values is blocked (red) or what to watch before
-        # running (amber) — beside the Run button, not only on the Policy tab.
-        self.run_notice = QLabel("")
-        self.run_notice.setWordWrap(True)
-        self.run_notice.setVisible(False)
-        main_layout.addWidget(self.run_notice)
-
         # The same policy badge strip as PolView (shared chips, Timeline /
         # Notes / Copy), framed in RERUN purple; PolView's suggested next
         # steps navigate PolView tabs, so none are shown here.
@@ -513,6 +506,13 @@ class IllustrationWindow(FramelessWindowBase):
         self.summary_strip.timeline_requested.connect(self._open_timeline)
         strip_layout.addWidget(self.summary_strip, 1)
         main_layout.addWidget(strip_host)
+
+        # Run notice: why Run Values is blocked (red) or what to watch before
+        # running (amber) — under the policy bar beside Run, on every tab.
+        self.run_notice = QLabel("")
+        self.run_notice.setWordWrap(True)
+        self.run_notice.setVisible(False)
+        main_layout.addWidget(self.run_notice)
 
         self.projection_mode_notice = QLabel(
             "INFORCE | Projection starts after the loaded valuation date.")
@@ -1028,17 +1028,14 @@ class IllustrationWindow(FramelessWindowBase):
         """Show why Run is blocked (red) or what to note before running (amber)."""
         lines = list(dict.fromkeys([*blocks, *warnings]))
         self.run_notice.setText("\n".join(lines))
-        self.run_notice.setStyleSheet(RUN_BLOCK_STYLE if blocks else RUN_WARNING_STYLE)
+        # Styled only while shown, so an idle window's stylesheet tree is unchanged.
+        self.run_notice.setStyleSheet(
+            (RUN_BLOCK_STYLE if blocks else RUN_WARNING_STYLE) if lines else "")
         self.run_notice.setVisible(bool(lines))
 
     def _show_run_warnings(self, run_warnings) -> None:
         """Show a run's non-blocking warnings with the load-time notice."""
         self._set_run_notice((), (*self._load_warnings, *run_warnings))
-        if not run_warnings:
-            return
-        self._show_status(
-            f"{self._status_label.text()}  ·  {len(run_warnings)} warning(s) — see the notice "
-            "under the policy bar.")
 
     def _apply_illustration_gate(self) -> bool:
         """Gate Run Values for the loaded policy/case; True when blocked.

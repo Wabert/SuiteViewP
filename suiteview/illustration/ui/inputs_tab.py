@@ -370,6 +370,8 @@ class IllustrationInputsTab(QWidget):
             self.input_tabs.indexOf(self.issue_conditions), False)
         self.input_tabs.tabBar().setContextMenuPolicy(
             Qt.ContextMenuPolicy.NoContextMenu)
+        self.business_lock_note.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
         self.business_lock_note.setVisible(True)
         for widget in self._business_locked_widgets():
             widget.setToolTip(LOCKED_NOTE)
@@ -797,8 +799,6 @@ class IllustrationInputsTab(QWidget):
         # Business mode: the locked controls stay visible (greyed) with this note.
         self.business_lock_note = QLabel(
             "Greyed controls are locked to the standard settings for business users.")
-        self.business_lock_note.setStyleSheet(
-            f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
         self.business_lock_note.setVisible(False)
         layout.addWidget(self.business_lock_note)
         layout.addStretch(1)
