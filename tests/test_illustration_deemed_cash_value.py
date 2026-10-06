@@ -21,12 +21,14 @@ from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.calc_engine import IllustrationEngine, ProjectionTiming
 from suiteview.illustration.core.deemed_cash_value import (
+    DCV_DEFAULTED_KEY,
     DcvCharges,
     DcvCoverage,
     DcvMonthInput,
     NptTracker,
     NspMonth,
     NspSchedule,
+    dcv_defaulted,
     npt_nsp_values,
     npt_premium,
     roll_deemed_cash_value,
@@ -36,14 +38,12 @@ from suiteview.illustration.core.premium_allowance import (
     DeemedCashValueRequiredError,
     PremiumAllowanceInput,
     compute_premium_allowances,
-    dcv_required_message,
 )
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.core.run_service import (
     EngineServices,
     PolicyBasis,
     RunControls,
-    RunFlowError,
     RunRequest,
     SolveRequestSet,
     execute_run,
@@ -196,6 +196,8 @@ def _allowance(**overrides):
 
 
 def test_cvat_tamra_year_8_unknown_npt_fails_loud():
+    # Only callers that price a single receipt outside the projection pass no NPT
+    # premium; illustration runs always have one (DCV entered or defaulted to 0).
     with pytest.raises(DeemedCashValueRequiredError, match="93 segment"):
         _allowance()
 
@@ -280,9 +282,31 @@ def offline_engine(monkeypatch):
     return project
 
 
-def test_cvat_tamra_year_8_without_dcv_fails_loud(offline_engine):
-    with pytest.raises(DeemedCashValueRequiredError, match="TAMRA year 13"):
-        offline_engine(_cvat_policy(None))
+def test_cvat_tamra_year_8_without_dcv_uses_dcv_zero(offline_engine):
+    """Robert 2026-10-06: no DCV entered -> illustrated as if DCV = 0, flagged, no stop."""
+    defaulted = offline_engine(_cvat_policy(None))
+    entered_zero = offline_engine(_cvat_policy(0.0))
+    inforce = defaulted[0].premium_allowance_detail
+    assert inforce["vDCV_AfterPremium"] == 0.0
+    assert inforce[DCV_DEFAULTED_KEY] == 1.0
+    assert dcv_defaulted(defaulted) and not dcv_defaulted(entered_zero)
+    for default_row, zero_row in zip(defaulted[1:], entered_zero[1:]):
+        assert default_row.tamra_year == 13
+        assert default_row.premium_allowance_detail["vNPT_Premium"] == pytest.approx(
+            zero_row.premium_allowance_detail["vNPT_Premium"])
+        assert default_row.gross_premium == pytest.approx(zero_row.gross_premium)
+        assert default_row.gross_premium == pytest.approx(150.0)
+
+
+def test_entered_dcv_takes_precedence_over_the_default(offline_engine):
+    defaulted = offline_engine(_cvat_policy(None))
+    entered = offline_engine(_cvat_policy(14_000.0))
+    assert not dcv_defaulted(entered)
+    assert entered[0].premium_allowance_detail["vDCV_AfterPremium"] == 14_000.0
+    assert DCV_DEFAULTED_KEY not in entered[0].premium_allowance_detail
+    # A higher DCV leaves less NSP shortfall, so a smaller necessary premium.
+    assert (entered[1].premium_allowance_detail["vNPT_Premium"]
+            < defaulted[1].premium_allowance_detail["vNPT_Premium"])
 
 
 def test_cvat_tamra_year_8_with_dcv_accepts_premium_below_npt(offline_engine):
@@ -365,15 +389,16 @@ def _run_request(dcv) -> RunRequest:
     )
 
 
-def test_run_values_turns_a_missing_dcv_into_a_user_facing_stop():
-    def project(policy, **_kwargs):
-        assert policy.deemed_cash_value is None
-        raise DeemedCashValueRequiredError(dcv_required_message(9))
+def test_run_status_says_when_the_dcv_default_was_used():
+    from suiteview.illustration.core.run_service import _final_status
 
-    with pytest.raises(RunFlowError) as caught:
-        execute_run(_run_request(None), EngineServices(project=project))
-    assert caught.value.title == "Deemed Cash Value Required"
-    assert "93 segment" in caught.value.message
+    scenario = SimpleNamespace(scenario=SimpleNamespace(run_from_issue=False))
+    flagged = [SimpleNamespace(premium_allowance_detail={DCV_DEFAULTED_KEY: 1.0}), SimpleNamespace()]
+    entered = [SimpleNamespace(premium_allowance_detail={"vDCV_AfterPremium": 14_000.0}),
+               SimpleNamespace()]
+    status = _final_status(_run_request(None), scenario, flagged, None, None)
+    assert "Deemed cash value not available; illustrated with DCV = 0" in status
+    assert "DCV = 0" not in _final_status(_run_request(14_000.0), scenario, entered, None, None)
 
 
 def test_entered_dcv_reaches_the_projected_policy():
@@ -471,6 +496,8 @@ def test_dcv_entry_follows_cvat_and_conform_to_tamra():
     panel = tab.dynamic_panel
     assert panel.tamra_check.isChecked()
     assert panel.dcv_edit.isEnabled()
+    assert panel.dcv_note.text().endswith("blank uses DCV = 0")
+    assert tab.export_inforce_overrides().deemed_cash_value is None   # blank -> default
     panel.dcv_edit.setText("-67.96")                      # a DCV can be negative
     assert tab.export_inforce_overrides().deemed_cash_value == -67.96
 

@@ -38,9 +38,13 @@ every 7702 change instead.
 
 The deemed cash value itself is not in the DB2 tables (RERUN's
 ``mdl_GetCyberlifePolicy`` sets ``sInput_DeemedCashValue = 0`` with a note that
-it must be looked up manually). SuiteView never defaults it: the user enters it
-from the 93 segment, and an unknown DCV fails loud once the NPT limits a premium
-(:class:`premium_allowance.DeemedCashValueRequiredError`).
+it must be looked up manually). The user can enter it from the 93 segment; when
+none is entered, an inforce run uses a DCV of 0 (Robert, 2026-10-06), exactly as
+if 0 had been entered, and flags it (``DCV_DEFAULTED_KEY`` on the valuation row's
+premium-allowance detail) so the run can say so. SGUL, the main CVAT block past
+TAMRA year 7, targets a guaranteed death benefit at a low premium with little cash
+value, so the NPT rarely binds. Long term a headless terminal session will fetch
+the real DCV.
 """
 from __future__ import annotations
 
@@ -76,6 +80,17 @@ from suiteview.illustration.models.policy_data import (
 )
 
 GuaranteedRatesLoader = Callable[[IllustrationPolicyData], IllustrationRates]
+
+# Premium-allowance detail key on the valuation row: 1.0 when no deemed cash value
+# was entered and the run used DCV = 0 (see the module docstring).
+DCV_DEFAULTED_KEY = "vDCV_Defaulted"
+DCV_DEFAULTED_NOTICE = "Deemed cash value not available; illustrated with DCV = 0"
+
+
+def dcv_defaulted(states) -> bool:
+    """Whether a projection (its valuation row) ran on the DCV = 0 default."""
+    return bool(states) and bool(
+        (getattr(states[0], "premium_allowance_detail", None) or {}).get(DCV_DEFAULTED_KEY))
 
 
 # ── LI — vNPT_Premium ──────────────────────────────────────────────────────
@@ -456,8 +471,7 @@ class NptTracker:
     """DCV and NSP state carried through one projection.
 
     Created only for a CVAT run with Conform to TAMRA on that reaches TAMRA
-    year 8. With no deemed cash value entered the tracker stays empty and the
-    allowance chain fails loud at the first month the NPT limits a premium.
+    year 8. With no deemed cash value entered an inforce run starts from DCV = 0.
     """
 
     load_guaranteed: GuaranteedRatesLoader
@@ -484,9 +498,9 @@ class NptTracker:
         """Seed vEDCV from the valuation row and build NSP schedule 1.
 
         From issue the DCV starts at zero (RERUN has no valuation row then);
-        an inforce run starts from the entered deemed cash value. Returns the
-        valuation row's DCV detail (empty when no DCV was entered or the
-        projection starts at issue).
+        an inforce run starts from the entered deemed cash value, or from 0 when
+        none was entered (the returned detail then carries ``DCV_DEFAULTED_KEY``).
+        Returns the valuation row's DCV detail (empty from issue).
         """
         if policy.run_from_issue:
             self._build_schedule(
@@ -495,9 +509,8 @@ class NptTracker:
                 death_benefit=float(policy.total_face))
             self.edcv = 0.0
             return {}
-        dcv = policy.deemed_cash_value
-        if dcv is None:
-            return {}
+        defaulted = policy.deemed_cash_value is None
+        dcv = 0.0 if defaulted else policy.deemed_cash_value
         duration = max(1, int(policy.duration))
         self._build_schedule(
             policy, config, anchor_duration=duration,
@@ -518,7 +531,10 @@ class NptTracker:
             interest_at_start=self.interest_at_start,
         ))
         self.edcv = month.end_dcv
-        return month.to_detail()
+        detail = month.to_detail()
+        if defaulted:
+            detail[DCV_DEFAULTED_KEY] = 1.0
+        return detail
 
     def policy_changed(
         self,

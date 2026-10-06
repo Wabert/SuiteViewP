@@ -59,11 +59,14 @@ from suiteview.illustration.constants import INF, MONEY_EPSILON
 
 
 class DeemedCashValueRequiredError(ValueError):
-    """A CVAT premium needs the Necessary Premium Test but no DCV was entered.
+    """A CVAT premium needs the Necessary Premium Test but no NPT premium exists.
 
     The NPT allowance (RERUN ND) after TAMRA year 7 is built from the deemed
-    cash value, which CyberLife keeps on the 93 segment and not in DB2. It is
-    never assumed to be zero or the account value.
+    cash value, which CyberLife keeps on the 93 segment and not in DB2.
+    Illustration runs never raise it: with no DCV entered they use DCV = 0
+    (``deemed_cash_value.NptTracker.start``). It remains for callers that price a
+    single dated receipt outside the projection (reinstatement receipts), where no
+    NPT schedule exists.
     """
 
 
@@ -103,8 +106,8 @@ class PremiumAllowanceInput:
     tamra_month_of_year: int              # LC — month within active TAMRA year
     policy_month: int                     # E — month within policy year
     amount_in_7pay: float                 # LE — cumulative 7-pay before month
-    # LI vNPT_Premium (CVAT necessary premium; 0 for GPT). ``None`` means the
-    # deemed cash value it is built from is unknown — loud once the NPT binds.
+    # LI vNPT_Premium (CVAT necessary premium; 0 for GPT). ``None`` means no NPT
+    # premium was computed (a single dated receipt) — loud once the NPT binds.
     npt_premium: Optional[float]
     tamra_reset: bool                     # KZ — new 7-pay period this month
     requested_scheduled: float            # LS — scheduled modal premium requested

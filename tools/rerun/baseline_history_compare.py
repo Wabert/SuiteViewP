@@ -31,11 +31,10 @@ Comparison rules (harness only; the engine is not changed):
 * PW waiver credits are not premiums (no load, outside premium accumulators); the
   UL engine has no waiver-credit mode, so they are excluded and the policy is
   flagged ``waiver_credit_in_window``.
-* CVAT deemed cash value (93 segment) is not in DB2 or the history, so the
-  harness never invents one: a selection row may carry ``deemed_cash_value``
-  (as of the rollback start date); without it a replay month in which the
-  Necessary Premium Test limits a premium stops the policy with status
-  ``blocked-dcv`` instead of comparing faked values.
+* CVAT deemed cash value (93 segment) is not in DB2 or the history: a selection
+  row may carry ``deemed_cash_value`` (as of the rollback start date); without it
+  the engine uses DCV = 0 (Robert, 2026-10-06) and the result records
+  ``deemed_cash_value_defaulted`` so an NPT-limited month can be read with that in mind.
 
 Per policy the run also writes decomposition inputs under ``<output>/decomp``
 (``cyber/<key>.json`` and ``engine/<key>.json``) in the format used by
@@ -693,7 +692,7 @@ def _selection_dcv(selection_row: dict[str, Any]) -> float | None:
 def compare_policy(selection_row: dict[str, Any], output_dir: str, force: bool = False) -> dict[str, Any]:
     from suiteview.illustration.api import project_policy
     from suiteview.illustration.core.calc_engine import ProjectionTiming
-    from suiteview.illustration.core.premium_allowance import DeemedCashValueRequiredError
+    from suiteview.illustration.core.deemed_cash_value import dcv_defaulted
     from suiteview.illustration.core.value_rollback import apply_value_rollback, available_rollback_dates
     from suiteview.illustration.models.input_set import IllustrationInputSet, IllustrationOptions
     from suiteview.polview.services.policy_service import get_policy_info
@@ -807,30 +806,22 @@ def compare_policy(selection_row: dict[str, Any], output_dir: str, force: bool =
         months = _months_between(start_date, end_date)
         # CVAT deemed cash value: not in DB2/history, so the harness has no source
         # of its own. A selection row may supply one (the 93-segment DCV as of
-        # the rollback start date); otherwise it stays unknown and a month where
-        # the Necessary Premium Test limits a premium blocks the policy loudly.
+        # the rollback start date); otherwise the engine uses DCV = 0 and the
+        # result records ``deemed_cash_value_defaulted``.
         historical.deemed_cash_value = _selection_dcv(selection_row)
         result["deemed_cash_value"] = historical.deemed_cash_value
-        try:
-            run = project_policy(
-                historical,
-                config=config,
-                rates=rates,
-                inputs=inputs,
-                # CyberLife applies a loan repayment to principal first (fix E03).
-                options=IllustrationOptions(loan_repay_principal_first=True),
-                months=months,
-                stop_on_lapse=False,
-                timing=ProjectionTiming.CYBERLIFE_MONTHLIVERSARY,
-            )
-        except DeemedCashValueRequiredError as exc:
-            result["status"] = "blocked-dcv"
-            result["blocker"] = (
-                "CVAT Necessary Premium Test binds in the replay window and no "
-                f"deemed cash value was supplied (selection 'deemed_cash_value'): {exc}")
-            result["features"] = _policy_features(historical, config)
-            json_dump(result_path, result)
-            return result
+        run = project_policy(
+            historical,
+            config=config,
+            rates=rates,
+            inputs=inputs,
+            # CyberLife applies a loan repayment to principal first (fix E03).
+            options=IllustrationOptions(loan_repay_principal_first=True),
+            months=months,
+            stop_on_lapse=False,
+            timing=ProjectionTiming.CYBERLIFE_MONTHLIVERSARY,
+        )
+        result["deemed_cash_value_defaulted"] = dcv_defaulted(run.states)
         cyber_by_date = _history_rows(policy)
         _add_recorded_interest(cyber_by_date, _mvry_by_date(pi.fetch_table("LH_POL_MVRY_VAL")))
         states_by_date = {state.date: state for state in run.states if state.date is not None}

@@ -1264,10 +1264,13 @@ guideline recalc) starts a fresh schedule at the change month — RERUN caps the
 count at two and its third NSP column is blank, so this is an intent-over-workbook
 choice.
 
-**Fail loud.** If the NPT would limit a requested premium (CVAT, TAMRA enforced,
-not MEC, TAMRA year > 7) and no DCV was entered, `premium_allowance` raises
-`DeemedCashValueRequiredError`; Run Values shows it as "Deemed Cash Value
-Required". The DCV is never assumed to be 0 or the account value. The NPT/DCV
+**DCV default.** If no DCV was entered, an inforce run that can reach an NPT-limited
+month (CVAT, TAMRA enforced, not MEC, TAMRA year > 7) uses DCV = 0, as if 0 had been
+entered (Robert, 2026-10-06). `NptTracker.start` seeds the valuation row with 0 and
+marks its detail `vDCV_Defaulted` = 1, and Run Values adds "Deemed cash value not
+available; illustrated with DCV = 0" to the status. `policy.deemed_cash_value` stays
+None, so an entered value always takes precedence. `DeemedCashValueRequiredError`
+remains only for a reinstatement receipt priced outside the projection. The NPT/DCV
 columns are carried in `MonthlyState.premium_allowance_detail` (vValue_for_NPT,
 vNPT_NSP, vNPT_Premium, BDCV, vDCV_AfterChanges, vDCV_AfterPremium, DCV DB,
 DCV COI Charge, DCV MD, DCV Interest, vEDCV) and shown on the Values tab's TEFRA

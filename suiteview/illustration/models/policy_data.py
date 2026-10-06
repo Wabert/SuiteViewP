@@ -400,8 +400,10 @@ class IllustrationPolicyData:
 
     # ── CVAT / DCV ────────────────────────────────────────────
     # Deemed cash value as of the valuation date (CyberLife 93 segment). It is
-    # NOT in the DB2 tables: None until the user enters it on the Input tab
-    # (never defaulted to 0 or the account value); 0 for a run from issue.
+    # NOT in the DB2 tables: None until the user enters it on the Input tab. An
+    # inforce run with None uses DCV = 0 and says so (deemed_cash_value.py); the
+    # field itself stays None so "not entered" is never mistaken for a real 0.
+    # 0 for a run from issue.
     deemed_cash_value: Optional[float] = None
 
     # ── Base Coverage Segments ───────────────────────────────

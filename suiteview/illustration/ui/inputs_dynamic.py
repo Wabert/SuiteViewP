@@ -1751,8 +1751,9 @@ class DynamicInputsPanel(QWidget):
         self.dcv_edit.setToolTip(
             "Deemed cash value as of the illustration's starting valuation date, "
             "from the 93 segment in CyberLife Online (not in the DB2 tables). "
-            "Required once the policy is past TAMRA year 7 — the Necessary Premium "
-            "Test limits every premium from there on.")
+            "Past TAMRA year 7 the Necessary Premium Test, built from this value, "
+            "limits every premium. Left blank, the illustration uses DCV = 0 and "
+            "says so in the run status.")
         self.dcv_note = QLabel("")
         self.tamra_check.toggled.connect(self._refresh_dcv_availability)
         # Lump Sum: a one-off premium the user applies on the forecast date. It
@@ -2224,7 +2225,7 @@ class DynamicInputsPanel(QWidget):
         self.dcv_edit.setEnabled(enabled)
         self.dcv_caption.setStyleSheet(_CAPTION_STYLE if enabled else _DCV_CAPTION_MUTED_STYLE)
         if applicable:
-            note = "Required past TAMRA year 7 — from the 93 segment (Online)"
+            note = "Past TAMRA year 7: from the 93 segment (Online); blank uses DCV = 0"
         elif self._ctx is None or not self._ctx.is_cvat:
             note = "Not applicable — not a CVAT policy"
         else:

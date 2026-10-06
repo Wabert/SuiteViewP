@@ -345,17 +345,23 @@ It is the DCV as of the projection's starting valuation date (the Edit Record
 date for a historical run; a run from issue starts at 0), it rides in saved
 cases, and a freshly loaded policy starts blank.
 
-If the projection reaches a month where the NPT limits a requested premium and
-no DCV was entered, Run Values stops with **Deemed Cash Value Required** — the
-engine never assumes 0 or the account value. Before TAMRA year 8 the NPT is
-unlimited and the DCV is not required. The Policy tab's "Deemed Cash Value"
+If no DCV was entered, the run uses **DCV = 0**, exactly as if 0 had been typed, and the
+run status says "Deemed cash value not available; illustrated with DCV = 0" (Robert,
+2026-10-06). The valuation row's premium-allowance detail carries `vDCV_Defaulted` = 1.
+The default reflects SGUL, the main CVAT block past TAMRA year 7: it targets a
+guaranteed death benefit at a low premium with little cash value, so the NPT rarely
+binds. A typed DCV always takes precedence; long term a headless terminal session
+will fetch the real DCV. Only a reinstatement receipt priced outside the projection
+(no NPT schedule) still stops with **Deemed Cash Value Required** when the NPT
+would limit it. Before TAMRA year 8 the NPT is unlimited and the DCV is not used.
+The Input panel note reads "blank uses DCV = 0". The Policy tab's "Deemed Cash Value"
 reads "Not in DB2 — Input tab". The Values tab's **TEFRA and TAMRA** group shows
 `Value_for_NPT`, `NPT_NSP`, `NPT_Premium` and the DCV roll (BDCV …
 vEDCV) when they were computed. Prem to Maturity / Prem to Shadow Maturity still
 solve CVAT policies with Conform to TAMRA off. The CyberLife history harness
 (`tools/rerun/baseline_history_compare.py`) has no DCV source: a selection row
-may supply `deemed_cash_value`, otherwise an NPT-bound replay is reported as
-`blocked-dcv`. Formulas: `IMPLEMENTED_Calculation_Pipeline.md` Step 19.
+may supply `deemed_cash_value`, otherwise the replay runs on the default and
+records `deemed_cash_value_defaulted`. Formulas: `IMPLEMENTED_Calculation_Pipeline.md` Step 19.
 Regression: `tests/test_illustration_deemed_cash_value.py`.
 
 ## RERUN face decrease before B-to-A option change — pending implementation

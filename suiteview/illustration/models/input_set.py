@@ -81,7 +81,7 @@ class InforceOverrideSet:
     index_illustration_rates: Optional[dict[str, float]] = None
     # CVAT deemed cash value from the 93 segment (CyberLife Online), as of the
     # projection's starting valuation date. Not in DB2, so this entry is its
-    # only source: None leaves it unknown (the NPT then fails loud).
+    # only source: None leaves it unknown and the run uses DCV = 0 (with a notice).
     deemed_cash_value: Optional[float] = None
 
     def is_empty(self) -> bool:
