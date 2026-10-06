@@ -122,6 +122,7 @@ def test_billable_prem_type_available_and_fills_amount_and_mode():
 
     # Move the row off the billable values, then select Billable Prem: it
     # refills the amount (billable premium) and the billing mode.
+    row.type_combo.setCurrentText("INPUT")
     row.mode_combo.setCurrentText("A")
     row.amount_edit.set_value(999.0, decimals=2)
     row.type_combo.setCurrentText("Billable Prem")
@@ -137,8 +138,11 @@ def test_spl87_zeroes_billable_premium():
     panel.load_from_policy(_Spl87Policy())       # modal 500 → billable 0
 
     row = panel.premium_section.rows()[0]
-    assert row.premium_type() == "Prem to Maturity"
+    assert row.premium_type() == "Billable Prem"
+    assert abs(row.amount() - 0.0) < 0.005      # SPL87: billable premium is 0
     # Billable Prem also fills 0 for these plans.
+    row.type_combo.setCurrentText("INPUT")
+    row.amount_edit.set_value(25.0, decimals=2)
     row.type_combo.setCurrentText("Billable Prem")
     assert abs(row.amount() - 0.0) < 0.005
 
@@ -189,13 +193,14 @@ def test_input_to_md_type_editable_and_drives_b2md_window():
     panel = _panel()
     row = panel.premium_section.rows()[0]
     # Valuation 2026-05-09 -> forecast 2026-06-09 = policy year 7 (issue 2019-11-09).
-    assert row.premium_type() == "Prem to Maturity"
+    # The first row defaults to the billable premium and billing mode.
+    assert row.premium_type() == "Billable Prem"
     assert row.year() == 7
     assert row.age_edit.value() == 56          # 50 + 7 - 1
     assert row.mode() == "M"
     assert row.for_years_edit.value() == 65    # years 7..71
     assert row.to_age_edit.value() == 121
-    assert row.amount() is None
+    assert abs(row.amount() - 153.56) < 0.005
 
 
 def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
