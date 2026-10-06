@@ -254,14 +254,16 @@ def run_engine(case: ShadowCase) -> list:
 
 def recurse(states: list, valuation_date: date, db_option_b: bool, *, interest: str = "days",
             dbd_from_interest: bool = False, premium_interest: dict | None = None,
-            load_scale: float = 1.0, premium_moves: dict | None = None) -> float | None:
+            load_scale: float = 1.0, premium_moves: dict | None = None,
+            policy_db: bool = False) -> float | None:
     """Pure shadow recursion over engine states (mirrors ``shadow_calc.calculate_shadow``).
 
     Returns the post-deduction shadow AV on ``valuation_date``.  Inputs that do not
     depend on the shadow balance (premium, load, rates, SA, rider charges, days) are
     read from the engine states; one rule at a time can be changed.  ``premium_moves``
     maps a month date to ``(gross_delta, load_delta)`` to move premium dollars
-    between months.
+    between months.  ``policy_db`` (``ShadowDBBasis`` "Policy") takes an option-B
+    death benefit from the regular side (``standard_db``).
     """
     eav = 0.0
     moves = premium_moves or {}
@@ -272,6 +274,8 @@ def recurse(states: list, valuation_date: date, db_option_b: bool, *, interest: 
         net = gross - load + (premium_interest or {}).get(state.date, 0.0)
         nar_av = eav + net
         death_benefit = nar_av + state.shadow_sa if db_option_b else state.shadow_sa
+        if db_option_b and policy_db:
+            death_benefit = state.standard_db
         dbd = state.shadow_int_rate if dbd_from_interest else state.shadow_dbd_rate
         nar = death_benefit / (1.0 + dbd) ** (1.0 / 12.0) - nar_av
         coi = _round(nar / 1000.0 * state.shadow_coi_rate)
@@ -348,8 +352,9 @@ def sensitivity(case: ShadowCase, states: list, xp: float) -> dict[str, Any]:
             "interest": "monthly", "premium_moves": previous_mv, "dbd_from_interest": True},
     }
     out = {}
+    policy_db = case.config.shadow_db_basis == "Policy"
     for name, kwargs in variants.items():
-        value = recurse(states, val, option_b, **kwargs)
+        value = recurse(states, val, option_b, policy_db=policy_db, **kwargs)
         out[name] = None if value is None else round(value - xp, 2)
     return out
 
@@ -441,7 +446,8 @@ def check_policy(key: str, with_sensitivity: bool) -> dict[str, Any]:
             "shadow_int_rate", "shadow_days", "shadow_epu", "shadow_mfee", "shadow_rider_charges", "shadow_md")}
         if with_sensitivity:
             record["sensitivity_diff_vs_xp"] = sensitivity(case, states, xp)
-            check = recurse(states, base.valuation_date, str(case.issue_policy.db_option or "").upper() in {"B", "2"})
+            check = recurse(states, base.valuation_date, str(case.issue_policy.db_option or "").upper() in {"B", "2"},
+                            policy_db=case.config.shadow_db_basis == "Policy")
             record["recursion_reproduces_engine"] = check is not None and abs(check - final.shadow_av) < 0.005
     except Exception as exc:  # noqa: BLE001
         record["status"] = "error"

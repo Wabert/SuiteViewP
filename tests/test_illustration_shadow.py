@@ -228,6 +228,137 @@ def test_aps205_premium_earns_receipt_to_monthliversary_interest():
     assert result.shadow_nar_av == result.shadow_net_prem
 
 
+def _aps205_load(*, gross, ytd, ptd, year, month, tpr=10.0, flat=0.0, waiver=0.0, cease=None, when=None):
+    policy = _shadow_policy()
+    policy.segments[0].flat_extra = flat
+    rates = _shadow_rates(
+        shadow_tpr=[None, tpr],
+        shadow_tpr_tbl1=[None, 0.0],
+        shadow_epp=[None, 0.45],
+        shadow_target_waiver_pct=waiver,
+        shadow_target_waiver_cease=cease,
+    )
+    return calculate_shadow(ShadowInput(
+        prev_shadow_eav=0.0, gross_premium=gross, premiums_ytd=ytd, premiums_to_date=ptd,
+        policy=policy, config=PlancodeConfig(shadow_aps205_load_relief=True), rates=rates,
+        rate_year=year, policy_month=month, attained_age=45, days_in_month=30, policy_debt=0.0,
+        projection_date=when,
+    ))
+
+
+def test_aps205_cumulative_n_plus_1_relief_applies_without_a_month_gate():
+    # U0592771 year 19 month 4-6: YTD 2.05 targets but premium to date 19.08 targets <= 20.
+    result = _aps205_load(gross=319.37, ytd=2_048.0, ptd=19_078.0, year=19, month=6)
+    assert result.shadow_target_prem == 1_000.0
+    assert result.shadow_excess_load == 0.0
+
+
+def test_aps205_loads_above_n_plus_1_even_within_two_yearly_targets():
+    # U0570491 year 18: YTD 1.3 targets, premium to date above 19 targets -> loaded.
+    result = _aps205_load(gross=100.0, ytd=1_300.0, ptd=19_040.0, year=18, month=8)
+    assert result.shadow_prem_over_target == 40.0
+    assert result.shadow_excess_load == pytest.approx(18.0)
+
+
+def test_aps205_first_six_policy_months_allow_one_target_only():
+    # U0592771 issue premium: 1.38 targets in month 1 is loaded above one target.
+    result = _aps205_load(gross=1_382.0, ytd=1_382.0, ptd=1_382.0, year=1, month=1)
+    assert result.shadow_excess_load == pytest.approx(382.0 * 0.45)
+    assert result.shadow_net_prem == pytest.approx(1_382.0 - 171.9)
+
+
+def test_shadow_target_adds_the_annual_flat_extra():
+    # U0588909: CTP-S 40.38 + $2.40 annual flat on 10M -> 42.78/1000 reproduces XP.
+    policy = _shadow_policy()
+    policy.face_amount = 10_000_000.0
+    policy.segments[0].face_amount = policy.segments[0].original_face_amount = 10_000_000.0
+    policy.segments[0].flat_extra = 2.40
+    result = calculate_shadow(ShadowInput(
+        prev_shadow_eav=0.0, gross_premium=0.0, premiums_ytd=0.0, policy=policy,
+        config=PlancodeConfig(shadow_aps205_load_relief=True),
+        rates=_shadow_rates(shadow_tpr=[None, 40.38], shadow_tpr_tbl1=[None, 0.0]),
+        rate_year=1, attained_age=73, days_in_month=30, policy_debt=0.0,
+    ))
+    assert result.shadow_target_prem == 427_800.0
+
+
+def test_shadow_target_waiver_uplift_applies_until_the_waiver_ceases():
+    from datetime import date
+
+    cease = date(2046, 2, 5)
+    before = _aps205_load(gross=0.0, ytd=0.0, ptd=0.0, year=5, month=1, tpr=4.1, waiver=0.053,
+                          cease=cease, when=date(2026, 2, 5))
+    after = _aps205_load(gross=0.0, ytd=0.0, ptd=0.0, year=40, month=1, tpr=4.1, waiver=0.053,
+                         cease=cease, when=cease)
+    assert before.shadow_target_prem == 431.73
+    assert after.shadow_target_prem == 410.0
+
+
+@pytest.mark.parametrize("basis, expected_db", [("Shadow", 101_000.0), ("Policy", 104_000.0)])
+def test_option_b_shadow_death_benefit_basis(basis, expected_db):
+    """Passport Select II (ShadowDBBasis Policy): NAR uses SA + the regular AV."""
+    policy = _shadow_policy()
+    policy.db_option = "B"
+    result = calculate_shadow(ShadowInput(
+        prev_shadow_eav=1_000.0, gross_premium=0.0, premiums_ytd=0.0, policy=policy,
+        config=PlancodeConfig(shadow_db_basis=basis), rates=_shadow_rates(),
+        rate_year=1, attained_age=45, days_in_month=30, policy_debt=0.0,
+        policy_death_benefit=104_000.0,
+    ))
+    assert result.shadow_db == expected_db
+
+
+def test_invalid_shadow_db_basis_is_rejected():
+    with pytest.raises(ValueError, match="ShadowDBBasis"):
+        PlancodeConfig(plancode="X", shadow_db_basis="Regular")
+
+
+def test_ltgul_and_passport_select_ii_shadow_flags():
+    for plancode in ("1U143800", "1U144500"):
+        config = load_plancode(plancode)
+        assert config.shadow_aps205_load_relief and config.shadow_target_waiver_uplift
+        assert config.shadow_db_basis == "Policy"
+    for plancode in ("1U135200", "1U135400", "1U135L00"):
+        config = load_plancode(plancode)
+        assert config.shadow_db_basis == "Policy" and not config.shadow_target_waiver_uplift
+    assert load_plancode("1U146600").shadow_db_basis == "Shadow"
+
+
+class _WaiverRatesDb:
+    def __init__(self, rate):
+        self.rate = rate
+
+    def get_ben_mtp(self, *args, **_kwargs):
+        assert args[-1] == "39"
+        return self.rate
+
+
+def _waiver_policy():
+    policy = _shadow_policy()
+    policy.plancode = "1U143800"
+    policy.benefits = [BenefitInfo(benefit_type="3", benefit_subtype="9", cease_date=None)]
+    return policy
+
+
+def test_shadow_target_waiver_rate_loads_when_flagged():
+    from suiteview.illustration.core.rate_loader import _load_shadow_target_waiver
+
+    policy = _waiver_policy()
+    result = IllustrationRates(shadow_tpr=[None, 4.1])
+    _load_shadow_target_waiver(result, policy, PlancodeConfig(shadow_target_waiver_uplift=True),
+                               _WaiverRatesDb(5.3), policy.base_segment)
+    assert result.shadow_target_waiver_pct == pytest.approx(0.053)
+
+    unflagged = IllustrationRates(shadow_tpr=[None, 4.1])
+    _load_shadow_target_waiver(unflagged, policy, PlancodeConfig(), _WaiverRatesDb(5.3), policy.base_segment)
+    assert unflagged.shadow_target_waiver_pct == 0.0
+
+    with pytest.raises(RateLookupError, match="waiver"):
+        _load_shadow_target_waiver(IllustrationRates(shadow_tpr=[None, 4.1]), policy,
+                                   PlancodeConfig(shadow_target_waiver_uplift=True),
+                                   _WaiverRatesDb(None), policy.base_segment)
+
+
 def test_shadow_subtracts_gross_withdrawal_before_nar():
     policy = _shadow_policy()
     config = PlancodeConfig()

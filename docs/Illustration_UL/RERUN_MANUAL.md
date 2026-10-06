@@ -150,7 +150,17 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   plancode** (`SHADOW`), including `SHADOW_INT` and `DB_DISCOUNT`; the legacy CCV
   plancode (`PLAN_ATTR SHADOW_LEGACY_PLANCODE`) is only a label.
 - **Shadow target and premium timing**: LTGUL/LTGUL08 shadow targets use the
-  scale-S CTP target and APS205's target-relief load rule. SGUL-family products
+  scale-S CTP target and APS205's target-relief load rule
+  (`ShadowAPS205LoadRelief`): the 45% excess load applies only to premium above
+  BOTH the policy-year target and, once seven policy months have elapsed since
+  issue, (N+1) targets of premium to date (before that, one target). The shadow
+  target adds the full annual flat extra per 1000 (every shadow plan), and on
+  LTGUL an active 39 waiver raises it by the waiver's BENMTP percent
+  (`ShadowTargetWaiverUplift`; the spec's "increased by the rider target premium").
+  Fitted to CyberLife XP on 50 LTGUL policies (10/2026, U0592771 -330,162 -> +40).
+  `ShadowDBBasis` "Policy" (Passport Select II and LTGUL) takes the option-B shadow
+  NAR death benefit from the policy, SA + regular AV ("proceeds payable at death"),
+  not SA + shadow value (U0571763 -1,267 -> +2.84). SGUL-family products
   use the product flag `ShadowLatePaymentForgiveness`: premiums exactly on a
   monthliversary are applied before shadow COI; premiums received strictly
   between monthliversaries are credited to the prior month after that month's

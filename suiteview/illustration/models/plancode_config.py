@@ -192,6 +192,10 @@ class PlancodeConfig:
     shadow_late_payment_forgiveness: bool = False
     shadow_aps205_load_relief: bool = False
     shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"
+    shadow_target_waiver_uplift: bool = False  # 39 waiver raises the shadow target (LTGUL)
+    # "Shadow": NAR death benefit = SA (+ shadow value for DBO B).  "Policy": the policy's
+    # own death benefit, SA (+ the regular AV for DBO B) — "proceeds payable at death".
+    shadow_db_basis: str = "Shadow"
 
     # Illustration age overrides in force (logged at load).
     illustration_overrides: Tuple[str, ...] = field(default_factory=tuple)
@@ -209,6 +213,8 @@ class PlancodeConfig:
             raise ValueError(
                 f"{self.plancode}: invalid ShadowTargetRateBasis {self.shadow_target_rate_basis!r}"
             )
+        if self.shadow_db_basis not in ("Shadow", "Policy"):
+            raise ValueError(f"{self.plancode}: invalid ShadowDBBasis {self.shadow_db_basis!r}")
 
     def charges_ceased(self, attained_age: int) -> bool:
         """Whether premiums and every monthly deduction have stopped (``charge_cease_age``)."""
@@ -458,6 +464,8 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         shadow_late_payment_forgiveness=bool(data.get("ShadowLatePaymentForgiveness", False)),
         shadow_aps205_load_relief=bool(data.get("ShadowAPS205LoadRelief", False)),
         shadow_target_rate_basis=str(data.get("ShadowTargetRateBasis", "MTP")).strip().upper() or "MTP",
+        shadow_target_waiver_uplift=bool(data.get("ShadowTargetWaiverUplift", False)),
+        shadow_db_basis=str(data.get("ShadowDBBasis", "Shadow")).strip() or "Shadow",
         illustration_overrides=tuple(overrides),
     )
     if config.illustration_overrides:

@@ -1534,6 +1534,7 @@ def calculate_shadow_step(
         ),
         projection_date=work.month_date,
         display_days_in_month=work.intr.days_in_month,
+        policy_death_benefit=work.ded.standard_db,
     ))
 
 
@@ -2346,6 +2347,7 @@ def _add_inforce_loan_shadow_lapse(
         shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, work.ded),
         projection_date=work.month_date,
         display_days_in_month=work.month_days,
+        policy_death_benefit=work.ded.standard_db,
     ))
     _set_inforce_lapse_fields(policy, config, rates, work)
 

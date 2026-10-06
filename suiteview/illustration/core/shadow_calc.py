@@ -91,6 +91,9 @@ class ShadowInput:
     shadow_rider_charges: float = 0.0
     projection_date: date | None = None
     display_days_in_month: float | None = None
+    # Regular-side death benefit before corridor (SA, or SA + AV for DBO B) this month;
+    # used for the shadow NAR when the plan's ShadowDBBasis is "Policy".
+    policy_death_benefit: float | None = None
 
 
 def _sa_for_shadow_basis(policy: IllustrationPolicyData, config: PlancodeConfig) -> float:
@@ -107,7 +110,15 @@ def _shadow_target_premium(
     rates: IllustrationRates,
     rate_year: int,
     sa_for_basis: float,
+    projection_date: date | None = None,
 ) -> float:
+    """Annual shadow (CCV) target premium.
+
+    Per 1000: target rate + table add-on x table + the ANNUAL flat extra (the flat is an
+    annual premium per 1000 like the target; U0588909's $2.40 flat reproduces XP exactly,
+    the monthly $0.20 does not).  An active 39 waiver raises it by the waiver's percent
+    (``ShadowTargetWaiverUplift``) until the waiver ceases.
+    """
     if not rates.shadow_tpr:
         # The plan has no shadow target premium (plancode-table ShadowTarget 0).
         return 0.0
@@ -115,12 +126,16 @@ def _shadow_target_premium(
     tpr = get_rate(rates, "shadow_tpr", rate_year)
     table_cov1 = seg.table_rating if seg else 0
     tpr_tbl1 = get_rate(rates, "shadow_tpr_tbl1", rate_year) if table_cov1 else 0.0
-    flat1 = (seg.flat_extra / MONTHS_PER_YEAR) if seg and seg.flat_extra else 0.0
+    flat1 = seg.flat_extra if seg and seg.flat_extra else 0.0
     flat2 = 0.0  # Second flat extra — not implemented
-    return _round_near(
+    target = _round_near(
         sa_for_basis / PER_THOUSAND * (tpr + tpr_tbl1 * table_cov1 + flat1 + flat2),
         2,
     )
+    waiver_pct = rates.shadow_target_waiver_pct
+    if waiver_pct and _charge_active(rates.shadow_target_waiver_cease, projection_date):
+        target = _round_near(target * (1.0 + waiver_pct), 2)
+    return target
 
 
 def _standard_premium_load(
@@ -148,16 +163,27 @@ def _aps205_premium_load(
     policy_month: int,
     policy_year: int,
 ) -> tuple[float, float, float, float]:
+    """LTGUL/LTGUL08 (APS205) excess load with N+1 target relief.
+
+    Premium is loaded only above BOTH allowances: the policy-year target
+    (YTD <= T) and, once seven policy months have elapsed since issue, (N+1) targets
+    since issue (premium to date <= (N+1)T); before that the cumulative allowance is T.
+    Fitted to CyberLife XP on 50 1U143800/1U144500 policies (2026-10-06); e.g. U0592771
+    year 19 (YTD 2.05T, PTD 19.08T, months 4-6) is not loaded, U0570491 year 18
+    (YTD 1.3T, PTD > 19T) is.
+    """
     if gross_premium <= 0.0:
         return 0.0, 0.0, 0.0, 0.0
-    effective_target = shadow_target_prem if policy_month < 7 else 2.0 * shadow_target_prem
-    cumulative_target = shadow_target_prem if policy_month < 7 else (policy_year + 1) * shadow_target_prem
+    months_since_issue = (policy_year - 1) * MONTHS_PER_YEAR + policy_month
+    cumulative_target = (
+        (policy_year + 1) * shadow_target_prem if months_since_issue >= 7 else shadow_target_prem
+    )
     loaded = max(
         0.0,
         min(
             gross_premium,
             premiums_ytd_after - shadow_target_prem,
-            max(premiums_ytd_after - effective_target, premiums_to_date_after - cumulative_target),
+            premiums_to_date_after - cumulative_target,
         ),
     )
     load = loaded * epp_pct
@@ -213,10 +239,15 @@ def _shadow_premium_load_rates(
 
 def _shadow_death_benefit(
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     shadow_nar_av: float,
     shadow_sa: float,
+    policy_death_benefit: float | None,
 ) -> float:
     if policy.db_option == DB_OPTION_INCREASING:
+        if config.shadow_db_basis == "Policy" and policy_death_benefit is not None:
+            # Passport Select II DBO B: SA + the regular AV (U0571763 -1,267 -> +2.84 vs XP).
+            return policy_death_benefit
         return shadow_nar_av + shadow_sa
     return shadow_sa
 
@@ -403,6 +434,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         rates=rates,
         rate_year=rate_year,
         sa_for_basis=sa_for_basis,
+        projection_date=projection_date,
     )
 
     # ── Premium load rates (cols WZ/XA) ──────────────────────
@@ -482,7 +514,8 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     shadow_nar_av = shadow_bav - shadow_wd_charges + pre_deduction_net_premium
 
     # ── Shadow DB (col XG) ───────────────────────────────────
-    shadow_db = _shadow_death_benefit(policy, shadow_nar_av, shadow_sa)
+    shadow_db = _shadow_death_benefit(
+        policy, config, shadow_nar_av, shadow_sa, inputs.policy_death_benefit)
 
     # ── Shadow COI rate (col XH/XI) ──────────────────────────
     # Substandard adjustment: rate * (1 + table_factor * table) + flat extras.

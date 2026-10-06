@@ -18,6 +18,7 @@ Rate loading is intentionally a copy/read boundary:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Dict, List, Optional
 
 from suiteview.core.band_rules import rider_bands_as_base
@@ -257,6 +258,10 @@ class IllustrationRates:
     shadow_tpr_tbl1: List = field(default_factory=list)  # MTP_TBL1 scalar as constant array
     shadow_int: List = field(default_factory=list)       # SHADOW_INT (required)
     shadow_dbd: List = field(default_factory=list)       # DB_DISCOUNT scale S (required)
+    # Waiver-of-deduction (39) uplift of the shadow target, as a fraction (BENMTP '39'
+    # rate / 100), and the waiver's cease date; 0.0 when the plan or policy has none.
+    shadow_target_waiver_pct: float = 0.0
+    shadow_target_waiver_cease: Optional[date] = None
 
     # Benefit COI rates — keyed by combined type+subtype string (e.g. "39" for PW)
     # Each value is a 1-indexed list by policy year (benefit duration)
@@ -659,6 +664,33 @@ def _load_shadow_rates(
     for attr, rate_type in (("shadow_epu", "EPU"), ("shadow_tpp", "TPP"), ("shadow_epp", "EPP")):
         setattr(result, attr, rates_db.get_rates(rate_type, plancode, **cell) or [])
     _load_shadow_single_values(result, config, rates_db, seg, plancode)
+    _load_shadow_target_waiver(result, policy, config, rates_db, seg)
+
+
+def _load_shadow_target_waiver(result, policy, config, rates_db, seg) -> None:
+    """Waiver-of-deduction (39) uplift of the shadow target (``ShadowTargetWaiverUplift``).
+
+    LTGUL spec: "The CCV target premium will be increased by the rider target premium."
+    The 39 rider's target is its BENMTP rate as a percent of the base target, as on the
+    regular target.  Required when the flag is on and the policy carries the waiver.
+    """
+    if not config.shadow_target_waiver_uplift or not result.shadow_tpr:
+        return
+    waiver = next((b for b in policy.benefits
+                   if b.is_active and (b.benefit_type or "") + (b.benefit_subtype or "") == "39"), None)
+    if waiver is None:
+        return
+    band = seg.original_band if config.sa_basis == "OriginalSA" else seg.band
+    rate = rates_db.get_ben_mtp(policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class, band, "39",
+                                issue_date=seg.issue_date)
+    if rate is None:
+        raise RateLookupError(
+            f"Required waiver (39) BENMTP rate for the shadow target is unavailable for plancode "
+            f"{policy.plancode}, issue age {seg.issue_age}, sex {seg.rate_sex}, "
+            f"rate class {seg.rate_class}, band {band}."
+        )
+    result.shadow_target_waiver_pct = rate / 100.0
+    result.shadow_target_waiver_cease = waiver.cease_date
 
 
 def _load_shadow_single_values(result, config, rates_db, seg, plancode: str) -> None:
