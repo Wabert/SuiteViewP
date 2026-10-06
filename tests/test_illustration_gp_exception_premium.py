@@ -242,6 +242,40 @@ def test_latched_exception_replaces_a_schedule_with_guideline_room(engine_env):
     assert len({round(s.gp_exception_prem, 2) for s in states[2:]}) == 1
 
 
+def test_replaced_schedule_gets_one_run_notice_and_no_reduced_request_warning(engine_env):
+    from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
+    from suiteview.illustration.core.request_limits import reduced_request_warnings
+
+    policy = _policy(-500.0)
+    policy.gsp = 3_000.0
+    policy.premiums_paid_to_date = 0.0
+    inputs = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=26, amount=900.0, mode="M")])
+    states = _project(policy, months=8, inputs=inputs, levelizing_premium=True)
+    notices = gp_exception_schedule_notices(policy, inputs, states)
+    assert len(notices) == 1
+    notice = notices[0]
+    assert f"from {states[2].date:%m/%d/%Y}" in notice
+    assert "scheduled premium (900.00)" in notice
+    assert f"{states[2].gp_exception_prem:,.2f} a month" in notice
+    assert reduced_request_warnings(policy, inputs, states) == []
+
+
+def test_no_notice_when_the_schedule_is_not_replaced(engine_env):
+    from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
+    from suiteview.illustration.core.request_limits import reduced_request_warnings
+
+    # A healthy policy: the scheduled premium keeps it funded, no exception period.
+    policy = _policy(20_000.0)
+    policy.gsp = 100_000.0
+    inputs = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=26, amount=100.0, mode="M")])
+    states = _project(policy, months=6, inputs=inputs)
+    assert not any(s.gp_exception_mode for s in states)
+    assert gp_exception_schedule_notices(policy, inputs, states) == []
+    assert reduced_request_warnings(policy, inputs, states) == []
+
+
 def test_target_and_excess_load_tiers_apply_to_the_exception_premium(engine_env):
     # TPP 8% up to the 1,200 CTP and EPP 4% above it: the exception premium is
     # level at the target rate, then (after one straddling payment) level at the

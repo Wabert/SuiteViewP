@@ -34,6 +34,7 @@ from suiteview.illustration.core.abr_quote import run_abr_quote
 from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, dcv_defaulted
+from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
 from suiteview.illustration.core.face_minimum import min_face_notices
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
 from suiteview.illustration.core.report_builder import (
@@ -274,8 +275,26 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
         messages=messages,
         lumpsum_result=resolved.lumpsum_result,
         duration_label=scenario.duration_label,
-        warnings=gate.warnings + _reduced_request_warnings(scenario, resolved, current),
+        warnings=(
+            gate.warnings
+            + _reduced_request_warnings(scenario, resolved, current)
+            + _gp_exception_notices(scenario, resolved, current)
+        ),
     )
+
+
+def _gp_exception_notices(
+    run_scenario: RunScenario,
+    resolved: ResolvedRunInputs,
+    current: list[MonthlyState],
+) -> tuple[str, ...]:
+    """Scheduled premium replaced by the GP exception premium (never fails the run)."""
+    try:
+        return tuple(gp_exception_schedule_notices(
+            run_scenario.scenario.projectable_policy, resolved.future_inputs, current))
+    except Exception:
+        logger.exception("Could not check for a GP exception premium replacing the schedule")
+        return ()
 
 
 def _reduced_request_warnings(
