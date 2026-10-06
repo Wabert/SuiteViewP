@@ -193,6 +193,7 @@ class PlancodeConfig:
     shadow_aps205_load_relief: bool = False
     shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"
     shadow_target_waiver_uplift: bool = False  # 39 waiver raises the shadow target (LTGUL)
+    shadow_target_annual_flat: bool = False  # target adds the annual (not /12) flat per 1000
     # "Shadow": NAR death benefit = SA (+ shadow value for DBO B).  "Policy": the policy's
     # own death benefit, SA (+ the regular AV for DBO B) — "proceeds payable at death".
     shadow_db_basis: str = "Shadow"
@@ -465,6 +466,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         shadow_aps205_load_relief=bool(data.get("ShadowAPS205LoadRelief", False)),
         shadow_target_rate_basis=str(data.get("ShadowTargetRateBasis", "MTP")).strip().upper() or "MTP",
         shadow_target_waiver_uplift=bool(data.get("ShadowTargetWaiverUplift", False)),
+        shadow_target_annual_flat=bool(data.get("ShadowTargetAnnualFlat", False)),
         shadow_db_basis=str(data.get("ShadowDBBasis", "Shadow")).strip() or "Shadow",
         illustration_overrides=tuple(overrides),
     )

@@ -153,8 +153,12 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   scale-S CTP target and APS205's target-relief load rule
   (`ShadowAPS205LoadRelief`): the 45% excess load applies only to premium above
   BOTH the policy-year target and, once seven policy months have elapsed since
-  issue, (N+1) targets of premium to date (before that, one target). The shadow
-  target adds the full annual flat extra per 1000 (every shadow plan), and on
+  issue, (N+1) targets of premium to date (before that, one target; with premium to
+  date unknown, e.g. a caller that cannot supply it, only the per-year test). On
+  LTGUL (`ShadowTargetAnnualFlat`) the shadow target adds the full annual flat extra
+  per 1000; other shadow plans keep flat/12 (22 SGUL flat-extra policies replay
+  identically either way, so there is no evidence to change them). The flat stops at
+  its cease date, as on the regular target. On
   LTGUL an active 39 waiver raises it by the waiver's BENMTP percent
   (`ShadowTargetWaiverUplift`; the spec's "increased by the rider target premium").
   Fitted to CyberLife XP on 50 LTGUL policies (10/2026, U0592771 -330,162 -> +40).

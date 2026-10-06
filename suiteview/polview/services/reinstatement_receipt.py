@@ -132,8 +132,10 @@ def project_receipt(
     if p.has_shadow_account:
         shd = calculate_shadow(ShadowInput(
             prev_shadow_eav=state.shadow_av, gross_premium=prem.gross_premium,
-            premiums_ytd=prem.premiums_ytd, policy=p, config=config, rates=rates,
-            rate_year=state.policy_year, attained_age=state.attained_age,
+            premiums_ytd=prem.premiums_ytd, premiums_to_date=prem.premiums_to_date,
+            policy=p, config=config, rates=rates,
+            rate_year=state.policy_year, policy_month=state.policy_month,
+            attained_age=state.attained_age,
             days_in_month=0, policy_debt=0.0, projection_date=receipt_date,
             display_days_in_month=0,
         ))

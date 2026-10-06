@@ -67,6 +67,8 @@ class ShadowInput:
     """Inputs for one CCV shadow-account month.
 
     Premium and YTD amounts are dollars after the regular-side premium step.
+    ``premiums_to_date`` is ``None`` when the caller does not know it; the APS205
+    load then skips its cumulative (N+1) relief and uses the per-year test.
     ``days_in_month`` is actual calendar days; ``display_days_in_month`` carries
     the option-aware 365/12 vs exact-days count used for interest display.
     """
@@ -83,7 +85,7 @@ class ShadowInput:
     policy_debt: float
     policy_month: int = 1
     post_deduction_gross_premium: float = 0.0
-    premiums_to_date: float = 0.0
+    premiums_to_date: float | None = None
     gross_premium_interest_days: float = 0.0
     gross_withdrawal: float = 0.0
     gross_withdrawal_interest_days: float = 0.0
@@ -114,9 +116,11 @@ def _shadow_target_premium(
 ) -> float:
     """Annual shadow (CCV) target premium.
 
-    Per 1000: target rate + table add-on x table + the ANNUAL flat extra (the flat is an
-    annual premium per 1000 like the target; U0588909's $2.40 flat reproduces XP exactly,
-    the monthly $0.20 does not).  An active 39 waiver raises it by the waiver's percent
+    Per 1000: target rate + table add-on x table + the flat extra while it is active
+    (strictly before its cease date).  With ``ShadowTargetAnnualFlat`` (LTGUL) the flat
+    is the ANNUAL flat per 1000, like the target (U0588909's $2.40 flat reproduces XP
+    exactly, the monthly $0.20 does not); other plans keep flat/12 (unverified there).
+    An active 39 waiver raises the target by the waiver's percent
     (``ShadowTargetWaiverUplift``) until the waiver ceases.
     """
     if not rates.shadow_tpr:
@@ -126,7 +130,9 @@ def _shadow_target_premium(
     tpr = get_rate(rates, "shadow_tpr", rate_year)
     table_cov1 = seg.table_rating if seg else 0
     tpr_tbl1 = get_rate(rates, "shadow_tpr_tbl1", rate_year) if table_cov1 else 0.0
-    flat1 = seg.flat_extra if seg and seg.flat_extra else 0.0
+    flat1 = 0.0
+    if seg and seg.flat_extra and _charge_active(seg.flat_cease_date, projection_date):
+        flat1 = seg.flat_extra if config.shadow_target_annual_flat else seg.flat_extra / MONTHS_PER_YEAR
     flat2 = 0.0  # Second flat extra — not implemented
     target = _round_near(
         sa_for_basis / PER_THOUSAND * (tpr + tpr_tbl1 * table_cov1 + flat1 + flat2),
@@ -157,7 +163,7 @@ def _aps205_premium_load(
     *,
     gross_premium: float,
     premiums_ytd_after: float,
-    premiums_to_date_after: float,
+    premiums_to_date_after: float | None,
     shadow_target_prem: float,
     epp_pct: float,
     policy_month: int,
@@ -170,22 +176,19 @@ def _aps205_premium_load(
     since issue (premium to date <= (N+1)T); before that the cumulative allowance is T.
     Fitted to CyberLife XP on 50 1U143800/1U144500 policies (2026-10-06); e.g. U0592771
     year 19 (YTD 2.05T, PTD 19.08T, months 4-6) is not loaded, U0570491 year 18
-    (YTD 1.3T, PTD > 19T) is.
+    (YTD 1.3T, PTD > 19T) is.  With premium to date unknown (``None``) there is no
+    cumulative relief: the per-year test alone decides.
     """
     if gross_premium <= 0.0:
         return 0.0, 0.0, 0.0, 0.0
-    months_since_issue = (policy_year - 1) * MONTHS_PER_YEAR + policy_month
-    cumulative_target = (
-        (policy_year + 1) * shadow_target_prem if months_since_issue >= 7 else shadow_target_prem
-    )
-    loaded = max(
-        0.0,
-        min(
-            gross_premium,
-            premiums_ytd_after - shadow_target_prem,
-            premiums_to_date_after - cumulative_target,
-        ),
-    )
+    allowances = [gross_premium, premiums_ytd_after - shadow_target_prem]
+    if premiums_to_date_after is not None:
+        months_since_issue = (policy_year - 1) * MONTHS_PER_YEAR + policy_month
+        cumulative_target = (
+            (policy_year + 1) * shadow_target_prem if months_since_issue >= 7 else shadow_target_prem
+        )
+        allowances.append(premiums_to_date_after - cumulative_target)
+    loaded = max(0.0, min(allowances))
     load = loaded * epp_pct
     return max(gross_premium - loaded, 0.0), loaded, 0.0, load
 
@@ -195,7 +198,7 @@ def _premium_load_detail(
     config: PlancodeConfig,
     gross_premium: float,
     premiums_ytd_before: float,
-    premiums_to_date_before: float,
+    premiums_to_date_before: float | None,
     shadow_target_prem: float,
     tpp_pct: float,
     epp_pct: float,
@@ -203,7 +206,9 @@ def _premium_load_detail(
     policy_year: int,
 ) -> tuple[float, float, float, float, float]:
     premiums_ytd_after = premiums_ytd_before + gross_premium
-    premiums_to_date_after = premiums_to_date_before + gross_premium
+    premiums_to_date_after = (
+        None if premiums_to_date_before is None else premiums_to_date_before + gross_premium
+    )
     if config.shadow_aps205_load_relief:
         prem_under, prem_over, target_load, excess_load = _aps205_premium_load(
             gross_premium=gross_premium,
@@ -443,7 +448,9 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     # ── Premium loads (cols XB/XC/XD) ─────────────────────────
     total_gross_premium = gross_premium + post_deduction_gross_premium
     premiums_ytd_before = premiums_ytd - total_gross_premium
-    premiums_to_date_before = premiums_to_date - total_gross_premium
+    premiums_to_date_before = (
+        None if premiums_to_date is None else premiums_to_date - total_gross_premium
+    )
     (
         prem_under,
         prem_over,
@@ -471,7 +478,9 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         config=config,
         gross_premium=post_deduction_gross_premium,
         premiums_ytd_before=premiums_ytd_before + gross_premium,
-        premiums_to_date_before=premiums_to_date_before + gross_premium,
+        premiums_to_date_before=(
+            None if premiums_to_date_before is None else premiums_to_date_before + gross_premium
+        ),
         shadow_target_prem=shadow_target_prem,
         tpp_pct=tpp_pct,
         epp_pct=epp_pct,
