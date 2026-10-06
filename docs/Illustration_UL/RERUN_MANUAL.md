@@ -26,7 +26,8 @@ forces business mode on for testing and can never turn it off. Developers see
 everything as before.
 
 Business mode hides the Options menu (Additional Premium Types, Testing Mode,
-ABR Quote, Edit Record — their settings stay off) and the ☰ Plancode Table, locks
+ABR Quote, Edit Record — their settings stay off) and the ☰ Plancode Table entry
+(the ☰ menu itself stays so business users can **Export Case for Support**), locks
 Region to CKPR, hides the At-Issue Conditions tab, the New Business - From Issue
 button and the Grid Inputs right-click, and shows only Overview/Chart/Charges on
 the Values tab. The Illustration Control items (Enable Illustration Options,
@@ -71,7 +72,8 @@ row defaults to Billable Prem. Regression: `tests/test_illustration_business_mod
 ## RERUN ☰ header menu and Plancode Table
 
 The ☰ button at the left edge of the RERUN title bar (before the title) holds
-reference views. **Plancode Table…** opens a read-only, non-modal window
+reference views and **Export Case for Support…** (see `RUN_VALUES_FLOW.md`).
+**Plancode Table…** opens a read-only, non-modal window
 (`suiteview/illustration/ui/plancode_table_view.py`) over
 `suiteview/illustration/plancodes/plancode_table.json` — the same rows
 `load_plancode` reads, through `plancode_table_rows()`. The rows hold product
