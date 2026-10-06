@@ -35,6 +35,7 @@ from typing import Dict, List, Optional
 
 from suiteview.illustration.core.bonus_rates import load_bonus_config
 from suiteview.illustration.core.calc_engine import bonus_as_of
+from suiteview.illustration.core.face_minimum import FACE_MIN_LIMITED_KEY
 from suiteview.illustration.core.lapse import issue_no_lapse_years
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -910,8 +911,12 @@ def _change_sections(
             by_date[change.effective_date] = section
             sections.append(section)
         if change.kind == PolicyChangeKind.FACE_AMOUNT:
+            detail = eff.face_change_detail or {}
+            new_face = (
+                float(detail["Total SA"]) if detail.get(FACE_MIN_LIMITED_KEY)
+                else float(change.value))
             section.summary_lines.append(
-                f"SPECIFIED AMOUNT CHANGE TO {_money(float(change.value))}")
+                f"SPECIFIED AMOUNT CHANGE TO {_money(new_face)}")
         elif change.kind == PolicyChangeKind.DB_OPTION:
             new = str(change.value or "").upper()
             section.summary_lines.append(

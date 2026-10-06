@@ -190,6 +190,10 @@ def test_asl_interest_method_follows_cyberlife_diffcmpd(plancode, method):
     ("1U130N2X", 10_000), ("1U130M29", 10_000), ("1U134500", 5_000),
     ("MLUL502", 100_000), ("1U135000", 50_000),
     ("1U135D00", 25_000),  # PDF minimum equals the default
+    # MLUL spec minimum 100,000 (Robert Haessly 10/6). 1U135F00 is the MLUL product
+    # (PDF form MLUL, user field MLUL2000; every in-force policy issued at >= 100,000)
+    # although CyberLife's PDF DBSMIAMT carries the ANICO2000 21,000.
+    ("MLUL", 100_000), ("1U135F00", 100_000),
 ])
 def test_min_face_after_withdrawal_is_the_plan_issue_minimum(plancode, minimum):
     import json
@@ -198,6 +202,28 @@ def test_min_face_after_withdrawal_is_the_plan_issue_minimum(plancode, minimum):
     table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
     rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
     assert rows[plancode].get("MinFaceAfterWD", 25_000) == minimum
+    assert rows[plancode]["MinFaceEvidenced"] is True
+
+
+@pytest.mark.parametrize("plancode", [
+    # DBSMIUSE 0 / '#': the 25,000 default is unevidenced, so no decrease minimum.
+    "1U145700", "1U1F4A00",
+])
+def test_unevidenced_minimum_face_is_not_flagged(plancode):
+    import json
+    from pathlib import Path
+
+    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
+    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
+    assert "MinFaceAfterWD" not in rows[plancode]
+    assert "MinFaceEvidenced" not in rows[plancode]
+
+
+def test_min_face_evidenced_is_read_from_the_table(monkeypatch):
+    config = _load(monkeypatch, facts=plan_facts(PLAN), MinFaceAfterWD=100_000, MinFaceEvidenced=True)
+    assert (config.min_face_after_wd, config.min_face_evidenced) == (100_000.0, True)
+    default = _load(monkeypatch, facts=plan_facts(PLAN))
+    assert (default.min_face_after_wd, default.min_face_evidenced) == (25_000.0, False)
 
 
 # ── plancode-driven interest (exact_days_interest=None) on DIFFCMPD plans ────

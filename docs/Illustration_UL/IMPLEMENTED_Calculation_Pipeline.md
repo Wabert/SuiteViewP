@@ -310,6 +310,17 @@ Face decreases reduce existing coverage segments newest-first:
 - the segment is re-banded to the remaining current face amount and COI/EPU rates are reloaded
 - benefit COI rates are reloaded using the base segment's current band
 
+**Plan minimum face** (Robert Haessly, 10/6/2026; `core/face_minimum.py`): a requested
+decrease, or the face reduction of a DBO A-to-B change, may not take the specified amount
+below the plan's minimum face (`plancode_table.json` `MinFaceAfterWD`, the CyberLife PDF
+DBSMIAMT issue minimum; MLUL/MLUL502/1U135F00 100,000). A larger decrease is limited to
+the minimum and named in the run status ("Face decrease on ... limited to the plan
+minimum face ..."); the ledger report shows the face actually used. A policy already
+below the minimum keeps its face. Only rows flagged `MinFaceEvidenced` (DBSMIUSE 2) take
+the minimum; plans on the unevidenced 25,000 default (DBSMIUSE 0 or `#`) take none until
+ruled on. An ABR partial acceleration is exempt. Withdrawals keep their own DBO A cap,
+SA - (`MinFaceAfterWD` + fee), on every plan.
+
 Face increases append a new base `CoverageSegment`:
 
 - the new segment's issue date is the change date

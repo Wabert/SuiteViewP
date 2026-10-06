@@ -33,6 +33,7 @@ from suiteview.illustration.core.abr_quote import run_abr_quote
 from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, dcv_defaulted
+from suiteview.illustration.core.face_minimum import min_face_notices
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
 from suiteview.illustration.core.report_builder import IllustrationReport, build_ul_report
 from suiteview.illustration.core.request_limits import reduced_request_warnings
@@ -961,6 +962,8 @@ def _final_status(
         status += f"  |  {request.controls.rollback_status}"
     if dcv_defaulted(current):
         status += f"  ·  {DCV_DEFAULTED_NOTICE}"
+    for notice in min_face_notices(current):
+        status += f"  ·  {notice}"
     if guaranteed_error:
         status += f"  ·  Guaranteed values unavailable: {guaranteed_error}"
     if lumpsum_result is not None and lumpsum_result.lumpsum > 0:

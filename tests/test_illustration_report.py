@@ -605,6 +605,20 @@ def test_changes_on_same_date_group_into_one_section():
         "RIDERS AND BENEFITS ASSUMED IN THIS ILLUSTRATION AS OF 11/09/2027") == 1
 
 
+def test_limited_face_decrease_reports_the_applied_face():
+    """A decrease limited at the plan minimum face (core.face_minimum) shows the face
+    the illustration used, not the request."""
+    inputs = IllustrationInputSet(policy_changes=[
+        PolicyChangeEvent(kind=PolicyChangeKind.FACE_AMOUNT,
+                          effective_date=date(2027, 11, 9), value=75000.0)])
+    results = _results()
+    eff = next(s for s in results[1:] if s.date and s.date >= date(2027, 11, 9))
+    eff.face_change_detail = {"Decrease Limited To Min Face": True, "Total SA": 100000.0}
+    report = build_ul_report(_policy(), results, future_inputs=inputs,
+                             run_date=date(2026, 6, 10))
+    assert report.change_sections[0].summary_lines == ["SPECIFIED AMOUNT CHANGE TO $100,000.00"]
+
+
 def test_retroactive_mec_marks_discovery_year_and_suppresses_later_restart():
     rows = [MonthlyState(
         policy_year=3, policy_month=12, duration=36,

@@ -38,6 +38,7 @@ from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.face_minimum import PLAN_MINIMUM_EXEMPT_KEY
 from suiteview.illustration.core.solve_premium_to_target import solve_premium_to_target
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -316,7 +317,11 @@ def _calculate_max_partial_deduction(
         kind=PolicyChangeKind.FACE_AMOUNT,
         effective_date=forecast_date,
         value=minimum_face_amount,
-        metadata={"charge_surrender": False, "change_label": "ABR Max Partial Acceleration"},
+        metadata={
+            "charge_surrender": False,
+            "change_label": "ABR Max Partial Acceleration",
+            PLAN_MINIMUM_EXEMPT_KEY: True,
+        },
     )]
     zero_premium = ScheduledTransaction(
         kind=TransactionKind.PREMIUM,

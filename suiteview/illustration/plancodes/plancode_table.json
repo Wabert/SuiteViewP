@@ -383,6 +383,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -406,6 +408,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 100000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -429,6 +432,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 21000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -452,6 +456,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 21000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -499,6 +504,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 21000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -524,6 +530,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 21000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -549,6 +556,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 21000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -578,6 +586,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 100000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -607,6 +616,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 100000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -628,7 +638,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 0,
-      "MinFaceAfterWD": 21000,
+      "MinFaceAfterWD": 100000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -651,6 +662,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 100000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -673,6 +685,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 100000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -694,6 +707,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -710,6 +725,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -726,6 +743,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -747,6 +766,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -763,6 +784,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -779,6 +802,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -800,6 +825,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -853,6 +880,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -906,6 +935,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -927,6 +958,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -948,6 +981,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 0,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -969,6 +1004,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -990,6 +1027,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1012,6 +1051,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 0,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1034,6 +1074,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANTEX"
@@ -1076,6 +1117,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 0,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1097,6 +1140,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 0,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1119,6 +1164,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 50000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1141,6 +1187,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 50000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1163,6 +1210,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1185,6 +1233,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1207,6 +1256,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 50000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1250,6 +1300,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1293,6 +1344,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1315,6 +1367,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1337,6 +1390,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 12500,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1359,6 +1413,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 50000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1380,6 +1435,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1401,6 +1458,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 0,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1422,6 +1481,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1444,6 +1505,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 12500,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1465,6 +1527,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 0,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1507,6 +1571,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1550,6 +1616,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1572,6 +1639,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1594,6 +1662,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1616,6 +1685,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1638,6 +1708,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1660,6 +1731,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 10000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": true,
       "CompanySub": "ANICO"
@@ -1682,6 +1754,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 12500,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1704,6 +1777,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -1840,6 +1914,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1862,6 +1938,8 @@
       "CanIllustrate": true,
       "PoAV_Table": "0",
       "DynamicBanding": 3,
+      "MinFaceAfterWD": 25000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"
@@ -1973,6 +2051,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -1997,6 +2076,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2021,6 +2101,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2064,6 +2145,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2086,6 +2168,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2129,6 +2212,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2151,6 +2235,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2173,6 +2258,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "AHL"
@@ -2195,6 +2281,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2259,6 +2346,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2281,6 +2369,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2303,6 +2392,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2325,6 +2415,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2368,6 +2459,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2390,6 +2482,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2412,6 +2505,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2434,6 +2528,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2477,6 +2572,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2520,6 +2616,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2542,6 +2639,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2564,6 +2662,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2586,6 +2685,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2608,6 +2708,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2630,6 +2731,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2673,6 +2775,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2695,6 +2798,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2759,6 +2863,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2781,6 +2886,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2803,6 +2909,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2825,6 +2932,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "1/12th",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2847,6 +2955,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2890,6 +2999,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2912,6 +3022,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 5000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ASL"
@@ -2934,6 +3045,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -2956,6 +3068,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -2978,6 +3091,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -3000,6 +3114,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -3022,6 +3137,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -3044,6 +3160,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -3068,6 +3185,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL"
@@ -3090,6 +3208,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 80000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "FFL",
@@ -3239,6 +3358,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 3,
       "MinFaceAfterWD": 20000,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "GSL"
@@ -5039,6 +5159,7 @@
       "PoAV_Table": "0",
       "DynamicBanding": 0,
       "MinFaceAfterWD": 0,
+      "MinFaceEvidenced": true,
       "Interest_Method": "ExactDays",
       "Rachet_Banding": false,
       "CompanySub": "ANICO"

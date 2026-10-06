@@ -81,6 +81,7 @@ from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_conf
 from suiteview.illustration.core.corridor_rates import corridor_death_benefit, corridor_factor
 from suiteview.illustration.core.cvat_nsp import CvatCorridor, IswlNspBasis, UlNspBasis
 from suiteview.illustration.core.deemed_cash_value import NptTracker, glp_rate_for
+from suiteview.illustration.core.face_minimum import limited_decrease, record_limit as record_min_face_limit
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.interest_calc import credit_interest, interest_days
@@ -3508,7 +3509,7 @@ def _capture_policy_change_before(
         capture_guideline_before
         and not fully_injected
         and (
-            _will_alter_coverage(policy, change, face_before, av)
+            _will_alter_coverage(policy, config, change, face_before, av)
             or _will_alter_guideline_charge_basis(policy, change, change_date)
         )
     )
@@ -3566,13 +3567,16 @@ def _apply_option_a_to_b(
     policy, config, rates, change_date, rate_year: int, av_whole: float,
     detail: Dict[str, object], outcome: _PolicyChangeOutcome,
 ) -> None:
+    decrease = limited_decrease(config, policy.total_face, av_whole)
+    if decrease < av_whole - 1e-6:
+        record_min_face_limit(detail, config, av_whole, decrease)
     cuts = _reduce_base_face(
-        policy, av_whole, rates, change_date, rate_year,
+        policy, decrease, rates, change_date, rate_year,
         charge_scr=config.face_decrease_surrender_charge, config=config,
     )
     outcome.av_adjustment += cuts.av_adjustment
     outcome.coverage_changed = True
-    detail["DBO Face Decrease"] = av_whole
+    detail["DBO Face Decrease"] = decrease
     detail["DBO Face Increase"] = 0.0
     detail["Total PSC DBO"] = -cuts.av_adjustment
     for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
@@ -3598,9 +3602,11 @@ def _apply_face_amount_change(
     policy, config, change, attained_age, change_date, rates, rate_year: int,
     face_before: float, md: dict, outcome: _PolicyChangeOutcome,
 ) -> None:
-    new_total = float(change.value)
-    delta = new_total - face_before
-    detail = _face_change_detail(new_total, delta)
+    requested = float(change.value)
+    delta = _effective_face_target(config, change, face_before) - face_before
+    detail = _face_change_detail(requested, requested - face_before)
+    if requested - face_before < -1e-6 and delta > requested - face_before + 1e-6:
+        record_min_face_limit(detail, config, face_before - requested, -delta)
     if delta < -1e-6:
         cuts = _reduce_base_face(
             policy, -delta, rates, change_date, rate_year,
@@ -3626,6 +3632,15 @@ def _face_change_detail(new_total: float, delta: float) -> Dict[str, object]:
         "Specified Face Increase": 0.0,
         "Total PSC Spec Dec": 0.0,
     }
+
+
+def _effective_face_target(config, change, face_before: float) -> float:
+    """Requested total face, a decrease limited at the plan minimum (core.face_minimum)."""
+    requested = float(change.value)
+    if requested >= face_before:
+        return requested
+    return face_before - limited_decrease(
+        config, face_before, face_before - requested, change.metadata)
 
 
 def _charge_face_decrease_surrender(policy, config, md: dict) -> bool:
@@ -3891,11 +3906,11 @@ def _apply_policy_change(
     return outcome
 
 
-def _will_alter_coverage(policy, change, face_before: float, av: float) -> bool:
+def _will_alter_coverage(policy, config, change, face_before: float, av: float) -> bool:
     """Predict whether the change will move the specified amount (and so needs
     a before-change guideline solve captured ahead of the mutation)."""
     if change.kind == PolicyChangeKind.FACE_AMOUNT:
-        return abs(float(change.value) - face_before) > 1e-6
+        return abs(_effective_face_target(config, change, face_before) - face_before) > 1e-6
     if change.kind == PolicyChangeKind.DB_OPTION:
         old = str(policy.db_option or "").upper()
         new = str(change.value or "").upper()

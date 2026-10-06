@@ -122,12 +122,18 @@ class PlancodeConfig:
     pwot_coi_basis: int = 1
 
     # Withdrawals — RERUN sWithdrawalFee / sMD_HoldBack, plus the
-    # post-withdrawal minimum face hardcoded in the workbook (AY: SA - 25,025
-    # = 25,000 floor + the fee). Partial surrender charge eligibility is
-    # derived from ``sa_basis`` below.
+    # post-withdrawal minimum face (AY: SA - (minimum + fee)). Table
+    # MinFaceAfterWD is the plan's CyberLife issue minimum (PDF DBSMIAMT,
+    # DBSMIUSE 2); RERUN's hardcoded 25,000 is the default. Partial surrender
+    # charge eligibility is derived from ``sa_basis`` below.
     withdrawal_fee: float = 25.0
     md_holdback: float = 0.0             # months of prior MD held back from max-net
     min_face_after_wd: float = 25000.0
+    # True when ``min_face_after_wd`` is evidenced by DBSMIAMT (table
+    # MinFaceEvidenced). Only then does a requested face decrease (or a DBO A->B
+    # face reduction) stop at the minimum (Robert Haessly 10/6/2026); a plan on
+    # the unevidenced 25,000 default takes no decrease minimum.
+    min_face_evidenced: bool = False
 
     # Corridor: schema PLAN CORR (7702 GPT corridor factor) by attained age. None =
     # the plan has no GPT corridor (CVAT plans, ISWL); see core.corridor_rates.
@@ -443,6 +449,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),
         md_holdback=float(data.get("MD_HoldBack", 0)),
         min_face_after_wd=float(data.get("MinFaceAfterWD", 25000)),
+        min_face_evidenced=bool(data.get("MinFaceEvidenced", False)),
         corridor_by_age=facts.corridor_by_age,
         premium_cease_age=premium_cease_age,
         maturity_age=maturity_age,
