@@ -701,9 +701,10 @@ class IllustrationInputsTab(QWidget):
             "Loan Repayments Pay Principal First")
         self.loan_principal_first_check.setChecked(False)
         self.loan_principal_first_check.setToolTip(
-            "Checked applies a loan repayment to loan principal before accrued "
-            "loan interest (as CyberLife does). Unchecked (default, conservative) "
-            "pays accrued interest first. Interest-in-advance loans are unaffected.")
+            "Checked applies a loan repayment to loan principal, regular before "
+            "preferred, before accrued loan interest (as CyberLife does). Unchecked "
+            "(default, conservative) pays accrued interest first. Interest-in-advance "
+            "loans are unaffected.")
         layout.addWidget(self.loan_principal_first_check)
 
         # Normally on: rows past the lapse test are not a real illustration.

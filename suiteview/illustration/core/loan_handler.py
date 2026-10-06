@@ -320,8 +320,11 @@ def repay_loan(inputs: LoanStepInput) -> LoanRepayResult:
 
     Arrears loans: cash pays preferred interest, regular interest, preferred
     principal, then regular principal. Variable interest/principal follow.
-    With ``principal_first`` the principal buckets are paid before their
-    accrued interest (CyberLife PL repayments; fix E03, user option).
+    With ``principal_first`` (CyberLife PL repayments; fix E03, user option)
+    cash pays regular principal, then preferred principal, before any accrued
+    interest: CyberLife reduces the regular (higher-rate) loan phases and leaves
+    the preferred phases and accrued interest running (U0340373, UX019666,
+    UL067303; history replay 2026-10-06).
 
     Returns a :class:`LoanRepayResult` (does not add new/variable loans — that
     happens separately). ``applied_repayment`` is the total cash applied to the
@@ -382,8 +385,8 @@ def repay_loan(inputs: LoanStepInput) -> LoanRepayResult:
     )                                                                            # MF = SUM(LX:MC)
     remaining = attempted
     if inputs.principal_first:
-        pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
         rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
+        pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
         pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
         rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
         vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)

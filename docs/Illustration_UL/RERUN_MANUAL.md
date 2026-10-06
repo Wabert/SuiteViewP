@@ -872,8 +872,10 @@ PL repayment to loan principal while `POL_LN_ITS_AMT` keeps accruing
 (26/000289723: `LN_PRI_AMT` falls 149.01 a month). Illustration Control's
 **Loan Repayments Pay Principal First** checkbox
 (`IllustrationOptions.loan_repay_principal_first`) reorders arrears repayments
-to preferred principal, regular principal, preferred accrued, regular accrued,
-then variable principal and accrued. It is off by default because paying
+to regular principal, preferred principal, preferred accrued, regular accrued,
+then variable principal and accrued. CyberLife reduces the regular (higher-rate)
+loan phases first and leaves the preferred phases running (U0340373, UX019666,
+UL067303; six-month history replay 2026-10-06). It is off by default because paying
 interest first is conservative; it is saved with the case (`controls.
 loan_principal_first`) and preserved on the guaranteed side. The CyberLife
 history harness (`tools/rerun/baseline_history_compare.py`) turns it on.
