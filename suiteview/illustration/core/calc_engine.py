@@ -409,19 +409,21 @@ def bonus_as_of(policy: IllustrationPolicyData) -> date:
 
 def resolve_bonus_config(
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     bonus_override: Optional[BonusConfig],
     future_inputs: Optional[IllustrationInputSet] = None,
 ) -> BonusConfig:
     """Load or override the plan interest-bonus configuration.
 
     A conditional (AN0230) bonus is capped at the tier the policy earns: its
-    recorded stage, or the projected test on ``future_inputs``.
+    recorded stage, or the projected test on ``future_inputs`` (face decreases
+    limited at ``config``'s plan minimum face, as the engine applies them).
     """
     if bonus_override is not None:
         return bonus_override
     return apply_bonus_eligibility(
         load_bonus_config(policy.plancode, bonus_as_of(policy)).capped_for(policy),
-        policy, future_inputs)
+        policy, config, future_inputs)
 
 
 def projection_month_count(policy: IllustrationPolicyData, months: Optional[int]) -> int:
@@ -2712,7 +2714,7 @@ class IllustrationEngine:
         iul_ctx = build_iul_context(policy, options)
         segments = build_segment_context(policy, options, iul_ctx)
         initialize_run_from_issue_targets(policy, config, options)
-        bonus = resolve_bonus_config(policy, bonus_override, future_inputs)
+        bonus = resolve_bonus_config(policy, config, bonus_override, future_inputs)
         total_months = projection_month_count(policy, months)
         changes_by_duration = compile_policy_changes_by_duration(policy, future_inputs)
 

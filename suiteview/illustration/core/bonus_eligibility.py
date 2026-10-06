@@ -28,7 +28,8 @@ scenario up to the test anniversary:
 
 * withdrawals: none to date (``withdrawals_to_date``) and none requested in the scenario;
 * face: no base coverage below its original face, and no requested face change below the
-  face before it;
+  face before it, after the engine's plan-minimum limit (``core.face_minimum``): a decrease
+  the minimum fully blocks is no decrease, and the applied face carries forward;
 * premiums: premiums to date plus the scenario premiums (a month without a scenario
   premium bills the modal premium, as the engine does) at least the MAP accumulated by
   the test date - the in-force 'MA' accumulation plus the monthly MTP for the rest of the
@@ -47,8 +48,10 @@ from typing import Optional
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.bonus_rates import BonusConfig
+from suiteview.illustration.core.face_minimum import limited_decrease
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.models.input_set import IllustrationInputSet, PolicyChangeKind
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 # LH_NON_TRD_POL.PRO_BNS_RS_CD -> duration tiers earned.
@@ -61,12 +64,13 @@ _EPS = 0.005
 def apply_bonus_eligibility(
     bonus: BonusConfig,
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     future_inputs: Optional[IllustrationInputSet] = None,
 ) -> BonusConfig:
     """``bonus`` capped at the tier the policy earns; unconditional plans unchanged."""
     if not bonus.bonus_conditional:
         return bonus
-    return replace(bonus, bonus_max_tier=earned_bonus_tier(bonus, policy, future_inputs))
+    return replace(bonus, bonus_max_tier=earned_bonus_tier(bonus, policy, config, future_inputs))
 
 
 def stage_tier(stage_code) -> Optional[int]:
@@ -89,6 +93,7 @@ def with_recorded_stage(bonus: BonusConfig, stage_code) -> BonusConfig:
 def earned_bonus_tier(
     bonus: BonusConfig,
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     future_inputs: Optional[IllustrationInputSet] = None,
 ) -> int:
     """Highest duration tier the policy earns over the run (see the module docstring)."""
@@ -101,7 +106,7 @@ def earned_bonus_tier(
         elif recorded is not None and policy.policy_year >= test_year:
             passed = False
         else:
-            passed = projected_test_passes(policy, future_inputs, test_year)
+            passed = projected_test_passes(policy, config, future_inputs, test_year)
         if not passed:
             break
         earned = tier
@@ -110,6 +115,7 @@ def earned_bonus_tier(
 
 def projected_test_passes(
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     future_inputs: Optional[IllustrationInputSet],
     test_year: int,
 ) -> bool:
@@ -129,7 +135,7 @@ def projected_test_passes(
             return False
         total = month.total_premium if month is not None else None
         premiums += float(policy.modal_premium or 0.0) if total is None else float(total)
-    if _scenario_decreases_face(policy, future_inputs, test_year):
+    if _scenario_decreases_face(policy, config, future_inputs, test_year):
         return False
     remaining_map_months = max(0, min(MAP_PERIOD_MONTHS, test_duration) - policy.duration)
     required = float(policy.accumulated_mtp or 0.0) + float(policy.mtp or 0.0) * remaining_map_months
@@ -138,9 +144,16 @@ def projected_test_passes(
 
 def _scenario_decreases_face(
     policy: IllustrationPolicyData,
+    config: PlancodeConfig,
     future_inputs: Optional[IllustrationInputSet],
     test_year: int,
 ) -> bool:
+    """Whether a requested face change before the test date lowers the face the engine applies.
+
+    Each request is limited at the plan minimum face as the engine limits it
+    (``core.face_minimum``): a fully blocked decrease is no decrease, and the applied
+    face (not the request) carries forward to the next change.
+    """
     if future_inputs is None or policy.issue_date is None:
         return False
     test_date: date = policy.issue_date + relativedelta(years=test_year - 1)
@@ -150,8 +163,12 @@ def _scenario_decreases_face(
          if c.kind == PolicyChangeKind.FACE_AMOUNT and c.effective_date < test_date),
         key=lambda c: c.effective_date)
     for change in changes:
-        new_face = float(change.value)
-        if new_face < face - _EPS:
+        requested = float(change.value)
+        if requested >= face:
+            face = requested
+            continue
+        applied = face - limited_decrease(config, face, face - requested, change.metadata)
+        if applied < face - _EPS:
             return True
-        face = new_face
+        face = applied
     return False

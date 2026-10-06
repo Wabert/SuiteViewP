@@ -757,7 +757,9 @@ VP/MS model (mod AN0230, reward type C), not in CIRF or CKULTB.
   the code is final (stage 5 past year 21 keeps 0.50% for good, stage 0 past
   year 11 gets nothing); a test still ahead is projected on in-force values plus
   the illustrated scenario — no withdrawals to date or requested before the
-  anniversary, no base face below original or requested decrease, and premiums to
+  anniversary, no base face below original or requested decrease (a request is
+  first limited at the plan minimum face as the engine limits it, so a blocked
+  decrease is no decrease and the applied face carries forward), and premiums to
   date plus scenario premiums (modal premium in months without one) at least the
   MAP accumulated by then (`accumulated_mtp` plus monthly MTP for the rest of the
   first 120 months). The projection ignores guideline/TAMRA premium caps.

@@ -221,7 +221,7 @@ def _build_reinstatement_context(
         shadow_active,
         IllustrationOptions(no_lapse=True),
         apply_bonus_eligibility(
-            calc_engine.load_bonus_config(p.plancode, p.valuation_date).capped_for(p), p),
+            calc_engine.load_bonus_config(p.plancode, p.valuation_date).capped_for(p), p, config),
         IllustrationEngine(), limit,
     )
 

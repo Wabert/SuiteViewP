@@ -294,7 +294,7 @@ def _iul14_interest(policy: IllustrationPolicyData, rate_year: int):
         policy,
         PlancodeConfig(plancode=policy.plancode),
         IllustrationRates(),
-        resolve_bonus_config(policy, None),
+        resolve_bonus_config(policy, PlancodeConfig(plancode=policy.plancode), None),
         rate_year=rate_year,
         attained_age=55,
         month_date=AS_OF,

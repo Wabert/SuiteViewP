@@ -54,6 +54,6 @@ def interim_account_value_quote(
     if ill_policy.valuation_date is None:
         raise InterimValueUnavailable("Valuation date was not found.")
     return roll_forward_account_value(
-        ill_policy, config, rates, resolve_bonus_config(ill_policy, None),
+        ill_policy, config, rates, resolve_bonus_config(ill_policy, config, None),
         premiums_after_valuation(policy, ill_policy.valuation_date), quote_date,
     )
