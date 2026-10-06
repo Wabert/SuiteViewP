@@ -153,3 +153,27 @@ class _NoLoadRates:
 def test_plan_without_premium_load_cells_has_no_percentage_load():
     segment = CoverageSegment(issue_age=45, rate_sex="M", rate_class="N")
     assert premium_load_schedules(_NoLoadRates(), PLAN, segment, scale=1, band=1) == ([], [])
+
+
+# ── interest day count: CyberLife PDF DIFFCMPD-FIX-COMPOUND ──────────────────
+
+
+@pytest.mark.parametrize("plancode, method", [
+    # All 16 rows corrected to CyberLife's DIFFCMPD (2026-10-06). DIFFCMPD 1 = daily
+    # (exact days); the history replay credits exact days on these ASL plans, incl.
+    # 1S135C00 where DULCVICP is 2.
+    ("1S133229", "ExactDays"), ("1S133729", "ExactDays"), ("1S133A29", "ExactDays"),
+    ("1S133B2X", "ExactDays"), ("1S133C29", "ExactDays"), ("1S133D2X", "ExactDays"),
+    ("1S133E29", "ExactDays"), ("1S133F29", "ExactDays"), ("1S133G29", "ExactDays"),
+    ("1S133H29", "ExactDays"), ("1S135C00", "ExactDays"), ("1S135M0X", "ExactDays"),
+    ("1S135N00", "ExactDays"), ("1S135W29", "ExactDays"), ("1S135X2X", "ExactDays"),
+    # DIFFCMPD 2 = monthly (1/12 of a year): the corrected row and two unchanged ones.
+    ("1S135A00", "1/12th"), ("1S134A00", "1/12th"), ("1S133I29", "1/12th"),
+])
+def test_asl_interest_method_follows_cyberlife_diffcmpd(plancode, method):
+    import json
+    from pathlib import Path
+
+    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
+    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
+    assert rows[plancode]["Interest_Method"] == method
