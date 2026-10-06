@@ -3051,7 +3051,11 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr,
     The AV adjustment is the decreased units' surrender charge when
     ``charge_scr`` — RERUN charges it on an elective face decrease and the
     A->B level-DB adjustment, but NOT on a withdrawal's face reduction (the
-    partial surrender charge is already inside the gross withdrawal).
+    partial surrender charge is already inside the gross withdrawal). FFL UL
+    per-unit plans take none on a decrease
+    (``PlancodeConfig.face_decrease_surrender_charge``). ``original_face_amount``
+    is left unchanged, so an original-units surrender charge keeps the
+    pre-decrease units.
     """
     result = _FaceCutResult()
     if charge_scr:
@@ -3549,7 +3553,7 @@ def _apply_option_a_to_b(
 ) -> None:
     cuts = _reduce_base_face(
         policy, av_whole, rates, change_date, rate_year,
-        charge_scr=config.partial_surrender_charge, config=config,
+        charge_scr=config.face_decrease_surrender_charge, config=config,
     )
     outcome.av_adjustment += cuts.av_adjustment
     outcome.coverage_changed = True
@@ -3611,7 +3615,7 @@ def _face_change_detail(new_total: float, delta: float) -> Dict[str, object]:
 
 def _charge_face_decrease_surrender(policy, config, md: dict) -> bool:
     return (
-        config.partial_surrender_charge
+        config.face_decrease_surrender_charge
         and policy.decrease_charge_allowed is not False
         and bool(md.get("charge_surrender", True))
     )
@@ -4939,7 +4943,7 @@ def _ffl_graded_surrender_charge(config: PlancodeConfig) -> bool:
     """Company-26 FFL UL per-unit (rule 6) surrender charges are graded monthly between
     coverage years: 0 of 254 FFL ``FH_FIXED`` full surrenders match the annual step.
     Percent-of-surrender-target plans and ISWL have no grading evidence and stay annual."""
-    return config.is_ffl and not config.is_iswl and config.scr_pct_of_surrender_target is None
+    return config.ffl_per_unit_surrender_charge
 
 
 def _ffl_graded_surrender_rate(policy, segment, schedule, projection_date) -> float:
@@ -4991,12 +4995,17 @@ def _surrender_coverage_year(segment, projection_date, fallback_year: int) -> in
 def surrender_charge_units(segment: CoverageSegment, config: Optional[PlancodeConfig]) -> float:
     """Units the surrender charge rate applies to for ``segment``.
 
-    SA_Basis drives the SCR units basis: OriginalSA plans charge the surrender
-    charge on the coverage's ORIGINAL units; every other plan uses the current
-    units. (Units are the specified amount per $1,000.)
+    OriginalSA plans charge the surrender charge on the coverage's ORIGINAL
+    units; so do FFL UL per-unit plans (``CurrentSA``), whose charge stays on the
+    pre-decrease units because FFL takes no partial surrender charge on a
+    decrease (Robert, 10/5/2026). Every other plan uses the current units.
+    (Units are the specified amount per $1,000.)
     """
     if config is not None and config.sa_basis == SA_BASIS_ORIGINAL:
         return segment.original_face_amount / PER_THOUSAND
+    if (config is not None and getattr(config, "surrender_charge_on_original_units", False)
+            and segment.original_face_amount > 0):
+        return segment.original_face_amount / (segment.vpu or PER_THOUSAND)
     return segment.units
 
 

@@ -216,9 +216,10 @@ class PlancodeConfig:
 
     @property
     def partial_surrender_charge(self) -> bool:
-        """Whether decreases assess a partial surrender charge.
+        """Whether a withdrawal's face reduction assesses a partial surrender charge.
 
-        Specified-amount decreases additionally honor the policy's Decrease
+        Specified-amount decreases use ``face_decrease_surrender_charge`` (this rule,
+        except FFL UL per-unit plans) and additionally honor the policy's Decrease
         Charge Rule (``IllustrationPolicyData.decrease_charge_allowed``).
         """
         return self.sa_basis == SA_BASIS_CURRENT
@@ -232,6 +233,30 @@ class PlancodeConfig:
     def is_iswl(self) -> bool:
         """Interest Sensitive Whole Life (fixed premium, schema ``rates``)."""
         return self.product_family == PRODUCT_FAMILY_ISWL
+
+    @property
+    def ffl_per_unit_surrender_charge(self) -> bool:
+        """FFL UL dollar-per-unit (rule 6) surrender charge: FFL, not ISWL and not a
+        percent of the stored surrender target. The FFL plancodes are company 26."""
+        return self.is_ffl and not self.is_iswl and self.scr_pct_of_surrender_target is None
+
+    @property
+    def surrender_charge_on_original_units(self) -> bool:
+        """Whether the full surrender charge applies to each coverage's original
+        (pre-decrease) units instead of its current units.
+
+        OriginalSA plans, and FFL UL per-unit plans (Robert, 10/5/2026: "switch FFL to the
+        original"; FFL takes no partial surrender charge on a decrease). FFL stays
+        ``CurrentSA``: SA_Basis also drives the COI band, EPU, targets and withdrawals.
+        """
+        return self.sa_basis == SA_BASIS_ORIGINAL or self.ffl_per_unit_surrender_charge
+
+    @property
+    def face_decrease_surrender_charge(self) -> bool:
+        """Whether a specified-amount decrease (elective, or the A->B level-DB reduction)
+        assesses a partial surrender charge. FFL UL per-unit plans do not: their full
+        charge stays on the original units. Withdrawals use ``partial_surrender_charge``."""
+        return self.partial_surrender_charge and not self.ffl_per_unit_surrender_charge
 
     def safety_net_years(self, issue_age: int) -> int:
         """Safety-net (no-lapse) period in policy years for a base issue age."""

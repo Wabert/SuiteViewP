@@ -231,7 +231,8 @@ def _surrender_values(basis, config, rates, state) -> SurrenderValues:
         account_value=float(basis.account_value),
         policy_debt=state.policy_debt,
         as_of=basis.valuation_date,
-        original_units_basis=config.sa_basis == SA_BASIS_ORIGINAL,
+        original_units_basis=bool(getattr(
+            config, "surrender_charge_on_original_units", config.sa_basis == SA_BASIS_ORIGINAL)),
         coverages=coverages,
     )
 

@@ -42,7 +42,8 @@ def test_cola_surrender_exemption_is_company_and_plan_specific(
     _, total, rate_detail, charge_detail = calc_engine._calculate_surrender_charge(
         policy, rates, 1, date(2026, 1, 1), config, account_value=0.0)
 
-    units = 50.0 if basis == "OriginalSA" else 25.0
+    # FFL per-unit plans charge the original units whatever their SA_Basis (10/5/2026).
+    units = 50.0 if basis == "OriginalSA" or subsidiary == "FFL" else 25.0
     expected = 0.0 if exempt else units * 2.0
     assert total == expected
     assert charge_detail == {"cov1": expected}

@@ -1118,6 +1118,23 @@ was populated with the current band.
 OriginalSA still has no partial surrender charge. Its withdrawal fee reduces
 AV but not specified amount, matching the workbook's Target SA_Basis fee gate.
 Shadow-account basis remains a separate contractual setting.
+
+**FFL UL surrender charge on original units** (Robert's 10/5/2026 ruling: "switch FFL to
+the original. That makes sense since FFL doesn't charge a partial surrender charge on a
+decrease."). FFL UL per-unit (rule 6) plans (`PlancodeConfig.ffl_per_unit_surrender_charge`:
+FFL, not ISWL, not percent of surrender target) charge the full surrender charge on each
+coverage's original units (`LH_COV_PHA.OGN_SPC_UNT_QTY`, carried as
+`CoverageSegment.original_face_amount`; current units when it is missing), and a
+specified-amount decrease, elective or the A->B level-DB reduction, takes no partial
+surrender charge (`PlancodeConfig.face_decrease_surrender_charge`). Their SA_Basis stays
+`CurrentSA`: it also drives the COI band, EPU, target premiums and withdrawals, and FFL's
+monthly deduction already matches on current SA. A decrease entered in a projection keeps the
+charge on the pre-decrease units. Withdrawals keep their partial surrender charge: CyberLife
+books one on FFL withdrawals (`FH_FIXED` 'SN'/'SM' rows); the maximum withdrawal nets the full
+charge on original units. Live FFL policies already carry Decrease Charge Rule 0
+(`DECR_CHRG_ALLOW`, all 10,080 FFL UL policies), so the engine charged no elective-decrease
+partial charge on them before either. PolView's surrender-charge tip reports the original
+units for these plans.
 Regression: `tests/test_illustration_sa_basis.py`,
 `tests/test_policy_mtp_band.py`, and the policy-service/withdrawal tests.
 
@@ -1149,7 +1166,8 @@ dated between monthliversaries): 183 of 214 FFL surrenders (NU1F3*, NU1FU200, 1U
 1U14L*, 1U14I*) match the engine to the cent, against 0 for the annual step. Every match has
 current = original units. The other 31 are: a schema-rates schedule of 0 where CyberLife charges
 (17); charges on the coverage's original specified units after a unit change (9, which
-fit the graded rate x `OGN_SPC_UNT_QTY`; FFL plancode rows are `CurrentSA`); AV caps (2);
+fit the graded rate x `OGN_SPC_UNT_QTY`; since 10/5/2026 the engine charges FFL on original
+units, see "FFL UL surrender charge on original units"); AV caps (2);
 and 3 unexplained, 2 of them after withdrawal unit reductions. The company-26 ANICO-design plans (1U144*-1U147*) keep the annual step (no
 graded fit). FFL percent-of-surrender-target plans (N71E*/EP) and ISWL are unchanged.
 

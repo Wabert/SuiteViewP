@@ -132,11 +132,7 @@ def compute_withdrawal(
     # AY — CSV less the MD holdback and fee; under DBO A the SA floor also
     # caps. Computed every month (RERUN has no request gate on the column).
     full_sc = pct_of_av_surrender_charge + sum(
-        (
-            seg.original_face_amount
-            if config.sa_basis == "OriginalSA"
-            else seg.face_amount
-        )
+        _full_surrender_charge_face(seg, config)
         * scr_rates_by_phase.get(seg.coverage_phase, 0.0)
         / 1000.0
         for seg in policy.segments
@@ -181,6 +177,17 @@ def compute_withdrawal(
         fee_out = fee if config.sa_basis == "OriginalSA" else 0.0
         result.face_decrease = result.gross_withdrawal - fee_out
     return result
+
+
+def _full_surrender_charge_face(seg, config: PlancodeConfig) -> float:
+    """Specified amount the full surrender charge applies to (see
+    ``calc_engine.surrender_charge_units``): the original amount for OriginalSA and
+    FFL UL per-unit plans, otherwise the current amount."""
+    if config.sa_basis == "OriginalSA":
+        return seg.original_face_amount
+    if getattr(config, "surrender_charge_on_original_units", False) and seg.original_face_amount > 0:
+        return seg.original_face_amount
+    return seg.face_amount
 
 
 def _sa_cuts_for_net(applied: float, policy: IllustrationPolicyData) -> Dict[int, float]:
