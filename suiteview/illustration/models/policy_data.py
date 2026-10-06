@@ -502,8 +502,24 @@ class IllustrationPolicyData:
 
     @property
     def in_exception_period(self) -> bool:
-        return (not self.run_from_issue and self.is_gpt
-                and self.glp_is_known and self.glp == 0.0)
+        """An inforce GPT policy with a known GLP of zero whose guideline limit is used up.
+
+        CyberLife keeps taking premiums on a zero-GLP policy up to the guideline limit
+        MAX(GSP, accumulated GLP): DB2 CKPR 2026-10-06, 121 in-force in-scope GPT
+        policies with GLP 0 (all under age 100), 42 with room still paying and 9 paid
+        exactly to the limit (V8632943: five premiums into 965.73 of room).
+        """
+        if self.run_from_issue or not self.is_gpt or not self.glp_is_known or self.glp != 0.0:
+            return False
+        return self.guideline_room <= 0.005
+
+    @property
+    def guideline_room(self) -> float:
+        """Guideline premium room on the inforce record: MAX(GSP, accumulated GLP) less
+        premiums paid net of withdrawals."""
+        limit = max(float(self.gsp or 0.0), float(self.accumulated_glp or 0.0))
+        paid = float(self.premiums_paid_to_date or 0.0) - float(self.withdrawals_to_date or 0.0)
+        return limit - paid
 
     @property
     def is_cvat(self) -> bool:

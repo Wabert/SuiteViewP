@@ -26,7 +26,8 @@ def main():
         args.policy.strip().upper(), region=args.region.strip().upper(),
         company_code=args.company)
     original = copy.deepcopy(policy)
-    assert policy.in_exception_period, "Policy is not a known GP / zero-GLP inforce basis."
+    assert policy.in_exception_period, (
+        "Policy is not a known GP / zero-GLP inforce basis with its guideline limit used up.")
     options = IllustrationOptions(allow_exception_prems=False, exact_days_interest=False)
     states = _project_with_engine(IllustrationEngine(), policy, options=options)
     solved = solve_level_to_exception(policy, base_options=options)

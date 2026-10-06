@@ -916,9 +916,14 @@ Guaranteed output is also built; saved Compare exactly matches Run Values.
 
 ## RERUN existing GP exception periods
 
-An inforce GPT policy with a known GLP of zero starts in the exception premium
-period. RERUN suppresses scheduled, unscheduled and Monthly Deduction premiums,
+An inforce GPT policy with a known GLP of zero **whose guideline limit is used up**
+(premiums paid less withdrawals at or above MAX(GSP, accumulated GLP)) starts in the
+exception premium period. RERUN suppresses scheduled, unscheduled and Monthly Deduction premiums,
 spends the existing account value, then uses calculated GP exception premiums.
+While guideline room remains, a zero-GLP policy bills its premiums under the ordinary
+guideline cap: CyberLife does (DB2 CKPR 2026-10-06: of 121 in-force in-scope zero-GLP
+GPT policies, all under age 100, 42 with room kept paying and 9 paid exactly to the
+limit; history replay V8632943 took five premiums into 965.73 of room).
 This starting status does not require the Allow GP Exception Premium checkbox;
 the existing safety-net, shadow-account and maturity restrictions still apply.
 The red Input notice identifies the period and explains the premium treatment.

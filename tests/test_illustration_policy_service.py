@@ -273,6 +273,10 @@ def test_build_illustration_data_recognizes_only_known_zero_glp(monkeypatch, glp
         lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0))
     policy = illustration_policy_service.build_illustration_data("U0126221")
     assert policy.glp_is_known is known
+    # A known zero GLP starts the exception period only once the guideline limit is
+    # used up (CyberLife keeps taking premiums until then).
+    assert policy.in_exception_period is (exception and policy.guideline_room <= 0.005)
+    policy.premiums_paid_to_date = max(policy.gsp, policy.accumulated_glp) + policy.withdrawals_to_date
     assert policy.in_exception_period is exception
 
 

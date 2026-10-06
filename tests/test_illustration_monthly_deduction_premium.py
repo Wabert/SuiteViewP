@@ -206,6 +206,7 @@ def test_zero_glp_starts_exception_period_and_spends_av_first(monkeypatch, timin
     policy = _md_policy()
     policy.glp = 0.0
     policy.gsp = policy.accumulated_glp = 100_000.0
+    policy.premiums_paid_to_date = 100_000.0  # guideline limit used up
     policy.account_value = 1_000.0
     policy.modal_premium = 5_000.0
     inputs = IllustrationInputSet(
@@ -252,6 +253,37 @@ def test_starting_exception_classification(doli, glp, known, from_issue, expecte
     assert policy.in_exception_period is expected
 
 
+@pytest.mark.parametrize("gsp,acc_glp,paid,withdrawn,expected", [
+    (3_365.88, 25_417.77, 25_417.77, 0.0, True),     # paid exactly to the limit
+    (3_365.88, 25_417.77, 25_260.89, 0.0, False),    # V8632943: 156.88 room left
+    (3_365.88, 25_417.77, 30_000.00, 5_000.0, False),  # withdrawals reopen room
+    (40_000.00, 25_417.77, 30_000.00, 0.0, False),   # GSP is the limit
+])
+def test_zero_glp_starts_exception_period_only_without_guideline_room(
+    gsp, acc_glp, paid, withdrawn, expected,
+):
+    # CyberLife takes premiums on a zero-GLP GPT policy until MAX(GSP, accumulated
+    # GLP) is used up (DB2 CKPR 2026-10-06: 121 in-force zero-GLP policies).
+    policy = IllustrationPolicyData(
+        def_of_life_ins="GPT", glp=0.0, gsp=gsp, accumulated_glp=acc_glp,
+        premiums_paid_to_date=paid, withdrawals_to_date=withdrawn)
+    assert policy.in_exception_period is expected
+
+
+def test_zero_glp_with_guideline_room_bills_premiums_to_the_limit(monkeypatch):
+    _patch(monkeypatch)
+    policy = _md_policy()
+    policy.def_of_life_ins = "GPT"
+    policy.glp = 0.0
+    policy.gsp = policy.accumulated_glp = 100_000.0
+    policy.premiums_paid_to_date = 99_000.0
+    policy.modal_premium = 400.0
+    states = IllustrationEngine().project(
+        policy, months=4, rates_override=_rates(), bonus_override=BonusConfig())
+    assert not any(s.gp_exception_mode for s in states[1:])
+    assert [s.gross_premium for s in states[1:]] == pytest.approx([400.0, 400.0, 200.0, 0.0])
+
+
 def test_guaranteed_projection_retains_locked_exception_premiums(monkeypatch):
     from suiteview.illustration.core.guaranteed_projection import (
         guaranteed_options,
@@ -261,12 +293,17 @@ def test_guaranteed_projection_retains_locked_exception_premiums(monkeypatch):
     policy = _md_policy()
     policy.glp = 0.0
     policy.gsp = 100_000.0
+    policy.premiums_paid_to_date = 100_000.0  # guideline limit used up
     policy.account_value = 200.0
+    # The guaranteed side applies its own guideline cap (module docstring); with the
+    # limit used up it would refuse the locked premiums, so TEFRA is off on both
+    # sides to isolate the locking.
+    options = IllustrationOptions(conform_to_tefra=False)
     current = IllustrationEngine().project(
-        policy, months=3, rates_override=_rates(), bonus_override=BonusConfig())
+        policy, months=3, options=options, rates_override=_rates(), bonus_override=BonusConfig())
     guaranteed = IllustrationEngine().project(
         policy, months=3, future_inputs=lock_values(policy, current),
-        options=guaranteed_options(), rates_override=_rates(), bonus_override=BonusConfig())
+        options=guaranteed_options(options), rates_override=_rates(), bonus_override=BonusConfig())
     assert current[1].gp_exception_prem > 0
     for current_row, guaranteed_row in zip(current[1:], guaranteed[1:]):
         assert guaranteed_row.gross_premium == pytest.approx(current_row.gp_exception_prem)
@@ -282,6 +319,7 @@ def test_starting_exception_ignores_billing_and_immediately_funds_empty_av(
     policy = _md_policy()
     policy.glp = 0.0
     policy.gsp = 100_000.0
+    policy.premiums_paid_to_date = 100_000.0  # guideline limit used up
     policy.modal_premium = 5_000.0
     policy.account_value = account_value
     states = IllustrationEngine().project(
