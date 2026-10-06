@@ -16,6 +16,58 @@ drag/drop, shortcut or hidden-by-default feature, add a tip there too.
 Regression: `tests/test_illustration_tips.py`.
 
 
+## Soft-launch business mode (phase 1)
+
+`suiteview/illustration/core/business_mode.py::is_business_mode()` is the one
+switch: on in the packaged EXE for users whose role lacks support privileges
+(`has_support_privileges()`; fails closed if permissions can't be read). Source
+runs are developer runs; `SUITEVIEW_ILLUSTRATION_BUSINESS_MODE=1` (exactly `1`)
+forces business mode on for testing and can never turn it off. Developers see
+everything as before.
+
+Business mode hides the Options menu (Additional Premium Types, Testing Mode,
+ABR Quote, Edit Record — their settings stay off) and the ☰ Plancode Table, locks
+Region to CKPR, hides the At-Issue Conditions tab, the New Business - From Issue
+button and the Grid Inputs right-click, and shows only Overview/Chart/Charges on
+the Values tab. The Illustration Control items (Enable Illustration Options,
+TEFRA, Stop on Lapse, Option A switch, Exact Days, GP/TAMRA search, Levelizing,
+Principal First, AG49) and Conform to TAMRA stay visible but greyed, locked to
+`BUSINESS_LOCKED_OPTIONS` (the controls' defaults the phase-1 testing used; Exact
+Days off = monthly compounding). `export_options` forces the same values, so a
+saved case can't unlock them; cases using From Issue or Edit Record are refused
+and saved Grid Inputs are dropped with a warning.
+
+`suiteview/illustration/core/run_gates.py` holds the scope rules, applied at load
+(Run disabled, reason in the red run notice under the policy badge strip) and
+again in `run_service.execute_run` and Compare, so saved and imported cases are
+gated too:
+- **Plancodes:** business users illustrate only the 156 phase-1 UL plancodes in
+  `plancodes/phase1_allowlist.json` (regenerate with
+  `tools/rates/build_phase1_allowlist.py <UL_Test_Groups csv>`). Par whole life
+  and indeterminate term policies are refused instead of opening their
+  workspaces. Developers keep the `CanIllustrate` gate.
+- **Status:** `PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` = 22, 32, 33, 34; every other
+  premium-pay status and suspense code 3 are refused ("Policy status 44 (Extended
+  Term) is not supported for in-force illustration in this release."). Suspended
+  policies (`suspense_code == "2"`, carried on `IllustrationPolicyData`) are
+  allowed with the Inputs-tab banner. Developers get a warning.
+- **Illustrated Rate:** on declared-rate UL it can't exceed the rate the policy
+  loaded with (`input_context.default_illustrated_rate`: the declared CIRF rate,
+  else GINT), and a blank field is refused. Developers get a warning (blank still
+  runs at 0% with a warning); ABR Quote stays uncapped.
+- **Load checks:** missing illustration rates found at load block Run (developer:
+  warning); a monthly-deduction mismatch over $0.01 (`MD_MISMATCH_TOLERANCE`) is an
+  amber banner on the Inputs tab and in the run notice — it never blocks.
+
+Every run also reports withdrawal/loan requests the engine reduced
+(`core/request_limits.py`) in the run notice. Run lands on the Report tab, and an
+unexpected failure shows plain text with the detail in the log. The first premium
+row defaults to Billable Prem. Regression: `tests/test_illustration_business_mode.py`,
+`test_illustration_run_gates.py`, `test_illustration_can_illustrate.py`,
+`test_illustration_load_problems.py`, `test_illustration_request_limits.py`,
+`test_illustration_after_run.py`.
+
+
 ## RERUN ☰ header menu and Plancode Table
 
 The ☰ button at the left edge of the RERUN title bar (before the title) holds
@@ -1431,7 +1483,9 @@ Rules are in `illustration/core/iswl_rates.py`:
 Plancode rows are generated from schema `PLAN_DEF` and plan rates by
 `tools/rerun/build_iswl_plancode_rows.py`; the loader re-validates maturity,
 premium cease age, GINT/DBD and loan rates at run time. All 28 in-force ISWL
-plancodes have rows (`CanIllustrate` true: only IUL is blocked). Reconciled to
+plancodes have rows (`CanIllustrate` true: only IUL is blocked for developers in
+the packaged EXE; business users can't illustrate ISWL at all — see "Soft-launch
+business mode"). Reconciled to
 CyberLife: 81335200, 81335100, 80334900, 80335000 (CEIL88) and 81335600,
 81335500, 80335400, 80335300 (CEIL97). The rule-5 surrender charge plans 80333729,
 80333829, 80334729, 80334829, 81333529, 81333629, 81334529, 81334629, 80110429 and
