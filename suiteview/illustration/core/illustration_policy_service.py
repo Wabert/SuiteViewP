@@ -23,6 +23,7 @@ for the canonical build-rates-project wiring.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -40,6 +41,7 @@ from suiteview.illustration.core.skipped_coverage import (
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.ul_rates import ULRates
 from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
+from suiteview.illustration.core.withdrawal_handler import seed_ffl_withdrawal_history
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     SWEEP_FUND_ID,
@@ -59,6 +61,8 @@ from suiteview.illustration.models.policy_data import (
 )
 from suiteview.illustration.models.rider_config import load_rider_config
 from suiteview.polview.models.policy_sections.lookup import policy_attr
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -148,7 +152,27 @@ def build_illustration_data(
     )
     policy.skipped_coverage_periods = build_skipped_coverage_basis(source, policy)
     policy.rollback_snapshots = build_value_rollback_snapshots(source.pi, policy)
+    build_ffl_withdrawal_credit(source, policy)
     return policy
+
+
+def build_ffl_withdrawal_credit(source: PolicySourceSnapshot, policy: IllustrationPolicyData) -> None:
+    """Company-26 FFL: seed the surrender-charge credit for partial surrender charges taken
+    on in-force withdrawals (FH_FIXED SG/SM/SN events), or fall back to the current-units
+    basis when that history cannot be read or is incomplete against TOT_WTD_QTY."""
+    config = source.plancode_config
+    count = int(source.pi.values.total_withdrawal_count or 0)
+    if (not count or str(policy.company_code or "").strip() != "26"
+            or not config.ffl_per_unit_surrender_charge):
+        return
+    try:
+        transactions = source.pi.activity.get_live_transactions(WITHDRAWAL_CODES)
+        if source.pi.table_error("FH_FIXED"):
+            transactions = None
+    except RuntimeError as exc:
+        logger.warning("FFL withdrawal history unavailable for %s: %s", policy.policy_number, exc)
+        transactions = None
+    seed_ffl_withdrawal_history(policy, config, transactions, count, config.withdrawal_fee)
 
 
 def build_skipped_coverage_basis(source: PolicySourceSnapshot, policy: IllustrationPolicyData):

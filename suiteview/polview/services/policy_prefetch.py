@@ -57,6 +57,8 @@ class SurrenderValues:
     as_of: date | None
     original_units_basis: bool
     coverages: tuple[SurrenderChargeCoverage, ...]
+    # FFL: partial surrender charges already taken on withdrawals, netted from the total.
+    withdrawal_credit: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,10 @@ def _surrender_values(basis, config, rates, state) -> SurrenderValues:
     """Engine inforce surrender values plus the per-coverage inputs behind them."""
     from suiteview.illustration.constants import SA_BASIS_ORIGINAL
     from suiteview.illustration.core.calc_engine import surrender_charge_units
+    from suiteview.illustration.core.withdrawal_handler import (
+        ffl_current_units_fallback,
+        ffl_withdrawal_surrender_credit,
+    )
 
     iswl = getattr(rates, "iswl", None)
     pct_of_av = iswl is not None and iswl.surrender_charge_is_pct_of_av
@@ -218,22 +224,24 @@ def _surrender_values(basis, config, rates, state) -> SurrenderValues:
     coverages = tuple(
         SurrenderChargeCoverage(
             coverage_phase=segment.coverage_phase,
-            units=surrender_charge_units(segment, config),
+            units=surrender_charge_units(segment, config, basis),
             rate=state.scr_rates_by_coverage.get(f"cov{index}", 0.0),
             charge=state.surrender_charges_by_coverage.get(f"cov{index}", 0.0),
             pct_of_account_value=pct_of_av and segment.is_base,
         )
         for index, segment in enumerate(segments, start=1)
     )
+    original = bool(getattr(
+        config, "surrender_charge_on_original_units", config.sa_basis == SA_BASIS_ORIGINAL))
     return SurrenderValues(
         surrender_charge=state.surrender_charge,
         surrender_value=state.surrender_value,
         account_value=float(basis.account_value),
         policy_debt=state.policy_debt,
         as_of=basis.valuation_date,
-        original_units_basis=bool(getattr(
-            config, "surrender_charge_on_original_units", config.sa_basis == SA_BASIS_ORIGINAL)),
+        original_units_basis=original and not ffl_current_units_fallback(basis),
         coverages=coverages,
+        withdrawal_credit=ffl_withdrawal_surrender_credit(basis, config),
     )
 
 

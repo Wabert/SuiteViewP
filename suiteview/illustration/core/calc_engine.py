@@ -156,7 +156,9 @@ from suiteview.illustration.core.target_premium import (
 from suiteview.illustration.core.withdrawal_handler import (
     WithdrawalResult,
     compute_withdrawal,
+    ffl_original_units_basis,
     ffl_withdrawal_surrender_credit,
+    mark_withdrawal_zeroed_segments,
     record_ffl_withdrawal_surrender_charge,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -3364,7 +3366,10 @@ def _process_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
     if wd.reduces_sa:
         record_ffl_withdrawal_surrender_charge(inputs.policy, inputs.config, wd.partial_sc)
     if wd.face_decrease > MONEY_EPSILON:
+        live_before = {id(seg) for seg in inputs.policy.segments if seg.face_amount > 0}
         _apply_withdrawal_face_decrease(inputs, wd)
+        mark_withdrawal_zeroed_segments(
+            seg for seg in inputs.policy.segments if id(seg) in live_before)
     return wd
 
 
@@ -4996,20 +5001,22 @@ def _surrender_coverage_year(segment, projection_date, fallback_year: int) -> in
     return _surrender_months_elapsed(segment.issue_date, projection_date) // MONTHS_PER_YEAR + 1
 
 
-def surrender_charge_units(segment: CoverageSegment, config: Optional[PlancodeConfig]) -> float:
+def surrender_charge_units(
+    segment: CoverageSegment, config: Optional[PlancodeConfig], policy=None,
+) -> float:
     """Units the surrender charge rate applies to for ``segment``.
 
     OriginalSA plans charge the surrender charge on the coverage's ORIGINAL
     units; so do FFL UL per-unit plans (``CurrentSA``), whose charge stays on the
     pre-decrease units because FFL takes no partial surrender charge on a
-    decrease (Robert, 10/5/2026). An FFL coverage decreased to zero current units
-    has no original-units basis. Every other plan uses the current units.
-    (Units are the specified amount per $1,000.)
+    decrease (Robert, 10/5/2026). An FFL coverage an elective decrease took to zero,
+    and every coverage of an FFL policy on the current-units fallback, use current
+    units (``withdrawal_handler.ffl_original_units_basis``). Every other plan uses the
+    current units. (Units are the specified amount per $1,000.)
     """
     if config is not None and config.sa_basis == SA_BASIS_ORIGINAL:
         return segment.original_face_amount / PER_THOUSAND
-    if (config is not None and getattr(config, "surrender_charge_on_original_units", False)
-            and segment.original_face_amount > 0 and segment.units > 0):
+    if config is not None and ffl_original_units_basis(segment, config, policy):
         return segment.original_face_amount / (segment.vpu or PER_THOUSAND)
     return segment.units
 
@@ -5050,7 +5057,7 @@ def _calculate_surrender_charge(
         else:
             segment_scr_rate = _segment_surrender_rate(
                 policy, segment, rates, rate_year, projection_date, config)
-            segment_surrender_charge = segment_scr_rate * surrender_charge_units(segment, config)
+            segment_surrender_charge = segment_scr_rate * surrender_charge_units(segment, config, policy)
         key = f"cov{index}"
         scr_rates_by_coverage[key] = segment_scr_rate
         surrender_charges_by_coverage[key] = segment_surrender_charge

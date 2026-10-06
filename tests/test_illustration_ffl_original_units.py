@@ -256,3 +256,160 @@ def test_withdrawal_credit_is_company_26_ffl_only(company, config, monkeypatch):
     units = 100.0 if config.is_ffl else policy.segments[0].units
     assert wd.partial_sc == pytest.approx(200.0)
     assert full == pytest.approx(20.0 * units)
+
+# -- second review (10/5/2026): withdrawal-zeroed coverages, history credit, lapse/loan use ----
+
+def test_two_segment_withdrawal_keeps_the_zeroed_increase_and_nets_the_charge(monkeypatch):
+    """Base 100 + increase 30 units at 20/unit (2,600). A 40,000 withdrawal charges 800 and
+    takes the increase to zero; the full charge is 2,600 - 800 = 1,800, not 1,200."""
+    issue = date(2015, 3, 1)
+    policy = IllustrationPolicyData(company_code="26", issue_date=issue, db_option="A", segments=[
+        _segment(100.0, 100.0, issue), _segment(30.0, 30.0, date(2018, 3, 1), phase=2)])
+    policy.face_amount = 130_000.0
+    wd, full = _withdraw_2(policy, 40_000.0, monkeypatch)
+    assert wd.partial_sc == pytest.approx(800.0)
+    assert policy.segments[1].units == 0.0
+    assert full == pytest.approx(2_600.0 - 800.0)
+
+
+def _withdraw_2(policy, amount, monkeypatch):
+    from suiteview.illustration.core.loan_handler import LoanState
+    from suiteview.illustration.models.calc_state import MonthlyState
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    monkeypatch.setattr(calc_engine, "_apply_withdrawal_face_decrease", lambda inputs, wd: calc_engine._reduce_base_face(
+        inputs.policy, wd.face_decrease, inputs.rates, inputs.month_date, inputs.rate_year, False, inputs.config))
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30, 2: [None] + [20.0] * 30})
+    wd = calc_engine._process_withdrawal(calc_engine.WithdrawalInput(
+        state=MonthlyState(), policy=policy, config=FFL_WD, rates=rates, rate_year=1, attained_age=50,
+        month_date=date(2020, 6, 15), av=60_000.0, cost_basis=0.0,
+        month_inputs=SimpleNamespace(withdrawal=amount, withdrawal_gross=0.0), cap_loan=LoanState(),
+        is_anniversary=False, options=IllustrationOptions(), corridor_rate=1.0))
+    full = calc_engine._calculate_surrender_charge(
+        policy, rates, 1, date(2020, 7, 15), FFL_WD, account_value=60_000.0)[1]
+    return wd, full
+
+
+def _decrease_increase_out(policy):
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30, 2: [None] + [20.0] * 30})
+    calc_engine._reduce_base_face(policy, policy.segments[1].face_amount, rates, date(2020, 6, 15), 1,
+                                  calc_engine._charge_face_decrease_surrender(policy, FFL_WD, {}), FFL_WD)
+
+
+@pytest.mark.parametrize("order", ["withdrawal first", "decrease first"])
+def test_withdrawal_before_or_after_a_decrease(order, monkeypatch):
+    """Base 100 + increase 30 at 20/unit. A 10,000 withdrawal (charge 200) and an elective
+    decrease that removes what is left of the increase: the increase removed by the decrease
+    drops out and the withdrawal charge is netted, in either order: 100 x 20 - 200 = 1,800."""
+    issue = date(2015, 3, 1)
+    policy = IllustrationPolicyData(company_code="26", issue_date=issue, db_option="A", segments=[
+        _segment(100.0, 100.0, issue), _segment(30.0, 30.0, date(2018, 3, 1), phase=2)])
+    policy.face_amount = 130_000.0
+    if order == "decrease first":
+        _decrease_increase_out(policy)
+        wd, _ = _withdraw_2(policy, 10_000.0, monkeypatch)
+    else:
+        wd, _ = _withdraw_2(policy, 10_000.0, monkeypatch)
+        _decrease_increase_out(policy)
+    assert wd.partial_sc == pytest.approx(200.0)
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30, 2: [None] + [20.0] * 30})
+    full = calc_engine._calculate_surrender_charge(policy, rates, 1, date(2020, 7, 15), FFL_WD, account_value=0.0)[1]
+    assert policy.segments[1].units == 0.0
+    assert full == pytest.approx(100.0 * 20.0 - 200.0)
+
+
+def _credited_policy(credit):
+    from suiteview.illustration.core.withdrawal_handler import record_ffl_withdrawal_surrender_charge
+
+    policy = IllustrationPolicyData(
+        company_code="26", plancode="TEST", issue_date=date(2016, 1, 1), valuation_date=date(2026, 1, 1),
+        issue_age=45, attained_age=55, maturity_age=56, face_amount=100_000.0, units=100.0,
+        account_value=10_000.0, segments=[_segment(100.0, 100.0, date(2016, 1, 1))])
+    record_ffl_withdrawal_surrender_charge(policy, FFL_WD, credit)
+    return policy
+
+
+def test_lapse_test_and_surrender_value_use_the_netted_charge(monkeypatch):
+    from suiteview.illustration.core.bonus_rates import BonusConfig
+
+    config = PlancodeConfig(company_sub="FFL", gint=0.0, dbd=0.0, prem_flat_load=0.0)
+    monkeypatch.setattr(calc_engine, "load_plancode", lambda _: config)
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
+
+    def run(credit):
+        return calc_engine.IllustrationEngine().project(
+            _credited_policy(credit), months=1, stop_on_lapse=False,
+            rates_override=IllustrationRates(scr=[None] + [20.0] * 30), bonus_override=BonusConfig())[-1]
+
+    plain, netted = run(0.0), run(300.0)
+    assert plain.surrender_charge == pytest.approx(2_000.0)
+    assert netted.surrender_charge == pytest.approx(1_700.0)
+    assert netted.ending_sv - plain.ending_sv == pytest.approx(300.0)
+    assert netted.surrender_value - plain.surrender_value == pytest.approx(300.0)   # lapse-test value
+
+
+def test_loan_cap_uses_the_netted_charge():
+    from suiteview.illustration.core.loan_handler import LoanState
+
+    def loan(credit):
+        work = SimpleNamespace(rate_year=1, month_date=date(2026, 2, 1), av=10_000.0, cap_loan=LoanState(),
+                               ded=SimpleNamespace(total_deduction=0.0),
+                               prem=SimpleNamespace(premiums_to_date=0.0), withdrawals_to_date=0.0)
+        ctx = SimpleNamespace(options=SimpleNamespace(restrict_loans_to_sv=True), policy=_credited_policy(credit),
+                              rates=IllustrationRates(segment_scr={1: [None] + [20.0] * 30}), config=FFL_WD,
+                              month_inputs=SimpleNamespace(regular_loan=1_000_000.0))
+        calc_engine.apply_new_loans(ctx, work)
+        return work.applied_regular_loan + work.applied_preferred_loan
+
+    assert loan(0.0) == pytest.approx(10_000.0 - 2_000.0)
+    assert loan(300.0) == pytest.approx(10_000.0 - 1_700.0)
+
+
+def _history(*events):
+    return [SimpleNamespace(trans_date=day, trans_code=code, raw_data={"CHARGE_AMT": charge})
+            for day, code, charge in events]
+
+
+def test_inforce_history_seeds_the_credit_net_of_the_fee():
+    from suiteview.illustration.core.withdrawal_handler import (
+        ffl_current_units_fallback, ffl_withdrawal_surrender_credit, seed_ffl_withdrawal_history)
+
+    policy = _withdrawal_policy()
+    # 000330798 shape: SN 2018-08-09 CHARGE_AMT 1,219.41 (fee 25 inside); two fund rows of one event.
+    seed_ffl_withdrawal_history(policy, FFL_WD, _history(
+        (date(2018, 8, 9), "SN", 1_000.00), (date(2018, 8, 9), "SN", 219.41), (date(2017, 1, 3), "SG", 0.0)),
+        withdrawal_count=2, fee=25.0)
+    assert ffl_withdrawal_surrender_credit(policy, FFL_WD) == pytest.approx(1_194.41)
+    assert not ffl_current_units_fallback(policy)
+
+
+@pytest.mark.parametrize("transactions, count", [
+    (None, 1),                                                     # FH_FIXED unreadable
+    (_history((date(2018, 8, 9), "SN", 500.0)), 2),                # purged: fewer events than TOT_WTD_QTY
+])
+def test_incomplete_history_falls_back_to_current_units(transactions, count):
+    from suiteview.illustration.core.withdrawal_handler import (
+        ffl_current_units_fallback, ffl_withdrawal_surrender_credit, seed_ffl_withdrawal_history)
+
+    policy = _withdrawal_policy()
+    policy.segments[0].units, policy.segments[0].face_amount = 80.0, 80_000.0
+    seed_ffl_withdrawal_history(policy, FFL_WD, transactions, withdrawal_count=count, fee=25.0)
+    assert ffl_current_units_fallback(policy)
+    assert ffl_withdrawal_surrender_credit(policy, FFL_WD) == 0.0
+    assert calc_engine.surrender_charge_units(policy.segments[0], FFL_WD, policy) == 80.0
+    rates = IllustrationRates(segment_scr={1: [None] + [20.0] * 30})
+    assert calc_engine._calculate_surrender_charge(
+        policy, rates, 1, date(2020, 7, 15), FFL_WD, account_value=0.0)[1] == pytest.approx(1_600.0)
+
+def test_polview_reports_the_history_credit_in_the_surrender_tip():
+    from suiteview.polview.services.policy_prefetch import _surrender_values
+    from suiteview.polview.ui.tabs import adv_prod_tooltips
+
+    basis = _credited_policy(1_194.41)
+    state = SimpleNamespace(scr_rates_by_coverage={"cov1": 20.0}, surrender_charges_by_coverage={"cov1": 2_000.0},
+                            surrender_charge=805.59, surrender_value=9_194.41, policy_debt=0.0)
+    values = _surrender_values(basis, FFL_WD, IllustrationRates(), state)
+    assert values.withdrawal_credit == pytest.approx(1_194.41) and values.original_units_basis
+    tip = adv_prod_tooltips.surrender_charge_tip(values)
+    assert "- Partial surrender charges already taken on withdrawals: 1,194.41" in tip
+    assert tip.endswith("= 805.59")

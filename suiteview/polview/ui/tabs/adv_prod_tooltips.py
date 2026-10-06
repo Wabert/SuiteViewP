@@ -40,6 +40,9 @@ def surrender_charge_tip(surrender) -> str:
             " a monthliversary takes the rate before that monthliversary is processed)",
         ]
     lines.extend(_coverage_charge_line(cov, surrender.account_value) for cov in surrender.coverages)
+    credit = getattr(surrender, "withdrawal_credit", 0.0)
+    if credit:
+        lines.append(f"- Partial surrender charges already taken on withdrawals: {format_currency(credit)}")
     lines.append(f"= {format_currency(surrender.surrender_charge)}")
     return "\n".join(lines)
 

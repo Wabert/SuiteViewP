@@ -132,7 +132,7 @@ def compute_withdrawal(
     # AY — CSV less the MD holdback and fee; under DBO A the SA floor also
     # caps. Computed every month (RERUN has no request gate on the column).
     full_sc = pct_of_av_surrender_charge + sum(
-        _full_surrender_charge_face(seg, config)
+        _full_surrender_charge_face(seg, config, policy)
         * scr_rates_by_phase.get(seg.coverage_phase, 0.0)
         / 1000.0
         for seg in policy.segments
@@ -180,36 +180,67 @@ def compute_withdrawal(
     return result
 
 
-def _full_surrender_charge_face(seg, config: PlancodeConfig) -> float:
+def _full_surrender_charge_face(seg, config: PlancodeConfig, policy=None) -> float:
     """Specified amount the full surrender charge applies to (see
     ``calc_engine.surrender_charge_units``): the original amount for OriginalSA and
-    FFL UL per-unit plans, otherwise the current amount. An FFL coverage whose current
-    face is 0 (decreased out) has no original-amount basis."""
+    FFL UL per-unit plans, otherwise the current amount."""
     if config.sa_basis == "OriginalSA":
         return seg.original_face_amount
-    if (getattr(config, "surrender_charge_on_original_units", False)
-            and seg.original_face_amount > 0 and seg.face_amount > 0):
+    if ffl_original_units_basis(seg, config, policy):
         return seg.original_face_amount
     return seg.face_amount
 
 
-# Projection-only running total, deliberately not a dataclass field: it is not saved in
-# snapshots and the in-force FH_FIXED partial surrender charges are not loaded.
+# Running FFL state, deliberately not dataclass fields (snapshots and policy goldens are
+# unchanged). The credit is seeded at load from FH_FIXED (seed_ffl_withdrawal_history) and
+# grows with projected withdrawals; a snapshot reloaded offline starts without it.
 _FFL_WITHDRAWAL_CREDIT = "_ffl_withdrawal_surrender_credit"
+_FFL_CURRENT_UNITS_FALLBACK = "_ffl_current_units_surrender_basis"
+_ZEROED_BY_WITHDRAWAL = "_zeroed_by_withdrawal"
 
 
 def _ffl_withdrawal_credit_applies(policy, config) -> bool:
     return (str(getattr(policy, "company_code", "") or "").strip() == "26"
-            and bool(getattr(config, "ffl_per_unit_surrender_charge", False)))
+            and bool(getattr(config, "ffl_per_unit_surrender_charge", False))
+            and not getattr(policy, _FFL_CURRENT_UNITS_FALLBACK, False))
+
+
+def ffl_current_units_fallback(policy) -> bool:
+    """FFL policy whose withdrawal history could not be loaded completely: its surrender
+    charge stays on current units (the 2d88241 basis), with no withdrawal credit."""
+    return bool(getattr(policy, _FFL_CURRENT_UNITS_FALLBACK, False))
+
+
+def ffl_original_units_basis(seg, config, policy=None) -> bool:
+    """Whether an FFL per-unit coverage is charged on its original units.
+
+    Not for a policy on the current-units fallback, nor for a coverage that has no
+    current face because an elective decrease removed it. A coverage taken to zero by a
+    withdrawal keeps its original units: the withdrawal's partial surrender charge is
+    netted instead (``ffl_withdrawal_surrender_credit``).
+    """
+    if not getattr(config, "surrender_charge_on_original_units", False) or seg.original_face_amount <= 0:
+        return False
+    if policy is not None and ffl_current_units_fallback(policy):
+        return False
+    return seg.units > 0 or seg.face_amount > 0 or bool(getattr(seg, _ZEROED_BY_WITHDRAWAL, False))
+
+
+def mark_withdrawal_zeroed_segments(segments) -> None:
+    """Flag the given coverages a withdrawal's face reduction took to zero (see
+    ffl_original_units_basis); the caller passes those that had face before it."""
+    for seg in segments:
+        if seg.face_amount <= 0 and seg.units <= 0:
+            setattr(seg, _ZEROED_BY_WITHDRAWAL, True)
 
 
 def ffl_withdrawal_surrender_credit(policy, config) -> float:
-    """Partial surrender charges already taken on projected FFL withdrawals.
+    """Partial surrender charges already taken on FFL withdrawals (fee excluded).
 
     CyberLife's company-26 FFL full surrender charge after withdrawals is the charge on
     the original units less the partial surrender charges already taken (excluding the
     withdrawal fee), floored at 0: 5 of 6 FH_FIXED surrenders after a charged withdrawal
-    fit to the cent (10/5/2026). Withdrawals before the valuation date are not loaded.
+    fit to the cent (10/5/2026).
     """
     if not _ffl_withdrawal_credit_applies(policy, config):
         return 0.0
@@ -221,6 +252,35 @@ def record_ffl_withdrawal_surrender_charge(policy, config, partial_sc: float) ->
     if partial_sc > 0.0 and _ffl_withdrawal_credit_applies(policy, config):
         setattr(policy, _FFL_WITHDRAWAL_CREDIT,
                 float(getattr(policy, _FFL_WITHDRAWAL_CREDIT, 0.0)) + partial_sc)
+
+
+FH_WITHDRAWAL_CODES = frozenset({"SG", "SM", "SN"})
+
+
+def seed_ffl_withdrawal_history(policy, config, transactions, withdrawal_count: int, fee: float) -> None:
+    """Seed the credit from in-force FH_FIXED withdrawal history (company-26 FFL only).
+
+    ``transactions`` are live FH_FIXED rows (``trans_date``, ``trans_code``, ``raw_data``
+    with ``CHARGE_AMT``), or ``None`` when FH_FIXED could not be read. Withdrawals are
+    events grouped by (date, code), as LH_POL_TOTALS TOT_WTD_QTY counts them; an event's
+    partial surrender charge is its CHARGE_AMT less the fee. When the history is missing or
+    has fewer events than TOT_WTD_QTY (purged), the policy falls back to the current-units
+    basis with no credit, so no withdrawal can be double counted.
+    """
+    if not _ffl_withdrawal_credit_applies(policy, config) or not withdrawal_count:
+        return
+    events: Dict[tuple, float] = {}
+    for t in transactions or ():
+        if t.trans_code in FH_WITHDRAWAL_CODES and t.trans_date is not None:
+            raw = getattr(t, "raw_data", None) or {}
+            key = (t.trans_date, t.trans_code)
+            events[key] = events.get(key, 0.0) + abs(float(raw.get("CHARGE_AMT") or 0.0))
+    if transactions is None or len(events) < int(withdrawal_count):
+        setattr(policy, _FFL_CURRENT_UNITS_FALLBACK, True)
+        return
+    credit = sum(max(charge - fee, 0.0) for charge in events.values())
+    if credit > 0.0:
+        setattr(policy, _FFL_WITHDRAWAL_CREDIT, credit)
 
 
 def _sa_cuts_for_net(applied: float, policy: IllustrationPolicyData) -> Dict[int, float]:
