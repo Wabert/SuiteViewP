@@ -429,11 +429,7 @@ def test_md_premium_hands_off_to_gp_exception_when_capped(monkeypatch):
     assert first.gp_exception_mode is True
     for s in projected:
         assert s.gp_exception_mode is True       # latched
-    # Month 1 starts with AV 200, so the premium set after the deduction leaves
-    # MD0 - MD (the COI on that 200) behind; from then on the AV sits at zero.
-    assert first.av_end_of_month == pytest.approx(200.0 * 6.0 / 1000.0, abs=0.01)
-    for s in projected[1:]:
-        assert s.av_end_of_month == pytest.approx(0.0, abs=0.01)
+        assert s.av_end_of_month == 0.0
     for s in projected[1:]:
         assert s.md_premium == 0.0               # no room left once over the guideline
         assert s.gp_exception_prem > 0.0
@@ -605,8 +601,7 @@ def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
         assert s.db_option == "A"
         if s.gp_exception_prem_gross > 0.0:
             assert s.gp_exception_prem_discount == 0.0
-            if s is not exc_rows[0]:
-                assert s.av_after_exception == 0.0
+            assert s.av_after_exception == 0.0
     # The caller's policy object is untouched (private-copy guard).
     assert policy.db_option == "B"
 

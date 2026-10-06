@@ -1121,7 +1121,7 @@ def deduct_monthly_charges(
 
 
 def _exception_input(
-    ctx: MonthContext, convention: TimingConvention, work: MonthWork, md_premium_active: bool
+    ctx: MonthContext, work: MonthWork, md_premium_active: bool
 ) -> ExceptionPremiumInput:
     return ExceptionPremiumInput(
         options=ctx.options,
@@ -1143,42 +1143,7 @@ def _exception_input(
         withdrawals_to_date=work.withdrawals_to_date,
         guideline_cap_enabled=ctx.options.guideline_cap_enabled and ctx.policy.is_gpt,
         premiums_ytd=work.prem.premiums_ytd,
-        deduction_at_zero_av=_deduction_at_zero_av(ctx, convention, work),
     )
-
-
-def _deduction_at_zero_av(
-    ctx: MonthContext, convention: TimingConvention, work: MonthWork
-) -> float:
-    """MD0 — this month's monthly deduction as if the account value were 0.
-
-    The NAR is then the full discounted death benefit. With no positive account
-    value before the deduction the actual deduction already is MD0; otherwise it
-    is recomputed (only when a GP exception premium can be due this month).
-    """
-    if work.av_before_deduction <= 0.0:
-        return work.ded.total_deduction
-    gp_possible = (
-        (work.prior_exception_mode or ctx.options.allow_exception_prems)
-        and work.av_after_charge < 0.0
-    )
-    if not gp_possible:
-        return work.ded.total_deduction
-    monthly_mtp = (
-        work.pw_monthly_mtp if convention == ILLUSTRATION_TIMING else work.monthly_mtp
-    )
-    return calculate_deduction(
-        0.0,
-        ctx.policy,
-        ctx.config,
-        ctx.rates,
-        work.rate_year,
-        work.attained_age,
-        work.prem.premiums_to_date,
-        monthly_mtp=monthly_mtp,
-        projection_date=work.month_date,
-        corridor_rate=cvat_corridor_rate(ctx.cvat, work.month_date),
-    ).total_deduction
 
 
 def _update_billable_to_md(
@@ -1239,13 +1204,13 @@ def apply_exception_premium(
         or (work.b2md_active and work.b2md_switched)
     ) and not ctx.state.inforce_exception_period
     work.exception = _compute_exception_premium(
-        _exception_input(ctx, convention, work, md_premium_active)
+        _exception_input(ctx, work, md_premium_active)
     )
     if work.exception.requires_option_a:
         ctx.policy.db_option = DB_OPTION_LEVEL
         deduct_monthly_charges(ctx, convention, work)
         work.exception = _compute_exception_premium(
-            _exception_input(ctx, convention, work, md_premium_active)
+            _exception_input(ctx, work, md_premium_active)
         )
     work.av = work.exception.av_after_exception
 
@@ -4856,7 +4821,6 @@ class ExceptionPremiumInput:
     withdrawals_to_date: float = 0.0
     guideline_cap_enabled: bool = False
     premiums_ytd: float = 0.0
-    deduction_at_zero_av: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -4947,11 +4911,14 @@ def _apply_gp_exception_premium(
     monthly deduction. It funds MD0 — the deduction as if the account value
     were 0, so the NAR is the full discounted death benefit — less the account
     value available before the deduction, grossed up for the plan's premium
-    load. A negative available AV raises the premium (the first-month catch-up),
-    a positive one lowers it. ``av`` here is after the actual deduction, so the
-    net premium is ``-av + (MD0 - MD)``; with no positive AV before the
-    deduction MD == MD0 and the account value ends at exactly 0, so the premium
-    is level within a policy year.
+    load. A negative available AV raises the premium (the first-month catch-up).
+    ``av`` here is after the actual deduction, and the deduction's NAR already
+    uses ``max(0, AV)``, so with no positive AV the deduction *is* MD0 and the
+    net premium is simply ``-av``. In the one month a positive AV runs out, the
+    deduction was taken on that AV, so ``-av`` (= MD - AV) is what brings the
+    account value to exactly 0; MD0 - AV would leave the COI saving behind and
+    break the level premium for the next few months. The AV then ends every
+    exception month at 0 and the premium is level within a policy year.
     """
     gp_mode = inputs.prior_exception_mode or _exception_triggers(result, av, inputs)
     result.requires_option_a = (
@@ -4966,7 +4933,7 @@ def _apply_gp_exception_premium(
         and not inputs.prior_lapsed and av < 0.0
     ):
         return av
-    required = -av + max(0.0, inputs.deduction_at_zero_av - inputs.total_deduction)
+    required = -av
     load = gross_up_for_premium_load(
         required,
         premiums_ytd=inputs.premiums_ytd + result.md_prem,
@@ -4984,10 +4951,8 @@ def _apply_gp_exception_premium(
     result.excess_load += load.excess_load
     result.flat_load += result.gp_flat_load
     # The whole-cent premium nets up to one cent more than required; that
-    # rounding residual is not credited, and a sub-cent remainder of positive
-    # AV (MD0 - MD on a fraction of a cent) is dropped, so the AV lands on 0.
-    new_av = av + required
-    return 0.0 if new_av < 0.01 else new_av
+    # rounding residual is not credited, so the AV lands on exactly 0.
+    return 0.0
 
 
 def _exception_triggers(result: _ExceptionPremium, av: float, inputs: ExceptionPremiumInput) -> bool:

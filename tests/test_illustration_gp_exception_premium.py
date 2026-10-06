@@ -6,11 +6,12 @@ The GP exception premium is computed *after* the monthly deduction:
 
 where MD0 is the monthly deduction as if the account value were 0 (the NAR is
 the full discounted death benefit) and the AV available is the account value
-before the deduction (a negative AV raises the premium, a positive one lowers
-it). The required net is grossed up for the plan's actual premium load (TPP up
-to the commission target, EPP above it, plus any flat per-premium load) and
-rounded up to the cent. The account value then sits at 0 after every deduction
-and the premium is level within a policy year.
+before the deduction (a negative AV raises the premium). In the month a positive
+AV runs out, the premium funds the shortfall after the actual deduction (MD - AV),
+so the AV still lands on 0. The required net is grossed up for the plan's actual
+premium load (TPP up to the commission target, EPP above it, plus any flat
+per-premium load) and rounded up to the cent. The account value then sits at 0
+after every deduction and the premium is level within a policy year.
 """
 from datetime import date
 
@@ -175,25 +176,30 @@ def test_negative_av_catch_up_then_level_within_the_year(engine_env):
             _expected_premium(state, state.total_deduction, 0.0))
 
 
-def test_positive_av_reduces_the_premium(engine_env):
+def test_positive_av_reduces_the_premium_and_still_lands_on_zero(engine_env):
     states = _project(_policy(300.0), months=6)
     paid = [s for s in states[1:] if s.gp_exception_prem > 0.0]
     first = paid[0]
     available = first.av_after_premium
     assert 0.0 < available < first.total_deduction
-    md0 = calc_engine.calculate_deduction(
-        0.0, _policy(300.0), _config(), _rates(), first.policy_year,
-        first.attained_age, first.premiums_to_date, projection_date=first.date,
-    ).total_deduction
-    assert md0 > first.total_deduction  # a positive AV lowers the actual NAR
+    # The month's deduction was taken on that positive AV; the premium funds the
+    # shortfall after it, so the AV lands on 0 with no COI saving left behind.
     assert first.gp_exception_prem == pytest.approx(
-        _expected_premium(first, md0, available))
-    # The AV left is only MD0 - MD (the COI on the AV that was available).
-    assert first.av_after_exception == pytest.approx(md0 - first.total_deduction, abs=0.01)
-    # It runs off to zero and the premium settles to the level MD0 premium.
-    assert states[-1].av_after_exception == 0.0
-    assert states[-1].gp_exception_prem == pytest.approx(
-        _expected_premium(states[-1], states[-1].total_deduction, 0.0))
+        _expected_premium(first, first.total_deduction, available))
+    assert first.av_after_exception == 0.0
+    # From the next month the premium is the level MD0 premium (MD at AV 0).
+    after = states[states.index(first) + 1:]
+    assert after
+    md0 = calc_engine.calculate_deduction(
+        0.0, _policy(300.0), _config(), _rates(), after[0].policy_year,
+        after[0].attained_age, after[0].premiums_to_date, projection_date=after[0].date,
+    ).total_deduction
+    assert after[0].total_deduction == pytest.approx(md0)
+    for state in after:
+        assert state.av_after_exception == 0.0
+        assert state.gp_exception_prem == pytest.approx(
+            _expected_premium(state, state.total_deduction, 0.0))
+    assert len({round(s.gp_exception_prem, 2) for s in after}) == 1
 
 
 def test_guideline_cap_and_levelizing_do_not_touch_the_exception_premium(engine_env):

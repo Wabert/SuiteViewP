@@ -1017,18 +1017,22 @@ Exception Premium option) is computed **after the monthly deduction**:
   all other charges (riders, benefits, EPU, MFEE, flat/table extras) as usual.
 - **Required net premium** = MD0 − the account value available before the
   deduction (after the prior month's interest and any other premium this month).
-  A negative AV raises it, so the first month catches up the deficit; a positive
-  AV lowers it. No premium is due in a month the AV covers its own deduction.
+  A negative AV raises it, so the first month catches up the deficit. No premium
+  is due in a month the AV covers its own deduction. The deduction's NAR already
+  uses max(0, AV), so whenever the available AV is 0 or negative the actual
+  deduction is MD0. In the one month a positive AV runs out, the deduction was
+  taken on that AV, so the premium funds the shortfall after it (MD − AV): the AV
+  still lands on 0, and the next month is already the level MD0 premium.
 - **Gross-up** uses the plan's actual load: TPP on the part of the premium that
   fits under the policy year's remaining commission target, EPP above it, plus
   the flat per-premium load (PlanCode table `PremFlatLoad`). First-year loads are
   the policy-year-1 cells of the TPP/EPP schedules. The gross is rounded up to the
-  cent, so the net covers the requirement within $0.01.
-- The account value is then 0 after the deduction (no interest on it), and the
-  premium is level within the policy year. It steps at the anniversary with the
-  COI rate, and once more where the year's premiums pass the commission target
-  if TPP and EPP differ. A positive starting AV leaves only MD0 − MD (the COI on
-  that AV), which runs off the next month.
+  cent, so the net covers the requirement within $0.01 (the sub-cent excess is
+  not credited).
+- The account value is then 0 after every exception month's deduction (no
+  interest on it), and the premium is level within the policy year. It steps at
+  the anniversary with the COI rate, and once more where the year's premiums
+  pass the commission target if TPP and EPP differ.
 - Once exception mode latches (past the safety net, no shadow account), the
   scheduled/billable premium is no longer requested. The exception premium is
   the whole monthly contribution (Values **Exception Prem**, included in
