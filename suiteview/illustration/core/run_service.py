@@ -35,6 +35,7 @@ from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, dcv_defaulted
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
 from suiteview.illustration.core.report_builder import IllustrationReport, build_ul_report
+from suiteview.illustration.core.request_limits import reduced_request_warnings
 from suiteview.illustration.core.run_gates import GATE_TITLE, GateResult, run_gate
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.solve_level_to_exception import (
@@ -254,8 +255,22 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
         messages=[*resolved.messages, status],
         lumpsum_result=resolved.lumpsum_result,
         duration_label=scenario.duration_label,
-        warnings=gate.warnings,
+        warnings=gate.warnings + _reduced_request_warnings(scenario, resolved, current),
     )
+
+
+def _reduced_request_warnings(
+    run_scenario: RunScenario,
+    resolved: ResolvedRunInputs,
+    current: list[MonthlyState],
+) -> tuple[str, ...]:
+    """Withdrawal/loan requests the engine reduced (never fails the run)."""
+    try:
+        return tuple(reduced_request_warnings(
+            run_scenario.scenario.projectable_policy, resolved.future_inputs, current))
+    except Exception:
+        logger.exception("Could not check for reduced withdrawal/loan requests")
+        return ()
 
 
 def check_run_gates(
