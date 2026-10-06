@@ -37,9 +37,11 @@ from typing import Callable, Optional
 
 import pandas as pd
 
+from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.ledger_specs import KpiSpec
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
+from suiteview.illustration.core.run_gates import rate_presence_gate, run_gate
 
 # Policy-year marks the KPI summary samples AV/SV/DB at (plus each side's end).
 KPI_YEAR_MARKS = (5, 10, 20)
@@ -97,6 +99,22 @@ def separator_columns(ledger: pd.DataFrame) -> list:
 
 class CompareScenarioError(Exception):
     """A scenario cannot run as specified (e.g. shadow solve, no shadow account)."""
+
+
+def _check_scenario_gates(spec: "ScenarioSpec") -> None:
+    """Business users: the Run Values soft-launch gates (run_service) apply here too."""
+    if not is_business_mode():
+        return
+    scenario = spec.scenario
+    if scenario.run_from_issue or scenario.rollback_overrides is not None:
+        raise CompareScenarioError(
+            "New Business - From Issue and Edit Record are not available to business users.")
+    gate = run_gate(scenario.base_policy, scenario.inforce_overrides, business_mode=True)
+    if gate.blocked:
+        raise CompareScenarioError("\n".join(gate.blocks))
+    rates = rate_presence_gate(scenario.base_policy, business_mode=True)
+    if rates.blocked:
+        raise CompareScenarioError("\n".join(rates.blocks))
 
 
 # ── scenario specification & outcome ────────────────────────────────
@@ -174,7 +192,11 @@ def run_scenario(spec: ScenarioSpec, engine=None) -> ScenarioOutcome:
     Level Allowed, Prem to Maturity, Prem to Shadow Maturity, loan pay-offs —
     each merged into the future inputs / run options before the final
     projection.
+
+    The soft-launch gates apply exactly as for Run Values: a business user's
+    out-of-scope policy, developer-only basis or capped rate raises.
     """
+    _check_scenario_gates(spec)
     engine = engine or IllustrationEngine()
     policy = spec.scenario.projectable_policy
     future_inputs = spec.scenario.future_inputs

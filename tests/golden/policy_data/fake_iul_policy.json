@@ -175,6 +175,7 @@
   "starting_basis_assumptions": [],
   "starting_coverage_amounts_are_manual": false,
   "starting_record_fields": [],
+  "suspense_code": "",
   "swam": 0.0,
   "sweep_account_min": 0.0,
   "system_coi_charge": 0.0,

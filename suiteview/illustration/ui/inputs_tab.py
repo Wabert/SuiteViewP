@@ -1,6 +1,7 @@
 """Illustration Inputs tab UI."""
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date, datetime
 import logging
 from typing import Optional
@@ -50,6 +51,11 @@ from suiteview.illustration.models.input_set import (
 from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
 from suiteview.core.build_env import has_developer_access
 from suiteview.illustration.models.app_settings import get_illustration_settings
+from suiteview.illustration.core.business_mode import (
+    BUSINESS_LOCKED_OPTIONS,
+    LOCKED_NOTE,
+    is_business_mode,
+)
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.core.run_input_compiler import ControlDraft, InputDraft
 from suiteview.polview.ui.formatting import format_date
@@ -340,6 +346,7 @@ class IllustrationInputsTab(QWidget):
         self._mode_inputs = {}
         self._default_input_state = None
         self._issue_load_error = ""
+        self._business_mode = is_business_mode()
         self._setup_ui()
         # ABR Quote (Options menu) locks every Input-tab control except the
         # Illustrated Rate. Re-apply live whenever the app-wide toggle flips,
@@ -349,6 +356,57 @@ class IllustrationInputsTab(QWidget):
         self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
         get_illustration_settings().rollback_enabled_changed.connect(
             self._on_rollback_option_changed)
+        if self._business_mode:
+            self._apply_business_mode()
+
+    @property
+    def business_mode(self) -> bool:
+        return self._business_mode
+
+    def _apply_business_mode(self):
+        """Hide the developer-only surfaces; lock the run controls (M1)."""
+        self.run_from_issue_btn.setVisible(False)
+        self.input_tabs.setTabVisible(
+            self.input_tabs.indexOf(self.issue_conditions), False)
+        self.input_tabs.tabBar().setContextMenuPolicy(
+            Qt.ContextMenuPolicy.NoContextMenu)
+        self.business_lock_note.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
+        self.business_lock_note.setVisible(True)
+        for widget in self._business_locked_widgets():
+            widget.setToolTip(LOCKED_NOTE)
+        self._enforce_business_locks()
+
+    def _business_locked_widgets(self) -> tuple:
+        return (
+            self.enable_illustration_options_check, self.tefra_check,
+            self.stop_on_lapse_check, self.switch_to_option_a_check,
+            self.exact_days_check, self.gp_search_check, self.levelizing_check,
+            self.loan_principal_first_check, self.policy_ag49_check,
+            self.dynamic_panel.tamra_check,
+        )
+
+    def _enforce_business_locks(self):
+        """Reset every locked control to its standard value and disable it.
+
+        Re-run after anything that can re-enable or reset a control (policy
+        load, ABR-mode refresh, saved-case apply) so locked never drifts."""
+        if not self._business_mode:
+            return
+        if self.run_from_issue_btn.isChecked():
+            self.run_from_issue_btn.setChecked(False)
+        self.enable_illustration_options_check.setChecked(False)
+        self._apply_illustration_options_enabled(False)
+        self.exact_days_check.setChecked(BUSINESS_LOCKED_OPTIONS["exact_days_interest"])
+        self.gp_search_check.setChecked(BUSINESS_LOCKED_OPTIONS["guideline_by_search"])
+        self.levelizing_check.setChecked(BUSINESS_LOCKED_OPTIONS["levelizing_premium"])
+        self.loan_principal_first_check.setChecked(
+            BUSINESS_LOCKED_OPTIONS["loan_repay_principal_first"])
+        self.policy_ag49_check.setChecked(BUSINESS_LOCKED_OPTIONS["use_policy_ag49_regime"])
+        self.dynamic_panel.tamra_check.setChecked(BUSINESS_LOCKED_OPTIONS["conform_to_tamra"])
+        for widget in self._business_locked_widgets():
+            widget.setEnabled(False)
+        self._set_grid_inputs_tab_visible(False)
 
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
@@ -367,6 +425,13 @@ class IllustrationInputsTab(QWidget):
             " border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: bold;")
         self.snapshot_banner.setVisible(False)
         outer.addWidget(self.snapshot_banner)
+
+        # Load-time warning strip (monthly-deduction mismatch): amber, shown
+        # where the user enters inputs; styled only while visible.
+        self.load_warning_banner = QLabel("")
+        self.load_warning_banner.setWordWrap(True)
+        self.load_warning_banner.setVisible(False)
+        outer.addWidget(self.load_warning_banner)
 
         self.run_from_issue_btn = QPushButton("Inforce | New Business - From Issue")
         self.run_from_issue_btn.setCheckable(True)
@@ -481,6 +546,8 @@ class IllustrationInputsTab(QWidget):
         return self.input_tabs.isTabVisible(self._grid_inputs_tab_index)
 
     def _set_grid_inputs_tab_visible(self, visible: bool):
+        if self._business_mode:
+            visible = False
         if not visible and self.input_tabs.currentIndex() == self._grid_inputs_tab_index:
             # Hiding the current tab must never leave a blank pane — land on
             # the always-visible "Input" tab instead.
@@ -736,6 +803,11 @@ class IllustrationInputsTab(QWidget):
         note = QLabel("Unchecked Exact Days uses monthly compounding.")
         note.setStyleSheet(f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
         layout.addWidget(note)
+        # Business mode: the locked controls stay visible (greyed) with this note.
+        self.business_lock_note = QLabel(
+            "Greyed controls are locked to the standard settings for business users.")
+        self.business_lock_note.setVisible(False)
+        layout.addWidget(self.business_lock_note)
         layout.addStretch(1)
 
         outer.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
@@ -1249,6 +1321,15 @@ class IllustrationInputsTab(QWidget):
         self.snapshot_banner.setText(text or "")
         self.snapshot_banner.setVisible(bool(text))
 
+    def set_load_warning(self, text: str | None):
+        """Show (or clear with None) the load-time warning strip."""
+        self.load_warning_banner.setText(text or "")
+        self.load_warning_banner.setStyleSheet(
+            "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
+            " border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: bold;"
+            if text else "")
+        self.load_warning_banner.setVisible(bool(text))
+
     # ── Level-solve × future-change caveat ───────────────────────────
 
     def level_solve_change_caveat_active(self) -> bool:
@@ -1329,6 +1410,7 @@ class IllustrationInputsTab(QWidget):
         # (read-only mirror on IUL) — re-apply ABR mode so the field stays
         # editable and the rest of the panel stays locked.
         self._apply_abr_quote_mode(get_illustration_settings().abr_quote_mode)
+        self._enforce_business_locks()
         self._refresh_level_solve_caveat()
         self._default_input_state = self._capture_active_case_inputs()
 
@@ -1622,7 +1704,7 @@ class IllustrationInputsTab(QWidget):
     def export_options(self) -> IllustrationOptions:
         md_windows = self.dynamic_panel.monthly_deduction_windows()
         b2md_windows = self.dynamic_panel.billable_to_md_windows()
-        return IllustrationOptions(
+        options = IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.dynamic_panel.tamra_check.isChecked(),
             # A "Billable to MD" row always allows GP exceptions — the whole
@@ -1650,6 +1732,9 @@ class IllustrationInputsTab(QWidget):
                 and self.segment_radio.isChecked()),
             use_policy_ag49_regime=self.policy_ag49_check.isChecked(),
         )
+        if self._business_mode:
+            options = replace(options, **BUSINESS_LOCKED_OPTIONS)
+        return options
 
     def min_level_request(self) -> Optional[dict]:
         return self.dynamic_panel.min_level_request()
@@ -1697,6 +1782,8 @@ class IllustrationInputsTab(QWidget):
         self.dynamic_panel.set_loan_payoff_amounts(values)
 
     def stop_on_lapse_enabled(self) -> bool:
+        if self._business_mode:
+            return True
         return self.stop_on_lapse_check.isChecked()
 
     def _apply_illustration_options_enabled(self, enabled: bool):
@@ -1720,13 +1807,19 @@ class IllustrationInputsTab(QWidget):
         self._sync_duration_controls()
 
     def abr_quote_enabled(self) -> bool:
+        if self._business_mode:
+            return False
         return get_illustration_settings().abr_quote_mode
 
     def _apply_abr_quote_mode(self, enabled: bool):
         """ABR Quote (Options menu) locks every Input-tab control except the
         Illustrated Rate and Minimum Face Amount Allowed. The run itself forces
         TEFRA/DEFRA + TAMRA off, so nothing here needs to touch those."""
+        if self._business_mode:
+            enabled = False
         self.dynamic_panel.set_abr_quote_mode(enabled)
+        if self._business_mode:
+            self.dynamic_panel.tamra_check.setEnabled(False)
         self.abr_minimum_face_row.setVisible(enabled)
         self.run_from_issue_btn.setEnabled(not enabled)
         if enabled and self.run_from_issue_enabled():
@@ -1775,8 +1868,13 @@ class IllustrationInputsTab(QWidget):
         return f"for {int(value)} years"
 
     def export_inforce_overrides(self) -> InforceOverrideSet:
+        rate = self.dynamic_panel.illustrated_rate()
+        if rate is None and not self._business_mode:
+            # Developers keep the historical behavior: a blank field runs at 0%
+            # (with a run warning). Business runs send None and are refused.
+            rate = 0.0
         return InforceOverrideSet(
-            current_interest_rate=self.dynamic_panel.illustrated_rate(),
+            current_interest_rate=rate,
             sweep_account_min=self.dynamic_panel.sweep_account_min(),
             iul_declared_rate=self.dynamic_panel.iul_declared_rate(),
             iul_asset_charge_rate=self.dynamic_panel.iul_asset_charge_rate(),
@@ -1784,6 +1882,9 @@ class IllustrationInputsTab(QWidget):
             index_illustration_rates=self.dynamic_panel.iul_illustration_rates(),
             deemed_cash_value=self.dynamic_panel.deemed_cash_value(),
         )
+
+    def illustrated_rate_blank(self) -> bool:
+        return self.dynamic_panel.illustrated_rate() is None
 
     def export_issue_overrides(self):
         return self.issue_conditions.export_overrides() if self.run_from_issue_enabled() else None
@@ -1917,9 +2018,18 @@ class IllustrationInputsTab(QWidget):
         Returns warnings for every input that did not apply on this policy —
         the caller must surface them; nothing is silently dropped."""
         rollback_state = state.get("value_rollback")
+        enabled = bool((state.get("controls") or {}).get("run_from_issue", False))
+        if self._business_mode:
+            if rollback_state is not None:
+                raise ValueError(
+                    "This case uses Edit Record valuation assumptions, which are "
+                    "not available to business users.")
+            if enabled:
+                raise ValueError(
+                    "This case uses New Business - From Issue, which is not "
+                    "available to business users.")
         if rollback_state is not None and not get_illustration_settings().rollback_enabled:
             raise ValueError("Enable Options > Edit Record to load this case's valuation assumptions.")
-        enabled = bool((state.get("controls") or {}).get("run_from_issue", False))
         if rollback_state and enabled:
             raise ValueError("A saved case cannot combine Edit Record and New Business - From Issue.")
         rollback = None
@@ -1981,6 +2091,11 @@ class IllustrationInputsTab(QWidget):
     def _apply_active_case_inputs(self, state: dict) -> list[str]:
         warnings: list[str] = []
         grids = state.get("grids") or {}
+        if self._business_mode and any(grids.get(name) for name, _attr in self._CASE_GRIDS):
+            grids = {}
+            warnings.append(
+                "Grid Inputs saved with this case were not applied — they are not "
+                "available to business users.")
         for name, attr in self._CASE_GRIDS:
             self._apply_grid(getattr(self, attr), grids.get(name) or [])
         if state.get("scheduled_loan_type") == "variable":
@@ -2045,6 +2160,7 @@ class IllustrationInputsTab(QWidget):
         # tab hidden (the only state that could exist then) — default False.
         ui = state.get("ui") or {}
         self._set_grid_inputs_tab_visible(bool(ui.get("grid_inputs_tab_visible", False)))
+        self._enforce_business_locks()
         return warnings
 
     @staticmethod

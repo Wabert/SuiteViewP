@@ -229,6 +229,8 @@ class IllustrationPolicyData:
     reins_partner: str = ""         # "R" selects the RGA index-rate basis
     insured_name: str = ""
     premium_pay_status_code: str = ""
+    # LH_BAS_POL.SUS_CD: "0" active, "2" suspended, "3" death claim pending.
+    suspense_code: str = ""
 
     # ── Plan / Product ────────────────────────────────────────
     plancode: str = ""

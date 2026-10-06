@@ -341,6 +341,14 @@ def _substandard_by_phase(pi) -> dict:
     return result
 
 
+def policy_status_identity(pi) -> dict:
+    """Premium-pay status (PRM_PAY_STA_REA_CD) and suspense code (SUS_CD)."""
+    return {
+        "premium_pay_status_code": str(policy_attr(pi, "premium_pay_status_code", "") or ""),
+        "suspense_code": str(policy_attr(pi, "suspense_code", "") or "").strip(),
+    }
+
+
 def build_core_identity(source: PolicySourceSnapshot) -> dict:
     """Map LH_BAS_POL/base coverage identity, timing and DBO fields."""
     pi = source.pi
@@ -361,7 +369,7 @@ def build_core_identity(source: PolicySourceSnapshot) -> dict:
         "company_code": pi.company_code or "",
         "reins_partner": str(policy_attr(pi, "reins_partner", "") or "").strip().upper(),
         "insured_name": pi.persons.primary_insured_name or "",
-        "premium_pay_status_code": str(policy_attr(pi, "premium_pay_status_code", "") or ""),
+        **policy_status_identity(pi),
         "plancode": source.plancode,
         "product_type": pi.product.product_type or "",
         "form_number": source.form_number,

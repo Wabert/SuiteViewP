@@ -177,9 +177,13 @@ class _RateField(QLineEdit):
     def set_rate(self, annual_rate: float):
         self.setText(f"{annual_rate * 100.0:.3f}")
 
-    def rate(self) -> float:
+    def rate(self) -> Optional[float]:
+        """The entered annual rate as a decimal; None when the field is blank."""
+        text = (self.text() or "").strip()
+        if not text:
+            return None
         try:
-            return float((self.text() or "").strip()) / 100.0
+            return float(text) / 100.0
         except ValueError:
             return 0.0
 
@@ -1066,6 +1070,8 @@ class DynamicSection(QGroupBox):
                     first.amount_edit.set_value(0.0, decimals=2)
                 elif ctx.billable_premium:
                     first.amount_edit.set_value(ctx.billable_premium, decimals=2)
+            if first.premium_type() == _TYPE_BILLABLE:
+                first._apply_billable_premium()
             first._refresh_max_level_amount()
         self._validate()
 
@@ -1816,8 +1822,10 @@ class DynamicInputsPanel(QWidget):
         # Transactions: a 2×2 grid spanning the full width — Premiums next to
         # Loans, Withdrawals next to Loan Repayments below — so each gets room
         # for its entry fields.
+        # The first premium row defaults to the policy's billable premium and
+        # billing mode ("Billable Prem") — continue paying what is billed.
         self.premium_section = DynamicSection(SectionSpec(
-            "Premiums", default_first_row=True, default_first_type=_TYPE_MIN_LEVEL,
+            "Premiums", default_first_row=True, default_first_type=_TYPE_BILLABLE,
             default_span_to_maturity=True,
             auto_adjust_prior_span=True, allow_max_level_premium=True, type_width=150))
         # Lump sum controls live at the top of the Premiums group.
@@ -2059,7 +2067,8 @@ class DynamicInputsPanel(QWidget):
         self.suspended_banner.setText("\n".join(notices))
         self.suspended_banner.setVisible(bool(notices))
 
-    def illustrated_rate(self) -> float:
+    def illustrated_rate(self) -> Optional[float]:
+        """The Illustrated Rate as a decimal; None when the field is blank."""
         return self.illustrated_rate_edit.rate()
 
     def _apply_change_value_options(self):
