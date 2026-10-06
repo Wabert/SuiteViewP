@@ -38,6 +38,7 @@ from suiteview.core.joint_survivor_coi import Insured, Rating
 from suiteview.illustration.models.policy_data import (
     BenefitInfo,
     CoverageSegment,
+    FundSegmentValue,
     IllustrationPolicyData,
     JointLives,
     PremiumTransaction,
@@ -376,6 +377,7 @@ _SNAPSHOT_TYPES = {
         Insured,
         Rating,
         BenefitInfo,
+        FundSegmentValue,
         PremiumTransaction,
         RiderInfo,
         SkippedCoveragePeriod,

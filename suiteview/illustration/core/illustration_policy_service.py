@@ -423,11 +423,16 @@ def build_iul_basis(source: PolicySourceSnapshot) -> dict:
 
     fund_values = {}
     fund_segments = []
+    # Only IUL plans carry index segments; declared-rate UL phases (e.g. a
+    # negative GP bucket or the FFL F1 fund) are not segments.
+    index_plan = is_iul_plan(source.plancode)
     for bucket in pi.values.get_fund_buckets(current_only=True):
         fund = str(bucket.fund_id or "").strip()
         if fund:
             value = float(bucket.csv_amount) if bucket.csv_amount is not None else 0.0
             fund_values[fund] = fund_values.get(fund, 0.0) + value
+            if not index_plan:
+                continue
             segment = _open_index_segment(fund, value, getattr(bucket, "raw_data", None))
             if segment is not None:
                 fund_segments.append(segment)

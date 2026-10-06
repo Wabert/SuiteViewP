@@ -378,6 +378,84 @@ def test_open_index_segment_reads_phase_start_and_skips_sweep_fixed_and_empty():
     assert _open_index_segment("IX", 50.0, {**row, "IMPAIRED_IND": "1"}) is None
 
 
+def _basis_source(plancode: str, buckets: list):
+    from types import SimpleNamespace
+
+    values = SimpleNamespace(
+        get_fund_buckets=lambda current_only=True: buckets,
+        get_loan_values_dict=lambda: {},
+        get_premium_allocation_dict=lambda: {},
+    )
+    pi = SimpleNamespace(
+        values=values, product=SimpleNamespace(prospective_bonus_code=None),
+        company_code="01")
+    return SimpleNamespace(pi=pi, plancode=plancode, plancode_config=_config())
+
+
+def _bucket(fund: str, value: float, start: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        fund_id=fund, csv_amount=value,
+        raw_data={"VAL_STR_DT": start, "IMPAIRED_IND": "0"})
+
+
+@pytest.mark.parametrize("plancode, fund", [("1U135200", "GP"), ("1U14I100", "F1")])
+def test_declared_rate_ul_buckets_are_not_index_segments(monkeypatch, plancode, fund):
+    """A negative GP bucket or the FFL F1 fund on a declared-rate UL is a fund
+    value, not an IUL index segment (Save Case failed on such policies)."""
+    from suiteview.illustration.core import illustration_policy_service as service
+
+    monkeypatch.setattr(service, "_current_interest_rate", lambda _s: (0.03, "test"))
+    monkeypatch.setattr(service, "_legacy_guaranteed_crediting_rate", lambda _s: None)
+    source = _basis_source(plancode, [
+        _bucket("U1", 1_000.0, "2010-01-01"), _bucket(fund, -270.54, "2018-09-12")])
+    basis = service.build_iul_basis(source)
+    assert basis["fund_segments"] == []
+    assert basis["fund_values"] == {"U1": 1_000.0, fund: -270.54}
+
+
+def _numeric_states(states):
+    import dataclasses
+
+    return [
+        {k: v for k, v in dataclasses.asdict(s).items()
+         if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        for s in states
+    ]
+
+
+@pytest.mark.parametrize("policy_kind, segment_crediting", [
+    ("iul", True), ("iul", False), ("passport_select_ii_gp", False),
+])
+def test_saved_snapshot_projects_identically(monkeypatch, policy_kind, segment_crediting):
+    """Save Case round trip (encode -> JSON -> decode) keeps fund segments and fund
+    values exactly, so the decoded snapshot projects to the same values (E4).
+    Passport Select II 1U135200 carries a negative GP fund row (U0445398: -82.37),
+    which is a fund value, never an index segment."""
+    import json
+
+    from suiteview.illustration.models.case_store import (
+        decode_policy_snapshot,
+        encode_policy_snapshot,
+    )
+
+    if policy_kind == "iul":
+        policy = _iul14_policy()
+    else:
+        policy = _iul14_policy(
+            plancode="1U135200", fund_segments=[], premium_allocations={},
+            index_illustration_rates=None,
+            fund_values={"U1": 20_082.37, "GP": -82.37})
+    decoded = decode_policy_snapshot(json.loads(json.dumps(encode_policy_snapshot(policy))))
+    assert decoded == policy
+    assert all(isinstance(s, FundSegmentValue) for s in decoded.fund_segments)
+    options = IllustrationOptions(iul_segment_crediting=segment_crediting)
+    original = _project(monkeypatch, policy, options, months=24)
+    restored = _project(monkeypatch, decoded, options, months=24)
+    assert _numeric_states(restored) == _numeric_states(original)
+
+
 def test_segment_views_grid_slots_and_ledger(monkeypatch):
     from suiteview.illustration.ui import iul_segment_views as views
 

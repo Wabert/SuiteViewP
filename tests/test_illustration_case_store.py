@@ -28,6 +28,7 @@ from suiteview.illustration.models.case_store import (
 from suiteview.illustration.models.policy_data import (
     BenefitInfo,
     CoverageSegment,
+    FundSegmentValue,
     IllustrationPolicyData,
     RiderInfo,
 )
@@ -344,6 +345,16 @@ def test_v2_snapshot_round_trips_exactly(tmp_path):
     # list_cases materializes the snapshot too.
     listed = case_store.list_cases("UL054426", directory=tmp_path)
     assert listed[0].policy_snapshot == snapshot
+
+
+def test_snapshot_round_trips_iul_fund_segments():
+    snapshot = _full_snapshot()
+    snapshot.fund_segments = [FundSegmentValue("IX", date(2026, 9, 1), 330.59)]
+    decoded = case_store.decode_policy_snapshot(
+        case_store.encode_policy_snapshot(snapshot))
+    assert decoded == snapshot
+    assert isinstance(decoded.fund_segments[0], FundSegmentValue)
+    assert decoded.fund_segments[0].start_date == date(2026, 9, 1)
 
 
 def test_v2_save_without_snapshot_loads_as_none(tmp_path):
