@@ -1399,8 +1399,21 @@ class IllustrationValuesTab(QWidget):
         # Why the guaranteed-basis run failed (None while it succeeds) — kept
         # so session restore re-raises the banner, never a quiet blank.
         self._guaranteed_error: str | None = None
+        self._business_mode = False
         self._setup_ui()
         self.clear_results()
+
+    @property
+    def business_mode(self) -> bool:
+        return self._business_mode
+
+    def set_business_mode(self, enabled: bool):
+        """Business users see Overview/Chart/Charges only — no monthly debug groups."""
+        self._business_mode = bool(enabled)
+        self.nav_search.setVisible(not self._business_mode)
+        if self._business_mode and self.content_stack.currentWidget() not in (
+                self.overview, self.chart, self.charges_chart):
+            self.content_stack.setCurrentWidget(self.overview)
 
     def _setup_ui(self):
         from PyQt6.QtWidgets import (
@@ -1555,6 +1568,8 @@ class IllustrationValuesTab(QWidget):
 
     def _drill_down(self, result_row: int, ledger_column: str):
         """Overview double-click: open the detail tab for that value at that month."""
+        if self._business_mode:
+            return
         title = LEDGER_DRILL_TABS.get(ledger_column, self.SUMMARY_GROUP)
         if title == self.ACCUMULATION_GROUP and self._iul_accounts_columns:
             title = self.IUL_ACCOUNTS_GROUP
@@ -1590,6 +1605,10 @@ class IllustrationValuesTab(QWidget):
             jump = QTreeWidgetItem([title])
             jump.setData(0, Qt.ItemDataRole.UserRole, (title, None))
             self.nav_tree.addTopLevelItem(jump)
+        if self._business_mode:
+            # Business users get the ledger and charts only; the monthly
+            # calculation groups are developer/debug pages.
+            return
         for title, columns in tab_columns_by_title.items():
             if title == self.JOINT_COI_GROUP and not self._joint_coi_columns:
                 continue

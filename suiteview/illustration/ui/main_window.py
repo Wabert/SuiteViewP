@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.build_env import is_distribution_build
+from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.ui.access_control import requires_app_access
 from suiteview.ui.signals import muted_signals
 from suiteview.core.db2_connection import DB2Connection
@@ -113,6 +114,8 @@ from .styles import (
 logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "SuiteView:  RERUN"
+# The only DB2 region business users may load from.
+BUSINESS_REGION = "CKPR"
 
 
 class IllustrationWindow(FramelessWindowBase):
@@ -122,6 +125,9 @@ class IllustrationWindow(FramelessWindowBase):
                  initial_region: str = "CKPR", initial_company: str = ""):
         from suiteview.core.access_control import guard_app_access
         guard_app_access("RERUN")
+        # Business mode (M1): business users get the locked-down soft-launch
+        # surface; developers and support see everything.
+        self._business_mode = is_business_mode()
         self._db: Optional[DB2Connection] = None
         self._policy: Optional[PolicyInformation] = None
         self._current_policy = None
@@ -218,12 +224,34 @@ class IllustrationWindow(FramelessWindowBase):
             or button.toolTip() in {"Minimize", "Maximize", "Close"}
         ]
         self._refresh_rollback_controls()
+        if self._business_mode:
+            self._apply_business_mode()
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar
         # policy bar or PolView's "Open in Illustrator" button).
         if initial_policy:
             self.load_policy(initial_policy, region=initial_region,
                              company_code=initial_company)
+
+    @property
+    def business_mode(self) -> bool:
+        return self._business_mode
+
+    def _apply_business_mode(self):
+        """Hide the developer menus and lock the region (M1)."""
+        settings = get_illustration_settings()
+        settings.set_additional_premium_types(False)
+        settings.set_testing_mode(False)
+        settings.set_abr_quote_mode(False)
+        settings.set_rollback_enabled(False)
+        # Every Options item and the ☰ Plancode Table are developer tools.
+        self.options_btn.setVisible(False)
+        self.hamburger_btn.setVisible(False)
+        self.lookup_bar.region_input.setText(BUSINESS_REGION)
+        self.lookup_bar.region_input.setReadOnly(True)
+        self.lookup_bar.region_input.setToolTip(
+            f"Business users illustrate from the production region ({BUSINESS_REGION}).")
+        self.values_tab.set_business_mode(True)
 
     def _build_options_menu(self):
         """Build the "Options" header drop-down and its app-wide toggles.
@@ -297,6 +325,8 @@ class IllustrationWindow(FramelessWindowBase):
 
     def show_plancode_table(self):
         """Open (or raise) the read-only Plancode Table window."""
+        if self._business_mode:
+            return
         window = self._plancode_table_window
         if window is None:
             try:
@@ -368,6 +398,8 @@ class IllustrationWindow(FramelessWindowBase):
         policy_number = (policy_number or "").strip()
         if not policy_number:
             return
+        if self._business_mode:
+            region = BUSINESS_REGION
         self.lookup_bar.region_input.setText(region or "CKPR")
         self.lookup_bar.company_input.setText(company_code or "")
         self.lookup_bar.policy_input.setText(policy_number)
@@ -1011,6 +1043,8 @@ class IllustrationWindow(FramelessWindowBase):
         return True
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
+        if self._business_mode:
+            region = BUSINESS_REGION
         self.policy_tab.reset_fund_edits()
         default_inputs = self._default_inputs_on_next_get
         self.lookup_bar.hide_company_chooser()
@@ -1401,6 +1435,12 @@ class IllustrationWindow(FramelessWindowBase):
 
     def _load_case_snapshot(self, case):
         """Restore a case's frozen IllustrationPolicyData as the loaded policy."""
+        if case.inputs.get("value_rollback") is not None and self._business_mode:
+            QMessageBox.warning(
+                self, "Load Case",
+                "This case uses Edit Record valuation assumptions, which are not "
+                "available to business users.")
+            return
         if case.inputs.get("value_rollback") is not None and not get_illustration_settings().rollback_enabled:
             QMessageBox.warning(
                 self, "Edit Record Option Required",
