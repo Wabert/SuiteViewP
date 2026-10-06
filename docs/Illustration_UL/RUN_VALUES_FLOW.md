@@ -37,7 +37,16 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    the run timestamp (`RunControls.run_timestamp`, else the build moment), the
    user's selected options and stop-on-lapse control.  Every printed page ends
    with a footer `SUITEVIEW <version> BUILD <sha> | RUN <timestamp> | POLICY
-   VALUES AS OF <valuation date>` (`report_tab.trace_footer`).  Report
+   VALUES AS OF <valuation date>` (`report_tab.trace_footer`).  For in-force
+   runs the cover also states, as of the valuation date (`POLICY STATUS`
+   block): values older than `STALE_VALUATION_DAYS` (45) before the run date,
+   a suspended policy (`IllustrationPolicyData.suspense_code == "2"`, from
+   `LH_BAS_POL.SUS_CD`), an already-MEC policy (which is then never reported
+   as *becoming* a MEC), and the shadow-account no-lapse guarantee status
+   (`shadow_status_lines`, incl. nullified by debt on `ShadowLoanImpact:
+   Nullify` plans).  Loan charge/credit rates print with the loan balance,
+   and user options that differ from the defaults are listed under "NON-DEFAULT
+   SETTINGS" (`non_default_settings_lines`).  Report
    specs/page specs are interpreters around the existing text builders.
 8. **Render** — the window applies solved inputs, renders Values, Guaranteed
    Values and Report/ABR pages, then re-enables the button.  Dialogs, cursors,

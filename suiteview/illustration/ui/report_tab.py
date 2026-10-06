@@ -525,12 +525,25 @@ def _format_report_pages_from_specs(
                 cover.add(f"    {row.label[:88]:<88}{f'${row.value:,.2f}':>20}")
         if report.loan_basis_line:
             cover.add_wrapped(report.loan_basis_line)
+        for line in report.loan_interest_lines:
+            cover.add_wrapped(line)
         cover.blank()
     if report.iul_allocations:
         cover.add("THE ALLOCATION PERCENTAGES USED IN THIS ILLUSTRATION ARE:")
         for row in report.iul_allocations:
             label = f"[{row.fund_id}] - {row.label}"
             cover.add(f"    {label[:88]:<88}{_rate(row.allocation):>20}")
+        cover.blank()
+    if report.policy_status_lines:
+        as_of = report.valuation_date.strftime("%m/%d/%Y") if report.valuation_date else ""
+        cover.add(f"POLICY STATUS AS OF {as_of}:" if as_of else "POLICY STATUS:")
+        for line in report.policy_status_lines:
+            cover.lines.extend(f"    {part}" for part in wrap_lines(line, PAGE_WIDTH - 4))
+        cover.blank()
+    if report.settings_lines:
+        cover.add("THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:")
+        for line in report.settings_lines:
+            cover.add(f"    {line}")
         cover.blank()
     for line in report.request_intro:
         cover.add_wrapped(line)
@@ -983,6 +996,8 @@ class IllustrationReportTab(QWidget):
             guaranteed_note = ""
         else:
             guaranteed_note = "  Guaranteed columns are not projected."
+        if report.stale_valuation_days is not None:
+            guaranteed_note += f"  Policy values are {report.stale_valuation_days} days old."
         self.status_label.setText(
             f"UL illustration report - {len(pages)} pages.{guaranteed_note}")
 

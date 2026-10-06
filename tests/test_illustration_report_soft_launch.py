@@ -248,3 +248,242 @@ def test_run_service_stamps_now_when_no_run_time_is_given(monkeypatch):
         SimpleNamespace(report_builder=lambda *_a, **kw: captured.update(kw) or _report()))
     stamp = captured["run_context"].run_timestamp
     assert isinstance(stamp, datetime) and stamp.microsecond == 0
+
+# ── Should-do 1: in-force report content ────────────────────────────────────
+
+def _sd1_policy(**overrides):
+    from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+
+    values = dict(
+        policy_number="U0586555", company_code="01", insured_name="JANE DOE",
+        plancode="1U143800", form_number="IMUL", issue_date=date(2007, 10, 24),
+        issue_age=40, attained_age=58, policy_year=20, rate_sex="F", rate_class="N",
+        face_amount=100000.0, db_option="A", account_value=4338.32, modal_premium=60.0,
+        billing_frequency=1, valuation_date=date(2026, 9, 24), guaranteed_interest_rate=0.03,
+        segments=[CoverageSegment(face_amount=100000.0, issue_age=40, rate_sex="F", rate_class="N")],
+    )
+    values.update(overrides)
+    return IllustrationPolicyData(**values)
+
+
+def _sd1_states(inforce=None, **month_kw):
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    states = [inforce or MonthlyState(policy_year=20, policy_month=12, duration=240)]
+    for duration in range(241, 241 + 24):
+        year = (duration - 1) // 12 + 1
+        kw = dict(date=date(2026, 10, 24), policy_year=year,
+                  policy_month=(duration - 1) % 12 + 1, duration=duration,
+                  attained_age=40 + year - 1, gross_premium=60.0, av_end_of_month=4500.0,
+                  ending_sv=500.0, ending_db=100000.0, annual_interest_rate=0.03)
+        kw.update(month_kw)
+        states.append(MonthlyState(**kw))
+    return states
+
+
+def _sd1_build(policy, states=None, *, config=None, monkeypatch=None, run_date=date(2026, 10, 6),
+               run_context=None):
+    from suiteview.illustration.core import report_builder
+    from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+    if monkeypatch is not None:
+        monkeypatch.setattr(report_builder, "load_plancode", lambda _code: config or PlancodeConfig())
+    return report_builder.build_ul_report(
+        policy, states or _sd1_states(), run_date=run_date, run_context=run_context)
+
+
+def _cover_text(report):
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    return "\n".join(format_report_pages(report)[0])
+
+
+def test_already_mec_is_stated_and_never_reported_as_becoming_one():
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    policy = _sd1_policy(is_mec=True)
+    # Contributions over the 7-pay limit would otherwise flag a future MEC year.
+    states = _sd1_states(tamra_year=3, tamra_7pay_level=10.0, accumulated_7pay=5000.0)
+    report = _sd1_build(policy, states)
+
+    assert report.already_mec
+    assert "THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC)." in report.policy_status_lines
+    assert report.year_of_mec is None and report.mec_line == ""
+    assert not any("&" in row.markers for row in report.ledger)
+    assert "POLICY STATUS AS OF 09/24/2026:" in _cover_text(report)
+
+    # A loaded non-MEC still gets the future-MEC sentence.
+    future = _sd1_build(_sd1_policy(), states)
+    assert not future.already_mec and future.mec_line.startswith("THIS ILLUSTRATION SHOWS")
+    # The inforce row's latched MEC status counts too.
+    inforce_mec = _sd1_build(_sd1_policy(), _sd1_states(
+        inforce=MonthlyState(policy_year=20, policy_month=12, duration=240, is_mec=True)))
+    assert inforce_mec.already_mec
+
+
+def test_suspended_notice_reads_the_policy_record_suspense_code():
+    suspended = _sd1_build(_sd1_policy(suspense_code="2"))
+    assert ("THE POLICY RECORD SHOWS THIS POLICY AS SUSPENDED (SUSPENSE CODE 2)."
+            in suspended.policy_status_lines)
+    for code in ("", "0", "3"):
+        report = _sd1_build(_sd1_policy(suspense_code=code))
+        assert not any("SUSPENDED" in line for line in report.policy_status_lines)
+
+
+@pytest.mark.parametrize(("valuation", "stale"), [
+    (date(2026, 8, 22), None),   # 45 days: at the threshold, not flagged
+    (date(2026, 8, 21), 46),
+])
+def test_stale_valuation_warning_beyond_45_days(valuation, stale):
+    report = _sd1_build(_sd1_policy(valuation_date=valuation))
+    assert report.stale_valuation_days == stale
+    flagged = [line for line in report.policy_status_lines if "DAYS BEFORE THE RUN DATE" in line]
+    if stale is None:
+        assert flagged == []
+    else:
+        assert flagged == [
+            "THE POLICY VALUES USED IN THIS ILLUSTRATION ARE AS OF 08/21/2026, 46 DAYS BEFORE "
+            "THE RUN DATE OF 10/06/2026. CURRENT POLICY VALUES MAY DIFFER."]
+
+
+def test_stale_warning_skipped_for_rollback_and_issue_runs():
+    from suiteview.illustration.core.report_builder import stale_valuation_days
+
+    old = date(2025, 1, 1)
+    assert stale_valuation_days(_sd1_policy(valuation_date=old), date(2026, 10, 6)) == 643
+    assert stale_valuation_days(_sd1_policy(valuation_date=old, rollback_date=old),
+                                date(2026, 10, 6)) is None
+    assert stale_valuation_days(_sd1_policy(valuation_date=old, run_from_issue=True),
+                                date(2026, 10, 6)) is None
+    assert stale_valuation_days(_sd1_policy(valuation_date=old), None) is None
+
+
+def _shadow_config(impact="Reduce"):
+    from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+    return PlancodeConfig(shadow_loan_impact=impact, snet_by_issue_age={40: 5},
+                          loan_charge_rate_guar=0.06, loan_charge_rate_curr=0.03)
+
+
+def test_shadow_guarantee_nullified_by_loan_on_nullify_plans(monkeypatch):
+    policy = _sd1_policy(ccv_active=True, shadow_account_value=14418.29,
+                         regular_loan_principal=3700.0, regular_loan_accrued=89.98)
+    report = _sd1_build(policy, config=_shadow_config("Nullify"), monkeypatch=monkeypatch)
+    assert report.policy_status_lines == [
+        "SHADOW ACCOUNT (NO-LAPSE GUARANTEE) VALUE: $14,418.29.",
+        "THIS PLAN'S NO-LAPSE GUARANTEE DOES NOT PROTECT THE POLICY WHILE THERE IS ANY POLICY "
+        "DEBT. WITH POLICY DEBT OF $3,789.98, THE GUARANTEE IS NULLIFIED AND IS NOT PROTECTING "
+        "THE POLICY.",
+    ]
+
+
+@pytest.mark.parametrize(("protection", "positive_sv", "expected"), [
+    (True, False, "THE NO-LAPSE GUARANTEE IS CURRENTLY KEEPING THE POLICY IN FORCE"),
+    (True, True, "THE NO-LAPSE GUARANTEE IS IN EFFECT BUT IS NOT CURRENTLY NEEDED"),
+    (False, True, "THE NO-LAPSE GUARANTEE IS NOT CURRENTLY PROTECTING THE POLICY"),
+])
+def test_shadow_guarantee_status_follows_the_inforce_row(monkeypatch, protection, positive_sv, expected):
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    inforce = MonthlyState(policy_year=20, policy_month=12, duration=240,
+                           shadow_protection=protection, positive_sv=positive_sv)
+    report = _sd1_build(_sd1_policy(ccv_active=True, shadow_account_value=100.0),
+                        _sd1_states(inforce=inforce), config=_shadow_config(),
+                        monkeypatch=monkeypatch)
+    assert report.policy_status_lines[1].startswith(expected)
+
+
+def test_shadow_status_within_safety_net_and_ceased(monkeypatch):
+    early = _sd1_build(_sd1_policy(ccv_active=True, policy_year=3), config=_shadow_config(),
+                       monkeypatch=monkeypatch)
+    assert "SAFETY NET" in early.policy_status_lines[1]
+    ceased = _sd1_build(_sd1_policy(ccv_ceased=True), config=_shadow_config(),
+                        monkeypatch=monkeypatch)
+    assert ceased.policy_status_lines == [
+        "THE SHADOW ACCOUNT (NO-LAPSE GUARANTEE) HAS CEASED AND NO LONGER PROTECTS THE "
+        "POLICY FROM LAPSE."]
+    assert _sd1_build(_sd1_policy()).policy_status_lines == []
+
+
+def test_loan_interest_rates_printed_with_the_loan_balance(monkeypatch):
+    policy = _sd1_policy(regular_loan_principal=3700.0, regular_loan_accrued=89.98)
+    report = _sd1_build(policy, _sd1_states(reg_loan_credit_rate=0.03),
+                        config=_shadow_config(), monkeypatch=monkeypatch)
+    assert report.loan_interest_lines == [
+        "REGULAR LOAN INTEREST IS CHARGED AT 6.00% A YEAR, IN ARREARS; THE LOANED PORTION OF "
+        "THE ACCUMULATION VALUE IS CREDITED 3.00% A YEAR."]
+    cover = _cover_text(report)
+    assert "WITH A LOAN BALANCE OF 3,789.98" in cover
+    assert "REGULAR LOAN INTEREST IS CHARGED AT 6.00% A YEAR" in cover
+
+    # No loan, no new loans: no rate lines (and no plancode lookup needed).
+    assert _sd1_build(_sd1_policy()).loan_interest_lines == []
+
+
+def test_loan_interest_uses_edit_record_override_advance_and_other_loan_types(monkeypatch):
+    from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+    config = PlancodeConfig(loan_type="Advance", loan_charge_rate_guar=0.08,
+                            pref_loan_charge_rate_guar=0.06, pref_loan_charge_rate_curr=0.055)
+    policy = _sd1_policy(
+        regular_loan_principal=1000.0, regular_loan_charge_rate=0.074,
+        starting_record_fields=["regular_loan_charge_rate"],
+        preferred_loan_principal=500.0, variable_loan_principal=250.0,
+        variable_loan_charge_rate=0.0525)
+    lines = _sd1_build(policy, config=config, monkeypatch=monkeypatch).loan_interest_lines
+    assert lines == [
+        "REGULAR LOAN INTEREST IS CHARGED AT 7.40% A YEAR, IN ADVANCE.",
+        "PREFERRED LOAN INTEREST IS CHARGED AT 6.00% A YEAR, IN ADVANCE; THE LOANED PORTION "
+        "OF THE ACCUMULATION VALUE IS CREDITED 5.50% A YEAR.",
+        "VARIABLE LOAN INTEREST IS CHARGED AT THE CURRENT VARIABLE RATE OF 5.25% A YEAR.",
+    ]
+
+
+def test_non_default_settings_are_disclosed_and_defaults_are_silent():
+    from suiteview.illustration.core.report_builder import (
+        ReportRunContext,
+        non_default_settings_lines,
+    )
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    assert non_default_settings_lines(IllustrationOptions()) == []
+    assert non_default_settings_lines(IllustrationOptions(exact_days_interest=False)) == []
+    # IUL-only options are not disclosed (or printed) on a UL report.
+    assert non_default_settings_lines(IllustrationOptions(iul_wair_crediting=True)) == []
+
+    settings = IllustrationOptions(conform_to_tefra=False, exact_days_interest=True,
+                                   loan_repay_principal_first=True)
+    assert non_default_settings_lines(settings, stop_on_lapse=False) == [
+        "GUIDELINE PREMIUM (TEFRA/DEFRA) LIMITS NOT ENFORCED",
+        "EXACT DAYS INTEREST",
+        "LOAN REPAYMENTS PAY PRINCIPAL BEFORE ACCRUED INTEREST",
+        "PROJECTION CONTINUES AFTER LAPSE",
+    ]
+    report = _sd1_build(_sd1_policy(), run_context=ReportRunContext(
+        app_build="SUITEVIEW TEST", settings=settings, stop_on_lapse=False))
+    cover = _cover_text(report)
+    assert "THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:" in cover
+    assert "    GUIDELINE PREMIUM (TEFRA/DEFRA) LIMITS NOT ENFORCED" in cover
+
+    plain = _sd1_build(_sd1_policy(), run_context=ReportRunContext(
+        settings=IllustrationOptions()))
+    assert plain.settings_lines == []
+    assert "NON-DEFAULT SETTINGS" not in _cover_text(plain)
+
+
+def test_ul_report_carries_no_iul_or_ag49_text():
+    from suiteview.illustration.core.report_builder import ReportRunContext
+    from suiteview.illustration.models.input_set import IllustrationOptions
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    report = _sd1_build(_sd1_policy(), run_context=ReportRunContext(
+        app_build="SUITEVIEW TEST", settings=IllustrationOptions(use_policy_ag49_regime=True)))
+    assert not report.is_iul
+    text = "\n".join("\n".join(page) for page in format_report_pages(report, True)).upper()
+    for term in ("INDEXED", "AG49", "AG 49", "BENCHMARK", "WAIR", "S&P", "PARTICIPATION"):
+        assert term not in text, term
+
+
+def test_status_lines_not_printed_for_issue_runs():
+    report = _sd1_build(_sd1_policy(run_from_issue=True, is_mec=True, suspense_code="2"))
+    assert report.policy_status_lines == []
