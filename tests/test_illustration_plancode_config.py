@@ -177,3 +177,22 @@ def test_asl_interest_method_follows_cyberlife_diffcmpd(plancode, method):
     table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
     rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
     assert rows[plancode]["Interest_Method"] == method
+
+
+# ── minimum face after a withdrawal: CyberLife PDF DBSMIAMT issue minimum ────
+
+
+@pytest.mark.parametrize("plancode, minimum", [
+    # DB2 CKPR 2026-10-06: reduced DBO A faces sit at, never below, the plan's issue
+    # minimum (01_UL055639 1U130N2X at 10,000; 18 MLUL502 at 100,000).
+    ("1U130N2X", 10_000), ("1U130M29", 10_000), ("1U134500", 5_000),
+    ("MLUL502", 100_000), ("1U135000", 50_000),
+    ("1U135D00", 25_000),  # PDF minimum equals the default
+])
+def test_min_face_after_withdrawal_is_the_plan_issue_minimum(plancode, minimum):
+    import json
+    from pathlib import Path
+
+    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
+    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
+    assert rows[plancode].get("MinFaceAfterWD", 25_000) == minimum
