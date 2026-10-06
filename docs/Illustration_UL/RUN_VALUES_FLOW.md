@@ -48,6 +48,15 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    and user options that differ from the defaults are listed under "NON-DEFAULT
    SETTINGS" (`non_default_settings_lines`).  Report
    specs/page specs are interpreters around the existing text builders.
+
+**Export Case for Support** (☰ menu, `ui/support_export_controls.py` →
+`core/support_export.py`) writes two files to a chosen folder (Documents by
+default): `SUPPORT - <policy> - <plancode> - <yyyy-mm-dd hh-mm>.cases.json`, a
+standard case bundle of the current inputs plus frozen policy data, and the
+same stem `.support.json` with the app version/build, the last run's time,
+messages, guaranteed failure, printed status/settings lines, load-time
+warnings, the illustrated rate and a SHA-256 of the plancode configuration
+(UL_Rates tables are read live and are not fingerprinted).
 8. **Render** — the window applies solved inputs, renders Values, Guaranteed
    Values and Report/ABR pages, then re-enables the button.  Dialogs, cursors,
    tab selection and status-bar text stay in the UI layer.

@@ -447,6 +447,8 @@ class IllustrationReport:
     app_build: str = ""
     run_timestamp: Optional[datetime] = None
     valuation_date: Optional[date] = None
+    # Run Values status/solve messages (support export).
+    run_messages: List[str] = field(default_factory=list)
 
     # IUL-only report sections.
     is_iul: bool = False

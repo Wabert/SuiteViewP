@@ -31,13 +31,14 @@ def _app():
 
 
 def _report(**kwargs) -> IllustrationReport:
-    return IllustrationReport(
+    values = dict(
         company_name="AMERICAN NATIONAL INSURANCE COMPANY",
         prepared_for="PREPARED FOR JOHN DOE",
         run_date=date(2026, 10, 6),
         policy_number="U0000001",
-        **kwargs,
     )
+    values.update(kwargs)
+    return IllustrationReport(**values)
 
 
 def test_print_blocked_reason_only_when_guaranteed_side_failed():
@@ -487,3 +488,160 @@ def test_ul_report_carries_no_iul_or_ag49_text():
 def test_status_lines_not_printed_for_issue_runs():
     report = _sd1_build(_sd1_policy(run_from_issue=True, is_mec=True, suspense_code="2"))
     assert report.policy_status_lines == []
+
+# ── M8: Export case for support ─────────────────────────────────────────────
+
+def test_execute_run_carries_run_messages_onto_the_report():
+    from suiteview.illustration.core.run_service import (
+        EngineServices, PolicyBasis, RunControls, RunRequest, SolveRequestSet, execute_run,
+    )
+    from suiteview.illustration.models.calc_state import MonthlyState
+    from suiteview.illustration.models.input_set import IllustrationInputSet, IllustrationOptions
+
+    policy = _sd1_policy()
+    states = [MonthlyState(), MonthlyState(policy_year=21)]
+    services = EngineServices(
+        scenario_builder=lambda data, **kw: SimpleNamespace(
+            projectable_policy=data, future_inputs=kw["future_inputs"]),
+        engine_factory=lambda: object(),
+        project=lambda *_a, **_kw: SimpleNamespace(states=states),
+        guaranteed_runner=lambda *_a, **_kw: states,
+        report_builder=lambda *_a, **_kw: _report(policy_number="U0586555"),
+    )
+    request = RunRequest(
+        basis=PolicyBasis("U0586555", policy_data=policy),
+        inputs=IllustrationInputSet(),
+        controls=RunControls(options=IllustrationOptions(), projection_months=1,
+                             duration_label="1 month", stop_on_lapse=True),
+        solves=SolveRequestSet(),
+    )
+    result = execute_run(request, services)
+    assert result.report.report.run_messages == result.messages
+    assert result.messages[-1].startswith("Values ready for U0586555")
+
+
+def _export(tmp_path, *, report=None, policy=None, **kw):
+    from suiteview.illustration.core.support_export import write_support_export
+
+    return write_support_export(
+        tmp_path, policy_number="U0586555", region="CKPR", company_code="01",
+        inputs={"premium_rows": [{"amount": 60.0}]},
+        policy=policy or _sd1_policy(), report=report,
+        now=datetime(2026, 10, 6, 11, 2, 33), **kw)
+
+
+def test_support_export_writes_a_case_bundle_and_info_file(tmp_path, monkeypatch):
+    import json
+
+    from suiteview.illustration.core import support_export
+    from suiteview.illustration.models.case_bundle import read_bundle
+
+    monkeypatch.setattr(support_export, "app_build_label", lambda: "SUITEVIEW 5.2 BUILD abc1234")
+    report = _report(
+        policy_number="U0586555", guaranteed_error="no GCOI rates",
+        run_timestamp=datetime(2026, 10, 6, 10, 59, 1), app_build="SUITEVIEW 5.2 BUILD abc1234",
+        run_messages=["Solved premium $60.00", "Values ready for U0586555"],
+        policy_status_lines=["THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC)."],
+        settings_lines=["EXACT DAYS INTEREST"])
+    paths = _export(tmp_path, report=report, load_warnings=["Monthly deduction check mismatch"])
+
+    stem = "SUPPORT - U0586555 - 1U143800 - 2026-10-06 11-02"
+    assert paths.case_bundle == tmp_path / f"{stem}.cases.json"
+    assert paths.info == tmp_path / f"{stem}.support.json"
+
+    bundle = read_bundle(paths.case_bundle)
+    assert not bundle.errors and len(bundle.cases) == 1
+    case = bundle.cases[0]
+    assert case.policy_number == "U0586555" and case.company_code == "01"
+    assert case.inputs == {"premium_rows": [{"amount": 60.0}]}
+    assert case.policy_snapshot == _sd1_policy()
+
+    info = json.loads(paths.info.read_text(encoding="utf-8"))
+    assert info["kind"] == "suiteview.illustration.support_export"
+    assert info["app_build"] == "SUITEVIEW 5.2 BUILD abc1234"
+    assert info["case_file"] == f"{stem}.cases.json"
+    assert info["plancode"] == "1U143800" and info["valuation_date"] == "2026-09-24"
+    assert len(info["plancode_config_sha256"]) == 64
+    assert info["warnings"] == [
+        "Monthly deduction check mismatch", "Guaranteed projection failed: no GCOI rates"]
+    run = info["last_run"]
+    assert run["run_timestamp"] == "2026-10-06T10:59:01"
+    assert run["run_messages"] == ["Solved premium $60.00", "Values ready for U0586555"]
+    assert run["policy_status_lines"] == ["THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC)."]
+    assert run["non_default_settings"] == ["EXACT DAYS INTEREST"]
+
+
+def test_support_export_without_a_matching_run_says_so(tmp_path):
+    import json
+
+    paths = _export(tmp_path, report=_report(policy_number="U9999999"))
+    info = json.loads(paths.info.read_text(encoding="utf-8"))
+    assert info["last_run"] is None
+    assert "No Run Values result" in info["last_run_note"]
+
+
+def test_support_export_unknown_plancode_still_exports_with_a_warning(tmp_path, monkeypatch):
+    import json
+
+    from suiteview.illustration.core import support_export
+
+    def boom(_code):
+        raise KeyError("ZZZ not in plancode table")
+
+    monkeypatch.setattr(support_export, "load_plancode", boom)
+    paths = _export(tmp_path)
+    info = json.loads(paths.info.read_text(encoding="utf-8"))
+    assert info["plancode_config_sha256"] == ""
+    assert any("fingerprint unavailable" in w for w in info["warnings"])
+
+
+def test_support_export_refuses_without_policy_or_folder(tmp_path):
+    from suiteview.illustration.core.support_export import SupportExportError, write_support_export
+
+    with pytest.raises(SupportExportError, match="No illustration policy data"):
+        write_support_export(tmp_path, policy_number="U1", region="CKPR", company_code="01",
+                             inputs={}, policy=None)
+    with pytest.raises(SupportExportError, match="Folder does not exist"):
+        _export(tmp_path / "missing")
+
+
+def test_window_menu_exports_case_for_support(tmp_path, monkeypatch):
+    from suiteview.illustration.ui import support_export_controls
+    from suiteview.illustration.ui.main_window import IllustrationWindow
+
+    _app()
+    infos, warnings = [], []
+    monkeypatch.setattr(QMessageBox, "information", lambda _p, t, text: infos.append(text))
+    monkeypatch.setattr(QMessageBox, "warning", lambda _p, t, text: warnings.append(text))
+    window = IllustrationWindow()
+    try:
+        texts = [a.text() for a in window.hamburger_btn.menu().actions()]
+        assert support_export_controls.EXPORT_FOR_SUPPORT_TEXT in texts
+
+        # Nothing loaded: a clear message, no dialog, no files.
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                            lambda *_a, **_kw: pytest.fail("no folder prompt without a policy"))
+        window._support_export_action.trigger()
+        assert infos and "Load a UL policy" in infos[-1]
+
+        window._current_key = ("U0586555", "CKPR", "01")
+        window._illustration_data = _sd1_policy()
+        window._live_policy_checks = (None, ["Rate warning A"], None)
+        monkeypatch.setattr(window.policy_tab, "has_pending_record_changes", lambda: False)
+        prompts = []
+
+        def choose(_parent, _title, start):
+            prompts.append(start)
+            return str(tmp_path)
+
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", choose)
+        window._support_export_action.trigger()
+
+        assert prompts == [support_export_controls.documents_folder()]
+        written = sorted(p.name for p in tmp_path.iterdir())
+        assert len(written) == 2
+        assert written[0].startswith("SUPPORT - U0586555 - 1U143800 - ")
+        assert written[0].endswith(".cases.json") and written[1].endswith(".support.json")
+        assert "Saved for support" in infos[-1] and not warnings
+    finally:
+        window.close()

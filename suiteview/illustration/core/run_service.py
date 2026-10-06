@@ -260,6 +260,9 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
     report = build_report_result(
         request, scenario, current, resolved, guaranteed, guaranteed_error, services)
     status = _final_status(request, scenario, current, guaranteed_error, resolved.lumpsum_result)
+    messages = [*resolved.messages, status]
+    if report.report is not None:
+        report.report.run_messages = list(messages)
     return RunResult(
         policy=scenario.scenario.projectable_policy,
         scenario=scenario.scenario,
@@ -267,7 +270,7 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
         guaranteed=guaranteed,
         solved_inputs=resolved.solved_inputs,
         report=report,
-        messages=[*resolved.messages, status],
+        messages=messages,
         lumpsum_result=resolved.lumpsum_result,
         duration_label=scenario.duration_label,
         warnings=gate.warnings + _reduced_request_warnings(scenario, resolved, current),

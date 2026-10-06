@@ -351,6 +351,8 @@ class IllustrationWindow(FramelessWindowBase):
             "View the illustration plancode table (plancode_table.json)")
         self._plancode_table_action.triggered.connect(self.show_plancode_table)
         menu.addAction(self._plancode_table_action)
+        from .support_export_controls import add_support_export_action
+        add_support_export_action(self, menu)
 
         self.hamburger_btn.setMenu(menu)
 
