@@ -201,14 +201,72 @@ def test_reports_built_outside_run_values_have_no_footer():
     assert all(EXPECTED_FOOTER not in "\n".join(page) for page in format_report_pages(report))
 
 
-def test_footer_pages_still_fit_one_pdf_page_each(tmp_path: Path):
+def _all_blocks_report(monkeypatch):
+    """A cover carrying every new block at once: stale values, suspended, MEC,
+    shadow nullified by a loan, loan rates (all three loan types) and every
+    non-default setting, plus the trace footer."""
+    from suiteview.illustration.core.report_builder import ReportRunContext
+    from suiteview.illustration.models.input_set import IllustrationOptions
+    from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+    settings = IllustrationOptions(
+        conform_to_tefra=False, conform_to_tamra=False, allow_exception_prems=True,
+        switch_to_option_a_in_exception=True, exact_days_interest=True,
+        levelizing_premium=True, guideline_by_search=True, apply_prem_to_loan=True,
+        apply_excess_repayment_as_premium=True, loan_repay_principal_first=True,
+        restrict_loans_to_sv=False, no_lapse=True)
+    policy = _sd1_policy(
+        valuation_date=date(2026, 6, 1), suspense_code="2", is_mec=True,
+        ccv_active=True, shadow_account_value=14418.29,
+        regular_loan_principal=3700.0, preferred_loan_principal=500.0,
+        variable_loan_principal=250.0, variable_loan_charge_rate=0.0525)
+    return _sd1_build(
+        policy, config=PlancodeConfig(shadow_loan_impact="Nullify", loan_charge_rate_guar=0.06),
+        monkeypatch=monkeypatch,
+        run_context=ReportRunContext(
+            app_build="SUITEVIEW 5.2 BUILD abc1234",
+            run_timestamp=datetime(2026, 10, 6, 10, 15, 32),
+            settings=settings, stop_on_lapse=False))
+
+
+@pytest.mark.parametrize("variant", ["long_ledger", "all_new_cover_blocks"])
+def test_footer_pages_still_fit_one_pdf_page_each(tmp_path: Path, monkeypatch, variant):
+    import re
+
     from suiteview.illustration.ui.report_pages import pages_document, pdf_printer
-    from suiteview.illustration.ui.report_tab import format_report_pages
+    from suiteview.illustration.ui.report_tab import (
+        REPORT_PAGE_MAX_LINES,
+        format_report_pages,
+        trace_footer,
+    )
 
     _app()
-    pages = format_report_pages(_traced_report(), include_expense_report=True)
+    report = _traced_report() if variant == "long_ledger" else _all_blocks_report(monkeypatch)
+    footer = trace_footer(report)
+    pages = format_report_pages(report, include_expense_report=True)
     printer = pdf_printer(str(tmp_path / "fit.pdf"))
     assert pages_document(pages, printer).pageCount() == len(pages)
+    illustration = [p for p in pages if report.company_name in p[0]]
+    for number, page in enumerate(illustration, start=1):
+        assert len(page) <= REPORT_PAGE_MAX_LINES
+        assert page[-2:] == ["", footer]
+        assert re.search(rf"Page {number} of {len(illustration)}$", page[0])
+    if variant == "all_new_cover_blocks":
+        # The stuffed cover continues on page 2 under the same header.
+        text = ["\n".join(page) for page in illustration]
+        assert "POLICY STATUS AS OF 06/01/2026:" in text[0] + text[1]
+        assert "THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:" in text[1]
+        assert "+- GUARANTEED VALUES -+" in text[2]
+
+
+def test_split_body_breaks_at_blank_lines():
+    from suiteview.illustration.ui.report_tab import _split_body
+
+    body = ["a", "b", "", "c", "d", "e", "", "f"]
+    assert _split_body(body, 6) == [["a", "b", "", "c", "d", "e"], ["f"]]
+    assert _split_body(body, 4) == [["a", "b"], ["c", "d", "e"], ["f"]]
+    assert _split_body(["x"] * 5, 2) == [["x", "x"], ["x", "x"], ["x"]]
+    assert _split_body(body, 20) == [body]
 
 
 def test_run_service_stamps_build_label_run_time_and_settings(monkeypatch):

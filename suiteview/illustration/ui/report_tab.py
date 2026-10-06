@@ -71,6 +71,10 @@ LEDGER_ROWS_PER_PAGE = 30
 # Rows per Expense Report page — the intro paragraph on the first page eats
 # into the row budget, so a single conservative count keeps every page fitting.
 EXPENSE_ROWS_PER_PAGE = 25
+# Lines that print on one Letter-landscape PDF page at the report font
+# (pages_document holds 51; one line of margin). Longer illustration pages
+# continue on a following page (_fit_illustration_pages).
+REPORT_PAGE_MAX_LINES = 50
 
 
 def _center(text: str) -> str:
@@ -107,23 +111,26 @@ def print_blocked_reason(
     return ""
 
 
+def _page_header(report: IllustrationReport, page_no: int, total: int) -> List[str]:
+    """The standard illustration page header (run date, company, page n of N, titles)."""
+    run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
+    left, right = run, f"Page {page_no} of {total}"
+    middle = report.company_name
+    pad = PAGE_WIDTH - len(left) - len(right)
+    lines = [left + middle.center(max(pad, len(middle))) + right, _center(report.title)]
+    if report.subtitle:
+        lines.append(_center(report.subtitle))
+    lines.extend(_center(line) for line in report.basis_lines)
+    lines.append(_center(report.prepared_for))
+    lines.append("")
+    return lines
+
+
 class _PageBuilder:
     """Accumulates fixed-width lines for one report page."""
 
     def __init__(self, report: IllustrationReport, page_no: int, total: int):
-        self.lines: List[str] = []
-        run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
-        left, right = run, f"Page {page_no} of {total}"
-        middle = report.company_name
-        pad = PAGE_WIDTH - len(left) - len(right)
-        self.lines.append(left + middle.center(max(pad, len(middle))) + right)
-        self.lines.append(_center(report.title))
-        if report.subtitle:
-            self.lines.append(_center(report.subtitle))
-        for line in report.basis_lines:
-            self.lines.append(_center(line))
-        self.lines.append(_center(report.prepared_for))
-        self.lines.append("")
+        self.lines: List[str] = _page_header(report, page_no, total)
 
     def blank(self, count: int = 1):
         self.lines.extend([""] * count)
@@ -642,6 +649,9 @@ def _format_report_pages_from_specs(
         _iul_historical_page(history, report)
         pages.append(history.lines)
 
+    footer = trace_footer(report)
+    pages = _fit_illustration_pages(report, pages, footer_lines=2 if footer else 0)
+
     # ── Expense Report supplemental exhibit — its own heading and its own
     #    page numbering, separate from the illustration pages above. ──
     run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
@@ -672,11 +682,51 @@ def _format_report_pages_from_specs(
                 lines.append("")
         pages.append(lines)
 
-    footer = trace_footer(report)
     if footer:
         for page_lines in pages:
             page_lines.extend(["", footer])
     return pages
+
+
+def _split_body(body: List[str], room: int) -> List[List[str]]:
+    """Split page body lines into chunks of at most ``room`` lines, breaking at
+    the last blank line that fits (never mid-paragraph unless one is longer
+    than a page) and dropping the blank lines at the break."""
+    chunks: List[List[str]] = []
+    rest = list(body)
+    while len(rest) > room:
+        cut = next((i for i in range(room, 0, -1) if rest[i] == ""), room)
+        chunks.append(rest[:cut])
+        rest = rest[cut:]
+        while rest and rest[0] == "":
+            rest.pop(0)
+    chunks.append(rest)
+    return chunks
+
+
+def _fit_illustration_pages(
+    report: IllustrationReport,
+    pages: List[List[str]],
+    footer_lines: int,
+) -> List[List[str]]:
+    """Keep every illustration page within one printed PDF page.
+
+    A page longer than ``REPORT_PAGE_MAX_LINES`` (footer included) continues on
+    a following page under the same header, and every header is renumbered so
+    "Page n of N" matches the printed page count. Pages that fit are unchanged.
+    """
+    header_len = len(_page_header(report, 1, 1))
+    room = REPORT_PAGE_MAX_LINES - header_len - footer_lines
+    if all(len(page) + footer_lines <= REPORT_PAGE_MAX_LINES for page in pages):
+        return pages
+    bodies: List[List[str]] = []
+    for page in pages:
+        if len(page) + footer_lines <= REPORT_PAGE_MAX_LINES:
+            bodies.append(page[header_len:])
+        else:
+            bodies.extend(_split_body(page[header_len:], room))
+    total = len(bodies)
+    return [_page_header(report, index + 1, total) + body for index, body in enumerate(bodies)]
 
 
 def _has_rider_page(report: IllustrationReport) -> bool:
