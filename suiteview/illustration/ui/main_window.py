@@ -127,6 +127,13 @@ RUN_BLOCK_STYLE = (
     "color: #B00020; background-color: #FDECEA; border: 1px solid #C62828;"
     " border-radius: 4px; padding: 5px 10px; margin: 0 10px; font-size: 11px;"
     " font-weight: bold;")
+# Business-friendly text for an unexpected Run Values failure; the exception
+# and traceback go to the log (logger.exception), not the dialog.
+RUN_FAILED_MESSAGE = (
+    "The illustration could not be calculated for this policy.\n\n"
+    "Nothing was saved or changed. Please try again; if it happens again, "
+    "send the policy number and the time to SuiteView support. The technical "
+    "details have been written to the SuiteView log.")
 RUN_WARNING_STYLE = (
     "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
     " border-radius: 4px; padding: 5px 10px; margin: 0 10px; font-size: 11px;"
@@ -1901,9 +1908,11 @@ class IllustrationWindow(FramelessWindowBase):
             QMessageBox.warning(self, "Missing Illustration Rate", str(exc))
             self._show_status(f"Run Values failed: {exc}")
         except Exception as exc:
-            logger.exception("Run Values failed: %s", exc)
-            QMessageBox.critical(self, "Run Values", f"Failed to run illustration values: {exc}")
-            self._show_status(f"Run Values failed: {exc}")
+            logger.exception("Run Values failed for %s: %s", request.basis.policy_number, exc)
+            QMessageBox.critical(self, "Run Values", RUN_FAILED_MESSAGE)
+            self._show_status(
+                "Run Values failed - the illustration could not be calculated. "
+                "Technical details are in the SuiteView log.")
         finally:
             self.run_values_btn.setEnabled(True)
             QApplication.restoreOverrideCursor()
@@ -2032,7 +2041,7 @@ class IllustrationWindow(FramelessWindowBase):
             result.report.report,
             guaranteed_error=result.report.guaranteed_error,
         )
-        self.tabs.setCurrentWidget(self.values_tab)
+        self.tabs.setCurrentWidget(self.report_tab)
         self._show_lumpsum_guideline_warning(result.lumpsum_result)
         self._show_status(result.status)
 
