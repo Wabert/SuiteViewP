@@ -32,8 +32,13 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    Print to PDF (`report_tab.print_blocked_reason`; `write_pdf` raises
    `ReportNotPrintableError`), because the guaranteed columns would print blank.
 7. **Report** — `build_report_result()` calls the report builder with a pinned
-   run date from the request.  Report specs/page specs are interpreters around
-   the existing byte-identical text builders.
+   run date from the request and a `ReportRunContext`: the app build label
+   (`suiteview.core.build_info.app_build_label()`, version plus git commit),
+   the run timestamp (`RunControls.run_timestamp`, else the build moment), the
+   user's selected options and stop-on-lapse control.  Every printed page ends
+   with a footer `SUITEVIEW <version> BUILD <sha> | RUN <timestamp> | POLICY
+   VALUES AS OF <valuation date>` (`report_tab.trace_footer`).  Report
+   specs/page specs are interpreters around the existing text builders.
 8. **Render** — the window applies solved inputs, renders Values, Guaranteed
    Values and Report/ABR pages, then re-enables the button.  Dialogs, cursors,
    tab selection and status-bar text stay in the UI layer.

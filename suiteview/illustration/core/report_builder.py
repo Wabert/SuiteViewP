@@ -29,7 +29,7 @@ columns render blank.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from textwrap import wrap
 from typing import Dict, List, Optional
 
@@ -248,6 +248,22 @@ def issue_output_conditions(policy: IllustrationPolicyData) -> List[tuple]:
 
 # ── Report structure ────────────────────────────────────────────────────────
 
+@dataclass(frozen=True)
+class ReportRunContext:
+    """Run facts the projection itself does not carry.
+
+    ``app_build`` and ``run_timestamp`` feed the support-traceability footer on
+    every page. ``settings`` are the options the user selected for the run
+    (before any solve adjusted them) and ``stop_on_lapse`` the run control; the
+    report discloses every one that differs from the default.
+    """
+
+    app_build: str = ""
+    run_timestamp: Optional[datetime] = None
+    settings: Optional[IllustrationOptions] = None
+    stop_on_lapse: bool = True
+
+
 @dataclass
 class LedgerRow:
     """One policy year of the report ledger (RERUN mLedgerKey + Current)."""
@@ -415,6 +431,12 @@ class IllustrationReport:
     # requested). A failed guaranteed side makes the report unprintable: the
     # guaranteed columns would print blank (see ``print_blocked_reason``).
     guaranteed_error: Optional[str] = None
+
+    # Support traceability, printed in every page footer when the run supplied
+    # them (``ReportRunContext``): app version/build, run time, policy values date.
+    app_build: str = ""
+    run_timestamp: Optional[datetime] = None
+    valuation_date: Optional[date] = None
 
     # IUL-only report sections.
     is_iul: bool = False
@@ -1189,12 +1211,14 @@ def _build_ul_report_from_facts(
     future_inputs: Optional[IllustrationInputSet] = None,
     run_date: Optional[date] = None,
     guaranteed_results: Optional[List[MonthlyState]] = None,
+    run_context: Optional[ReportRunContext] = None,
 ) -> IllustrationReport:
     """Assemble the UL illustration report from a finished projection.
 
     ``guaranteed_results`` is the guaranteed-assumption run built from the
     current run's locked cash flows (core/guaranteed_projection.py); when
-    omitted the guaranteed ledger columns render blank.
+    omitted the guaranteed ledger columns render blank. ``run_context``
+    supplies the traceability footer and the user's run settings.
     """
     if options is None:
         options = IllustrationOptions()
@@ -1203,6 +1227,10 @@ def _build_ul_report_from_facts(
         run_from_issue=policy.run_from_issue,
         basis_lines=issue_output_basis(policy) + rollback_output_basis(policy),
     )
+    report.valuation_date = policy.valuation_date
+    if run_context is not None:
+        report.app_build = run_context.app_build
+        report.run_timestamp = run_context.run_timestamp
     if policy.run_from_issue:
         report.title = "FLEXIBLE PREMIUM UNIVERSAL LIFE INSURANCE HYPOTHETICAL ILLUSTRATION"
     inforce = results[0] if results else MonthlyState()
@@ -1552,6 +1580,7 @@ def build_ul_report(
     future_inputs: Optional[IllustrationInputSet] = None,
     run_date: Optional[date] = None,
     guaranteed_results: Optional[List[MonthlyState]] = None,
+    run_context: Optional[ReportRunContext] = None,
 ) -> IllustrationReport:
     """Interpret ``ReportFacts`` into the byte-identical UL report."""
     return ReportFacts(
@@ -1561,4 +1590,5 @@ def build_ul_report(
         future_inputs=future_inputs,
         run_date=run_date,
         guaranteed_results=guaranteed_results,
+        run_context=run_context,
     ).interpret(_build_ul_report_from_facts)

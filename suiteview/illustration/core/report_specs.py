@@ -21,6 +21,7 @@ class ReportFacts:
     future_inputs: Any = None
     run_date: Any = None
     guaranteed_results: Any = None
+    run_context: Any = None
 
     def interpret(self, builder: Callable[..., Any]) -> Any:
         return builder(
@@ -30,6 +31,7 @@ class ReportFacts:
             future_inputs=self.future_inputs,
             run_date=self.run_date,
             guaranteed_results=self.guaranteed_results,
+            run_context=self.run_context,
         )
 
 

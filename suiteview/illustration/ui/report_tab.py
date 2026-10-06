@@ -659,11 +659,30 @@ def _format_report_pages_from_specs(
                 lines.append("")
         pages.append(lines)
 
+    footer = trace_footer(report)
+    if footer:
+        for page_lines in pages:
+            page_lines.extend(["", footer])
     return pages
 
 
 def _has_rider_page(report: IllustrationReport) -> bool:
     return bool(report.rider_lines or report.regulatory_lines or report.change_sections)
+
+
+def trace_footer(report: IllustrationReport) -> str:
+    """Support-traceability footer printed on every page, or "" when the run
+    supplied no build/run identity (reports built outside Run Values)."""
+    if not (report.app_build or report.run_timestamp):
+        return ""
+    parts = [report.app_build or "SUITEVIEW"]
+    if report.run_timestamp is not None:
+        parts.append(f"RUN {report.run_timestamp:%m/%d/%Y %H:%M:%S}")
+    valuation = report.valuation_date
+    parts.append(
+        f"POLICY VALUES AS OF {valuation:%m/%d/%Y}" if valuation
+        else "POLICY VALUES AS OF: NOT AVAILABLE")
+    return " | ".join(parts)[:PAGE_WIDTH]
 
 
 def format_abr_quote_pages(run, policy) -> List[List[str]]:

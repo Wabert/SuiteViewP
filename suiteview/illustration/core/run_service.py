@@ -25,16 +25,21 @@ import copy
 import logging
 import platform
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, datetime
 from typing import Callable, Optional
 
+from suiteview.core.build_info import app_build_label
 from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.abr_quote import run_abr_quote
 from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, dcv_defaulted
 from suiteview.illustration.core.guaranteed_projection import run_guaranteed_projection
-from suiteview.illustration.core.report_builder import IllustrationReport, build_ul_report
+from suiteview.illustration.core.report_builder import (
+    IllustrationReport,
+    ReportRunContext,
+    build_ul_report,
+)
 from suiteview.illustration.core.request_limits import reduced_request_warnings
 from suiteview.illustration.core.run_gates import (
     GATE_TITLE,
@@ -115,6 +120,9 @@ class RunControls:
     duration_label_for_policy: Callable[[object], str] | None = field(
         default=None, compare=False, repr=False)
     run_date: date = field(default_factory=date.today)
+    # When Run Values was clicked; printed on every report page. None stamps
+    # the moment the report is built.
+    run_timestamp: datetime | None = None
     rollback_status: str = ""
 
 
@@ -502,6 +510,14 @@ def build_report_result(
         future_inputs=resolved.future_inputs,
         run_date=request.controls.run_date,
         guaranteed_results=guaranteed,
+        run_context=ReportRunContext(
+            app_build=app_build_label(),
+            run_timestamp=(
+                request.controls.run_timestamp
+                or datetime.now().replace(microsecond=0)),
+            settings=request.controls.options,
+            stop_on_lapse=request.controls.stop_on_lapse,
+        ),
     )
     if report is not None:
         report.guaranteed_error = guaranteed_error
