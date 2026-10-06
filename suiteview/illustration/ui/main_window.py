@@ -1841,7 +1841,12 @@ class IllustrationWindow(FramelessWindowBase):
             self._last_scenario = result.scenario
             self._apply_solved_inputs(result.solved_inputs)
             self._render_run_result(result)
-            self._show_run_warnings(result.warnings)
+            run_warnings = list(result.warnings)
+            if not self._business_mode and self.inputs_tab.illustrated_rate_blank():
+                run_warnings.append(
+                    "The Illustrated Rate is blank; this developer run used 0.000%. "
+                    "Business users are refused a blank rate.")
+            self._show_run_warnings(run_warnings)
         except RunFlowError as exc:
             self._clear_solved_field(exc.clear_field)
             QMessageBox.information(self, exc.title, exc.message)

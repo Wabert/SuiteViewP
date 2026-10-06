@@ -283,7 +283,9 @@ def check_run_gates(
             raise RunFlowError(
                 GATE_TITLE,
                 f"{', '.join(refused)} is not available to business users.")
-    gate = run_gate(prepared.policy_data, request.inforce_overrides, business_mode=business)
+    # ABR Quote (developer only) deliberately solves at any rate: no rate cap.
+    overrides = None if request.controls.abr_quote else request.inforce_overrides
+    gate = run_gate(prepared.policy_data, overrides, business_mode=business)
     if gate.blocked:
         raise RunFlowError(GATE_TITLE, "\n\n".join(gate.blocks))
     return gate

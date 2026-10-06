@@ -318,6 +318,15 @@ def _interest_assumptions(policy) -> tuple[str, float, float]:
     return plancode, illustrated_rate, gint
 
 
+def default_illustrated_rate(policy) -> float:
+    """The Illustrated Rate a freshly loaded policy defaults to (decimal).
+
+    The declared current rate the policy loader sourced, else the plan GINT —
+    the same value the Input tab shows. Business users can't illustrate above it.
+    """
+    return _interest_assumptions(policy)[1]
+
+
 def _is_cvat(policy) -> bool:
     def_of_life_ins = str(
         getattr(policy, "def_of_life_ins", "")

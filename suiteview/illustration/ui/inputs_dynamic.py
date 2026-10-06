@@ -177,9 +177,13 @@ class _RateField(QLineEdit):
     def set_rate(self, annual_rate: float):
         self.setText(f"{annual_rate * 100.0:.3f}")
 
-    def rate(self) -> float:
+    def rate(self) -> Optional[float]:
+        """The entered annual rate as a decimal; None when the field is blank."""
+        text = (self.text() or "").strip()
+        if not text:
+            return None
         try:
-            return float((self.text() or "").strip()) / 100.0
+            return float(text) / 100.0
         except ValueError:
             return 0.0
 
@@ -2059,7 +2063,8 @@ class DynamicInputsPanel(QWidget):
         self.suspended_banner.setText("\n".join(notices))
         self.suspended_banner.setVisible(bool(notices))
 
-    def illustrated_rate(self) -> float:
+    def illustrated_rate(self) -> Optional[float]:
+        """The Illustrated Rate as a decimal; None when the field is blank."""
         return self.illustrated_rate_edit.rate()
 
     def _apply_change_value_options(self):

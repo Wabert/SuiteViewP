@@ -155,3 +155,72 @@ def test_compare_refuses_out_of_scope_scenario_for_business(monkeypatch):
     monkeypatch.setenv(BUSINESS_MODE_ENV, "1")
     with pytest.raises(compare_runner.CompareScenarioError, match="Plancode 80110429"):
         compare_runner.run_scenario(_spec(_policy(plancode=ISWL)), engine=object())
+
+
+# ── Illustrated-rate cap (M2) ────────────────────────────────────────
+
+from suiteview.illustration.core.run_gates import illustrated_rate_cap, rate_gate  # noqa: E402
+
+IUL = "1U144600"
+
+
+def _declared(plancode=PHASE1, rate=0.0425):
+    return _policy(plancode=plancode, current_interest_rate=rate,
+                   current_interest_rate_source="UL_Rates CIRF current scale")
+
+
+def test_cap_is_the_current_declared_rate_on_declared_rate_ul():
+    assert illustrated_rate_cap(_declared()) == pytest.approx(0.0425)
+    assert illustrated_rate_cap(_declared(plancode=IUL)) is None
+    assert illustrated_rate_cap(_declared(plancode=ISWL)) is None
+
+
+@pytest.mark.parametrize("rate", [0.0425, 0.04, 0.0, 0.042500004])
+def test_rates_at_or_below_the_declared_rate_pass(rate):
+    gate = rate_gate(_declared(), InforceOverrideSet(current_interest_rate=rate),
+                     business_mode=True)
+    assert gate.blocks == () and gate.warnings == ()
+
+
+def test_business_rate_above_declared_is_blocked():
+    gate = rate_gate(_declared(), InforceOverrideSet(current_interest_rate=0.05),
+                     business_mode=True)
+    assert gate.blocks == (
+        "The Illustrated Rate 5.000% is above the current declared rate 4.250%. "
+        "Illustrated rates can't exceed the current rate.",)
+
+
+def test_business_blank_rate_is_refused_not_zero():
+    gate = rate_gate(_declared(), InforceOverrideSet(current_interest_rate=None),
+                     business_mode=True)
+    assert gate.blocked and "can't be blank" in gate.blocks[0]
+    assert "4.250%" in gate.blocks[0]
+
+
+def test_developer_rate_above_declared_is_a_warning():
+    gate = rate_gate(_declared(), InforceOverrideSet(current_interest_rate=0.05),
+                     business_mode=False)
+    assert not gate.blocked
+    assert "5.000% is above the current declared rate 4.250%" in gate.warnings[0]
+    assert rate_gate(_declared(), InforceOverrideSet(current_interest_rate=None),
+                     business_mode=False) == rate_gate(_declared(), None, business_mode=True)
+
+
+def test_execute_run_caps_saved_and_imported_case_rates_for_business():
+    request = _request(_declared(), overrides=InforceOverrideSet(current_interest_rate=0.06))
+    with pytest.raises(RunFlowError, match="6.000% is above the current declared rate"):
+        execute_run(request, _services(True))
+
+
+def test_abr_quote_developer_run_is_not_rate_capped():
+    request = _request(_declared(), overrides=InforceOverrideSet(current_interest_rate=0.08),
+                       abr=True)
+    gate = check_run_gates(request, PreparedPolicyData(_declared()), _services(False))
+    assert gate.warnings == ()
+
+
+def test_compare_caps_scenario_rate_for_business(monkeypatch):
+    monkeypatch.setenv(BUSINESS_MODE_ENV, "1")
+    spec = _spec(_declared(), InforceOverrideSet(current_interest_rate=0.05))
+    with pytest.raises(compare_runner.CompareScenarioError, match="above the current declared"):
+        compare_runner.run_scenario(spec, engine=object())

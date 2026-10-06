@@ -1852,8 +1852,13 @@ class IllustrationInputsTab(QWidget):
         return f"for {int(value)} years"
 
     def export_inforce_overrides(self) -> InforceOverrideSet:
+        rate = self.dynamic_panel.illustrated_rate()
+        if rate is None and not self._business_mode:
+            # Developers keep the historical behavior: a blank field runs at 0%
+            # (with a run warning). Business runs send None and are refused.
+            rate = 0.0
         return InforceOverrideSet(
-            current_interest_rate=self.dynamic_panel.illustrated_rate(),
+            current_interest_rate=rate,
             sweep_account_min=self.dynamic_panel.sweep_account_min(),
             iul_declared_rate=self.dynamic_panel.iul_declared_rate(),
             iul_asset_charge_rate=self.dynamic_panel.iul_asset_charge_rate(),
@@ -1861,6 +1866,9 @@ class IllustrationInputsTab(QWidget):
             index_illustration_rates=self.dynamic_panel.iul_illustration_rates(),
             deemed_cash_value=self.dynamic_panel.deemed_cash_value(),
         )
+
+    def illustrated_rate_blank(self) -> bool:
+        return self.dynamic_panel.illustrated_rate() is None
 
     def export_issue_overrides(self):
         return self.issue_conditions.export_overrides() if self.run_from_issue_enabled() else None

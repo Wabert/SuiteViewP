@@ -299,3 +299,25 @@ def test_developer_values_tab_keeps_debug_groups():
     titles = _nav_titles(values)
     assert values.SUMMARY_GROUP in titles
     assert values.TEFRA_TAMRA_RECALC_GROUP in titles
+
+
+# ── Illustrated Rate blank handling (M2) ────────────────────────────
+
+
+def test_business_blank_rate_exports_none_for_the_run_gate(business):
+    _app()
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(_Policy())
+    tab.dynamic_panel.illustrated_rate_edit.setText("")
+    assert tab.illustrated_rate_blank()
+    assert tab.export_inforce_overrides().current_interest_rate is None
+
+
+def test_developer_blank_rate_keeps_zero(developer):
+    _app()
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(_Policy())
+    tab.dynamic_panel.illustrated_rate_edit.setText("")
+    assert tab.export_inforce_overrides().current_interest_rate == 0.0
+    tab.dynamic_panel.illustrated_rate_edit.setText("4.5")
+    assert tab.export_inforce_overrides().current_interest_rate == pytest.approx(0.045)
