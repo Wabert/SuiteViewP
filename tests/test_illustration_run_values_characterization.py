@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -294,6 +295,14 @@ def _install_flow_stubs(monkeypatch, case: dict, calls: list[str]):
     def fixed_report(policy, results, **kwargs):
         calls.append("report")
         kwargs["run_date"] = date(2026, 9, 26)
+        # Pin the traceability footer (build label + run time) so the golden
+        # does not drift with the commit or the clock.
+        if kwargs.get("run_context") is not None:
+            kwargs["run_context"] = replace(
+                kwargs["run_context"],
+                app_build="SUITEVIEW GOLDEN BUILD",
+                run_timestamp=datetime(2026, 9, 26, 9, 30),
+            )
         return build_ul_report(policy, results, **kwargs)
 
     monkeypatch.setattr(run_service, "build_ul_report", fixed_report)

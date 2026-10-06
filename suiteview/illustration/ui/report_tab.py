@@ -62,6 +62,7 @@ def _settings_file():
 
 
 _EXPENSE_PAGE_KEY = "report_add_expense_page"
+_PRINT_TOOLTIP = "Save the illustration report as a PDF file."
 
 PAGE_WIDTH = 112          # characters
 # Rows per ledger page — bounded by the landscape PDF page height (Letter
@@ -70,6 +71,10 @@ LEDGER_ROWS_PER_PAGE = 30
 # Rows per Expense Report page — the intro paragraph on the first page eats
 # into the row budget, so a single conservative count keeps every page fitting.
 EXPENSE_ROWS_PER_PAGE = 25
+# Lines that print on one Letter-landscape PDF page at the report font
+# (pages_document holds 51; one line of margin). Longer illustration pages
+# continue on a following page (_fit_illustration_pages).
+REPORT_PAGE_MAX_LINES = 50
 
 
 def _center(text: str) -> str:
@@ -81,23 +86,51 @@ def _money(value: Optional[float]) -> str:
     return "" if value is None else f"{max(value, 0.0):,.0f}"
 
 
+class ReportNotPrintableError(RuntimeError):
+    """The formal illustration must not be printed or exported."""
+
+
+def print_blocked_reason(
+    report: Optional[IllustrationReport],
+    guaranteed_error: Optional[str] = None,
+) -> str:
+    """Why this report must not be printed, or "" when it may be.
+
+    A failed guaranteed-basis projection leaves the GUARANTEED VALUES columns
+    blank and the notes page contradicting itself, so the formal illustration
+    is refused rather than printed incomplete.
+    """
+    if report is None:
+        return ""
+    error = guaranteed_error or report.guaranteed_error
+    if error and not report.has_guaranteed_values:
+        return (
+            "The guaranteed projection failed, so the illustration's GUARANTEED "
+            f"VALUES columns would print blank. Print to PDF is disabled: {error}"
+        )
+    return ""
+
+
+def _page_header(report: IllustrationReport, page_no: int, total: int) -> List[str]:
+    """The standard illustration page header (run date, company, page n of N, titles)."""
+    run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
+    left, right = run, f"Page {page_no} of {total}"
+    middle = report.company_name
+    pad = PAGE_WIDTH - len(left) - len(right)
+    lines = [left + middle.center(max(pad, len(middle))) + right, _center(report.title)]
+    if report.subtitle:
+        lines.append(_center(report.subtitle))
+    lines.extend(_center(line) for line in report.basis_lines)
+    lines.append(_center(report.prepared_for))
+    lines.append("")
+    return lines
+
+
 class _PageBuilder:
     """Accumulates fixed-width lines for one report page."""
 
     def __init__(self, report: IllustrationReport, page_no: int, total: int):
-        self.lines: List[str] = []
-        run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
-        left, right = run, f"Page {page_no} of {total}"
-        middle = report.company_name
-        pad = PAGE_WIDTH - len(left) - len(right)
-        self.lines.append(left + middle.center(max(pad, len(middle))) + right)
-        self.lines.append(_center(report.title))
-        if report.subtitle:
-            self.lines.append(_center(report.subtitle))
-        for line in report.basis_lines:
-            self.lines.append(_center(line))
-        self.lines.append(_center(report.prepared_for))
-        self.lines.append("")
+        self.lines: List[str] = _page_header(report, page_no, total)
 
     def blank(self, count: int = 1):
         self.lines.extend([""] * count)
@@ -499,12 +532,25 @@ def _format_report_pages_from_specs(
                 cover.add(f"    {row.label[:88]:<88}{f'${row.value:,.2f}':>20}")
         if report.loan_basis_line:
             cover.add_wrapped(report.loan_basis_line)
+        for line in report.loan_interest_lines:
+            cover.add_wrapped(line)
         cover.blank()
     if report.iul_allocations:
         cover.add("THE ALLOCATION PERCENTAGES USED IN THIS ILLUSTRATION ARE:")
         for row in report.iul_allocations:
             label = f"[{row.fund_id}] - {row.label}"
             cover.add(f"    {label[:88]:<88}{_rate(row.allocation):>20}")
+        cover.blank()
+    if report.policy_status_lines:
+        as_of = report.valuation_date.strftime("%m/%d/%Y") if report.valuation_date else ""
+        cover.add(f"POLICY STATUS AS OF {as_of}:" if as_of else "POLICY STATUS:")
+        for line in report.policy_status_lines:
+            cover.lines.extend(f"    {part}" for part in wrap_lines(line, PAGE_WIDTH - 4))
+        cover.blank()
+    if report.settings_lines:
+        cover.add("THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:")
+        for line in report.settings_lines:
+            cover.add(f"    {line}")
         cover.blank()
     for line in report.request_intro:
         cover.add_wrapped(line)
@@ -603,6 +649,9 @@ def _format_report_pages_from_specs(
         _iul_historical_page(history, report)
         pages.append(history.lines)
 
+    footer = trace_footer(report)
+    pages = _fit_illustration_pages(report, pages, footer_lines=2 if footer else 0)
+
     # ── Expense Report supplemental exhibit — its own heading and its own
     #    page numbering, separate from the illustration pages above. ──
     run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
@@ -633,11 +682,70 @@ def _format_report_pages_from_specs(
                 lines.append("")
         pages.append(lines)
 
+    if footer:
+        for page_lines in pages:
+            page_lines.extend(["", footer])
     return pages
+
+
+def _split_body(body: List[str], room: int) -> List[List[str]]:
+    """Split page body lines into chunks of at most ``room`` lines, breaking at
+    the last blank line that fits (never mid-paragraph unless one is longer
+    than a page) and dropping the blank lines at the break."""
+    chunks: List[List[str]] = []
+    rest = list(body)
+    while len(rest) > room:
+        cut = next((i for i in range(room, 0, -1) if rest[i] == ""), room)
+        chunks.append(rest[:cut])
+        rest = rest[cut:]
+        while rest and rest[0] == "":
+            rest.pop(0)
+    chunks.append(rest)
+    return chunks
+
+
+def _fit_illustration_pages(
+    report: IllustrationReport,
+    pages: List[List[str]],
+    footer_lines: int,
+) -> List[List[str]]:
+    """Keep every illustration page within one printed PDF page.
+
+    A page longer than ``REPORT_PAGE_MAX_LINES`` (footer included) continues on
+    a following page under the same header, and every header is renumbered so
+    "Page n of N" matches the printed page count. Pages that fit are unchanged.
+    """
+    header_len = len(_page_header(report, 1, 1))
+    room = REPORT_PAGE_MAX_LINES - header_len - footer_lines
+    if all(len(page) + footer_lines <= REPORT_PAGE_MAX_LINES for page in pages):
+        return pages
+    bodies: List[List[str]] = []
+    for page in pages:
+        if len(page) + footer_lines <= REPORT_PAGE_MAX_LINES:
+            bodies.append(page[header_len:])
+        else:
+            bodies.extend(_split_body(page[header_len:], room))
+    total = len(bodies)
+    return [_page_header(report, index + 1, total) + body for index, body in enumerate(bodies)]
 
 
 def _has_rider_page(report: IllustrationReport) -> bool:
     return bool(report.rider_lines or report.regulatory_lines or report.change_sections)
+
+
+def trace_footer(report: IllustrationReport) -> str:
+    """Support-traceability footer printed on every page, or "" when the run
+    supplied no build/run identity (reports built outside Run Values)."""
+    if not (report.app_build or report.run_timestamp):
+        return ""
+    parts = [report.app_build or "SUITEVIEW"]
+    if report.run_timestamp is not None:
+        parts.append(f"RUN {report.run_timestamp:%m/%d/%Y %H:%M:%S}")
+    valuation = report.valuation_date
+    parts.append(
+        f"POLICY VALUES AS OF {valuation:%m/%d/%Y}" if valuation
+        else "POLICY VALUES AS OF: NOT AVAILABLE")
+    return " | ".join(parts)[:PAGE_WIDTH]
 
 
 def format_abr_quote_pages(run, policy) -> List[List[str]]:
@@ -800,7 +908,7 @@ class IllustrationReportTab(QWidget):
         top_row.addWidget(self.expense_report_check)
         self.print_pdf_btn = QPushButton("Print to PDF")
         self.print_pdf_btn.setEnabled(False)
-        self.print_pdf_btn.setToolTip("Save the illustration report as a PDF file.")
+        self.print_pdf_btn.setToolTip(_PRINT_TOOLTIP)
         self.print_pdf_btn.setStyleSheet(PRINT_BUTTON_STYLE)
         self.print_pdf_btn.clicked.connect(self._on_print_pdf)
         top_row.addWidget(self.print_pdf_btn)
@@ -832,8 +940,8 @@ class IllustrationReportTab(QWidget):
 
         # Guaranteed-run failure banner — shown when the guaranteed-basis
         # projection raised, so the report's blank GUARANTEED VALUES columns
-        # are never mistaken for computed zeros. UI-only: the printed pages
-        # are untouched.
+        # are never mistaken for computed zeros. Print to PDF is disabled
+        # while it shows (print_blocked_reason).
         self.guaranteed_warning = QLabel("", self)
         self.guaranteed_warning.setWordWrap(True)
         self.guaranteed_warning.setStyleSheet(
@@ -863,6 +971,7 @@ class IllustrationReportTab(QWidget):
         self._guaranteed_error = None
         self._abr_pages = None
         self.print_pdf_btn.setEnabled(False)
+        self.print_pdf_btn.setToolTip(_PRINT_TOOLTIP)
         self.guaranteed_warning.setVisible(False)
         self.status_label.setText(message)
         while self._sheet_layout.count():
@@ -917,21 +1026,28 @@ class IllustrationReportTab(QWidget):
     def display_report(self, report: IllustrationReport, guaranteed_error: Optional[str] = None):
         self.clear("")
         self._report = report
-        self._guaranteed_error = guaranteed_error
-        self.print_pdf_btn.setEnabled(True)
-        if guaranteed_error and not report.has_guaranteed_values:
+        self._guaranteed_error = guaranteed_error or report.guaranteed_error
+        blocked = print_blocked_reason(report, self._guaranteed_error)
+        self.print_pdf_btn.setEnabled(not blocked)
+        if blocked:
+            self.print_pdf_btn.setToolTip(blocked)
             self.guaranteed_warning.setText(
                 "⚠ Guaranteed projection failed — the report's GUARANTEED VALUES "
-                f"columns are blank: {guaranteed_error}")
+                "columns are blank, so Print to PDF is disabled: "
+                f"{self._guaranteed_error}")
             self.guaranteed_warning.setVisible(True)
         pages = format_report_pages(
             report, include_expense_report=self.expense_report_check.isChecked())
         for lines in pages:
             self._add_sheet(lines)
-        guaranteed_note = (
-            "" if report.has_guaranteed_values
-            else "  Guaranteed columns are not projected."
-        )
+        if blocked:
+            guaranteed_note = "  Guaranteed projection failed - not printable."
+        elif report.has_guaranteed_values:
+            guaranteed_note = ""
+        else:
+            guaranteed_note = "  Guaranteed columns are not projected."
+        if report.stale_valuation_days is not None:
+            guaranteed_note += f"  Policy values are {report.stale_valuation_days} days old."
         self.status_label.setText(
             f"UL illustration report - {len(pages)} pages.{guaranteed_note}")
 
@@ -998,6 +1114,11 @@ class IllustrationReportTab(QWidget):
     def _on_print_pdf(self):
         if self._report is None:
             return
+        blocked = print_blocked_reason(self._report, self._guaranteed_error)
+        if blocked:
+            QMessageBox.warning(self, "Print to PDF", blocked)
+            self.status_label.setText("Print to PDF refused: the guaranteed projection failed.")
+            return
         default_name = self._default_pdf_name()
         if self._output_folder and Path(self._output_folder).is_dir():
             start_path = str(Path(self._output_folder) / default_name)
@@ -1037,7 +1158,13 @@ class IllustrationReportTab(QWidget):
 
     @staticmethod
     def write_pdf(report: IllustrationReport, path: str, include_expense_report: bool = False):
-        """Render the fixed-width report pages to a landscape PDF file."""
+        """Render the fixed-width report pages to a landscape PDF file.
+
+        Raises ``ReportNotPrintableError`` when the guaranteed projection failed.
+        """
+        blocked = print_blocked_reason(report)
+        if blocked:
+            raise ReportNotPrintableError(blocked)
         printer = IllustrationReportTab._pdf_printer(path)
         document = IllustrationReportTab._print_document(
             report, printer, include_expense_report=include_expense_report)

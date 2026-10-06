@@ -98,7 +98,7 @@ def test_header_hamburger_sits_left_of_title_and_opens_one_plancode_window(app):
         assert layout.indexOf(window.hamburger_btn) < layout.indexOf(window.title_label)
         assert window.hamburger_btn.text() == "☰"
         actions = [a.text() for a in window.hamburger_btn.menu().actions()]
-        assert actions == ["Plancode Table…"]
+        assert actions == ["Plancode Table…", "Export Case for Support…"]
 
         window._plancode_table_action.trigger()
         app.processEvents()

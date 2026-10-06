@@ -29,7 +29,7 @@ columns render blank.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from textwrap import wrap
 from typing import Dict, List, Optional
 
@@ -249,6 +249,22 @@ def issue_output_conditions(policy: IllustrationPolicyData) -> List[tuple]:
 
 # ── Report structure ────────────────────────────────────────────────────────
 
+@dataclass(frozen=True)
+class ReportRunContext:
+    """Run facts the projection itself does not carry.
+
+    ``app_build`` and ``run_timestamp`` feed the support-traceability footer on
+    every page. ``settings`` are the options the user selected for the run
+    (before any solve adjusted them) and ``stop_on_lapse`` the run control; the
+    report discloses every one that differs from the default.
+    """
+
+    app_build: str = ""
+    run_timestamp: Optional[datetime] = None
+    settings: Optional[IllustrationOptions] = None
+    stop_on_lapse: bool = True
+
+
 @dataclass
 class LedgerRow:
     """One policy year of the report ledger (RERUN mLedgerKey + Current)."""
@@ -382,6 +398,16 @@ class IllustrationReport:
     disclaimer_lines: List[str] = field(default_factory=list)
     av_basis_line: str = ""
     loan_basis_line: str = ""
+    # Loan interest rates the illustration charges/credits (printed with the
+    # loan balance whenever the policy has or is illustrated to take a loan).
+    loan_interest_lines: List[str] = field(default_factory=list)
+    # In-force status statements as of the valuation date (cover "POLICY
+    # STATUS" block): stale values, suspended, already-MEC, shadow guarantee.
+    policy_status_lines: List[str] = field(default_factory=list)
+    # User-selected run settings that differ from the defaults.
+    settings_lines: List[str] = field(default_factory=list)
+    already_mec: bool = False
+    stale_valuation_days: Optional[int] = None
     request_intro: List[str] = field(default_factory=list)
     request_lines: List[str] = field(default_factory=list)
     change_sections: List[ChangeSection] = field(default_factory=list)
@@ -412,6 +438,18 @@ class IllustrationReport:
     guaranteed_termination_year: Optional[int] = None
     year_of_mec: Optional[int] = None
     has_guaranteed_values: bool = False
+    # Why the guaranteed-basis projection failed (None = it ran or was not
+    # requested). A failed guaranteed side makes the report unprintable: the
+    # guaranteed columns would print blank (see ``print_blocked_reason``).
+    guaranteed_error: Optional[str] = None
+
+    # Support traceability, printed in every page footer when the run supplied
+    # them (``ReportRunContext``): app version/build, run time, policy values date.
+    app_build: str = ""
+    run_timestamp: Optional[datetime] = None
+    valuation_date: Optional[date] = None
+    # Run Values status/solve messages (support export).
+    run_messages: List[str] = field(default_factory=list)
 
     # IUL-only report sections.
     is_iul: bool = False
@@ -431,10 +469,13 @@ def _annualize(
     policy: IllustrationPolicyData,
     results: List[MonthlyState],
     options: IllustrationOptions,
+    already_mec: bool = False,
 ) -> tuple[List[LedgerRow], Optional[int], Optional[int]]:
     """Fold projected months into policy-year rows (row 0 inforce excluded).
 
-    Returns (rows, year_of_mec, termination_year).
+    Returns (rows, year_of_mec, termination_year). A policy that is already a
+    MEC at the valuation date cannot "become" one, so ``already_mec`` leaves
+    year_of_mec None (no '&' marker, no future-MEC sentence).
     """
     projected = results[1:]
     by_year: dict[int, List[MonthlyState]] = {}
@@ -442,7 +483,7 @@ def _annualize(
         by_year.setdefault(state.policy_year, []).append(state)
 
     maturity_age = int(policy.maturity_age or 121)
-    year_of_mec: Optional[int] = next(
+    year_of_mec: Optional[int] = None if already_mec else next(
         (state.mec_year for state in projected if state.mec_year > 0), None)
     termination_year: Optional[int] = None
     rows: List[LedgerRow] = []
@@ -468,7 +509,7 @@ def _annualize(
 
         # MEC: 7-pay contributions exceed level x year inside the window
         # (only reachable with TAMRA conformance off, or an already-MEC load).
-        if year_of_mec is None:
+        if year_of_mec is None and not already_mec:
             for m in months:
                 if seven_pay_limit_exceeded(m):
                     year_of_mec = year
@@ -967,6 +1008,179 @@ def _rider_lines(policy: IllustrationPolicyData) -> List[str]:
     return names or ["NONE"]
 
 
+# ── In-force status and disclosures (soft launch) ───────────────────────────
+# New disclosure text below is factual and pending Compliance review (see
+# 02_Working/I_report/findings.md in the soft-launch task repo).
+
+# Policy values older than this many days before the run date are flagged.
+STALE_VALUATION_DAYS = 45
+SUSPENDED_SUSPENSE_CODE = "2"
+
+
+def stale_valuation_days(policy: IllustrationPolicyData, run_date: Optional[date]) -> Optional[int]:
+    """Days the in-force values predate the run, when more than the threshold.
+
+    None for hypothetical issue runs and deliberate historical rollbacks.
+    """
+    valuation = policy.valuation_date
+    if run_date is None or valuation is None or policy.run_from_issue or policy.rollback_date:
+        return None
+    days = (run_date - valuation).days
+    return days if days > STALE_VALUATION_DAYS else None
+
+
+def _within_safety_net(policy: IllustrationPolicyData, config) -> bool:
+    """The engine's inforce safety-net window (``_build_inforce_row``)."""
+    if policy.map_cease_date is not None and policy.valuation_date is not None:
+        return policy.valuation_date <= policy.map_cease_date
+    return policy.policy_year <= config.safety_net_years(policy.issue_age)
+
+
+def shadow_status_lines(
+    policy: IllustrationPolicyData,
+    inforce: MonthlyState,
+    policy_debt: float,
+    config,
+) -> List[str]:
+    """Whether the shadow-account no-lapse guarantee protects the policy now."""
+    if not policy.has_shadow_account:
+        if policy.ccv_ceased:
+            return ["THE SHADOW ACCOUNT (NO-LAPSE GUARANTEE) HAS CEASED AND NO LONGER "
+                    "PROTECTS THE POLICY FROM LAPSE."]
+        return []
+    lines = [f"SHADOW ACCOUNT (NO-LAPSE GUARANTEE) VALUE: {_money(policy.shadow_account_value)}."]
+    if config.shadow_loan_impact == "Nullify" and policy_debt > 0.005:
+        lines.append(
+            "THIS PLAN'S NO-LAPSE GUARANTEE DOES NOT PROTECT THE POLICY WHILE THERE IS ANY "
+            f"POLICY DEBT. WITH POLICY DEBT OF {_money(policy_debt)}, THE GUARANTEE IS "
+            "NULLIFIED AND IS NOT PROTECTING THE POLICY.")
+    elif inforce.shadow_protection and not inforce.positive_sv:
+        lines.append(
+            "THE NO-LAPSE GUARANTEE IS CURRENTLY KEEPING THE POLICY IN FORCE: THE SURRENDER "
+            "VALUE IS NOT POSITIVE AND THE SHADOW ACCOUNT VALUE IS.")
+    elif inforce.shadow_protection:
+        lines.append(
+            "THE NO-LAPSE GUARANTEE IS IN EFFECT BUT IS NOT CURRENTLY NEEDED: THE POLICY'S "
+            "SURRENDER VALUE IS POSITIVE.")
+    elif _within_safety_net(policy, config):
+        lines.append(
+            "THE POLICY IS WITHIN ITS MINIMUM PREMIUM (SAFETY NET) PERIOD; THE NO-LAPSE "
+            "GUARANTEE IS NOT YET THE PROTECTION THAT APPLIES.")
+    else:
+        less_debt = " LESS POLICY DEBT" if policy_debt > 0.005 else ""
+        lines.append(
+            "THE NO-LAPSE GUARANTEE IS NOT CURRENTLY PROTECTING THE POLICY: THE SHADOW "
+            f"ACCOUNT VALUE{less_debt} IS NOT POSITIVE.")
+    return lines
+
+
+def _charge_rate(policy: IllustrationPolicyData, policy_field: str, plan_rate: float) -> float:
+    """The loan charge rate the engine uses: an Edit Record override, else the plan's."""
+    if policy_field in policy.starting_record_fields and getattr(policy, policy_field) is not None:
+        return float(getattr(policy, policy_field))
+    return float(plan_rate or 0.0)
+
+
+def loan_interest_lines(
+    policy: IllustrationPolicyData,
+    projected: List[MonthlyState],
+    config,
+) -> List[str]:
+    """Loan charge and loaned-value credit rates the illustration uses."""
+    timing = "IN ADVANCE" if (config.loan_type or "").strip().lower() == "advance" else "IN ARREARS"
+
+    def credited(attr: str, plan_rate: float) -> Optional[float]:
+        rate = next((getattr(s, attr) for s in projected if getattr(s, attr) > 0), None)
+        return rate if rate is not None else (plan_rate if plan_rate > 0 else None)
+
+    def line(kind: str, charge: float, credit: Optional[float]) -> str:
+        text = f"{kind} LOAN INTEREST IS CHARGED AT {_pct(charge)} A YEAR, {timing}"
+        if credit is not None:
+            text += (f"; THE LOANED PORTION OF THE ACCUMULATION VALUE IS CREDITED "
+                     f"{_pct(credit)} A YEAR")
+        return text + "."
+
+    regular_balance = policy.regular_loan_principal + policy.regular_loan_accrued
+    preferred_balance = policy.preferred_loan_principal + policy.preferred_loan_accrued
+    variable_balance = policy.variable_loan_principal + policy.variable_loan_accrued
+    # A loan type is described when the policy has that balance now or the
+    # projection takes or carries one of that type.
+    has_regular = regular_balance > 0.005 or any(
+        s.applied_regular_loan > 0.005 or s.end_rg_loan_princ > 0.005 for s in projected)
+    has_preferred = preferred_balance > 0.005 or any(
+        s.applied_preferred_loan > 0.005 or s.end_pf_loan_princ > 0.005 for s in projected)
+    has_variable = variable_balance > 0.005 or any(
+        s.applied_variable_loan > 0.005 or s.end_vbl_loan_princ > 0.005 for s in projected)
+    if not (has_regular or has_preferred or has_variable):
+        # Defensive: the caller saw a loan but no bucket carries it; describe the
+        # plan's regular (fixed) loan rather than print nothing.
+        has_regular = True
+
+    lines: List[str] = []
+    if has_regular:
+        lines.append(line(
+            "REGULAR",
+            _charge_rate(policy, "regular_loan_charge_rate", config.loan_charge_rate_guar),
+            credited("reg_loan_credit_rate", config.loan_charge_rate_curr),
+        ))
+    if has_preferred:
+        lines.append(line(
+            "PREFERRED",
+            _charge_rate(policy, "preferred_loan_charge_rate", config.pref_loan_charge_rate_guar),
+            credited("pref_loan_credit_rate", config.pref_loan_charge_rate_curr),
+        ))
+    if has_variable:
+        rate = policy.variable_loan_charge_rate
+        lines.append(
+            f"VARIABLE LOAN INTEREST IS CHARGED AT THE CURRENT VARIABLE RATE OF {_pct(rate)} A YEAR."
+            if rate is not None else
+            "VARIABLE LOAN INTEREST RATE: NOT AVAILABLE ON THE POLICY RECORD.")
+    return lines
+
+
+def non_default_settings_lines(
+    settings: Optional[IllustrationOptions],
+    stop_on_lapse: bool = True,
+    is_iul: bool = False,
+) -> List[str]:
+    """User-selected run settings that differ from the defaults, one per line."""
+    lines: List[str] = []
+    if settings is not None:
+        checks = [
+            (not settings.conform_to_tefra,
+             "GUIDELINE PREMIUM (TEFRA/DEFRA) LIMITS NOT ENFORCED"),
+            (not settings.conform_to_tamra, "7-PAY (TAMRA) PREMIUM LIMIT NOT ENFORCED"),
+            (settings.allow_exception_prems, "GUIDELINE EXCEPTION PREMIUMS ALLOWED"),
+            (settings.switch_to_option_a_in_exception,
+             "SWITCH TO DEATH BENEFIT OPTION A IN THE GUIDELINE EXCEPTION PERIOD"),
+            (bool(settings.exact_days_interest), "EXACT DAYS INTEREST"),
+            (settings.levelizing_premium, "LEVELIZED CAPPED PREMIUMS"),
+            (settings.guideline_by_search, "GUIDELINE AND 7-PAY PREMIUMS FOUND BY SEARCH ROUTINE"),
+            (settings.apply_prem_to_loan, "PREMIUMS APPLIED TO REPAY POLICY LOANS FIRST"),
+            (settings.apply_excess_repayment_as_premium,
+             "LOAN REPAYMENTS ABOVE THE LOAN BALANCE APPLIED AS PREMIUM"),
+            (settings.loan_repay_principal_first,
+             "LOAN REPAYMENTS PAY PRINCIPAL BEFORE ACCRUED INTEREST"),
+            (not settings.restrict_loans_to_sv, "NEW LOANS NOT LIMITED TO THE SURRENDER VALUE"),
+            (settings.no_lapse, "LAPSE TEST TURNED OFF"),
+            (not settings.recognize_inforce_exception_period,
+             "INFORCE GUIDELINE EXCEPTION PERIOD NOT RECOGNIZED"),
+            (not settings.guideline_forceouts, "GUIDELINE FORCE-OUTS SUPPRESSED"),
+            (settings.cap_premiums_at_acceptance is not None,
+             "PREMIUM ACCEPTANCE CAP OVERRIDDEN"),
+        ]
+        if is_iul:
+            checks += [
+                (settings.iul_wair_crediting, "WEIGHTED AVERAGE INTEREST RATE (WAIR) CREDITING"),
+                (settings.iul_segment_crediting, "IUL SEGMENT CREDITING (DEVELOPMENT)"),
+                (settings.use_policy_ag49_regime, "AG49 REGIME IN EFFECT AT POLICY ISSUE"),
+            ]
+        lines = [text for applies, text in checks if applies]
+    if not stop_on_lapse:
+        lines.append("PROJECTION CONTINUES AFTER LAPSE")
+    return lines
+
+
 # ── IUL-only report data ─────────────────────────────────────────────────────
 
 _IUL_FUND_ORDER = ("IX", "IF", "IS", "IC", "IP", "IR", "NX", "M1")
@@ -1190,12 +1404,14 @@ def _build_ul_report_from_facts(
     future_inputs: Optional[IllustrationInputSet] = None,
     run_date: Optional[date] = None,
     guaranteed_results: Optional[List[MonthlyState]] = None,
+    run_context: Optional[ReportRunContext] = None,
 ) -> IllustrationReport:
     """Assemble the UL illustration report from a finished projection.
 
     ``guaranteed_results`` is the guaranteed-assumption run built from the
     current run's locked cash flows (core/guaranteed_projection.py); when
-    omitted the guaranteed ledger columns render blank.
+    omitted the guaranteed ledger columns render blank. ``run_context``
+    supplies the traceability footer and the user's run settings.
     """
     if options is None:
         options = IllustrationOptions()
@@ -1204,6 +1420,10 @@ def _build_ul_report_from_facts(
         run_from_issue=policy.run_from_issue,
         basis_lines=issue_output_basis(policy) + rollback_output_basis(policy),
     )
+    report.valuation_date = policy.valuation_date
+    if run_context is not None:
+        report.app_build = run_context.app_build
+        report.run_timestamp = run_context.run_timestamp
     if policy.run_from_issue:
         report.title = "FLEXIBLE PREMIUM UNIVERSAL LIFE INSURANCE HYPOTHETICAL ILLUSTRATION"
     inforce = results[0] if results else MonthlyState()
@@ -1217,8 +1437,9 @@ def _build_ul_report_from_facts(
     report.is_iul = is_iul_plan(report.plancode)
 
     # ── Ledger + derived facts ──
+    report.already_mec = bool(policy.is_mec or inforce.is_mec)
     report.ledger, report.year_of_mec, report.termination_year = _annualize(
-        policy, results, options)
+        policy, results, options, already_mec=report.already_mec)
     report.loan_repayments_illustrated = any(
         state.applied_loan_repayment > 0.005 for state in projected
     )
@@ -1371,6 +1592,35 @@ def _build_ul_report_from_facts(
             if policy.run_from_issue
             else f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
         )
+    illustrated_loans = any(s.applied_new_loan > 0.005 for s in projected)
+    plan_config = None
+    if inforce_debt > 0.005 or illustrated_loans or policy.has_shadow_account:
+        plan_config = load_plancode(policy.plancode)
+    if inforce_debt > 0.005 or illustrated_loans:
+        report.loan_interest_lines = loan_interest_lines(policy, projected, plan_config)
+
+    # ── In-force status as of the valuation date (not for issue runs) ──
+    if not policy.run_from_issue:
+        report.stale_valuation_days = stale_valuation_days(policy, run_date)
+        status: List[str] = []
+        if report.stale_valuation_days is not None:
+            run_text = run_date.strftime("%m/%d/%Y")
+            status.append(
+                f"THE POLICY VALUES USED IN THIS ILLUSTRATION ARE AS OF "
+                f"{policy.valuation_date:%m/%d/%Y}, {report.stale_valuation_days} DAYS BEFORE "
+                f"THE RUN DATE OF {run_text}. CURRENT POLICY VALUES MAY DIFFER.")
+        if str(getattr(policy, "suspense_code", "") or "").strip() == SUSPENDED_SUSPENSE_CODE:
+            status.append("THE POLICY RECORD SHOWS THIS POLICY AS SUSPENDED (SUSPENSE CODE 2).")
+        if report.already_mec:
+            status.append("THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC).")
+        if policy.has_shadow_account or policy.ccv_ceased:
+            status += shadow_status_lines(
+                policy, inforce, inforce_debt,
+                plan_config if plan_config is not None else load_plancode(policy.plancode))
+        report.policy_status_lines = status
+    if run_context is not None:
+        report.settings_lines = non_default_settings_lines(
+            run_context.settings, run_context.stop_on_lapse, report.is_iul)
 
     guideline_restricted = any("*" in r.markers for r in report.ledger)
     tamra_restricted = any("#" in r.markers for r in report.ledger)
@@ -1553,6 +1803,7 @@ def build_ul_report(
     future_inputs: Optional[IllustrationInputSet] = None,
     run_date: Optional[date] = None,
     guaranteed_results: Optional[List[MonthlyState]] = None,
+    run_context: Optional[ReportRunContext] = None,
 ) -> IllustrationReport:
     """Interpret ``ReportFacts`` into the byte-identical UL report."""
     return ReportFacts(
@@ -1562,4 +1813,5 @@ def build_ul_report(
         future_inputs=future_inputs,
         run_date=run_date,
         guaranteed_results=guaranteed_results,
+        run_context=run_context,
     ).interpret(_build_ul_report_from_facts)

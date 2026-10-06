@@ -67,8 +67,10 @@ def main() -> int:
             raise RuntimeError("Personal profile content found in distribution.")
     with archive_path.open("rb") as source:
         digest = hashlib.file_digest(source, "sha256").hexdigest()
+    sha_file = folder / "_internal" / "suiteview" / "BUILD_SHA"
+    build_sha = sha_file.read_text(encoding="utf-8").strip() if sha_file.is_file() else ""
     report = {
-        "all_ok": True, "version": __version__, "exe": str(exe),
+        "all_ok": True, "version": __version__, "build_sha": build_sha, "exe": str(exe),
         "zip": str(archive_path), "zip_bytes": archive_path.stat().st_size,
         "zip_sha256": digest, "verified_files": len(files),
         "embedded_version_verified": True, "personal_profile_bundled": False,

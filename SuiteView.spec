@@ -40,6 +40,21 @@ _POLICY_RECORD_SCREEN_DATAS = [
     for p in Path('suiteview/polview/data/policy_record_screens').glob('*.json')
 ]
 
+# Stamp the git commit into the bundle (_internal/suiteview/BUILD_SHA) so every
+# printed illustration page and support export names the exact build
+# (suiteview/core/build_info.py). No file when git is unavailable: the label
+# then carries the version alone.
+sys.path.insert(0, os.getcwd())
+from suiteview.core.build_info import BUILD_SHA_FILENAME, git_sha  # noqa: E402
+
+_BUILD_SHA = git_sha(Path.cwd())
+_BUILD_SHA_DATAS = []
+if _BUILD_SHA:
+    _build_sha_file = Path('build') / BUILD_SHA_FILENAME
+    _build_sha_file.parent.mkdir(parents=True, exist_ok=True)
+    _build_sha_file.write_text(_BUILD_SHA + "\n", encoding="utf-8")
+    _BUILD_SHA_DATAS = [(str(_build_sha_file), 'suiteview')]
+
 
 a = Analysis(
     ['suiteview\\main.py'],
@@ -60,6 +75,8 @@ a = Analysis(
         *_PLANCODES_DATAS,
         # Policy Record viewer captured screen definitions (seg_<n>.json)
         *_POLICY_RECORD_SCREEN_DATAS,
+        # Git commit of this build (support traceability)
+        *_BUILD_SHA_DATAS,
     ],
     hiddenimports=[
         'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',

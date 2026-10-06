@@ -275,9 +275,10 @@ class IllustrationWindow(FramelessWindowBase):
         settings.set_testing_mode(False)
         settings.set_abr_quote_mode(False)
         settings.set_rollback_enabled(False)
-        # Every Options item and the ☰ Plancode Table are developer tools.
+        # Every Options item and the ☰ Plancode Table are developer tools. The
+        # ☰ menu itself stays: business users need Export Case for Support (M8).
         self.options_btn.setVisible(False)
-        self.hamburger_btn.setVisible(False)
+        self._plancode_table_action.setVisible(False)
         self.lookup_bar.region_input.setText(BUSINESS_REGION)
         self.lookup_bar.region_input.setReadOnly(True)
         self.lookup_bar.region_input.setToolTip(
@@ -351,6 +352,8 @@ class IllustrationWindow(FramelessWindowBase):
             "View the illustration plancode table (plancode_table.json)")
         self._plancode_table_action.triggered.connect(self.show_plancode_table)
         menu.addAction(self._plancode_table_action)
+        from .support_export_controls import add_support_export_action
+        add_support_export_action(self, menu)
 
         self.hamburger_btn.setMenu(menu)
 
