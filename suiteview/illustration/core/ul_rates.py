@@ -35,8 +35,9 @@ that year's start; ``ISSUE`` rates use the window on the issue date. A schedule 
 several windows therefore needs the coverage issue date (``RatesError`` otherwise).
 
 Cells: exact first, then the schema's "does not vary" keys (unisex ``U``, class
-``0``/``*``, band ``0``, state ``**``) via PolView's ``schema_rates.choose_cell``; a
-unisex (``U``) policy on a plan loaded under a single sex uses that sex's cells.
+``0``/``*``, band ``0``, state ``**``) via PolView's ``schema_rates.choose_cell``, whose
+single-sex fallback (a unisex ``U`` policy on a rate type loaded under one sex uses that
+sex's cells) is shared with PolView's Rates panel.
 Bands come from ``PLAN_BAND`` (``rates.fn_BAND``: latest spec on/before the policy
 issue date, lowest upper limit at or above the amount).
 
@@ -48,7 +49,6 @@ raises for an unloaded plancode when a caller needs the plan itself.
 from __future__ import annotations
 
 import threading
-from dataclasses import replace
 from datetime import date, datetime
 from decimal import ROUND_CEILING, Decimal
 from typing import Dict, List, Optional, Sequence
@@ -60,7 +60,6 @@ from suiteview.core.rates_errors import RatesError
 from suiteview.core.rates_schema import PlanDef, RatesSchemaRepository, ScheduleWindow
 from suiteview.illustration.core.schema_reader import SchemaReader, shared_schema_reader
 from suiteview.polview.models.schema_rates import (
-    UNISEX,
     RateKey,
     band_for_amount,
     choose_cell,
@@ -347,13 +346,7 @@ class ULRates(JointSurvivorRateSource):
 
     def _assignment(self, plan: PlanDef, schema_type: str, benefit: str, cell: RateKey):
         rows = [a for a in self._reader.cell_assignments(plan.company, plan.plancode) if a.benefit == benefit]
-        assignment, _notes = choose_cell(rows, schema_type, cell)
-        if assignment is None and cell.sex == UNISEX:
-            # A unisex policy on a plan whose rates are loaded under one sex only (the
-            # rates do not vary by sex): that sex's cells are the plan's rates.
-            sexes = {a.sex for a in rows if a.rate_type == schema_type}
-            if len(sexes) == 1:
-                assignment, _notes = choose_cell(rows, schema_type, replace(cell, sex=sexes.pop()))
+        assignment, _notes = choose_cell(rows, schema_type, cell, single_sex_fallback=True)
         return assignment
 
     def _windows(self, assignment, scale_code: str) -> List[ScheduleWindow]:

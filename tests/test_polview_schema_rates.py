@@ -247,6 +247,34 @@ def test_choose_cell_sub_series_keyed_rows_use_the_coverage_sub_series():
     assert chosen is None and "loaded FN, MN" in notes[0]
 
 
+def test_choose_cell_single_sex_fallback_for_a_unisex_key():
+    key = sr.RateKey("U", "N", "2", "AR")
+    m_only = [_cell("COI", 1), _cell("COI", 2, rate_class="S")]
+    # Off by default: the plain lookup reports the missing U cell.
+    chosen, notes = sr.choose_cell(m_only, "COI", key)
+    assert chosen is None and "no cell for U/N/2" in notes[0]
+    chosen, notes = sr.choose_cell(m_only, "COI", key, single_sex_fallback=True)
+    assert chosen.schedule_id == 1 and notes == ["sex M (policy U; plan loaded under one sex)"]
+    # The retry still applies the documented fallbacks, each noted.
+    chosen, notes = sr.choose_cell([_cell("COI", 3, band="0")], "COI", key, single_sex_fallback=True)
+    assert chosen.schedule_id == 3
+    assert notes == ["sex M (policy U; plan loaded under one sex)", "band 0 (policy 2)"]
+    # Cells under M and F vary by sex: no guess.
+    m_and_f = [_cell("COI", 1), _cell("COI", 4, sex="F")]
+    chosen, notes = sr.choose_cell(m_and_f, "COI", key, single_sex_fallback=True)
+    assert chosen is None and "no cell for U/N/2" in notes[0] and "loaded sex F/M" in notes[0]
+    # Only a U key falls back; sexes are counted per rate type.
+    assert sr.choose_cell(m_only, "COI", sr.RateKey("F", "N", "2", "AR"), single_sex_fallback=True)[0] is None
+    mixed_types = [_cell("COI", 1), _cell("MFEE", 5, sex="F"), _cell("MFEE", 6, sex="U")]
+    assert sr.choose_cell(mixed_types, "COI", key, single_sex_fallback=True)[0].schedule_id == 1
+
+
+def test_choose_cell_single_sex_fallback_skips_sub_series_keyed_rows():
+    rows = [_cell("CV", 1, band="0", subseries="MN")]
+    chosen, notes = sr.choose_cell(rows, "CV", sr.RateKey("U", "N", "0", "TX", "UN"), single_sex_fallback=True)
+    assert chosen is None and "loaded MN" in notes[0]
+
+
 @pytest.mark.parametrize("grain,values,year,point,expected", [
     ("IA_DUR", {(40, 3): 1}, 3, False, 1),
     ("IA_DUR", {(40, 2): 1}, 3, True, 1),
@@ -328,6 +356,19 @@ def test_scales_sheet_shows_fallbacks_and_missing_cells():
     rows = [dict(zip(sr.SCALES_HEADER, row)) for row in sr.build_scales_matrix(repo, _policy())[1:]]
     assert rows[0]["Notes"] == "sex U (policy M); band 0 (policy 2)"
     assert rows[-1]["Rate Type"] == "CV" and rows[-1]["Notes"].startswith("Missing: no cell for M/N/2")
+
+
+def test_unisex_coverage_on_a_plan_loaded_under_one_sex_shows_that_sexs_rates():
+    """U0438621-style: a U coverage, COI/SCR/MTP loaded under M only."""
+    matrix = sr.build_coverage_matrix(FakeRepo(), _policy(sex="U"), 1)
+    assert matrix[0][5:] == ["C COI", "G COI", "G SCR"]
+    assert _column(matrix, "C COI")[:3] == ["1.00", "2.00", "103.00"]
+    meta = _meta(matrix)
+    assert meta["Sex"] == "U" and meta["MTP"] == "14.92"
+    assert "Missing" not in meta
+    rows = [dict(zip(sr.SCALES_HEADER, row)) for row in sr.build_scales_matrix(FakeRepo(), _policy(sex="U"))[1:]]
+    assert rows[0]["Cell"] == "M/N/2/**"
+    assert rows[0]["Notes"] == "sex M (policy U; plan loaded under one sex)"
 
 
 def test_coverage_matrix_marks_missing_windows_and_cells():

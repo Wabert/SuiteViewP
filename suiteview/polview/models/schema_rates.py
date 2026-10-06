@@ -18,8 +18,9 @@ codes kept as they are, as the loaders store them), its renewal rate class, the 
 its amount falls in (``PLAN_BAND``), the issue state and, for sub-series keyed rates
 (CV), the coverage's life sub-series. When the exact cell is not loaded the lookup
 falls back, in order, to unisex ``U``, class ``0`` then ``*``, band ``0`` and state
-``**``; every fallback used is listed on the Scales sheet. Nothing else is guessed:
-a rate with no cell is reported as missing.
+``**``; a unisex ``U`` coverage on a rate type loaded under one sex only uses that
+sex's cells (as CyberLife and the UL engine do). Every fallback used is listed on the
+Scales sheet. Nothing else is guessed: a rate with no cell is reported as missing.
 
 ``DATE_MEANING`` ``ISSUE`` rates use the schedule window in effect on the issue date;
 ``CALENDAR`` rates use the window in effect on each row's Date (the start of that
@@ -29,7 +30,7 @@ account - with the scale in the band above the column and the rate type below it
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -298,12 +299,34 @@ def _candidates(first: str, fallbacks: Iterable[str]) -> List[str]:
 
 
 def choose_cell(assignments: Sequence[CellAssignment], rate_type: str, key: RateKey,
-                plan_subseries: Sequence[SubseriesRow] = ()) -> Tuple[Optional[CellAssignment], List[str]]:
+                plan_subseries: Sequence[SubseriesRow] = (), *,
+                single_sex_fallback: bool = False) -> Tuple[Optional[CellAssignment], List[str]]:
     """The assignment for one rate type, and notes on each fallback used (or why none).
 
     Sub-series keyed rows (CV) match the coverage's sub-series with sex and class
     ignored (``rates.fn_RATE_SUB``); without one, ``PLAN_SUBSERIES`` maps sex/class to it.
+
+    ``single_sex_fallback``: a unisex (``U``) key with no cell, on a rate type whose
+    cells are all loaded under one other sex (the rates do not vary by sex), uses that
+    sex's cells - CyberLife's behavior on the unisex UL plans loaded under M only.
+    Never applies to sub-series keyed rows, nor when the cells span several sexes.
     """
+    chosen, notes = _choose_cell(assignments, rate_type, key, plan_subseries)
+    if chosen is not None or not single_sex_fallback or key.sex != UNISEX:
+        return chosen, notes
+    rows = [a for a in assignments if a.rate_type == rate_type]
+    sexes = {a.sex for a in rows}
+    if len(sexes) != 1 or UNISEX in sexes or any(a.subseries for a in rows):
+        return chosen, notes
+    sex = next(iter(sexes))
+    retry, retry_notes = _choose_cell(assignments, rate_type, replace(key, sex=sex), plan_subseries)
+    if retry is None:
+        return chosen, notes
+    return retry, [f"sex {sex} (policy {UNISEX}; plan loaded under one sex)", *retry_notes]
+
+
+def _choose_cell(assignments: Sequence[CellAssignment], rate_type: str, key: RateKey,
+                 plan_subseries: Sequence[SubseriesRow]) -> Tuple[Optional[CellAssignment], List[str]]:
     rows = [a for a in assignments if a.rate_type == rate_type]
     if not rows:
         return None, []
@@ -575,7 +598,7 @@ def cell_parts(repo: RatesSchemaRepository, ctx: CellContext,
     rate_types = repo.rate_types()
     chosen: Dict[str, Tuple[CellAssignment, List[str]]] = {}
     for rate_type in sorted({a.rate_type for a in rows}, key=rate_type_sort_key):
-        assignment, notes = choose_cell(rows, rate_type, ctx.key, subseries)
+        assignment, notes = choose_cell(rows, rate_type, ctx.key, subseries, single_sex_fallback=True)
         if assignment is None:
             parts.missing.append((rate_type, "; ".join(notes)))
             continue
@@ -1219,7 +1242,7 @@ def build_rate_space_matrix(repo: RatesSchemaRepository, policy: "PolicyInformat
                     if ctx.label != charge_label:
                         continue
                     label = "Policy Rates"
-                chosen, _ = choose_cell(rows, rate_type, ctx.key, subseries)
+                chosen, _ = choose_cell(rows, rate_type, ctx.key, subseries, single_sex_fallback=True)
                 if chosen is not None:
                     used.setdefault(chosen, []).append(label)
         scales: Dict[int, set] = {}
