@@ -489,3 +489,36 @@ def test_loader_raises_when_reinstatement_sources_fail(monkeypatch, table):
 
     with pytest.raises(RuntimeError, match=table):
         _load(monkeypatch, source)
+
+
+def _flat_rating(flat_amount, per_unit, cease):
+    from decimal import Decimal
+
+    return SimpleNamespace(
+        type_code="F", table_rating_numeric=0, flat_cease_date=cease,
+        flat_amount=None if flat_amount is None else Decimal(flat_amount),
+        extra_premium_per_unit=None if per_unit is None else Decimal(per_unit))
+
+
+@pytest.mark.parametrize("iswl, expected", [(False, 7.92), (True, 0.0)])
+def test_ul_flat_extra_falls_back_to_monthly_unit_amount(iswl, expected):
+    """U0564425 phase 2: XTR_PER_1000_AMT null, SST_XTR_UNT_AMT 0.66 (monthly per 1,000);
+    CyberLife charges 0.66/1000 of NAR a month. ISWL's unit amount is a premium extra."""
+    cover = SimpleNamespace(cov_pha_nbr=2, table_rating=0, flat_extra=None, flat_cease_date=None)
+    from suiteview.illustration.constants import PRODUCT_FAMILY_ISWL
+
+    family = PRODUCT_FAMILY_ISWL if iswl else "UL"
+    source = SimpleNamespace(
+        substandard_by_phase={2: [_flat_rating(None, "0.66", date(2065, 6, 1))]},
+        plancode_config=PlancodeConfig(plancode="1U135D00", product_family=family))
+    _table, _cease, flat, flat_cease = illustration_policy_service._substandard_basis(source, cover)
+    assert flat == pytest.approx(expected)
+    assert flat_cease == date(2065, 6, 1)
+
+
+def test_ul_flat_extra_prefers_annual_amount():
+    cover = SimpleNamespace(cov_pha_nbr=1, table_rating=0, flat_extra=None, flat_cease_date=None)
+    source = SimpleNamespace(
+        substandard_by_phase={1: [_flat_rating("8.00", "0.66", date(2014, 6, 1))]},
+        plancode_config=PlancodeConfig(plancode="1U135D00"))
+    assert illustration_policy_service._substandard_basis(source, cover)[2] == 8.0

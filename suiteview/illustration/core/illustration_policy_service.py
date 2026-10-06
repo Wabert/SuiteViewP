@@ -789,6 +789,11 @@ def _substandard_basis(source: PolicySourceSnapshot, cov) -> tuple[int, object, 
         elif rating.type_code == "F":
             if rating.flat_amount:
                 seg_flat = float(rating.flat_amount)
+            elif rating.extra_premium_per_unit and not source.plancode_config.is_iswl:
+                # SST_XTR_UNT_AMT is the monthly flat per 1,000, TRUNC(annual / 12, 2) on
+                # every in-scope UL row carrying both (DB2 CKPR 2026-10-06, 355 rows);
+                # CyberLife charges it when XTR_PER_1000_AMT is null (U0564425 phase 2).
+                seg_flat = float(rating.extra_premium_per_unit * 12)
             seg_flat_cease = rating.flat_cease_date
     return seg_table, seg_table_cease, seg_flat, seg_flat_cease
 
