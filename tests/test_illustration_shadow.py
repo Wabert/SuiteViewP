@@ -376,11 +376,12 @@ def test_ltgul_and_passport_select_ii_shadow_flags():
     for plancode in ("1U143800", "1U144500"):
         config = load_plancode(plancode)
         assert config.shadow_aps205_load_relief and config.shadow_target_waiver_uplift
-        assert config.shadow_target_annual_flat
+        assert config.shadow_target_annual_flat and config.shadow_frozen_after_cease
         assert config.shadow_db_basis == "Policy"
     for plancode in ("1U135200", "1U135400", "1U135L00"):
         config = load_plancode(plancode)
         assert config.shadow_db_basis == "Policy" and not config.shadow_target_waiver_uplift
+        assert not config.shadow_frozen_after_cease
     assert load_plancode("1U146600").shadow_db_basis == "Shadow"
     assert not load_plancode("1U146600").shadow_target_annual_flat
 
@@ -418,6 +419,38 @@ def test_shadow_target_waiver_rate_loads_when_flagged():
         _load_shadow_target_waiver(IllustrationRates(shadow_tpr=[None, 4.1]), policy,
                                    PlancodeConfig(shadow_target_waiver_uplift=True),
                                    _WaiverRatesDb(None), policy.base_segment)
+
+
+def test_shadow_rounding_survives_huge_values_and_rejects_non_finite():
+    """U0666170 (TAMRA off): negative-NAR COI credits push the shadow past 1e25 near 120."""
+    from suiteview.illustration.core.shadow_calc import _round_near
+
+    assert _round_near(1.2625119075395167e29, 2) == pytest.approx(1.2625119075395167e29)
+    assert _round_near(2.675, 2) == 2.68
+    with pytest.raises(ValueError, match="not finite"):
+        _round_near(float("inf"), 2)
+
+
+@pytest.mark.parametrize("frozen, expected_eav", [(True, 185_029.79), (False, 0.0)])
+def test_shadow_after_cease_age_is_frozen_on_flagged_plans(frozen, expected_eav):
+    """LTGUL: a positive CCV at 100 keeps protecting; CyberLife freezes XP (U0580868)."""
+    policy = _shadow_policy()
+    config = PlancodeConfig(shadow_cease_age=100, charge_cease_age=100, shadow_frozen_after_cease=frozen)
+    result = calculate_shadow(ShadowInput(
+        prev_shadow_eav=185_029.79, gross_premium=0.0, premiums_ytd=0.0, policy=policy,
+        config=config, rates=_shadow_rates(shadow_coi=[None, 50.0], shadow_int=[None, 0.065]),
+        rate_year=61, attained_age=100, days_in_month=31, policy_debt=0.0,
+    ))
+    assert result.shadow_coi == 0.0 and result.shadow_md == 0.0
+    assert result.shadow_eav == expected_eav
+    if frozen:
+        assert result.shadow_interest == 0.0 and result.shadow_eav_less_debt == 185_029.79
+
+
+def test_shadow_frozen_after_cease_requires_charges_to_stop():
+    with pytest.raises(ValueError, match="ShadowFrozenAfterCease"):
+        PlancodeConfig(plancode="X", shadow_cease_age=100, charge_cease_age=None,
+                       shadow_frozen_after_cease=True)
 
 
 def test_shadow_subtracts_gross_withdrawal_before_nar():

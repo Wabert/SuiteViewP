@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 
 from suiteview.illustration.constants import (
     DAYS_PER_YEAR,
@@ -24,8 +24,18 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 
 def _round_near(value: float, decimals: int = 2) -> float:
+    """Round half-up to ``decimals``, at any magnitude.
+
+    The default 28-digit Decimal context cannot quantize values above ~1e25 (an
+    unbounded shadow account under negative-NAR COI credits reaches that near age 120,
+    U0666170), so the precision is widened to fit.  Non-finite input is a loud error.
+    """
     d = Decimal(str(value))
-    return float(d.quantize(Decimal(10) ** -decimals, rounding=ROUND_HALF_UP))
+    if not d.is_finite():
+        raise ValueError(f"Shadow account value is not finite ({value!r}).")
+    with localcontext() as ctx:
+        ctx.prec = max(ctx.prec, d.adjusted() + decimals + 2)
+        return float(d.quantize(Decimal(10) ** -decimals, rounding=ROUND_HALF_UP))
 
 
 @dataclass
@@ -314,6 +324,16 @@ def _shadow_interest_values(
     return shadow_days, shadow_int_rate, shadow_eff_rate, shadow_interest
 
 
+def _shadow_frozen(config: PlancodeConfig, attained_age: int) -> bool:
+    """At/after ShadowCeaseAge on a ``ShadowFrozenAfterCease`` plan (LTGUL).
+
+    LTGUL spec: a positive CCV on the anniversary at 100 continues the death benefit.
+    CyberLife keeps such policies in force with XP frozen (U0580868, age 100: XP
+    4,580.39 on every 2026 seriatim month, AV -1.51M).
+    """
+    return config.shadow_frozen_after_cease and attained_age > (config.shadow_cease_age - 1)
+
+
 def _shadow_eav(
     *,
     config: PlancodeConfig,
@@ -321,6 +341,8 @@ def _shadow_eav(
     shadow_av: float,
     shadow_interest: float,
 ) -> float:
+    if _shadow_frozen(config, attained_age):
+        return _round_near(shadow_av, 2)
     if attained_age > (config.shadow_cease_age - 1):
         return 0.0
     return _round_near(shadow_av + shadow_interest, 2)
@@ -588,7 +610,8 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         days_in_month=days_in_month,
         display_days_in_month=display_days_in_month,
     )
-
+    if _shadow_frozen(config, attained_age):
+        shadow_interest = 0.0
     # ── Shadow EAV (col XW) ──────────────────────────────────
     # Active only if CCV benefit active (or inherent), and age <= cease_age - 1
     shadow_eav = _shadow_eav(

@@ -194,6 +194,9 @@ class PlancodeConfig:
     shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"
     shadow_target_waiver_uplift: bool = False  # 39 waiver raises the shadow target (LTGUL)
     shadow_target_annual_flat: bool = False  # target adds the annual (not /12) flat per 1000
+    # From ShadowCeaseAge the shadow is frozen (no interest; charges have ceased) and keeps
+    # protecting while positive, instead of dropping to 0 (LTGUL).
+    shadow_frozen_after_cease: bool = False
     # "Shadow": NAR death benefit = SA (+ shadow value for DBO B).  "Policy": the policy's
     # own death benefit, SA (+ the regular AV for DBO B) — "proceeds payable at death".
     shadow_db_basis: str = "Shadow"
@@ -216,6 +219,13 @@ class PlancodeConfig:
             )
         if self.shadow_db_basis not in ("Shadow", "Policy"):
             raise ValueError(f"{self.plancode}: invalid ShadowDBBasis {self.shadow_db_basis!r}")
+        if self.shadow_frozen_after_cease and (
+            self.charge_cease_age is None or self.charge_cease_age > self.shadow_cease_age
+        ):
+            raise ValueError(
+                f"{self.plancode}: ShadowFrozenAfterCease needs every charge to stop by "
+                "ShadowCeaseAge (PremiumAndChargeCeaseAge <= ShadowCeaseAge)"
+            )
 
     def charges_ceased(self, attained_age: int) -> bool:
         """Whether premiums and every monthly deduction have stopped (``charge_cease_age``)."""
@@ -467,6 +477,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         shadow_target_rate_basis=str(data.get("ShadowTargetRateBasis", "MTP")).strip().upper() or "MTP",
         shadow_target_waiver_uplift=bool(data.get("ShadowTargetWaiverUplift", False)),
         shadow_target_annual_flat=bool(data.get("ShadowTargetAnnualFlat", False)),
+        shadow_frozen_after_cease=bool(data.get("ShadowFrozenAfterCease", False)),
         shadow_db_basis=str(data.get("ShadowDBBasis", "Shadow")).strip() or "Shadow",
         illustration_overrides=tuple(overrides),
     )

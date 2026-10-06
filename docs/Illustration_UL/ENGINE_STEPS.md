@@ -17,7 +17,8 @@ projected month. The canonical projected-month order is:
 12. Calculate shadow account values when supported. Product flags govern
     approved source-system differences, including SGUL between-monthliversary
     premium forgiveness and APS205 target/load relief for LTGUL/LTGUL08
-    (`ShadowAPS205LoadRelief`, `ShadowTargetWaiverUplift`, `ShadowTargetAnnualFlat`), and the option-B
+    (`ShadowAPS205LoadRelief`, `ShadowTargetWaiverUplift`, `ShadowTargetAnnualFlat`,
+    `ShadowFrozenAfterCease`), and the option-B
     shadow NAR death benefit (`ShadowDBBasis`; see `RERUN_MANUAL.md`).
 13. Evaluate lapse/protection.
 14. Build the `MonthlyState` ledger row.

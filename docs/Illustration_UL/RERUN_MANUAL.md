@@ -164,7 +164,20 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   Fitted to CyberLife XP on 50 LTGUL policies (10/2026, U0592771 -330,162 -> +40).
   `ShadowDBBasis` "Policy" (Passport Select II and LTGUL) takes the option-B shadow
   NAR death benefit from the policy, SA + regular AV ("proceeds payable at death"),
-  not SA + shadow value (U0571763 -1,267 -> +2.84). SGUL-family products
+  not SA + shadow value (U0571763 -1,267 -> +2.84).
+- **Shadow at and after the cease age / negative shadow NAR (10/2026)**: on
+  `ShadowFrozenAfterCease` plans (LTGUL) the shadow is frozen from `ShadowCeaseAge`
+  (100): no interest, and charges have already ceased. It keeps protecting while
+  positive, so the policy runs to maturity with its AV (negative under protection,
+  as CyberLife carries it) unchanged. LTGUL spec: a positive CCV on the anniversary
+  at 100 continues the death benefit. CyberLife: U0580868 at 100 is in force with
+  XP frozen at 4,580.39 on every 2026 seriatim month and AV -1.51M. Other plans
+  still drop the shadow to 0 at the cease age (Passport Select II needs a ruling).
+  The shadow NAR is NOT floored: CyberLife credits a negative shadow COI once the
+  shadow exceeds the death benefit (U0575846 replays +3.98 vs XP unfloored, -112,357
+  floored; U0639717 +0.03 vs -19,309). At extreme ages that credit makes the shadow
+  grow without bound; `_round_near` widens its Decimal precision so it cannot fail.
+  SGUL-family products
   use the product flag `ShadowLatePaymentForgiveness`: premiums exactly on a
   monthliversary are applied before shadow COI; premiums received strictly
   between monthliversaries are credited to the prior month after that month's
