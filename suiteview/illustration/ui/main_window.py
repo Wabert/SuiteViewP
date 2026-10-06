@@ -1774,7 +1774,8 @@ class IllustrationWindow(FramelessWindowBase):
         warnings: list[str] = []
         self._illustration_data = None
         self._illustration_load_error = ""
-        self._clear_load_problems()
+        self._load_rate_problems = ()
+        self._load_md_warning = ""
         try:
             warnings.extend(coverage_segment_data_warnings(self._policy))
             policy_data = load_policy_data(
