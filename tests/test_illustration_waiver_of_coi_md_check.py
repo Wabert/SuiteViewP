@@ -17,6 +17,7 @@ from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.core.target_premium import TargetPremiumResult
+from suiteview.illustration.models import plancode_config
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 
 
@@ -49,6 +50,8 @@ def project(monkeypatch):
         segment_coi={1: [None] + [0.79] * 60, 6: [None] + [0.79] * 60},
         mfee=[None] + [2.5] * 60)
     monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_: BonusConfig())
+    # Pin the real loader: some older tests replace calc_engine.load_plancode without restoring it.
+    monkeypatch.setattr(calc_engine, "load_plancode", plancode_config.load_plancode)
     monkeypatch.setattr(calc_engine.IllustrationEngine, "_load_rates", lambda *_: rates)
     monkeypatch.setattr(Rates, "get_band", lambda *_a, **_k: None)
     monkeypatch.setattr(calc_engine, "compute_target_premiums", lambda *_a, **_k: TargetPremiumResult())
