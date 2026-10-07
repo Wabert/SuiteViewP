@@ -409,6 +409,48 @@ def test_lookup_bar_smart_paste_and_recents(qtbot):
     assert "ANGELA HUECKER" in bar._recent_model.item(0).text()
 
 
+def test_lookup_bar_drops_stale_company_when_policy_changes(qtbot):
+    from suiteview.polview.ui.widgets import PolicyLookupBar
+
+    bar = PolicyLookupBar()
+    qtbot.addWidget(bar)
+    requested = []
+    bar.policy_requested.connect(lambda *a: requested.append(a))
+
+    # Loaded policy pairs the company input with that policy.
+    bar.policy_input.setText("000238628")
+    bar.set_policy_display("26", "000238628", "CKPR")
+    assert bar.company_input.text() == "26"
+
+    # Typing a different policy number forgets the loaded policy's company.
+    bar.policy_input.setText("U0372461")
+    bar.policy_input.textEdited.emit("U0372461")
+    assert bar.company_input.text() == ""
+    bar.get_button.click()
+    assert requested[-1] == ("U0372461", "CKPR", "")
+
+    # A lookup with no company fills in the company it found.
+    bar.set_policy_display("01", "U0372461", "CKPR")
+    assert bar.company_input.text() == "01"
+
+    # Re-getting the same policy keeps its company.
+    bar.get_button.click()
+    assert requested[-1] == ("U0372461", "CKPR", "01")
+
+    # A company the user types is kept for the next policy they enter.
+    bar.company_input.setText("26")
+    bar.company_input.textEdited.emit("26")
+    bar.policy_input.setText("000238628")
+    bar.policy_input.textEdited.emit("000238628")
+    assert bar.company_input.text() == "26"
+
+    # Programmatic loads (Policy List clicks) send their own company.
+    bar.company_input.setText("01")
+    bar.policy_input.setText("UL046683")
+    bar.get_button.click()
+    assert requested[-1] == ("UL046683", "CKPR", "01")
+
+
 def test_background_table_presence_reports_errors_and_stays_retryable():
     from suiteview.polview.config.policy_records import POLICY_RECORD_TABLES
     from suiteview.polview.services.policy_prefetch import PolicyLoadSession

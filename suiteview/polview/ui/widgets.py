@@ -1618,6 +1618,10 @@ class PolicyLookupBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("lookupBar")
+        # Policy number the company code belongs to (set by a lookup, paste or
+        # company choice). Typing a different policy number clears the company
+        # so the lookup searches every company instead of the stale one.
+        self._company_policy = None
         self._setup_ui()
     
     def _setup_ui(self):
@@ -1663,6 +1667,11 @@ class PolicyLookupBar(QWidget):
         self.company_input.setPlaceholderText("Co")
         self.company_input.setFixedWidth(30)
         self.company_input.setStyleSheet(input_style)
+        self.company_input.setToolTip(
+            "Company code. Leave blank to search every company; it clears itself "
+            "when you type a different policy number."
+        )
+        self.company_input.textEdited.connect(self._on_company_text_edited)
         layout.addWidget(self.company_input)
         
         self.policy_input = QLineEdit()
@@ -1739,6 +1748,7 @@ class PolicyLookupBar(QWidget):
         region = self.region_input.text().strip().upper() or "CKPR"
         company = self.company_input.text().strip().upper()  # Allow empty!
         if policy:
+            self._company_policy = policy if company else None
             self.policy_requested.emit(policy, region, company)
 
     # -- Smart paste & recent policies ------------------------------------
@@ -1756,12 +1766,22 @@ class PolicyLookupBar(QWidget):
             self.region_input.setText(reference.region)
         if reference.company or reference.region:
             self.company_input.setText(reference.company)
+            self._company_policy = reference.policy.strip().upper()
         self.policy_input.setText(reference.policy)
         return True
 
     @pyqtSlot(str)
     def _on_policy_text_edited(self, text: str):
         self.apply_policy_reference(text)
+        policy = self.policy_input.text().strip().upper()
+        if self._company_policy is not None and policy != self._company_policy:
+            self.company_input.clear()
+            self._company_policy = None
+
+    @pyqtSlot(str)
+    def _on_company_text_edited(self, text: str):
+        # A company typed by the user applies to whatever policy they enter next.
+        self._company_policy = None
 
     def set_recent_entries(self, entries: list):
         """Offer recently viewed policies (matched by number or insured name)."""
@@ -1800,7 +1820,11 @@ class PolicyLookupBar(QWidget):
     
     def set_policy_display(self, company: str, policy: str, region: str = "",
                             is_pending: bool = False):
-        """Update the policy display label."""
+        """Update the policy display label and pair the company input with *policy*."""
+        company = str(company or "").strip()
+        if company:
+            self.company_input.setText(company)
+            self._company_policy = str(policy or "").strip().upper()
         pending_tag = '  <span style="color:#FF1744; font-weight:bold;">(Pending)</span>' if is_pending else ''
         if region:
             self.policy_label.setText(f"{region} - {company} - {policy}{pending_tag}")
@@ -1848,4 +1872,5 @@ class PolicyLookupBar(QWidget):
         """Handle a company button click."""
         self.hide_company_chooser()
         self.company_input.setText(company_code)
+        self._company_policy = policy_number.strip().upper()
         self.company_chosen.emit(policy_number, region, company_code)
