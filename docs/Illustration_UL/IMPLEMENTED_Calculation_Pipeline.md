@@ -173,6 +173,13 @@ The engine treats the current account value as an after-deduction value from Cyb
 md_check_av_before_deduction = account_value + system_monthly_deduction
 ```
 
+Exception, premium pay status 34 (Waiver of COI): CyberLife records the
+monthliversary `CSV_AMT` before the deduction (it equals the `LH_POL_FND_VAL_TOT`
+value plus the recorded charges, and `NAR_AMT` is computed from it), so
+`md_check_av_before_deduction = account_value` and `md_check_av_variance` compares
+against `account_value - system_monthly_deduction`
+(`IllustrationPolicyData.recorded_av_before_deduction`; 26/000173969 10/03/2026).
+
 It then reruns monthly deduction against that reconstructed balance:
 
 ```text

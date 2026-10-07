@@ -2263,7 +2263,9 @@ def _initialize_inforce_work(
     # when the account value now opens on a later interim date.
     valuation_av = (
         opening.valuation_account_value if opening is not None else policy.account_value)
-    work.md_check_av_before_deduction = valuation_av + policy.system_monthly_deduction
+    # Waiver of COI (status 34) records the monthliversary AV before the deduction.
+    work.md_check_av_before_deduction = valuation_av + (
+        0.0 if policy.recorded_av_before_deduction else policy.system_monthly_deduction)
     work.ded = calculate_deduction(
         work.md_check_av_before_deduction,
         policy,
@@ -2549,6 +2551,8 @@ def _inforce_deduction_fields(policy, work: InforceWork) -> dict:
 
 
 def _inforce_expense_fields(policy, ded, work: InforceWork) -> dict:
+    recorded_av_after_deduction = policy.account_value - (
+        policy.system_monthly_deduction if policy.recorded_av_before_deduction else 0.0)
     return {
         "epu_rate": ded.epu_rate,
         "epu_charge": ded.epu_charge,
@@ -2576,7 +2580,7 @@ def _inforce_expense_fields(policy, ded, work: InforceWork) -> dict:
         "md_check_calculated_deduction": ded.total_deduction,
         "md_check_deduction_variance": ded.total_deduction - policy.system_monthly_deduction,
         "md_check_calculated_av_after_deduction": ded.av_after_deduction,
-        "md_check_av_variance": ded.av_after_deduction - policy.account_value,
+        "md_check_av_variance": ded.av_after_deduction - recorded_av_after_deduction,
     }
 
 
