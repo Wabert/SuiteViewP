@@ -47,9 +47,15 @@ gated too:
   `tools/rates/build_phase1_allowlist.py <UL_Test_Groups csv>`). Par whole life
   and indeterminate term policies are refused instead of opening their
   workspaces. Developers keep the `CanIllustrate` gate.
-- **Status:** `PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` = 22, 32, 33, 34; every other
-  premium-pay status and suspense code 3 are refused ("Policy status 44 (Extended
-  Term) is not supported for in-force illustration in this release."). Suspended
+- **Status:** `PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` = 22 (premium paying) only; every
+  other premium-pay status and suspense code 3 are refused ("Policy status 44
+  (Extended Term) is not supported for in-force illustration in this release.").
+  Policies on disability waiver (32 Waiver of Premium, 33 Waiver of Charges, 34
+  Waiver of COI; `DISABILITY_WAIVER_PREMIUM_PAY_STATUSES`) are not illustrated in
+  this release because waiver premiums aren't modelled yet ("Policy status 34
+  (Waiver of COI) is not supported for in-force illustration: policies on
+  disability waiver are not illustrated in this release."). Their
+  monthly-deduction check is still calculated (Robert, 10/6/2026). Suspended
   policies (`suspense_code == "2"`, carried on `IllustrationPolicyData`) are
   allowed with the Inputs-tab banner. Developers get a warning.
 - **Illustrated Rate:** on declared-rate UL it can't exceed the rate the policy

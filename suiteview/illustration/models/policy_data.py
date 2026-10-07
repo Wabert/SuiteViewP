@@ -8,6 +8,8 @@ from suiteview.core.joint_survivor_coi import Insured, Rating
 
 # CyberLife premium pay status (LH_BAS_POL) for a single-premium policy.
 SINGLE_PREMIUM_PAY_STATUS = "42"
+# CyberLife premium pay status 34 (Waiver of COI).
+WAIVER_OF_COI_PAY_STATUS = "34"
 # Legacy declared-rate UL (ANICO1996 4% plans) guarantee GINT in policy years 1-10,
 # then the policy's fixed-fund guarantee (``guaranteed_crediting_rate``).
 INITIAL_GUARANTEE_YEARS = 10
@@ -534,6 +536,19 @@ class IllustrationPolicyData:
         """Premium pay status 42 (Single Premium): the premium was paid at issue and
         none is due again; the stored modal premium is that single premium."""
         return str(self.premium_pay_status_code or "").strip() == SINGLE_PREMIUM_PAY_STATUS
+
+    @property
+    def recorded_av_before_deduction(self) -> bool:
+        """Whether the recorded monthliversary AV still includes that month's deduction.
+
+        Under premium pay status 34 (Waiver of COI) CyberLife records
+        LH_POL_MVRY_VAL.CSV_AMT before the monthly deduction: it equals the
+        LH_POL_FND_VAL_TOT value plus CINS_AMT + EXP_CRG_AMT + OTH_PRM_AMT, and
+        NAR_AMT is computed from it (26/000173969 10/03/2026: 91,372.92 =
+        91,231.52 + 141.40; NAR_AMT 175,819.20). Other statuses, including 32
+        and 33, record the post-deduction AV.
+        """
+        return str(self.premium_pay_status_code or "").strip() == WAIVER_OF_COI_PAY_STATUS
 
     @property
     def has_defined_life_insurance(self) -> bool:

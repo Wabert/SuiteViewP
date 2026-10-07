@@ -285,15 +285,28 @@ def test_business_gate_extended_term_message(business_window):
         "illustration in this release.")
 
 
-@pytest.mark.parametrize("status", ["22", "32", "33", "34"])
-def test_business_gate_allows_phase1_statuses_including_suspended(business_window, status):
+def test_business_gate_allows_premium_paying_including_suspended(business_window):
     win = business_window
     win.run_values_btn.setEnabled(True)
-    policy = _phase1_policy(_ALLOWED_PLANCODE, status)
+    policy = _phase1_policy(_ALLOWED_PLANCODE, "22")
     policy.suspense_code = "2"          # suspended stays allowed (banner on Inputs)
     win._illustration_data = policy
     assert win._apply_illustration_gate() is False
     assert win.run_values_btn.isEnabled() is True
+
+
+@pytest.mark.parametrize("status, label", [
+    ("32", "Waiver of Premium"), ("33", "Waiver of Charges"), ("34", "Waiver of COI"),
+])
+def test_business_gate_blocks_disability_waiver(business_window, status, label):
+    win = business_window
+    win.run_values_btn.setEnabled(True)
+    win._illustration_data = _phase1_policy(_ALLOWED_PLANCODE, status)
+    assert win._apply_illustration_gate() is True
+    assert win.run_values_btn.isEnabled() is False
+    assert win._status_label.text() == (
+        f"Policy status {status} ({label}) is not supported for in-force illustration: "
+        "policies on disability waiver are not illustrated in this release.")
 
 
 def test_business_gate_blocks_death_claim_pending_suspense(business_window):

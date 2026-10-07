@@ -111,3 +111,54 @@ def test_ceased_benefit_is_not_charged_in_the_monthly_deduction():
 
     assert result.benefit_charge_detail == {"12": 2.75}
     assert result.benefit_charges == 2.75
+
+
+def test_non_renewing_stipulated_waiver_is_charged_past_pay_up_to_cease():
+    """26-000321574 (1U1F4M00): WPMP 4M, RNL_RT_IND 0, pay-up 2026-01-12, cease 2031-01-12.
+    CyberLife's MD at 2026-09-12 carries 31.140 units x 0.30 = 9.34 for it."""
+    assembly = _assembly(_raw_benefit(
+        "4", "M", cease=date(2031, 1, 12), pay_up=date(2026, 1, 12), original=date(2031, 1, 12),
+        coi_rate=0.30, units=31.14, renewal="0"))
+    benefit = assembly.benefits[0]
+    policy = IllustrationPolicyData(plancode="1U1F4M00", benefits=assembly.benefits)
+
+    assert benefit.is_active is True
+    assert benefit.pay_up_date == date(2031, 1, 12)
+
+    result = _calculate_policy_benefit_charges(
+        110.0, 0.0, policy, PlancodeConfig(), IllustrationRates(), 16, 0.0, AS_OF)
+
+    assert result.benefit_charge_detail == {"4M": 9.34}
+    assert result.benefit_rates == {"4M": 0.3}
+
+
+def test_non_renewing_stipulated_waiver_still_stops_at_cease():
+    assembly = _assembly(_raw_benefit(
+        "4", "M", cease=date(2031, 1, 12), pay_up=date(2026, 1, 12), original=date(2031, 1, 12),
+        coi_rate=0.30, units=31.14, renewal="0"))
+    policy = IllustrationPolicyData(plancode="1U1F4M00", benefits=assembly.benefits)
+
+    def charge(on):
+        return _calculate_policy_benefit_charges(
+            110.0, 0.0, policy, PlancodeConfig(), IllustrationRates(), 17, 0.0, on).benefit_charges
+
+    assert charge(date(2030, 12, 12)) == 9.34
+    assert charge(date(2031, 1, 12)) == 0.0
+
+
+def test_renewing_stipulated_waiver_still_stops_at_pay_up():
+    """NU1FU200 26-000175165: WPMP 4M RNL_RT_IND 1, pay-up 2026-06-09, cease 2031-06-09;
+    CyberLife charges nothing for it at 2026-09-09."""
+    assembly = _assembly(_raw_benefit(
+        "4", "M", cease=date(2031, 6, 9), pay_up=date(2026, 6, 9), original=date(2031, 6, 9),
+        coi_rate=0.12, units=14.5, renewal="1"))
+
+    assert assembly.benefits == []
+
+
+def test_non_renewing_non_waiver_still_stops_at_pay_up():
+    assembly = _assembly(_raw_benefit(
+        "2", "4", cease=date(2032, 9, 8), pay_up=date(2026, 6, 8), original=date(2032, 9, 8),
+        coi_rate=0.05, units=50.0, renewal="0"))
+
+    assert assembly.benefits == []

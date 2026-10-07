@@ -173,6 +173,13 @@ The engine treats the current account value as an after-deduction value from Cyb
 md_check_av_before_deduction = account_value + system_monthly_deduction
 ```
 
+Exception, premium pay status 34 (Waiver of COI): CyberLife records the
+monthliversary `CSV_AMT` before the deduction (it equals the `LH_POL_FND_VAL_TOT`
+value plus the recorded charges, and `NAR_AMT` is computed from it), so
+`md_check_av_before_deduction = account_value` and `md_check_av_variance` compares
+against `account_value - system_monthly_deduction`
+(`IllustrationPolicyData.recorded_av_before_deduction`; 26/000173969 10/03/2026).
+
 It then reruns monthly deduction against that reconstructed balance:
 
 ```text
@@ -899,6 +906,11 @@ CyberLife record cases:
   pay-up. S4600372 PW4 (cease 2026-05-20, pay-up 2031) was charged 0.60 through
   2026-04-20 and nothing from 2026-05-20. The benefit's `pay_up_date` holds this
   charge end.
+- A non-renewing (`RNL_RT_IND` 0) stipulated premium waiver (type 4, FFL WPMP 4M,
+  `DSBRENRT` X) is charged through its cease date; its earlier pay-up date (age 60
+  against cease age 65) ends nothing. Renewing 4M benefits (`RNL_RT_IND` 1, NU1F*) stop at
+  pay-up. 26-000321574 (1U1F4M00): pay-up 2026-01-12, cease 2031-01-12, 31.140 units x 0.30
+  = 9.34, which CyberLife's other charge carries at 2026-09-12.
 
 A benefit on an increase phase issued between policy anniversaries takes its
 rate age from the phase issue age plus the **policy** anniversaries passed
