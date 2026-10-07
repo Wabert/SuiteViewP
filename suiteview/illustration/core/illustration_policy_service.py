@@ -837,7 +837,21 @@ def _payable_until(benefit):
     pay_up, cease, original = benefit.pay_up_date, benefit.cease_date, benefit.orig_cease_date
     if pay_up and cease and original and cease > original and cease > pay_up:
         return cease
+    if pay_up and cease and cease > pay_up and _is_non_renewing_waiver(benefit):
+        return cease
     return pay_up
+
+
+def _is_non_renewing_waiver(benefit) -> bool:
+    """A non-renewing (RNL_RT_IND 0) stipulated premium waiver (type 4, FFL WPMP 4M) is
+    charged its stored issue rate through its cease date; its earlier pay-up date (age
+    60 against cease age 65) ends nothing. Renewing 4M benefits (RNL_RT_IND 1, NU1F*)
+    stop at pay-up. CyberLife evidence 2026-10-06 (system other charge = units x
+    BNF_ANN_PPU_AMT): 26-000321574 31.140 x 0.30 = 9.34, 26-000308961 84.777 x 0.28 =
+    23.74, 26-000309175 13.185 x 0.30 = 3.96, 26-000315895 12.537 x 0.28 = 3.51,
+    26-000320426 13.893 x 0.32 = 4.45 - all past pay-up, all before cease."""
+    return (str(benefit.benefit_type_cd or "").strip() == "4"
+            and str(benefit.renewal_indicator or "").strip() == "0")
 
 
 def _charge_end_date(benefit):
