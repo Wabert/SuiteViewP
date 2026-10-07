@@ -253,8 +253,8 @@ def issue_output_conditions(policy: IllustrationPolicyData) -> List[tuple]:
 class ReportRunContext:
     """Run facts the projection itself does not carry.
 
-    ``app_build`` and ``run_timestamp`` feed the support-traceability footer on
-    every page. ``settings`` are the options the user selected for the run
+    ``app_build`` and ``run_timestamp`` feed the support export only (they are not
+    printed on the customer report). ``settings`` are the options the user selected for the run
     (before any solve adjusted them) and ``stop_on_lapse`` the run control; the
     report discloses every one that differs from the default.
     """
@@ -443,8 +443,8 @@ class IllustrationReport:
     # guaranteed columns would print blank (see ``print_blocked_reason``).
     guaranteed_error: Optional[str] = None
 
-    # Support traceability, printed in every page footer when the run supplied
-    # them (``ReportRunContext``): app version/build, run time, policy values date.
+    # Support traceability for the support export only; never printed on the
+    # customer report (``ReportRunContext``): app version/build, run time, policy values date.
     app_build: str = ""
     run_timestamp: Optional[datetime] = None
     valuation_date: Optional[date] = None
@@ -1411,7 +1411,7 @@ def _build_ul_report_from_facts(
     ``guaranteed_results`` is the guaranteed-assumption run built from the
     current run's locked cash flows (core/guaranteed_projection.py); when
     omitted the guaranteed ledger columns render blank. ``run_context``
-    supplies the traceability footer and the user's run settings.
+    supplies the support-export build/run identity and the user's run settings.
     """
     if options is None:
         options = IllustrationOptions()

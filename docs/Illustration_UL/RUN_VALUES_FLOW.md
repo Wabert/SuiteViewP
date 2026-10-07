@@ -35,18 +35,19 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    run date from the request and a `ReportRunContext`: the app build label
    (`suiteview.core.build_info.app_build_label()`, version plus git commit),
    the run timestamp (`RunControls.run_timestamp`, else the build moment), the
-   user's selected options and stop-on-lapse control.  Every printed page ends
-   with a footer `SUITEVIEW <version> BUILD <sha> | RUN <timestamp> | POLICY
-   VALUES AS OF <valuation date>` (`report_tab.trace_footer`).  For in-force
+   user's selected options and stop-on-lapse control.  These identify the run
+   in the support export only; the customer report carries no build/run footer
+   on any page, so pages use the full `REPORT_PAGE_MAX_LINES`.  For in-force
    runs the cover also states, as of the valuation date (`POLICY STATUS`
    block): values older than `STALE_VALUATION_DAYS` (45) before the run date,
    a suspended policy (`IllustrationPolicyData.suspense_code == "2"`, from
    `LH_BAS_POL.SUS_CD`), an already-MEC policy (which is then never reported
    as *becoming* a MEC), and the shadow-account no-lapse guarantee status
    (`shadow_status_lines`, incl. nullified by debt on `ShadowLoanImpact:
-   Nullify` plans).  Loan charge/credit rates print with the loan balance,
-   and user options that differ from the defaults are listed under "NON-DEFAULT
-   SETTINGS" (`non_default_settings_lines`).  Report
+   Nullify` plans).  Loan charge/credit rates print with the loan balance.
+   User options that differ from the defaults are collected as
+   `IllustrationReport.settings_lines` (`non_default_settings_lines`) for the
+   support export; the customer cover does not print them.  Report
    specs/page specs are interpreters around the existing text builders.
 
 **Export Case for Support** (☰ menu, `ui/support_export_controls.py` →

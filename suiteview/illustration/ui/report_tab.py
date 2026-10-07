@@ -243,12 +243,10 @@ _EXPENSE_COLUMNS = [
 ]
 
 _EXPENSE_INTRO = [
-    "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS EXPENSE "
-    "CHARGES AND CREDITS. FOR EACH POLICY "
-    "YEAR IT SHOWS THE PREMIUMS PAID, CASH OUT (GROSS WITHDRAWALS AND "
-    "FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM THE ACCUMULATION VALUE, AND THE "
-    "INTEREST CREDITED. THE EXP/FEES COLUMN COMBINES THE ADMINISTRATIVE CHARGES "
-    "(PER-1000, MONTHLY FEE, ASSET, AND ACCUMULATION VALUE CHARGES).",
+    "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS CHARGES "
+    "AND CREDITS. FOR EACH POLICY YEAR IT SHOWS THE PREMIUMS PAID, PREMIUM CHARGE, "
+    "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM "
+    "THE ACCUMULATION VALUE, AND THE INTEREST CREDITED.",
     "CHARGES AND CREDITS ARE ANNUAL TOTALS ON THE ILLUSTRATED (CURRENT, NON-GUARANTEED) "
     "BASIS, CONSISTENT WITH THE ILLUSTRATION'S LEDGER PAGES. POLICY VALUES, INCLUDING ANY "
     "OUTSTANDING POLICY DEBT, ARE END-OF-YEAR AMOUNTS. YEARS AFTER THE POLICY TERMINATES "
@@ -547,11 +545,6 @@ def _format_report_pages_from_specs(
         for line in report.policy_status_lines:
             cover.lines.extend(f"    {part}" for part in wrap_lines(line, PAGE_WIDTH - 4))
         cover.blank()
-    if report.settings_lines:
-        cover.add("THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:")
-        for line in report.settings_lines:
-            cover.add(f"    {line}")
-        cover.blank()
     for line in report.request_intro:
         cover.add_wrapped(line)
     cover.blank()
@@ -649,8 +642,7 @@ def _format_report_pages_from_specs(
         _iul_historical_page(history, report)
         pages.append(history.lines)
 
-    footer = trace_footer(report)
-    pages = _fit_illustration_pages(report, pages, footer_lines=2 if footer else 0)
+    pages = _fit_illustration_pages(report, pages)
 
     # ── Expense Report supplemental exhibit — its own heading and its own
     #    page numbering, separate from the illustration pages above. ──
@@ -682,9 +674,6 @@ def _format_report_pages_from_specs(
                 lines.append("")
         pages.append(lines)
 
-    if footer:
-        for page_lines in pages:
-            page_lines.extend(["", footer])
     return pages
 
 
@@ -707,21 +696,20 @@ def _split_body(body: List[str], room: int) -> List[List[str]]:
 def _fit_illustration_pages(
     report: IllustrationReport,
     pages: List[List[str]],
-    footer_lines: int,
 ) -> List[List[str]]:
     """Keep every illustration page within one printed PDF page.
 
-    A page longer than ``REPORT_PAGE_MAX_LINES`` (footer included) continues on
+    A page longer than ``REPORT_PAGE_MAX_LINES`` continues on
     a following page under the same header, and every header is renumbered so
     "Page n of N" matches the printed page count. Pages that fit are unchanged.
     """
     header_len = len(_page_header(report, 1, 1))
-    room = REPORT_PAGE_MAX_LINES - header_len - footer_lines
-    if all(len(page) + footer_lines <= REPORT_PAGE_MAX_LINES for page in pages):
+    room = REPORT_PAGE_MAX_LINES - header_len
+    if all(len(page) <= REPORT_PAGE_MAX_LINES for page in pages):
         return pages
     bodies: List[List[str]] = []
     for page in pages:
-        if len(page) + footer_lines <= REPORT_PAGE_MAX_LINES:
+        if len(page) <= REPORT_PAGE_MAX_LINES:
             bodies.append(page[header_len:])
         else:
             bodies.extend(_split_body(page[header_len:], room))
@@ -731,21 +719,6 @@ def _fit_illustration_pages(
 
 def _has_rider_page(report: IllustrationReport) -> bool:
     return bool(report.rider_lines or report.regulatory_lines or report.change_sections)
-
-
-def trace_footer(report: IllustrationReport) -> str:
-    """Support-traceability footer printed on every page, or "" when the run
-    supplied no build/run identity (reports built outside Run Values)."""
-    if not (report.app_build or report.run_timestamp):
-        return ""
-    parts = [report.app_build or "SUITEVIEW"]
-    if report.run_timestamp is not None:
-        parts.append(f"RUN {report.run_timestamp:%m/%d/%Y %H:%M:%S}")
-    valuation = report.valuation_date
-    parts.append(
-        f"POLICY VALUES AS OF {valuation:%m/%d/%Y}" if valuation
-        else "POLICY VALUES AS OF: NOT AVAILABLE")
-    return " | ".join(parts)[:PAGE_WIDTH]
 
 
 def format_abr_quote_pages(run, policy) -> List[List[str]]:

@@ -1366,7 +1366,15 @@ def test_expense_page_appended_only_when_enabled():
     expense_page = pages[-1]                            # appended at the end
     flat = "\n".join(expense_page)
     assert "EXPENSE REPORT" in flat
-    assert "ANNUAL ACTIVITY INTO ITS EXPENSE" in flat   # intro verbiage
+    flat_words = " ".join(flat.split())
+    assert (
+        "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS CHARGES "
+        "AND CREDITS. FOR EACH POLICY YEAR IT SHOWS THE PREMIUMS PAID, PREMIUM CHARGE, "
+        "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM "
+        "THE ACCUMULATION VALUE, AND THE INTEREST CREDITED."
+    ) in flat_words
+    assert "THE EXP/FEES COLUMN COMBINES" not in flat_words
+    assert "CHARGES AND CREDITS ARE ANNUAL TOTALS" in flat_words   # second paragraph kept
     assert "CASH" in flat and "OUT" in flat
     assert "DISTRI-" not in flat and "BUTIONS" not in flat
     assert all(len(line) <= PAGE_WIDTH for line in expense_page), max(expense_page, key=len)

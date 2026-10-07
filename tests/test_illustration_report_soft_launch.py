@@ -124,7 +124,7 @@ def test_run_service_carries_guaranteed_error_onto_the_report():
     assert print_blocked_reason(result.report)
 
 
-# ── M8: support traceability footer ─────────────────────────────────────────
+# ── Support build identity (support export only; not printed on the report) ──
 
 def test_build_info_label_uses_stamped_sha_then_version_alone(monkeypatch, tmp_path):
     from suiteview import __version__
@@ -178,33 +178,56 @@ def _traced_report():
     return report
 
 
-EXPECTED_FOOTER = (
-    "SUITEVIEW 5.2 BUILD abc1234 | RUN 10/06/2026 10:15:32 | POLICY VALUES AS OF 09/09/2026")
+FOOTER_FRAGMENTS = ("SUITEVIEW 5.2", "BUILD abc1234", "RUN 10/06/2026", "POLICY VALUES AS OF")
 
 
-def test_every_page_including_the_expense_exhibit_carries_the_trace_footer():
-    from suiteview.illustration.ui.report_tab import format_report_pages, trace_footer
+def test_no_page_carries_the_build_trace_footer():
+    from suiteview.illustration.ui import report_tab
+    from suiteview.illustration.ui.report_tab import format_report_pages
 
     report = _traced_report()
-    assert trace_footer(report) == EXPECTED_FOOTER
+    assert report.app_build and report.run_timestamp  # still captured for the support export
+    assert not hasattr(report_tab, "trace_footer")
     pages = format_report_pages(report, include_expense_report=True)
     assert len(pages) >= 5
     for page in pages:
-        assert page[-2:] == ["", EXPECTED_FOOTER]
+        text = "\n".join(page)
+        for fragment in FOOTER_FRAGMENTS:
+            assert fragment not in text, fragment
 
 
-def test_reports_built_outside_run_values_have_no_footer():
-    from suiteview.illustration.ui.report_tab import format_report_pages, trace_footer
+def test_cover_omits_the_non_default_settings_block(monkeypatch):
+    from suiteview.illustration.ui.report_tab import format_report_pages
 
-    report = _report(valuation_date=date(2026, 9, 9))
-    assert trace_footer(report) == ""
-    assert all(EXPECTED_FOOTER not in "\n".join(page) for page in format_report_pages(report))
+    report = _all_blocks_report(monkeypatch)
+    assert report.settings_lines  # still disclosed to the support export
+    text = "\n".join("\n".join(page) for page in format_report_pages(report, True))
+    assert "NON-DEFAULT SETTINGS" not in text
+    for line in report.settings_lines:
+        assert line not in text
+
+
+def test_pages_reserve_no_footer_lines():
+    from suiteview.illustration.ui.report_tab import (
+        REPORT_PAGE_MAX_LINES,
+        _fit_illustration_pages,
+        _page_header,
+    )
+
+    report = _report()
+    header = _page_header(report, 1, 1)
+    full = header + ["row"] * (REPORT_PAGE_MAX_LINES - len(header))
+    assert len(full) == REPORT_PAGE_MAX_LINES
+    assert _fit_illustration_pages(report, [full]) == [full]
+    spilled = _fit_illustration_pages(report, [full + ["extra"]])
+    assert len(spilled) == 2
+    assert len(spilled[0]) == REPORT_PAGE_MAX_LINES
 
 
 def _all_blocks_report(monkeypatch):
     """A cover carrying every new block at once: stale values, suspended, MEC,
     shadow nullified by a loan, loan rates (all three loan types) and every
-    non-default setting, plus the trace footer."""
+    non-default setting."""
     from suiteview.illustration.core.report_builder import ReportRunContext
     from suiteview.illustration.models.input_set import IllustrationOptions
     from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -230,33 +253,29 @@ def _all_blocks_report(monkeypatch):
 
 
 @pytest.mark.parametrize("variant", ["long_ledger", "all_new_cover_blocks"])
-def test_footer_pages_still_fit_one_pdf_page_each(tmp_path: Path, monkeypatch, variant):
+def test_pages_fit_one_pdf_page_each(tmp_path: Path, monkeypatch, variant):
     import re
 
     from suiteview.illustration.ui.report_pages import pages_document, pdf_printer
     from suiteview.illustration.ui.report_tab import (
         REPORT_PAGE_MAX_LINES,
         format_report_pages,
-        trace_footer,
     )
 
     _app()
     report = _traced_report() if variant == "long_ledger" else _all_blocks_report(monkeypatch)
-    footer = trace_footer(report)
     pages = format_report_pages(report, include_expense_report=True)
     printer = pdf_printer(str(tmp_path / "fit.pdf"))
     assert pages_document(pages, printer).pageCount() == len(pages)
     illustration = [p for p in pages if report.company_name in p[0]]
     for number, page in enumerate(illustration, start=1):
         assert len(page) <= REPORT_PAGE_MAX_LINES
-        assert page[-2:] == ["", footer]
         assert re.search(rf"Page {number} of {len(illustration)}$", page[0])
     if variant == "all_new_cover_blocks":
-        # The stuffed cover continues on page 2 under the same header.
+        # Without the settings block the stuffed cover fits on page 1.
         text = ["\n".join(page) for page in illustration]
-        assert "POLICY STATUS AS OF 06/01/2026:" in text[0] + text[1]
-        assert "THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:" in text[1]
-        assert "+- GUARANTEED VALUES -+" in text[2]
+        assert "POLICY STATUS AS OF 06/01/2026:" in text[0]
+        assert "+- GUARANTEED VALUES -+" in text[1]
 
 
 def test_split_body_breaks_at_blank_lines():
@@ -522,7 +541,7 @@ def test_loan_interest_uses_edit_record_override_advance_and_other_loan_types(mo
     ]
 
 
-def test_non_default_settings_are_disclosed_and_defaults_are_silent():
+def test_non_default_settings_are_collected_for_support_and_defaults_are_silent():
     from suiteview.illustration.core.report_builder import (
         ReportRunContext,
         non_default_settings_lines,
@@ -544,9 +563,16 @@ def test_non_default_settings_are_disclosed_and_defaults_are_silent():
     ]
     report = _sd1_build(_sd1_policy(), run_context=ReportRunContext(
         app_build="SUITEVIEW TEST", settings=settings, stop_on_lapse=False))
+    assert report.settings_lines == [
+        "GUIDELINE PREMIUM (TEFRA/DEFRA) LIMITS NOT ENFORCED",
+        "EXACT DAYS INTEREST",
+        "LOAN REPAYMENTS PAY PRINCIPAL BEFORE ACCRUED INTEREST",
+        "PROJECTION CONTINUES AFTER LAPSE",
+    ]
+    # The customer cover never prints the settings; only the support export does.
     cover = _cover_text(report)
-    assert "THIS ILLUSTRATION WAS RUN WITH THE FOLLOWING NON-DEFAULT SETTINGS:" in cover
-    assert "    GUIDELINE PREMIUM (TEFRA/DEFRA) LIMITS NOT ENFORCED" in cover
+    assert "NON-DEFAULT SETTINGS" not in cover
+    assert "GUIDELINE PREMIUM (TEFRA/DEFRA) LIMITS NOT ENFORCED" not in cover
 
     plain = _sd1_build(_sd1_policy(), run_context=ReportRunContext(
         settings=IllustrationOptions()))

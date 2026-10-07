@@ -272,8 +272,9 @@ apart. The version is displayed in the taskbar header (e.g. `SuiteView (2.0)`).
 - **Build commit:** `SuiteView.spec` stamps the git commit (`git rev-parse
   --short=7 HEAD`, `+dirty` when tracked files are modified) into the bundle as
   `_internal/suiteview/BUILD_SHA`. `suiteview.core.build_info.app_build_label()`
-  reads it (source runs ask git) and prints `SUITEVIEW <version> BUILD <sha>`
-  on every illustration page and in support exports; `--verify-only` records
+  reads it (source runs ask git) and writes `SUITEVIEW <version> BUILD <sha>`
+  into support exports (it is not printed on the customer report);
+  `--verify-only` records
   it as `build_sha` in the verification receipt. Build from a clean checkout so
   the stamp has no `+dirty`.
 

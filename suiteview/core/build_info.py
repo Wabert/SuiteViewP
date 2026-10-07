@@ -1,8 +1,7 @@
 """Application version and build identity for support traceability.
 
-``app_build_label()`` is printed on every illustration page and written into
-support exports so a reported number can be traced to the exact code that
-produced it. The git commit comes from a ``BUILD_SHA`` file stamped into the
+``app_build_label()`` is written into support exports so a reported number can
+be traced to the exact code that produced it. The git commit comes from a ``BUILD_SHA`` file stamped into the
 packaged EXE by ``SuiteView.spec``; source runs ask git directly. Either may be
 unavailable, in which case the label carries the version alone — never a
 guessed commit.
