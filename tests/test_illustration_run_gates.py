@@ -11,6 +11,7 @@ from suiteview.illustration.core import compare_runner
 from suiteview.illustration.core.business_mode import BUSINESS_MODE_ENV
 from suiteview.illustration.core.run_gates import (
     GATE_TITLE,
+    DISABILITY_WAIVER_PREMIUM_PAY_STATUSES,
     PHASE1_ALLOWED_PREMIUM_PAY_STATUSES,
     policy_gate,
     status_refusal,
@@ -69,9 +70,46 @@ def _services(business: bool, missing=()) -> EngineServices:
 
 
 def test_allowed_statuses_are_the_phase1_set():
-    assert PHASE1_ALLOWED_PREMIUM_PAY_STATUSES == {"22", "32", "33", "34"}
+    assert PHASE1_ALLOWED_PREMIUM_PAY_STATUSES == {"22"}
     for status in PHASE1_ALLOWED_PREMIUM_PAY_STATUSES:
         assert status_refusal(_policy(status=status)) is None
+
+
+@pytest.mark.parametrize("status, label", [
+    ("32", "Waiver of Premium"), ("33", "Waiver of Charges"), ("34", "Waiver of COI"),
+])
+def test_disability_waiver_statuses_refused_for_business_warned_for_developers(status, label):
+    """Robert 10/6/2026: waiver premiums aren't modelled, so policies on disability
+    waiver aren't illustrated in this release (their MD check still runs)."""
+    expected = (f"Policy status {status} ({label}) is not supported for in-force "
+                "illustration: policies on disability waiver are not illustrated in "
+                "this release.")
+    assert status in DISABILITY_WAIVER_PREMIUM_PAY_STATUSES
+    assert status_refusal(_policy(status=status)) == expected
+
+    business = policy_gate(_policy(status=status), business_mode=True)
+    assert business.blocks == (expected,) and business.warnings == ()
+
+    developer = policy_gate(_policy(status=status), business_mode=False)
+    assert not developer.blocked
+    assert developer.warnings == (
+        expected + " Business users are blocked; developer run allowed.",)
+
+
+@pytest.mark.parametrize("status", ["32", "33", "34"])
+def test_execute_run_refuses_disability_waiver_for_business(status):
+    with pytest.raises(RunFlowError) as error:
+        execute_run(_request(_policy(status=status)), _services(True))
+    assert error.value.title == GATE_TITLE
+    assert "policies on disability waiver are not illustrated" in error.value.message
+
+
+@pytest.mark.parametrize("status", ["32", "33", "34"])
+def test_developer_disability_waiver_run_proceeds_with_warning(status):
+    gate = check_run_gates(_request(_policy(status=status)),
+                           PreparedPolicyData(_policy(status=status)), _services(False))
+    assert not gate.blocked
+    assert "policies on disability waiver are not illustrated" in gate.warnings[0]
 
 
 @pytest.mark.parametrize("status, label", [

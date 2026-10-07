@@ -8,9 +8,12 @@ saved, imported and Compare cases are gated the same way:
   in ``plancodes/phase1_allowlist.json``. Developers keep the plancode table's
   ``CanIllustrate`` behavior (enforced by the window in packaged builds).
 * **Policy status (M3)** — business users may illustrate only the premium-pay
-  statuses in :data:`PHASE1_ALLOWED_PREMIUM_PAY_STATUSES`; a death-claim-pending
-  suspense code is refused too. Suspended policies (suspense code 2) remain
-  allowed and get a banner. Developers get a warning instead of a block.
+  statuses in :data:`PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` (premium paying only);
+  a death-claim-pending suspense code is refused too. Policies on disability
+  waiver (statuses 32/33/34) are not illustrated in this release because waiver
+  premiums aren't modelled yet; their monthly-deduction check still runs.
+  Suspended policies (suspense code 2) remain allowed and get a banner.
+  Developers get a warning instead of a block.
 * **Illustrated rate (M2)** — on declared-rate UL, the Illustrated Rate may not
   exceed the policy's current declared rate and may not be blank. Developers
   get a warning instead of a block.
@@ -35,11 +38,17 @@ from suiteview.polview.models.cl_polrec.policy_translations import (
 from suiteview.polview.models.policy_sections.lookup import policy_attr
 
 # Phase-1 in-force illustration covers these premium-pay statuses
-# (PRM_PAY_STA_REA_CD): 22 premium paying, 32/33/34 waiver of premium/charges/
-# COI — the statuses the phase-1 testing covered. Every other status (44 ETI,
-# 45 RPU, lapsed, matured, surrendered, terminated, ...) is refused for business
-# users. Edit this set to widen or narrow the scope.
-PHASE1_ALLOWED_PREMIUM_PAY_STATUSES = frozenset({"22", "32", "33", "34"})
+# (PRM_PAY_STA_REA_CD): 22 premium paying only. Disability-waiver policies
+# (32 Waiver of Premium, 33 Waiver of Charges, 34 Waiver of COI) are not
+# illustrated in this release because waiver premiums aren't modelled yet
+# (Robert, 10/6/2026); their monthly-deduction check is still calculated, since
+# the MD check and project_policy(months=0) don't go through these gates. Every
+# other status (44 ETI, 45 RPU, lapsed, matured, surrendered, terminated, ...)
+# is refused for business users too. Edit this set to widen or narrow the scope.
+PHASE1_ALLOWED_PREMIUM_PAY_STATUSES = frozenset({"22"})
+
+# Disability-waiver premium-pay statuses, refused with their own explanation.
+DISABILITY_WAIVER_PREMIUM_PAY_STATUSES = frozenset({"32", "33", "34"})
 
 # Suspense codes (LH_BAS_POL.SUS_CD) refused regardless of premium-pay status.
 # "2" (Suspended) is allowed with a banner.
@@ -108,6 +117,10 @@ def status_refusal(policy) -> str | None:
     if status in PHASE1_ALLOWED_PREMIUM_PAY_STATUSES:
         return None
     label = _STATUS_LABELS.get(status, "Unknown") if status else "Not Recorded"
+    if status in DISABILITY_WAIVER_PREMIUM_PAY_STATUSES:
+        return (f"Policy status {status} ({label}) is not supported for in-force "
+                "illustration: policies on disability waiver are not illustrated in "
+                "this release.")
     return (f"Policy status {status or '(blank)'} ({label}) is not supported for "
             "in-force illustration in this release.")
 
