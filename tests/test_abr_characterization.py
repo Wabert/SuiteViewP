@@ -440,6 +440,86 @@ def test_output_panel_detail_workbook_characterization(tmp_path, monkeypatch):
     workbook.close()
 
 
+def test_output_panel_detail_workbook_keeps_report_formatting(tmp_path, monkeypatch):
+    """Print Detail writes the formatted report, not a bare label/value dump."""
+    filepath = tmp_path / "output-detail-format.xlsx"
+    result = _workbook_result()
+    result.messages = ["Heads up! Review payout."]
+    panel = SimpleNamespace(
+        _policy=_workbook_policy(),
+        _result=result,
+        _assessment=_workbook_assessment(),
+        _derived_values={
+            "std_survival_5yr": "0.9700  (97.00%)",
+            "mod_survival_5yr": "0.0312  (3.12%)",
+            "table_rating": "Annual Mortality = 0.5000",
+        },
+        _mort_detail=_mortality_rows(),
+        _apv_detail=_apv_rows(),
+        _apv_summary=_apv_summary(),
+        _get_accel_inputs=lambda: (100000, 50000),
+        _get_after_partial_deduction=lambda: "",
+    )
+    monkeypatch.setattr(
+        "suiteview.abrquote.ui.output_panel.guard_support_files_writable",
+        lambda *args, **kwargs: None,
+    )
+
+    OutputPanel._write_detail_workbook(panel, str(filepath))
+
+    workbook = openpyxl.load_workbook(filepath)
+    policy_ws = workbook["Policy Info"]
+    assert policy_ws["A1"].font.bold and policy_ws["A1"].font.size == 12
+    assert policy_ws["A3"].value == "Policy Details"
+    assert policy_ws["A3"].fill.fgColor.rgb.endswith("8B0000")
+    assert policy_ws["A3"].font.color.rgb.endswith("FFFFFF")
+    assert "A3:B3" in {str(merged) for merged in policy_ws.merged_cells.ranges}
+    assert policy_ws["A4"].font.bold and not policy_ws["B4"].font.bold
+    assert policy_ws.column_dimensions["A"].width == 22
+    assert policy_ws.column_dimensions["B"].width == 35
+
+    assessment_ws = workbook["Assessment"]
+    assert assessment_ws["A10"].value == "Current (Unmodified)"
+    assert assessment_ws["A10"].font.underline == "single"
+    assert assessment_ws["C10"].value == "Modified (Substandard Applied)"
+    assert assessment_ws["B11"].value == "0.9700  (97.00%)"
+    assert assessment_ws["D11"].value == "0.0312  (3.12%)"
+    assert assessment_ws["A17"].value == "Results Summary"
+    assert assessment_ws["A18"].value == "FULL ACCELERATION"
+    assert (assessment_ws["C20"].value, assessment_ws["D20"].value) == ("APV_FB:", "$98,564.98")
+    assert assessment_ws["A26"].value == "MAX PARTIAL ACCELERATION"
+    assert (assessment_ws["C28"].value, assessment_ws["D28"].value) == ("APV_FB:", "$49,282.49")
+    labels = {row[0].value: row[1].value for row in assessment_ws.iter_rows(max_col=2)}
+    assert labels["Premium Before:"] == "260.00 Annual"
+    assert labels["After (Partial):"] == "130.00 Annual"
+    message_cell = next(
+        row[0] for row in assessment_ws.iter_rows(max_col=1)
+        if row[0].value == "\u2022 Heads up! Review payout."
+    )
+    assert message_cell.font.color.rgb.endswith("C62828")
+    assert assessment_ws.column_dimensions["C"].width == 30
+
+    mortality_ws = workbook["Mortality Derivation"]
+    assert mortality_ws["A1"].fill.fgColor.rgb.endswith("D3D3D3")
+    assert mortality_ws["E1"].value == "qx VBT (annual)"
+    assert mortality_ws["M2"].number_format == "0.00000000"
+    assert mortality_ws["A2"].number_format == "General"
+    assert mortality_ws.column_dimensions["O"].width == 14
+
+    le_ws = workbook["Life Expectancy"]
+    assert le_ws["G1"].value == "Sum tPx (months)"
+    assert le_ws["F4"].value == "Sum tPx (months):"
+    assert le_ws["H4"].font.color.rgb.endswith("8B0000")
+    assert le_ws["H6"].value == pytest.approx(le_ws["H5"].value + 0.5)
+
+    apv_ws = workbook["APV - Present Value"]
+    assert apv_ws["I4"].value == "PVFB (raw sum):"
+    assert apv_ws["J6"].value == pytest.approx(4338.978568149642)
+    assert apv_ws["J6"].number_format == "#,##0.00"
+    assert apv_ws["C2"].number_format == "0.000000"
+    workbook.close()
+
+
 class _StyleProxy:
     def __getattr__(self, _name):
         return self
@@ -653,6 +733,10 @@ def test_calc_viewer_export_workbook_characterization(tmp_path, monkeypatch):
     assert workbook["Mortality Derivation"]["M2"].value == pytest.approx(0.043478260869565216)
     assert workbook["APV Present Value"]["A1"].value == "Month"
     assert workbook["APV Present Value"]["H2"].value == 100000
+    assert workbook["Assessment"]["C10"].value == "Modified (Substandard Applied)"
+    assert workbook["Assessment"]["D20"].value == "$98,564.98"
+    assert workbook["Life Expectancy"]["F4"].value == "Sum tPx (months):"
+    assert workbook["APV Present Value"]["I4"].value == "PVFB (raw sum):"
     workbook.close()
 
 

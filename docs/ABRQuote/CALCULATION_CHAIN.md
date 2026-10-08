@@ -49,7 +49,13 @@ plain core services:
 - `core.quote_service.ABRQuoteInputs` → `calculate_abr_quote()` →
   `QuoteCalculationSnapshot`
 - `core.output_spec.build_detail_workbook_spec()` →
-  `write_openpyxl()` or `write_excel_com()`
+  `write_openpyxl()` (Output tab **Print Detail**, saved to the policy folder)
+  or `write_excel_com()` (Calc Viewer **Export to Excel**, unsaved workbook).
+  The spec positions and styles every cell, so both writers render the same
+  formatted five-sheet report: dark-red section banners, bold labels, the
+  current/modified substandard values and APV figures in columns C-D, grey
+  table headers with per-column number formats, and red LE/APV summary rows.
+  `tests/test_abr_characterization.py` pins that formatting.
 
 The UI gathers inputs and renders outputs only; quote math, goal seek, workbook
 rows and automation no longer depend on fake Qt panels.

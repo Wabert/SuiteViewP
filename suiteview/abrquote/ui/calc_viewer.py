@@ -901,10 +901,11 @@ class CalcViewerDialog(FramelessWindowBase):
                 self._apv_rows,
                 self._apv_summary,
                 derived_values=self._derived_values,
-                accel_amount=self._accel_amount_input,
-                min_face_amount=self._min_face_amount_input,
+                accel_amount=self._accel_amount_input or self._policy.face_amount,
+                min_face_amount=self._min_face_amount_input or self._policy.min_face_amount,
                 after_partial_override=self._after_partial_override,
                 apv_sheet_name="APV Present Value",
+                messages=self._warnings or self._result.messages,
             )
             write_excel_com(spec)
         except ImportError:
