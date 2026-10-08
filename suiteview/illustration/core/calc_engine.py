@@ -220,6 +220,10 @@ class TimingConvention:
     # ``premium_precedes_withdrawal``). Only valid with ``refresh_targets`` and
     # ``supports_policy_changes`` off: the target refresh runs twice that month.
     cash_flows_in_date_order: bool = False
+    # Shadow load: CyberLife's N+1 target relief applies whatever the run's
+    # ``IllustrationOptions.shadow_nplus1_relief`` says. Illustration timing
+    # leaves it to that option (default off: plain per-year target test).
+    shadow_nplus1_relief: bool = False
 
 
 ILLUSTRATION_TIMING = TimingConvention(
@@ -247,6 +251,7 @@ CYBERLIFE_MONTHLIVERSARY_TIMING = TimingConvention(
     wair_enabled=False,
     withdrawal_reduces_7pay=False,
     cash_flows_in_date_order=True,
+    shadow_nplus1_relief=True,
 )
 
 
@@ -1579,6 +1584,7 @@ def calculate_shadow_step(
         post_deduction_gross_premium=post_deduction_premium,
         premiums_ytd=premiums_ytd,
         premiums_to_date=premiums_to_date,
+        nplus1_relief=_shadow_nplus1_relief(ctx, convention),
         prior_year_gross_premium=prior_year_premium,
         opening_late_gross_premium=opening_late_premium,
         policy=ctx.policy,
@@ -1614,6 +1620,19 @@ def calculate_shadow_step(
         display_days_in_month=work.intr.days_in_month,
         policy_death_benefit=work.ded.standard_db,
     ))
+
+
+def _shadow_nplus1_relief(ctx: MonthContext, convention: TimingConvention) -> bool:
+    """Whether the shadow load applies CyberLife's N+1 target relief this run.
+
+    CyberLife timing always does (it reproduces CyberLife history). Illustration
+    timing does only when the user turns on ``IllustrationOptions.shadow_nplus1_relief``
+    (Robert, 10/8/2026: forecasts use the plain per-year target test by default).
+    """
+    return bool(
+        getattr(convention, "shadow_nplus1_relief", False)
+        or getattr(ctx.options, "shadow_nplus1_relief", False)
+    )
 
 
 def _shadow_premium_timing(ctx: MonthContext, work: MonthWork) -> tuple[float, float]:

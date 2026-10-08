@@ -36,6 +36,7 @@ projected month. The canonical projected-month order is:
 | Target refresh | Recompute on changes/date-gated actives | Carry prior detail |
 | Guideline recalc | Records policy-change recalc and AccumGLP true-up | Simple GLP accumulation |
 | WAIR/shadow | Runs both | Skipped |
+| Shadow N+1 target relief | Only with the Inputs-tab setting "Shadow N+1 Target Relief" (`IllustrationOptions.shadow_nplus1_relief`, default off) | Always (`TimingConvention.shadow_nplus1_relief`) |
 | Lapse | Safety net, shadow, exception, SV/AV basis, no-lapse | Simple `AV <= 0` unless exception/no-lapse |
 | 7-pay contribution | Premium less gross withdrawal | Premium only |
 

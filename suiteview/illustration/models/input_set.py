@@ -305,6 +305,14 @@ class IllustrationOptions:
     # base coverage segments.
     guideline_by_search: bool = False
 
+    # Shadow N+1 target relief — CyberLife's administrative rule that premium
+    # paid ahead, up to (N+1) shadow targets of premium to date, is not loaded as
+    # excess (SGUL ``ShadowNPlus1Relief``; LTGUL APS205 cumulative test). Off by
+    # default (Robert, 10/8/2026): an illustration loads premium above the
+    # policy-year shadow target, which is the conservative side. CyberLife
+    # monthliversary timing applies the relief regardless of this setting.
+    shadow_nplus1_relief: bool = False
+
     # sInput_RestrictLoansToSV — cap a new fixed loan at the lapse surrender
     # value (AV − surrender charge − existing debt, less the MD holdback).
     # The workbook default is ON: you cannot borrow past the surrender value.

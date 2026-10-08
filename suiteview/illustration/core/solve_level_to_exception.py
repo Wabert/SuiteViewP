@@ -134,6 +134,7 @@ def level_to_exception_options(
         recognize_inforce_exception_period=(
             base.recognize_inforce_exception_period if base is not None else True),
         interim_opening=base.interim_opening if base is not None else None,
+        shadow_nplus1_relief=bool(getattr(base, "shadow_nplus1_relief", False)),
     )
 
 
@@ -196,8 +197,9 @@ def solve_level_to_exception(
             a bool forces it.
         base_options: only ``exact_days_interest``, ``levelizing_premium``,
             ``apply_prem_to_loan``, ``guideline_forceouts``,
-            ``recognize_inforce_exception_period`` and ``interim_opening``
-            are read from it; the guideline and exception toggles are forced on.
+            ``recognize_inforce_exception_period``, ``interim_opening`` and
+            ``shadow_nplus1_relief`` are read from it; the guideline and exception
+            toggles are forced on.
     """
     if horizon_months is not None and horizon_months < 0:
         raise LevelToExceptionError("The projection horizon cannot be negative.")

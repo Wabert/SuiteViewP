@@ -203,7 +203,8 @@ class PlancodeConfig:
     # CyberLife credits the shadow (1+i)^(1/12)-1 every month, whatever the regular AV's
     # day count (exact days in history replays and in what-if runs with Exact Days on).
     shadow_monthly_interest: bool = False
-    # SGUL company N+1 target rule on the TPP/EPP shadow load (see shadow_calc).
+    # SGUL company N+1 target rule on the TPP/EPP shadow load (see shadow_calc). Applied
+    # in CyberLife timing, and in illustrations only with IllustrationOptions.shadow_nplus1_relief.
     shadow_nplus1_relief: bool = False
     # The shadow deducts the gross withdrawal (charges included), not the net (SGUL).
     shadow_withdrawal_gross: bool = False

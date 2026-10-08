@@ -1,6 +1,7 @@
 """Shadow-account rules found by running the engine from issue against CyberLife XP (2026-10-07).
 
-* SGUL N+1 target relief on the TPP/EPP load (all modes).
+* SGUL N+1 target relief on the TPP/EPP load (CyberLife timing always; illustration
+  timing only with ``IllustrationOptions.shadow_nplus1_relief``).
 * SGUL shadow interest (1+i)^(1/12)-1 in history replays (rollback / from issue).
 * A premium received before the anniversary it is bucketed to is posted to the prior
   policy year's total, and is loaded against the new year's total without being added
@@ -59,6 +60,8 @@ def _policy(**fields) -> IllustrationPolicyData:
 
 
 def _shadow(config, *, gross, ytd, ptd, year=3, month=1, policy=None, rates=None, **kw):
+    # These are CyberLife (history) rules: N+1 relief on unless a test turns it off.
+    kw.setdefault("nplus1_relief", True)
     return calculate_shadow(ShadowInput(
         prev_shadow_eav=kw.pop("prev", 0.0), gross_premium=gross, premiums_ytd=ytd, premiums_to_date=ptd,
         policy=policy or _policy(), config=config, rates=rates or _rates(), rate_year=year,
@@ -96,6 +99,18 @@ def test_sgul_nplus1_relief_is_capped_by_premium_to_date_and_two_targets():
     # Both allowances exceeded: the larger excess is loaded (relief needs both).
     both = _shadow(config, gross=500.0, ytd=2_400.0, ptd=4_450.0, month=9)
     assert both.shadow_prem_over_target == pytest.approx(450.0)
+
+
+def test_sgul_without_nplus1_relief_uses_the_plain_per_year_target_test():
+    # Illustration default (Robert 10/8/2026): the flag stays on the plancode, but with
+    # relief off the 500 above one yearly target is excess (EPP), as without the flag.
+    config = PlancodeConfig(shadow_nplus1_relief=True)
+    plain = _shadow(config, gross=500.0, ytd=1_500.0, ptd=3_500.0, month=9, nplus1_relief=False)
+    assert plain.shadow_prem_over_target == pytest.approx(500.0)
+    assert plain.shadow_prem_load == pytest.approx(500.0 * 0.35)
+    # Within the yearly target nothing changes: TPP only.
+    under = _shadow(config, gross=500.0, ytd=900.0, ptd=3_500.0, month=9, nplus1_relief=False)
+    assert under.shadow_prem_load == pytest.approx(500.0 * 0.06)
 
 
 @pytest.mark.parametrize("plancode", SGUL_PLANCODES)
@@ -282,7 +297,7 @@ def test_shadow_step_uses_the_gross_withdrawal_when_flagged(monkeypatch):
             config=SimpleNamespace(shadow_late_payment_forgiveness=False, shadow_withdrawal_gross=flag),
             state=SimpleNamespace(shadow_eav=0.0, shadow_premiums_ytd=None, shadow_premiums_to_date=None),
             policy=SimpleNamespace(run_from_issue=False, rollback_date=None),
-            month_inputs=None, rates=None,
+            month_inputs=None, rates=None, options=None,
         )
         work = SimpleNamespace(
             prem=SimpleNamespace(gross_premium=0.0, premiums_ytd=0.0, premiums_to_date=0.0),
@@ -293,6 +308,32 @@ def test_shadow_step_uses_the_gross_withdrawal_when_flagged(monkeypatch):
         )
         calc_engine.calculate_shadow_step(ctx, SimpleNamespace(shadow_enabled=True), work)
         assert seen["wd"] == expected
+
+
+@pytest.mark.parametrize("timing,option,expected", [
+    ("illustration", None, False),       # default forecast: plain per-year target test
+    ("illustration", False, False),
+    ("illustration", True, True),        # user turned the setting on
+    ("cyberlife", None, True),           # CyberLife timing keeps it whatever the setting
+    ("cyberlife", False, True),
+])
+def test_shadow_nplus1_relief_follows_the_timing_convention_and_the_setting(timing, option, expected):
+    from dataclasses import replace
+
+    from suiteview.illustration.core import calc_engine
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    convention = {
+        "illustration": calc_engine.ILLUSTRATION_TIMING,
+        # Shadow is skipped in CyberLife timing today; enable it to see the load input.
+        "cyberlife": replace(calc_engine.CYBERLIFE_MONTHLIVERSARY_TIMING, shadow_enabled=True),
+    }[timing]
+    options = IllustrationOptions() if option is None else IllustrationOptions(shadow_nplus1_relief=option)
+    assert IllustrationOptions().shadow_nplus1_relief is False
+    assert calc_engine.ILLUSTRATION_TIMING.shadow_nplus1_relief is False
+    assert calc_engine.CYBERLIFE_MONTHLIVERSARY_TIMING.shadow_nplus1_relief is True
+    ctx = SimpleNamespace(options=options)
+    assert calc_engine._shadow_nplus1_relief(ctx, convention) is expected
 
 
 # --- the SGUL shadow band is the issue band --------------------------------------------------

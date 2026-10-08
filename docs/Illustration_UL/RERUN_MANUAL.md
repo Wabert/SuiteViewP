@@ -214,7 +214,18 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   (`ShadowAPS205LoadRelief`): the 45% excess load applies only to premium above
   BOTH the policy-year target and, once seven policy months have elapsed since
   issue, (N+1) targets of premium to date (before that, one target; with premium to
-  date unknown, e.g. a caller that cannot supply it, only the per-year test). On
+  date unknown, e.g. a caller that cannot supply it, only the per-year test).
+  **N+1 relief is a setting in illustrations (Robert, 10/8/2026).** Both N+1 rules
+  (this APS205 cumulative test and SGUL `ShadowNPlus1Relief` below) are CyberLife's
+  administrative allowance. Illustration forecasts, inforce and "New Business - From
+  Issue", leave them off by default and use the plain per-year target test, so
+  premium above the policy-year shadow target is loaded as excess (the conservative
+  side). The Inputs tab's "Shadow N+1 Target Relief" (`IllustrationOptions.
+  shadow_nplus1_relief`) turns them on; saved cases keep it (older cases load off);
+  business mode locks it off like the other developer run options. CyberLife
+  monthliversary timing always applies them (`TimingConvention.shadow_nplus1_relief`),
+  and the shadow history harnesses (from-issue `baseline_shadow_check`, the six-month
+  replay `shadow_check`) turn the option on because they reproduce CyberLife history. On
   LTGUL (`ShadowTargetAnnualFlat`) the shadow target adds the full annual flat extra
   per 1000; other shadow plans keep flat/12 (22 SGUL flat-extra policies replay
   identically either way, so there is no evidence to change them). The flat stops at
@@ -256,7 +267,7 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   month's shadow BAV net of load with that month's interest (six-month replay
   UNE05228 -30.28 -> 0.00).
 - **SGUL shadow rules from the from-issue validation (10/8/2026)**:
-  `ShadowNPlus1Relief` (all SGUL plancodes, every mode): once 7 full policy months
+  `ShadowNPlus1Relief` (all SGUL plancodes): once 7 full policy months
   of year N have passed, premium up to 2 targets in the year is loaded at TPP while
   premium to date stays within (N+1) targets (SGUL shadow calculator rule; from issue
   UE037300 -380.91 -> 0.00, UE029100 -180.75 -> +0.06). `ShadowMonthlyInterest`

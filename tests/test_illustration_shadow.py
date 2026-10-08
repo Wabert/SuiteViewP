@@ -179,6 +179,7 @@ def test_aps205_relief_uses_policy_month_and_cumulative_target():
         gross_premium=1_500.0,
         premiums_ytd=1_500.0,
         premiums_to_date=1_500.0,
+        nplus1_relief=True,
         policy=policy,
         config=config,
         rates=rates,
@@ -228,7 +229,8 @@ def test_aps205_premium_earns_receipt_to_monthliversary_interest():
     assert result.shadow_nar_av == result.shadow_net_prem
 
 
-def _aps205_load(*, gross, ytd, ptd, year, month, tpr=10.0, flat=0.0, waiver=0.0, cease=None, when=None):
+def _aps205_load(*, gross, ytd, ptd, year, month, tpr=10.0, flat=0.0, waiver=0.0, cease=None, when=None,
+                 relief=True):
     policy = _shadow_policy()
     policy.segments[0].flat_extra = flat
     rates = _shadow_rates(
@@ -239,7 +241,7 @@ def _aps205_load(*, gross, ytd, ptd, year, month, tpr=10.0, flat=0.0, waiver=0.0
         shadow_target_waiver_cease=cease,
     )
     return calculate_shadow(ShadowInput(
-        prev_shadow_eav=0.0, gross_premium=gross, premiums_ytd=ytd, premiums_to_date=ptd,
+        prev_shadow_eav=0.0, gross_premium=gross, premiums_ytd=ytd, premiums_to_date=ptd, nplus1_relief=relief,
         policy=policy, config=PlancodeConfig(shadow_aps205_load_relief=True), rates=rates,
         rate_year=year, policy_month=month, attained_age=45, days_in_month=30, policy_debt=0.0,
         projection_date=when,
@@ -271,6 +273,19 @@ def test_aps205_unknown_premium_to_date_falls_back_to_the_per_year_rule():
     # No cumulative relief without PTD: 500 over one target is loaded (old code: 225).
     result = _aps205_load(gross=1_500.0, ytd=1_500.0, ptd=None, year=5, month=1)
     assert result.shadow_excess_load == pytest.approx(225.0)
+
+
+def test_aps205_without_nplus1_relief_loads_premium_above_the_yearly_target():
+    # Illustration default (Robert 10/8/2026): U0592771's year-19 premium, relieved
+    # by CyberLife's N+1 test above, is loaded on the excess over one yearly target.
+    relieved = _aps205_load(gross=319.37, ytd=2_048.0, ptd=19_078.0, year=19, month=6)
+    plain = _aps205_load(gross=319.37, ytd=2_048.0, ptd=19_078.0, year=19, month=6, relief=False)
+    assert relieved.shadow_excess_load == 0.0
+    assert plain.shadow_prem_over_target == pytest.approx(319.37)
+    assert plain.shadow_excess_load == pytest.approx(319.37 * 0.45)
+    # Premium within the yearly target is never loaded either way.
+    within = _aps205_load(gross=100.0, ytd=900.0, ptd=19_000.0, year=19, month=6, relief=False)
+    assert within.shadow_excess_load == 0.0
 
 
 def _flat_target(*, annual_flag, cease=None, when=None):

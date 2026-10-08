@@ -1156,6 +1156,8 @@ def non_default_settings_lines(
             (bool(settings.exact_days_interest), "EXACT DAYS INTEREST"),
             (settings.levelizing_premium, "LEVELIZED CAPPED PREMIUMS"),
             (settings.guideline_by_search, "GUIDELINE AND 7-PAY PREMIUMS FOUND BY SEARCH ROUTINE"),
+            (getattr(settings, "shadow_nplus1_relief", False),
+             "SHADOW ACCOUNT N+1 TARGET PREMIUM RELIEF APPLIED"),
             (settings.apply_prem_to_loan, "PREMIUMS APPLIED TO REPAY POLICY LOANS FIRST"),
             (settings.apply_excess_repayment_as_premium,
              "LOAN REPAYMENTS ABOVE THE LOAN BALANCE APPLIED AS PREMIUM"),

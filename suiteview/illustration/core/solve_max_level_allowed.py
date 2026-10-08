@@ -229,10 +229,10 @@ def solve_max_level_allowed(
             basis matches the displayed run).
         resolution: rounding granularity; the result is rounded DOWN to this so
             the lifetime total lands inside the room.
-        base_options: only ``exact_days_interest``, ``levelizing_premium`` and
-            ``apply_prem_to_loan`` are read from it; the guideline and TAMRA
-            conformance toggles are forced on (there is no premium room to
-            measure without them).
+        base_options: only ``exact_days_interest``, ``levelizing_premium``,
+            ``apply_prem_to_loan`` and ``shadow_nplus1_relief`` are read from it;
+            the guideline and TAMRA conformance toggles are forced on (there is no
+            premium room to measure without them).
     """
     if policy.is_cvat:
         raise MaxLevelAllowedError("Max Level applies to GPT policies only.")

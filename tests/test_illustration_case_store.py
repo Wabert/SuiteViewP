@@ -574,6 +574,7 @@ def _fill_everything(tab: IllustrationInputsTab):
     tab.exact_days_check.setChecked(True)
     tab.levelizing_check.setChecked(False)
     tab.gp_search_check.setChecked(True)
+    tab.shadow_nplus1_check.setChecked(True)
     tab.illustration_years_combo.setCurrentText("20")
 
 
@@ -612,10 +613,23 @@ def test_capture_apply_round_trips_every_input_group(tmp_path):
     assert target.dynamic_panel.withdrawal_section.rows()[0].basis() == "gross"
     assert target.variable_loan_toggle.isChecked()
     assert target.exact_days_check.isChecked()
+    assert target.shadow_nplus1_check.isChecked()
+    assert target.export_options().shadow_nplus1_relief is True
     assert target.illustration_years_combo.currentText() == "20"
     adj = target.dynamic_panel.riders_panel._adjustments["cov:2"]
     assert adj.action == "change" and adj.new_amount == 10000.0
     assert adj.effective_year == 9
+
+
+def test_case_saved_before_shadow_nplus1_setting_loads_with_it_off(tmp_path):
+    source = _loaded_tab(_RiderPolicy())
+    state = source.capture_case_inputs()
+    del state["controls"]["shadow_nplus1_relief"]   # a case saved before the setting
+    target = _loaded_tab(_RiderPolicy())
+    target.shadow_nplus1_check.setChecked(True)     # stale UI state must not survive
+    target.apply_case_inputs(state)
+    assert not target.shadow_nplus1_check.isChecked()
+    assert target.export_options().shadow_nplus1_relief is False
 
 
 def test_apply_warns_when_saved_rider_is_missing():

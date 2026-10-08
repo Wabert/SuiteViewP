@@ -164,6 +164,7 @@ def _locked_values(tab: IllustrationInputsTab) -> dict:
         "principal_first": tab.loan_principal_first_check.isChecked(),
         "ag49": tab.policy_ag49_check.isChecked(),
         "tamra": tab.dynamic_panel.tamra_check.isChecked(),
+        "shadow_nplus1": tab.shadow_nplus1_check.isChecked(),
     }
 
 
@@ -171,6 +172,7 @@ _STANDARD = {
     "enable": False, "tefra": True, "stop": True, "option_a": False,
     "exact": False, "gp_search": False, "levelizing": True,
     "principal_first": False, "ag49": False, "tamra": True,
+    "shadow_nplus1": False,
 }
 
 
@@ -248,6 +250,7 @@ def developer_case(monkeypatch):
     tab.switch_to_option_a_check.setChecked(True)
     tab.exact_days_check.setChecked(True)
     tab.gp_search_check.setChecked(True)
+    tab.shadow_nplus1_check.setChecked(True)
     tab.levelizing_check.setChecked(False)
     tab.loan_principal_first_check.setChecked(True)
     tab.policy_ag49_check.setChecked(True)
@@ -258,6 +261,7 @@ def developer_case(monkeypatch):
     tab.withdrawal_table.setItem(0, 1, QTableWidgetItem("1000"))
     state = tab.capture_case_inputs()
     assert state["controls"]["exact_days"] is True
+    assert state["controls"]["shadow_nplus1_relief"] is True
     assert state["grids"]["withdrawals"]
     monkeypatch.setenv(BUSINESS_MODE_ENV, "1")
     return state
@@ -276,6 +280,10 @@ def test_developer_inputs_tab_unchanged(developer):
     assert tab.business_lock_note.isHidden()
     tab.exact_days_check.setChecked(True)
     assert tab.export_options().exact_days_interest is True
+    assert tab.shadow_nplus1_check.isEnabled()
+    assert tab.export_options().shadow_nplus1_relief is False
+    tab.shadow_nplus1_check.setChecked(True)
+    assert tab.export_options().shadow_nplus1_relief is True
 
 
 # ── values tab ───────────────────────────────────────────────────────

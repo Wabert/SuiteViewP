@@ -382,6 +382,7 @@ class IllustrationInputsTab(QWidget):
             self.enable_illustration_options_check, self.tefra_check,
             self.stop_on_lapse_check, self.switch_to_option_a_check,
             self.exact_days_check, self.gp_search_check, self.levelizing_check,
+            self.shadow_nplus1_check,
             self.loan_principal_first_check, self.policy_ag49_check,
             self.dynamic_panel.tamra_check,
         )
@@ -400,6 +401,7 @@ class IllustrationInputsTab(QWidget):
         self.exact_days_check.setChecked(BUSINESS_LOCKED_OPTIONS["exact_days_interest"])
         self.gp_search_check.setChecked(BUSINESS_LOCKED_OPTIONS["guideline_by_search"])
         self.levelizing_check.setChecked(BUSINESS_LOCKED_OPTIONS["levelizing_premium"])
+        self.shadow_nplus1_check.setChecked(BUSINESS_LOCKED_OPTIONS["shadow_nplus1_relief"])
         self.loan_principal_first_check.setChecked(
             BUSINESS_LOCKED_OPTIONS["loan_repay_principal_first"])
         self.policy_ag49_check.setChecked(BUSINESS_LOCKED_OPTIONS["use_policy_ag49_regime"])
@@ -760,6 +762,20 @@ class IllustrationInputsTab(QWidget):
             "statutory interest, current expenses) instead of the monthly commutation formula."
         )
         layout.addWidget(self.gp_search_check)
+
+        # Shadow N+1 target relief (Robert, 10/8/2026). Off by default: the
+        # illustration loads shadow premium above the policy-year target as
+        # excess. On applies CyberLife's N+1 rule (premium to date within N+1
+        # targets is not excess), as the history replay does.
+        self.shadow_nplus1_check = self._make_control_checkbox("Shadow N+1 Target Relief")
+        self.shadow_nplus1_check.setChecked(False)
+        self.shadow_nplus1_check.setToolTip(
+            "Shadow (CCV) account only. Checked applies CyberLife's N+1 target relief: "
+            "premium paid ahead, up to N+1 shadow targets of premium to date, is not "
+            "loaded as excess. Unchecked (default, conservative) loads premium above "
+            "each policy year's shadow target at the excess rate."
+        )
+        layout.addWidget(self.shadow_nplus1_check)
 
         # Loan repayment order (fix E03). Off is RERUN's conservative default —
         # a repayment pays accrued loan interest first; on matches CyberLife,
@@ -1718,6 +1734,7 @@ class IllustrationInputsTab(QWidget):
             # conform_to_tefra. Only PolView's GLP solver overrides it.
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
+            shadow_nplus1_relief=self.shadow_nplus1_check.isChecked(),
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
             apply_excess_repayment_as_premium=(
                 self.dynamic_panel.excess_repayment_as_premium()),
@@ -1989,6 +2006,7 @@ class IllustrationInputsTab(QWidget):
                 "exception_prem": self.exception_prem_check.isChecked(),
                 "levelizing": self.levelizing_check.isChecked(),
                 "gp_search": self.gp_search_check.isChecked(),
+                "shadow_nplus1_relief": self.shadow_nplus1_check.isChecked(),
                 "loan_principal_first": self.loan_principal_first_check.isChecked(),
                 "enable_illustration_options": (
                     self.enable_illustration_options_check.isChecked()),
@@ -2109,6 +2127,8 @@ class IllustrationInputsTab(QWidget):
         self.exact_days_check.setChecked(bool(controls.get("exact_days")))
         self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
         self.gp_search_check.setChecked(bool(controls.get("gp_search")))
+        # Cases saved before the setting existed load with it off.
+        self.shadow_nplus1_check.setChecked(bool(controls.get("shadow_nplus1_relief", False)))
         self.loan_principal_first_check.setChecked(
             bool(controls.get("loan_principal_first")))
         self.abr_minimum_face_edit.setText(

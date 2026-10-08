@@ -1119,6 +1119,20 @@ Valuation-date injection point:
 
 The shadow calculation runs as a parallel mini-engine through `calculate_shadow()`.
 
+**Shadow N+1 target relief (setting, 10/8/2026).** CyberLife allows up to (N+1) shadow
+targets of premium to date before premium counts as excess: SGUL `ShadowNPlus1Relief`
+(TPP up to 2 targets in the year once 7 full policy months have passed) and the LTGUL
+APS205 cumulative test (`ShadowAPS205LoadRelief`). Illustration forecasts (inforce and
+"New Business - From Issue") do not model it by default: the shadow load is the plain
+per-year target test, TPP up to the policy-year target and EPP above it (APS205: the
+excess load above the policy-year target). The Inputs-tab option "Shadow N+1 Target
+Relief" (`IllustrationOptions.shadow_nplus1_relief`) turns the relief on; it is saved
+with the case (older cases load with it off) and is locked off in business mode, like the
+other developer run options. CyberLife monthliversary timing always applies the relief
+(`TimingConvention.shadow_nplus1_relief`), as do the history harnesses that replay the
+shadow (`tools/rerun/baseline_shadow_check.py`, the six-month replay `shadow_check.py`),
+which run illustration timing with the option on. The plancode flags are unchanged.
+
 If `policy.has_shadow_account` is false, the function returns zeros and shadow protection is effectively disabled.
 
 The shadow side calculates its own:

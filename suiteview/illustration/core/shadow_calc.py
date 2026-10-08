@@ -79,6 +79,9 @@ class ShadowInput:
     Premium and YTD amounts are dollars after the regular-side premium step.
     ``premiums_to_date`` is ``None`` when the caller does not know it; the APS205
     load then skips its cumulative (N+1) relief and uses the per-year test.
+    ``nplus1_relief`` off (the default, as in an illustration forecast) does the same
+    for every shadow family: the SGUL N+1 rule and the APS205 cumulative test are
+    skipped, so premium above the policy-year shadow target is loaded as excess.
     ``days_in_month`` is actual calendar days; ``display_days_in_month`` carries
     the option-aware 365/12 vs exact-days count used for interest display.
     """
@@ -96,6 +99,10 @@ class ShadowInput:
     policy_month: int = 1
     post_deduction_gross_premium: float = 0.0
     premiums_to_date: float | None = None
+    # CyberLife's N+1 target relief on the shadow load (SGUL ``ShadowNPlus1Relief``,
+    # APS205 cumulative test). The engine sets it from the timing convention and
+    # ``IllustrationOptions.shadow_nplus1_relief``.
+    nplus1_relief: bool = False
     # Part of gross_premium received in the previous policy year (history replays only).
     prior_year_gross_premium: float = 0.0
     # History replay, forgiveness plans: received after the opening monthliversary (whose
@@ -526,7 +533,8 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     post_deduction_gross_premium = inputs.post_deduction_gross_premium
     gross_premium_interest_days = inputs.gross_premium_interest_days
     premiums_ytd = inputs.premiums_ytd
-    premiums_to_date = inputs.premiums_to_date
+    # Without N+1 relief no load rule sees premium to date: the per-year test alone.
+    premiums_to_date = inputs.premiums_to_date if inputs.nplus1_relief else None
     policy = inputs.policy
     config = inputs.config
     rates = inputs.rates

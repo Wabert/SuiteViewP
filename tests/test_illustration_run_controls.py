@@ -352,6 +352,7 @@ def test_run_controls_checkboxes_use_shared_purple_style():
         tab.exception_prem_check,
         tab.levelizing_check,
         tab.gp_search_check,
+        tab.shadow_nplus1_check,
         tab.loan_principal_first_check,
         tab.stop_on_lapse_check,
         tab.policy_ag49_check,

@@ -245,8 +245,10 @@ def run_engine(case: ShadowCase) -> list:
     from suiteview.illustration.api import project_policy
     from suiteview.illustration.models.input_set import IllustrationOptions
 
+    # From-issue replay of CyberLife history: keep CyberLife's shadow N+1 target relief,
+    # which illustrations leave off by default.
     options = IllustrationOptions(conform_to_tefra=False, conform_to_tamra=False,
-                                  guideline_forceouts=False, no_lapse=True)
+                                  guideline_forceouts=False, no_lapse=True, shadow_nplus1_relief=True)
     run = project_policy(case.issue_policy, config=case.config, rates=case.rates, inputs=case.inputs,
                          months=case.months, stop_on_lapse=False, options=options)
     return [s for s in run.states if s.date is not None and s.date >= case.base.issue_date]

@@ -38,6 +38,7 @@ BUSINESS_LOCKED_OPTIONS = {
     "loan_repay_principal_first": False,
     "use_policy_ag49_regime": False,
     "iul_segment_crediting": False,
+    "shadow_nplus1_relief": False,
 }
 
 
