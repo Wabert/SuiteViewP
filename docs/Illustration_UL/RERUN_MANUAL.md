@@ -251,10 +251,33 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   the month the shadow credits it, not its account-value bucket month. Other
   shadow products credit a dated premium with receipt-to-monthliversary interest
   in rollback/from-issue replays (FPUL2 U0436543 -164.46 -> -0.28 vs XP).
-- **Shadow withdrawals**: the accepted net withdrawal is subtracted from the
-  shadow account (with receipt-to-monthliversary interest when the transaction
-  carries an actual receipt date); the withdrawal fee and partial surrender
-  charge are not (U0591866: +2.22 vs XP; the AV's gross amount gives -37.80).
+  In a history replay a forgiveness premium received after the opening (seed)
+  monthliversary, whose row is CyberLife's XP, is brought forward into the next
+  month's shadow BAV net of load with that month's interest (six-month replay
+  UNE05228 -30.28 -> 0.00).
+- **SGUL shadow rules from the from-issue validation (10/8/2026)**:
+  `ShadowNPlus1Relief` (all SGUL plancodes, every mode): once 7 full policy months
+  of year N have passed, premium up to 2 targets in the year is loaded at TPP while
+  premium to date stays within (N+1) targets (SGUL shadow calculator rule; from issue
+  UE037300 -380.91 -> 0.00, UE029100 -180.75 -> +0.06). `ShadowMonthlyInterest`
+  (SGUL; rollback / from-issue replays only): CyberLife credits the shadow
+  (1+i)^(1/12)-1 every month, not on exact days (business-mode illustrations
+  already use 365/12, which is the same). `ShadowWithdrawalGross` (SGUL and
+  Passport Select II, every mode): the shadow deducts the gross withdrawal, fee and
+  partial surrender charge included (UE031356 six-month replay +30.16 -> +0.24; SGUL
+  calculator; Passport from issue U0452966 +167.60 -> +4.01, U0456867 +250.03 ->
+  +127.88; LTGUL stays net: U0569244/U0570097 from issue get worse with gross).
+- **Premium received before the anniversary it is bucketed to** (history replays,
+  non-forgiveness plans): CyberLife posts it to the prior policy year's premium total
+  (LH_POL_YR_TOT) but tests the shadow load against the new year's total, which
+  excludes it, so it is not loaded and does not count toward the new year
+  (`CompiledMonthInputs.shadow_prior_year_premium`; from issue U0594201 -1,855.97 ->
+  0.00, U0574638 -6,274 -> +60; six-month replay U0609851 -10,079 -> -0.11).
+- **Shadow withdrawals**: on LTGUL the accepted net withdrawal
+  is subtracted from the shadow account (with receipt-to-monthliversary interest when
+  the transaction carries an actual receipt date); the withdrawal fee and partial
+  surrender charge are not (U0591866: +2.22 vs XP; the AV's gross amount gives
+  -37.80). SGUL and Passport Select II deduct the gross (`ShadowWithdrawalGross`, above).
   This does not change the existing option-B shadow NAR basis.
 - **Dates**: `CALENDAR` rates (current COI, EPU, MFEE, loads) take each coverage
   year's rate from the scale window in effect on that year's start, so historical

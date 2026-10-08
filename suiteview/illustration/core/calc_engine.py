@@ -1563,17 +1563,24 @@ def calculate_shadow_step(
         work.shd = None
         return
     gross_premium, post_deduction_premium = _shadow_premium_timing(ctx, work)
+    opening_late_premium = (
+        float(getattr(ctx.month_inputs, "shadow_opening_late_premium", 0.0) or 0.0)
+        if ctx.config.shadow_late_payment_forgiveness and ctx.month_inputs is not None else 0.0
+    )
+    prior_year_premium = _shadow_prior_year_premium(ctx, gross_premium)
     premiums_ytd, premiums_to_date = _shadow_premium_totals(
-        ctx, work, gross_premium + post_deduction_premium)
+        ctx, work, gross_premium + post_deduction_premium + opening_late_premium, prior_year_premium)
     work.shadow_premiums_ytd, work.shadow_premiums_to_date = (
         (premiums_ytd, premiums_to_date)
-        if ctx.config.shadow_late_payment_forgiveness else (None, None))
+        if _shadow_tracks_own_totals(ctx) else (None, None))
     work.shd = calculate_shadow(ShadowInput(
         prev_shadow_eav=ctx.state.shadow_eav,
         gross_premium=gross_premium,
         post_deduction_gross_premium=post_deduction_premium,
         premiums_ytd=premiums_ytd,
         premiums_to_date=premiums_to_date,
+        prior_year_gross_premium=prior_year_premium,
+        opening_late_gross_premium=opening_late_premium,
         policy=ctx.policy,
         config=ctx.config,
         rates=ctx.rates,
@@ -1586,10 +1593,16 @@ def calculate_shadow_step(
             getattr(ctx.month_inputs, "shadow_premium_days_to_bucket", 0.0)
             if ctx.month_inputs is not None else 0.0
         ),
-        # The accepted (net) withdrawal: CyberLife's shadow does not deduct the
-        # withdrawal fee / partial surrender charge (U0591866 vs XP: net +2.22,
-        # the AV's gross -37.80).
-        gross_withdrawal=work.wd.applied_net_withdrawal,
+        # LTGUL: the accepted (net) withdrawal; CyberLife's shadow does not deduct the
+        # withdrawal fee / partial surrender charge there (U0591866 vs XP: net +2.22,
+        # the AV's gross -37.80). SGUL and Passport Select II (``ShadowWithdrawalGross``)
+        # deduct the gross amount, charge included (UE031356 SM 990.99 = 961.08 net +
+        # 29.91: six-month replay +30.16 -> +0.24; SGUL calculator; from issue Passport
+        # U0452966 +167.60 -> +4.01, U0456867 +250.03 -> +127.88).
+        gross_withdrawal=(
+            work.wd.gross_withdrawal if ctx.config.shadow_withdrawal_gross
+            else work.wd.applied_net_withdrawal
+        ),
         gross_withdrawal_interest_days=(
             getattr(ctx.month_inputs, "shadow_withdrawal_days_to_bucket", 0.0)
             if ctx.month_inputs is not None else 0.0
@@ -1611,22 +1624,46 @@ def _shadow_premium_timing(ctx: MonthContext, work: MonthWork) -> tuple[float, f
     return max(0.0, work.prem.gross_premium - bucketed), prior
 
 
+def _shadow_tracks_own_totals(ctx: MonthContext) -> bool:
+    """The shadow keeps its own premium totals (receipt-based) rather than the AV's."""
+    return bool(
+        ctx.config.shadow_late_payment_forgiveness
+        or ctx.policy.run_from_issue
+        or ctx.policy.rollback_date is not None
+    )
+
+
+def _shadow_prior_year_premium(ctx: MonthContext, shadow_gross: float) -> float:
+    """Part of this anniversary's pre-deduction premium received in the prior policy year.
+
+    Late-payment-forgiveness plans already credit such a premium in the prior month.
+    """
+    if ctx.config.shadow_late_payment_forgiveness or ctx.month_inputs is None:
+        return 0.0
+    prior = getattr(ctx.month_inputs, "shadow_prior_year_premium", 0.0)
+    return min(max(prior, 0.0), shadow_gross)
+
+
 def _shadow_premium_totals(
-    ctx: MonthContext, work: MonthWork, shadow_gross: float,
+    ctx: MonthContext, work: MonthWork, shadow_gross: float, prior_year_gross: float = 0.0,
 ) -> tuple[float, float]:
     """Shadow premiums YTD / to date after this month's shadow-credited gross.
 
     With late-payment forgiveness the shadow credits a premium in the month it
     was received, so its own running totals are carried on the state (the AV
-    totals follow the bucket month). Without it they equal the AV totals.
+    totals follow the bucket month). A history replay also carries its own totals so
+    that a premium received before the anniversary it is bucketed to
+    (``prior_year_gross``) counts in the year it was received. Otherwise they equal
+    the AV totals.
     """
     av_ytd_before = work.prem.premiums_ytd - work.prem.gross_premium
     av_td_before = work.prem.premiums_to_date - work.prem.gross_premium
     state = ctx.state
-    if not ctx.config.shadow_late_payment_forgiveness or state.shadow_premiums_to_date is None:
-        return av_ytd_before + shadow_gross, av_td_before + shadow_gross
+    if not _shadow_tracks_own_totals(ctx) or state.shadow_premiums_to_date is None:
+        return av_ytd_before + shadow_gross - prior_year_gross, av_td_before + shadow_gross
     ytd_before = 0.0 if work.next_month == 1 else float(state.shadow_premiums_ytd or 0.0)
-    return ytd_before + shadow_gross, state.shadow_premiums_to_date + shadow_gross
+    return (ytd_before + shadow_gross - prior_year_gross,
+            state.shadow_premiums_to_date + shadow_gross)
 
 
 def evaluate_lapse(ctx: MonthContext, convention: TimingConvention, work: MonthWork) -> None:

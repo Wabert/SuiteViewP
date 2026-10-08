@@ -554,10 +554,12 @@ def test_sgul15s_ny_has_shadow_config_on_base_scale_s_rates():
     assert config.shadow_late_payment_forgiveness is True
 
 
-def _totals_ctx(*, forgiveness, ytd=None, td=None):
+def _totals_ctx(*, forgiveness, ytd=None, td=None, history=False, prior=0.0):
     return SimpleNamespace(
         config=SimpleNamespace(shadow_late_payment_forgiveness=forgiveness),
         state=SimpleNamespace(shadow_premiums_ytd=ytd, shadow_premiums_to_date=td),
+        policy=SimpleNamespace(run_from_issue=history, rollback_date=None),
+        month_inputs=SimpleNamespace(shadow_prior_year_premium=prior),
     )
 
 

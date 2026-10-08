@@ -96,6 +96,12 @@ class ShadowInput:
     policy_month: int = 1
     post_deduction_gross_premium: float = 0.0
     premiums_to_date: float | None = None
+    # Part of gross_premium received in the previous policy year (history replays only).
+    prior_year_gross_premium: float = 0.0
+    # History replay, forgiveness plans: received after the opening monthliversary (whose
+    # row is CyberLife's XP, not recalculated). Brought forward net of load with a month
+    # of interest; not part of gross_premium.
+    opening_late_gross_premium: float = 0.0
     gross_premium_interest_days: float = 0.0
     gross_withdrawal: float = 0.0
     gross_withdrawal_interest_days: float = 0.0
@@ -203,6 +209,38 @@ def _aps205_premium_load(
     return max(gross_premium - loaded, 0.0), loaded, 0.0, load
 
 
+# Full policy months of year N that must have passed before the SGUL N+1 relief applies.
+SGUL_NPLUS1_RELIEF_MONTHS = 7
+
+
+def _sgul_nplus1_relief_load(
+    *,
+    gross_premium: float,
+    premiums_ytd_after: float,
+    premiums_to_date_after: float,
+    shadow_target_prem: float,
+    policy_year: int,
+    tpp_pct: float,
+    epp_pct: float,
+) -> tuple[float, float, float, float]:
+    """SGUL TPP/EPP load with the company N+1 target rule.
+
+    Once 7 full policy months of year N have passed, up to 2 targets in the year
+    get TPP while premium since issue stays within (N+1) targets, so next year's
+    premium paid a little early is not loaded as excess. Same form as the SGUL shadow
+    calculator (shadow_model.target_portion), which with it reproduces XP on UE037300
+    (-380.91 -> 0.00) and UE029100 (-180.75 -> +0.06); the engine misses by exactly
+    those amounts without it.
+    """
+    target = shadow_target_prem
+    over = premiums_ytd_after - target
+    over = min(over, max(premiums_ytd_after - 2.0 * target,
+                         premiums_to_date_after - (policy_year + 1) * target))
+    prem_over = min(gross_premium, max(over, 0.0))
+    prem_under = gross_premium - prem_over
+    return prem_under, prem_over, prem_under * tpp_pct, prem_over * epp_pct
+
+
 def _premium_load_detail(
     *,
     config: PlancodeConfig,
@@ -237,6 +275,18 @@ def _premium_load_detail(
             tpp_pct=tpp_pct,
             epp_pct=epp_pct,
         )
+        if (config.shadow_nplus1_relief and gross_premium > 0.0
+                and premiums_to_date_after is not None
+                and policy_month - 1 >= SGUL_NPLUS1_RELIEF_MONTHS):
+            prem_under, prem_over, target_load, excess_load = _sgul_nplus1_relief_load(
+                gross_premium=gross_premium,
+                premiums_ytd_after=premiums_ytd_after,
+                premiums_to_date_after=premiums_to_date_after,
+                shadow_target_prem=shadow_target_prem,
+                policy_year=policy_year,
+                tpp_pct=tpp_pct,
+                epp_pct=epp_pct,
+            )
     load = target_load + excess_load
     net_premium = _round_near(gross_premium - load, 2)
     return prem_under, prem_over, target_load, excess_load, net_premium
@@ -305,6 +355,11 @@ def _shadow_coi_rate(
     )
 
 
+def _historical_replay(policy: IllustrationPolicyData) -> bool:
+    """Rollback / from-issue replay of CyberLife history (same test as the input compiler)."""
+    return bool(policy.run_from_issue or policy.rollback_date is not None)
+
+
 def _shadow_interest_values(
     *,
     config: PlancodeConfig,
@@ -313,11 +368,15 @@ def _shadow_interest_values(
     shadow_av: float,
     days_in_month: int,
     display_days_in_month: float | None,
+    monthly_effective: bool = False,
 ) -> tuple[float, float, float, float]:
-    shadow_days = (
-        float(display_days_in_month)
-        if display_days_in_month is not None else float(days_in_month)
-    )
+    if monthly_effective:
+        shadow_days = DAYS_PER_YEAR / MONTHS_PER_YEAR
+    else:
+        shadow_days = (
+            float(display_days_in_month)
+            if display_days_in_month is not None else float(days_in_month)
+        )
     shadow_int_rate = get_rate(rates, "shadow_int", rate_year)
     shadow_eff_rate = (1.0 + shadow_int_rate) ** (shadow_days / DAYS_PER_YEAR) - 1.0
     shadow_interest = max(0.0, shadow_eff_rate * shadow_av)
@@ -407,6 +466,46 @@ def _build_shadow_result(values: dict) -> ShadowResult:
     })
 
 
+def _opening_late_premium_value(
+    *,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    rate_year: int,
+    policy: IllustrationPolicyData,
+    gross_premium: float,
+    premiums_ytd_before: float,
+    premiums_to_date_before: float | None,
+    shadow_target_prem: float,
+    tpp_pct: float,
+    epp_pct: float,
+    policy_month: int,
+    days_in_month: int,
+    display_days_in_month: float | None,
+) -> float:
+    """Net premium received after the opening monthliversary, with that month's interest.
+
+    Late-payment forgiveness credits it after the opening month's deduction with a full
+    month of interest; that row is CyberLife's XP, so the value is brought forward here.
+    """
+    *_, net_premium = _premium_load_detail(
+        config=config,
+        gross_premium=gross_premium,
+        premiums_ytd_before=premiums_ytd_before,
+        premiums_to_date_before=premiums_to_date_before,
+        shadow_target_prem=shadow_target_prem,
+        tpp_pct=tpp_pct,
+        epp_pct=epp_pct,
+        policy_month=policy_month - 1 if policy_month > 1 else MONTHS_PER_YEAR,
+        policy_year=rate_year,
+    )
+    _days, _rate, eff_rate, _interest = _shadow_interest_values(
+        config=config, rates=rates, rate_year=rate_year, shadow_av=0.0,
+        days_in_month=days_in_month, display_days_in_month=display_days_in_month,
+        monthly_effective=config.shadow_monthly_interest and _historical_replay(policy),
+    )
+    return _round_near(net_premium * (1.0 + eff_rate), 2)
+
+
 def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     """Calculate one month of the shadow account.
 
@@ -478,11 +577,28 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     tpp_pct, epp_pct = _shadow_premium_load_rates(rates, rate_year)
 
     # ── Premium loads (cols XB/XC/XD) ─────────────────────────
-    total_gross_premium = gross_premium + post_deduction_gross_premium
-    premiums_ytd_before = premiums_ytd - total_gross_premium
+    # ``prior_year_gross_premium`` is the part of ``gross_premium`` received in the
+    # previous policy year and bucketed to this anniversary: CyberLife posts it to that
+    # year's total but loads it against this year's, which excludes it.
+    prior_year_premium = min(max(inputs.prior_year_gross_premium, 0.0), gross_premium)
+    current_gross_premium = gross_premium - prior_year_premium
+    opening_premium = max(inputs.opening_late_gross_premium, 0.0)
+    total_gross_premium = gross_premium + post_deduction_gross_premium + opening_premium
+    premiums_ytd_before = premiums_ytd - (total_gross_premium - prior_year_premium)
     premiums_to_date_before = (
         None if premiums_to_date is None else premiums_to_date - total_gross_premium
     )
+    if opening_premium > 0.0:
+        shadow_bav += _opening_late_premium_value(
+            config=config, rates=rates, rate_year=rate_year, policy=policy,
+            gross_premium=opening_premium, premiums_ytd_before=premiums_ytd_before,
+            premiums_to_date_before=premiums_to_date_before, shadow_target_prem=shadow_target_prem,
+            tpp_pct=tpp_pct, epp_pct=epp_pct, policy_month=policy_month,
+            days_in_month=days_in_month, display_days_in_month=display_days_in_month,
+        )
+        premiums_ytd_before += opening_premium
+        if premiums_to_date_before is not None:
+            premiums_to_date_before += opening_premium
     (
         prem_under,
         prem_over,
@@ -491,15 +607,47 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         pre_deduction_net_premium,
     ) = _premium_load_detail(
         config=config,
-        gross_premium=gross_premium,
+        gross_premium=current_gross_premium,
         premiums_ytd_before=premiums_ytd_before,
-        premiums_to_date_before=premiums_to_date_before,
+        premiums_to_date_before=(
+            None if premiums_to_date_before is None
+            else premiums_to_date_before + prior_year_premium
+        ),
         shadow_target_prem=shadow_target_prem,
         tpp_pct=tpp_pct,
         epp_pct=epp_pct,
         policy_month=policy_month,
         policy_year=rate_year,
     )
+    if prior_year_premium > 0.0:
+        # CyberLife posts it to the prior year's premium total but loads it when the
+        # anniversary processes it, against the new year's total, which excludes it
+        # (U0609851: LH_POL_YR_TOT year 17 = 250,266 incl. the 4/28/2026 receipt, yet
+        # neither it nor the year-18 9/2026 premium is loaded; from issue U0594201
+        # -1,855.97 -> 0.00 and U0574638 -6,274 -> +60, whose early annual premium is
+        # above one target and still not loaded).
+        (
+            prior_under,
+            prior_over,
+            prior_target_load,
+            prior_excess_load,
+            prior_net_premium,
+        ) = _premium_load_detail(
+            config=config,
+            gross_premium=prior_year_premium,
+            premiums_ytd_before=premiums_ytd_before - prior_year_premium,
+            premiums_to_date_before=premiums_to_date_before,
+            shadow_target_prem=shadow_target_prem,
+            tpp_pct=tpp_pct,
+            epp_pct=epp_pct,
+            policy_month=policy_month,
+            policy_year=rate_year,
+        )
+        prem_under += prior_under
+        prem_over += prior_over
+        target_load += prior_target_load
+        excess_load += prior_excess_load
+        pre_deduction_net_premium += prior_net_premium
     (
         post_prem_under,
         post_prem_over,
@@ -509,7 +657,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     ) = _premium_load_detail(
         config=config,
         gross_premium=post_deduction_gross_premium,
-        premiums_ytd_before=premiums_ytd_before + gross_premium,
+        premiums_ytd_before=premiums_ytd_before + current_gross_premium,
         premiums_to_date_before=(
             None if premiums_to_date_before is None else premiums_to_date_before + gross_premium
         ),
@@ -612,6 +760,10 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     # ── Interest (cols XS-XV) ─────────────────────────────────
     # RERUN XW = (1+XV)^(XU/365) − 1 where XU is the OPTION-AWARE day count
     # (365/12 with exact-days off), not the actual calendar days.
+    # A replay of CyberLife history runs the regular AV on exact days, but on
+    # ``ShadowMonthlyInterest`` plans (SGUL) CyberLife credits the shadow
+    # (1+i)^(1/12)-1 every month whatever its length: from issue the engine then equals
+    # the SGUL shadow calculator to the cent on 13 policies (2026-10-07).
     shadow_days, shadow_int_rate, shadow_eff_rate, shadow_interest = _shadow_interest_values(
         config=config,
         rates=rates,
@@ -619,6 +771,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         shadow_av=shadow_av,
         days_in_month=days_in_month,
         display_days_in_month=display_days_in_month,
+        monthly_effective=config.shadow_monthly_interest and _historical_replay(policy),
     )
     if _shadow_frozen(config, attained_age):
         shadow_interest = 0.0

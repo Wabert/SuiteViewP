@@ -37,6 +37,12 @@ class CompiledMonthInputs:
     withdrawal_gross: float = 0.0    # gross-basis request (amount leaving the AV)
     shadow_prior_period_premium: float = 0.0
     shadow_bucketed_prior_period_premium: float = 0.0
+    # Bucketed to a policy anniversary but received in the previous policy year
+    # (history replays): the shadow loads it against that year's premiums.
+    shadow_prior_year_premium: float = 0.0
+    # Received after the opening monthliversary of a history replay (late-payment
+    # forgiveness plans): brought forward into this month's shadow BAV.
+    shadow_opening_late_premium: float = 0.0
     shadow_premium_days_to_bucket: float = 0.0
     shadow_withdrawal_days_to_bucket: float = 0.0
     dated_cash_flows: list[DatedCashFlow] = field(default_factory=list)
@@ -167,6 +173,8 @@ def _compile_dated_transactions(
                 month_inputs.billable_to_md_premium += entry.amount
             _compile_shadow_premium_timing(policy, entry, duration, compiled)
             _compile_shadow_premium_interest_timing(entry, month_inputs)
+            if historical_receipt_timing:
+                _compile_shadow_prior_year_premium(policy, entry, duration, month_inputs)
         elif entry.kind == TransactionKind.LOAN:
             if entry.subtype.lower() == "variable":
                 month_inputs.variable_loan += entry.amount
@@ -206,9 +214,36 @@ def _compile_shadow_premium_timing(
         return
     prior = compiled.get(duration - 1)
     if prior is None:
+        if duration - 1 == policy.duration and _historical_receipt_timing(policy):
+            # Received after the opening (inforce / seed) monthliversary, whose row is not
+            # recalculated: the shadow brings it forward net of load with that month's
+            # interest instead (six-month replay UNE05228 -30.28 vs seriatim XP).
+            compiled[duration].shadow_opening_late_premium += entry.amount
+            compiled[duration].shadow_bucketed_prior_period_premium += entry.amount
         return
     prior.shadow_prior_period_premium += entry.amount
     compiled[duration].shadow_bucketed_prior_period_premium += entry.amount
+
+
+def _compile_shadow_prior_year_premium(
+    policy: IllustrationPolicyData,
+    entry,
+    duration: int,
+    month_inputs: CompiledMonthInputs,
+) -> None:
+    """A premium received before the anniversary it is bucketed to belongs to the prior year.
+
+    CyberLife counts shadow premiums by the policy year of receipt: U0609851 (LTGUL,
+    pays ~3 weeks before each monthliversary) has no load on 9/2026 because year 18's
+    receipts are below target, although the 4/28 receipt bucketed to the 5/23
+    anniversary would push the bucketed year-18 total above it.
+    """
+    actual = _metadata_actual_date(entry)
+    if actual is None or actual >= entry.effective_date or actual <= policy.issue_date:
+        return
+    if duration <= 1 or (duration - 1) % 12 != 0:
+        return
+    month_inputs.shadow_prior_year_premium += entry.amount
 
 
 def _compile_shadow_premium_interest_timing(entry, month_inputs: CompiledMonthInputs) -> None:

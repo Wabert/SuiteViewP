@@ -633,6 +633,29 @@ def _load_poav_rates(
         )
 
 
+def _shadow_band(policy: IllustrationPolicyData, config: PlancodeConfig, rates_db: ULRates, seg) -> int:
+    """Band of the shadow rate cell.
+
+    ``ShadowBandIgnoresWithdrawals`` (SGUL): a partial withdrawal that lowers a level
+    death benefit does not move the shadow COI band, so the band is read on the
+    specified amount before withdrawals when that is a higher band. UE057740 (100,000
+    issued, 98,304 after 1,698.28 of withdrawals, CyberLife RT_BAN_CD now A) reproduces
+    XP from issue on band-2 rates (+0.30); band 1 leaves the six-month replay -68.06.
+    A requested decrease does re-band (UE059231 150,000 -> 50,000: band 1 replays -0.74).
+    """
+    band = seg.original_band
+    if not (config.shadow_band_ignores_withdrawals and seg.is_base
+            and str(policy.db_option or "").upper() in ("A", "1")):
+        return band
+    withdrawn = float(policy.withdrawals_to_date or 0.0)
+    if withdrawn <= 0.0:
+        return band
+    before = rates_db.get_band(
+        policy.plancode, float(policy.band_specified_amount or seg.face_amount) + withdrawn,
+        issue_date=policy.issue_date)
+    return max(int(band), int(before)) if before is not None else band
+
+
 def _load_shadow_rates(
     result: IllustrationRates,
     policy: IllustrationPolicyData,
@@ -654,7 +677,7 @@ def _load_shadow_rates(
         )
     plancode = policy.plancode
     cell = dict(issue_age=seg.issue_age, sex=seg.rate_sex, rateclass=seg.rate_class,
-                scale=SHADOW, band=seg.original_band, issue_date=seg.issue_date)
+                scale=SHADOW, band=_shadow_band(policy, config, rates_db, seg), issue_date=seg.issue_date)
     result.shadow_coi = load_coverage_coi_rates(rates_db, plancode=plancode, **cell)
     for attr, rate_type in (("shadow_int", "SHADOW_INT"), ("shadow_dbd", "DBD")):
         schedule = rates_db.get_rates(rate_type, plancode, **cell)
