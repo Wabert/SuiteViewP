@@ -79,26 +79,69 @@ def mortality_table(code: str) -> MortalityTable:
     return table
 
 
-@lru_cache(maxsize=8192)
-def net_single_premium(code: str, interest: float, attained_age: int) -> float:
-    """Whole life net single premium per $1,000 at ``attained_age``."""
+@dataclass(frozen=True)
+class NSPTerm:
+    """One year ``t`` of the NSP sum: death in year ``t`` of a life aged ``x`` now."""
+
+    age: int                 # x + t
+    t: int
+    q: float                 # q(x+t)
+    survival: float          # tpx: alive at the start of year t
+    discount: float          # v ** (t + 1)
+    term: float              # tpx * q(x+t) * v ** (t + 1)
+    cumulative: float        # running sum of the terms through t
+
+
+@dataclass(frozen=True)
+class NSPWorkup:
+    """Every term of a net single premium, so the sum can be followed line by line."""
+
+    table: MortalityTable
+    interest: float
+    attained_age: int
+    terms: Tuple[NSPTerm, ...]
+    claims_factor: float     # i / ln(1 + i) for age-last-birthday tables, else 1
+    nsp: float               # per $1,000
+
+    @property
+    def discount_factor(self) -> float:
+        return 1.0 / (1.0 + self.interest)
+
+    @property
+    def curtate_sum(self) -> float:
+        return self.terms[-1].cumulative if self.terms else 0.0
+
+
+def nsp_workup(code: str, interest: float, attained_age: int) -> NSPWorkup:
+    """The whole life NSP per $1,000 at ``attained_age`` with every term of its sum."""
     table = mortality_table(code)
     if attained_age < table.first_age:
         raise NSPError(
             f"Mortality table {table.code} starts at age {table.first_age}; no NSP at age {attained_age}.")
-    if attained_age > table.last_age:
-        return 1000.0
     rate = float(interest)
+    immediate = table.age_last_birthday and rate > 0
+    factor = rate / math.log(1.0 + rate) if immediate else 1.0
+    if attained_age > table.last_age:
+        return NSPWorkup(table, rate, attained_age, (), factor, 1000.0)
     v = 1.0 / (1.0 + rate)
     total, survival, discount = 0.0, 1.0, 1.0
-    for age in range(attained_age, table.last_age + 1):
+    terms = []
+    for t, age in enumerate(range(attained_age, table.last_age + 1)):
         discount *= v
         q = table.qx[age - table.first_age]
-        total += survival * q * discount
+        term = survival * q * discount
+        total += term
+        terms.append(NSPTerm(age, t, q, survival, discount, term, total))
         survival *= 1.0 - q
-    if table.age_last_birthday and rate > 0:
-        total *= rate / math.log(1.0 + rate)
-    return total * 1000.0
+    if immediate:
+        total *= factor
+    return NSPWorkup(table, rate, attained_age, tuple(terms), factor, total * 1000.0)
+
+
+@lru_cache(maxsize=8192)
+def net_single_premium(code: str, interest: float, attained_age: int) -> float:
+    """Whole life net single premium per $1,000 at ``attained_age``."""
+    return nsp_workup(code, interest, attained_age).nsp
 
 
 def interpolated_nsp(code: str, interest: float, start_age: int, month_of_year: int) -> Tuple[float, float, float]:

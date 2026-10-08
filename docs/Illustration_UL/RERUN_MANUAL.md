@@ -1774,7 +1774,16 @@ as a policy year (its anniversary) or a monthliversary date. The guaranteed colu
 are a second run with no dividends. **Values** pages: Summary, Premiums, Dividends,
 Paid-Up Additions, Cash Value, Loans, Deposits & OYT, Death Benefit, with a Current /
 Guaranteed switch and an Anniversaries-only filter. Each anniversary's dividend buys
-the next year's OYT as the previous year's expires.
+the next year's OYT as the previous year's expires. The last page, **RPU NSP Workup**
+(`ui/parwl_rpu_page.py`, `core/parwl/rpu_workup.py`), rebuilds a selected reduced
+paid-up month's base cash value step by step: the RPU basis (`NSP_RPU_TBL_CD` table
+and `NSP_ITS_RT` interest), `v`, the claims factor (`i / ln(1 + i)` on age-last-birthday
+tables), attained age `x` and month `k`, the NSP sums at `x` and `x + 1`, the monthly
+interpolation, the per-unit value, units and base cash value, checked against the Cash
+Value page and CyberLife's stored `LOW_DUR_*_NSP_AMT`. A second grid lists every
+mortality term (`q`, `tpx`, `v^(t+1)`, term, running sum) of either NSP sum. The terms
+come from `nsp.nsp_workup`, the same function the engine's `net_single_premium` uses.
+When the run never reaches RPU, the page is greyed out with a note.
 
 **Report** (Robert Haessly, 9/29/2026: "a PDF in the same style as the UL reports,
 except landscape"): `core/parwl/report.py` builds the pages and `ui/parwl_workspace.py`

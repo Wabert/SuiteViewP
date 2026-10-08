@@ -23,11 +23,12 @@ import pytest
 from suiteview.illustration.core.fixed_premium import BILL_FORM_FAMILY, ModeFactors
 from suiteview.illustration.core.parwl.engine import ParWLEngine, ParWLProjectionError
 from suiteview.illustration.core.parwl.inforce_checks import cash_value_checks, inforce_checks
-from suiteview.illustration.core.parwl.nsp import net_single_premium
+from suiteview.illustration.core.parwl.nsp import net_single_premium, nsp_workup
 from suiteview.illustration.core.parwl.policy_loader import is_par_whole_life
 from suiteview.illustration.core.parwl.premiums import modal_premium, record_premium_date
 from suiteview.illustration.core.ledger_report import format_ledger_pages
 from suiteview.illustration.core.parwl.report import TITLE, build_parwl_report
+from suiteview.illustration.core.parwl.rpu_workup import rpu_cash_value_workup
 from suiteview.illustration.core.parwl.rates import (
     CoverageDividendRates,
     CoverageRates,
@@ -169,6 +170,21 @@ def test_net_single_premiums_reproduce_cyberlife():
     assert round(net_single_premium("O", 0.03, 68), 2) == 722.75           # 10150100 RPU LOW_DUR_NSP
     assert round(net_single_premium("LP", 0.04, 30), 2) == 180.42          # ALB: immediate claims
     assert round(net_single_premium("LQ", 0.04, 45), 3) == 267.296        # workbook B111A100 F N
+
+
+@pytest.mark.parametrize("code, rate, age", [("N0", 0.04, 74), ("LP", 0.04, 30)])
+def test_nsp_workup_terms_add_up_to_the_net_single_premium(code, rate, age):
+    work = nsp_workup(code, rate, age)
+    assert work.nsp == net_single_premium(code, rate, age)
+    assert work.terms[0].age == age and work.terms[0].survival == 1.0
+    assert work.terms[-1].age == work.table.last_age and work.terms[-1].q == 1.0
+    v = 1.0 / (1.0 + rate)
+    for term in work.terms:
+        assert term.discount == pytest.approx(v ** (term.t + 1))
+        assert term.term == pytest.approx(term.survival * term.q * term.discount)
+    assert work.curtate_sum == pytest.approx(sum(t.term for t in work.terms))
+    assert work.nsp == pytest.approx(1000.0 * work.curtate_sum * work.claims_factor)
+    assert (work.claims_factor != 1.0) == (code == "LP")                    # LP is age last birthday
 
 
 def test_modal_premium_multiply_orders_benefits_and_extras():
@@ -357,6 +373,41 @@ def test_reduced_paid_up_conversion_uses_net_value_over_nsp():
     assert later.dividend_record == "R"
 
 
+def test_rpu_workup_rebuilds_every_reduced_paid_up_base_cash_value():
+    result = ParWLEngine(make_policy(), make_rates(), ParWLInputs(rpu_at=NEXT)).run()
+    rpu_months = [m for m in result.months if m.rpu]
+    assert rpu_months and rpu_months[0].when == NEXT
+    for month in rpu_months:
+        workup = rpu_cash_value_workup(result.policy, month)
+        assert workup.matches, (month.when, workup.base_cv, workup.engine_base_cv)
+    mid_year = next(m for m in rpu_months if m.month_of_year == 5)
+    workup = rpu_cash_value_workup(result.policy, mid_year)
+    steps = {s.item: s for s in workup.steps}
+    x = 49 + mid_year.policy_year - 1
+    assert steps["Attained age x"].value == str(x) and steps["Month of policy year k"].value == "5"
+    assert workup.at_age.attained_age == x and workup.at_next_age.attained_age == x + 1
+    assert steps["Interest rate i"].value == "4%" and "N0" in steps["Mortality table"].formula
+    assert steps["Base cash value"].check == "Matches Cash Value page Base CV"
+    assert steps["Cash value per unit"].check == "Matches Cash Value page CV/Unit"
+    assert "Conversion to RPU" in {s.item for s in rpu_cash_value_workup(result.policy, rpu_months[0]).steps}
+    with pytest.raises(ValueError, match="not on reduced paid-up"):
+        rpu_cash_value_workup(result.policy, result.months[0])
+
+
+def test_rpu_workup_checks_cyberlifes_stored_nsps():
+    rpu_rows = (ParWLDividendValue(1, LAST, "0", False, "", 0.25, 2.01, 0.0, 25.019, rpu_values=True),)
+    stored = round(net_single_premium("N0", 0.04, 49 + 24), 2)              # 1,000 per unit
+    coverages = _coverages(units=25.019, stored_low_duration=24, stored_nsp_values=(stored, stored + 1.0, None))
+    policy = make_policy(premium_status="41", unapplied_dividends=rpu_rows, loans=(), modal_premium=0.0,
+                         coverages=coverages)
+    result = ParWLEngine(policy, make_rates()).run()
+    workup = rpu_cash_value_workup(policy, result.months[0])
+    assert workup.matches
+    checks = {s.item: s.check for s in workup.steps if s.item.startswith("CyberLife NSP")}
+    assert checks["CyberLife NSP/unit, duration 24"] == "Matches CyberLife"
+    assert checks["CyberLife NSP/unit, duration 25"].startswith("Differs from CyberLife")
+
+
 def test_new_loans_and_repayments():
     inputs = ParWLInputs(loans=[DatedAmount(NEXT, 1000.0)], loan_repayments=[DatedAmount(date(2028, 2, 13), 500.0)])
     result = ParWLEngine(make_policy(loans=()), make_rates(), inputs).run()
@@ -458,8 +509,25 @@ def test_workspace_runs_and_shows_monthly_values_and_the_annual_ledger(qtbot):
         assert len(frame) == len(result.months), title
         assert list(frame.columns)[:4] == ["Date", "Year", "Month", "Age"]
     assert set(workspace.values_tab._grids) == set(PAGES)
+    rpu_page = workspace.values_tab.rpu_page
+    assert workspace.values_tab.navigator.count() == len(PAGES) + 1
+    assert rpu_page.month_combo.count() == sum(1 for m in result.months if m.rpu) > 0
+    assert rpu_page.workup is not None and rpu_page.workup.matches and rpu_page.steps_grid.isEnabled()
+    assert rpu_page.terms_grid.model.get_original_data()["Age"].iloc[0] == rpu_page.workup.at_age.attained_age
+    rpu_page.terms_combo.setCurrentIndex(1)
+    assert rpu_page.terms_grid.model.get_original_data()["Age"].iloc[0] == rpu_page.workup.at_next_age.attained_age
+    workspace.values_tab.navigator.setCurrentRow(len(PAGES))
+    assert workspace.values_tab.stack.currentWidget() is rpu_page
+    assert list(workspace.values_tab.current_frame().columns) == ["Step", "Item", "Formula / Source", "Value", "Check"]
+    workspace.values_tab.guaranteed_btn.setChecked(True)
+    assert rpu_page.workup is not None and rpu_page.workup.matches
+    workspace.values_tab.guaranteed_btn.setChecked(False)
     workspace.values_tab.anniversaries_only.setChecked(True)
     assert len(workspace.values_tab._grids["Summary"].model.get_original_data()) < len(result.months)
+    inputs.rpu_check.setChecked(False)
+    workspace.run()
+    assert rpu_page.month_combo.count() == 0 and not rpu_page.steps_grid.isEnabled()
+    assert not rpu_page.note.isHidden() and "Not on reduced paid-up" in rpu_page.note.text()
     inputs.loan_table.item(1, 0).setText("x")
     inputs.loan_table.item(1, 1).setText("5")
     with pytest.raises(ParWLInputError, match="New loans row 2"):

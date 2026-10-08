@@ -4,7 +4,9 @@ The illustration ledger is annual, but every page here is monthly - one row per
 monthliversary, anniversary rows marked - so each step of the engine (premiums,
 dividends and their application, paid-up additions and their NSP, cash values,
 loans, deposits and OYT, death benefit) can be traced. A Current / Guaranteed toggle
-switches between the dividend run and the no-dividend (guaranteed) run.
+switches between the dividend run and the no-dividend (guaranteed) run. The last
+page, RPU NSP Workup, rebuilds a reduced paid-up month's base cash value from the
+mortality table step by step (``parwl_rpu_page.py``).
 """
 from __future__ import annotations
 
@@ -29,6 +31,8 @@ from PyQt6.QtWidgets import (
 from suiteview.illustration.models.parwl import ParWLMonth, ParWLResult
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
+from .parwl_rpu_page import PAGE_TITLE as RPU_PAGE_TITLE
+from .parwl_rpu_page import ParWLRPUWorkupPage
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_PRIMARY, WHITE
 
 LEAD_COLUMNS: Tuple[Tuple[str, str], ...] = (
@@ -168,7 +172,7 @@ class ParWLValuesTab(QWidget):
             "QListWidget { background: white; border: 1px solid #B79CDE; font-size: 11px; }"
             "QListWidget::item { height: 18px; }"
             "QListWidget::item:selected { background: #E8DDF8; color: #2A1458; }")
-        self.navigator.addItems(list(PAGES))
+        self.navigator.addItems(list(PAGES) + [RPU_PAGE_TITLE])
         self.navigator.currentRowChanged.connect(self._show_page)
         self.stack = QStackedWidget(body)
         for title in PAGES:
@@ -180,6 +184,8 @@ class ParWLValuesTab(QWidget):
             grid.set_frozen_column_count(len(LEAD_COLUMNS))
             self._grids[title] = grid
             self.stack.addWidget(grid)
+        self.rpu_page = ParWLRPUWorkupPage(self.stack)
+        self.stack.addWidget(self.rpu_page)
         body.addWidget(self.navigator)
         body.addWidget(self.stack)
         body.setStretchFactor(0, 0)
@@ -194,6 +200,7 @@ class ParWLValuesTab(QWidget):
         self.notes_label.setVisible(False)
         for grid in self._grids.values():
             grid.set_dataframe(pd.DataFrame())
+        self.rpu_page.clear()
 
     def set_result(self, result: ParWLResult) -> None:
         self._result = result
@@ -220,6 +227,8 @@ class ParWLValuesTab(QWidget):
                         if attr not in TEXT_COLUMNS}
             grid.set_numeric_formatting(default_decimals=2, column_decimals=decimals)
             grid.autofit_columns_to_data()
+        if self._result is not None:
+            self.rpu_page.set_months(self._result.policy, months)
 
     def _show_page(self, row: int) -> None:
         if row >= 0:
@@ -227,4 +236,6 @@ class ParWLValuesTab(QWidget):
 
     def current_frame(self) -> pd.DataFrame:
         title = self.navigator.currentItem().text() if self.navigator.currentItem() else "Summary"
+        if title == RPU_PAGE_TITLE:
+            return self.rpu_page.current_frame()
         return month_frame(self._months(), title, self.anniversaries_only.isChecked())
