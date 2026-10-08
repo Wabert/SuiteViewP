@@ -178,7 +178,11 @@ class PlancodeConfig:
     # plans: CyberLife SCR rule 6, the target itself is VP/MS. None = the plan's
     # per-unit SCR rate table.
     scr_pct_of_surrender_target: Optional[tuple] = None
-
+    # Full surrender charge rules and CKULTB04 table (schema PLAN_DEF SCR_RULES /
+    # SCR_TABLE; CyberDoc D10 CKDRECUL DULSFCRU). "60" = rule 6 (per unit / surrender
+    # target), "50" = rule 5 (a percentage of the account value over a free amount).
+    scr_rules: str = ""
+    scr_table: str = ""
     # Loans (schema LOAN_REG_CHG / LOAN_REG_CRD / LOAN_PREF_CHG / LOAN_PREF_CRD; a plan
     # without LOAN_PREF rows has no preferred loan option, so its preferred rates are 0)
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
@@ -213,6 +217,10 @@ class PlancodeConfig:
     def __post_init__(self) -> None:
         if self.sa_basis not in (SA_BASIS_CURRENT, SA_BASIS_ORIGINAL):
             raise ValueError(f"{self.plancode}: invalid SA_Basis {self.sa_basis!r}")
+        if self.ul_pct_of_av_surrender_charge and self.scr_pct_of_surrender_target is not None:
+            raise ValueError(
+                f"{self.plancode}: SCR_PctOfSurrenderTarget conflicts with PLAN_DEF SCR_RULES "
+                f"{self.scr_rules} (rule 5, a percentage of the account value)")
         if self.coi_rate_basis not in (COI_RATE_BASIS_ANNUAL, COI_RATE_BASIS_MONTHLY):
             raise ValueError(f"{self.plancode}: invalid COI_RateBasis {self.coi_rate_basis!r}")
         if self.scr_pct_of_surrender_target is not None and not all(
@@ -243,9 +251,18 @@ class PlancodeConfig:
 
         Specified-amount decreases use ``face_decrease_surrender_charge`` (this rule,
         except FFL UL per-unit plans) and additionally honor the policy's Decrease
-        Charge Rule (``IllustrationPolicyData.decrease_charge_allowed``).
+        Charge Rule (``IllustrationPolicyData.decrease_charge_allowed``). A UL rule-5
+        plan takes none: every NU1FU100/NU1F1N00 policy carries partial surrender rule 1
+        (the flat withdrawal fee only; CKPR LH_NON_TRD_POL, 10/7/2026).
         """
-        return self.sa_basis == SA_BASIS_CURRENT
+        return self.sa_basis == SA_BASIS_CURRENT and not self.ul_pct_of_av_surrender_charge
+
+    @property
+    def ul_pct_of_av_surrender_charge(self) -> bool:
+        """UL (not ISWL) plan whose full surrender charge is rule 5 alone: a percentage
+        (schema ``SCR_PCT``) of the account value, not a per-unit schedule. Company-26
+        NU1FU100 and NU1F1N00 (CKULTB04 table C1)."""
+        return not self.is_iswl and self.scr_rules.strip().rstrip("0") == "5"
 
     @property
     def is_ffl(self) -> bool:
@@ -259,9 +276,11 @@ class PlancodeConfig:
 
     @property
     def ffl_per_unit_surrender_charge(self) -> bool:
-        """FFL UL dollar-per-unit (rule 6) surrender charge: FFL, not ISWL and not a
-        percent of the stored surrender target. The FFL plancodes are company 26."""
-        return self.is_ffl and not self.is_iswl and self.scr_pct_of_surrender_target is None
+        """FFL UL dollar-per-unit (rule 6) surrender charge: FFL, not ISWL, not a percent
+        of the stored surrender target and not rule 5 (percent of the account value). The
+        FFL plancodes are company 26."""
+        return (self.is_ffl and not self.is_iswl and self.scr_pct_of_surrender_target is None
+                and not self.ul_pct_of_av_surrender_charge)
 
     @property
     def surrender_charge_on_original_units(self) -> bool:
@@ -467,6 +486,8 @@ def load_plancode(plancode: str) -> PlancodeConfig:
             tuple(float(pct) for pct in data["SCR_PctOfSurrenderTarget"])
             if data.get("SCR_PctOfSurrenderTarget") is not None else None
         ),
+        scr_rules=facts.scr_rules,
+        scr_table=facts.scr_table,
         loan_type=data.get("LoanType", "Arrears"),
         loan_charge_rate_guar=_required(plancode, facts.loan_reg_chg, "LOAN_REG_CHG"),
         loan_charge_rate_curr=_required(plancode, facts.loan_reg_crd, "LOAN_REG_CRD"),

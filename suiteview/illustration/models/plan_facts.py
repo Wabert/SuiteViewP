@@ -19,6 +19,9 @@ loan rates              PLAN ``LOAN_REG_CHG`` / ``LOAN_REG_CRD`` / ``LOAN_PREF_C
 safety net period       PLAN ``SNET_PERIOD`` by issue age (none = no safety net)
 corridor factors        PLAN ``CORR`` by attained age, grain AA (none = no GPT corridor)
 shadow_plancode         ``PLAN_ATTR SHADOW_LEGACY_PLANCODE``
+scr_rules / scr_table   ``PLAN_DEF.SCR_RULES`` / ``SCR_TABLE``: CyberLife's full surrender
+                        charge rules (CKDRECUL DULSFCRU, e.g. ``60`` per unit, ``50``
+                        percent of AV) and CKULTB04 table
 ======================  ==============================================================
 
 Cell rates (EPU, MFEE, premium loads and the shadow account's scale ``S`` rates) are
@@ -68,6 +71,8 @@ class PlanFacts:
     loan_pref_crd: Optional[float]
     snet_by_issue_age: Optional[Mapping[int, int]]
     corridor_by_age: Optional[Mapping[int, float]]
+    scr_rules: str = ""
+    scr_table: str = ""
 
     @property
     def engine_family(self) -> str:
@@ -225,6 +230,8 @@ def read_plan_facts(repo: RatesSchemaRepository, plancode: str) -> Optional[Plan
         loan_pref_crd=reader.scalar("LOAN_PREF_CRD"),
         snet_by_issue_age=reader.by_issue_age("SNET_PERIOD"),
         corridor_by_age=reader.by_attained_age("CORR"),
+        scr_rules=str(_fact(plan, "SCR_RULES") or "").strip(),
+        scr_table=str(_fact(plan, "SCR_TABLE") or "").strip(),
     )
 
 

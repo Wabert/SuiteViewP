@@ -1295,7 +1295,7 @@ Shadow-account basis remains a separate contractual setting.
 **FFL UL surrender charge on original units** (Robert's 10/5/2026 ruling: "switch FFL to
 the original. That makes sense since FFL doesn't charge a partial surrender charge on a
 decrease."). FFL UL per-unit (rule 6) plans (`PlancodeConfig.ffl_per_unit_surrender_charge`:
-FFL, not ISWL, not percent of surrender target) charge the full surrender charge on each
+FFL, not ISWL, not percent of surrender target, not UL rule 5) charge the full surrender charge on each
 coverage's original units (`LH_COV_PHA.OGN_SPC_UNT_QTY`, carried as
 `CoverageSegment.original_face_amount`; current units when it is missing), and a
 specified-amount decrease, elective or the A->B level-DB reduction, takes no partial
@@ -1318,8 +1318,9 @@ deducted partial surrender target charges"). It equals the old FH_FIXED sum (CHA
 fee per event) on all 5 fitting surrenders, and it also covers purged and pre-conversion
 withdrawals (FH_FIXED 'SG' CVADD rows; TOT_WTD_QTY can be 0 then). Projected withdrawals add to
 it. The credit applies only when the policy's full surrender rules
-(`LH_NON_TRD_POL.FUL_SRD_FST_CRG_CD`/`FUL_SRD_2ND_CRG_CD`) include rule 6; on other rules (e.g.
-NU1FU100, rule 5 with a rule-1 partial fee) the field holds fees and gives no credit. When the field
+(`LH_NON_TRD_POL.FUL_SRD_FST_CRG_CD`/`FUL_SRD_2ND_CRG_CD`) include rule 6; on other rules the
+field holds fees and gives no credit. NU1FU100 and NU1F1N00 (rule 5) are no longer per-unit
+plans at all (see "UL rule-5 surrender charges" below), so they never reach the credit. When the field
 cannot be read on a policy with withdrawals, or the surrender rule is blank, the policy falls back
 to the current-units basis with no credit. The same fallback applies to a value rollback to an
 earlier date (the field may include later withdrawals); a run from issue clears the credit and the
@@ -1365,6 +1366,30 @@ fit the graded rate x `OGN_SPC_UNT_QTY`; since 10/5/2026 the engine charges FFL 
 units, see "FFL UL surrender charge on original units"); AV caps (2);
 and 3 unexplained, 2 of them after withdrawal unit reductions. The company-26 ANICO-design plans (1U144*-1U147*) keep the annual step (no
 graded fit). FFL percent-of-surrender-target plans (N71E*/EP) and ISWL are unchanged.
+
+**UL rule-5 surrender charges** (NU1FU100, NU1F1N00; 10/7/2026). Schema `PLAN_DEF` gives both
+plans `SCR_RULES` 50 / `SCR_TABLE` C1 and loads `SCR_PCT`, not a per-unit `SCR`, and every
+CKPR policy on them carries full surrender rule 5 and partial surrender rule 1
+(`LH_NON_TRD_POL`). CyberDoc D10 rule 5: a free amount (a percentage of cash value) is
+subtracted and the excess is multiplied by the CKULTB04 percentage; table C1 has FREE_PCT 0
+and CHARGE_AMOUNT 0 (CKULTB04 081226 print), so the full surrender charge is
+`SCR_PCT(policy year) x AV`: 10% in year 1 falling 1% a year to 0 from year 11. They were
+previously classed as FFL per-unit plans, which found no `SCR` schedule and charged 0 in every
+year. Now `PlancodeConfig.scr_rules`/`scr_table` come from `PLAN_DEF`;
+`ul_pct_of_av_surrender_charge` (UL, rules `5` alone) excludes them from
+`ffl_per_unit_surrender_charge` (no per-unit grade, no original units, no `TOT_WTD_CRG_AMT`
+credit or fallback), and `rate_loader` loads `IllustrationRates.pct_scr`
+(`iswl_rates.load_ul_pct_of_av_surrender`), which `_calculate_surrender_charge` applies to the
+base coverage phase's whole AV, graded monthly as the company-26 rule-5 ISWL percentage is
+(`GRADED_RULE_5_COMPANIES`; the C1 grade itself has no CyberLife evidence). Increase phases
+carry no charge. Withdrawals and decreases take no percentage charge (partial rule 1 is the
+flat withdrawal fee; `partial_surrender_charge` is False), so unlike rule-5 ISWL they are not
+rejected in the charge period, and the maximum withdrawal uses the rule-5 charge. An unverified
+CKULTB04 table, a missing `SCR_PCT` or a plan loading both `SCR` and `SCR_PCT` raises. Evidence
+(CKPR, read-only): all 516 live `FH_FIXED` SF events on these plans (2016 on, policy year 30+)
+carry no charge, and the 1,217 converted (CVADD) SF rows carry none; no surrender falls in the
+charge period, so every in-force valuation is 0 before and after. Tests:
+`tests/test_illustration_ul_rule5_surrender.py`.
 
 **Surrenders dated on a monthliversary or anniversary** (Robert's 10/5/2026 ruling: match
 CyberLife). CyberLife values a surrender dated on a monthliversary before it processes that
@@ -1507,7 +1532,8 @@ Rules are in `illustration/core/iswl_rates.py`:
   surrenders were charged exactly 6.00% of the fund value, year-20 surrenders
   nothing. The charge is taken on the AV that the value is reported against: the
   monthliversary AV in force and the ending AV in the ledger, with the lapse test
-  on its own AV. Tables I2, I3, I5, 58 and C9 are verified (CKULTB04 print 08/12/2026:
+  on its own AV. Tables I2, I3, I5, 58 and C9 are verified (C1 too, for the UL rule-5
+  plans; see "UL rule-5 surrender charges") (CKULTB04 print 08/12/2026:
   FREE_PCT 0, CHARGE_AMOUNT 0; table 58 also matches 54 company-01 `FH_FIXED` full
   surrenders to the cent; I5 rests on the print). **Company 26 grades** the rule-5
   percentage monthly between policy years (`GRADED_RULE_5_COMPANIES`,
