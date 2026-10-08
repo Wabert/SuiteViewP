@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, List, Optional
 
+from suiteview.core.rates_errors import RatesError
 from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.core.joint_survivor_coi import JointBasis, load_joint_basis
 from suiteview.illustration.core.poav_rates import load_poav_schedule
@@ -282,7 +283,8 @@ class IllustrationRates:
 
     # ISWL fixed-premium basis (iswl_rates.ISWLRateBasis); None for UL-family plans.
     iswl: Optional[object] = None
-
+    # UL rule-5 percent-of-account-value surrender charge (iswl_rates.PctOfAVSurrender).
+    pct_scr: Optional[object] = None
 
 def mfee_schedule(rates_db: ULRates, plancode: str, segment, *, scale: int, band) -> List:
     """Monthly fee by coverage year: schema MFEE (none loaded = no fee)."""
@@ -503,6 +505,7 @@ def load_rates(
         policy, config, rates_db, seg, segment_rates,
         coi_scale=coi_scale, expense_scale=expense_scale)
     _load_ratchet_rates(result, policy, config, rates_db, coi_scale)
+    _load_pct_surrender(result, policy, rates_db)
     _load_poav_rates(result, config, seg, expense_scale)
     _load_shadow_rates(result, policy, config, rates_db, seg)
     _load_benefit_rates(result, policy, rates_db, seg)
@@ -515,6 +518,18 @@ def _validate_scales(coi_scale: int, expense_scale: int) -> None:
         raise ValueError(f"COI scale must be 0 or 1, got {coi_scale}")
     if expense_scale not in (0, 1):
         raise ValueError(f"Expense scale must be 0 or 1, got {expense_scale}")
+
+
+def _load_pct_surrender(result: IllustrationRates, policy: IllustrationPolicyData,
+                        rates_db: ULRates) -> None:
+    """Rule-5 UL plans charge a percent of account value; an unloadable or unverified
+    schedule leaves the per-unit path, which reports the missing surrender rates."""
+    from suiteview.illustration.core.iswl_rates import load_ul_pct_of_av_surrender
+
+    try:
+        result.pct_scr = load_ul_pct_of_av_surrender(policy, rates_db)
+    except (RateLookupError, RatesError):
+        result.pct_scr = None
 
 
 def _initialize_dynamic_bands(policy: IllustrationPolicyData, rates_db: ULRates) -> None:

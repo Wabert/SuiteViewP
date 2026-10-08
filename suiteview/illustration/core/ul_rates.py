@@ -81,6 +81,7 @@ _CELL_SCHEDULE_TYPES = {
     "TPP": "PREMLOAD_PCT",
     "EPP": "PREMLOAD_EXS",
     "SCR": "SCR",
+    "SCR_PCT": "SCR_PCT",
     "SHADOW_INT": "SHADOW_INT",
     "DBD": "DB_DISCOUNT",
 }
@@ -95,7 +96,7 @@ _CELL_SINGLE_TYPES = {
 _PLAN_SCHEDULE_TYPES = {"GINT": "GINT", "DBD": "DB_DISCOUNT"}
 _BENEFIT_KINDS = frozenset({"BENCOI", "BENMTP", "BENCTP"})
 # Kinds with one stored scale: G (or S for the shadow account).
-_SINGLE_SCALE_KINDS = frozenset({"SCR", "MTP", "BENMTP", "CTP", "BENCTP", "TBL1MTP", "TBL1CTP"})
+_SINGLE_SCALE_KINDS = frozenset({"SCR", "SCR_PCT", "MTP", "BENMTP", "CTP", "BENCTP", "TBL1MTP", "TBL1CTP"})
 _INDEX_PARAMETERS = {
     "IDX_FLOOR": "floor",
     "IDX_CAP": "cap",

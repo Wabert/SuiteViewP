@@ -499,27 +499,55 @@ def _annuity_rider_available(policy, read: _Reader, loaded: bool) -> bool:
         for c in policy_attr(p, "get_coverages")())))
 
 
+def _glp_exception_need(policy, summary: PolicySummary):
+    """Conservative year-end funding screen, or ``None`` while facts are pending."""
+    from suiteview.polview.services.glp_exception_need import (
+        estimate_glp_exception_need,
+        gpt_premium_room,
+    )
+
+    read = _Reader(policy)
+    gsp = read.get("gsp")
+    accum_glp = read.get("accumulated_glp_target")
+    premium_td = read.get("premium_td")
+    withdrawals = read.get("total_withdrawals")
+    room = None
+    if premium_td is not None and (gsp is not None or accum_glp is not None):
+        room = gpt_premium_room(float(gsp or 0), float(accum_glp or 0),
+                                float(premium_td), float(withdrawals or 0))
+    debt = read.get("policy_debt")
+    if read.pending:
+        return None
+    return estimate_glp_exception_need(
+        account_value=read.get("mv_av", lambda p: policy_attr(p, "mv_av")(0)),
+        policy_debt=debt,
+        monthly_deduction=read.get(
+            "mv_monthly_deduction", lambda p: policy_attr(p, "mv_monthly_deduction")(0)),
+        issue_date=summary.issue_date,
+        valuation_date=summary.valuation_date,
+        gpt_room=room,
+    )
+
+
 def suggested_actions(policy, summary: PolicySummary,
                       tools: dict[str, ToolAvailability],
                       today: Optional[date] = None) -> tuple[Suggestion, ...]:
     """Context-aware next steps for the policy's current situation."""
     suggestions: list[Suggestion] = []
-    in_grace = any(c.key == "grace" for c in summary.chips)
     if tools.get("reinstatement") and tools["reinstatement"].available:
-        from suiteview.polview.services.reinstatement import reinstatement_summary
+        from suiteview.polview.services.reinstatement import reinstatement_eligibility
 
         read = _Reader(policy)
-        eligibility = read.get("reinstatement", lambda p: reinstatement_summary(p, today))
+        eligibility = read.get("reinstatement", lambda p: reinstatement_eligibility(p))
         if eligibility is not None and eligibility.eligible:
             suggestions.append(Suggestion(
                 "reinstatement", "Quote reinstatement",
-                "Lapsed UL: open the Home Office reinstatement quote.",
+                "Lapsed UL: open the reinstatement quote.",
             ))
-    if in_grace and tools.get("glp_exception") and tools["glp_exception"].available:
-        suggestions.append(Suggestion(
-            "glp_exception", "GLP Exception",
-            "In grace on a guideline-premium UL: solve the minimum premium to a target date.",
-        ))
+    if tools.get("glp_exception") and tools["glp_exception"].available:
+        need = _glp_exception_need(policy, summary)
+        if need is not None and need.needed:
+            suggestions.append(Suggestion("glp_exception", "GLP Exception", need.explanation()))
     if tools.get("annuity_rider") and tools["annuity_rider"].available:
         suggestions.append(Suggestion(
             "annuity_rider", "Annuity Rider", "This policy carries the 0699830R annuity rider.",

@@ -283,6 +283,7 @@ class AdvProdValuesTab(QWidget):
             field.setToolTip("")
         self._set_interim_label(None)
         self._set_account_values_active(True)
+        self.policy_info.set_field_visible("guaranteed_cv", calculations.is_iswl)
 
         try:
             self._load_policy_info_from_policy(policy)

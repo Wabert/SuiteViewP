@@ -728,134 +728,48 @@
     }
   },
   "reinstatement": {
-    "basis": "Surrender value",
-    "breakdown": [
-      [
-        "Starting account value (post-deduction)",
-        "10.00"
-      ],
-      [
-        "Starting shadow account value",
-        "0.00"
-      ],
-      [
-        "Starting premiums paid",
-        "1,000.00"
-      ],
-      [
-        "Starting accumulated withdrawals",
-        "0.00"
-      ],
-      [
-        "Starting accumulated minimum target premium",
-        "1,000.00"
-      ],
-      [
-        "Required gross premium",
-        "10.01"
-      ],
-      [
-        "Premium loads",
-        "0.00"
-      ],
-      [
-        "Interest before next deduction",
-        "0.00"
-      ],
-      [
-        "Total monthly deductions (including next)",
-        "20.00"
-      ],
-      [
-        "Guideline forceouts",
-        "0.00"
-      ],
-      [
-        "Next monthliversary debt (at deduction)",
-        "0.00"
-      ],
-      [
-        "Next accumulated minimum target premium",
-        "1,020.00"
-      ],
-      [
-        "Next premiums paid (including quote)",
-        "1,010.01"
-      ],
-      [
-        "Next accumulated withdrawals",
-        "0.00"
-      ],
-      [
-        "Next premiums paid less withdrawals and debt",
-        "1,010.01"
-      ],
-      [
-        "Next surrender charge",
-        "0.00"
-      ],
-      [
-        "Next account value after deduction",
-        "0.01"
-      ],
-      [
-        "Next surrender value after deduction",
-        "0.01"
-      ],
-      [
-        "Shadow premium loads",
-        "0.00"
-      ],
-      [
-        "Shadow deductions",
-        "0.00"
-      ],
-      [
-        "Shadow interest before next deduction",
-        "0.00"
-      ],
-      [
-        "Next shadow value after deduction",
-        "0.00"
-      ],
-      [
-        "Next shadow value less debt",
-        "0.00"
-      ]
-    ],
-    "explanation": "Surrender value: starting account value + accepted premium - premium loads + interest - all monthly deductions - forceouts - surrender charge - debt at the next deduction must be strictly positive.\nContinuous coverage from the verified post-deduction snapshot 2026-01-15. One premium is posted on 2026-02-15; no historical receipts are backdated. Canonical illustration crediting basis: 0.0000%, ExactDays; a between-deduction receipt earns only its remaining-period interest. The next monthliversary deduction is included; interest after that deduction is excluded. TEFRA/TAMRA caps and guideline forceouts remain enabled; no automatic exception premium. Skipped coverage and reinstatement-specific regulatory resets are not modeled.",
-    "premium": "10.01",
-    "states": [
-      {
-        "av_after_deduction": 10.0,
-        "date": "2026-01-15",
-        "gross_premium": 0.0,
-        "surrender_value": 10.0
-      },
-      {
-        "av_after_deduction": 10.009999999999998,
-        "date": "2026-02-15",
-        "gross_premium": 10.01,
-        "surrender_value": 10.009999999999998
-      },
-      {
-        "av_after_deduction": 0.00999999999999801,
-        "date": "2026-03-15",
-        "gross_premium": 0.0,
-        "surrender_value": 0.00999999999999801
-      }
-    ],
-    "summary": {
-      "current_date": "2026-02-15",
+    "deduction": {
+      "attained_age": 56,
+      "av_charge": "0.00",
+      "base_coi": "20.00",
+      "benefit_charges": "0.00",
+      "deduction_date": "2026-02-15",
+      "epu": "4.00",
+      "monthly_fee": "10.00",
+      "policy_month": 2,
+      "policy_year": 27,
+      "rider_coi": "0.00"
+    },
+    "default_date": "2026-02-15",
+    "eligibility": {
       "eligible": true,
       "last_entry_code": "Q",
       "last_entry_description": "Termination - Lapse",
-      "message": "Eligible lapse termination.",
-      "next_monthliversary": "2026-03-15",
-      "quote_pay_to_date": "2026-02-15",
-      "terminated_months": 1,
-      "terminated_years": 1,
-      "termination_date": "2025-01-15"
+      "message": "Lapsed policy: eligible for a reinstatement quote."
+    },
+    "lapse": {
+      "account_value": "-12.34",
+      "ccv_cease_date": null,
+      "has_ccv": false,
+      "lapse_date": "2026-01-15",
+      "loan_balance": "203.21",
+      "snet_expiry_date": "2020-01-15",
+      "surrender_charge": "500.00",
+      "values_date": "2025-12-15"
+    },
+    "notes": [
+      "Lapse values are from the last monthliversary values record (12/15/2025)."
+    ],
+    "premium": {
+      "account_value": "-12.34",
+      "coi_x2": "40.00",
+      "fees_x2": "28.00",
+      "load_description": "6.00% to target, 3.00% excess",
+      "policy_debt": "203.21",
+      "premium": "720.16",
+      "premium_load": "36.61",
+      "subtotal": "683.55",
+      "surrender_charge": "400.00"
     }
   }
 }

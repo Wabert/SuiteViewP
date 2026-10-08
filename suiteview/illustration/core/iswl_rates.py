@@ -82,8 +82,10 @@ VERIFIED_PREMLOAD_RULES = "400"
 # Rule-5 surrender charge tables whose CKULTB04 rows have FREE_PCT 0 and CHARGE_AMOUNT 0
 # (CKULTB04 print 08/12/2026): the charge is the percentage of the whole account value.
 # 58 matches 54 company-01 FH_FIXED full surrenders to the cent; C9 (all company 26)
-# matches 39 graded ones; I5 rests on the print (allow code P, like I2/I3).
-VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58", "C9")
+# matches 39 graded ones; I5 rests on the print (allow code P, like I2/I3). C1 (NU1FU100,
+# NU1F1N00) rests on the CKULTB04 081226 print: 11 rule-5 rows, 10% falling to 0, FREE_PCT 0,
+# CHARGE_AMOUNT 0, allow code P on durations 8+.
+VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58", "C9", "C1")
 # Companies whose rule-5 percentage is graded monthly between policy years: all 44
 # loan-free company-26 FH_FIXED full surrenders on C9/58 match the graded percentage to
 # the cent, and all 54 company-01 ones on 58 the flat one. Neither PLAN_DEF nor
@@ -107,8 +109,45 @@ class ISWLItemPremium:
     modal_premium: float
 
 
+class PctOfAVSurrenderMixin:
+    """Rule-5 full-surrender charge as a fraction of the account value (``SCR_PCT``)."""
+
+    @property
+    def surrender_charge_is_pct_of_av(self) -> bool:
+        return bool(self.surrender_charge_pct)
+
+    def surrender_charge_rate(self, policy_year: int, months_elapsed: int = 0) -> float:
+        """Rule-5 fraction of the account value charged on a full surrender.
+
+        Graded (company 26): with ``m`` completed months since the policy anniversary,
+        ``round3%(pct(d) + (pct(d-1) - pct(d)) x (12 - m) / 12)``. The charge starts year
+        ``d`` at pct(d-1) and falls linearly towards pct(d), so it runs one year past the
+        last nonzero row; pct(0) is pct(1).
+        """
+        if not self.surrender_charge_pct:
+            return 0.0
+        label = "surrender charge percentage"
+        current = _year_value(self.surrender_charge_pct, policy_year, label)
+        if not self.surrender_charge_graded:
+            return current
+        prior = _year_value(self.surrender_charge_pct, max(int(policy_year) - 1, 1), label)
+        months = min(max(int(months_elapsed), 0), MONTHS_PER_YEAR)
+        cur, pri = Decimal(str(current)), Decimal(str(prior))
+        graded = cur + (pri - cur) * (MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR
+        return float(graded.quantize(PCT_3DP, rounding=ROUND_HALF_UP))
+
+
 @dataclass
-class ISWLRateBasis:
+class PctOfAVSurrender(PctOfAVSurrenderMixin):
+    """A UL plan's rule-5 charge: the base coverage's percentage of the whole account
+    value from policy issue. Increase coverages carry no charge of their own."""
+
+    surrender_charge_pct: List = field(default_factory=list)
+    surrender_charge_graded: bool = False
+
+
+@dataclass
+class ISWLRateBasis(PctOfAVSurrenderMixin):
     """Fixed-premium facts the ISWL premium step needs, all resolved at load time."""
 
     plan_company: str
@@ -139,30 +178,6 @@ class ISWLRateBasis:
     # Single-premium policy (premium pay status 42): no premium is due, so there is
     # no premium load, mode factor or billed premium; a requested premium raises.
     single_premium: bool = False
-
-    @property
-    def surrender_charge_is_pct_of_av(self) -> bool:
-        return bool(self.surrender_charge_pct)
-
-    def surrender_charge_rate(self, policy_year: int, months_elapsed: int = 0) -> float:
-        """Rule-5 fraction of the account value charged on a full surrender.
-
-        Graded (company 26): with ``m`` completed months since the policy anniversary,
-        ``round3%(pct(d) + (pct(d-1) - pct(d)) x (12 - m) / 12)``. The charge starts year
-        ``d`` at pct(d-1) and falls linearly towards pct(d), so it runs one year past the
-        last nonzero row; pct(0) is pct(1).
-        """
-        if not self.surrender_charge_pct:
-            return 0.0
-        label = "surrender charge percentage"
-        current = _year_value(self.surrender_charge_pct, policy_year, label)
-        if not self.surrender_charge_graded:
-            return current
-        prior = _year_value(self.surrender_charge_pct, max(int(policy_year) - 1, 1), label)
-        months = min(max(int(months_elapsed), 0), MONTHS_PER_YEAR)
-        cur, pri = Decimal(str(current)), Decimal(str(prior))
-        graded = cur + (pri - cur) * (MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR
-        return float(graded.quantize(PCT_3DP, rounding=ROUND_HALF_UP))
 
     def guaranteed_cash_value(self, month_date: Optional[date]) -> float:
         """Guaranteed cash value on a monthliversary: units x the tabular value
@@ -559,6 +574,30 @@ def _year_value(schedule: Sequence, year: int, label: str) -> float:
 
 
 # -- public loaders ----------------------------------------------------------------
+
+def load_ul_pct_of_av_surrender(policy: IllustrationPolicyData, rates_db) -> Optional[PctOfAVSurrender]:
+    """A UL plan's rule-5 ``SCR_PCT`` schedule on the base coverage; ``None`` when the
+    plan's surrender charge is not rule 5 (it is then the per-unit ``SCR`` schedule)."""
+    plan = rates_db.plan(policy.plancode)
+    rules = str(_fact(plan, "SCR_RULES") or "").strip()
+    if rules.rstrip("0") != "5":
+        return None
+    table = str(_fact(plan, "SCR_TABLE") or "").strip()
+    if table not in VERIFIED_PCT_OF_AV_SCR_TABLES:
+        raise RateLookupError(
+            f"{plan.plancode} rule 5 surrender charges use CKULTB04 table {table or '(blank)'}, "
+            f"which is not verified (verified: {', '.join(VERIFIED_PCT_OF_AV_SCR_TABLES)}).")
+    segment = policy.base_segment
+    schedule = rates_db.get_rates(
+        "SCR_PCT", policy.plancode, segment.issue_age, segment.rate_sex, segment.rate_class,
+        band=segment.band, state=policy.issue_state, issue_date=segment.issue_date)
+    if not schedule:
+        raise RateLookupError(f"{plan.plancode} has no SCR_PCT rate in schema rates.")
+    if any(not 0.0 <= pct <= 1.0 for pct in schedule[1:]):
+        raise RateLookupError(f"{plan.plancode} SCR_PCT is not a fraction between 0 and 1.")
+    # The charge ends at the last stored year; the zero lets the graded year run past it.
+    return PctOfAVSurrender(list(schedule) + [0.0], rule_5_graded(policy.company_code))
+
 
 def load_iswl_rates(
     policy: IllustrationPolicyData,

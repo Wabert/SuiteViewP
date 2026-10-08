@@ -5283,10 +5283,17 @@ def _calculate_surrender_charge(
     scr_rates_by_coverage = {}
     surrender_charges_by_coverage = {}
     for index, segment in enumerate(segments, start=1):
-        pct_of_av = _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year)
+        increase_of_ul_pct_plan = index > 1 and getattr(rates, "iswl", None) is None
+        pct_of_av = (
+            None if increase_of_ul_pct_plan
+            else _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year))
         if pct_of_av is not None:
             segment_scr_rate = pct_of_av
             segment_surrender_charge = pct_of_av * max(account_value, 0.0)
+        elif pct_of_av_surrender_basis(rates) is not None:
+            # The percent applies to the whole account value from issue; an increase has none.
+            segment_scr_rate = 0.0
+            segment_surrender_charge = 0.0
         else:
             segment_scr_rate = _segment_surrender_rate(
                 policy, segment, rates, rate_year, projection_date, config)
@@ -5307,12 +5314,20 @@ def _calculate_surrender_charge(
     )
 
 
+def pct_of_av_surrender_basis(rates):
+    """The rule-5 percent-of-account-value surrender basis (ISWL or UL), else ``None``."""
+    for basis in (getattr(rates, "iswl", None), getattr(rates, "pct_scr", None)):
+        if basis is not None and basis.surrender_charge_is_pct_of_av:
+            return basis
+    return None
+
+
 def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) -> Optional[float]:
     """Rule-5 ISWL base coverage: the fraction of the account value charged on a full
     surrender in the coverage year (graded by completed months since the coverage
     anniversary where CyberLife grades it). ``None`` when the charge is per unit."""
-    basis = getattr(rates, "iswl", None)
-    if basis is None or not basis.surrender_charge_is_pct_of_av or not segment.is_base:
+    basis = pct_of_av_surrender_basis(rates)
+    if basis is None or not segment.is_base:
         return None
     if basis.surrender_charge_graded and segment.issue_date is not None and projection_date is not None:
         # Both counts use relativedelta, so a Feb-29 issue's Feb-28 monthliversary behaves

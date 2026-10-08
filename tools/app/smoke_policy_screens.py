@@ -149,11 +149,14 @@ def _policy_support(rec, number, policy):
         elif availability is not None:
             rec.add("info", f"GLP forecast unavailable: {availability.message}")
     if step("is UL", lambda: reinstatement.is_ul_policy(policy)):
-        summary = step("reinstatement summary", lambda: reinstatement.reinstatement_summary(policy))
-        if summary is not None and summary.eligible:
-            step("reinstatement quote", lambda: reinstatement.calculate_home_office_reinstatement(policy))
-        elif summary is not None:
-            rec.add("info", f"reinstatement not eligible: {summary.message}")
+        eligibility = step("reinstatement eligibility",
+                           lambda: reinstatement.reinstatement_eligibility(policy))
+        if eligibility is not None and eligibility.eligible:
+            basis = step("reinstatement basis", lambda: reinstatement.load_reinstatement_basis(policy))
+            if basis is not None:
+                step("reinstatement quote", lambda: basis.quote(basis.default_date))
+        elif eligibility is not None:
+            rec.add("info", f"reinstatement not eligible: {eligibility.message}")
 
 
 def _rerun(app, rec, number, company, region):

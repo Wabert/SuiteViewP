@@ -41,16 +41,17 @@ def _ul_rules(**flags):
                            is_advanced=True, rate_family="UL", **flags)
 
 
-def test_reinstatement_sees_ul_rules_and_termination_facts():
+def test_reinstatement_sees_ul_rules_and_lapse_entry():
     pi = _pi(
         product=SimpleNamespace(product_rules=_ul_rules(), product_type="UL"),
         status=SimpleNamespace(last_entry_code="Q"),
-        activity=SimpleNamespace(terminate_date=date(2024, 7, 15), issue_date=date(2010, 1, 15)),
+        activity=SimpleNamespace(terminate_date=date(2024, 7, 15), issue_date=date(2010, 1, 15),
+                                 get_live_transactions=lambda codes: []),
     )
     assert reinstatement.is_ul_policy(pi)
-    summary = reinstatement.reinstatement_summary(pi, today=date(2026, 9, 14))
-    assert summary.last_entry_code == "Q"
-    assert summary.termination_date == date(2024, 7, 15)
+    eligibility = reinstatement.reinstatement_eligibility(pi)
+    assert eligibility.last_entry_code == "Q" and eligibility.eligible
+    assert reinstatement.find_lapse_date(pi) == (date(2024, 7, 15), None)
 
 
 def test_glp_exception_eligibility_reads_product_section():

@@ -15,8 +15,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from suiteview.core.rates import Rates
-from suiteview.illustration.core import calc_engine
-from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
@@ -271,33 +269,25 @@ def _policy_summary_payload():
     }
 
 
-def _reinstatement_payload(monkeypatch):
+def _reinstatement_payload():
+    years = 40
     policy = IllustrationPolicyData(
         policy_number="SYNTHETIC",
         plancode="REINTEST",
         product_type="UL",
         issue_date=date(2000, 1, 15),
-        valuation_date=date(2026, 1, 15),
+        valuation_date=date(2025, 12, 15),
         issue_age=30,
-        attained_age=56,
         maturity_age=121,
-        policy_year=27,
-        policy_month=1,
-        duration=313,
         face_amount=100000.0,
         units=100.0,
-        account_value=10.0,
-        modal_premium=999.0,
-        billing_frequency=1,
-        def_of_life_ins="GPT",
-        glp=100000.0,
-        gsp=100000.0,
-        accumulated_glp=100000.0,
+        account_value=-12.34,
         premiums_paid_to_date=1000.0,
-        cost_basis=1000.0,
         premiums_ytd=0.0,
-        mtp=10.0,
-        accumulated_mtp=1000.0,
+        ctp=500.0,
+        regular_loan_principal=200.0,
+        regular_loan_accrued=3.21,
+        map_cease_date=date(2020, 1, 15),
         segments=[
             CoverageSegment(
                 issue_date=date(2000, 1, 15),
@@ -310,54 +300,30 @@ def _reinstatement_payload(monkeypatch):
             )
         ],
     )
-    config = PlancodeConfig(
-        plancode="REINTEST",
-        gint=0.0,
-        dbd=0.0,
-        lapse_value="SV",
-        shadow_mfee=10.0,
-    )
+    config = PlancodeConfig(plancode="REINTEST", gint=0.0, dbd=0.0)
     rates = IllustrationRates(
-        coi=[0.0, 0.0],
-        segment_coi={1: [0.0, 0.0]},
-        scr=[0.0, 0.0],
+        segment_coi={1: [None] + [0.2] * years},
+        segment_epu={1: [None] + [0.04] * years},
+        segment_scr={1: [None] + [max(0.0, 30.0 - year) for year in range(years)]},
         mfee=[None, 10.0],
-        shadow_coi=[0.0, 0.0],
-        shadow_epu=[None, 0.0],
-        shadow_int=[None, 0.0],
-        shadow_dbd=[None, 0.0],
-        shadow_tpp=[None, 0.0],
-        shadow_epp=[None, 0.0],
+        tpp=[None] + [0.06] * years,
+        epp=[None] + [0.03] * years,
     )
-    monkeypatch.setattr(rein, "load_plancode", lambda _plancode: config)
-    monkeypatch.setattr(calc_engine, "load_plancode", lambda _plancode: config)
-    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda *_args: BonusConfig())
-    summary = rein.reinstatement_summary(
-        SimpleNamespace(
-            exists=True,
-            product_type="UL",
-            last_entry_code="Q",
-            issue_date=date(2000, 1, 15),
-            terminate_date=date(2025, 1, 15),
-        ),
-        date(2026, 2, 15),
+    basis = rein.build_reinstatement_basis(
+        policy, config, rates,
+        eligibility=rein.reinstatement_eligibility(SimpleNamespace(
+            exists=True, product_type="UL", last_entry_code="Q")),
+        lapse_date=date(2026, 1, 15),
+        today=date(2026, 2, 16),
     )
-    result = rein.project_home_office_reinstatement(policy, summary, rates=rates)
+    quote = basis.quote(basis.default_date)
     return {
-        "summary": result.summary,
-        "premium": result.premium,
-        "basis": result.basis,
-        "breakdown": result.breakdown,
-        "explanation": result.explanation,
-        "states": [
-            {
-                "date": state.date,
-                "gross_premium": state.gross_premium,
-                "av_after_deduction": state.av_after_deduction,
-                "surrender_value": state.surrender_value,
-            }
-            for state in result.states
-        ],
+        "eligibility": basis.eligibility,
+        "lapse": basis.lapse,
+        "default_date": basis.default_date,
+        "deduction": quote.deduction,
+        "premium": quote.premium,
+        "notes": quote.notes,
     }
 
 
@@ -398,7 +364,7 @@ def polview_characterization_payload(monkeypatch):
         "matrices": _matrix_payload(),
         "rates": _rates_payload(monkeypatch),
         "policy_summary": _policy_summary_payload(),
-        "reinstatement": _reinstatement_payload(monkeypatch),
+        "reinstatement": _reinstatement_payload(),
         "glp_result": _glp_payload(),
     }
 

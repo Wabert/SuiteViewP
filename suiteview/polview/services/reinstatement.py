@@ -1,87 +1,203 @@
-"""Read-only, continuous-coverage Home Office reinstatement projections.
+"""Read-only UL reinstatement quotes (continuous coverage).
 
-PLN_TMN_DT is the termination effective date, not a financial-history entry
-date. Opening illustration values are post-deduction. They must not be rolled
-back, topped up with later receipts, or substituted for missing lapse values.
+A quote shows the policy's values at lapse, the monthly deduction on the
+reinstatement date and the reinstatement premium::
 
-The receipt helper posts between deductions without rewriting the opening
-snapshot. Skipped-coverage reinstatement is not implemented.
+    subtotal              = surrender charge + policy debt + 2 x COI + 2 x fees
+                            - account value
+    reinstatement premium = subtotal + premium load
+
+COI is the base coverage COI plus rider and benefit charges. Fees are the EPU,
+the monthly policy fee and any account-value charge. Charges, surrender charges
+and premium loads come from the canonical illustration engine. Durations run
+from the original issue date because coverage is continuous: nothing restarts
+on reinstatement.
+
+The lapse date is CyberLife's TL (termination - lapse) or SI (internal surrender)
+transaction, falling back to PLN_TMN_DT. A full surrender (SF) is not reinstatable.
+
+Lapse values are the last monthliversary values record.
 """
 from __future__ import annotations
 
-import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from math import isfinite
 
 from dateutil.relativedelta import relativedelta
 
 from suiteview.core.db2_connection import DB2ConnectionError
 from suiteview.core.rates_errors import RatesError
-from suiteview.illustration.api import load_projection_basis, project_policy
-from suiteview.illustration.core import calc_engine
-from suiteview.illustration.core.bonus_eligibility import apply_bonus_eligibility
-from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import (
-    _coverage_is_terminated,
+from suiteview.illustration.api import load_projection_basis
+from suiteview.illustration.core.calc_engine import (
+    IllustrationEngine,
+    _calculate_surrender_charge,
+    cvat_corridor_rate,
 )
-from suiteview.illustration.core.rate_loader import IllustrationRates, RateLookupError, load_rates
-from suiteview.illustration.core.reinstatement_basis import restore_lapse_coverage
-from suiteview.illustration.models.calc_state import MonthlyState
-from suiteview.illustration.models.input_set import (
-    DatedTransaction, IllustrationInputSet, IllustrationOptions,
-    ScheduledTransaction, TransactionKind,
+from suiteview.illustration.core.illustration_policy_service import _charge_end_date
+from suiteview.illustration.core.monthly_deduction import calculate_deduction
+from suiteview.illustration.core.premium_handler import (
+    gross_up_for_premium_load,
+    premium_load_rates,
 )
-from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
-from suiteview.illustration.models.policy_data import IllustrationPolicyData, benefit_rate_keys
+from suiteview.illustration.core.rate_loader import IllustrationRates, RateLookupError
+from suiteview.illustration.core.skipped_coverage import skipped_monthliversaries
+from suiteview.illustration.core.target_premium import truncate_monthly_mtp
+from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.policy_translations import LAST_ENTRY_CODES
-from .reinstatement_receipt import project_receipt
 from suiteview.polview.models.policy_sections.lookup import policy_attr
+
+LAPSE_TRANSACTION_CODE = "TL"
+INTERNAL_SURRENDER_CODE = "SI"
+FULL_SURRENDER_CODE = "SF"
+SKIPPED_COVERAGE_CODE = "3"
+CCV_BENEFIT_TYPE = "A"
+_CENT = Decimal("0.01")
 
 
 class ReinstatementError(ValueError):
-    """A safe reinstatement quote cannot be produced from the supplied basis."""
+    """A reinstatement quote cannot be produced from the available data."""
 
 
 @dataclass(frozen=True)
-class ReinstatementSummary:
+class ReinstatementEligibility:
     last_entry_code: str
     last_entry_description: str
-    termination_date: date | None
-    current_date: date
-    terminated_years: int | None
-    terminated_months: int | None
     eligible: bool
     message: str
-    quote_pay_to_date: date | None
-    next_monthliversary: date | None
 
 
 @dataclass(frozen=True)
-class ReinstatementResult:
-    summary: ReinstatementSummary
+class LapseValues:
+    lapse_date: date
+    values_date: date | None
+    account_value: Decimal
+    loan_balance: Decimal
+    surrender_charge: Decimal
+    snet_expiry_date: date | None
+    has_ccv: bool
+    ccv_cease_date: date | None
+
+
+@dataclass(frozen=True)
+class MonthlyDeduction:
+    deduction_date: date
+    policy_year: int
+    policy_month: int
+    attained_age: int
+    base_coi: Decimal
+    rider_coi: Decimal
+    benefit_charges: Decimal
+    epu: Decimal
+    monthly_fee: Decimal
+    av_charge: Decimal
+
+    @property
+    def coi_total(self) -> Decimal:
+        return self.base_coi + self.rider_coi + self.benefit_charges
+
+    @property
+    def fee_total(self) -> Decimal:
+        return self.epu + self.monthly_fee + self.av_charge
+
+    @property
+    def total(self) -> Decimal:
+        return self.coi_total + self.fee_total
+
+
+@dataclass(frozen=True)
+class ReinstatementPremium:
+    account_value: Decimal
+    policy_debt: Decimal
+    surrender_charge: Decimal
+    coi_x2: Decimal
+    fees_x2: Decimal
+    subtotal: Decimal
+    premium_load: Decimal
     premium: Decimal
-    basis: str
-    breakdown: tuple[tuple[str, str], ...]
-    explanation: str
-    states: tuple[MonthlyState, ...]
+    load_description: str
 
 
 @dataclass(frozen=True)
-class ReinstatementProjectionContext:
-    policy: IllustrationPolicyData
-    summary: ReinstatementSummary
-    target: date
-    months: int
-    config: PlancodeConfig
-    rates: IllustrationRates
-    basis: str
-    shadow_active: bool
-    options: IllustrationOptions
-    bonus: object
-    engine: IllustrationEngine
-    limit_cents: int
+class ReinstatementQuote:
+    reinstatement_date: date
+    deduction: MonthlyDeduction
+    premium: ReinstatementPremium
+    notes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ValuesAfterReinstatement:
+    reinstatement_date: date
+    reinstatement_code: str
+    terminated_months: int
+    net_premium: Decimal
+    monthly_deduction: Decimal
+    account_value: Decimal
+    loan_balance: Decimal
+    surrender_charge: Decimal
+    surrender_value: Decimal
+    snet_expiry_date: date | None
+    ccv_cease_date: date | None
+
+
+def _money(value, label: str) -> Decimal:
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ReinstatementError(f"{label} is missing or invalid.") from exc
+    if not isfinite(number):
+        raise ReinstatementError(f"{label} is not finite.")
+    amount = Decimal(str(number)).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return amount if amount else Decimal("0.00")
+
+
+def _completed_months(start: date, end: date) -> int:
+    months = (end.year - start.year) * 12 + end.month - start.month
+    return months - (end < start + relativedelta(months=months))
+
+
+def _counters(policy: IllustrationPolicyData, when: date) -> tuple[int, int, int]:
+    """Policy year, policy month and attained age on ``when`` (from original issue)."""
+    completed = _completed_months(policy.issue_date, when)
+    return completed // 12 + 1, completed % 12 + 1, policy.issue_age + completed // 12
+
+
+def _surrender_charge(policy, config, rates, when: date, account_value: Decimal) -> Decimal:
+    try:
+        _rate, total, _rates, _charges = _calculate_surrender_charge(
+            policy, rates, _counters(policy, when)[0], when, config,
+            account_value=float(account_value))
+    except (RatesError, RateLookupError, ValueError, TypeError, ArithmeticError,
+            KeyError, IndexError) as exc:
+        raise ReinstatementError(f"Surrender charge is unavailable: {exc}") from exc
+    return _money(total, "Surrender charge")
+
+
+def latest_monthliversary(issue_date: date, on_or_before: date) -> date:
+    """The issue-day-anchored monthliversary on or before ``on_or_before``."""
+    return issue_date + relativedelta(months=max(_completed_months(issue_date, on_or_before), 0))
+
+
+def reinstatement_date_choices(
+    issue_date: date, lapse_date: date, today: date, maturity: date | None = None,
+) -> tuple[date, ...]:
+    """Monthliversaries from six months before ``today`` through the next month.
+
+    Dates before the lapse (or at/after maturity) cannot be quoted and are left out.
+    """
+    first = today - relativedelta(months=6)
+    last = today + relativedelta(months=1)
+    start = _completed_months(issue_date, first)
+    choices = []
+    for count in range(max(start, 0), _completed_months(issue_date, last) + 2):
+        day = issue_date + relativedelta(months=count)
+        if (first <= day <= last and day >= lapse_date
+                and (maturity is None or day < maturity)):
+            choices.append(day)
+    return tuple(choices)
 
 
 def is_ul_policy(policy) -> bool:
@@ -93,484 +209,301 @@ def is_ul_policy(policy) -> bool:
     return str(policy_attr(policy, "product_type", "")).strip().upper() in {"UL", "IUL", "SGUL"}
 
 
-def _months(start: date, end: date) -> int:
-    months = (end.year - start.year) * 12 + end.month - start.month
-    return months - (end < start + relativedelta(months=months))
+def _terminating_surrender(policy) -> str:
+    """Last live surrender transaction code: SI (internal, reinstatable) or SF (full)."""
+    surrenders = policy_attr(policy, "get_live_transactions")({FULL_SURRENDER_CODE, INTERNAL_SURRENDER_CODE})
+    return surrenders[-1].trans_code if surrenders else ""
 
 
-def reinstatement_summary(policy, today: date | None = None) -> ReinstatementSummary:
-    today = today or date.today()
+def reinstatement_eligibility(policy) -> ReinstatementEligibility:
+    """Eligibility: a lapse (Q) or an internal surrender (P ending in SI), never an SF."""
     try:
         code = str(policy_attr(policy, "last_entry_code", "") or "").strip().upper()
-        termination = policy_attr(policy, "terminate_date", None)
-        issue = policy_attr(policy, "issue_date", None)
-        years = months = None
-        if termination is not None and termination <= today:
-            years, months = divmod(_months(termination, today), 12)
-        pay_to = next_date = None
-        if issue is not None and issue <= today:
-            elapsed = _months(issue, today)
-            pay_to = issue + relativedelta(months=elapsed)
-            next_date = issue + relativedelta(months=elapsed + 1)
         message = ""
+        internal = False
         if not is_ul_policy(policy):
             message = "Currently reinstatement quotes are only available for ULs"
+        elif code == "P":
+            internal = _terminating_surrender(policy) == INTERNAL_SURRENDER_CODE
+            if not internal:
+                message = ("A full surrender (SF) cannot be reinstated; only a lapse or an "
+                           "internal surrender (SI) can.")
         elif code != "Q":
-            message = "Only termination by lapse is eligible; surrender and free-look are not reinstatements."
-        elif termination is None or termination.year >= 9999:
-            message = "Termination effective date is not available."
-        elif termination > today:
-            message = "Termination effective date is in the future."
-        elif issue is None or issue > termination:
-            message = "Issue and termination effective dates are missing or inconsistent."
-        return ReinstatementSummary(
-            code, LAST_ENTRY_CODES.get(code, f"Unknown ({code})"), termination,
-            today, years, months, not message, message or "Eligible lapse termination.",
-            pay_to, next_date,
+            message = ("Only a lapse (Q) or an internal surrender (P ending in SI) can be "
+                       "reinstated; free-look and other terminations are not eligible.")
+    except (DB2ConnectionError, RatesError, TypeError) as exc:
+        raise ReinstatementError(f"Cannot read reinstatement eligibility: {exc}") from exc
+    description = LAST_ENTRY_CODES.get(code, f"Unknown ({code})") if code else "Not available"
+    if internal:
+        description += " (internal surrender, SI)"
+    return ReinstatementEligibility(
+        code, description, not message,
+        message or ("Internal surrender: eligible for a reinstatement quote." if internal
+                    else "Lapsed policy: eligible for a reinstatement quote."))
+
+
+def find_lapse_date(policy) -> tuple[date | None, Decimal | None]:
+    """The latest live TL (lapse) or SI (internal surrender) transaction's date and
+    amount, else PLN_TMN_DT."""
+    lapses = policy_attr(policy, "get_live_transactions")(
+        {LAPSE_TRANSACTION_CODE, INTERNAL_SURRENDER_CODE})
+    if lapses:
+        # Only a TL amount is the account value; an SI amount is a net surrender value.
+        last = lapses[-1]
+        return last.trans_date, (last.gross_amount if last.trans_code == LAPSE_TRANSACTION_CODE else None)
+    terminated = policy_attr(policy, "terminate_date", None)
+    if terminated is not None and terminated.year < 9999:
+        return terminated, None
+    return None, None
+
+
+def read_reinstatement_code(policy) -> str:
+    """The reinstatement rule on the policy record (segment 66, LH_NON_TRD_POL.REN_RLE_CD)."""
+    rows = policy_attr(policy, "fetch_table")("LH_NON_TRD_POL")
+    return str(rows[0].get("REN_RLE_CD") or "").strip() if rows else ""
+
+
+def restore_lapse_benefits(policy: IllustrationPolicyData, raw_benefits, lapse_date: date) -> list[str]:
+    """Undo benefit terminations made by the lapse (continuous coverage).
+
+    On lapse CyberLife moves BNF_CEA_DT to the lapse date and keeps the contract
+    date in BNF_OGN_CEA_DT. Only benefits whose cease date equals the lapse date
+    and whose original cease date is later are restored. Returns explanatory notes.
+    """
+    notes = []
+    for raw in raw_benefits:
+        original = getattr(raw, "orig_cease_date", None)
+        if raw.cease_date != lapse_date or original is None or original <= lapse_date:
+            continue
+        key = (raw.cov_pha_nbr, str(raw.benefit_type_cd or "").strip(),
+               str(raw.benefit_subtype_cd or "").strip())
+        for index, benefit in enumerate(policy.benefits):
+            if ((benefit.coverage_phase, benefit.benefit_type.strip(), benefit.benefit_subtype.strip())
+                    == key and benefit.cease_date == lapse_date):
+                policy.benefits[index] = replace(
+                    benefit, cease_date=original, is_active=True,
+                    pay_up_date=_charge_end_date(replace(raw, cease_date=original)))
+                notes.append(
+                    f"Benefit {key[1]}{key[2]} was ceased with the lapse; its original cease "
+                    f"date {original:%m/%d/%Y} is restored for continuous coverage.")
+                break
+    return notes
+
+
+@dataclass(frozen=True)
+class ReinstatementBasis:
+    """Loaded lapse values and rates; :meth:`quote` prices any reinstatement date."""
+
+    eligibility: ReinstatementEligibility
+    policy: IllustrationPolicyData
+    config: PlancodeConfig
+    rates: IllustrationRates
+    lapse: LapseValues
+    default_date: date
+    cvat: object | None = None
+    notes: tuple[str, ...] = ()
+    reinstatement_code: str = ""
+    date_choices: tuple[date, ...] = ()
+
+    def quote(self, reinstatement_date: date) -> ReinstatementQuote:
+        p = self.policy
+        if reinstatement_date < self.lapse.lapse_date:
+            raise ReinstatementError(
+                f"The reinstatement date cannot be before the lapse date "
+                f"({self.lapse.lapse_date:%m/%d/%Y}).")
+        maturity = p.issue_date + relativedelta(years=p.maturity_age - p.issue_age)
+        if reinstatement_date >= maturity:
+            raise ReinstatementError(f"The reinstatement date is at or after maturity ({maturity:%m/%d/%Y}).")
+        try:
+            return self._quote(reinstatement_date)
+        except ReinstatementError:
+            raise
+        except (RatesError, RateLookupError, ValueError, TypeError, ArithmeticError,
+                KeyError, IndexError) as exc:
+            raise ReinstatementError(f"Reinstatement charges are unavailable: {exc}") from exc
+
+    def values_after_reinstatement(self, quote: ReinstatementQuote) -> ValuesAfterReinstatement:
+        """Skipped-coverage values once the quoted premium is paid (mirrors Values at Lapse).
+
+        The approximate account value is the lapse value plus the net premium (premium less
+        load) less one monthly deduction. The reinstatement rule is the policy's segment 66
+        code (``REN_RLE_CD``): rule 3 pushes the SNET expiry out by the months the policy
+        was terminated and leaves the CCV benefit ceasing at termination. Any other rule
+        ends both at the termination date.
+        """
+        code = self.reinstatement_code
+        lapse, p = self.lapse, quote.premium
+        terminated = lapse.lapse_date
+        months = skipped_monthliversaries(self.policy.issue_date, terminated, quote.reinstatement_date)
+        snet = lapse.snet_expiry_date
+        if snet is not None:
+            snet = snet + relativedelta(months=months) if code == SKIPPED_COVERAGE_CODE else min(snet, terminated)
+        net_premium = p.premium - p.premium_load
+        deduction = quote.deduction.total
+        account_value = lapse.account_value + net_premium - deduction
+        return ValuesAfterReinstatement(
+            quote.reinstatement_date, code, months, net_premium, deduction,
+            account_value, lapse.loan_balance, p.surrender_charge,
+            account_value - p.surrender_charge - lapse.loan_balance,
+            snet, terminated if lapse.has_ccv else None)
+
+    def _quote(self, when: date) -> ReinstatementQuote:
+        p = self.policy
+        year, month, age = _counters(p, when)
+        ded = calculate_deduction(
+            float(self.lapse.account_value), p, self.config, self.rates, year, age,
+            p.premiums_paid_to_date, monthly_mtp=truncate_monthly_mtp(p.mtp),
+            projection_date=when, bln_round_charge=True,
+            corridor_rate=cvat_corridor_rate(self.cvat, when),
         )
-    except (DB2ConnectionError, RatesError, TypeError, OverflowError) as exc:
-        raise ReinstatementError(f"Cannot read reinstatement summary: {exc}") from exc
+        deduction = MonthlyDeduction(
+            when, year, month, age,
+            base_coi=_money(ded.coi_charge, "Base COI"),
+            rider_coi=_money(ded.rider_charges, "Rider COI"),
+            benefit_charges=_money(ded.benefit_charges, "Benefit charges"),
+            epu=_money(ded.epu_charge, "EPU"),
+            monthly_fee=_money(ded.mfee_charge, "Monthly fee"),
+            av_charge=_money(ded.av_charge, "Account value charge"),
+        )
+        if abs(deduction.total - _money(ded.total_deduction, "Monthly deduction")) > _CENT:
+            raise ReinstatementError("Monthly deduction components do not reconcile to the total.")
+        premium = self._premium(when, year, deduction)
+        notes = list(self.notes)
+        if when != latest_monthliversary(p.issue_date, when):
+            notes.append(
+                f"{when:%m/%d/%Y} is not a monthliversary; charges use policy year {year}, "
+                f"month {month}.")
+        if premium.subtotal <= 0:
+            notes.append("The account value covers the requirement; no reinstatement premium is due.")
+        return ReinstatementQuote(when, deduction, premium, tuple(notes))
+
+    def _premium(self, when: date, year: int, deduction: MonthlyDeduction) -> ReinstatementPremium:
+        p = self.policy
+        lapse = self.lapse
+        surrender = _surrender_charge(p, self.config, self.rates, when, lapse.account_value)
+        coi_x2 = 2 * deduction.coi_total
+        fees_x2 = 2 * deduction.fee_total
+        subtotal = surrender + lapse.loan_balance + coi_x2 + fees_x2 - lapse.account_value
+        tpp, epp = premium_load_rates(self.rates, year)
+        flat = self.config.prem_flat_load if self.config.prem_flat_load > 0 else 0.0
+        same_year = p.valuation_date is not None and _counters(p, p.valuation_date)[0] == year
+        premiums_ytd = p.premiums_ytd if same_year else 0.0
+        if subtotal > 0:
+            split = gross_up_for_premium_load(
+                float(subtotal), premiums_ytd=premiums_ytd, ctp=p.ctp,
+                tpp=tpp, epp=epp, flat=flat)
+            premium = _money(split.gross, "Reinstatement premium")
+        else:
+            premium = Decimal("0.00")
+        load = premium - subtotal if subtotal > 0 else Decimal("0.00")
+        return ReinstatementPremium(
+            lapse.account_value, lapse.loan_balance, surrender, coi_x2, fees_x2,
+            subtotal, load, premium, _load_description(tpp, epp, flat))
 
 
-def _number(value, label: str) -> float:
-    try:
-        result = float(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ReinstatementError(f"{label} is missing or invalid.") from exc
-    if not isfinite(result):
-        raise ReinstatementError(f"{label} is not finite.")
-    return result
+def _load_description(tpp: float, epp: float, flat: float) -> str:
+    text = (f"{tpp:.2%}" if abs(tpp - epp) < 1e-12
+            else f"{tpp:.2%} to target, {epp:.2%} excess")
+    return text + (f" + ${flat:,.2f}" if flat else "")
 
 
-def _debt_at_deduction(state: MonthlyState) -> float:
-    return sum((state.rg_loan_princ, state.rg_loan_accrued,
-                state.pf_loan_princ, state.pf_loan_accrued,
-                state.vbl_loan_princ, state.vbl_loan_accrued))
-
-
-def _validate_rates(policy, config, rates):
-    # EPU, MFEE, premium loads and the shadow EPU/loads are optional schema rates
-    # (none loaded = no charge); the loader raises for a missing required shadow rate.
-    required = {}
+def build_reinstatement_basis(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    *,
+    eligibility: ReinstatementEligibility,
+    lapse_date: date,
+    today: date,
+    lapse_amount: Decimal | None = None,
+    cvat=None,
+    notes: tuple[str, ...] = (),
+    reinstatement_code: str = "",
+) -> ReinstatementBasis:
+    """Assemble lapse values from a loaded snapshot (pure; no database reads)."""
+    if policy.issue_date is None:
+        raise ReinstatementError("The policy issue date is not available.")
+    if not policy.segments:
+        raise ReinstatementError("No base coverage is available to quote.")
+    if lapse_date > today:
+        raise ReinstatementError(f"The lapse date {lapse_date:%m/%d/%Y} is in the future.")
     for segment in policy.segments:
         phase = segment.coverage_phase
-        required[f"COI coverage {phase}"] = rates.segment_coi.get(phase)
-        required[f"SCR coverage {phase}"] = rates.segment_scr.get(phase, rates.scr)
-    if config.poav_table != "0":
-        required["poav"] = rates.poav
-    if policy.has_shadow_account:
-        for name in ("shadow_coi", "shadow_int", "shadow_dbd"):
-            required[name] = getattr(rates, name)
-    for name, schedule in required.items():
-        if not schedule or len(schedule) < 2:
-            raise ReinstatementError(f"Required {name} rate schedule is missing.")
-        for value in schedule[1:]:
-            _number(value, f"{name} rate")
-    for rider in policy.riders:
-        if rider.is_active and not rates.rider_rates.get(rider.export_key):
-            raise ReinstatementError(f"Required rider rates are missing: {rider.export_key}.")
-    keys = benefit_rate_keys(policy.benefits)
-    for benefit in policy.benefits:
-        if (benefit.is_active and not benefit.benefit_type.startswith("#")
-                and not rates.benefit_coi.get(keys[id(benefit)])):
-            raise ReinstatementError(f"Required benefit rates are missing: {keys[id(benefit)]}.")
-
-
-def project_home_office_reinstatement(
-    policy: IllustrationPolicyData,
-    summary: ReinstatementSummary,
-    *,
-    rates: IllustrationRates | None = None,
-    max_premium: Decimal = Decimal("10000000.00"),
-) -> ReinstatementResult:
-    """Solve a verified snapshot with the real engine, in integer cents.
-
-    Pure with respect to the supplied model. Inject explicit rate schedules in
-    offline tests; normal callers load the canonical schedules. Continuous
-    coverage disables only the absorbing lapse flag, not premium limits,
-    deductions, interest, forceouts, or maturity. No historical cash is inserted.
-    """
-    context = _build_reinstatement_context(policy, summary, rates, max_premium)
-    premium, states, receipt, accepted = _solve_reinstatement_premium(context)
-    return _summarize_reinstatement(context, premium, states, receipt, accepted)
-
-
-def _build_reinstatement_context(
-    policy: IllustrationPolicyData,
-    summary: ReinstatementSummary,
-    rates: IllustrationRates | None,
-    max_premium: Decimal,
-) -> ReinstatementProjectionContext:
-    p = copy.deepcopy(policy)
-    _validate_reinstatement_summary(p, summary)
-    target = summary.next_monthliversary
-    elapsed = _months(p.issue_date, p.valuation_date)
-    months = _months(p.issue_date, target) - elapsed
-    _validate_reinstatement_snapshot(p, target, elapsed, months)
-    _validate_reinstatement_numbers(p)
-    config = load_plancode(p.plancode)
-    if config.int_calc_method != "Declared":
-        raise ReinstatementError("Indexed crediting during reinstatement is not yet supported.")
-    rates = rates if rates is not None else load_rates(p, config)
-    _validate_rates(p, config, rates)
-    basis, shadow_active = _reinstatement_basis(p, target, config)
-    limit = _premium_search_limit(max_premium)
-
-    return ReinstatementProjectionContext(
-        p, summary, target, months, config, rates, basis,
-        shadow_active,
-        IllustrationOptions(no_lapse=True),
-        apply_bonus_eligibility(
-            calc_engine.load_bonus_config(p.plancode, p.valuation_date).capped_for(p), p, config),
-        IllustrationEngine(), limit,
-    )
-
-
-def _validate_reinstatement_summary(
-    policy: IllustrationPolicyData,
-    summary: ReinstatementSummary,
-) -> None:
-    if not summary.eligible:
-        raise ReinstatementError(summary.message)
-    if not policy.issue_date or not policy.valuation_date or summary.next_monthliversary is None:
-        raise ReinstatementError("A dated post-deduction snapshot and target are required.")
-    if summary.quote_pay_to_date is None or policy.valuation_date > summary.quote_pay_to_date:
-        raise ReinstatementError("The opening snapshot is after the quote pay-to date.")
-
-
-def _validate_reinstatement_snapshot(
-    policy: IllustrationPolicyData,
-    target: date,
-    elapsed: int,
-    months: int,
-) -> None:
-    if (policy.issue_date + relativedelta(months=elapsed) != policy.valuation_date
-            or policy.duration != elapsed + 1
-            or (policy.policy_year, policy.policy_month) != (elapsed // 12 + 1, elapsed % 12 + 1)):
-        raise ReinstatementError("Snapshot date and policy duration are inconsistent.")
-    if months < 1 or months > 1200:
-        raise ReinstatementError("Reinstatement projection horizon is invalid or exceeds 100 years.")
-    if target >= policy.issue_date + relativedelta(years=policy.maturity_age - policy.issue_age):
-        raise ReinstatementError("The next deduction is at or beyond policy maturity.")
-    if policy.run_from_issue or not policy.segments or policy.total_face <= 0:
-        raise ReinstatementError("An intact inforce coverage basis is required.")
-
-
-def _validate_reinstatement_numbers(policy: IllustrationPolicyData) -> None:
-    for name in ("account_value", "shadow_account_value", "premiums_paid_to_date",
-                 "withdrawals_to_date", "accumulated_mtp", "mtp", "current_interest_rate",
-                 "cost_basis", "premiums_ytd", "glp", "gsp", "accumulated_glp",
-                 "regular_loan_principal", "regular_loan_accrued",
-                 "preferred_loan_principal", "preferred_loan_accrued",
-                 "variable_loan_principal", "variable_loan_accrued"):
-        _number(getattr(policy, name), name)
-    if policy.def_of_life_ins not in {"GPT", "CVAT"}:
-        raise ReinstatementError("A verified regulatory definition of life insurance is required.")
-    if policy.current_interest_rate < 0:
-        raise ReinstatementError("The current interest basis must be nonnegative.")
-    if any(tx.effective_date > policy.valuation_date for tx in policy.premium_transactions):
-        raise ReinstatementError(
-            "Historical receipts require snapshot-date reconciliation before reinstatement projection.")
-
-
-def _reinstatement_basis(
-    policy: IllustrationPolicyData,
-    target: date,
-    config,
-) -> tuple[str, bool]:
-    in_safety_net = (
-        target <= policy.map_cease_date if policy.map_cease_date is not None
-        else _months(policy.issue_date, target) // 12 + 1 <= config.safety_net_years(policy.issue_age)
-    )
-    shadow_active = (
-        policy.has_shadow_account
-        and policy.issue_age + _months(policy.issue_date, target) // 12 < config.shadow_cease_age
-    )
-    ccv_benefits = [benefit for benefit in policy.benefits if benefit.benefit_type == "A"]
-    if ccv_benefits:
-        shadow_active = shadow_active and any(
-            benefit.is_active and (benefit.cease_date is None or benefit.cease_date >= target)
-            for benefit in ccv_benefits)
-    basis = "Safety net" if in_safety_net else "Shadow account" if shadow_active else "Surrender value"
-    return basis, shadow_active
-
-
-def _premium_search_limit(max_premium: Decimal) -> int:
-    limit_amount = _number(max_premium, "Premium search bound")
-    if limit_amount <= 0 or limit_amount > 10000000:
-        raise ReinstatementError("The premium search bound must be positive and at most 10,000,000.")
-    limit = int(Decimal(str(max_premium)) * 100)
-    if limit < 1:
-        raise ReinstatementError("The premium search bound must be positive.")
-    return limit
-
-
-def _project_reinstatement_cents(
-    context: ReinstatementProjectionContext,
-    cents: int,
-    receipts: dict[int, object],
-):
-    p = context.policy
-    summary = context.summary
-    inputs = IllustrationInputSet(
-        scheduled_transactions=[ScheduledTransaction(
-            TransactionKind.PREMIUM, p.policy_year, 0.0, "M")],
-        dated_transactions=[DatedTransaction(
-            TransactionKind.PREMIUM, summary.current_date, cents / 100.0)],
-    )
-    # An explicit zero schedule is mandatory: empty inputs restore billing.
-    p.modal_premium = p.annual_premium = 0.0
-    receipt = None
-    if summary.current_date != summary.quote_pay_to_date or p.valuation_date == summary.current_date:
-        states, receipt = project_receipt(
-            p, context.config, context.rates, context.bonus, context.options,
-            summary.current_date, summary.quote_pay_to_date, context.target,
-            context.months - 1, cents / 100.0,
-        )
-    else:
-        states = project_policy(
-            copy.deepcopy(p), months=context.months, inputs=inputs,
-            options=context.options, rates=context.rates, config=context.config,
-            bonus_override=context.bonus, stop_on_lapse=False, engine=context.engine,
-        ).states
-    receipts[cents] = receipt
-    if len(states) != context.months + 1 or states[-1].date != context.target:
-        raise ReinstatementError("Projection did not reach the next monthly deduction.")
-    end = states[-1]
-    debt = _debt_at_deduction(end)
-    if context.basis == "Safety net":
-        margin = end.premiums_to_date_after_exception - end.withdrawals_to_date - debt - end.accumulated_mtp
-        success = margin >= -1e-8
-    elif context.basis == "Shadow account":
-        margin = end.shadow_av - debt
-        success = margin > 1e-8
-    else:
-        margin = end.av_after_deduction - end.surrender_charge - debt
-        success = margin > 1e-8
-    _number(margin, "Reinstatement funding margin")
-    accepted = sum(row.gross_premium for row in states[1:]) + (receipt.gross if receipt else 0.0)
-    if any(row.gp_exception_prem for row in states):
-        raise ReinstatementError(
-            "Regulatory acceptance caps generated an unquoted exception premium.")
-    return success, states, accepted
-
-
-def _solve_reinstatement_premium(context: ReinstatementProjectionContext):
-    receipts = {}
-    zero_ok, states, accepted = _project_reinstatement_cents(context, 0, receipts)
-    low = high = 0
-    if not zero_ok:
-        high = min(10000, context.limit_cents)
-        while True:
-            ok, states, accepted = _project_reinstatement_cents(context, high, receipts)
-            if ok:
-                break
-            if high == context.limit_cents:
+        for name, schedule in (("COI", rates.segment_coi.get(phase, rates.coi)),
+                               ("surrender charge", rates.segment_scr.get(phase, rates.scr))):
+            if not schedule or len(schedule) < 2:
                 raise ReinstatementError(
-                    "No fundable premium within the bounded search. "
-                    "Regulatory acceptance caps or the supplied coverage basis prevent this quote.")
-            low, high = high, min(high * 2, context.limit_cents)
-        while high - low > 1:
-            middle = (low + high) // 2
-            ok, _, _ = _project_reinstatement_cents(context, middle, receipts)
-            if ok:
-                high = middle
-            else:
-                low = middle
-        ok, states, accepted = _project_reinstatement_cents(context, high, receipts)
-        if not ok or _project_reinstatement_cents(context, high - 1, receipts)[0]:
-            raise ReinstatementError("Exact-cent minimum could not be verified.")
-    premium = Decimal(high) / 100
-    receipt = receipts[high]
-    if abs(accepted - float(premium)) > 0.005:
-        raise ReinstatementError("Requested premium was not fully accepted under regulatory limits.")
-    return premium, states, receipt, accepted
-
-
-def _summarize_reinstatement(
-    context: ReinstatementProjectionContext,
-    premium: Decimal,
-    states: list[MonthlyState],
-    receipt,
-    accepted: float,
-) -> ReinstatementResult:
-    p = context.policy
-    config = context.config
-    basis = context.basis
-    end = states[-1]
-    deductions = sum(row.total_deduction for row in states[1:])
-    loads = sum(row.total_premium_load for row in states[1:]) + (receipt.loads if receipt else 0.0)
-    interest = sum(row.interest_credited for row in states[:-1])
-    forceouts = sum(row.guideline_forceout for row in states[1:])
-    reconciliation = p.account_value + accepted - loads + interest - deductions - forceouts
-    if abs(reconciliation - end.av_after_deduction) > 0.02:
-        raise ReinstatementError("Projected account-value movements do not reconcile.")
-    if context.shadow_active:
-        shadow_reconciled = (
-            p.shadow_account_value + accepted
-            - sum(s.shadow_prem_load + s.shadow_md for s in states[1:])
-            - (receipt.shadow_loads if receipt else 0.0)
-            + sum(s.shadow_interest for s in states[:-1])
-        )
-        if abs(shadow_reconciled - end.shadow_av) > 0.02:
-            raise ReinstatementError("Projected shadow-account movements do not reconcile.")
-    rows = (
-        ("Starting account value (post-deduction)", p.account_value),
-        ("Starting shadow account value", p.shadow_account_value),
-        ("Starting premiums paid", p.premiums_paid_to_date),
-        ("Starting accumulated withdrawals", p.withdrawals_to_date),
-        ("Starting accumulated minimum target premium", p.accumulated_mtp),
-        ("Required gross premium", premium),
-        ("Premium loads", loads),
-        ("Interest before next deduction", interest),
-        ("Total monthly deductions (including next)", deductions),
-        ("Guideline forceouts", forceouts),
-        ("Next monthliversary debt (at deduction)", _debt_at_deduction(end)),
-        ("Next accumulated minimum target premium", end.accumulated_mtp),
-        ("Next premiums paid (including quote)", end.premiums_to_date_after_exception),
-        ("Next accumulated withdrawals", end.withdrawals_to_date),
-        ("Next premiums paid less withdrawals and debt",
-         end.premiums_to_date_after_exception - end.withdrawals_to_date - _debt_at_deduction(end)),
-        ("Next surrender charge", end.surrender_charge),
-        ("Next account value after deduction", end.av_after_deduction),
-        ("Next surrender value after deduction", end.surrender_value),
-        ("Shadow premium loads", sum(s.shadow_prem_load for s in states[1:])
-         + (receipt.shadow_loads if receipt else 0.0)),
-        ("Shadow deductions", sum(s.shadow_md for s in states[1:])),
-        ("Shadow interest before next deduction", sum(s.shadow_interest for s in states[:-1])),
-        ("Next shadow value after deduction", end.shadow_av),
-        ("Next shadow value less debt", end.shadow_av - _debt_at_deduction(end)),
+                    f"The {name} rate schedule for coverage {phase} is missing.")
+    account_value = _money(policy.account_value, "Account value")
+    loan_balance = sum((
+        _money(value, "Loan balance") for value in (
+            policy.regular_loan_principal, policy.regular_loan_accrued,
+            policy.preferred_loan_principal, policy.preferred_loan_accrued,
+            policy.variable_loan_principal, policy.variable_loan_accrued)
+    ), Decimal("0.00"))
+    ccv = [b for b in policy.benefits if (b.benefit_type or "").strip() == CCV_BENEFIT_TYPE]
+    ccv_dates = [b.cease_date for b in ccv if b.cease_date is not None]
+    lapse = LapseValues(
+        lapse_date, policy.valuation_date, account_value, loan_balance,
+        _surrender_charge(policy, config, rates, lapse_date, account_value),
+        policy.map_cease_date, bool(ccv), max(ccv_dates) if ccv_dates else None,
     )
-    equation = {
-        "Safety net": (
-            "Safety net: premiums paid (including this premium) - accumulated withdrawals "
-            "- debt at the next deduction must cover accumulated MTP through that deduction. "
-            "A zero premium means that requirement is already satisfied."
-        ),
-        "Shadow account": (
-            "Shadow account: starting shadow value + accepted premium - shadow premium loads "
-            "+ shadow interest - all shadow deductions - debt at the next deduction "
-            "must be strictly positive."
-        ),
-        "Surrender value": (
-            "Surrender value: starting account value + accepted premium - premium loads "
-            "+ interest - all monthly deductions - forceouts - surrender charge "
-            "- debt at the next deduction must be strictly positive."
-        ),
-    }[basis]
-    return ReinstatementResult(
-        context.summary, premium, basis, tuple((label, f"{value:,.2f}") for label, value in rows),
-        f"{equation}\n"
-        f"Continuous coverage from the verified post-deduction snapshot {p.valuation_date:%Y-%m-%d}. "
-        f"One premium is posted on {context.summary.current_date:%Y-%m-%d}; no historical receipts are backdated. "
-        f"Canonical illustration crediting basis: {p.current_interest_rate:.4%}, "
-        f"{config.interest_method}; a between-deduction receipt earns only its remaining-period interest. "
-        "The next monthliversary deduction is included; interest after that deduction is excluded. "
-        "TEFRA/TAMRA caps and guideline forceouts remain enabled; no automatic exception premium. "
-        "Skipped coverage and reinstatement-specific regulatory resets are not modeled.",
-        tuple(states),
-    )
+    notes = list(notes)
+    if policy.valuation_date is not None:
+        notes.insert(0,
+            f"Lapse values are from the last monthliversary values record "
+            f"({policy.valuation_date:%m/%d/%Y}).")
+    if lapse_amount is not None and abs(_money(lapse_amount, "Lapse amount") - account_value) > _CENT:
+        notes.append(
+            f"The TL lapse transaction amount ({lapse_amount:,.2f}) differs from the "
+            f"values-record account value ({account_value:,.2f}).")
+    for benefit in policy.benefits:
+        if benefit.cease_date == lapse_date and not (benefit.benefit_type or "").startswith("#"):
+            notes.append(
+                f"Benefit {benefit.benefit_type}{benefit.benefit_subtype} ceases on the lapse date, "
+                "so its charge is excluded. Confirm whether it is reinstated.")
+    default = max(latest_monthliversary(policy.issue_date, today), lapse_date)
+    maturity = policy.issue_date + relativedelta(years=policy.maturity_age - policy.issue_age)
+    choices = reinstatement_date_choices(policy.issue_date, lapse_date, today, maturity)
+    if default not in choices:
+        default = choices[0] if choices else default
+    return ReinstatementBasis(
+        eligibility, policy, config, rates, lapse, default, cvat, tuple(notes),
+        str(reinstatement_code or "").strip(), choices or (default,))
 
 
-def calculate_home_office_reinstatement(policy, today: date | None = None) -> ReinstatementResult:
-    """Validate canonical data before any normal-loader defaults can hide gaps."""
+def load_reinstatement_basis(policy, today: date | None = None) -> ReinstatementBasis:
+    """Read the lapsed policy's canonical illustration basis once (read-only)."""
+    today = today or date.today()
+    eligibility = reinstatement_eligibility(policy)
+    if not eligibility.eligible:
+        raise ReinstatementError(eligibility.message)
     try:
-        summary = reinstatement_summary(policy, today)
-        if not summary.eligible:
-            raise ReinstatementError(summary.message)
-        snapshot = policy.values.mv_date(0)
-        if snapshot is None or snapshot != policy.values.valuation_date:
-            raise ReinstatementError("An actual monthliversary snapshot is required; derived dates are not sufficient.")
-        _validate_policy_snapshot_sources(policy)
-        selected = _restored_coverage_basis(policy, summary, snapshot)
-        _validate_benefit_continuation(policy, summary)
-        ill_policy = load_projection_basis(
+        lapse_date, lapse_amount = find_lapse_date(policy)
+        if lapse_date is None:
+            raise ReinstatementError(
+                "The lapse date is not available: no TL (termination - lapse) "
+                "transaction or termination date was found.")
+        terminated = policy_attr(policy, "terminate_date", None)
+        loaded = load_projection_basis(
             policy.policy_number, region=policy.region, company_code=policy.company_code,
-            illustration_date=summary.current_date,
-            reinstatement_date=summary.termination_date,
-        ).policy
-        _validate_loaded_reinstatement_basis(policy, ill_policy, selected, snapshot)
-        return project_home_office_reinstatement(ill_policy, summary)
+            illustration_date=today,
+            # Restores coverages CyberLife terminated with the lapse (continuous coverage).
+            reinstatement_date=lapse_date if terminated == lapse_date else None,
+        )
+        cvat = None
+        if loaded.policy.is_cvat:
+            # The engine's own CVAT corridor tracker, so CVAT COIs match projections.
+            cvat = IllustrationEngine()._start_cvat_corridor(loaded.policy, loaded.config)
+        restored = restore_lapse_benefits(
+            loaded.policy, policy_attr(policy, "get_benefits")(), lapse_date)
+        return build_reinstatement_basis(
+            loaded.policy, loaded.config, loaded.rates, eligibility=eligibility,
+            lapse_date=lapse_date, today=today, lapse_amount=lapse_amount, cvat=cvat,
+            notes=tuple(restored), reinstatement_code=read_reinstatement_code(policy),
+        )
     except ReinstatementError:
         raise
-    except (DB2ConnectionError, RatesError, RateLookupError, OSError, ValueError,
-            TypeError, ArithmeticError) as exc:
-        raise ReinstatementError(f"Reinstatement data or projection is unavailable: {exc}") from exc
-
-
-def _validate_policy_snapshot_sources(policy) -> None:
-    for table, fields, index in (
-        ("LH_POL_TOTALS", ("TOT_REG_PRM_AMT", "TOT_ADD_PRM_AMT",
-                          "TOT_WTD_AMT", "POL_CST_BSS_AMT"), 0),
-        ("LH_POL_MVRY_VAL", ("CINS_AMT", "EXP_CRG_AMT", "OTH_PRM_AMT"), 0),
-    ):
-        for field in fields:
-            _number(policy.data_item(table, field, index), f"{table}.{field}")
-    ytd_count = policy.data_item_count("LH_POL_YR_TOT")
-    if ytd_count < 1:
-        raise ReinstatementError("Premium year-to-date snapshot is missing.")
-    for field in ("YTD_TOT_PMT_AMT", "YTD_ADD_PRM_AMT"):
-        _number(policy.data_item("LH_POL_YR_TOT", field, ytd_count - 1), field)
-    for row in policy.fetch_table("LH_FND_VAL_LOAN"):
-        for field in ("LN_PRI_AMT", "POL_LN_ITS_AMT"):
-            _number(row.get(field), f"Loan {field}")
-    for name, value in (
-        ("Opening account value", policy.values.mv_av(0)),
-        ("Premiums paid", policy.billing.premium_td), ("Premiums YTD", policy.billing.premium_ytd),
-        ("Withdrawals", policy.values.total_withdrawals), ("Cost basis", policy.values.cost_basis),
-        ("MTP", policy.targets.mtp), ("Accumulated MTP", policy.targets.accumulated_mtp_target),
-    ):
-        _number(value, name)
-
-
-def _restored_coverage_basis(policy, summary: ReinstatementSummary, snapshot: date):
-    restored = [
-        restore_lapse_coverage(coverage, summary.termination_date)
-        for coverage in policy.coverages.get_base_coverages()
-    ]
-    selected = [coverage for coverage in restored if not _coverage_is_terminated(coverage, snapshot)]
-    if not selected:
-        raise ReinstatementError(
-            "The pre-lapse coverage basis cannot be established. "
-            "Undated or unrelated terminations cannot be restored.")
-    selected_riders = [
-        restore_lapse_coverage(rider, summary.termination_date) for rider in policy.coverages.get_riders()
-    ]
-    selected_riders = [
-        rider for rider in selected_riders if not _coverage_is_terminated(rider, snapshot)
-    ]
-    _validate_reinstatement_coverages(selected + selected_riders)
-    policy.coverages.get_substandard_ratings()
-    return selected
-
-
-def _validate_reinstatement_coverages(coverages) -> None:
-    for coverage in coverages:
-        for attr in ("face_amount", "units", "issue_age"):
-            _number(getattr(coverage, attr, None), f"Coverage {attr}")
-        if (getattr(coverage, "issue_date", None) is None
-                or not getattr(coverage, "sex_code", None)
-                or not getattr(coverage, "rate_class", None)):
-            raise ReinstatementError("Coverage issue date or underwriting is missing.")
-
-
-def _validate_benefit_continuation(policy, summary: ReinstatementSummary) -> None:
-    for benefit in policy.benefits.get_benefits():
-        if benefit.benefit_type_cd != "#" and benefit.cease_date == summary.termination_date:
-            raise ReinstatementError(
-                "A benefit ceases on the lapse date without a separate termination indicator. "
-                "Confirm its contractual continuation before quoting.")
-
-
-def _validate_loaded_reinstatement_basis(policy, ill_policy, selected, snapshot: date) -> None:
-    if len(ill_policy.segments) != len(selected) or ill_policy.valuation_date != snapshot:
-        raise ReinstatementError("The loaded coverage basis is incomplete.")
-    if ill_policy.has_shadow_account:
-        _number(policy.targets.shadow_account_value, "Starting shadow account value")
-    if ill_policy.is_gpt:
-        for name in ("glp", "gsp", "accumulated_glp_target"):
-            _number(getattr(policy.targets, name, None), name)
-    if any(t.trans_date is None or t.trans_date > snapshot for t in policy.activity.get_transactions()):
-        raise ReinstatementError(
-            "Financial history extends beyond the opening snapshot or has undated entries. "
-            "Reconcile accumulator, loan and shadow balances before quoting; no receipts were backdated.")
+    except (DB2ConnectionError, RatesError, RateLookupError, OSError, RuntimeError,
+            ValueError, TypeError, ArithmeticError, KeyError, IndexError) as exc:
+        raise ReinstatementError(f"Reinstatement data is unavailable: {exc}") from exc

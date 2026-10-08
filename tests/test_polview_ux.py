@@ -254,17 +254,74 @@ def test_tool_availability_explains_why_tools_do_not_apply():
     assert ul["glp_exception"].available and ul["reinstatement"].available
 
 
-def test_suggestions_follow_the_situation():
-    policy = summary_policy(in_grace=True)
+def _glp_facts(**overrides):
+    """Live U1054383 shape: in grace, but net AV and GPT room are ample."""
+    facts = dict(
+        in_grace=True, grace_period_expiry_date=date(2026, 10, 7),
+        issue_date=date(2021, 5, 7), valuation_date=date(2026, 9, 7), policy_year=6,
+        coverage_rows=[SimpleNamespace(plancode="1U143900", form_number="EXEC-UL",
+                                       face_amount=Decimal("100000"), issue_date=date(2021, 5, 7),
+                                       issue_age=38, cov_pha_nbr=1)],
+        mv_av=lambda index=0: Decimal("9053.79"),
+        mv_monthly_deduction=lambda index=0: Decimal("86.27"),
+        policy_debt=Decimal("6223.21"), gsp=Decimal("36743.65"),
+        accumulated_glp_target=Decimal("16439.28"), premium_td=Decimal("13980.64"),
+        total_withdrawals=Decimal("0"),
+    )
+    facts.update(overrides)
+    return facts
+
+
+def _suggestion_keys(policy):
+    summary = insights.build_policy_summary(policy, today=date(2026, 9, 24))
+    return [s.key for s in insights.suggested_actions(
+        policy, summary, insights.support_tool_availability(policy), today=date(2026, 9, 24))]
+
+
+def test_glp_exception_not_suggested_when_value_and_room_cover_the_year():
+    assert "glp_exception" not in _suggestion_keys(summary_policy(**_glp_facts()))
+
+
+def test_glp_exception_not_suggested_when_gpt_room_covers_the_shortfall():
+    policy = summary_policy(**_glp_facts(mv_av=lambda index=0: Decimal("6300")))
+    assert "glp_exception" not in _suggestion_keys(policy)
+
+
+def test_glp_exception_suggested_when_shortfall_exceeds_gpt_room():
+    policy = summary_policy(**_glp_facts(
+        mv_av=lambda index=0: Decimal("6300"), premium_td=Decimal("36600")))
     summary = insights.build_policy_summary(policy, today=date(2026, 9, 24))
     suggestions = insights.suggested_actions(
         policy, summary, insights.support_tool_availability(policy), today=date(2026, 9, 24))
     assert [s.key for s in suggestions] == ["glp_exception"]
+    assert "5/07/2027 anniversary" in suggestions[0].tooltip
+    assert "GPT room $143.65" in suggestions[0].tooltip
+
+
+def test_glp_exception_not_suggested_while_facts_are_pending():
+    policy = summary_policy(**_glp_facts(
+        mv_av=lambda index=0: Decimal("6300"), premium_td=Decimal("36600"),
+        pending={"policy_debt"}))
+    assert "glp_exception" not in _suggestion_keys(policy)
+
+
+def test_glp_exception_need_horizon_runs_through_the_next_anniversary():
+    from suiteview.polview.services import glp_exception_need as need
+
+    assert need.next_policy_anniversary(date(2021, 5, 7), date(2026, 9, 7)) == date(2027, 5, 7)
+    assert need.next_policy_anniversary(date(2021, 5, 7), date(2026, 5, 7)) == date(2027, 5, 7)
+    assert need.next_policy_anniversary(date(2020, 2, 29), date(2026, 3, 1)) == date(2027, 2, 28)
+    assert need.monthliversaries_through(date(2026, 9, 7), date(2027, 5, 7)) == 8
+    assert need.monthliversaries_through(date(2027, 4, 7), date(2027, 5, 7)) == 1
+    assert need.gpt_premium_room(36743.65, 16439.28, 13980.64, 0) == pytest.approx(22763.01)
+    assert need.estimate_glp_exception_need(
+        account_value=None, policy_debt=0, monthly_deduction=10, issue_date=date(2021, 5, 7),
+        valuation_date=date(2026, 9, 7), gpt_room=100) is None
+
+
+def test_suggestions_follow_the_situation():
     lapsed = summary_policy(last_entry_code="Q", terminate_date=date(2026, 5, 1))
-    summary = insights.build_policy_summary(lapsed, today=date(2026, 9, 24))
-    keys = [s.key for s in insights.suggested_actions(
-        lapsed, summary, insights.support_tool_availability(lapsed), today=date(2026, 9, 24))]
-    assert "reinstatement" in keys
+    assert "reinstatement" in _suggestion_keys(lapsed)
 
 
 # ── notes & recents ──────────────────────────────────────────────────────────
@@ -645,7 +702,8 @@ def settle(qtbot, win):
 
 
 def test_window_badges_copy_and_recent_policies(window, qtbot):
-    window.test_policies["GRACE1"] = window.test_make("GRACE1", in_grace=True, region="CKPR")
+    window.test_policies["GRACE1"] = window.test_make("GRACE1", region="CKPR", **_glp_facts(
+        mv_av=lambda index=0: Decimal("6300"), premium_td=Decimal("36600")))
     window.load_policy("GRACE1")
     settle(qtbot, window)
     strip = window.summary_strip

@@ -64,6 +64,9 @@ _TOOLTIP_QSS = (
     "}"
 )
 
+# The Record Layout reference below each screen is hidden for now.
+_SHOW_RECORD_LAYOUT = False
+
 _DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data", "policy_record_screens",
@@ -344,7 +347,7 @@ class _SegmentTab(QScrollArea):
         layout.addWidget(_TerminalScreen(screen))
 
         # Record Layout section (only if the source provided one)
-        layout_html = screen.get("layout_html", "")
+        layout_html = screen.get("layout_html", "") if _SHOW_RECORD_LAYOUT else ""
         if layout_html:
             heading = QLabel("Record Layout")
             heading.setStyleSheet(
@@ -471,7 +474,7 @@ class PolicyRecordViewerWindow(FramelessWindowBase):
                 f"CyberLife policy record \u2014 {pi.policy_number}  ({who}).  "
                 "Tabs show implemented screens with policy data; data-load errors are identified. "
                 "Screens not yet supported are omitted. Hover a value for its source "
-                "mapping; right-click to copy. Scroll down for the record layout."
+                "mapping; right-click to copy."
             )
             if not self.tabs.count():
                 text += " No supported policy record screens are available for this policy."

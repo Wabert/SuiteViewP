@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 from suiteview.polview.models.policy_sections.lookup import policy_attr
-
+from suiteview.polview.services.glp_exception_need import gpt_premium_room
 logger = logging.getLogger(__name__)
 
 
@@ -127,8 +127,8 @@ def _prem_allowed_gpt(policy, is_advanced: bool):
         }
     except Exception:
         return "N/A", None
-    guideline_limit = max(inputs["gsp"], inputs["accum_glp"])
-    return max(0.0, guideline_limit - inputs["premium_td"] + inputs["withdrawals"]), inputs
+    return gpt_premium_room(inputs["gsp"], inputs["accum_glp"], inputs["premium_td"],
+                            inputs["withdrawals"]), inputs
 
 
 def build_targets_view_model(policy) -> TargetsViewModel:
