@@ -82,8 +82,11 @@ VERIFIED_PREMLOAD_RULES = "400"
 # Rule-5 surrender charge tables whose CKULTB04 rows have FREE_PCT 0 and CHARGE_AMOUNT 0
 # (CKULTB04 print 08/12/2026): the charge is the percentage of the whole account value.
 # 58 matches 54 company-01 FH_FIXED full surrenders to the cent; C9 (all company 26)
-# matches 39 graded ones; I5 rests on the print (allow code P, like I2/I3).
-VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58", "C9")
+# matches 39 graded ones; I5 rests on the print (allow code P, like I2/I3). C1 (company-26
+# UL NU1FU100 and NU1F1N00) rests on the CKULTB04 081226 print: 11 rule-5 rows, 10% in year 1
+# falling 1% a year to 0 from year 11, CHARGE_AMOUNT 0, FREE_PCT 0, MONTHS_FREE 0, allow code
+# P (UL_Rates bulk load 9/27/2026); no CyberLife surrender has fallen in its charge period.
+VERIFIED_PCT_OF_AV_SCR_TABLES = ("I2", "I3", "I5", "58", "C9", "C1")
 # Companies whose rule-5 percentage is graded monthly between policy years: all 44
 # loan-free company-26 FH_FIXED full surrenders on C9/58 match the graded percentage to
 # the cent, and all 54 company-01 ones on 58 the flat one. Neither PLAN_DEF nor
@@ -145,24 +148,10 @@ class ISWLRateBasis:
         return bool(self.surrender_charge_pct)
 
     def surrender_charge_rate(self, policy_year: int, months_elapsed: int = 0) -> float:
-        """Rule-5 fraction of the account value charged on a full surrender.
-
-        Graded (company 26): with ``m`` completed months since the policy anniversary,
-        ``round3%(pct(d) + (pct(d-1) - pct(d)) x (12 - m) / 12)``. The charge starts year
-        ``d`` at pct(d-1) and falls linearly towards pct(d), so it runs one year past the
-        last nonzero row; pct(0) is pct(1).
-        """
-        if not self.surrender_charge_pct:
-            return 0.0
-        label = "surrender charge percentage"
-        current = _year_value(self.surrender_charge_pct, policy_year, label)
-        if not self.surrender_charge_graded:
-            return current
-        prior = _year_value(self.surrender_charge_pct, max(int(policy_year) - 1, 1), label)
-        months = min(max(int(months_elapsed), 0), MONTHS_PER_YEAR)
-        cur, pri = Decimal(str(current)), Decimal(str(prior))
-        graded = cur + (pri - cur) * (MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR
-        return float(graded.quantize(PCT_3DP, rounding=ROUND_HALF_UP))
+        """Rule-5 fraction of the account value charged on a full surrender
+        (``rule_5_surrender_pct``)."""
+        return rule_5_surrender_pct(
+            self.surrender_charge_pct, self.surrender_charge_graded, policy_year, months_elapsed)
 
     def guaranteed_cash_value(self, month_date: Optional[date]) -> float:
         """Guaranteed cash value on a monthliversary: units x the tabular value
@@ -217,6 +206,79 @@ class ISWLPremiumSplit:
     premium_load: float
     policy_fee: float
     benefit_premium: float
+
+
+def rule_5_surrender_pct(schedule: Sequence, graded: bool, policy_year: int,
+                         months_elapsed: int = 0) -> float:
+    """Rule-5 fraction of the account value charged on a full surrender.
+
+    ``schedule`` is 1-indexed by policy year. Graded (company 26): with ``m`` completed
+    months since the policy anniversary, ``round3%(pct(d) + (pct(d-1) - pct(d)) x (12 - m)
+    / 12)``. The charge starts year ``d`` at pct(d-1) and falls linearly towards pct(d), so
+    it runs one year past the last nonzero row; pct(0) is pct(1).
+    """
+    if not schedule:
+        return 0.0
+    label = "surrender charge percentage"
+    current = _year_value(schedule, policy_year, label)
+    if not graded:
+        return current
+    prior = _year_value(schedule, max(int(policy_year) - 1, 1), label)
+    months = min(max(int(months_elapsed), 0), MONTHS_PER_YEAR)
+    cur, pri = Decimal(str(current)), Decimal(str(prior))
+    value = cur + (pri - cur) * (MONTHS_PER_YEAR - months) / MONTHS_PER_YEAR
+    return float(value.quantize(PCT_3DP, rounding=ROUND_HALF_UP))
+
+
+@dataclass
+class ULPctOfAVSurrender:
+    """A UL plan's rule-5 full surrender charge (``PlancodeConfig.ul_pct_of_av_surrender_charge``):
+    ``SCR_PCT`` of the policy's whole account value, by policy year of the base coverage
+    phase. Increase phases carry no charge of their own (they have no ``SCR`` schedule)."""
+
+    base_coverage_phase: int
+    surrender_charge_pct: List = field(default_factory=list)
+    surrender_charge_graded: bool = False
+
+    @property
+    def surrender_charge_is_pct_of_av(self) -> bool:
+        return bool(self.surrender_charge_pct)
+
+    def surrender_charge_rate(self, policy_year: int, months_elapsed: int = 0) -> float:
+        return rule_5_surrender_pct(
+            self.surrender_charge_pct, self.surrender_charge_graded, policy_year, months_elapsed)
+
+
+def load_ul_pct_of_av_surrender(policy: IllustrationPolicyData, config: PlancodeConfig,
+                                rates_db) -> Optional[ULPctOfAVSurrender]:
+    """The rule-5 ``SCR_PCT`` schedule of a UL plan's base coverage, or ``None`` when the
+    plan is not UL rule 5. Raises when the CKULTB04 table is unverified or the schedule is
+    missing, rather than illustrate a zero charge."""
+    if not config.ul_pct_of_av_surrender_charge:
+        return None
+    segment = policy.base_segment
+    table = config.scr_table.strip()
+    if table not in VERIFIED_PCT_OF_AV_SCR_TABLES:
+        raise RateLookupError(
+            f"{config.plancode} rule 5 surrender charges use CKULTB04 table {table or '(blank)'}, "
+            "whose free-withdrawal percentage and flat charge are not verified "
+            f"(verified: {', '.join(VERIFIED_PCT_OF_AV_SCR_TABLES)}).")
+    cell = dict(issue_age=segment.issue_age, sex=segment.rate_sex, rateclass=segment.rate_class,
+                band=segment.band, state=policy.issue_state, issue_date=segment.issue_date)
+    if rates_db.get_rates("SCR", config.plancode, **cell):
+        raise RateLookupError(
+            f"{config.plancode} is surrender charge rule 5 but schema rates loads both dollar SCR "
+            "and SCR_PCT; which one CyberLife charges is ambiguous.")
+    schedule = rates_db.get_rates("SCR_PCT", config.plancode, **cell)
+    if not schedule or len(schedule) < 2:
+        raise RateLookupError(
+            f"{config.plancode} is surrender charge rule 5 (CKULTB04 table {table}) but schema "
+            f"rates has no SCR_PCT for issue age {segment.issue_age}.")
+    pct = [None] + [float(value or 0.0) for value in schedule[1:]]
+    if any(not 0.0 <= value <= 1.0 for value in pct[1:]):
+        raise RateLookupError(f"{config.plancode} SCR_PCT is not a fraction between 0 and 1.")
+    # The zero tail lets the graded charge run one year past the last nonzero row.
+    return ULPctOfAVSurrender(segment.coverage_phase, pct + [0.0], rule_5_graded(policy.company_code))
 
 
 def split_iswl_premium(

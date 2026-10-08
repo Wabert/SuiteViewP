@@ -282,6 +282,9 @@ class IllustrationRates:
 
     # ISWL fixed-premium basis (iswl_rates.ISWLRateBasis); None for UL-family plans.
     iswl: Optional[object] = None
+    # UL rule-5 percent-of-account-value surrender charge (iswl_rates.ULPctOfAVSurrender);
+    # None when the plan's surrender charge is per unit.
+    pct_scr: Optional[object] = None
 
 
 def mfee_schedule(rates_db: ULRates, plancode: str, segment, *, scale: int, band) -> List:
@@ -503,6 +506,7 @@ def load_rates(
         policy, config, rates_db, seg, segment_rates,
         coi_scale=coi_scale, expense_scale=expense_scale)
     _load_ratchet_rates(result, policy, config, rates_db, coi_scale)
+    _load_pct_of_av_surrender(result, policy, config, rates_db)
     _load_poav_rates(result, config, seg, expense_scale)
     _load_shadow_rates(result, policy, config, rates_db, seg)
     _load_benefit_rates(result, policy, rates_db, seg)
@@ -515,6 +519,16 @@ def _validate_scales(coi_scale: int, expense_scale: int) -> None:
         raise ValueError(f"COI scale must be 0 or 1, got {coi_scale}")
     if expense_scale not in (0, 1):
         raise ValueError(f"Expense scale must be 0 or 1, got {expense_scale}")
+
+
+def _load_pct_of_av_surrender(result: IllustrationRates, policy: IllustrationPolicyData,
+                              config: PlancodeConfig, rates_db: ULRates) -> None:
+    """UL rule-5 plans charge a percentage of the account value (schema ``SCR_PCT``)."""
+    if not getattr(config, "ul_pct_of_av_surrender_charge", False):
+        return
+    from suiteview.illustration.core.iswl_rates import load_ul_pct_of_av_surrender
+
+    result.pct_scr = load_ul_pct_of_av_surrender(policy, config, rates_db)
 
 
 def _initialize_dynamic_bands(policy: IllustrationPolicyData, rates_db: ULRates) -> None:

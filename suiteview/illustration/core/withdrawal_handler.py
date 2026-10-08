@@ -93,8 +93,9 @@ def compute_withdrawal(
         gross_request: A gross-basis request — the amount that should leave the
             account value (RERUN BN) — inverted to net and added to ``request``.
         pct_of_av_surrender_charge: Full surrender charge that is a percentage of the
-            account value (rule-5 ISWL), added to the per-unit charges in the CSV.
-            The engine rejects a withdrawal request while it is non-zero.
+            account value (rule 5), added to the per-unit charges in the CSV. The engine
+            rejects a withdrawal request while a rule-5 ISWL charge is non-zero; a UL
+            rule-5 plan (partial rule 1) takes only the fee.
         corridor_rate: This month's corridor factor (BF).
         prior_total_md: Prior month's total monthly deduction (SU11).
         policy_debt: Beginning total loan debt (Z..AE sum).

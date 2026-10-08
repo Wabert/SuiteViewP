@@ -3579,7 +3579,7 @@ def _compute_month_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
         for seg in policy.segments
     }
     pct_of_av_charge = sum(
-        (_iswl_surrender_charge_pct(inputs.rates, seg, inputs.month_date, inputs.rate_year) or 0.0)
+        (_pct_of_av_surrender_charge_pct(inputs.rates, seg, inputs.month_date, inputs.rate_year) or 0.0)
         * max(inputs.av, 0.0)
         for seg in policy.segments
     )
@@ -5267,8 +5267,8 @@ def _calculate_surrender_charge(
     coverage, charges by coverage)``.
 
     Most plans charge a per-unit rate x units, independent of the account value. A
-    rule-5 ISWL base coverage charges a fraction of the account value instead; its
-    reported rate is that fraction. A company-26 FFL total is reduced by the partial
+    rule-5 base coverage (ISWL, or UL NU1FU100/NU1F1N00) charges a fraction of the
+    account value instead; its reported rate is that fraction. A company-26 FFL total is reduced by the partial
     surrender charges taken on projected withdrawals, floored at 0
     (``withdrawal_handler.ffl_withdrawal_surrender_credit``); the per-coverage
     charges are before that credit.
@@ -5283,7 +5283,7 @@ def _calculate_surrender_charge(
     scr_rates_by_coverage = {}
     surrender_charges_by_coverage = {}
     for index, segment in enumerate(segments, start=1):
-        pct_of_av = _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year)
+        pct_of_av = _pct_of_av_surrender_charge_pct(rates, segment, projection_date, rate_year)
         if pct_of_av is not None:
             segment_scr_rate = pct_of_av
             segment_surrender_charge = pct_of_av * max(account_value, 0.0)
@@ -5314,6 +5314,26 @@ def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) 
     basis = getattr(rates, "iswl", None)
     if basis is None or not basis.surrender_charge_is_pct_of_av or not segment.is_base:
         return None
+    return _rule_5_surrender_pct(basis, segment, projection_date, rate_year)
+
+
+def _pct_of_av_surrender_charge_pct(rates, segment, projection_date, rate_year: int) -> Optional[float]:
+    """Rule-5 fraction of the account value charged on a full surrender for ``segment``:
+    an ISWL base coverage, or a UL rule-5 plan's base coverage phase
+    (``IllustrationRates.pct_scr``: NU1FU100, NU1F1N00). ``None`` when the segment's
+    charge is per unit (a UL rule-5 increase phase has no schedule, so no charge)."""
+    pct = _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year)
+    if pct is not None:
+        return pct
+    basis = getattr(rates, "pct_scr", None)
+    if (basis is None or not basis.surrender_charge_is_pct_of_av
+            or segment.coverage_phase != basis.base_coverage_phase):
+        return None
+    return _rule_5_surrender_pct(basis, segment, projection_date, rate_year)
+
+
+def _rule_5_surrender_pct(basis, segment, projection_date, rate_year: int) -> float:
+    """The rule-5 percentage in the segment's coverage year, graded where ``basis`` is."""
     if basis.surrender_charge_graded and segment.issue_date is not None and projection_date is not None:
         # Both counts use relativedelta, so a Feb-29 issue's Feb-28 monthliversary behaves
         # like every other (the (month, day) compare in _coverage_year would not). CyberLife
@@ -5329,8 +5349,10 @@ def _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year: int) 
 
 
 def _reject_pct_surrender_charge(rates, segments, projection_date, rate_year: int, action: str) -> None:
-    """A rule-5 percentage-of-AV surrender charge is modelled for full surrenders only;
-    an action that would need a partial charge inside the charge period raises."""
+    """A rule-5 ISWL percentage-of-AV surrender charge is modelled for full surrenders only;
+    an action that would need a partial charge inside the charge period raises. A UL rule-5
+    plan (NU1FU100, NU1F1N00) is not rejected: its partial surrender rule is 1, the flat
+    withdrawal fee, so a withdrawal or decrease takes no percentage charge."""
     for segment in segments:
         pct = _iswl_surrender_charge_pct(rates, segment, projection_date, rate_year)
         if pct:

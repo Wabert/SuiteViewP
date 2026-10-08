@@ -1209,6 +1209,10 @@ subtract the partial surrender target charges already taken, floored at 0
 (`withdrawal_handler.ffl_withdrawal_surrender_credit`). The in-force part of that credit is
 `LH_POL_TOTALS.TOT_WTD_CRG_AMT` (decision #66; see the RERUN manual's FFL original-units
 section for the fallbacks); projected withdrawals add their partial charge to it.
+A rule-5 base coverage charges a percentage of the account value instead
+(`segment_surrender_charge = SCR_PCT x AV`): ISWL (`rates.iswl`) and the company-26 UL plans
+NU1FU100/NU1F1N00 (`rates.pct_scr`, `PlancodeConfig.ul_pct_of_av_surrender_charge`, from
+`PLAN_DEF.SCR_RULES` 50), which are not FFL per-unit plans.
 Surrender value is the AV-after-exception less the surrender charge and policy debt, and
 is **not floored at zero** — it can be negative (the Values tab floors only the
 display-facing `IllustrationSV`, not the raw `ESV`):

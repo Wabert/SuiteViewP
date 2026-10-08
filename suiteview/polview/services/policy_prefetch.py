@@ -220,6 +220,9 @@ def _surrender_values(basis, config, rates, state) -> SurrenderValues:
 
     iswl = getattr(rates, "iswl", None)
     pct_of_av = iswl is not None and iswl.surrender_charge_is_pct_of_av
+    ul_pct = getattr(rates, "pct_scr", None)
+    ul_pct_phase = (ul_pct.base_coverage_phase
+                    if ul_pct is not None and ul_pct.surrender_charge_is_pct_of_av else None)
     segments = [s for s in (basis.segments or [basis.base_segment]) if s is not None]
     coverages = tuple(
         SurrenderChargeCoverage(
@@ -227,7 +230,7 @@ def _surrender_values(basis, config, rates, state) -> SurrenderValues:
             units=surrender_charge_units(segment, config, basis),
             rate=state.scr_rates_by_coverage.get(f"cov{index}", 0.0),
             charge=state.surrender_charges_by_coverage.get(f"cov{index}", 0.0),
-            pct_of_account_value=pct_of_av and segment.is_base,
+            pct_of_account_value=(pct_of_av and segment.is_base) or segment.coverage_phase == ul_pct_phase,
         )
         for index, segment in enumerate(segments, start=1)
     )
