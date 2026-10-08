@@ -355,11 +355,6 @@ def _shadow_coi_rate(
     )
 
 
-def _historical_replay(policy: IllustrationPolicyData) -> bool:
-    """Rollback / from-issue replay of CyberLife history (same test as the input compiler)."""
-    return bool(policy.run_from_issue or policy.rollback_date is not None)
-
-
 def _shadow_interest_values(
     *,
     config: PlancodeConfig,
@@ -501,7 +496,7 @@ def _opening_late_premium_value(
     _days, _rate, eff_rate, _interest = _shadow_interest_values(
         config=config, rates=rates, rate_year=rate_year, shadow_av=0.0,
         days_in_month=days_in_month, display_days_in_month=display_days_in_month,
-        monthly_effective=config.shadow_monthly_interest and _historical_replay(policy),
+        monthly_effective=config.shadow_monthly_interest,
     )
     return _round_near(net_premium * (1.0 + eff_rate), 2)
 
@@ -760,10 +755,11 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     # ── Interest (cols XS-XV) ─────────────────────────────────
     # RERUN XW = (1+XV)^(XU/365) − 1 where XU is the OPTION-AWARE day count
     # (365/12 with exact-days off), not the actual calendar days.
-    # A replay of CyberLife history runs the regular AV on exact days, but on
-    # ``ShadowMonthlyInterest`` plans (SGUL) CyberLife credits the shadow
-    # (1+i)^(1/12)-1 every month whatever its length: from issue the engine then equals
-    # the SGUL shadow calculator to the cent on 13 policies (2026-10-07).
+    # On ``ShadowMonthlyInterest`` plans (SGUL) CyberLife credits the shadow
+    # (1+i)^(1/12)-1 every month whatever its length or the regular AV's day count
+    # (exact days in CyberLife history and in what-if runs with Exact Days on): from
+    # issue the engine then equals the SGUL shadow calculator to the cent (2026-10-07).
+    # Business mode (Exact Days locked off) already used 365/12, the same rate.
     shadow_days, shadow_int_rate, shadow_eff_rate, shadow_interest = _shadow_interest_values(
         config=config,
         rates=rates,
@@ -771,7 +767,7 @@ def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
         shadow_av=shadow_av,
         days_in_month=days_in_month,
         display_days_in_month=display_days_in_month,
-        monthly_effective=config.shadow_monthly_interest and _historical_replay(policy),
+        monthly_effective=config.shadow_monthly_interest,
     )
     if _shadow_frozen(config, attained_age):
         shadow_interest = 0.0

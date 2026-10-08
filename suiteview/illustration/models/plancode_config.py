@@ -197,14 +197,14 @@ class PlancodeConfig:
     shadow_loan_impact: str = "Reduce"   # "Reduce" (shadow - debt), "Nullify" (any debt: no protection) or "None"
     shadow_late_payment_forgiveness: bool = False
     # CyberLife credits the shadow (1+i)^(1/12)-1 every month, whatever the regular AV's
-    # day count; applied when replaying CyberLife history (rollback / from issue).
+    # day count (exact days in history replays and in what-if runs with Exact Days on).
     shadow_monthly_interest: bool = False
     # SGUL company N+1 target rule on the TPP/EPP shadow load (see shadow_calc).
     shadow_nplus1_relief: bool = False
     # The shadow deducts the gross withdrawal (charges included), not the net (SGUL).
     shadow_withdrawal_gross: bool = False
-    # A withdrawal that lowers a level death benefit does not move the shadow COI band (SGUL).
-    shadow_band_ignores_withdrawals: bool = False
+    # The shadow COI band is the band of the face issued; face changes do not move it (SGUL).
+    shadow_issue_band: bool = False
     shadow_aps205_load_relief: bool = False
     shadow_target_rate_basis: str = "MTP"  # "MTP" or "CTP"
     shadow_target_waiver_uplift: bool = False  # 39 waiver raises the shadow target (LTGUL)
@@ -492,7 +492,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         shadow_monthly_interest=bool(data.get("ShadowMonthlyInterest", False)),
         shadow_nplus1_relief=bool(data.get("ShadowNPlus1Relief", False)),
         shadow_withdrawal_gross=bool(data.get("ShadowWithdrawalGross", False)),
-        shadow_band_ignores_withdrawals=bool(data.get("ShadowBandIgnoresWithdrawals", False)),
+        shadow_issue_band=bool(data.get("ShadowIssueBand", False)),
         shadow_aps205_load_relief=bool(data.get("ShadowAPS205LoadRelief", False)),
         shadow_target_rate_basis=str(data.get("ShadowTargetRateBasis", "MTP")).strip().upper() or "MTP",
         shadow_target_waiver_uplift=bool(data.get("ShadowTargetWaiverUplift", False)),

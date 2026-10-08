@@ -118,16 +118,31 @@ def _interest(*, history, flag):
                    policy=policy, prev=10_000.0, display_days_in_month=31)
 
 
-def test_history_replay_credits_sgul_shadow_a_monthly_effective_rate():
-    result = _interest(history=True, flag=True)
+@pytest.mark.parametrize("history", [True, False])
+def test_sgul_shadow_credits_a_monthly_effective_rate_in_every_mode(history):
+    # CyberLife's SGUL shadow is (1+i)^(1/12)-1 whatever the AV's day count: history
+    # replays, "From Issue" new business and inforce what-if runs with Exact Days on.
+    result = _interest(history=history, flag=True)
     assert result.shadow_eff_rate == pytest.approx(1.045 ** (1 / 12) - 1)
     assert result.shadow_days == pytest.approx(365 / 12)
 
 
-@pytest.mark.parametrize("history,flag", [(False, True), (True, False)])
-def test_exact_days_shadow_interest_is_kept_otherwise(history, flag):
-    result = _interest(history=history, flag=flag)
+@pytest.mark.parametrize("history", [True, False])
+def test_other_plans_keep_the_regular_day_count(history):
+    result = _interest(history=history, flag=False)
     assert result.shadow_eff_rate == pytest.approx(1.045 ** (31 / 365) - 1)
+
+
+def test_monthly_effective_rate_equals_business_mode_365_12():
+    from suiteview.illustration.constants import DAYS_PER_YEAR, MONTHS_PER_YEAR
+
+    policy = _policy()
+    flagged = _shadow(PlancodeConfig(shadow_monthly_interest=True), gross=0.0, ytd=0.0, ptd=0.0,
+                      policy=policy, prev=10_000.0, display_days_in_month=31)
+    business = _shadow(PlancodeConfig(), gross=0.0, ytd=0.0, ptd=0.0, policy=policy, prev=10_000.0,
+                       display_days_in_month=DAYS_PER_YEAR / MONTHS_PER_YEAR)
+    assert flagged.shadow_eff_rate == business.shadow_eff_rate
+    assert flagged.shadow_eav == business.shadow_eav
 
 
 # --- prior-year receipt bucketed to the anniversary ---------------------------------------------
@@ -280,32 +295,73 @@ def test_shadow_step_uses_the_gross_withdrawal_when_flagged(monkeypatch):
         assert seen["wd"] == expected
 
 
-# --- the shadow band ignores withdrawal-driven face reductions (SGUL) ----------------------------
+# --- the SGUL shadow band is the issue band --------------------------------------------------
 
 class _BandDb:
     def get_band(self, plancode, amount, issue_date=None):
-        return 2 if amount >= 100_000 else 1
+        return 1 if amount < 100_000 else 2 if amount < 250_000 else 3
 
 
-def _band_policy(*, withdrawn, dbo="A"):
-    policy = _policy(db_option=dbo, withdrawals_to_date=withdrawn)
+ISSUE = date(2019, 5, 6)
+
+
+def _band_policy(*, issued, face, increase=0.0):
+    policy = _policy(issue_date=ISSUE)
     seg = policy.base_segment
-    seg.face_amount = seg.original_face_amount = 98_304.0
-    seg.band = seg.original_band = 1
-    policy.face_amount = 98_304.0
+    seg.issue_date = ISSUE
+    seg.original_face_amount = issued
+    seg.face_amount = face - increase
+    seg.band = seg.original_band = _BandDb().get_band("", face)
+    if increase:
+        policy.segments.append(CoverageSegment(
+            face_amount=increase, original_face_amount=increase, issue_age=50, rate_sex="M",
+            rate_class="N", band=seg.band, original_band=seg.band, issue_date=date(2022, 5, 6),
+        ))
+    policy.face_amount = face
     return policy, seg
 
 
-@pytest.mark.parametrize("withdrawn,dbo,flag,expected", [
-    (1_698.28, "A", True, 2),   # UE057740: 98,304 + 1,698.28 is band 2 before the withdrawals
-    (1_000.00, "A", True, 1),   # still band 1 before the withdrawals
-    (1_698.28, "B", True, 1),   # increasing DB: withdrawals do not lower the face
-    (1_698.28, "A", False, 1),  # plans without the flag keep the current band
-    (0.0, "A", True, 1),
+@pytest.mark.parametrize("issued,face,increase,flag,expected", [
+    (100_000, 98_304, 0, True, 2),   # UE057740: withdrawals cut the level face below the break
+    (150_000, 50_000, 0, True, 2),   # UE059231: requested decrease 150k -> 50k keeps band 2
+    (240_000, 230_000, 0, True, 2),  # never above the issue band
+    (90_000, 95_000, 20_000, True, 1),  # increase 90k -> 110k, then 15k withdrawn: issue band 1
+    (100_000, 98_304, 0, False, 1),  # plans without the flag keep the current band
 ])
-def test_shadow_band_ignores_withdrawals(withdrawn, dbo, flag, expected):
+def test_sgul_shadow_band_is_the_issue_band(issued, face, increase, flag, expected):
     from suiteview.illustration.core.rate_loader import _shadow_band
 
-    policy, seg = _band_policy(withdrawn=withdrawn, dbo=dbo)
-    config = PlancodeConfig(shadow_band_ignores_withdrawals=flag)
-    assert _shadow_band(policy, config, _BandDb(), seg) == expected
+    policy, seg = _band_policy(issued=issued, face=face, increase=increase)
+    assert _shadow_band(policy, PlancodeConfig(shadow_issue_band=flag), _BandDb(), seg) == expected
+
+
+@pytest.mark.parametrize("plancode,flag", [("1U145700", True), ("1U147700", True), ("1U143800", False),
+                                           ("1U135200", False)])
+def test_issue_band_flag(plancode, flag):
+    assert load_plancode(plancode).shadow_issue_band is flag
+
+
+# --- receipt-dated entries (effective date = receipt date) --------------------------------------
+
+def test_receipt_dated_entry_is_rebucketed_and_flagged_as_prior_year():
+    # A history entry effective-dated on its 4/28 receipt (not on the 5/23 bucket) must
+    # still count as a prior-year receipt and earn its receipt-to-monthiversary days.
+    policy = _replay_policy()
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(kind=TransactionKind.PREMIUM, effective_date=date(2026, 4, 28), amount=23_917.0,
+                         metadata={"actual_date": "2026-04-28"}),
+    ])
+    compiled = compile_month_inputs(policy, inputs, 4)
+    assert compiled[205].unscheduled_premium == 23_917.0
+    assert compiled[205].shadow_prior_year_premium == 23_917.0
+    assert compiled[205].shadow_premium_days_to_bucket == 25
+
+
+def test_premium_received_on_the_anniversary_stays_in_the_new_year():
+    policy = _replay_policy()
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(kind=TransactionKind.PREMIUM, effective_date=date(2026, 5, 23), amount=100.0,
+                         metadata={"actual_date": "2026-05-23"}),
+    ])
+    compiled = compile_month_inputs(policy, inputs, 4)
+    assert compiled[205].shadow_prior_year_premium == 0.0

@@ -636,24 +636,30 @@ def _load_poav_rates(
 def _shadow_band(policy: IllustrationPolicyData, config: PlancodeConfig, rates_db: ULRates, seg) -> int:
     """Band of the shadow rate cell.
 
-    ``ShadowBandIgnoresWithdrawals`` (SGUL): a partial withdrawal that lowers a level
-    death benefit does not move the shadow COI band, so the band is read on the
-    specified amount before withdrawals when that is a higher band. UE057740 (100,000
-    issued, 98,304 after 1,698.28 of withdrawals, CyberLife RT_BAN_CD now A) reproduces
-    XP from issue on band-2 rates (+0.30); band 1 leaves the six-month replay -68.06.
-    A requested decrease does re-band (UE059231 150,000 -> 50,000: band 1 replays -0.74).
+    ``ShadowIssueBand`` (SGUL): the shadow COI band is the band of the face issued at
+    policy issue; later face changes do not move it, whether a withdrawal cuts a level
+    face or the owner asks for a decrease:
+      * UE057740: 100,000 issued, 98,304 after withdrawals, CyberLife RT_BAN_CD now A.
+        Band 2 reproduces XP from issue (+0.30); band 1 leaves the replay at -68.06.
+      * UE059231: requested decrease 150,000 -> 50,000 on 5/7/2026 (RT_BAN_CD A). The
+        replay drifts -0.25/month on band 1 (-0.74 by 9/2026) and is exact on band 2.
+    The issued face is the base (non-COLA) coverage issued with the policy, so an
+    increase does not raise the shadow band either (no evidence; the lower band is the
+    conservative choice).
     """
     band = seg.original_band
-    if not (config.shadow_band_ignores_withdrawals and seg.is_base
-            and str(policy.db_option or "").upper() in ("A", "1")):
+    if not (config.shadow_issue_band and seg.is_base):
         return band
-    withdrawn = float(policy.withdrawals_to_date or 0.0)
-    if withdrawn <= 0.0:
+    issued = sum(
+        float(s.original_face_amount or s.face_amount or 0.0)
+        for s in policy.segments
+        if s.is_base and not getattr(s, "is_cola", False)
+        and (s.issue_date is None or policy.issue_date is None or s.issue_date <= policy.issue_date)
+    )
+    if issued <= 0.0:
         return band
-    before = rates_db.get_band(
-        policy.plancode, float(policy.band_specified_amount or seg.face_amount) + withdrawn,
-        issue_date=policy.issue_date)
-    return max(int(band), int(before)) if before is not None else band
+    at_issue = rates_db.get_band(policy.plancode, issued, issue_date=policy.issue_date)
+    return int(at_issue) if at_issue is not None else band
 
 
 def _load_shadow_rates(

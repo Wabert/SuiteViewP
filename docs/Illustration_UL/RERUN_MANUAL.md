@@ -260,9 +260,11 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   of year N have passed, premium up to 2 targets in the year is loaded at TPP while
   premium to date stays within (N+1) targets (SGUL shadow calculator rule; from issue
   UE037300 -380.91 -> 0.00, UE029100 -180.75 -> +0.06). `ShadowMonthlyInterest`
-  (SGUL; rollback / from-issue replays only): CyberLife credits the shadow
-  (1+i)^(1/12)-1 every month, not on exact days (business-mode illustrations
-  already use 365/12, which is the same). `ShadowWithdrawalGross` (SGUL and
+  (SGUL, every mode): CyberLife credits the shadow (1+i)^(1/12)-1 every month,
+  not on exact days, whatever the regular AV's day count. Business-mode
+  illustrations (Exact Days locked off) already used 365/12, the same rate; what-if
+  runs with Exact Days on, history replays and API runs on the plan's ExactDays
+  method change. `ShadowWithdrawalGross` (SGUL and
   Passport Select II, every mode): the shadow deducts the gross withdrawal, fee and
   partial surrender charge included (UE031356 six-month replay +30.16 -> +0.24; SGUL
   calculator; Passport from issue U0452966 +167.60 -> +4.01, U0456867 +250.03 ->
@@ -278,6 +280,10 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   the transaction carries an actual receipt date); the withdrawal fee and partial
   surrender charge are not (U0591866: +2.22 vs XP; the AV's gross amount gives
   -37.80). SGUL and Passport Select II deduct the gross (`ShadowWithdrawalGross`, above).
+  On SGUL (`ShadowIssueBand`) the shadow COI band is the band of the face issued:
+  neither a withdrawal that cuts a level face nor a requested decrease moves it
+  (UE057740 replay -68.06 -> +0.10; UE059231, decreased 150,000 -> 50,000, -0.74 ->
+  0.00). An increase does not raise it either (no evidence; conservative).
   This does not change the existing option-B shadow NAR basis.
 - **Dates**: `CALENDAR` rates (current COI, EPU, MFEE, loads) take each coverage
   year's rate from the scale window in effect on that year's start, so historical

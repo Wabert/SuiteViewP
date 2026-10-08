@@ -171,10 +171,10 @@ def _compile_dated_transactions(
                 month_inputs.unscheduled_premium += entry.amount
             if metadata.get("billable_to_md") and not metadata.get("scheduled_current_year"):
                 month_inputs.billable_to_md_premium += entry.amount
-            _compile_shadow_premium_timing(policy, entry, duration, compiled)
-            _compile_shadow_premium_interest_timing(entry, month_inputs)
+            _compile_shadow_premium_timing(policy, entry, duration, compiled, bucket_date)
+            _compile_shadow_premium_interest_timing(entry, month_inputs, bucket_date)
             if historical_receipt_timing:
-                _compile_shadow_prior_year_premium(policy, entry, duration, month_inputs)
+                _compile_shadow_prior_year_premium(policy, entry, duration, month_inputs, bucket_date)
         elif entry.kind == TransactionKind.LOAN:
             if entry.subtype.lower() == "variable":
                 month_inputs.variable_loan += entry.amount
@@ -193,7 +193,7 @@ def _compile_dated_transactions(
                 month_inputs.withdrawal_gross += entry.amount
             else:
                 month_inputs.withdrawal += entry.amount
-            _compile_shadow_withdrawal_timing(entry, month_inputs)
+            _compile_shadow_withdrawal_timing(entry, month_inputs, bucket_date)
 
 
 def _metadata_actual_date(entry) -> date | None:
@@ -208,9 +208,10 @@ def _compile_shadow_premium_timing(
     entry,
     duration: int,
     compiled: dict[int, CompiledMonthInputs],
+    bucket_date: date,
 ) -> None:
     actual = _metadata_actual_date(entry)
-    if actual is None or actual >= entry.effective_date or actual <= policy.issue_date:
+    if actual is None or actual >= bucket_date or actual <= policy.issue_date:
         return
     prior = compiled.get(duration - 1)
     if prior is None:
@@ -230,25 +231,30 @@ def _compile_shadow_prior_year_premium(
     entry,
     duration: int,
     month_inputs: CompiledMonthInputs,
+    bucket_date: date,
 ) -> None:
     """A premium received before the anniversary it is bucketed to belongs to the prior year.
 
     CyberLife counts shadow premiums by the policy year of receipt: U0609851 (LTGUL,
     pays ~3 weeks before each monthliversary) has no load on 9/2026 because year 18's
     receipts are below target, although the 4/28 receipt bucketed to the 5/23
-    anniversary would push the bucketed year-18 total above it.
+    anniversary would push the bucketed year-18 total above it. A premium received ON
+    the anniversary stays in the new year: counting it in the ending year (as
+    LH_POL_YR_TOT does) made 4 LTGUL policies worse from issue (U0570491 -0.01 -> +878.74).
     """
     actual = _metadata_actual_date(entry)
-    if actual is None or actual >= entry.effective_date or actual <= policy.issue_date:
+    if actual is None or actual >= bucket_date or actual <= policy.issue_date:
         return
     if duration <= 1 or (duration - 1) % 12 != 0:
         return
     month_inputs.shadow_prior_year_premium += entry.amount
 
 
-def _compile_shadow_premium_interest_timing(entry, month_inputs: CompiledMonthInputs) -> None:
+def _compile_shadow_premium_interest_timing(
+    entry, month_inputs: CompiledMonthInputs, bucket_date: date,
+) -> None:
     actual = _metadata_actual_date(entry)
-    if actual is None or actual >= entry.effective_date:
+    if actual is None or actual >= bucket_date:
         return
     total_amount = month_inputs.unscheduled_premium + float(month_inputs.scheduled_premium or 0.0)
     if total_amount <= 0.0:
@@ -256,19 +262,21 @@ def _compile_shadow_premium_interest_timing(entry, month_inputs: CompiledMonthIn
     previous_amount = max(total_amount - entry.amount, 0.0)
     month_inputs.shadow_premium_days_to_bucket = (
         (month_inputs.shadow_premium_days_to_bucket * previous_amount
-         + (entry.effective_date - actual).days * entry.amount)
+         + (bucket_date - actual).days * entry.amount)
         / total_amount
     )
 
 
-def _compile_shadow_withdrawal_timing(entry, month_inputs: CompiledMonthInputs) -> None:
+def _compile_shadow_withdrawal_timing(
+    entry, month_inputs: CompiledMonthInputs, bucket_date: date,
+) -> None:
     actual = _metadata_actual_date(entry)
-    if actual is None or actual >= entry.effective_date:
+    if actual is None or actual >= bucket_date:
         return
     existing_amount = month_inputs.withdrawal + month_inputs.withdrawal_gross
     total_amount = existing_amount if existing_amount > 0.0 else entry.amount
     previous_days = month_inputs.shadow_withdrawal_days_to_bucket
-    new_days = (entry.effective_date - actual).days
+    new_days = (bucket_date - actual).days
     month_inputs.shadow_withdrawal_days_to_bucket = (
         (previous_days * max(total_amount - entry.amount, 0.0) + new_days * entry.amount)
         / total_amount
