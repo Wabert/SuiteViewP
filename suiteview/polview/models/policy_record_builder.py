@@ -52,6 +52,42 @@ _F_SEG_ID = "Segment Identification"
 _F_SEG_LEN = "Segment Length"
 _F_NUM_ENTRIES = "Number of Entries"
 _F_CODE = "Target Premium Code"
+
+# Segment 58 target codes (TAR_TYP_CD); meanings taken from how SuiteView reads
+# each target. None of these are described in the CyberDoc field entry itself.
+_TARGET_CODE_MEANINGS = {
+    "CT": "Commission Target Premium",
+    "MT": "Monthly Minimum Target Premium",
+    "MA": "Accumulated Minimum Target Premium (MAP)",
+    "TA": "Accumulated Guideline Level Premium target (GLP)",
+    "LT": "Premium Limit Target",
+    "NS": "NSP Base target",
+    "NT": "NSP Other target",
+    "VS": "Short-pay premium",
+    "XP": "Shadow account value target",
+    "ST": "Surrender Target",
+    "SU": "Surrender Target",
+    "CV": "CCV (Coverage Continuation Value) target",
+}
+_TARGET_CODE_UNCONFIRMED = "meaning not documented in CyberDoc or SuiteView"
+
+# Segment 67 rate type codes (PRM_RT_TYP_CD).
+_RATE_TYPE_MEANINGS = {
+    "A": "Guideline Level Premium (GLP)",
+    "B": "Benefit renewal rate",
+    "C": "Current rate",
+    "G": "Guaranteed rate",
+    "M": "Minimum premium rate (MTP)",
+    "S": "Guideline Single Premium (GSP)",
+    "T": "Commission target premium rate (CTP)",
+    "W": "Surrender target rate (not used by SuiteView)",
+}
+
+
+def _target_code_note(code: str) -> str:
+    meaning = _TARGET_CODE_MEANINGS.get(code.strip())
+    return f"{code.strip()} = {meaning}" if meaning else (
+        f"{code.strip()}: {_TARGET_CODE_UNCONFIRMED}")
 _F_FLAG = "Flag Byte A"
 _F_PHASE = "Phase Code"
 _F_RULE = "Rule"
@@ -363,7 +399,9 @@ def _seg67_extra_amount_group(table: str, row: dict, percent: str) -> list:
 def _seg67_entry_groups(table: str, row: dict) -> list:
     """Keep rate-key bytes together while allowing entries to span lines."""
     rate_type = _seg67_text(row, "PRM_RT_TYP_CD", 1)
-    groups = [[_seg67_token(rate_type, "Rate Type Code", table, "PRM_RT_TYP_CD")]]
+    meaning = _RATE_TYPE_MEANINGS.get(rate_type.strip())
+    type_note = f"{rate_type.strip()} = {meaning}." if meaning else ""
+    groups = [[_seg67_token(rate_type, "Rate Type Code", table, "PRM_RT_TYP_CD", type_note)]]
     guideline = table.endswith("_GDL_PRM")
     benefit = table.startswith("LH_BNF_")
     system_calc = "0"
@@ -1049,7 +1087,7 @@ def _layout_entries(entries: List[dict], header: list) -> List[list]:
 
 def _entry_runs(entry: dict) -> list:
     return [
-        _tok(entry["code"].ljust(2), _F_CODE),
+        {**_tok(entry["code"].ljust(2), _F_CODE), "note": _target_code_note(entry["code"])},
         _sep(_SEP),
         _example(_FLAG_PLACEHOLDER, _F_FLAG),
         _sep(_SEP),

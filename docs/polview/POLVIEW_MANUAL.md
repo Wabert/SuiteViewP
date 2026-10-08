@@ -432,15 +432,17 @@ read-only/native verification commands are in `docs/POLVIEW_CLAUDE.md`.
 
 Policy Support's **UL Reinstatement** button opens an optional **Reinstatement**
 tab, with a non-UL popup instead of a tab for other products. Only lapsed
-policies may be quoted, never surrendered policies. **Home Office
-Reinstatement** is continuous coverage; its pay-to date is the latest
-monthliversary and funding includes the next month's deduction. The shared
-`polview/services/reinstatement.py` service owns safety-net, shadow and
-surrender-value quote bases, dates and explanatory breakdowns. Do not perform
-financial calculations in the UI or substitute missing data with zero.
-**Skipped Coverage Reinstatement** remains visibly unavailable until its
-rules are specified. Reloading/switching policies clears prior quotes.
-See `docs/POLVIEW_CLAUDE.md` for UI and verification details.
+policies (last entry `Q`) may be quoted, never surrendered policies. The tab
+shows the values at lapse (account value, loan balance, surrender charge, SNET
+expiry date, CCV benefit cease date), a reinstatement date defaulted to the
+latest monthliversary on or before today, the monthly deduction on that date
+and the reinstatement premium:
+surrender charge + policy debt + 2 x COI + 2 x fees - account value, plus the
+premium load. The shared `polview/services/reinstatement.py` service owns the
+values, using the illustration engine's charges with durations from the
+original issue date. Do not perform financial calculations in the UI or
+substitute missing data with zero. Reloading/switching policies clears prior
+quotes. See `docs/POLVIEW_CLAUDE.md` for rules and verification details.
 
 ## GLP Exception target-date quotes
 

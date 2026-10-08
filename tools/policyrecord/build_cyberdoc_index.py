@@ -1,7 +1,8 @@
 """Build a COBOL-name -> field-format index from the CyberLife policy-record docs.
 
-The official CyberLife documentation (``docs/CyberDoc/*.pdf``, extracted to
-``docs/CyberDoc/text/*.txt`` by ``extract_pdf_text.py``) documents every policy
+The official CyberLife documentation (``Policy_Reference/CyberDoc_1201/*.pdf``
+beside this repo, extracted to ``Policy_Reference/CyberDoc_1201/text/*.txt`` by
+``extract_pdf_text.py``) documents every policy
 record field as a block::
 
     Accounting Date                              <- human name (line before Format)
@@ -41,12 +42,13 @@ name** (which matches the ``cobol`` field on each ``seg_<n>.json`` field spec)::
 Usage::
 
     venv\\Scripts\\python.exe tools/policyrecord/build_cyberdoc_index.py
-    venv\\Scripts\\python.exe tools/policyrecord/build_cyberdoc_index.py '{"sources": ["docs/CyberDoc/text/D20.txt"], "out": "..."}'
+    venv\\Scripts\\python.exe tools/policyrecord/build_cyberdoc_index.py '{"sources": ["../Policy_Reference/CyberDoc_1201/text/D20.txt"], "out": "..."}'
 
 Config keys (all optional):
     sources -- list of extracted .txt docs to parse, in *priority* order
                (earlier files win on COBOL-name conflicts).
-               Default: ["docs/CyberDoc/text/D20.txt", "docs/CyberDoc/text/D202.txt"]
+               Default: D20.txt then D202.txt from Policy_Reference/CyberDoc_1201/text
+               (found by searching upward from the repo; env CYBERDOC_TEXT_DIR overrides)
     out     -- output JSON path. Default:
                suiteview/polview/data/policy_record_screens/cyberdoc_field_formats.json
 """
@@ -58,9 +60,30 @@ import sys
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+def _cyberdoc_text_dir() -> str:
+    """Locate the shared ``Policy_Reference/CyberDoc_1201/text`` corpus.
+
+    Searched upward from the repo so checkouts under ``SuiteViewP.worktrees``
+    resolve too; ``CYBERDOC_TEXT_DIR`` overrides.
+    """
+    override = os.environ.get("CYBERDOC_TEXT_DIR")
+    if override:
+        return override
+    parent = _REPO
+    while True:
+        candidate = os.path.join(parent, "Policy_Reference", "CyberDoc_1201", "text")
+        if os.path.isdir(candidate):
+            return candidate
+        up = os.path.dirname(parent)
+        if up == parent:
+            return os.path.join(os.path.dirname(_REPO), "Policy_Reference", "CyberDoc_1201", "text")
+        parent = up
+
+
 _DEFAULT_SOURCES = [
-    os.path.join(_REPO, "docs", "CyberDoc", "text", "D20.txt"),
-    os.path.join(_REPO, "docs", "CyberDoc", "text", "D202.txt"),
+    os.path.join(_cyberdoc_text_dir(), "D20.txt"),
+    os.path.join(_cyberdoc_text_dir(), "D202.txt"),
 ]
 _DEFAULT_OUT = os.path.join(
     _REPO, "suiteview", "polview", "data", "policy_record_screens",

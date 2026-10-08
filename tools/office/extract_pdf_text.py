@@ -1,14 +1,16 @@
 """Extract text from a PDF into a UTF-8 ``.txt`` file (and print a summary).
 
 Auditable helper for turning the official CyberLife policy-record documentation
-(``docs/CyberDoc/*.pdf``) into plain text so field definitions / COBOL names /
-redefines / formats can be searched and cross-referenced without a PDF viewer.
+(``Policy_Reference/CyberDoc_1201/*.pdf`` beside this repo) into plain text so
+field definitions / COBOL names / redefines / formats can be searched and
+cross-referenced without a PDF viewer.  All 56 PDFs are already extracted to
+``Policy_Reference/CyberDoc_1201/text``.
 
 Uses PyMuPDF (``fitz``).  Pages are separated by a form-feed marker line so the
 source page of any hit can be found.
 
 Usage:
-    venv\\Scripts\\python.exe tools/office/extract_pdf_text.py '{"pdf": "docs/CyberDoc/D10.pdf", "out": "docs/CyberDoc/text/D10.txt"}'
+    venv\\Scripts\\python.exe tools/office/extract_pdf_text.py '{"pdf": "../Policy_Reference/CyberDoc_1201/D10.pdf", "out": "../Policy_Reference/CyberDoc_1201/text/D10.txt"}'
     venv\\Scripts\\python.exe tools/office/extract_pdf_text.py '{"pdf": "...", "first": 1, "last": 20}'
 
 Config keys (all optional except ``pdf``):

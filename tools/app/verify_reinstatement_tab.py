@@ -1,4 +1,9 @@
-"""Verify native Reinstatement routing and capture a synthetic or live read-only quote."""
+"""Verify the native Reinstatement tab and capture a synthetic or live read-only quote.
+
+Without ``--policy`` the tab prices an explicitly synthetic lapsed policy through
+the real quote service (no database access). With ``--policy`` it loads a live
+lapsed UL read-only. Synthetic captures are not evidence of a live policy quote.
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,15 +19,50 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.illustration.core.rate_loader import IllustrationRates
+from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+from suiteview.polview.services import reinstatement
 from suiteview.polview.services.policy_service import get_policy_info
 from suiteview.polview.ui.main_window import GetPolicyWindow
 from suiteview.polview.ui.tabs import reinstatement_tab
+
+SYNTHETIC_TODAY = date(2026, 10, 7)
+
+
+def synthetic_basis(today: date = SYNTHETIC_TODAY) -> reinstatement.ReinstatementBasis:
+    years = 40
+    policy = IllustrationPolicyData(
+        policy_number="SYNTHETIC", plancode="SYNTHETIC", product_type="UL",
+        issue_date=date(2015, 3, 15), valuation_date=date(2026, 2, 15),
+        issue_age=40, maturity_age=121, face_amount=100000.0, units=100.0,
+        account_value=-25.0, premiums_paid_to_date=12000.0, ctp=1200.0,
+        map_cease_date=date(2025, 3, 15),
+        segments=[CoverageSegment(
+            issue_date=date(2015, 3, 15), issue_age=40, face_amount=100000.0,
+            original_face_amount=100000.0, units=100.0, rate_sex="M", rate_class="N")],
+    )
+    rates = IllustrationRates(
+        segment_coi={1: [None] + [0.12] * years},
+        segment_epu={1: [None] + [0.05] * years},
+        segment_scr={1: [None] + [10.0 - 0.5 * year for year in range(years)]},
+        mfee=[None] + [7.5] * years,
+        tpp=[None] + [0.05] * years,
+        epp=[None] + [0.05] * years,
+    )
+    eligibility = reinstatement.ReinstatementEligibility(
+        "Q", "Termination - Lapse", True, "Synthetic example")
+    return reinstatement.build_reinstatement_basis(
+        policy, PlancodeConfig(plancode="SYNTHETIC"), rates, eligibility=eligibility,
+        lapse_date=date(2026, 3, 15), today=today,
+        notes=("SYNTHETIC UI EXAMPLE - not a policy quote.",), reinstatement_code="1",
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--policy", help="Omit for a synthetic UI-only demonstration.")
+    parser.add_argument("--policy", help="Omit for a synthetic demonstration.")
     parser.add_argument("--company", default="01")
     parser.add_argument("--region", default="CKPR")
     args = parser.parse_args()
@@ -37,42 +77,12 @@ def main() -> int:
                 raise RuntimeError("Live policy was not found.")
         else:
             policy = SimpleNamespace(
-                exists=True, product_type="UL", policy_number="SYNTHETIC-QUOTE",
-                company_code="01", region="CKPR",
-            )
-            summary = SimpleNamespace(
-                last_entry_code="Q", last_entry_description="Termination - Lapse",
-                termination_date=date(2024, 7, 15), current_date=date(2026, 9, 14),
-                terminated_years=2, terminated_months=1,
-                eligible=True, message="Synthetic example",
-                quote_pay_to_date=date(2026, 8, 15),
-                next_monthliversary=date(2026, 9, 15),
-            )
-            result = SimpleNamespace(
-                summary=summary, premium=725.01, basis="Surrender value",
-                breakdown=[
-                    ("Starting account value", "-100.00"),
-                    ("Net premium", "700.01"),
-                    ("Interest before next deduction", "0.00"),
-                    ("Total monthly deductions", "350.00"),
-                    ("Next monthliversary debt", "200.00"),
-                    ("Next surrender charge", "50.00"),
-                    ("After-deduction surrender value", "0.01"),
-                    ("Premium loads", "25.00"),
-                    ("Required gross premium", "725.01"),
-                ],
-                explanation=(
-                    "SYNTHETIC UI EXAMPLE - not a policy quote.\n"
-                    "Starting AV + net premium + interest - deductions - debt - surrender "
-                    "charge = $0.01 after the next monthly deduction. "
-                    "Gross premium includes premium loads."
-                ),
+                exists=True, product_type="UL", last_entry_code="Q",
+                policy_number="SYNTHETIC", company_code="01", region="CKPR",
             )
             patches.enter_context(patch.object(
-                reinstatement_tab, "reinstatement_summary", return_value=summary,
-            ))
-            patches.enter_context(patch.object(
-                reinstatement_tab, "calculate_home_office_reinstatement", return_value=result,
+                reinstatement_tab, "load_reinstatement_basis",
+                side_effect=lambda *_a, **_k: synthetic_basis(),
             ))
         window = GetPolicyWindow(enable_policy_list=False)
         window._policy = policy
@@ -89,11 +99,9 @@ def main() -> int:
         checks = {
             "tab_selected": window.tabs.currentWidget() is tab,
             "tab_title": window.tabs.tabText(window.tabs.indexOf(tab)) == "Reinstatement",
-            "quote_present": tab._result is not None,
-            "both_sections_visible": tab.home_group.isVisible() and tab.skipped_group.isVisible(),
-            "skipped_rules_not_invented": "not been specified" in tab.skipped_note.text(),
-            "summary_present": bool(tab.summary_group.entry.text()),
-            "breakdown_present": tab.home_group.table.rowCount() > 0,
+            "lapse_values_present": bool(tab.lapse_panel.text("lapse_date")),
+            "quote_present": tab._quote is not None,
+            "premium_present": tab.premium_label.text().startswith("$"),
         }
         screenshot = args.output_dir / "polview-reinstatement.png"
         if not window.grab().save(str(screenshot), "PNG"):
@@ -102,14 +110,16 @@ def main() -> int:
             "all_ok": all(checks.values()),
             "synthetic_ui_only": not bool(args.policy),
             "checks": checks,
-            "premium": tab.home_group.premium.text(),
+            "reinstatement_date": str(tab.selected_date()),
+            "premium": tab.premium_label.text(),
             "status": tab.status_label.text(),
+            "quote_text": tab.copy_text(),
             "screenshot": str(screenshot),
         }
         report_path = args.output_dir / "reinstatement-verification.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         window.close()
-    print(json.dumps(report))
+    print(json.dumps(report, indent=2))
     return 0 if report["all_ok"] else 1
 
 

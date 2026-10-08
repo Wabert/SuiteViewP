@@ -70,26 +70,21 @@ or `--kind bases --plancode 1U535A00`. Both must report `all_ok: true`.
 - Verify View SQL and unsaved Excel export using the displayed rows. Main policy
   criteria, Sys Code and Max Count do not apply to these standalone lookups.
 
-### UL Reinstatement — validate live quote bases (2026-09-14)
+### UL Reinstatement — validate live quotes (redesigned 2026-10-07)
 
-The Home Office reinstatement service and native UI have offline real-engine
-and UI regression coverage. A synthetic UI capture is not a live quote
-validation. Before using quotes operationally, select known lapsed UL policies
-covering safety net, active shadow and surrender-value funding, including one
-with loans, and reconcile the source snapshot and resulting amounts.
+The reinstatement quote was redesigned on October 7, 2026 (values at lapse,
+monthly deduction on the reinstatement date, and surrender charge + debt +
+2 x COI + 2 x fees - AV plus premium load). Its charges reconciled to
+CyberLife's recorded monthly deductions on seven lapsed CKPR policies (one CVAT
+case within 1 cent of COI). Before
+using quotes operationally, also check a lapsed policy with an outstanding loan
+(none of the recent lapses sampled carried one) and an increase segment.
 
 - Run `venv\Scripts\python.exe tools\app\verify_reinstatement_tab.py
   --policy <number> --company <code> --region CKPR --output-dir <directory>`.
   This uses live sources read-only; never enable local data as a fallback.
-- Confirm the termination effective date and lapse code, source post-deduction
-  AV/shadow/accumulators, coverage restoration, actual receipt date, next
-  deduction debt, loads and all deductions through that date.
-- Confirm the minimum cent quoted satisfies the selected condition; no
-  next-period interest should fund the target deduction.
-- Missing or inconsistent snapshot data, transactions beyond that snapshot,
-  ambiguous benefit termination and indexed crediting are deliberately blocked,
-  not estimated. Reconcile those inputs or specify the missing rules before
-  extending support. Skipped Coverage rules remain unspecified.
+- Confirm the TL lapse date, values-record AV and loans, the restored CCV cease
+  date, and that the surrender charge and premium load match admin practice.
 
 ### 1.15 Illustration — Max Level Allowed is now an engine solve (2026-07-17, minipc)
 "Max Level Allowed" no longer schedules the Input tab's closed-form estimate;

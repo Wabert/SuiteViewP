@@ -193,3 +193,14 @@ def test_withdrawal_in_the_charge_period_is_not_rejected_and_takes_only_the_fee(
     assert result.partial_sc == 0.0
     assert result.gross_withdrawal == pytest.approx(5_000.0 + RULE_5.withdrawal_fee)
     assert result.max_net_withdrawal == pytest.approx(20_000.0 - 0.085 * 20_000.0 - RULE_5.withdrawal_fee)
+
+
+# -- PolView ---------------------------------------------------------------------------
+
+def test_polview_skips_the_per_unit_scr_guard_only_for_rule_5_bases():
+    from suiteview.polview.services.policy_prefetch import _charges_pct_of_account_value
+
+    assert _charges_pct_of_account_value(_rates())
+    assert not _charges_pct_of_account_value(IllustrationRates())
+    assert not _charges_pct_of_account_value(
+        IllustrationRates(pct_scr=ULPctOfAVSurrender(1, [], False)))

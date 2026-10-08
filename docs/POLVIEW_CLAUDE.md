@@ -226,7 +226,10 @@ named properties under per-fact `cached_reads_only()` guards
   **GPT**/CVAT (never "GP", which reads as Grace Period), corridor, joint lives,
   and a "Paid to" badge when a traditional policy's paid-to is behind valuation.
   On the right: context-aware **Suggested** actions (lapse-eligible UL →
-  reinstatement quote, in-grace GP UL → GLP Exception, annuity rider), then
+  reinstatement quote; GP UL whose net AV (AV − loan) cannot carry the monthly
+  deductions to the next anniversary *and* whose shortfall exceeds the GPT room
+  → GLP Exception, a conservative screen in
+  `polview/services/glp_exception_need.py`, independent of grace; annuity rider), then
   Timeline, Notes and Copy. There is no text summary line. Small easter eggs:
   policy anniversary, insured birthday, 50+ year "vintage".
   **RERUN shows the same strip** under its lookup bar (Robert Haessly,
@@ -336,50 +339,78 @@ native layout using synthetic results only.
 ### UL Reinstatement
 
 **Policy Support > UL Reinstatement** opens a single optional **Reinstatement**
-tab. A non-UL policy gets an informational popup and no tab. The first row
-shows the canonical last entry code/description, termination effective date,
-quote date and completed years/months terminated. Only a lapse is eligible;
-surrenders and other statuses must never produce a reinstatement premium.
-Changing/reloading the policy removes the tab and clears its previous quote.
-Reopening or **Recalculate** refreshes the quote date and result.
+tab (Robert's October 7, 2026 redesign). A non-UL policy gets an informational
+popup and no tab. A lapse (last entry `Q`) and an internal surrender (last entry `P`
+whose last surrender transaction is `SI`) are eligible; a full surrender (`SF`) and
+other terminations must never produce a reinstatement premium. Changing or
+reloading the policy removes the tab and clears its previous quote.
 
-The two side-by-side sections are **Home Office Reinstatement** (continuous
-coverage) and **Skipped Coverage Reinstatement**. Skipped Coverage remains
-visible and grey with a note: its calculation rules have not been specified,
-so no skipped-coverage premium is manufactured.
+The header shows the last entry and a **Reinstatement date** drop-down of the
+policy's issue-day monthliversaries from six months before today through the
+next month (dates before the lapse or at maturity are left out), defaulted to
+the latest monthliversary on or before today. The lapse data and rates are
+loaded once per policy; choosing another date re-prices immediately. Three
+panels follow:
 
-The Home Office pay-to date is the latest issue-day monthliversary on or
-before the quote date. Funding includes the following monthliversary's
-deduction. The service in `suiteview/polview/services/reinstatement.py` owns
-eligibility, dates and calculations; the UI must not derive its own financial
-rules. The result includes the premium and a reconcilable breakdown:
+- **Values at Lapse**: lapse date, values-record date, account value, loan
+  balance, surrender charge (at the lapse date), SNET (SafetyNet/MAP) expiry
+  date and CCV benefit (type `A`) cease date, or N/A.
+- **Skipped Coverage Reinstatement** (under Values at Lapse; "does not apply if you
+  do a home office reinstatement"): the reinstatement code, values as of the
+  reinstatement date, reinstatement premium (net,
+  premium less load), approximate monthly deduction, approximate account value
+  (after MD: lapse AV + net premium - one monthly deduction), loan balance,
+  surrender charge as of the reinstatement date, surrender value (approx account
+  value less surrender charge and loan; account value and surrender value are bold), SNET expiry date, CCV benefit
+  cease date and terminated months (monthliversaries between lapse and
+  reinstatement). The code is read-only: it is the segment 66 reinstatement rule
+  (`LH_NON_TRD_POL.REN_RLE_CD`). Rule 3 pushes the SNET expiry out by the
+  terminated months; any other rule ends SNET and CCV at the termination date (an
+  SNET already expired earlier stays as is). CCV is always the termination date
+  when a CCV benefit exists.
+- **Monthly Deduction** on the reinstatement date: the deduction date, then base COI, rider COI and
+  benefit charges (COI), EPU, monthly fee and any account-value charge (fees),
+  and the total.
+- **Reinstatement Premium**: account value, policy debt, surrender charge as
+  of the reinstatement date, 2 x COI, 2 x fees, subtotal
+  (surrender charge + debt + 2 x COI + 2 x fees - account value), premium load
+  and the reinstatement premium (subtotal + load).
 
-- Safety net: premiums paid less withdrawals and next-monthliversary debt
-  must cover accumulated minimum target premium through that monthliversary.
-- Outside safety net, active shadow: shadow value less next-monthliversary
-  debt must be positive after the deduction.
-- Otherwise: surrender value must be positive after that deduction.
+`suiteview/polview/services/reinstatement.py` owns every value; the UI only
+lays them out. Rules:
 
-Missing data or an unsupported calculation basis must display **Unavailable**,
-not a zero or a previous successful quote. A solved zero remains visible.
-Native UI regression tests live in `tests/test_reinstatement_ui.py`.
-Real-engine calculation regressions live in `tests/test_reinstatement.py`,
-including exact-cent minima, all three funding bases, receipt-date interest,
-debt at the next deduction, lapse-only restoration and missing-data rejection.
-The breakdown lists premiums paid, withdrawals and accumulated MTP separately
-and includes the equation for the selected funding basis.
+- The lapse date is the latest live CyberLife `TL` (termination - lapse) or `SI`
+  (internal surrender) transaction, falling back to `PLN_TMN_DT` (NULL on almost
+  all lapsed ULs).
+- Lapse values are the last monthliversary values record (post-deduction AV,
+  loans, SNET date). A `TL` amount that differs from that AV is noted.
+- Coverage is continuous: durations run from the original issue date. COI,
+  fees and surrender charges come from the illustration engine's
+  `calculate_deduction` and `_calculate_surrender_charge`, so an
+  anniversary-dated surrender takes the prior year's rate. COI uses the lapse
+  AV for the NAR. Charges were reconciled to CyberLife's recorded monthly
+  deduction on seven lapsed policies (October 7, 2026; one CVAT case differed
+  by 1 cent of COI).
+- On lapse CyberLife moves a benefit's `BNF_CEA_DT` to the lapse date and keeps
+  the contract date in `BNF_OGN_CEA_DT`. Such benefits (notably CCV) are
+  restored to the original date and charged; the quote notes it. A benefit
+  ceasing on the lapse date with no later original date is excluded and noted.
+- The premium load grosses the subtotal up to the cent with
+  `gross_up_for_premium_load` (target/excess split at the CTP; year-to-date
+  premiums count only within the same policy year). A subtotal of zero or
+  less gives a $0.00 premium.
+- Missing COI or surrender-charge schedules, a missing lapse date or a date
+  before the lapse/at maturity give an explicit error, never a zero.
 
-Quotes preserve regulatory acceptance caps and forceouts, use one premium on
-the quote date (never backdated), and restore only coverages explicitly
-terminated on the policy's lapse date. Historical transactions after the
-opening snapshot, ambiguous benefit termination, missing rates/balances and
-indexed-crediting plans currently produce an explicit unavailable reason.
-Reinstatement-specific regulatory resets are not assumed.
+Right-click **Copy** on any value copies the whole quote as text. Service
+tests are in `tests/test_reinstatement.py`; native UI tests are in
+`tests/test_reinstatement_ui.py`.
 
-`tools/app/verify_reinstatement_tab.py --output-dir <directory>` captures an
-explicitly synthetic UI demonstration without database access; supplying
-`--policy <number> --company <code> --region CKPR` instead checks a live quote
-read-only. Synthetic captures are not evidence of a live policy quote.
+`tools/app/verify_reinstatement_tab.py --output-dir <directory>` prices an
+explicitly synthetic lapsed policy through the real service without database
+access. Supplying `--policy <number> --company <code> --region CKPR` instead
+checks a live quote read-only. Synthetic captures are not evidence of a live
+policy quote.
 
 ### Coverage and benefit zero values
 
@@ -1254,13 +1285,15 @@ something self-explanatory.
   packed MMDDYY" rule is what catches it.) Covered by
   `tests/test_policy_record_formatting.py`.
 - **CyberDoc / DB2-COBOL mapping toolkit (build-out aid).** The official
-  CyberLife docs (`docs/CyberDoc/*.pdf`) are the source of truth for every policy
+  CyberLife docs (`../Policy_Reference/CyberDoc_1201/*.pdf`, shared outside this
+  repo) are the source of truth for every policy
   record field's format + COBOL name + redefines. Workflow to map any field:
   1. **DB2 column → COBOL name** — `docs/COBOLDB2translation.xls` ("Translation"
      sheet: `SEG #`, `COBOL Name`, `Table`, `Field Name`). Query it with
      `tools/office/read_xls.py '{"path":"docs/COBOLDB2translation.xls","sheet":"Translation","find":"LST_ACT_TRS_DT"}'`.
   2. **COBOL name → format** — the CyberDoc PDFs, extracted to searchable text by
-     `tools/office/extract_pdf_text.py` (→ `docs/CyberDoc/text/*.txt`; `D20.txt` is the
+     `tools/office/extract_pdf_text.py` (→ `../Policy_Reference/CyberDoc_1201/text/*.txt`,
+     all 56 manuals; `D20.txt` is the
      Policy Record doc). `tools/policyrecord/build_cyberdoc_index.py` distils every field's
      `Format:` line into `cyberdoc_field_formats.json` (COBOL → `{name, format,
      kind}`), which the builder loads at runtime. Regenerate after re-extracting.

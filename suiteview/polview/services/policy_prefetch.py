@@ -86,6 +86,8 @@ class AccountValueCalculations:
     interim: InterimAccountValue | InterimAccountValueUnavailable
     guaranteed: dict[str, Any] | None = None
     nonforfeiture_status: str = ""
+    # Guaranteed cash value is an ISWL concept; UL plans do not show the row.
+    is_iswl: bool = False
     # FixedAccountRate / FixedRateUnavailable (None = not calculated).
     fixed_rate: Any = None
 
@@ -207,6 +209,15 @@ def _read_policy_path(policy, path):
     for part in path.split("."):
         value = getattr(value, part)
     return value
+
+
+def _charges_pct_of_account_value(rates) -> bool:
+    """Rule-5 surrender charge (ISWL base, or UL ``pct_scr``): a percent of the account
+    value with no per-unit ``SCR`` schedule. The loaders already fail when its
+    ``SCR_PCT`` schedule is missing; a UL rule-5 increase phase has no charge."""
+    return any(
+        basis is not None and basis.surrender_charge_is_pct_of_av
+        for basis in (getattr(rates, "iswl", None), getattr(rates, "pct_scr", None)))
 
 
 def _surrender_values(basis, config, rates, state) -> SurrenderValues:
@@ -448,11 +459,12 @@ class PolicyLoadSession:
             guaranteed = guaranteed_cash_value(policy)
             policy._data.raise_table_errors()
             fixed_rate = self._fixed_account_rate()
+            is_iswl = self._base_plan_is_iswl()
             record_snapshot = policy.detached_copy()
             try:
                 payload = replace(
                     self._account_value_calculations(fixed_rate),
-                    guaranteed=guaranteed, fixed_rate=fixed_rate)
+                    guaranteed=guaranteed, fixed_rate=fixed_rate, is_iswl=is_iswl)
             except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
                 reason = (
                     f"Calculated surrender charge and value are unavailable: {exc}. "
@@ -470,6 +482,7 @@ class PolicyLoadSession:
                             f"Interim AV Quote is unavailable: {exc}."),
                         guaranteed=guaranteed,
                         fixed_rate=fixed_rate,
+                        is_iswl=is_iswl,
                     ),
                 )
         elif stage == "reinsurance":
@@ -547,6 +560,20 @@ class PolicyLoadSession:
         policy._data.raise_table_errors()
         return fixed
 
+    def _base_plan_is_iswl(self) -> bool:
+        from suiteview.illustration.models.plancode_config import MissingPlancodeError, load_plancode
+
+        try:
+            return bool(getattr(load_plancode(self._policy.coverages.base_plancode), "is_iswl", False))
+        except MissingPlancodeError:
+            return False
+        except (KeyError, ValueError, RuntimeError, OSError, pyodbc.Error) as exc:
+            # Only a display flag: a plan configuration failure must not block the
+            # policy records; the surrender values report the same error.
+            logger.warning("PolView %s: plan configuration unavailable: %s",
+                           self._policy.policy_number, exc)
+            return False
+
     def _account_value_calculations(self, fixed_rate=None) -> AccountValueCalculations:
         from suiteview.illustration import (
             IllustrationEngine, load_projection_basis, project_policy,
@@ -596,6 +623,8 @@ class PolicyLoadSession:
             interim = InterimAccountValueUnavailable(f"Interim AV Quote unavailable: {exc}")
         policy._data.raise_table_errors()
         for segment in basis.segments or [basis.base_segment]:
+            if _charges_pct_of_account_value(rates):
+                break
             schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
             if not schedule:
                 raise ValueError(
