@@ -185,6 +185,7 @@ def _run_replay(policy_number: str, company: str, variant: str = "baseline") -> 
         conform_to_tamra=False,
         guideline_forceouts=False,
         no_lapse=True,
+        shadow_nplus1_relief=True,  # replays CyberLife history, which applies N+1 relief
     )
     if variant == "exact_days":
         options.exact_days_interest = True

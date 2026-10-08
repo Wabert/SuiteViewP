@@ -681,6 +681,7 @@ def compare_policy(selection_row: dict[str, Any], output_dir: Path, force: bool 
             conform_to_tamra=False,
             guideline_forceouts=False,
             no_lapse=True,
+            shadow_nplus1_relief=True,  # replays CyberLife history, which applies N+1 relief
         )
         run = project_policy(
             issue_policy,
