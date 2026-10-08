@@ -1202,6 +1202,12 @@ If no segment list exists, the fallback is:
 surrender_charge = scr_rate * policy.units
 ```
 
+Company-26 FFL UL per-unit (rule 6) plans charge each segment on its original units, including
+a segment a decrease or withdrawal took to 0 units (decision #67), and
+subtract the partial surrender target charges already taken, floored at 0
+(`withdrawal_handler.ffl_withdrawal_surrender_credit`). The in-force part of that credit is
+`LH_POL_TOTALS.TOT_WTD_CRG_AMT` (decision #66; see the RERUN manual's FFL original-units
+section for the fallbacks); projected withdrawals add their partial charge to it.
 Surrender value is the AV-after-exception less the surrender charge and policy debt, and
 is **not floored at zero** — it can be negative (the Values tab floors only the
 display-facing `IllustrationSV`, not the raw `ESV`):

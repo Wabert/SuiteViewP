@@ -1302,21 +1302,30 @@ specified-amount decrease, elective or the A->B level-DB reduction, takes no par
 surrender charge (`PlancodeConfig.face_decrease_surrender_charge`). Their SA_Basis stays
 `CurrentSA`: it also drives the COI band, EPU, target premiums and withdrawals, and FFL's
 monthly deduction already matches on current SA. A decrease entered in a projection keeps the
-charge on the pre-decrease units; a coverage an elective decrease takes to zero drops out of
-the charge, while one a withdrawal takes to zero keeps its original units.
+charge on the pre-decrease units, and so does a coverage taken to zero units, whether by an
+elective decrease or a withdrawal (decision #67, 10/7/2026: 000296011's 112.19 = 2,252.00 on
+original units including its zeroed increase, less TOT_WTD_CRG_AMT 2,139.81; all 13 elective
+partial decreases charge original units). COLA coverages carry a 0 rate.
 Withdrawals keep their partial surrender charge: CyberLife books one on FFL withdrawals (`FH_FIXED`
 'SN'/'SM' rows). After withdrawals the company-26 FFL full charge is the charge on original units
 less the partial surrender charges already taken (excluding the $25 fee), floored at 0
-(`withdrawal_handler.ffl_withdrawal_surrender_credit`; 5 of 6 FFL surrenders after a charged
-withdrawal fit to the cent, NU1F3N00 000266911 does not). The credit is seeded at load from the
-in-force FH_FIXED withdrawal events (grouped by date and code, CHARGE_AMT less the fee) and grows
-with projected withdrawals. When that history cannot be read or has fewer events than
-LH_POL_TOTALS TOT_WTD_QTY (purged), the policy falls back to the current-units basis with no
-credit, so no withdrawal is counted twice. The same fallback applies when the record already has a
-coverage at zero face with original units and the history carries a credit (the record does not
-say whether a withdrawal or a decrease removed it), and to a value rollback to an earlier date (the
-history is not re-read for it); a run from issue clears the credit and the fallback. A snapshot
-reloaded offline does not carry the credit.
+(`withdrawal_handler.ffl_withdrawal_surrender_credit`; 6 of 8 FFL surrenders after a charged
+withdrawal fit to the cent; NU1F3N00 000266910/000266911 were charged with no credit). The credit is seeded at load from
+`LH_POL_TOTALS.TOT_WTD_CRG_AMT` (decision #66, Robert 10/7/2026): CyberLife's FUMWDCHG holds the
+withdrawal charges assessed since issue, adjusted by reversals, and under rule 6 only the
+target-based charges, not the $25 fee (CyberDoc D202; D10 rule 6 subtracts "any previously
+deducted partial surrender target charges"). It equals the old FH_FIXED sum (CHARGE_AMT less the
+fee per event) on all 5 fitting surrenders, and it also covers purged and pre-conversion
+withdrawals (FH_FIXED 'SG' CVADD rows; TOT_WTD_QTY can be 0 then). Projected withdrawals add to
+it. The credit applies only when the policy's full surrender rules
+(`LH_NON_TRD_POL.FUL_SRD_FST_CRG_CD`/`FUL_SRD_2ND_CRG_CD`) include rule 6; on other rules (e.g.
+NU1FU100, rule 5 with a rule-1 partial fee) the field holds fees and gives no credit. When the field
+cannot be read on a policy with withdrawals, or the surrender rule is blank, the policy falls back
+to the current-units basis with no credit. The same fallback applies to a value rollback to an
+earlier date (the field may include later withdrawals); a run from issue clears the credit and the
+fallback. A coverage already at zero units no longer triggers the fallback: it keeps its original
+units and the field credits only the withdrawal charges actually taken. A snapshot reloaded
+offline does not carry the credit.
 The maximum withdrawal, lapse test and loan cap use the same netted charge. Live FFL policies already carry Decrease Charge Rule 0
 (`DECR_CHRG_ALLOW`, all 10,080 FFL UL policies), so the engine charged no elective-decrease
 partial charge on them before either. PolView's surrender-charge tip reports the original

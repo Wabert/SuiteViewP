@@ -163,7 +163,6 @@ from suiteview.illustration.core.withdrawal_handler import (
     compute_withdrawal,
     ffl_original_units_basis,
     ffl_withdrawal_surrender_credit,
-    mark_withdrawal_zeroed_segments,
     record_ffl_withdrawal_surrender_charge,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
@@ -3417,10 +3416,7 @@ def _process_withdrawal(inputs: WithdrawalInput) -> WithdrawalResult:
     if wd.reduces_sa:
         record_ffl_withdrawal_surrender_charge(inputs.policy, inputs.config, wd.partial_sc)
     if wd.face_decrease > MONEY_EPSILON:
-        live_before = {id(seg) for seg in inputs.policy.segments if seg.face_amount > 0}
         _apply_withdrawal_face_decrease(inputs, wd)
-        mark_withdrawal_zeroed_segments(
-            seg for seg in inputs.policy.segments if id(seg) in live_before)
     return wd
 
 
@@ -5104,9 +5100,9 @@ def surrender_charge_units(
     OriginalSA plans charge the surrender charge on the coverage's ORIGINAL
     units; so do FFL UL per-unit plans (``CurrentSA``), whose charge stays on the
     pre-decrease units because FFL takes no partial surrender charge on a
-    decrease (Robert, 10/5/2026). An FFL coverage an elective decrease took to zero,
-    and every coverage of an FFL policy on the current-units fallback, use current
-    units (``withdrawal_handler.ffl_original_units_basis``). Every other plan uses the
+    decrease (Robert, 10/5/2026), including a coverage at 0 units (decision #67). Every
+    coverage of an FFL policy on the current-units fallback uses current units
+    (``withdrawal_handler.ffl_original_units_basis``). Every other plan uses the
     current units. (Units are the specified amount per $1,000.)
     """
     if config is not None and config.sa_basis == SA_BASIS_ORIGINAL:

@@ -263,6 +263,13 @@ class ProductSection(PolicySection):
         return str(self._field("prospective_bonus_code") or "").strip()
 
     @property
+    def full_surrender_charge_rules(self) -> tuple[str, str]:
+        """Full surrender charge rules, LH_NON_TRD_POL FUL_SRD_FST_CRG_CD / FUL_SRD_2ND_CRG_CD
+        (D10 CKDRECUL 05: e.g. ``6`` surrender target, ``5`` free-surrender percent)."""
+        return (str(self._field("full_surrender_first_charge_rule") or "").strip(),
+                str(self._field("full_surrender_second_charge_rule") or "").strip())
+
+    @property
     def tefra_defra_code(self) -> str:
         """TEFRA/DEFRA indicator code."""
         return str(self.data_item("LH_NON_TRD_POL", "TFDF_CD") or "")

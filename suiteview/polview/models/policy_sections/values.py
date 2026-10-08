@@ -71,6 +71,15 @@ class ValuesSection(PolicySection):
         return self.policy.total_records.TOT_WTD_QTY
 
     @property
+    def total_withdrawal_charges(self) -> Optional[Decimal]:
+        """Withdrawal charges since issue, adjusted by reversals (TOT_WTD_CRG_AMT). Under the
+        rule-6 target surrender charge only the target-based charges, not the flat fee (D202)."""
+        value = self.policy.total_records.TOT_WTD_CRG_AMT
+        if self.table_error("LH_POL_TOTALS"):
+            return None
+        return value
+
+    @property
     def cost_basis(self) -> Decimal:
         """Tax cost basis (VBA: CostBasis from POL_CST_BSS_AMT)."""
         return self.policy.total_records.POL_CST_BSS_AMT
