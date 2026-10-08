@@ -79,8 +79,10 @@ def credit_interest(
         rate_year: Current policy year for bonus lookup.
         attained_age: Current attained age.
         month_date: Calendar date of this monthiversary.
-        reg_loan_balance: Regular loan principal + accrued.
-        pref_loan_balance: Preferred loan principal + accrued.
+        reg_loan_balance: Regular loan collateral = loan PRINCIPAL (arrears accrued
+            interest is excluded until it capitalizes at the anniversary; an advance
+            loan's principal carries its prepaid interest). Every caller passes principal.
+        pref_loan_balance: Preferred loan collateral = principal, as above.
 
     Returns:
         InterestResult with all interest-stage outputs.
