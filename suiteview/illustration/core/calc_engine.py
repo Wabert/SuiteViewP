@@ -39,7 +39,18 @@ Target refresh/recalc      yes                     carry prior details
 WAIR/shadow               yes                     skipped
 Lapse                     full protection stack   simple AV <= 0 test
 7-pay withdrawals          premium minus gross WD  premiums only
+Premium vs withdrawal      withdrawal first        actual-date order (below)
 ========================  ======================  ==========================
+
+Under CYBERLIFE_MONTHLIVERSARY timing (``cash_flows_in_date_order``), a month
+whose dated premiums (and any loan repayments/variable loans) all fall on or
+before its earliest withdrawal date runs the premium block of steps 5-6 before
+step 3: the premium is tested against the guideline room before the withdrawal
+and counts in the withdrawal's maximum and cost basis. The withdrawal, target
+refresh and guideline force-out then follow in the usual order. A premium on the
+withdrawal's own date is taken first. Mixed or later-dated months, undated
+premiums and CVAT months with a live NPT test keep the withdrawal-first order
+(Robert's decision #88, option 3, 2026-10-07).
 """
 from __future__ import annotations
 
@@ -204,6 +215,11 @@ class TimingConvention:
     shadow_enabled: bool
     wair_enabled: bool
     withdrawal_reduces_7pay: bool
+    # Process a month's dated premium before its withdrawal when the premium's
+    # actual date is on or before the withdrawal's (see
+    # ``premium_precedes_withdrawal``). Only valid with ``refresh_targets`` and
+    # ``supports_policy_changes`` off: the target refresh runs twice that month.
+    cash_flows_in_date_order: bool = False
 
 
 ILLUSTRATION_TIMING = TimingConvention(
@@ -230,6 +246,7 @@ CYBERLIFE_MONTHLIVERSARY_TIMING = TimingConvention(
     shadow_enabled=False,
     wair_enabled=False,
     withdrawal_reduces_7pay=False,
+    cash_flows_in_date_order=True,
 )
 
 
@@ -852,9 +869,15 @@ def refresh_targets(ctx: MonthContext, convention: TimingConvention, work: Month
 
 
 def apply_guideline_forceout(
-    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork,
+    *, force_out: bool = True,
 ) -> None:
-    """Accumulate guideline premium and apply any required force-out."""
+    """Accumulate guideline premium and apply any required force-out.
+
+    ``force_out=False`` only sets the guideline limit (with no force-out) for a
+    premium processed before the month's withdrawal; the full step runs again
+    after the withdrawal.
+    """
     state = ctx.state
     policy = ctx.policy
     work.accum_glp_prior_amount = state.accumulated_glp
@@ -875,6 +898,9 @@ def apply_guideline_forceout(
         )
     work.guideline_limit = max(work.gsp_floored, work.accumulated_glp)
     work.withdrawals_before_forceout = work.withdrawals_to_date
+    if not force_out:
+        work.guideline_forceout = 0.0
+        return
     (
         work.guideline_forceout,
         work.withdrawals_to_date,
@@ -1740,19 +1766,16 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
     if convention.interest_timing == "pre_withdrawal":
         credit_interest_pre_withdrawal(ctx, work)
     mature_segments_step(ctx, work)
-    process_withdrawal_step(ctx, convention, work)
-    sync_segments(work, "Withdrawal")
-    apply_policy_changes(ctx, convention, work)
-    refresh_targets(ctx, convention, work)
-    apply_guideline_forceout(ctx, convention, work)
-    sync_segments(work, "Force-out")
-    resolve_requested_premium(ctx, work)
-    apply_cashflows(ctx, work)
-    sync_segments(work, "Loan cash flows")
-    sync_segment_collateral(work, work.cap_loan, "Loan capitalize/repay")
-    compute_allowances(ctx, work)
-    apply_premium_step(ctx, work)
-    sync_segments(work, "Premium")
+    if premium_precedes_withdrawal(ctx, convention):
+        _premium_then_withdrawal(ctx, convention, work)
+    else:
+        process_withdrawal_step(ctx, convention, work)
+        sync_segments(work, "Withdrawal")
+        apply_policy_changes(ctx, convention, work)
+        refresh_targets(ctx, convention, work)
+        apply_guideline_forceout(ctx, convention, work)
+        sync_segments(work, "Force-out")
+        _premium_block(ctx, work)
     deduct_monthly_charges(ctx, convention, work)
     sync_segments(work, "Monthly deduction", work.av_after_charge)
     apply_exception_premium(ctx, convention, work)
@@ -1769,6 +1792,88 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
     calculate_shadow_step(ctx, convention, work)
     evaluate_lapse(ctx, convention, work)
     return build_month_state(ctx, convention, work)
+
+
+def _premium_block(ctx: MonthContext, work: MonthWork) -> None:
+    """Resolve, divert (loan cash flows), test and apply the month's premium."""
+    resolve_requested_premium(ctx, work)
+    apply_cashflows(ctx, work)
+    sync_segments(work, "Loan cash flows")
+    sync_segment_collateral(work, work.cap_loan, "Loan capitalize/repay")
+    compute_allowances(ctx, work)
+    apply_premium_step(ctx, work)
+    sync_segments(work, "Premium")
+
+
+def premium_precedes_withdrawal(ctx: MonthContext, convention: TimingConvention) -> bool:
+    """Whether this month's premium is processed before its withdrawal.
+
+    Only for a timing convention with ``cash_flows_in_date_order`` (CyberLife
+    monthliversary timing) and dated receipts (rollback/from-issue replays).
+    Every premium, loan repayment and variable loan in the month must be dated
+    on or before the earliest withdrawal; a premium on the withdrawal's own date
+    counts as first. Otherwise, and for CVAT policies whose NPT test is live
+    (its deemed cash value roll needs the withdrawal first), the month keeps the
+    RERUN order: withdrawal, then premium.
+    """
+    if not convention.cash_flows_in_date_order or ctx.month_inputs is None:
+        return False
+    flows = getattr(ctx.month_inputs, "dated_cash_flows", None) or []
+    withdrawal_dates = [
+        flow.effective_date for flow in flows
+        if flow.kind == TransactionKind.WITHDRAWAL and flow.amount > 0.0
+    ]
+    premiums = [
+        flow for flow in flows
+        if flow.kind == TransactionKind.PREMIUM and flow.amount > 0.0
+    ]
+    if not withdrawal_dates or not premiums:
+        return False
+    first_withdrawal = min(withdrawal_dates)
+    moved = premiums + [
+        flow for flow in flows
+        if flow.amount > 0.0 and (
+            flow.kind == TransactionKind.LOAN_REPAYMENT
+            or (flow.kind == TransactionKind.LOAN
+                and (flow.subtype or "").strip().lower() == "variable"))
+    ]
+    if any(flow.effective_date > first_withdrawal for flow in moved):
+        return False
+    # An undated (schedule-compiled) premium has no receipt date to order by.
+    dated_premium = sum(flow.amount for flow in premiums)
+    if (ctx.month_inputs.total_premium or 0.0) > dated_premium + MONEY_EPSILON:
+        return False
+    npt = ctx.npt
+    if npt is not None and npt.dcv_known and ctx.policy.is_cvat:
+        return False
+    return True
+
+
+def _premium_then_withdrawal(
+    ctx: MonthContext, convention: TimingConvention, work: MonthWork
+) -> None:
+    """Date-ordered month: premium (and its loan cash flows), then withdrawal.
+
+    The premium is tested against the guideline room before this month's
+    withdrawal and lifts the account value and cost basis the withdrawal sees.
+    The withdrawal's policy-change capture, the target refresh and the
+    guideline force-out then run after it exactly as in the RERUN order.
+    """
+    work.wd = WithdrawalResult()
+    work.guideline_recalc = {}
+    refresh_targets(ctx, convention, work)
+    apply_guideline_forceout(ctx, convention, work, force_out=False)
+    _premium_block(ctx, work)
+    work.cost_basis = work.prem.cost_basis
+    process_withdrawal_step(ctx, convention, work)
+    sync_segments(work, "Withdrawal")
+    apply_policy_changes(ctx, convention, work)
+    refresh_targets(ctx, convention, work)
+    apply_guideline_forceout(ctx, convention, work)
+    sync_segments(work, "Force-out")
+    work.av_before_deduction = work.av
+    work.prem = replace(
+        work.prem, av_after_premium=work.av, cost_basis=work.cost_basis)
 
 
 def build_month_state(
