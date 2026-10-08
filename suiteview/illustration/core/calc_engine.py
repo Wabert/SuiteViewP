@@ -1106,6 +1106,7 @@ def deduct_monthly_charges(
         monthly_mtp=monthly_mtp,
         projection_date=work.month_date,
         corridor_rate=cvat_corridor_rate(ctx.cvat, work.month_date),
+        withdrawals_to_date=work.withdrawals_to_date,
     )
     work.asset_charge = 0.0 if ctx.segments is not None else monthly_asset_charge(
         ctx.iul_ctx,

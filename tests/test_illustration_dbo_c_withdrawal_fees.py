@@ -74,3 +74,70 @@ def test_run_from_issue_clears_the_inforce_withdrawal_fees():
     _reset_issue_values(policy)
 
     assert (policy.withdrawals_to_date, policy.inforce_withdrawal_fees) == (0.0, 0.0)
+
+
+def test_a_projected_withdrawal_lowers_the_option_c_coi_death_benefit():
+    """The COI basis pairs the running premiums with the running withdrawals (RERUN BD).
+
+    26 UNS00856 (1U144900): with the in-force total alone the 4/20/2026 net withdrawal of
+    3,500 left the COI death benefit 3,500 high after a replay seeded before it."""
+    policy = _policy(150.0)
+    projected = 23_972.55 + 1_000.0   # in-force gross total + a projected NET withdrawal
+    basis = _build_death_benefit_basis(
+        1108.60, policy, PlancodeConfig(), 76, 42_723.00, corridor_rate=1.05,
+        withdrawals_to_date=projected)
+
+    assert round(basis.standard_db, 2) == 67_900.45
+    assert round(basis.db_by_coverage["cov1"], 2) == 67_900.45
+    # No running total: the in-force total, as before.
+    default = _build_death_benefit_basis(
+        1108.60, policy, PlancodeConfig(), 76, 42_723.00, corridor_rate=1.05)
+    assert round(default.standard_db, 2) == 68_900.45
+
+
+def test_coi_and_ending_death_benefit_agree_after_a_projected_withdrawal():
+    from types import SimpleNamespace
+
+    from suiteview.illustration.core.calc_engine import _ending_death_benefit
+
+    policy = _policy(150.0)
+    policy.withdrawals_to_date = 0.0
+    policy.inforce_withdrawal_fees = 0.0
+    work = SimpleNamespace(
+        month_date=None, av=1_000.0, prem=SimpleNamespace(premiums_to_date=8_510.0),
+        withdrawals_to_date=3_500.0, ded=SimpleNamespace(corridor_rate=0.0),
+        accrual_loan=SimpleNamespace(policy_debt=0.0))
+    basis = _build_death_benefit_basis(
+        1_000.0, policy, PlancodeConfig(), 62, 8_510.0, corridor_rate=0.0,
+        withdrawals_to_date=3_500.0)
+
+    assert basis.standard_db == 50_000.0 + 8_510.0 - 3_500.0
+    assert _ending_death_benefit(SimpleNamespace(policy=policy), work) == basis.standard_db
+
+
+def test_the_engine_passes_the_running_withdrawals_to_the_deduction(monkeypatch):
+    from types import SimpleNamespace
+
+    from suiteview.illustration.core import calc_engine
+
+    seen = {}
+
+    class Captured(Exception):
+        pass
+
+    def fake(*args, **kwargs):
+        seen.update(kwargs)
+        raise Captured
+
+    monkeypatch.setattr(calc_engine, "calculate_deduction", fake)
+    ctx = SimpleNamespace(policy=_policy(150.0), config=PlancodeConfig(), rates=None, cvat=None)
+    work = SimpleNamespace(
+        av_before_deduction=1_000.0, rate_year=10, attained_age=62, month_date=date(2026, 4, 21),
+        prem=SimpleNamespace(premiums_to_date=8_510.0), withdrawals_to_date=3_500.0,
+        monthly_mtp=0.0, pw_monthly_mtp=0.0)
+    try:
+        calc_engine.deduct_monthly_charges(ctx, calc_engine.CYBERLIFE_MONTHLIVERSARY_TIMING, work)
+    except Captured:
+        pass
+
+    assert seen["withdrawals_to_date"] == 3_500.0

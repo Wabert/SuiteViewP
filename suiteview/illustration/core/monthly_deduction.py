@@ -528,11 +528,15 @@ def _build_death_benefit_basis(
     premiums_to_date: float,
     projection_date: date | None = None,
     corridor_rate: float | None = None,
+    withdrawals_to_date: float | None = None,
 ) -> DeathBenefitBasis:
     """Build standard/corridor death benefit and discounted coverage slices.
 
     ``corridor_rate`` overrides the plan's GPT corridor factor (the CVAT minimum
     death benefit ratio from ``cvat_nsp.CvatCorridor``).
+
+    ``withdrawals_to_date`` is the running total (RERUN BD) that pairs with the
+    running ``premiums_to_date`` for option C; None uses the in-force total.
 
     Segments not yet issued at ``projection_date`` keep their coverage slot
     with zero death benefit."""
@@ -546,7 +550,7 @@ def _build_death_benefit_basis(
     elif dbo == DB_OPTION_INCREASING:
         standard_db = face + nar_av
     elif dbo == DB_OPTION_RETURN_OF_PREMIUM:
-        standard_db = face + _return_of_premium(premiums_to_date, policy)
+        standard_db = face + _return_of_premium(premiums_to_date, policy, withdrawals_to_date)
     else:
         standard_db = face
 
@@ -558,7 +562,7 @@ def _build_death_benefit_basis(
     corr_amount = gross_db - standard_db
     discount_factor = round((1.0 + config.dbd) ** (1.0 / MONTHS_PER_YEAR), 7)
     prem_adj = (
-        _return_of_premium(premiums_to_date, policy)
+        _return_of_premium(premiums_to_date, policy, withdrawals_to_date)
         if dbo == DB_OPTION_RETURN_OF_PREMIUM else 0.0
     )
     first_addition = (
@@ -589,12 +593,22 @@ def _build_death_benefit_basis(
     )
 
 
-def _return_of_premium(premiums_to_date: float, policy: IllustrationPolicyData) -> float:
+def _return_of_premium(
+    premiums_to_date: float,
+    policy: IllustrationPolicyData,
+    withdrawals_to_date: float | None = None,
+) -> float:
     """Option C death-benefit addition: premiums less NET withdrawals. The in-force
     withdrawals total is gross of the per-withdrawal fee (1U145500 UIP50722: six $25
     fees, CyberLife NAR 150 higher than premiums less TOT_WTD_AMT). After a skipped-coverage
-    reinstatement only the basis since the latest REN_DT counts (UIP88048)."""
-    return policy.option_c_premium_base(premiums_to_date, policy.withdrawals_to_date)
+    reinstatement only the basis since the latest REN_DT counts (UIP88048).
+
+    In a projection ``withdrawals_to_date`` is the running total, so a projected or
+    replayed withdrawal lowers the COI death benefit in the month it is taken, as it
+    already does the ledger's ending death benefit."""
+    if withdrawals_to_date is None:
+        withdrawals_to_date = policy.withdrawals_to_date
+    return policy.option_c_premium_base(premiums_to_date, withdrawals_to_date)
 
 
 def _discount_base_segments(
@@ -967,6 +981,7 @@ def calculate_deduction(
     projection_date: date | None = None,
     bln_round_charge: bool = False,
     corridor_rate: float | None = None,
+    withdrawals_to_date: float | None = None,
 ) -> DeductionResult:
     """Calculate monthly deduction charges.
 
@@ -980,13 +995,15 @@ def calculate_deduction(
         premiums_to_date: Cumulative premiums (for DBO C).
         monthly_mtp: Monthly minimum target premium (for PW charge basis).
         corridor_rate: CVAT minimum death benefit ratio; None uses the GPT ``CORR``.
+        withdrawals_to_date: Running withdrawals total (for DBO C); None uses the
+            in-force total.
 
     Returns:
         DeductionResult with all deduction-stage outputs.
     """
     basis = _build_death_benefit_basis(
         av_after_premium, policy, config, attained_age, premiums_to_date,
-        projection_date, corridor_rate)
+        projection_date, corridor_rate, withdrawals_to_date)
     nar = _allocate_nar(basis)
     # Before any COI lookup: an ISWL COI past its last loaded age raises (MissingRate).
     if premiums_and_charges_ceased(policy, config, attained_age):
