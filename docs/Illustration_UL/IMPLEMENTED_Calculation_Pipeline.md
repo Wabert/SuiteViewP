@@ -1076,6 +1076,14 @@ interest = free_av * full_monthly_rate
 
 If no loans exist, the entire AV receives the standard monthly rate.
 
+The loaned balance is loan principal (accrued arrears interest is not collateral).
+Under CyberLife monthliversary timing the interest credited on a monthliversary is
+for the month that ends there, so the loaned balance is the prior month-end
+principal: interest capitalized at an anniversary (arrears accrued interest or the
+next year's advance interest) earns the loaned rate only from the anniversary on.
+Illustration timing credits after the deduction for the month that starts on the
+monthliversary and uses the post-capitalization principal.
+
 End-of-month AV:
 
 ```text

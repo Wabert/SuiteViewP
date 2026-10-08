@@ -535,6 +535,12 @@ def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
         interest_days(prior_month_date, work.month_date)
         if prior_month_date is not None else None
     )
+    # This interest is for the month that ENDS on this monthliversary, so the
+    # loaned portion is the collateral that backed the loan during that month:
+    # the prior month-end principal. Anniversary capitalization (arrears accrued
+    # or the next year's advance interest) becomes collateral only from this date
+    # on — CyberLife credits the anniversary month on the pre-capitalization
+    # principal (V0835562, U0340373, UL037038; history replay 2026-10-07).
     work.intr = credit_interest(
         ctx.state.av_end_of_month,
         ctx.policy,
@@ -544,8 +550,8 @@ def credit_interest_pre_withdrawal(ctx: MonthContext, work: MonthWork) -> None:
         work.rate_year,
         work.attained_age,
         work.month_date,
-        reg_loan_balance=work.cap_loan.rg_loan_princ,
-        pref_loan_balance=work.cap_loan.pf_loan_princ,
+        reg_loan_balance=ctx.state.end_rg_loan_princ,
+        pref_loan_balance=ctx.state.end_pf_loan_princ,
         exact_days_interest=ctx.options.exact_days_interest,
         exact_days_override=exact_days_override,
     )
