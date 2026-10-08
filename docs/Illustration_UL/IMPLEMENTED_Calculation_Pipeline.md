@@ -142,6 +142,7 @@ The engine now supports two timing modes:
 
 - `ProjectionTiming.ILLUSTRATION` - normal illustration timing: cash flows and premium are applied before deduction, interest is credited after deduction.
 - `ProjectionTiming.CYBERLIFE_MONTHLIVERSARY` - PolView forecast timing: interest is credited from the current value first, then guideline force-out, monthliversary cash flows, premium, deduction, loan allocation, and loan accrual run. This mode also keeps projecting with `stop_on_lapse=False` for GLP forecast views.
+  - Dated history replays (rollback/from-issue inputs with actual receipt dates) process a month's premium and withdrawal in actual-date order (`TimingConvention.cash_flows_in_date_order`, Robert's decision #88 option 3, 2026-10-07). When every premium, loan repayment and variable loan in the month is dated on or before the earliest withdrawal (same date counts as before), the premium block (requested premium, loan cash flows, TEFRA/TAMRA allowances against the pre-withdrawal room, premium) runs first, so the premium counts in the maximum withdrawal, AV and cost basis the withdrawal sees. The withdrawal, target refresh and guideline force-out follow as usual. Mixed or later-dated months, undated premiums and CVAT months with a live NPT test keep the withdrawal-first order. `ProjectionTiming.ILLUSTRATION` always processes the withdrawal before the premium (RERUN workbook).
 
 ## 3. Inforce Snapshot Row
 
