@@ -35,7 +35,7 @@ def main() -> int:
         from PyQt6.QtWidgets import QApplication, QMessageBox
         from suiteview.core.rates import owned_rate_connections
         from suiteview.illustration.core.compare_runner import _mec_status, run_scenario
-        from suiteview.illustration.core.report_builder import _annualize
+        from suiteview.illustration.core.report_builder import MARKER_MEC, _annualize
         from suiteview.illustration.models.imported_case_store import load_imported_case
         from suiteview.illustration.ui.saved_case_scenario import materialize_saved_case
         from suiteview.illustration.ui.values_overview import LEDGER_COLUMNS, _status_text
@@ -77,7 +77,8 @@ def main() -> int:
                 checks["expected_report_year"] = report_year == args.expect_year
                 checks["expected_compare_year"] = report["compare_status"] == f"Becomes MEC (Yr {args.expect_year})"
                 checks["values_status"] = first is not None and "MEC" in _status_text(first)
-                checks["report_marker"] = any(r.year == args.expect_year and "&" in r.markers for r in rows)
+                checks["report_marker"] = any(
+                    r.year == args.expect_year and MARKER_MEC in r.markers.split() for r in rows)
             checks["snapshot_unchanged"] = case.policy_snapshot == original.policy_snapshot
             if args.native:
                 from suiteview.illustration.ui.main_window import IllustrationWindow

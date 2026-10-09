@@ -636,4 +636,4 @@ def test_report_prints_a_landscape_pdf(qtbot, tmp_path, monkeypatch):
     assert data.startswith(b"%PDF")
     assert len(re.findall(rb"/Type\s*/Page\b", data)) == len(view.pages)
     assert re.findall(rb"/MediaBox \[0 0 792(?:\.0+)? 612(?:\.0+)?\]", data)        # Letter landscape
-    assert fitting_font_pt(112) == 9.0 and fitting_font_pt(159) < 7.5            # wide ledgers shrink to fit
+    assert fitting_font_pt(112) == 9.0 and fitting_font_pt(170) < 7.5            # wide ledgers shrink to fit

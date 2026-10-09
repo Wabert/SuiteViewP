@@ -387,7 +387,7 @@ def test_already_mec_is_stated_and_never_reported_as_becoming_one():
     assert report.already_mec
     assert "THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC)." in report.policy_status_lines
     assert report.year_of_mec is None and report.mec_line == ""
-    assert not any("&" in row.markers for row in report.ledger)
+    assert not any("M" in row.markers.split() for row in report.ledger)
     assert "POLICY STATUS AS OF 09/24/2026:" in _cover_text(report)
 
     # A loaded non-MEC still gets the future-MEC sentence.

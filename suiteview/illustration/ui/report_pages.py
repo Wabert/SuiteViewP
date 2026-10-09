@@ -25,9 +25,12 @@ from .styles import PURPLE_DARK, PURPLE_LIGHT
 
 OUTPUT_FOLDER_KEY = "report_output_folder"
 PDF_FONT_PT = 9.0
-# Letter landscape (11in) less the 0.6in side margins, in points; Courier New's
+# Left/right PDF page margin, inches (halved from 0.6in on 2026-10-08 so wide
+# exhibits such as the Expense Report use more of the page).
+PDF_SIDE_MARGIN_IN = 0.3
+# Letter landscape (11in) less the side margins, in points; Courier New's
 # advance is 0.6 em, so a line of N characters needs N x 0.6 x size points.
-PRINTABLE_WIDTH_PT = (11.0 - 1.2) * 72.0
+PRINTABLE_WIDTH_PT = (11.0 - 2 * PDF_SIDE_MARGIN_IN) * 72.0
 COURIER_ADVANCE_EM = 0.6
 
 # Report tab chrome shared by the UL and par WL report pages.
@@ -82,7 +85,8 @@ def pdf_printer(path: str) -> QPrinter:
     printer.setOutputFileName(path)
     printer.setPageSize(QPageSize(QPageSize.PageSizeId.Letter))
     printer.setPageOrientation(QPageLayout.Orientation.Landscape)
-    printer.setPageMargins(QMarginsF(0.6, 0.5, 0.6, 0.5), QPageLayout.Unit.Inch)
+    printer.setPageMargins(
+        QMarginsF(PDF_SIDE_MARGIN_IN, 0.5, PDF_SIDE_MARGIN_IN, 0.5), QPageLayout.Unit.Inch)
     return printer
 
 
@@ -128,7 +132,7 @@ def report_sheet(lines: Sequence[str]) -> QLabel:
         " background-color: white;"
         f" border: 1px solid {PURPLE_LIGHT};"
         " border-radius: 2px;"
-        " padding: 28px 34px;"
+        " padding: 28px 17px;"
         " font-family: Consolas, 'Courier New', monospace;"
         " font-size: 11px;"
         " color: #1A1A2E;"

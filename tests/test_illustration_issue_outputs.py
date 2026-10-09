@@ -21,7 +21,11 @@ from suiteview.illustration.debug.summary_export import (
 )
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import BenefitInfo, IllustrationPolicyData, RiderInfo
-from suiteview.illustration.ui.report_tab import format_report_pages
+from suiteview.illustration.ui.report_tab import (
+    EXPENSE_PAGE_WIDTH,
+    PAGE_WIDTH,
+    format_report_pages,
+)
 from suiteview.illustration.ui.values_tab import (
     LEDGER_COLUMNS,
     _ExportLabeledOverview,
@@ -63,13 +67,14 @@ def test_issue_report_labels_every_page_and_uses_issue_not_technical_date():
     pages = format_report_pages(report, include_expense_report=True)
     for page in pages:
         text = "\n".join(page)
+        width = EXPENSE_PAGE_WIDTH if "EXPENSE REPORT" in text else PAGE_WIDTH
         assert ISSUE_OUTPUT_LABEL in text
         assert "ORIGINAL ISSUE DATE: 11/09/2019" in text
         assert "RATES BASIS DATE: 09/13/2026" in text
         assert "CURRENT SCALE 1; NOT A HISTORICAL RECONSTRUCTION" in text
         assert "CONTRACTUAL GUARANTEED ASSUMPTIONS" in text
         assert "10/09/2019" not in text
-        assert all(len(line) <= 112 for line in page)
+        assert all(len(line) <= width for line in page)
     text = "\n".join("\n".join(page) for page in pages)
     assert "HYPOTHETICAL INFORCE ILLUSTRATION" not in text
     assert "CURRENT SPECIFIED AMOUNT:" not in text

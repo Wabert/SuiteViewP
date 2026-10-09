@@ -8,7 +8,7 @@ from suiteview.illustration.core import calc_engine, guaranteed_projection
 from suiteview.illustration.core.bonus_rates import BonusConfig
 from suiteview.illustration.core.compare_runner import _mec_status
 from suiteview.illustration.core.rate_loader import IllustrationRates
-from suiteview.illustration.core.report_builder import _annualize
+from suiteview.illustration.core.report_builder import MARKER_MEC, _annualize
 from suiteview.illustration.models.input_set import (
     DatedTransaction, IllustrationInputSet, IllustrationOptions,
     PolicyChangeEvent, PolicyChangeKind, ScheduledTransaction, TransactionKind,
@@ -87,7 +87,7 @@ def test_off_cycle_seven_pay_year_detects_mec_or_caps_premium(basis, timing, con
         assert _mec_status(policy, results[1:]) == "Becomes MEC (Yr 28)"
         ledger, year, _ = _annualize(policy, results, options)
         assert year == 28
-        assert "&" in next(r.markers for r in ledger if r.year == 28)
+        assert MARKER_MEC in next(r.markers for r in ledger if r.year == 28).split()
     assert policy == original
     assert not policy.is_mec
     if timing == calc_engine.ProjectionTiming.ILLUSTRATION:

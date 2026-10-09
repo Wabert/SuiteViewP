@@ -281,7 +281,7 @@ def test_taskbar_switch_launcher_reuses_the_mainframe_window(app):
     assert routed == [("A", "U1234567", "01", "CKPR")]
 
 
-# ── Role gating: ADMIN + MAINFRAMENAV shows Switch A, PASSWORDMANAGER shows Passwords ──
+# ── Role gating: Switch A is Dev-only, PASSWORDMANAGER shows Passwords ──
 
 
 def _rights(role="SUPPORT", all_apps=False, apps=()):
@@ -297,45 +297,52 @@ def test_admin_all_apps_grants_password_manager_and_mainframe():
     assert not support.allows_app("PASSWORDMANAGER")
 
 
-@pytest.mark.parametrize("role,all_apps,apps,visible", [
-    ("SUPPORT", False, {"POLVIEW", "MAINFRAMENAV"}, False),
-    ("SUPPORT", True, set(), False),
-    ("ADMIN", False, {"POLVIEW"}, False),
-    ("ADMIN", False, {"POLVIEW", "MAINFRAMENAV"}, True),
-    ("ADMIN", True, set(), True),
+@pytest.mark.parametrize("role,all_apps,apps", [
+    ("SUPPORT", False, {"POLVIEW", "MAINFRAMENAV"}),
+    ("SUPPORT", True, set()),
+    ("ADMIN", False, {"POLVIEW", "MAINFRAMENAV"}),
+    ("ADMIN", True, set()),
 ])
-def test_polview_switch_a_button_requires_admin_with_mainframenav(
-        qapp_rights, role, all_apps, apps, visible):
+def test_polview_switch_a_button_hidden_in_packaged_app_for_every_role(
+        qapp_rights, role, all_apps, apps):
     from suiteview.polview.ui.main_window import GetPolicyWindow
 
     rights = _rights(role, all_apps=all_apps, apps=apps)
-    assert rights.shows_switch_a_button is visible
+    assert rights.shows_switch_a_button is False
     qapp_rights(rights)
     win = GetPolicyWindow(enable_policy_list=False)
     try:
-        assert win.open_switch_btn.isHidden() is (not visible)
+        assert win.open_switch_btn.isHidden()
     finally:
         win.close()
 
 
-def test_switch_a_button_shown_for_source_runs():
-    assert access_control._DEVELOPER_ACCESS.shows_switch_a_button
-
-
-def test_polview_switch_a_click_rechecks_admin_role(qapp_rights, monkeypatch):
+def test_switch_a_button_shown_for_source_runs(qapp_rights):
     from suiteview.polview.ui.main_window import GetPolicyWindow
 
-    qapp_rights(_rights("ADMIN", apps={"POLVIEW", "MAINFRAMENAV"}))
+    assert access_control._DEVELOPER_ACCESS.shows_switch_a_button
+    qapp_rights(access_control._DEVELOPER_ACCESS)
+    win = GetPolicyWindow(enable_policy_list=False)
+    try:
+        assert not win.open_switch_btn.isHidden()
+    finally:
+        win.close()
+
+
+def test_polview_switch_a_click_rechecks_dev_access(qapp_rights, monkeypatch):
+    from suiteview.polview.ui.main_window import GetPolicyWindow
+
+    qapp_rights(access_control._DEVELOPER_ACCESS)
     win = GetPolicyWindow(enable_policy_list=False)
     launched, warnings = [], []
     win.set_switch_launcher(lambda *args: launched.append(args))
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: warnings.append(a[2]))
     try:
         win._current_policy = "U1234567"
-        qapp_rights(_rights("SUPPORT", apps={"POLVIEW", "MAINFRAMENAV"}))
+        qapp_rights(_rights("ADMIN", all_apps=True))
         win._open_in_switch_a()
         assert launched == []
-        assert "ADMIN" in warnings[0] and "MAINFRAMENAV" in warnings[0]
+        assert "development" in warnings[0]
     finally:
         win.close()
 

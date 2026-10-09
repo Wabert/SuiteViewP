@@ -24,10 +24,8 @@ SUPPORT_PRIVILEGED_ROLES = frozenset({"ADMIN", "SUPPORT"})
 # processes; they never show the button. Source (design-mode) runs show it to
 # whoever is running them.
 AAI_BUTTON_OWNER = "AB7Y02"
-# PolView's "Switch A" hand-off is ADMIN-only: the user's role must be ADMIN and
-# that role must have MAINFRAMENAV (AllApps or explicit grant). Other roles with
-# MAINFRAMENAV still open Mainframe Navigator but never see the button.
-SWITCH_A_ROLE = "ADMIN"
+# PolView's "Switch A" hand-off is Dev-only (10/8/2026): source runs show it;
+# the packaged app never does, whatever the user's role.
 SWITCH_A_APP = "MAINFRAMENAV"
 
 
@@ -68,10 +66,8 @@ class EffectiveAccess:
 
     @property
     def shows_switch_a_button(self) -> bool:
-        """PolView's Switch A button: ADMIN role with MAINFRAMENAV; source runs always."""
-        return self.developer or (
-            self.role_code == SWITCH_A_ROLE and self.allows_app(SWITCH_A_APP)
-        )
+        """PolView's Switch A button: source (Dev) runs only."""
+        return self.developer
 
 
 _DEVELOPER_ACCESS = EffectiveAccess("DEVELOPER", "DEVELOPER", True, True, True, developer=True)
@@ -191,8 +187,7 @@ def guard_switch_a_button() -> None:
         raise AccessDeniedError(unavailable)
     if not get_access(refresh=True).shows_switch_a_button:
         raise AccessDeniedError(
-            f"The Switch A button requires the {SWITCH_A_ROLE} role with "
-            f"{SWITCH_A_APP} access. Contact a SuiteView administrator."
+            "The Switch A button is available only in the development (source) build."
         )
 
 

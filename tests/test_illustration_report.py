@@ -6,6 +6,12 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from suiteview.illustration.core.report_builder import (
+    MARKER_EXCEPTION,
+    MARKER_FORCEOUT,
+    MARKER_GUIDELINE_CAP,
+    MARKER_MEC,
+    MARKER_NEW_SEVEN_PAY,
+    MARKER_SEVEN_PAY_CAP,
     build_ul_report,
     issue_output_conditions,
 )
@@ -239,10 +245,12 @@ def test_report_ledger_annualizes_and_marks():
     assert year8.premium_outlay == 1200.0          # 12 x 100
     assert year8.accum_value == report.ledger[0].accum_value
     year9 = report.ledger[1]
-    assert "@" in year9.markers                     # force-out fired
+    assert MARKER_FORCEOUT in year9.markers.split()   # force-out fired
     assert year9.cash_from_policy > 6000            # includes the force-out
-    assert any(legend.startswith("@") for legend in report.footnote_legends)
-    assert not any(legend.startswith("^") for legend in report.footnote_legends)
+    assert any(legend.startswith(f"{MARKER_FORCEOUT} - ")
+               for legend in report.footnote_legends)
+    assert not any(legend.startswith(f"{MARKER_EXCEPTION} - ")
+                   for legend in report.footnote_legends)
 
     # Guaranteed columns stay blank.
     assert year8.guar_accum is None and year8.guar_surr is None and year8.guar_death is None
@@ -314,13 +322,15 @@ def test_report_distinguishes_tamra_premium_restriction():
     report = build_ul_report(_policy(), results, run_date=date(2026, 6, 10))
 
     year9 = next(row for row in report.ledger if row.year == 9)
-    assert "#" in year9.markers
-    assert "*" not in year9.markers
+    assert MARKER_SEVEN_PAY_CAP in year9.markers.split()
+    assert MARKER_GUIDELINE_CAP not in year9.markers.split()
     assert any(
-        legend.startswith("#") and "PREVENT THE POLICY FROM BECOMING A MEC" in legend
+        legend.startswith(f"{MARKER_SEVEN_PAY_CAP} - ")
+        and "PREVENT THE POLICY FROM BECOMING A MEC" in legend
         for legend in report.footnote_legends
     )
-    assert not any(legend.startswith("*") for legend in report.footnote_legends)
+    assert not any(legend.startswith(f"{MARKER_GUIDELINE_CAP} - ")
+                   for legend in report.footnote_legends)
     assert report.request_intro == [
         "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION. "
         "HOWEVER, PREMIUMS MAY BE RESTRICTED BY 7-PAY PREMIUM LIMITS."
@@ -522,6 +532,58 @@ def test_report_keeps_premium_outlay_heading_without_loan_repayments():
     assert "LOAN REPAY" not in ledger
 
 
+def test_premium_plus_loan_repay_heading_is_centered_over_the_outlay_figures():
+    from suiteview.illustration.ui.report_tab import _ledger_header
+
+    header = _ledger_header(True)
+    # AGE (4) + YEAR (5) lead; the 12-wide outlay column follows. The three
+    # labels center on one another, right-aligned over the figures.
+    assert [line[9:21] for line in header[:3]] == [
+        "  PREMIUM + ", "  LOAN REPAY", "    OUTLAY  "]
+
+
+def test_lumpsum_premium_reports_on_its_own_dated_line():
+    from dateutil.relativedelta import relativedelta
+
+    rows = [MonthlyState(policy_year=7, policy_month=12, duration=84)]
+    for year in (8, 9):
+        for month in range(1, 13):
+            duration = (year - 1) * 12 + month
+            lump = 10000.0 if (year, month) == (8, 1) else 0.0
+            rows.append(_month(
+                year, month,
+                date=date(2019, 11, 9) + relativedelta(months=duration - 1),
+                requested_premium=100.0 + lump,
+                unscheduled_premium=lump,
+            ))
+    inputs = IllustrationInputSet(dated_transactions=[DatedTransaction(
+        kind=TransactionKind.PREMIUM, effective_date=date(2026, 11, 9),
+        amount=10000.0, subtype="manual_lumpsum")])
+
+    report = build_ul_report(
+        _policy(), rows, future_inputs=inputs, run_date=date(2026, 10, 8))
+
+    assert report.request_lines == [
+        "PREMIUM OF $10,000.00 ON 11/09/2026",
+        "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
+    ]
+
+
+def test_apply_premium_to_loan_noted_under_requested_activity():
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    plain = build_ul_report(_policy(), _results(), run_date=date(2026, 10, 8))
+    assert plain.request_notes == []
+
+    report = build_ul_report(
+        _policy(), _results(), options=IllustrationOptions(apply_prem_to_loan=True),
+        run_date=date(2026, 10, 8))
+    note = "PREMIUMS ARE APPLIED FIRST TO REPAY ANY OUTSTANDING POLICY LOAN."
+    assert report.request_notes == [note]
+    cover = " ".join("\n".join(format_report_pages(report)[0]).split())
+    assert cover.index(report.request_lines[-1]) < cover.index(note)
+
+
 def test_cash_from_policy_includes_gross_withdrawals_loans_and_forceouts():
     rows = [MonthlyState(policy_year=7, policy_month=12, duration=84)]
     rows.extend(_month(8, month) for month in range(1, 13))
@@ -539,7 +601,7 @@ def test_cash_from_policy_includes_gross_withdrawals_loans_and_forceouts():
 
 def test_seven_pay_restart_marks_ledger_and_footnotes():
     """A TAMRA material change restarts the 7-pay window: the ledger year is
-    marked '+', the footnote legend states the new start date, and the change
+    marked 'N', the footnote legend states the new start date, and the change
     section's estimated limits show the new period start."""
     rows = [MonthlyState(policy_year=7, policy_month=6, duration=78,
                          gsp=31311.48, glp=2880.24, accumulated_glp=20162.31,
@@ -559,10 +621,11 @@ def test_seven_pay_restart_marks_ledger_and_footnotes():
 
     assert report.seven_pay_restarts == [(9, date(2027, 11, 9))]
     year9 = next(row for row in report.ledger if row.year == 9)
-    assert "+" in year9.markers
+    assert MARKER_NEW_SEVEN_PAY in year9.markers.split()
     year8 = next(row for row in report.ledger if row.year == 8)
-    assert "+" not in year8.markers
-    legend = next(l for l in report.footnote_legends if l.startswith("+"))
+    assert MARKER_NEW_SEVEN_PAY not in year8.markers.split()
+    legend = next(l for l in report.footnote_legends
+                  if l.startswith(f"{MARKER_NEW_SEVEN_PAY} - "))
     assert "11/09/2027" in legend
     section = report.change_sections[0]
     assert any("7-PAY PREMIUM = $5,407.11" in line for line in section.limit_lines)
@@ -573,7 +636,7 @@ def test_seven_pay_restart_marks_ledger_and_footnotes():
     # riders/regulatory page's estimated-limits block.
     from suiteview.illustration.ui.report_tab import format_report_pages
     flat = "\n".join(line for page in format_report_pages(report) for line in page)
-    assert "+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON 11/09/2027" in flat
+    assert "N - A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON 11/09/2027" in flat
     assert "NEW 7-PAY PERIOD STARTS = 11/09/2027" in flat
 
 
@@ -637,11 +700,11 @@ def test_retroactive_mec_marks_discovery_year_and_suppresses_later_restart():
     report = build_ul_report(_policy(), rows, run_date=date(2026, 8, 3))
 
     assert report.year_of_mec == 4
-    assert "&" in next(row.markers for row in report.ledger if row.year == 4)
+    assert MARKER_MEC in next(row.markers for row in report.ledger if row.year == 4).split()
     assert report.seven_pay_restarts == []
     assert not any("NEW 7-PAY" in line for line in report.footnote_legends)
     assert any(
-        line == "& THE POLICY IS ILLUSTRATED TO BECOME A MEC IN THIS YEAR"
+        line == "M - THE POLICY IS ILLUSTRATED TO BECOME A MEC IN THIS YEAR"
         for line in report.footnote_legends
     )
 
@@ -700,11 +763,12 @@ def test_cvat_policy_shows_seven_pay_but_no_guideline_limits():
 
 
 def test_no_seven_pay_restart_without_material_change():
-    """An unchanged 7-pay start date produces no '+' marker or legend."""
+    """An unchanged 7-pay start date produces no 'N' marker or legend."""
     report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
     assert report.seven_pay_restarts == []
-    assert not any("+" in row.markers for row in report.ledger)
-    assert not any(legend.startswith("+") for legend in report.footnote_legends)
+    assert not any(MARKER_NEW_SEVEN_PAY in row.markers.split() for row in report.ledger)
+    assert not any(legend.startswith(f"{MARKER_NEW_SEVEN_PAY} - ")
+                   for legend in report.footnote_legends)
 
 
 def test_request_lines_fold_partial_years_into_runs():
@@ -1351,7 +1415,7 @@ def test_expense_rows_zero_at_and_after_termination():
 def test_expense_page_appended_only_when_enabled():
     from suiteview.illustration.ui.report_tab import (
         _EXPENSE_COLUMNS,
-        PAGE_WIDTH,
+        EXPENSE_PAGE_WIDTH,
         format_report_pages,
     )
 
@@ -1377,13 +1441,14 @@ def test_expense_page_appended_only_when_enabled():
     assert "CHARGES AND CREDITS ARE ANNUAL TOTALS" in flat_words   # second paragraph kept
     assert "CASH" in flat and "OUT" in flat
     assert "DISTRI-" not in flat and "BUTIONS" not in flat
-    assert all(len(line) <= PAGE_WIDTH for line in expense_page), max(expense_page, key=len)
+    assert all(len(line) <= EXPENSE_PAGE_WIDTH for line in expense_page), max(
+        expense_page, key=len)
 
-    # Column widths span the full page; the locators lead with EOY age then
+    # Column widths span the full (wider) exhibit page; the locators lead with EOY age then
     # year (matching the illustration ledger), followed by the J:Y order with
     # Premium Charge left of COI, the combined EXPENSES/FEES column, and
     # POLICY DEBT before Net Surr Value.
-    assert sum(width for width, *_ in _EXPENSE_COLUMNS) == PAGE_WIDTH
+    assert sum(width for width, *_ in _EXPENSE_COLUMNS) == EXPENSE_PAGE_WIDTH
     bottom_header = next(line for line in expense_page
                          if line.strip().startswith("EOY") and "BENEFIT" in line)
     labels = bottom_header.split()
@@ -1402,6 +1467,18 @@ def test_expense_page_appended_only_when_enabled():
 
     assert "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM)" in " ".join(flat.split())
     assert "PARTIAL SURRENDER CHARGES" not in flat
+
+    # Large values never run together: six-figure charges and seven-figure
+    # policy values still split into one token per column.
+    from suiteview.illustration.core.report_builder import ExpenseRow
+    from suiteview.illustration.ui.report_tab import _expense_line
+    wide = ExpenseRow(
+        year=8, eoy_age=52, premium_outlay=999_999.99, distributions=999_999,
+        premium_charge=999_999, coi_charge=999_999, rider_charges=999_999,
+        monthly_fee=999_999, interest_credited=999_999, accum_value=9_999_999,
+        surrender_charges=999_999, policy_debt=9_999_999,
+        net_surrender_value=9_999_999, net_death_benefit=9_999_999)
+    assert len(_expense_line(wide).split()) == len(_EXPENSE_COLUMNS)
 
     # A separate exhibit: its own heading and page numbering, no company
     # header, and the illustration's own numbering still excludes it.

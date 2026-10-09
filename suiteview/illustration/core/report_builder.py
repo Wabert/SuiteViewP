@@ -10,10 +10,11 @@ Sources in the workbook (decoded 2026-06-10):
   - Annual ledger (mLedgerKey F..O / mLedgerValuesCurrent AB..AG): EOY Age,
     Year, Premium Outlay, Loan Repays, Exception Prem, MEC, GP Cap, ForceOut,
     Mode, Distribution from Policy; EOY AV / SV / DB / Loan Balance.
-  - Row markers (UL pages R17): '*' GP-capped (and no exception prem),
-    '@' force-out, '^' exception premiums, '&' forecast year of MEC,
-    '#' premiums repaid loans,
-    '+' a new 7-pay test period starts (TAMRA material change).
+  - Row markers (UL pages R17, re-lettered 2026-10-08 so no marker reads as
+    arithmetic beside a premium): 'G' guideline-capped (and no exception
+    prem), 'T' 7-pay (TAMRA) capped, 'F' force-out, 'E' exception premiums,
+    'M' forecast year of MEC, 'N' a new 7-pay test period starts (TAMRA
+    material change). See the MARKER_* constants.
     (RERUN's '%' post-maturity marker/legend was dropped 2026-07-19: the
     ledger now ends at the maturity-age EOY row, with no post-maturity stub
     row and no contract-specific after-maturity DB wording.)
@@ -38,6 +39,7 @@ from suiteview.illustration.core.calc_engine import bonus_as_of
 from suiteview.illustration.core.face_minimum import FACE_MIN_LIMITED_KEY
 from suiteview.illustration.core.lapse import issue_no_lapse_years
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
+from suiteview.illustration.core.solve_lumpsum_to_next_premium import LUMPSUM_SUBTYPE
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
@@ -265,6 +267,16 @@ class ReportRunContext:
     stop_on_lapse: bool = True
 
 
+# Ledger footnote markers. Mnemonic letters, never arithmetic symbols: a '+'
+# or '#' beside a premium reads as "add these" or "number".
+MARKER_GUIDELINE_CAP = "G"   # premiums restricted by the guideline premium limit
+MARKER_SEVEN_PAY_CAP = "T"   # premiums restricted by the 7-pay (TAMRA) limit
+MARKER_FORCEOUT = "F"        # premiums forced out to stay within the limits
+MARKER_EXCEPTION = "E"       # guideline exception premiums paid
+MARKER_MEC = "M"             # forecast year the policy becomes a MEC
+MARKER_NEW_SEVEN_PAY = "N"   # a new 7-pay test period starts (material change)
+
+
 @dataclass
 class LedgerRow:
     """One policy year of the report ledger (RERUN mLedgerKey + Current)."""
@@ -272,7 +284,7 @@ class LedgerRow:
     eoy_age: int = 0                # age at END of policy year (issue_age + year)
     year: int = 0
     premium_outlay: float = 0.0
-    markers: str = ""               # '* @ ^ & # +' combination for the year
+    markers: str = ""               # space-separated MARKER_* letters for the year
     cash_from_policy: float = 0.0   # Gross withdrawals + new loans + force-outs
     loan_balance: float = 0.0
     # Guaranteed columns; None (blank) when no guaranteed run was supplied.
@@ -410,6 +422,9 @@ class IllustrationReport:
     stale_valuation_days: Optional[int] = None
     request_intro: List[str] = field(default_factory=list)
     request_lines: List[str] = field(default_factory=list)
+    # Notes printed at the bottom of the requested-activity block (e.g. Apply
+    # Premium to Loan First).
+    request_notes: List[str] = field(default_factory=list)
     change_sections: List[ChangeSection] = field(default_factory=list)
     mec_line: str = ""
 
@@ -521,15 +536,15 @@ def _annualize(
 
         markers = ""
         if guideline_capped and exception <= 0.005:
-            markers += "* "
+            markers += f"{MARKER_GUIDELINE_CAP} "
         if tamra_capped and exception <= 0.005:
-            markers += "# "
+            markers += f"{MARKER_SEVEN_PAY_CAP} "
         if forceout > 0.005:
-            markers += "@ "
+            markers += f"{MARKER_FORCEOUT} "
         if exception > 0.005:
-            markers += "^ "
+            markers += f"{MARKER_EXCEPTION} "
         if year_of_mec == year:
-            markers += "& "
+            markers += f"{MARKER_MEC} "
         rows.append(LedgerRow(
             # EOY age: the age the insured reaches at the END of the policy year
             # (issue_age + year). The engine's attained_age holds the age at the
@@ -656,6 +671,15 @@ def _expense_rows(
 
 _INTERVAL_MODE_LABELS = {1: "MONTHLY", 3: "QUARTERLY", 6: "SEMI-ANNUAL", 12: "ANNUAL"}
 
+# Dated premium subtypes that are one-time lump sums: the Input tab's manual
+# lump sum and the solved "Lumpsum to Next Premium" bridge.
+_LUMPSUM_SUBTYPES = frozenset({"manual_lumpsum", LUMPSUM_SUBTYPE})
+
+# Cover-page note under the requested activity when Apply Premium to Loan First
+# (sInput_ApplyPremToLoan) is on.
+_APPLY_PREM_TO_LOAN_NOTE = (
+    "PREMIUMS ARE APPLIED FIRST TO REPAY ANY OUTSTANDING POLICY LOAN.")
+
 
 def _request_lines_from_specs(
     policy: IllustrationPolicyData,
@@ -692,9 +716,35 @@ def _request_lines_from_specs(
                 schedule_modes[state.policy_year] = _SCHEDULE_MODE_LABELS.get(
                     (active.mode or "M").strip().upper(), "MONTHLY")
 
+    # One-time lump sums (manual or the solved "Lumpsum to Next Premium"
+    # bridge) are listed on their own dated line and backed out of the month's
+    # requested premium, so they don't distort the modal-premium runs.
+    lumpsum_by_duration: dict[int, float] = {}
+    lumpsum_entries: List[tuple[int, str]] = []
+    if future_inputs is not None:
+        lumpsums = sorted(
+            (tx for tx in future_inputs.dated_transactions
+             if tx.kind == TransactionKind.PREMIUM and tx.amount > 0.005
+             and tx.subtype in _LUMPSUM_SUBTYPES),
+            key=lambda tx: tx.effective_date,
+        )
+        for tx in lumpsums:
+            landing = next(
+                (s for s in projected if s.date and s.date >= tx.effective_date), None)
+            if landing is None:
+                continue
+            lumpsum_by_duration[landing.duration] = (
+                lumpsum_by_duration.get(landing.duration, 0.0) + tx.amount)
+            lumpsum_entries.append((
+                landing.policy_year,
+                f"PREMIUM OF {_money(tx.amount)} "
+                f"ON {tx.effective_date.strftime('%m/%d/%Y')}"))
+
     runs: List[dict] = []
     for state in projected:
-        amount = round(state.requested_premium, 2)
+        amount = round(max(
+            state.requested_premium - lumpsum_by_duration.get(state.duration, 0.0),
+            0.0), 2)
         if amount <= 0.005:
             continue
         run = runs[-1] if runs else None
@@ -723,7 +773,7 @@ def _request_lines_from_specs(
         else:
             md_runs.append([state.policy_year, state.policy_year])
 
-    premium_entries: List[tuple[int, str]] = []
+    premium_entries: List[tuple[int, str]] = list(lumpsum_entries)
     for run in runs:
         label = _INTERVAL_MODE_LABELS.get(run["interval"])
         if label is None:
@@ -743,7 +793,7 @@ def _request_lines_from_specs(
         )
         premium_entries.append(
             (start_year, f"PREMIUMS TO COVER MONTHLY DEDUCTIONS {span}"))
-    if not premium_entries:
+    if not runs and not md_runs:
         first_year = projected[0].policy_year
         last_year = projected[-1].policy_year
         span = (
@@ -1462,8 +1512,8 @@ def _build_ul_report_from_facts(
     report.seven_pay_restarts = _seven_pay_restarts(results)
     for restart_year, _start in report.seven_pay_restarts:
         for row in report.ledger:
-            if row.year == restart_year and "+" not in row.markers:
-                row.markers = f"{row.markers} +".strip()
+            if row.year == restart_year and MARKER_NEW_SEVEN_PAY not in row.markers.split():
+                row.markers = f"{row.markers} {MARKER_NEW_SEVEN_PAY}".strip()
     if guaranteed_results:
         report.has_guaranteed_values = True
         report.guaranteed_termination_year = _fill_guaranteed_columns(
@@ -1624,8 +1674,9 @@ def _build_ul_report_from_facts(
         report.settings_lines = non_default_settings_lines(
             run_context.settings, run_context.stop_on_lapse, report.is_iul)
 
-    guideline_restricted = any("*" in r.markers for r in report.ledger)
-    tamra_restricted = any("#" in r.markers for r in report.ledger)
+    ledger_markers = {m for r in report.ledger for m in r.markers.split()}
+    guideline_restricted = MARKER_GUIDELINE_CAP in ledger_markers
+    tamra_restricted = MARKER_SEVEN_PAY_CAP in ledger_markers
     intro = "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
     if guideline_restricted and tamra_restricted:
         intro += (
@@ -1636,6 +1687,8 @@ def _build_ul_report_from_facts(
         intro += " HOWEVER, PREMIUMS MAY BE RESTRICTED BY 7-PAY PREMIUM LIMITS."
     report.request_intro = [intro]
     report.request_lines = _request_lines(policy, results, future_inputs)
+    if options.apply_prem_to_loan:
+        report.request_notes = [_APPLY_PREM_TO_LOAN_NOTE]
 
     report.rider_lines = _rider_lines(policy)
     report.change_sections = _change_sections(
@@ -1647,29 +1700,29 @@ def _build_ul_report_from_facts(
 
     # ── Footnote legends (only the triggered ones) ──
     legends: List[str] = []
-    markers = "".join(r.markers for r in report.ledger)
-    if "*" in markers:
+    if MARKER_GUIDELINE_CAP in ledger_markers:
         legends.append(
-            "* PREMIUMS IN THIS YEAR WERE RESTRICTED BY THE GUIDELINE PREMIUM LIMIT TO "
-            "MAINTAIN DEFINITION OF LIFE INSURANCE")
-    if "#" in markers:
+            f"{MARKER_GUIDELINE_CAP} - PREMIUMS IN THIS YEAR WERE RESTRICTED BY THE "
+            "GUIDELINE PREMIUM LIMIT TO MAINTAIN DEFINITION OF LIFE INSURANCE")
+    if MARKER_SEVEN_PAY_CAP in ledger_markers:
         legends.append(
-            "# PREMIUMS IN THIS YEAR WERE RESTRICTED BY THE 7-PAY PREMIUM LIMIT TO "
-            "PREVENT THE POLICY FROM BECOMING A MEC")
-    if "@" in markers:
+            f"{MARKER_SEVEN_PAY_CAP} - PREMIUMS IN THIS YEAR WERE RESTRICTED BY THE 7-PAY "
+            "PREMIUM LIMIT TO PREVENT THE POLICY FROM BECOMING A MEC")
+    if MARKER_FORCEOUT in ledger_markers:
         legends.append(
-            "@ PREMIUMS WERE FORCED OUT OF THE POLICY TO MAINTAIN LIFE INSURANCE PREMIUM "
-            "LIMITS. ANY POLICY DEBT WILL BE REDUCED BEFORE ACCOUNT VALUE")
-    if "^" in markers:
+            f"{MARKER_FORCEOUT} - PREMIUMS WERE FORCED OUT OF THE POLICY TO MAINTAIN LIFE "
+            "INSURANCE PREMIUM LIMITS. ANY POLICY DEBT WILL BE REDUCED BEFORE ACCOUNT VALUE")
+    if MARKER_EXCEPTION in ledger_markers:
         legends.append(
-            "^ THESE PREMIUMS INCLUDE GUIDELINE EXCEPTION PREMIUMS. SEE GUIDELINE EXCEPTION "
-            "PREMIUM SECTION FOR MORE DETAILS")
-    if "&" in markers:
-        legends.append("& THE POLICY IS ILLUSTRATED TO BECOME A MEC IN THIS YEAR")
+            f"{MARKER_EXCEPTION} - THESE PREMIUMS INCLUDE GUIDELINE EXCEPTION PREMIUMS. SEE "
+            "GUIDELINE EXCEPTION PREMIUM SECTION FOR MORE DETAILS")
+    if MARKER_MEC in ledger_markers:
+        legends.append(
+            f"{MARKER_MEC} - THE POLICY IS ILLUSTRATED TO BECOME A MEC IN THIS YEAR")
     for _year, start in report.seven_pay_restarts:
         legends.append(
-            f"+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON {start.strftime('%m/%d/%Y')} "
-            "DUE TO A MATERIAL POLICY CHANGE")
+            f"{MARKER_NEW_SEVEN_PAY} - A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON "
+            f"{start.strftime('%m/%d/%Y')} DUE TO A MATERIAL POLICY CHANGE")
     report.footnote_legends = legends
 
     # ── Notes page ──

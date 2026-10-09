@@ -181,16 +181,24 @@ _LEDGER_HEADER = [
 ]
 
 
+_PREMIUM_REPAY_TOP = "PREMIUM +"
+_PREMIUM_REPAY_MID = "LOAN REPAY"
+_PREMIUM_REPAY_BOTTOM = "OUTLAY"
+
+
 def _ledger_header(loan_repayments_illustrated: bool) -> List[str]:
     if not loan_repayments_illustrated:
         return _LEDGER_HEADER
+    # The three header labels are centered on one another over the premium
+    # figures (right edge of the 12-wide column).
     return [
-        f"{'AGE':>4}{'END':>5}{'PREMIUM +':>12}{'':5}{'':>8}{'':>10}  "
+        f"{'AGE':>4}{'END':>5}{f'{_PREMIUM_REPAY_TOP:^10}':>12}{'':5}{'':>8}{'':>10}  "
         f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
-        f"{'AT':>4}{'OF':>5}{'LOAN REPAY':>17}{'':>8}{'LOAN':>10}  "
+        f"{'AT':>4}{'OF':>5}{f'{_PREMIUM_REPAY_MID:^10}':>12}{'':5}{'':>8}{'LOAN':>10}  "
         f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}  "
         f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}",
-        f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>12}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
+        f"{'EOY':>4}{'YEAR':>5}{f'{_PREMIUM_REPAY_BOTTOM:^10}':>12}{'':5}"
+        f"{'PROCEEDS':>8}{'BALANCE':>10}  "
         f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}  "
         f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}",
         "-" * PAGE_WIDTH,
@@ -219,27 +227,31 @@ def _ledger_line(row: LedgerRow) -> str:
 
 # ── Expense Report supplemental page (RERUN "Expense Report" J:Y) ───────────
 # Column layout: (width, top header, bottom header, attribute). Widths sum to
-# PAGE_WIDTH (112). Follows the sheet's J:Y order, with the non-premium expense
-# components (P, Q, R, S) combined into one EXPENSES/FEES column and a
-# POLICY DEBT column added to the Policy Values
+# EXPENSE_PAGE_WIDTH — wider than the illustration pages so every column keeps
+# a gap at realistic maxima (six-figure charges, seven-figure policy values);
+# the 9pt landscape PDF holds ~135 characters inside its 0.3in side margins.
+# Follows the sheet's J:Y
+# order, with the non-premium expense components (P, Q, R, S) combined into
+# one EXPENSES/FEES column and a POLICY DEBT column added to the Policy Values
 # group (before Net Surr Value).
 # Age-then-Year order matches the illustration ledger; the age column stacks
 # "AGE / EOY" to flag it as the end-of-year attained age.
+EXPENSE_PAGE_WIDTH = 128
 _EXPENSE_COLUMNS = [
     (4, "AGE", "EOY", "eoy_age"),                           # K — age at EOY
     (5, "", "YEAR", "year"),                                # J — End of Year (width matches the ledger)
-    (12, "PREMIUM", "OUTLAY", "premium_outlay"),            # L — Assumed Premium Outlay
-    (8, "CASH", "OUT", "distributions"),                    # M — Gross withdrawals + force-outs
-    (8, "PREMIUM", "CHARGE", "premium_charge"),             # N — Premium Charge
-    (8, "COI", "CHARGE", "coi_charge"),                     # O — Cost of Insurance
-    (6, "RIDER", "CHG", "rider_charges"),                   # T — Other Rider Charges
+    (13, "PREMIUM", "OUTLAY", "premium_outlay"),            # L — Assumed Premium Outlay
+    (9, "CASH", "OUT", "distributions"),                    # M — Gross withdrawals + force-outs
+    (9, "PREMIUM", "CHARGE", "premium_charge"),             # N — Premium Charge
+    (9, "COI", "CHARGE", "coi_charge"),                     # O — Cost of Insurance
+    (8, "RIDER", "CHG", "rider_charges"),                   # T — Other Rider Charges
     (10, "", "EXP/FEES", "expenses"),                       # P+Q+R+S
-    (9, "INTEREST", "CREDITED", "interest_credited"),       # U — Interest Credited
-    (9, "ACCUM", "VALUE", "accum_value"),                   # V — Accumulation Value
-    (6, "SURR", "CHGS", "surrender_charges"),               # W — Surrender Charges
-    (8, "POLICY", "DEBT", "policy_debt"),                   # EOY loan balance (ledger's)
-    (9, "NET SURR", "VALUE", "net_surrender_value"),        # X — Net Surrender Value
-    (10, "NET DEATH", "BENEFIT", "net_death_benefit"),      # Y — Net Death Benefit
+    (10, "INTEREST", "CREDITED", "interest_credited"),      # U — Interest Credited
+    (11, "ACCUM", "VALUE", "accum_value"),                  # V — Accumulation Value
+    (9, "SURR", "CHGS", "surrender_charges"),               # W — Surrender Charges
+    (10, "POLICY", "DEBT", "policy_debt"),                  # EOY loan balance (ledger's)
+    (10, "NET SURR", "VALUE", "net_surrender_value"),       # X — Net Surrender Value
+    (11, "NET DEATH", "BENEFIT", "net_death_benefit"),      # Y — Net Death Benefit
 ]
 
 _EXPENSE_INTRO = [
@@ -255,24 +267,26 @@ _EXPENSE_INTRO = [
 
 
 def _span_banner(label: str, width: int) -> str:
-    """A ``+--- LABEL ---+`` bracket that fills the full group ``width``."""
-    return "+" + f" {label} ".center(width - 2, "-") + "+"
+    """A `` +--- LABEL ---+`` bracket filling ``width``, led by one space so it
+    never butts against the header to its left."""
+    return " +" + f" {label} ".center(width - 3, "-") + "+"
 
 
 def _expense_header_lines() -> List[str]:
     """Group banner + two stacked column-header rows + rule."""
     # Group banners fill their span: Deductions covers COI / Rider /
     # Expenses-Fees; Policy Values covers Accum Value through Net Death Benefit.
-    deduction_width = sum(w for w, *_ in _EXPENSE_COLUMNS[5:8])
-    values_width = sum(w for w, *_ in _EXPENSE_COLUMNS[9:14])
+    widths = [width for width, *_ in _EXPENSE_COLUMNS]
+    deduction_width = sum(widths[5:8])
+    values_width = sum(widths[9:14])
     groups = (
-        f"{'':4}{'':5}{'PREMIUMS':>12}{'':8}{'':8}"
+        f"{'':{sum(widths[:2])}}{'PREMIUMS':>{widths[2]}}{'':{widths[3] + widths[4]}}"
         f"{_span_banner('DEDUCTIONS', deduction_width)}"
-        f"{'EARNINGS':>9}{_span_banner('POLICY VALUES', values_width)}"
+        f"{'EARNINGS':>{widths[8]}}{_span_banner('POLICY VALUES', values_width)}"
     )
     top = "".join(f"{label:>{width}}" for width, label, _bottom, _attr in _EXPENSE_COLUMNS)
     bottom = "".join(f"{label:>{width}}" for width, _top, label, _attr in _EXPENSE_COLUMNS)
-    return [groups.rstrip(), top, bottom, "-" * PAGE_WIDTH]
+    return [groups.rstrip(), top, bottom, "-" * EXPENSE_PAGE_WIDTH]
 
 
 def _expense_line(row: ExpenseRow) -> str:
@@ -550,6 +564,10 @@ def _format_report_pages_from_specs(
     cover.blank()
     for line in report.request_lines:
         cover.add(f"    {line}")
+    if report.request_notes:
+        cover.blank()
+        for note in report.request_notes:
+            cover.lines.extend(f"    {part}" for part in wrap_lines(note, PAGE_WIDTH - 4))
     if report.change_sections:
         cover.blank()
         for section in report.change_sections:
@@ -651,19 +669,22 @@ def _format_report_pages_from_specs(
         f"SUPPLEMENTAL EXHIBIT FOR POLICY {report.policy_number}"
         if report.policy_number else "SUPPLEMENTAL EXHIBIT"
     )
+    def center(text: str) -> str:
+        return center_line(text, EXPENSE_PAGE_WIDTH)
+
     for index, chunk in enumerate(expense_chunks):
         page_no = f"Page {index + 1} of {len(expense_chunks)}"
         lines: List[str] = [
-            run + page_no.rjust(PAGE_WIDTH - len(run)),
-            _center(exhibit_title),
-            _center("EXPENSE REPORT"),
+            run + page_no.rjust(EXPENSE_PAGE_WIDTH - len(run)),
+            center(exhibit_title),
+            center("EXPENSE REPORT"),
             "",
         ]
         if report.basis_lines:
-            lines[3:3] = [_center(line) for line in report.basis_lines]
+            lines[3:3] = [center(line) for line in report.basis_lines]
         if index == 0:
             for paragraph in _EXPENSE_INTRO:
-                lines.extend(wrap_lines(paragraph, PAGE_WIDTH))
+                lines.extend(wrap_lines(paragraph, EXPENSE_PAGE_WIDTH))
                 lines.append("")
         lines.extend(_expense_header_lines())
         base = index * EXPENSE_ROWS_PER_PAGE

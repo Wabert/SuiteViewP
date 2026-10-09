@@ -280,7 +280,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
         self.open_record_btn.clicked.connect(self._open_policy_record)
         self.open_switch_btn.clicked.connect(self._open_in_switch_a)
-        # Switch A is ADMIN-only: the ADMIN role must have MAINFRAMENAV access.
+        # Switch A is Dev-only: hidden in the packaged app.
         self.open_switch_btn.setVisible(_can_use_switch_a())
         self._loader = PolicyLoadController()
         self._loader.ready.connect(self._on_prepared_policy)
