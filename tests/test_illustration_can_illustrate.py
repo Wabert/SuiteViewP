@@ -1,17 +1,13 @@
-"""Per-plancode illustration gating.
+"""Which plancodes a RERUN user may illustrate: ``dbo.SV_RERUN_Plancode_Control``.
 
-Developers: the Illustration plancode table carries a ``CanIllustrate`` flag,
-enforced ONLY in packaged distribution builds (``sys.frozen``) — in dev it must
-have zero effect. The flag is False for every IUL plancode (identified by the
-app's own ``is_iul_plan`` criterion — an index-strategy row) and True elsewhere.
-
-Business users (soft launch M5): only the 156 phase-1 UL plancodes in
-``plancodes/phase1_allowlist.json`` may illustrate, in any build. ISWL, IUL,
-the UL plancodes outside phase 1, par whole life and term are refused.
+The control table lists every in-force base plancode with its product type and
+``CanIllustrate`` (UL on, everything else off, as loaded 10/8/2026). Every user without
+the ``RERUNANYPLAN`` permission is held to it, in any build; ADMIN (AllApps), SUPPORT
+(granted) and source runs hold the permission. ``SUITEVIEW_ILLUSTRATION_BUSINESS_MODE=1``
+takes it away so developers can test the business scope. The table rows come from the
+UL_Rates replay (tests/golden/ul_rates_replay.json).
 """
-import json
 import os
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -20,20 +16,24 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-import suiteview.illustration.models.plancode_config as pc
+import suiteview.illustration.core.compare_runner as compare_runner
+import suiteview.illustration.core.plancode_control as control
 import suiteview.illustration.ui.main_window as mw
+from suiteview.core import access_control
 from suiteview.illustration.core.business_mode import BUSINESS_MODE_ENV
-from suiteview.illustration.core.run_gates import phase1_plancodes
+from suiteview.illustration.core.run_gates import plancode_refusal, policy_gate
 from suiteview.illustration.models.index_strategies import is_iul_plan
-from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
+from suiteview.illustration.models.rerun_plancode_tables import PRODUCT_TYPES, PlancodeTableError
 from suiteview.illustration.ui.main_window import IllustrationWindow
-from tests.plan_facts_fixtures import plan_facts
 
 _QT_APP = None
 
-# The exact operator-facing text the window must post for a blocked plancode.
-_BLOCK_MSG = ("This plancode ({pc}) is not currently enabled for illustration "
-             "in this application.")
+_IUL_PLANCODE = "1U144600"      # IUL08 - CanIllustrate off
+_ALLOWED_PLANCODE = "1U143900"  # EXECUL (UL) - CanIllustrate on
+_ISWL_PLANCODE = "B11SB200"     # ISWL - off
+_PARWL_PLANCODE = "AB1S4700"    # participating whole life - off
+_TERM_PLANCODE = "B15TA100"     # indeterminate premium term - off
+_NOT_IN_FORCE = "1U145000"      # an Adv-table UL plancode with no in-force policy
 
 
 def _app():
@@ -42,64 +42,110 @@ def _app():
     return _QT_APP
 
 
-# ── PlancodeConfig model ─────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def _fresh_control_cache():
+    control.clear_control_cache()
+    yield
+    control.clear_control_cache()
 
 
-def _minimal_table_row(plancode: str, **overrides):
-    row = {
-        "Plancode": plancode,
-        "SA_Basis": "CurrentSA",
-    }
-    row.update(overrides)
-    return row
+# -- the shipped control table --------------------------------------------------
 
 
-def _use_table_row(monkeypatch, row):
-    plancode = row["Plancode"]
-    monkeypatch.setattr(pc, "load_plan_facts", lambda code: plan_facts(code))
-    monkeypatch.setattr(pc, "_TABLE_CACHE", {plancode: row})
-    monkeypatch.setattr(pc, "_CONFIG_CACHE", {})
+def test_control_table_enables_exactly_the_in_force_ul_plancodes():
+    rows = control.control_rows()
+    assert len(rows) > 2000
+    assert {row.product_type for row in rows.values()} <= set(PRODUCT_TYPES)
+    enabled = {code for code, row in rows.items() if row.can_illustrate}
+    assert enabled == {code for code, row in rows.items() if row.product_type == "UL"}
+    assert len(enabled) == 156
+    assert _ALLOWED_PLANCODE in enabled
+    assert rows[_IUL_PLANCODE].product_type == "IUL" and is_iul_plan(_IUL_PLANCODE)
+    assert rows[_ISWL_PLANCODE].product_type == "ISWL"
+    assert rows[_PARWL_PLANCODE].product_type == "ParWL"
+    assert rows[_TERM_PLANCODE].product_type == "Term"
+    assert _NOT_IN_FORCE not in rows
 
 
-def test_can_illustrate_defaults_true_when_key_absent(monkeypatch):
-    # Dataclass default is True.
-    assert PlancodeConfig().can_illustrate is True
-
-    # A table row with no CanIllustrate key still loads as True — existing
-    # plancodes keep illustrating.
-    _use_table_row(monkeypatch, _minimal_table_row("ZZNOKEY00"))
-    assert load_plancode("ZZNOKEY00").can_illustrate is True
-
-
-def test_can_illustrate_reads_false_from_table(monkeypatch):
-    _use_table_row(monkeypatch, _minimal_table_row("ZZBLOCK00", CanIllustrate=False))
-    assert load_plancode("ZZBLOCK00").can_illustrate is False
+def test_refusal_messages():
+    assert plancode_refusal(_ALLOWED_PLANCODE, any_plancode=False) is None
+    assert plancode_refusal(_IUL_PLANCODE, any_plancode=False) == (
+        f"Plancode {_IUL_PLANCODE} (IUL) is not enabled for in-force illustration in this release.")
+    assert plancode_refusal(_NOT_IN_FORCE, any_plancode=False) == (
+        f"Plancode {_NOT_IN_FORCE} is not set up for illustration (it is not in RERUN's "
+        "plancode control table).")
+    assert plancode_refusal(_IUL_PLANCODE, any_plancode=True) is None
 
 
-def test_shipped_table_flags_every_iul_false_and_others_true():
-    """Guards against drift: the shipped table must carry False for exactly
-    the IUL plancodes (the app's is_iul_plan criterion) and True elsewhere."""
-    table = pc._load_plancode_table()
-    assert table, "plancode table did not load"
-    iul_false = []
-    for plancode in table:
-        cfg = load_plancode(plancode)
-        if is_iul_plan(plancode):
-            assert cfg.can_illustrate is False, f"{plancode} is IUL but not blocked"
-            iul_false.append(plancode)
-        else:
-            assert cfg.can_illustrate is True, f"{plancode} is non-IUL but blocked"
-    # There ARE IULs in the shipped table (sanity — the assertion above is not
-    # vacuously satisfied).
-    assert len(iul_false) >= 1
+def test_unreadable_control_table_fails_closed(monkeypatch):
+    def boom():
+        raise PlancodeTableError("UL_Rates is down")
+    monkeypatch.setattr(control, "read_control_rows", boom)
+    reason = plancode_refusal(_ALLOWED_PLANCODE, any_plancode=False)
+    assert reason.startswith("RERUN could not read its plancode control table")
+    assert "UL_Rates is down" in reason
+    assert plancode_refusal(_ALLOWED_PLANCODE, any_plancode=True) is None
 
 
-# ── Distribution-only enforcement in the window ──────────────────────
+# -- the RERUNANYPLAN permission ------------------------------------------------
 
-# A blocked plancode (IUL) and an allowed one (declared-rate UL) taken straight
-# from the shipped table, so the tests exercise real config data.
-_IUL_PLANCODE = "1U144600"      # IUL08 — CanIllustrate False
-_ALLOWED_PLANCODE = "1U143900"  # EXECUL — CanIllustrate True
+
+def _access(role, apps=(), all_apps=False):
+    return access_control.EffectiveAccess("USER1", role, all_apps, False, True, frozenset(apps))
+
+
+@pytest.mark.parametrize("access, allowed", [
+    (_access("ADMIN", all_apps=True), True),
+    (_access("SUPPORT", ("RERUN", "RERUNANYPLAN")), True),
+    (_access("SUPPORT", ("RERUN",)), False),
+    (_access("BUSINESS", ("RERUN",)), False),
+    (_access("BUSINESS", ("RERUN", "RERUNANYPLAN")), True),
+])
+def test_permission_follows_the_role_grant(monkeypatch, access, allowed):
+    monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
+    monkeypatch.setattr(access_control, "get_access", lambda refresh=False: access)
+    assert "RERUNANYPLAN" in access_control.APP_CODES
+    assert control.can_illustrate_any_plancode() is allowed
+
+
+def test_source_runs_hold_the_permission_unless_business_mode_is_forced(monkeypatch):
+    monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
+    assert control.can_illustrate_any_plancode() is True
+    monkeypatch.setenv(BUSINESS_MODE_ENV, "1")
+    assert control.can_illustrate_any_plancode() is False
+
+
+def test_unverifiable_permission_applies_the_table(monkeypatch):
+    monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
+
+    def fail(refresh=False):
+        raise access_control.AccessUnavailableError("no network")
+    monkeypatch.setattr(access_control, "get_access", fail)
+    assert control.can_illustrate_any_plancode() is False
+
+
+def _policy(plancode: str, status: str = "22"):
+    return SimpleNamespace(plancode=plancode, premium_pay_status_code=status, suspense_code="0")
+
+
+def test_support_without_the_grant_is_held_to_the_table_outside_business_mode():
+    gate = policy_gate(_policy(_IUL_PLANCODE), business_mode=False, any_plancode=False)
+    assert gate.blocks == (
+        f"Plancode {_IUL_PLANCODE} (IUL) is not enabled for in-force illustration in this release.",)
+    assert not policy_gate(_policy(_IUL_PLANCODE), business_mode=False, any_plancode=True).blocked
+
+
+def test_compare_applies_the_plancode_gate_outside_business_mode(monkeypatch):
+    monkeypatch.setattr(compare_runner, "is_business_mode", lambda: False)
+    monkeypatch.setattr(control, "can_illustrate_any_plancode", lambda: False)
+    spec = SimpleNamespace(scenario=SimpleNamespace(base_policy=_policy(_IUL_PLANCODE)))
+    with pytest.raises(compare_runner.CompareScenarioError, match="IUL"):
+        compare_runner._check_scenario_gates(spec)
+    spec.scenario.base_policy = _policy(_ALLOWED_PLANCODE)
+    compare_runner._check_scenario_gates(spec)
+
+
+# -- the window -----------------------------------------------------------------
 
 
 def _window():
@@ -107,79 +153,13 @@ def _window():
     return IllustrationWindow()
 
 
-def test_gate_has_no_effect_in_dev(monkeypatch):
+def test_source_run_illustrates_a_disabled_plancode(monkeypatch):
+    monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
     win = _window()
-    monkeypatch.setattr(mw, "is_distribution_build", lambda: False)
-
     win.run_values_btn.setEnabled(True)
-    win._show_status("Loaded policy X")
-    win._illustration_data = SimpleNamespace(plancode=_IUL_PLANCODE)
-
-    assert win._apply_illustration_gate() is False
-    # Dev: even a blocked plancode leaves Run Values enabled and posts no notice.
-    assert win.run_values_btn.isEnabled() is True
-    assert "not currently enabled" not in win._status_label.text()
-
-
-def test_gate_blocks_iul_in_distribution(monkeypatch):
-    win = _window()
-    monkeypatch.setattr(mw, "is_distribution_build", lambda: True)
-
-    win.run_values_btn.setEnabled(True)
-    win._illustration_data = SimpleNamespace(plancode=_IUL_PLANCODE)
-
-    assert win._apply_illustration_gate() is True
-    assert win.run_values_btn.isEnabled() is False
-    assert win._status_label.text() == _BLOCK_MSG.format(pc=_IUL_PLANCODE)
-
-
-def test_gate_reenables_when_allowed_plancode_loads(monkeypatch):
-    win = _window()
-    monkeypatch.setattr(mw, "is_distribution_build", lambda: True)
-
-    # Block first...
-    win.run_values_btn.setEnabled(True)
-    win._illustration_data = SimpleNamespace(plancode=_IUL_PLANCODE)
-    assert win._apply_illustration_gate() is True
-    assert win.run_values_btn.isEnabled() is False
-
-    # ...then a different, allowed policy loads (the load path re-enables the
-    # button before the gate runs). The gate leaves it enabled, no notice.
-    win.run_values_btn.setEnabled(True)
-    win._show_status("Loaded policy Y")
-    win._illustration_data = SimpleNamespace(plancode=_ALLOWED_PLANCODE)
+    win._illustration_data = _policy(_IUL_PLANCODE)
     assert win._apply_illustration_gate() is False
     assert win.run_values_btn.isEnabled() is True
-    assert "not currently enabled" not in win._status_label.text()
-
-
-# ── Business users: phase-1 allow-list (soft launch M5) ─────────────
-
-_ALLOWLIST = (Path(pc.__file__).resolve().parent.parent / "plancodes"
-              / "phase1_allowlist.json")
-_ISWL_PLANCODE = "80110429"        # ISWL — CanIllustrate True, outside phase 1
-_EXTRA_UL_PLANCODE = "1U145000"    # UL CanIllustrate True, not in the phase-1 list
-
-
-def test_shipped_allowlist_is_the_156_phase1_ul_plancodes():
-    data = json.loads(_ALLOWLIST.read_text(encoding="utf-8"))
-    plancodes = data["plancodes"]
-    assert len(plancodes) == len(set(plancodes)) == 156
-    assert phase1_plancodes() == frozenset(plancodes)
-    table = pc._load_plancode_table()
-    for plancode in plancodes:
-        assert plancode in table, plancode
-        cfg = load_plancode(plancode)
-        assert not cfg.is_iswl and not is_iul_plan(plancode), plancode
-        assert cfg.can_illustrate is True, plancode
-    for outside in (_IUL_PLANCODE, _ISWL_PLANCODE, _EXTRA_UL_PLANCODE):
-        assert outside not in phase1_plancodes()
-    assert load_plancode(_ISWL_PLANCODE).is_iswl
-
-
-def _phase1_policy(plancode: str, status: str = "22"):
-    return SimpleNamespace(plancode=plancode, premium_pay_status_code=status,
-                           suspense_code="0")
 
 
 @pytest.fixture
@@ -188,29 +168,52 @@ def business_window(monkeypatch):
     return _window()
 
 
-@pytest.mark.parametrize("plancode", [_IUL_PLANCODE, _ISWL_PLANCODE, _EXTRA_UL_PLANCODE])
-def test_business_gate_blocks_plancodes_outside_phase1(business_window, plancode):
+@pytest.mark.parametrize("plancode, product", [
+    (_IUL_PLANCODE, "IUL"), (_ISWL_PLANCODE, "ISWL"),
+])
+def test_business_gate_blocks_disabled_plancodes(business_window, plancode, product):
     win = business_window
     win.run_values_btn.setEnabled(True)
-    win._illustration_data = _phase1_policy(plancode)
+    win._illustration_data = _policy(plancode)
     assert win._apply_illustration_gate() is True
     assert win.run_values_btn.isEnabled() is False
-    message = (f"Plancode {plancode} is not supported for in-force illustration "
+    message = (f"Plancode {plancode} ({product}) is not enabled for in-force illustration "
                "in this release.")
     assert win._status_label.text() == message
     assert not win.run_notice.isHidden()
     assert message in win.run_notice.text()
 
 
-def test_business_gate_allows_phase1_plancode_in_source_and_exe(business_window, monkeypatch):
+def test_business_gate_blocks_a_plancode_missing_from_the_table(business_window):
     win = business_window
-    for frozen in (False, True):
-        monkeypatch.setattr(mw, "is_distribution_build", lambda frozen=frozen: frozen)
-        win.run_values_btn.setEnabled(True)
-        win._illustration_data = _phase1_policy(_ALLOWED_PLANCODE)
-        assert win._apply_illustration_gate() is False
-        assert win.run_values_btn.isEnabled() is True
-        assert win.run_notice.isHidden()
+    win._illustration_data = _policy(_NOT_IN_FORCE)
+    assert win._apply_illustration_gate() is True
+    assert "not set up for illustration" in win._status_label.text()
+
+
+def test_business_gate_allows_an_enabled_plancode(business_window):
+    win = business_window
+    win.run_values_btn.setEnabled(True)
+    win._illustration_data = _policy(_ALLOWED_PLANCODE)
+    assert win._apply_illustration_gate() is False
+    assert win.run_values_btn.isEnabled() is True
+    assert win.run_notice.isHidden()
+
+
+def test_an_administrators_edit_takes_effect_on_the_next_get(business_window, monkeypatch):
+    win = business_window
+    enabled = {"on": False}
+
+    def rows():
+        return {_IUL_PLANCODE: control.ControlRow(_IUL_PLANCODE, "IUL", enabled["on"])}
+    monkeypatch.setattr(control, "read_control_rows", rows)
+    win._illustration_data = _policy(_IUL_PLANCODE)
+    assert win._apply_illustration_gate() is True
+    enabled["on"] = True
+    assert win._apply_illustration_gate() is True      # cached until the next Get
+    control.clear_control_cache()                     # what _on_get_policy does
+    win.run_values_btn.setEnabled(True)
+    assert win._apply_illustration_gate() is False
 
 
 class _DummyDb:
@@ -224,12 +227,7 @@ class _DummyDb:
         pass
 
 
-@pytest.mark.parametrize("family, message", [
-    ("parwl", "Participating whole life policies are not supported"),
-    ("term", "Indeterminate premium term policies are not supported"),
-])
-def test_business_refuses_par_wl_and_term_workspaces(business_window, monkeypatch, family, message):
-    win = business_window
+def _load_family(win, monkeypatch, family, plancode):
     monkeypatch.setattr(mw, "DB2Connection", _DummyDb)
     monkeypatch.setattr(win, "_is_par_whole_life", lambda policy: family == "parwl")
     monkeypatch.setattr(win, "_is_indeterminate_term", lambda policy: family == "term")
@@ -237,39 +235,48 @@ def test_business_refuses_par_wl_and_term_workspaces(business_window, monkeypatc
     monkeypatch.setattr(win, "_load_parwl_into_ui", lambda *a, **k: loaded.append("parwl"))
     monkeypatch.setattr(win, "_load_term_into_ui", lambda *a, **k: loaded.append("term"))
     win._policy = SimpleNamespace(exists=True, company_code="01", policy_number="W0000001",
-                                  system_code="I")
+                                  system_code="I", plancode=plancode)
     win._policy_info = {"CompanyCode": "01", "PolicyNumber": "W0000001"}
     win.run_values_btn.setEnabled(True)
     win._load_policy_into_ui("CKPR")
-    assert loaded == []
+    return loaded
+
+
+@pytest.mark.parametrize("family, plancode, product", [
+    ("parwl", _PARWL_PLANCODE, "ParWL"),
+    ("term", _TERM_PLANCODE, "Term"),
+])
+def test_business_refuses_par_wl_and_term_the_table_disables(
+        business_window, monkeypatch, family, plancode, product):
+    win = business_window
+    assert _load_family(win, monkeypatch, family, plancode) == []
     assert win._workspace_stack.currentWidget() is win.tabs
     assert win.run_values_btn.isEnabled() is False
     assert win.save_case_btn.isEnabled() is False
-    assert message in win.run_notice.text()
+    assert (f"Plancode {plancode} ({product}) is not enabled for in-force illustration"
+            in win.run_notice.text())
+
+
+def test_par_wl_opens_once_the_table_enables_it(business_window, monkeypatch):
+    monkeypatch.setattr(control, "read_control_rows", lambda: {
+        _PARWL_PLANCODE: control.ControlRow(_PARWL_PLANCODE, "ParWL", True)})
+    assert _load_family(business_window, monkeypatch, "parwl", _PARWL_PLANCODE) == ["parwl"]
 
 
 def test_developer_par_wl_still_opens_its_workspace(monkeypatch):
     monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
     win = _window()
-    monkeypatch.setattr(mw, "DB2Connection", _DummyDb)
-    monkeypatch.setattr(win, "_is_par_whole_life", lambda policy: True)
-    loaded = []
-    monkeypatch.setattr(win, "_load_parwl_into_ui", lambda *a, **k: loaded.append("parwl"))
-    win._policy = SimpleNamespace(exists=True, company_code="01", policy_number="W0000001",
-                                  system_code="I")
-    win._policy_info = {"CompanyCode": "01", "PolicyNumber": "W0000001"}
-    win._load_policy_into_ui("CKPR")
-    assert loaded == ["parwl"]
+    assert _load_family(win, monkeypatch, "parwl", _PARWL_PLANCODE) == ["parwl"]
 
 
-# ── Policy status (soft launch M3) ───────────────────────────────────
+# -- policy status (soft launch M3) ---------------------------------------------
 
 
 @pytest.mark.parametrize("status", ["44", "45", "99", "54", "42", "21", ""])
 def test_business_gate_blocks_status_outside_phase1(business_window, status):
     win = business_window
     win.run_values_btn.setEnabled(True)
-    win._illustration_data = _phase1_policy(_ALLOWED_PLANCODE, status)
+    win._illustration_data = _policy(_ALLOWED_PLANCODE, status)
     assert win._apply_illustration_gate() is True
     assert win.run_values_btn.isEnabled() is False
     assert win._status_label.text().startswith(f"Policy status {status or '(blank)'} (")
@@ -278,7 +285,7 @@ def test_business_gate_blocks_status_outside_phase1(business_window, status):
 
 def test_business_gate_extended_term_message(business_window):
     win = business_window
-    win._illustration_data = _phase1_policy(_ALLOWED_PLANCODE, "44")
+    win._illustration_data = _policy(_ALLOWED_PLANCODE, "44")
     win._apply_illustration_gate()
     assert win._status_label.text() == (
         "Policy status 44 (Extended Term) is not supported for in-force "
@@ -288,7 +295,7 @@ def test_business_gate_extended_term_message(business_window):
 def test_business_gate_allows_premium_paying_including_suspended(business_window):
     win = business_window
     win.run_values_btn.setEnabled(True)
-    policy = _phase1_policy(_ALLOWED_PLANCODE, "22")
+    policy = _policy(_ALLOWED_PLANCODE, "22")
     policy.suspense_code = "2"          # suspended stays allowed (banner on Inputs)
     win._illustration_data = policy
     assert win._apply_illustration_gate() is False
@@ -301,7 +308,7 @@ def test_business_gate_allows_premium_paying_including_suspended(business_window
 def test_business_gate_blocks_disability_waiver(business_window, status, label):
     win = business_window
     win.run_values_btn.setEnabled(True)
-    win._illustration_data = _phase1_policy(_ALLOWED_PLANCODE, status)
+    win._illustration_data = _policy(_ALLOWED_PLANCODE, status)
     assert win._apply_illustration_gate() is True
     assert win.run_values_btn.isEnabled() is False
     assert win._status_label.text() == (
@@ -311,7 +318,7 @@ def test_business_gate_blocks_disability_waiver(business_window, status, label):
 
 def test_business_gate_blocks_death_claim_pending_suspense(business_window):
     win = business_window
-    policy = _phase1_policy(_ALLOWED_PLANCODE)
+    policy = _policy(_ALLOWED_PLANCODE)
     policy.suspense_code = "3"
     win._illustration_data = policy
     assert win._apply_illustration_gate() is True
@@ -322,7 +329,7 @@ def test_developer_gets_status_warning_not_block(monkeypatch):
     monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
     win = _window()
     win.run_values_btn.setEnabled(True)
-    win._illustration_data = _phase1_policy(_ALLOWED_PLANCODE, "44")
+    win._illustration_data = _policy(_ALLOWED_PLANCODE, "44")
     assert win._apply_illustration_gate() is False
     assert win.run_values_btn.isEnabled() is True
     assert "Policy status 44 (Extended Term)" in win.run_notice.text()

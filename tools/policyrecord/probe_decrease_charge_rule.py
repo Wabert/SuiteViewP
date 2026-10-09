@@ -26,12 +26,9 @@ from suiteview.core.db2_constants import REGION_DSN_MAP
 
 def _compare_sa_basis(by_plan: dict) -> dict:
     """Pair each configured illustration plancode's DB values with its SA_Basis."""
-    table = json.loads(
-        (ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json")
-        .read_text(encoding="utf-8")
-    )
-    rows = next((v for v in table.values() if isinstance(v, list)), []) \
-        if isinstance(table, dict) else table
+    from suiteview.illustration.models.plancode_config import plancode_table_rows
+
+    rows = plancode_table_rows()
     result = {}
     summary: dict = {}
     for row in rows:

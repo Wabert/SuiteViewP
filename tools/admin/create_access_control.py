@@ -39,6 +39,7 @@ BUSINESS_APPS = (
 ROLE_APPS = (
     # ALBERT and ATTENTIONALBERT (who may email Attention Albert requests) were
     # added after the initial seed; grant them per role in Administrator.
+    # RERUNANYPLAN (illustrate any plancode) was granted to SUPPORT live on 10/8/2026.
     # PASSWORDMANAGER (the shared mainframe sign-on) is ADMIN-only (AllApps) for now.
     tuple(("SUPPORT", app) for app in APPS
           if app not in {"ALBERT", "ATTENTIONALBERT", "PASSWORDMANAGER"})

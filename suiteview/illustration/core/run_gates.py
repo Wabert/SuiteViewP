@@ -1,12 +1,13 @@
 """Soft-launch run gates: which policies business users may illustrate, and how.
 
-One place for the phase-1 scope rules, applied at policy load (Run disabled with
-the reason) and again on every run (``run_service.execute_run`` and Compare), so
+One place for the scope rules, applied at policy load (Run disabled with the
+reason) and again on every run (``run_service.execute_run`` and Compare), so
 saved, imported and Compare cases are gated the same way:
 
-* **Plancode (M5)** — business users may illustrate only the phase-1 plancodes
-  in ``plancodes/phase1_allowlist.json``. Developers keep the plancode table's
-  ``CanIllustrate`` behavior (enforced by the window in packaged builds).
+* **Plancode** — a user may illustrate only base plancodes the control table
+  ``dbo.SV_RERUN_Plancode_Control`` enables (:mod:`.plancode_control`), unless
+  their role has the ``RERUNANYPLAN`` permission (ADMIN, SUPPORT). This applies
+  whatever the business mode.
 * **Policy status (M3)** — business users may illustrate only the premium-pay
   statuses in :data:`PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` (premium paying only);
   a death-claim-pending suspense code is refused too. Policies on disability
@@ -21,11 +22,10 @@ saved, imported and Compare cases are gated the same way:
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
+from typing import Optional
 
+from suiteview.illustration.core import plancode_control
 from suiteview.illustration.core.input_context import default_illustrated_rate
 from suiteview.illustration.core.rate_loader import load_rates
 from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
@@ -60,9 +60,6 @@ _STATUS_LABELS = {
     "45": "Reduced Paid-Up",
 }
 
-_ALLOWLIST_PATH = (
-    Path(__file__).resolve().parent.parent / "plancodes" / "phase1_allowlist.json")
-
 # Half a displayed digit (the field shows 3 decimals of a percent): a rate the
 # field rounds to the declared rate is not "above" it.
 _RATE_TOLERANCE = 0.000005
@@ -85,25 +82,21 @@ class GateResult:
         return GateResult(self.blocks + other.blocks, self.warnings + other.warnings)
 
 
-@lru_cache(maxsize=1)
-def phase1_plancodes() -> frozenset[str]:
-    """The shipped phase-1 plancode allow-list."""
-    data = json.loads(_ALLOWLIST_PATH.read_text(encoding="utf-8"))
-    return frozenset(str(code).strip().upper() for code in data["plancodes"])
-
-
-def _plancode(policy) -> str:
+def plancode_of(policy) -> str:
+    """The policy's base plancode (the control table's key)."""
     return str(policy_attr(policy, "base_plancode", "")
                or getattr(policy, "plancode", "") or "").strip().upper()
 
 
-def plancode_refusal(plancode: str) -> str | None:
-    """Why a business user can't illustrate *plancode*, or None when allowed."""
-    plancode = (plancode or "").strip().upper()
-    if plancode in phase1_plancodes():
-        return None
-    return (f"Plancode {plancode or '(blank)'} is not supported for in-force "
-            "illustration in this release.")
+def plancode_refusal(plancode: str, *, any_plancode: Optional[bool] = None) -> str | None:
+    """Why the current user can't illustrate *plancode*, or None when allowed."""
+    return plancode_control.illustration_refusal(plancode, any_plancode=any_plancode)
+
+
+def plancode_gate(policy, *, any_plancode: Optional[bool] = None) -> GateResult:
+    """The control-table plancode rule, for every user without ``RERUNANYPLAN``."""
+    reason = plancode_refusal(plancode_of(policy), any_plancode=any_plancode)
+    return GateResult(blocks=(reason,)) if reason else GateResult()
 
 
 def status_refusal(policy) -> str | None:
@@ -133,7 +126,7 @@ def illustrated_rate_cap(policy) -> float | None:
     declared rate is loaded). IUL rates are a read-only blend and ISWL is
     outside the phase-1 scope.
     """
-    plancode = _plancode(policy)
+    plancode = plancode_of(policy)
     if not plancode or is_iul_plan(plancode):
         return None
     try:
@@ -171,23 +164,23 @@ def rate_gate(policy, inforce_overrides, *, business_mode: bool) -> GateResult:
     return GateResult(warnings=(message + " (Developer run: allowed.)",))
 
 
-def policy_gate(policy, *, business_mode: bool) -> GateResult:
-    """Plancode allow-list (M5) and policy status (M3) for a loaded policy."""
-    if business_mode:
-        blocks = tuple(
-            reason for reason in (plancode_refusal(_plancode(policy)), status_refusal(policy))
-            if reason)
-        return GateResult(blocks=blocks)
+def policy_gate(policy, *, business_mode: bool,
+                any_plancode: Optional[bool] = None) -> GateResult:
+    """Plancode control (every user without ``RERUNANYPLAN``) and policy status (M3)."""
+    gate = plancode_gate(policy, any_plancode=any_plancode)
     status = status_refusal(policy)
-    if status:
-        return GateResult(warnings=(
-            status + " Business users are blocked; developer run allowed.",))
-    return GateResult()
+    if not status:
+        return gate
+    if business_mode:
+        return gate + GateResult(blocks=(status,))
+    return gate + GateResult(warnings=(
+        status + " Business users are blocked; developer run allowed.",))
 
 
-def run_gate(policy, inforce_overrides, *, business_mode: bool) -> GateResult:
+def run_gate(policy, inforce_overrides, *, business_mode: bool,
+             any_plancode: Optional[bool] = None) -> GateResult:
     """Everything a run checks: policy scope plus the Illustrated Rate."""
-    return (policy_gate(policy, business_mode=business_mode)
+    return (policy_gate(policy, business_mode=business_mode, any_plancode=any_plancode)
             + rate_gate(policy, inforce_overrides, business_mode=business_mode))
 
 
@@ -221,7 +214,7 @@ def missing_rate_findings(policy) -> tuple[str, ...]:
 
     An exception while loading rates is itself a finding (the run can't be trusted)."""
     try:
-        rates = load_rates(policy, load_plancode(_plancode(policy)))
+        rates = load_rates(policy, load_plancode(plancode_of(policy)))
     except Exception as exc:
         return (f"Unable to load illustration data/rates: {exc}",)
     return tuple(missing_required_rate_warnings(policy, rates))

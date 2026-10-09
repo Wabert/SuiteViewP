@@ -22,10 +22,12 @@ shadow_plancode         ``PLAN_ATTR SHADOW_LEGACY_PLANCODE``
 scr_rules / scr_table   ``PLAN_DEF.SCR_RULES`` / ``SCR_TABLE``: CyberLife's full surrender
                         charge rules (CKDRECUL DULSFCRU, e.g. ``60`` per unit, ``50``
                         percent of AV) and CKULTB04 table
+prem_flat_load          base-cell ``PREMLOAD_FLAT`` (flat $ per premium) on the current/
+                        guaranteed scale; none loaded = no flat load
 ======================  ==============================================================
 
-Cell rates (EPU, MFEE, premium loads and the shadow account's scale ``S`` rates) are
-read per policy by the rate loaders, not here.
+The other cell rates (EPU, MFEE, the percentage premium loads and the shadow account's
+scale ``S`` rates) are read per policy by the rate loaders, not here.
 """
 from __future__ import annotations
 
@@ -73,6 +75,7 @@ class PlanFacts:
     corridor_by_age: Optional[Mapping[int, float]]
     scr_rules: str = ""
     scr_table: str = ""
+    premload_flat: Optional[float] = None
 
     @property
     def engine_family(self) -> str:
@@ -182,14 +185,24 @@ class _Reader:
         plan_values = self.values_of("DB_DISCOUNT", _BASE_DISCOUNT_SCALES)
         if plan_values:
             found.extend(plan_values.values())
-        cells = [a for a in self.repo.cell_assignments_of_type(plan.company, plan.plancode, "DB_DISCOUNT")
+        found.extend(self._base_cell_values("DB_DISCOUNT"))
+        return _one_value(plan.plancode, "DB_DISCOUNT (current/guaranteed scale)", found)
+
+    def base_cell_scalar(self, rate_type: str) -> Optional[float]:
+        """A base-cell rate the plan loads as one value on the current/guaranteed scale."""
+        return _one_value(self.plan.plancode, f"{rate_type} (current/guaranteed scale)",
+                          self._base_cell_values(rate_type))
+
+    def _base_cell_values(self, rate_type: str) -> list:
+        plan = self.plan
+        cells = [a for a in self.repo.cell_assignments_of_type(plan.company, plan.plancode, rate_type)
                  if not a.benefit]
+        if not cells:
+            return []
         windows = [w for w in self.repo.schedule_windows(sorted({a.schedule_id for a in cells}))
                    if w.scale in _BASE_DISCOUNT_SCALES]
         cell_values = self.repo.all_rate_values(sorted({w.rate_set_id for w in windows}))
-        for values in cell_values.values():
-            found.extend(values.values())
-        return _one_value(plan.plancode, "DB_DISCOUNT (current/guaranteed scale)", found)
+        return [value for values in cell_values.values() for value in values.values()]
 
 
 def _single_plan(plancode: str, plans) -> Optional[PlanDef]:
@@ -232,6 +245,7 @@ def read_plan_facts(repo: RatesSchemaRepository, plancode: str) -> Optional[Plan
         corridor_by_age=reader.by_attained_age("CORR"),
         scr_rules=str(_fact(plan, "SCR_RULES") or "").strip(),
         scr_table=str(_fact(plan, "SCR_TABLE") or "").strip(),
+        premload_flat=reader.base_cell_scalar("PREMLOAD_FLAT"),
     )
 
 

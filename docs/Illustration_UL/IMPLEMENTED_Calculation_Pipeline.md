@@ -320,7 +320,7 @@ Face decreases reduce existing coverage segments newest-first:
 
 **Plan minimum face** (Robert Haessly, 10/6/2026; `core/face_minimum.py`): a requested
 decrease, or the face reduction of a DBO A-to-B change, may not take the specified amount
-below the plan's minimum face (`plancode_table.json` `MinFaceAfterWD`, the CyberLife PDF
+below the plan's minimum face (`dbo.SV_RERUN_Adv_Plancodes` `MinFaceAfterWD`, the CyberLife PDF
 DBSMIAMT issue minimum; MLUL/MLUL502/1U135F00 100,000). A larger decrease is limited to
 the minimum and named in the run status ("Face decrease on ... limited to the plan
 minimum face ..."); the ledger report shows the face actually used. A policy already
@@ -358,7 +358,7 @@ live read-only check: `tools/engine/verify_face_increase_targets.py`.
 - PWoT/PWSTP (benefit type 4, `IK`) = `JD = TRUNC(JA·JC, 2)` where `JA` = coverage MTPs + benefit MTPs + PWoC target (no CCV, no PWoT itself) and `JC = TRUNC(x/(1−x), 5)`, `x = pwstRate/100·(1+table·factor)` — the self-grossing waiver factor.
 - PWoT CTP (`KE`) = `JC·vMTP` (the full annual MTP) for FFL, vs `units·rate·(1+factor·table)` non-FFL; the PWoC CTP component stays `ROUND(IV, 2)` (`KP`).
 
-The non-FFL PWoT target (`IK = units·pwstRate·(1+factor·table)`) was implemented in the same change (previously a TODO). `CompanySub` was merged into `plancode_table.json` from RERUN Rates_Control C12:BE206 via `tools/rates/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` exposes the switch. Unit-tested against hand-computed RERUN formulas in `tests/test_illustration_ffl_waiver_targets.py`; not yet compared against a live RERUN FFL case (needs an FFL policy fixture — laptop work).
+The non-FFL PWoT target (`IK = units·pwstRate·(1+factor·table)`) was implemented in the same change (previously a TODO). `CompanySub` was merged into the plancode table (now `dbo.SV_RERUN_Adv_Plancodes`) from RERUN Rates_Control C12:BE206; `PlancodeConfig.is_ffl` exposes the switch. Unit-tested against hand-computed RERUN formulas in `tests/test_illustration_ffl_waiver_targets.py`; not yet compared against a live RERUN FFL case (needs an FFL policy fixture — laptop work).
 
 ### 4.6 Step 7 - Coverage After Change
 

@@ -1,9 +1,8 @@
-"""Plancode Table viewer — a read-only RERUN window over ``plancode_table.json``.
+"""Plancode Table viewer — a read-only RERUN window over ``dbo.SV_RERUN_Adv_Plancodes``.
 
 Opened from the RERUN header's ☰ menu. Shows one row per plancode as stored in the
-table (the same rows ``load_plancode`` reads): the product rules, plus a rate field
-only where it is the fallback for a plan UL_Rates schema ``rates`` lacks it for, and
-the explicit illustration age overrides. Rates the database supplies are not in the
+UL_Rates table (the same rows ``load_plancode`` reads): the product rules and the
+explicit illustration age overrides. Rates the database supplies are not in the
 table (see ``plancode_config``). A dense sortable/filterable ledger with the Plancode
 column frozen, plus a Dump to Excel hand-off.
 """
@@ -24,7 +23,8 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.illustration.models.plancode_config import (
-    plancode_table_path,
+    clear_plancode_cache,
+    plancode_table_name,
     plancode_table_rows,
 )
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -134,11 +134,12 @@ class PlancodeTableWindow(FramelessWindowBase):
         return body
 
     def reload(self) -> None:
-        """(Re)read the plancode table and show it.
+        """(Re)read the plancode table from UL_Rates and show it.
 
-        Raises the loader's error (missing/malformed JSON) so the caller can
+        Raises the loader's error (database unavailable) so the caller can
         surface it — a blank table would look like "no plancodes".
         """
+        clear_plancode_cache()
         df, text_columns = plancode_table_frame(plancode_table_rows())
         self._df = df
         self._text_columns = text_columns
@@ -156,7 +157,7 @@ class PlancodeTableWindow(FramelessWindowBase):
         self.grid.autofit_columns_to_data()
         self.summary_label.setText(
             f"{len(df):,} plancodes   ·   {len(df.columns)} columns   ·   "
-            f"{plancode_table_path().name}")
+            f"{plancode_table_name()}")
 
     def _on_export(self):
         df = self.grid.get_filtered_dataframe()

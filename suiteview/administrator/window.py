@@ -17,6 +17,7 @@ from suiteview.administrator.service import (
     APP_CODES, AccessRepository, AccessRole, AccessUser,
 )
 from suiteview.audit.tabs._styles import make_checkbox
+from suiteview.core.access_control import APP_DESCRIPTIONS
 from suiteview.core.build_env import has_developer_access
 from suiteview.polview.ui.widgets import StyledInfoTableGroup
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -324,7 +325,7 @@ class AdministratorWindow(FramelessWindowBase):
             for position, code in enumerate((*APP_CODES, *unknown)):
                 check = make_checkbox(code + (" (unrecognized)" if code in unknown else ""))
                 check.setChecked(code in value.apps)
-                check.setToolTip(code if code in APP_CODES else
+                check.setToolTip(APP_DESCRIPTIONS.get(code, code) if code in APP_CODES else
                                  f"Existing unrecognized app code {code}; retained unless unchecked.")
                 check.toggled.connect(self._update_dirty)
                 self.app_grid.addWidget(check, position // 2, position % 2)

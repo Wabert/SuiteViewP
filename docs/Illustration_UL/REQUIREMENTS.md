@@ -102,6 +102,14 @@ Each plancode has a configuration record (currently in the Rates_Control "BasePl
 
 **Decision:** Store the plancode table as JSON, with an editor UI for updates/additions. Migrate to database later.
 
+**Database (October 8, 2026):** The table now lives in UL_Rates as
+`dbo.SV_RERUN_Adv_Plancodes`; `plancode_table.json` is retired. `IntCalcMethod`
+(unread), `BandTable2IssueDate` (the band dates are in the data), `PremFlatLoad`
+(schema `PREMLOAD_FLAT`) and `CanIllustrate` were dropped. What may be illustrated is
+`dbo.SV_RERUN_Plancode_Control` (every in-force plancode, its product type and
+`CanIllustrate`), with the `RERUNANYPLAN` role permission to illustrate anything. See
+the RERUN manual, "RERUN plancode tables".
+
 **Database only (October 2026):** The rate fields above (GINT, DBD, loan rates,
 MFEE, EPU, premium load, safety net, corridor, maturity/premium-cease ages,
 shadow plancode and shadow rate codes, product family, CINT key) come only from
@@ -652,7 +660,7 @@ suiteview/illustration/
 1. **Stateless computation per month** — each month's calculation takes state in, produces state out
 2. **Dataclasses for all state** — `MonthlyState` passed through each pipeline step
 3. **Rate lookups via existing `Rates` class** — no new DB connections needed
-4. **JSON for Rates_Control data** — plancode table, rider/benefit definitions, and rate tables not in UL_Rates DB
+4. **JSON for Rates_Control data** — rider/benefit definitions and rate tables not in UL_Rates DB (the plancode table moved to UL_Rates `dbo.SV_RERUN_Adv_Plancodes`, October 2026)
 5. **FIFO segment ordering** — account value applied first-in-first-out across base coverage segments for NAR calculation (critical for multi-segment COI accuracy)
 6. **Three-pass calculation** — run pipeline once each for Current, Midpoint, and Guaranteed assumptions
 

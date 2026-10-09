@@ -16,8 +16,8 @@ def test_requested_roles_apps_and_users():
         ("NONBUSINESS", 0, 0, 0,
          "Cannot make updates to database or policy support folders"),
     )
-    assert len(setup.APPS) == len(set(setup.APPS)) == 14
-    assert len(setup.ROLE_APPS) == len(set(setup.ROLE_APPS)) == 25
+    assert len(setup.APPS) == len(set(setup.APPS)) == 15
+    assert len(setup.ROLE_APPS) == len(set(setup.ROLE_APPS)) == 26
     apps_by_role = {
         role[0]: {app for code, app in setup.ROLE_APPS if code == role[0]}
         for role in setup.ROLES

@@ -23,7 +23,6 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PLANCODE_TABLE = REPO_ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
 REGION = "CKPR"
 SYSTEM_CODE = "I"
 EXACT_TOLERANCE = 0.01
@@ -96,7 +95,10 @@ def read_requested_plancodes(path: Path) -> list[tuple[str, str]]:
 
 
 def plancode_table_rows() -> list[dict[str, Any]]:
-    return json.loads(PLANCODE_TABLE.read_text(encoding="utf-8"))["Plancodes"]
+    """The UL_Rates ``dbo.SV_RERUN_Adv_Plancodes`` rows."""
+    from suiteview.illustration.models.plancode_config import plancode_table_rows as rows
+
+    return rows()
 
 
 def _shadow_plancode(plancode: str) -> str:
@@ -121,7 +123,7 @@ def resolve_requested_plancodes(path: Path) -> list[RequestedPlancode]:
                 product_name=product,
                 cyberlife_plancodes=(code,),
                 shadow_plancode="",
-                resolution_note="Not present in plancode_table.json; queried as a CyberLife plancode.",
+                resolution_note="Not in dbo.SV_RERUN_Adv_Plancodes; queried as a CyberLife plancode.",
             ))
             continue
         note = "Direct CyberLife plancode."
@@ -201,7 +203,6 @@ ENGINE_STATE_FILES = (
     "suiteview/illustration/core/loan_handler.py",
     "suiteview/illustration/core/shadow_calc.py",
     "suiteview/illustration/core/value_rollback.py",
-    "suiteview/illustration/plancodes/plancode_table.json",
     "suiteview/polview/models/schema_rates.py",
     "tools/rerun/baseline_history_compare.py",
 )

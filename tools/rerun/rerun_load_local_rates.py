@@ -25,7 +25,7 @@ Usage (single JSON arg):
 
 Plancode expansion mirrors AddBaseRateTypes / AddTermRiderRateTypes /
 AddAPBRiderRateTypes: base plancodes pull Targets/CCOI/GCOI/SCR plus every
-optional PremLoad/MFEE/SNET/EPU block (schema rates, not plancode_table.json,
+optional PremLoad/MFEE/SNET/EPU block (schema rates, not the plancode table,
 now decides which a plan carries); the legacy shadow plancode (live PLAN_ATTR
 SHADOW_LEGACY_PLANCODE of a shadow-account plan) adds its
 CCOI/Targets/PremLoad/EPU/ShadowInt; rider plancodes (typed via
@@ -45,8 +45,15 @@ from rerun_com import _open_excel, XL_CALC_MANUAL  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 RATES_DB = ROOT / "bundled_data" / "dev" / "rates.sqlite"
-PLANCODE_TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
 RIDER_TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "rider_table.json"
+
+
+def _plancode_table() -> dict:
+    """UL_Rates ``dbo.SV_RERUN_Adv_Plancodes`` rows by plancode."""
+    sys.path.insert(0, str(ROOT))
+    from suiteview.illustration.models.plancode_config import plancode_table_rows
+
+    return {row["Plancode"]: row for row in plancode_table_rows()}
 
 DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
 DEFAULT_OUT = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
@@ -262,7 +269,7 @@ _OPTIONAL_FAMILIES = frozenset({"premload", "mfee", "snet", "epu"})
 
 def expand_plancodes(base_plancodes: list[str]) -> tuple[dict[str, set], list[str]]:
     """Return ({family: plancode_set}, warnings) mirroring MainGetRates."""
-    plan_cfg = _load_json(PLANCODE_TABLE, "Plancodes")
+    plan_cfg = _plancode_table()
     rider_cfg = _load_json(RIDER_TABLE, "Riders")
 
     fams: dict[str, set] = {k: set() for k in (
@@ -287,13 +294,13 @@ def expand_plancodes(base_plancodes: list[str]) -> tuple[dict[str, set], list[st
         fams["ccoi"].add(pc)
         fams["gcoi"].add(pc)
         fams["scr"].add(pc)
-        # The rate fields are no longer "Table"/flat switches in plancode_table.json
+        # The rate fields are not "Table"/flat switches in the plancode table
         # (schema rates supplies them), so every optional family is queried; a family
         # with no local rows is simply absent from its block.
         for fam in ("premload", "mfee", "snet", "epu"):
             fams[fam].add(pc)
         if cfg is None:
-            warnings.append(f"{pc}: not in plancode_table.json")
+            warnings.append(f"{pc}: not in dbo.SV_RERUN_Adv_Plancodes")
             continue
 
         shadow, note = _shadow_plancode(pc, cfg)

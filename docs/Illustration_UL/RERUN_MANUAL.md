@@ -42,11 +42,13 @@ and saved Grid Inputs are dropped with a warning.
 (Run disabled, reason in the red run notice under the policy badge strip) and
 again in `run_service.execute_run` and Compare, so saved and imported cases are
 gated too:
-- **Plancodes:** business users illustrate only the 156 phase-1 UL plancodes in
-  `plancodes/phase1_allowlist.json` (regenerate with
-  `tools/rates/build_phase1_allowlist.py <UL_Test_Groups csv>`). Par whole life
-  and indeterminate term policies are refused instead of opening their
-  workspaces. Developers keep the `CanIllustrate` gate.
+- **Plancodes:** a user may illustrate only base plancodes that UL_Rates
+  `dbo.SV_RERUN_Plancode_Control` enables (`core/plancode_control.py`; see
+  "RERUN plancode tables" below), unless their role has the `RERUNANYPLAN`
+  permission. The rule applies in every build and whatever the business mode;
+  par whole life and indeterminate term policies the table disables are refused
+  instead of opening their workspaces ("Plancode AB1S4700 (ParWL) is not enabled
+  for in-force illustration in this release.").
 - **Status:** `PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` = 22 (premium paying) only; every
   other premium-pay status and suspense code 3 are refused ("Policy status 44
   (Extended Term) is not supported for in-force illustration in this release.").
@@ -80,15 +82,54 @@ row defaults to Billable Prem. Regression: `tests/test_illustration_business_mod
 The ☰ button at the left edge of the RERUN title bar (before the title) holds
 reference views and **Export Case for Support…** (see `RUN_VALUES_FLOW.md`).
 **Plancode Table…** opens a read-only, non-modal window
-(`suiteview/illustration/ui/plancode_table_view.py`) over
-`suiteview/illustration/plancodes/plancode_table.json` — the same rows
-`load_plancode` reads, through `plancode_table_rows()`. The rows hold product
+(`suiteview/illustration/ui/plancode_table_view.py`) over UL_Rates
+`dbo.SV_RERUN_Adv_Plancodes` — the same rows `load_plancode` reads, through
+`plancode_table_rows()` (re-read each time the window opens). The rows hold product
 rules and the illustration age overrides and `PremiumAndChargeCeaseAge` only; plan facts and rates come from
 schema `rates` (see "Plancode configuration: plan facts from schema `rates`"
-below). It is a dense sortable/filterable ledger with Plancode frozen; keys a row
-does not carry show blank (never zero), and **Dump to Excel** opens the displayed
+below). It is a dense sortable/filterable ledger with Plancode frozen; columns a row
+does not set (NULL) show blank (never zero), and **Dump to Excel** opens the displayed
 rows in a new unsaved workbook. A load failure shows an error box instead of an
 empty table. Regression: `tests/test_illustration_plancode_table.py`.
+
+
+## RERUN plancode tables (UL_Rates `dbo`)
+
+Two SuiteView-owned tables in UL_Rates replaced `plancodes/plancode_table.json` and
+`plancodes/phase1_allowlist.json` (Robert Haessly, 10/8/2026). Both are read with one
+SELECT each (`illustration/models/rerun_plancode_tables.py`) and maintained with
+`tools/rerun/rerun_plancode_tables.py` (`status`, `create`, `load-adv`, `upsert-adv`,
+`export-adv`, `refresh-control`, `loan-type-check`; nothing is written without
+`--apply`, writes need CanUpdateDatabase and are read back before commit).
+
+- **`dbo.SV_RERUN_Adv_Plancodes`** — one row per advanced (UL / IUL / ISWL) plancode,
+  the product rules `load_plancode` reads; column names are the engine's keys and a
+  NULL column takes the engine default. Loaded 10/8/2026 from the JSON table less
+  `IntCalcMethod` (unread), `BandTable2IssueDate` (every such plan carries its
+  1900-01-01 and 2018-10-01 band sets in the data), `PremFlatLoad` (now schema
+  `PREMLOAD_FLAT`) and `CanIllustrate` (now the control table). `LoanType` was
+  brought into line with CyberLife's coding: 30 ISWL plancodes and 1G130A00 changed
+  Arrears -> Advance, as every in-force policy on them is `LH_BAS_POL.LN_TYP_CD` 0 and
+  their loans carry interest paid to the next anniversary (M32SP200 N0101027:
+  121,730.34 x 5.7% = 6,938.63). `loan-type-check` repeats the comparison.
+- **`dbo.SV_RERUN_Plancode_Control`** (`Plancode`, `ProductType`, `CanIllustrate`) —
+  every in-force base plancode (CyberLife system I, premium-pay status 21-54, phase 1;
+  2,080 on 10/8/2026) classified from `rates.PlancodeRegistry`: UL, IUL, ISWL, DI by
+  registry type; whole life to `ParWL` when Participation is "Participating", else `WL`;
+  term, child, family and ETI plans to `Term`; ten annuity riders issued as a base to
+  `Other`. `CanIllustrate` was set on for the 156 UL plancodes only — the same set as
+  the retired phase-1 allow-list. `refresh-control --apply` adds newly in-force
+  plancodes (UL on, others off) and never changes an existing row's `CanIllustrate`;
+  edit that column to widen or narrow the scope. The window re-reads the table on
+  every Get.
+- **`RERUNANYPLAN`** (`access_control.APP_CODES`, an Administrator role checkbox next
+  to RERUN): a role with it may illustrate any plancode. ADMIN has it through AllApps
+  and SUPPORT was granted it 10/8/2026. Source runs hold every permission; setting
+  `SUITEVIEW_ILLUSTRATION_BUSINESS_MODE=1` removes it for testing. A control table that
+  cannot be read refuses the plancode for everyone else.
+
+Regression: `tests/test_illustration_can_illustrate.py`,
+`tests/test_rerun_plancode_tables.py`.
 
 
 ## Plancode configuration: plan facts from schema `rates`
@@ -109,13 +150,13 @@ Haessly, 10/2/2026); the plancode table supplies product rules only:
 | safety-net period | PLAN `SNET_PERIOD` by issue age (`safety_net_years(issue_age)`) | no safety net |
 | corridor | PLAN `CORR` by attained age (`corridor_by_age`; `core/corridor_rates.corridor_factor`) | no GPT corridor (factor 1.0) |
 | `shadow_plancode` | `PLAN_ATTR SHADOW_LEGACY_PLANCODE` | blank |
+| `prem_flat_load` | base `PREMLOAD_FLAT` (CELL, scale C/G; one value per plan) | no flat load (0) |
 
-EPU, MFEE, the premium loads and the shadow account's rates are always the
+EPU, MFEE, the percentage premium loads and the shadow account's rates are always the
 schema rates in `IllustrationRates`, on the schema's own C/G scales; none loaded
 means no charge. The shadow account requires scale S COI, `SHADOW_INT` and
 `DB_DISCOUNT` (`RateLookupError` otherwise); scale S EPU, premium loads and the
-target rate are optional. A table row that still carries a plan fact
-(`plancode_config.DATABASE_KEYS`) fails `load_plancode` loudly.
+target rate are optional. `dbo.SV_RERUN_Adv_Plancodes` has no column for a plan fact.
 
 **Corridor.** UL plans without `CORR` are CVAT plans; their corridor is the CVAT
 minimum death benefit ratio `face / NS` (see "RERUN CVAT corridor" below), not a
@@ -315,8 +356,8 @@ GINT and DBD -> PLAN `GINT`/`DB_DISCOUNT`.
   benchmark min/max and market returns also come from schema `rates` FUND rows:
   `IDX_ILL`, `IDX_BENCH_MIN`, `IDX_BENCH_MAX` and `MKT_RETURN`
   (`suiteview/core/index_rates.py`, `IndexAssumptionTables`).
-- **Not from UL_Rates**: PoAV and interest bonuses stay in the
-  plancode JSON tables; loan rates come from the plancode table.
+- **Not from UL_Rates schema `rates`**: PoAV and interest bonuses stay in the
+  plancode JSON tables; the product rules are `dbo.SV_RERUN_Adv_Plancodes`.
 
 Verified 9/30/2026 (live CKPR, one premium-paying policy per RERUN plancode, 168
 policies; month-0 monthly deduction check plus a 10-year current projection, dbo
@@ -858,7 +899,7 @@ fixed-account rate excluding bonus (`polview/services/fixed_account_rate.py`; se
 the PolView manual's Account Values section), so IUL14NY's capped bonus is
 measured against the rate CyberLife credits rather than GINT. The RERUN Inputs
 tab is unchanged: its fixed strategy still defaults to GINT. Home-office
-reinstatement rejects IUL (`IntCalcMethod` Blend) before any crediting.
+reinstatement rejects IUL before any crediting.
 
 ## RERUN declared current interest rate
 
@@ -1071,7 +1112,7 @@ Exception Premium option) is computed **after the monthly deduction**:
   still lands on 0, and the next month is already the level MD0 premium.
 - **Gross-up** uses the plan's actual load: TPP on the part of the premium that
   fits under the policy year's remaining commission target, EPP above it, plus
-  the flat per-premium load (PlanCode table `PremFlatLoad`). First-year loads are
+  the flat per-premium load (schema `PREMLOAD_FLAT`, `PlancodeConfig.prem_flat_load`). First-year loads are
   the policy-year-1 cells of the TPP/EPP schedules. The gross is rounded up to the
   cent, so the net covers the requirement within $0.01 (the sub-cent excess is
   not credited).
@@ -1306,7 +1347,7 @@ Expanded regression coverage: `tests/test_edit_record_scenario.py` and
 
 ## Illustration specified-amount basis
 
-`illustration/plancodes/plancode_table.json` uses **SA_Basis** (specified amount),
+The plancode table (`dbo.SV_RERUN_Adv_Plancodes`) uses **SA_Basis** (specified amount),
 exposed as `PlancodeConfig.sa_basis`. It replaces Expense_Basis and consolidates
 the workbook's Target SA_Basis, EPU SA_Basis and Target BandLock controls.
 Every plancode row explicitly specifies `CurrentSA` or `OriginalSA`; do not infer
@@ -1629,9 +1670,8 @@ Rules are in `illustration/core/iswl_rates.py`:
 Plancode rows are generated from schema `PLAN_DEF` and plan rates by
 `tools/rerun/build_iswl_plancode_rows.py`; the loader re-validates maturity,
 premium cease age, GINT/DBD and loan rates at run time. All 28 in-force ISWL
-plancodes have rows (`CanIllustrate` true: only IUL is blocked for developers in
-the packaged EXE; business users can't illustrate ISWL at all — see "Soft-launch
-business mode"). Reconciled to
+plancodes have rows; the control table (`ProductType` ISWL) does not enable them,
+so only roles with `RERUNANYPLAN` illustrate ISWL (see "RERUN plancode tables"). Reconciled to
 CyberLife: 81335200, 81335100, 80334900, 80335000 (CEIL88) and 81335600,
 81335500, 80335400, 80335300 (CEIL97). The rule-5 surrender charge plans 80333729,
 80333829, 80334729, 80334829, 81333529, 81333629, 81334529, 81334629, 80110429 and

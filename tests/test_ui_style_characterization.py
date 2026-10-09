@@ -75,7 +75,7 @@ EXPECTED_MODULE_HASHES = {
 
 EXPECTED_WINDOW_HASHES = {
     "ABRQuoteWindow": "fcfc5ca8edce406a0c7e16738934981b1dbb386bc8e9d8710ea31817e25a1f74",
-    "AdministratorWindow": "79e32834dce47e0cdfb320cafb9ab1079c114e62b2c441fcfcc3bd84f6774320",
+    "AdministratorWindow": "a4f5ee692a10f08be03376aca136da7fb8e7749317a45d78ceaf60c7a9d43c21",
     "AgentChatWindow": "e138df7f7998b43b84b01a99436a347d7302592d1a6f3400cb6909ffc5de3333",
     "AuditWindow": "61ef74adece6b87e65b6f08e0d3f302bae05bc95cb1ca4a0f289713eb91fc8d5",
     "EmailAttachmentsWindow": "7ab269da444a210a15336b2639a0076cbc173450c31d5313c19b8833d7653314",

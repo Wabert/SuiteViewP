@@ -455,6 +455,22 @@ def test_inforce_checks_match_the_record():
     assert any(line.item == "Modal premium" and line.status == "info" for line in lines)   # forced premium
 
 
+def test_rate_check_notice_flags_differences_and_failures_only():
+    from suiteview.illustration.core.inforce_check import CheckLine, rate_check_notice
+
+    match = CheckLine("Cash value", "NB1XSL00 CV per unit, duration 25", 520.0, 520.0, "match")
+    info = CheckLine("Modal premium", "Modal premium", 11.43, None, "info")
+    cv = CheckLine("Cash value", "NB1XSL00 CV per unit, duration 26", 546.64, 545.10, "differs")
+    div = CheckLine("Dividend", "Next NB1XSL00 coverage cash per unit (yr 25)", 24.22, 23.9, "differs")
+
+    assert rate_check_notice([match, info]) == ""
+    notice = rate_check_notice([match, info, cv, div], shown=1)
+    assert notice.startswith("In-force rate check mismatch: 2 of 4 checks differ from CyberLife.")
+    assert "Cash value: NB1XSL00 CV per unit, duration 26 - CyberLife 546.64 vs calculated 545.1" in notice
+    assert "... and 1 more." in notice
+    assert rate_check_notice([], "no CV rates").startswith("In-force rate check could not run: no CV rates")
+
+
 def test_negative_stored_cash_values_are_reported_not_failed():
     policy = make_policy()
     cov = ParWLCoverage(**{**vars(policy.base), "stored_low_duration": 2, "stored_cash_values": (-7.0, -3.0, 1.0, 6.0)})
@@ -532,6 +548,26 @@ def test_workspace_runs_and_shows_monthly_values_and_the_annual_ledger(qtbot):
     inputs.loan_table.item(1, 1).setText("5")
     with pytest.raises(ParWLInputError, match="New loans row 2"):
         workspace.run()
+
+
+def test_policy_page_warns_when_an_inforce_rate_check_differs(qtbot):
+    from suiteview.illustration.core.inforce_check import CheckLine
+    from suiteview.illustration.ui.parwl_workspace import ParWLWorkspace
+
+    workspace = ParWLWorkspace()
+    qtbot.addWidget(workspace)
+    workspace.load(ParWLBasis(make_policy(), make_rates()))
+    assert workspace.policy_view.check_notice.isHidden()             # every check matches
+
+    class _Mismatch(ParWLBasis):
+        def checks(self):
+            return [CheckLine("Dividend", "Last anniversary NB1XSL00 coverage cash per unit (yr 24)",
+                              24.22, 24.10, "differs")]
+
+    workspace.load(_Mismatch(make_policy(), make_rates()))
+    notice = workspace.policy_view.check_notice
+    assert not notice.isHidden()
+    assert "1 of 1 checks differ" in notice.text() and "CyberLife 24.22 vs calculated 24.1" in notice.text()
 
 
 def test_policy_page_lists_coverages_and_benefit_buttons(qtbot, monkeypatch):

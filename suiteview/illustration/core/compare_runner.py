@@ -41,7 +41,7 @@ from suiteview.illustration.core.business_mode import is_business_mode
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.ledger_specs import KpiSpec
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
-from suiteview.illustration.core.run_gates import rate_presence_gate, run_gate
+from suiteview.illustration.core.run_gates import plancode_gate, rate_presence_gate, run_gate
 
 # Policy-year marks the KPI summary samples AV/SV/DB at (plus each side's end).
 KPI_YEAR_MARKS = (5, 10, 20)
@@ -102,10 +102,14 @@ class CompareScenarioError(Exception):
 
 
 def _check_scenario_gates(spec: "ScenarioSpec") -> None:
-    """Business users: the Run Values soft-launch gates (run_service) apply here too."""
-    if not is_business_mode():
-        return
+    """The Run Values gates (run_service) apply here too: the plancode control for
+    every user without ``RERUNANYPLAN``, the rest for business users."""
     scenario = spec.scenario
+    if not is_business_mode():
+        plancode = plancode_gate(scenario.base_policy)
+        if plancode.blocked:
+            raise CompareScenarioError("\n".join(plancode.blocks))
+        return
     if scenario.run_from_issue or scenario.rollback_overrides is not None:
         raise CompareScenarioError(
             "New Business - From Issue and Edit Record are not available to business users.")

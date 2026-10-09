@@ -787,25 +787,17 @@ class Rates(JointSurvivorRateSource):
         You MUST pass the POLICY issue date here, never the coverage issue date:
         a policy's band structure is fixed by when the *policy* was issued, and
         all base coverages share it. (Riders are banded on their own face amount
-        but still under the base plancode's dateless call — the CZ rule below and
-        the effective-dating apply to base plancodes only.)
-
-        LEGACY CZ FALLBACK (transitional): before a CZ plancode's effective-dated
-        rows are curated in ``RATE_BANDSPECS`` it still has a single (1900-01-01)
-        set holding the mBandTable2 thresholds (band 3 @ 250,000). For those
-        plancodes RERUN's Rates_Control!CZ rule shifts the band-3 start to 250,001
-        for policies issued before the cutoff (Rates_Control!CZ9 = 2018-10-01).
-        That $1 shift is applied here ONLY while the plancode still has fewer than
-        two effective-dated sets; once the effective-dated rows exist in the data,
-        the data drives banding and this fallback is skipped (no double-adjust).
+        but still under the base plancode's dateless call — the effective-dating
+        applies to base plancodes only.) The former RERUN Rates_Control!CZ
+        "Band Table 2 by issue date" plancodes carry their 1900-01-01 and
+        2018-10-01 sets in the data, so no plancode-specific rule remains.
 
         Args:
             plancode: Product plan code
             specified_amount: Face amount to band
             issue_date: POLICY issue date (RERUN sINPUT_Issue_Date), a
                 datetime.date/datetime. Pass it whenever known. When omitted,
-                the earliest (1900-01-01) band set is used and the legacy CZ
-                shift is not applied.
+                the earliest (1900-01-01) band set is used.
 
         Returns:
             Band number or None if not found
@@ -851,9 +843,8 @@ class Rates(JointSurvivorRateSource):
         ``band_specs`` rows are ``[SpecifiedAmount, Band, Issue_Date]`` (a legacy
         2-element row without Issue_Date is tolerated). When two or more distinct
         Issue_Dates are present the set is picked by policy-issue-date effectivity
-        (latest Issue_Date on/before the policy issue date). Otherwise the legacy
-        Rates_Control-CZ $1 band-3 shift is applied as a transitional fallback.
-        Returns rows sorted by SpecifiedAmount ascending.
+        (latest Issue_Date on/before the policy issue date); otherwise the one set
+        applies. Returns rows sorted by SpecifiedAmount ascending.
         """
         parsed = []
         for row in band_specs:
@@ -865,7 +856,6 @@ class Rates(JointSurvivorRateSource):
         distinct_dates = sorted({eff for _, _, eff in parsed if eff is not None})
 
         if len(distinct_dates) >= 2:
-            # Data-driven effective dating (single source of truth).
             ref = self._coerce_date(issue_date) or date(1900, 1, 1)
             effective = distinct_dates[0]
             for eff in distinct_dates:
@@ -873,39 +863,10 @@ class Rates(JointSurvivorRateSource):
                     effective = eff
             rows = [[amount, band] for amount, band, eff in parsed if eff == effective]
         else:
-            # Legacy transitional path: a single (or no) effective-dated set.
             rows = [[amount, band] for amount, band, _ in parsed]
-            if issue_date is not None:
-                cutoff = self._band_table2_cutoff(plancode)
-                if cutoff is not None:
-                    ref = self._coerce_date(issue_date)
-                    if ref is not None and ref < cutoff:
-                        # Pre-cutoff issues band with RERUN mBandTable1: the
-                        # band-3 threshold is one dollar higher (250,001 vs the
-                        # 250,000 stored in BANDSPECS); all other rows identical.
-                        rows = [
-                            [amount + 1 if band == 3 else amount, band]
-                            for amount, band in rows
-                        ]
 
         rows.sort(key=lambda r: r[0])
         return rows
-
-    @staticmethod
-    def _band_table2_cutoff(plancode: str):
-        """Cutoff date for the Rates_Control-CZ band rule, or None.
-
-        Reads ``BandTable2IssueDate`` from the illustration plancode table
-        (the single source of truth for the CZ plancode list — see
-        tools/rates/merge_band_table2_date.py). Plancodes without a row in that
-        table (e.g. Traditional products) have no issue-date banding rule.
-        """
-        try:
-            from suiteview.core.plancode_rules import band_table2_issue_date
-
-            return band_table2_issue_date(plancode)
-        except (ValueError, FileNotFoundError):
-            return None
 
     def get_band_break(
         self, plancode: str, band: int = 2, issue_date=None

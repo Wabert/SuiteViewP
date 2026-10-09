@@ -1,6 +1,6 @@
 r"""Compare RERUN's schema ``rates`` reader (``ULRates``) with the legacy dbo ``Rates``.
 
-Read-only, live UL_Rates. For each RERUN UL/IUL plancode (``plancode_table.json``;
+Read-only, live UL_Rates. For each RERUN UL/IUL plancode (``dbo.SV_RERUN_Adv_Plancodes``;
 ``PLAN_DEF`` ISWL plans excluded) and a sample of the dbo rate space (sex/class/band
 cells at a few issue ages) it compares every rate kind RERUN loads: COI/EPU/MFEE/TPP/EPP
 (current and guaranteed), SCR, MTP/CTP/TBL1, GINT, benefit COI/MTP/CTP, bands and the
@@ -32,9 +32,11 @@ if str(ROOT) not in sys.path:
 
 from suiteview.core.rates import Rates  # noqa: E402
 from suiteview.illustration.core.ul_rates import SHADOW, ULRates  # noqa: E402
-from suiteview.illustration.models.plancode_config import load_plancode  # noqa: E402
+from suiteview.illustration.models.plancode_config import (  # noqa: E402
+    load_plancode,
+    plancode_table_rows,
+)
 
-TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
 TOL = 1e-7
 AMOUNTS = (10_000, 49_999, 50_000, 50_001, 99_999, 100_000, 249_999, 250_000, 250_001,
            499_999, 500_000, 999_999, 1_000_000, 5_000_000)
@@ -77,9 +79,8 @@ def _call(fn, *args, **kwargs):
 
 
 def _plancodes(selected):
-    rows = json.loads(TABLE.read_text(encoding="utf-8"))["Plancodes"]
     result = []
-    for row in rows:
+    for row in plancode_table_rows():
         code = row["Plancode"]
         if selected and code not in selected:
             continue
@@ -226,8 +227,7 @@ def main() -> None:
         by_kind = Counter(d["kind"].split(" ")[0] if d["kind"].startswith("BEN") else d["kind"] for d in diffs)
         kinds.update(by_kind)
         status = "OK" if not diffs else ", ".join(f"{k} {n}" for k, n in sorted(by_kind.items()))
-        illustrable = "" if row.get("CanIllustrate", True) else " [CanIllustrate false]"
-        print(f"{row['Plancode']}{illustrable}: {status}", flush=True)
+        print(f"{row['Plancode']}: {status}", flush=True)
     print("TOTAL:", dict(sorted(kinds.items())))
     if args.json:
         Path(args.json).write_text(json.dumps(everything, indent=1, default=str), encoding="utf-8")

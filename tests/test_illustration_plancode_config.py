@@ -1,8 +1,9 @@
 """``load_plancode``: plan facts only from UL_Rates schema ``rates``, product rules from
-the plancode table and the plan-basis notices the Illustration window shows.
+``dbo.SV_RERUN_Adv_Plancodes`` and the plan-basis notices the Illustration window shows.
 
 Offline: ``plancode_config.load_plan_facts`` and the table cache are replaced by
-synthetic facts/rows (``tests.plan_facts_fixtures``).
+synthetic facts/rows (``tests.plan_facts_fixtures``); the shipped rows come from the
+UL_Rates replay.
 """
 from __future__ import annotations
 
@@ -15,12 +16,12 @@ from suiteview.illustration.core.corridor_rates import corridor_factor
 from suiteview.illustration.core.rate_loader import premium_load_schedules
 from suiteview.illustration.core.rate_validation import plan_basis_warnings
 from suiteview.illustration.models.plancode_config import (
-    DATABASE_KEYS,
     MissingPlancodeError,
     PlancodeConfig,
     load_plancode,
 )
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
+from suiteview.illustration.models.rerun_plancode_tables import ADV_COLUMNS, ADV_KEYS, row_to_db
 from tests.corridor_fixtures import CORRIDOR_1
 from tests.plan_facts_fixtures import plan_facts
 
@@ -34,17 +35,28 @@ def _load(monkeypatch, *, facts=None, **row):
     return load_plancode(PLAN)
 
 
-@pytest.mark.parametrize("key", ["MFEE", "PremiumLoad", "CorridorCode", "SafetyNetPeriod",
-                                 "ShadowEPUCode", "GINT"])
-def test_stale_plan_fact_key_in_the_table_raises(monkeypatch, key):
-    assert key in DATABASE_KEYS
-    with pytest.raises(ValueError, match=f"carries {key}"):
-        _load(monkeypatch, facts=plan_facts(PLAN), **{key: 1})
+def _shipped_rows() -> dict:
+    return {row["Plancode"]: row for row in pc.plancode_table_rows()}
 
 
-def test_shipped_table_carries_no_plan_facts():
-    for plancode, row in pc._load_plancode_table().items():
-        assert not set(DATABASE_KEYS) & row.keys(), plancode
+@pytest.mark.parametrize("key", ["MFEE", "PremiumLoad", "GINT", "CanIllustrate", "PremFlatLoad",
+                                 "IntCalcMethod", "BandTable2IssueDate"])
+def test_the_table_has_no_column_for_plan_facts_or_retired_keys(key):
+    assert key not in ADV_KEYS
+    row = {"Plancode": PLAN, "LoanType": "Arrears", "LapseTarget": "SV", "AgeCalc": "ANB",
+           "Interest_Method": "ExactDays", "SA_Basis": "CurrentSA", "TableRatingFactor": 0.25,
+           "PoAV_Table": "0", "DynamicBanding": 3, "Rachet_Banding": False, "CompanySub": "ANICO"}
+    assert len(row_to_db(ADV_COLUMNS, row)) == len(ADV_COLUMNS)
+    with pytest.raises(ValueError, match=f"unknown column.*{key}"):
+        row_to_db(ADV_COLUMNS, {**row, key: 1})
+
+
+def test_shipped_table_rows_use_only_table_columns():
+    rows = _shipped_rows()
+    assert len(rows) == 286
+    for plancode, row in rows.items():
+        assert set(row) <= set(ADV_KEYS), plancode
+        assert row_to_db(ADV_COLUMNS, row)
 
 
 def test_plan_not_loaded_in_schema_rates_is_a_missing_plancode(monkeypatch):
@@ -173,12 +185,7 @@ def test_plan_without_premium_load_cells_has_no_percentage_load():
     ("1S135A00", "1/12th"), ("1S134A00", "1/12th"), ("1S133I29", "1/12th"),
 ])
 def test_asl_interest_method_follows_cyberlife_diffcmpd(plancode, method):
-    import json
-    from pathlib import Path
-
-    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
-    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
-    assert rows[plancode]["Interest_Method"] == method
+    assert _shipped_rows()[plancode]["Interest_Method"] == method
 
 
 # ── minimum face after a withdrawal: CyberLife PDF DBSMIAMT issue minimum ────
@@ -196,11 +203,7 @@ def test_asl_interest_method_follows_cyberlife_diffcmpd(plancode, method):
     ("MLUL", 100_000), ("1U135F00", 100_000),
 ])
 def test_min_face_after_withdrawal_is_the_plan_issue_minimum(plancode, minimum):
-    import json
-    from pathlib import Path
-
-    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
-    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
+    rows = _shipped_rows()
     assert rows[plancode].get("MinFaceAfterWD", 25_000) == minimum
     assert rows[plancode]["MinFaceEvidenced"] is True
 
@@ -210,11 +213,7 @@ def test_min_face_after_withdrawal_is_the_plan_issue_minimum(plancode, minimum):
     "1U145700", "1U1F4A00",
 ])
 def test_unevidenced_minimum_face_is_not_flagged(plancode):
-    import json
-    from pathlib import Path
-
-    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
-    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
+    rows = _shipped_rows()
     assert "MinFaceAfterWD" not in rows[plancode]
     assert "MinFaceEvidenced" not in rows[plancode]
 
@@ -230,12 +229,7 @@ def test_min_face_evidenced_is_read_from_the_table(monkeypatch):
 
 
 def _table_interest_method(plancode: str) -> str:
-    import json
-    from pathlib import Path
-
-    table = Path(pc.__file__).resolve().parents[1] / "plancodes" / "plancode_table.json"
-    rows = {row["Plancode"]: row for row in json.loads(table.read_text(encoding="utf-8"))["Plancodes"]}
-    return rows[plancode]["Interest_Method"]
+    return _shipped_rows()[plancode]["Interest_Method"]
 
 
 @pytest.mark.parametrize("plancode, monthly_credit", [

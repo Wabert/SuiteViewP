@@ -963,7 +963,8 @@ def test_run_scenario_carries_each_sides_own_schedule_to_engine():
     def spec(label, amount):
         fi = IllustrationInputSet(scheduled_transactions=[ScheduledTransaction(
             kind=TransactionKind.PREMIUM, policy_year=1, amount=amount, mode="A")])
-        scenario = SimpleNamespace(projectable_policy=_policy(), future_inputs=fi)
+        scenario = SimpleNamespace(base_policy=_policy(), projectable_policy=_policy(),
+                                   future_inputs=fi)
         return ScenarioSpec(label=label, scenario=scenario, months=12, options=None)
 
     engine = _EchoEngine()

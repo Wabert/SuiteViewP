@@ -20,12 +20,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from suiteview.core.build_env import is_distribution_build
 from suiteview.illustration.core.business_mode import is_business_mode
+from suiteview.illustration.core.plancode_control import clear_control_cache
 from suiteview.illustration.core.run_gates import (
     missing_rate_findings,
     missing_rates_block,
     monthly_deduction_mismatch_notice,
+    plancode_of,
+    plancode_refusal,
     policy_gate,
 )
 from suiteview.ui.access_control import requires_app_access
@@ -349,7 +351,7 @@ class IllustrationWindow(FramelessWindowBase):
         menu.setStyleSheet(HEADER_MENU_STYLE)
         self._plancode_table_action = QAction("Plancode Table…", menu)
         self._plancode_table_action.setToolTip(
-            "View the illustration plancode table (plancode_table.json)")
+            "View the illustration plancode table (UL_Rates dbo.SV_RERUN_Adv_Plancodes)")
         self._plancode_table_action.triggered.connect(self.show_plancode_table)
         menu.addAction(self._plancode_table_action)
         from .support_export_controls import add_support_export_action
@@ -1059,11 +1061,10 @@ class IllustrationWindow(FramelessWindowBase):
     def _apply_illustration_gate(self) -> bool:
         """Gate Run Values for the loaded policy/case; True when blocked.
 
-        Business mode (any build): the phase-1 plancode allow-list and policy
-        status (``run_gates.policy_gate``) block Run with the reason in the run
-        notice. Developers: a status outside phase 1 is an amber warning, and
-        in packaged builds a plancode flagged ``CanIllustrate = False`` blocks
-        Run (no-op from source, so the flag never blocks development).
+        ``run_gates.policy_gate``: a base plancode the control table
+        (``dbo.SV_RERUN_Plancode_Control``) does not enable blocks Run for every
+        user without the ``RERUNANYPLAN`` permission; business users are also
+        blocked on policy status, developers get an amber warning instead.
 
         Called at the end of every policy/saved-case load. Must run AFTER the
         load path has otherwise enabled the button, so the block wins.
@@ -1097,28 +1098,12 @@ class IllustrationWindow(FramelessWindowBase):
             self.run_values_btn.setEnabled(False)
             self._show_status(blocks[0])
             return True
-        if self._business_mode or not is_distribution_build():
-            return False
-        plancode = str(getattr(self._illustration_data, "plancode", "") or "").strip()
-        if not plancode:
-            return False
-        try:
-            config = load_plancode(plancode)
-        except Exception:
-            return False
-        if config.can_illustrate:
-            return False
-        self.run_values_btn.setEnabled(False)
-        message = (
-            f"This plancode ({plancode}) is not currently enabled for "
-            f"illustration in this application.")
-        self._set_run_notice((message,), self._load_warnings)
-        self._show_status(message)
-        return True
+        return False
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
         if self._business_mode:
             region = BUSINESS_REGION
+        clear_control_cache()
         self._set_run_notice()
         self.policy_tab.reset_fund_edits()
         default_inputs = self._default_inputs_on_next_get
@@ -1235,18 +1220,16 @@ class IllustrationWindow(FramelessWindowBase):
             is_pending=self._policy.system_code == "P",
         )
         if self._is_par_whole_life(self._policy):
-            if self._business_mode:
-                self._refuse_policy_type(
-                    "Participating whole life policies are not supported for "
-                    "in-force illustration in this release.")
+            refusal = plancode_refusal(plancode_of(self._policy))
+            if refusal:
+                self._refuse_policy_type(refusal)
                 return
             self._load_parwl_into_ui(region, cached=cached)
             return
         if self._is_indeterminate_term(self._policy):
-            if self._business_mode:
-                self._refuse_policy_type(
-                    "Indeterminate premium term policies are not supported for "
-                    "in-force illustration in this release.")
+            refusal = plancode_refusal(plancode_of(self._policy))
+            if refusal:
+                self._refuse_policy_type(refusal)
                 return
             self._load_term_into_ui(region, cached=cached)
             return
@@ -1370,8 +1353,9 @@ class IllustrationWindow(FramelessWindowBase):
         self._refresh_rollback_controls()
 
     def _refuse_policy_type(self, message: str) -> None:
-        """Business mode: a product family outside phase 1 (par WL / term) —
-        no workspace, no inputs, Run disabled with the reason on screen."""
+        """A par WL / term policy the plancode control table does not enable (and the
+        user has no ``RERUNANYPLAN``): no workspace, no inputs, Run disabled with the
+        reason on screen."""
         self._show_ul_workspace()
         self._illustration_data = None
         self._live_policy_checks = None
@@ -1409,6 +1393,8 @@ class IllustrationWindow(FramelessWindowBase):
             self.run_values_btn.setEnabled(False)
             self.parwl_workspace.values_tab.clear(f"Par whole life data could not be loaded: {exc}")
             self.parwl_workspace.report_view.clear(f"Par whole life data could not be loaded: {exc}")
+            self.parwl_workspace.policy_view.set_check_notice(
+                f"Par whole life data could not be loaded: {exc}")
             QMessageBox.warning(self, "Par Whole Life", f"Unable to load par whole life data/rates: {exc}")
             self._show_status(f"Par whole life load failed: {exc}")
             return

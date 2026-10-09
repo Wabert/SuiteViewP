@@ -14,13 +14,15 @@ from datetime import date
 from typing import List, Optional
 
 import pandas as pd
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QLabel,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from suiteview.illustration.core.inforce_check import rate_check_notice
 from suiteview.illustration.core.ledger_report import format_ledger_pages
 from suiteview.illustration.core.parwl.report import build_parwl_report
 from suiteview.illustration.core.parwl.service import ParWLBasis
@@ -38,6 +40,7 @@ from .illustration_pages_view import IllustrationPagesView, InforceChecksView, R
 from .parwl_inputs import ParWLInputError, ParWLInputsTab
 from .parwl_values import ParWLValuesTab
 from .policy_snapshot_widgets import BenefitButtonsGroup, CoverageTableGroup, money, short_date
+from .policy_tab import RATE_WARNING_STYLE
 from .styles import GROUP_STYLE, PURPLE_BG, TAB_WIDGET_STYLE
 
 logger = logging.getLogger(__name__)
@@ -111,6 +114,12 @@ class ParWLPolicyView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(8)
+        self.check_notice = QLabel("")
+        self.check_notice.setStyleSheet(RATE_WARNING_STYLE)
+        self.check_notice.setWordWrap(True)
+        self.check_notice.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.check_notice.setVisible(False)
+        layout.addWidget(self.check_notice)
         self.info = StyledInfoTableGroup("Par Whole Life Policy", columns=3, show_table=False)
         self.info.setStyleSheet(GROUP_STYLE)
         for label, attr in (("Policy", "policy"), ("Plancode", "plancode"), ("Insured", "insured"),
@@ -127,6 +136,11 @@ class ParWLPolicyView(QWidget):
         self.benefit_group = BenefitButtonsGroup()
         layout.addWidget(self.benefit_group)
         layout.addStretch(1)
+
+    def set_check_notice(self, text: str) -> None:
+        """The UL-style load warning when an in-force rate check differs from CyberLife."""
+        self.check_notice.setText(text)
+        self.check_notice.setVisible(bool(text))
 
     def load(self, basis: ParWLBasis) -> None:
         p = basis.policy
@@ -212,6 +226,7 @@ class ParWLWorkspace(QWidget):
             logger.exception("Par WL in-force checks failed")
             checks, error = [], f"The checks could not run: {exc}"
         self.checks_view.load(checks, error)
+        self.policy_view.set_check_notice(rate_check_notice(checks, error))
         self.tabs.setCurrentWidget(self.policy_view)
 
     def run(self) -> ParWLResult:

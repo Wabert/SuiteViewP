@@ -1,35 +1,36 @@
 """Illustration plancode configuration: plan facts from UL_Rates schema ``rates``,
-product rules from the plancode table.
+product rules from RERUN's advanced-plancode table.
 
 ``load_plancode`` builds a ``PlancodeConfig`` from two sources:
 
 * **Schema ``rates``** (``plan_facts``) is the only source of the plan facts and rates:
   product family, maturity and premium-cease ages, CINT key, GINT, the death-benefit
   discount, the four loan rates, the safety-net period by issue age, corridor factors
-  by attained age and the shadow account's legacy plancode. The rate loaders read EPU,
-  MFEE, the premium loads and the shadow account's scale ``S`` rates per policy. A rate
-  the schema does not carry is "none" where that is the product rule (no preferred
-  loan, no safety net, no GPT corridor, no fee or load) and an error where the plan
-  cannot be illustrated without it (GINT, regular loan rates, ages, the plan itself).
-* **``plancodes/plancode_table.json``** supplies the product rules the schema does not
-  hold (SA_Basis, LoanType, banding, shadow-account behaviour, ...), including
-  ``PremiumAndChargeCeaseAge``: the attained age from which a plan accepts no premium and
-  takes no monthly deduction at all (COI, EPU, %-of-AV, MFEE, benefit or rider charge)
-  while staying in force to the ``PLAN_DEF`` maturity (Robert Haessly, 10/3/2026 and
-  10/5/2026). Its only plan-fact keys are ``IllustrationMaturityAgeOverride`` /
-  ``IllustrationPremiumCeaseAgeOverride``: an explicit illustration maturity that
-  replaces ``PLAN_DEF`` (premiums cease at that same maturity).
+  by attained age, the flat per-premium load (``PREMLOAD_FLAT``) and the shadow
+  account's legacy plancode. The rate loaders read EPU, MFEE, the percentage premium
+  loads and the shadow account's scale ``S`` rates per policy. A rate the schema does
+  not carry is "none" where that is the product rule (no preferred loan, no safety net,
+  no GPT corridor, no fee or load) and an error where the plan cannot be illustrated
+  without it (GINT, regular loan rates, ages, the plan itself).
+* **``dbo.SV_RERUN_Adv_Plancodes``** (UL_Rates; ``rerun_plancode_tables``) supplies the
+  product rules the schema does not hold (SA_Basis, LoanType, banding, shadow-account
+  behaviour, ...), including ``PremiumAndChargeCeaseAge``: the attained age from which a
+  plan accepts no premium and takes no monthly deduction at all (COI, EPU, %-of-AV,
+  MFEE, benefit or rider charge) while staying in force to the ``PLAN_DEF`` maturity
+  (Robert Haessly, 10/3/2026 and 10/5/2026). Its only plan-fact columns are
+  ``IllustrationMaturityAgeOverride`` / ``IllustrationPremiumCeaseAgeOverride``: an
+  explicit illustration maturity that replaces ``PLAN_DEF`` (premiums cease at that
+  same maturity).
 
+Whether a plancode may be illustrated is not a product rule: it is
+``dbo.SV_RERUN_Plancode_Control`` (``core.plancode_control``).
 ``tools/rates/plancode_db_coverage.py`` reports what the schema lacks for each row.
 """
 from __future__ import annotations
 
 import copy
-import json
 import logging
 from dataclasses import dataclass, field
-from datetime import date
-from pathlib import Path
 from typing import Dict, Mapping, Optional, Tuple
 
 from suiteview.illustration.constants import (
@@ -39,11 +40,13 @@ from suiteview.illustration.constants import (
     SA_BASIS_ORIGINAL,
 )
 from suiteview.illustration.models.plan_facts import load_plan_facts
+from suiteview.illustration.models.rerun_plancode_tables import (
+    ADV_TABLE,
+    read_adv_plancode_rows,
+)
 
 logger = logging.getLogger(__name__)
 
-_PLANCODE_DIR = Path(__file__).resolve().parent.parent / "plancodes"
-_PLANCODE_TABLE_PATH = _PLANCODE_DIR / "plancode_table.json"
 COI_RATE_BASIS_ANNUAL = "Annual"
 COI_RATE_BASIS_MONTHLY = "Monthly"
 _CONFIG_CACHE: Dict[str, PlancodeConfig] = {}
@@ -57,13 +60,6 @@ PREMIUM_CEASE_OVERRIDE_KEY = "IllustrationPremiumCeaseAgeOverride"
 # attained age; the policy stays in force to the PLAN_DEF maturity, its account value
 # earning interest.
 CHARGE_CEASE_KEY = "PremiumAndChargeCeaseAge"
-# Plan facts that come only from schema ``rates``; the plancode table must not carry them.
-DATABASE_KEYS = (
-    "ProductFamily", "MaturityAge", "PremiumCeaseAge", "CINT_Key", "GINT", "DBD", "EPU_Code",
-    "MFEE", "PremiumLoad", "LoanChargeRate", "LoanCollateralCreditRate", "PrefLoanChargeRate",
-    "PrefLoanCollateralCreditRate", "SafetyNetPeriod", "CorridorCode", "ShadowPlancode",
-    "ShadowTarget", "ShadowPremLoadCode", "ShadowEPUCode", "ShadowIntRateCode", "ShadowDBDRate",
-)
 
 
 @dataclass
@@ -78,20 +74,15 @@ class PlancodeConfig:
     # come out of the gross premium and only the monthly COI is deducted from
     # the account value. ISWL rates are read from UL_Rates schema ``rates``.
     product_family: str = "UL"
-    # Illustration gating — enforced ONLY in distribution builds (see
-    # suiteview.core.build_env.is_distribution_build). True (default) when the
-    # key is absent so existing plancodes keep illustrating.
-    can_illustrate: bool = True
 
     # Interest
     cint_key: str = ""
-    int_calc_method: str = "Declared"   # "Declared", "IUL_Blend"
     interest_method: str = "ExactDays"  # "ExactDays", "MonthlyCompounding"
     age_calc: str = ""
 
     # Premium loading. The target/excess load rates are schema PREMLOAD_PCT /
     # PREMLOAD_EXS (none loaded = no percentage load).
-    prem_flat_load: float = 0.0         # Flat $ per premium
+    prem_flat_load: float = 0.0         # Flat $ per premium (schema PREMLOAD_FLAT)
 
     # AV charge
     poav_table: str = "0"               # Local PoAV table code "1"-"3"; "0" = none
@@ -159,14 +150,6 @@ class PlancodeConfig:
     # Dynamic banding
     dynamic_banding: int = 3            # 0 = none, 1 = issue band, 2 = current band, 3 = higher of
     rachet_banding: bool = False
-    # Issue-date-dependent band boundary (RERUN Rates_Control column CZ,
-    # "Use Band Table 2 by Issue Date", cutoff in CZ9 = 2018-10-01). For the
-    # plancodes RERUN lists in CZ12:CZ32, policies ISSUED ON/AFTER this date
-    # band with mBandTable2 (band 3 starts at 250,000 — the thresholds stored
-    # in UL_Rates BANDSPECS), while policies issued BEFORE it band with
-    # mBandTable1 (identical except band 3 starts at 250,001). None = banding
-    # does not depend on issue date (every other plancode).
-    band_table2_issue_date: Optional[date] = None
     # Specified-amount basis for EPU, MTP, CTP and full surrender charges.
     # OriginalSA also locks only MTP rates to each coverage's issue band;
     # CTP, COI, EPU and premium-load bands remain current (SCR is unbanded).
@@ -316,39 +299,33 @@ class PlancodeConfig:
 
 
 def _load_plancode_table() -> Dict[str, dict]:
+    """``SV_RERUN_Adv_Plancodes`` rows by plancode, read once per process."""
     global _TABLE_CACHE
     if _TABLE_CACHE is not None:
         return _TABLE_CACHE
-
-    if not _PLANCODE_TABLE_PATH.exists():
-        raise FileNotFoundError(
-            f"No plancode table found: {_PLANCODE_TABLE_PATH}"
-        )
-
-    with open(_PLANCODE_TABLE_PATH, "r", encoding="utf-8") as f:
-        table_data = json.load(f)
-
-    rows = table_data.get("Plancodes", [])
     _TABLE_CACHE = {
-        str(row.get("Plancode", "")).strip(): row
-        for row in rows
+        str(row["Plancode"]).strip().upper(): row
+        for row in read_adv_plancode_rows()
         if str(row.get("Plancode", "")).strip()
     }
     return _TABLE_CACHE
 
 
 def clear_plancode_cache() -> None:
-    """Forget resolved configurations (e.g. after a rate load changed schema ``rates``)."""
+    """Forget resolved configurations and the table rows (e.g. after a rate load
+    changed schema ``rates`` or the table was edited)."""
+    global _TABLE_CACHE
     _CONFIG_CACHE.clear()
+    _TABLE_CACHE = None
 
 
-def plancode_table_path() -> Path:
-    """Return the illustration plancode table JSON file path."""
-    return _PLANCODE_TABLE_PATH
+def plancode_table_name() -> str:
+    """The UL_Rates table that holds the plancode rows."""
+    return ADV_TABLE
 
 
 def plancode_table_rows() -> list[dict]:
-    """Return every plancode table row, in file order, as independent copies.
+    """Return every plancode table row, ordered by plancode, as independent copies.
 
     One row per plancode (the same rows :func:`load_plancode` reads), for
     read-only display; callers may mutate the copies without touching the
@@ -362,13 +339,6 @@ def _int_or_default(value, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _date_or_none(value) -> Optional[date]:
-    """Parse an ISO date string from the plancode table; None/blank -> None."""
-    if not value:
-        return None
-    return date.fromisoformat(str(value).strip())
 
 
 class MissingPlancodeError(KeyError):
@@ -424,32 +394,26 @@ def _plan_ages(plancode: str, data: dict, facts, overrides: list[str]) -> tuple[
 
 def load_plancode(plancode: str) -> PlancodeConfig:
     """Load a plancode's configuration: plan facts from schema ``rates``, product rules
-    from the plancode table.
+    from ``dbo.SV_RERUN_Adv_Plancodes``.
 
     Args:
         plancode: Product plan code (e.g., "1U143900").
 
     Raises:
-        FileNotFoundError: If the plancode table does not exist.
         MissingPlancodeError: If the plancode has no table row or is not loaded in
             schema ``rates``.
-        RatesError / ConnectionUnavailable: If schema ``rates`` cannot be read.
-        ValueError: If the table carries a plan fact, or the schema lacks a required
-            one (GINT, regular loan rates, ages).
+        RatesError / ConnectionUnavailable: If UL_Rates cannot be read.
+        ValueError: If the schema lacks a required plan fact (GINT, regular loan
+            rates, ages) or a table value is invalid.
     """
     if plancode in _CONFIG_CACHE:
         return _CONFIG_CACHE[plancode]
 
-    data = _load_plancode_table().get(plancode)
+    data = _load_plancode_table().get(str(plancode or "").strip().upper())
     if data is None:
         raise MissingPlancodeError(
-            f"No plancode config found for {plancode} in {_PLANCODE_TABLE_PATH}"
+            f"No plancode config found for {plancode} in {ADV_TABLE}"
         )
-    stale = [key for key in DATABASE_KEYS if key in data]
-    if stale:
-        raise ValueError(
-            f"{plancode}: plancode_table.json carries {', '.join(stale)}, which come only from "
-            "UL_Rates schema rates. Remove them (tools/rates/plancode_db_coverage.py --write).")
     facts = load_plan_facts(plancode)
     if facts is None:
         raise MissingPlancodeError(
@@ -462,12 +426,10 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         plancode=plancode,
         description=facts.description,
         product_family=facts.engine_family,
-        can_illustrate=bool(data.get("CanIllustrate", True)),
         cint_key=facts.cint_key,
-        int_calc_method=data.get("IntCalcMethod", "Declared"),
-        interest_method=data.get("Interest_Method", data.get("InterestMethod", "ExactDays")),
+        interest_method=data.get("Interest_Method", "ExactDays"),
         age_calc=data.get("AgeCalc", ""),
-        prem_flat_load=float(data.get("PremFlatLoad", 0)),
+        prem_flat_load=float(facts.premload_flat or 0.0),
         poav_table=str(data.get("PoAV_Table", "0")),
         dbd=facts.dbd if facts.dbd is not None else gint,
         gint=gint,
@@ -484,13 +446,9 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         maturity_age=maturity_age,
         charge_cease_age=charge_cease_age,
         snet_by_issue_age=dict(facts.snet_by_issue_age or {}),
-        lapse_value=data.get(
-            "LapseTarget",
-            data.get("LapseValue", LAPSE_BASIS_SURRENDER_VALUE),
-        ),
+        lapse_value=data.get("LapseTarget", LAPSE_BASIS_SURRENDER_VALUE),
         dynamic_banding=int(data.get("DynamicBanding", 3)),
         rachet_banding=bool(data.get("Rachet_Banding", False)),
-        band_table2_issue_date=_date_or_none(data.get("BandTable2IssueDate")),
         sa_basis=data["SA_Basis"],
         scr_pct_of_surrender_target=(
             tuple(float(pct) for pct in data["SCR_PctOfSurrenderTarget"])

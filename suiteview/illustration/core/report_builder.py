@@ -1021,7 +1021,7 @@ def _change_sections(
         # the same as-of state, so the limits are computed once per date.
         eoy_states = [s for s in at_or_after if s.policy_year == eff.policy_year]
         eoy = eoy_states[-1] if eoy_states else eff
-        if options.conform_to_tefra or True:  # limits are informational either way
+        if not policy.is_spl87:  # SPL87 guideline limits are filler; limits are informational
             section.limit_lines = [
                 f"GUIDELINE SINGLE = {_money(eff.gsp)}",
                 f"LEVEL PREMIUM = {_money(eff.glp)}",
@@ -1846,6 +1846,9 @@ def _build_ul_report_from_facts(
         if policy.tamra_7pay_start_date:
             report.regulatory_lines.append(
                 f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m/%d/%Y')}")
+    if policy.is_spl87:
+        # SPL87 plans carry filler guideline limits ($999,999,999.96), not real ones.
+        report.regulatory_lines = []
     if report.is_iul:
         _build_iul_sections(report, policy)
     return report

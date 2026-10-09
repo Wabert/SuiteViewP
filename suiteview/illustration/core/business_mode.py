@@ -2,8 +2,10 @@
 
 Business mode is on in the packaged EXE for users whose SuiteView role has no
 support privileges (ADMIN/SUPPORT). It hides or locks every developer option,
-caps the illustrated rate, and limits illustration to the phase-1 plancodes and
-premium-pay statuses (see :mod:`suiteview.illustration.core.run_gates`).
+caps the illustrated rate, and limits illustration to the phase-1 premium-pay
+statuses (see :mod:`suiteview.illustration.core.run_gates`). Which plancodes may be
+illustrated is the control table plus the ``RERUNANYPLAN`` permission
+(:mod:`suiteview.illustration.core.plancode_control`), whatever the mode.
 
 Source runs are developer runs and are never in business mode unless a developer
 forces it on for testing with ``SUITEVIEW_ILLUSTRATION_BUSINESS_MODE=1``. Only

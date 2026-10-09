@@ -128,32 +128,38 @@ def test_suspended_allowed_death_claim_pending_refused():
     assert "Death Claim Pending" in status_refusal(_policy(suspense="3"))
 
 
-# ── plancode allow-list (M5) ─────────────────────────────────────────
+# ── plancode control table ───────────────────────────────────────────
 
 
-def test_policy_gate_business_blocks_plancode_and_status_together():
-    gate = policy_gate(_policy(plancode=ISWL, status="45"), business_mode=True)
+def test_policy_gate_blocks_plancode_and_status_together():
+    gate = policy_gate(_policy(plancode=ISWL, status="45"), business_mode=True, any_plancode=False)
     assert gate.blocked
-    assert gate.blocks[0].startswith(f"Plancode {ISWL} is not supported")
+    assert gate.blocks[0] == (
+        f"Plancode {ISWL} (ISWL) is not enabled for in-force illustration in this release.")
     assert gate.blocks[1].startswith("Policy status 45 (Reduced Paid-Up)")
 
 
-def test_policy_gate_developer_never_blocks():
-    gate = policy_gate(_policy(plancode=ISWL, status="45"), business_mode=False)
+def test_policy_gate_with_the_permission_never_blocks_outside_business_mode():
+    gate = policy_gate(_policy(plancode=ISWL, status="45"), business_mode=False, any_plancode=True)
     assert not gate.blocked
     assert len(gate.warnings) == 1 and "developer run allowed" in gate.warnings[0]
-    assert policy_gate(_policy(plancode=ISWL), business_mode=False).warnings == ()
+    assert policy_gate(_policy(plancode=ISWL), business_mode=False,
+                       any_plancode=True).warnings == ()
 
 
 # ── run_service (saved / imported cases go through execute_run) ─────
 
 
-@pytest.mark.parametrize("policy", [_policy(plancode=ISWL), _policy(status="44")])
-def test_execute_run_refuses_out_of_scope_policy_for_business(policy):
+@pytest.mark.parametrize("policy, reason", [
+    (_policy(plancode=ISWL), "(ISWL) is not enabled for in-force illustration"),
+    (_policy(status="44"), "not supported for in-force illustration"),
+])
+def test_execute_run_refuses_out_of_scope_policy_for_business(monkeypatch, policy, reason):
+    monkeypatch.setenv(BUSINESS_MODE_ENV, "1")
     with pytest.raises(RunFlowError) as error:
         execute_run(_request(policy), _services(True))
     assert error.value.title == GATE_TITLE
-    assert "not supported for in-force illustration" in error.value.message
+    assert reason in error.value.message
 
 
 @pytest.mark.parametrize("kwargs, label", [

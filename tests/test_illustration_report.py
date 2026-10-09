@@ -762,6 +762,27 @@ def test_cvat_policy_shows_seven_pay_but_no_guideline_limits():
     assert not any("LEVEL PREMIUM" in line for line in report.regulatory_lines)
 
 
+def test_spl87_policy_omits_regulatory_limits():
+    """SPL87-form plans store filler guideline limits ($999,999,999.96), so neither
+    the as-of nor the policy-change regulatory limits are shown."""
+    policy = _policy()
+    policy.form_number = "SPL87"
+    inputs = IllustrationInputSet(policy_changes=[
+        PolicyChangeEvent(kind=PolicyChangeKind.FACE_AMOUNT,
+                          effective_date=date(2027, 11, 9), value=75000.0)])
+    report = build_ul_report(policy, _results(), future_inputs=inputs,
+                             run_date=date(2026, 6, 10))
+
+    assert report.regulatory_lines == []
+    assert report.change_sections[0].limit_lines == []
+
+    from suiteview.illustration.ui.report_tab import format_report_pages
+    flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert "REGULATORY LIMITS" not in flat
+    assert "GUIDELINE SINGLE" not in flat
+    assert "RIDERS AND BENEFITS ACTIVE ON THE POLICY AS OF" in flat
+
+
 def test_no_seven_pay_restart_without_material_change():
     """An unchanged 7-pay start date produces no 'N' marker or legend."""
     report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))

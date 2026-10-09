@@ -14,10 +14,15 @@ from suiteview.core.build_env import app_unavailable_reason, has_developer_acces
 logger = logging.getLogger(__name__)
 
 APP_CODES = (
-    "POLVIEW", "FILENAV", "ABR", "RERUN", "QUERY", "ALBERT",
+    "POLVIEW", "FILENAV", "ABR", "RERUN", "RERUNANYPLAN", "QUERY", "ALBERT",
     "SCRATCHPAD", "HISTORY", "SCREENSHOT", "MAINFRAMENAV",
     "RATEMANAGER", "EMAILATTACHMENTS", "ATTENTIONALBERT", "PASSWORDMANAGER",
 )
+# Grants that are permissions within an app rather than apps (Administrator tooltips).
+APP_DESCRIPTIONS = {
+    "RERUNANYPLAN": "RERUN: illustrate any plancode, whatever the plancode control "
+                    "table (dbo.SV_RERUN_Plancode_Control) allows",
+}
 SUPPORT_PRIVILEGED_ROLES = frozenset({"ADMIN", "SUPPORT"})
 # The Attention Albert (AAI) task-bar button is Robert Haessly's alone (9/29/2026).
 # ATTENTIONALBERT grants only decide whose "Attention Albert" emails Albert

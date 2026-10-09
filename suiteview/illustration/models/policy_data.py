@@ -532,6 +532,12 @@ class IllustrationPolicyData:
         return self.def_of_life_ins == "CVAT"
 
     @property
+    def is_spl87(self) -> bool:
+        """SPL87-form (single-premium) plan: CyberLife stores filler guideline limits
+        (e.g. GSP/GLP $999,999,999.96), so the report omits regulatory limits."""
+        return (self.form_number or "").strip().upper().startswith("SPL87")
+
+    @property
     def is_single_premium(self) -> bool:
         """Premium pay status 42 (Single Premium): the premium was paid at issue and
         none is due again; the stored modal premium is that single premium."""
