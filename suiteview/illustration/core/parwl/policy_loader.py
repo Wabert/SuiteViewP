@@ -115,6 +115,7 @@ def _coverages(pi, valuation_date: date) -> List[ParWLCoverage]:
             ),
             nsp_table=facts.nsp_rpu_table,
             nsp_interest=_rate(facts.nsp_interest_rate),
+            nsp_function_code=facts.mortality_function_code or None,
             stored_low_duration=facts.stored_low_duration,
             stored_cash_values=tuple(_float(v) if v is not None else None for v in facts.stored_cash_values),
             stored_nsp_values=tuple(_float(v) if v is not None else None for v in facts.stored_nsp_values),

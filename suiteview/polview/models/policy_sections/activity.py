@@ -33,6 +33,13 @@ class ActivitySection(PolicySection):
         return self._parse_date(self._field("paid_to_date"))
 
     @property
+    def nonforfeiture_date(self) -> Optional[date]:
+        """Date the policy went on ETI/RPU: the premium paid-to date it lapsed from, else None."""
+        if not self.status.nonforfeiture_option:
+            return None
+        return self.paid_to_date
+
+    @property
     def next_anniversary_date(self) -> Optional[date]:
         """Next policy anniversary date."""
         return self._parse_date(self._field("next_anniversary_date"))

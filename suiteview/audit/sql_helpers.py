@@ -20,6 +20,11 @@ def esc(val: str) -> str:
     return val.replace("'", "''")
 
 
+def escape_like_literal(value: str) -> str:
+    """Escape LIKE wildcards for use with ``ESCAPE '\\'``."""
+    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
 def normalize_date(val: str) -> str | None:
     """Parse a user-entered date string and return ISO format (YYYY-MM-DD).
 

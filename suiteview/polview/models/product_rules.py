@@ -20,7 +20,7 @@ class ProductRules:
     product_type: str
     is_advanced: bool
     value_table: str
-    loan_tables: tuple[str, ...]
+    loan_table: str
     valuation_uses_monthly_value: bool
     supports_glp_exception: bool
     supports_reinstatement: bool
@@ -40,11 +40,19 @@ class ProductRules:
             return Decimal("100")
         return Decimal("100000")
 
+    def active_loan_table(self, premium_pay_status_code: str) -> str:
+        """Return the loan table holding this policy's loans in its current status."""
+        return self.loan_table
+
     def valuation_date(self, policy) -> Optional[date]:
-        """Apply this product family's valuation-date source rule."""
-        if self.valuation_uses_monthly_value:
-            mv_dt = policy._parse_date(policy.data_item("LH_POL_MVRY_VAL", "MVRY_DT"))
-            if mv_dt and mv_dt.year < 9999:
+        """Apply this product family's valuation-date source rule.
+
+        On ETI/RPU the account value bought the nonforfeiture benefit and the
+        monthly value row stops at that date, so the last monthliversary is used.
+        """
+        if self.valuation_uses_monthly_value and not policy.status.nonforfeiture_option:
+            mv_dt = policy.values.last_account_value_date
+            if mv_dt:
                 return mv_dt
         return policy.values.traditional_valuation_date()
 
@@ -55,7 +63,7 @@ class TraditionalRules(ProductRules):
             product_type=product_type,
             is_advanced=False,
             value_table="TH_COV_PHA",
-            loan_tables=("LH_CSH_VAL_LOAN",),
+            loan_table="LH_CSH_VAL_LOAN",
             valuation_uses_monthly_value=False,
             supports_glp_exception=False,
             supports_reinstatement=False,
@@ -85,7 +93,7 @@ class AdvancedRules(ProductRules):
             product_type=product_type,
             is_advanced=True,
             value_table="LH_POL_MVRY_VAL",
-            loan_tables=("LH_FND_VAL_LOAN",),
+            loan_table="LH_FND_VAL_LOAN",
             valuation_uses_monthly_value=True,
             supports_glp_exception=True,
             supports_reinstatement=supports_reinstatement,
@@ -96,6 +104,12 @@ class AdvancedRules(ProductRules):
 class ISWLRules(AdvancedRules):
     def __init__(self) -> None:
         super().__init__("ISWL", supports_reinstatement=False, rate_family="ISWL")
+
+    def active_loan_table(self, premium_pay_status_code: str) -> str:
+        """An ISWL on RPU (premium-pay status 45) converts its loans to traditional loans."""
+        if str(premium_pay_status_code or "").strip() == "45":
+            return "LH_CSH_VAL_LOAN"
+        return self.loan_table
 
 
 def product_rules_for(

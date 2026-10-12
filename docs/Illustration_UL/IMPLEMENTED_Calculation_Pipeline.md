@@ -604,6 +604,8 @@ Notes:
   "Apply excess as premium" toggle (`IllustrationOptions.apply_excess_repayment_as_premium`,
   Loan Repayments group on the Input tab). Off (default): repayments stop at the payoff and
   the excess is discarded. On: the excess loads as lumpsum premium (with the premium load).
+  The report cover states the setting on every loan repayment line
+  (`..., CEASING AT LOAN PAYOFF` or `..., EXCESS OVER LOAN PAYOFF APPLIED AS PREMIUM`).
 
 ### 4.11 Step 11b - External Cash-Flow Inputs
 

@@ -19,7 +19,9 @@ time. Rules reproduced from CyberLife records (see ``docs/Illustration_UL/RERUN_
   ``units x round((CV[y-1] x (12-k) + CV[y] x k) / 12, 2)``; additions
   ``round(additions / 1000 x (NSP[x] x (12-k) + NSP[x+1] x k) / 12, 2)`` with ``x`` the
   attained age at the year's start (CyberLife 62Q1 quote). Reduced paid-up insurance is
-  valued the same way at the coverage's RPU NSP basis.
+  valued the same way at the coverage's RPU NSP basis: ``NSP_RPU_TBL_CD``, ``NSP_ITS_RT``
+  and the claims factor of its ``MTL_FUN_CD`` (``nsp.py``). Paid-up additions rows carry
+  no function code, so their NSPs keep the table fallback.
 * **Loans** - interest in advance: ``principal / (1 - r)`` at each anniversary, the
   interest unearned until the next anniversary refunded on payoff; in arrears:
   ``principal x r x months / 12`` accrued and capitalized at the anniversary.
@@ -387,8 +389,8 @@ class ParWLEngine:
         years = completed_months(cov.issue_date, when) // 12
         k = completed_months(cov.issue_date, when) % 12
         if state.rpu:
-            table, interest = self._rpu_basis()
-            start, end, mid = interpolated_nsp(table, interest, cov.issue_age + years, k)
+            table, interest, function_code = self._rpu_basis()
+            start, end, mid = interpolated_nsp(table, interest, cov.issue_age + years, k, function_code)
             row.cv_per_unit_start, row.cv_per_unit_end = start * cov.value_per_unit / 1000.0, end * cov.value_per_unit / 1000.0
             row.cv_per_unit = mid * cov.value_per_unit / 1000.0
             return cents(state.units * row.cv_per_unit)
@@ -399,12 +401,14 @@ class ParWLEngine:
         row.cv_per_unit_start, row.cv_per_unit_end, row.cv_per_unit = start, end, per_unit
         return cents(state.units * per_unit)
 
-    def _rpu_basis(self) -> Tuple[str, float]:
+    def _rpu_basis(self) -> Tuple[str, float, Optional[str]]:
+        """(NSP_RPU_TBL_CD, NSP_ITS_RT, MTL_FUN_CD) of the base coverage; the function code
+        decides the claims factor (``nsp.claims_basis``)."""
         cov = self.base
         if not cov.nsp_table or cov.nsp_interest is None:
             raise ParWLProjectionError(
                 f"{cov.plancode} has no reduced paid-up NSP basis (NSP_RPU_TBL_CD / NSP_ITS_RT).")
-        return cov.nsp_table, cov.nsp_interest
+        return cov.nsp_table, cov.nsp_interest, cov.nsp_function_code
 
     def _additions_value(self, state: _State, when: date, row: ParWLMonth) -> float:
         total = 0.0
@@ -683,7 +687,8 @@ class ParWLEngine:
 
     def _buy_additions_with_cash(self, state: _State, amount: float, row: ParWLMonth) -> None:
         group = next((g for g in state.additions if g.phase == self.base.phase), None)
-        table, interest = (group.table, group.interest) if group else self._rpu_basis()
+        # Additions carry no function code (LH_PAID_UP_ADD): the table fallback values them.
+        table, interest = (group.table, group.interest) if group else self._rpu_basis()[:2]
         age = self._attained_age(self.base, row.when)
         face = cents(amount * 1000.0 / net_single_premium(table, interest, age))
         self._add_additions(state, self.base.phase, face)
@@ -818,9 +823,10 @@ class ParWLEngine:
         if net <= 0:
             raise ParWLProjectionError(
                 f"On {when:%m/%d/%Y} the net cash value ({net:,.2f}) buys no reduced paid-up insurance.")
-        table, interest = self._rpu_basis()
+        table, interest, function_code = self._rpu_basis()
         years = completed_months(self.base.issue_date, when) // 12
-        _s, _e, nsp = interpolated_nsp(table, interest, self.base.issue_age + years, self._month_of_year(when))
+        _s, _e, nsp = interpolated_nsp(table, interest, self.base.issue_age + years, self._month_of_year(when),
+                                       function_code)
         per_unit = nsp * self.base.value_per_unit / 1000.0
         units = float(Decimal(repr(net / per_unit)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
         state.units = units

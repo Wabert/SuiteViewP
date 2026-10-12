@@ -2,7 +2,8 @@
 
 On reduced paid-up the engine values the base coverage at the net single premium of
 whole life on the coverage's RPU basis (``NSP_RPU_TBL_CD`` / ``NSP_ITS_RT``), calculated
-from the CyberLife mortality table (see ``nsp.py``). This module rebuilds one month's
+from the CyberLife mortality table (see ``nsp.py``), with the claims factor of the
+coverage's mortality function code ``MTL_FUN_CD`` (CyberDoc D20 p.94). This module rebuilds one month's
 base cash value one step at a time from the engine's own functions, with the
 mortality terms behind each NSP, so a reviewer can reproduce every number by hand
 or in Excel. The result is checked against the engine's base cash value for that month.
@@ -14,7 +15,13 @@ from datetime import date
 from typing import Optional, Tuple
 
 from suiteview.illustration.core.parwl.engine import cents, completed_months
-from suiteview.illustration.core.parwl.nsp import NSPError, NSPWorkup, net_single_premium, nsp_workup
+from suiteview.illustration.core.parwl.nsp import (
+    NSPError,
+    NSPWorkup,
+    function_code_text,
+    net_single_premium,
+    nsp_workup,
+)
 from suiteview.illustration.models.parwl import ParWLMonth, ParWLPolicy
 
 STORED_NSP_COLUMNS = ("LOW_DUR_NSP_AMT", "LOW_DUR_1_NSP_AMT", "LOW_DUR_2_NSP_AMT")
@@ -65,13 +72,12 @@ def rpu_cash_value_workup(policy: ParWLPolicy, month: ParWLMonth) -> RPUWorkup:
     months_done = completed_months(cov.issue_date, month.when)
     years, k = months_done // 12, months_done % 12
     x = cov.issue_age + years
-    at_x = nsp_workup(cov.nsp_table, cov.nsp_interest, x)
-    at_next = nsp_workup(cov.nsp_table, cov.nsp_interest, x + 1)
+    at_x = nsp_workup(cov.nsp_table, cov.nsp_interest, x, cov.nsp_function_code)
+    at_next = nsp_workup(cov.nsp_table, cov.nsp_interest, x + 1, cov.nsp_function_code)
     table = at_x.table
     mid = (at_x.nsp * (12 - k) + at_next.nsp * k) / 12.0
     per_unit = mid * cov.value_per_unit / 1000.0
     base_cv = cents(month.units * per_unit)
-    immediate = at_x.claims_factor != 1.0
 
     steps = [
         WorkupStep("Value date", "Selected monthliversary", f"{month.when:%m/%d/%Y}"),
@@ -81,10 +87,11 @@ def rpu_cash_value_workup(policy: ParWLPolicy, month: ParWLMonth) -> RPUWorkup:
                    f"ages {table.first_age}-{table.last_age}"),
         WorkupStep("Interest rate i", "NSP_ITS_RT", _rate_text(at_x.interest)),
         WorkupStep("Discount factor v", "1 / (1 + i)", f"{at_x.discount_factor:.10f}"),
-        WorkupStep("Claims factor",
-                   "Age-last-birthday table: claims paid at death, i / ln(1 + i)" if immediate
-                   else "Claims at the end of the year of death (curtate)",
-                   f"{at_x.claims_factor:.10f}"),
+        WorkupStep("Mortality function code",
+                   "LH_COV_PHA.MTL_FUN_CD (CyberDoc D20 p.94 FCVVFNCT: 0 curtate, 1 semicontinuous, "
+                   "2 fully continuous, 3 discounted continuous)",
+                   function_code_text(at_x.function_code)),
+        WorkupStep("Claims factor", at_x.claims_rule, f"{at_x.claims_factor:.10f}"),
         WorkupStep("Completed months", f"{cov.issue_date:%m/%d/%Y} to {month.when:%m/%d/%Y}", f"{months_done}"),
         WorkupStep("Completed policy years", "completed months // 12", f"{years}"),
         WorkupStep("Month of policy year k", "completed months mod 12", f"{k}"),
@@ -133,7 +140,8 @@ def _stored_nsp_steps(policy: ParWLPolicy) -> Tuple[WorkupStep, ...]:
         age = cov.issue_age + duration
         try:
             calc: Optional[float] = round(
-                net_single_premium(cov.nsp_table, cov.nsp_interest, age) * cov.value_per_unit / 1000.0, 2)
+                net_single_premium(cov.nsp_table, cov.nsp_interest, age, cov.nsp_function_code)
+                * cov.value_per_unit / 1000.0, 2)
         except NSPError as exc:
             steps.append(WorkupStep(f"CyberLife NSP/unit, duration {duration}", STORED_NSP_COLUMNS[offset],
                                     f"{stored:,.2f}", str(exc)))

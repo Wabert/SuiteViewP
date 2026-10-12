@@ -281,6 +281,16 @@ class CoveragesSection(PolicySection):
         return None
 
     @property
+    def nonforfeiture_age(self) -> Optional[int]:
+        """Base insured's age when the policy went on ETI/RPU (issue age + completed years to that date)."""
+        nf_date = self.activity.nonforfeiture_date
+        covs = self.get_coverages()
+        issue_date = covs[0].issue_date if covs else None
+        if nf_date is None or issue_date is None or self.base_issue_age is None:
+            return None
+        return self.base_issue_age + self.activity._completed_date_parts_years(issue_date, nf_date)
+
+    @property
     def age_at_maturity(self) -> Optional[int]:
         """Age at maturity of base coverage (VBA: AgeAtMaturity).
         Calculated as issue_age + years from issue to maturity date."""
@@ -569,6 +579,7 @@ class CoveragesSection(PolicySection):
             indeterminate_guaranteed_months=self._parse_optional_int(row.get("IDT_PRM_GUA_PER")),
             refresh_or_renewal_age=self._parse_optional_int(row.get("REFRESH_OR_RNL_AGE")),
             valuation_mortality_table=text("MTL_FCT_TBL_CD"),
+            mortality_function_code=text("MTL_FUN_CD"),
         )
 
     def cov_index_for_phase(self, cov_pha_nbr: int) -> int:

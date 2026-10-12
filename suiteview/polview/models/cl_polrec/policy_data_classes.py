@@ -390,6 +390,9 @@ class TraditionalCoverageFacts:
     indeterminate_guaranteed_months: Optional[int] = None   # IDT_PRM_GUA_PER
     refresh_or_renewal_age: Optional[int] = None    # REFRESH_OR_RNL_AGE
     valuation_mortality_table: str = ""  # MTL_FCT_TBL_CD (CKAPTB32 code; ISWL DEFRA NSP)
+    # MTL_FUN_CD (CyberDoc D20 p.94 FCVVFNCT): 0 curtate, 1 semicontinuous, 2 fully continuous,
+    # 3 discounted continuous. Decides the nonforfeiture (RPU/ETI) NSP claims basis.
+    mortality_function_code: str = ""
 
 
 @dataclass

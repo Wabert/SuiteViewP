@@ -45,6 +45,8 @@ from suiteview.polview.models.policy_sections.lookup import policy_attr
 # the MD check and project_policy(months=0) don't go through these gates. Every
 # other status (44 ETI, 45 RPU, lapsed, matured, surrendered, terminated, ...)
 # is refused for business users too. Edit this set to widen or narrow the scope.
+# ISWL policies on reduced paid-up (45) never reach these gates: RERUN opens them in
+# their own workspace (core/iswl_rpu), like par whole life and indeterminate term.
 PHASE1_ALLOWED_PREMIUM_PAY_STATUSES = frozenset({"22"})
 
 # Disability-waiver premium-pay statuses, refused with their own explanation.

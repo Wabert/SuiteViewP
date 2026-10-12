@@ -426,7 +426,7 @@ class AdvProdValuesTab(QWidget):
     def _load_nonforfeiture(self, policy, status, gcv):
         """Show the NSP cash value in place of Total AV; mark AV values inactive."""
         info = self.policy_info
-        valuation = format_date(policy.values.valuation_date) or "unknown date"
+        valuation = format_date(policy.values.last_account_value_date) or "unknown date"
         stored_av = info.get_value("total_av") or "N/A"
         amount = gcv.get("value")
         inactive = (

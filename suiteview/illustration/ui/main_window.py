@@ -38,6 +38,7 @@ from suiteview.illustration.api import load_policy_data, project_policy
 from suiteview.illustration.core.illustration_policy_service import (
     coverage_segment_data_warnings,
 )
+from suiteview.illustration.core.calc_engine import ShadowFaceIncreaseError
 from suiteview.illustration.core.rate_loader import RateLookupError, load_rates
 from suiteview.illustration.core.rate_validation import (
     benefit_rate_override_warnings,
@@ -46,6 +47,8 @@ from suiteview.illustration.core.rate_validation import (
 )
 from suiteview.illustration.core.parwl.service import is_par_whole_life, load_parwl_basis
 from suiteview.illustration.core.term.service import is_indeterminate_term, load_term_basis
+from suiteview.illustration.core.iswl_rpu.engine import ISWLRPUError
+from suiteview.illustration.core.iswl_rpu.service import is_iswl_rpu, load_iswl_rpu_basis
 from suiteview.illustration.core.run_service import (
     PolicyBasis,
     RunControls,
@@ -86,6 +89,7 @@ from .inputs_tab import IllustrationInputsTab
 from .parwl_inputs import ParWLInputError
 from .parwl_workspace import ParWLWorkspace
 from .term_workspace import TermInputError, TermWorkspace
+from .iswl_rpu_workspace import ISWLRPUInputError, ISWLRPUWorkspace
 from .policy_list import IllustrationPolicyListWindow
 from .plancode_table_view import PlancodeTableWindow
 from .presenter import IllustrationPresenter, IllustrationSessionState
@@ -277,10 +281,9 @@ class IllustrationWindow(FramelessWindowBase):
         settings.set_testing_mode(False)
         settings.set_abr_quote_mode(False)
         settings.set_rollback_enabled(False)
-        # Every Options item and the ☰ Plancode Table are developer tools. The
-        # ☰ menu itself stays: business users need Export Case for Support (M8).
+        # Every Options item is a developer tool. The ☰ menu stays: business users
+        # need Plancode Tables and Export Case for Support (M8).
         self.options_btn.setVisible(False)
-        self._plancode_table_action.setVisible(False)
         self.lookup_bar.region_input.setText(BUSINESS_REGION)
         self.lookup_bar.region_input.setReadOnly(True)
         self.lookup_bar.region_input.setToolTip(
@@ -349,9 +352,10 @@ class IllustrationWindow(FramelessWindowBase):
 
         menu = QMenu(self.hamburger_btn)
         menu.setStyleSheet(HEADER_MENU_STYLE)
-        self._plancode_table_action = QAction("Plancode Table…", menu)
+        self._plancode_table_action = QAction("Plancode Tables…", menu)
         self._plancode_table_action.setToolTip(
-            "View the illustration plancode table (UL_Rates dbo.SV_RERUN_Adv_Plancodes)")
+            "View the plancode tables (UL_Rates dbo.SV_RERUN_Adv_Plancodes and "
+            "dbo.SV_RERUN_Plancode_Control)")
         self._plancode_table_action.triggered.connect(self.show_plancode_table)
         menu.addAction(self._plancode_table_action)
         from .support_export_controls import add_support_export_action
@@ -360,9 +364,7 @@ class IllustrationWindow(FramelessWindowBase):
         self.hamburger_btn.setMenu(menu)
 
     def show_plancode_table(self):
-        """Open (or raise) the read-only Plancode Table window."""
-        if self._business_mode:
-            return
+        """Open (or raise) the read-only Plancode Tables window (all users)."""
         window = self._plancode_table_window
         if window is None:
             try:
@@ -370,7 +372,7 @@ class IllustrationWindow(FramelessWindowBase):
             except Exception as exc:
                 logger.exception("Could not open the plancode table")
                 QMessageBox.critical(
-                    self, "Plancode Table", f"Could not load the plancode table:\n{exc}")
+                    self, "Plancode Tables", f"Could not load the plancode tables:\n{exc}")
                 return
             self._plancode_table_window = window
         window.show()
@@ -578,15 +580,17 @@ class IllustrationWindow(FramelessWindowBase):
         self.tabs.addTab(self.values_tab, "Values")
         self.tabs.addTab(self.report_tab, "Report")
         self.tabs.addTab(self.compare_tab, "Compare")
-        # Participating whole life and indeterminate premium term policies get their own
-        # workspaces (different inputs, value pages and illustration pages) in place of
-        # the UL/ISWL tabs.
+        # Participating whole life, indeterminate premium term and ISWL on reduced
+        # paid-up get their own workspaces (different inputs, value pages and
+        # illustration pages) in place of the UL/ISWL tabs.
         self.parwl_workspace = ParWLWorkspace()
         self.term_workspace = TermWorkspace()
+        self.iswl_rpu_workspace = ISWLRPUWorkspace()
         self._workspace_stack = QStackedWidget()
         self._workspace_stack.addWidget(self.tabs)
         self._workspace_stack.addWidget(self.parwl_workspace)
         self._workspace_stack.addWidget(self.term_workspace)
+        self._workspace_stack.addWidget(self.iswl_rpu_workspace)
         tabs_layout.addWidget(self._workspace_stack)
         main_layout.addWidget(self.tabs_container, 1)
 
@@ -1233,6 +1237,13 @@ class IllustrationWindow(FramelessWindowBase):
                 return
             self._load_term_into_ui(region, cached=cached)
             return
+        if self._is_iswl_rpu(self._policy):
+            refusal = plancode_refusal(plancode_of(self._policy))
+            if refusal:
+                self._refuse_policy_type(refusal)
+                return
+            self._load_iswl_rpu_into_ui(region, cached=cached)
+            return
         self._show_ul_workspace()
         self._live_policy_checks = None
         warnings, md_check = self._policy_load_checks(
@@ -1341,8 +1352,11 @@ class IllustrationWindow(FramelessWindowBase):
     def _term_active(self) -> bool:
         return self._workspace_stack.currentWidget() is self.term_workspace
 
+    def _iswl_rpu_active(self) -> bool:
+        return self._workspace_stack.currentWidget() is self.iswl_rpu_workspace
+
     def _fixed_premium_active(self) -> bool:
-        return self._parwl_active() or self._term_active()
+        return self._parwl_active() or self._term_active() or self._iswl_rpu_active()
 
     def _show_ul_workspace(self) -> None:
         self._workspace_stack.setCurrentWidget(self.tabs)
@@ -1482,6 +1496,72 @@ class IllustrationWindow(FramelessWindowBase):
             self._show_status(f"Run Values failed: {exc}")
         finally:
             self.run_values_btn.setEnabled(True)
+            QApplication.restoreOverrideCursor()
+
+    # ── Interest sensitive whole life on reduced paid-up ──────────
+
+    @staticmethod
+    def _is_iswl_rpu(policy) -> bool:
+        try:
+            return is_iswl_rpu(policy)
+        except Exception:  # an unreadable record goes down the normal path and reports there
+            logger.exception("ISWL RPU detection failed for %s", getattr(policy, "policy_number", "?"))
+            return False
+
+    def _load_iswl_rpu_into_ui(self, region: str, cached: bool = False) -> None:
+        """Show an ISWL policy on reduced paid-up in the ISWL RPU workspace."""
+        self._workspace_stack.setCurrentWidget(self.iswl_rpu_workspace)
+        self._illustration_data = None
+        self._live_policy_checks = None
+        self._current_key = None
+        self._last_scenario = None
+        self.rollback_controls.setVisible(False)
+        self.save_case_btn.setEnabled(False)
+        self.save_case_btn.setToolTip("Saved cases are not available for ISWL reduced paid-up yet.")
+        self.projection_mode_notice.setText(
+            "ISWL REDUCED PAID-UP | Monthly values from the last processed monthliversary on CyberLife's stored "
+            "NSP roll-forward, beside the whole-life NSP; the illustration is annual.")
+        self._refresh_summary_strip()
+        try:
+            basis = load_iswl_rpu_basis(self._policy, region=region)
+        except Exception as exc:
+            logger.exception("ISWL RPU load failed for %s", self._policy.policy_number)
+            self.run_values_btn.setEnabled(False)
+            message = f"ISWL reduced paid-up data could not be loaded: {exc}"
+            self.iswl_rpu_workspace.values_tab.clear(message)
+            self.iswl_rpu_workspace.report_view.clear(message)
+            self.iswl_rpu_workspace.policy_view.set_check_notice(message)
+            QMessageBox.warning(self, "ISWL Reduced Paid-Up", f"Unable to load ISWL reduced paid-up data: {exc}")
+            self._show_status(f"ISWL reduced paid-up load failed: {exc}")
+            return
+        self.iswl_rpu_workspace.load(basis)
+        policy = basis.policy
+        self.run_values_btn.setEnabled(not policy.run_block)
+        self._set_run_notice((policy.run_block,) if policy.run_block else ())
+        cache_note = " (cached)" if cached else ""
+        self._show_status(
+            f"Loaded ISWL reduced paid-up policy {policy.policy_number} ({policy.company_code}) - "
+            f"{policy.premium_status_description}{cache_note}")
+
+    def _run_iswl_rpu(self) -> None:
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        self.run_values_btn.setEnabled(False)
+        blocked = False
+        try:
+            result = self.iswl_rpu_workspace.run()
+            self._show_status(
+                f"ISWL reduced paid-up values for {result.policy.policy_number}: {len(result.years)} policy years, "
+                f"{len(result.months)} months.")
+        except (ISWLRPUInputError, ISWLRPUError) as exc:
+            blocked = bool(self.iswl_rpu_workspace.basis and self.iswl_rpu_workspace.basis.policy.run_block)
+            QMessageBox.information(self, "Illustration Inputs", str(exc))
+            self._show_status(str(exc))
+        except Exception as exc:
+            logger.exception("ISWL RPU run failed: %s", exc)
+            QMessageBox.warning(self, "Run Values", f"ISWL reduced paid-up values could not be calculated: {exc}")
+            self._show_status(f"Run Values failed: {exc}")
+        finally:
+            self.run_values_btn.setEnabled(not blocked)
             QApplication.restoreOverrideCursor()
 
     # ── saved-case activation (Saved Cases panel) ─────────────────────
@@ -1861,6 +1941,9 @@ class IllustrationWindow(FramelessWindowBase):
         if self._term_active():
             self._run_term()
             return
+        if self._iswl_rpu_active():
+            self._run_iswl_rpu()
+            return
         if self.policy_tab.has_pending_record_changes():
             QMessageBox.warning(
                 self, "Unapplied Record Values",
@@ -1901,6 +1984,9 @@ class IllustrationWindow(FramelessWindowBase):
             self._clear_solved_field(exc.clear_field)
             QMessageBox.information(self, exc.title, exc.message)
             self._show_status(exc.message)
+        except ShadowFaceIncreaseError as exc:
+            QMessageBox.warning(self, "Specified Amount Increase Not Allowed", str(exc))
+            self._show_status(str(exc))
         except RateLookupError as exc:
             logger.error("Run Values rate lookup failed: %s", exc, exc_info=True)
             QMessageBox.warning(self, "Missing Illustration Rate", str(exc))

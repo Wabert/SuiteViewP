@@ -102,3 +102,29 @@ def test_tools_menu_action_reaches_handler(taskbar, monkeypatch, title, handler)
     action.setEnabled(True)
     action.trigger()
     spy.assert_called_once_with()
+
+
+def test_app_data_location_opens_folder_in_explorer(taskbar, monkeypatch, tmp_path):
+    from suiteview.taskbar_launcher import taskbar_system
+
+    opened = Mock()
+    monkeypatch.setattr(taskbar_system.os, "startfile", opened, raising=False)
+    action = next(a for a in taskbar.chrome.tools_menu.actions()
+                  if a.text() == "📁 App Data Location")
+    action.setEnabled(True)
+    action.trigger()
+    profile_dir = tmp_path / "profile"
+    assert profile_dir.is_dir()
+    opened.assert_called_once_with(str(profile_dir))
+
+
+def test_app_data_location_failure_is_loud(taskbar, monkeypatch):
+    from suiteview.taskbar_launcher import taskbar_system
+
+    monkeypatch.setattr(taskbar_system.os, "startfile",
+                        Mock(side_effect=OSError("denied")), raising=False)
+    warning = Mock()
+    monkeypatch.setattr(taskbar_system.QMessageBox, "warning", warning)
+    taskbar.system_tray._open_app_data_location()
+    warning.assert_called_once()
+    assert "denied" in warning.call_args.args[2]

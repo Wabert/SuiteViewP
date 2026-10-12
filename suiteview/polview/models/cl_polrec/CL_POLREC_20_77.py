@@ -306,9 +306,13 @@ class LoanRecords:
         return opt_cd is not None and str(opt_cd) != "0"
 
     @property
+    def _uses_fund_loans(self) -> bool:
+        return self._policy.loans.uses_fund_loans
+
+    @property
     def total_regular_loan_principal(self) -> Decimal:
         """Total regular loan principal."""
-        if self._policy.product.is_advanced_product:
+        if self._uses_fund_loans:
             return self.calc_fund_loan_total("regular", "principal")
         else:
             return self.calc_trad_loan_total("regular", "principal")
@@ -316,7 +320,7 @@ class LoanRecords:
     @property
     def total_regular_loan_accrued(self) -> Decimal:
         """Total regular loan accrued interest."""
-        if self._policy.product.is_advanced_product:
+        if self._uses_fund_loans:
             return self.calc_fund_loan_total("regular", "accrued")
         else:
             return self.calc_trad_loan_total("regular", "accrued")
@@ -324,7 +328,7 @@ class LoanRecords:
     @property
     def total_preferred_loan_principal(self) -> Decimal:
         """Total preferred loan principal."""
-        if self._policy.product.is_advanced_product:
+        if self._uses_fund_loans:
             return self.calc_fund_loan_total("preferred", "principal")
         else:
             return self.calc_trad_loan_total("preferred", "principal")
@@ -332,7 +336,7 @@ class LoanRecords:
     @property
     def total_preferred_loan_accrued(self) -> Decimal:
         """Total preferred loan accrued interest."""
-        if self._policy.product.is_advanced_product:
+        if self._uses_fund_loans:
             return self.calc_fund_loan_total("preferred", "accrued")
         else:
             return self.calc_trad_loan_total("preferred", "accrued")
@@ -340,14 +344,14 @@ class LoanRecords:
     @property
     def total_variable_loan_principal(self) -> Decimal:
         """Total variable loan principal (UL only, fund LZ)."""
-        if not self._policy.product.is_advanced_product:
+        if not self._uses_fund_loans:
             return Decimal("0")
         return self.calc_fund_loan_total("variable", "principal")
 
     @property
     def total_variable_loan_accrued(self) -> Decimal:
         """Total variable loan accrued interest (UL only, fund LZ)."""
-        if not self._policy.product.is_advanced_product:
+        if not self._uses_fund_loans:
             return Decimal("0")
         return self.calc_fund_loan_total("variable", "accrued")
 
@@ -383,7 +387,7 @@ class LoanRecords:
     @property
     def policy_debt(self) -> Decimal:
         """Total policy debt (all loans principal + interest)."""
-        if self._policy.product.is_advanced_product:
+        if self._uses_fund_loans:
             return (self.total_regular_loan_principal + self.total_regular_loan_accrued +
                     self.total_preferred_loan_principal + self.total_preferred_loan_accrued +
                     self.total_variable_loan_principal + self.total_variable_loan_accrued)

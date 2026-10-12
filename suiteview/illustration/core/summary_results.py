@@ -38,7 +38,8 @@ def _detail_float(mapping: dict, key: str) -> float:
         return 0.0
 
 
-def _partial_surrender_charge(state: MonthlyState) -> float:
+def partial_surrender_charge(state: MonthlyState) -> float:
+    """The month's partial surrender charges: withdrawal, DBO change and face decrease."""
     return (
         state.wd_partial_sc
         + _detail_float(state.dbo_change_detail, "Total PSC DBO")
@@ -82,7 +83,7 @@ def summary_values(
             or ""
         ).upper(),
         "TotalSA": _total_specified_amount(policy, state),
-        "PSC": _partial_surrender_charge(state),
+        "PSC": partial_surrender_charge(state),
         "MonthlyMTP": state.monthly_mtp,
         "Accum MTP": state.accumulated_mtp,
         "GLP": state.glp,

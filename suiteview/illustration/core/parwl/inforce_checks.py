@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 from suiteview.illustration.core.inforce_check import CheckLine
 from suiteview.illustration.core.inforce_check import check_line as _line
 from suiteview.illustration.core.parwl.engine import ParWLEngine, cents, completed_months
-from suiteview.illustration.core.parwl.nsp import NSPError, net_single_premium
+from suiteview.illustration.core.parwl.nsp import NSPError, function_code_text, net_single_premium
 from suiteview.illustration.core.parwl.premiums import modal_premium, policy_mode, record_premium_date
 from suiteview.illustration.core.parwl.rates import ParWLRateError, ParWLRates
 from suiteview.illustration.models.parwl import ROLE_PUA_RIDER, ROLE_TERM_RIDER, ParWLPolicy
@@ -81,13 +81,16 @@ def cash_value_checks(policy: ParWLPolicy, rates: ParWLRates) -> List[CheckLine]
                     continue
                 duration = cov.stored_low_duration + offset
                 try:
-                    calc = round(net_single_premium(cov.nsp_table, cov.nsp_interest, cov.issue_age + duration)
+                    calc = round(net_single_premium(cov.nsp_table, cov.nsp_interest, cov.issue_age + duration,
+                                                    cov.nsp_function_code)
                                  * cov.value_per_unit / 1000.0, 2)
                 except NSPError as exc:
                     lines.append(CheckLine("Cash value", f"RPU NSP duration {duration}", stored, None, "info", str(exc)))
                     continue
                 lines.append(_line("Cash value", f"RPU NSP per unit, duration {duration}", stored, calc,
-                                   f"table {cov.nsp_table} at {cov.nsp_interest:.3%}, age {cov.issue_age + duration}"))
+                                   f"table {cov.nsp_table} at {cov.nsp_interest:.3%}, "
+                                   f"MTL_FUN_CD {function_code_text(cov.nsp_function_code)}, "
+                                   f"age {cov.issue_age + duration}"))
     return lines
 
 

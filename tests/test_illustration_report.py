@@ -506,7 +506,8 @@ def test_report_describes_loan_repayments_and_combines_them_with_ledger_outlay()
     assert report.loan_repayments_illustrated
     assert report.request_lines == [
         "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
-        "ANNUAL LOAN REPAYMENT OF $1,700.00 FOR POLICY YEARS 8 THROUGH 12",
+        "ANNUAL LOAN REPAYMENT OF $1,700.00 FOR POLICY YEARS 8 THROUGH 12, "
+        "CEASING AT LOAN PAYOFF",
     ]
     assert report.ledger[0].premium_outlay == 2900.0
 
@@ -515,10 +516,64 @@ def test_report_describes_loan_repayments_and_combines_them_with_ledger_outlay()
     pages = format_report_pages(report)
     cover = "\n".join(pages[0])
     ledger = "\n".join(pages[1])
-    assert "ANNUAL LOAN REPAYMENT OF $1,700.00 FOR POLICY YEARS 8 THROUGH 12" in cover
+    assert ("ANNUAL LOAN REPAYMENT OF $1,700.00 FOR POLICY YEARS 8 THROUGH 12, "
+            "CEASING AT LOAN PAYOFF") in cover
     assert "PREMIUM +     " in ledger
     assert "LOAN REPAY" in ledger
     assert "    2,900" in ledger
+
+
+def test_loan_repayment_line_states_excess_applied_as_premium():
+    from suiteview.illustration.models.input_set import IllustrationOptions
+    from suiteview.illustration.ui.report_tab import PAGE_WIDTH, format_report_pages
+
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(
+            kind=TransactionKind.LOAN_REPAYMENT,
+            effective_date=date(year, 11, 9),
+            amount=12_345.67,
+            metadata={"mode": "S"},
+        )
+        for year in range(2026, 2031)
+    ])
+    report = build_ul_report(
+        _policy(), _results(), future_inputs=inputs, run_date=date(2026, 7, 22),
+        options=IllustrationOptions(apply_excess_repayment_as_premium=True))
+
+    line = ("SEMI-ANNUAL LOAN REPAYMENT OF $12,345.67 FOR POLICY YEARS 8 THROUGH 12, "
+            "EXCESS OVER LOAN PAYOFF APPLIED AS PREMIUM")
+    assert line in report.request_lines
+    # Too long for one cover line: it wraps with a hanging indent, never past the page.
+    cover = format_report_pages(report)[0]
+    assert all(len(row) <= PAGE_WIDTH for row in cover)
+    start = next(i for i, row in enumerate(cover) if "SEMI-ANNUAL LOAN REPAYMENT" in row)
+    assert cover[start].startswith("    SEMI-ANNUAL")
+    assert cover[start + 1].startswith("      ") and cover[start + 1].strip()
+    assert " ".join(row.strip() for row in cover[start:start + 2]) == line
+
+
+def test_gp_exception_section_uses_the_federal_tax_law_wording():
+    from suiteview.illustration.ui.report_tab import PAGE_WIDTH, format_report_pages
+
+    rows = _results()
+    assert not build_ul_report(_policy(), rows, run_date=date(2026, 7, 22)).exception_section
+    rows[1].gp_exception_prem = 42.17
+    report = build_ul_report(_policy(), rows, run_date=date(2026, 7, 22))
+
+    expected = (
+        "FEDERAL TAX LAW ALLOWS PREMIUM ABOVE THE GUIDELINE LIMIT ONLY IN THE AMOUNT NEEDED TO "
+        "KEEP THE POLICY IN FORCE THROUGH THE END OF THE CURRENT POLICY YEAR, AND ONLY IF THE "
+        "POLICY WILL HAVE NO CASH VALUE AT THE END OF THAT YEAR. UNDER THIS SECTION THE POLICY "
+        "WILL NOT BUILD ACCOUNT VALUE WHILE PREMIUMS ARE LIMITED IN THIS WAY. THESE PREMIUMS "
+        "ARE KNOWN AS GUIDELINE EXCEPTION PREMIUMS.")
+    assert report.exception_section == ["GUIDELINE EXCEPTION PREMIUM", "", expected]
+    notes = next(page for page in format_report_pages(report)
+                 if "GUIDELINE EXCEPTION PREMIUM" in page)
+    assert all(len(line) <= PAGE_WIDTH for line in notes)
+    start = notes.index("GUIDELINE EXCEPTION PREMIUM")
+    printed = " ".join(" ".join(notes[start + 1:]).split())
+    assert printed.startswith(expected)
+    assert "7702(F)(6)" not in "\n".join(notes)
 
 
 def test_report_keeps_premium_outlay_heading_without_loan_repayments():
@@ -666,6 +721,48 @@ def test_changes_on_same_date_group_into_one_section():
         "ESTIMATED REGULATORY LIMITS FOR PREMIUMS AS OF 11/09/2027") == 1
     assert flat.count(
         "RIDERS AND BENEFITS ASSUMED IN THIS ILLUSTRATION AS OF 11/09/2027") == 1
+
+
+def test_dropped_benefit_shows_its_expiry_and_a_change_line():
+    """A dropped rider/benefit is listed with its new expiry date in the assumed
+    riders list and as a line in the policy-changes section; the cover's
+    active-on-the-policy list is unchanged."""
+    from suiteview.illustration.models.policy_data import RiderInfo
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    policy = _policy()
+    policy.benefits.append(BenefitInfo(benefit_type="4", coverage_phase=1, is_active=True))
+    policy.riders = [RiderInfo(coverage_phase=2, description="LEVEL TERM RIDER",
+                               face_amount=50_000.0, is_active=True)]
+    drop = PolicyChangeEvent(kind=PolicyChangeKind.RIDER_DROP, effective_date=date(2026, 11, 9),
+                             value=0.0, metadata={"target": "ben:4:1", "action": "drop"})
+    rider_cut = PolicyChangeEvent(kind=PolicyChangeKind.RIDER_DROP,
+                                  effective_date=date(2026, 11, 9), value=25_000.0,
+                                  metadata={"target": "cov:2", "action": "change"})
+    later = PolicyChangeEvent(kind=PolicyChangeKind.FACE_AMOUNT,
+                              effective_date=date(2027, 11, 9), value=75_000.0)
+    report = build_ul_report(policy, _results(),
+                             future_inputs=IllustrationInputSet(
+                                 policy_changes=[drop, rider_cut, later]),
+                             run_date=date(2026, 6, 10))
+
+    assert "STIPULATED PREMIUM WAIVER" in report.rider_lines
+    first, second = report.change_sections
+    assert first.summary_lines == [
+        "STIPULATED PREMIUM WAIVER DROPPED (EXPIRES 11/09/2026)",
+        "LEVEL TERM RIDER AMOUNT CHANGE TO $25,000.00",
+    ]
+    assert first.rider_lines == [
+        "PREMIUM WAIVER",
+        "STIPULATED PREMIUM WAIVER (EXPIRES 11/09/2026)",
+        "LEVEL TERM RIDER",
+    ]
+    # A later change section still shows the benefit's expiry.
+    assert "STIPULATED PREMIUM WAIVER (EXPIRES 11/09/2026)" in second.rider_lines
+
+    flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert "    STIPULATED PREMIUM WAIVER DROPPED (EXPIRES 11/09/2026)" in flat
+    assert "    STIPULATED PREMIUM WAIVER (EXPIRES 11/09/2026)" in flat
 
 
 def test_limited_face_decrease_reports_the_applied_face():
@@ -1377,6 +1474,9 @@ def _expense_results():
                           applied_regular_loan=200.0, wd_partial_sc=75.0)
             if year == 9 and month == 1:
                 kw.update(guideline_forceout=1000.0)
+            if year == 9 and month == 4:
+                kw.update(face_change_detail={"Total PSC Spec Dec": 40.0},
+                          dbo_change_detail={"Total PSC DBO": 10.0})
             rows.append(_month(year, month, **kw))
     return rows
 
@@ -1384,14 +1484,14 @@ def _expense_results():
 def test_expense_rows_annualize_j_to_y_columns():
     """One hand-computed value per column family: charges/credits are annual
     sums, policy values are end-of-year, cash out includes gross withdrawals
-    and force-outs but not loans."""
+    (less their partial surrender charge) and force-outs but not loans."""
     report = build_ul_report(_policy(), _expense_results(), run_date=date(2026, 7, 3))
 
     assert [r.year for r in report.expense_rows] == [8, 9]
     year8, year9 = report.expense_rows
     assert year8.eoy_age == 58                          # K — age at END of year (50 + 8)
     assert year8.premium_outlay == 1200.0               # L — 12 x 100
-    assert year8.distributions == 575.0                 # M — gross WD includes 75 PSC
+    assert year8.distributions == 500.0                 # M — 575 gross WD less its 75 PSC
     assert year9.distributions == 1000.0                # M — force-out counts
     assert year8.premium_charge == 60.0                 # N — 12 x 5
     assert year8.coi_charge == 120.0                    # O — 12 x 10 (base COI only)
@@ -1400,9 +1500,11 @@ def test_expense_rows_annualize_j_to_y_columns():
     assert year8.asset_charge == 12.0                   # R — 12 x 1
     assert year8.av_charge == 6.0                       # S — 12 x 0.5
     assert year8.rider_charges == 12.0                  # T — 12 x (0.75 + 0.25)
-    # PSC is already included in gross withdrawal and is not counted again.
-    # Combined page column: P + Q + R + S = 36 + 24 + 12 + 6.
-    assert year8.expenses == 78.0
+    assert year8.partial_surrender_charge == 75.0       # withdrawal PSC
+    assert year9.partial_surrender_charge == 50.0       # face decrease 40 + DBO change 10
+    # Combined page column: P + Q + R + S + PSC = 36 + 24 + 12 + 6 + 75.
+    assert year8.expenses == 153.0
+    assert year9.expenses == 128.0
     assert year8.interest_credited == 240.0             # U — 12 x 20
     assert year8.accum_value == 5000.0 + 96             # V — EOY AV (duration 96)
     assert year8.surrender_charges == 400.0             # W — EOY full SC
@@ -1455,8 +1557,9 @@ def test_expense_page_appended_only_when_enabled():
     assert (
         "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS CHARGES "
         "AND CREDITS. FOR EACH POLICY YEAR IT SHOWS THE PREMIUMS PAID, PREMIUM CHARGE, "
-        "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM "
-        "THE ACCUMULATION VALUE, AND THE INTEREST CREDITED."
+        "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM), THE INSURANCE CHARGES AND "
+        "EXPENSES AND FEES (INCLUDING ANY PARTIAL SURRENDER CHARGES) FROM THE ACCUMULATION "
+        "VALUE, AND THE INTEREST CREDITED."
     ) in flat_words
     assert "THE EXP/FEES COLUMN COMBINES" not in flat_words
     assert "CHARGES AND CREDITS ARE ANNUAL TOTALS" in flat_words   # second paragraph kept
@@ -1477,17 +1580,17 @@ def test_expense_page_appended_only_when_enabled():
                       "CHG", "EXP/FEES", "CREDITED", "VALUE", "CHGS",
                       "DEBT", "VALUE", "BENEFIT"]
 
-    # Data row: year 8 — EOY age 58, then premium charge (60), COI (120),
-    # rider (12), combined expenses/fees (36+24+12+6=78), and EOY policy
-    # values with debt before net surrender value.
+    # Data row: year 8 — EOY age 58, cash out without the withdrawal PSC (500),
+    # premium charge (60), COI (120), rider (12), combined expenses/fees
+    # (36+24+12+6+75 PSC=153), and EOY policy values with debt before net
+    # surrender value.
     year8_line = next(line for line in expense_page
                       if line.split()[:2] == ["58", "8"])
     assert year8_line.split() == [
-        "58", "8", "1,200.00", "575", "60", "120", "12", "78",
+        "58", "8", "1,200.00", "500", "60", "120", "12", "153",
         "240", "5,096", "400", "250", "4,096", "100,000"]
 
     assert "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM)" in " ".join(flat.split())
-    assert "PARTIAL SURRENDER CHARGES" not in flat
 
     # Large values never run together: six-figure charges and seven-figure
     # policy values still split into one token per column.

@@ -231,9 +231,9 @@ def _ledger_line(row: LedgerRow) -> str:
 # a gap at realistic maxima (six-figure charges, seven-figure policy values);
 # the 9pt landscape PDF holds ~135 characters inside its 0.3in side margins.
 # Follows the sheet's J:Y
-# order, with the non-premium expense components (P, Q, R, S) combined into
-# one EXPENSES/FEES column and a POLICY DEBT column added to the Policy Values
-# group (before Net Surr Value).
+# order, with the non-premium expense components (P, Q, R, S) and the partial
+# surrender charges combined into one EXPENSES/FEES column and a POLICY DEBT
+# column added to the Policy Values group (before Net Surr Value).
 # Age-then-Year order matches the illustration ledger; the age column stacks
 # "AGE / EOY" to flag it as the end-of-year attained age.
 EXPENSE_PAGE_WIDTH = 128
@@ -245,7 +245,7 @@ _EXPENSE_COLUMNS = [
     (9, "PREMIUM", "CHARGE", "premium_charge"),             # N — Premium Charge
     (9, "COI", "CHARGE", "coi_charge"),                     # O — Cost of Insurance
     (8, "RIDER", "CHG", "rider_charges"),                   # T — Other Rider Charges
-    (10, "", "EXP/FEES", "expenses"),                       # P+Q+R+S
+    (10, "", "EXP/FEES", "expenses"),                       # P+Q+R+S + partial surrender charges
     (10, "INTEREST", "CREDITED", "interest_credited"),      # U — Interest Credited
     (11, "ACCUM", "VALUE", "accum_value"),                  # V — Accumulation Value
     (9, "SURR", "CHGS", "surrender_charges"),               # W — Surrender Charges
@@ -257,8 +257,9 @@ _EXPENSE_COLUMNS = [
 _EXPENSE_INTRO = [
     "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS CHARGES "
     "AND CREDITS. FOR EACH POLICY YEAR IT SHOWS THE PREMIUMS PAID, PREMIUM CHARGE, "
-    "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM "
-    "THE ACCUMULATION VALUE, AND THE INTEREST CREDITED.",
+    "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM), THE INSURANCE CHARGES AND "
+    "EXPENSES AND FEES (INCLUDING ANY PARTIAL SURRENDER CHARGES) FROM THE ACCUMULATION "
+    "VALUE, AND THE INTEREST CREDITED.",
     "CHARGES AND CREDITS ARE ANNUAL TOTALS ON THE ILLUSTRATED (CURRENT, NON-GUARANTEED) "
     "BASIS, CONSISTENT WITH THE ILLUSTRATION'S LEDGER PAGES. POLICY VALUES, INCLUDING ANY "
     "OUTSTANDING POLICY DEBT, ARE END-OF-YEAR AMOUNTS. YEARS AFTER THE POLICY TERMINATES "
@@ -563,7 +564,11 @@ def _format_report_pages_from_specs(
         cover.add_wrapped(line)
     cover.blank()
     for line in report.request_lines:
-        cover.add(f"    {line}")
+        # Hanging indent keeps an overlong request (e.g. a repayment with its
+        # payoff note) inside the page; short lines print unchanged.
+        parts = [line] if len(line) <= PAGE_WIDTH - 4 else wrap_lines(line, PAGE_WIDTH - 6)
+        cover.add(f"    {parts[0]}")
+        cover.lines.extend(f"      {part}" for part in parts[1:])
     if report.request_notes:
         cover.blank()
         for note in report.request_notes:

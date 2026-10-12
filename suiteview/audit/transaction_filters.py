@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 
-from .sql_helpers import esc, in_list, strict_range_predicates
+from .sql_helpers import esc, escape_like_literal, in_list, strict_range_predicates
 
 
 class TransactionDateComparison(str, Enum):
@@ -84,7 +84,8 @@ def _row_predicates(criteria: TransactionCriteria, number: int) -> list[str]:
     if criteria.on_issue_day:
         predicates.append(f"DAY({alias}.ASOF_DT) = DAY(COVERAGE1.ISSUE_DT)")
     if criteria.origin.strip():
-        predicates.append(f"{alias}.ORIGIN_OF_TRANS = '{esc(criteria.origin.strip())}'")
+        origin = escape_like_literal(esc(criteria.origin.strip()))
+        predicates.append(f"{alias}.ORIGIN_OF_TRANS LIKE '%{origin}%' ESCAPE '\\'")
     if criteria.fund_ids.strip():
         funds = [value.strip() for value in criteria.fund_ids.split(",")]
         if not all(funds):

@@ -142,6 +142,9 @@ class ISWLRateBasis:
     # Single-premium policy (premium pay status 42): no premium is due, so there is
     # no premium load, mode factor or billed premium; a requested premium raises.
     single_premium: bool = False
+    # Benefit codes (type + subtype) that have a schema premium (PREM, IAF type N) cell;
+    # an ISWL benefit has no COI schedule, only this premium.
+    benefit_premium_codes: frozenset = frozenset()
 
     @property
     def surrender_charge_is_pct_of_av(self) -> bool:
@@ -700,6 +703,7 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
             reader, plan, plan_note, policy, segment, base_rows, key, years, expense_scale,
             notes, common, cash_values, scr_pct)
     basis.surrender_charge_graded = bool(scr_pct) and rule_5_graded(policy.company_code)
+    basis.benefit_premium_codes = _benefit_premium_codes(reader, plan, policy, key)
     return IllustrationRates(
         coi=coi,
         segment_coi={segment.coverage_phase: coi},
@@ -710,6 +714,18 @@ def _load(reader: SchemaReader, policy, config, segment, coi_scale: int, expense
         expense_scale=expense_scale,
         iswl=basis,
     )
+
+
+def _benefit_premium_codes(reader: SchemaReader, plan: PlanDef, policy, key: RateKey) -> frozenset:
+    """Codes of the policy's benefits that have a schema PREM (type N) cell."""
+    assignments = reader.cell_assignments(plan.company, plan.plancode)
+    codes = set()
+    for ben in policy.benefits:
+        code = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        rows = [a for a in assignments if a.benefit == code]
+        if code and rows and choose_cell(rows, "PREM", key)[0] is not None:
+            codes.add(code)
+    return frozenset(codes)
 
 
 def _single_premium_basis(plan, plan_note, policy, segment, notes, cash_values, scr_pct) -> ISWLRateBasis:

@@ -398,6 +398,51 @@ def validate_projection_timing(
         )
 
 
+class ShadowFaceIncreaseError(ValueError):
+    """A specified-amount increase was requested on a shadow-account product."""
+
+
+def is_shadow_account_product(policy: IllustrationPolicyData) -> bool:
+    """Policy carries (or carried, now ceased) a shadow-account benefit."""
+    return bool(policy.has_shadow_account or policy.ccv_ceased)
+
+
+def _shadow_face_increase_error(when: date, requested: float, current: float) -> ShadowFaceIncreaseError:
+    return ShadowFaceIncreaseError(
+        "Specified amount increases are not allowed on shadow account products. "
+        f"The face amount change effective {when:%m/%d/%Y} requests ${requested:,.2f}, "
+        f"above the specified amount of ${current:,.2f}. Decreases are allowed."
+    )
+
+
+def validate_shadow_face_changes(
+    policy: IllustrationPolicyData, future_inputs: Optional[IllustrationInputSet]
+) -> None:
+    """Reject any requested specified-amount increase on a shadow-account product.
+
+    Face changes are checked in date order against the running requested
+    specified amount. A DB option change moves the specified amount (B to A
+    adds the account value), so face changes on or after the first one are
+    left to the exact check where the engine applies them.
+    """
+    if future_inputs is None or not is_shadow_account_product(policy):
+        return
+    changes = future_inputs.policy_changes
+    dbo_dates = [c.effective_date for c in changes if c.kind == PolicyChangeKind.DB_OPTION]
+    first_dbo = min(dbo_dates) if dbo_dates else None
+    current = sum(s.face_amount for s in policy.segments) or policy.face_amount
+    for change in sorted(
+        (c for c in changes if c.kind == PolicyChangeKind.FACE_AMOUNT),
+        key=lambda c: c.effective_date,
+    ):
+        if first_dbo is not None and change.effective_date >= first_dbo:
+            return
+        requested = float(change.value)
+        if requested > current + MONEY_EPSILON:
+            raise _shadow_face_increase_error(change.effective_date, requested, current)
+        current = requested
+
+
 def initialize_run_from_issue_targets(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -2911,6 +2956,7 @@ class IllustrationEngine:
         if options is None:
             options = IllustrationOptions()
         validate_projection_timing(timing, future_inputs)
+        validate_shadow_face_changes(policy, future_inputs)
         policy, config, starting_exception_period = prepare_run_policy(policy, options)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
         iul_ctx = build_iul_context(policy, options)
@@ -3804,6 +3850,8 @@ def _apply_face_amount_change(
     face_before: float, md: dict, outcome: _PolicyChangeOutcome,
 ) -> None:
     requested = float(change.value)
+    if is_shadow_account_product(policy) and requested > face_before + MONEY_EPSILON:
+        raise _shadow_face_increase_error(change_date, requested, face_before)
     delta = _effective_face_target(config, change, face_before) - face_before
     detail = _face_change_detail(requested, requested - face_before)
     if requested - face_before < -1e-6 and delta > requested - face_before + 1e-6:

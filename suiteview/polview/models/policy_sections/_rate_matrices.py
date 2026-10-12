@@ -26,7 +26,6 @@ class RateMatrixMixin:
 
     _CV_RATE_FIELD_NAMES = ("stored_cv_0", "stored_cv_1", "stored_cv_2", "stored_cv_3")
     _NSP_RATE_FIELD_NAMES = ("stored_nsp_0", "stored_nsp_1", "stored_nsp_2")
-    _NONFORFEITURE_STATUS = {"44": "ETI", "45": "RPU"}
 
     def cov_cash_value_key(self, cov_index: int) -> str:
         """CVF class/base/sub key from the coverage's valuation codes (1-based)."""
@@ -101,7 +100,7 @@ class RateMatrixMixin:
     @property
     def nonforfeiture_status(self) -> str:
         """``ETI``/``RPU`` when the premium-pay status (44/45) is nonforfeiture, else ``""``."""
-        return self._NONFORFEITURE_STATUS.get(self.status.premium_pay_status_code, "")
+        return self.status.nonforfeiture_option
 
     def cov_cash_value_rates(self, cov_index: int) -> Dict[str, Any]:
         """Stored 02-segment cash value rates in play for a coverage (1-based).

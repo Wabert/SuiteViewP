@@ -8,6 +8,7 @@ class _AdvancedLoanPolicy:
     is_advanced_product = True
     product_type = "UL"
     status_code = "0"
+    uses_fund_loans = True
     fixed_loan_interest_rate = Decimal("6")
     preferred_loan_interest_rate = Decimal("5")
 

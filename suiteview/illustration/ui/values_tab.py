@@ -32,6 +32,7 @@ from suiteview.illustration.core.summary_results import (
     summary_values,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
+from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.signals import muted_signals
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -1121,6 +1122,27 @@ class IllustrationValuesTab(QWidget):
         "TotalPremLoad",
         "NetPremium",
     ]
+    # ISWL takes its load, policy fee and benefit/rider premiums out of the billed
+    # premium (iswl_rates rule 4), so the UL target/excess/flat split is replaced
+    # by the parts of the bill: gross = base + fee + benefit/rider premiums, and
+    # only the net reaches the account value.
+    ISWL_APPLY_PREMIUM_COLUMNS = APPLY_PREMIUM_COLUMNS[:APPLY_PREMIUM_COLUMNS.index("Prem Under Target")] + [
+        "ISWL Base Prem",
+        "TPP Rate",
+        "Under Load",
+        "ISWL Policy Fee",
+        "ISWL Benefit Prem",
+        "TotalPremLoad",
+        "NetPremium",
+    ]
+    ISWL_APPLY_PREMIUM_HEADER_LABELS = {
+        "ISWL Base Prem": "Base Prem",
+        "TPP Rate": "Rule 4 Load %",
+        "Under Load": "Base Prem Load",
+        "ISWL Policy Fee": "Policy Fee",
+        "ISWL Benefit Prem": "Benefit & Rider Prem",
+        "TotalPremLoad": "Total Load Fee & Ben Prem",
+    }
     EXCEPTION_PREMIUM_GROUP = "Exception Premiums"
     EXCEPTION_PREMIUM_COLUMNS = [
         "Guideline Limit Reached",
@@ -1248,6 +1270,10 @@ class IllustrationValuesTab(QWidget):
         "DistributionFromPolicy",
         "IllustrationGCO",
     ]
+    # ISWL surrender values are floored at the tabular guaranteed cash value.
+    ISWL_ENDING_VALUES_COLUMNS = ENDING_VALUES_COLUMNS[:ENDING_VALUES_COLUMNS.index("ES") + 1] + [
+        "Guar Cash Value",
+    ] + ENDING_VALUES_COLUMNS[ENDING_VALUES_COLUMNS.index("ES") + 1:]
     # Withdrawals / DB Option Change / Increase-Decrease / Cov After Change /
     # MTP / CTP columns are built per projection by the _*_column_names()
     # builders — the Cov 1..3 / APB slots only appear for coverages that are
@@ -1374,6 +1400,7 @@ class IllustrationValuesTab(QWidget):
         self._benefit_columns: list[str] = []
         self._rider_columns: list[str] = []
         self._monthly_deduction_columns: list[str] = []
+        self._iswl_run = False
         # Per-projection slot-driven groups (single coverage until a run shows more).
         self._withdrawals_columns = self._withdrawals_column_names([1])
         self._dbo_change_columns = self._dbo_change_column_names([1])
@@ -1708,12 +1735,14 @@ class IllustrationValuesTab(QWidget):
             self.TEFRA_TAMRA_GROUP: self.TEFRA_TAMRA_COLUMNS,
             self.REQUESTED_PREMIUM_GROUP: self.REQUESTED_PREMIUM_COLUMNS,
             self.LOAN_CAPITALIZE_GROUP: self.LOAN_CAPITALIZE_COLUMNS,
-            self.APPLY_PREMIUM_GROUP: self.APPLY_PREMIUM_COLUMNS,
+            self.APPLY_PREMIUM_GROUP: (
+                self.ISWL_APPLY_PREMIUM_COLUMNS if self._iswl_run else self.APPLY_PREMIUM_COLUMNS),
             self.MONTHLY_DEDUCTION_GROUP: self._monthly_deduction_columns,
             self.EXCEPTION_PREMIUM_GROUP: self.EXCEPTION_PREMIUM_COLUMNS,
             self.POLICY_VALUES_GROUP: self._policy_values_columns,
             self.ACCUMULATION_GROUP: self.ACCUMULATION_COLUMNS,
-            self.ENDING_VALUES_GROUP: self.ENDING_VALUES_COLUMNS,
+            self.ENDING_VALUES_GROUP: (
+                self.ISWL_ENDING_VALUES_COLUMNS if self._iswl_run else self.ENDING_VALUES_COLUMNS),
             self.SHADOW_ACCOUNT_GROUP: self.SHADOW_ACCOUNT_COLUMNS,
             self.JOINT_COI_GROUP: self._joint_coi_columns,
             self.IUL_ACCOUNTS_GROUP: self._iul_accounts_columns,
@@ -1727,7 +1756,20 @@ class IllustrationValuesTab(QWidget):
             self.SHADOW_ACCOUNT_GROUP: self.SHADOW_ACCOUNT_HEADER_LABELS,
             self.TESTING_GROUP: self.TESTING_HEADER_LABELS,
         }.get(title, {})
+        if self._iswl_run and title == self.APPLY_PREMIUM_GROUP:
+            tab_specific = self.ISWL_APPLY_PREMIUM_HEADER_LABELS
         return {**COMPACT_HEADER_LABELS, **tab_specific}
+
+    @staticmethod
+    def _is_iswl_policy(policy: IllustrationPolicyData) -> bool:
+        plancode = str(getattr(policy, "plancode", "") or "").strip()
+        if not plancode:
+            return False
+        try:
+            return bool(load_plancode(plancode).is_iswl)
+        except Exception:
+            logger.warning("Could not classify plancode %s for the Values tab", plancode, exc_info=True)
+            return False
 
     def capture_session_state(self) -> dict | None:
         """The displayed projection as a restorable snapshot, or None if empty.
@@ -1905,6 +1947,7 @@ class IllustrationValuesTab(QWidget):
         policy: IllustrationPolicyData,
         result_list: list[MonthlyState],
     ) -> tuple[pd.DataFrame, dict[str, int]]:
+        self._iswl_run = self._is_iswl_policy(policy)
         coverage_keys = self._coverage_keys(result_list)
         benefit_keys = self._detail_keys(result_list, "benefit_amounts", "benefit_rates", "benefit_charge_detail")
         rider_keys = self._detail_keys(result_list, "rider_amounts", "rider_rates", "rider_charge_detail")
@@ -2663,6 +2706,10 @@ class IllustrationValuesTab(QWidget):
             "Flat Load": state.flat_load,
             "TotalPremLoad": state.total_premium_load,
             "NetPremium": state.net_premium,
+            "ISWL Base Prem": round(
+                state.gross_premium - state.premium_policy_fee - state.premium_benefit_charge, 2),
+            "ISWL Policy Fee": state.premium_policy_fee,
+            "ISWL Benefit Prem": state.premium_benefit_charge,
         })
         return row
 
@@ -2924,6 +2971,7 @@ class IllustrationValuesTab(QWidget):
             "EA": state.av_end_of_month,
             "ELN": state.policy_debt,
             "ES": state.ending_sv,
+            "Guar Cash Value": state.guaranteed_cash_value,
             "EDBwoCORR": 0.0,
             "EDB_CORR": 0.0,
             "EDBwLNs": 0.0,

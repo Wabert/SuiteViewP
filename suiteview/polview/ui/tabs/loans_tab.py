@@ -124,21 +124,10 @@ class LoansTab(QWidget):
             return
 
         try:
-            is_advanced = policy.product.is_advanced_product
-            product_type = policy_attr(policy, "product_type", "")
-            status_code = policy_attr(policy, "status_code", "")
-
-            # Determine whether to use trad or fund loans
-            # VBA rule: advanced products use fund loans except ISWL in RPU (status 45)
-            use_trad = (
-                not is_advanced
-                or (product_type == "ISWL" and status_code == "45")
-            )
-
-            if use_trad:
-                self._load_trad_loans(policy)
-            else:
+            if policy.loans.uses_fund_loans:
                 self._load_fund_loans(policy)
+            else:
+                self._load_trad_loans(policy)
 
         except Exception:
             logger.exception("LoansTab failed to load policy data")

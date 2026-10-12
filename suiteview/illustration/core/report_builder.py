@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from textwrap import wrap
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from suiteview.illustration.core.bonus_rates import load_bonus_config
 from suiteview.illustration.core.calc_engine import bonus_as_of
@@ -45,6 +45,7 @@ from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
+    PolicyChangeEvent,
     PolicyChangeKind,
     TransactionKind,
 )
@@ -52,6 +53,7 @@ from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.policy_translations import rate_class_description
 from suiteview.illustration.core.report_specs import ReportFacts, ReportSectionSpec, RequestLineSpec
+from suiteview.illustration.core.summary_results import partial_surrender_charge
 from suiteview.illustration.models.index_strategies import (
     FIXED_FUND_ID,
     MARKET_INDEX_BY_FUND,
@@ -306,22 +308,25 @@ class ExpenseRow:
     flag ``I = year < sTerminationYear``).
 
     The rendered page keeps Premium Charge (N) as its own column and
-    collapses the remaining expense components (P, Q, R, S) plus any partial
-    surrender charges assessed on withdrawals into one combined
-    EXPENSES/FEES column (``expenses``). It also adds a POLICY DEBT column
-    (not on the RERUN sheet; same EOY loan balance the annual ledger shows).
-    The components stay granular here for tests and future use."""
+    collapses the remaining expense components (P, Q, R, S) plus the
+    partial surrender charges (withdrawal, face decrease and DB option change)
+    into one combined EXPENSES/FEES column (``expenses``). The withdrawal
+    partial surrender charge is therefore left out of CASH OUT. It also adds a
+    POLICY DEBT column (not on the RERUN sheet; same EOY loan balance the
+    annual ledger shows). The components stay granular here for tests and
+    future use."""
 
     year: int = 0                       # J — End of Year (policy year)
     eoy_age: int = 0                    # K — age at END of policy year (issue_age + year)
     premium_outlay: float = 0.0         # L — Σ vPremiumOutlay
-    distributions: float = 0.0          # M — Σ gross withdrawals + force-outs
+    distributions: float = 0.0          # M — Σ gross withdrawals (less PSC) + force-outs
     premium_charge: float = 0.0         # N — Σ vTotalPremLoad
     coi_charge: float = 0.0             # O — Σ vTotalCOICharge − Σ vRiderBenefitCharge (base COI)
     per_unit_charge: float = 0.0        # P — Σ vTotalEPU (per-1000 monthly charge)
     monthly_fee: float = 0.0            # Q — Σ vMFee
     asset_charge: float = 0.0           # R — Σ vAssetCharge (IUL segment asset charge)
     av_charge: float = 0.0              # S — Σ vAVCharge (% of accumulation value)
+    partial_surrender_charge: float = 0.0  # Σ PSC: withdrawal + face decrease + DBO change
     rider_charges: float = 0.0          # T — Σ vRiderBenefitCharge (benefit + rider charges)
     interest_credited: float = 0.0      # U — Σ vTotalInterest
     accum_value: float = 0.0            # V — EOY vIllustrationAV
@@ -334,9 +339,10 @@ class ExpenseRow:
     @property
     def expenses(self) -> float:
         """Combined EXPENSES/FEES page column: per-1000 charge + monthly fee +
-        segment asset charge + AV charge (sheet cols P+Q+R+S)."""
+        segment asset charge + AV charge (sheet cols P+Q+R+S) + partial
+        surrender charges."""
         return (self.per_unit_charge + self.monthly_fee + self.asset_charge
-                + self.av_charge)
+                + self.av_charge + self.partial_surrender_charge)
 
 
 @dataclass
@@ -647,8 +653,10 @@ def _expense_rows(
         row = ExpenseRow(year=year, eoy_age=eoy.attained_age + 1)
         if termination_year is None or year < termination_year:
             row.premium_outlay = sum(m.premium_outlay for m in months)
+            # The withdrawal's partial surrender charge is part of its gross
+            # amount; it reports under EXP/FEES instead of CASH OUT.
             row.distributions = sum(
-                m.gross_withdrawal + m.guideline_forceout
+                m.gross_withdrawal - m.wd_partial_sc + m.guideline_forceout
                 for m in months)
             row.premium_charge = sum(m.total_premium_load for m in months)
             row.coi_charge = sum(m.total_coi_charge for m in months)
@@ -656,6 +664,7 @@ def _expense_rows(
             row.monthly_fee = sum(m.mfee_charge for m in months)
             row.asset_charge = sum(m.asset_charge for m in months)
             row.av_charge = sum(m.av_charge for m in months)
+            row.partial_surrender_charge = sum(partial_surrender_charge(m) for m in months)
             row.rider_charges = sum(m.benefit_charges + m.rider_charges for m in months)
             row.interest_credited = sum(m.interest_credited for m in months)
             row.accum_value = max(eoy.av_end_of_month, 0.0)
@@ -680,11 +689,21 @@ _LUMPSUM_SUBTYPES = frozenset({"manual_lumpsum", LUMPSUM_SUBTYPE})
 _APPLY_PREM_TO_LOAN_NOTE = (
     "PREMIUMS ARE APPLIED FIRST TO REPAY ANY OUTSTANDING POLICY LOAN.")
 
+# Notes-page paragraph printed when the projection pays a GP exception premium
+# (the report page word-wraps and justifies it).
+_GP_EXCEPTION_TEXT = (
+    "FEDERAL TAX LAW ALLOWS PREMIUM ABOVE THE GUIDELINE LIMIT ONLY IN THE AMOUNT NEEDED TO "
+    "KEEP THE POLICY IN FORCE THROUGH THE END OF THE CURRENT POLICY YEAR, AND ONLY IF THE "
+    "POLICY WILL HAVE NO CASH VALUE AT THE END OF THAT YEAR. UNDER THIS SECTION THE POLICY "
+    "WILL NOT BUILD ACCOUNT VALUE WHILE PREMIUMS ARE LIMITED IN THIS WAY. THESE PREMIUMS "
+    "ARE KNOWN AS GUIDELINE EXCEPTION PREMIUMS.")
+
 
 def _request_lines_from_specs(
     policy: IllustrationPolicyData,
     results: List[MonthlyState],
     future_inputs: Optional[IllustrationInputSet],
+    excess_repayment_as_premium: bool = False,
 ) -> List[str]:
     """The cover's requested premium / loan / withdrawal lines (AY5..AY32)."""
     projected = results[1:]
@@ -906,6 +925,11 @@ def _request_lines_from_specs(
             str(tx.metadata.get("mode", "A")).strip().upper(), "ANNUAL")
         repayment_years.setdefault((mode, round(tx.amount, 2)), set()).add(year)
 
+    # Each repayment line states what a repayment larger than the loan payoff
+    # does (Inputs > Loan Repayments: Stop at payoff / Apply excess as premium).
+    repayment_excess = (
+        "EXCESS OVER LOAN PAYOFF APPLIED AS PREMIUM" if excess_repayment_as_premium
+        else "CEASING AT LOAN PAYOFF")
     for (mode, amount), years in sorted(
         repayment_years.items(), key=lambda item: min(item[1])
     ):
@@ -926,7 +950,7 @@ def _request_lines_from_specs(
                 else f"IN POLICY YEAR {start_year}"
             )
             lines.append(
-                f"{mode} LOAN REPAYMENT OF {_money(amount)} {span}")
+                f"{mode} LOAN REPAYMENT OF {_money(amount)} {span}, {repayment_excess}")
 
     # Withdrawals: dated, one line per year (AY22..AY27).
     wd_by_year: dict[tuple[int, str], float] = {}
@@ -959,11 +983,13 @@ def _request_lines(
     policy: IllustrationPolicyData,
     results: List[MonthlyState],
     future_inputs: Optional[IllustrationInputSet],
+    excess_repayment_as_premium: bool = False,
 ) -> List[str]:
     """Interpret request-line specs without changing report text."""
 
     spec = RequestLineSpec(
-        collect=lambda p, r, f: _request_lines_from_specs(p, r, f),
+        collect=lambda p, r, f: _request_lines_from_specs(
+            p, r, f, excess_repayment_as_premium),
         group="requested_activity",
     )
     return spec.render(policy, results, future_inputs)
@@ -975,7 +1001,6 @@ def _change_sections(
     policy: IllustrationPolicyData,
     results: List[MonthlyState],
     future_inputs: Optional[IllustrationInputSet],
-    rider_lines: List[str],
     options: IllustrationOptions,
 ) -> List[ChangeSection]:
     if future_inputs is None or not future_inputs.policy_changes:
@@ -986,9 +1011,12 @@ def _change_sections(
     # cover page and regulatory page each show one block per date.
     by_date: dict = {}
     seen: set = set()
+    rider_changes = [c for c in future_inputs.policy_changes
+                     if c.kind == PolicyChangeKind.RIDER_DROP]
     for change in sorted(future_inputs.policy_changes, key=lambda c: c.effective_date):
         # The same change entered through both input styles shows once.
-        signature = (change.kind, change.effective_date, str(change.value))
+        signature = (change.kind, change.effective_date, str(change.value),
+                     str((change.metadata or {}).get("target", "")))
         if signature in seen:
             continue
         seen.add(signature)
@@ -1013,8 +1041,13 @@ def _change_sections(
             section.summary_lines.append(
                 f"DEATH BENEFIT OPTION CHANGE TO OPTION {new} "
                 f"({_DBO_DESCRIPTIONS.get(new, '')})")
-        # Rider drops are not modeled — the rider set carries through.
-        section.rider_lines = list(rider_lines)
+        elif change.kind == PolicyChangeKind.RIDER_DROP:
+            line = _rider_change_line(policy, change)
+            if line:
+                section.summary_lines.append(line)
+        # Riders/benefits as of this date, a dropped one with its expiry date.
+        section.rider_lines = _rider_lines(policy, [
+            c for c in rider_changes if c.effective_date <= change.effective_date])
 
         # Estimated regulatory limits as of the change (the engine recalcs
         # GLP/GSP/7-pay at the change month). All changes on a given date share
@@ -1042,17 +1075,69 @@ def _change_sections(
 
 # ── Riders / benefits ───────────────────────────────────────────────────────
 
-def _rider_lines(policy: IllustrationPolicyData) -> List[str]:
+def _benefit_name(ben) -> str:
+    key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+    return _BENEFIT_NAMES.get(key) or _BENEFIT_TYPE_NAMES.get(ben.benefit_type or "") or ""
+
+
+def _rider_name(rider) -> str:
+    return rider.description or "TERM RIDER"
+
+
+def _targets_benefit(change: PolicyChangeEvent, ben) -> bool:
+    """A Rider / Benefit Change addresses this benefit (the engine's match rule)."""
+    parts = str((change.metadata or {}).get("target", "")).split(":")
+    if parts[0] != "ben" or len(parts) < 2:
+        return False
+    phase = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+    return key == parts[1] and (phase == 0 or ben.coverage_phase == phase)
+
+
+def _targets_rider(change: PolicyChangeEvent, rider) -> bool:
+    parts = str((change.metadata or {}).get("target", "")).split(":")
+    return (parts[0] == "cov" and len(parts) > 1 and parts[1].isdigit()
+            and rider.coverage_phase == int(parts[1]))
+
+
+def _is_drop(change: PolicyChangeEvent) -> bool:
+    return float(change.value or 0.0) <= 0.0
+
+
+def _rider_change_line(policy: IllustrationPolicyData, change: PolicyChangeEvent) -> str:
+    """The change-section line for a dropped or re-amounted rider/benefit."""
+    name = next(
+        (_benefit_name(ben) for ben in policy.benefits if _targets_benefit(change, ben)), "")
+    if not name:
+        name = next(
+            (_rider_name(r) for r in policy.riders if _targets_rider(change, r)), "")
+    if not name:
+        return ""
+    if _is_drop(change):
+        return f"{name} DROPPED (EXPIRES {change.effective_date:%m/%d/%Y})"
+    return f"{name} AMOUNT CHANGE TO {_money(float(change.value))}"
+
+
+def _rider_lines(
+    policy: IllustrationPolicyData,
+    rider_changes: Sequence[PolicyChangeEvent] = (),
+) -> List[str]:
+    """Rider/benefit names; one dropped by ``rider_changes`` carries its expiry date."""
+    def expiry(matches) -> str:
+        ended = [c.effective_date for c in rider_changes if _is_drop(c) and matches(c)]
+        return f" (EXPIRES {min(ended):%m/%d/%Y})" if ended else ""
+
     names: List[str] = []
     for ben in policy.benefits:
-        key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
-        name = _BENEFIT_NAMES.get(key) or _BENEFIT_TYPE_NAMES.get(ben.benefit_type or "")
-        if name and name not in names:
-            names.append(name)
+        name = _benefit_name(ben)
+        if name:
+            name += expiry(lambda c, ben=ben: _targets_benefit(c, ben))
+            if name not in names:
+                names.append(name)
     for rider in policy.riders:
         if not rider.is_active:
             continue
-        name = rider.description or "TERM RIDER"
+        name = _rider_name(rider) + expiry(lambda c, rider=rider: _targets_rider(c, rider))
         if name not in names:
             names.append(name)
     return names or ["NONE"]
@@ -1077,51 +1162,6 @@ def stale_valuation_days(policy: IllustrationPolicyData, run_date: Optional[date
         return None
     days = (run_date - valuation).days
     return days if days > STALE_VALUATION_DAYS else None
-
-
-def _within_safety_net(policy: IllustrationPolicyData, config) -> bool:
-    """The engine's inforce safety-net window (``_build_inforce_row``)."""
-    if policy.map_cease_date is not None and policy.valuation_date is not None:
-        return policy.valuation_date <= policy.map_cease_date
-    return policy.policy_year <= config.safety_net_years(policy.issue_age)
-
-
-def shadow_status_lines(
-    policy: IllustrationPolicyData,
-    inforce: MonthlyState,
-    policy_debt: float,
-    config,
-) -> List[str]:
-    """Whether the shadow-account no-lapse guarantee protects the policy now."""
-    if not policy.has_shadow_account:
-        if policy.ccv_ceased:
-            return ["THE SHADOW ACCOUNT (NO-LAPSE GUARANTEE) HAS CEASED AND NO LONGER "
-                    "PROTECTS THE POLICY FROM LAPSE."]
-        return []
-    lines = [f"SHADOW ACCOUNT (NO-LAPSE GUARANTEE) VALUE: {_money(policy.shadow_account_value)}."]
-    if config.shadow_loan_impact == "Nullify" and policy_debt > 0.005:
-        lines.append(
-            "THIS PLAN'S NO-LAPSE GUARANTEE DOES NOT PROTECT THE POLICY WHILE THERE IS ANY "
-            f"POLICY DEBT. WITH POLICY DEBT OF {_money(policy_debt)}, THE GUARANTEE IS "
-            "NULLIFIED AND IS NOT PROTECTING THE POLICY.")
-    elif inforce.shadow_protection and not inforce.positive_sv:
-        lines.append(
-            "THE NO-LAPSE GUARANTEE IS CURRENTLY KEEPING THE POLICY IN FORCE: THE SURRENDER "
-            "VALUE IS NOT POSITIVE AND THE SHADOW ACCOUNT VALUE IS.")
-    elif inforce.shadow_protection:
-        lines.append(
-            "THE NO-LAPSE GUARANTEE IS IN EFFECT BUT IS NOT CURRENTLY NEEDED: THE POLICY'S "
-            "SURRENDER VALUE IS POSITIVE.")
-    elif _within_safety_net(policy, config):
-        lines.append(
-            "THE POLICY IS WITHIN ITS MINIMUM PREMIUM (SAFETY NET) PERIOD; THE NO-LAPSE "
-            "GUARANTEE IS NOT YET THE PROTECTION THAT APPLIES.")
-    else:
-        less_debt = " LESS POLICY DEBT" if policy_debt > 0.005 else ""
-        lines.append(
-            "THE NO-LAPSE GUARANTEE IS NOT CURRENTLY PROTECTING THE POLICY: THE SHADOW "
-            f"ACCOUNT VALUE{less_debt} IS NOT POSITIVE.")
-    return lines
 
 
 def _charge_rate(policy: IllustrationPolicyData, policy_field: str, plan_rate: float) -> float:
@@ -1645,11 +1685,9 @@ def _build_ul_report_from_facts(
             else f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
         )
     illustrated_loans = any(s.applied_new_loan > 0.005 for s in projected)
-    plan_config = None
-    if inforce_debt > 0.005 or illustrated_loans or policy.has_shadow_account:
-        plan_config = load_plancode(policy.plancode)
     if inforce_debt > 0.005 or illustrated_loans:
-        report.loan_interest_lines = loan_interest_lines(policy, projected, plan_config)
+        report.loan_interest_lines = loan_interest_lines(
+            policy, projected, load_plancode(policy.plancode))
 
     # ── In-force status as of the valuation date (not for issue runs) ──
     if not policy.run_from_issue:
@@ -1665,10 +1703,6 @@ def _build_ul_report_from_facts(
             status.append("THE POLICY RECORD SHOWS THIS POLICY AS SUSPENDED (SUSPENSE CODE 2).")
         if report.already_mec:
             status.append("THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC).")
-        if policy.has_shadow_account or policy.ccv_ceased:
-            status += shadow_status_lines(
-                policy, inforce, inforce_debt,
-                plan_config if plan_config is not None else load_plancode(policy.plancode))
         report.policy_status_lines = status
     if run_context is not None:
         report.settings_lines = non_default_settings_lines(
@@ -1686,13 +1720,14 @@ def _build_ul_report_from_facts(
     elif tamra_restricted:
         intro += " HOWEVER, PREMIUMS MAY BE RESTRICTED BY 7-PAY PREMIUM LIMITS."
     report.request_intro = [intro]
-    report.request_lines = _request_lines(policy, results, future_inputs)
+    report.request_lines = _request_lines(
+        policy, results, future_inputs, options.apply_excess_repayment_as_premium)
     if options.apply_prem_to_loan:
         report.request_notes = [_APPLY_PREM_TO_LOAN_NOTE]
 
     report.rider_lines = _rider_lines(policy)
     report.change_sections = _change_sections(
-        policy, results, future_inputs, report.rider_lines, options)
+        policy, results, future_inputs, options)
     if report.year_of_mec is not None:
         report.mec_line = (
             f"THIS ILLUSTRATION SHOWS THE POLICY WILL BECOME A MEC IN YEAR {report.year_of_mec}"
@@ -1811,14 +1846,7 @@ def _build_ul_report_from_facts(
         report.exception_section = [
             "GUIDELINE EXCEPTION PREMIUM",
             "",
-            "IRC SECTION 7702(F)(6) STATES THAT IF THE MAXIMUM PREMIUM LIMITATION (DEFINED IN "
-            "7702) HAS BEEN EXCEEDED AND YOUR",
-            "POLICY HAS NO CASH VALUE THEN ADDITIONAL PREMIUMS ARE ALLOWED TO KEEP THE POLICY "
-            "INFORCE. HOWEVER, UNDER",
-            "THIS SECTION THE POLICY WILL NEVER BE ALLOWED TO BUILD ACCOUNT VALUE IN THE "
-            "FUTURE AND YOU WILL ONLY BE ALLOWED",
-            "TO PAY JUST ENOUGH TO COVER MONTHLY DEDUCTIONS. THESE PREMIUMS ARE KNOWN AS "
-            "GUIDELINE EXCEPTION PREMIUMS.",
+            _GP_EXCEPTION_TEXT,
         ]
 
     # ── Regulatory limits (as of the valuation date) ──

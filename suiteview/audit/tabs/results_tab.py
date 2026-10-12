@@ -20,6 +20,70 @@ from suiteview.ui.widgets.filter_table_view import FilterTableView
 logger = logging.getLogger(__name__)
 _FONT = QFont("Segoe UI", 9)
 
+# Result headers that identify a policy, in priority order. The CK_* names
+# cover hand-edited Build SQL that selects raw DB2 columns.
+_POLICY_HEADERS = ("POLICYNUMBER", "POL", "CK_POLICY_NBR")
+_COMPANY_HEADERS = ("COMPANYCODE", "CO", "CK_CMP_CD")
+
+
+def row_policy_company(model, row: int) -> tuple[str, str]:
+    """Extract (PolicyNumber, CompanyCode) from a result-table model row.
+
+    Returns ``("", "")`` when the results lack a policy-number column.
+    """
+    if model is None:
+        return "", ""
+    headers = {}
+    for c in range(model.columnCount()):
+        name = model.headerData(c, Qt.Orientation.Horizontal,
+                                Qt.ItemDataRole.DisplayRole)
+        if name:
+            headers[str(name).upper()] = c
+
+    pol_col = next((headers[h] for h in _POLICY_HEADERS if h in headers), None)
+    co_col = next((headers[h] for h in _COMPANY_HEADERS if h in headers), None)
+    if pol_col is None:
+        return "", ""
+
+    policy = str(model.data(
+        model.index(row, pol_col), Qt.ItemDataRole.DisplayRole) or "").strip()
+    company = ""
+    if co_col is not None:
+        company = str(model.data(
+            model.index(row, co_col), Qt.ItemDataRole.DisplayRole) or "").strip()
+    return policy, company
+
+
+def append_rerun_action(menu, index, model, ul_checker, open_signal) -> None:
+    """Append "Open in Rerun" to a results table's context menu.
+
+    Enabled only when the row's policy is an Advanced/UL product (Rerun is
+    the UL illustration tool). For a Traditional policy the action is shown
+    greyed with a hint, so the menu stays visible and teaches why it's
+    unavailable.
+    """
+    if index is None or not index.isValid():
+        return
+    policy, company = row_policy_company(model, index.row())
+    if not policy:
+        return
+
+    is_ul = False
+    if ul_checker is not None:
+        try:
+            is_ul = bool(ul_checker(policy, company))
+        except Exception:
+            logger.exception("UL check failed for %s", policy)
+            is_ul = False
+
+    menu.addSeparator()
+    if is_ul:
+        act = menu.addAction("📈 Open in Rerun")
+        act.triggered.connect(lambda: open_signal.emit(policy, company))
+    else:
+        act = menu.addAction("📈 Open in Rerun  (UL policies only)")
+        act.setEnabled(False)
+
 
 class ResultsTab(QWidget):
     """Results tab — shows query output in a filterable table."""
@@ -137,67 +201,11 @@ class ResultsTab(QWidget):
         self._ul_checker = checker
 
     def _row_policy_company(self, row: int) -> tuple[str, str]:
-        """Extract (PolicyNumber, CompanyCode) from the given result row.
-
-        Returns ``("", "")`` when the results lack the identifying columns.
-        """
-        model = self.table.table_view.model()
-        if model is None:
-            return "", ""
-        headers = {}
-        for c in range(model.columnCount()):
-            name = model.headerData(c, Qt.Orientation.Horizontal,
-                                    Qt.ItemDataRole.DisplayRole)
-            if name:
-                headers[str(name).upper()] = c
-
-        pol_col = headers.get("POLICYNUMBER")
-        if pol_col is None:
-            pol_col = headers.get("POL")
-        co_col = headers.get("COMPANYCODE")
-        if co_col is None:
-            co_col = headers.get("CO")
-        if pol_col is None:
-            return "", ""
-
-        policy = str(model.data(
-            model.index(row, pol_col), Qt.ItemDataRole.DisplayRole) or "").strip()
-        company = ""
-        if co_col is not None:
-            company = str(model.data(
-                model.index(row, co_col), Qt.ItemDataRole.DisplayRole) or "").strip()
-        return policy, company
+        return row_policy_company(self.table.table_view.model(), row)
 
     def _append_context_menu(self, menu, index):
-        """Hook: append "Open in Rerun" to the results table's context menu.
-
-        Enabled only when the row's policy is an Advanced/UL product (Rerun is
-        the UL illustration tool). For a Traditional policy the action is shown
-        greyed with a hint, so the menu stays visible and teaches why it's
-        unavailable.
-        """
-        if index is None or not index.isValid():
-            return
-        policy, company = self._row_policy_company(index.row())
-        if not policy:
-            return
-
-        is_ul = False
-        if self._ul_checker is not None:
-            try:
-                is_ul = bool(self._ul_checker(policy, company))
-            except Exception:
-                logger.exception("UL check failed for %s", policy)
-                is_ul = False
-
-        menu.addSeparator()
-        if is_ul:
-            act = menu.addAction("📈 Open in Rerun")
-            act.triggered.connect(
-                lambda: self.open_in_rerun.emit(policy, company))
-        else:
-            act = menu.addAction("📈 Open in Rerun  (UL policies only)")
-            act.setEnabled(False)
+        append_rerun_action(menu, index, self.table.table_view.model(),
+                            self._ul_checker, self.open_in_rerun)
 
     def _on_double_click(self, index):
         """Extract PolicyNumber and CompanyCode from the clicked row."""

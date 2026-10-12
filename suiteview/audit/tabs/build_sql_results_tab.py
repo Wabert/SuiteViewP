@@ -7,6 +7,7 @@ main Results tab.
 from __future__ import annotations
 
 import pandas as pd
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QInputDialog,
 )
@@ -14,17 +15,24 @@ from PyQt6.QtGui import QFont
 
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
+from .results_tab import append_rerun_action, row_policy_company
+
 _FONT = QFont("Segoe UI", 9)
 
 
 class BuildSqlResultsTab(QWidget):
     """Build SQL Results tab — shows output from user-edited queries."""
 
+    # Same contracts as ResultsTab: (policy_number, company_code)
+    policy_double_clicked = pyqtSignal(str, str)
+    open_in_rerun = pyqtSignal(str, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._df: pd.DataFrame | None = None
         self._sql = ""
         self._dsn = ""
+        self._ul_checker = None
         self._build_ui()
 
     def _build_ui(self):
@@ -40,6 +48,8 @@ class BuildSqlResultsTab(QWidget):
         tv.verticalHeader().setMinimumSectionSize(14)
         tv.setSelectionBehavior(tv.SelectionBehavior.SelectRows)
         tv.setEditTriggers(tv.EditTrigger.NoEditTriggers)
+        tv.doubleClicked.connect(self._on_double_click)
+        self.table.context_menu_hook = self._append_context_menu
 
         tv.setStyleSheet("""
             QTableView#filterTableView {
@@ -92,6 +102,19 @@ class BuildSqlResultsTab(QWidget):
         self.btn_save_object.clicked.connect(self._on_save_object)
         bottom.addWidget(self.btn_save_object)
         root.addLayout(bottom)
+
+    def set_ul_checker(self, checker):
+        """Register ``(policy_number, company_code) -> bool`` for "Open in Rerun"."""
+        self._ul_checker = checker
+
+    def _on_double_click(self, index):
+        policy, company = row_policy_company(self.table.table_view.model(), index.row())
+        if policy:
+            self.policy_double_clicked.emit(policy, company)
+
+    def _append_context_menu(self, menu, index):
+        append_rerun_action(menu, index, self.table.table_view.model(),
+                            self._ul_checker, self.open_in_rerun)
 
     def set_results(self, df: pd.DataFrame, *, sql: str = "", dsn: str = ""):
         """Load query results into the table."""

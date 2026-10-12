@@ -69,6 +69,9 @@ class ParWLCoverage:
     extra_premiums: Tuple[Tuple[float, Optional[date]], ...] = ()
     nsp_table: str = ""               # NSP_RPU_TBL_CD
     nsp_interest: Optional[float] = None
+    # MTL_FUN_CD: the RPU NSP claims basis (0 curtate, 1/2 claims paid at death; parwl/nsp.py).
+    # None (not loaded) falls back to the table's age basis.
+    nsp_function_code: Optional[str] = None
     stored_low_duration: Optional[int] = None
     stored_cash_values: Tuple[Optional[float], ...] = ()
     stored_nsp_values: Tuple[Optional[float], ...] = ()

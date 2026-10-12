@@ -231,9 +231,11 @@ def _load_family(win, monkeypatch, family, plancode):
     monkeypatch.setattr(mw, "DB2Connection", _DummyDb)
     monkeypatch.setattr(win, "_is_par_whole_life", lambda policy: family == "parwl")
     monkeypatch.setattr(win, "_is_indeterminate_term", lambda policy: family == "term")
+    monkeypatch.setattr(win, "_is_iswl_rpu", lambda policy: family == "iswl_rpu")
     loaded = []
     monkeypatch.setattr(win, "_load_parwl_into_ui", lambda *a, **k: loaded.append("parwl"))
     monkeypatch.setattr(win, "_load_term_into_ui", lambda *a, **k: loaded.append("term"))
+    monkeypatch.setattr(win, "_load_iswl_rpu_into_ui", lambda *a, **k: loaded.append("iswl_rpu"))
     win._policy = SimpleNamespace(exists=True, company_code="01", policy_number="W0000001",
                                   system_code="I", plancode=plancode)
     win._policy_info = {"CompanyCode": "01", "PolicyNumber": "W0000001"}
@@ -245,6 +247,7 @@ def _load_family(win, monkeypatch, family, plancode):
 @pytest.mark.parametrize("family, plancode, product", [
     ("parwl", _PARWL_PLANCODE, "ParWL"),
     ("term", _TERM_PLANCODE, "Term"),
+    ("iswl_rpu", _ISWL_PLANCODE, "ISWL"),
 ])
 def test_business_refuses_par_wl_and_term_the_table_disables(
         business_window, monkeypatch, family, plancode, product):
@@ -267,6 +270,12 @@ def test_developer_par_wl_still_opens_its_workspace(monkeypatch):
     monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
     win = _window()
     assert _load_family(win, monkeypatch, "parwl", _PARWL_PLANCODE) == ["parwl"]
+
+
+def test_developer_iswl_rpu_opens_its_workspace(monkeypatch):
+    monkeypatch.delenv(BUSINESS_MODE_ENV, raising=False)
+    win = _window()
+    assert _load_family(win, monkeypatch, "iswl_rpu", _ISWL_PLANCODE) == ["iswl_rpu"]
 
 
 # -- policy status (soft launch M3) ---------------------------------------------

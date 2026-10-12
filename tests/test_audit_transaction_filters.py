@@ -177,6 +177,16 @@ def test_zero_negative_amounts_and_escaped_literals(history):
     assert _matches(history, replace(criteria, gross_amount=("0", ""))) == []
 
 
+def test_origin_matches_any_value_containing_the_text_literally(history):
+    history.execute("UPDATE FH_FIXED SET ORIGIN_OF_TRANS = 'XARMY' WHERE TCH_POL_ID = 'FIRST'")
+    history.execute("UPDATE FH_FIXED SET ORIGIN_OF_TRANS = 'A%_M' WHERE TCH_POL_ID = 'SECOND'")
+    assert _matches(history, TransactionCriteria(origin=" ARM ")) == ["FIRST"]
+    assert _matches(history, TransactionCriteria(origin="%_")) == ["SECOND"]
+    assert _matches(history, TransactionCriteria(origin="R_M")) == []
+    sql = _single_predicate(TransactionCriteria(origin="ARM"), "DB2TAB", 1)
+    assert "TR1.ORIGIN_OF_TRANS LIKE '%ARM%' ESCAPE '\\'" in sql
+
+
 @pytest.mark.parametrize("field,value", [
     ("entry_date", ("not a date", "")),
     ("effective_date", ("2026-02-30", "")),

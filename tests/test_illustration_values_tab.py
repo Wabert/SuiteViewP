@@ -221,6 +221,54 @@ def test_accumulation_values_group_shows_unimpaired_interest():
     assert tab._tab_grids["Accumulation"].df.iloc[0]["Unimpaired Int"] == 17.5
 
 
+def test_apply_premium_shows_iswl_premium_split(monkeypatch):
+    """ISWL keeps its load, policy fee and benefit/rider premiums out of the account
+    value; the Apply Premium tab shows each part instead of the UL target split."""
+    _app()
+    monkeypatch.setattr(IllustrationValuesTab, "_is_iswl_policy", staticmethod(lambda policy: True))
+    tab = IllustrationValuesTab()
+    state = replace(
+        _state(), gross_premium=16.15, tpp_rate=0.15, target_load=2.52,
+        premium_policy_fee=3.40, premium_benefit_charge=2.17, total_premium_load=8.09,
+        net_premium=8.06, guaranteed_cash_value=3375.0, ending_sv=5171.05)
+
+    tab.display_projection(_policy(), [state])
+
+    grid = tab._tab_grids["Apply Premium"]
+    columns = list(grid.df.columns)
+    assert columns[-7:] == [
+        "ISWL Base Prem", "TPP Rate", "Under Load", "ISWL Policy Fee", "ISWL Benefit Prem",
+        "TotalPremLoad", "NetPremium"]
+    assert not {"Prem Under Target", "Prem Over Target", "EPP Rate", "Over Load",
+                "Flat Load"} & set(columns)
+    row = grid.df.iloc[0]
+    assert row["ISWL Base Prem"] == 10.58
+    assert row["ISWL Base Prem"] == round(row["Under Load"] + row["NetPremium"], 2)
+    assert row["ISWL Policy Fee"] == 3.40
+    assert row["ISWL Benefit Prem"] == 2.17
+    labels = tab._header_labels_for_tab(tab.APPLY_PREMIUM_GROUP)
+    assert labels["ISWL Benefit Prem"] == "Benefit & Rider Prem"
+    assert labels["Under Load"] == "Base Prem Load"
+    ending = list(tab._tab_grids["Ending Values"].df.columns)
+    assert ending[ending.index("ES") + 1] == "Guar Cash Value"
+    assert tab._tab_grids["Ending Values"].df.iloc[0]["Guar Cash Value"] == 3375.0
+
+
+def test_apply_premium_keeps_ul_load_split_for_ul_plans():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    columns = list(tab._tab_grids["Apply Premium"].df.columns)
+    assert columns[-9:] == [
+        "Prem Under Target", "Prem Over Target", "TPP Rate", "EPP Rate", "Under Load",
+        "Over Load", "Flat Load", "TotalPremLoad", "NetPremium"]
+    assert "ISWL Policy Fee" not in columns
+    assert "Guar Cash Value" not in tab._tab_grids["Ending Values"].df.columns
+    assert tab._header_labels_for_tab(tab.APPLY_PREMIUM_GROUP).get("Under Load") != "Base Prem Load"
+
+
 @pytest.mark.parametrize("coverage_count", [1, 2, 3, 7, 12])
 def test_policy_values_shows_every_coverage_in_numeric_order(coverage_count):
     _app()

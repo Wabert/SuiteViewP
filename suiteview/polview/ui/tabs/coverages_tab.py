@@ -79,12 +79,12 @@ class CoveragesTab(QWidget):
         self.info_group.add_field("Status", "status_label", 80, 100)
         self.info_group.add_field("Issue State", "issue_state_label", 80, 80)
         self.info_group.add_field("Total Death Benefit", "total_death_benefit_label", 110, 100)
-        self.info_group.add_field("System Cd", "system_cd_label", 80, 80)
+        self.info_group.add_field("RPU Date", "nf_date_label", 80, 80)
 
         self.info_group.add_field("Reins Partner", "reins_partner_label", 80, 80)
         self.info_group.add_field("Definition of Life", "definition_of_life_label", 110, 80)
         self.info_group.add_field("DB Option", "db_option_label", 80, 80)
-        self.info_group.add_field("Region", "region_label", 80, 80)
+        self.info_group.add_field("RPU Age", "nf_age_label", 80, 80)
         self.info_group.set_field_sources({
             "suspense_label": "LH_BAS_POL.SUS_CD",
             "billing_mode_label": "LH_BAS_POL.PMT_FQY_PER + NSD_MD_CD",
@@ -95,7 +95,8 @@ class CoveragesTab(QWidget):
             "status_label": "LH_BAS_POL.PRM_PAY_STA_REA_CD",
             "reins_partner_label": "TH_USER_GENERIC.FUZGREIN_IND",
             "db_option_label": "LH_NON_TRD_POL.DTH_BNF_PLN_OPT_CD",
-            "system_cd_label": "LH_BAS_POL.CK_SYS_CD",
+            "nf_date_label": "LH_BAS_POL.PRM_PAID_TO_DT (when PRM_PAY_STA_REA_CD is 44/45)",
+            "nf_age_label": "Base issue age + completed years from issue to the ETI/RPU date",
         })
 
         # Backward-compat aliases
@@ -106,8 +107,8 @@ class CoveragesTab(QWidget):
         self.definition_of_life_label = self.info_group.definition_of_life_label
         self.billing_mode_label = self.info_group.billing_mode_label
         self.premium_label = self.info_group.premium_label
-        self.region_label = self.info_group.region_label
-        self.system_cd_label = self.info_group.system_cd_label
+        self.nf_date_label = self.info_group.nf_date_label
+        self.nf_age_label = self.info_group.nf_age_label
         self.joint_label = self.info_group.joint_label
         self.suspense_label = self.info_group.suspense_label
         self.grace_label = self.info_group.grace_label
@@ -256,8 +257,7 @@ class CoveragesTab(QWidget):
         self.definition_of_life_label.setText(policy.product.gpt_cvat)
         self.billing_mode_label.setText(policy.billing.billing_mode)
         self.premium_label.setText(format_amount(policy.billing.modal_premium))
-        self.region_label.setText(policy.region)
-        self.system_cd_label.setText(policy.system_code)
+        self._populate_nonforfeiture(policy)
 
         self.joint_label.setText(policy.coverages.insured_lives_description)
 
@@ -306,6 +306,23 @@ class CoveragesTab(QWidget):
             self.db_option_label.setText(_DB_OPT_DISPLAY.get(policy.product.db_option_code, ""))
         else:
             self.db_option_label.setText("")
+
+    def _populate_nonforfeiture(self, policy: 'PolicyInformation'):
+        """ETI/RPU date and age; greyed N/A when the policy is not on nonforfeiture."""
+        option = policy.status.nonforfeiture_option or "RPU"
+        self.info_group.set_field_label("nf_date_label", f"{option} Date")
+        self.info_group.set_field_label("nf_age_label", f"{option} Age")
+        nf_date = policy.activity.nonforfeiture_date
+        if nf_date is None:
+            for lbl in (self.nf_date_label, self.nf_age_label):
+                lbl.setText("N/A")
+                lbl.setStyleSheet(_VAL_STYLE_NA)
+            return
+        nf_age = policy.coverages.nonforfeiture_age
+        for lbl in (self.nf_date_label, self.nf_age_label):
+            lbl.setStyleSheet(_VAL_STYLE)
+        self.nf_date_label.setText(nf_date.strftime("%m/%d/%Y"))
+        self.nf_age_label.setText("" if nf_age is None else str(nf_age))
 
     def _populate_death_benefit(self, policy: 'PolicyInformation'):
         """Show the total death benefit and whether the 7702 corridor drives it.

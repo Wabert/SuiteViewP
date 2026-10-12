@@ -88,6 +88,20 @@ def test_viewer_shows_every_plancode_with_identity_columns_frozen(app):
         _close(app, window)
 
 
+def test_viewer_has_a_control_tab_with_every_control_row(app):
+    from suiteview.illustration.core.plancode_control import control_rows
+
+    window = PlancodeTableWindow()
+    try:
+        assert [window.tabs.tabText(i) for i in range(window.tabs.count())] == [
+            "Adv_Plancodes", "Plancode_Control"]
+        grid = window.control_panel.grid
+        assert list(grid.df.columns) == ["Plancode", "ProductType", "CanIllustrate"]
+        assert grid.model.rowCount() == len(control_rows())
+    finally:
+        _close(app, window)
+
+
 def test_header_hamburger_sits_left_of_title_and_opens_one_plancode_window(app):
     from suiteview.illustration.ui.main_window import IllustrationWindow
 
@@ -98,7 +112,7 @@ def test_header_hamburger_sits_left_of_title_and_opens_one_plancode_window(app):
         assert layout.indexOf(window.hamburger_btn) < layout.indexOf(window.title_label)
         assert window.hamburger_btn.text() == "☰"
         actions = [a.text() for a in window.hamburger_btn.menu().actions()]
-        assert actions == ["Plancode Table…", "Export Case for Support…"]
+        assert actions == ["Plancode Tables…", "Export Case for Support…"]
 
         window._plancode_table_action.trigger()
         app.processEvents()
@@ -134,7 +148,7 @@ def test_plancode_table_load_failure_is_loud(app, monkeypatch):
     try:
         window.show_plancode_table()
         assert window._plancode_table_window is None
-        assert shown and shown[0][0] == "Plancode Table"
+        assert shown and shown[0][0] == "Plancode Tables"
         assert "No plancode table found" in shown[0][1]
     finally:
         _close(app, window)

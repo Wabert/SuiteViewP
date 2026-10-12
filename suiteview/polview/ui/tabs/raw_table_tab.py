@@ -540,6 +540,9 @@ class RawTableTab(QWidget):
         self.table_label.setText(f"Table: {table_name}")
         self._current_table_name = table_name
         self._leave_search_mode()
+        # DB2 tables always open with field names down the first column, even
+        # after a Rates view switched the shared tab to normal orientation.
+        self._is_transposed = True
 
         try:
             # FH_ tables don't have CK_SYS_CD column

@@ -46,9 +46,9 @@ gated too:
   `dbo.SV_RERUN_Plancode_Control` enables (`core/plancode_control.py`; see
   "RERUN plancode tables" below), unless their role has the `RERUNANYPLAN`
   permission. The rule applies in every build and whatever the business mode;
-  par whole life and indeterminate term policies the table disables are refused
-  instead of opening their workspaces ("Plancode AB1S4700 (ParWL) is not enabled
-  for in-force illustration in this release.").
+  par whole life, indeterminate term and ISWL reduced paid-up policies the table
+  disables are refused instead of opening their workspaces ("Plancode AB1S4700 (ParWL)
+  is not enabled for in-force illustration in this release.").
 - **Status:** `PHASE1_ALLOWED_PREMIUM_PAY_STATUSES` = 22 (premium paying) only; every
   other premium-pay status and suspense code 3 are refused ("Policy status 44
   (Extended Term) is not supported for in-force illustration in this release.").
@@ -504,6 +504,19 @@ solve CVAT policies with Conform to TAMRA off. The CyberLife history harness
 may supply `deemed_cash_value`, otherwise the replay runs on the default and
 records `deemed_cash_value_defaulted`. Formulas: `IMPLEMENTED_Calculation_Pipeline.md` Step 19.
 Regression: `tests/test_illustration_deemed_cash_value.py`.
+
+## Shadow-account products: no specified-amount increases
+
+On a shadow-account product (`IllustrationPolicyData.has_shadow_account` or
+`ccv_ceased`) a Face Amount Change may only decrease the specified amount.
+`calc_engine.validate_shadow_face_changes` checks the requested face changes in
+date order against the running specified amount before any projection
+(`IllustrationEngine.project`) and before any Run Values solve
+(`run_service.check_shadow_face_changes`, shown as the "Specified Amount
+Increase Not Allowed" message). Face changes on or after a DB option change are
+checked where the engine applies them (`_apply_face_amount_change`), because a
+B-to-A change moves the specified amount. Both raise `ShadowFaceIncreaseError`.
+Regression: `tests/test_illustration_shadow_face_increase.py`.
 
 ## RERUN face decrease before B-to-A option change — pending implementation
 
@@ -1666,6 +1679,8 @@ Rules are in `illustration/core/iswl_rates.py`:
   bill forms, schema facts that disagree with the plancode row, and missing
   schema rates. Nonforfeiture (ETI/RPU/APL) after stopped premiums is not
   modelled. CyberLife's per-premium interest buckets are credited as one account.
+  ISWL policies already on reduced paid-up (status 45) open in their own workspace
+  ("RERUN ISWL on reduced paid-up" below).
 
 Plancode rows are generated from schema `PLAN_DEF` and plan rates by
 `tools/rerun/build_iswl_plancode_rows.py`; the loader re-validates maturity,
@@ -1969,3 +1984,87 @@ kept as billed for their period; riders not loaded in schema `rates` bill their 
 rate every year; company 26 SIGTERM policies with the NY children's rider B1582800 are
 refused (that rider has no mode factors in schema `rates` and bills at 0.085 monthly:
 000341291 (290 + 60) x 0.0864 + 50 x 0.085 = 34.49); saved cases are not available.
+
+## RERUN ISWL on reduced paid-up (ISWL RPU)
+
+An interest sensitive whole life policy on reduced paid-up (`is_iswl_rpu`: CyberLife
+advanced product, base product line `I`, premium pay status `45`; 1,252 company 01
+policies on 10/9/2026) opens in RERUN's **ISWL RPU workspace** instead of the UL/ISWL
+tabs, which refuse status 45 (Robert Haessly, 10/9/2026). The plancode control table
+applies as for par WL and term. Pages: **Policy** (the snapshot, NSP basis, the three
+stored NSPs, PolView's NSP cash value, loans and notes; benefits as detail buttons),
+**Illustration Inputs** (only the illustrate-to age: a paid-up policy has no premiums,
+withdrawals, death benefit options or face changes), **Values** (Annual and Monthly
+values, the NSP Schedule and the **NSP Workup** of a selected anniversary), **Report**
+(landscape pages like the par WL RPU illustration) and **In-force Check**. Code:
+`suiteview/illustration/core/iswl_rpu/` (nsp_roll, policy_loader, engine, workup,
+inforce_checks, report, service), `models/iswl_rpu.py`, `ui/iswl_rpu_workspace.py`.
+Saved cases are not available.
+
+**Basis** (CyberDoc B10 p.57 "Paid-Up Policies", S45 p.518-519 CKULNLEC/CKULNLEI, B20
+p.62): CyberLife treats the converted ISWL as traditional and stores the NSPs of the
+paid-up benefit per $1,000 at durations `LOW_DUR_PER`, +1, +2 (`LOW_DUR_NSP_AMT`,
+`LOW_DUR_1_NSP_AMT`, `LOW_DUR_2_NSP_AMT`); each anniversary extends them one year from
+the third value. The step reproduced from the record is
+`NSP(d+1) = (NSP(d) x (1 + i) - 1000 x q x c) / (1 - q)` with `i` = `NSP_ITS_RT`, `q` the
+`NSP_RPU_TBL_CD` rate at age issue age + d + 1 (one year older than the textbook
+recursion) and `c` = `i / ln(1 + i)` for age-last-birthday tables, else 1. The third value
+is carried to 6 decimals; the first two are cents. Example 11663262 (L4 5.5%, issue age
+21, LOW_DUR_PER 38): 427.13 rolls to 440.7692 (stored 440.77) and 440.77 to 454.496511
+(stored 454.498282).
+
+**Conversion basis** (verified 10/9/2026 on 11663262; see
+`ZZTaskRepo\ISWL-RPU-Illustration-2026-10-09\03_Deliverables\ISWL_RPU_NSP_11663262.xlsx`):
+the cash buys a paid-up **endowment at the coverage's maturity age** (81335100: endowment
+at 95). Its NSP per $1,000 is `E(m) = 1000`,
+`E(x) = (E(x+1) x (1 - q(x)) + 1000 x q(x) x c) / (1 + i)` (`nsp_roll.endowment_nsp`, the
+same table, interest and claims rule), interpolated monthly from the last anniversary.
+B20 p.498: WORK RPU AMT = cash / original units / NSP (high cent); face = that x units
+rounded to the next dollar. 11663262 (02/07/2022, 4 months past the 10/07/2021 anniversary,
+age 54): (360.384160 x 8 + 373.662836 x 4) / 12 = 364.810385; 7,518.57 (FH_FIXED TR net) /
+25 units (LH_COV_TMN.OGN_COV_UNT_QTY) / 0.364810385 = 824.39 per unit; face $20,610 =
+20.610 units. The stored values then start as E at ages 54, 55 (cents) and 56 (387.199285);
+four anniversary rolls give the record's 427.13, 440.77 and 454.4987 (record 454.498282).
+Across company 01, conversions in roughly the last 11 years start on the endowment NSP
+(median difference under 0.002); older ones start 1-3 per $1,000 away on a basis not
+identified. Because the roll uses q one age older than the endowment recursion, the stored
+values drift below the endowment NSP every year after conversion.
+
+**Projection.** Cash value on a monthliversary = PolView's NSP cash value:
+`round_half_up(units x (NSP(d) x (12 - m) + NSP(d+1) x m) / 12, 2)` (d completed years,
+m months since the anniversary), rolled values used in cents. The start ties to PolView
+to the cent (11663262 8,803.15; 12287387 16,552.02; 11632086 6,136.08; 10024593
+16,560.38; N8620833 582.82). The death benefit is the level paid-up face (units x value
+per unit). Beside it, the paid-up endowment's NSP at the attained age (`nsp_roll.endowment_nsp`,
+the conversion basis, interpolated monthly) is a comparison only. The roll-forward
+peaks and then falls (11663262: 623.76 at age 77, negative at 88; 12287387 is already
+falling at 83); the endowment NSP keeps rising to 1,000 at maturity. Warnings: the first year the two bases
+differ by more than 5%, and the first negative roll-forward value - B10: "when the value
+in the third values field becomes negative, the net single premiums are no longer
+updated". From the anniversary before it the illustration holds the last non-negative
+NSP and marks those years frozen: what CyberLife pays after it stops updating is **not
+verified**. The ledger ends at the coverage maturity; the maturity benefit is not
+illustrated (not verified).
+
+**Loans, riders, benefits.** A current loan - a traditional `LH_CSH_VAL_LOAN` row
+(12/31/9999) or the latest advanced `LH_FND_VAL_LOAN` row dated after the last account
+value (11051396 carries its kept loan there, 9,703.20 capitalised at 8% each
+anniversary) - refuses Run Values with the balance named: kept-loan interest on ISWL RPU
+is not verified (B20 p.62, D202 p.236 flag "Advanced Product RPU Loan Retention").
+Advanced loan rows dated on or before the last account value predate the conversion and
+are noted, not illustrated (11663262: 2,367.79 at 01/07/2022, no later row). Riders and
+benefits are listed, not valued (B20 p.62: "processed as if all coverages and benefits
+are ceased"); a rider with its own stored values, or a value per unit other than 1,000,
+refuses the run.
+
+**Verification** (live, read-only, 10/9/2026): `tools/rerun/verify_iswl_rpu_nsp.py` rolls
+every company 01 ISWL RPU coverage's first and second stored values with the engine's
+own step: 1,143 of 1,252 match within 0.0115 / 0.0058 (L4 294/317, L5 287/342, S 297/313,
+T 252/266, N0 6/6, N1 7/7, N2 0/1); most misses are only the oldest value (B20: the first
+stored value can be the conversion year's NSP). `tools/rerun/run_iswl_rpu_illustration.py`
+runs the app's load path (checks, schedule, ledger, `--pages`, `--pdf`). Tests:
+`tests/test_illustration_iswl_rpu.py`.
+
+**Known limits** (for review): the values after CyberLife stops updating, the maturity
+benefit and kept-loan interest are not verified; the endowment NSP comparison is not the
+administered value; status 44 (ETI) ISWL is not illustrated.

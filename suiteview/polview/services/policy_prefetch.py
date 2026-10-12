@@ -165,6 +165,8 @@ STAGE_PROPERTIES = {
         "support.reins_partner", "product.db_option_code",
         "coverages.standard_death_benefit", "coverages.corridor_death_benefit",
         "coverages.total_death_benefit", "coverages.insured_lives_description",
+        "status.nonforfeiture_option", "activity.nonforfeiture_date",
+        "coverages.nonforfeiture_age",
     ),
     "policy": (
         "coverages.base_plancode", "product.product_line_code",
@@ -186,7 +188,7 @@ STAGE_PROPERTIES = {
         "billing.premium_ytd", "values.cost_basis", "values.policy_totals_count",
     ),
     "loans": (
-        "product.is_advanced_product", "product.product_type", "status.status_code",
+        "product.product_type", "status.premium_pay_status_code", "loans.loan_table",
         "loans.fixed_loan_interest_rate", "loans.preferred_loan_interest_rate",
     ),
     "advprod": (

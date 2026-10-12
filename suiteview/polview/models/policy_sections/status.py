@@ -9,6 +9,8 @@ from ..cl_polrec.policy_translations import SUSPENSE_CODES
 from datetime import date
 from typing import Optional
 
+_NONFORFEITURE_OPTIONS = {"44": "ETI", "45": "RPU"}
+
 
 class StatusSection(PolicySection):
     """Cohesive PolicyInformation status view."""
@@ -44,6 +46,11 @@ class StatusSection(PolicySection):
     def premium_pay_status_description(self) -> str:
         """Premium paying status description."""
         return PREMIUM_PAY_STATUS_CODES.get(self.premium_pay_status_code, f"Unknown ({self.premium_pay_status_code})")
+
+    @property
+    def nonforfeiture_option(self) -> str:
+        """``ETI``/``RPU`` when the premium-pay status (44/45) is nonforfeiture, else ``""``."""
+        return _NONFORFEITURE_OPTIONS.get(self.premium_pay_status_code.strip(), "")
 
     @property
     def is_active(self) -> bool:

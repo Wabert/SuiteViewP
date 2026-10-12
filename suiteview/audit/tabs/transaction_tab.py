@@ -149,7 +149,7 @@ class TransactionCriteriaPanel(QWidget):
         details = QHBoxLayout()
         details.setSpacing(6)
         self.txt_origin = _entry(45)
-        self.txt_origin.setToolTip("Exact ORIGIN_OF_TRANS value")
+        self.txt_origin.setToolTip("ORIGIN_OF_TRANS contains this text")
         self.txt_fund_id = _entry(110)
         self.txt_fund_id.setToolTip("Comma-separated fund IDs; any listed ID may match.")
         details.addWidget(_label("Origin"))

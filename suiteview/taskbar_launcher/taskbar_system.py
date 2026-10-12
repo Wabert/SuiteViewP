@@ -2,6 +2,7 @@
 
 import ctypes
 import logging
+import os
 import sys
 import time
 import traceback
@@ -891,14 +892,16 @@ class SystemTray(TaskbarCollaborator):
 
     @requires_app_access("FILENAV")
     def _open_app_data_location(self):
-        """Navigate to the app data folder (~/.suiteview) in the details view"""
+        """Open the app data folder (~/.suiteview) in Windows File Explorer."""
         app_data_dir = profile_root()
-        # Create the directory if it doesn't exist
-        app_data_dir.mkdir(parents=True, exist_ok=True)
-        # Navigate to it in the current tab's details pane
-        current_tab = self.window.get_current_tab()
-        if current_tab and hasattr(current_tab, 'navigate_to_path'):
-            current_tab.navigate_to_path(str(app_data_dir))
+        try:
+            app_data_dir.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(app_data_dir))
+        except OSError as e:
+            logger.error(f"Failed to open app data location {app_data_dir}: {e}")
+            QMessageBox.warning(
+                _host_widget(self), "App Data Location",
+                f"Could not open {app_data_dir}:\n{e}")
 
     @requires_app_access("SCRATCHPAD")
     def _toggle_scratchpad_window(self):

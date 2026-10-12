@@ -106,9 +106,22 @@ class ValuesSection(PolicySection):
         return self.activity.last_financial_date
 
     @property
+    def last_account_value_date(self) -> Optional[date]:
+        """Date of the latest stored monthliversary value (LH_POL_MVRY_VAL.MVRY_DT).
+
+        On ETI/RPU this is the last account value before the nonforfeiture
+        conversion, not the current valuation date.
+        """
+        mv_dt = self._parse_date(self.data_item("LH_POL_MVRY_VAL", "MVRY_DT"))
+        if mv_dt and mv_dt.year < 9999:
+            return mv_dt
+        return None
+
+    @property
     def valuation_date(self) -> Optional[date]:
         """
-        Get valuation date - MV date for UL, last monthliversary for traditional.
+        Get valuation date - MV date for UL, last monthliversary for traditional
+        and for advanced products on ETI/RPU.
         """
         return self.product.product_rules.valuation_date(self)
 

@@ -330,7 +330,8 @@ The left list is a read-only transaction type/subtype reference. On the right,
   **Eff Mth = Issue Mth** and **Eff Day = Issue Day** sit beside their respective ranges.
 * **Gross Amt:** inclusive From / To amounts below the month/day rows.
 * **Origin / Fund ID List:** beside the reversal controls below Gross Amt.
-  Origin matches exact `ORIGIN_OF_TRANS`; fund IDs are comma-separated and ORed.
+  Origin matches any `ORIGIN_OF_TRANS` containing the entered text (case-sensitive,
+  `%`/`_` treated literally); fund IDs are comma-separated and ORed.
 * **Exclude:** per-section checkbox. Checked uses `NOT EXISTS`: the policy must have
   no transaction matching all of that section's criteria. Other nonmatching
   transactions do not let a policy pass. Exclude alone still leaves an empty

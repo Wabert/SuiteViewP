@@ -114,15 +114,13 @@ def test_business_window_hides_menus_and_locks_region(business):
     win = IllustrationWindow()
     assert win.business_mode is True
     assert win.options_btn.isHidden()
-    # ☰ stays for Export Case for Support; its developer Plancode Table entry is hidden.
+    # ☰ stays for Plancode Tables and Export Case for Support, in business mode too.
     assert not win.hamburger_btn.isHidden()
     visible = [a.text() for a in win.hamburger_btn.menu().actions() if a.isVisible()]
-    assert visible == ["Export Case for Support…"]
+    assert visible == ["Plancode Tables…", "Export Case for Support…"]
     assert win.lookup_bar.region_input.isReadOnly()
     assert win.lookup_bar.region_input.text() == "CKPR"
     assert win.values_tab.business_mode is True
-    win.show_plancode_table()
-    assert win._plancode_table_window is None
     settings = get_illustration_settings()
     assert not (settings.additional_premium_types or settings.testing_mode
                 or settings.abr_quote_mode or settings.rollback_enabled)

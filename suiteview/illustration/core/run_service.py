@@ -32,7 +32,11 @@ from suiteview.core.build_info import app_build_label
 from suiteview.illustration.api import project_policy
 from suiteview.illustration.core.abr_quote import run_abr_quote
 from suiteview.illustration.core.business_mode import is_business_mode
-from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.calc_engine import (
+    IllustrationEngine,
+    ShadowFaceIncreaseError,
+    validate_shadow_face_changes,
+)
 from suiteview.illustration.core.deemed_cash_value import DCV_DEFAULTED_NOTICE, dcv_defaulted
 from suiteview.illustration.core.exception_notices import gp_exception_schedule_notices
 from suiteview.illustration.core.face_minimum import min_face_notices
@@ -251,6 +255,7 @@ def execute_run(request: RunRequest, services: EngineServices | None = None) -> 
     prepared = prepare_policy_data(request, services)
     gate = check_run_gates(request, prepared, services)
     scenario = build_run_scenario(request, prepared, services)
+    check_shadow_face_changes(scenario)
     engine = services.engine_factory()
     if request.controls.abr_quote:
         result = _execute_abr_quote(request, scenario, engine, services)
@@ -394,6 +399,15 @@ def build_run_scenario(
         projection_months=months,
         duration_label=duration_label,
     )
+
+
+def check_shadow_face_changes(run_scenario: RunScenario) -> None:
+    """Refuse a specified-amount increase on a shadow-account product before any solve."""
+    scenario = run_scenario.scenario
+    try:
+        validate_shadow_face_changes(scenario.projectable_policy, scenario.future_inputs)
+    except ShadowFaceIncreaseError as exc:
+        raise RunFlowError("Specified Amount Increase Not Allowed", str(exc)) from exc
 
 
 def resolve_solved_inputs(

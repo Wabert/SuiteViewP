@@ -27,11 +27,21 @@ class LoansSection(PolicySection):
 
         self._loans = []
 
-        for table_name in self.product.product_rules.loan_tables:
-            for row in self._active_loan_rows(table_name):
-                self._loans.append(self._loan_from_row(row, advanced=table_name == "LH_FND_VAL_LOAN"))
+        table_name = self.loan_table
+        for row in self._active_loan_rows(table_name):
+            self._loans.append(self._loan_from_row(row, advanced=table_name == "LH_FND_VAL_LOAN"))
 
         return self._loans
+
+    @property
+    def loan_table(self) -> str:
+        """Loan table holding this policy's loans (ISWL on RPU uses LH_CSH_VAL_LOAN)."""
+        return self.product.product_rules.active_loan_table(self.status.premium_pay_status_code)
+
+    @property
+    def uses_fund_loans(self) -> bool:
+        """Whether current loans are fund loans (LH_FND_VAL_LOAN) rather than cash-value loans."""
+        return self.loan_table == "LH_FND_VAL_LOAN"
 
     def _loan_from_row(self, row: Dict[str, Any], *, advanced: bool) -> LoanInfo:
         """Build a LoanInfo from the selected product family's loan table."""

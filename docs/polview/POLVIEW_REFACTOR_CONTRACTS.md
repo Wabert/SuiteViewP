@@ -28,11 +28,23 @@ The generated reference is [`POLICY_FIELDS.md`](POLICY_FIELDS.md).
 | `TraditionalRules` | `NON_TRD_POL_IND` not `1` | `TH_COV_PHA` | `LH_CSH_VAL_LOAN` | plancode group | no GLP/reinstatement |
 | `WholeLifeRules` | traditional WL group/fallback | `TH_COV_PHA` | `LH_CSH_VAL_LOAN` | `WL` | fixed-premium rates |
 | `AdvancedRules` | `NON_TRD_POL_IND = 1` except product line `I` | `LH_POL_MVRY_VAL` | `LH_FND_VAL_LOAN` | `UL` | GLP and UL reinstatement |
-| `ISWLRules` | advanced + `PRD_LIN_TYP_CD = I` | `LH_POL_MVRY_VAL` | `LH_FND_VAL_LOAN` | `ISWL` | GLP, fixed-premium rates |
+| `ISWLRules` | advanced + `PRD_LIN_TYP_CD = I` | `LH_POL_MVRY_VAL` | `LH_FND_VAL_LOAN`; `LH_CSH_VAL_LOAN` on RPU (premium-pay status `45`) | `ISWL` | GLP, fixed-premium rates |
 | `DIRules` | traditional + `PRD_LIN_TYP_CD = S` | `TH_COV_PHA` | `LH_CSH_VAL_LOAN` | `DI` | no GLP/reinstatement |
 
 Call `policy.product_rules` for product-specific table choices, display-rate
 selection, valuation-date source, support eligibility and rate-family decisions.
+Loan consumers read `policy.loans.loan_table` / `policy.loans.uses_fund_loans`,
+which apply `ProductRules.active_loan_table` to the premium-pay status.
+
+**Valuation date.** Advanced products value at the latest
+`LH_POL_MVRY_VAL.MVRY_DT`; traditional products, and advanced products on
+ETI/RPU (premium-pay status `44`/`45`), value at the last monthliversary
+(`NXT_MVRY_PRC_DT` minus one month). On ETI/RPU the monthly value row stops
+when the account value buys the nonforfeiture benefit; that date stays
+available as `values.last_account_value_date`. The ETI/RPU date is
+`activity.nonforfeiture_date` (`PRM_PAID_TO_DT`) and the age then is
+`coverages.nonforfeiture_age`; the Coverages tab's Policy Info header shows
+both as RPU/ETI Date and Age (greyed N/A otherwise).
 
 ## Rate units, divisors and duration indexing
 

@@ -47,6 +47,23 @@ def test_wl_rates_show_in_existing_filter_grid(display):
     assert "2 rows" in display._show_status.call_args.args[0]
 
 
+def test_db2_table_opens_transposed_after_normal_rates_view(display):
+    display._policy.rates.build_coverage_rate_matrix.return_value = [["Duration", "CV"], [0, 0]]
+    GetPolicyWindow._on_rate_selected(display, "Coverages", "Cov 01", 1)
+    raw = display.raw_table_tab
+    assert raw._stack.currentWidget() is raw._normal_grid
+
+    db = Mock()
+    db.execute_query_with_headers.return_value = (["TCH_POL_ID", "COV_PHA_NBR"], [("000218733", 1)])
+    raw.load_table(db, "LH_COV_PHA", "TCH_POL_ID = '000218733'")
+
+    assert raw._is_transposed
+    assert raw._stack.currentWidget() is raw._transposed_grid
+    model = raw._transposed_grid.model
+    assert [model.data(model.index(r, 0), Qt.ItemDataRole.DisplayRole)
+            for r in range(model.rowCount())] == ["TCH_POL_ID", "COV_PHA_NBR"]
+
+
 @pytest.mark.parametrize("status", ["44", "45", " 44 ", " 45 "])
 @pytest.mark.parametrize("transposed", [False, True])
 def test_eti_rpu_shows_unavailable_without_looking_up_cash_values(display, status, transposed):

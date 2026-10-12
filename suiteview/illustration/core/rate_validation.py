@@ -32,7 +32,11 @@ def missing_required_rate_warnings(
         benefit_key = benefit_type + (benefit.benefit_subtype or "")
         if not benefit_key:
             continue
-        if not rates.benefit_coi.get(benefit_key):
+        if rates.iswl is not None:
+            # ISWL benefits have no COI schedule, only a premium (type N).
+            if benefit_key not in rates.iswl.benefit_premium_codes:
+                missing.append(f"Benefit {benefit_key}")
+        elif not rates.benefit_coi.get(benefit_key):
             missing.append(f"Benefit {benefit_key}")
 
     if not missing:

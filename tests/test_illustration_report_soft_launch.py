@@ -443,44 +443,20 @@ def _shadow_config(impact="Reduce"):
                           loan_charge_rate_guar=0.06, loan_charge_rate_curr=0.03)
 
 
-def test_shadow_guarantee_nullified_by_loan_on_nullify_plans(monkeypatch):
-    policy = _sd1_policy(ccv_active=True, shadow_account_value=14418.29,
-                         regular_loan_principal=3700.0, regular_loan_accrued=89.98)
-    report = _sd1_build(policy, config=_shadow_config("Nullify"), monkeypatch=monkeypatch)
-    assert report.policy_status_lines == [
-        "SHADOW ACCOUNT (NO-LAPSE GUARANTEE) VALUE: $14,418.29.",
-        "THIS PLAN'S NO-LAPSE GUARANTEE DOES NOT PROTECT THE POLICY WHILE THERE IS ANY POLICY "
-        "DEBT. WITH POLICY DEBT OF $3,789.98, THE GUARANTEE IS NULLIFIED AND IS NOT PROTECTING "
-        "THE POLICY.",
-    ]
-
-
-@pytest.mark.parametrize(("protection", "positive_sv", "expected"), [
-    (True, False, "THE NO-LAPSE GUARANTEE IS CURRENTLY KEEPING THE POLICY IN FORCE"),
-    (True, True, "THE NO-LAPSE GUARANTEE IS IN EFFECT BUT IS NOT CURRENTLY NEEDED"),
-    (False, True, "THE NO-LAPSE GUARANTEE IS NOT CURRENTLY PROTECTING THE POLICY"),
+@pytest.mark.parametrize("policy_kwargs", [
+    {"ccv_active": True, "shadow_account_value": 14418.29},
+    {"ccv_active": True, "shadow_account_value": 14418.29,
+     "regular_loan_principal": 3700.0, "regular_loan_accrued": 89.98},
+    {"ccv_active": True, "policy_year": 3},
+    {"ccv_ceased": True},
 ])
-def test_shadow_guarantee_status_follows_the_inforce_row(monkeypatch, protection, positive_sv, expected):
-    from suiteview.illustration.models.calc_state import MonthlyState
-
-    inforce = MonthlyState(policy_year=20, policy_month=12, duration=240,
-                           shadow_protection=protection, positive_sv=positive_sv)
-    report = _sd1_build(_sd1_policy(ccv_active=True, shadow_account_value=100.0),
-                        _sd1_states(inforce=inforce), config=_shadow_config(),
+def test_shadow_account_products_print_no_shadow_language(monkeypatch, policy_kwargs):
+    report = _sd1_build(_sd1_policy(**policy_kwargs), config=_shadow_config("Nullify"),
                         monkeypatch=monkeypatch)
-    assert report.policy_status_lines[1].startswith(expected)
-
-
-def test_shadow_status_within_safety_net_and_ceased(monkeypatch):
-    early = _sd1_build(_sd1_policy(ccv_active=True, policy_year=3), config=_shadow_config(),
-                       monkeypatch=monkeypatch)
-    assert "SAFETY NET" in early.policy_status_lines[1]
-    ceased = _sd1_build(_sd1_policy(ccv_ceased=True), config=_shadow_config(),
-                        monkeypatch=monkeypatch)
-    assert ceased.policy_status_lines == [
-        "THE SHADOW ACCOUNT (NO-LAPSE GUARANTEE) HAS CEASED AND NO LONGER PROTECTS THE "
-        "POLICY FROM LAPSE."]
-    assert _sd1_build(_sd1_policy()).policy_status_lines == []
+    assert report.policy_status_lines == []
+    cover = _cover_text(report)
+    for phrase in ("SHADOW ACCOUNT", "NO-LAPSE GUARANTEE", "SAFETY NET"):
+        assert phrase not in cover
 
 
 def test_loan_interest_rates_printed_with_the_loan_balance(monkeypatch):

@@ -5,7 +5,7 @@ from ..constants import (
     PARTICIPATION_TYPE_DESCRIPTIONS,
     TERMINATION_LAST_ENTRY_CODES,
 )
-from ..sql_helpers import esc, in_list
+from ..sql_helpers import esc, escape_like_literal, in_list
 
 
 def terminated_policy_predicate() -> str:
@@ -66,9 +66,6 @@ def build_bill_mode_where(modes: list[str]) -> str:
         else:
             parts.append(f"(POLICY1.PMT_FQY_PER = {freq} AND POLICY1.NSD_MD_CD = '{nsd}')")
     return ' OR '.join(parts)
-
-def escape_like_literal(value: str) -> str:
-    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
 def name_match_predicate(column: str, match_type: str, value: str) -> str:
     """Build a case-insensitive name predicate for the given match type.

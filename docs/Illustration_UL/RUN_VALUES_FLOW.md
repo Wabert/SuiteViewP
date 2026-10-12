@@ -41,10 +41,10 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    runs the cover also states, as of the valuation date (`POLICY STATUS`
    block): values older than `STALE_VALUATION_DAYS` (45) before the run date,
    a suspended policy (`IllustrationPolicyData.suspense_code == "2"`, from
-   `LH_BAS_POL.SUS_CD`), an already-MEC policy (which is then never reported
-   as *becoming* a MEC), and the shadow-account no-lapse guarantee status
-   (`shadow_status_lines`, incl. nullified by debt on `ShadowLoanImpact:
-   Nullify` plans).  Loan charge/credit rates print with the loan balance.
+   `LH_BAS_POL.SUS_CD`) and an already-MEC policy (which is then never
+   reported as *becoming* a MEC).  The cover prints no shadow-account
+   (no-lapse guarantee) value or status.  Loan charge/credit rates print with
+   the loan balance.
    User options that differ from the defaults are collected as
    `IllustrationReport.settings_lines` (`non_default_settings_lines`) for the
    support export; the customer cover does not print them.  Report

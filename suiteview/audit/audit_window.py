@@ -397,6 +397,10 @@ def _build_audit_window_content(self) -> QWidget:
     self._build_sql_tab_index = -1
     # Build SQL Results tab (hidden until build query is run)
     self.build_sql_results_tab = BuildSqlResultsTab()
+    self.build_sql_results_tab.policy_double_clicked.connect(
+        self._open_polview_with_policy)
+    self.build_sql_results_tab.open_in_rerun.connect(self._open_rerun_with_policy)
+    self.build_sql_results_tab.set_ul_checker(self._is_policy_ul)
     self._build_sql_results_tab_index = -1
     # Manual SQL Object editor screen (hidden until New Object chooses it)
     self.manual_sql_object_tab = ManualSqlObjectEditor()
