@@ -431,13 +431,6 @@ CATEGORY_BUTTON_STYLE = """
     QPushButton::menu-indicator {
         image: none;
     }
-    QToolTip {
-        background-color: #FFFFDD;
-        color: #333333;
-        border: 1px solid #888888;
-        padding: 4px;
-        font-size: 9pt;
-    }
 """
 
 CATEGORY_BUTTON_STYLE_SIDEBAR = """
@@ -461,13 +454,6 @@ CATEGORY_BUTTON_STYLE_SIDEBAR = """
         background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
             stop:0 #B898D8, stop:1 #DCC8F0);
     }
-    QToolTip {
-        background-color: #FFFFDD;
-        color: #333333;
-        border: 1px solid #888888;
-        padding: 4px;
-        font-size: 9pt;
-    }
 """
 
 BOOKMARK_BUTTON_STYLE = """
@@ -488,13 +474,6 @@ BOOKMARK_BUTTON_STYLE = """
     }
     QPushButton:pressed {
         background-color: #00CCCC;
-    }
-    QToolTip {
-        background-color: #FFFFDD;
-        color: #333333;
-        border: 1px solid #888888;
-        padding: 4px;
-        font-size: 9pt;
     }
 """
 
@@ -711,13 +690,6 @@ def get_themed_style(theme_id, orientation='horizontal'):
         QPushButton:pressed {{
             background-color: {grad_end};
         }}
-        QToolTip {{
-            background-color: #FFFFDD;
-            color: #333333;
-            border: 1px solid #888888;
-            padding: 4px;
-            font-size: 9pt;
-        }}
     """
 
 
@@ -762,13 +734,6 @@ def get_category_button_style(color, orientation='horizontal'):
         }}
         QPushButton:pressed {{
             background-color: {color};
-        }}
-        QToolTip {{
-            background-color: #FFFFDD;
-            color: #333333;
-            border: 1px solid #888888;
-            padding: 4px;
-            font-size: 9pt;
         }}
     """
     return base_style
@@ -3099,13 +3064,6 @@ STANDALONE_BOOKMARK_STYLE_HORIZONTAL = """
     QPushButton:pressed {
         background-color: #00CCCC;
     }
-    QToolTip {
-        background-color: #FFFFDD;
-        color: #333333;
-        border: 1px solid #888888;
-        padding: 4px;
-        font-size: 9pt;
-    }
 """
 
 STANDALONE_BOOKMARK_STYLE_VERTICAL = """
@@ -3126,13 +3084,6 @@ STANDALONE_BOOKMARK_STYLE_VERTICAL = """
     }
     QPushButton:pressed {
         background-color: #00CCCC;
-    }
-    QToolTip {
-        background-color: #FFFFDD;
-        color: #333333;
-        border: 1px solid #888888;
-        padding: 4px;
-        font-size: 9pt;
     }
 """
 

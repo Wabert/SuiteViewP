@@ -56,11 +56,9 @@ toolkit. Grids gain selection totals, column choosers and empty-state notes;
 `StyledInfoTableGroup.set_field_sources()` documents field lineage. The Tables
 panel is filled by a background loader stage with PolicyData's verified keys.
 
-**Tooltips:** Qt styles a tooltip with the showing widget's style sheets, so
-`background: transparent` label rules made PolView tooltips dark-on-black.
-`polview/ui/tooltip_style.py` restyles tips shown over registered windows with
-*bare* declarations on the tip itself (a `QLabel { }` rule does not win).
-Native check: `tools/app/verify_polview_tooltips.py --output-dir <dir>`.
+**Tooltips:** readable by default suite-wide through
+`suiteview/ui/tooltip_style.py` (see `docs/ui/UI_CONVENTIONS.md`, Tooltips).
+Native check: `tools/app/verify_tooltips.py --output-dir <dir>`.
 **Dialog references:** dialogs with `WA_DeleteOnClose` must be checked with
 `sip.isdeleted()` before reuse; calling a method on a deleted wrapper inside a
 slot aborts the process.

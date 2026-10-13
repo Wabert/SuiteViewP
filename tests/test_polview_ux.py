@@ -839,10 +839,10 @@ def test_timeline_dialog_opens_from_the_window(window, qtbot):
     assert any(isinstance(d, TimelineDialog) for d in window._dialogs)
 
 
-def test_tooltips_in_polview_get_their_own_light_style(window, qtbot):
+def test_tooltips_in_polview_get_the_suite_light_style(window, qtbot):
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QToolTip
-    from suiteview.polview.ui.tooltip_style import TOOLTIP_STYLE
+    from suiteview.ui.tooltip_style import TOOLTIP_STYLE
 
     target = window.lookup_bar.policy_input
     QToolTip.showText(target.mapToGlobal(QPoint(2, 2)), "hello", target)

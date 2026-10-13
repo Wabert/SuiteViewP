@@ -30,7 +30,7 @@ STYLE_MODULES = (
     "suiteview.audit.tabs._styles",
     "suiteview.illustration.ui.styles",
     "suiteview.polview.ui.styles",
-    "suiteview.polview.ui.tooltip_style",
+    "suiteview.ui.tooltip_style",
     "suiteview.ratemanager.rm_styles",
     "suiteview.mainframe_nav.styles",
 )
@@ -41,7 +41,7 @@ HEX_FREE_STYLE_FILES = (
     "suiteview/audit/tabs/_styles.py",
     "suiteview/illustration/ui/styles.py",
     "suiteview/polview/ui/styles.py",
-    "suiteview/polview/ui/tooltip_style.py",
+    "suiteview/ui/tooltip_style.py",
     "suiteview/ratemanager/rm_styles.py",
     "suiteview/mainframe_nav/styles.py",
 )
@@ -65,8 +65,8 @@ EXPECTED_MODULE_HASHES = {
     "suiteview.polview.ui.styles": (
         "0519eb58ad7cbc08babccb89b09dcef69a70ec561a54a98b10e9cc6abf23b536"
     ),
-    "suiteview.polview.ui.tooltip_style": (
-        "e70fed397255afcea39ad1b9bae6f4127cf0ec2c6e3d3ced1a57e763f800e5bf"
+    "suiteview.ui.tooltip_style": (
+        "55521abf7d83229790ef02c5387efe6d45b9de7936af5a521b5e3c20f2df0ef9"
     ),
     "suiteview.ratemanager.rm_styles": (
         "23f18d85ecb2ba1d8856fd1a7117d4184ea649dd9a03aa5e8a73e6b08ff24f91"

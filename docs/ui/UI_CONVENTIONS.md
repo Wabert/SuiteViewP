@@ -402,6 +402,30 @@ implementation) — a transparent `QWidget` overlay with a centered label that i
 parented and sized to cover the target widget exactly. Call
 `widget.set_not_applicable(True/False)` to toggle the state.
 
+## Tooltips — Readable by Default (MANDATORY)
+
+Qt styles a tooltip with the style sheets of the widget that shows it, and a
+selector-less sheet such as `"background: transparent;"` applies as `* { }` —
+to the tooltip popup too. SuiteView has hundreds of those, so an unhooked tip
+renders as dark text on a black, transparent box. An app-level `QToolTip` rule
+cannot fix it (Qt prefers the nearer inherited sheet regardless of specificity).
+
+[`suiteview/ui/tooltip_style.py`](../../suiteview/ui/tooltip_style.py) gives
+every tooltip its **own** sheet (`TOOLTIP_STYLE`: dark text on
+`tokens.TOOLTIP_SURFACE`, gold border), which always wins.
+
+- ✅ It is installed automatically by `FramelessWindowBase`, `FramelessDialog`
+  and `SuiteViewTaskbar`. A new top-level window that subclasses none of these
+  must call `install_readable_tooltips()`.
+- ✅ Just call `setToolTip(...)`; never style tooltips yourself.
+- ✅ For a deliberately themed area, call `set_tooltip_style(widget, qss)` with
+  *bare* declarations (a `QLabel { }` selector does not win); it applies to the
+  widget and its descendants. Example: the Policy Record green-screen labels.
+- ❌ Do not add `QToolTip { ... }` rules to widget style sheets — they are dead.
+- **Regression checks:** `tests/test_tooltip_style.py` renders real tooltips in
+  every app window; natively, `venv\Scripts\python.exe tools/app/verify_tooltips.py
+  --output-dir <dir>` must report `all_ok: true`.
+
 ## Excel Export — "Dump to Excel" Convention
 
 **Decision:** All "Excel" / "Export" buttons in SuiteView open a **new unsaved

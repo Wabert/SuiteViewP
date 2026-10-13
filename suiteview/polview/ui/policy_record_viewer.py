@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QTextBrowser, QFrame,
 )
 
+from suiteview.ui.tooltip_style import set_tooltip_style
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from ..config.policy_records import POLICY_RECORD_TABLES
 from .widgets import CopyableLabel
@@ -53,15 +54,12 @@ _TERMINAL_FONT_PT = 13
 _SEGMENTS = sorted(name.removeprefix("Policy Record ") for name in POLICY_RECORD_TABLES)
 _UNAVAILABLE_MESSAGE = "This screen cannot be reproduced in PolView at this time."
 
-# Tooltip palette -- dark green card, light text, gold border (readable).
-_TOOLTIP_QSS = (
-    "QToolTip {"
-    " color: #E8F5E9;"
-    " background-color: #0A3D0A;"
-    " border: 1px solid #D4A017;"
-    " padding: 4px 6px;"
-    " font-family: 'Segoe UI'; font-size: 11px;"
-    "}"
+# Tooltip palette -- dark green card, light text, gold border (readable). Bare
+# declarations: applied as the tip's own sheet through set_tooltip_style().
+_TOOLTIP_STYLE = (
+    "color: #E8F5E9; background: #0A3D0A; border: 1px solid #D4A017;"
+    " padding: 4px 6px; font-family: 'Segoe UI'; font-size: 11px;"
+    " font-weight: normal; font-style: normal; text-decoration: none;"
 )
 
 # The Record Layout reference below each screen is hidden for now.
@@ -189,24 +187,25 @@ class _MainframeToken(CopyableLabel):
         if field:
             self.setToolTip(self._build_tooltip(
                 field, fields_map.get(field, []), example=example, note=note))
+            set_tooltip_style(self, _TOOLTIP_STYLE)
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             if example:
                 self.setStyleSheet(
                     "QLabel { color: %s; background: transparent; }"
                     "QLabel:hover { background: #4A3B00; color: #FFE08A; }"
-                    "%s" % (_SCREEN_AMBER, _TOOLTIP_QSS)
+                    % _SCREEN_AMBER
                 )
             elif dim:
                 self.setStyleSheet(
                     "QLabel { color: %s; background: transparent; }"
                     "QLabel:hover { background: #0C4A0C; color: #C8FFC8; }"
-                    "%s" % (_SCREEN_DIM, _TOOLTIP_QSS)
+                    % _SCREEN_DIM
                 )
             else:
                 self.setStyleSheet(
                     "QLabel { color: %s; background: transparent; }"
                     "QLabel:hover { background: #0C4A0C; color: #C8FFC8; }"
-                    "%s" % (_SCREEN_GREEN, _TOOLTIP_QSS)
+                    % _SCREEN_GREEN
                 )
         else:
             self.setStyleSheet(

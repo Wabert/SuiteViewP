@@ -13,6 +13,7 @@ from suiteview.core.access_control import (
 from suiteview.core.single_instance import activation_message
 from suiteview.taskbar_launcher.app_launchers import register_default_launchers
 from suiteview.taskbar_launcher.collaborators import TaskbarState
+from suiteview.ui.tooltip_style import install_readable_tooltips
 from suiteview.ui.widgets.window_state import NativeMinimizeMixin
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class SuiteViewTaskbar(NativeMinimizeMixin, QWidget):
         access = get_access(refresh=True)
         register_default_launchers()
         super().__init__()
+        install_readable_tooltips()
         self.state = TaskbarState(
             launcher_access=access,
             restore_message=activation_message(),

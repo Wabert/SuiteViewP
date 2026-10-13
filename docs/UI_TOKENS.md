@@ -21,6 +21,7 @@ Do not add token names that describe the literal value (for example
 | `GOLD_BORDER`, `GOLD_TEXT`, `GOLD_LIGHT`, `GOLD_BUTTON` | Gold border, title text, selected rows and button fills. |
 | `SURFACE`, `SURFACE_ALT`, `SURFACE_PANEL` | White, light-neutral and warm panel backgrounds. |
 | `TEXT`, `TEXT_MUTED`, `TEXT_DARK` | Standard foreground, secondary foreground and darkest tooltip text. |
+| `TOOLTIP_SURFACE` | Suite-wide tooltip card background (see `suiteview/ui/tooltip_style.py`). |
 | `BORDER`, `BORDER_MUTED`, `SELECTION` | Neutral borders and shared selected-row fills. |
 | `STATUS_OK`, `STATUS_WARN`, `STATUS_ERROR`, `STATUS_INFO` | Reusable success, warning, error and information states. |
 | `FONT_*`, `ROW_HEIGHT_COMPACT`, `CONTROL_HEIGHT_COMPACT`, `SPACE_*`, `RADIUS_*` | Dense UI typography and layout primitives. |

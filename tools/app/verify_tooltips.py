@@ -1,10 +1,11 @@
-"""Check that PolView tooltips render dark text on a light background (native).
+"""Check that SuiteView tooltips render readable text (native).
 
-Opens a PolView window without loading a policy (no DB access), shows the
-tooltips of several representative widgets through Qt's normal tooltip path,
-grabs each tooltip and measures its background and text luminance.
+Opens PolView and RERUN (Illustration) windows without loading a policy (no DB
+access), shows the tooltips of representative widgets -- including ones under
+selector-less ``background: transparent`` style sheets -- through Qt's normal
+tooltip path, grabs each tooltip and measures its background and text luminance.
 
-    venv\\Scripts\\python.exe tools/app/verify_polview_tooltips.py --output-dir <dir>
+    venv\\Scripts\\python.exe tools/app/verify_tooltips.py --output-dir <dir>
 Prints JSON; exits non-zero when any tooltip lacks contrast.
 """
 
@@ -34,11 +35,14 @@ def main() -> int:
         from PyQt6.QtCore import QEventLoop, QPoint, QTimer
         from PyQt6.QtGui import QColor
         from PyQt6.QtWidgets import QApplication, QToolTip
+        from suiteview.illustration.ui.main_window import IllustrationWindow
         from suiteview.polview.ui.main_window import GetPolicyWindow
 
         app = QApplication.instance() or QApplication([])
         window = GetPolicyWindow(enable_policy_list=False)
         window.show()
+        rerun = IllustrationWindow()
+        rerun.show()
 
         def pump(ms):
             loop = QEventLoop()
@@ -54,6 +58,9 @@ def main() -> int:
             "summary strip button": window.summary_strip.copy_button,
             "tab bar": window.tabs.tabBar(),
             "table cell viewport": window.coverages_tab.cov_table._data_table.viewport(),
+            "rerun include prem after val date": rerun.include_premiums_check,
+            "rerun run values button": rerun.run_values_btn,
+            "rerun tab bar": rerun.tabs.tabBar(),
         }
         for name, widget in targets.items():
             text = widget.toolTip() or f"Tooltip check for {name}"
@@ -83,6 +90,7 @@ def main() -> int:
             pump(600)
         window.close()
         window._loader.shutdown()
+        rerun.close()
     ok = all(r.get("readable") for r in results)
     print(json.dumps({"all_ok": ok, "tooltips": results}, indent=2), flush=True)
     os._exit(0 if ok else 1)

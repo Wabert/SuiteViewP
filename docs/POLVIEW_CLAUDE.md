@@ -264,12 +264,12 @@ named properties under per-fact `cached_reads_only()` guards
   Enter in the policy box gets the policy. Navigation history, reload (F5),
   tab-number and other shortcuts were removed 2026-09-25 until the author wants
   them; use the on-screen buttons for Timeline, Notes, Copy and Tables.
-- **Tooltips** over PolView windows get their own light style
-  (`ui/tooltip_style.py`). Qt styles a tooltip with the showing widget's style
-  sheets, and PolView's `background: transparent` label rules made them dark
-  text on black. The fix sets bare declarations on the tip itself (a `QLabel {}`
-  selector rule is *not* enough; verified natively). Other SuiteView apps'
-  tooltips are unchanged. Check: `tools/app/verify_polview_tooltips.py`.
+- **Tooltips** get the suite-wide light style (`suiteview/ui/tooltip_style.py`,
+  installed by every SuiteView window). Qt styles a tooltip with the showing
+  widget's style sheets, and `background: transparent` label rules made them
+  dark text on black. The fix sets bare declarations on the tip itself (a
+  `QLabel {}` selector rule is *not* enough; verified natively). Check:
+  `tools/app/verify_tooltips.py`.
 - **Notes** are private, timestamped, per company+policy in the local profile
   (`data/notes/polview_notes.json`, atomic writes) — never CyberLife.
 - **Grids** (`FixedHeaderTableWidget`): visible selection with an Excel-style
@@ -1062,7 +1062,8 @@ something self-explanatory.
   No `QWebEngineView` is used.
 - **One scroll per tab.** Each tab is a `QScrollArea`: green-screen on top,
   Record Layout below — scroll down to read the byte/COBOL/DB2 layout.
-- **Readable tooltips.** Tooltips are styled (`_TOOLTIP_QSS`: dark-green card,
+- **Readable tooltips.** Field tooltips use a themed style (`_TOOLTIP_STYLE`
+  through `set_tooltip_style`: dark-green card,
   light text, gold border) so they're legible over the terminal. The field name
   and each COBOL/DB2 source mapping stay on **one line** (`<nobr>`) — e.g.
   "Valuation Code: Base" never wraps; only the amber not-real-data warning and

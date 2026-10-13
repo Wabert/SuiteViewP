@@ -45,7 +45,6 @@ from .policy_load_controller import PolicyLoadController
 from .policy_summary_strip import (
     PolicySummaryStrip, copy_summary_to_clipboard, open_policy_notes, open_policy_timeline,
 )
-from .tooltip_style import use_readable_tooltips
 from .tabs.reinstatement_tab import ReinstatementTab
 from .tabs.other_data_tab import OtherDataTab
 from ..services.reinstatement import is_ul_policy
@@ -290,7 +289,6 @@ class GetPolicyWindow(FramelessWindowBase):
         self.destroyed.connect(self._loader.dispose)
         self._install_shortcuts()
         self._refresh_recent_completer()
-        use_readable_tooltips(self)
         # Easter-egg listener: only the policy box, never an app-wide filter.
         self.lookup_bar.policy_input.installEventFilter(self)
 

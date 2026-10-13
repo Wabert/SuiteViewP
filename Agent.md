@@ -144,6 +144,7 @@ scattering raw literals through style strings.
 | File browsers | Use `MiniExplorer` for embedded file lists and support drag/drop behavior through its documented hooks. | [`mini_explorer.py`](suiteview/ui/widgets/mini_explorer.py) |
 | Identifier inputs | Upper-case policy, company and region input in the field; read sites still `strip().upper()`. | [`uppercase_input.py`](suiteview/ui/widgets/uppercase_input.py) |
 | Not-applicable sections | Grey out with a centered italic note; do not hide or remove widgets. | [`docs/ui/UI_CONVENTIONS.md`](docs/ui/UI_CONVENTIONS.md) |
+| Tooltips | Readable by default: every tooltip gets its own sheet from the shared hook (selector-less `background` sheets otherwise turn tips black). Just `setToolTip`; no `QToolTip {}` rules; theme via `set_tooltip_style`. | [`tooltip_style.py`](suiteview/ui/tooltip_style.py) |
 | Excel export | Open a visible unsaved workbook via shared COM helper; no save dialog and no temp file. | [`excel_export.py`](suiteview/core/excel_export.py) |
 | Shell/AppBar | The compact taskbar is the exception to normal frameless resize rules; keep AppBar Win32 code centralized. | [`docs/shell/SHELL_MANUAL.md`](docs/shell/SHELL_MANUAL.md) |
 

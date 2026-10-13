@@ -33,6 +33,7 @@ from suiteview.ui.widgets.frame_geometry import (
     update_cursor_for_resize_edge,
 )
 from suiteview.ui import tokens
+from suiteview.ui.tooltip_style import install_readable_tooltips
 
 logger = logging.getLogger(__name__)
 DEFAULT_HEADER_COLORS = (
@@ -182,6 +183,7 @@ class FramelessWindowBase(NativeMinimizeMixin, QWidget):
                  header_widgets=None, header_prefix_widgets=None,
                  header_title_stretch=0):
         super().__init__(parent)
+        install_readable_tooltips()
 
         # Theme colours -- header gradient stops & border
         self._header_colors = header_colors or DEFAULT_HEADER_COLORS
@@ -914,6 +916,7 @@ class FramelessDialog(QDialog):
                  body_color: str = DEFAULT_BODY_COLOR):
         super().__init__(parent, Qt.WindowType.Dialog
                          | Qt.WindowType.FramelessWindowHint)
+        install_readable_tooltips()
         self._header_colors = header_colors or DEFAULT_HEADER_COLORS
         self._border_color = border_color
         self._drag_pos: Optional[QPoint] = None
