@@ -11,6 +11,7 @@ class _AdvancedLoanPolicy:
     uses_fund_loans = True
     fixed_loan_interest_rate = Decimal("6")
     preferred_loan_interest_rate = Decimal("5")
+    scheduled_loan_repayment = None
 
     def __init__(self):
         self.product = self
@@ -84,3 +85,33 @@ def test_loan_rate_display_preserves_zero(qtbot):
 
     assert tab._reg_group.get_value("reg_charge") == "0.00%"
     assert tab.loan_detail_group.table.item(0, 6).text() == "0.00%"
+
+
+def test_scheduled_loan_repayment_panel_shows_amount_mode_and_billing(qtbot):
+    from datetime import date
+
+    from suiteview.polview.models.cl_polrec.policy_data_classes import ScheduledLoanRepayment
+
+    policy = _AdvancedLoanPolicy()
+    policy.scheduled_loan_repayment = ScheduledLoanRepayment(
+        amount=Decimal("40"), frequency_months=1, mode="Monthly", bill_form_code="G",
+        billing_method="PAC", billed_to_date=date(2025, 5, 10), paid_to_date=date(2025, 4, 10),
+    )
+    tab = LoansTab()
+    qtbot.addWidget(tab)
+
+    tab.load_data_from_policy(policy)
+
+    assert tab._slr_group.get_value("slr_amount") == "40.00"
+    assert tab._slr_group.get_value("slr_mode") == "Monthly"
+    assert tab._slr_group.get_value("slr_billing") == "PAC (G)"
+    assert tab._slr_group.isVisible() or not tab.isVisible()
+
+
+def test_scheduled_loan_repayment_panel_says_none_without_schedule(qtbot):
+    tab = LoansTab()
+    qtbot.addWidget(tab)
+
+    tab.load_data_from_policy(_AdvancedLoanPolicy())
+
+    assert tab._slr_group.get_value("slr_amount") == "None"

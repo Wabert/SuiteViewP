@@ -9,7 +9,7 @@ Record 20 — Policy Loans
     LH_FND_VAL_LOAN     Fund-based (UL/VUL) loans
 
 Record 77 — Loan Repayment
-    LH_LN_RPY_TRM       Loan repayment schedule
+    LH_LN_RPY_TRM       Scheduled loan repayment (SLR) billing, one row per policy
 """
 
 from __future__ import annotations
@@ -19,11 +19,13 @@ from datetime import date
 from typing import List, Optional
 
 from .cyberlife_base import PolicyDataAccessor, parse_date
-from .policy_data_classes import LoanInfo, TradLoanInfo, LoanRepayInfo
+from .policy_data_classes import LoanInfo, TradLoanInfo, ScheduledLoanRepayment
 from .policy_translations import (
     LOAN_TYPE_CODES,
+    translate_bill_form_code,
     translate_loan_interest_type_code,
     translate_loan_interest_status_code,
+    translate_loan_repay_frequency,
 )
 
 
@@ -254,46 +256,31 @@ class LoanRecords:
         return total
 
     # =====================================================================
-    # LOAN REPAYMENT SCHEDULE (LH_LN_RPY_TRM)
+    # SCHEDULED LOAN REPAYMENT (LH_LN_RPY_TRM)
     # =====================================================================
 
-    def get_loan_repayments(self) -> List[LoanRepayInfo]:
-        repayments: List[LoanRepayInfo] = []
-        for row in self._policy.fetch_table("LH_LN_RPY_TRM"):
-            repay = LoanRepayInfo(
-                payment_number=0,   # PMT_NBR does not exist on LH_LN_RPY_TRM
-                payment_date=None,  # PMT_DT does not exist on LH_LN_RPY_TRM
-                payment_amount=None,  # PMT_AMT does not exist on LH_LN_RPY_TRM
-                principal_amount=Decimal(str(row["LN_PRI_AMT"])) if row.get("LN_PRI_AMT") else None,
-                interest_amount=Decimal(str(row["LN_RPY_AMT"])) if row.get("LN_RPY_AMT") else None,
-                raw_data=row,
-            )
-            repayments.append(repay)
-        return repayments
-
-    @property
-    def loan_repay_count(self) -> int:
-        return self._policy.data_item_count("LH_LN_RPY_TRM")
-
-    def loan_repay_number(self, index: int) -> int:
-        """PMT_NBR does not exist on LH_LN_RPY_TRM."""
-        return 0
-
-    def loan_repay_date(self, index: int) -> Optional[date]:
-        """PMT_DT does not exist on LH_LN_RPY_TRM."""
-        return None
-
-    def loan_repay_amount(self, index: int) -> Optional[Decimal]:
-        """PMT_AMT does not exist on LH_LN_RPY_TRM."""
-        return None
-
-    def loan_repay_principal(self, index: int) -> Optional[Decimal]:
-        val = self._policy.data_item("LH_LN_RPY_TRM", "LN_PRI_AMT", index)
-        return Decimal(str(val)) if val else None
-
-    def loan_repay_interest(self, index: int) -> Optional[Decimal]:
-        val = self._policy.data_item("LH_LN_RPY_TRM", "LN_RPY_AMT", index)
-        return Decimal(str(val)) if val else None
+    def get_scheduled_loan_repayment(self) -> Optional[ScheduledLoanRepayment]:
+        """The policy's SLR billing row, or ``None`` when it has no schedule."""
+        rows = self._policy.fetch_table("LH_LN_RPY_TRM")
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise ValueError(
+                f"Expected at most one LH_LN_RPY_TRM row per policy, found {len(rows)}")
+        row = rows[0]
+        amount = row.get("LN_RPY_AMT")
+        frequency = row.get("LN_BIL_FQY_PER")
+        frequency_months = int(frequency) if frequency not in (None, "") else None
+        bill_form = str(row.get("BIL_FRM_CD") or "").strip()
+        return ScheduledLoanRepayment(
+            amount=Decimal(str(amount)) if amount is not None else None,
+            frequency_months=frequency_months,
+            mode=translate_loan_repay_frequency(frequency_months),
+            bill_form_code=bill_form,
+            billing_method=translate_bill_form_code(bill_form) if bill_form else "",
+            billed_to_date=parse_date(row.get("LN_BIL_TO_DT")),
+            paid_to_date=parse_date(row.get("LN_PAY_TO_DT")),
+        )
 
     # =====================================================================
     # HIGH-LEVEL LOAN PROPERTIES

@@ -255,6 +255,14 @@ def _append_policy_condition_chips(
         chips.append(Chip("grace", f"In Grace{until}", DANGER,
                           f"Policy is in its grace period{until}. Premium is needed to keep "
                           "coverage in force.\nSource: IN_GRA_PER_IND = 1, GRA_PER_EXP_DT"))
+    if read.get("has_scheduled_loan_repayment"):
+        slr = read.get("scheduled_loan_repayment")
+        detail = ""
+        if slr is not None:
+            parts = [_fmt_money(slr.amount, cents=True), slr.mode, slr.billing_method]
+            detail = " ".join(p for p in parts if p)
+        chips.append(Chip("slr", "SLR", INFO,
+                          f"Scheduled loan repayment: {detail}\nSource: LH_LN_RPY_TRM"))
     if read.get("mec_indicator") == "1":
         chips.append(Chip("mec", "MEC", WARN,
                           "Modified Endowment Contract (LH_TAMRA_7_PY_PER.MEC_STA_CD = 1)."))

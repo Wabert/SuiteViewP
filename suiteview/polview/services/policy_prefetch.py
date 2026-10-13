@@ -145,7 +145,7 @@ STAGE_TABLES = {
     "dividends": (
         "LH_UNAPPLIED_PTP", "LH_ONE_YR_TRM_ADD", "LH_PTP_ON_DEP", "LH_PAID_UP_ADD",
     ),
-    "loans": ("LH_CSH_VAL_LOAN", "LH_FND_VAL_LOAN"),
+    "loans": ("LH_CSH_VAL_LOAN", "LH_FND_VAL_LOAN", "LH_LN_RPY_TRM"),
     "advprod": (
         "LH_POL_FND_VAL_TOT", "LH_FND_VAL_LOAN", "LH_COV_TARGET", "LH_POL_MVRY_VAL",
         "LH_COV_FXD_FND_CTL",

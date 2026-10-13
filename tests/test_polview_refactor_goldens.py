@@ -244,6 +244,8 @@ class _SummaryPolicy:
     db_option_description = "Option A"
     total_death_benefit = Decimal("275000")
     primary_insured_name = "Hidden In Copy"
+    has_scheduled_loan_repayment = False
+    scheduled_loan_repayment = None
 
     def cached_reads_only(self):
         return nullcontext()

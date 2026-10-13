@@ -395,15 +395,25 @@ class TraditionalCoverageFacts:
     mortality_function_code: str = ""
 
 
-@dataclass
-class LoanRepayInfo:
-    """Loan repayment schedule from LH_LN_RPY_TRM."""
-    payment_number: int                 # PMT_NBR
-    payment_date: Optional[date]        # PMT_DT
-    payment_amount: Optional[Decimal]   # PMT_AMT
-    principal_amount: Optional[Decimal] # LN_PRI_AMT
-    interest_amount: Optional[Decimal]  # LN_ITS_AMT
-    raw_data: Dict[str, Any] = field(default_factory=dict)
+@dataclass(frozen=True)
+class ScheduledLoanRepayment:
+    """Scheduled loan repayment (SLR) billing from LH_LN_RPY_TRM (segment 20).
+
+    CyberLife keeps at most one row per policy. ``frequency_months`` is the
+    raw LN_BIL_FQY_PER; ``mode`` and ``billing_method`` are its display text.
+    """
+    amount: Optional[Decimal]           # LN_RPY_AMT
+    frequency_months: Optional[int]     # LN_BIL_FQY_PER
+    mode: str
+    bill_form_code: str                 # BIL_FRM_CD
+    billing_method: str
+    billed_to_date: Optional[date]      # LN_BIL_TO_DT
+    paid_to_date: Optional[date]        # LN_PAY_TO_DT
+
+    @property
+    def is_active(self) -> bool:
+        """A schedule with a positive repayment amount; a $0 row bills nothing."""
+        return self.amount is not None and self.amount > 0
 
 
 # =============================================================================

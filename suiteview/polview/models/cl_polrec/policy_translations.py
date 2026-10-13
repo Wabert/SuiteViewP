@@ -12,6 +12,7 @@ Merged from:
 from __future__ import annotations
 
 from enum import Enum
+from typing import Optional
 
 
 # =============================================================================
@@ -1025,6 +1026,17 @@ def translate_nfo_code(code: str) -> str:
 def translate_bill_form_code(code: str) -> str:
     """Translate billing form code to description."""
     return BILL_FORM_CODES.get(code, code)
+
+
+def translate_loan_repay_frequency(months: Optional[int]) -> str:
+    """Scheduled loan repayment mode from LH_LN_RPY_TRM.LN_BIL_FQY_PER (months).
+
+    Only the standard 1/3/6/12-month modes are documented; other values are
+    shown raw rather than guessed.
+    """
+    if months is None:
+        return ""
+    return BILLING_MODE_CODES.get(months, f"Frequency {months} (untranslated)")
 
 
 def translate_loan_type_code(code: str) -> str:

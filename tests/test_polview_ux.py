@@ -88,6 +88,7 @@ def summary_policy(**overrides):
         def_of_life_ins_code="2", def_of_life_ins_description="DEFRA Guideline Premium",
         last_entry_code="C", terminate_date=None, issue_date=date(2009, 10, 19), pending=set(),
         db_option_description="Level Death Benefit (Option A)",
+        has_scheduled_loan_repayment=False, scheduled_loan_repayment=None,
     )
     values.update(overrides)
     return SummaryPolicy(**values)
@@ -119,6 +120,18 @@ def test_summary_chips_reflect_policy_situation():
     assert "grace period" in grace.tooltip
     assert summary.insured_name == "Angela Huecker"
     assert summary.db_option == "Level Death Benefit (Option A)"
+
+
+def test_slr_chip_marks_scheduled_loan_repayment():
+    slr = SimpleNamespace(amount=Decimal("40"), mode="Monthly", billing_method="PAC")
+    summary = insights.build_policy_summary(
+        summary_policy(has_scheduled_loan_repayment=True, scheduled_loan_repayment=slr),
+        today=date(2026, 9, 24))
+    chip = next(c for c in summary.chips if c.key == "slr")
+    assert chip.text == "SLR"
+    assert "$40.00 Monthly PAC" in chip.tooltip
+    assert "slr" not in chip_keys(insights.build_policy_summary(
+        summary_policy(), today=date(2026, 9, 24)))
 
 
 def test_summary_leaves_unprefetched_facts_pending_rather_than_guessing():

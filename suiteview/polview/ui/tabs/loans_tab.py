@@ -68,6 +68,17 @@ class LoansTab(QWidget):
         self._summary_group.add_field("Loan Type", "loan_type_value", 130, 100)
         left.addWidget(self._summary_group)
 
+        # Scheduled Loan Repayment (SLR) — LH_LN_RPY_TRM; stays visible when absent
+        self._slr_group = StyledInfoTableGroup(
+            "Scheduled Loan Repayment", columns=1, show_table=False
+        )
+        self._slr_group.add_field("Repayment Amount", "slr_amount", 130, 100)
+        self._slr_group.add_field("Mode", "slr_mode", 130, 100)
+        self._slr_group.add_field("Billing Method", "slr_billing", 130, 100)
+        self._slr_group.add_field("Billed To", "slr_billed_to", 130, 100)
+        self._slr_group.add_field("Paid To", "slr_paid_to", 130, 100)
+        left.addWidget(self._slr_group)
+
         # Fixed Loan (Regular) group
         self._reg_group = StyledInfoTableGroup(
             "Fixed Loan (Regular)", columns=1, show_table=False
@@ -124,6 +135,7 @@ class LoansTab(QWidget):
             return
 
         try:
+            self._load_scheduled_repayment(policy)
             if policy.loans.uses_fund_loans:
                 self._load_fund_loans(policy)
             else:
@@ -132,6 +144,24 @@ class LoansTab(QWidget):
         except Exception:
             logger.exception("LoansTab failed to load policy data")
             raise
+
+    def _load_scheduled_repayment(self, policy):
+        """Populate the SLR panel from ``pi.loans.scheduled_loan_repayment``."""
+        slr = policy.loans.scheduled_loan_repayment
+        group = self._slr_group
+        if slr is None:
+            group.set_value("slr_amount", "None")
+            for key in ("slr_mode", "slr_billing", "slr_billed_to", "slr_paid_to"):
+                group.set_value(key, "")
+            return
+        group.set_value("slr_amount", format_currency(slr.amount) if slr.amount is not None else "")
+        group.set_value("slr_mode", slr.mode)
+        billing = slr.billing_method
+        if slr.bill_form_code and billing != slr.bill_form_code:
+            billing = f"{billing} ({slr.bill_form_code})"
+        group.set_value("slr_billing", billing)
+        group.set_value("slr_billed_to", format_date(slr.billed_to_date, US_DATE_FMT))
+        group.set_value("slr_paid_to", format_date(slr.paid_to_date, US_DATE_FMT))
 
     # ── private loaders ──────────────────────────────────────────────────
 

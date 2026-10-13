@@ -1412,7 +1412,7 @@ These are used by `PolicyInformation` and the `CL_POLREC_*` modules.
 | `DivDepositInfo` | LH_PTP_ON_DEP | 19 |
 | `LoanInfo` | LH_CSH_VAL_LOAN / LH_FND_VAL_LOAN | 20, 77 |
 | `TradLoanInfo` | LH_CSH_VAL_LOAN | 20 |
-| `LoanRepayInfo` | LH_LN_RPY_TRM | 20 |
+| `ScheduledLoanRepayment` | LH_LN_RPY_TRM (SLR: amount, mode, billing method) | 20 |
 | `AgentInfo` | LH_AGT_COM_AMT | 38 |
 | `FundBucketInfo` | LH_POL_FND_VAL_TOT | 55 |
 | `TransactionInfo` | FH_FIXED | 69 |

@@ -67,7 +67,8 @@ logger = logging.getLogger(__name__)
 UNAVAILABLE_TAB_REASONS = {
     "dividends": "No dividend records on this policy "
                  "(LH_UNAPPLIED_PTP, LH_ONE_YR_TRM_ADD, LH_PTP_ON_DEP, LH_PAID_UP_ADD).",
-    "loans": "No loan records on this policy (LH_CSH_VAL_LOAN, LH_FND_VAL_LOAN).",
+    "loans": "No loan or scheduled loan repayment records on this policy "
+             "(LH_CSH_VAL_LOAN, LH_FND_VAL_LOAN, LH_LN_RPY_TRM).",
     "advprod": "No account or cash values on this policy (no stored cash value/NSP "
                "rates, dividend deposits or paid-up additions).",
 }

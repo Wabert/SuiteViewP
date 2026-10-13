@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .base import PolicySection
 from ..cl_polrec.policy_data_classes import LoanInfo
-from ..cl_polrec.policy_data_classes import LoanRepayInfo
+from ..cl_polrec.policy_data_classes import ScheduledLoanRepayment
 from ..cl_polrec.policy_data_classes import TradLoanInfo
 from ..cl_polrec.policy_translations import LOAN_TYPE_CODES
 from datetime import date
@@ -167,34 +167,16 @@ class LoansSection(PolicySection):
         """Get loan fund preferred indicator (0-based index)."""
         return self.policy.loan_records.loan_fund_preferred(index)
 
-    def get_loan_repayments(self) -> List[LoanRepayInfo]:
-        """Get loan repayment schedule records."""
-        return self.policy.loan_records.get_loan_repayments()
+    @property
+    def scheduled_loan_repayment(self) -> Optional[ScheduledLoanRepayment]:
+        """Scheduled loan repayment (SLR) billing from LH_LN_RPY_TRM, or None."""
+        return self.policy.loan_records.get_scheduled_loan_repayment()
 
     @property
-    def loan_repay_count(self) -> int:
-        """Count of loan repayment records."""
-        return self.policy.loan_records.loan_repay_count
-
-    def loan_repay_number(self, index: int) -> int:
-        """Get loan repayment payment number (0-based index)."""
-        return self.policy.loan_records.loan_repay_number(index)
-
-    def loan_repay_date(self, index: int) -> Optional[date]:
-        """Get loan repayment payment date (0-based index)."""
-        return self.policy.loan_records.loan_repay_date(index)
-
-    def loan_repay_amount(self, index: int) -> Optional[Decimal]:
-        """Get loan repayment payment amount (0-based index)."""
-        return self.policy.loan_records.loan_repay_amount(index)
-
-    def loan_repay_principal(self, index: int) -> Optional[Decimal]:
-        """Get loan repayment principal amount (0-based index)."""
-        return self.policy.loan_records.loan_repay_principal(index)
-
-    def loan_repay_interest(self, index: int) -> Optional[Decimal]:
-        """Get loan repayment interest amount (0-based index)."""
-        return self.policy.loan_records.loan_repay_interest(index)
+    def has_scheduled_loan_repayment(self) -> bool:
+        """Whether the policy bills a positive scheduled loan repayment."""
+        slr = self.scheduled_loan_repayment
+        return bool(slr and slr.is_active)
 
     @property
     def policy_loan_charge_rate(self) -> Optional[Decimal]:
