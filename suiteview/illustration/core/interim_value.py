@@ -138,21 +138,33 @@ def apply_interim_value(
     policy-year total, cost basis and the current TAMRA year's contributions.
     """
     rolled = copy.deepcopy(policy)
-    gross = interim.gross_premium
     rolled.account_value = interim.account_value
-    rolled.premiums_paid_to_date += gross
-    rolled.premiums_ytd += gross
-    rolled.cost_basis += gross
-    contributions = list(rolled.tamra_7year_contributions or [])
-    start = rolled.tamra_7pay_start_date
-    if start is not None and len(contributions) == 7:
-        for premium in interim.premiums:
-            elapsed = relativedelta(premium.received, start)
-            year = elapsed.years + 1
-            if 1 <= year <= 7:
-                contributions[year - 1] += premium.gross
-        rolled.tamra_7year_contributions = contributions
+    add_received_premium_accumulators(
+        rolled, ((premium.received, premium.gross) for premium in interim.premiums))
     return rolled
+
+
+def add_received_premium_accumulators(
+    policy: IllustrationPolicyData, premiums: Iterable[tuple[date, float]],
+) -> None:
+    """Add gross premiums received after the valuation date to ``policy`` in place.
+
+    Premiums-to-date, the policy-year total and cost basis take the gross amount;
+    the 7-pay contribution of the TAMRA year each premium was received in does too.
+    """
+    received = list(premiums)
+    gross = sum(amount for _, amount in received)
+    policy.premiums_paid_to_date += gross
+    policy.premiums_ytd += gross
+    policy.cost_basis += gross
+    contributions = list(policy.tamra_7year_contributions or [])
+    start = policy.tamra_7pay_start_date
+    if start is not None and len(contributions) == 7:
+        for when, amount in received:
+            year = relativedelta(when, start).years + 1
+            if 1 <= year <= 7:
+                contributions[year - 1] += amount
+        policy.tamra_7year_contributions = contributions
 
 
 def _interest(

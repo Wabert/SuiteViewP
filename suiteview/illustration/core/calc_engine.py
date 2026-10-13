@@ -311,6 +311,10 @@ class MonthWork:
     npt_detail: Dict[str, object] = dataclass_field(default_factory=dict)
     # Segment-crediting accounts for this month (None unless that method runs).
     seg: Optional[SegmentMonth] = None
+    # Net premiums received after the valuation date, credited on the forecast date
+    # (first projected monthliversary) to the AV and shadow account.
+    received_premium_net: float = 0.0
+    received_shadow_net: float = 0.0
 
 
 @dataclass
@@ -564,6 +568,25 @@ def carry_begin_values(ctx: MonthContext, work: MonthWork) -> None:
     work.cost_basis = state.cost_basis_after_exception
     work.withdrawals_to_date = state.withdrawals_to_date
     work.av = state.av_end_of_month
+
+
+def credit_premiums_received_after_valuation(ctx: MonthContext, work: MonthWork) -> None:
+    """Credit premiums received after the valuation date on the forecast date.
+
+    With Include Prem after Val date the scenario's premium totals already hold the
+    gross; CyberLife's recorded net (and the shadow net) reach the account values at
+    the start of the first projected month, like a premium paid on that
+    monthliversary, so they earn no interest between the valuation and forecast dates.
+    """
+    policy = ctx.policy
+    if (not policy.premiums_after_valuation_included or policy.run_from_issue
+            or ctx.state.date is None or ctx.state.date != policy.valuation_date):
+        return
+    work.received_premium_net = round(
+        sum(premium.net for premium in policy.premiums_after_valuation), 2)
+    work.received_shadow_net = float(policy.premiums_after_valuation_shadow_net or 0.0)
+    work.av += work.received_premium_net
+    sync_segments(work, "Premium received after valuation")
 
 
 def capitalize_loans_step(ctx: MonthContext, work: MonthWork) -> None:
@@ -1141,7 +1164,7 @@ def roll_deemed_cash_value_step(ctx: MonthContext, work: MonthWork) -> None:
         month_date=work.month_date,
         rate_year=work.rate_year,
         gross_withdrawal=work.wd.gross_withdrawal,
-        net_premium=work.prem.net_premium,
+        net_premium=work.prem.net_premium + getattr(work, "received_premium_net", 0.0),
         premiums_less_withdrawals=ctx.policy.option_c_premium_base(
             work.prem.premiums_to_date, work.withdrawals_to_date),
         days=float(work.intr.days_in_month),
@@ -1624,7 +1647,7 @@ def calculate_shadow_step(
         (premiums_ytd, premiums_to_date)
         if _shadow_tracks_own_totals(ctx) else (None, None))
     work.shd = calculate_shadow(ShadowInput(
-        prev_shadow_eav=ctx.state.shadow_eav,
+        prev_shadow_eav=ctx.state.shadow_eav + getattr(work, "received_shadow_net", 0.0),
         gross_premium=gross_premium,
         post_deduction_gross_premium=post_deduction_premium,
         premiums_ytd=premiums_ytd,
@@ -1863,6 +1886,7 @@ def run_month(ctx: MonthContext, convention: TimingConvention) -> MonthlyState:
     advance_counters(ctx, convention, work)
     carry_begin_values(ctx, work)
     begin_segment_month(ctx, work)
+    credit_premiums_received_after_valuation(ctx, work)
     capitalize_loans_step(ctx, work)
     if convention.interest_timing == "pre_withdrawal":
         credit_interest_pre_withdrawal(ctx, work)

@@ -508,6 +508,58 @@ def _opening_late_premium_value(
     return _round_near(net_premium * (1.0 + eff_rate), 2)
 
 
+def shadow_net_premiums_received(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates: IllustrationRates,
+    premiums: list[tuple[date, float]],
+    *,
+    next_monthliversary: date,
+) -> list[float]:
+    """Shadow (CCV) net of each premium received after the valuation monthliversary.
+
+    ``premiums`` are ``(received, gross)`` in receipt order. The load is CyberLife's
+    administration of an actual receipt, so N+1 relief applies as under CyberLife
+    timing. Late-payment-forgiveness plans load a premium in the month it was
+    received; other plans load it when the next monthliversary processes it, against
+    the new policy year's totals when that monthliversary is the anniversary.
+    """
+    forgiveness = bool(config.shadow_late_payment_forgiveness)
+    load_month = (
+        policy.policy_month if forgiveness
+        else policy.policy_month % MONTHS_PER_YEAR + 1)
+    new_year = not forgiveness and load_month == 1
+    rate_year = policy.policy_year + (1 if new_year else 0)
+    shadow_target_prem = _shadow_target_premium(
+        policy=policy,
+        config=config,
+        rates=rates,
+        rate_year=rate_year,
+        sa_for_basis=_sa_for_shadow_basis(policy, config),
+        projection_date=policy.valuation_date if forgiveness else next_monthliversary,
+    )
+    tpp_pct, epp_pct = _shadow_premium_load_rates(rates, rate_year)
+    premiums_ytd = 0.0 if new_year else float(policy.premiums_ytd)
+    premiums_to_date = float(policy.premiums_paid_to_date)
+    nets = []
+    for _received, gross in premiums:
+        *_, net_premium = _premium_load_detail(
+            config=config,
+            gross_premium=gross,
+            premiums_ytd_before=premiums_ytd,
+            premiums_to_date_before=premiums_to_date,
+            shadow_target_prem=shadow_target_prem,
+            tpp_pct=tpp_pct,
+            epp_pct=epp_pct,
+            policy_month=load_month,
+            policy_year=rate_year,
+        )
+        nets.append(net_premium)
+        premiums_ytd += gross
+        premiums_to_date += gross
+    return nets
+
+
 def calculate_shadow(inputs: ShadowInput) -> ShadowResult:
     """Calculate one month of the shadow account.
 

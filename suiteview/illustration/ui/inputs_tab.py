@@ -320,6 +320,8 @@ class IllustrationInputsTab(QWidget):
     run_from_issue_changed = pyqtSignal(bool)
     issue_conditions_changed = pyqtSignal()
     rollback_changed = pyqtSignal()
+    # Include Prem after Val date was switched off by an incompatible basis change.
+    include_premiums_after_valuation_cleared = pyqtSignal(str)
 
     WARNING_BG = QColor("#FFF0B3")
     NORMAL_BG = QColor("#FFFFFF")
@@ -341,6 +343,7 @@ class IllustrationInputsTab(QWidget):
         self._valuation_date: date | None = None
         self._rollback_overrides: RollbackOverrideSet | None = None
         self._rollback_live_inputs = None
+        self._include_premiums_after_valuation = False
         self._basis_default_dynamic = None
         self._active_issue_mode = False
         self._mode_inputs = {}
@@ -1390,6 +1393,7 @@ class IllustrationInputsTab(QWidget):
         self._valuation_date = policy_attr(policy, "valuation_date", None)
         self._rollback_overrides = None
         self._rollback_live_inputs = None
+        self._include_premiums_after_valuation = False
         self._inforce_shadow = (has_shadow, shadow_ceased)
         self._mode_inputs = {}
         self._active_issue_mode = False
@@ -1454,6 +1458,9 @@ class IllustrationInputsTab(QWidget):
                 return
             if restore_inputs:
                 self._mode_inputs[str(self._active_issue_mode)] = self._capture_active_case_inputs()
+            if enabled:
+                self.clear_include_premiums_after_valuation(
+                    "New Business - From Issue starts from zero opening balances.")
             self._active_issue_mode = enabled
             self._load_dynamic_context(policy, enabled)
             if restore_inputs:
@@ -1532,6 +1539,9 @@ class IllustrationInputsTab(QWidget):
         ):
             raise ValueError(
                 "Edit Record requires Inforce mode with ABR Quote turned off.")
+        if overrides is not None and overrides.valuation_date != self._loaded_policy.valuation_date:
+            self.clear_include_premiums_after_valuation(
+                "A Value Rollback date replaces the loaded valuation.")
         candidate = build_illustration_scenario(
             self._loaded_policy, rollback_overrides=overrides,
             allow_missing_shadow=True,
@@ -1562,6 +1572,38 @@ class IllustrationInputsTab(QWidget):
 
     def export_rollback_overrides(self) -> RollbackOverrideSet | None:
         return deepcopy(self._rollback_overrides)
+
+    def include_premiums_after_valuation_enabled(self) -> bool:
+        return self._include_premiums_after_valuation
+
+    def set_include_premiums_after_valuation(self, enabled: bool) -> None:
+        """Add (or stop adding) premiums received after the valuation date to the
+        starting values. Validated against the loaded basis before it is kept."""
+        enabled = bool(enabled)
+        if enabled == self._include_premiums_after_valuation:
+            return
+        if enabled:
+            if self._loaded_policy is None:
+                raise ValueError("Load a policy before including premiums after the valuation date.")
+            if self.run_from_issue_enabled() or self.abr_quote_enabled():
+                raise ValueError(
+                    "Premiums after the valuation date can be included only in Inforce mode "
+                    "with ABR Quote turned off.")
+            build_illustration_scenario(
+                self._loaded_policy, rollback_overrides=self._rollback_overrides,
+                allow_missing_shadow=True, include_premiums_after_valuation=True)
+        self._include_premiums_after_valuation = enabled
+        self.rollback_changed.emit()
+
+    def clear_include_premiums_after_valuation(self, reason: str) -> None:
+        """Turn the option off because the basis no longer supports it; says why."""
+        if not self._include_premiums_after_valuation:
+            return
+        self._include_premiums_after_valuation = False
+        message = f"{reason} Include Prem after Val date was turned off."
+        logger.warning("Illustration inputs: %s", message)
+        self.include_premiums_after_valuation_cleared.emit(message)
+        self.rollback_changed.emit()
 
     def _on_rollback_option_changed(self, enabled: bool):
         if not enabled and self._rollback_overrides is not None:
@@ -1848,6 +1890,9 @@ class IllustrationInputsTab(QWidget):
             self.set_value_rollback(None)
             self._show_mode_warnings([
                 "ABR Quote uses the loaded Inforce basis. Edit Record was turned off."])
+        if enabled:
+            self.clear_include_premiums_after_valuation(
+                "ABR Quote uses the loaded Inforce basis.")
 
     def abr_minimum_face_amount(self) -> Optional[float]:
         text = self.abr_minimum_face_edit.text().replace(",", "").replace("$", "").strip()
@@ -1957,6 +2002,7 @@ class IllustrationInputsTab(QWidget):
             } if rollback is not None else None
         )
         state["rollback_live_inputs"] = deepcopy(self._rollback_live_inputs)
+        state["include_premiums_after_valuation"] = self._include_premiums_after_valuation
         return state
 
     def read_draft(self) -> InputDraft:
@@ -1975,6 +2021,7 @@ class IllustrationInputsTab(QWidget):
             inforce_overrides=self.export_inforce_overrides(),
             issue_overrides=self.export_issue_overrides(),
             rollback_overrides=self.export_rollback_overrides(),
+            include_premiums_after_valuation=self._include_premiums_after_valuation,
             max_level=self.max_level_request(),
             min_level=self.min_level_request(),
             shadow_level=self.shadow_level_request(),
@@ -2103,6 +2150,12 @@ class IllustrationInputsTab(QWidget):
             if state.get("rollback_live_inputs") is not None:
                 self._rollback_live_inputs = deepcopy(state["rollback_live_inputs"])
             warnings.extend(self.mode_warning.text().splitlines())
+        include = bool(state.get("include_premiums_after_valuation", False))
+        try:
+            self.set_include_premiums_after_valuation(include)
+        except Exception as exc:
+            logger.warning("Include Prem after Val date not applied: %s", exc, exc_info=True)
+            warnings.append(f"Include Prem after Val date was not applied: {exc}")
         warnings.extend(self._apply_active_case_inputs(state))
         return warnings
 

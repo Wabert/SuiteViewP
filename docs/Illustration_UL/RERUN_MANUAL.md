@@ -1358,6 +1358,58 @@ fund-cell editing, Apply and pending-draft guards on current and historical base
 Expanded regression coverage: `tests/test_edit_record_scenario.py` and
 `tests/test_edit_record_ui.py`.
 
+## RERUN Include Prem after Val date
+
+The **Include Prem after Val date** checkbox sits at the top right of the RERUN tab
+bar. It adds premiums received after the loaded valuation date to the illustration's
+starting values, then projects forward from them. It is a per-policy scenario choice
+(saved with Run Values drafts, saved/imported cases and Compare); it never changes the
+loaded policy record.
+
+CyberLife's starting values are as of the valuation monthliversary: the U1MV account
+value, the `LH_POL_TOTALS`/`LH_POL_YR_TOT` premium totals and the XP shadow value. A
+premium received since is pending in `FH_FIXED` (`FBB3_PROCD_IND = 0`) until the next
+monthliversary processes it, so it is in none of them (live UE000576: the 10/04/2026
+PR after the 09/27/2026 valuation; `FH_FIXED` already carries its net). With the box
+checked, on a scenario copy:
+
+* Premium TD, Premium YTD, cost basis and the receipt's 7-pay year + the gross, in the
+  starting values (the premiums are paid);
+* Account Value + the recorded net (`FH_FIXED` NET_AMT, after premium load);
+* Shadow Account Value + the gross less the shadow premium load
+  (`shadow_calc.shadow_net_premiums_received`, CyberLife N+1 relief applied). Plans with
+  late-payment forgiveness load it in the receipt month; others load it at the next
+  monthliversary, against the new policy year's totals at an anniversary.
+
+The AV and shadow nets are credited on the **forecast date** (the first projected
+monthliversary), like a premium paid then: `calc_engine.
+credit_premiums_received_after_valuation` adds them at the start of that month, before
+its deduction. The valuation-month
+(inforce) row is unchanged, so they earn no interest between the valuation and forecast
+dates, which would overstate the values (Robert, 10/13/2026). Explicit Edit Record
+amounts are valuation-date amounts: an entered Account Value still receives the net on
+the forecast date; entered premium totals replace the included ones. Receipts are captured at load
+(`core/premiums_after_valuation.py`); the box stays visible but greyed, with the reason
+as its tooltip, when there are none or they cannot be included safely: a processed
+post-valuation receipt (already in the totals), one on/after the unprocessed next
+monthliversary, a missing net, a 1035 exchange or unavailable `FH_FIXED`. It is
+inforce-only: From Issue, ABR Quote or a historical Value Rollback date turn it off
+with a status message.
+
+The Policy tab shows Account/Shadow Account Value as the valuation amounts plus the
+nets, with a banner listing each receipt and its forecast-date credit; the title, mode
+notice and status bar say so. The report cover states the premiums paid as
+"(AS OF <valuation> PLUS LATER RECEIPTS)", keeps the valuation-date accumulation value
+and adds that the net "IS CREDITED ON <forecast date>", and prints a POLICY STATUS line
+with the gross, receipt dates, net and "NO INTEREST BEFORE THAT DATE". Review the
+premium schedule: a receipt that is the next modal payment is otherwise illustrated
+again at the next monthliversary.
+
+Regression: `tests/test_premiums_after_valuation.py`. Read-only live check:
+`tools/app/verify_premiums_after_valuation.py UE000576 [--screenshot-dir <dir>]`;
+`--synthetic YYYY-MM-DD:GROSS:NET` exercises the shadow load on a shadow-account policy
+with no pending receipt.
+
 ## Illustration specified-amount basis
 
 The plancode table (`dbo.SV_RERUN_Adv_Plancodes`) uses **SA_Basis** (specified amount),

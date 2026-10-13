@@ -49,8 +49,15 @@ def build_illustration_scenario(
     *,
     rollback_overrides: RollbackOverrideSet | None = None,
     allow_missing_shadow: bool = False,
+    include_premiums_after_valuation: bool = False,
 ) -> IllustrationScenario:
-    """Clone the baseline policy, apply overrides, and select the projection start."""
+    """Clone the baseline policy, apply overrides, and select the projection start.
+
+    ``include_premiums_after_valuation`` adds the premiums received after the
+    loaded valuation date to the premium totals and has the engine credit their
+    net on the forecast date. Manual edits are valuation-date amounts: an entered
+    account value still receives the net on the forecast date.
+    """
     overrides = inforce_overrides or InforceOverrideSet()
     input_set = future_inputs or IllustrationInputSet()
     if rollback_overrides is not None and run_from_issue:
@@ -60,6 +67,12 @@ def build_illustration_scenario(
         and base_policy.rollback_date is None
         and rollback_overrides.valuation_date == base_policy.valuation_date
     )
+    if include_premiums_after_valuation and (
+        run_from_issue or (rollback_overrides is not None and not current_basis)
+    ):
+        raise ValueError(
+            "Premiums after the valuation date can be included only on the loaded "
+            "inforce valuation, not with a rollback date or New Business - From Issue.")
     if rollback_overrides is not None and not current_basis:
         from suiteview.illustration.core.value_rollback import apply_value_rollback
 
@@ -69,6 +82,12 @@ def build_illustration_scenario(
             shadow_account_value=rollback_overrides.shadow_account_value)
     else:
         projectable_policy = deepcopy(base_policy)
+    if include_premiums_after_valuation:
+        from suiteview.illustration.core.premiums_after_valuation import (
+            include_premiums_after_valuation as include_receipts,
+        )
+
+        include_receipts(projectable_policy)
     captured_funds = {
         name: deepcopy(getattr(projectable_policy, name))
         for name in ("fund_values", "impaired_fund_values", "premium_allocations")

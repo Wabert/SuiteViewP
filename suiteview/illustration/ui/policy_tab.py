@@ -804,6 +804,38 @@ class IllustrationPolicyTab(QWidget):
         self._populate_fund_values_from_snapshot(snapshot)
         self._populate_coverage_buttons()
 
+    def show_starting_values(self, policy, base_policy):
+        """Overlay a scenario's included receipts on the rendered values.
+
+        Used with Include Prem after Val date: Account/Shadow Account Value show the
+        valuation amounts plus the net credited on the forecast date (the tooltip
+        splits them); premium totals, cost basis and 7-pay years include the gross.
+        Live 7-pay rows show premiums paid, so a changed year shows that plus the gross.
+        """
+        from suiteview.illustration.core.premiums_after_valuation import (
+            account_value_with_receipts, shadow_value_with_receipts,
+        )
+
+        self.fund_values.set_value(
+            "fund_account_value", format_currency(account_value_with_receipts(policy), "$"))
+        self.fund_values.set_value(
+            "shadow_account_value", format_currency(shadow_value_with_receipts(policy), "$"))
+        self.premium_values.set_value("premium_ytd", format_currency(policy.premiums_ytd, "$"))
+        self.premium_values.set_value(
+            "premium_td", format_currency(policy.premiums_paid_to_date, "$"))
+        self.tax_values.set_value("cost_basis", format_currency(policy.cost_basis, "$"))
+        added = list(policy.tamra_7year_contributions or [])
+        before = list(base_policy.tamra_7year_contributions or [])
+        for year, (after, prior) in enumerate(zip(added, before), start=1):
+            delta = float(after) - float(prior)
+            if abs(delta) < 0.005:
+                continue
+            live = (
+                self._policy.values.tamra_7pay_premium_paid(year)
+                if self._policy is not None else prior)
+            self.tax_values.set_value(
+                f"tamra_y{year}", format_currency(float(live or 0) + delta, "$"))
+
     def set_rollback_editing(
         self, enabled: bool, db_option: str | None = None, *,
         account_value: float | None = None, shadow_value: float | None = None,

@@ -156,6 +156,7 @@ class RunRequest:
     inforce_overrides: object | None = None
     issue_overrides: IssueOverrideSet | None = None
     rollback_overrides: RollbackOverrideSet | None = None
+    include_premiums_after_valuation: bool = False
 
 
 @dataclass(frozen=True)
@@ -383,6 +384,8 @@ def build_run_scenario(
         scenario_args["issue_overrides"] = request.issue_overrides
     if request.rollback_overrides is not None:
         scenario_args["rollback_overrides"] = request.rollback_overrides
+    if request.include_premiums_after_valuation:
+        scenario_args["include_premiums_after_valuation"] = True
     scenario = services.scenario_builder(prepared.policy_data, **scenario_args)
     months = request.controls.projection_months
     if months is None:
@@ -1014,6 +1017,10 @@ def _final_status(
         status += f"  ·  {request.basis.snapshot_status}"
     if request.controls.rollback_status:
         status += f"  |  {request.controls.rollback_status}"
+    if getattr(getattr(run_scenario.scenario, "projectable_policy", None),
+               "premiums_after_valuation_included", False):
+        status += ("  ·  Premiums received after the valuation date are included "
+                   "(net credited on the forecast date)")
     if dcv_defaulted(current):
         status += f"  ·  {DCV_DEFAULTED_NOTICE}"
     for notice in min_face_notices(current):

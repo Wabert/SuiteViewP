@@ -38,6 +38,7 @@ from suiteview.illustration.core.skipped_coverage import (
     WITHDRAWAL_CODES,
     build_skipped_coverage_periods,
 )
+from suiteview.illustration.core.premiums_after_valuation import capture_premiums_after_valuation
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.core.ul_rates import ULRates
 from suiteview.illustration.core.value_rollback import build_value_rollback_snapshots
@@ -152,6 +153,8 @@ def build_illustration_data(
     )
     policy.skipped_coverage_periods = build_skipped_coverage_basis(source, policy)
     policy.rollback_snapshots = build_value_rollback_snapshots(source.pi, policy)
+    policy.premiums_after_valuation, policy.premiums_after_valuation_error = (
+        capture_premiums_after_valuation(source.pi, policy))
     build_ffl_withdrawal_credit(source, policy)
     return policy
 

@@ -160,6 +160,19 @@ class PremiumTransaction:
 
 
 @dataclass(frozen=True)
+class PremiumAfterValuation:
+    """A premium received after the valuation monthliversary (FH_FIXED, pending).
+
+    ``net`` is CyberLife's recorded amount to the account value after premium load.
+    """
+
+    received: date
+    gross: float
+    net: float
+    transaction_type: str = "PR"
+
+
+@dataclass(frozen=True)
 class SkippedCoveragePeriod:
     """A lapse gap ended by a skipped-coverage reinstatement (LH_COV_SKIPPED_PER).
 
@@ -274,6 +287,15 @@ class IllustrationPolicyData:
     premiums_paid_to_date: float = 0.0
     premiums_ytd: float = 0.0
     premium_transactions: List[PremiumTransaction] = field(default_factory=list)
+    # Premiums received after the valuation date: not yet in the U1MV account value,
+    # the premium totals or the XP shadow value. A non-empty error means they could
+    # not be captured safely, so they cannot be included.
+    premiums_after_valuation: List[PremiumAfterValuation] = field(default_factory=list)
+    premiums_after_valuation_error: str = ""
+    # Set on a scenario copy that includes them: the premium totals hold the gross and
+    # the engine credits the net (and the shadow net) on the forecast date.
+    premiums_after_valuation_included: bool = False
+    premiums_after_valuation_shadow_net: float = 0.0
 
     # ── Interest / Crediting ──────────────────────────────────
     guaranteed_interest_rate: float = 0.0

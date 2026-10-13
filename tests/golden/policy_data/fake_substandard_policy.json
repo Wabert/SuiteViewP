@@ -72,6 +72,10 @@
       "transaction_type": "PR"
     }
   ],
+  "premiums_after_valuation": [],
+  "premiums_after_valuation_error": "",
+  "premiums_after_valuation_included": false,
+  "premiums_after_valuation_shadow_net": 0.0,
   "premiums_paid_to_date": 0.0,
   "premiums_ytd": 0.0,
   "product_type": "UL",

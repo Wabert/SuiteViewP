@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -65,6 +66,12 @@ from suiteview.illustration.core.run_input_compiler import (
     compile_options,
 )
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+from suiteview.illustration.core.premiums_after_valuation import (
+    describe_premiums_after_valuation,
+    forecast_date,
+    gross_premiums_after_valuation,
+    premiums_after_valuation_unavailable_reason,
+)
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.input_set import RollbackOverrideSet
 from suiteview.illustration.core.value_rollback import available_rollback_dates
@@ -121,6 +128,7 @@ from .styles import (
     STATUS_BAR_STYLE,
     TAB_WIDGET_STYLE,
     VALUE_BUTTON_STYLE,
+    apply_input_checkbox_style,
 )
 
 logger = logging.getLogger(__name__)
@@ -580,6 +588,16 @@ class IllustrationWindow(FramelessWindowBase):
         self.tabs.addTab(self.values_tab, "Values")
         self.tabs.addTab(self.report_tab, "Report")
         self.tabs.addTab(self.compare_tab, "Compare")
+        self.include_premiums_check = apply_input_checkbox_style(
+            QCheckBox("Include Prem after Val date"))
+        self.include_premiums_check.setEnabled(False)
+        self.include_premiums_check.toggled.connect(self._on_include_premiums_toggled)
+        include_host = QWidget()
+        include_host.setStyleSheet("background: transparent;")
+        include_layout = QHBoxLayout(include_host)
+        include_layout.setContentsMargins(0, 0, 6, 4)
+        include_layout.addWidget(self.include_premiums_check)
+        self.tabs.setCornerWidget(include_host, Qt.Corner.TopRightCorner)
         # Participating whole life, indeterminate premium term and ISWL on reduced
         # paid-up get their own workspaces (different inputs, value pages and
         # illustration pages) in place of the UL/ISWL tabs.
@@ -702,6 +720,8 @@ class IllustrationWindow(FramelessWindowBase):
                 lambda tab=inputs_tab: self._invalidate_issue_results(tab))
             inputs_tab.rollback_changed.connect(
                 lambda tab=inputs_tab: self._on_rollback_changed(tab))
+            inputs_tab.include_premiums_after_valuation_cleared.connect(
+                lambda message, tab=inputs_tab: self._on_include_premiums_cleared(message, tab))
             inputs_tab.setProperty("issueModeSignalConnected", True)
         if inputs_tab is previous:
             self._on_run_from_issue_changed(inputs_tab.run_from_issue_enabled(), inputs_tab)
@@ -750,6 +770,8 @@ class IllustrationWindow(FramelessWindowBase):
             title += f" - ROLLBACK {rollback.valuation_date:%m/%d/%Y}"
         elif rollback is not None:
             title += " - EDITED VALUES"
+        if self.inputs_tab.include_premiums_after_valuation_enabled():
+            title += " - INCL PREMS AFTER VAL DATE"
         self.set_title(title)
         self.set_header_colors(
             ROLLBACK_COLORS if historical else
@@ -762,6 +784,7 @@ class IllustrationWindow(FramelessWindowBase):
                 if historical else ""))
 
     def _refresh_rollback_controls(self, abr_mode=None):
+        self._refresh_include_premiums_control(abr_mode)
         if hasattr(self, "_workspace_stack") and self._fixed_premium_active():
             self.rollback_controls.setVisible(False)
             return
@@ -788,6 +811,60 @@ class IllustrationWindow(FramelessWindowBase):
             overrides is not None and self._illustration_data is not None
             and overrides.valuation_date != self._illustration_data.valuation_date)
 
+    def _refresh_include_premiums_control(self, abr_mode=None):
+        """Mirror the active policy's Include Prem after Val date choice; when it is
+        not applicable the box stays visible, greyed, with the reason as its tip."""
+        if not hasattr(self, "include_premiums_check"):
+            return
+        policy = self._illustration_data
+        checked = self.inputs_tab.include_premiums_after_valuation_enabled()
+        abr = self.inputs_tab.abr_quote_enabled() if abr_mode is None else abr_mode
+        reason = premiums_after_valuation_unavailable_reason(policy)
+        if not reason and (self.inputs_tab.run_from_issue_enabled() or abr):
+            reason = "Available in Inforce mode only (not From Issue or ABR Quote)."
+        if not reason and self._is_historical_selection(self.inputs_tab.export_rollback_overrides()):
+            reason = "Not available with a historical Value Rollback date."
+        with muted_signals(self.include_premiums_check):
+            self.include_premiums_check.setChecked(checked)
+        self.include_premiums_check.setEnabled(checked or not reason)
+        detailed = not reason or (
+            checked and policy is not None and bool(policy.premiums_after_valuation)
+            and policy.valuation_date is not None)
+        if not detailed:
+            tip = reason
+        else:
+            tip = (
+                "Include premiums received after the "
+                f"{policy.valuation_date:%m/%d/%Y} valuation date: the gross in Premium "
+                "TD/YTD, cost basis and 7-pay contributions; the net of premium load "
+                "(and of shadow load) credited to the Account Value (and Shadow Account "
+                f"Value) on the {forecast_date(policy):%m/%d/%Y} forecast date, with no "
+                "interest before then.\n\n"
+                + describe_premiums_after_valuation(policy))
+        self.include_premiums_check.setToolTip(tip)
+
+    def _on_include_premiums_toggled(self, checked: bool):
+        try:
+            self.inputs_tab.set_include_premiums_after_valuation(checked)
+        except Exception as exc:
+            logger.warning("Include Prem after Val date not applied: %s", exc, exc_info=True)
+            self._refresh_include_premiums_control()
+            self._show_status(f"Include Prem after Val date not applied: {exc}")
+            QMessageBox.warning(self, "Include Prem after Val date", str(exc))
+            return
+        self._invalidate_issue_results()
+        if checked:
+            self._show_status(
+                f"Including ${gross_premiums_after_valuation(self._illustration_data):,.2f} "
+                "of premiums received after the valuation date, credited on the forecast "
+                "date - review, then Run Values.")
+
+    def _on_include_premiums_cleared(self, message: str, source_tab=None):
+        if not self._presenter.is_active_inputs_event(self.inputs_tab, source_tab):
+            return
+        self._invalidate_issue_results()
+        self._show_status(message)
+
     def _refresh_rollback_notice(self):
         rollback = self.inputs_tab.export_rollback_overrides()
         if self._is_historical_selection(rollback):
@@ -800,6 +877,15 @@ class IllustrationWindow(FramelessWindowBase):
         elif rollback is not None:
             self.projection_mode_notice.setText(
                 "INFORCE | Edited illustration values at the loaded valuation date. "
+                "The loaded policy record is unchanged."
+                + (" Includes premiums received after the valuation date."
+                   if self.inputs_tab.include_premiums_after_valuation_enabled() else ""))
+        elif (self.inputs_tab.include_premiums_after_valuation_enabled()
+              and self._illustration_data is not None):
+            self.projection_mode_notice.setText(
+                "INFORCE | Includes premiums received after the "
+                f"{self._illustration_data.valuation_date:%m/%d/%Y} valuation date, credited on the "
+                f"{forecast_date(self._illustration_data):%m/%d/%Y} forecast date. "
                 "The loaded policy record is unchanged.")
         self._refresh_projection_header(self.inputs_tab.run_from_issue_enabled())
 
@@ -917,11 +1003,36 @@ class IllustrationWindow(FramelessWindowBase):
 
     def _refresh_policy_basis(self):
         rollback = self.inputs_tab.export_rollback_overrides()
+        include = (
+            self.inputs_tab.include_premiums_after_valuation_enabled()
+            and self._illustration_data is not None)
         self._rollback_projection_blocked = False
+        try:
+            starting = (
+                build_illustration_scenario(
+                    self._illustration_data, rollback_overrides=rollback,
+                    allow_missing_shadow=True,
+                    include_premiums_after_valuation=include).projectable_policy
+                if include or (rollback is not None and self._illustration_data is not None)
+                else None)
+        except Exception as exc:
+            if not include:
+                raise
+            logger.warning("Premiums after the valuation date not included: %s", exc, exc_info=True)
+            # Clearing re-enters this refresh without the option.
+            self.inputs_tab.clear_include_premiums_after_valuation(
+                f"Starting values could not include premiums after the valuation date: {exc}")
+            return
+        included_note = (
+            "\nINCLUDES PREMIUMS RECEIVED AFTER THE "
+            f"{starting.valuation_date:%m/%d/%Y} VALUATION DATE: "
+            + describe_premiums_after_valuation(starting).replace("\n", "; ")
+            + ". Premium TD/YTD include the gross; the net is credited to the Account Value "
+            f"(and Shadow Account Value) on the {forecast_date(starting):%m/%d/%Y} forecast "
+            "date, with no interest before then."
+            if include else "")
         if rollback is not None and self._illustration_data is not None:
-            policy = build_illustration_scenario(
-                self._illustration_data, rollback_overrides=rollback,
-                allow_missing_shadow=True).projectable_policy
+            policy = starting
             self._rollback_projection_blocked = policy.rollback_requires_shadow_value
             self.policy_tab.load_data_from_snapshot(policy)
             self.policy_tab.set_rollback_editing(
@@ -941,15 +1052,18 @@ class IllustrationWindow(FramelessWindowBase):
                    if policy.rollback_requires_shadow_value else ""))
                 if self._is_historical_selection(rollback) else
                 "EDITED ILLUSTRATION VALUES - current valuation date. "
-                "The loaded policy record is unchanged. Coverage/DB edits do not reconstruct tax limits.")
+                "The loaded policy record is unchanged. Coverage/DB edits do not reconstruct tax limits."
+                + included_note)
             self.policy_tab.snapshot_banner.setToolTip("\n\n".join(
                 [*policy.rollback_limitations, *policy.starting_basis_assumptions]))
         elif self._snapshot_case is not None:
-            self.policy_tab.load_data_from_snapshot(self._illustration_data)
+            self.policy_tab.load_data_from_snapshot(starting or self._illustration_data)
+            if include:
+                self.policy_tab.show_starting_values(starting, self._illustration_data)
             self.policy_tab.set_snapshot_banner(
                 "Policy data was not retrieved live - effective as of "
                 f"{format_saved_stamp(self._snapshot_case.saved_at)}. "
-                "Get the policy to return to live data.")
+                "Get the policy to return to live data." + included_note)
         elif self._policy is not None and self._policy.exists:
             checks = self._live_policy_checks
             warnings, md_check = (
@@ -959,18 +1073,23 @@ class IllustrationWindow(FramelessWindowBase):
             self.policy_tab.load_data_from_policy(
                 self._policy, self._policy_info, md_check=md_check)
             self.policy_tab.set_rate_warnings(warnings)
+            if include:
+                self.policy_tab.show_starting_values(starting, self._illustration_data)
+                self.policy_tab.set_snapshot_banner(
+                    "The loaded policy record is unchanged." + included_note)
         elif self._illustration_data is not None:
-            self.policy_tab.load_data_from_snapshot(self._illustration_data)
-            self.policy_tab.set_snapshot_banner(None)
+            self.policy_tab.load_data_from_snapshot(starting or self._illustration_data)
+            if include:
+                self.policy_tab.show_starting_values(starting, self._illustration_data)
+            self.policy_tab.set_snapshot_banner(included_note.strip() or None)
         if rollback is None and self._illustration_data is not None:
-            policy = self._illustration_data
+            policy = starting or self._illustration_data
             self.policy_tab.set_rollback_editing(
                 not self.inputs_tab.run_from_issue_enabled() and not self.inputs_tab.abr_quote_enabled(),
                 policy.db_option, account_value=policy.account_value,
                 shadow_value=policy.shadow_account_value)
         if self._illustration_data is not None:
-            self.policy_tab.set_record_values(
-                policy if rollback is not None else self._illustration_data)
+            self.policy_tab.set_record_values(starting or self._illustration_data)
         self.run_values_btn.setEnabled(
             self._illustration_data is not None and not self._rollback_projection_blocked)
         self._on_record_drafts_changed(self.policy_tab.has_pending_record_changes())
@@ -2022,7 +2141,8 @@ class IllustrationWindow(FramelessWindowBase):
             policy_number = self._policy_info.get("PolicyNumber", self._policy.policy_number)
             region = self._policy_info.get("Region", self._current_region or "CKPR")
             company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
-            if rollback is not None:
+            if rollback is not None or draft.include_premiums_after_valuation:
+                # Run exactly the basis the Policy tab shows, not a fresh reload.
                 policy_data = self._illustration_data
 
         rollback_status = ""
@@ -2064,6 +2184,7 @@ class IllustrationWindow(FramelessWindowBase):
             inforce_overrides=draft.inforce_overrides,
             issue_overrides=draft.issue_overrides,
             rollback_overrides=rollback,
+            include_premiums_after_valuation=draft.include_premiums_after_valuation,
         )
 
     def _apply_solved_inputs(self, solved: SolvedInputs):

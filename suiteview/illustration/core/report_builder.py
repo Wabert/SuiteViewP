@@ -39,6 +39,11 @@ from suiteview.illustration.core.calc_engine import bonus_as_of
 from suiteview.illustration.core.face_minimum import FACE_MIN_LIMITED_KEY
 from suiteview.illustration.core.lapse import issue_no_lapse_years
 from suiteview.illustration.core.mec import seven_pay_limit_exceeded
+from suiteview.illustration.core.premiums_after_valuation import (
+    forecast_date,
+    gross_premiums_after_valuation,
+    net_premiums_after_valuation,
+)
 from suiteview.illustration.core.solve_lumpsum_to_next_premium import LUMPSUM_SUBTYPE
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -1164,6 +1169,19 @@ def stale_valuation_days(policy: IllustrationPolicyData, run_date: Optional[date
     return days if days > STALE_VALUATION_DAYS else None
 
 
+def premiums_after_valuation_status_line(policy: IllustrationPolicyData) -> str:
+    """Cover disclosure that later receipts were added to the starting values."""
+    received = ", ".join(
+        f"{premium.received:%m/%d/%Y}" for premium in policy.premiums_after_valuation)
+    return (
+        f"PREMIUMS OF {_money(gross_premiums_after_valuation(policy))} RECEIVED AFTER THE "
+        f"{policy.valuation_date:%m/%d/%Y} VALUATION DATE ({received}) ARE INCLUDED IN THIS "
+        "ILLUSTRATION: THE FULL AMOUNT IN PREMIUMS PAID, AND "
+        f"{_money(net_premiums_after_valuation(policy))} NET OF PREMIUM LOAD CREDITED TO THE "
+        f"ACCUMULATION VALUE ON {forecast_date(policy):%m/%d/%Y}, WITH NO INTEREST BEFORE "
+        "THAT DATE.")
+
+
 def _charge_rate(policy: IllustrationPolicyData, policy_field: str, plan_rate: float) -> float:
     """The loan charge rate the engine uses: an Edit Record override, else the plan's."""
     if policy_field in policy.starting_record_fields and getattr(policy, policy_field) is not None:
@@ -1612,6 +1630,10 @@ def _build_ul_report_from_facts(
         if policy.issue_date else ""
     )
     as_of_short = valuation.strftime("%m/%d/%Y") if valuation else ""
+    received_after = (
+        bool(getattr(policy, "premiums_after_valuation_included", False))
+        and not policy.run_from_issue)
+    premiums_paid_suffix = " PLUS LATER RECEIPTS" if received_after else ""
     # Two-column cover block (RERUN page 1): identity on the left, the
     # CURRENT policy elements on the right. ("", "") rows are separators.
     report.policy_block = [
@@ -1628,7 +1650,7 @@ def _build_ul_report_from_facts(
         (product_line,
          f"{'ACTUAL PREMIUMS PAID:':<27}{_money(policy.premiums_paid_to_date)}"),
         (f"FORM {(policy.form_number or '').upper()}",
-         f"{'':<27}(AS OF {as_of_short})" if as_of_short else ""),
+         f"{'':<27}(AS OF {as_of_short}{premiums_paid_suffix})" if as_of_short else ""),
         ("", ""),
         (f"ATTAINED AGE: {policy.attained_age}", ""),
         (f"SEX: {sex}", ""),
@@ -1673,6 +1695,10 @@ def _build_ul_report_from_facts(
             f"THIS ILLUSTRATION IS BASED ON AN ACCUMULATION VALUE OF "
             f"{_money(policy.account_value)} AS OF {valuation.strftime('%m/%d/%Y')}"
         )
+        if received_after:
+            report.av_basis_line += (
+                f". {_money(net_premiums_after_valuation(policy))} OF NET PREMIUM RECEIVED "
+                f"AFTER THAT DATE IS CREDITED ON {forecast_date(policy):%m/%d/%Y}.")
     inforce_debt = (
         policy.regular_loan_principal + policy.regular_loan_accrued
         + policy.preferred_loan_principal + policy.preferred_loan_accrued
@@ -1701,6 +1727,8 @@ def _build_ul_report_from_facts(
                 f"THE RUN DATE OF {run_text}. CURRENT POLICY VALUES MAY DIFFER.")
         if str(getattr(policy, "suspense_code", "") or "").strip() == SUSPENDED_SUSPENSE_CODE:
             status.append("THE POLICY RECORD SHOWS THIS POLICY AS SUSPENDED (SUSPENSE CODE 2).")
+        if received_after:
+            status.append(premiums_after_valuation_status_line(policy))
         if report.already_mec:
             status.append("THIS POLICY IS A MODIFIED ENDOWMENT CONTRACT (MEC).")
         report.policy_status_lines = status

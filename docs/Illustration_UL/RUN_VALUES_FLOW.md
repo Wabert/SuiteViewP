@@ -12,7 +12,11 @@ The Illustration window is the Qt boundary.  Widgets read and render drafts;
    restores a draft into a fresh widget when policy sessions are revisited.
 3. **Scenario** — `execute_run()` loads or copies the `PolicyBasis`, then
    `build_run_scenario()` applies inforce overrides, issue-mode assumptions and
-   rollback assumptions through `scenario_builder`.  Rollback and from-issue
+   rollback assumptions through `scenario_builder`.  With **Include Prem after Val
+   date** (`RunRequest.include_premiums_after_valuation`) the run uses the loaded
+   basis the Policy tab shows, adds the premiums received after the valuation date
+   to the premium totals, and the engine credits their net on the forecast date (no
+   valuation-month interest; see RERUN_MANUAL).  Rollback and from-issue
    scenarios retain dated transaction receipt dates so the engine can credit
    receipt-to-monthliversary interest; ordinary inforce forecasts still treat
    scheduled/modal cash flows as monthliversary transactions.

@@ -44,6 +44,7 @@ class InputDraft:
     inforce_overrides: object | None = None
     issue_overrides: IssueOverrideSet | None = None
     rollback_overrides: RollbackOverrideSet | None = None
+    include_premiums_after_valuation: bool = False
     max_level: Optional[dict] = None
     min_level: Optional[dict] = None
     shadow_level: Optional[dict] = None
@@ -88,6 +89,7 @@ def apply_basis_mode(draft: InputDraft, *, run_from_issue: bool | None = None) -
         inforce_overrides=copy.deepcopy(draft.inforce_overrides),
         issue_overrides=copy.deepcopy(draft.issue_overrides),
         rollback_overrides=copy.deepcopy(draft.rollback_overrides),
+        include_premiums_after_valuation=draft.include_premiums_after_valuation,
         max_level=copy.deepcopy(draft.max_level),
         min_level=copy.deepcopy(draft.min_level),
         shadow_level=copy.deepcopy(draft.shadow_level),

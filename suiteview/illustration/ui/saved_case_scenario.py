@@ -21,6 +21,7 @@ def build_spec_from_tab(label: str, inputs_tab, policy_data) -> ScenarioSpec:
         run_from_issue=draft.controls.run_from_issue,
         issue_overrides=draft.issue_overrides,
         rollback_overrides=draft.rollback_overrides,
+        include_premiums_after_valuation=draft.include_premiums_after_valuation,
     )
     return ScenarioSpec(
         label=label,
